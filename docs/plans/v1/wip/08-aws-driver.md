@@ -105,6 +105,15 @@ plan 10.
   JSON file under `docs/reference/aws-iam-policy.json` with the cluster name
   as a placeholder, validated as JSON in `make lint`.
 
+## Carried over from the plan 04 review
+
+- `IdempotentParameterMismatch` (a `ClientToken` replay) must resolve to the
+  original instance (`DescribeInstances` by client token), per the driver
+  contract's idempotency rules.
+- Per-call timeouts on every vendor API call (review N4).
+- Run the conformance suite against the full AWS type list of the snapshot,
+  not a sample (review N7).
+
 ## Gates
 
 CONVENTIONS gates 1–4 (L3 still green: the AWS driver must not change core

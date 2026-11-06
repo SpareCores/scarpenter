@@ -88,6 +88,17 @@ lifecycles and GC, pricing deltas, and the first-boot volume unit.
   `use`/`create`/`forbid`, lifecycles, timing, status, GC rules), how-tos
   `write-profiles.md` and `bring-your-own-resources.md`.
 
+## Carried over from the plan 04 review
+
+- The fake driver's debounced state write is not retried on failure (review
+  N17), and L3 helpers wait a fixed 1.2 s for it; make the write reliable and
+  replace the fixed wait with a revision-acknowledged wait.
+- A replay of an idempotency key that returns a different instance than the
+  attempted candidate commits the attempted candidate's quota reservation;
+  reconcile the reservation with the returned instance.
+- The catalog fallback path in `Create` sets no price annotation; set it (with
+  `price-incomplete` where applicable).
+
 ## Gates
 
 CONVENTIONS gates 1–4. Report §15 Q11 (confirmed in L3 with real core) and the

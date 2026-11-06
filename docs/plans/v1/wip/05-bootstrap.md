@@ -66,6 +66,19 @@ NodeClass `Ready`, and the serving-CSR approver. Replaces plan 04's stubs.
   templates, size budget, prerequisites, security notes of §8.6),
   `docs/how-to-guides/choose-a-network-template.md`.
 
+## Carried over from the plan 04 review
+
+- Remove the dev status hook (`cmd/controller/dev.go`, field manager
+  `scarpenter-dev-status`); the NodeClass controller replaces it, it must not
+  run alongside it. Write status with server-side apply or update-with-retry.
+- The token minter is idempotent per NodeClaim: a retried `Create` gets the
+  existing token, never a rotated one (plan 04 keeps the token on `Retryable`
+  errors), and the token TTL outlives core's retries of one NodeClaim.
+- Emit Events for bootstrap-token deletions (GC and registration).
+- A vendor that is not ready in a multi-vendor NodeClass must not turn
+  failures of another vendor's NodeClaim into `NodeClassNotReady` (plan 04
+  N5 makes the reason misleading); scope readiness to the NodeClaim's vendor.
+
 ## Gates
 
 CONVENTIONS gates 1–4. Golden files reviewed. Report Q2 and Q3 findings.
