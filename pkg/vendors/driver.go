@@ -240,6 +240,16 @@ type NodeClassValidator interface {
 	ValidateNodeClass(ctx context.Context, nc *v1alpha1.SCNodeClass) error
 }
 
+// ImageReporter is the optional capability to report the boot images of the
+// NodeClass's Flatcar release per region and architecture, for the NodeClass
+// controller (status.vendors.<vendor>.images and the condition ImagesReady). It
+// answers for the regions the NodeClass's vendor block allows. A driver without
+// it is treated as having its images ready: it resolves them at launch with
+// ResolveImage.
+type ImageReporter interface {
+	ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]v1alpha1.ImageStatus, error)
+}
+
 // VendorSettings are the resolved vendor settings of a node (00a section 3:
 // defaults, NodeClass vendor block, profiles). Plan 06 fills them; plan 04 only
 // carries what the core itself needs.

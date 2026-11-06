@@ -1,0 +1,105 @@
+# SCarpenter's own permissions. Karpenter core's permissions (NodePools,
+# NodeClaims, Nodes, Pods, ...) are the upstream ones and ship with the chart
+# (plan 09); these are what SCarpenter adds.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scarpenter
+  namespace: scarpenter-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scarpenter
+rules:
+  # The API, with server-side apply on the status (two controllers write it,
+  # under their own field managers).
+  - apiGroups: ["scarpenter.sparecores.com"]
+    resources: ["scnodeclasses"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["scarpenter.sparecores.com"]
+    resources: ["scnodeclasses/status"]
+    verbs: ["get", "update", "patch"]
+  # The serving certificate approver: it reads NodeClaims and Nodes and approves
+  # kubelet-serving requests, nothing else (the signer is named).
+  - apiGroups: ["karpenter.sh"]
+    resources: ["nodeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests/approval"]
+    verbs: ["update"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["signers"]
+    resourceNames: ["kubernetes.io/kubelet-serving"]
+    verbs: ["approve"]
+  # The ConfigMaps an SCNodeClass points at (network.custom and butane) and the
+  # cluster CA ConfigMap. References name a namespace, so this is cluster-wide
+  # read access to ConfigMaps. Secrets are not here: see the Role below.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: scarpenter}
+subjects:
+  - {kind: ServiceAccount, name: scarpenter, namespace: scarpenter-system}
+---
+# The bootstrap tokens live in kube-system, where the API server's bootstrap
+# authenticator reads them. SCarpenter creates, lists and deletes them there and
+# nowhere else: a Role, not a ClusterRole, so it cannot touch other Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-bootstrap-tokens
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    # get and list cannot be limited to the token Secrets (RBAC has no label
+    # selector): the controller can read every Secret of kube-system.
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-bootstrap-tokens
+  namespace: kube-system
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: scarpenter-bootstrap-tokens}
+subjects:
+  - {kind: ServiceAccount, name: scarpenter, namespace: scarpenter-system}
+---
+# The tailscale auth key Secret an SCNodeClass references (authKeySecretRef) is
+# read from the controller's own namespace. For a Secret in another namespace
+# create the same Role and RoleBinding there, naming that Secret:
+#
+#   kubectl -n <namespace> create role scarpenter-auth-key --verb=get \
+#     --resource=secrets --resource-name=<secret>
+#   kubectl -n <namespace> create rolebinding scarpenter-auth-key \
+#     --role=scarpenter-auth-key --serviceaccount=scarpenter-system:scarpenter
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-auth-key
+  namespace: scarpenter-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-auth-key
+  namespace: scarpenter-system
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: scarpenter-auth-key}
+subjects:
+  - {kind: ServiceAccount, name: scarpenter, namespace: scarpenter-system}

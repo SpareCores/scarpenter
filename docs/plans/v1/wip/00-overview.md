@@ -582,7 +582,7 @@ spec:
         securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 24h}}}
         placementGroups: {create: {lifecycle: {policy: perUse}}}
 status:
-  conditions: [Ready, CatalogReady, ArtifactsReady]
+  conditions: [Ready, CatalogReady, ArtifactsReady, ValidationSucceeded]   # RestartRequired when set
   resolved:
     kubernetes: {amd64: {url: …, sha256: …}, arm64: {…}}
     tailscale:  {amd64: {…}, arm64: {…}}
@@ -606,7 +606,12 @@ conditions: the vendor is enabled, regions exist, the driver's
 `ValidateNodeClass` accepts its blocks (e.g. against Keeper's storage size and
 IOPS limits), metrics resolve to known benchmark configs, the Kubernetes
 version is within the supported skew of the API server (kubelet at most three
-minors older and never newer).
+minors older and never newer). They are the Ready dependent
+`ValidationSucceeded` (kubelet quantities, the skew, the referenced ConfigMaps
+and Secret, and a trial rendering of the user-data for both architectures within
+the size budget, with the real cluster CA). Boot images come from the driver's
+optional `ImageReporter` capability (`ImagesReady`, informational; a driver
+without it resolves images at launch and counts as ready).
 
 ### 6.2 Status and readiness
 
@@ -614,7 +619,7 @@ The NodeClass controller resolves artifacts (sysext URLs and their sha256 from
 the release's `SHA256SUMS`, §8.4) for the whole NodeClass, and per vendor:
 readiness (credentials, regions, validation), images per region and arch (§9),
 referenced and managed resources per region (00a §9) and quota (§5.9). The
-NodeClass is `Ready` when the shared parts are; a vendor that is not ready
+NodeClass is `Ready` when the shared parts are (`CatalogReady`, `ArtifactsReady`, `ValidationSucceeded`); a vendor that is not ready
 only makes its own offerings unavailable. Images and resources resolve lazily
 per region; a region whose image or required resource is not ready has
 unavailable offerings with a stated reason, not a non-ready NodeClass.
@@ -627,14 +632,17 @@ shared fields that change what a node is (`flatcar`, `kubernetes`, `network`
 including the custom template content and the auth key Secret's
 resourceVersion — not the key itself, `networking`, `kubelet`, `butane`
 content, `sysexts`, `poweroffAfter`, `tags`), that vendor's block (without
-`regions` and `resources`), plus a `hashVersion` constant bumped when the
+`regions` and `resources`), the resolved artifact digests (not their URLs, so a
+mirror switch drifts nothing), plus a `hashVersion` constant bumped when the
 rendering changes in a node-affecting way. A NodeClaim is drifted when its
 vendor's hash changes, or when a profile it uses changes its block for that
 vendor (profile hashes are compared separately, so changing one profile
 drifts only the nodes that use it). Changing another vendor's block never
 drifts a node. Not included: regions (core's requirement drift covers them),
 resource references (they affect new launches only), metrics and selections
-(they change labels, not nodes).
+(they change labels, not nodes). An input that cannot be loaded for a moment
+(a missing or unreadable reference, a failing skew check, a release server
+outage) keeps the previous hash: a transient failure never drifts the nodes.
 
 ## 7. Driver contract
 
@@ -748,7 +756,7 @@ User-data is a small Ignition config whose `ignition.config.merge` list holds
 `data:` URLs (gzip + base64, `compression: gzip`) of three separately
 translated configs:
 
-1. **base** (always): bootstrap kubeconfig (API endpoint, cluster CA, token),
+1. **base** (always): bootstrap kubeconfig (API endpoint, token, and a reference to the cluster CA file it also writes),
    kubelet configuration file and a kubelet unit drop-in
    (`--bootstrap-kubeconfig`, `--kubeconfig`, `--config`, `--provider-id`,
    `--hostname-override`, `--register-with-taints`, `--node-ip` from the
@@ -771,7 +779,8 @@ Template variables: `.NodeName`, `.ProviderID`, `.APIServerEndpoint`,
 
 **Size budget**: ≤ 16 KiB of user-data after encoding (AWS's limit, the
 smallest common one). A golden test asserts the default templates stay below
-12 KiB. Large payloads (sysexts) are always referenced by URL + sha256.
+12 KiB (measured with an RSA-2048-sized CA: about 5 KiB with `tailscale`, 3.5 KiB
+with `direct`). Large payloads (sysexts) are always referenced by URL + sha256.
 
 ### 8.3 Network templates
 
@@ -1067,12 +1076,13 @@ Flags with `SCARPENTER_*` environment fallbacks, set by the Helm chart:
 | `--cluster-name` | required | tag value, IAM scoping |
 | `--api-server-endpoint` | required | what nodes use to reach the API server |
 | `--cluster-ca-file` | `kube-root-ca.crt` ConfigMap of the own namespace | |
+| `--cluster-dns`, `--cluster-domain` | none, `cluster.local` | kubelet `clusterDNS` and `clusterDomain` on nodes; without a DNS IP Pods use the node's resolver |
 | `--vendors` | `aws` | enabled drivers |
 | `--keeper-url` | `https://keeper.sparecores.net` | |
 | `--keeper-api-key-file` | none | |
 | `--catalog-refresh-interval`, `--catalog-max-age` | 1h, 24h | |
 | `--sysext-base-url`, `--flatcar-base-url` | upstream | mirrors |
-| `--bootstrap-token-ttl` | 1h | |
+| `--bootstrap-token-ttl` | 1h | at least 20m: core gives a NodeClaim 15 minutes to register |
 | `--max-launch-attempts` | 3 | vendor calls per `Create`; candidates skipped for lack of quota headroom do not count |
 | `--quota-refresh-interval`, `--quota-limits-refresh-interval` | 2m, 15m | usage and limit refresh per (vendor, region) in scope |
 | `--quota-max-staleness` | 15m | after this, a region whose refreshes fail counts as unknown quota (reactive path) |
@@ -1203,8 +1213,8 @@ and refreshed only by its manually triggered workflow.
 | # | Item | Verified by |
 |---|---|---|
 | Q1 | Keeper price endpoints: **answered 2026-11-05** (§5.1). `/table/server_prices` needs an API key; anonymous `/server_prices` is per zone with nested objects (about 4 KB per row, uncompressed); `/table/*` is CDN-cached for an hour | plan 01 |
-| Q2 | The kubernetes sysext ships a `kubelet.service` we can drop into (and what its `ExecStart` expects) or we ship our own unit | plan 05 |
-| Q3 | Ignition (Flatcar's version) accepts gzip `data:` URLs in `ignition.config.merge`; sha256 vs sha512 file verification support | plan 05 (golden) + 07 (boot) |
+| Q2 | **Answered 2026-11-06** (plan 05): the sysext ships `kubelet.service` plus the kubeadm drop-in `10-kubeadm.conf` (`/etc/kubernetes/bootstrap-kubelet.conf`, `/etc/kubernetes/kubelet.conf`, `/var/lib/kubelet/config.yaml`, `EnvironmentFile`s `kubeadm-flags.env` and `/etc/sysconfig/kubelet`) and `Upholds=kubelet.service`. SCarpenter writes those paths and adds a drop-in that resets `ExecStart` with the full command line | plan 05 |
+| Q3 | **Answered from documentation 2026-11-06** (plan 05): Flatcar 4757.2.3 ships Ignition 2.24.0, whose spec 3.4 allows `compression: gzip` and `data:` sources in `ignition.config.merge`, and sha256 or sha512 verification; no fallback needed. Boot proof is plan 07 | plan 07 (boot) |
 | Q4 | k3s accepts bootstrap-token auth for non-k3s kubelets with the default server flags; `kube-root-ca.crt` holds the CA nodes need | plan 07 |
 | Q5 | Flatcar AMI names for arm64 and the LTS channel | plan 08 |
 | Q6 | KVM and bridge networking on GitHub-hosted runners | plan 07 |

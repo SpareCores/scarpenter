@@ -1,0 +1,72 @@
+# The tailscale network template (overview section 8.3): the tailscale sysext,
+# a oneshot unit that joins the tailnet and waits for the node's tailscale IPv4,
+# which the kubelet then advertises as --node-ip. Works with Tailscale SaaS and
+# Headscale; the node needs only outbound connectivity.
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: {{ .Tailscale.Sysext.Path }}
+      mode: 0644
+      contents:
+        source: {{ .Tailscale.Sysext.URL | q }}
+        verification:
+          hash: sha256-{{ .Tailscale.Sysext.SHA256 }}
+    - path: /etc/scarpenter/tailscale-authkey
+      mode: 0600
+      contents:
+        inline: {{ .Tailscale.AuthKey | q }}
+    - path: /etc/scarpenter/network-template
+      mode: 0644
+      contents:
+        inline: |
+          tailscale
+    - path: /opt/scarpenter/bin/wait-for-tailscale-ip
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/sh
+          # Waits for the node's tailscale IPv4 and hands it to the kubelet.
+          set -eu
+          i=0
+          while [ "$i" -lt 120 ]; do
+            ip="$(/usr/bin/tailscale ip -4 2>/dev/null | head -n 1 || true)"
+            if [ -n "$ip" ]; then
+              mkdir -p /run/scarpenter
+              printf 'SCARPENTER_NODE_IP_ARGS=--node-ip=%s\n' "$ip" > /run/scarpenter/node-ip.env
+              exit 0
+            fi
+            i=$((i + 1))
+            sleep 1
+          done
+          echo "no tailscale IPv4 address after 120 s" >&2
+          exit 1
+  links:
+    - path: {{ .Tailscale.Sysext.Link }}
+      target: {{ .Tailscale.Sysext.Path }}
+      hard: false
+systemd:
+  units:
+    - name: scarpenter-tailscale-up.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Join the tailnet and publish the kubelet node IP
+        Requires=tailscaled.service
+        After=tailscaled.service network-online.target
+        Wants=network-online.target
+        Before=kubelet.service
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/tailscale up --auth-key=file:/etc/scarpenter/tailscale-authkey --hostname={{ .NodeName }} --accept-dns=false{{ if .Tailscale.LoginServer }} --login-server={{ .Tailscale.LoginServer }}{{ end }}{{ if .Tailscale.Tags }} --advertise-tags={{ .Tailscale.Tags }}{{ end }}
+        ExecStart=/opt/scarpenter/bin/wait-for-tailscale-ip
+        [Install]
+        WantedBy=multi-user.target
+    - name: kubelet.service
+      dropins:
+        - name: 30-tailscale.conf
+          contents: |
+            [Unit]
+            Requires=scarpenter-tailscale-up.service
+            After=scarpenter-tailscale-up.service

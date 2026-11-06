@@ -268,12 +268,29 @@ func waitPodRunning(t *testing.T, name string, timeout time.Duration) string {
 	eventually(t, timeout, time.Second, "pod "+name+" Running", func() (bool, string) {
 		p := &corev1.Pod{}
 		if err := k8s.Get(ctx(), client.ObjectKey{Namespace: "default", Name: name}, p); err != nil {
-			return false, err.Error()
+			return false, err.Error() + podEvictions(name)
 		}
 		node = p.Spec.NodeName
 		return p.Status.Phase == corev1.PodRunning, string(p.Status.Phase)
 	})
 	return node
+}
+
+// podEvictions describes the eviction Events of a pod, for the message of a wait
+// that failed because the pod disappeared.
+func podEvictions(name string) string {
+	evs, err := clientset.CoreV1().Events("default").List(ctx(), metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + name})
+	if err != nil {
+		return ""
+	}
+	out := ""
+	for _, e := range evs.Items {
+		if strings.Contains(e.Reason, "Eviction") || e.Reason == "Killing" || e.Reason == "Evicted" {
+			out += fmt.Sprintf(" [event %s: %s]", e.Reason, e.Message)
+		}
+	}
+	return out
 }
 
 // vendorCondition returns a condition of status.vendors.aws of the NodeClass.

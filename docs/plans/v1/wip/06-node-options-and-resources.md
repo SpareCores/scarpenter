@@ -99,6 +99,17 @@ lifecycles and GC, pricing deltas, and the first-boot volume unit.
 - The catalog fallback path in `Create` sets no price annotation; set it (with
   `price-incomplete` where applicable).
 
+## Carried over from the plan 05 review
+
+- kube-reserved: the kubelet reserves only what `kubelet.kubeReserved` sets, while
+  the catalog assumes the AWS provider's per-type formula; decide between
+  per-type rendering and a boot-time unit that computes it, so that the node's
+  allocatable matches the scheduler's.
+- The template variables `.Zone` and `.InstanceType` are empty because user-data
+  is rendered once per (vendor, region, arch). If node settings or device hints
+  need per-type data, revisit that rule and the user-data size budget
+  (`docs/reference/node-bootstrap.md`).
+
 ## Gates
 
 CONVENTIONS gates 1–4. Report §15 Q11 (confirmed in L3 with real core) and the

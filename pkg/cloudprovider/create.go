@@ -405,18 +405,25 @@ func (c *CloudProvider) release(res *quota.Reservation) {
 }
 
 // notReadyVendor returns a vendor of the NodeClass that the NodeClaim allows and
-// that is not ready, with the reason ("" when every allowed vendor is ready):
-// with no candidates that is NodeClassNotReady (overview section 4.1 step 1),
-// not a lack of capacity.
+// that is not ready, with the reason, when no allowed vendor is ready ("" when
+// one is): with no candidates that is NodeClassNotReady (overview section 4.1
+// step 1). A vendor that is not ready must not turn the failure of another,
+// ready vendor of a multi-vendor NodeClass into NodeClassNotReady: that vendor
+// simply has no capacity, which is InsufficientCapacity.
 func (c *CloudProvider) notReadyVendor(nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.NodeClaim) (string, string) {
 	reqs := scheduling.NewNodeSelectorRequirementsWithMinValues(nodeClaim.Spec.Requirements...)
+	var notReady, reason string
 	for _, vendor := range nc.Spec.Vendors.Names() {
 		if reqs.Has(v1alpha1.LabelVendor) && !reqs.Get(v1alpha1.LabelVendor).Has(vendor) {
 			continue
 		}
-		if ok, reason := vendorReady(nc, vendor); !ok {
-			return vendor, reason
+		ok, why := vendorReady(nc, vendor)
+		if ok {
+			return "", ""
+		}
+		if notReady == "" {
+			notReady, reason = vendor, why
 		}
 	}
-	return "", ""
+	return notReady, reason
 }

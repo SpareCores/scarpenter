@@ -1,5 +1,5 @@
-# The committed Spare Cores snapshot served as a Keeper API, so the controller
-# under test needs no network.
+# The committed Spare Cores snapshot served as a Keeper API, and the sysext
+# release checksums under /sysext, so the controller under test needs no network.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

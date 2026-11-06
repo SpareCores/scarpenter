@@ -668,6 +668,67 @@ func TestS09OrphanGC(t *testing.T) {
 	}
 }
 
+// S11: the node bootstrap. The NodeClass resolves its artifacts into the
+// status and publishes a drift hash; a launch gets rendered user-data within the
+// size budget and a bootstrap token, and the token is deleted, with an Event,
+// when the NodeClaim registers.
+func TestS11Bootstrap(t *testing.T) {
+	nc := createNodeClass(t, "s11", us1)
+	createNodePool(t, "s11", "s11", in(labelRegion, us1), in(labelCapacity, "on-demand"))
+	typ := takeTypes(t, []string{us1}, 2, 1)[0]
+
+	got := &v1alpha1.SCNodeClass{}
+	if err := k8s.Get(ctx(), client.ObjectKeyFromObject(nc), got); err != nil {
+		t.Fatal(err)
+	}
+	if r := got.Status.Resolved; r == nil || r.Kubernetes["amd64"].SHA256 == "" || r.Kubernetes["arm64"].SHA256 == "" {
+		t.Errorf("status.resolved = %+v, want the kubernetes sysext of both architectures", r)
+	}
+	if got.Status.Vendors[vendor].Hash == "" {
+		t.Errorf("no drift hash: %+v", got.Status.Vendors)
+	}
+
+	createPod(t, "s11", map[string]string{labelType: vendor + "." + typ, labelNodePool: "s11"}, "100m")
+	node := waitPodRunning(t, "s11", long)
+	claims := waitClaims(t, "s11", 1, time.Minute)
+	claim := claims[0].Name
+
+	// The fake received the rendered user-data: more than an empty config, within
+	// the 12 KiB the default templates are held to.
+	eventually(t, time.Minute, time.Second, "the instance with its user-data", func() (bool, string) {
+		for _, i := range liveInstances(t) {
+			if i.NodeClaim == claim {
+				return i.UserDataBytes > 1000 && i.UserDataBytes <= 12*1024, fmt.Sprintf("%d bytes of user-data", i.UserDataBytes)
+			}
+		}
+		return false, "no instance of " + claim
+	})
+
+	// The token of a registered NodeClaim is gone, and the controller said so.
+	eventually(t, time.Minute, time.Second, "the bootstrap token deleted", func() (bool, string) {
+		var tokens corev1.SecretList
+		if err := k8s.List(ctx(), &tokens, client.InNamespace("kube-system"),
+			client.MatchingLabels{v1alpha1.Group + "/nodeclaim": claim}); err != nil {
+			return false, err.Error()
+		}
+		return len(tokens.Items) == 0, fmt.Sprintf("%d tokens left", len(tokens.Items))
+	})
+	eventually(t, time.Minute, time.Second, "the Event of the deletion", func() (bool, string) {
+		evs, err := clientset.CoreV1().Events("").List(ctx(), metav1.ListOptions{FieldSelector: "reason=BootstrapTokenDeleted"})
+		if err != nil {
+			return false, err.Error()
+		}
+		for _, e := range evs.Items {
+			if e.InvolvedObject.Name == claim {
+				return true, ""
+			}
+		}
+		return false, fmt.Sprintf("%d BootstrapTokenDeleted events, none for %s", len(evs.Items), claim)
+	})
+	deletePodAndWaitNode(t, "s11", node)
+	waitNoClaims(t, "s11", long)
+}
+
 // quotaMetrics renders the tracker's gauges, for failure messages.
 func quotaMetrics(t *testing.T) string {
 	var sb strings.Builder

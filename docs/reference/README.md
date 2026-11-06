@@ -19,14 +19,17 @@ Available:
   capabilities, error classes, the conformance suite and the fake driver
   (plan 04). Quota-aware placement is in the [controller reference](controller.md#quota).
 
+- [**Node bootstrap**](node-bootstrap.md) — the rendered Ignition, the Butane
+  templates and their variables, bootstrap tokens, artifacts, the size budget,
+  the NodeClass controller, the serving certificate approver, RBAC and security
+  notes (plan 05).
+
 Planned for v1 (each written by the plan that implements it):
 
 - **Node settings** — built-in defaults, vendor overrides, profiles, how a
   node's settings are resolved, drift (plan 06).
 - **Vendor resources** — resource kinds, `use` / `create` / `forbid`,
   lifecycles, timing, status, garbage collection (plan 06).
-- **Node bootstrap** — the rendered Ignition, default templates, template
-  variables, size budget, RBAC for the join (plan 05).
 - **AWS driver** — regions, zones, AMIs, subnets and security groups, tags,
   quota classes and codes, IAM policy, error mapping (plan 08).
 - **Controller, complete** — Helm values, Events, metrics, permissions

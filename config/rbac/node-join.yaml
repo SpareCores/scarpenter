@@ -1,0 +1,32 @@
+# The three bindings that let a node join (overview section 8.5). They use
+# Kubernetes' own ClusterRoles; nothing here is SCarpenter-specific except the
+# bootstrap group its tokens put the kubelet in.
+#
+# 1. A kubelet that authenticates with a bootstrap token may create a client
+#    certificate request.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter-node-bootstrapper
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "system:node-bootstrapper"}
+subjects:
+  - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: "system:bootstrappers:scarpenter"}
+---
+# 2. The controller manager's csrapproving controller approves those requests
+#    automatically.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter-auto-approve-node-client-csrs
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "system:certificates.k8s.io:certificatesigningrequests:nodeclient"}
+subjects:
+  - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: "system:bootstrappers:scarpenter"}
+---
+# 3. And it approves the renewals of nodes' client certificates.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter-auto-approve-node-client-renewals
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "system:certificates.k8s.io:certificatesigningrequests:selfnodeclient"}
+subjects:
+  - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: "system:nodes"}

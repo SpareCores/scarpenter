@@ -43,6 +43,18 @@ the controller reference.
   (flags/env, Helm values, conditions and reasons, Events, metrics,
   permissions).
 
+## Carried over from the plan 05 review
+
+- Chart RBAC from `config/rbac`: no cluster-wide Secrets, the namespaced Roles,
+  and the recipe for an auth key Secret in another namespace (Role plus
+  RoleBinding there).
+- Helm values for `--cluster-dns` (default from the `kube-dns` Service
+  ClusterIP), `--cluster-domain`, `--cluster-ca-file`, `--api-server-endpoint`
+  and `--bootstrap-token-ttl` (at least 20m).
+- The `POD_NAMESPACE` (where `kube-root-ca.crt` is read) and
+  `SCARPENTER_DEPLOYMENT_NAME` environment variables of the Deployment.
+- Make L3 keep using the chart's RBAC (it applies `config/rbac` today).
+
 ## Gates
 
 CONVENTIONS gates 1–4, plus `hack/dev.sh make test-chart`; the release

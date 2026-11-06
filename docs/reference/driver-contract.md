@@ -24,8 +24,12 @@ branches on no vendor name.
 vendor's API reference, not the catalog name. `CreateRequest.Node` describes
 the future Node (name, provider ID, labels, resources); real drivers ignore it.
 
-Optional capabilities, found by type assertion: `NodeClassValidator`,
-`NodeOptions` (defaults, supported profiles, price delta, `Prepare`; plan 06
+Optional capabilities, found by type assertion: `NodeClassValidator` (the NodeClass
+controller calls it for `VendorReady`), `ImageReporter` (`ReportImages(ctx, nc)`
+returns the boot images of the NodeClass's release per region and architecture
+for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
+resolves images at launch with `ResolveImage` and counts as ready; plan 08's AWS
+driver implements it), `NodeOptions` (defaults, supported profiles, price delta, `Prepare`; plan 06
 fills them in), `ManagedResources` (plan 06), `QuotaReporter`, `OfferingLister`,
 `ImageImporter` (reserved).
 
@@ -105,8 +109,8 @@ gets its own vendor ID (for example `fake` with a catalog alias) so those
 blocks become meaningful. The fake re-reads its ConfigMap on every
 `CreateInstance`, so a rule written just before a launch is in effect.
 
-It publishes `calls` and `instances` in the ConfigMap `scarpenter-fake-state`.
-In development builds a stand-in for the NodeClass controller (field manager
-`scarpenter-dev-status`) sets `Ready`, `CatalogReady`, `ArtifactsReady`,
-`VendorReady` and the drift hash until plan 05 provides the real one. See
+It publishes `calls` and `instances` in the ConfigMap `scarpenter-fake-state`
+(an instance records the size of the user-data it was launched with,
+`userDataBytes`; the fake boots nothing). Development builds run the real NodeClass
+controller (plan 05 removed the stand-in of plan 04). See
 [Test and develop](../how-to-guides/testing.md#the-l3-lane).

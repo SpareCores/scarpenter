@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/karpenter/pkg/events"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -41,10 +42,10 @@ const (
 	DefaultInterval    = 2 * time.Minute
 	DefaultGracePeriod = 5 * time.Minute
 	// TokenNamespace and TokenType identify bootstrap-token Secrets.
-	TokenNamespace = "kube-system"
-	TokenType      = corev1.SecretType("bootstrap.kubernetes.io/token")
+	TokenNamespace = bootstrap.TokenNamespace
+	TokenType      = bootstrap.TokenType
 	// LabelNodeClaim is the label that ties a token Secret to its NodeClaim.
-	LabelNodeClaim = v1alpha1.Group + "/nodeclaim"
+	LabelNodeClaim = bootstrap.LabelNodeClaim
 )
 
 // Kinds and results of the deletions counter.
@@ -71,7 +72,11 @@ type Sweeper func(ctx context.Context, nodeClaims sets.Set[string]) error
 
 // Options configures the collector.
 type Options struct {
-	Client      client.Client
+	Client client.Client
+	// Reader lists the bootstrap token Secrets; nil uses Client. The manager's
+	// APIReader keeps the controller from starting a cluster-wide informer on
+	// Secrets (its RBAC for them is one namespace).
+	Reader      client.Reader
 	Registry    *vendors.Registry
 	Clock       clock.Clock
 	ClusterName string
@@ -288,7 +293,11 @@ func (c *Collector) deleteInstance(ctx context.Context, logger logr.Logger, drv 
 
 func (c *Collector) sweepTokens(ctx context.Context, logger logr.Logger, claims sets.Set[string]) (int, error) {
 	var secrets corev1.SecretList
-	if err := c.opts.Client.List(ctx, &secrets, client.InNamespace(TokenNamespace),
+	reader := c.opts.Reader
+	if reader == nil {
+		reader = c.opts.Client
+	}
+	if err := reader.List(ctx, &secrets, client.InNamespace(TokenNamespace),
 		client.HasLabels{LabelNodeClaim}); err != nil {
 		return 0, fmt.Errorf("listing bootstrap tokens: %w", err)
 	}
@@ -304,6 +313,8 @@ func (c *Collector) sweepTokens(ctx context.Context, logger logr.Logger, claims 
 		l := logger.WithValues("secret", s.Name, "nodeclaim", s.Labels[LabelNodeClaim], "reason", reason)
 		if c.opts.DryRun {
 			l.Info("dry-run: would delete the orphan bootstrap token")
+			c.event(ctx, s.Labels[bootstrap.LabelNodeClass],
+				"would delete the bootstrap token %s of the missing NodeClaim %s (%s)", s.Name, s.Labels[LabelNodeClaim], reason)
 			c.deletions.WithLabelValues("", KindToken, reason, ResultDryRun).Inc()
 			n++
 			continue
@@ -317,6 +328,8 @@ func (c *Collector) sweepTokens(ctx context.Context, logger logr.Logger, claims 
 		}
 		l.Info("deleted the orphan bootstrap token")
 		c.deletions.WithLabelValues("", KindToken, reason, ResultDeleted).Inc()
+		c.event(ctx, s.Labels[bootstrap.LabelNodeClass], "deleted the bootstrap token %s of the missing NodeClaim %s (%s)",
+			s.Name, s.Labels[LabelNodeClaim], reason)
 		n++
 	}
 	return n, errors.Join(errs...)

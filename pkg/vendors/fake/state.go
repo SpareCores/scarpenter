@@ -49,6 +49,8 @@ type instanceRecord struct {
 	State        string    `json:"state"`
 	NodeClaim    string    `json:"nodeClaim"`
 	CreatedAt    time.Time `json:"createdAt"`
+	// UserDataBytes is the size of the user-data of the launch.
+	UserDataBytes int `json:"userDataBytes"`
 }
 
 // markDirtyLocked schedules a debounced write of the state ConfigMap. The
@@ -90,7 +92,7 @@ func (d *Driver) Flush(ctx context.Context) error {
 	for _, i := range d.instances {
 		instances = append(instances, instanceRecord{
 			Ref: string(i.Ref), Region: i.Region, Zone: i.Zone, InstanceType: i.Type, CapacityType: i.CapacityType,
-			State: i.State, NodeClaim: i.claim, CreatedAt: i.CreatedAt,
+			State: i.State, NodeClaim: i.claim, CreatedAt: i.CreatedAt, UserDataBytes: i.userData,
 		})
 	}
 	d.mu.Unlock()

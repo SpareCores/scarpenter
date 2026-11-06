@@ -2822,8 +2822,9 @@ spec:
             description: SCNodeClassStatus is the observed state of an SCNodeClass.
             properties:
               conditions:
-                description: 'conditions of the SCNodeClass: Ready, CatalogReady,
-                  ArtifactsReady.'
+                description: |-
+                  conditions of the SCNodeClass: Ready, CatalogReady, ArtifactsReady,
+                  ValidationSucceeded, and RestartRequired when set.
                 items:
                   description: Condition aliases the upstream type and adds additional
                     helper methods

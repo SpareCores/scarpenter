@@ -1,5 +1,21 @@
 # One node is enough: the nodes the workloads run on are KWOK fake nodes.
+#
+# The taint-eviction controller is off. KWOK nodes are Ready the moment they are
+# created and carry karpenter.sh/unregistered:NoExecute until core registers
+# them; the controller reacts to a pod update before the node update that
+# removed the taint and evicts a freshly bound pod (a race of milliseconds, seen
+# as TaintManagerEviction in S05). On real nodes the node is NotReady for a
+# while after registration, so the race does not exist there. No scenario relies
+# on taint-based eviction: core drains with its own evictions. bootstrapsigner
+# and tokencleaner stay on, as kubeadm enables them and the bootstrap relies on
+# the token cleaner.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        controllerManager:
+          extraArgs:
+            controllers: "*,bootstrapsigner,tokencleaner,-taint-eviction-controller"

@@ -114,6 +114,17 @@ plan 10.
 - Run the conformance suite against the full AWS type list of the snapshot,
   not a sample (review N7).
 
+## Carried over from the plan 05 review
+
+- Implement the optional `vendors.ImageReporter` (`ReportImages`) for
+  `status.vendors.aws.images` and `ImagesReady`.
+- Hardening of the serving certificate approver: check the IP SANs against the
+  instance's addresses (`vendors.Instance`) instead of the Node's reported
+  addresses (a leaked bootstrap token is not bound to a node name).
+- IMDSv2 with hop limit 1, as overview section 8.6 promises.
+- Measure the real user-data size with the EKS CA bundle in L5; the budget is
+  16 KiB and the default templates are about 5 KiB.
+
 ## Gates
 
 CONVENTIONS gates 1–4 (L3 still green: the AWS driver must not change core

@@ -6,6 +6,8 @@ Available:
 
 - [**Test and develop**](testing.md) (plan 02, extended by every plan) — dev
   container, gates, the L1–L5 test lanes, generated files, CI.
+- [**Choose a node network template**](choose-a-network-template.md) (plan 05) —
+  `tailscale`, `direct`, or a custom Butane template.
 
 Planned for v1:
 
@@ -14,8 +16,6 @@ Planned for v1:
   and CA, catalog URL and API key, upgrade, uninstall.
 - **Set up AWS credentials** (plan 09) — web identity federation from the
   cluster's ServiceAccount issuer, or static keys; the IAM policy.
-- **Choose a node network template** (plan 05) — `tailscale`, `direct`, or
-  a custom Butane template.
 - **Write node profiles** (plan 06) — storage, network and placement profiles
   in each vendor's own terms; what a workload gets without one.
 - **Bring your own vendor resources** (plan 06) — reference pre-created

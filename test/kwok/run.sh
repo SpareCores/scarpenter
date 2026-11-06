@@ -111,6 +111,7 @@ gobuild "${ctx}/manager/manager" ./cmd/controller scarpenter_dev
 docker build -q -t "${manager_image}" -f "${here}/Dockerfile.manager" "${ctx}/manager"
 gobuild "${ctx}/replay/replay" ./test/kwok/replay
 cp -r "${root}/test/data/sc-snapshot" "${ctx}/replay/snapshot"
+cp -r "${root}/pkg/artifacts/testdata" "${ctx}/replay/sysext"
 docker build -q -t "${replay_image}" -f "${here}/Dockerfile.replay" "${ctx}/replay"
 phase
 
@@ -154,6 +155,10 @@ kubectl apply --server-side -f "${core_dir}/pkg/apis/crds/"
 kubectl apply --server-side -f "${root}/config/crd/bases/"
 kubectl wait --for=condition=Established crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh \
   crd/scnodeclasses.scarpenter.sparecores.com --timeout=60s
+# SCarpenter's own RBAC is the production one (config/rbac); the lane's file adds
+# core's permissions and the fake driver's.
+kubectl apply -f "${here}/manifests/controller/namespace.yaml"
+kubectl apply --server-side -k "${root}/config/rbac"
 kubectl kustomize "${here}/manifests/controller" | sed "s|controller:latest|${manager_image}|" | kubectl apply --server-side -f -
 kubectl apply -f "${here}/manifests/keeper-replay.yaml"
 kubectl -n "${ns}" rollout status deployment/keeper-replay --timeout=120s

@@ -8,10 +8,13 @@ package operator_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 	"time"
@@ -21,13 +24,15 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	coreoperator "sigs.k8s.io/karpenter/pkg/operator"
 	"sigs.k8s.io/yaml"
 
+	"github.com/awslabs/operatorpkg/status"
+
 	"github.com/SpareCores/scarpenter/internal/testutil"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/operator"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -52,11 +57,11 @@ func writeKubeconfig(t *testing.T, cfg *rest.Config) string {
 	kc.AuthInfos["envtest"] = &clientcmdapi.AuthInfo{ClientCertificateData: cfg.CertData, ClientKeyData: cfg.KeyData, Token: cfg.BearerToken}
 	kc.Contexts["envtest"] = &clientcmdapi.Context{Cluster: "envtest", AuthInfo: "envtest"}
 	kc.CurrentContext = "envtest"
-	path := filepath.Join(t.TempDir(), "kubeconfig")
-	if err := clientcmd.WriteToFile(*kc, path); err != nil {
+	file := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := clientcmd.WriteToFile(*kc, file); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	return file
 }
 
 func object(t *testing.T, doc string) *unstructured.Unstructured {
@@ -94,6 +99,15 @@ func TestManagerStartsWithTheProductionWiring(t *testing.T) {
 	t.Setenv("SCARPENTER_VENDORS", stubVendor)
 	t.Setenv("SCARPENTER_KEEPER_URL", catalogtest.Server(t).URL)
 	t.Setenv("SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST", "1")
+	// The node bootstrap: a release server that publishes every release (the
+	// envtest API server is v1.36, and the kubelet must not be newer), and the
+	// cluster CA from a file (envtest has no kube-root-ca.crt ConfigMap).
+	t.Setenv("SCARPENTER_SYSEXT_BASE_URL", releaseServer(t).URL)
+	caFile := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(caFile, []byte("-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCARPENTER_CLUSTER_CA_FILE", caFile)
 	// Core parses os.Args[1:] as its flags; the test binary's own flags
 	// would be rejected.
 	args := os.Args
@@ -154,34 +168,29 @@ kind: SCNodeClass
 metadata: {name: default}
 spec:
   flatcar: {version: "4757.2.3"}
-  kubernetes: {version: "v1.37.1"}
+  kubernetes: {version: "v1.36.0"}
   network: {template: direct}
-  vendors: {fake: {}}
+  vendors: {aws: {regions: [us-east-1]}}
 `)
 	if err := c.Create(ctx, nodeClass); err != nil {
 		t.Fatal(err)
 	}
-	// Stand in for the NodeClass controller (a later plan). Ready is derived
-	// from its dependents by operatorpkg, so they must all be true.
-	conditions := make([]any, 0, 3)
-	for _, typ := range []string{"Ready", "CatalogReady", "ArtifactsReady"} {
-		conditions = append(conditions, map[string]any{
-			"type": typ, "status": "True", "reason": typ, "message": "",
-			"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
-			"observedGeneration": nodeClass.GetGeneration(),
-		})
-	}
-	// The quota status controller of the same manager writes the status too:
-	// re-read and retry on a conflict.
-	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		if err := c.Get(ctx, client.ObjectKeyFromObject(nodeClass), nodeClass); err != nil {
+	// The NodeClass controller of the same manager makes it Ready: it resolves the
+	// sysext digests from the release server of the test, validates the NodeClass
+	// and reports the vendor.
+	waitFor(t, "SCNodeClass Ready", func() error {
+		nc := &v1alpha1.SCNodeClass{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(nodeClass), nc); err != nil {
 			return err
 		}
-		nodeClass.Object["status"] = map[string]any{"conditions": conditions}
-		return c.Status().Update(ctx, nodeClass)
-	}); err != nil {
-		t.Fatal(err)
-	}
+		if !nc.StatusConditions().IsTrue(status.ConditionReady) {
+			return fmt.Errorf("not Ready: %+v", nc.Status.Conditions)
+		}
+		if nc.Status.Resolved == nil || nc.Status.Vendors[stubVendor].Hash == "" {
+			return fmt.Errorf("no resolved artifacts or hash yet: %+v", nc.Status)
+		}
+		return nil
+	})
 	nodePool := object(t, `
 apiVersion: karpenter.sh/v1
 kind: NodePool
@@ -191,7 +200,7 @@ spec:
     spec:
       nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: default}
       requirements:
-        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [fake]}
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [aws]}
 `)
 	if err := c.Create(ctx, nodePool); err != nil {
 		t.Fatal(err)
@@ -221,7 +230,7 @@ spec:
     spec:
       nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: default}
       requirements:
-        - {key: scarpenter.sparecores.com/vendr, operator: In, values: [fake]}
+        - {key: scarpenter.sparecores.com/vendr, operator: In, values: [aws]}
 `)
 	if err := c.Create(ctx, typo); err != nil {
 		t.Fatal(err)
@@ -236,6 +245,25 @@ spec:
 		}
 		return nil
 	})
+}
+
+// releaseServer serves a SHA256SUMS for every sysext release, like the
+// sysext-bakery would.
+func releaseServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		release := path.Base(path.Dir(r.URL.Path))
+		if path.Base(r.URL.Path) != "SHA256SUMS" {
+			http.NotFound(w, r)
+			return
+		}
+		for _, arch := range []string{"x86-64", "arm64"} {
+			sum := sha256.Sum256([]byte(release + arch))
+			_, _ = fmt.Fprintf(w, "%x  %s-%s.raw\n", sum, release, arch)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 // waitFor polls check for up to a minute.
@@ -254,7 +282,7 @@ func waitFor(t *testing.T, what string, check func() error) {
 
 // stubVendor is the registration name and vendor ID of the test driver; the
 // NodeClass of the smoke test uses it as its vendor block.
-const stubVendor = "fake"
+const stubVendor = "aws"
 
 func init() {
 	vendors.Register(stubVendor, func() vendors.Driver { return &stubDriver{} })

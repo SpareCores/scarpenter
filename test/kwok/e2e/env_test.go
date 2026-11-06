@@ -209,6 +209,8 @@ type instance struct {
 	State        string    `json:"state"`
 	NodeClaim    string    `json:"nodeClaim"`
 	CreatedAt    time.Time `json:"createdAt"`
+	// UserDataBytes is the size of the user-data the fake received.
+	UserDataBytes int `json:"userDataBytes"`
 }
 
 func readState(t *testing.T) ([]call, []instance) {

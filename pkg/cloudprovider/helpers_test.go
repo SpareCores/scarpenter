@@ -180,7 +180,7 @@ func (e *env) build(kube client.Client, f *facts.Facts, reg *vendors.Registry, o
 // hash.
 func (e *env) markReady(nc *v1alpha1.SCNodeClass) {
 	e.t.Helper()
-	hash, err := nodeclass.Hash(nc, "aws")
+	hash, err := nodeclass.Hash(nc, "aws", nodeclass.Inputs{})
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func (e *env) markReady(nc *v1alpha1.SCNodeClass) {
 		e.t.Fatal(err)
 	}
 	// Ready is derived from its dependents, so they must all be true.
-	for _, typ := range []string{"Ready", "CatalogReady", "ArtifactsReady"} {
+	for _, typ := range []string{"Ready", "CatalogReady", "ArtifactsReady", "ValidationSucceeded"} {
 		cur.Status.Conditions = append(cur.Status.Conditions, status.Condition{
 			Type: typ, Status: metav1.ConditionTrue, Reason: typ, ObservedGeneration: cur.Generation, LastTransitionTime: metav1.Now(),
 		})

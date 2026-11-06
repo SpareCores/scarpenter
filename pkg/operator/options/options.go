@@ -19,6 +19,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -41,6 +42,7 @@ const (
 	DefaultCatalogRefreshInterval     = time.Hour
 	DefaultCatalogMaxAge              = 24 * time.Hour
 	DefaultBootstrapTokenTTL          = time.Hour
+	DefaultClusterDomain              = "cluster.local"
 	DefaultMaxLaunchAttempts          = 3
 	DefaultQuotaRefreshInterval       = 2 * time.Minute
 	DefaultQuotaLimitsRefreshInterval = 15 * time.Minute
@@ -51,6 +53,11 @@ const (
 	DefaultResourceDefaultTTL         = 24 * time.Hour
 	DefaultAWSHomeRegion              = "us-east-1"
 )
+
+// bootstrapTokenMinTTL is the shortest token lifetime (bootstrap.MinTokenTTL;
+// not imported, to keep the options free of the bootstrap package's
+// dependencies).
+const bootstrapTokenMinTTL = 20 * time.Minute
 
 type optionsKey struct{}
 
@@ -87,6 +94,11 @@ type Options struct {
 	FlatcarBaseURL string
 	// BootstrapTokenTTL is the lifetime of a node's bootstrap token.
 	BootstrapTokenTTL time.Duration
+	// ClusterDNS are the cluster DNS service IPs and ClusterDomain the cluster
+	// domain the kubelets of the nodes are configured with; with no ClusterDNS
+	// the Pods of the nodes use the node's resolver.
+	ClusterDNS    []string
+	ClusterDomain string
 	// MaxLaunchAttempts is the number of vendor calls one Create may make.
 	MaxLaunchAttempts int
 	// QuotaRefreshInterval and QuotaLimitsRefreshInterval are the refresh
@@ -120,7 +132,8 @@ type Options struct {
 	// AWSHomeRegion is the region of the AWS global endpoints.
 	AWSHomeRegion string
 
-	vendorsRaw string
+	vendorsRaw    string
+	clusterDNSRaw string
 }
 
 // AddFlags registers the flags. Their defaults come from the SCARPENTER_*
@@ -136,7 +149,9 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.CatalogMaxAge, "catalog-max-age", env.WithDefaultDuration("SCARPENTER_CATALOG_MAX_AGE", DefaultCatalogMaxAge), "Age of the last good catalog snapshot after which SCNodeClasses report CatalogReady=False.")
 	fs.StringVar(&o.SysextBaseURL, "sysext-base-url", env.WithDefaultString("SCARPENTER_SYSEXT_BASE_URL", ""), "Mirror of the Flatcar sysext-bakery releases. Empty means upstream.")
 	fs.StringVar(&o.FlatcarBaseURL, "flatcar-base-url", env.WithDefaultString("SCARPENTER_FLATCAR_BASE_URL", ""), "Mirror of the Flatcar release files. Empty means upstream.")
-	fs.DurationVar(&o.BootstrapTokenTTL, "bootstrap-token-ttl", env.WithDefaultDuration("SCARPENTER_BOOTSTRAP_TOKEN_TTL", DefaultBootstrapTokenTTL), "Lifetime of a node's bootstrap token.")
+	fs.DurationVar(&o.BootstrapTokenTTL, "bootstrap-token-ttl", env.WithDefaultDuration("SCARPENTER_BOOTSTRAP_TOKEN_TTL", DefaultBootstrapTokenTTL), "Lifetime of a node's bootstrap token; at least 20m, because core gives a NodeClaim 15 minutes to register.")
+	fs.StringVar(&o.clusterDNSRaw, "cluster-dns", env.WithDefaultString("SCARPENTER_CLUSTER_DNS", ""), "Comma-separated IPs of the cluster DNS service, for the kubelet of the nodes (clusterDNS). Empty leaves it unset: Pods then use the node's resolver.")
+	fs.StringVar(&o.ClusterDomain, "cluster-domain", env.WithDefaultString("SCARPENTER_CLUSTER_DOMAIN", DefaultClusterDomain), "Cluster domain of the kubelet of the nodes (clusterDomain).")
 	fs.IntVar(&o.MaxLaunchAttempts, "max-launch-attempts", env.WithDefaultInt("SCARPENTER_MAX_LAUNCH_ATTEMPTS", DefaultMaxLaunchAttempts), "Vendor calls one NodeClaim creation may make; candidates skipped for lack of quota headroom do not count.")
 	fs.DurationVar(&o.QuotaRefreshInterval, "quota-refresh-interval", env.WithDefaultDuration("SCARPENTER_QUOTA_REFRESH_INTERVAL", DefaultQuotaRefreshInterval), "How often quota usage is refreshed per vendor and region in scope.")
 	fs.DurationVar(&o.QuotaLimitsRefreshInterval, "quota-limits-refresh-interval", env.WithDefaultDuration("SCARPENTER_QUOTA_LIMITS_REFRESH_INTERVAL", DefaultQuotaLimitsRefreshInterval), "How often quota limits are refreshed per vendor and region in scope.")
@@ -163,6 +178,7 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 		return fmt.Errorf("parsing flags: %w", err)
 	}
 	o.Vendors = splitList(o.vendorsRaw)
+	o.ClusterDNS = splitList(o.clusterDNSRaw)
 	if err := o.Validate(); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
@@ -205,6 +221,18 @@ func (o *Options) Validate() error {
 			errs = append(errs, fmt.Errorf("--vendors: %q is listed twice", v))
 		}
 		seen[v] = true
+	}
+	if o.BootstrapTokenTTL > 0 && o.BootstrapTokenTTL < bootstrapTokenMinTTL {
+		errs = append(errs, fmt.Errorf("--bootstrap-token-ttl must be at least %s (core gives a NodeClaim 15 minutes to register), got %s",
+			bootstrapTokenMinTTL, o.BootstrapTokenTTL))
+	}
+	for _, ip := range o.ClusterDNS {
+		if net.ParseIP(ip) == nil {
+			errs = append(errs, fmt.Errorf("--cluster-dns: %q is not an IP address", ip))
+		}
+	}
+	if o.ClusterDomain == "" {
+		errs = append(errs, errors.New("--cluster-domain must not be empty"))
 	}
 	if o.MaxLaunchAttempts < 1 {
 		errs = append(errs, fmt.Errorf("--max-launch-attempts must be at least 1, got %d", o.MaxLaunchAttempts))

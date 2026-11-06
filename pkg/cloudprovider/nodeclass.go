@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/awslabs/operatorpkg/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -44,12 +45,28 @@ func checkNodeClassReady(nc *v1alpha1.SCNodeClass) error {
 		return cloudprovider.NewCreateError(errors.New("the SCNodeClass has no Ready condition yet"),
 			"NodeClassReadinessUnknown", "the SCNodeClass is not reconciled yet")
 	case ready.IsFalse():
-		return cloudprovider.NewNodeClassNotReadyError(errors.New(ready.Message))
+		return cloudprovider.NewNodeClassNotReadyError(errors.New(notReadyMessage(nc, ready.Message)))
 	case ready.ObservedGeneration != nc.Generation:
 		return cloudprovider.NewNodeClassNotReadyError(
 			errors.New("the SCNodeClass status has not been reconciled against the latest spec"))
 	}
 	return nil
+}
+
+// notReadyMessage names why the NodeClass is not ready: the reasons of the
+// dependent conditions that are false, which say more than Ready's own message.
+func notReadyMessage(nc *v1alpha1.SCNodeClass, fallback string) string {
+	var parts []string
+	for _, c := range nc.Status.Conditions {
+		dependent := c.Type != status.ConditionReady && nc.StatusConditions().IsDependentCondition(c.Type)
+		if dependent && c.Status == metav1.ConditionFalse {
+			parts = append(parts, fmt.Sprintf("%s: %s: %s", c.Type, c.Reason, c.Message))
+		}
+	}
+	if len(parts) == 0 {
+		return fallback
+	}
+	return strings.Join(parts, "; ")
 }
 
 // vendorReady reports whether the vendor's part of the NodeClass is ready

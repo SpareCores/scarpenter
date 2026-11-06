@@ -8,20 +8,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 package main
 
-import (
-	"context"
-
-	"github.com/SpareCores/scarpenter/pkg/operator"
-	"github.com/SpareCores/scarpenter/pkg/vendors/fake"
-)
-
-// The development build compiles the fake driver in (overview section 13.2) and
-// runs the dev NodeClass status controller that stands in for the NodeClass
-// controller of plan 05.
-func init() {
-	operator.DevHooks = append(operator.DevHooks, func(
-		_ context.Context, o *operator.Operator, c *operator.Components,
-	) error {
-		return fake.RegisterStatusController(o.Manager, c.Catalog, c.Registry)
-	})
-}
+// The development build compiles the fake driver in (overview section 13.2);
+// its init registers the driver and its flags. Nothing else differs from the
+// production build: the NodeClass controller is the same.
+import _ "github.com/SpareCores/scarpenter/pkg/vendors/fake"

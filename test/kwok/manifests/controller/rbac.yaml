@@ -1,9 +1,7 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: scarpenter
-  namespace: scarpenter-system
----
+# The ServiceAccount, SCarpenter's own permissions (SCNodeClasses, certificate
+# approval, references, bootstrap tokens) and the node-join bindings are the
+# production ones, config/rbac, which run.sh applies; this file adds what the
+# lane needs besides them: Karpenter core's permissions and the fake driver's.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -47,21 +45,10 @@ rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # SCarpenter: its own API, with server-side apply on the status.
-  - apiGroups: ["scarpenter.sparecores.com"]
-    resources: ["scnodeclasses"]
-    verbs: ["get", "list", "watch", "update", "patch"]
-  - apiGroups: ["scarpenter.sparecores.com"]
-    resources: ["scnodeclasses/status"]
-    verbs: ["get", "update", "patch"]
-  # The fake driver's configuration and state, and the garbage collector's
-  # bootstrap tokens.
+  # The fake driver's configuration and state.
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list", "watch", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

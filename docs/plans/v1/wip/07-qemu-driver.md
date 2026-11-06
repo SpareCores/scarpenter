@@ -60,6 +60,22 @@ riskiest assumptions without a cloud account.
   comment.
 - **Docs**: testing how-to (L4 section, requirements: `/dev/kvm`).
 
+## Carried over from the plan 05 review
+
+- N2: the kubelet client CA. `authentication.x509.clientCAFile` is the CA of
+  `kube-root-ca.crt` or `--cluster-ca-file` (the serving CA). On k3s the API
+  server's kubelet client certificate is signed by `client-ca`, so `kubectl
+  logs/exec` would fail with 401; add `--kubelet-client-ca-file` or document the
+  value, and cover it in the L4 check.
+- Boot proof of what plan 05 only renders: gzip `data:` merges in
+  `ignition.config.merge` (Q3), sysext activation, `Upholds=` starting the
+  kubelet and tailscaled, the tailscale unit ordering, and the kubelet reading
+  the CA file named in the bootstrap kubeconfig (`certificate-authority`).
+- Q4: bootstrap-token auth on k3s and `kube-root-ca.crt` as the CA nodes need.
+- `kubectl logs/exec` end to end, which proves the serving certificate approval.
+- Run one NodeClass with an auth-key or custom-template Secret/ConfigMap through
+  the namespaced Role of `config/rbac` (L3 does not exercise it).
+
 ## Gates
 
 CONVENTIONS gates 1–5. Report boot-to-Ready times, Q3/Q4/Q6 findings, and

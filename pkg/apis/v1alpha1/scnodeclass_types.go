@@ -17,6 +17,13 @@ import (
 const (
 	ConditionTypeCatalogReady   = "CatalogReady"
 	ConditionTypeArtifactsReady = "ArtifactsReady"
+	// ConditionTypeValidationSucceeded: the semantic checks of the NodeClass
+	// pass (kubelet settings, Kubernetes version skew, references, a trial
+	// rendering of the user-data within its budget).
+	ConditionTypeValidationSucceeded = "ValidationSucceeded"
+	// ConditionTypeRestartRequired is informational and not a dependent of
+	// Ready: a metric was added after start-up and its labels need a restart.
+	ConditionTypeRestartRequired = "RestartRequired"
 )
 
 // Condition types of a vendor in status.vendors.<vendor>.conditions.
@@ -60,6 +67,7 @@ func (in *SCNodeClass) StatusConditions(opts ...status.ForOption) status.Conditi
 	return status.NewReadyConditions(
 		ConditionTypeCatalogReady,
 		ConditionTypeArtifactsReady,
+		ConditionTypeValidationSucceeded,
 	).For(in, opts...)
 }
 
@@ -75,7 +83,8 @@ func (in *SCNodeClass) SetConditions(conditions []status.Condition) {
 
 // SCNodeClassStatus is the observed state of an SCNodeClass.
 type SCNodeClassStatus struct {
-	// conditions of the SCNodeClass: Ready, CatalogReady, ArtifactsReady.
+	// conditions of the SCNodeClass: Ready, CatalogReady, ArtifactsReady,
+	// ValidationSucceeded, and RestartRequired when set.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

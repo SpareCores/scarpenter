@@ -1,0 +1,11 @@
+# The direct network template (overview section 8.3): no VPN, the kubelet uses
+# the node's primary address. It only leaves a marker for debugging.
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: /etc/scarpenter/network-template
+      mode: 0644
+      contents:
+        inline: |
+          direct

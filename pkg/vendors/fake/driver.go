@@ -44,6 +44,9 @@ type instance struct {
 	nodeName string
 	vcpus    int64
 	key      string
+	// userData is the size of the user-data the instance was launched with
+	// (the fake boots nothing; the L3 lane checks the rendering by its size).
+	userData int
 }
 
 // Driver is the fake driver.
@@ -342,6 +345,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			Addresses: []string{fmt.Sprintf("10.%d.%d.%d", d.seq/65536%256, d.seq/256%256, d.seq%256)},
 		},
 		claim: claim, nodeName: req.Node.Name, vcpus: srv.vcpus, key: req.IdempotencyKey,
+		userData: len(req.UserData),
 	}
 	d.instances[id] = inst
 	if req.IdempotencyKey != "" {

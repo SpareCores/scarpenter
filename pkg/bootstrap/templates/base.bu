@@ -1,0 +1,91 @@
+# The base configuration of every node (overview section 8.2): the kubelet, its
+# bootstrap kubeconfig and configuration, the Kubernetes sysext, and the
+# fail-safes. Rendered with the variables of docs/reference/node-bootstrap.md.
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: /etc/hostname
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          {{ .NodeName }}
+    - path: /etc/kubernetes/pki/ca.crt
+      mode: 0644
+      contents:
+        inline: |
+{{ .ClusterCA | indent 10 }}
+    - path: /etc/kubernetes/bootstrap-kubelet.conf
+      mode: 0600
+      contents:
+        inline: |
+          apiVersion: v1
+          kind: Config
+          clusters:
+            - name: cluster
+              cluster:
+                server: {{ .APIServerEndpoint | q }}
+                certificate-authority: /etc/kubernetes/pki/ca.crt
+          users:
+            - name: bootstrap
+              user:
+                token: {{ .BootstrapToken | q }}
+          contexts:
+            - name: bootstrap
+              context: {cluster: cluster, user: bootstrap}
+          current-context: bootstrap
+    - path: /var/lib/kubelet/config.yaml
+      mode: 0644
+      contents:
+        inline: |
+{{ .KubeletConfig | indent 10 }}
+{{- range .Sysexts }}
+    - path: {{ .Path }}
+      mode: 0644
+      contents:
+        source: {{ .URL | q }}
+        verification:
+          hash: sha256-{{ .SHA256 }}
+{{- end }}
+  links:
+{{- range .Sysexts }}
+    - path: {{ .Link }}
+      target: {{ .Path }}
+      hard: false
+{{- end }}
+systemd:
+  units:
+    - name: update-engine.service
+      mask: true
+    - name: locksmithd.service
+      mask: true
+    - name: kubelet.service
+      dropins:
+        - name: 20-scarpenter.conf
+          contents: |
+            # The kubernetes sysext ships kubelet.service and a kubeadm drop-in
+            # (10-kubeadm.conf) that this drop-in overrides; the flags are spelled out so
+            # that the unit does not depend on the variables of that drop-in.
+            [Service]
+            EnvironmentFile=-/run/scarpenter/node-ip.env
+            ExecStart=
+            ExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml {{ .KubeletArgs }} $SCARPENTER_NODE_IP_ARGS
+{{- if .PoweroffAfterSeconds }}
+    - name: scarpenter-poweroff.service
+      contents: |
+        [Unit]
+        Description=Fail-safe: power the node off
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/bin/systemctl poweroff --force
+    - name: scarpenter-poweroff.timer
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Fail-safe: power the node off {{ .PoweroffAfter }} after boot
+        [Timer]
+        OnBootSec={{ .PoweroffAfterSeconds }}s
+        [Install]
+        WantedBy=timers.target
+{{- end }}

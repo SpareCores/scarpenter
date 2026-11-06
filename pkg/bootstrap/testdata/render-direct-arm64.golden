@@ -1,0 +1,94 @@
+=== base ===
+{
+  "ignition": {
+    "version": "3.4.0"
+  },
+  "storage": {
+    "files": [
+      {
+        "contents": {
+          "inline": "default-abc12\n"
+        },
+        "mode": 420,
+        "overwrite": true,
+        "path": "/etc/hostname"
+      },
+      {
+        "contents": {
+          "inline": "-----BEGIN CERTIFICATE-----\nlbjamFrxUwdt6wr5t6dJQFUlXYeb2NlhusgxM/LCRzmbEHFOaI91UDq8fB0ft/Fm\nbxbeqbGntBVLC+TVvFZhYQSpI7WRLtWaIoVRkivcG6JfzPd/R4jU8iOCfQZ8PvDj\nw3km9N84zGPUWbNB7rQbsw9sVD4oDGgeScWZrhl3wf12dqtDfeuIBw/OnOC7fIDH\nQJQzUY0mONbBUyU/jO6mOZqn+uy/P1zJ3w8Dx7xkN4TNVbHoNro2i/1DF7Qr298K\nWNzm8S6pxLOdqcS3eDMd5thOUd2BPD6Hh2T6LsdzqzMJm4G1VdEc1Zu92zKSBu+z\nmmayzHXgnZpXlswY3CZZhn4M8CDbm4AlAhX9QTCf636/fPo6i3Xhxi9T3+5F3zcG\nBPSHdQYY2xBjxo4avsy2PF63D0KiYl6usY8VWj9Psb9CxnR4GG8fB+ZbaoQa+at+\no3Mj1D93whfQn/v0nXbwDATjeqY+F+bSwKbx38qIGos98gD4uwBMKvNC4MFqJqY+\nTcpj4YseqP/ah96xMBT4t07pAZVFryosmNZu2jpjFcyKXN+ff8xkB0yZ8q00TGm+\ns46jDuqxWSybBp1LcMW9as5QhdcblqLbA92ngicUZrGjkhU1SNkJS/PiyZkp6vUG\nEfTpzQTpRxxKdOPwByFIQCsluiT3pxwbHgRTOzrZxkx68sFGwi41M0IemwYMvEld\nBjhQHq42/P1r9l3+2wl1eF0yqJ9tlRMm8hqiM96gI46rHBWhdKzJHEGKwPOAj5wk\nAUU1ZBplIPtpGWlaPVezClyKLn0CYW6YXsZrUqgcmV4bCpt8YLQkyNO3XE/4IUex\nIin7JAsOL5if7raeYJQXWRtULl7Ec/SNl/6VIhO3JEhiZtscrkJ6eqoidTm/eJMx\nNuu0XLuR5C5BurCRk/vJ5emeh4JMDDVxtFhoY/nbqlmgv7j7pd5wn385gzFgH4E2\nBp2K8V303SXC+F7pO9FTxVWjdTBIf5sSF/ntLvMQyu4VFs7yDYWUg75yRjK9tozh\n53eXFjl8cW0MRHVG\n-----END CERTIFICATE-----\n"
+        },
+        "mode": 420,
+        "path": "/etc/kubernetes/pki/ca.crt"
+      },
+      {
+        "contents": {
+          "inline": "apiVersion: v1\nkind: Config\nclusters:\n  - name: cluster\n    cluster:\n      server: \"https://api.my-cluster.example.com:6443\"\n      certificate-authority: /etc/kubernetes/pki/ca.crt\nusers:\n  - name: bootstrap\n    user:\n      token: \"abcdef.0123456789abcdef\"\ncontexts:\n  - name: bootstrap\n    context: {cluster: cluster, user: bootstrap}\ncurrent-context: bootstrap\n"
+        },
+        "mode": 384,
+        "path": "/etc/kubernetes/bootstrap-kubelet.conf"
+      },
+      {
+        "contents": {
+          "inline": "apiVersion: kubelet.config.k8s.io/v1beta1\nauthentication:\n  anonymous:\n    enabled: false\n  webhook:\n    enabled: true\n  x509:\n    clientCAFile: /etc/kubernetes/pki/ca.crt\nauthorization:\n  mode: Webhook\ncgroupDriver: systemd\nclusterDomain: cluster.local\nkind: KubeletConfiguration\nmaxPods: 110\nresolvConf: /run/systemd/resolve/resolv.conf\nrotateCertificates: true\nserverTLSBootstrap: true\n"
+        },
+        "mode": 420,
+        "path": "/var/lib/kubelet/config.yaml"
+      },
+      {
+        "contents": {
+          "source": "https://github.com/flatcar/sysext-bakery/releases/download/kubernetes-v1.37.1/kubernetes-v1.37.1-arm64.raw",
+          "verification": {
+            "hash": "sha256-2e2a6faf04230c6b719656dbea20b76f1fbf9a5b3e61c0787c0850f052e40f6b"
+          }
+        },
+        "mode": 420,
+        "path": "/opt/extensions/kubernetes/kubernetes-v1.37.1-arm64.raw"
+      }
+    ],
+    "links": [
+      {
+        "hard": false,
+        "path": "/etc/extensions/kubernetes.raw",
+        "target": "/opt/extensions/kubernetes/kubernetes-v1.37.1-arm64.raw"
+      }
+    ]
+  },
+  "systemd": {
+    "units": [
+      {
+        "mask": true,
+        "name": "update-engine.service"
+      },
+      {
+        "mask": true,
+        "name": "locksmithd.service"
+      },
+      {
+        "dropins": [
+          {
+            "contents": "# The kubernetes sysext ships kubelet.service and a kubeadm drop-in\n# (10-kubeadm.conf) that this drop-in overrides; the flags are spelled out so\n# that the unit does not depend on the variables of that drop-in.\n[Service]\nEnvironmentFile=-/run/scarpenter/node-ip.env\nExecStart=\nExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml --provider-id=scarpenter://aws/us-east-1/default-abc12 --hostname-override=default-abc12 --register-with-taints=karpenter.sh/unregistered:NoExecute,dedicated=gpu:NoSchedule $SCARPENTER_NODE_IP_ARGS\n",
+            "name": "20-scarpenter.conf"
+          }
+        ],
+        "name": "kubelet.service"
+      }
+    ]
+  }
+}
+=== network ===
+{
+  "ignition": {
+    "version": "3.4.0"
+  },
+  "storage": {
+    "files": [
+      {
+        "contents": {
+          "inline": "direct\n"
+        },
+        "mode": 420,
+        "path": "/etc/scarpenter/network-template"
+      }
+    ]
+  }
+}

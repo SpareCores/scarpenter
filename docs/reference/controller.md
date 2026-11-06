@@ -21,15 +21,17 @@ the last column.
 |---|---|---|---|---|
 | `--cluster-name` | `SCARPENTER_CLUSTER_NAME` | required | Tag value on vendor resources and part of their names. Letters, digits, `-` and `_`, at most 63 characters, starting with a letter or digit. | plan 04 |
 | `--api-server-endpoint` | `SCARPENTER_API_SERVER_ENDPOINT` | required | `https://` URL nodes use to reach the API server. | plan 05 |
-| `--cluster-ca-file` | `SCARPENTER_CLUSTER_CA_FILE` | empty | File with the cluster CA bundle given to nodes. Empty means the `kube-root-ca.crt` ConfigMap of the controller's namespace. | plan 05 |
+| `--cluster-dns` | `SCARPENTER_CLUSTER_DNS` | empty | Comma-separated IPs of the cluster DNS service, set as the kubelet's `clusterDNS` on nodes. Empty leaves it unset: Pods then use the node's resolver. | plan 05 |
+| `--cluster-domain` | `SCARPENTER_CLUSTER_DOMAIN` | `cluster.local` | The kubelet's `clusterDomain` on nodes. | plan 05 |
+| `--cluster-ca-file` | `SCARPENTER_CLUSTER_CA_FILE` | empty | File with the cluster CA bundle given to nodes. Empty means the `kube-root-ca.crt` ConfigMap of the controller's namespace (`POD_NAMESPACE`; `kube-system` without it). | plan 05 |
 | `--vendors` | `SCARPENTER_VENDORS` | `aws` | Comma-separated list of enabled vendor drivers. | plan 04 |
 | `--keeper-url` | `SCARPENTER_KEEPER_URL` | `https://keeper.sparecores.net` | Base URL of the Spare Cores Keeper API. | plan 03 |
 | `--keeper-api-key-file` | `SCARPENTER_KEEPER_API_KEY_FILE` | empty | File with an optional Keeper API key. | plan 03 |
 | `--catalog-refresh-interval` | `SCARPENTER_CATALOG_REFRESH_INTERVAL` | `1h` | How often the catalog is refreshed (with 10 % jitter). | plan 03 |
 | `--catalog-max-age` | `SCARPENTER_CATALOG_MAX_AGE` | `24h` | Snapshot age after which SCNodeClasses report `CatalogReady=False`. Must not be shorter than the refresh interval. | plan 03 |
-| `--sysext-base-url` | `SCARPENTER_SYSEXT_BASE_URL` | empty (upstream) | Mirror of the Flatcar sysext-bakery releases. | plan 05 |
-| `--flatcar-base-url` | `SCARPENTER_FLATCAR_BASE_URL` | empty (upstream) | Mirror of the Flatcar release files. | plan 05 |
-| `--bootstrap-token-ttl` | `SCARPENTER_BOOTSTRAP_TOKEN_TTL` | `1h` | Lifetime of a node's bootstrap token. | plan 05 |
+| `--sysext-base-url` | `SCARPENTER_SYSEXT_BASE_URL` | empty (upstream) | Mirror of the Flatcar sysext-bakery releases: `<base>/<name>-<version>/...` as upstream. | plan 05 |
+| `--flatcar-base-url` | `SCARPENTER_FLATCAR_BASE_URL` | empty (upstream) | Mirror of the Flatcar release files (`<base>/<arch>-usr/<version>/...`; `{channel}` in the base is replaced by the channel). | plan 05 |
+| `--bootstrap-token-ttl` | `SCARPENTER_BOOTSTRAP_TOKEN_TTL` | `1h` | Lifetime of a node's bootstrap token; at least `20m`, because core gives a NodeClaim 15 minutes to register and the token must outlive that. | plan 05 |
 | `--max-launch-attempts` | `SCARPENTER_MAX_LAUNCH_ATTEMPTS` | `3` | Vendor calls one NodeClaim creation may make; candidates skipped for lack of quota headroom do not count. | plan 04 |
 | `--quota-refresh-interval` | `SCARPENTER_QUOTA_REFRESH_INTERVAL` | `2m` | How often quota usage is refreshed per vendor and region in scope. | plan 04 |
 | `--quota-limits-refresh-interval` | `SCARPENTER_QUOTA_LIMITS_REFRESH_INTERVAL` | `15m` | How often quota limits are refreshed. | plan 04 |
@@ -54,9 +56,10 @@ must be positive.
 
 | Condition | Meaning | Set by |
 |---|---|---|
-| `Ready` | Root condition: true when `CatalogReady` and `ArtifactsReady` are. A vendor that is not ready only makes its own offerings unavailable. | derived (operatorpkg) |
+| `Ready` | Root condition: true when `CatalogReady`, `ArtifactsReady` and `ValidationSucceeded` are. A vendor that is not ready only makes its own offerings unavailable. | derived (operatorpkg) |
 | `CatalogReady` | The catalog snapshot for the SCNodeClass is available and not older than `--catalog-max-age`. The catalog computes it (`Catalog.Status`: `NoSnapshot`, `ScopePending`, `Stale`); the NodeClass controller writes it to the status. | plan 03 (status), plan 05 (condition) |
-| `ArtifactsReady` | The sysext images for the pinned versions are resolved (`status.resolved`). | plan 05 |
+| `ArtifactsReady` | The sysext images for the pinned versions are resolved (`status.resolved`). Reasons: `Resolved`, `ReleaseNotFound`, `ResolutionFailed`. | plan 05 |
+| `ValidationSucceeded` | The semantic checks pass: kubelet quantities parse, the Kubernetes version is within the skew of the API server (at most three minors older, never newer), the referenced ConfigMaps and Secret exist, a trial rendering of the user-data succeeds within the size budget. Reasons: `Valid`, `InvalidKubeletSettings`, `KubernetesVersionNotSupported`, `ReferenceNotFound`, `ReferenceUnreadable`, `TemplateInvalid`. | plan 05 |
 | `RestartRequired` | Informational, not a dependent of `Ready`: a metric was added or renamed after start-up; its labels are selectable only after the controller restarts (see [labels](labels.md)). The catalog names the keys (`Catalog.RestartRequired`) and stops stamping them; the NodeClass controller writes the condition. | plan 03 (keys), plan 05 (condition) |
 
 Per vendor, `status.vendors.<vendor>.conditions`:
@@ -64,20 +67,21 @@ Per vendor, `status.vendors.<vendor>.conditions`:
 
 | Condition | Meaning | Set by |
 |---|---|---|
-| `VendorReady` | Credentials, regions and the vendor block validate. | plan 04 |
-| `ImagesReady` | Boot images exist per region and architecture. | plan 05 |
+| `VendorReady` | The vendor is enabled, its regions are ones the driver can use and the driver's `ValidateNodeClass` accepts the block. Reasons: `Ready`, `VendorNotEnabled`, `UnknownRegions`, `ValidationFailed`. | plan 05 |
+| `ImagesReady` | Boot images exist per region and architecture, as the driver's optional `ImageReporter` reports them (`status.vendors.<vendor>.images`); a driver without it resolves images at launch and counts as ready. Informational: a region without an image has unavailable offerings, the NodeClass stays `Ready`. | plan 05 (hook), plan 08 (AWS) |
 | `ResourcesReady` | Referenced resources exist and managed ones are in place. | plan 06 |
 | `QuotaAvailable` | Informational: `False` when a quota bucket has no headroom. | plan 04 |
 
-Plan 04 sets `QuotaAvailable` (see [Quota](#quota)). Until the NodeClass
-controller of plan 05 lands, the controller sets no other condition and an
-SCNodeClass stays `Ready=Unknown`; the NodePools that reference it are not
-ready. Development builds (`-tags scarpenter_dev`) run a stand-in that sets
-them, see [the driver contract](driver-contract.md#the-fake-driver).
+The NodeClass controller (plan 05; see [node bootstrap](node-bootstrap.md#the-nodeclass-controller))
+writes these conditions, the resolved artifacts and the per-vendor drift hash with
+server-side apply under the field manager `scarpenter-nodeclass`; the quota status
+controller sets `QuotaAvailable` (see [Quota](#quota)) under `scarpenter-quota`.
+Development builds run the same controller; the stand-in of plan 04 is gone.
 
-`Create` needs `Ready=True` with the current `observedGeneration`, and the
-vendor's `VendorReady=True`; a vendor that is not ready offers no instance
-types.
+`Create` needs `Ready=True` with the current `observedGeneration`. A vendor that
+is not ready offers no instance types; a `Create` fails with `NodeClassNotReady`
+only when every vendor the NodeClaim allows is not ready (when another, ready
+vendor simply has no capacity, it is `InsufficientCapacity`).
 
 ## Catalog
 
@@ -110,9 +114,9 @@ Binaries built with `-tags scarpenter_dev` add the fake driver and its flags
 (all `SCARPENTER_*` environment fallbacks): `--fake-catalog-vendor` (default
 `aws`: the Keeper vendor whose catalog the fake serves, under that vendor ID),
 `--fake-config-namespace` (`scarpenter-system`), `--fake-config-name`
-(`scarpenter-fake`), `--fake-state-name` (`scarpenter-fake-state`),
-`--fake-launch-delay` (`0`), and a stand-in for the NodeClass controller
-(plan 05 removes it). Details: [the fake driver](driver-contract.md#the-fake-driver).
+(`scarpenter-fake`), `--fake-state-name` (`scarpenter-fake-state`)
+and `--fake-launch-delay` (`0`). Details: [the fake driver](driver-contract.md#the-fake-driver).
+The NodeClass controller is the same as in production.
 
 ## CloudProvider
 
@@ -135,8 +139,9 @@ is vendor-neutral on top of [the driver contract](driver-contract.md).
   skipped; `Retryable` is returned as is (core retries); `Fatal` returns a
   `CreateError` and an Event. When nothing launched it returns
   `InsufficientCapacityError` and core deletes the NodeClaim. The NodeClaim UID
-  is the idempotency key. Until plan 05 the user-data is empty and the bootstrap
-  token a no-op (`StubBootstrap`).
+  is the idempotency key. The bootstrap token is minted once per NodeClaim (a retry
+  gets the same one) and the user-data rendered once per vendor, region and
+  architecture ([node bootstrap](node-bootstrap.md)).
 - Provider ID: `scarpenter://<vendor>/<region>/<nodeclaim>`. Annotations on the
   launched NodeClaim: `scarpenter.sparecores.com/instance-ref`, `nodeclass-hash`,
   `nodeclass-hash-version`, `price` (the `price-incomplete` annotation comes with
@@ -165,7 +170,13 @@ Metrics:
 | `scarpenter_create_duration_seconds` | histogram | `result` | Duration of `Create`. |
 
 Events (on the SCNodeClass): `LaunchFailed` (a `Fatal` vendor error),
-`ImageResolutionFailed`.
+`ImageResolutionFailed`. The NodeClass controller, the bootstrap token controller
+and the serving certificate approver add `ArtifactsNotResolved`,
+`ValidationFailed`, `VendorNotReady`, `RestartRequired`, `MetricInvalid` (on the
+SCNodeClass), `BootstrapTokenDeleted` (on the NodeClaim; also `GarbageCollected` on
+the NodeClass for orphan tokens) and `ServingCertificateApproved` /
+`ServingCertificateDenied` (on the certificate signing request); see
+[node bootstrap](node-bootstrap.md).
 
 ## Quota
 
@@ -210,7 +221,8 @@ this cluster in the regions in use (allowed by a NodeClass, or holding a
 NodeClaim) and deletes those whose NodeClaim does not exist (or that lack the
 `nodeclaim` tag) and that are older than `--gc-grace-period`. Bootstrap-token
 Secrets (`kube-system`, label `scarpenter.sparecores.com/nodeclaim`) of missing
-NodeClaims are deleted the same way. Managed vendor resources are added by plan
+NodeClaims are deleted the same way, with a `GarbageCollected` Event on the
+SCNodeClass of the token's `scarpenter.sparecores.com/nodeclass` label. Managed vendor resources are added by plan
 06. Every deletion is logged with its reason and published as the Normal Event
 `GarbageCollected` on the SCNodeClass of the instance's `nodeclass` tag, else on
 the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).

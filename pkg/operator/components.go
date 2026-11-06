@@ -17,9 +17,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	"github.com/SpareCores/scarpenter/pkg/artifacts"
+	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/cloudprovider"
+	"github.com/SpareCores/scarpenter/pkg/controllers/bootstraptoken"
+	"github.com/SpareCores/scarpenter/pkg/controllers/csr"
 	"github.com/SpareCores/scarpenter/pkg/controllers/garbagecollection"
+	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/controllers/quotastatus"
 	"github.com/SpareCores/scarpenter/pkg/quota"
 	"github.com/SpareCores/scarpenter/pkg/scope"
@@ -40,15 +45,17 @@ type Components struct {
 	Facts       *facts.Facts
 	Catalog     *catalog.Catalog
 	Scope       *scope.Resolver
+	// Artifacts, Refs, Renderer and Tokens are the node bootstrap (overview
+	// section 8): the sysext digests, the references of the NodeClasses, the
+	// user-data and the bootstrap tokens.
+	Artifacts *artifacts.Resolver
+	Refs      *bootstrap.KubeReferences
+	Renderer  *bootstrap.Renderer
+	Tokens    *bootstrap.Minter
 
 	scopeMu   sync.Mutex
 	lastScope map[string][]string
 }
-
-// DevHooks run when the components are registered; development builds
-// (scarpenter_dev) add controllers that stand in for later plans, for example
-// the dev NodeClass status controller of the fake driver.
-var DevHooks []func(ctx context.Context, o *Operator, c *Components) error
 
 // NewComponents builds the driver registry from --vendors, the
 // unavailable-offerings cache, the quota tracker, the driver facts and the
@@ -90,6 +97,23 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	})
 	c.Facts = facts.New(facts.Options{Registry: reg, Launchable: c.Tracker, Clock: o.Clock})
 	c.Scope = &scope.Resolver{Reader: o.GetClient(), Registry: reg, Regions: c.Facts}
+	c.Artifacts = artifacts.New(artifacts.Config{
+		SysextBase: opts.SysextBaseURL, FlatcarBase: opts.FlatcarBaseURL, Clock: o.Clock,
+	})
+	// The references live in any namespace and the tokens in kube-system: read
+	// them straight from the API server instead of starting a cluster-wide
+	// informer on Secrets.
+	c.Refs = &bootstrap.KubeReferences{
+		Reader: o.GetAPIReader(), CAFile: opts.ClusterCAFile, Namespace: os.Getenv("POD_NAMESPACE"), Clock: o.Clock,
+	}
+	c.Renderer = bootstrap.NewRenderer(bootstrap.RendererOptions{
+		Refs: c.Refs, APIServerEndpoint: opts.APIServerEndpoint,
+		ClusterDNS: opts.ClusterDNS, ClusterDomain: opts.ClusterDomain,
+	})
+	c.Tokens = bootstrap.NewMinter(bootstrap.MinterOptions{
+		Client: o.GetClient(), Reader: o.GetAPIReader(), TTL: opts.BootstrapTokenTTL,
+		Clock: o.Clock, Recorder: o.EventRecorder,
+	})
 	if c.Catalog, err = o.WithCatalog(c.Facts, un, c.Tracker); err != nil {
 		return nil, err
 	}
@@ -140,6 +164,8 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 		Unavailable:       c.Unavailable,
 		Quota:             c.Tracker,
 		Scope:             c.Scope,
+		Tokens:            c.Tokens,
+		UserData:          c.Renderer,
 		Recorder:          o.EventRecorder,
 		InstanceTypeStore: o.InstanceTypeStore,
 		ClusterName:       o.Options.ClusterName,
@@ -150,11 +176,13 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 }
 
 // WithComponentControllers registers the controllers of the components: the
-// garbage collector, the NodeClass quota status and the development hooks.
+// garbage collector, the NodeClass controller and its quota status, the
+// bootstrap token cleanup and the serving certificate approver.
 func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) error {
 	opts := o.Options
 	gc := garbagecollection.New(garbagecollection.Options{
 		Client:        o.GetClient(),
+		Reader:        o.GetAPIReader(),
 		Registry:      c.Registry,
 		Clock:         o.Clock,
 		ClusterName:   opts.ClusterName,
@@ -170,18 +198,48 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	if err := o.Add(gc); err != nil {
 		return fmt.Errorf("adding the garbage collector to the manager: %w", err)
 	}
+	nodeClass := nodeclass.New(nodeclass.Options{
+		Client: o.GetClient(), Catalog: c.Catalog, Registry: c.Registry, Artifacts: c.Artifacts, Renderer: c.Renderer,
+		Refs: c.Refs, Regions: c.Facts, ServerVersion: o.serverVersion, Recorder: o.EventRecorder, Clock: o.Clock,
+	})
+	if err := nodeClass.Register(o.Manager); err != nil {
+		return fmt.Errorf("registering the NodeClass controller: %w", err)
+	}
+	if err := bootstraptoken.New(o.GetAPIReader(), c.Tokens).Register(o.Manager); err != nil {
+		return fmt.Errorf("registering the bootstrap token controller: %w", err)
+	}
+	approver := csr.New(csr.Options{Client: o.GetClient(), Recorder: o.EventRecorder, Clock: o.Clock})
+	if err := approver.Register(o.Manager); err != nil {
+		return fmt.Errorf("registering the serving certificate controller: %w", err)
+	}
+	c.checkClusterCA(ctx)
 	qs := quotastatus.New(quotastatus.Options{
 		Client: o.GetClient(), Catalog: c.Catalog, Tracker: c.Tracker, Recorder: o.EventRecorder, Clock: o.Clock,
 	})
 	if err := qs.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the quota status controller: %w", err)
 	}
-	for _, hook := range DevHooks {
-		if err := hook(ctx, o, c); err != nil {
-			return err
-		}
-	}
 	return nil
+}
+
+// checkClusterCA logs when nodes cannot be given the cluster CA, which would
+// fail every launch; the controller keeps running, the condition may be fixed
+// without a restart (the ConfigMap is read again).
+func (c *Components) checkClusterCA(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, scopeTimeout)
+	defer cancel()
+	if _, err := c.Refs.ClusterCA(ctx); err != nil {
+		log.FromContext(ctx).Error(err, "the cluster CA for the nodes is not available; launching nodes fails until it is")
+	}
+}
+
+// serverVersion returns the API server's version.
+func (o *Operator) serverVersion(context.Context) (string, error) {
+	info, err := o.KubernetesInterface.Discovery().ServerVersion()
+	if err != nil {
+		return "", fmt.Errorf("reading the API server's version: %w", err)
+	}
+	return info.GitVersion, nil
 }
 
 // deploymentRef names the controller's Deployment for Events that have no

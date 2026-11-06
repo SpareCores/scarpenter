@@ -31,7 +31,7 @@ func base() *v1alpha1.SCNodeClass {
 
 func hash(t *testing.T, nc *v1alpha1.SCNodeClass, vendor string) string {
 	t.Helper()
-	h, err := nodeclass.Hash(nc, vendor)
+	h, err := nodeclass.Hash(nc, vendor, nodeclass.Inputs{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,5 +83,37 @@ func TestHashIsPerVendor(t *testing.T) {
 	nc := base()
 	if hash(t, nc, "aws") == hash(t, nc, "fake") {
 		t.Error("two vendors share a hash")
+	}
+}
+
+// The hash covers what the spec points at, not only the spec: a changed custom
+// template, Butane snippet or auth key Secret, or a re-published image, drifts
+// the nodes (overview section 6.3).
+func TestHashCoversTheResolvedInputs(t *testing.T) {
+	nc := base()
+	hashWith := func(in nodeclass.Inputs) string {
+		t.Helper()
+		h, err := nodeclass.Hash(nc, "aws", in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	resolved := func(sum string) *v1alpha1.ResolvedArtifacts {
+		return &v1alpha1.ResolvedArtifacts{Kubernetes: map[string]v1alpha1.Artifact{"amd64": {URL: "https://example.com/k.raw", SHA256: sum}}}
+	}
+	ref := hashWith(nodeclass.Inputs{Resolved: resolved("aa"), CustomTemplate: "a", UserButane: "b", AuthKeyVersion: "1"})
+	if again := hashWith(nodeclass.Inputs{Resolved: resolved("aa"), CustomTemplate: "a", UserButane: "b", AuthKeyVersion: "1"}); again != ref {
+		t.Fatal("the hash is not deterministic")
+	}
+	for name, in := range map[string]nodeclass.Inputs{
+		"image digest":    {Resolved: resolved("bb"), CustomTemplate: "a", UserButane: "b", AuthKeyVersion: "1"},
+		"custom template": {Resolved: resolved("aa"), CustomTemplate: "changed", UserButane: "b", AuthKeyVersion: "1"},
+		"butane":          {Resolved: resolved("aa"), CustomTemplate: "a", UserButane: "changed", AuthKeyVersion: "1"},
+		"auth key secret": {Resolved: resolved("aa"), CustomTemplate: "a", UserButane: "b", AuthKeyVersion: "2"},
+	} {
+		if hashWith(in) == ref {
+			t.Errorf("changing the %s does not change the hash", name)
+		}
 	}
 }

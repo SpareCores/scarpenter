@@ -23,6 +23,7 @@ import (
 	karpcloudprovider "sigs.k8s.io/karpenter/pkg/cloudprovider"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/cloudprovider"
 	"github.com/SpareCores/scarpenter/pkg/scope"
@@ -512,6 +513,42 @@ func TestCreateRequiresAReadyNodeClass(t *testing.T) {
 		its, err := e.cp.GetInstanceTypes(t.Context(), nodePool())
 		if err != nil || len(its) != 0 {
 			t.Errorf("GetInstanceTypes = %d types, %v for a vendor that is not ready", len(its), err)
+		}
+	})
+	// A vendor that is not ready must not turn the failures of another vendor's
+	// NodeClaim into NodeClassNotReady (plan 04 review, N5).
+	t.Run("another vendor not ready", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		// aws is ready (markReady), qemu has no status: not ready. The catalog
+		// does not know the qemu block (it was built before), and nothing in it
+		// matches the type, so there are no candidates.
+		nc := &v1alpha1.SCNodeClass{}
+		if err := e.client.Get(t.Context(), clientKey(className), nc); err != nil {
+			t.Fatal(err)
+		}
+		nc.Spec.Vendors.QEMU = &qemu.Settings{}
+		if err := e.client.Update(t.Context(), nc); err != nil {
+			t.Fatal(err)
+		}
+		for name, tc := range map[string]struct {
+			vendors  []string
+			notReady bool
+		}{
+			"the ready vendor is allowed":                  {vendors: []string{"aws", "qemu"}},
+			"only the ready vendor is allowed":             {vendors: []string{"aws"}},
+			"only the vendor that is not ready is allowed": {vendors: []string{"qemu"}, notReady: true},
+		} {
+			claim := e.newClaim("claim-"+strings.ReplaceAll(name, " ", "-"), []string{"aws.does-not-exist"},
+				func(c *karpv1.NodeClaim) {
+					c.Spec.Requirements = append(c.Spec.Requirements, req(v1alpha1.LabelVendor, corev1.NodeSelectorOpIn, tc.vendors...))
+				})
+			_, err := e.cp.Create(t.Context(), claim)
+			if got := karpcloudprovider.IsNodeClassNotReadyError(err); got != tc.notReady {
+				t.Errorf("%s: Create error = %v, NodeClassNotReady = %v, want %v", name, err, got, tc.notReady)
+			}
+			if !tc.notReady && !karpcloudprovider.IsInsufficientCapacityError(err) {
+				t.Errorf("%s: Create error = %v, want InsufficientCapacityError", name, err)
+			}
 		}
 	})
 	t.Run("missing", func(t *testing.T) {

@@ -1,6 +1,8 @@
-# The Keeper replay server with the committed snapshot.
+# The Keeper replay server with the committed snapshot and the sysext release
+# checksums.
 FROM scratch
 COPY replay /replay
 COPY snapshot /snapshot
+COPY sysext /sysext
 USER 65532:65532
-ENTRYPOINT ["/replay", "-snapshot=/snapshot"]
+ENTRYPOINT ["/replay", "-snapshot=/snapshot", "-sysext=/sysext"]

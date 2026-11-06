@@ -63,6 +63,9 @@ func TestDefaults(t *testing.T) {
 		o.AWSHomeRegion != want.AWSHomeRegion || strings.Join(o.Vendors, ",") != "aws" {
 		t.Errorf("defaults differ:\n got %+v\nwant %+v", *o, want)
 	}
+	if len(o.ClusterDNS) != 0 || o.ClusterDomain != "cluster.local" {
+		t.Errorf("cluster DNS = %v, domain = %q; want none and cluster.local", o.ClusterDNS, o.ClusterDomain)
+	}
 	for name, v := range map[string]string{"cluster CA file": o.ClusterCAFile, "Keeper API key file": o.KeeperAPIKeyFile, "sysext base URL": o.SysextBaseURL, "Flatcar base URL": o.FlatcarBaseURL} {
 		if v != "" {
 			t.Errorf("%s defaults to %q, want empty", name, v)
@@ -90,6 +93,8 @@ func TestEnvironmentFallbacks(t *testing.T) {
 		"SCARPENTER_GC_INTERVAL":                   "5m",
 		"SCARPENTER_RESOURCE_DEFAULT_TTL":          "48h",
 		"SCARPENTER_AWS_HOME_REGION":               "eu-central-1",
+		"SCARPENTER_CLUSTER_DNS":                   "10.96.0.10, fd00::a",
+		"SCARPENTER_CLUSTER_DOMAIN":                "k8s.example.com",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +107,8 @@ func TestEnvironmentFallbacks(t *testing.T) {
 		o.BootstrapTokenTTL != 30*time.Minute || o.MaxLaunchAttempts != 5 ||
 		o.QuotaRefreshInterval != time.Minute || o.QuotaLimitsRefreshInterval != 10*time.Minute ||
 		o.QuotaMaxStaleness != 20*time.Minute || o.GCInterval != 5*time.Minute ||
-		o.ResourceDefaultTTL != 48*time.Hour || o.AWSHomeRegion != "eu-central-1" {
+		o.ResourceDefaultTTL != 48*time.Hour || o.AWSHomeRegion != "eu-central-1" ||
+		strings.Join(o.ClusterDNS, ",") != "10.96.0.10,fd00::a" || o.ClusterDomain != "k8s.example.com" {
 		t.Errorf("environment fallbacks not applied: %+v", *o)
 	}
 }
@@ -145,6 +151,9 @@ func TestValidation(t *testing.T) {
 		{"zero launch attempts", append([]string{"--max-launch-attempts=0"}, required...), "--max-launch-attempts"},
 		{"zero catalog interval", append([]string{"--catalog-refresh-interval=0s"}, required...), "--catalog-refresh-interval must be positive"},
 		{"negative token ttl", append([]string{"--bootstrap-token-ttl=-1m"}, required...), "--bootstrap-token-ttl must be positive"},
+		{"token ttl shorter than core's registration timeout", append([]string{"--bootstrap-token-ttl=10m"}, required...), "--bootstrap-token-ttl must be at least 20m0s"},
+		{"cluster dns not an ip", append([]string{"--cluster-dns=10.96.0.10,dns.example.com"}, required...), "--cluster-dns"},
+		{"empty cluster domain", append([]string{"--cluster-domain="}, required...), "--cluster-domain must not be empty"},
 		{"zero gc interval", append([]string{"--gc-interval=0s"}, required...), "--gc-interval must be positive"},
 		{"zero resource ttl", append([]string{"--resource-default-ttl=0s"}, required...), "--resource-default-ttl must be positive"},
 		{"zero quota staleness", append([]string{"--quota-max-staleness=0s"}, required...), "--quota-max-staleness must be positive"},

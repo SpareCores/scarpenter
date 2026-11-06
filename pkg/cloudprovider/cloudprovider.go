@@ -75,7 +75,7 @@ type Options struct {
 	Scope *scope.Resolver
 	// Recorder publishes Events; nil publishes none.
 	Recorder events.Recorder
-	// Tokens and UserData default to StubBootstrap (plan 05 replaces them).
+	// Tokens and UserData default to StubBootstrap.
 	Tokens   TokenMinter
 	UserData UserDataRenderer
 	// InstanceTypeStore applies NodeOverlays to the candidates when the feature

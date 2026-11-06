@@ -28,6 +28,8 @@ spec:
             - --vendors=fake
             - --fake-catalog-vendor=aws
             - --keeper-url=http://keeper-replay.scarpenter-system:8080
+            # The sysext release checksums come from the replay server too.
+            - --sysext-base-url=http://keeper-replay.scarpenter-system:8080/sysext
             - --keeper-prices-regions-per-request=1
             - --quota-refresh-interval=10s
             - --quota-limits-refresh-interval=10s

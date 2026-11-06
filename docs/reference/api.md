@@ -1410,7 +1410,7 @@ SCNodeClassStatus is the observed state of an SCNodeClass.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `conditions` | array of [object](#statusconditions) |  | conditions of the SCNodeClass: Ready, CatalogReady, ArtifactsReady. |
+| `conditions` | array of [object](#statusconditions) |  | conditions of the SCNodeClass: Ready, CatalogReady, ArtifactsReady, ValidationSucceeded, and RestartRequired when set. |
 | `resolved` | [object](#statusresolved) |  | resolved holds the artifacts resolved for the whole SCNodeClass. |
 | `vendorNames` | array of string |  | vendorNames lists the vendors that have a block in the spec, for the printer column. |
 | `vendors` | map of [object](#statusvendors) |  | vendors is the observed state per vendor. |

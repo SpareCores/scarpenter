@@ -1,0 +1,9 @@
+# The RBAC of SCarpenter (overview section 8.5): its own permissions and the
+# three ClusterRoleBindings that let nodes join. The ServiceAccount is the one
+# of the Deployment (scarpenter in scarpenter-system, as in the L3 lane); the
+# Helm chart of plan 09 templates the same rules.
+#
+#   kubectl apply -k config/rbac
+resources:
+  - controller.yaml
+  - node-join.yaml

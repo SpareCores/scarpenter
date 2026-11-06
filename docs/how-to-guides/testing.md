@@ -77,8 +77,8 @@ that a green run never means "skipped".
 | Lane | Runs | What it proves | Status |
 |---|---|---|---|
 | L1 | `make test` | Unit and golden tests: pure packages with no Kubernetes client. | Started in plan 02 (flag parsing, labels; plan 04: the CloudProvider, quota tracker, garbage collector and the driver conformance suite against the fake driver). |
-| L2 | `make test` | envtest: an API server and etcd (no kubelet), with the generated CRDs and Karpenter core's CRDs installed. | CRD admission tests (schema, defaults, every CEL rule, strict field validation) and a smoke test that starts the real manager with the production wiring and has core resolve an `SCNodeClass`; the quota status and dev NodeClass status controllers. |
-| L3 | `make test-kwok` | Real Karpenter core, SCarpenter and the fake driver (KWOK nodes) in kind. | Plan 04: ten scenarios, [The L3 lane](#the-l3-lane). |
+| L2 | `make test` | envtest: an API server and etcd (no kubelet), with the generated CRDs and Karpenter core's CRDs installed. | CRD admission tests (schema, defaults, every CEL rule, strict field validation) and a smoke test that starts the real manager with the production wiring (the NodeClass controller resolving sysext checksums from a local release server) and has core resolve an `SCNodeClass`; the NodeClass, quota status, serving certificate and bootstrap token controllers. |
+| L3 | `make test-kwok` | Real Karpenter core, SCarpenter and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, [The L3 lane](#the-l3-lane). |
 | L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged`. | Plan 07. |
 | L5 | a manual GitHub workflow | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10. |
 
@@ -109,14 +109,22 @@ while iterating. The committed snapshot is about 4.4 MB.
 
 `hack/dev.sh make test-kwok` builds the controller with `-tags scarpenter_dev`
 (real Karpenter core as a library plus the fake driver), a Keeper replay server
-that serves the committed snapshot, creates a kind cluster, installs
+that serves the committed snapshot and, under `/sysext`, the `SHA256SUMS` fixtures
+of `pkg/artifacts/testdata` (the controller's `--sysext-base-url` points there, so
+the lane needs no access to GitHub), creates a kind cluster, installs
 [kwok-controller](https://kwok.sigs.k8s.io) (the version is `KWOK_VERSION` in
 `test/kwok/run.sh`; the release files are downloaded once into
 `test/kwok/.cache`), the CRDs and the manifests of `test/kwok/manifests`, and
 runs the scenarios of `test/kwok/e2e` (build tag `kwok`). The fake driver
 creates a Node object for every instance; kwok-controller makes it Ready and
 runs the pods on it. The lane has its own RBAC in
-`test/kwok/manifests/controller/rbac.yaml`; the chart of plan 09 replaces it.
+`test/kwok/manifests/controller/rbac.yaml` (core's permissions and the fake
+driver's); SCarpenter's own permissions are the production ones, `config/rbac`,
+which the lane applies, so a permission missing there fails the lane. The kind
+cluster runs without the controller manager's taint-eviction controller
+(`test/kwok/kind.yaml`): KWOK nodes are Ready at once, and that controller would
+otherwise evict a pod bound within milliseconds of the removal of the
+unregistered taint.
 
 Unlike the lane of `sc-karpenter-nodepool` there is no core `kwok` image, no
 core version matrix and no chart values: SCarpenter links core at the version of
@@ -130,7 +138,7 @@ Scenarios steer the fake driver through the ConfigMap `scarpenter-fake`
 (`errors`, `quota`, `orphans`, `launchDelay`) and read what it did from the
 ConfigMap `scarpenter-fake-state` (`calls`, `instances`); the formats are in the
 [driver contract](../reference/driver-contract.md#the-fake-driver). The
-scenarios are `TestS01` to `TestS10`:
+scenarios are `TestS01` to `TestS11`:
 
 | Scenario | Proves |
 |---|---|
@@ -144,6 +152,7 @@ scenarios are `TestS01` to `TestS10`:
 | S08 | a NodeClass change drifts the node and replaces it |
 | S09 | an orphan instance is deleted by the garbage collector after the grace period |
 | S10 | scale (Q7): 50 pods with distinct exact types, every region vs. three; the numbers go to `test/kwok/.out/q7.txt` |
+| S11 | the node bootstrap: the NodeClass resolves its artifacts and publishes a hash; the launch gets user-data within the size budget (the fake reports its size) and a bootstrap token, which is deleted, with an Event, when the NodeClaim registers |
 
 Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
 (`KWOK_SCENARIOS=TestS0[12]`), `KEEP_CLUSTER=1` keeps the cluster and
@@ -152,6 +161,15 @@ leaves the lane running (`KUBECONFIG=test/kwok/.cache/scarpenter-kwok.kubeconfig
 and `make kwok-down` removes it. On failure the logs of the controller,
 kwok-controller and the replay server, the NodeClaims and the fake ConfigMaps are
 collected in `test/kwok/.out/logs` (CI uploads them).
+
+### Artifact fixtures
+
+`pkg/artifacts/testdata/<name>-<version>/SHA256SUMS` are the real checksum files of
+the sysext-bakery releases `kubernetes-v1.37.1` and `tailscale-v1.98.10`,
+downloaded once (public, unauthenticated) from
+`https://github.com/flatcar/sysext-bakery/releases/download/<release>/SHA256SUMS`.
+The artifact tests and the L3 lane serve them; refresh them only when a test
+should use another release.
 
 ### Conventions
 
