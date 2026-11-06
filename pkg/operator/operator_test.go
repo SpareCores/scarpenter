@@ -117,7 +117,7 @@ func TestManagerStartsWithTheStubProvider(t *testing.T) {
 
 	// The manager is ready once its caches are synced and core's CRDs exist.
 	readyz := fmt.Sprintf("http://127.0.0.1:%d/readyz", healthPort)
-	waitFor(t, 60*time.Second, "readyz", func() error {
+	waitFor(t, "readyz", func() error {
 		resp, err := http.Get(readyz) //nolint:noctx // test helper polling a local port
 		if err != nil {
 			return err
@@ -175,7 +175,7 @@ spec:
 	if err := c.Create(ctx, nodePool); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, 60*time.Second, "NodePool Ready", func() error {
+	waitFor(t, "NodePool Ready", func() error {
 		np := &karpv1.NodePool{}
 		if err := c.Get(ctx, client.ObjectKeyFromObject(nodePool), np); err != nil {
 			return err
@@ -205,7 +205,7 @@ spec:
 	if err := c.Create(ctx, typo); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, 60*time.Second, "NodePool ValidationSucceeded=False", func() error {
+	waitFor(t, "NodePool ValidationSucceeded=False", func() error {
 		np := &karpv1.NodePool{}
 		if err := c.Get(ctx, client.ObjectKeyFromObject(typo), np); err != nil {
 			return err
@@ -217,9 +217,10 @@ spec:
 	})
 }
 
-func waitFor(t *testing.T, timeout time.Duration, what string, check func() error) {
+// waitFor polls check for up to a minute.
+func waitFor(t *testing.T, what string, check func() error) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(time.Minute)
 	var err error
 	for time.Now().Before(deadline) {
 		if err = check(); err == nil {

@@ -1,0 +1,185 @@
+# The Keeper requests of the committed test snapshot (test/data/sc-snapshot), as
+# a query list of sc-keeper-go's cmd/sc-snapshot (format: package
+# github.com/SpareCores/sc-keeper-go/snapshot). Refresh it with the manually
+# triggered workflow .github/workflows/refresh-sc-snapshot.yml (about 1 GB of
+# download once: /server_prices is not compressed server-side).
+#
+# What it holds (overview 5.1 and 13.5):
+#   - the region, zone, server and benchmark config tables;
+#   - /server_prices of AWS for every active region, ONE REGION PER REQUEST (the
+#     catalog tests read with keeper.WithServerPricesRegionsPerRequest(1), so
+#     any subset of the regions replays), both allocations in one response,
+#     USD; and one region of hcloud (a vendor with its own zone format) and of
+#     gcp (numeric zone ids);
+#   - the benchmark scores of the test metrics for the whole vendor (a /servers
+#     query without regions: scores do not depend on the region), as the catalog
+#     asks for them;
+#   - the /servers queries selection profiles ask for: one region per vendor
+#     (the vendors block; hcloud explicitly) and three AWS regions (selections of a NodeClass that
+#     lists regions).
+# The replay server ignores push-down filters, so these entries serve selectors
+# that push filters down as well.
+vendors:
+  - {name: aws, region: us-east-1, spot: true}
+  - {name: gcp, region: europe-west3, spot: true}
+
+# Geekbench single core, stress-ng and one lower-is-better benchmark. Configs
+# are matched against /benchmark_configs by value; the canonical string is sent.
+# Geekbench multi core has the same file slug, so it is listed explicitly below.
+benchmarks:
+  - {id: "geekbench:score", config: {cores: single}}
+  - {id: "stress_ng:bestn"}
+  - {id: "membench:latency", config: {scope: RAM}}
+
+queries:
+  - {name: tables/region, path: /table/region}
+  - {name: tables/zone, path: /table/zone}
+  - {name: tables/server, path: /table/server}
+  - {name: benchmark_configs, path: /benchmark_configs}
+  # Three AWS regions for the selection profiles of a NodeClass that lists
+  # regions (chunks of at most three regions, the anonymous /servers limit).
+  - name: aws/benchmark-geekbench_score-three-regions
+    path: /servers
+    params:
+      vendor: aws
+      vendor_regions: ["aws~eu-central-1", "aws~eu-west-1", "aws~us-east-1"]
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "geekbench:score"
+      benchmark_config: '{"cores": "single"}'
+  - name: aws/benchmark-all-geekbench_score-multi
+    path: /servers
+    params:
+      vendor: aws
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "geekbench:score"
+      benchmark_config: '{"cores": "multi"}'
+  - name: gcp/benchmark-all-geekbench_score-multi
+    path: /servers
+    params:
+      vendor: gcp
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "geekbench:score"
+      benchmark_config: '{"cores": "multi"}'
+  # hcloud is listed explicitly: the vendors expansion of the snapshot tool
+  # resolves fsn1 to a retired numeric region id of /table/region.
+  - name: hcloud/benchmark-all-geekbench_score
+    path: /servers
+    params:
+      vendor: hcloud
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "geekbench:score"
+      benchmark_config: '{"cores": "single"}'
+  - name: hcloud/benchmark-all-geekbench_score-multi
+    path: /servers
+    params:
+      vendor: hcloud
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "geekbench:score"
+      benchmark_config: '{"cores": "multi"}'
+  - name: hcloud/benchmark-all-stress_ng_bestn
+    path: /servers
+    params:
+      vendor: hcloud
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "stress_ng:bestn"
+      benchmark_config: '{}'
+  - name: hcloud/benchmark-all-membench_latency
+    path: /servers
+    params:
+      vendor: hcloud
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "membench:latency"
+      benchmark_config: '{"scope": "RAM"}'
+  - name: hcloud/benchmark-geekbench_score
+    path: /servers
+    params:
+      vendor: hcloud
+      vendor_regions: ["hcloud~fsn1"]
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "geekbench:score"
+      benchmark_config: '{"cores": "single"}'
+  - name: hcloud/benchmark-stress_ng_bestn
+    path: /servers
+    params:
+      vendor: hcloud
+      vendor_regions: ["hcloud~fsn1"]
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "stress_ng:bestn"
+      benchmark_config: '{}'
+  - name: hcloud/benchmark-membench_latency
+    path: /servers
+    params:
+      vendor: hcloud
+      vendor_regions: ["hcloud~fsn1"]
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "membench:latency"
+      benchmark_config: '{"scope": "RAM"}'
+  # One region per request, both allocations (no allocation parameter), USD.
+  - {name: aws/server-prices/af-south-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~af-south-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-east-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-east-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-east-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-east-2"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-northeast-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-northeast-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-northeast-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-northeast-2"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-northeast-3, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-northeast-3"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-south-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-south-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-south-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-south-2"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-southeast-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-southeast-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-southeast-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-southeast-2"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-southeast-3, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-southeast-3"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-southeast-4, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-southeast-4"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-southeast-5, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-southeast-5"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-southeast-6, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-southeast-6"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ap-southeast-7, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ap-southeast-7"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ca-central-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ca-central-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/ca-west-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~ca-west-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/eu-central-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~eu-central-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/eu-central-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~eu-central-2"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/eu-north-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~eu-north-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/eu-south-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~eu-south-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/eu-south-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~eu-south-2"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/eu-west-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~eu-west-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/eu-west-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~eu-west-2"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/eu-west-3, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~eu-west-3"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/il-central-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~il-central-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/me-central-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~me-central-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/mx-central-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~mx-central-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/sa-east-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~sa-east-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/us-east-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~us-east-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/us-east-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~us-east-2"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/us-west-1, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~us-west-1"], currency: USD, limit: -1}}
+  - {name: aws/server-prices/us-west-2, path: /server_prices, params: {vendor: aws, vendor_regions: ["aws~us-west-2"], currency: USD, limit: -1}}
+  - {name: hcloud/server-prices/fsn1, path: /server_prices, params: {vendor: hcloud, vendor_regions: ["hcloud~fsn1"], currency: USD, limit: -1}}
+  - {name: gcp/server-prices/europe-west3, path: /server_prices, params: {vendor: gcp, vendor_regions: ["gcp~1300"], currency: USD, limit: -1}}
+
+vendorQueries:
+  # Scores of the whole vendor, no regions (metrics and percentiles).
+  - name: "{vendor}/benchmark-all-{benchmark_slug}"
+    path: /servers
+    benchmarks: true
+    params:
+      vendor: "{vendor}"
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "{benchmark_id}"
+      benchmark_config: "{benchmark_config}"
+  # The same for the vendor's test region (selection profiles).
+  - name: "{vendor}/benchmark-{benchmark_slug}"
+    path: /servers
+    benchmarks: true
+    params:
+      vendor: "{vendor}"
+      vendor_regions: "{vendor}~{region_id}"
+      limit: -1
+      best_price_allocation: ONDEMAND_ONLY
+      benchmark_id: "{benchmark_id}"
+      benchmark_config: "{benchmark_config}"

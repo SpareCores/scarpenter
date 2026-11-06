@@ -47,9 +47,9 @@ must be positive.
 | Condition | Meaning | Set by |
 |---|---|---|
 | `Ready` | Root condition: true when `CatalogReady` and `ArtifactsReady` are. A vendor that is not ready only makes its own offerings unavailable. | derived (operatorpkg) |
-| `CatalogReady` | The catalog snapshot for the SCNodeClass is available and not older than `--catalog-max-age`. | plan 03 |
+| `CatalogReady` | The catalog snapshot for the SCNodeClass is available and not older than `--catalog-max-age`. The catalog computes it (`Catalog.Status`: `NoSnapshot`, `ScopePending`, `Stale`); the NodeClass controller writes it to the status. | plan 03 (status), plan 05 (condition) |
 | `ArtifactsReady` | The sysext images for the pinned versions are resolved (`status.resolved`). | plan 05 |
-| `RestartRequired` | Informational, not a dependent of `Ready`: a metric was added or renamed after start-up; its labels are selectable only after the controller restarts (see [labels](labels.md)). | plan 03 |
+| `RestartRequired` | Informational, not a dependent of `Ready`: a metric was added or renamed after start-up; its labels are selectable only after the controller restarts (see [labels](labels.md)). The catalog names the keys (`Catalog.RestartRequired`) and stops stamping them; the NodeClass controller writes the condition. | plan 03 (keys), plan 05 (condition) |
 
 Per vendor, `status.vendors.<vendor>.conditions`:
 
@@ -64,6 +64,30 @@ Per vendor, `status.vendors.<vendor>.conditions`:
 Until those plans land, the controller does not set any condition and an
 SCNodeClass stays `Ready=Unknown`; the NodePools that reference it are not
 ready.
+
+## Catalog
+
+The catalog reads Keeper for the vendors and regions of the SCNodeClasses
+(`--keeper-url`, `--keeper-api-key-file`, `--catalog-refresh-interval`,
+`--catalog-max-age`) and is described in
+[Labels and offerings](labels-and-offerings.md). `Operator.WithCatalog` builds it
+from those flags and runs it in the manager; plan 04 wires it into the controller
+binary together with the driver facts (zones, root disk, profiles) it needs.
+
+Metrics (Prometheus, on the metrics port):
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `scarpenter_catalog_age_seconds` | gauge | `vendor` | Seconds since the catalog snapshot was read from Keeper. |
+| `scarpenter_catalog_refresh_errors_total` | counter | | Failed refreshes; the last good snapshot stays in use. |
+| `scarpenter_catalog_instance_types` | gauge | `vendor` | Instance types with a price in scope. |
+| `scarpenter_catalog_offerings` | gauge | `vendor` | Priced offerings (price rows in scope, before the driver's zone mapping). |
+
+At start-up, before core's controllers are built, the controller lists the
+SCNodeClasses and registers their `metric-<m>` keys, and all `cpu-flag-<flag>`
+keys, with core (`Operator.RegisterLabelKeys`, logged as `registered the label
+keys of the SCNodeClasses`). The controller needs permission to list
+SCNodeClasses.
 
 ## CloudProvider
 

@@ -1,0 +1,1400 @@
+{
+  "fetched_at": "2026-11-06T02:25:27+00:00",
+  "keeper": {
+    "database_hash": "d320364be39310dc02b1fd3019d69fca27edf32d",
+    "database_last_updated": "2026-11-06T00:43:31+00:00",
+    "packages": {
+      "sparecores-crawler": "0.10.2",
+      "sparecores-data": "0.5.1",
+      "sparecores-keeper": "2026.10+g35b7409"
+    }
+  },
+  "keeper_url": "https://keeper.sparecores.net",
+  "queries": [
+    {
+      "file": "tables/region.json.gz",
+      "name": "tables/region",
+      "params": {},
+      "path": "/table/region",
+      "rows": 269,
+      "sha256": "7f2315d38b98aa16f3a13fed5eee1232e45d5e44ceb14f50524b55ac5a2fd0f4"
+    },
+    {
+      "file": "tables/zone.json.gz",
+      "name": "tables/zone",
+      "params": {},
+      "path": "/table/zone",
+      "rows": 596,
+      "sha256": "a34151dbfa3066e984802cb6551b0dca16acda0b2c618b84f12b24d1a4c28c80"
+    },
+    {
+      "file": "tables/server.json.gz",
+      "name": "tables/server",
+      "params": {},
+      "path": "/table/server",
+      "rows": 6114,
+      "sha256": "4474fd5c4bd9c4a7d3cb85880bd55a8244734297d1efc32e0011912d7cc73926"
+    },
+    {
+      "file": "benchmark_configs.json.gz",
+      "name": "benchmark_configs",
+      "params": {},
+      "path": "/benchmark_configs",
+      "rows": 893,
+      "sha256": "11c3b8512cf4eebf597480a1107228266ece345774eeab42eeb210ec7bfd489c"
+    },
+    {
+      "file": "aws/benchmark-geekbench_score-three-regions.json.gz",
+      "name": "aws/benchmark-geekbench_score-three-regions",
+      "params": {
+        "benchmark_config": "{\"cores\": \"single\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-central-1",
+          "aws~eu-west-1",
+          "aws~us-east-1"
+        ]
+      },
+      "path": "/servers",
+      "rows": 1373,
+      "sha256": "4756288d20351ae549873986c95977f77f47cd29c42fd870068c578e8fd49ace"
+    },
+    {
+      "file": "aws/benchmark-all-geekbench_score-multi.json.gz",
+      "name": "aws/benchmark-all-geekbench_score-multi",
+      "params": {
+        "benchmark_config": "{\"cores\": \"multi\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "aws"
+      },
+      "path": "/servers",
+      "rows": 1379,
+      "sha256": "47958db00bf64682960322a6396992c8508371cdacf43e528f133989bd1ef238"
+    },
+    {
+      "file": "gcp/benchmark-all-geekbench_score-multi.json.gz",
+      "name": "gcp/benchmark-all-geekbench_score-multi",
+      "params": {
+        "benchmark_config": "{\"cores\": \"multi\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "gcp"
+      },
+      "path": "/servers",
+      "rows": 589,
+      "sha256": "f1c58621efc3c8acec5d1c6d7583fc4f7f7352d0c572033d30f9eee05b62a659"
+    },
+    {
+      "file": "hcloud/benchmark-all-geekbench_score.json.gz",
+      "name": "hcloud/benchmark-all-geekbench_score",
+      "params": {
+        "benchmark_config": "{\"cores\": \"single\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "hcloud"
+      },
+      "path": "/servers",
+      "rows": 20,
+      "sha256": "0cba20e2db04d8cf77218f9065f62fd1273f7f21d2d1422cd582ca1ec414e716"
+    },
+    {
+      "file": "hcloud/benchmark-all-geekbench_score-multi.json.gz",
+      "name": "hcloud/benchmark-all-geekbench_score-multi",
+      "params": {
+        "benchmark_config": "{\"cores\": \"multi\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "hcloud"
+      },
+      "path": "/servers",
+      "rows": 20,
+      "sha256": "5bbfb3eabb37baab63e1a5218a3570600168ca34bcca3d4d690afb03850c9b18"
+    },
+    {
+      "file": "hcloud/benchmark-all-stress_ng_bestn.json.gz",
+      "name": "hcloud/benchmark-all-stress_ng_bestn",
+      "params": {
+        "benchmark_config": "{}",
+        "benchmark_id": "stress_ng:bestn",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "hcloud"
+      },
+      "path": "/servers",
+      "rows": 20,
+      "sha256": "13350c1618f7e2f134d29703336e3269a48f7b05b40212c6f15c511d53225cf8"
+    },
+    {
+      "file": "hcloud/benchmark-all-membench_latency.json.gz",
+      "name": "hcloud/benchmark-all-membench_latency",
+      "params": {
+        "benchmark_config": "{\"scope\": \"RAM\"}",
+        "benchmark_id": "membench:latency",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "hcloud"
+      },
+      "path": "/servers",
+      "rows": 20,
+      "sha256": "d91e65cfcd2e0b75365f8d9cb7228eef7f5379d93c020c90644e62508cd1b1f4"
+    },
+    {
+      "file": "hcloud/benchmark-geekbench_score.json.gz",
+      "name": "hcloud/benchmark-geekbench_score",
+      "params": {
+        "benchmark_config": "{\"cores\": \"single\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "hcloud",
+        "vendor_regions": [
+          "hcloud~fsn1"
+        ]
+      },
+      "path": "/servers",
+      "rows": 15,
+      "sha256": "08aaf60b6be31715b08477e1eb53c8485471b56a68d74ce99ae39ec72f1e3b23"
+    },
+    {
+      "file": "hcloud/benchmark-stress_ng_bestn.json.gz",
+      "name": "hcloud/benchmark-stress_ng_bestn",
+      "params": {
+        "benchmark_config": "{}",
+        "benchmark_id": "stress_ng:bestn",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "hcloud",
+        "vendor_regions": [
+          "hcloud~fsn1"
+        ]
+      },
+      "path": "/servers",
+      "rows": 15,
+      "sha256": "701f1fe00890f5345442be7f5be76636d509fab2e041344c9a79e82754919332"
+    },
+    {
+      "file": "hcloud/benchmark-membench_latency.json.gz",
+      "name": "hcloud/benchmark-membench_latency",
+      "params": {
+        "benchmark_config": "{\"scope\": \"RAM\"}",
+        "benchmark_id": "membench:latency",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "hcloud",
+        "vendor_regions": [
+          "hcloud~fsn1"
+        ]
+      },
+      "path": "/servers",
+      "rows": 15,
+      "sha256": "020c2f925d0f80df911226ba79f337732ff449d57f7084e97df2594c544ce432"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/af-south-1.json.gz",
+      "name": "aws/server-prices/af-south-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~af-south-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2848,
+      "sha256": "92265817703f44376f3f3722eb8f11a7ea614ef169bdfd87bd4267628a4d4f95"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-east-1.json.gz",
+      "name": "aws/server-prices/ap-east-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-east-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2324,
+      "sha256": "986591b13f61a6bd6d18c5168a46d299ec28269c6a083c6acfea142b8f6703cf"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-east-2.json.gz",
+      "name": "aws/server-prices/ap-east-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-east-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 1638,
+      "sha256": "e879642ead48f8b94378eddf9baff4ebda26470b3b1796a29cb09ec5b060e7d2"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-northeast-1.json.gz",
+      "name": "aws/server-prices/ap-northeast-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-northeast-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 6991,
+      "sha256": "920f4c8c4a7d1244d0e0922a0e5ed0729301184ea4dfc9b870a25b4c16a106c3"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-northeast-2.json.gz",
+      "name": "aws/server-prices/ap-northeast-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-northeast-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 5504,
+      "sha256": "d2bb56ea21b544bb2dd70d96de15ce33578e0c5fd6f1d8070f0211b177daea99"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-northeast-3.json.gz",
+      "name": "aws/server-prices/ap-northeast-3",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-northeast-3"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2364,
+      "sha256": "9492ea7b04d619db1e3283841cbd7e1652ef267c4c8853df3e2c0389d85c4b79"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-south-1.json.gz",
+      "name": "aws/server-prices/ap-south-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-south-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 4824,
+      "sha256": "567912997801dac6f084e99d6fb19f09b6b89cd111e7481039fe48e7a4021fb5"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-south-2.json.gz",
+      "name": "aws/server-prices/ap-south-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-south-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2940,
+      "sha256": "10236edb555bcb62989fb9c21019df85a5456c344f14e5d6079be304eff4f772"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-southeast-1.json.gz",
+      "name": "aws/server-prices/ap-southeast-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-southeast-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 5420,
+      "sha256": "e5cb47c593d4827f1a693828c533af1ae9b34450eeff090ff348c0daee31e2d2"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-southeast-2.json.gz",
+      "name": "aws/server-prices/ap-southeast-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-southeast-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 5683,
+      "sha256": "4a8f99986f139d79a9fb21a3377e248fcaa06d2e286427297ef7b9774d5a4d3e"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-southeast-3.json.gz",
+      "name": "aws/server-prices/ap-southeast-3",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-southeast-3"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2280,
+      "sha256": "fc45203a77af8d224257a30d8ef4f40c9646be233cfd89a9e0bb35307b5102ac"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-southeast-4.json.gz",
+      "name": "aws/server-prices/ap-southeast-4",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-southeast-4"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 1730,
+      "sha256": "5a3b6c2da6d50105a573b5f035ae430a1bd03a22906d57d08819ba9bbdd861bf"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-southeast-5.json.gz",
+      "name": "aws/server-prices/ap-southeast-5",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-southeast-5"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 3149,
+      "sha256": "10b1fba18b098e9425add73842161512c67c72752c96d11824e126cd1e23682a"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-southeast-6.json.gz",
+      "name": "aws/server-prices/ap-southeast-6",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-southeast-6"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 1890,
+      "sha256": "4cfb65bb24e188a57f395da076a6eb8c33e2e685c6ca3caf4e2ab6797ce3c78c"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ap-southeast-7.json.gz",
+      "name": "aws/server-prices/ap-southeast-7",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ap-southeast-7"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2028,
+      "sha256": "5fed2f540500db4e915b930b8c2b4c5b00b15f47f591e0b912609008e3a027c7"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ca-central-1.json.gz",
+      "name": "aws/server-prices/ca-central-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ca-central-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 4537,
+      "sha256": "2f8d92a036f3cd1aa825f1318a41a9da8fd159480d81d989ff99e54fe6e0a2ae"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/ca-west-1.json.gz",
+      "name": "aws/server-prices/ca-west-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~ca-west-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 1765,
+      "sha256": "09ba953d575f666358bc0d61136f79c0676e3da9259436a1ab5ff6e3b4e28ffa"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/eu-central-1.json.gz",
+      "name": "aws/server-prices/eu-central-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-central-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 6942,
+      "sha256": "86ed4e8cecb472dac19d784ebfa4ae13f56abfb65f95afa9c20f34ac3cb4bfa4"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/eu-central-2.json.gz",
+      "name": "aws/server-prices/eu-central-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-central-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2296,
+      "sha256": "fa494f460815a7ec0615d911a7993b886d18911f15c4b118e19b681f5c915a90"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/eu-north-1.json.gz",
+      "name": "aws/server-prices/eu-north-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-north-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 4157,
+      "sha256": "e2a9f1bf3e7f48494e7d174860aa27a4c078d5716414f063af98598cee49f7b5"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/eu-south-1.json.gz",
+      "name": "aws/server-prices/eu-south-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-south-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2917,
+      "sha256": "833b6bcb54243dba25631bbdf258d44b680b272d95690b9f39931ed297ce2029"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/eu-south-2.json.gz",
+      "name": "aws/server-prices/eu-south-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-south-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 4558,
+      "sha256": "17de868705b9df971e4190fd2f7a97f9b8fe90975207d05e832c488355c1582d"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/eu-west-1.json.gz",
+      "name": "aws/server-prices/eu-west-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-west-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 6899,
+      "sha256": "3439f8d31e324538a3f5817fa1ea7f065062f97e74b4a14a5268cb8fbf5514c0"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/eu-west-2.json.gz",
+      "name": "aws/server-prices/eu-west-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-west-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 5165,
+      "sha256": "0f57c0f1ae570359594449fb1248f895dbd1bc44c949acf419b1f3b42db14b14"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/eu-west-3.json.gz",
+      "name": "aws/server-prices/eu-west-3",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~eu-west-3"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 3985,
+      "sha256": "98cf4e8ed8e4fe412f0b8d67b01809b7f859ece556944f381962d1b43c74bea6"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/il-central-1.json.gz",
+      "name": "aws/server-prices/il-central-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~il-central-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 1878,
+      "sha256": "a2848bbc06a5858c2b162fda1ef9f500d63739916a7c4f3a6dbc49a0adcb153a"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/me-central-1.json.gz",
+      "name": "aws/server-prices/me-central-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~me-central-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 1848,
+      "sha256": "2f416d1e6f11e787588d7ecfffc28d6a847e41348855817c3629c9d6a4e40244"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/mx-central-1.json.gz",
+      "name": "aws/server-prices/mx-central-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~mx-central-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 1686,
+      "sha256": "578b9876326a62d9518020dfee363c52b8abeefecb66e0b3feb55f8f89693b1b"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/sa-east-1.json.gz",
+      "name": "aws/server-prices/sa-east-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~sa-east-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 4331,
+      "sha256": "8fcdad9476fc33bc22d176d8ab8380a3c07c5b167ed141544a94e3b6118fc01d"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/us-east-1.json.gz",
+      "name": "aws/server-prices/us-east-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~us-east-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 13828,
+      "sha256": "d437033d6af5fa4ae2043e58e767859b6d74e5620207a034b35a9872f0b19fe9"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/us-east-2.json.gz",
+      "name": "aws/server-prices/us-east-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~us-east-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 7338,
+      "sha256": "18f5f6b2c1f0ed71dbb157fc1d79a1ba09e921e19d189ff1e0980c0d2a9a6344"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/us-west-1.json.gz",
+      "name": "aws/server-prices/us-west-1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~us-west-1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2862,
+      "sha256": "3a3e3f7eb727b6a6a4d3765a53eb388f414a4e0974df031fde02c4592e8c1bf8"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "aws/server-prices/us-west-2.json.gz",
+      "name": "aws/server-prices/us-west-2",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": [
+          "aws~us-west-2"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 10365,
+      "sha256": "3c873af6387181cafe4ff074e7ca6b357eda573b2a56e5bc623039578dde4350"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "hcloud/server-prices/fsn1.json.gz",
+      "name": "hcloud/server-prices/fsn1",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "hcloud",
+        "vendor_regions": [
+          "hcloud~fsn1"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 20,
+      "sha256": "035d5dece3f788c0e32411599039ab931c11a5965d8a7f7a53bebb189e938d3b"
+    },
+    {
+      "fields": [
+        "vendor_id",
+        "region_id",
+        "zone_id",
+        "server_id",
+        "operating_system",
+        "allocation",
+        "unit",
+        "price",
+        "currency",
+        "status",
+        "observed_at"
+      ],
+      "file": "gcp/server-prices/europe-west3.json.gz",
+      "name": "gcp/server-prices/europe-west3",
+      "params": {
+        "currency": "USD",
+        "limit": -1,
+        "vendor": "gcp",
+        "vendor_regions": [
+          "gcp~1300"
+        ]
+      },
+      "path": "/server_prices",
+      "projection": "flat",
+      "rows": 2756,
+      "sha256": "b050b21435c97250c492f39982b72da22e211cc6f795ada2a2f4ced95e359ff6"
+    },
+    {
+      "file": "aws/benchmark-all-geekbench_score.json.gz",
+      "name": "aws/benchmark-all-geekbench_score",
+      "params": {
+        "benchmark_config": "{\"cores\": \"single\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "aws"
+      },
+      "path": "/servers",
+      "rows": 1379,
+      "sha256": "cdcd6a1a9ac42053722949711a385ea07f8afcecd1e023fe15cc4760faf3b9cc"
+    },
+    {
+      "file": "aws/benchmark-all-stress_ng_bestn.json.gz",
+      "name": "aws/benchmark-all-stress_ng_bestn",
+      "params": {
+        "benchmark_config": "{}",
+        "benchmark_id": "stress_ng:bestn",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "aws"
+      },
+      "path": "/servers",
+      "rows": 1379,
+      "sha256": "bf2d23a37d12f35c27820922f9745c07809eee753f008ec9572dc13ef9e858cc"
+    },
+    {
+      "file": "aws/benchmark-all-membench_latency.json.gz",
+      "name": "aws/benchmark-all-membench_latency",
+      "params": {
+        "benchmark_config": "{\"scope\": \"RAM\"}",
+        "benchmark_id": "membench:latency",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "aws"
+      },
+      "path": "/servers",
+      "rows": 1379,
+      "sha256": "f47ef44dda2d8b90cc5ba42f42775e33132b7d8d94a439b0981319447aeff51b"
+    },
+    {
+      "file": "aws/benchmark-geekbench_score.json.gz",
+      "name": "aws/benchmark-geekbench_score",
+      "params": {
+        "benchmark_config": "{\"cores\": \"single\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": "aws~us-east-1"
+      },
+      "path": "/servers",
+      "rows": 1360,
+      "sha256": "b609234aa95fe74bb83a46f705dae4c7b655afdbffdeee76b7c6f959ffa7e25e"
+    },
+    {
+      "file": "aws/benchmark-stress_ng_bestn.json.gz",
+      "name": "aws/benchmark-stress_ng_bestn",
+      "params": {
+        "benchmark_config": "{}",
+        "benchmark_id": "stress_ng:bestn",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": "aws~us-east-1"
+      },
+      "path": "/servers",
+      "rows": 1360,
+      "sha256": "05d895e9afbf46ba5d3bf56f9244c8a1c3ef2857d823431d47ca56ae34fec8dd"
+    },
+    {
+      "file": "aws/benchmark-membench_latency.json.gz",
+      "name": "aws/benchmark-membench_latency",
+      "params": {
+        "benchmark_config": "{\"scope\": \"RAM\"}",
+        "benchmark_id": "membench:latency",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "aws",
+        "vendor_regions": "aws~us-east-1"
+      },
+      "path": "/servers",
+      "rows": 1360,
+      "sha256": "23d13247ec8dcc4685094e9cccfb7a6b8c0ba16fa3e5b3d3d797b01d272770d7"
+    },
+    {
+      "file": "gcp/benchmark-all-geekbench_score.json.gz",
+      "name": "gcp/benchmark-all-geekbench_score",
+      "params": {
+        "benchmark_config": "{\"cores\": \"single\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "gcp"
+      },
+      "path": "/servers",
+      "rows": 589,
+      "sha256": "cb7243917dbeb6a99e6134fef4dc0fa7da1b6c4e75b63caacdb3c2134e72d604"
+    },
+    {
+      "file": "gcp/benchmark-all-stress_ng_bestn.json.gz",
+      "name": "gcp/benchmark-all-stress_ng_bestn",
+      "params": {
+        "benchmark_config": "{}",
+        "benchmark_id": "stress_ng:bestn",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "gcp"
+      },
+      "path": "/servers",
+      "rows": 589,
+      "sha256": "79a738cb399e7a90f16805a6c4a27b4cccdd31039daed6176d5831524727861e"
+    },
+    {
+      "file": "gcp/benchmark-all-membench_latency.json.gz",
+      "name": "gcp/benchmark-all-membench_latency",
+      "params": {
+        "benchmark_config": "{\"scope\": \"RAM\"}",
+        "benchmark_id": "membench:latency",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "gcp"
+      },
+      "path": "/servers",
+      "rows": 589,
+      "sha256": "228051f34f58d1e5400dd8ca3e8944133464ab1e34732ed47239cbd8e0d682b7"
+    },
+    {
+      "file": "gcp/benchmark-geekbench_score.json.gz",
+      "name": "gcp/benchmark-geekbench_score",
+      "params": {
+        "benchmark_config": "{\"cores\": \"single\"}",
+        "benchmark_id": "geekbench:score",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "gcp",
+        "vendor_regions": "gcp~1300"
+      },
+      "path": "/servers",
+      "rows": 493,
+      "sha256": "696291f86f7be6c75a8ab73e93625be373bb90a0a5fcf8a3890b580b390e4a3f"
+    },
+    {
+      "file": "gcp/benchmark-stress_ng_bestn.json.gz",
+      "name": "gcp/benchmark-stress_ng_bestn",
+      "params": {
+        "benchmark_config": "{}",
+        "benchmark_id": "stress_ng:bestn",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "gcp",
+        "vendor_regions": "gcp~1300"
+      },
+      "path": "/servers",
+      "rows": 493,
+      "sha256": "148361d3c0f0e709e334ff2fa7b7afc23eef6f286c4aa433827d4138cf570841"
+    },
+    {
+      "file": "gcp/benchmark-membench_latency.json.gz",
+      "name": "gcp/benchmark-membench_latency",
+      "params": {
+        "benchmark_config": "{\"scope\": \"RAM\"}",
+        "benchmark_id": "membench:latency",
+        "best_price_allocation": "ONDEMAND_ONLY",
+        "limit": -1,
+        "vendor": "gcp",
+        "vendor_regions": "gcp~1300"
+      },
+      "path": "/servers",
+      "rows": 493,
+      "sha256": "59e93a08d9c04bcc5b19b781af112b1a37fc9ba0ef78332fdc6f5933b6062b43"
+    }
+  ],
+  "vendors": {
+    "aws": {
+      "region": "us-east-1",
+      "spot": true
+    },
+    "gcp": {
+      "region": "europe-west3",
+      "spot": true
+    }
+  }
+}

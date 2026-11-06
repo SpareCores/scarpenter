@@ -39,3 +39,9 @@ test/e2e-aws/.cache/
 
 # lane outputs (logs, generated catalogs)
 .out/
+
+# sc-snapshot working files (interrupted fetches)
+test/data/sc-snapshot.tmp/
+test/data/*.lock
+test/data/sc-snapshot*.lock
+test/data/sc-snapshot.old/

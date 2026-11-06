@@ -9,8 +9,8 @@ select on them.
 
 The catalog (plan 03) defines every selectable key on every instance type, with
 `DoesNotExist` where the value is unknown, and stamps them on NodeClaims and
-Nodes. What each value means and where it comes from is described with the
-catalog; this page is the list of names.
+Nodes. This page is the list of names; what each value means and which Keeper
+field it comes from is in [Labels and offerings](labels-and-offerings.md).
 
 ## Labels
 
@@ -47,17 +47,20 @@ types are named `<vendor>.<api_reference>` (ADR-008).
 
 The per-NodeClass keys (`metric-*`, `cpu-flag-*`) must be registered with
 Karpenter core too: core rejects keys of a restricted domain that are not
-well-known, in NodePool requirements and in Pod requirements alike. The static
-labels above are registered by the API package; the dynamic ones are registered
-by the catalog (plan 03), not yet in plan 02:
+well-known, in NodePool requirements and in Pod requirements alike, and
+rejects offerings that define a key core does not know (an unregistered
+`-per-usd` key would exclude every benchmarked type). The
+static labels above are registered by the API package; the dynamic ones by the
+operator at start-up (`Operator.RegisterLabelKeys`, plan 03):
 
 - `cpu-flag-<flag>` comes from a closed, curated set of CPU flags: the items of
   `spec.catalog.cpuFlagLabels` are an enum in the CRD.
 - `metric-<name>`, `metric-<name>-pct` and `metric-<name>-per-usd` are
   registered at controller start-up, before core's controllers start, from the
   SCNodeClasses that exist then. A metric added or renamed afterwards is not
-  selectable until the controller restarts; the SCNodeClass reports a
-  `RestartRequired` condition.
+  selectable until the controller restarts: the catalog does not stamp them on
+  instance types until then, and the SCNodeClass reports a `RestartRequired`
+  condition naming the keys.
 
 ## Annotations on NodeClaims
 

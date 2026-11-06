@@ -85,6 +85,14 @@ docs-api: manifests ## Generate docs/reference/api.md from the CRD.
 test-docs: ## Check that the relative links and anchors of the Markdown files resolve.
 	python3 hack/check-docs.py
 
+.PHONY: snapshot
+snapshot: ## Refresh test/data/sc-snapshot from the public Keeper API (about 1 GB of download: run rarely, from the refresh workflow; -resume continues an interrupted run).
+	@# sc-snapshot replaces the output directory as a whole, the query list included.
+	mkdir -p .out
+	cp test/data/sc-snapshot/queries.yaml .out/queries.yaml
+	go run github.com/SpareCores/sc-keeper-go/cmd/sc-snapshot -resume -queries .out/queries.yaml -out test/data/sc-snapshot
+	cp .out/queries.yaml test/data/sc-snapshot/queries.yaml
+
 .PHONY: dev-check-privileged
 dev-check-privileged: ## Prove that hack/dev.sh --privileged gives NET_ADMIN and /dev/kvm (hack/dev.sh --privileged make dev-check-privileged).
 	@test -n "$$SCARPENTER_DEV_PRIVILEGED" || { echo "run via hack/dev.sh --privileged" >&2; exit 1; }

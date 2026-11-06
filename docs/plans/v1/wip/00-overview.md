@@ -139,7 +139,7 @@ flowchart TB
 
 Module path `github.com/SpareCores/scarpenter`. Go 1.26.10 (required by
 Karpenter core v1.15.1); k8s libraries v0.36.x and controller-runtime v0.24.1,
-exactly core's versions (sc-keeper-go v0.1.1 requires no newer). `coreos/butane`
+exactly core's versions (sc-keeper-go v0.1.2 requires no newer). `coreos/butane`
 joins the module with the first code that imports it (plan 05).
 
 ```

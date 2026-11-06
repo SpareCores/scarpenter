@@ -114,3 +114,11 @@ type Placement struct {
 	// +optional
 	PinCPUs *bool `json:"pinCPUs,omitempty"`
 }
+
+// GetRegions returns the region allow-list (empty: every region).
+func (s *Settings) GetRegions() []string {
+	if s == nil {
+		return nil
+	}
+	return s.Regions
+}

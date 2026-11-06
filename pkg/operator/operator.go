@@ -59,9 +59,12 @@ func NewOperator(ctx context.Context, op *coreoperator.Operator) (context.Contex
 }
 
 // WithCoreControllers decorates the cloud provider the way core expects
-// (metrics, then NodeOverlay) and registers core's controllers with it. Our own
+// (metrics, then NodeOverlay) and registers core's controllers with it, after
+// registering the per-NodeClass label keys with core. Our own
 // controllers are registered with WithControllers by later plans.
 func (o *Operator) WithCoreControllers(ctx context.Context, cp karpcloudprovider.CloudProvider) *Operator {
+	// Before core builds its controllers from the well-known labels (labels.go).
+	lo.Must0(o.RegisterLabelKeys(ctx), "registering the label keys of the SCNodeClasses")
 	undecorated := metrics.Decorate(cp)
 	decorated := overlay.Decorate(undecorated, o.GetClient(), o.InstanceTypeStore)
 	clusterState := state.NewCluster(o.Clock, o.GetClient(), decorated)

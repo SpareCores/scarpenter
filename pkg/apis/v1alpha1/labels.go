@@ -100,6 +100,20 @@ func MetricPerUSDLabel(metric string) string {
 	return LabelMetricPrefix + metric + metricPerUSDSuffix
 }
 
+// CPUFlagLabelValues are the CPU flags that can get a cpu-flag-<flag> label: the
+// closed enum of spec.catalog.cpuFlagLabels (a test keeps the two in step).
+// All of them are registered with core at start-up.
+var CPUFlagLabelValues = []string{
+	"avx", "avx2", "avx512f", "avx512bw", "avx512vl", "avx512dq", "avx512cd",
+	"avx512_vnni", "avx512_bf16", "avx512_fp16", "avx512vbmi", "avx512ifma", "avx_vnni",
+	"amx_tile", "amx_bf16", "amx_int8", "sha_ni", "aes", "vaes", "gfni", "pclmulqdq",
+	"bmi2", "fma", "sse4_2", "asimd", "sve", "sve2", "sha2", "sha3",
+}
+
+// DefaultCPUFlagLabels are the flags that get a label when a SCNodeClass does
+// not set spec.catalog.cpuFlagLabels.
+var DefaultCPUFlagLabels = []string{"avx2", "avx512f", "amx_tile", "sha_ni"}
+
 // CPUFlagLabel is the label of a CPU flag.
 func CPUFlagLabel(flag string) string { return LabelCPUFlagPrefix + flag }
 

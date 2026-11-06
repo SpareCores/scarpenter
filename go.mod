@@ -3,13 +3,15 @@ module github.com/SpareCores/scarpenter
 go 1.26.10
 
 require (
-	github.com/SpareCores/sc-keeper-go v0.1.1
+	github.com/SpareCores/sc-keeper-go v0.1.2
 	github.com/awslabs/operatorpkg v0.0.0-20261002163259-5e8ed3699dea
+	github.com/prometheus/client_golang v1.24.0
 	github.com/samber/lo v1.53.0
 	k8s.io/api v0.36.1
 	k8s.io/apiextensions-apiserver v0.36.0
 	k8s.io/apimachinery v0.36.1
 	k8s.io/client-go v0.36.1
+	k8s.io/utils v0.0.0-20260626114624-be93311217bd
 	sigs.k8s.io/controller-runtime v0.24.1
 	sigs.k8s.io/karpenter v1.15.1
 	sigs.k8s.io/yaml v1.6.0
@@ -53,7 +55,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.24.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
@@ -90,7 +91,6 @@ require (
 	k8s.io/dynamic-resource-allocation v0.35.0 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
-	k8s.io/utils v0.0.0-20260626114624-be93311217bd // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect

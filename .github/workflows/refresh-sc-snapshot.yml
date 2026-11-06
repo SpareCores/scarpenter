@@ -1,0 +1,48 @@
+name: Refresh Spare Cores snapshot
+
+# Fetches the fixed set of Keeper API responses of
+# test/data/sc-snapshot/queries.yaml with sc-keeper-go's fetcher and commits
+# them to test/data/sc-snapshot (replacing the previous snapshot). Every other
+# test job reads the committed snapshot, so test data only changes when this
+# runs. It downloads about 1 GB from the public Keeper API (the anonymous
+# /server_prices of every AWS region is not compressed server-side), so it is
+# manual only: run it rarely.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-sc-snapshot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: true
+
+      - uses: ./.github/actions/dev-image
+
+      # sc-snapshot fails when the Keeper database changes during the fetch;
+      # run the workflow again then.
+      - name: Fetch the Keeper responses
+        run: hack/dev.sh make snapshot
+
+      - name: Commit if changed
+        run: |
+          git add -A test/data/sc-snapshot
+          # The manifest always changes (fetched_at); only data changes count.
+          if git diff --cached --quiet -- . ':(exclude)test/data/sc-snapshot/manifest.json'; then
+            echo "Snapshot data unchanged, nothing to commit"
+            exit 0
+          fi
+          db_hash=$(python3 -c 'import json; m=json.load(open("test/data/sc-snapshot/manifest.json")); print(m["keeper"]["database_hash"][:12], m["keeper"]["database_last_updated"])')
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Refresh Spare Cores snapshot (Keeper database ${db_hash})"
+          git push

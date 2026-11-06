@@ -102,3 +102,11 @@ type Group struct {
 	// +required
 	Strategy GroupStrategy `json:"strategy"`
 }
+
+// GetRegions returns the region allow-list (empty: every region).
+func (s *Settings) GetRegions() []string {
+	if s == nil {
+		return nil
+	}
+	return s.Regions
+}

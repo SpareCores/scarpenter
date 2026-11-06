@@ -159,3 +159,23 @@ func orNil[T any](p *T) any {
 	}
 	return p
 }
+
+// RegionLister is implemented by the vendor blocks (spec.vendors.<vendor>): the
+// allow-list of regions, empty meaning every region the vendor has.
+// +kubebuilder:object:generate=false
+type RegionLister interface {
+	GetRegions() []string
+}
+
+// Regions returns the region allow-list of the vendor's block (empty: every
+// region), and whether the vendor has a block.
+func (v VendorBlocks) Regions(vendor string) ([]string, bool) {
+	block, ok := v.Get(vendor)
+	if !ok {
+		return nil, false
+	}
+	if l, ok := block.(RegionLister); ok {
+		return l.GetRegions(), true
+	}
+	return nil, true
+}

@@ -85,6 +85,26 @@ they fail on purpose so that a green run never means "skipped".
 The design of the layers is in
 [the overview](../plans/v1/wip/00-overview.md#13-testing) and ADR-010.
 
+### The Keeper snapshot
+
+`test/data/sc-snapshot/` holds recorded responses of the public Keeper API: the
+region, zone, server and benchmark config tables, `/server_prices` of **every
+active AWS region** (one region per request, so any subset replays) and of one
+region of hcloud and gcp, and the benchmark scores the catalog tests use. The
+query list is `test/data/sc-snapshot/queries.yaml`; the files are written by
+`sc-keeper-go`'s fetcher and replayed by its `keepertest` server, through
+`pkg/catalog/catalogtest`:
+
+```go
+src := catalogtest.Source(t)           // a Keeper source reading the replay server
+facts := catalogtest.Facts(t, "aws")   // driver facts from the snapshot's zone table
+```
+
+Tests never reach the network. Refresh the snapshot only when the data should
+change, with the manual workflow "Refresh Spare Cores snapshot" (or
+`hack/dev.sh make snapshot`): it downloads about 1 GB, so run it rarely and not
+while iterating. The committed snapshot is about 4.4 MB.
+
 ### Conventions
 
 - Tests are table-driven and sit next to the code (`_test.go`). Controllers are

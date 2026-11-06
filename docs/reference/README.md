@@ -9,14 +9,14 @@ Available:
 - [**Controller**](controller.md) — flags and environment variables, status
   conditions, the CloudProvider (plan 02; extended by plans 03 to 09 with
   metrics, Events and Helm values).
-- [**Labels and annotations**](labels.md) — the names SCarpenter owns (plan 02;
-  their values and sources are described by plan 03).
+- [**Labels and annotations**](labels.md) — the names SCarpenter owns (plan 02).
+- [**Labels and offerings**](labels-and-offerings.md) — instance-type naming,
+  the values and Keeper sources of every label, how metrics and selection
+  profiles are evaluated, refresh and staleness, the unavailable-offerings
+  cache (plan 03).
 
 Planned for v1 (each written by the plan that implements it):
 
-- **Labels and offerings** — instance-type naming, the values of the
-  attribute, metric, selection, location and profile labels, how Keeper rows
-  become Karpenter instance types and offerings (plan 03).
 - **Node settings** — built-in defaults, vendor overrides, profiles, how a
   node's settings are resolved, drift (plan 06).
 - **Vendor resources** — resource kinds, `use` / `create` / `forbid`,
