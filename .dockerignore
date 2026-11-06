@@ -1,0 +1,8 @@
+# Allow-list: only what the controller image build needs.
+**
+!go.mod
+!go.sum
+!cmd/**
+!pkg/**
+!internal/**
+**/*_test.go

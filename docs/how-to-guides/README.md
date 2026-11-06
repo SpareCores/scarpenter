@@ -2,6 +2,11 @@
 
 Goal-oriented procedures.
 
+Available:
+
+- [**Test and develop**](testing.md) (plan 02, extended by every plan) — dev
+  container, gates, the L1–L5 test lanes, generated files, CI.
+
 Planned for v1:
 
 - **Install SCarpenter** (plan 09) — prerequisites (bootstrap-token auth, CNI
@@ -19,7 +24,5 @@ Planned for v1:
   choose their lifecycle.
 - **Select instances** (plan 11) — exact choices, attribute ranges, benchmark
   thresholds and percentiles, selection profiles and objectives.
-- **Test and develop** (plan 02, extended by every plan) — dev container,
-  gates, the L1–L5 test lanes, snapshot refresh, releases.
 - **Add a vendor driver** (plan 11) — the driver contract, the conformance
   test suite, what to put in the catalog mapping.

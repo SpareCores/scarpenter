@@ -1,0 +1,3113 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: scnodeclasses.scarpenter.sparecores.com
+spec:
+  group: scarpenter.sparecores.com
+  names:
+    categories:
+    - karpenter
+    kind: SCNodeClass
+    listKind: SCNodeClassList
+    plural: scnodeclasses
+    shortNames:
+    - scnc
+    singular: scnodeclass
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.vendorNames
+      name: Vendors
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SCNodeClass is the node definition SCarpenter launches nodes from: shared
+          settings plus a block per vendor.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              SCNodeClassSpec is the node definition shared by every vendor, plus a typed
+              block per vendor (ADR-014). Which vendor a NodeClaim uses is chosen by the
+              NodePool's scarpenter.sparecores.com/vendor requirement.
+            properties:
+              butane:
+                description: |-
+                  butane references extra Butane configuration merged into every node's
+                  Ignition.
+                properties:
+                  configMapRef:
+                    description: configMapRef references the ConfigMap key holding
+                      the Butane config.
+                    properties:
+                      key:
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                      name:
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                      namespace:
+                        maxLength: 63
+                        minLength: 1
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
+                required:
+                - configMapRef
+                type: object
+              catalog:
+                description: catalog configures the instance type catalog built from
+                  Keeper.
+                properties:
+                  cpuFlagLabels:
+                    description: |-
+                      cpuFlagLabels are the CPU flags that get a cpu-flag-<flag> label on
+                      instance types. The set is closed: the labels are registered with
+                      Karpenter core at start-up, so only this curated list of flags useful
+                      for workload selection (names as in Keeper's cpu_flags, Linux
+                      /proc/cpuinfo spelling) is accepted. Defaults to avx2, avx512f,
+                      amx_tile and sha_ni.
+                    items:
+                      enum:
+                      - avx
+                      - avx2
+                      - avx512f
+                      - avx512bw
+                      - avx512vl
+                      - avx512dq
+                      - avx512cd
+                      - avx512_vnni
+                      - avx512_bf16
+                      - avx512_fp16
+                      - avx512vbmi
+                      - avx512ifma
+                      - avx_vnni
+                      - amx_tile
+                      - amx_bf16
+                      - amx_int8
+                      - sha_ni
+                      - aes
+                      - vaes
+                      - gfni
+                      - pclmulqdq
+                      - bmi2
+                      - fma
+                      - sse4_2
+                      - asimd
+                      - sve
+                      - sve2
+                      - sha2
+                      - sha3
+                      type: string
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: set
+                type: object
+              flatcar:
+                description: flatcar selects the Flatcar Container Linux release nodes
+                  boot.
+                properties:
+                  channel:
+                    default: stable
+                    description: channel of the release.
+                    enum:
+                    - stable
+                    - beta
+                    - alpha
+                    - lts
+                    type: string
+                  version:
+                    description: version is the pinned release, e.g. 4757.2.3. Changing
+                      it drifts nodes.
+                    pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
+                    type: string
+                required:
+                - version
+                type: object
+              kubelet:
+                default: {}
+                description: |-
+                  kubelet configures the kubelet and the node capacity the scheduler
+                  assumes.
+                properties:
+                  evictionHard:
+                    additionalProperties:
+                      type: string
+                    description: 'evictionHard thresholds, e.g. memory.available:
+                      100Mi.'
+                    maxProperties: 6
+                    type: object
+                  kubeReserved:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      kubeReserved overrides the computed resources reserved for Kubernetes
+                      daemons.
+                    maxProperties: 4
+                    type: object
+                  maxPods:
+                    default: 110
+                    description: maxPods is the maximum number of Pods per node.
+                    format: int32
+                    maximum: 1000
+                    minimum: 1
+                    type: integer
+                  systemReserved:
+                    additionalProperties:
+                      type: string
+                    description: systemReserved resources for system daemons.
+                    maxProperties: 4
+                    type: object
+                  vmMemoryOverheadPercent:
+                    default: 7.5
+                    description: |-
+                      vmMemoryOverheadPercent is the share of the catalog memory a VM does
+                      not offer to the guest, subtracted from the instance type's capacity.
+                    maximum: 50
+                    minimum: 0
+                    type: number
+                type: object
+                x-kubernetes-validations:
+                - message: systemReserved keys must be cpu, memory, ephemeral-storage
+                    or pid
+                  rule: '!has(self.systemReserved) || self.systemReserved.all(k, k
+                    in [''cpu'', ''memory'', ''ephemeral-storage'', ''pid''])'
+                - message: kubeReserved keys must be cpu, memory, ephemeral-storage
+                    or pid
+                  rule: '!has(self.kubeReserved) || self.kubeReserved.all(k, k in
+                    [''cpu'', ''memory'', ''ephemeral-storage'', ''pid''])'
+                - message: evictionHard keys must be eviction signals
+                  rule: '!has(self.evictionHard) || self.evictionHard.all(k, k in
+                    [''memory.available'', ''nodefs.available'', ''nodefs.inodesFree'',
+                    ''imagefs.available'', ''imagefs.inodesFree'', ''pid.available''])'
+              kubernetes:
+                description: |-
+                  kubernetes selects the Kubernetes release (a sysext-bakery release)
+                  nodes run.
+                properties:
+                  version:
+                    description: version of a sysext-bakery Kubernetes release, e.g.
+                      v1.37.1.
+                    pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
+                    type: string
+                required:
+                - version
+                type: object
+              metrics:
+                additionalProperties:
+                  description: |-
+                    Metric defines a benchmark metric: a benchmark or a workload profile,
+                    optionally normalised per vCPU. Exactly one of benchmark and workloadProfile
+                    is set.
+                  properties:
+                    benchmark:
+                      description: benchmark identifies a Spare Cores benchmark (id
+                        and config).
+                      properties:
+                        config:
+                          description: |-
+                            config is a JSON object. Required when the benchmark has more than one
+                            config; validated against Keeper's benchmark_configs by comparing
+                            parsed objects.
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                        id:
+                          description: id is a benchmark_id, for example geekbench:score.
+                          maxLength: 128
+                          minLength: 1
+                          type: string
+                      required:
+                      - id
+                      type: object
+                    normalize:
+                      default: None
+                      description: normalize is applied to the score before the labels
+                        are computed.
+                      enum:
+                      - None
+                      - PerVcpu
+                      type: string
+                    scale:
+                      default: 1
+                      description: |-
+                        scale multiplies the score before it is rounded to the integer label
+                        value, to keep precision (e.g. 100).
+                      format: int32
+                      maximum: 1000000
+                      minimum: 1
+                      type: integer
+                    workloadProfile:
+                      description: workloadProfile is one of the Spare Cores compound
+                        workload benchmarks.
+                      enum:
+                      - web
+                      - compute
+                      - cache
+                      - data_analysis
+                      - llm
+                      - cicd
+                      type: string
+                  type: object
+                  x-kubernetes-validations:
+                  - message: set exactly one of benchmark and workloadProfile
+                    rule: has(self.benchmark) != has(self.workloadProfile)
+                description: |-
+                  metrics define benchmark metric labels (metric-<name>, -pct and -per-usd)
+                  on instance types and offerings.
+                maxProperties: 32
+                type: object
+                x-kubernetes-validations:
+                - message: metric names are lower-case label-safe slugs of at most
+                    40 characters
+                  rule: self.all(k, k.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') &&
+                    size(k) <= 40)
+              network:
+                description: |-
+                  network is the node bootstrap network template (how nodes reach the
+                  control plane).
+                properties:
+                  custom:
+                    description: custom configures the custom template.
+                    properties:
+                      configMapRef:
+                        description: configMapRef references the ConfigMap key holding
+                          the Butane template.
+                        properties:
+                          key:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          name:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          namespace:
+                            maxLength: 63
+                            minLength: 1
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
+                    required:
+                    - configMapRef
+                    type: object
+                  tailscale:
+                    description: tailscale configures the tailscale template.
+                    properties:
+                      authKeySecretRef:
+                        description: |-
+                          authKeySecretRef references the Secret key holding the auth key nodes
+                          join the tailnet with.
+                        properties:
+                          key:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          name:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          namespace:
+                            maxLength: 63
+                            minLength: 1
+                            type: string
+                        required:
+                        - key
+                        - name
+                        - namespace
+                        type: object
+                      loginServer:
+                        description: |-
+                          loginServer is the coordination server URL; empty means Tailscale SaaS,
+                          set it for Headscale.
+                        pattern: ^(https?://[^\s]+)?$
+                        type: string
+                      tags:
+                        description: tags are the ACL tags nodes advertise.
+                        items:
+                          pattern: ^tag:[a-zA-Z0-9][a-zA-Z0-9-]*$
+                          type: string
+                        maxItems: 16
+                        type: array
+                        x-kubernetes-list-type: set
+                      version:
+                        description: version of the Tailscale sysext, e.g. v1.98.10.
+                        pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
+                        type: string
+                    required:
+                    - authKeySecretRef
+                    - version
+                    type: object
+                  template:
+                    description: |-
+                      template: tailscale joins nodes through a tailnet, direct has nodes
+                      reach the API server directly, custom renders your own Butane template.
+                    enum:
+                    - tailscale
+                    - direct
+                    - custom
+                    type: string
+                required:
+                - template
+                type: object
+                x-kubernetes-validations:
+                - message: network.tailscale is required with template tailscale and
+                    invalid otherwise
+                  rule: 'self.template == ''tailscale'' ? has(self.tailscale) : !has(self.tailscale)'
+                - message: network.custom is required with template custom and invalid
+                    otherwise
+                  rule: 'self.template == ''custom'' ? has(self.custom) : !has(self.custom)'
+              networking:
+                default: {}
+                description: |-
+                  networking is the generic network setting, identical in meaning on every
+                  vendor; vendor blocks may override it.
+                properties:
+                  inbound:
+                    description: |-
+                      inbound lists the allowed inbound traffic. Without rules everything
+                      inbound is denied (a deny firewall is attached where the vendor default
+                      is open).
+                    properties:
+                      rules:
+                        description: rules allow traffic from CIDRs; everything else
+                          is denied.
+                        items:
+                          description: InboundRule allows inbound traffic from CIDRs.
+                          properties:
+                            cidrs:
+                              description: cidrs are the allowed source networks.
+                              items:
+                                maxLength: 43
+                                type: string
+                              maxItems: 32
+                              minItems: 1
+                              type: array
+                              x-kubernetes-list-type: set
+                            fromPort:
+                              description: |-
+                                fromPort is the first port of the range (tcp and udp); without ports
+                                the rule covers every port.
+                              format: int32
+                              maximum: 65535
+                              minimum: 1
+                              type: integer
+                            protocol:
+                              description: protocol of the rule.
+                              enum:
+                              - tcp
+                              - udp
+                              - icmp
+                              - any
+                              type: string
+                            toPort:
+                              description: toPort is the last port of the range; defaults
+                                to fromPort.
+                              format: int32
+                              maximum: 65535
+                              minimum: 1
+                              type: integer
+                          required:
+                          - cidrs
+                          - protocol
+                          type: object
+                          x-kubernetes-validations:
+                          - message: ports are only valid for tcp and udp
+                            rule: '!has(self.fromPort) || self.protocol == ''tcp''
+                              || self.protocol == ''udp'''
+                          - message: toPort needs fromPort
+                            rule: '!has(self.toPort) || has(self.fromPort)'
+                          - message: toPort must not be smaller than fromPort
+                            rule: '!has(self.toPort) || self.toPort >= self.fromPort'
+                          - message: cidrs must be valid CIDR notation
+                            rule: self.cidrs.all(c, isCIDR(c))
+                        maxItems: 32
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                  isolation:
+                    default: run
+                    description: |-
+                      isolation decides who may reach a node privately: none, the nodes of
+                      the SCNodeClass, or only the nodes of the same run (placement group
+                      run key).
+                    enum:
+                    - none
+                    - nodeclass
+                    - run
+                    type: string
+                  publicIPv4:
+                    default: true
+                    description: publicIPv4 gives nodes a public IPv4 address.
+                    type: boolean
+                  publicIPv6:
+                    default: false
+                    description: publicIPv6 gives nodes a public IPv6 address.
+                    type: boolean
+                type: object
+              poweroffAfter:
+                description: |-
+                  poweroffAfter powers a node off after this long: a fail-safe against
+                  instances that outlive their NodeClaim.
+                pattern: ^([0-9]+(\.[0-9]+)?(s|m|h))+$
+                type: string
+              pricing:
+                default: {}
+                description: pricing configures how offerings are priced.
+                properties:
+                  allowIncomplete:
+                    default: true
+                    description: |-
+                      allowIncomplete allows offerings whose price misses components the data
+                      does not have (provisioned IOPS, dedicated tenancy, paid bandwidth).
+                      Such nodes are annotated scarpenter.sparecores.com/price-incomplete.
+                    type: boolean
+                type: object
+              profiles:
+                default: {}
+                description: |-
+                  profiles are named, explicit, vendor-native setups that workloads pick
+                  by name through labels.
+                properties:
+                  network:
+                    additionalProperties:
+                      description: NetworkProfile is a named network setup (NIC features)
+                        per vendor.
+                      minProperties: 1
+                      properties:
+                        aws:
+                          description: Network is the AWS block of a network profile.
+                          properties:
+                            enaExpress:
+                              description: enaExpress configures ENA Express on supported
+                                instance types.
+                              properties:
+                                enabled:
+                                  description: enabled turns ENA Express on.
+                                  type: boolean
+                                udp:
+                                  description: udp enables ENA Express for UDP traffic
+                                    as well.
+                                  type: boolean
+                              required:
+                              - enabled
+                              type: object
+                          type: object
+                        fake:
+                          description: Network is the fake block of a network profile.
+                          properties:
+                            accelerated:
+                              description: accelerated marks the fake nodes as having
+                                accelerated networking.
+                              type: boolean
+                          type: object
+                        qemu:
+                          description: Network is the qemu block of a network profile.
+                          properties:
+                            model:
+                              description: model of the emulated network card.
+                              enum:
+                              - virtio-net-pci
+                              - e1000
+                              type: string
+                          type: object
+                      type: object
+                    description: 'network profiles: NIC features.'
+                    maxProperties: 32
+                    type: object
+                    x-kubernetes-validations:
+                    - message: profile names are lower-case label-safe slugs
+                      rule: self.all(k, k.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+                        && size(k) <= 63)
+                    - message: the profile name 'default' is reserved for the vendor
+                        defaults
+                      rule: '!(''default'' in self)'
+                  placement:
+                    additionalProperties:
+                      description: PlacementProfile is a named placement and tenancy
+                        setup per vendor.
+                      minProperties: 1
+                      properties:
+                        aws:
+                          description: |-
+                            Placement is the AWS block of a placement profile: a placement group and the
+                            tenancy.
+                          properties:
+                            placementGroup:
+                              description: |-
+                                placementGroup is the placement construct nodes join; it needs a run key
+                                (label placement-group) to be created per run.
+                              properties:
+                                partitionCount:
+                                  description: partitionCount is the number of partitions
+                                    (strategy partition).
+                                  format: int32
+                                  maximum: 7
+                                  minimum: 1
+                                  type: integer
+                                strategy:
+                                  description: strategy of the placement groups SCarpenter
+                                    creates.
+                                  enum:
+                                  - cluster
+                                  - partition
+                                  - spread
+                                  type: string
+                                use:
+                                  description: |-
+                                    use references an existing placement group, which is never modified or
+                                    deleted; the run key then only separates NodeClaims.
+                                  properties:
+                                    name:
+                                      description: name of the placement group.
+                                      maxLength: 255
+                                      minLength: 1
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
+                              type: object
+                              x-kubernetes-validations:
+                              - message: set exactly one of strategy and use
+                                rule: has(self.strategy) != has(self.use)
+                              - message: partitionCount is only valid with strategy
+                                  partition
+                                rule: '!has(self.partitionCount) || (has(self.strategy)
+                                  && self.strategy == ''partition'')'
+                            tenancy:
+                              description: |-
+                                tenancy of the instances: dedicated runs them on single-tenant
+                                hardware.
+                              enum:
+                              - default
+                              - dedicated
+                              type: string
+                          type: object
+                        fake:
+                          description: Placement is the fake block of a placement
+                            profile.
+                          properties:
+                            group:
+                              description: group is the fake placement construct nodes
+                                join; it needs a run key.
+                              properties:
+                                strategy:
+                                  description: strategy of the group.
+                                  enum:
+                                  - cluster
+                                  - spread
+                                  type: string
+                              required:
+                              - strategy
+                              type: object
+                          type: object
+                        qemu:
+                          description: Placement is the qemu block of a placement
+                            profile.
+                          properties:
+                            pinCPUs:
+                              description: pinCPUs pins the VM's vCPUs to host cores.
+                              type: boolean
+                          type: object
+                      type: object
+                    description: 'placement profiles: placement constructs and tenancy.'
+                    maxProperties: 32
+                    type: object
+                    x-kubernetes-validations:
+                    - message: profile names are lower-case label-safe slugs
+                      rule: self.all(k, k.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+                        && size(k) <= 63)
+                    - message: the profile name 'default' is reserved for the vendor
+                        defaults
+                      rule: '!(''default'' in self)'
+                  storage:
+                    additionalProperties:
+                      description: |-
+                        StorageProfile is a named storage setup, in the vendor's own terms, for each
+                        vendor it applies to. On a vendor without a block the profile does not exist.
+                      minProperties: 1
+                      properties:
+                        aws:
+                          description: |-
+                            Storage is the AWS storage block: the settings of the root volume, the extra
+                            EBS volumes and the instance-local disks. It is the vendor block's storage
+                            (layer 2) and the AWS block of a storage profile (layer 3).
+                          properties:
+                            data:
+                              description: data lists extra EBS volumes created with
+                                the instance.
+                              items:
+                                description: |-
+                                  DataVolume is an extra EBS volume: EBS settings plus the guest side
+                                  (name, filesystem, mount path).
+                                properties:
+                                  encrypted:
+                                    description: encrypted encrypts the volume. Built-in
+                                      default true.
+                                    type: boolean
+                                  filesystem:
+                                    default: ext4
+                                    description: filesystem the first-boot unit creates
+                                      on the volume.
+                                    enum:
+                                    - ext4
+                                    - xfs
+                                    - btrfs
+                                    type: string
+                                  iops:
+                                    description: iops provisioned for gp3, io1 and
+                                      io2 volumes.
+                                    format: int32
+                                    maximum: 256000
+                                    minimum: 100
+                                    type: integer
+                                  kmsKeyID:
+                                    description: kmsKeyID is the KMS key (ID, alias
+                                      or ARN) used for encryption.
+                                    maxLength: 2048
+                                    type: string
+                                  mountPath:
+                                    description: mountPath is the absolute path the
+                                      volume is mounted at.
+                                    maxLength: 255
+                                    pattern: ^/[^\x00]*$
+                                    type: string
+                                  name:
+                                    description: |-
+                                      name identifies the volume in the profile and in the device hints
+                                      rendered into Ignition.
+                                    maxLength: 40
+                                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                                    type: string
+                                  throughput:
+                                    description: throughput in MiB/s provisioned for
+                                      gp3 volumes.
+                                    format: int32
+                                    maximum: 2000
+                                    minimum: 125
+                                    type: integer
+                                  volumeSize:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: volumeSize of the volume, e.g. 500Gi.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  volumeType:
+                                    description: volumeType is the EBS volume type.
+                                    enum:
+                                    - gp2
+                                    - gp3
+                                    - io1
+                                    - io2
+                                    - st1
+                                    - sc1
+                                    - standard
+                                    type: string
+                                required:
+                                - mountPath
+                                - name
+                                - volumeSize
+                                - volumeType
+                                type: object
+                                x-kubernetes-validations:
+                                - message: iops is only valid for gp3, io1 and io2
+                                  rule: '!has(self.iops) || self.volumeType in [''gp3'',
+                                    ''io1'', ''io2'']'
+                                - message: throughput is only valid for gp3
+                                  rule: '!has(self.throughput) || self.volumeType
+                                    == ''gp3'''
+                                - message: io1 and io2 need iops
+                                  rule: '!(self.volumeType in [''io1'', ''io2''])
+                                    || has(self.iops)'
+                                - message: kmsKeyID needs encrypted
+                                  rule: '!has(self.kmsKeyID) || !has(self.encrypted)
+                                    || self.encrypted'
+                              maxItems: 8
+                              type: array
+                              x-kubernetes-list-map-keys:
+                              - name
+                              x-kubernetes-list-type: map
+                            localStorage:
+                              description: |-
+                                localStorage configures the instance store disks of types that have
+                                them.
+                              properties:
+                                mountPath:
+                                  description: mountPath is the absolute path the
+                                    local storage is mounted at.
+                                  maxLength: 255
+                                  pattern: ^/[^\x00]*$
+                                  type: string
+                                policy:
+                                  description: |-
+                                    policy: ignore leaves the disks alone, mount mounts them, raid0 stripes
+                                    them into one volume and mounts it.
+                                  enum:
+                                  - ignore
+                                  - mount
+                                  - raid0
+                                  type: string
+                              required:
+                              - policy
+                              type: object
+                            root:
+                              description: root configures the root EBS volume.
+                              properties:
+                                encrypted:
+                                  description: encrypted encrypts the volume. Built-in
+                                    default true.
+                                  type: boolean
+                                iops:
+                                  description: iops provisioned for gp3, io1 and io2
+                                    volumes.
+                                  format: int32
+                                  maximum: 256000
+                                  minimum: 100
+                                  type: integer
+                                kmsKeyID:
+                                  description: |-
+                                    kmsKeyID is the KMS key (ID, alias or ARN) used for encryption; the
+                                    account's default EBS key when empty.
+                                  maxLength: 2048
+                                  type: string
+                                throughput:
+                                  description: throughput in MiB/s provisioned for
+                                    gp3 volumes.
+                                  format: int32
+                                  maximum: 2000
+                                  minimum: 125
+                                  type: integer
+                                volumeSize:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: volumeSize of the root volume, e.g.
+                                    64Gi. Built-in default 64Gi.
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                volumeType:
+                                  description: volumeType is the EBS volume type.
+                                    Built-in default gp3.
+                                  enum:
+                                  - gp2
+                                  - gp3
+                                  - io1
+                                  - io2
+                                  - st1
+                                  - sc1
+                                  - standard
+                                  type: string
+                              type: object
+                              x-kubernetes-validations:
+                              - message: iops is only valid for gp3, io1 and io2
+                                rule: '!has(self.iops) || !has(self.volumeType) ||
+                                  self.volumeType in [''gp3'', ''io1'', ''io2'']'
+                              - message: throughput is only valid for gp3
+                                rule: '!has(self.throughput) || !has(self.volumeType)
+                                  || self.volumeType == ''gp3'''
+                              - message: io1 and io2 need iops
+                                rule: '!has(self.volumeType) || !(self.volumeType
+                                  in [''io1'', ''io2'']) || has(self.iops)'
+                              - message: kmsKeyID needs encrypted
+                                rule: '!has(self.kmsKeyID) || !has(self.encrypted)
+                                  || self.encrypted'
+                          type: object
+                        fake:
+                          description: Storage is the fake storage block (vendor block
+                            and storage profile).
+                          properties:
+                            data:
+                              description: data lists extra disks.
+                              items:
+                                description: DataDisk is a fake extra disk.
+                                properties:
+                                  filesystem:
+                                    default: ext4
+                                    description: filesystem the first-boot unit creates
+                                      on the volume.
+                                    enum:
+                                    - ext4
+                                    - xfs
+                                    - btrfs
+                                    type: string
+                                  mountPath:
+                                    description: mountPath is the absolute path the
+                                      volume is mounted at.
+                                    maxLength: 255
+                                    pattern: ^/[^\x00]*$
+                                    type: string
+                                  name:
+                                    description: |-
+                                      name identifies the volume in the profile and in the device hints
+                                      rendered into Ignition.
+                                    maxLength: 40
+                                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                                    type: string
+                                  size:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: size of the disk.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                required:
+                                - mountPath
+                                - name
+                                - size
+                                type: object
+                              maxItems: 8
+                              type: array
+                              x-kubernetes-list-map-keys:
+                              - name
+                              x-kubernetes-list-type: map
+                            root:
+                              description: root configures the root disk.
+                              properties:
+                                size:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: size of the root disk.
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                              type: object
+                          type: object
+                        qemu:
+                          description: Storage is the qemu storage block (vendor block
+                            and storage profile).
+                          properties:
+                            data:
+                              description: data lists extra disks.
+                              items:
+                                description: DataDisk is an extra disk image.
+                                properties:
+                                  filesystem:
+                                    default: ext4
+                                    description: filesystem the first-boot unit creates
+                                      on the volume.
+                                    enum:
+                                    - ext4
+                                    - xfs
+                                    - btrfs
+                                    type: string
+                                  format:
+                                    description: format of the disk image.
+                                    enum:
+                                    - qcow2
+                                    - raw
+                                    type: string
+                                  mountPath:
+                                    description: mountPath is the absolute path the
+                                      volume is mounted at.
+                                    maxLength: 255
+                                    pattern: ^/[^\x00]*$
+                                    type: string
+                                  name:
+                                    description: |-
+                                      name identifies the volume in the profile and in the device hints
+                                      rendered into Ignition.
+                                    maxLength: 40
+                                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                                    type: string
+                                  size:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: size of the disk image.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                required:
+                                - mountPath
+                                - name
+                                - size
+                                type: object
+                              maxItems: 8
+                              type: array
+                              x-kubernetes-list-map-keys:
+                              - name
+                              x-kubernetes-list-type: map
+                            root:
+                              description: root configures the root disk.
+                              properties:
+                                format:
+                                  description: format of the overlay image.
+                                  enum:
+                                  - qcow2
+                                  - raw
+                                  type: string
+                                size:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: size the root image is grown to.
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                              type: object
+                          type: object
+                      type: object
+                    description: 'storage profiles: root and extra volumes, local
+                      storage.'
+                    maxProperties: 32
+                    type: object
+                    x-kubernetes-validations:
+                    - message: profile names are lower-case label-safe slugs
+                      rule: self.all(k, k.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+                        && size(k) <= 63)
+                    - message: the profile name 'default' is reserved for the vendor
+                        defaults
+                      rule: '!(''default'' in self)'
+                type: object
+              selections:
+                additionalProperties:
+                  description: |-
+                    Selection is a selection profile: sc-karpenter-nodepool's selector and
+                    ranking, verbatim. At least one of them is set.
+                  properties:
+                    ranking:
+                      description: ranking keeps the best families of the candidates.
+                      properties:
+                        band:
+                          description: |-
+                            band keeps the families whose objective is within a percentage of the
+                            best family's.
+                          properties:
+                            withinPercent:
+                              description: 'withinPercent: keep families within this
+                                percentage of the best.'
+                              maximum: 100
+                              minimum: 0
+                              type: number
+                          required:
+                          - withinPercent
+                          type: object
+                        families:
+                          description: families bounds the number of kept families.
+                          properties:
+                            max:
+                              description: max keeps at most this many families, even
+                                if more are inside the band.
+                              format: int32
+                              minimum: 1
+                              type: integer
+                            min:
+                              default: 1
+                              description: |-
+                                min widens the band until at least this many families are kept (the
+                                capacity floor).
+                              format: int32
+                              minimum: 1
+                              type: integer
+                          type: object
+                          x-kubernetes-validations:
+                          - message: min must not exceed max
+                            rule: '!has(self.min) || !has(self.max) || self.min <=
+                              self.max'
+                        normalize:
+                          default: None
+                          description: normalize is applied to the score before the
+                            objective.
+                          enum:
+                          - None
+                          - PerVcpu
+                          type: string
+                        objective:
+                          default: Score
+                          description: objective is what the ranking optimises.
+                          enum:
+                          - Score
+                          - ScorePerPrice
+                          - Price
+                          type: string
+                        score:
+                          description: score is what to rank by.
+                          properties:
+                            benchmark:
+                              description: BenchmarkRef identifies one Spare Cores
+                                benchmark.
+                              properties:
+                                config:
+                                  description: |-
+                                    config is a JSON object. Required when the benchmark has more than one
+                                    config; validated against Keeper's benchmark_configs by comparing
+                                    parsed objects.
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                id:
+                                  description: id is a benchmark_id, for example geekbench:score.
+                                  maxLength: 128
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - id
+                              type: object
+                            workloadProfile:
+                              description: WorkloadProfileName is one of the Spare
+                                Cores compound workload benchmarks.
+                              enum:
+                              - web
+                              - compute
+                              - cache
+                              - data_analysis
+                              - llm
+                              - cicd
+                              type: string
+                          type: object
+                          x-kubernetes-validations:
+                          - message: set exactly one of benchmark and workloadProfile
+                            rule: has(self.benchmark) != has(self.workloadProfile)
+                      required:
+                      - score
+                      type: object
+                      x-kubernetes-validations:
+                      - message: ranking needs band or families.max
+                        rule: has(self.band) || (has(self.families) && has(self.families.max))
+                    selector:
+                      description: selector filters instance types by Spare Cores
+                        data.
+                      properties:
+                        accelerator:
+                          description: AcceleratorSelector selects on GPUs and TPUs
+                            (Spare Cores "accelerators").
+                          properties:
+                            count:
+                              description: |-
+                                count is inclusive and may be fractional (vGPU slices). max: 0 selects
+                                servers without any accelerator.
+                              properties:
+                                max:
+                                  minimum: 0
+                                  type: number
+                                min:
+                                  minimum: 0
+                                  type: number
+                              type: object
+                              x-kubernetes-validations:
+                              - message: min must not exceed max
+                                rule: '!has(self.min) || !has(self.max) || self.min
+                                  <= self.max'
+                            manufacturers:
+                              description: manufacturers are Spare Cores values (NVIDIA,
+                                AMD, Habana, Google, ...).
+                              items:
+                                maxLength: 64
+                                type: string
+                              maxItems: 16
+                              type: array
+                            memoryPerDevice:
+                              description: 'memoryPerDevice: memory of the smallest
+                                accelerator, lower bound.'
+                              properties:
+                                minGiB:
+                                  minimum: 0
+                                  type: number
+                              type: object
+                            memoryTotal:
+                              description: 'memoryTotal: memory summed over all accelerators,
+                                lower bound.'
+                              properties:
+                                minGiB:
+                                  minimum: 0
+                                  type: number
+                              type: object
+                            models:
+                              description: |-
+                                models are exact Spare Cores model strings (L40S, A10G, ...); they are
+                                not normalised across vendors.
+                              items:
+                                maxLength: 64
+                                type: string
+                              maxItems: 64
+                              type: array
+                            types:
+                              description: |-
+                                types restricts the type of the primary accelerator. Unknown types are
+                                excluded when this is set.
+                              items:
+                                description: AcceleratorType is the type of the primary
+                                  accelerator of a server.
+                                enum:
+                                - GPU
+                                - TPU
+                                type: string
+                              maxItems: 2
+                              type: array
+                          type: object
+                        architectures:
+                          description: |-
+                            architectures restricts the CPU architecture; intersected with a
+                            kubernetes.io/arch requirement of the template.
+                          items:
+                            description: Architecture is a Kubernetes CPU architecture
+                              name.
+                            enum:
+                            - amd64
+                            - arm64
+                            type: string
+                          maxItems: 2
+                          type: array
+                        benchmarks:
+                          description: benchmarks are filters on benchmark scores;
+                            entries are AND-ed.
+                          items:
+                            description: BenchmarkFilter is one filter on a benchmark
+                              score.
+                            properties:
+                              config:
+                                description: |-
+                                  config is a JSON object. Required when the benchmark has more than one
+                                  config; validated against Keeper's benchmark_configs by comparing
+                                  parsed objects.
+                                type: object
+                                x-kubernetes-preserve-unknown-fields: true
+                              id:
+                                description: id is a benchmark_id, for example geekbench:score.
+                                maxLength: 128
+                                minLength: 1
+                                type: string
+                              max:
+                                description: |-
+                                  max is an inclusive upper bound, for lower-is-better benchmarks
+                                  (latencies).
+                                type: number
+                              min:
+                                description: |-
+                                  min is an inclusive lower bound on the (normalised) score, for
+                                  higher-is-better benchmarks.
+                                type: number
+                              normalize:
+                                default: None
+                                description: normalize selects the score normalisation.
+                                enum:
+                                - None
+                                - PerVcpu
+                                - PerPrice
+                                type: string
+                            required:
+                            - id
+                            type: object
+                            x-kubernetes-validations:
+                            - message: a benchmark entry needs min or max
+                              rule: has(self.min) || has(self.max)
+                            - message: min must not exceed max
+                              rule: '!has(self.min) || !has(self.max) || self.min
+                                <= self.max'
+                          maxItems: 32
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        cpu:
+                          description: CPUSelector selects on CPU facts.
+                          properties:
+                            allocations:
+                              description: allocations restricts the CPU allocation
+                                class.
+                              items:
+                                description: CPUAllocation is how Spare Cores classifies
+                                  the CPU time a type gets.
+                                enum:
+                                - Shared
+                                - Burstable
+                                - Dedicated
+                                type: string
+                              maxItems: 3
+                              type: array
+                            caches:
+                              description: caches filters on cache sizes (lower bounds
+                                only).
+                              properties:
+                                l1dPerCoreMinKiB:
+                                  minimum: 0
+                                  type: number
+                                l1iPerCoreMinKiB:
+                                  minimum: 0
+                                  type: number
+                                l2PerCoreMinKiB:
+                                  minimum: 0
+                                  type: number
+                                l3MinMiB:
+                                  minimum: 0
+                                  type: number
+                                l3TotalMinMiB:
+                                  minimum: 0
+                                  type: number
+                              type: object
+                            clockSpeedMinGHz:
+                              description: clockSpeedMinGHz is a lower bound on the
+                                vendor-reported clock speed.
+                              minimum: 0
+                              type: number
+                            flags:
+                              description: flags filters on Linux /proc/cpuinfo flag
+                                names, lowercase.
+                              properties:
+                                allOf:
+                                  description: 'allOf: every listed flag must be present.'
+                                  items:
+                                    maxLength: 64
+                                    type: string
+                                  maxItems: 64
+                                  type: array
+                                anyOf:
+                                  description: 'anyOf: at least one listed flag must
+                                    be present.'
+                                  items:
+                                    maxLength: 64
+                                    type: string
+                                  maxItems: 64
+                                  type: array
+                                noneOf:
+                                  description: 'noneOf: none of the listed flags may
+                                    be present.'
+                                  items:
+                                    maxLength: 64
+                                    type: string
+                                  maxItems: 64
+                                  type: array
+                              type: object
+                            hyperthreading:
+                              description: |-
+                                hyperthreading true selects types with more vCPUs than physical cores
+                                (SMT siblings), false selects one vCPU per physical core. Unset: no
+                                filter.
+                              type: boolean
+                            manufacturers:
+                              description: |-
+                                manufacturers are exact, case-sensitive Spare Cores values (Intel, AMD,
+                                AWS, Ampere, Alibaba, Microsoft, Hygon).
+                              items:
+                                maxLength: 64
+                                type: string
+                              maxItems: 16
+                              type: array
+                          type: object
+                        families:
+                          description: families include/exclude globs on the Spare
+                            Cores family string.
+                          properties:
+                            exclude:
+                              items:
+                                maxLength: 128
+                                type: string
+                              maxItems: 64
+                              type: array
+                            include:
+                              items:
+                                maxLength: 128
+                                type: string
+                              maxItems: 64
+                              type: array
+                          type: object
+                        instanceTypes:
+                          description: |-
+                            instanceTypes include/exclude globs on the instance type name
+                            (server.api_reference).
+                          properties:
+                            exclude:
+                              items:
+                                maxLength: 128
+                                type: string
+                              maxItems: 64
+                              type: array
+                            include:
+                              items:
+                                maxLength: 128
+                                type: string
+                              maxItems: 64
+                              type: array
+                          type: object
+                        memory:
+                          description: MemorySelector selects on memory size, in GiB.
+                          properties:
+                            maxGiB:
+                              minimum: 0
+                              type: number
+                            minGiB:
+                              minimum: 0
+                              type: number
+                            perVcpu:
+                              description: |-
+                                perVcpu bounds the GiB per vCPU (2 = compute-optimised, 4 = general
+                                purpose, 8 = memory-optimised).
+                              properties:
+                                maxGiB:
+                                  minimum: 0
+                                  type: number
+                                minGiB:
+                                  minimum: 0
+                                  type: number
+                              type: object
+                              x-kubernetes-validations:
+                              - message: minGiB must not exceed maxGiB
+                                rule: '!has(self.minGiB) || !has(self.maxGiB) || self.minGiB
+                                  <= self.maxGiB'
+                          type: object
+                          x-kubernetes-validations:
+                          - message: minGiB must not exceed maxGiB
+                            rule: '!has(self.minGiB) || !has(self.maxGiB) || self.minGiB
+                              <= self.maxGiB'
+                        network:
+                          description: |-
+                            NetworkSelector selects on network bandwidth. Setting a field excludes
+                            every type without a value.
+                          properties:
+                            baselineMinGbps:
+                              description: baselineMinGbps is a lower bound on the
+                                guaranteed bandwidth.
+                              minimum: 0
+                              type: number
+                            peakMinGbps:
+                              description: peakMinGbps is a lower bound on the burst
+                                bandwidth.
+                              minimum: 0
+                              type: number
+                          type: object
+                        price:
+                          description: PriceSelector selects on the hourly price in
+                            USD.
+                          properties:
+                            basis:
+                              description: |-
+                                basis is the price allocation. Default: Spot if the template's
+                                karpenter.sh/capacity-type requirement allows only spot, otherwise
+                                OnDemand.
+                              enum:
+                              - OnDemand
+                              - Spot
+                              type: string
+                            includeManagedFee:
+                              description: |-
+                                includeManagedFee adds the EKS Auto Mode management fee to prices
+                                before filtering and ranking. Defaults to true on Auto Mode and is
+                                ignored elsewhere.
+                              type: boolean
+                            maxHourly:
+                              description: |-
+                                maxHourly is an inclusive upper bound on the hourly price of the type
+                                in USD, as a decimal string (for example "0.40"). It also caps the node
+                                size.
+                              maxLength: 16
+                              pattern: ^[0-9]+(\.[0-9]+)?$
+                              type: string
+                            maxHourlyPerVcpu:
+                              description: |-
+                                maxHourlyPerVcpu is an inclusive upper bound on the hourly price per
+                                vCPU in USD, as a decimal string.
+                              maxLength: 16
+                              pattern: ^[0-9]+(\.[0-9]+)?$
+                              type: string
+                          type: object
+                        storage:
+                          description: StorageSelector selects on instance-local storage.
+                          properties:
+                            local:
+                              description: LocalStorageSelector selects on the disks
+                                bundled with the instance type.
+                              properties:
+                                countMin:
+                                  description: |-
+                                    countMin is a lower bound on the number of local disks. 1 is evaluated
+                                    as "has local storage" on every vendor; 2 or more needs per-disk data.
+                                  format: int32
+                                  minimum: 0
+                                  type: integer
+                                minGB:
+                                  description: minGB is a lower bound on the total
+                                    local disk size in GB.
+                                  minimum: 0
+                                  type: number
+                              type: object
+                          type: object
+                        unbenchmarked:
+                          default: Exclude
+                          description: |-
+                            unbenchmarked decides what happens to candidates that lack a score
+                            needed by a benchmark filter, workload profile or the ranking score.
+                          enum:
+                          - Exclude
+                          - IncludeIfFamilyQualifies
+                          - Include
+                          type: string
+                        vcpus:
+                          description: vcpus are inclusive bounds on the vCPU count.
+                          properties:
+                            max:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            min:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                          type: object
+                          x-kubernetes-validations:
+                          - message: min must not exceed max
+                            rule: '!has(self.min) || !has(self.max) || self.min <=
+                              self.max'
+                        workloadProfiles:
+                          description: |-
+                            workloadProfiles are filters on the compound workload benchmarks;
+                            entries are AND-ed with the benchmarks.
+                          items:
+                            description: |-
+                              WorkloadProfileFilter is a filter on workload_profile:<name>. Scores are
+                              unitless; 1.0 is the fleet-median server.
+                            properties:
+                              min:
+                                description: min is an inclusive lower bound on the
+                                  (normalised) score.
+                                minimum: 0
+                                type: number
+                              name:
+                                description: WorkloadProfileName is one of the Spare
+                                  Cores compound workload benchmarks.
+                                enum:
+                                - web
+                                - compute
+                                - cache
+                                - data_analysis
+                                - llm
+                                - cicd
+                                type: string
+                              normalize:
+                                default: None
+                                description: normalize selects the score normalisation.
+                                enum:
+                                - None
+                                - PerVcpu
+                                - PerPrice
+                                type: string
+                            required:
+                            - min
+                            - name
+                            type: object
+                          maxItems: 8
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      type: object
+                  type: object
+                  x-kubernetes-validations:
+                  - message: set selector, ranking or both
+                    rule: has(self.selector) || has(self.ranking)
+                description: |-
+                  selections define selection profiles: sc-karpenter-nodepool's selector
+                  and ranking, evaluated on every catalog refresh. Instance types carry the
+                  label selection=<name> for each profile they belong to.
+                maxProperties: 32
+                type: object
+                x-kubernetes-validations:
+                - message: selection names are lower-case label-safe slugs
+                  rule: self.all(k, k.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') &&
+                    size(k) <= 63)
+              sysexts:
+                description: sysexts lists extra systemd sysexts installed on every
+                  node.
+                items:
+                  description: Sysext is an extra systemd sysext installed on every
+                    node.
+                  properties:
+                    arch:
+                      description: arch the image is for.
+                      enum:
+                      - amd64
+                      - arm64
+                      type: string
+                    name:
+                      description: name of the sysext.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9_.]*[a-z0-9])?$
+                      type: string
+                    sha256:
+                      description: sha256 of the image, lower-case hex.
+                      pattern: ^[a-f0-9]{64}$
+                      type: string
+                    url:
+                      description: url the image is downloaded from.
+                      maxLength: 2048
+                      pattern: ^https://[^\s]+$
+                      type: string
+                  required:
+                  - arch
+                  - name
+                  - sha256
+                  - url
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                - arch
+                x-kubernetes-list-type: map
+              tags:
+                additionalProperties:
+                  type: string
+                description: |-
+                  tags are added to every vendor resource SCarpenter creates (tags or
+                  labels, as the vendor calls them).
+                maxProperties: 32
+                type: object
+                x-kubernetes-validations:
+                - message: tag keys in the scarpenter.sparecores.com domain are reserved
+                  rule: self.all(k, !k.startsWith('scarpenter.sparecores.com/'))
+              vendors:
+                description: |-
+                  vendors has one block per vendor; a vendor is enabled for this
+                  SCNodeClass by having a block.
+                minProperties: 1
+                properties:
+                  aws:
+                    description: aws configures AWS nodes.
+                    properties:
+                      imageOwner:
+                        description: |-
+                          imageOwner is the AWS account that owns the Flatcar images. Empty means
+                          the official Flatcar account.
+                        pattern: ^([0-9]{12})?$
+                        type: string
+                      instanceProfile:
+                        description: |-
+                          instanceProfile is the name of an IAM instance profile attached to the
+                          nodes. Empty by default: nodes hold no cloud credentials.
+                        maxLength: 128
+                        type: string
+                      metadataOptions:
+                        description: |-
+                          metadataOptions configures the instance metadata service. Built-in
+                          default: IMDSv2 only, hop limit 1.
+                        properties:
+                          httpPutResponseHopLimit:
+                            description: |-
+                              httpPutResponseHopLimit is the IMDS hop limit; 1 keeps the service out
+                              of reach of containers. Built-in default 1.
+                            format: int32
+                            maximum: 64
+                            minimum: 1
+                            type: integer
+                          httpTokens:
+                            description: 'httpTokens: required allows IMDSv2 only.
+                              Built-in default required.'
+                            enum:
+                            - required
+                            - optional
+                            type: string
+                        type: object
+                      networking:
+                        description: networking overrides the generic spec.networking
+                          for AWS.
+                        properties:
+                          inbound:
+                            description: inbound replaces spec.networking.inbound.
+                            properties:
+                              rules:
+                                description: rules allow traffic from CIDRs; everything
+                                  else is denied.
+                                items:
+                                  description: InboundRule allows inbound traffic
+                                    from CIDRs.
+                                  properties:
+                                    cidrs:
+                                      description: cidrs are the allowed source networks.
+                                      items:
+                                        maxLength: 43
+                                        type: string
+                                      maxItems: 32
+                                      minItems: 1
+                                      type: array
+                                      x-kubernetes-list-type: set
+                                    fromPort:
+                                      description: |-
+                                        fromPort is the first port of the range (tcp and udp); without ports
+                                        the rule covers every port.
+                                      format: int32
+                                      maximum: 65535
+                                      minimum: 1
+                                      type: integer
+                                    protocol:
+                                      description: protocol of the rule.
+                                      enum:
+                                      - tcp
+                                      - udp
+                                      - icmp
+                                      - any
+                                      type: string
+                                    toPort:
+                                      description: toPort is the last port of the
+                                        range; defaults to fromPort.
+                                      format: int32
+                                      maximum: 65535
+                                      minimum: 1
+                                      type: integer
+                                  required:
+                                  - cidrs
+                                  - protocol
+                                  type: object
+                                  x-kubernetes-validations:
+                                  - message: ports are only valid for tcp and udp
+                                    rule: '!has(self.fromPort) || self.protocol ==
+                                      ''tcp'' || self.protocol == ''udp'''
+                                  - message: toPort needs fromPort
+                                    rule: '!has(self.toPort) || has(self.fromPort)'
+                                  - message: toPort must not be smaller than fromPort
+                                    rule: '!has(self.toPort) || self.toPort >= self.fromPort'
+                                  - message: cidrs must be valid CIDR notation
+                                    rule: self.cidrs.all(c, isCIDR(c))
+                                maxItems: 32
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            type: object
+                          isolation:
+                            description: isolation overrides spec.networking.isolation.
+                            enum:
+                            - none
+                            - nodeclass
+                            - run
+                            type: string
+                          publicIPv4:
+                            description: publicIPv4 overrides spec.networking.publicIPv4.
+                            type: boolean
+                          publicIPv6:
+                            description: publicIPv6 overrides spec.networking.publicIPv6.
+                            type: boolean
+                        type: object
+                      regions:
+                        description: |-
+                          regions is the allow-list of AWS regions; empty means every active
+                          region the driver can use.
+                        items:
+                          type: string
+                        maxItems: 64
+                        type: array
+                        x-kubernetes-list-type: set
+                      resources:
+                        description: resources says how the AWS resources a node depends
+                          on are provided.
+                        properties:
+                          placementGroups:
+                            description: placementGroups nodes are launched into (see
+                              the placement profiles).
+                            properties:
+                              create:
+                                description: create lets SCarpenter create and own
+                                  the resource, with a lifecycle.
+                                properties:
+                                  lifecycle:
+                                    description: |-
+                                      lifecycle decides when the resource is deleted. Without it the kind's
+                                      default applies (00a section 9.3).
+                                    properties:
+                                      policy:
+                                        description: policy is perUse, idleTTL or
+                                          retain.
+                                        enum:
+                                        - perUse
+                                        - idleTTL
+                                        - retain
+                                        type: string
+                                      ttl:
+                                        description: |-
+                                          ttl is how long an unused resource is kept (policy idleTTL). Default
+                                          24h, or the controller's --resource-default-ttl.
+                                        type: string
+                                    required:
+                                    - policy
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ttl is only valid with policy idleTTL
+                                      rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  timing:
+                                    description: 'timing decides when the resource
+                                      is created. Default: on demand.'
+                                    properties:
+                                      mode:
+                                        default: onDemand
+                                        description: |-
+                                          mode: onDemand creates the resource when the first launch needs it;
+                                          preCreate creates it in the listed regions right away and keeps it.
+                                        enum:
+                                        - onDemand
+                                        - preCreate
+                                        type: string
+                                      regions:
+                                        description: regions are the regions to create
+                                          the resource in (mode preCreate).
+                                        items:
+                                          type: string
+                                        maxItems: 64
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: regions is required with mode preCreate
+                                        and invalid otherwise
+                                      rule: 'self.mode == ''preCreate'' ? has(self.regions)
+                                        : !has(self.regions)'
+                                type: object
+                              forbid:
+                                description: |-
+                                  forbid opts the kind out of auto-creation: offerings that need it are
+                                  unavailable unless the vendor's default resource exists.
+                                type: boolean
+                              use:
+                                description: |-
+                                  use brings an existing resource: it is validated per region, never
+                                  modified and never deleted.
+                                properties:
+                                  ids:
+                                    additionalProperties:
+                                      items:
+                                        type: string
+                                      type: array
+                                    description: ids lists the vendor IDs explicitly,
+                                      per region.
+                                    maxProperties: 64
+                                    minProperties: 1
+                                    type: object
+                                  name:
+                                    description: |-
+                                      name is a name pattern; {region} and {zone} are replaced by the region
+                                      and zone in scope.
+                                    maxLength: 255
+                                    minLength: 1
+                                    type: string
+                                  selector:
+                                    description: |-
+                                      selector matches resources by tags (labels, where the vendor has no
+                                      tags), evaluated in every region in scope.
+                                    properties:
+                                      tags:
+                                        additionalProperties:
+                                          type: string
+                                        description: tags must all be present with
+                                          the given values on the resource.
+                                        maxProperties: 32
+                                        minProperties: 1
+                                        type: object
+                                    required:
+                                    - tags
+                                    type: object
+                                type: object
+                                x-kubernetes-validations:
+                                - message: set exactly one of ids, name and selector
+                                  rule: '(has(self.ids) ? 1 : 0) + (has(self.name)
+                                    ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: at most one of use, create and forbid may be
+                                set
+                              rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
+                                1 : 0) + ((has(self.forbid) && self.forbid) ? 1 :
+                                0) <= 1'
+                          securityGroups:
+                            description: securityGroups attached to nodes.
+                            properties:
+                              create:
+                                description: create lets SCarpenter create and own
+                                  the resource, with a lifecycle.
+                                properties:
+                                  lifecycle:
+                                    description: |-
+                                      lifecycle decides when the resource is deleted. Without it the kind's
+                                      default applies (00a section 9.3).
+                                    properties:
+                                      policy:
+                                        description: policy is perUse, idleTTL or
+                                          retain.
+                                        enum:
+                                        - perUse
+                                        - idleTTL
+                                        - retain
+                                        type: string
+                                      ttl:
+                                        description: |-
+                                          ttl is how long an unused resource is kept (policy idleTTL). Default
+                                          24h, or the controller's --resource-default-ttl.
+                                        type: string
+                                    required:
+                                    - policy
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ttl is only valid with policy idleTTL
+                                      rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  timing:
+                                    description: 'timing decides when the resource
+                                      is created. Default: on demand.'
+                                    properties:
+                                      mode:
+                                        default: onDemand
+                                        description: |-
+                                          mode: onDemand creates the resource when the first launch needs it;
+                                          preCreate creates it in the listed regions right away and keeps it.
+                                        enum:
+                                        - onDemand
+                                        - preCreate
+                                        type: string
+                                      regions:
+                                        description: regions are the regions to create
+                                          the resource in (mode preCreate).
+                                        items:
+                                          type: string
+                                        maxItems: 64
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: regions is required with mode preCreate
+                                        and invalid otherwise
+                                      rule: 'self.mode == ''preCreate'' ? has(self.regions)
+                                        : !has(self.regions)'
+                                type: object
+                              forbid:
+                                description: |-
+                                  forbid opts the kind out of auto-creation: offerings that need it are
+                                  unavailable unless the vendor's default resource exists.
+                                type: boolean
+                              use:
+                                description: |-
+                                  use brings an existing resource: it is validated per region, never
+                                  modified and never deleted.
+                                properties:
+                                  ids:
+                                    additionalProperties:
+                                      items:
+                                        type: string
+                                      type: array
+                                    description: ids lists the vendor IDs explicitly,
+                                      per region.
+                                    maxProperties: 64
+                                    minProperties: 1
+                                    type: object
+                                  name:
+                                    description: |-
+                                      name is a name pattern; {region} and {zone} are replaced by the region
+                                      and zone in scope.
+                                    maxLength: 255
+                                    minLength: 1
+                                    type: string
+                                  selector:
+                                    description: |-
+                                      selector matches resources by tags (labels, where the vendor has no
+                                      tags), evaluated in every region in scope.
+                                    properties:
+                                      tags:
+                                        additionalProperties:
+                                          type: string
+                                        description: tags must all be present with
+                                          the given values on the resource.
+                                        maxProperties: 32
+                                        minProperties: 1
+                                        type: object
+                                    required:
+                                    - tags
+                                    type: object
+                                type: object
+                                x-kubernetes-validations:
+                                - message: set exactly one of ids, name and selector
+                                  rule: '(has(self.ids) ? 1 : 0) + (has(self.name)
+                                    ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: at most one of use, create and forbid may be
+                                set
+                              rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
+                                1 : 0) + ((has(self.forbid) && self.forbid) ? 1 :
+                                0) <= 1'
+                          subnets:
+                            description: subnets nodes are launched into.
+                            properties:
+                              create:
+                                description: create lets SCarpenter create and own
+                                  the resource, with a lifecycle.
+                                properties:
+                                  lifecycle:
+                                    description: |-
+                                      lifecycle decides when the resource is deleted. Without it the kind's
+                                      default applies (00a section 9.3).
+                                    properties:
+                                      policy:
+                                        description: policy is perUse, idleTTL or
+                                          retain.
+                                        enum:
+                                        - perUse
+                                        - idleTTL
+                                        - retain
+                                        type: string
+                                      ttl:
+                                        description: |-
+                                          ttl is how long an unused resource is kept (policy idleTTL). Default
+                                          24h, or the controller's --resource-default-ttl.
+                                        type: string
+                                    required:
+                                    - policy
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ttl is only valid with policy idleTTL
+                                      rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  timing:
+                                    description: 'timing decides when the resource
+                                      is created. Default: on demand.'
+                                    properties:
+                                      mode:
+                                        default: onDemand
+                                        description: |-
+                                          mode: onDemand creates the resource when the first launch needs it;
+                                          preCreate creates it in the listed regions right away and keeps it.
+                                        enum:
+                                        - onDemand
+                                        - preCreate
+                                        type: string
+                                      regions:
+                                        description: regions are the regions to create
+                                          the resource in (mode preCreate).
+                                        items:
+                                          type: string
+                                        maxItems: 64
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: regions is required with mode preCreate
+                                        and invalid otherwise
+                                      rule: 'self.mode == ''preCreate'' ? has(self.regions)
+                                        : !has(self.regions)'
+                                type: object
+                              forbid:
+                                description: |-
+                                  forbid opts the kind out of auto-creation: offerings that need it are
+                                  unavailable unless the vendor's default resource exists.
+                                type: boolean
+                              use:
+                                description: |-
+                                  use brings an existing resource: it is validated per region, never
+                                  modified and never deleted.
+                                properties:
+                                  ids:
+                                    additionalProperties:
+                                      items:
+                                        type: string
+                                      type: array
+                                    description: ids lists the vendor IDs explicitly,
+                                      per region.
+                                    maxProperties: 64
+                                    minProperties: 1
+                                    type: object
+                                  name:
+                                    description: |-
+                                      name is a name pattern; {region} and {zone} are replaced by the region
+                                      and zone in scope.
+                                    maxLength: 255
+                                    minLength: 1
+                                    type: string
+                                  selector:
+                                    description: |-
+                                      selector matches resources by tags (labels, where the vendor has no
+                                      tags), evaluated in every region in scope.
+                                    properties:
+                                      tags:
+                                        additionalProperties:
+                                          type: string
+                                        description: tags must all be present with
+                                          the given values on the resource.
+                                        maxProperties: 32
+                                        minProperties: 1
+                                        type: object
+                                    required:
+                                    - tags
+                                    type: object
+                                type: object
+                                x-kubernetes-validations:
+                                - message: set exactly one of ids, name and selector
+                                  rule: '(has(self.ids) ? 1 : 0) + (has(self.name)
+                                    ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: at most one of use, create and forbid may be
+                                set
+                              rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
+                                1 : 0) + ((has(self.forbid) && self.forbid) ? 1 :
+                                0) <= 1'
+                        type: object
+                      storage:
+                        description: |-
+                          storage overrides the built-in storage defaults (gp3, 64 GiB, encrypted
+                          root volume; no extra volumes).
+                        properties:
+                          data:
+                            description: data lists extra EBS volumes created with
+                              the instance.
+                            items:
+                              description: |-
+                                DataVolume is an extra EBS volume: EBS settings plus the guest side
+                                (name, filesystem, mount path).
+                              properties:
+                                encrypted:
+                                  description: encrypted encrypts the volume. Built-in
+                                    default true.
+                                  type: boolean
+                                filesystem:
+                                  default: ext4
+                                  description: filesystem the first-boot unit creates
+                                    on the volume.
+                                  enum:
+                                  - ext4
+                                  - xfs
+                                  - btrfs
+                                  type: string
+                                iops:
+                                  description: iops provisioned for gp3, io1 and io2
+                                    volumes.
+                                  format: int32
+                                  maximum: 256000
+                                  minimum: 100
+                                  type: integer
+                                kmsKeyID:
+                                  description: kmsKeyID is the KMS key (ID, alias
+                                    or ARN) used for encryption.
+                                  maxLength: 2048
+                                  type: string
+                                mountPath:
+                                  description: mountPath is the absolute path the
+                                    volume is mounted at.
+                                  maxLength: 255
+                                  pattern: ^/[^\x00]*$
+                                  type: string
+                                name:
+                                  description: |-
+                                    name identifies the volume in the profile and in the device hints
+                                    rendered into Ignition.
+                                  maxLength: 40
+                                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                                  type: string
+                                throughput:
+                                  description: throughput in MiB/s provisioned for
+                                    gp3 volumes.
+                                  format: int32
+                                  maximum: 2000
+                                  minimum: 125
+                                  type: integer
+                                volumeSize:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: volumeSize of the volume, e.g. 500Gi.
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                volumeType:
+                                  description: volumeType is the EBS volume type.
+                                  enum:
+                                  - gp2
+                                  - gp3
+                                  - io1
+                                  - io2
+                                  - st1
+                                  - sc1
+                                  - standard
+                                  type: string
+                              required:
+                              - mountPath
+                              - name
+                              - volumeSize
+                              - volumeType
+                              type: object
+                              x-kubernetes-validations:
+                              - message: iops is only valid for gp3, io1 and io2
+                                rule: '!has(self.iops) || self.volumeType in [''gp3'',
+                                  ''io1'', ''io2'']'
+                              - message: throughput is only valid for gp3
+                                rule: '!has(self.throughput) || self.volumeType ==
+                                  ''gp3'''
+                              - message: io1 and io2 need iops
+                                rule: '!(self.volumeType in [''io1'', ''io2'']) ||
+                                  has(self.iops)'
+                              - message: kmsKeyID needs encrypted
+                                rule: '!has(self.kmsKeyID) || !has(self.encrypted)
+                                  || self.encrypted'
+                            maxItems: 8
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          localStorage:
+                            description: |-
+                              localStorage configures the instance store disks of types that have
+                              them.
+                            properties:
+                              mountPath:
+                                description: mountPath is the absolute path the local
+                                  storage is mounted at.
+                                maxLength: 255
+                                pattern: ^/[^\x00]*$
+                                type: string
+                              policy:
+                                description: |-
+                                  policy: ignore leaves the disks alone, mount mounts them, raid0 stripes
+                                  them into one volume and mounts it.
+                                enum:
+                                - ignore
+                                - mount
+                                - raid0
+                                type: string
+                            required:
+                            - policy
+                            type: object
+                          root:
+                            description: root configures the root EBS volume.
+                            properties:
+                              encrypted:
+                                description: encrypted encrypts the volume. Built-in
+                                  default true.
+                                type: boolean
+                              iops:
+                                description: iops provisioned for gp3, io1 and io2
+                                  volumes.
+                                format: int32
+                                maximum: 256000
+                                minimum: 100
+                                type: integer
+                              kmsKeyID:
+                                description: |-
+                                  kmsKeyID is the KMS key (ID, alias or ARN) used for encryption; the
+                                  account's default EBS key when empty.
+                                maxLength: 2048
+                                type: string
+                              throughput:
+                                description: throughput in MiB/s provisioned for gp3
+                                  volumes.
+                                format: int32
+                                maximum: 2000
+                                minimum: 125
+                                type: integer
+                              volumeSize:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: volumeSize of the root volume, e.g. 64Gi.
+                                  Built-in default 64Gi.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              volumeType:
+                                description: volumeType is the EBS volume type. Built-in
+                                  default gp3.
+                                enum:
+                                - gp2
+                                - gp3
+                                - io1
+                                - io2
+                                - st1
+                                - sc1
+                                - standard
+                                type: string
+                            type: object
+                            x-kubernetes-validations:
+                            - message: iops is only valid for gp3, io1 and io2
+                              rule: '!has(self.iops) || !has(self.volumeType) || self.volumeType
+                                in [''gp3'', ''io1'', ''io2'']'
+                            - message: throughput is only valid for gp3
+                              rule: '!has(self.throughput) || !has(self.volumeType)
+                                || self.volumeType == ''gp3'''
+                            - message: io1 and io2 need iops
+                              rule: '!has(self.volumeType) || !(self.volumeType in
+                                [''io1'', ''io2'']) || has(self.iops)'
+                            - message: kmsKeyID needs encrypted
+                              rule: '!has(self.kmsKeyID) || !has(self.encrypted) ||
+                                self.encrypted'
+                        type: object
+                    type: object
+                  fake:
+                    description: fake configures the fake (KWOK) development vendor.
+                    properties:
+                      networking:
+                        description: networking overrides the generic spec.networking
+                          for the fake vendor.
+                        properties:
+                          inbound:
+                            description: inbound replaces spec.networking.inbound.
+                            properties:
+                              rules:
+                                description: rules allow traffic from CIDRs; everything
+                                  else is denied.
+                                items:
+                                  description: InboundRule allows inbound traffic
+                                    from CIDRs.
+                                  properties:
+                                    cidrs:
+                                      description: cidrs are the allowed source networks.
+                                      items:
+                                        maxLength: 43
+                                        type: string
+                                      maxItems: 32
+                                      minItems: 1
+                                      type: array
+                                      x-kubernetes-list-type: set
+                                    fromPort:
+                                      description: |-
+                                        fromPort is the first port of the range (tcp and udp); without ports
+                                        the rule covers every port.
+                                      format: int32
+                                      maximum: 65535
+                                      minimum: 1
+                                      type: integer
+                                    protocol:
+                                      description: protocol of the rule.
+                                      enum:
+                                      - tcp
+                                      - udp
+                                      - icmp
+                                      - any
+                                      type: string
+                                    toPort:
+                                      description: toPort is the last port of the
+                                        range; defaults to fromPort.
+                                      format: int32
+                                      maximum: 65535
+                                      minimum: 1
+                                      type: integer
+                                  required:
+                                  - cidrs
+                                  - protocol
+                                  type: object
+                                  x-kubernetes-validations:
+                                  - message: ports are only valid for tcp and udp
+                                    rule: '!has(self.fromPort) || self.protocol ==
+                                      ''tcp'' || self.protocol == ''udp'''
+                                  - message: toPort needs fromPort
+                                    rule: '!has(self.toPort) || has(self.fromPort)'
+                                  - message: toPort must not be smaller than fromPort
+                                    rule: '!has(self.toPort) || self.toPort >= self.fromPort'
+                                  - message: cidrs must be valid CIDR notation
+                                    rule: self.cidrs.all(c, isCIDR(c))
+                                maxItems: 32
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            type: object
+                          isolation:
+                            description: isolation overrides spec.networking.isolation.
+                            enum:
+                            - none
+                            - nodeclass
+                            - run
+                            type: string
+                          publicIPv4:
+                            description: publicIPv4 overrides spec.networking.publicIPv4.
+                            type: boolean
+                          publicIPv6:
+                            description: publicIPv6 overrides spec.networking.publicIPv6.
+                            type: boolean
+                        type: object
+                      regions:
+                        description: |-
+                          regions is the allow-list of regions; empty means every region of the
+                          catalog.
+                        items:
+                          type: string
+                        maxItems: 64
+                        type: array
+                        x-kubernetes-list-type: set
+                      resources:
+                        description: resources says how the fake resources a node
+                          depends on are provided.
+                        properties:
+                          networks:
+                            description: networks the fake nodes attach to.
+                            properties:
+                              create:
+                                description: create lets SCarpenter create and own
+                                  the resource, with a lifecycle.
+                                properties:
+                                  lifecycle:
+                                    description: |-
+                                      lifecycle decides when the resource is deleted. Without it the kind's
+                                      default applies (00a section 9.3).
+                                    properties:
+                                      policy:
+                                        description: policy is perUse, idleTTL or
+                                          retain.
+                                        enum:
+                                        - perUse
+                                        - idleTTL
+                                        - retain
+                                        type: string
+                                      ttl:
+                                        description: |-
+                                          ttl is how long an unused resource is kept (policy idleTTL). Default
+                                          24h, or the controller's --resource-default-ttl.
+                                        type: string
+                                    required:
+                                    - policy
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ttl is only valid with policy idleTTL
+                                      rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  timing:
+                                    description: 'timing decides when the resource
+                                      is created. Default: on demand.'
+                                    properties:
+                                      mode:
+                                        default: onDemand
+                                        description: |-
+                                          mode: onDemand creates the resource when the first launch needs it;
+                                          preCreate creates it in the listed regions right away and keeps it.
+                                        enum:
+                                        - onDemand
+                                        - preCreate
+                                        type: string
+                                      regions:
+                                        description: regions are the regions to create
+                                          the resource in (mode preCreate).
+                                        items:
+                                          type: string
+                                        maxItems: 64
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: regions is required with mode preCreate
+                                        and invalid otherwise
+                                      rule: 'self.mode == ''preCreate'' ? has(self.regions)
+                                        : !has(self.regions)'
+                                type: object
+                              forbid:
+                                description: |-
+                                  forbid opts the kind out of auto-creation: offerings that need it are
+                                  unavailable unless the vendor's default resource exists.
+                                type: boolean
+                              use:
+                                description: |-
+                                  use brings an existing resource: it is validated per region, never
+                                  modified and never deleted.
+                                properties:
+                                  ids:
+                                    additionalProperties:
+                                      items:
+                                        type: string
+                                      type: array
+                                    description: ids lists the vendor IDs explicitly,
+                                      per region.
+                                    maxProperties: 64
+                                    minProperties: 1
+                                    type: object
+                                  name:
+                                    description: |-
+                                      name is a name pattern; {region} and {zone} are replaced by the region
+                                      and zone in scope.
+                                    maxLength: 255
+                                    minLength: 1
+                                    type: string
+                                  selector:
+                                    description: |-
+                                      selector matches resources by tags (labels, where the vendor has no
+                                      tags), evaluated in every region in scope.
+                                    properties:
+                                      tags:
+                                        additionalProperties:
+                                          type: string
+                                        description: tags must all be present with
+                                          the given values on the resource.
+                                        maxProperties: 32
+                                        minProperties: 1
+                                        type: object
+                                    required:
+                                    - tags
+                                    type: object
+                                type: object
+                                x-kubernetes-validations:
+                                - message: set exactly one of ids, name and selector
+                                  rule: '(has(self.ids) ? 1 : 0) + (has(self.name)
+                                    ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: at most one of use, create and forbid may be
+                                set
+                              rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
+                                1 : 0) + ((has(self.forbid) && self.forbid) ? 1 :
+                                0) <= 1'
+                        type: object
+                      storage:
+                        description: storage overrides the fake driver's defaults.
+                        properties:
+                          data:
+                            description: data lists extra disks.
+                            items:
+                              description: DataDisk is a fake extra disk.
+                              properties:
+                                filesystem:
+                                  default: ext4
+                                  description: filesystem the first-boot unit creates
+                                    on the volume.
+                                  enum:
+                                  - ext4
+                                  - xfs
+                                  - btrfs
+                                  type: string
+                                mountPath:
+                                  description: mountPath is the absolute path the
+                                    volume is mounted at.
+                                  maxLength: 255
+                                  pattern: ^/[^\x00]*$
+                                  type: string
+                                name:
+                                  description: |-
+                                    name identifies the volume in the profile and in the device hints
+                                    rendered into Ignition.
+                                  maxLength: 40
+                                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                                  type: string
+                                size:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: size of the disk.
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                              required:
+                              - mountPath
+                              - name
+                              - size
+                              type: object
+                            maxItems: 8
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          root:
+                            description: root configures the root disk.
+                            properties:
+                              size:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: size of the root disk.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                  qemu:
+                    description: qemu configures the qemu development vendor.
+                    properties:
+                      accelerator:
+                        default: auto
+                        description: |-
+                          accelerator used for the VMs: auto picks kvm when /dev/kvm is usable and
+                          falls back to tcg (software emulation, slow).
+                        enum:
+                        - auto
+                        - kvm
+                        - tcg
+                        type: string
+                      networking:
+                        description: networking overrides the generic spec.networking
+                          for qemu.
+                        properties:
+                          inbound:
+                            description: inbound replaces spec.networking.inbound.
+                            properties:
+                              rules:
+                                description: rules allow traffic from CIDRs; everything
+                                  else is denied.
+                                items:
+                                  description: InboundRule allows inbound traffic
+                                    from CIDRs.
+                                  properties:
+                                    cidrs:
+                                      description: cidrs are the allowed source networks.
+                                      items:
+                                        maxLength: 43
+                                        type: string
+                                      maxItems: 32
+                                      minItems: 1
+                                      type: array
+                                      x-kubernetes-list-type: set
+                                    fromPort:
+                                      description: |-
+                                        fromPort is the first port of the range (tcp and udp); without ports
+                                        the rule covers every port.
+                                      format: int32
+                                      maximum: 65535
+                                      minimum: 1
+                                      type: integer
+                                    protocol:
+                                      description: protocol of the rule.
+                                      enum:
+                                      - tcp
+                                      - udp
+                                      - icmp
+                                      - any
+                                      type: string
+                                    toPort:
+                                      description: toPort is the last port of the
+                                        range; defaults to fromPort.
+                                      format: int32
+                                      maximum: 65535
+                                      minimum: 1
+                                      type: integer
+                                  required:
+                                  - cidrs
+                                  - protocol
+                                  type: object
+                                  x-kubernetes-validations:
+                                  - message: ports are only valid for tcp and udp
+                                    rule: '!has(self.fromPort) || self.protocol ==
+                                      ''tcp'' || self.protocol == ''udp'''
+                                  - message: toPort needs fromPort
+                                    rule: '!has(self.toPort) || has(self.fromPort)'
+                                  - message: toPort must not be smaller than fromPort
+                                    rule: '!has(self.toPort) || self.toPort >= self.fromPort'
+                                  - message: cidrs must be valid CIDR notation
+                                    rule: self.cidrs.all(c, isCIDR(c))
+                                maxItems: 32
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            type: object
+                          isolation:
+                            description: isolation overrides spec.networking.isolation.
+                            enum:
+                            - none
+                            - nodeclass
+                            - run
+                            type: string
+                          publicIPv4:
+                            description: publicIPv4 overrides spec.networking.publicIPv4.
+                            type: boolean
+                          publicIPv6:
+                            description: publicIPv6 overrides spec.networking.publicIPv6.
+                            type: boolean
+                        type: object
+                      regions:
+                        description: |-
+                          regions is the allow-list of qemu hosts ("regions"); empty means the
+                          local host.
+                        items:
+                          type: string
+                        maxItems: 16
+                        type: array
+                        x-kubernetes-list-type: set
+                      resources:
+                        description: resources says how the host resources the VMs
+                          depend on are provided.
+                        properties:
+                          networks:
+                            description: networks (bridges with DHCP) the VMs attach
+                              to.
+                            properties:
+                              create:
+                                description: create lets SCarpenter create and own
+                                  the resource, with a lifecycle.
+                                properties:
+                                  lifecycle:
+                                    description: |-
+                                      lifecycle decides when the resource is deleted. Without it the kind's
+                                      default applies (00a section 9.3).
+                                    properties:
+                                      policy:
+                                        description: policy is perUse, idleTTL or
+                                          retain.
+                                        enum:
+                                        - perUse
+                                        - idleTTL
+                                        - retain
+                                        type: string
+                                      ttl:
+                                        description: |-
+                                          ttl is how long an unused resource is kept (policy idleTTL). Default
+                                          24h, or the controller's --resource-default-ttl.
+                                        type: string
+                                    required:
+                                    - policy
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ttl is only valid with policy idleTTL
+                                      rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  timing:
+                                    description: 'timing decides when the resource
+                                      is created. Default: on demand.'
+                                    properties:
+                                      mode:
+                                        default: onDemand
+                                        description: |-
+                                          mode: onDemand creates the resource when the first launch needs it;
+                                          preCreate creates it in the listed regions right away and keeps it.
+                                        enum:
+                                        - onDemand
+                                        - preCreate
+                                        type: string
+                                      regions:
+                                        description: regions are the regions to create
+                                          the resource in (mode preCreate).
+                                        items:
+                                          type: string
+                                        maxItems: 64
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: regions is required with mode preCreate
+                                        and invalid otherwise
+                                      rule: 'self.mode == ''preCreate'' ? has(self.regions)
+                                        : !has(self.regions)'
+                                type: object
+                              forbid:
+                                description: |-
+                                  forbid opts the kind out of auto-creation: offerings that need it are
+                                  unavailable unless the vendor's default resource exists.
+                                type: boolean
+                              use:
+                                description: |-
+                                  use brings an existing resource: it is validated per region, never
+                                  modified and never deleted.
+                                properties:
+                                  ids:
+                                    additionalProperties:
+                                      items:
+                                        type: string
+                                      type: array
+                                    description: ids lists the vendor IDs explicitly,
+                                      per region.
+                                    maxProperties: 64
+                                    minProperties: 1
+                                    type: object
+                                  name:
+                                    description: |-
+                                      name is a name pattern; {region} and {zone} are replaced by the region
+                                      and zone in scope.
+                                    maxLength: 255
+                                    minLength: 1
+                                    type: string
+                                  selector:
+                                    description: |-
+                                      selector matches resources by tags (labels, where the vendor has no
+                                      tags), evaluated in every region in scope.
+                                    properties:
+                                      tags:
+                                        additionalProperties:
+                                          type: string
+                                        description: tags must all be present with
+                                          the given values on the resource.
+                                        maxProperties: 32
+                                        minProperties: 1
+                                        type: object
+                                    required:
+                                    - tags
+                                    type: object
+                                type: object
+                                x-kubernetes-validations:
+                                - message: set exactly one of ids, name and selector
+                                  rule: '(has(self.ids) ? 1 : 0) + (has(self.name)
+                                    ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: at most one of use, create and forbid may be
+                                set
+                              rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
+                                1 : 0) + ((has(self.forbid) && self.forbid) ? 1 :
+                                0) <= 1'
+                        type: object
+                      storage:
+                        description: storage overrides the qemu driver's defaults.
+                        properties:
+                          data:
+                            description: data lists extra disks.
+                            items:
+                              description: DataDisk is an extra disk image.
+                              properties:
+                                filesystem:
+                                  default: ext4
+                                  description: filesystem the first-boot unit creates
+                                    on the volume.
+                                  enum:
+                                  - ext4
+                                  - xfs
+                                  - btrfs
+                                  type: string
+                                format:
+                                  description: format of the disk image.
+                                  enum:
+                                  - qcow2
+                                  - raw
+                                  type: string
+                                mountPath:
+                                  description: mountPath is the absolute path the
+                                    volume is mounted at.
+                                  maxLength: 255
+                                  pattern: ^/[^\x00]*$
+                                  type: string
+                                name:
+                                  description: |-
+                                    name identifies the volume in the profile and in the device hints
+                                    rendered into Ignition.
+                                  maxLength: 40
+                                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                                  type: string
+                                size:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: size of the disk image.
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                              required:
+                              - mountPath
+                              - name
+                              - size
+                              type: object
+                            maxItems: 8
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          root:
+                            description: root configures the root disk.
+                            properties:
+                              format:
+                                description: format of the overlay image.
+                                enum:
+                                - qcow2
+                                - raw
+                                type: string
+                              size:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: size the root image is grown to.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                        type: object
+                    type: object
+                type: object
+            required:
+            - flatcar
+            - kubernetes
+            - network
+            - vendors
+            type: object
+          status:
+            description: SCNodeClassStatus is the observed state of an SCNodeClass.
+            properties:
+              conditions:
+                description: 'conditions of the SCNodeClass: Ready, CatalogReady,
+                  ArtifactsReady.'
+                items:
+                  description: Condition aliases the upstream type and adds additional
+                    helper methods
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              resolved:
+                description: resolved holds the artifacts resolved for the whole SCNodeClass.
+                properties:
+                  kubernetes:
+                    additionalProperties:
+                      description: Artifact is a downloadable image pinned by its
+                        checksum.
+                      properties:
+                        sha256:
+                          description: sha256 of the image, lower-case hex.
+                          type: string
+                        url:
+                          description: url the image is downloaded from.
+                          type: string
+                      required:
+                      - sha256
+                      - url
+                      type: object
+                    description: kubernetes is the Kubernetes sysext per architecture.
+                    type: object
+                  tailscale:
+                    additionalProperties:
+                      description: Artifact is a downloadable image pinned by its
+                        checksum.
+                      properties:
+                        sha256:
+                          description: sha256 of the image, lower-case hex.
+                          type: string
+                        url:
+                          description: url the image is downloaded from.
+                          type: string
+                      required:
+                      - sha256
+                      - url
+                      type: object
+                    description: tailscale is the Tailscale sysext per architecture.
+                    type: object
+                type: object
+              vendorNames:
+                description: |-
+                  vendorNames lists the vendors that have a block in the spec, for the
+                  printer column.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+              vendors:
+                additionalProperties:
+                  description: VendorStatus is the observed state of one vendor of
+                    the SCNodeClass.
+                  properties:
+                    conditions:
+                      description: |-
+                        conditions of the vendor: VendorReady, ImagesReady, ResourcesReady,
+                        QuotaAvailable.
+                      items:
+                        description: Condition aliases the upstream type and adds
+                          additional helper methods
+                        properties:
+                          lastTransitionTime:
+                            description: |-
+                              lastTransitionTime is the last time the condition transitioned from one status to another.
+                              This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                            format: date-time
+                            type: string
+                          message:
+                            description: |-
+                              message is a human readable message indicating details about the transition.
+                              This may be an empty string.
+                            maxLength: 32768
+                            type: string
+                          observedGeneration:
+                            description: |-
+                              observedGeneration represents the .metadata.generation that the condition was set based upon.
+                              For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                              with respect to the current state of the instance.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          reason:
+                            description: |-
+                              reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                              Producers of specific condition types may define expected values and meanings for this field,
+                              and whether the values are considered a guaranteed API.
+                              The value should be a CamelCase string.
+                              This field may not be empty.
+                            maxLength: 1024
+                            minLength: 1
+                            pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                            type: string
+                          status:
+                            description: status of the condition, one of True, False,
+                              Unknown.
+                            enum:
+                            - "True"
+                            - "False"
+                            - Unknown
+                            type: string
+                          type:
+                            description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                            maxLength: 316
+                            pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                            type: string
+                        required:
+                        - lastTransitionTime
+                        - message
+                        - reason
+                        - status
+                        - type
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - type
+                      x-kubernetes-list-type: map
+                    hash:
+                      description: |-
+                        hash is the drift hash of the shared fields that change what a node is
+                        plus this vendor's block (overview section 6.3).
+                      type: string
+                    images:
+                      description: images are the resolved boot images per region
+                        and architecture.
+                      items:
+                        description: ImageStatus is the boot image of a region and
+                          architecture.
+                        properties:
+                          arch:
+                            description: arch is amd64 or arm64.
+                            type: string
+                          message:
+                            description: message explains an image that is not ready.
+                            type: string
+                          ready:
+                            description: ready says whether the image can be launched
+                              in the region.
+                            type: boolean
+                          ref:
+                            description: ref is the vendor's image reference (for
+                              example an AMI ID).
+                            type: string
+                          region:
+                            type: string
+                        required:
+                        - arch
+                        - ready
+                        - ref
+                        - region
+                        type: object
+                      type: array
+                    quota:
+                      description: quota is the quota view per region and capacity
+                        type.
+                      items:
+                        description: QuotaStatus is the quota view of one bucket.
+                        properties:
+                          bucket:
+                            description: bucket is the vendor's quota identifier.
+                            type: string
+                          capacityType:
+                            description: capacityType is on-demand or spot.
+                            type: string
+                          limit:
+                            description: limit is the bucket's limit in the same unit.
+                            format: int64
+                            type: integer
+                          reason:
+                            description: reason is set when the bucket has no headroom,
+                              for example QuotaExhausted.
+                            type: string
+                          region:
+                            type: string
+                          used:
+                            description: used is the current consumption in the bucket's
+                              unit.
+                            format: int64
+                            type: integer
+                        required:
+                        - bucket
+                        - capacityType
+                        - limit
+                        - region
+                        - used
+                        type: object
+                      type: array
+                    resources:
+                      description: resources are the vendor resources referenced or
+                        managed, per region.
+                      items:
+                        description: ResourceStatus is a vendor resource referenced
+                          (use) or managed (create).
+                        properties:
+                          id:
+                            description: id of the resource at the vendor.
+                            type: string
+                          kind:
+                            description: kind of the resource, for example subnets.
+                            type: string
+                          lastUsed:
+                            description: lastUsed is when an instance last used a
+                              managed resource.
+                            format: date-time
+                            type: string
+                          managed:
+                            description: managed is true for resources SCarpenter
+                              created.
+                            type: boolean
+                          message:
+                            description: message explains a resource that is not ready
+                              or cannot be deleted.
+                            type: string
+                          region:
+                            type: string
+                        required:
+                        - id
+                        - kind
+                        - region
+                        type: object
+                      type: array
+                  type: object
+                description: vendors is the observed state per vendor.
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

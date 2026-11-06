@@ -1,0 +1,29 @@
+# One SCNodeClass for the development vendors: fake (KWOK nodes) and qemu
+# (Flatcar VMs on the developer's machine), nodes reaching the API server
+# directly.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: dev
+spec:
+  flatcar: {version: "4757.2.3"}
+  kubernetes: {version: "v1.37.1"}
+  network: {template: direct}
+  profiles:
+    storage:
+      big-disk:
+        fake: {root: {size: 200Gi}, data: [{name: scratch, size: 100Gi, mountPath: /scratch}]}
+        qemu: {root: {size: 100Gi, format: qcow2}}
+    placement:
+      spread: {fake: {group: {strategy: spread}}}
+      pinned: {qemu: {pinCPUs: true}}
+    network:
+      fast: {fake: {accelerated: true}, qemu: {model: virtio-net-pci}}
+  vendors:
+    fake:
+      regions: [fake-region-1]
+      resources: {networks: {create: {lifecycle: {policy: retain}, timing: {mode: preCreate, regions: [fake-region-1]}}}}
+    qemu:
+      accelerator: auto
+      storage: {root: {size: 50Gi}}
+      resources: {networks: {forbid: true}}

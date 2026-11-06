@@ -27,7 +27,7 @@ Execution protocol:
 | 00 | `wip/00-overview.md` | draft for review | architecture, API, catalog, bootstrap, drivers, AWS, testing | — |
 | 00a | `wip/00a-node-options.md` | accepted | vendor-native node settings and profiles, instance selection (attribute and metric labels, sc-karpenter-nodepool selection profiles), vendor resources (bring your own or managed, with lifecycles), multi-vendor NodeClass, workload interface | 00 |
 | 01 | `done/01-sc-keeper-go.md` | done | shared module: Keeper client and sc-karpenter-nodepool's selection engine; `sc-karpenter-nodepool` switched to it; `/table/*` endpoints | 00 |
-| 02 | `wip/02-scaffold.md` | todo | dev container, module, multi-vendor `SCNodeClass` API + CRD, operator wiring, CI | 01 |
+| 02 | `wip/02-scaffold.md` | review | dev container, module, multi-vendor `SCNodeClass` API + CRD, operator wiring, CI | 01 |
 | 03 | `wip/03-catalog.md` | todo | Keeper → instance types and offerings; attribute, metric, selection, location and profile labels; refresh; unavailable cache | 02 |
 | 04 | `wip/04-cloudprovider-and-fake-driver.md` | todo | CloudProvider, driver contract + registry + conformance, quota tracker, fake driver, GC, L3 KWOK lane, scale measurement | 03 |
 | 05 | `wip/05-bootstrap.md` | todo | tokens, artifacts, templates → Ignition, NodeClass controller, CSR approver | 04 |

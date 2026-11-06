@@ -1,0 +1,45 @@
+name: CI
+
+# Runs the gates of docs/plans/v1/CONVENTIONS.md inside the dev container, the
+# same way a developer does with hack/dev.sh. The dev image is built once per
+# run (with a layer cache) and every step reuses it.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/dev-image
+
+      - name: Generated code, CRDs, chart CRDs and API docs are up to date
+        run: |
+          hack/dev.sh make generate manifests chart-crds docs-api
+          git add -N .
+          git diff --exit-code
+
+      - name: Lint (go vet, golangci-lint, actionlint, shellcheck, documentation links)
+        run: hack/dev.sh make lint
+
+      - name: Test (unit, golden, envtest)
+        run: hack/dev.sh make test
+
+      - name: Build the controller binary
+        run: hack/dev.sh make build
+
+      - name: Build the controller image
+        run: hack/dev.sh make image

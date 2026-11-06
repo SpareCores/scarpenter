@@ -53,6 +53,15 @@ No driver calls, no Kubernetes client in `pkg/catalog` itself.
   green energy), and the profile labels (`storage-profile`,
   `network-profile`, `placement-profile`: `default` plus the profiles a
   `Supported` hook allows; the hook returns only `default` until plan 06).
+  **Registration with core** (decided in the plan 02 review): core reads
+  `WellKnownLabels` when its controllers start (node metrics take their label
+  names from it) and the set is an unlocked global map, so keys are never
+  registered at runtime. Before `WithCoreControllers`, list the SCNodeClasses
+  with the API reader and register their `metric-<m>` keys (and every fixed
+  key); `cpu-flag-<f>` keys come from the static curated enum of
+  `catalog.cpuFlagLabels`, all registered. A NodeClass that later defines a
+  metric not registered at start gets `RestartRequired=True` naming the keys
+  (its metric labels are not stamped until a restart).
   **Every key is defined on every instance type**, `DoesNotExist` where the
   value is unknown or nothing applies (00a §2). Selection objective pricing:
   when a NodePool pins one selection profile with a non-`Price` objective,

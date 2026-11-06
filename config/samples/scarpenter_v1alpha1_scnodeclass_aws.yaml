@@ -1,0 +1,86 @@
+# One SCNodeClass for AWS: pinned Flatcar and Kubernetes, nodes join through a
+# tailnet, benchmark metrics and a selection profile, explicit storage,
+# placement and network profiles, and the resources of the AWS block.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: default
+spec:
+  flatcar:
+    channel: stable
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: tailscale
+    tailscale:
+      version: "v1.98.10"
+      loginServer: ""
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter, key: authkey}
+      tags: ["tag:k8s-node"]
+  networking:
+    publicIPv4: true
+    publicIPv6: false
+    inbound:
+      rules:
+        - {protocol: tcp, fromPort: 22, cidrs: ["203.0.113.0/24"]}
+    isolation: run
+  kubelet:
+    maxPods: 110
+    systemReserved: {cpu: 100m, memory: 100Mi}
+    evictionHard: {memory.available: 100Mi}
+    vmMemoryOverheadPercent: 7.5
+  butane:
+    configMapRef: {name: extras, namespace: scarpenter, key: config.bu}
+  sysexts:
+    - name: example
+      arch: amd64
+      url: https://example.com/example-amd64.raw
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  poweroffAfter: 24h
+  tags: {owner: example}
+  pricing: {allowIncomplete: true}
+  catalog:
+    cpuFlagLabels: [avx2, avx512f, amx_tile, sha_ni]
+  metrics:
+    single-core:
+      benchmark: {id: "geekbench:score", config: {cores: single}}
+    web:
+      workloadProfile: web
+      normalize: PerVcpu
+      scale: 100
+  selections:
+    fast-single-core:
+      selector: {vcpus: {min: 2}}
+      ranking:
+        score: {benchmark: {id: "geekbench:score", config: {cores: single}}}
+        objective: Score
+        band: {withinPercent: 12}
+        families: {min: 3}
+  profiles:
+    storage:
+      db-io2:
+        aws:
+          root: {volumeType: gp3, volumeSize: 64Gi}
+          data:
+            - {name: pgdata, volumeType: io2, volumeSize: 500Gi, iops: 32000, filesystem: xfs, mountPath: /var/lib/pgdata}
+          localStorage: {policy: raid0, mountPath: /var/lib/scratch}
+    placement:
+      colocated: {aws: {placementGroup: {strategy: cluster}}}
+      dedicated: {aws: {tenancy: dedicated}}
+      existing: {aws: {placementGroup: {use: {name: my-placement-group}}}}
+    network:
+      ena-express: {aws: {enaExpress: {enabled: true, udp: true}}}
+  vendors:
+    aws:
+      regions: [us-east-1, us-east-2]
+      storage:
+        root: {volumeType: gp3, volumeSize: 128Gi, iops: 3000, throughput: 125, encrypted: true}
+      networking: {publicIPv4: false}
+      metadataOptions: {httpTokens: required, httpPutResponseHopLimit: 1}
+      instanceProfile: ""
+      imageOwner: ""
+      resources:
+        subnets: {use: {selector: {tags: {scarpenter.sparecores.com/use: "true"}}}}
+        securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 24h}}}
+        placementGroups: {create: {lifecycle: {policy: perUse}}}

@@ -33,9 +33,9 @@ Karpenter mechanics were traced in core v1.15.1 source; file references are to
 - [9. Vendor resources: bring your own, or managed](#9-vendor-resources-bring-your-own-or-managed)
 - [10. Pricing](#10-pricing)
 - [11. Device identity for Ignition](#11-device-identity-for-ignition)
-- [12. Requests to the Spare Cores data](#12-requests-to-the-spare-cores-data)
+- [12. Spare Cores data: use what exists](#12-spare-cores-data-use-what-exists)
 - [13. Impact on the v1 plans](#13-impact-on-the-v1-plans)
-- [14. Open questions](#14-open-questions)
+- [14. Decisions](#14-decisions)
 
 ## 1. Requirements
 
@@ -376,6 +376,10 @@ profile, optionally normalised per vCPU. For each metric `<m>`:
 | `metric-<m>-per-usd` | **offering** | score per USD/hour of that offering |
 
 Unbenchmarked types get `DoesNotExist`, so any threshold excludes them.
+Metric keys are registered with Karpenter core at start-up from the
+NodeClasses that exist then; a metric added later needs a controller restart,
+which the NodeClass reports as `RestartRequired` (core's well-known label set
+cannot change while its controllers run).
 Examples: "fast single core" is `metric-single-core-pct Gt 89`; an explicit
 number is `metric-single-core Gt 1999`.
 

@@ -1,0 +1,3 @@
+resources:
+  - scarpenter_v1alpha1_scnodeclass_aws.yaml
+  - scarpenter_v1alpha1_scnodeclass_dev.yaml
