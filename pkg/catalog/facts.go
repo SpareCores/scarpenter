@@ -50,6 +50,16 @@ type Facts interface {
 	Epoch() uint64
 }
 
+// LaunchableFacts is an optional extension of Facts: the driver's
+// OfferingLister view (overview section 5.9). An offering whose type is not
+// launchable in the zone is dropped from the catalog instead of being found out
+// by failed launches. Types or zones the driver says nothing about are kept.
+type LaunchableFacts interface {
+	// Launchable reports whether the type can be launched in the zone, given by
+	// Keeper's zone ID; known is false when the driver does not say.
+	Launchable(vendor, apiReference, zoneID string) (launchable, known bool)
+}
+
 // StaticFacts is a Facts with fixed answers, for tests and for drivers that
 // have nothing to say yet. Supported reports only the default profile.
 type StaticFacts struct {

@@ -1,0 +1,6 @@
+# The controller as the L3 lane runs it. The RBAC here is the lane's own; the
+# Helm chart of plan 09 ships the production RBAC and replaces it.
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - deployment.yaml

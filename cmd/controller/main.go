@@ -8,20 +8,29 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // CloudProvider. The wiring follows the AWS provider's cmd/controller/main.go
 // (Apache-2.0,
 // https://github.com/aws/karpenter-provider-aws/blob/30c236cafacb3a23fb3a50370d09d71750b56b29/cmd/controller/main.go),
-// adapted to core v1.15.1; the decorators and core's controllers are wired in
-// pkg/operator so the tests run the same code.
+// adapted to core v1.15.1; the decorators, the components and core's
+// controllers are wired in pkg/operator so the tests run the same code.
 package main
 
 import (
+	"os"
+
+	"github.com/samber/lo"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	coreoperator "sigs.k8s.io/karpenter/pkg/operator"
 
-	"github.com/SpareCores/scarpenter/pkg/cloudprovider"
 	"github.com/SpareCores/scarpenter/pkg/operator"
 )
 
 func main() {
 	ctx, op := operator.NewOperator(coreoperator.NewOperator())
+	components, err := op.NewComponents(ctx)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "building the components")
+		os.Exit(1)
+	}
+	lo.Must0(op.WithComponentControllers(ctx, components), "registering the controllers")
 	op.
-		WithCoreControllers(ctx, cloudprovider.New()).
+		WithCoreControllers(ctx, op.NewCloudProvider(components)).
 		Start(ctx)
 }

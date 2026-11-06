@@ -97,7 +97,7 @@ fi
 # Settings of the local test lanes (test/kwok/run.sh, test/qemu/run.sh) that
 # pass through when set in the caller's environment.
 env_args=()
-for name in KWOK_CORE_VERSION KWOK_VENDORS KWOK_SETUP_ONLY KEEP_CLUSTER REUSE_CLUSTER KIND_CLUSTER_NAME; do
+for name in KWOK_SCENARIOS KWOK_SETUP_ONLY KEEP_CLUSTER REUSE_CLUSTER KIND_CLUSTER_NAME; do
   if [[ -n "${!name:-}" ]]; then
     env_args+=(-e "${name}=${!name}")
   fi

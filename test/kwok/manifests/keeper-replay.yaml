@@ -1,0 +1,42 @@
+# The committed Spare Cores snapshot served as a Keeper API, so the controller
+# under test needs no network.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keeper-replay
+  namespace: scarpenter-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: keeper-replay}
+  template:
+    metadata:
+      labels: {app: keeper-replay}
+    spec:
+      tolerations:
+        - {key: CriticalAddonsOnly, operator: Exists}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: replay
+          image: scarpenter-keeper-replay:kwok
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8080}
+          readinessProbe:
+            httpGet: {path: /healthcheck, port: http}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keeper-replay
+  namespace: scarpenter-system
+spec:
+  selector: {app: keeper-replay}
+  ports:
+    - {name: http, port: 8080, targetPort: http}

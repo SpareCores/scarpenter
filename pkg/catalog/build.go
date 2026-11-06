@@ -84,6 +84,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 		return vb
 	}
 	facts := c.opts.Facts
+	launchable, _ := facts.(LaunchableFacts)
 	zonesByRegion, hasZones := facts.Zones(vendor)
 	view := snap.view(class)
 	allowed := class.Vendors[vendor]
@@ -123,6 +124,12 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 		}
 		name := InstanceTypeName(vendor, srv.APIReference)
 		offs := c.offeringsOf(vd, srv, prices, regions, zonesByRegion, hasZones, class, vendor)
+		if launchable != nil {
+			offs = slices.DeleteFunc(offs, func(o resolvedOffering) bool {
+				ok, known := launchable.Launchable(vendor, srv.APIReference, o.zone.ID)
+				return known && !ok
+			})
+		}
 		if len(offs) == 0 {
 			continue
 		}

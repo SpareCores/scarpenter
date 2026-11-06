@@ -1,0 +1,6 @@
+# The Keeper replay server with the committed snapshot.
+FROM scratch
+COPY replay /replay
+COPY snapshot /snapshot
+USER 65532:65532
+ENTRYPOINT ["/replay", "-snapshot=/snapshot"]

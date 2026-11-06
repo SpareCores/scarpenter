@@ -45,7 +45,9 @@ const (
 	DefaultQuotaRefreshInterval       = 2 * time.Minute
 	DefaultQuotaLimitsRefreshInterval = 15 * time.Minute
 	DefaultQuotaMaxStaleness          = 15 * time.Minute
+	DefaultQuotaLaunchableInterval    = time.Hour
 	DefaultGCInterval                 = 2 * time.Minute
+	DefaultGCGracePeriod              = 5 * time.Minute
 	DefaultResourceDefaultTTL         = 24 * time.Hour
 	DefaultAWSHomeRegion              = "us-east-1"
 )
@@ -93,8 +95,25 @@ type Options struct {
 	QuotaRefreshInterval       time.Duration
 	QuotaLimitsRefreshInterval time.Duration
 	QuotaMaxStaleness          time.Duration
-	// GCInterval is the period of the garbage collector.
-	GCInterval time.Duration
+	// QuotaLaunchableInterval is the period of the refresh of which instance
+	// types the account can launch in which zones.
+	QuotaLaunchableInterval time.Duration
+	// GCInterval is the period of the garbage collector; GCGracePeriod the age
+	// an orphan instance must have before it is deleted (the time between the
+	// vendor call and the NodeClaim status update); GCDryRun only logs.
+	GCInterval    time.Duration
+	GCGracePeriod time.Duration
+	GCDryRun      bool
+	// The lifetimes of the unavailable-offerings cache entries per error class
+	// (overview section 5.6); zero uses the default of the class.
+	UnavailableInsufficientCapacityTTL time.Duration
+	UnavailableUnsupportedTTL          time.Duration
+	UnavailableQuotaExceededTTL        time.Duration
+	UnavailableZoneUnusableTTL         time.Duration
+	// KeeperPricesRegionsPerRequest splits the price reads into requests of
+	// this many regions (0: the client's default). The replay server of the test
+	// lanes has one region per recorded request.
+	KeeperPricesRegionsPerRequest int
 	// ResourceDefaultTTL is the idleTTL of managed shared resources when a
 	// SCNodeClass does not set one.
 	ResourceDefaultTTL time.Duration
@@ -122,7 +141,15 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.QuotaRefreshInterval, "quota-refresh-interval", env.WithDefaultDuration("SCARPENTER_QUOTA_REFRESH_INTERVAL", DefaultQuotaRefreshInterval), "How often quota usage is refreshed per vendor and region in scope.")
 	fs.DurationVar(&o.QuotaLimitsRefreshInterval, "quota-limits-refresh-interval", env.WithDefaultDuration("SCARPENTER_QUOTA_LIMITS_REFRESH_INTERVAL", DefaultQuotaLimitsRefreshInterval), "How often quota limits are refreshed per vendor and region in scope.")
 	fs.DurationVar(&o.QuotaMaxStaleness, "quota-max-staleness", env.WithDefaultDuration("SCARPENTER_QUOTA_MAX_STALENESS", DefaultQuotaMaxStaleness), "Age after which a region whose quota refreshes fail counts as unknown quota.")
+	fs.DurationVar(&o.QuotaLaunchableInterval, "quota-launchable-refresh-interval", env.WithDefaultDuration("SCARPENTER_QUOTA_LAUNCHABLE_REFRESH_INTERVAL", DefaultQuotaLaunchableInterval), "How often the instance types the account can launch per zone are refreshed.")
 	fs.DurationVar(&o.GCInterval, "gc-interval", env.WithDefaultDuration("SCARPENTER_GC_INTERVAL", DefaultGCInterval), "How often the garbage collector looks for orphans.")
+	fs.DurationVar(&o.GCGracePeriod, "gc-grace-period", env.WithDefaultDuration("SCARPENTER_GC_GRACE_PERIOD", DefaultGCGracePeriod), "Age an instance without a NodeClaim must have before the garbage collector deletes it.")
+	fs.BoolVar(&o.GCDryRun, "gc-dry-run", env.WithDefaultBool("SCARPENTER_GC_DRY_RUN", false), "Log what the garbage collector would delete without deleting it.")
+	fs.DurationVar(&o.UnavailableInsufficientCapacityTTL, "unavailable-insufficient-capacity-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL", 0), "How long an offering stays unavailable after an InsufficientCapacity error (0 = 3m).")
+	fs.DurationVar(&o.UnavailableUnsupportedTTL, "unavailable-unsupported-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL", 0), "How long a type stays unavailable in a zone after an Unsupported error (0 = 24h).")
+	fs.DurationVar(&o.UnavailableQuotaExceededTTL, "unavailable-quota-exceeded-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL", 0), "How long a region and capacity type stay unavailable after a QuotaExceeded error of a vendor without a quota API (0 = 30m).")
+	fs.DurationVar(&o.UnavailableZoneUnusableTTL, "unavailable-zone-unusable-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL", 0), "How long a zone stays unavailable after a ZoneUnusable error (0 = 10m).")
+	fs.IntVar(&o.KeeperPricesRegionsPerRequest, "keeper-prices-regions-per-request", env.WithDefaultInt("SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST", 0), "Regions per Keeper price request (0 = the client's default). Test lanes replaying a recorded snapshot set 1.")
 	fs.DurationVar(&o.ResourceDefaultTTL, "resource-default-ttl", env.WithDefaultDuration("SCARPENTER_RESOURCE_DEFAULT_TTL", DefaultResourceDefaultTTL), "idleTTL of managed shared vendor resources when an SCNodeClass does not set one.")
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 }
@@ -183,14 +210,16 @@ func (o *Options) Validate() error {
 		errs = append(errs, fmt.Errorf("--max-launch-attempts must be at least 1, got %d", o.MaxLaunchAttempts))
 	}
 	for name, d := range map[string]time.Duration{
-		"--catalog-refresh-interval":      o.CatalogRefreshInterval,
-		"--catalog-max-age":               o.CatalogMaxAge,
-		"--bootstrap-token-ttl":           o.BootstrapTokenTTL,
-		"--quota-refresh-interval":        o.QuotaRefreshInterval,
-		"--quota-limits-refresh-interval": o.QuotaLimitsRefreshInterval,
-		"--quota-max-staleness":           o.QuotaMaxStaleness,
-		"--gc-interval":                   o.GCInterval,
-		"--resource-default-ttl":          o.ResourceDefaultTTL,
+		"--catalog-refresh-interval":          o.CatalogRefreshInterval,
+		"--catalog-max-age":                   o.CatalogMaxAge,
+		"--bootstrap-token-ttl":               o.BootstrapTokenTTL,
+		"--quota-refresh-interval":            o.QuotaRefreshInterval,
+		"--quota-limits-refresh-interval":     o.QuotaLimitsRefreshInterval,
+		"--quota-max-staleness":               o.QuotaMaxStaleness,
+		"--quota-launchable-refresh-interval": o.QuotaLaunchableInterval,
+		"--gc-interval":                       o.GCInterval,
+		"--gc-grace-period":                   o.GCGracePeriod,
+		"--resource-default-ttl":              o.ResourceDefaultTTL,
 	} {
 		if d <= 0 {
 			errs = append(errs, fmt.Errorf("%s must be positive, got %s", name, d))
@@ -199,6 +228,19 @@ func (o *Options) Validate() error {
 	if o.CatalogMaxAge > 0 && o.CatalogRefreshInterval > o.CatalogMaxAge {
 		errs = append(errs, fmt.Errorf("--catalog-max-age (%s) must not be shorter than --catalog-refresh-interval (%s)",
 			o.CatalogMaxAge, o.CatalogRefreshInterval))
+	}
+	for name, d := range map[string]time.Duration{
+		"--unavailable-insufficient-capacity-ttl": o.UnavailableInsufficientCapacityTTL,
+		"--unavailable-unsupported-ttl":           o.UnavailableUnsupportedTTL,
+		"--unavailable-quota-exceeded-ttl":        o.UnavailableQuotaExceededTTL,
+		"--unavailable-zone-unusable-ttl":         o.UnavailableZoneUnusableTTL,
+	} {
+		if d < 0 {
+			errs = append(errs, fmt.Errorf("%s must not be negative, got %s", name, d))
+		}
+	}
+	if o.KeeperPricesRegionsPerRequest < 0 {
+		errs = append(errs, fmt.Errorf("--keeper-prices-regions-per-request must not be negative, got %d", o.KeeperPricesRegionsPerRequest))
 	}
 	if o.AWSHomeRegion == "" {
 		errs = append(errs, errors.New("--aws-home-region must not be empty"))

@@ -58,10 +58,22 @@ type Options struct {
 	// Jitter is the share of the refresh interval the next refresh moves by
 	// (default 0.1).
 	Jitter float64
+	// Gate marks more offerings unavailable (the quota tracker); nil means none.
+	// Its answer may change at any time: the owner calls Unavailable.Bump when
+	// it does, which drops the cached results.
+	Gate Gate
 	// Clock defaults to the real one.
 	Clock clock.Clock
 	// Registerer receives the catalog metrics; nil registers none.
 	Registerer prometheus.Registerer
+}
+
+// Gate says whether an offering cannot be launched for a reason the catalog
+// does not know, for example because the account has no quota left for it
+// (overview section 5.9). It is asked for every offering of a query, so it must
+// be cheap.
+type Gate interface {
+	Unavailable(vendor, apiReference, region, zone, capacityType string) bool
 }
 
 // Catalog holds the last good snapshot of the Keeper data for the union of the
@@ -431,6 +443,35 @@ func (c *Catalog) Lookup(instanceType string) (Ref, bool) {
 	return Ref{}, false
 }
 
+// Type returns one instance type of the class by catalog name, without the
+// pre-filter, the availability marks or the result cache: it is for resolving
+// the capacity, labels and prices of an instance that already exists. The
+// result is shared; callers must not modify it.
+func (c *Catalog) Type(className, name string) (*cloudprovider.InstanceType, bool) {
+	c.mu.RLock()
+	snap := c.snap
+	class := c.classes[className]
+	c.mu.RUnlock()
+	if snap == nil || class == nil {
+		return nil, false
+	}
+	vendor, _, ok := strings.Cut(name, ".")
+	if !ok || !classHasVendor(class, vendor) {
+		return nil, false
+	}
+	for _, bt := range c.vendorBuild(snap, class, vendor).types {
+		if bt.it.Name == name {
+			return bt.it, true
+		}
+	}
+	return nil, false
+}
+
+func classHasVendor(class *Class, vendor string) bool {
+	_, ok := class.Vendors[vendor]
+	return ok
+}
+
 // Query asks for the instance types of one NodeClass.
 type Query struct {
 	// Class is the SCNodeClass name.
@@ -506,7 +547,8 @@ func (c *Catalog) apply(bt *builtType, vendor string, f Filter, pin *pricedBy) *
 		keep = append(keep, i)
 		down := c.opts.Unavailable.IsUnavailable(unavailable.Offering{
 			Vendor: vendor, InstanceType: bt.it.Name, Region: o.region, Zone: o.zone, CapacityType: o.capacityType,
-		})
+		}) || (c.opts.Gate != nil &&
+			c.opts.Gate.Unavailable(vendor, bt.server.APIReference, o.region, o.zone, o.capacityType))
 		price := o.usd
 		if pin != nil {
 			p, ok := pin.effectivePrice(bt.server.Key(), o.usd)
@@ -561,6 +603,10 @@ func (c *Catalog) store(gen, key string, its []*cloudprovider.InstanceType) {
 	rc := &c.results
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
+	if rc.gen != gen && rc.gen != "" && genOlder(gen, rc.gen) {
+		// A slow query of an older generation must not reset a newer one.
+		return
+	}
 	if rc.gen != gen || rc.m == nil {
 		rc.gen, rc.m = gen, map[string][]*cloudprovider.InstanceType{}
 	}
@@ -568,6 +614,24 @@ func (c *Catalog) store(gen, key string, its []*cloudprovider.InstanceType) {
 		rc.m = map[string][]*cloudprovider.InstanceType{}
 	}
 	rc.m[key] = its
+}
+
+// genOlder reports whether generation a is older than b. Generations are
+// "<snapshot>/<epoch>/<sequence>" of monotonically growing numbers.
+func genOlder(a, b string) bool {
+	pa, pb := strings.Split(a, "/"), strings.Split(b, "/")
+	if len(pa) != len(pb) {
+		return false
+	}
+	for i := range pa {
+		x, errX := strconv.ParseUint(pa[i], 10, 64)
+		y, errY := strconv.ParseUint(pb[i], 10, 64)
+		if errX != nil || errY != nil || x == y {
+			continue
+		}
+		return x < y
+	}
+	return false
 }
 
 // Counts returns the number of instance types and offerings per vendor of the

@@ -55,7 +55,12 @@ linters:
       # Flag registration: one flag per line, with its environment fallback.
       - linters:
           - lll
-        path: pkg/operator/options/options\.go
+        path: pkg/(operator/options|vendors/fake)/options\.go
+      # Test helpers take the parameters scenarios vary, even where today's
+      # scenarios pass one value.
+      - linters:
+          - unparam
+        path: _test\.go
       # API types carry long kubebuilder markers and CEL rules.
       - linters:
           - lll

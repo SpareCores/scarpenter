@@ -21,14 +21,16 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	coreoperator "sigs.k8s.io/karpenter/pkg/operator"
 	"sigs.k8s.io/yaml"
 
 	"github.com/SpareCores/scarpenter/internal/testutil"
-	"github.com/SpareCores/scarpenter/pkg/cloudprovider"
+	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/operator"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
 func freePort(t *testing.T) int {
@@ -66,12 +68,12 @@ func object(t *testing.T, doc string) *unstructured.Unstructured {
 	return obj
 }
 
-// TestManagerStartsWithTheStubProvider runs the production wiring (core's
-// operator, core's controllers, the stub CloudProvider) against envtest and
+// TestManagerStartsWithTheProductionWiring runs the production wiring (core's
+// operator, the components, core's controllers, the CloudProvider) against envtest and
 // checks that the manager becomes ready and that core resolves the SCNodeClass
 // through GetSupportedNodeClasses: a NodePool that references a ready
 // SCNodeClass becomes Ready.
-func TestManagerStartsWithTheStubProvider(t *testing.T) {
+func TestManagerStartsWithTheProductionWiring(t *testing.T) {
 	cfg, stop, err := testutil.StartEnvWith(testutil.EnvOptions{CRDs: testutil.KarpenterCRDs()})
 	if err != nil {
 		t.Fatal(err)
@@ -89,6 +91,9 @@ func TestManagerStartsWithTheStubProvider(t *testing.T) {
 	t.Setenv("DISABLE_LEADER_ELECTION", "true")
 	t.Setenv("SCARPENTER_CLUSTER_NAME", "my-cluster")
 	t.Setenv("SCARPENTER_API_SERVER_ENDPOINT", "https://10.0.0.1:6443")
+	t.Setenv("SCARPENTER_VENDORS", stubVendor)
+	t.Setenv("SCARPENTER_KEEPER_URL", catalogtest.Server(t).URL)
+	t.Setenv("SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST", "1")
 	// Core parses os.Args[1:] as its flags; the test binary's own flags
 	// would be rejected.
 	args := os.Args
@@ -100,7 +105,16 @@ func TestManagerStartsWithTheStubProvider(t *testing.T) {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	go func() {
 		defer close(done)
-		op.WithCoreControllers(runCtx, cloudprovider.New()).Start(runCtx)
+		components, err := op.NewComponents(runCtx)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if err := op.WithComponentControllers(runCtx, components); err != nil {
+			t.Error(err)
+			return
+		}
+		op.WithCoreControllers(runCtx, op.NewCloudProvider(components)).Start(runCtx)
 	}()
 	t.Cleanup(func() {
 		cancelRun()
@@ -157,8 +171,15 @@ spec:
 			"observedGeneration": nodeClass.GetGeneration(),
 		})
 	}
-	nodeClass.Object["status"] = map[string]any{"conditions": conditions}
-	if err := c.Status().Update(ctx, nodeClass); err != nil {
+	// The quota status controller of the same manager writes the status too:
+	// re-read and retry on a conflict.
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := c.Get(ctx, client.ObjectKeyFromObject(nodeClass), nodeClass); err != nil {
+			return err
+		}
+		nodeClass.Object["status"] = map[string]any{"conditions": conditions}
+		return c.Status().Update(ctx, nodeClass)
+	}); err != nil {
 		t.Fatal(err)
 	}
 	nodePool := object(t, `
@@ -230,3 +251,36 @@ func waitFor(t *testing.T, what string, check func() error) {
 	}
 	t.Fatalf("timed out waiting for %s: %v", what, err)
 }
+
+// stubVendor is the registration name and vendor ID of the test driver; the
+// NodeClass of the smoke test uses it as its vendor block.
+const stubVendor = "fake"
+
+func init() {
+	vendors.Register(stubVendor, func() vendors.Driver { return &stubDriver{} })
+}
+
+// stubDriver serves a region without zones and launches nothing.
+type stubDriver struct{}
+
+func (*stubDriver) Vendor() string                                        { return stubVendor }
+func (*stubDriver) Init(context.Context, vendors.Config) error            { return nil }
+func (*stubDriver) TagKey(k vendors.TagKey) string                        { return vendors.DefaultTagKey(k) }
+func (*stubDriver) Regions(context.Context) ([]vendors.Region, error)     { return nil, nil }
+func (*stubDriver) Zones(context.Context, string) ([]vendors.Zone, error) { return nil, nil }
+func (*stubDriver) ResolveImage(context.Context, vendors.ImageRequest) (*vendors.Image, error) {
+	return &vendors.Image{Ref: "image"}, nil
+}
+func (*stubDriver) CreateInstance(context.Context, vendors.CreateRequest) (*vendors.Instance, error) {
+	return nil, vendors.Errorf(vendors.Fatal, "the stub launches nothing")
+}
+func (*stubDriver) GetInstance(context.Context, vendors.InstanceRef) (*vendors.Instance, error) {
+	return nil, vendors.Errorf(vendors.NotFound, "no such instance")
+}
+func (*stubDriver) FindInstance(context.Context, string, map[vendors.TagKey]string) (*vendors.Instance, error) {
+	return nil, vendors.Errorf(vendors.NotFound, "no such instance")
+}
+func (*stubDriver) ListInstances(context.Context, []string, map[vendors.TagKey]string) ([]*vendors.Instance, error) {
+	return nil, nil
+}
+func (*stubDriver) DeleteInstance(context.Context, vendors.InstanceRef) error { return nil }

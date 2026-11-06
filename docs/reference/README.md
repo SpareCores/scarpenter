@@ -15,17 +15,16 @@ Available:
   profiles are evaluated, refresh and staleness, the unavailable-offerings
   cache (plan 03).
 
+- [**Driver contract**](driver-contract.md) — the `Driver` interface,
+  capabilities, error classes, the conformance suite and the fake driver
+  (plan 04). Quota-aware placement is in the [controller reference](controller.md#quota).
+
 Planned for v1 (each written by the plan that implements it):
 
 - **Node settings** — built-in defaults, vendor overrides, profiles, how a
   node's settings are resolved, drift (plan 06).
 - **Vendor resources** — resource kinds, `use` / `create` / `forbid`,
   lifecycles, timing, status, garbage collection (plan 06).
-- **Driver contract** — the `Driver` interface, optional capability
-  interfaces (quotas, launchable types), error classes, the conformance
-  suite (plan 04).
-- **Quota-aware placement** — buckets, headroom, the in-flight ledger,
-  `QuotaAvailable` conditions and what a pinned region does (plan 04).
 - **Node bootstrap** — the rendered Ignition, default templates, template
   variables, size budget, RBAC for the join (plan 05).
 - **AWS driver** — regions, zones, AMIs, subnets and security groups, tags,

@@ -18,6 +18,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -38,7 +39,11 @@ func New(reader client.Reader, c *catalog.Catalog) *Controller {
 
 // Register watches SCNodeClasses with the manager.
 func (c *Controller) Register(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).Named("catalog-sync").For(&v1alpha1.SCNodeClass{}).Complete(c)
+	return ctrl.NewControllerManagedBy(mgr).Named("catalog-sync").
+		// The tests start several managers in one process; controller-runtime
+		// keeps the names process-wide.
+		WithOptions(controller.Options{SkipNameValidation: new(true)}).
+		For(&v1alpha1.SCNodeClass{}).Complete(c)
 }
 
 // Reconcile hands the catalog every SCNodeClass, whichever one changed: the

@@ -34,7 +34,15 @@ the last column.
 | `--quota-refresh-interval` | `SCARPENTER_QUOTA_REFRESH_INTERVAL` | `2m` | How often quota usage is refreshed per vendor and region in scope. | plan 04 |
 | `--quota-limits-refresh-interval` | `SCARPENTER_QUOTA_LIMITS_REFRESH_INTERVAL` | `15m` | How often quota limits are refreshed. | plan 04 |
 | `--quota-max-staleness` | `SCARPENTER_QUOTA_MAX_STALENESS` | `15m` | Age after which a region whose quota refreshes fail counts as unknown quota. | plan 04 |
+| `--quota-launchable-refresh-interval` | `SCARPENTER_QUOTA_LAUNCHABLE_REFRESH_INTERVAL` | `1h` | How often the instance types the account can launch per zone (`OfferingLister`) are refreshed. | plan 04 |
 | `--gc-interval` | `SCARPENTER_GC_INTERVAL` | `2m` | How often the garbage collector looks for orphans. | plan 04 |
+| `--gc-grace-period` | `SCARPENTER_GC_GRACE_PERIOD` | `5m` | Age an instance (or bootstrap token) without a NodeClaim must have before it is deleted. | plan 04 |
+| `--gc-dry-run` | `SCARPENTER_GC_DRY_RUN` | `false` | Log (and count, `result="dry-run"`) what the garbage collector would delete without deleting it. | plan 04 |
+| `--unavailable-insufficient-capacity-ttl` | `SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL` | `0` (3m) | How long an offering stays unavailable after `InsufficientCapacity`. | plan 04 |
+| `--unavailable-unsupported-ttl` | `SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL` | `0` (24h) | How long a type stays unavailable in a zone after `Unsupported`. | plan 04 |
+| `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (30m) | How long a region and capacity type stay unavailable after `QuotaExceeded` of a vendor without a quota API. | plan 04 |
+| `--unavailable-zone-unusable-ttl` | `SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL` | `0` (10m) | How long a zone stays unavailable after `ZoneUnusable`. | plan 04 |
+| `--keeper-prices-regions-per-request` | `SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST` | `0` (client default) | Regions per Keeper price request. The replay server of the test lanes has one region per recorded request and needs `1`. | plan 04 |
 | `--resource-default-ttl` | `SCARPENTER_RESOURCE_DEFAULT_TTL` | `24h` | `idleTTL` of managed shared resources when an SCNodeClass does not set one. | plan 06 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region of the global endpoints. | plan 08 |
 
@@ -61,18 +69,25 @@ Per vendor, `status.vendors.<vendor>.conditions`:
 | `ResourcesReady` | Referenced resources exist and managed ones are in place. | plan 06 |
 | `QuotaAvailable` | Informational: `False` when a quota bucket has no headroom. | plan 04 |
 
-Until those plans land, the controller does not set any condition and an
+Plan 04 sets `QuotaAvailable` (see [Quota](#quota)). Until the NodeClass
+controller of plan 05 lands, the controller sets no other condition and an
 SCNodeClass stays `Ready=Unknown`; the NodePools that reference it are not
-ready.
+ready. Development builds (`-tags scarpenter_dev`) run a stand-in that sets
+them, see [the driver contract](driver-contract.md#the-fake-driver).
+
+`Create` needs `Ready=True` with the current `observedGeneration`, and the
+vendor's `VendorReady=True`; a vendor that is not ready offers no instance
+types.
 
 ## Catalog
 
 The catalog reads Keeper for the vendors and regions of the SCNodeClasses
 (`--keeper-url`, `--keeper-api-key-file`, `--catalog-refresh-interval`,
 `--catalog-max-age`) and is described in
-[Labels and offerings](labels-and-offerings.md). `Operator.WithCatalog` builds it
-from those flags and runs it in the manager; plan 04 wires it into the controller
-binary together with the driver facts (zones, root disk, profiles) it needs.
+[Labels and offerings](labels-and-offerings.md). `Operator.NewComponents` builds it
+from those flags with the driver facts (zones, root disk, profiles, launchable
+types), the quota tracker and the unavailable-offerings cache, and runs it in the
+manager.
 
 Metrics (Prometheus, on the metrics port):
 
@@ -89,11 +104,121 @@ keys, with core (`Operator.RegisterLabelKeys`, logged as `registered the label
 keys of the SCNodeClasses`). The controller needs permission to list
 SCNodeClasses.
 
+## Development builds
+
+Binaries built with `-tags scarpenter_dev` add the fake driver and its flags
+(all `SCARPENTER_*` environment fallbacks): `--fake-catalog-vendor` (default
+`aws`: the Keeper vendor whose catalog the fake serves, under that vendor ID),
+`--fake-config-namespace` (`scarpenter-system`), `--fake-config-name`
+(`scarpenter-fake`), `--fake-state-name` (`scarpenter-fake-state`),
+`--fake-launch-delay` (`0`), and a stand-in for the NodeClass controller
+(plan 05 removes it). Details: [the fake driver](driver-contract.md#the-fake-driver).
+
 ## CloudProvider
 
-The CloudProvider is named `scarpenter` and supports the `SCNodeClass` kind.
-Plan 02 ships a stub: it offers no instance types, so nothing is provisioned.
+The CloudProvider is named `scarpenter` and supports the `SCNodeClass` kind. It
+is vendor-neutral on top of [the driver contract](driver-contract.md).
+
+- `GetInstanceTypes` returns the catalog's instance types for the NodePool's
+  SCNodeClass, pre-filtered by the NodePool's requirements on vendor, region,
+  zone, architecture, capacity type and instance type. Offerings are
+  unavailable when the unavailable-offerings cache or the quota tracker says so.
+- `Create` computes the candidate offerings of the NodeClaim, orders them by
+  price (ties: larger quota headroom, instance type name, zone, region, capacity
+  type), skips those without quota headroom without calling the vendor, and
+  tries the others until one launches or `--max-launch-attempts` vendor calls
+  failed. Error classes: `InsufficientCapacity` marks the offering unavailable
+  and continues; `Unsupported` marks the type in the zone, `ZoneUnusable` the
+  zone; `QuotaExceeded` triggers a quota refresh of the region (vendor with
+  quota knowledge for the type) or marks region and capacity type unavailable
+  for the TTL (vendor without), and the rest of that region and capacity type is
+  skipped; `Retryable` is returned as is (core retries); `Fatal` returns a
+  `CreateError` and an Event. When nothing launched it returns
+  `InsufficientCapacityError` and core deletes the NodeClaim. The NodeClaim UID
+  is the idempotency key. Until plan 05 the user-data is empty and the bootstrap
+  token a no-op (`StubBootstrap`).
+- Provider ID: `scarpenter://<vendor>/<region>/<nodeclaim>`. Annotations on the
+  launched NodeClaim: `scarpenter.sparecores.com/instance-ref`, `nodeclass-hash`,
+  `nodeclass-hash-version`, `price` (the `price-incomplete` annotation comes with
+  the pricing deltas of plan 06). Labels: every single-valued requirement of the
+  instance type and offering, the node name as `kubernetes.io/hostname`, and the
+  three profile labels (`default` until plan 06).
+- `Get` and `List` read through a 30 s cache of the cluster's instances
+  (`Create` and `Delete` update it); a miss asks the driver by NodeClaim tag.
+  Terminated and terminating instances are `NodeClaimNotFound`.
+- `Delete` terminates by the `instance-ref` annotation, else by tag lookup, and
+  removes the bootstrap token. It returns `NodeClaimNotFound` once the instance
+  is gone.
+- `IsDrifted` returns `NodeClassDrift` when the NodeClaim's `nodeclass-hash`
+  differs from `status.vendors.<vendor>.hash`.
+
 Node repair (when core's `NodeRepair` feature gate is on) treats `Ready=False`
 and `Ready=Unknown` for ten minutes as unhealthy.
+
+Metrics:
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `scarpenter_launches_total` | counter | `vendor`, `region`, `capacity_type`, `result` | Vendor launch calls; `result` is `success` or the error class. |
+| `scarpenter_launch_skipped_total` | counter | `vendor`, `region`, `capacity_type`, `reason` | Candidates passed over without a vendor call (`no-quota`, `unavailable`, `quota-exceeded`, `image`). |
+| `scarpenter_launch_attempts` | histogram | `result` | Vendor calls per `Create`. |
+| `scarpenter_create_duration_seconds` | histogram | `result` | Duration of `Create`. |
+
+Events (on the SCNodeClass): `LaunchFailed` (a `Fatal` vendor error),
+`ImageResolutionFailed`.
+
+## Quota
+
+The quota tracker reads, for drivers with the `QuotaReporter` capability, limits
+and usage of every bucket per region in scope (the regions the SCNodeClasses
+allow, or every region of the driver) and account-wide, and for drivers with
+`OfferingLister` the launchable types per zone. An offering is unavailable when a
+bucket it consumes has less headroom than one instance needs; launchable
+types are dropped from the offerings. Headroom is `limit - used - reserved`;
+`reserved` is the in-flight ledger of launches not yet visible in `used` (released
+on failure, when a refresh counts the instance, or after 10 minutes). Refreshes
+run every `--quota-refresh-interval` (limits every `--quota-limits-refresh-interval`),
+and, debounced to 10 s, after a quota error and after an own launch or
+termination. A region whose refreshes fail for `--quota-max-staleness` counts as
+unknown quota (the reactive path). Types the driver cannot map have unknown
+quota and are never blocked.
+
+When every allowed offering of a (vendor, region, capacity type) is blocked, the
+controller sets `status.vendors.<vendor>.quota` (region, capacity type, the
+limiting bucket, used, limit, reason) and the condition `QuotaAvailable=False`
+with reason `QuotaExhausted`, or `QuotaZero` when every listed limit is 0 (it
+resolves only with a quota increase); otherwise `QuotaAvailable=True`. Warning
+Events `QuotaExhausted` and `QuotaZero` (deduplicated for 10 minutes) go to the
+SCNodeClass. With one allowed region and no headroom the pods stay Pending and
+nothing is launched; when a refresh shows headroom, core's next scheduling round
+(it re-evaluates pending pods every 10 s) provisions them, with no nudge from
+SCarpenter. The status is written by server-side apply with field manager
+`scarpenter-quota`, which owns only these fields.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `scarpenter_quota_limit` | gauge | `vendor`, `region`, `bucket` | Limit of the bucket (`region` is empty for account-wide buckets). |
+| `scarpenter_quota_used` | gauge | `vendor`, `region`, `bucket` | Usage of the whole account. |
+| `scarpenter_quota_reserved` | gauge | `vendor`, `region`, `bucket` | In-flight reservations. |
+| `scarpenter_quota_refresh_age_seconds` | gauge | `vendor`, `region` | Seconds since the last successful refresh. |
+| `scarpenter_quota_refresh_errors_total` | counter | `vendor`, `region` | Failed quota or launchable refreshes. |
+
+## Garbage collection
+
+Every `--gc-interval` (leader only) the collector lists the instances tagged with
+this cluster in the regions in use (allowed by a NodeClass, or holding a
+NodeClaim) and deletes those whose NodeClaim does not exist (or that lack the
+`nodeclaim` tag) and that are older than `--gc-grace-period`. Bootstrap-token
+Secrets (`kube-system`, label `scarpenter.sparecores.com/nodeclaim`) of missing
+NodeClaims are deleted the same way. Managed vendor resources are added by plan
+06. Every deletion is logged with its reason and published as the Normal Event
+`GarbageCollected` on the SCNodeClass of the instance's `nodeclass` tag, else on
+the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance` or `bootstrap-token`; `reason`: `NodeClaimNotFound` or `NoNodeClaimTag`; `result`: `deleted`, `dry-run`, `error`. |
+| `scarpenter_gc_sweep_duration_seconds` | histogram | | Duration of a sweep. |
+| `scarpenter_gc_last_sweep_timestamp_seconds` | gauge | | Time of the last sweep. |
 
 Metrics, Events and Helm values are added here by the plans that introduce them.

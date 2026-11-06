@@ -29,7 +29,7 @@ Execution protocol:
 | 01 | `done/01-sc-keeper-go.md` | done | shared module: Keeper client and sc-karpenter-nodepool's selection engine; `sc-karpenter-nodepool` switched to it; `/table/*` endpoints | 00 |
 | 02 | `done/02-scaffold.md` | done | dev container, module, multi-vendor `SCNodeClass` API + CRD, operator wiring, CI | 01 |
 | 03 | `done/03-catalog.md` | done | Keeper → instance types and offerings; attribute, metric, selection, location and profile labels; refresh; unavailable cache | 02 |
-| 04 | `wip/04-cloudprovider-and-fake-driver.md` | todo | CloudProvider, driver contract + registry + conformance, quota tracker, fake driver, GC, L3 KWOK lane, scale measurement | 03 |
+| 04 | `wip/04-cloudprovider-and-fake-driver.md` | review | CloudProvider, driver contract + registry + conformance, quota tracker, fake driver, GC, L3 KWOK lane, scale measurement | 03 |
 | 05 | `wip/05-bootstrap.md` | todo | tokens, artifacts, templates → Ignition, NodeClass controller, CSR approver | 04 |
 | 06 | `wip/06-node-options-and-resources.md` | todo | settings resolution and profiles, vendor resources (use/create, lifecycles, GC), pricing deltas, first-boot volume unit; fake driver + L3 scenarios | 05 |
 | 07 | `wip/07-qemu-driver.md` | todo | qemu driver, L4 lane with real Flatcar VMs, k3s and a data volume | 06 |
@@ -38,6 +38,7 @@ Execution protocol:
 | 10 | `wip/10-aws-e2e.md` | todo | L5 AWS e2e over Tailscale + sweeper (written and validated, run by the coordinator) | 09 |
 | 11 | `wip/11-docs-and-release.md` | todo | tutorials, how-tos for profiles, selection and resources, add-a-vendor guide, first release (v0.1.0) | 07, 10 |
 | 12 | `wip/12-aws-gpu.md` | optional | NVIDIA sysext on AWS GPU types | 10 + GPU spike |
+| 13 | `wip/13-keeper-catalog-snapshot.md` | proposal | per-vendor price snapshot from Keeper; hourly catalog reads it; on-disk price file replaced per hash. Not next, and not a dependency of 04–12 | 03 |
 
 Shared rules for every plan: [`CONVENTIONS.md`](CONVENTIONS.md).
 

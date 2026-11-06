@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scarpenter
+  namespace: scarpenter-system
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: scarpenter}
+  template:
+    metadata:
+      labels: {app: scarpenter}
+    spec:
+      serviceAccountName: scarpenter
+      tolerations:
+        - {key: CriticalAddonsOnly, operator: Exists}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: controller
+          image: controller:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --cluster-name=scarpenter-kwok
+            - --api-server-endpoint=https://kubernetes.default.svc
+            - --vendors=fake
+            - --fake-catalog-vendor=aws
+            - --keeper-url=http://keeper-replay.scarpenter-system:8080
+            - --keeper-prices-regions-per-request=1
+            - --quota-refresh-interval=10s
+            - --quota-limits-refresh-interval=10s
+            - --quota-launchable-refresh-interval=10s
+            - --unavailable-insufficient-capacity-ttl=20s
+            - --unavailable-quota-exceeded-ttl=20s
+            - --gc-interval=10s
+            - --gc-grace-period=30s
+            - --max-launch-attempts=3
+            # Core's own settings (the lane links core v1.15.1 as a library):
+            # short batching windows keep the scenarios fast; NodeRepair and the
+            # other optional gates stay off.
+            - --batch-max-duration=5s
+            - --batch-idle-duration=500ms
+            - --log-level=debug
+          env:
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: LEADER_ELECTION_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - {name: MEMORY_LIMIT, value: "4294967296"}
+            - {name: CPU_REQUESTS, value: "1000"}
+          ports:
+            - {name: metrics, containerPort: 8080}
+            - {name: health, containerPort: 8081}
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits: {cpu: "4", memory: 4Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

@@ -44,7 +44,7 @@ hack/dev.sh                      # an interactive shell
 - With a temporary `replace github.com/SpareCores/sc-keeper-go => ../sc-keeper-go`
   in `go.mod` (developing both together), the sibling checkout is mounted
   read-only at `/sc-keeper-go`.
-- Settings of the local lanes (`KWOK_CORE_VERSION`, `KEEP_CLUSTER`, ...) pass
+- Settings of the local lanes (`KWOK_SCENARIOS`, `KEEP_CLUSTER`, ...) pass
   through from your environment when set.
 
 Environment variables: `SCARPENTER_DEV_IMAGE_REPO` and
@@ -61,7 +61,7 @@ A change is done when all of these pass, in this order
 | 1 | `hack/dev.sh make generate manifests chart-crds docs-api` | Regenerates DeepCopy code, the CRD (`config/crd/bases`), the chart's copy of it (`charts/scarpenter/crds`) and [`docs/reference/api.md`](../reference/api.md). CI fails if this changes anything, so commit the result. |
 | 2 | `hack/dev.sh make lint` | `go vet` (with every build tag), golangci-lint, `actionlint`, `shellcheck` on `hack/` and `test/` scripts, and `hack/check-docs.py` (relative links and anchors of all Markdown files). |
 | 3 | `hack/dev.sh make test` | L1 and L2: unit, golden and envtest suites, built with `-tags scarpenter_dev` so the dev-driver code is compiled and tested. No network access: Keeper calls go to the snapshot replay server, artifact fetches to local fixtures. |
-| 4 | `hack/dev.sh make test-kwok` | L3, from plan 04 on. |
+| 4 | `hack/dev.sh make test-kwok` | L3: the controller with the fake driver in kind (see [The L3 lane](#the-l3-lane)). |
 | 5 | `hack/dev.sh --privileged make test-qemu` | L4, from plan 07 on, when a change touches bootstrap, the qemu driver or `test/qemu`. |
 
 Also: `hack/dev.sh make build` produces `bin/scarpenter-controller`, and
@@ -69,16 +69,16 @@ Also: `hack/dev.sh make build` produces `bin/scarpenter-controller`, and
 (the Dockerfile cross-compiles for `TARGETARCH`; `make image-buildx` builds and
 pushes `linux/amd64,linux/arm64`). `make help` lists every target.
 
-`make test-kwok` and `make test-qemu` are placeholders until their plans land;
-they fail on purpose so that a green run never means "skipped".
+`make test-qemu` is a placeholder until plan 07 lands; it fails on purpose so
+that a green run never means "skipped".
 
 ## Test lanes
 
 | Lane | Runs | What it proves | Status |
 |---|---|---|---|
-| L1 | `make test` | Unit and golden tests: pure packages with no Kubernetes client. | Started in plan 02 (flag parsing, the CloudProvider stub, labels). |
-| L2 | `make test` | envtest: an API server and etcd (no kubelet), with the generated CRDs and Karpenter core's CRDs installed. | CRD admission tests (schema, defaults, every CEL rule, strict field validation) and a smoke test that starts the real manager with the stub CloudProvider and has core resolve an `SCNodeClass`. |
-| L3 | `make test-kwok` | Real Karpenter core, SCarpenter and the fake driver (KWOK nodes) in kind. | Plan 04. |
+| L1 | `make test` | Unit and golden tests: pure packages with no Kubernetes client. | Started in plan 02 (flag parsing, labels; plan 04: the CloudProvider, quota tracker, garbage collector and the driver conformance suite against the fake driver). |
+| L2 | `make test` | envtest: an API server and etcd (no kubelet), with the generated CRDs and Karpenter core's CRDs installed. | CRD admission tests (schema, defaults, every CEL rule, strict field validation) and a smoke test that starts the real manager with the production wiring and has core resolve an `SCNodeClass`; the quota status and dev NodeClass status controllers. |
+| L3 | `make test-kwok` | Real Karpenter core, SCarpenter and the fake driver (KWOK nodes) in kind. | Plan 04: ten scenarios, [The L3 lane](#the-l3-lane). |
 | L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged`. | Plan 07. |
 | L5 | a manual GitHub workflow | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10. |
 
@@ -104,6 +104,54 @@ Tests never reach the network. Refresh the snapshot only when the data should
 change, with the manual workflow "Refresh Spare Cores snapshot" (or
 `hack/dev.sh make snapshot`): it downloads about 1 GB, so run it rarely and not
 while iterating. The committed snapshot is about 4.4 MB.
+
+### The L3 lane
+
+`hack/dev.sh make test-kwok` builds the controller with `-tags scarpenter_dev`
+(real Karpenter core as a library plus the fake driver), a Keeper replay server
+that serves the committed snapshot, creates a kind cluster, installs
+[kwok-controller](https://kwok.sigs.k8s.io) (the version is `KWOK_VERSION` in
+`test/kwok/run.sh`; the release files are downloaded once into
+`test/kwok/.cache`), the CRDs and the manifests of `test/kwok/manifests`, and
+runs the scenarios of `test/kwok/e2e` (build tag `kwok`). The fake driver
+creates a Node object for every instance; kwok-controller makes it Ready and
+runs the pods on it. The lane has its own RBAC in
+`test/kwok/manifests/controller/rbac.yaml`; the chart of plan 09 replaces it.
+
+Unlike the lane of `sc-karpenter-nodepool` there is no core `kwok` image, no
+core version matrix and no chart values: SCarpenter links core at the version of
+`go.mod`, so core's settings are controller flags in
+`manifests/controller/deployment.yaml` (batching windows 5 s and 500 ms,
+NodeRepair and the other optional feature gates off). The controller runs with
+short intervals: quota refresh 10 s, unavailable-offerings TTL 20 s, garbage
+collection every 10 s with a 30 s grace period.
+
+Scenarios steer the fake driver through the ConfigMap `scarpenter-fake`
+(`errors`, `quota`, `orphans`, `launchDelay`) and read what it did from the
+ConfigMap `scarpenter-fake-state` (`calls`, `instances`); the formats are in the
+[driver contract](../reference/driver-contract.md#the-fake-driver). The
+scenarios are `TestS01` to `TestS10`:
+
+| Scenario | Proves |
+|---|---|
+| S01 | an exact `aws.*` type: NodeClaim, Ready node with every label; deleting the pod removes node, NodeClaim and instance |
+| S02 | the cheapest offering wins among types, zones and capacity types |
+| S03 | ICE falls back to the next offering in one `Create`; a failed `Create` marks offerings unavailable and the next round picks others; the TTL expiry makes them available |
+| S04 | quota, flexible region: the exhausted cheapest region gets no vendor call; five pods spread over two regions without a quota error (the ledger) |
+| S05 | quota, pinned region: pods stay Pending, no NodeClaim, `QuotaAvailable=False` (`QuotaExhausted`, `QuotaZero`); freed usage provisions without touching the pods (Q9) |
+| S06 | a type that is not launchable in a zone is never attempted there |
+| S07 | a driver without quota knowledge: injected `QuotaExceeded` skips the region and capacity type for the TTL |
+| S08 | a NodeClass change drifts the node and replaces it |
+| S09 | an orphan instance is deleted by the garbage collector after the grace period |
+| S10 | scale (Q7): 50 pods with distinct exact types, every region vs. three; the numbers go to `test/kwok/.out/q7.txt` |
+
+Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
+(`KWOK_SCENARIOS=TestS0[12]`), `KEEP_CLUSTER=1` keeps the cluster and
+`REUSE_CLUSTER=1` reuses it, `KIND_CLUSTER_NAME` renames it. `make kwok-up`
+leaves the lane running (`KUBECONFIG=test/kwok/.cache/scarpenter-kwok.kubeconfig`)
+and `make kwok-down` removes it. On failure the logs of the controller,
+kwok-controller and the replay server, the NodeClaims and the fake ConfigMaps are
+collected in `test/kwok/.out/logs` (CI uploads them).
 
 ### Conventions
 

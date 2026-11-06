@@ -24,7 +24,12 @@ import (
 // its metrics, and registers it and the controller that feeds it the
 // SCNodeClasses with the manager. The catalog reads Keeper only for the vendors
 // and regions the SCNodeClasses allow, so it is idle until one exists.
-func (o *Operator) WithCatalog(facts catalog.Facts, un *unavailable.Cache) (*catalog.Catalog, error) {
+//
+// gate (nil: none) marks more offerings unavailable, for example for lack of
+// quota; the caller bumps un's sequence when its answers change.
+func (o *Operator) WithCatalog(
+	facts catalog.Facts, un *unavailable.Cache, gate catalog.Gate,
+) (*catalog.Catalog, error) {
 	key, err := readAPIKey(o.Options.KeeperAPIKeyFile)
 	if err != nil {
 		return nil, err
@@ -32,9 +37,11 @@ func (o *Operator) WithCatalog(facts catalog.Facts, un *unavailable.Cache) (*cat
 	cat := catalog.New(catalog.Options{
 		Source: catalog.NewKeeperSource(catalog.KeeperOptions{
 			URL: o.Options.KeeperURL, APIKey: key, UserAgent: "scarpenter/" + version.Get().Version,
+			PricesRegionsPerRequest: o.Options.KeeperPricesRegionsPerRequest,
 		}),
 		Facts:           facts,
 		Unavailable:     un,
+		Gate:            gate,
 		RefreshInterval: o.Options.CatalogRefreshInterval,
 		MaxAge:          o.Options.CatalogMaxAge,
 		Registerer:      metrics.Registry,

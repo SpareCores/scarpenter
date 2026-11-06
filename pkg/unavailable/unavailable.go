@@ -159,6 +159,12 @@ func (c *Cache) IsUnavailable(o Offering) bool {
 	return false
 }
 
+// Bump changes the sequence without changing the entries. Other components
+// whose view feeds offering availability (the quota tracker, overview section
+// 5.9) call it, so that the catalog's result cache, which is keyed by the
+// sequence, drops what it computed.
+func (c *Cache) Bump() { c.sequence.Add(1) }
+
 // Sequence returns a number that changes whenever the set of live entries
 // does, including when entries expire. Use it as part of a cache key.
 func (c *Cache) Sequence() uint64 {
