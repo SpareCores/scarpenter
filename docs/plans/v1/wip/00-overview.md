@@ -1185,7 +1185,7 @@ and refreshed only by its manually triggered workflow.
 |---|---|---|
 | 01 | [`sc-keeper-go`: Keeper client and selection engine](../done/01-sc-keeper-go.md) | — |
 | 02 | [Scaffold](../done/02-scaffold.md) | 01 |
-| 03 | [Catalog](03-catalog.md) | 02 |
+| 03 | [Catalog](../done/03-catalog.md) | 02 |
 | 04 | [Cloud provider, driver contract, fake driver, L3](04-cloudprovider-and-fake-driver.md) | 03 |
 | 05 | [Node bootstrap](05-bootstrap.md) | 04 |
 | 06 | [Node options and vendor resources](06-node-options-and-resources.md) | 05 |

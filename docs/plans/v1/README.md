@@ -28,7 +28,7 @@ Execution protocol:
 | 00a | `wip/00a-node-options.md` | accepted | vendor-native node settings and profiles, instance selection (attribute and metric labels, sc-karpenter-nodepool selection profiles), vendor resources (bring your own or managed, with lifecycles), multi-vendor NodeClass, workload interface | 00 |
 | 01 | `done/01-sc-keeper-go.md` | done | shared module: Keeper client and sc-karpenter-nodepool's selection engine; `sc-karpenter-nodepool` switched to it; `/table/*` endpoints | 00 |
 | 02 | `done/02-scaffold.md` | done | dev container, module, multi-vendor `SCNodeClass` API + CRD, operator wiring, CI | 01 |
-| 03 | `wip/03-catalog.md` | review | Keeper → instance types and offerings; attribute, metric, selection, location and profile labels; refresh; unavailable cache | 02 |
+| 03 | `done/03-catalog.md` | done | Keeper → instance types and offerings; attribute, metric, selection, location and profile labels; refresh; unavailable cache | 02 |
 | 04 | `wip/04-cloudprovider-and-fake-driver.md` | todo | CloudProvider, driver contract + registry + conformance, quota tracker, fake driver, GC, L3 KWOK lane, scale measurement | 03 |
 | 05 | `wip/05-bootstrap.md` | todo | tokens, artifacts, templates → Ignition, NodeClass controller, CSR approver | 04 |
 | 06 | `wip/06-node-options-and-resources.md` | todo | settings resolution and profiles, vendor resources (use/create, lifecycles, GC), pricing deltas, first-boot volume unit; fake driver + L3 scenarios | 05 |
