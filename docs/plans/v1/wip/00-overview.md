@@ -280,7 +280,8 @@ Through `sc-keeper-go` (plan 01), per refresh cycle:
 |---|---|
 | `GET /healthcheck` | `database_hash`, sent as `data_version` on every cacheable request (one consistent data version per refresh) |
 | `GET /table/server` | Specs of every server: vendor, `api_reference`, family, vCPUs, memory, CPU architecture/manufacturer/family, accelerators, status |
-| `GET /table/server_prices?vendor=<v>&vendor_regions=<v>~<r>…&currency=USD` | Offerings: (server, region, zone, allocation, price) |
+| `GET /server_prices?vendor=<v>&vendor_regions=<v>~<r>…&currency=USD&limit=-1` | Offerings: (server, region, zone, allocation, price). Anonymous. Rows embed full nested server/vendor/region/zone objects and the response is not compressed (about 4 KB per row: 137 MB for four AWS regions, 2026-11-05), so the client decodes it streaming into flat rows and SCarpenter fetches only the regions in scope |
+| `GET /table/server_prices?…` | The same offerings as flat rows, used instead when a Keeper API key is configured (it answers 401 without one) |
 | `GET /table/zone`, `GET /table/region` | Zone ↔ region mapping, zone IDs and names, region status |
 
 Only vendors with at least one `SCNodeClass`, and only the regions those
@@ -288,8 +289,11 @@ NodeClasses allow (all active regions if a NodeClass lists none), are fetched.
 Servers with a status other than `active` (and `planned for retirement`) are
 dropped, as are servers without a price in scope.
 
-The exact `/table/*` parameters, row counts and response sizes for a full AWS
-scope are measured in plan 01 (§15).
+Measured in plan 01 (2026-11-05): `/table/server` is 6,113 rows, 12 MB of
+JSON; `/table/*` and `/server_prices` are cached by the CDN (`max-age` 3600 and
+900 s). Because `/server_prices` is large, a NodeClass's region allow-list
+directly bounds the refresh cost; enabling compression at Keeper's CDN would
+cut the transfer by an order of magnitude.
 
 ### 5.2 Refresh and staleness
 
@@ -1177,7 +1181,7 @@ and refreshed only by its manually triggered workflow.
 
 | # | Plan | Depends on |
 |---|---|---|
-| 01 | [`sc-keeper-go`: Keeper client and selection engine](01-sc-keeper-go.md) | — |
+| 01 | [`sc-keeper-go`: Keeper client and selection engine](../done/01-sc-keeper-go.md) | — |
 | 02 | [Scaffold](02-scaffold.md) | 01 |
 | 03 | [Catalog](03-catalog.md) | 02 |
 | 04 | [Cloud provider, driver contract, fake driver, L3](04-cloudprovider-and-fake-driver.md) | 03 |
@@ -1196,7 +1200,7 @@ and refreshed only by its manually triggered workflow.
 
 | # | Item | Verified by |
 |---|---|---|
-| Q1 | `/table/server_prices` parameters (vendor/regions filters, currency conversion), response size for all AWS regions, whether on-demand prices are per zone or per region, cache behaviour of `/table/*` | plan 01 |
+| Q1 | Keeper price endpoints: **answered 2026-11-05** (§5.1). `/table/server_prices` needs an API key; anonymous `/server_prices` is per zone with nested objects (about 4 KB per row, uncompressed); `/table/*` is CDN-cached for an hour | plan 01 |
 | Q2 | The kubernetes sysext ships a `kubelet.service` we can drop into (and what its `ExecStart` expects) or we ship our own unit | plan 05 |
 | Q3 | Ignition (Flatcar's version) accepts gzip `data:` URLs in `ignition.config.merge`; sha256 vs sha512 file verification support | plan 05 (golden) + 07 (boot) |
 | Q4 | k3s accepts bootstrap-token auth for non-k3s kubelets with the default server flags; `kube-root-ca.crt` holds the CA nodes need | plan 07 |
