@@ -6,15 +6,10 @@ Check the controller:
   kubectl -n {{ .Release.Namespace }} logs deployment/{{ include "scarpenter.fullname" . }}
 
 Cluster {{ .Values.cluster.name }}; nodes reach the API server at {{ .Values.cluster.apiServerEndpoint }}.
-{{- if eq (include "scarpenter.clusterDNS" .) "none" }}
+{{- if has "none" .Values.cluster.dns }}
 
 NOTE: cluster.dns is "none": the Pods of the nodes use the node's resolver and
 cannot resolve cluster Services.
-{{- else if not (include "scarpenter.clusterDNS" .) }}
-
-The cluster DNS was not set here (no cluster to look it up in): the controller
-reads the ClusterIP of the DNS Service of kube-system itself, and an SCNodeClass is
-not valid while it finds none. Set cluster.dns to give it explicitly.
 {{- end }}
 {{- if eq .Values.kubeletClientCA.source "none" }}
 

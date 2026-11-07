@@ -91,8 +91,7 @@ and that the controller's own parser accepts what the chart renders.
 | `cluster.name` | `--cluster-name` | Required. |
 | `cluster.apiServerEndpoint` | `--api-server-endpoint` | Required, `https://`. |
 | `cluster.ca.existingConfigMap`, `existingSecret`, `key` | `--cluster-ca-file` | Mounts the object (of the release namespace) and points the flag at the key. Unset: the `kube-root-ca.crt` ConfigMap. |
-| `cluster.dns` | `--cluster-dns` | A list of IPs. |
-| `cluster.dnsFromService.*` | `--cluster-dns` | With no `dns`: the ClusterIP of the Service (default `kube-system/kube-dns`), looked up when the chart is installed or upgraded. Where Helm cannot look it up (`helm template`, ArgoCD) the flag is left out and the controller finds the DNS Service itself; `enabled: false` renders `--cluster-dns=none`. |
+| `cluster.dns` | `--cluster-dns` | A list of IPs, passed as it is. **Empty (the default): the controller finds the DNS Service itself** (the chart looks nothing up); `[none]` gives the nodes no `clusterDNS`. |
 | `cluster.domain` | `--cluster-domain` | |
 | `kubeletClientCA.source`, `inline`, `configMap.*`, `secret.*` | `--kubelet-client-ca-file` | `none`, `inline`, an existing `configMap` or `secret`, or `extensionApiserverAuthentication` (copies key `client-ca-file` of `kube-system/extension-apiserver-authentication` into a ConfigMap of the release with Helm's `lookup`; the API server's client CA: the k3s client CA, the cluster CA on kubeadm and EKS). kubeadm and EKS need none; on k3s without it `kubectl logs` and `exec` fail with 401. |
 | `vendors.aws.enabled`, `vendors.extra` | `--vendors` | `aws` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |

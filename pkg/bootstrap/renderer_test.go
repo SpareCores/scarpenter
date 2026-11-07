@@ -392,7 +392,13 @@ func TestClusterDNSFromTheService(t *testing.T) {
 	}{
 		"labelled, any name": {[]client.Object{dnsService("coredns", label, "10.43.0.10")}, []string{"10.43.0.10"}, ""},
 		"dual stack":         {[]client.Object{dnsService("kube-dns", label, "10.96.0.10", "fd00::a")}, []string{"10.96.0.10", "fd00::a"}, ""},
-		"named, unlabelled":  {[]client.Object{dnsService("kube-dns", nil, "10.96.0.10")}, []string{"10.96.0.10"}, ""},
+		"kube-dns wins among labelled": {[]client.Object{
+			dnsService("kube-dns-upstream", label, "10.96.0.11"), dnsService("kube-dns", label, "10.96.0.10"), dnsService("a-cache", label, "10.96.0.12")}, []string{"10.96.0.10"}, ""},
+		"by name when none is named kube-dns": {[]client.Object{
+			dnsService("zz-dns", label, "10.96.0.3"), dnsService("coredns", label, "10.96.0.2")}, []string{"10.96.0.2"}, ""},
+		"headless labelled falls back to the name": {[]client.Object{
+			dnsService("coredns", label, corev1.ClusterIPNone), dnsService("kube-dns", nil, "10.96.0.10")}, []string{"10.96.0.10"}, ""},
+		"named, unlabelled": {[]client.Object{dnsService("kube-dns", nil, "10.96.0.10")}, []string{"10.96.0.10"}, ""},
 		"label wins over the name": {[]client.Object{
 			dnsService("kube-dns", nil, "10.96.0.99"), dnsService("rke2-coredns", label, "10.43.0.10")}, []string{"10.43.0.10"}, ""},
 		"another namespace is not looked at": {[]client.Object{&corev1.Service{

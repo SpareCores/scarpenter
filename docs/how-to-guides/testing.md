@@ -124,10 +124,12 @@ permissions, ConfigMaps and creating Nodes, are `rbac.extraRules` of the lane's
 values), so a permission missing from `config/rbac` or `config/rbac-core` fails the
 lane, and `run.sh` fails when the controller logs a 403. The chart is installed in
 two steps (without replicas, then with) so that the NodeClass of S13 exists before
-the controller starts; `run.sh` also checks that what Helm derived from the live
-cluster reached the controller: `--cluster-dns` from the `kube-dns` Service and the
-kubelet client CA copied from `kube-system/extension-apiserver-authentication`
-(`kubeletClientCA.source: extensionApiserverAuthentication`). The kind cluster runs
+the controller starts; `run.sh` also checks what reached the controller: the chart
+sets no `--cluster-dns`, so the controller must discover the `kube-dns` Service itself
+with the production RBAC (it logs the address), and the kubelet client CA is the one
+Helm copied from `kube-system/extension-apiserver-authentication`
+(`kubeletClientCA.source: extensionApiserverAuthentication`). The 403 check reads the
+current and the previous logs of every controller pod, at start and after the scenarios. The kind cluster runs
 without the controller manager's taint-eviction controller
 (`test/kwok/kind.yaml`): KWOK nodes are Ready at once, and that controller would
 otherwise evict a pod bound within milliseconds of the removal of the

@@ -117,7 +117,7 @@ refuses to start on any problem of its command line and logs all of them.
 | `cluster.name`, `cluster.apiServerEndpoint` | Required. |
 | `vendors.aws.credentials.*` | How the controller authenticates to AWS: [AWS credentials](aws-credentials.md). |
 | `vendors.aws.enabled` | Turn the AWS driver off or on (default on). |
-| `cluster.dns` | The kubelet's `clusterDNS` on nodes. Empty: Helm looks the `kube-dns` Service up at install time, and where it cannot (`helm template`, ArgoCD) the controller reads the DNS Service of `kube-system` itself (label `k8s-app=kube-dns`, else the Service `kube-dns`). If it finds none, SCNodeClasses are not valid (`ValidationSucceeded=False`, reason `ClusterDNSUnknown`, naming this value): set `cluster.dns`, or `cluster.dnsFromService.enabled=false` to give the nodes no cluster DNS (their Pods then use the node's resolver). |
+| `cluster.dns` | The kubelet's `clusterDNS` on nodes. Empty (default): the controller reads the DNS Service of `kube-system` itself (label `k8s-app=kube-dns`, the Service named `kube-dns` first; also with `helm template` and ArgoCD). If it finds none, SCNodeClasses are not valid (`ValidationSucceeded=False`, reason `ClusterDNSUnknown`, naming this value): set the IPs, or `[none]` to give the nodes no cluster DNS (their Pods then use the node's resolver). |
 | `cluster.domain` | The kubelet's `clusterDomain` (default `cluster.local`). |
 | `cluster.ca.*` | A CA bundle for the nodes other than the `kube-root-ca.crt` ConfigMap of the release namespace (which every namespace has, and which is the right one on kubeadm, k3s and EKS). |
 | `kubeletClientCA.*` | [k3s](#k3s-the-kubelet-client-ca). |

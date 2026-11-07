@@ -125,21 +125,6 @@
             "minLength": 1
           }
         },
-        "dnsFromService": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "namespace": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            }
-          }
-        },
         "domain": {
           "type": "string"
         }
@@ -187,7 +172,10 @@
               "type": "string"
             },
             "ipv4Price": {
-              "type": ["string", "number"],
+              "type": [
+                "string",
+                "number"
+              ],
               "pattern": "^([0-9]+(\\.[0-9]+)?)?$",
               "minimum": 0
             },

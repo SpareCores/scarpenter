@@ -1083,7 +1083,7 @@ Flags with `SCARPENTER_*` environment fallbacks, set by the Helm chart:
 | `--cluster-name` | required | tag value, IAM scoping |
 | `--api-server-endpoint` | required | what nodes use to reach the API server |
 | `--cluster-ca-file` | `kube-root-ca.crt` ConfigMap of the own namespace | |
-| `--cluster-dns`, `--cluster-domain` | none, `cluster.local` | kubelet `clusterDNS` and `clusterDomain` on nodes; without a DNS IP Pods use the node's resolver |
+| `--cluster-dns`, `--cluster-domain` | discover, `cluster.local` | kubelet `clusterDNS` and `clusterDomain` on nodes; empty `--cluster-dns`: the controller reads the DNS Service of `kube-system` (label `k8s-app=kube-dns`, the one named `kube-dns` first) and a NodeClass is not valid (`ClusterDNSUnknown`) while it finds none; `none`: no `clusterDNS`, Pods use the node's resolver |
 | `--vendors` | `aws` | enabled drivers |
 | `--keeper-url` | `https://keeper.sparecores.net` | |
 | `--keeper-api-key-file` | none | |
@@ -1236,3 +1236,4 @@ and refreshed only by its manually triggered workflow.
 | Q9 | Karpenter core re-evaluates pending pods when offerings become available without any cluster event (quota freed elsewhere in the account); if not, how SCarpenter triggers a new scheduling round | plan 04 |
 | Q10 | AWS quota codes, classes, defaults, family rule, API shapes, and the counting rules (custom CPU options, stopped instances, spot requests vs. instances): **verified 2026-11-05** (§11.8). Still from docs only: `stopping`/`shutting-down` (counted conservatively) and unused capacity reservations | plan 10 (real account), opportunistically |
 | Q11 | **Confirmed 2026-11-07** (plan 06, L3 scenario S13 with real core v1.15.1): Karpenter matches pod `Gt`/`Lt` against numeric instance-type and offering requirements, and `DoesNotExist` on a type excludes it for pods that require the key | plans 03, 06 (L3) |
+| Q12 | **Decided 2026-11-07** (plan 09 review): the minimum Kubernetes version is **1.31**: the SCNodeClass CRD uses CEL's CIDR library (`isCIDR`, plan 08's CIDR validation), which older API servers reject (`undeclared reference to 'isCIDR'`, verified on kind 1.28 and 1.30; accepted on 1.31). The chart's `kubeVersion` is `>=1.31.0-0`; the kubelets of the nodes may be up to three minors older than the API server | plan 09 |

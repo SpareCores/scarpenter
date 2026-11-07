@@ -6,6 +6,10 @@
 #
 #   version <tag>                       validates the tag (v<major>.<minor>.<patch>[-<prerelease>])
 #                                       and prints version= and prerelease= lines
+#   latest <tag> <prerelease>           reads the existing tags from stdin and prints latest= (the
+#                                       tag is the highest stable version: it may move "latest" and
+#                                       the major tag) and minor= (the highest of its minor: it may
+#                                       move the 0.1 tag), so that no tag ever moves backwards
 #   package-chart <version> <dir>       packages the chart with that version and appVersion
 #                                       into <dir> and checks the package
 #   check-image <image> <dev|prod> <version>
@@ -45,6 +49,22 @@ cmd_version() {
   out="$(version_of_tag "$1")"
   echo "version=${out% *}"
   echo "prerelease=${out#* }"
+}
+
+cmd_latest() {
+  [[ $# -eq 2 ]] || die "usage: latest <tag> <prerelease>"
+  local tag="$1" prerelease="$2" stable latest=false minor=false prefix
+  # The tag itself counts, whether or not it exists yet.
+  # grep finds nothing for a pre-release tag in a repository without stable tags
+  # (the first release candidate): that is no error.
+  stable="$( { cat; echo "${tag}"; } | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -uV)"
+  if [[ "${prerelease}" == "false" ]]; then
+    [[ "$(tail -n 1 <<<"${stable}")" == "${tag}" ]] && latest=true
+    prefix="${tag%.*}."
+    [[ "$(awk -v p="${prefix}" 'index($0, p) == 1 && substr($0, length(p) + 1) ~ /^[0-9]+$/' <<<"${stable}" | tail -n 1)" == "${tag}" ]] && minor=true
+  fi
+  echo "latest=${latest}"
+  echo "minor=${minor}"
 }
 
 cmd_package_chart() {
@@ -118,6 +138,7 @@ cmd_dry_run() {
 
 case "${1:-}" in
   version) shift; cmd_version "$@" ;;
+  latest) shift; cmd_latest "$@" ;;
   package-chart) shift; cmd_package_chart "$@" ;;
   check-image) shift; cmd_check_image "$@" ;;
   dry-run) shift; cmd_dry_run "$@" ;;

@@ -27,7 +27,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "cluster-name" $clusterName
   "api-server-endpoint" $endpoint
   "vendors" (include "scarpenter.vendors" .)
-  "cluster-dns" (include "scarpenter.clusterDNS" .)
+  "cluster-dns" (join "," .Values.cluster.dns)
   "cluster-domain" .Values.cluster.domain
   "tailnet-prefixes" (join "," .Values.bootstrap.tailnetPrefixes)
   "keeper-url" .Values.keeper.url

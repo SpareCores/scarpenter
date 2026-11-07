@@ -745,9 +745,9 @@ func TestKubernetesMinimum(t *testing.T) {
 	}
 }
 
-// TestClusterDNSFlag: an explicit value is passed, "none" when the derivation is
-// switched off, and nothing when it is left to the controller (helm template has
-// no cluster to look the Service up in).
+// TestClusterDNSFlag: an explicit value is passed as it is, "none" switches the
+// cluster DNS off, and with no value the flag is left out so that the controller
+// finds the DNS Service itself (the chart looks nothing up).
 func TestClusterDNSFlag(t *testing.T) {
 	base := []string{"--set", "cluster.name=c", "--set", "cluster.apiServerEndpoint=https://a.example.com", "--set", "vendors.aws.credentials.mode=none"}
 	dnsArg := func(args ...string) []string {
@@ -762,11 +762,14 @@ func TestClusterDNSFlag(t *testing.T) {
 	if got := dnsArg("--set", "cluster.dns={10.0.0.10,fd00::a}"); !slices.Equal(got, []string{"--cluster-dns=10.0.0.10,fd00::a"}) {
 		t.Errorf("explicit: %v", got)
 	}
-	if got := dnsArg("--set", "cluster.dnsFromService.enabled=false"); !slices.Equal(got, []string{"--cluster-dns=none"}) {
-		t.Errorf("switched off: %v", got)
+	if got := dnsArg("--set", "cluster.dns={none}"); !slices.Equal(got, []string{"--cluster-dns=none"}) {
+		t.Errorf("none: %v", got)
 	}
 	if got := dnsArg(); len(got) != 0 {
-		t.Errorf("without a cluster to look up in the flag must be left to the controller, got %v", got)
+		t.Errorf("without a value the flag must be left to the controller, got %v", got)
+	}
+	if strings.Contains(mustHelm(t, base...), "lookup") {
+		t.Error("the chart must not look anything up")
 	}
 	// What the chart renders for the three cases is accepted by the controller.
 	for _, a := range [][]string{{"--cluster-dns=none"}, {"--cluster-dns=10.0.0.10"}, nil} {
@@ -806,4 +809,46 @@ func TestNumericIPv4Price(t *testing.T) {
 			t.Errorf("ipv4Price=%s: env %q, want %q", set, got, want)
 		}
 	}
+}
+
+// TestImageTagPolicy runs the release script's decision on which tags a release
+// moves: "latest" and the major tag only for the highest stable version, the
+// minor tag for the highest version of its minor, and none of them backwards.
+func TestImageTagPolicy(t *testing.T) {
+	existing := "v0.1.0\nv0.1.4\nv0.2.0\nv0.9.0\nv0.10.0\nv0.2.0-rc.1\n"
+	cases := []struct {
+		tag, prerelease string
+		latest, minor   string
+	}{
+		{"v0.10.1", "false", "true", "true"},  // highest overall; sorts after 0.10.0, not as text
+		{"v0.9.1", "false", "false", "true"},  // a patch of an older minor: its own minor tag only
+		{"v0.1.5", "false", "false", "true"},  // v0.1.5 after v0.2.0 and v0.10.0 updates 0.1 but not latest
+		{"v0.1.3", "false", "false", "false"}, // below v0.1.4: never backwards
+		{"v0.11.0", "false", "true", "true"},
+		{"v0.12.0-rc.1", "true", "false", "false"},
+		{"v1.0.0", "false", "true", "true"},
+	}
+	check := func(existing, tag, prerelease, latest, minor string) {
+		t.Helper()
+		cmd := exec.Command(filepath.Join(root, "hack", "release.sh"), "latest", tag, prerelease)
+		cmd.Stdin = strings.NewReader(existing)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s (existing tags %q): %v\n%s", tag, existing, err, out)
+		}
+		want := "latest=" + latest + "\nminor=" + minor + "\n"
+		if string(out) != want {
+			t.Errorf("%s (existing tags %q): got %q, want %q", tag, existing, out, want)
+		}
+	}
+	for _, c := range cases {
+		check(existing, c.tag, c.prerelease, c.latest, c.minor)
+	}
+	// A new repository: the first release candidate (no stable tag at all, which
+	// must not fail the script), the first release, and a re-run of a tag that
+	// already exists.
+	check("", "v0.1.0-rc.1", "true", "false", "false")
+	check("v0.1.0-rc.1\n", "v0.1.0-rc.2", "true", "false", "false")
+	check("v0.1.0-rc.1\n", "v0.1.0", "false", "true", "true")
+	check("v0.1.0\nv0.1.0-rc.1\n", "v0.1.0", "false", "true", "true")
 }

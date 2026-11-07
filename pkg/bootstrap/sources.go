@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 )
@@ -162,19 +164,46 @@ func (k *KubeReferences) ClusterDNS(ctx context.Context) ([]string, error) {
 		client.MatchingLabels{DNSServiceLabel: DNSServiceValue}); err != nil {
 		return nil, fmt.Errorf("listing the cluster DNS Service in %s: %w", DNSNamespace, err)
 	}
+	// Several Services may carry the label (NodeLocal DNSCache's kube-dns-upstream
+	// does): the one named kube-dns first, then by name, so that the choice never
+	// depends on the order of the list. A Service without a ClusterIP (headless)
+	// is skipped; the Service named kube-dns is the fallback when none of the
+	// labelled ones has an address.
 	candidates := svcs.Items
-	if len(candidates) == 0 {
+	slices.SortFunc(candidates, func(a, b corev1.Service) int {
+		if ka, kb := a.Name == DNSServiceName, b.Name == DNSServiceName; ka != kb {
+			if ka {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	ips := serviceIPs(candidates)
+	if len(ips) == 0 {
 		var svc corev1.Service
 		err := k.Reader.Get(ctx, types.NamespacedName{Namespace: DNSNamespace, Name: DNSServiceName}, &svc)
 		if client.IgnoreNotFound(err) != nil {
 			return nil, fmt.Errorf("reading the Service %s/%s: %w", DNSNamespace, DNSServiceName, err)
 		}
 		if err == nil {
-			candidates = []corev1.Service{svc}
+			ips = serviceIPs([]corev1.Service{svc})
 		}
 	}
-	var ips []string
-	for _, svc := range candidates {
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no cluster DNS Service found in %s (labelled %s=%s, or named %s): set --cluster-dns "+
+			"(Helm value cluster.dns) to its ClusterIP, or --cluster-dns=none (cluster.dns: [none]) "+
+			"to leave the nodes' clusterDNS unset", DNSNamespace, DNSServiceLabel, DNSServiceValue, DNSServiceName)
+	}
+	k.dns, k.dnsTime = ips, clk.Now()
+	log.FromContext(ctx).Info("found the cluster DNS Service", "namespace", DNSNamespace, "clusterDNS", ips)
+	return ips, nil
+}
+
+// serviceIPs are the ClusterIPs of the first Service that has any.
+func serviceIPs(svcs []corev1.Service) []string {
+	for _, svc := range svcs {
+		var ips []string
 		for _, ip := range svc.Spec.ClusterIPs {
 			if ip != "" && ip != corev1.ClusterIPNone {
 				ips = append(ips, ip)
@@ -184,16 +213,10 @@ func (k *KubeReferences) ClusterDNS(ctx context.Context) ([]string, error) {
 			ips = append(ips, svc.Spec.ClusterIP)
 		}
 		if len(ips) > 0 {
-			break
+			return ips
 		}
 	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("no cluster DNS Service found in %s (labelled %s=%s, or named %s): set --cluster-dns "+
-			"(Helm value cluster.dns) to its ClusterIP, or --cluster-dns=none (cluster.dnsFromService.enabled=false) "+
-			"to leave the nodes' clusterDNS unset", DNSNamespace, DNSServiceLabel, DNSServiceValue, DNSServiceName)
-	}
-	k.dns, k.dnsTime = ips, clk.Now()
-	return ips, nil
+	return nil
 }
 
 func validCA(pem, from string) (string, error) {

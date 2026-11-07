@@ -82,6 +82,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
       latest: ${{ steps.latest.outputs.latest }}
+      minor: ${{ steps.latest.outputs.minor }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -94,20 +95,16 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: hack/release.sh version "${TAG}" >>"${GITHUB_OUTPUT}"
 
-      # "latest" (and the major tag) only for the highest stable version: a patch
-      # of an older minor released later must not move it backwards.
-      - name: Is this the highest stable version
+      # "latest" and the major tag only for the highest stable version, the minor
+      # tag (0.1) only for the highest version of its minor: a patch of an older
+      # minor released later moves its own minor tag, never "latest", and no tag
+      # ever moves backwards.
+      - name: Is this the highest stable version, and of its minor
         id: latest
         env:
           TAG: ${{ github.ref_name }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
-        run: |
-          latest=false
-          if [[ "${PRERELEASE}" == "false" ]]; then
-            highest="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
-            [[ "${highest}" == "${TAG}" ]] && latest=true
-          fi
-          echo "latest=${latest}" >>"${GITHUB_OUTPUT}"
+        run: git tag --list 'v*' | hack/release.sh latest "${TAG}" "${PRERELEASE}" >>"${GITHUB_OUTPUT}"
 
       - name: The tagged commit is on main
         run: |
@@ -177,7 +174,7 @@ jobs:
           images: ${{ matrix.image }}
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ matrix.name == 'controller' && needs.verify.outputs.latest == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ matrix.name == 'controller' && needs.verify.outputs.minor == 'true' }}
             type=semver,pattern={{major}},enable=${{ matrix.name == 'controller' && needs.verify.outputs.latest == 'true' && !startsWith(github.ref_name, 'v0.') }}
           # "latest", the minor and the major tag only for the production image of
           # the highest stable version (verify decides).
@@ -305,6 +302,7 @@ jobs:
           VERSION: ${{ needs.verify.outputs.version }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
+          repo_re="${GH_REPO//./\\.}"
           cat >notes.md <<NOTES
           ## Install
 
@@ -333,7 +331,7 @@ jobs:
             cosign verify "\${ref}" --certificate-identity "\${identity}" --certificate-oidc-issuer "\${issuer}"
           done
           # or accept any release of this repository:
-          #   --certificate-identity-regexp "^https://github.com/${GH_REPO}/.github/workflows/release.yml@refs/tags/v"
+          #   --certificate-identity-regexp "^https://github\\.com/${repo_re}/\\.github/workflows/release\\.yml@refs/tags/v"
           \`\`\`
 
           The SBOMs are attached to this release.

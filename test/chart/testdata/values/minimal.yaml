@@ -4,7 +4,7 @@ cluster:
   name: my-cluster
   apiServerEndpoint: https://api.example.com:6443
   # No cluster DNS on purpose.
-  dnsFromService: {enabled: false}
+  dns: [none]
 vendors:
   aws:
     credentials:

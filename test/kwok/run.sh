@@ -174,12 +174,18 @@ kubectl apply -f "${here}/manifests/nodeclass-described.yaml"
 helm upgrade --install scarpenter "${root}/charts/scarpenter" --namespace "${ns}" \
   "${helm_values[@]}" --wait --timeout 5m
 kubectl -n "${ns}" rollout status deployment/scarpenter --timeout=180s
-# What Helm derived from the live cluster reached the controller: the DNS Service's
-# ClusterIP and the kubelet client CA (the API server's own client CA).
+# What reached the controller: the chart gives no --cluster-dns, so the controller
+# finds the DNS Service of kube-system itself (with the production RBAC), and the
+# kubelet client CA that Helm copied from the API server's own configuration.
 args="$(kubectl -n "${ns}" get deployment scarpenter -o jsonpath='{.spec.template.spec.containers[0].args}')"
 dns_ip="$(kubectl -n kube-system get service kube-dns -o jsonpath='{.spec.clusterIP}')"
-[[ "${args}" == *"--cluster-dns=${dns_ip}"* ]] || { echo "the chart did not derive --cluster-dns=${dns_ip} from the kube-dns Service: ${args}" >&2; exit 1; }
+[[ "${args}" != *"--cluster-dns"* ]] || { echo "the chart must leave --cluster-dns to the controller: ${args}" >&2; exit 1; }
 [[ "${args}" == *"--kubelet-client-ca-file="* ]] || { echo "the chart did not set --kubelet-client-ca-file: ${args}" >&2; exit 1; }
+# The log line is written when a NodeClass is first validated: wait for the lane's
+# NodeClass (S13's, applied before the controller started) to be Ready.
+kubectl wait --for=condition=Ready scnodeclass/l3-described --timeout=180s
+kubectl -n "${ns}" logs deployment/scarpenter --tail=-1 | grep -F 'found the cluster DNS Service' | grep -F "${dns_ip}" ||
+  { echo "the controller did not discover the cluster DNS ${dns_ip}" >&2; exit 1; }
 kubectl -n "${ns}" get configmap scarpenter-kubelet-client-ca -o jsonpath='{.data.client-ca\.crt}' | grep -q 'BEGIN CERTIFICATE'
 # The production RBAC is enough: no request of the controller was refused. The
 # pattern is the API server's refusal of the controller's own ServiceAccount (a
@@ -187,10 +193,18 @@ kubectl -n "${ns}" get configmap scarpenter-kubelet-client-ca -o jsonpath='{.dat
 # after the scenarios, which exercise the token Secrets, the CSR approval, garbage
 # collection and the resource sweeps.
 no_403() {
-  if kubectl -n "${ns}" logs deployment/scarpenter --tail=-1 2>/dev/null | grep -F 'is forbidden: User "system:serviceaccount:'; then
-    echo "the controller got a 403 with the chart's RBAC ($1)" >&2
-    exit 1
-  fi
+  # Every controller container since the start: the current logs and, where a
+  # container restarted, the previous ones.
+  local pods pod
+  pods="$(kubectl -n "${ns}" get pods -l app.kubernetes.io/name=scarpenter -o name)"
+  for pod in ${pods}; do
+    if { kubectl -n "${ns}" logs "${pod}" --tail=-1 2>/dev/null
+      kubectl -n "${ns}" logs "${pod}" --previous --tail=-1 2>/dev/null || true; } |
+      grep -F 'is forbidden: User "system:serviceaccount:'; then
+      echo "the controller got a 403 with the chart's RBAC (${pod}, $1)" >&2
+      exit 1
+    fi
+  done
 }
 no_403 "at start"
 phase

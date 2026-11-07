@@ -56,20 +56,12 @@ cluster:
     existingSecret: ""
     key: ca.crt
   # IPs of the cluster DNS service, set as the kubelet's clusterDNS on nodes
-  # (--cluster-dns). Empty: derived, see dnsFromService.
+  # (--cluster-dns). Empty (the default): the controller finds the DNS Service
+  # itself (the Service of kube-system labelled k8s-app=kube-dns, the one named
+  # kube-dns first; its ClusterIPs), and an SCNodeClass is not valid
+  # (ValidationSucceeded=False, reason ClusterDNSUnknown) while it finds none.
+  # [none] gives the nodes no clusterDNS: their Pods use the node's resolver.
   dns: []
-  # With no dns: the ClusterIP of this Service is looked up when the chart is
-  # installed or upgraded (Helm's lookup, a convenience). Where the chart is
-  # rendered without a cluster (helm template, ArgoCD) the flag is left out and
-  # the controller finds the DNS Service itself (the Service of kube-system
-  # labelled k8s-app=kube-dns, else named kube-dns); an SCNodeClass is not valid
-  # (ValidationSucceeded=False, reason ClusterDNSUnknown) while it finds none. With
-  # enabled: false and no dns the flag is --cluster-dns=none: the nodes get no
-  # clusterDNS and their Pods use the node's resolver.
-  dnsFromService:
-    enabled: true
-    namespace: kube-system
-    name: kube-dns
   # The kubelet's clusterDomain on nodes (--cluster-domain).
   domain: ""
 
