@@ -1,0 +1,94 @@
+[
+ {
+  "vendor_id": "aws",
+  "region_id": "us-east-1",
+  "storage_id": "gp3",
+  "unit": "GB/month",
+  "price": 0.08,
+  "price_upfront": 0.0,
+  "price_tiered": [],
+  "currency": "USD",
+  "status": "active",
+  "observed_at": "2026-11-06T20:36:12.949776",
+  "region": {
+   "region_id": "us-east-1"
+  },
+  "vendor": {
+   "vendor_id": "aws"
+  },
+  "storage": {
+   "storage_id": "gp3"
+  }
+ },
+ {
+  "vendor_id": "aws",
+  "region_id": "us-east-1",
+  "storage_id": "gp2",
+  "unit": "GB/month",
+  "price": 0.1,
+  "price_upfront": 0.0,
+  "price_tiered": [],
+  "currency": "USD",
+  "status": "active",
+  "observed_at": "2026-11-06T20:36:12.949731",
+  "region": {
+   "region_id": "us-east-1"
+  },
+  "vendor": {
+   "vendor_id": "aws"
+  },
+  "storage": {
+   "storage_id": "gp2"
+  }
+ },
+ {
+  "vendor_id": "aws",
+  "region_id": "us-east-1",
+  "storage_id": "io2",
+  "unit": "GB/month",
+  "price": 0.125,
+  "price_upfront": 0.0,
+  "price_tiered": [],
+  "currency": "USD",
+  "status": "active",
+  "observed_at": "2026-11-06T20:36:12.950493",
+  "region": {
+   "region_id": "us-east-1"
+  },
+  "vendor": {
+   "vendor_id": "aws"
+  },
+  "storage": {
+   "storage_id": "io2"
+  }
+ },
+ {
+  "vendor_id": "aws",
+  "region_id": "eu-central-1",
+  "storage_id": "gp3",
+  "unit": "GB/month",
+  "price": 0.0952,
+  "price_upfront": 0.0,
+  "price_tiered": [],
+  "currency": "USD",
+  "status": "active"
+ },
+ {
+  "vendor_id": "aws",
+  "region_id": "eu-central-1",
+  "storage_id": "st1",
+  "unit": "IOPS/month",
+  "price": 0.05,
+  "currency": "USD",
+  "status": "active"
+ },
+ {
+  "vendor_id": "aws",
+  "region_id": "eu-central-1",
+  "storage_id": "sc1",
+  "unit": "GB/month",
+  "price": 0.03,
+  "currency": "EUR",
+  "status": "active"
+ }
+]

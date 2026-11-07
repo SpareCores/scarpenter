@@ -61,6 +61,19 @@ linters:
       - linters:
           - unparam
         path: _test\.go
+      # The AWS driver's API interfaces and everything that implements them repeat
+      # the SDK's long method signatures (the real client, the timeouts, the fake).
+      - linters:
+          - lll
+        path: pkg/vendors/aws/(api|timeouts)\.go
+      - linters:
+          - lll
+          - goconst
+        path: pkg/vendors/aws/fake/
+      # The error table of the AWS driver and the test's independent copy of it.
+      - linters:
+          - dupl
+        path: pkg/vendors/aws/errors(_test)?\.go
       # API types carry long kubebuilder markers and CEL rules.
       - linters:
           - lll

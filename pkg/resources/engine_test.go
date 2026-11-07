@@ -938,3 +938,24 @@ func TestResourcesOfTheLastDeletedNodeClassAreCleanedUp(t *testing.T) {
 		t.Errorf("the subnet of the last NodeClass leaked: %v", e.drv.Managed())
 	}
 }
+
+func TestImageGapsGateTheOfferingsOfARegion(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	gap := func() bool { return e.engine.UnavailableFor("c", "aws", "", region1, "z", "on-demand") }
+	if gap() {
+		t.Fatal("unavailable before any verdict")
+	}
+	e.engine.SetImageGaps("c", "aws", map[string]string{region1: "no image"})
+	if !gap() || e.engine.UnavailableFor("c", "aws", "", region2, "z", "on-demand") || e.engine.UnavailableFor("other", "aws", "", region1, "z", "on-demand") {
+		t.Error("the gap gates its class, vendor and region only")
+	}
+	e.engine.SetImageGaps("c", "aws", nil)
+	if gap() {
+		t.Error("a cleared gap still gates")
+	}
+	e.engine.SetImageGaps("c", "aws", map[string]string{region1: "no image"})
+	e.engine.ForgetClass("c")
+	if gap() {
+		t.Error("a forgotten class still gates")
+	}
+}

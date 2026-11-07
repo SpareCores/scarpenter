@@ -1,0 +1,210 @@
+{
+  "MaxCount": 1,
+  "MinCount": 1,
+  "AdditionalInfo": null,
+  "BlockDeviceMappings": [
+    {
+      "DeviceName": "/dev/xvda",
+      "Ebs": {
+        "AvailabilityZone": null,
+        "AvailabilityZoneId": null,
+        "DeleteOnTermination": true,
+        "EbsCardIndex": null,
+        "Encrypted": true,
+        "Iops": null,
+        "KmsKeyId": null,
+        "OutpostArn": null,
+        "SnapshotId": null,
+        "Throughput": null,
+        "VolumeInitializationRate": null,
+        "VolumeSize": 64,
+        "VolumeType": "gp3"
+      },
+      "NoDevice": null,
+      "VirtualName": null
+    }
+  ],
+  "CapacityReservationSpecification": null,
+  "ClientToken": "11111111-2222-3333-4444-555555555555",
+  "CpuOptions": null,
+  "CreditSpecification": null,
+  "DisableApiStop": null,
+  "DisableApiTermination": null,
+  "DryRun": null,
+  "EbsOptimized": null,
+  "ElasticGpuSpecification": null,
+  "ElasticInferenceAccelerators": null,
+  "EnablePrimaryIpv6": null,
+  "EnclaveOptions": null,
+  "HibernationOptions": null,
+  "IamInstanceProfile": null,
+  "ImageId": "ami-0000000000000image",
+  "InstanceInitiatedShutdownBehavior": "terminate",
+  "InstanceMarketOptions": null,
+  "InstanceType": "m7i.large",
+  "Ipv6AddressCount": null,
+  "Ipv6Addresses": null,
+  "KernelId": null,
+  "KeyName": null,
+  "LaunchTemplate": null,
+  "LicenseSpecifications": null,
+  "MaintenanceOptions": null,
+  "MetadataOptions": {
+    "HttpEndpoint": "enabled",
+    "HttpProtocolIpv6": "",
+    "HttpPutResponseHopLimit": 1,
+    "HttpTokens": "required",
+    "InstanceMetadataTags": "disabled"
+  },
+  "Monitoring": null,
+  "NetworkInterfaces": [
+    {
+      "AssociateCarrierIpAddress": null,
+      "AssociatePublicIpAddress": true,
+      "ConnectionTrackingSpecification": null,
+      "DeleteOnTermination": true,
+      "Description": null,
+      "DeviceIndex": 0,
+      "EnaQueueCount": null,
+      "EnaSrdSpecification": null,
+      "Groups": null,
+      "InterfaceType": null,
+      "Ipv4PrefixCount": null,
+      "Ipv4Prefixes": null,
+      "Ipv6AddressCount": null,
+      "Ipv6Addresses": null,
+      "Ipv6PrefixCount": null,
+      "Ipv6Prefixes": null,
+      "NetworkCardIndex": null,
+      "NetworkInterfaceId": null,
+      "PrimaryIpv6": null,
+      "PrivateIpAddress": null,
+      "PrivateIpAddresses": null,
+      "SecondaryPrivateIpAddressCount": null,
+      "SubnetId": "subnet-redacted"
+    }
+  ],
+  "NetworkPerformanceOptions": null,
+  "Operator": null,
+  "Placement": {
+    "Affinity": null,
+    "AvailabilityZone": "us-east-1a",
+    "AvailabilityZoneId": null,
+    "GroupId": null,
+    "GroupName": null,
+    "HostId": null,
+    "HostResourceGroupArn": null,
+    "PartitionNumber": null,
+    "SpreadDomain": null,
+    "Tenancy": ""
+  },
+  "PrivateDnsNameOptions": null,
+  "PrivateIpAddress": null,
+  "RamdiskId": null,
+  "SecondaryInterfaces": null,
+  "SecurityGroupIds": null,
+  "SecurityGroups": null,
+  "SubnetId": null,
+  "TagSpecifications": [
+    {
+      "ResourceType": "instance",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "claim-1"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/cluster",
+          "Value": "my-cluster"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/managed-by",
+          "Value": "scarpenter"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodeclaim",
+          "Value": "claim-1"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodeclass",
+          "Value": "class"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodepool",
+          "Value": "pool"
+        },
+        {
+          "Key": "team",
+          "Value": "data"
+        }
+      ]
+    },
+    {
+      "ResourceType": "volume",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "claim-1"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/cluster",
+          "Value": "my-cluster"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/managed-by",
+          "Value": "scarpenter"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodeclaim",
+          "Value": "claim-1"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodeclass",
+          "Value": "class"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodepool",
+          "Value": "pool"
+        },
+        {
+          "Key": "team",
+          "Value": "data"
+        }
+      ]
+    },
+    {
+      "ResourceType": "network-interface",
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "claim-1"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/cluster",
+          "Value": "my-cluster"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/managed-by",
+          "Value": "scarpenter"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodeclaim",
+          "Value": "claim-1"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodeclass",
+          "Value": "class"
+        },
+        {
+          "Key": "scarpenter.sparecores.com/nodepool",
+          "Value": "pool"
+        },
+        {
+          "Key": "team",
+          "Value": "data"
+        }
+      ]
+    }
+  ],
+  "UserData": "eyJpZ25pdGlvbiI6eyJ2ZXJzaW9uIjoiMy40LjAifX0="
+}

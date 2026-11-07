@@ -155,6 +155,9 @@ type Engine struct {
 	observed map[string]observation
 	failures map[string]*failure
 	regions  map[regionKey]RegionState
+	// imageGaps are the regions without a boot image per class and vendor (the
+	// NodeClass controller's verdict), with the reason.
+	imageGaps map[regionKey]string
 	// firstSeen is when this process first saw a managed resource: a restart
 	// restarts the idle clock instead of trusting a driver that cannot say
 	// when the resource was last used.
@@ -190,7 +193,7 @@ func New(opts Options) *Engine {
 		opts: opts, metrics: newMetrics(opts.Registerer),
 		locks: map[string]*sync.Mutex{}, ensured: map[string]cachedRefs{}, resolved: map[string]cachedRefs{},
 		touched: map[string]time.Time{}, seen: map[string]bool{}, observed: map[string]observation{},
-		failures: map[string]*failure{}, regions: map[regionKey]RegionState{},
+		failures: map[string]*failure{}, regions: map[regionKey]RegionState{}, imageGaps: map[regionKey]string{},
 		firstSeen: map[string]time.Time{}, managedKeys: map[string]sets.Set[string]{},
 		watch: map[string]sets.Set[string]{},
 	}
@@ -572,6 +575,9 @@ func (e *Engine) RegionState(class, vendor, region string) (RegionState, bool) {
 func (e *Engine) UnavailableFor(class, vendor, _, region, zone, _ string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if _, gap := e.imageGaps[regionKey{class, vendor, region}]; gap {
+		return true
+	}
 	st, ok := e.regions[regionKey{class, vendor, region}]
 	if !ok {
 		return false
@@ -580,10 +586,43 @@ func (e *Engine) UnavailableFor(class, vendor, _, region, zone, _ string) bool {
 	return !st.Ready || zoneMissing
 }
 
+// SetImageGaps records the regions of the class and vendor that have no boot
+// image, with the reason; their offerings are unavailable (overview section 9).
+// A nil or empty map clears them.
+func (e *Engine) SetImageGaps(class, vendor string, gaps map[string]string) {
+	e.mu.Lock()
+	changed := false
+	for k := range e.imageGaps {
+		if k.class == class && k.vendor == vendor {
+			if _, still := gaps[k.region]; !still {
+				delete(e.imageGaps, k)
+				changed = true
+			}
+		}
+	}
+	for region, why := range gaps {
+		k := regionKey{class, vendor, region}
+		if e.imageGaps[k] != why {
+			e.imageGaps[k] = why
+			changed = true
+		}
+	}
+	e.mu.Unlock()
+	if changed && e.opts.Unavailable != nil {
+		e.opts.Unavailable.Bump()
+	}
+}
+
 // ForgetClass drops what the engine knows about a deleted NodeClass.
 func (e *Engine) ForgetClass(class string) {
 	e.mu.Lock()
 	changed := false
+	for k := range e.imageGaps {
+		if k.class == class {
+			delete(e.imageGaps, k)
+			changed = true
+		}
+	}
 	for k := range e.regions {
 		if k.class == class {
 			delete(e.regions, k)

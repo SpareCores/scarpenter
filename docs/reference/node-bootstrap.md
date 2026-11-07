@@ -315,7 +315,17 @@ when all of these hold:
    key encipherment) only;
 4. the Node `<name>` exists and its `providerID` is the NodeClaim's;
 5. every DNS SAN is the node name or a hostname/DNS address of the Node, and
-   every IP SAN is an IP address of the Node.
+   every IP SAN is an IP address of the **instance** where the node's IPs are the
+   vendor's: with the `direct` template, and a driver that reports the addresses of
+   the NodeClaim's instance (`vendors.Instance.Addresses`, the AWS driver does),
+   those are the only addresses a serving certificate may name, because the Node
+   object is written by the node, which a leaked bootstrap token does not bind to
+   the NodeClaim's machine. With the `tailscale` template the kubelet's node IP is
+   the tailnet address (100.64.0.0/10), which the vendor does not know: the Node's
+   reported addresses stand (verifying the tailnet IP needs the Tailscale API, a
+   later hardening); so for `custom`, a driver that reports none and a NodeClaim
+   without an instance reference. An instance that is gone or terminated allows no
+   address (with `direct`).
 
 Requests of other signers, or from other requesters, or for nodes that are not
 SCarpenter's, are **left alone** (other approvers may handle them). A request
@@ -361,11 +371,11 @@ principals that may describe the instance's attributes. What limits the damage:
   `system:node:<name>`. A holder of a leaked token can, within its lifetime, obtain
   credentials for **any node name**, including an existing node's (and with that
   read what the Node authorizer allows, such as the Secrets of that node's Pods,
-  and change that Node's reported addresses, which the serving certificate approver
-  trusts). This is inherent to bootstrap tokens (ADR-003); the short lifetime,
-  the deletion at registration and the IMDSv2 hop limit below are the controls.
-  Hardening for the AWS driver is to check serving certificate IPs against the
-  instance's addresses instead of the Node's.
+  and change that Node's reported addresses). This is inherent to bootstrap tokens
+  (ADR-003); the short lifetime, the deletion at registration, the IMDSv2 hop limit
+  below and the check of the serving certificate's IP addresses against the
+  instance's addresses (where the driver reports them, as the AWS driver does)
+  instead of the Node's are the controls.
 - The AWS driver requires IMDSv2 with a hop limit of 1, so Pods without host
   networking cannot reach the metadata service.
 - The tailscale auth key should be **ephemeral, pre-authorized and tagged**, with

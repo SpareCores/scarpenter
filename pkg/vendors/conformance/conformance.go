@@ -14,6 +14,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package conformance
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -61,6 +62,10 @@ type Fixture struct {
 	//
 	// InstanceTypes are the API references of the vendor's catalog (or a
 	// sample): each must map to buckets or be listed in UnknownQuotaTypes.
+	//
+	// An UnknownQuotaTypes entry is a type (unknown for both capacity types) or
+	// "type/capacity-type" (unknown for that capacity type only: AWS types
+	// that exist on-demand only have no spot quota).
 	InstanceTypes     []string
 	UnknownQuotaTypes []string
 	// ExhaustQuota makes the buckets that req consumes unable to take another
@@ -87,6 +92,9 @@ type Fixture struct {
 	ResourceKind vendors.ResourceKind
 	PreCreate    PreCreateFunc
 	Restart      func(t *testing.T, d vendors.Driver) vendors.Driver
+	// ResourceParams, if set, returns the create parameters of the kind (AWS: the
+	// VPC of a security group); the suite passes them in CreateSpec.Params.
+	ResourceParams func(t *testing.T, d vendors.Driver, region string) json.RawMessage
 }
 
 const (
@@ -448,12 +456,13 @@ func quotaReporter(t *testing.T, e *env) {
 	for _, typ := range e.fx.InstanceTypes {
 		for _, capType := range []string{vendors.CapacityOnDemand, vendors.CapacitySpot} {
 			cons, known := qr.Consumption(typ, capType)
+			listed := unknown[typ] || unknown[typ+"/"+capType]
 			switch {
 			case known && len(cons) == 0:
 				t.Errorf("%s/%s: known consumption without buckets", typ, capType)
-			case known && unknown[typ]:
+			case known && listed:
 				t.Errorf("%s/%s is listed as unknown but maps to buckets", typ, capType)
-			case !known && !unknown[typ]:
+			case !known && !listed:
 				t.Errorf("%s/%s maps to no bucket and is not on the unknown list", typ, capType)
 			}
 			for _, c := range cons {

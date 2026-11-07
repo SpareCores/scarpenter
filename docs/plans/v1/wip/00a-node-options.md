@@ -632,7 +632,10 @@ Offering price = instance price + the price delta of the resolved settings:
 
 - root and data volumes not bundled with the instance: Keeper storage
   GB-month price ÷ 730 per hour, for the exact vendor storage type;
-- public IPv4 where billed: Keeper IPv4 price.
+- public IPv4 where billed: Keeper IPv4 price. (Verified 2026-11-07: Keeper has
+  **no** IPv4 price table; its only IPv4 field is the number of addresses a server
+  includes. The AWS driver uses a documented, configurable constant until Keeper and
+  its crawler get an IPv4 price; backlog.)
 
 `GetInstanceTypes` prices offerings with the NodeClass defaults (or by a
 pinned selection objective, §7.3); `Create` re-orders candidates with the

@@ -584,6 +584,55 @@ func TestImagesReportedByTheDriver(t *testing.T) {
 	}
 }
 
+type gateRecorder struct {
+	mu   sync.Mutex
+	gaps map[string]map[string]string
+}
+
+func (g *gateRecorder) SetImageGaps(class, vendor string, gaps map[string]string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.gaps == nil {
+		g.gaps = map[string]map[string]string{}
+	}
+	g.gaps[class+"/"+vendor] = gaps
+}
+
+// Without a region list the NodeClass covers every region of the vendor: a region
+// without an image costs its offerings, not the condition, unless no region has
+// one. A region the NodeClass names must have its images.
+func TestImagesReadyWithGapsInRegionsTheNodeClassDoesNotName(t *testing.T) {
+	e := newEnv(t)
+	gate := &gateRecorder{}
+	clk := clocktesting.NewFakeClock(time.Now())
+	e.ctrl = nodeclass.New(nodeclass.Options{
+		Client: e.c, Catalog: e.cat, Registry: vendors.NewRegistryFrom(e.drv), ImageGate: gate,
+		Artifacts: artifacts.New(artifacts.Config{SysextBase: e.server, Clock: clk}),
+		Renderer:  bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: e.refs, APIServerEndpoint: "https://api.example.com:6443"}),
+		Refs:      e.refs, Recorder: e.rec,
+	})
+	e.drv.images = []v1alpha1.ImageStatus{
+		{Region: "r1", Arch: "amd64", Ref: "ami-1", Ready: true}, {Region: "r1", Arch: "arm64", Ref: "ami-2", Ready: true},
+		{Region: "r2", Arch: "amd64", Message: "no image"}, {Region: "r2", Arch: "arm64", Message: "no image"},
+		{Region: "r3", Arch: "amd64", Ref: "ami-3", Ready: true}, {Region: "r3", Arch: "arm64", Message: "no arm image"},
+	}
+	e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.AWS.Regions = nil }))
+	c := vcond(e.reconcile(e.name), "aws", v1alpha1.VendorConditionImagesReady)
+	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != nodeclass.ReasonImagesPartial ||
+		!strings.Contains(c.Message, "r2/amd64") || !strings.Contains(c.Message, "r3/arm64") {
+		t.Errorf("ImagesReady = %+v, want True naming the gaps", c)
+	}
+	// Only r2 has no image at all: that is the region whose offerings are gated.
+	if g := gate.gaps[e.name+"/aws"]; len(g) != 1 || g["r2"] == "" {
+		t.Errorf("image gaps = %v, want only r2", g)
+	}
+	// No region has an image.
+	e.drv.images = []v1alpha1.ImageStatus{{Region: "r1", Arch: "amd64", Message: "none"}, {Region: "r2", Arch: "amd64", Message: "none"}}
+	if c := vcond(e.reconcile(e.name), "aws", v1alpha1.VendorConditionImagesReady); c == nil || c.Status != metav1.ConditionFalse {
+		t.Errorf("no image anywhere: %+v", c)
+	}
+}
+
 func TestCatalogNotReady(t *testing.T) {
 	e := newEnv(t)
 	nc := e.newNodeClass(nil)

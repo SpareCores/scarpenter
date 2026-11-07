@@ -46,22 +46,25 @@ const FieldManager = "scarpenter-nodeclass"
 
 // Condition reasons.
 const (
-	ReasonReady                = "Ready"
-	ReasonResolved             = "Resolved"
-	ReasonReleaseNotFound      = "ReleaseNotFound"
-	ReasonResolutionFailed     = "ResolutionFailed"
-	ReasonValid                = "Valid"
-	ReasonInvalidKubelet       = "InvalidKubeletSettings"
-	ReasonVersionSkew          = "KubernetesVersionNotSupported"
-	ReasonReferenceNotFound    = "ReferenceNotFound"
-	ReasonReferenceUnreadable  = "ReferenceUnreadable"
-	ReasonTemplateInvalid      = "TemplateInvalid"
-	ReasonVendorNotEnabled     = "VendorNotEnabled"
-	ReasonVendorInvalid        = "ValidationFailed"
-	ReasonUnknownRegions       = "UnknownRegions"
-	ReasonImagesNotReady       = "ImagesNotReady"
-	ReasonImagesFailed         = "ImageResolutionFailed"
-	ReasonImagesNotReported    = "NotReported"
+	ReasonReady               = "Ready"
+	ReasonResolved            = "Resolved"
+	ReasonReleaseNotFound     = "ReleaseNotFound"
+	ReasonResolutionFailed    = "ResolutionFailed"
+	ReasonValid               = "Valid"
+	ReasonInvalidKubelet      = "InvalidKubeletSettings"
+	ReasonVersionSkew         = "KubernetesVersionNotSupported"
+	ReasonReferenceNotFound   = "ReferenceNotFound"
+	ReasonReferenceUnreadable = "ReferenceUnreadable"
+	ReasonTemplateInvalid     = "TemplateInvalid"
+	ReasonVendorNotEnabled    = "VendorNotEnabled"
+	ReasonVendorInvalid       = "ValidationFailed"
+	ReasonUnknownRegions      = "UnknownRegions"
+	ReasonImagesNotReady      = "ImagesNotReady"
+	ReasonImagesFailed        = "ImageResolutionFailed"
+	ReasonImagesNotReported   = "NotReported"
+	// ReasonImagesPartial: some regions the NodeClass does not name have no image;
+	// their offerings are unavailable, the condition stays True.
+	ReasonImagesPartial        = "ImagesPartial"
 	ReasonMetricsNotRegistered = "MetricLabelsNotRegistered"
 )
 
@@ -112,6 +115,11 @@ type Options struct {
 	// Regions says which regions a driver can use (the facts); nil skips the
 	// check of the NodeClass's regions.
 	Regions interface{ Regions(vendor string) []string }
+	// ImageGate, if set, is told the regions without a boot image, whose offerings
+	// are then unavailable (overview section 9).
+	ImageGate interface {
+		SetImageGaps(class, vendor string, gaps map[string]string)
+	}
 	// ServerVersion returns the API server's version, for example v1.37.1; nil
 	// skips the skew check.
 	ServerVersion func(ctx context.Context) (string, error)
@@ -435,6 +443,9 @@ func (c *Controller) vendor(
 	}
 
 	images, ok, reason, msg := c.images(ctx, desired, vendor, ready)
+	if c.opts.ImageGate != nil {
+		c.opts.ImageGate.SetImageGaps(desired.Name, vendor, imageGaps(images))
+	}
 	vs.Images = images
 	cond(v1alpha1.VendorConditionImagesReady, ok, reason, msg)
 	return vs
@@ -503,16 +514,50 @@ func (c *Controller) images(
 		return nil, false, ReasonImagesFailed, trim(err.Error())
 	}
 	var notReady []string
+	readyIn := map[string]bool{}
+	regions := map[string]bool{}
 	for _, img := range images {
-		if !img.Ready {
+		regions[img.Region] = true
+		if img.Ready {
+			readyIn[img.Region] = true
+		} else {
 			notReady = append(notReady, fmt.Sprintf("%s/%s", img.Region, img.Arch))
 		}
 	}
 	slices.Sort(notReady)
-	if len(notReady) > 0 {
-		return images, false, ReasonImagesNotReady, trim("no usable image for " + strings.Join(notReady, ", "))
+	if len(notReady) == 0 {
+		return images, true, ReasonReady, ""
 	}
-	return images, true, ReasonReady, ""
+	// A region the NodeClass names must have its images; without a region list
+	// (every region of the vendor) a gap only costs the offerings of that region,
+	// unless no region has an image at all.
+	named, _ := nc.Spec.Vendors.Regions(vendor)
+	for _, img := range images {
+		if !img.Ready && slices.Contains(named, img.Region) || len(readyIn) == 0 {
+			return images, false, ReasonImagesNotReady, trim("no usable image for " + strings.Join(notReady, ", "))
+		}
+	}
+	return images, true, ReasonImagesPartial, trim("no usable image for " + strings.Join(notReady, ", ") +
+		"; the offerings of those regions are unavailable")
+}
+
+// imageGaps returns the regions in which no image is ready, with the reason.
+func imageGaps(images []v1alpha1.ImageStatus) map[string]string {
+	ready := map[string]bool{}
+	why := map[string]string{}
+	for _, img := range images {
+		ready[img.Region] = ready[img.Region] || img.Ready
+		if !img.Ready && why[img.Region] == "" {
+			why[img.Region] = img.Message
+		}
+	}
+	gaps := map[string]string{}
+	for region, ok := range ready {
+		if !ok {
+			gaps[region] = why[region]
+		}
+	}
+	return gaps
 }
 
 // project is the part of the status this controller owns, for the comparison

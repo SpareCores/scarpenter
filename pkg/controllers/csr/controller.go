@@ -13,8 +13,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // a request is approved only when it comes from the node itself, for a node
 // that is a NodeClaim of a SCarpenter NodeClass whose Node reports the
 // NodeClaim's provider ID, and every name and address it asks for is one the
-// Node reports. Anything else is left to other approvers (not ours) or denied
-// (ours, but wrong).
+// Node reports. The IP addresses are held to a stricter rule where the driver
+// can say what they are: a bootstrap token that leaked is not bound to a node
+// name, so the Node object (which the holder of the token writes) cannot vouch
+// for an address; the instance the vendor reports for the NodeClaim can. Anything
+// else is left to other approvers (not ours) or denied (ours, but wrong).
 package csr
 
 import (
@@ -43,6 +46,8 @@ import (
 	"sigs.k8s.io/karpenter/pkg/events"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/scope"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
 // Names of the signer, the identities and the reasons.
@@ -74,6 +79,11 @@ type Options struct {
 	Clock    clock.Clock
 	// Grace defaults to DefaultGrace.
 	Grace time.Duration
+	// Registry gives access to the drivers, to check the IP addresses of a
+	// request against the addresses of the NodeClaim's instance. Without it (or
+	// for a driver that reports no addresses for the instance) the addresses the
+	// Node reports are used.
+	Registry *vendors.Registry
 }
 
 // Controller approves the serving certificate requests of SCarpenter's nodes.
@@ -199,7 +209,11 @@ func (c *Controller) decide(ctx context.Context, r *certv1.CertificateSigningReq
 	case node.Spec.ProviderID != want:
 		return deny, fmt.Sprintf("the Node's provider ID %q is not the NodeClaim's %q", node.Spec.ProviderID, want), nil
 	}
-	if extra := unknownNames(req, name, node); len(extra) > 0 {
+	ips, err := c.allowedIPs(ctx, claim, node)
+	if err != nil {
+		return ignore, "", err
+	}
+	if extra := unknownNames(req, name, node, ips); len(extra) > 0 {
 		why := fmt.Sprintf("the request names %s, which the Node does not report as its own", strings.Join(extra, ", "))
 		if c.opts.Clock.Since(r.CreationTimestamp.Time) <= c.opts.Grace {
 			// The Node's addresses may still be on their way.
@@ -258,20 +272,94 @@ func checkRequest(r *certv1.CertificateSigningRequest, req *x509.CertificateRequ
 	return ""
 }
 
-// unknownNames returns the names and addresses in the request that the Node
-// does not report: DNS names are the node name or the Node's hostname and DNS
-// addresses, IP addresses are the Node's IPs.
-func unknownNames(req *x509.CertificateRequest, name string, node *corev1.Node) []string {
+// vendorAddresses says whether the node's IP addresses are the vendor's: with the
+// direct network template the kubelet's node IP is an address of the instance. With
+// tailscale it is the tailnet address (100.64.0.0/10), which the vendor does not
+// know and cannot vouch for (verifying it needs the Tailscale API); a custom
+// template says nothing. The rule of the instance's addresses applies to direct
+// only.
+func (c *Controller) vendorAddresses(ctx context.Context, claim *karpv1.NodeClaim) (bool, error) {
+	ref := claim.Spec.NodeClassRef
+	if ref == nil {
+		return false, nil
+	}
+	nc := &v1alpha1.SCNodeClass{}
+	if err := c.opts.Client.Get(ctx, types.NamespacedName{Name: ref.Name}, nc); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("reading the SCNodeClass %s: %w", ref.Name, err)
+	}
+	return nc.Spec.Network.Template == v1alpha1.NetworkTemplateDirect, nil
+}
+
+// allowedIPs returns the IP addresses a serving certificate of the node may
+// name. With the direct template, where the driver reports the addresses of the
+// NodeClaim's instance they are the only ones: the Node's status is written by the
+// node, which a leaked bootstrap token does not bind to the NodeClaim's machine.
+// Otherwise (the tailscale and custom templates, a driver without addresses, a
+// NodeClaim without an instance reference) the Node's own addresses stand, as
+// before. An instance that cannot be read yet or is gone allows none, so a request
+// for an address waits and, after the grace period, is denied.
+func (c *Controller) allowedIPs(
+	ctx context.Context, claim *karpv1.NodeClaim, node *corev1.Node) (map[string]bool, error,
+) {
+	direct := false
+	if c.opts.Registry != nil {
+		var err error
+		if direct, err = c.vendorAddresses(ctx, claim); err != nil {
+			return nil, err
+		}
+	}
+	if direct {
+		if vendor, _, _, err := scope.ParseProviderID(claim.Status.ProviderID); err == nil {
+			if drv, ok := c.opts.Registry.Driver(vendor); ok {
+				if ref := claim.Annotations[v1alpha1.AnnotationInstanceRef]; ref != "" {
+					inst, err := drv.GetInstance(ctx, vendors.InstanceRef(ref))
+					switch {
+					case err == nil && inst.Gone():
+						return map[string]bool{}, nil
+					case err == nil && len(inst.Addresses) > 0:
+						return ipSet(inst.Addresses), nil
+					case err == nil:
+						// The driver does not report addresses.
+					case vendors.IsClass(err, vendors.NotFound):
+						return map[string]bool{}, nil
+					default:
+						return nil, fmt.Errorf("reading the instance %s of the NodeClaim %s: %w", ref, claim.Name, err)
+					}
+				}
+			}
+		}
+	}
+	var addrs []string
+	for _, a := range node.Status.Addresses {
+		if a.Type == corev1.NodeInternalIP || a.Type == corev1.NodeExternalIP {
+			addrs = append(addrs, a.Address)
+		}
+	}
+	return ipSet(addrs), nil
+}
+
+func ipSet(addrs []string) map[string]bool {
+	out := map[string]bool{}
+	for _, a := range addrs {
+		if ip := net.ParseIP(a); ip != nil {
+			out[ip.String()] = true
+		}
+	}
+	return out
+}
+
+// unknownNames returns the names and addresses in the request that are not the
+// node's own: DNS names are the node name or the Node's hostname and DNS
+// addresses, IP addresses are the ones allowedIPs returned.
+func unknownNames(req *x509.CertificateRequest, name string, node *corev1.Node, ips map[string]bool) []string {
 	dns := map[string]bool{name: true}
-	ips := map[string]bool{}
 	for _, a := range node.Status.Addresses {
 		switch a.Type {
 		case corev1.NodeHostName, corev1.NodeInternalDNS, corev1.NodeExternalDNS:
 			dns[a.Address] = true
-		case corev1.NodeInternalIP, corev1.NodeExternalIP:
-			if ip := net.ParseIP(a.Address); ip != nil {
-				ips[ip.String()] = true
-			}
 		}
 	}
 	var extra []string

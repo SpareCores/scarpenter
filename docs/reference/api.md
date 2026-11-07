@@ -195,7 +195,7 @@ networking is the generic network setting, identical in meaning on every vendor;
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `inbound` | [object](#specnetworkinginbound) |  | inbound lists the allowed inbound traffic. Without rules everything inbound is denied (a deny firewall is attached where the vendor default is open). |
-| `isolation` | string | `"run"` | isolation decides who may reach a node privately: none, the nodes of the SCNodeClass, or only the nodes of the same run (placement group run key). One of `none`, `nodeclass`, `run`. |
+| `isolation` | string | `"run"` | isolation decides who may reach a node privately: none (no other node: the strictest, only inbound rules apply; it does not mean "not isolated"), the nodes of the SCNodeClass, or only the nodes of the same run (placement group run key; without a run key the nodes of the SCNodeClass are one run). One of `none`, `nodeclass`, `run`. |
 | `publicIPv4` | boolean | `true` | publicIPv4 gives nodes a public IPv4 address. |
 | `publicIPv6` | boolean | `false` | publicIPv6 gives nodes a public IPv6 address. |
 

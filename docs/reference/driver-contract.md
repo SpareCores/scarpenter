@@ -28,8 +28,8 @@ Optional capabilities, found by type assertion: `NodeClassValidator` (the NodeCl
 controller calls it for `VendorReady`), `ImageReporter` (`ReportImages(ctx, nc)`
 returns the boot images of the NodeClass's release per region and architecture
 for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
-resolves images at launch with `ResolveImage` and counts as ready; plan 08's AWS
-driver implements it), `NodeOptions` and `ManagedResources` (below),
+resolves images at launch with `ResolveImage` and counts as ready; the [AWS
+driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (below),
 `EpochReporter`, `QuotaReporter`, `OfferingLister`, `ImageImporter` (reserved).
 
 ## Node options and vendor resources
@@ -119,6 +119,14 @@ listed as managed and refuse `Delete`; managed resources are found again after a
 restart (`Restart`: adoption); an instance launched with a prepared resource
 makes it in use, `Delete` is refused while it lives and works (twice) after it is
 gone. Every driver runs it against its in-process fake.
+
+Fixture details a driver may need: an `UnknownQuotaTypes` entry is a type
+(unknown for both capacity types) or `type/capacity-type` (unknown for that one
+only: AWS types that exist on-demand only have no spot quota); `ResourceParams`
+returns the create parameters of the fixture's resource kind (the AWS security
+groups need their VPC). The AWS driver runs the suite once per resource kind over
+the complete AWS type list of the committed snapshot
+(`pkg/vendors/aws/conformance_test.go`).
 
 ## The fake driver
 

@@ -191,6 +191,9 @@ func managedResources(t *testing.T, e *env) {
 			vendors.TagResource: string(kind),
 		},
 	}
+	if e.fx.ResourceParams != nil {
+		spec.Params = e.fx.ResourceParams(t, e.d, e.region)
+	}
 	first := checkEnsureAndList(t, mr, e, kind, spec)
 	if e.fx.PreCreate != nil {
 		checkUseResources(t, mr, e, kind)

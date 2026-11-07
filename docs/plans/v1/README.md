@@ -33,7 +33,7 @@ Execution protocol:
 | 05 | `done/05-bootstrap.md` | done | tokens, artifacts, templates → Ignition, NodeClass controller, CSR approver | 04 |
 | 06 | `done/06-node-options-and-resources.md` | done | settings resolution and profiles, vendor resources (use/create, lifecycles, GC), pricing deltas, first-boot volume unit; fake driver + L3 scenarios | 05 |
 | 07 | `wip/07-qemu-driver.md` | todo | qemu driver, L4 lane with real Flatcar VMs, k3s and a data volume | 06 |
-| 08 | `wip/08-aws-driver.md` | todo | AWS driver incl. quotas, storage/placement/network profiles and resources (in-memory EC2 + Service Quotas fake), IAM policy | 06 |
+| 08 | `wip/08-aws-driver.md` | review | AWS driver incl. quotas, storage/placement/network profiles and resources (in-memory EC2 + Service Quotas fake), IAM policy | 06 |
 | 09 | `wip/09-packaging.md` | todo | Helm chart, release workflow, install and credentials how-tos, controller reference | 08 |
 | 10 | `wip/10-aws-e2e.md` | todo | L5 AWS e2e over Tailscale + sweeper (written and validated, run by the coordinator) | 09 |
 | 11 | `wip/11-docs-and-release.md` | todo | tutorials, how-tos for profiles, selection and resources, add-a-vendor guide, first release (v0.1.0) | 07, 10 |

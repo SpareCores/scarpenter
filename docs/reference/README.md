@@ -30,9 +30,11 @@ Available:
 - [**Vendor resources**](vendor-resources.md) — resource kinds, `use` / `create`
   / `forbid`, lifecycles, timing, status, garbage collection, metrics (plan 06).
 
+- [**AWS driver**](aws-driver.md) — regions, zones, images, launch, node settings,
+  resources and network, tags, quota classes and codes, error mapping, IAM
+  ([policy](aws-iam-policy.json)) and what is not verified live yet (plan 08).
+
 Planned for v1 (each written by the plan that implements it):
 
-- **AWS driver** — regions, zones, AMIs, subnets and security groups, tags,
-  quota classes and codes, IAM policy, error mapping (plan 08).
 - **Controller, complete** — Helm values, Events, metrics, permissions
   (plan 09, on top of the page above).

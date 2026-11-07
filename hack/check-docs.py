@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Checks that the relative links of the Markdown files resolve.
+"""Checks that the relative links of the Markdown files resolve and that the JSON
+documents under docs/ (the IAM policy) parse.
 
     python3 hack/check-docs.py        (make test-docs)
 
@@ -8,6 +9,7 @@ an existing file or directory; if it has a #fragment and the target is a
 Markdown file, a heading with that GitHub-style anchor must exist. Links inside
 code blocks and code spans are ignored, URLs are not fetched.
 """
+import json
 import os
 import re
 import sys
@@ -20,6 +22,14 @@ IMAGE_LINK = re.compile(r"!\[(?:[^\]\\]|\\.)*\]\(\s*<?([^)\s>]+)>?")
 REF_DEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")
 HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 URL = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+
+
+def json_files():
+    for dirpath, dirnames, filenames in os.walk(os.path.join(ROOT, "docs")):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for name in filenames:
+            if name.endswith(".json"):
+                yield os.path.join(dirpath, name)
 
 
 def markdown_files():
@@ -105,12 +115,21 @@ def main():
                 if fragment and dest.endswith(".md") and os.path.isfile(dest):
                     if fragment.lower() not in anchors(dest):
                         errors.append(f"{rel}:{n}: {target}: no such heading in {os.path.relpath(dest, ROOT)}")
+    # JSON documents (the IAM policy) must parse.
+    for path in sorted(json_files()):
+        rel = os.path.relpath(path, ROOT)
+        try:
+            with open(path, encoding="utf-8") as f:
+                json.load(f)
+        except ValueError as e:
+            errors.append(f"{rel}: invalid JSON: {e}")
     for e in errors:
         print(e, file=sys.stderr)
     if errors:
-        print(f"{len(errors)} broken link(s)", file=sys.stderr)
+        print(f"{len(errors)} problem(s) in the documentation", file=sys.stderr)
         return 1
-    print(f"{checked} relative links in {len(list(markdown_files()))} Markdown files resolve")
+    print(f"{checked} relative links in {len(list(markdown_files()))} Markdown files resolve, "
+          f"{len(list(json_files()))} JSON files parse")
     return 0
 
 

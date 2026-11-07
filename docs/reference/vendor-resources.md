@@ -23,7 +23,9 @@ resources: [Bring your own vendor resources](../how-to-guides/bring-your-own-res
 
 A driver declares its resource kinds (`ManagedResources.Kinds`); the kinds are
 the keys of `spec.vendors.<vendor>.resources` (for AWS `subnets`,
-`securityGroups`, `placementGroups`). Each kind has:
+`securityGroups`, `placementGroups`; the AWS driver also has the internal kind
+`runSecurityGroups`, see the [AWS driver](aws-driver.md#resources-and-network)).
+Each kind has:
 
 | Property | Meaning |
 |---|---|

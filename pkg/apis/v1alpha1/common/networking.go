@@ -37,9 +37,10 @@ type Networking struct {
 	// +optional
 	Inbound *Inbound `json:"inbound,omitempty"`
 
-	// isolation decides who may reach a node privately: none, the nodes of
-	// the SCNodeClass, or only the nodes of the same run (placement group
-	// run key).
+	// isolation decides who may reach a node privately: none (no other node:
+	// the strictest, only inbound rules apply; it does not mean "not isolated"),
+	// the nodes of the SCNodeClass, or only the nodes of the same run (placement
+	// group run key; without a run key the nodes of the SCNodeClass are one run).
 	// +kubebuilder:default=run
 	// +optional
 	Isolation Isolation `json:"isolation,omitempty"`

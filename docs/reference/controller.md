@@ -49,7 +49,7 @@ the last column.
 | `--resource-per-use-grace` | `SCARPENTER_RESOURCE_PER_USE_GRACE` | `2m` | How long an unused `perUse` managed resource is kept for launches in flight. | plan 06 |
 | `--resource-full-sweep-every` | `SCARPENTER_RESOURCE_FULL_SWEEP_EVERY` | `10` | Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed resources of every region of the driver are swept, not only of the regions in use. | plan 06 |
 | `--resource-check-interval` | `SCARPENTER_RESOURCE_CHECK_INTERVAL` | `30s` | How often the vendor resources of each SCNodeClass are checked (`status.vendors.<vendor>.resources`, `ResourcesReady`, preCreate). | plan 06 |
-| `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region of the global endpoints. | plan 08 |
+| `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region the account's region list (`DescribeRegions`) is read from; the AWS driver's other calls go to the region they concern ([AWS driver](aws-driver.md)). | plan 08 |
 
 All problems of the command line are reported together, and the controller
 refuses to start on any of them. Durations are Go durations (`90s`, `2h30m`) and
@@ -71,7 +71,7 @@ Per vendor, `status.vendors.<vendor>.conditions`:
 | Condition | Meaning | Set by |
 |---|---|---|
 | `VendorReady` | The vendor is enabled, its regions are ones the driver can use and the driver's `ValidateNodeClass` accepts the block. Reasons: `Ready`, `VendorNotEnabled`, `UnknownRegions`, `ValidationFailed`. | plan 05 |
-| `ImagesReady` | Boot images exist per region and architecture, as the driver's optional `ImageReporter` reports them (`status.vendors.<vendor>.images`); a driver without it resolves images at launch and counts as ready. Informational: a region without an image has unavailable offerings, the NodeClass stays `Ready`. | plan 05 (hook), plan 08 (AWS) |
+| `ImagesReady` | Boot images exist per region and architecture, as the driver's optional `ImageReporter` reports them (`status.vendors.<vendor>.images`); a driver without it resolves images at launch and counts as ready. `False` only when a region the NodeClass names has no image or when no region has one; otherwise `True` with reason `ImagesPartial` naming the regions without. The offerings of a region in which no image is ready are unavailable; the NodeClass stays `Ready`. | plan 05 (hook), plan 08 (AWS) |
 | `ResourcesReady` | `False` (`ResourcesUnavailable`) when a region lacks a resource the NodeClass needs (a `use` reference matching nothing, a `forbid` kind without a vendor default, a preCreate resource that cannot be created): the offerings of that region are unavailable, the message names region and kind; `Unknown` (`CheckFailed`) when the vendor could not be asked. Informational for `Ready`. See [vendor resources](vendor-resources.md#status). | plan 06 |
 | `QuotaAvailable` | Informational: `False` when a quota bucket has no headroom. | plan 04 |
 
