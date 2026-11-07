@@ -14,6 +14,7 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
 	karpoptions "sigs.k8s.io/karpenter/pkg/operator/options"
@@ -22,6 +23,8 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/options"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
 // candidate is one launchable offering of a NodeClaim.
@@ -38,6 +41,18 @@ type candidate struct {
 	headroom int64
 	it       *cloudprovider.InstanceType
 	off      *cloudprovider.Offering
+
+	// catalogPrice is what the catalog says about the offering (instance price
+	// and the default settings' delta); priced is false when it knows nothing.
+	catalogPrice catalog.OfferingPrice
+	priced       bool
+	// sel are the profiles this launch applies and settings the resolved
+	// vendor settings; usd is the real price with them, complete whether it has
+	// every component (00a section 10).
+	sel      options.Selection
+	settings vendors.VendorSettings
+	usd      float64
+	complete bool
 }
 
 // priceEpsilon is the difference below which two prices are a tie.
@@ -51,7 +66,7 @@ const priceEpsilon = 1e-9
 // headroom, then by instance type name, zone, region and capacity type, so the
 // order is deterministic.
 func (c *CloudProvider) candidates(
-	ctx context.Context, nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.NodeClaim,
+	ctx context.Context, nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.NodeClaim, res *settingsResolver,
 ) ([]candidate, error) {
 	reqs := scheduling.NewNodeSelectorRequirementsWithMinValues(nodeClaim.Spec.Requirements...)
 	its, err := c.opts.Catalog.InstanceTypes(ctx, catalog.Query{Class: nc.Name, Filter: catalog.NewFilter(reqs)})
@@ -91,6 +106,9 @@ func (c *CloudProvider) candidates(
 				region: off.Requirements.Get(corev1.LabelTopologyRegion).Any(), zone: off.Zone(),
 				capacityType: off.CapacityType(), price: off.Price, headroom: -1, it: it, off: off,
 			}
+			if !c.settle(ctx, nc, res, reqs, &cand) {
+				continue
+			}
 			if c.opts.Quota != nil {
 				if h, known := c.opts.Quota.Headroom(cand.vendor, cand.region, cand.apiReference, cand.capacityType); known {
 					cand.headroom = h
@@ -101,6 +119,47 @@ func (c *CloudProvider) candidates(
 	}
 	slices.SortFunc(out, compareCandidates)
 	return out, nil
+}
+
+// settle selects the profiles of the NodeClaim for the offering, resolves the
+// settings and prices them: the candidate is ordered by the price with the
+// selected profiles (overview section 4.1 step 2). It reports false for an
+// offering the NodeClaim cannot use: a profile that cannot be resolved, or an
+// incomplete price where the NodeClass does not allow it.
+func (c *CloudProvider) settle(
+	ctx context.Context, nc *v1alpha1.SCNodeClass, res *settingsResolver, reqs scheduling.Requirements, cand *candidate,
+) bool {
+	logger := log.FromContext(ctx)
+	if p, ok := c.opts.Catalog.Price(nc.Name, cand.typeName, cand.region, cand.zone, cand.capacityType); ok {
+		cand.catalogPrice, cand.priced = p, true
+	} else {
+		cand.catalogPrice = catalog.OfferingPrice{USD: cand.price, Base: cand.price, Complete: true}
+	}
+	sel, ok := options.Select(reqs, cand.it.Requirements, cand.off.Requirements)
+	if !ok {
+		logger.V(1).Info("the profile requirements match no profile of the offering",
+			"type", cand.typeName, "zone", cand.zone)
+		return false
+	}
+	settings, err := res.settings(cand.vendor, sel)
+	if err != nil {
+		logger.Error(err, "resolving the settings of an offering", "type", cand.typeName, "vendor", cand.vendor)
+		return false
+	}
+	usd, delta, complete := res.priceOf(cand, settings, sel)
+	cand.sel, cand.settings, cand.usd, cand.complete = sel, settings, usd, complete
+	if !complete && !allowsIncomplete(nc) {
+		return false
+	}
+	// Ordering uses the price the scheduler saw (the catalog's, which may be a
+	// pinned objective's) adjusted by what the selected profiles cost on top of
+	// the NodeClass defaults.
+	cand.price += delta - cand.catalogPrice.Delta
+	return true
+}
+
+func allowsIncomplete(nc *v1alpha1.SCNodeClass) bool {
+	return nc.Spec.Pricing.AllowIncomplete == nil || *nc.Spec.Pricing.AllowIncomplete
 }
 
 // compareCandidates orders candidates by price, then by larger quota headroom

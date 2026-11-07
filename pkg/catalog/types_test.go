@@ -284,7 +284,7 @@ func TestInactiveZoneDropsOnlyThatZone(t *testing.T) {
 // incompleteFacts reports an incomplete price delta for one zone.
 type incompleteFacts struct{ catalog.StaticFacts }
 
-func (incompleteFacts) PriceDelta(_ string, _ *catalog.Class, _, zone, _ string) (float64, bool) {
+func (incompleteFacts) PriceDelta(_ string, _ *catalog.Class, _ *model.Server, zone, _ string) (float64, bool) {
 	if zone == "zone-2" {
 		return 0.01, false
 	}
@@ -349,5 +349,75 @@ func TestLookupResolvesNamesThatDoNotContainTheReference(t *testing.T) {
 	}
 	if _, ok := c.Lookup("v.nope"); ok {
 		t.Error("Lookup found an unknown type")
+	}
+}
+
+func TestPriceReportsInstanceDeltaAndCompleteness(t *testing.T) {
+	c := newSynthetic(t, nil, incompleteFacts{syntheticFacts()})
+	small := byName(all(t, c, catalog.Filter{}), "v.small")
+	for _, o := range small.Offerings {
+		p, ok := c.Price("c", "v.small", "region-1", o.Zone(), o.CapacityType())
+		if o.Requirements.Get(corev1.LabelTopologyRegion).Any() != "r1" {
+			continue
+		}
+		if !ok {
+			t.Fatalf("no price for %s/%s", o.Zone(), o.CapacityType())
+		}
+		if p.Base+p.Delta != p.USD || p.USD != o.Price {
+			t.Errorf("%s: %+v does not add up to the offering's %v", o.Zone(), p, o.Price)
+		}
+		if complete := o.Zone() != "zone-2"; p.Complete != complete {
+			t.Errorf("%s: complete = %v", o.Zone(), p.Complete)
+		}
+		if o.Zone() == "zone-2" && p.Delta != 0.01 || o.Zone() == "zone-1" && p.Delta != 0.005 {
+			t.Errorf("%s: delta %v", o.Zone(), p.Delta)
+		}
+	}
+	if _, ok := c.Price("c", "v.small", "region-1", "no-zone", "on-demand"); ok {
+		t.Error("a price for an offering that does not exist")
+	}
+	if _, ok := c.Price("other", "v.small", "region-1", "zone-1", "on-demand"); ok {
+		t.Error("a price for an unknown class")
+	}
+	if _, ok := c.Price("c", "v.missing", "region-1", "zone-1", "on-demand"); ok {
+		t.Error("a price for an unknown type")
+	}
+}
+
+// classGate marks the offerings of one class and region unavailable.
+type classGate struct{ class, region string }
+
+func (g classGate) UnavailableFor(class, _, _, region, _, _ string) bool {
+	return class == g.class && region == g.region
+}
+
+func TestClassGateMakesOfferingsOfOneClassUnavailable(t *testing.T) {
+	src := &fakeSource{data: synthetic()}
+	c := catalog.New(catalog.Options{Source: src, Facts: syntheticFacts(), ClassGate: classGate{class: "gated", region: "region-1"}})
+	c.SetClasses([]catalog.Class{
+		catalog.NewClass("gated", catalog.Scope{"v": nil}), catalog.NewClass("free", catalog.Scope{"v": nil}),
+	})
+	if err := c.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	defer func() {
+		if checked == 0 {
+			t.Error("no offering was checked")
+		}
+	}()
+	for class, wantGated := range map[string]bool{"gated": true, "free": false} {
+		its, err := c.InstanceTypes(t.Context(), catalog.Query{Class: class})
+		if err != nil {
+			t.Fatal(err)
+		}
+		small := byName(its, "v.small")
+		for _, o := range small.Offerings {
+			inGatedRegion := o.Requirements.Get(corev1.LabelTopologyRegion).Any() == "region-1"
+			checked++
+			if want := !wantGated || !inGatedRegion; o.Available != want {
+				t.Errorf("class %s, region %s: available = %v, want %v", class, o.Requirements.Get(corev1.LabelTopologyRegion).Any(), o.Available, want)
+			}
+		}
 	}
 }

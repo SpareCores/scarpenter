@@ -29,9 +29,40 @@ controller calls it for `VendorReady`), `ImageReporter` (`ReportImages(ctx, nc)`
 returns the boot images of the NodeClass's release per region and architecture
 for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
 resolves images at launch with `ResolveImage` and counts as ready; plan 08's AWS
-driver implements it), `NodeOptions` (defaults, supported profiles, price delta, `Prepare`; plan 06
-fills them in), `ManagedResources` (plan 06), `QuotaReporter`, `OfferingLister`,
-`ImageImporter` (reserved).
+driver implements it), `NodeOptions` and `ManagedResources` (below),
+`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ImageImporter` (reserved).
+
+## Node options and vendor resources
+
+`NodeOptions` is the capability behind node settings
+([node settings](node-settings.md)); a driver fills in its own blocks:
+
+| Method | Meaning |
+|---|---|
+| `Defaults()` | The built-in settings (layer 1) in the shape of the vendor block (`Raw` JSON, regions and resources left out) and the root disk. |
+| `RootDiskBytes(s)` | The root disk of resolved settings: the ephemeral storage the scheduler assumes. |
+| `Supported(type, zone, profiles)` | The valid profile names per kind for the type and zone. `profiles` holds the profile blocks of the NodeClass for the vendor (kind, name, the vendor's JSON); a profile without a block for the vendor is not in it. Anything the driver cannot honour is left out (ADR-017). |
+| `PriceDelta(settings, offering)` | The price of the settings on top of the instance price per hour, and whether it is complete. |
+| `Prepare(ctx, req)` | Makes the pre-instance resources ready and returns them with the device hints. `req` carries the resolved settings, the zone, the type (`CatalogType`: family, vCPUs, local disks), the placement run key and a `ResourceProvider` that gives the vendor resources the NodeClass configures (`Require(kind, key, params)`; see [vendor resources](vendor-resources.md)). |
+
+The settings the core passes (`CreateRequest.Settings`, `PrepareRequest.Settings`)
+are `VendorSettings`: `Raw` (the merged vendor block; its `storage` member holds
+the selected storage profile), `Network` and `Placement` (the selected profile
+blocks), the generic `Networking`, the applied `Profiles` per kind and
+`RootDiskBytes`. `Prepared` holds the resource references, a `DeviceHint` per
+extra volume (`Name`, `Filesystem`, `MountPath`, and either `ByID` or
+`SerialPattern` with `SizeBytes`) and a `LocalHint` for instance-local disks;
+the core renders them into the user-data
+([first-boot volume unit](node-settings.md#extra-volumes-and-local-storage)).
+`Prepare` must be idempotent: a retry with the same request returns the same
+resources. A driver whose `Supported` or `PriceDelta` answers can change at
+runtime implements `EpochReporter` (`NodeOptionsEpoch()`), so that the catalog
+rebuilds.
+
+`ManagedResources` ([vendor resources](vendor-resources.md#driver-contract)):
+`Kinds`, `Resolve`, `Ensure`, `InUse`, `Delete`, `List`. A resource a launch
+uses must show as in use (`InUse`) while its instance lives, so the garbage
+collector never deletes it; deleting one that is in use is refused (`Retryable`).
 
 ## Error classes
 
@@ -76,7 +107,18 @@ round trip, user-data limit, error classification (the fixture's `Inject` hook
 makes the next launch fail with a class), and for `QuotaReporter` drivers: every
 type maps to buckets or is on the fixture's unknown list, launches show up in
 `Used` with their refs, a quota error is `QuotaExceeded`; and `OfferingLister`.
-Every driver runs it against its in-process fake.
+For `NodeOptions`: the defaults decode and match `RootDiskBytes`; for the
+fixture's sample `Profiles` and `ProfileTypes`, `Supported` is deterministic,
+returns only defined profiles and nothing without profiles, and every supported
+profile resolves, has a finite non-negative price delta and prepares
+idempotently (the same resources and device hints the second time). For
+`ManagedResources` (fixture kind and hooks): kinds are well formed; `Ensure` is
+idempotent and tags round-trip; `List` filters by region and marker; resources
+the user brought (`PreCreate`) are found by ID and tags, are never managed, never
+listed as managed and refuse `Delete`; managed resources are found again after a
+restart (`Restart`: adoption); an instance launched with a prepared resource
+makes it in use, `Delete` is refused while it lives and works (twice) after it is
+gone. Every driver runs it against its in-process fake.
 
 ## The fake driver
 
@@ -87,7 +129,8 @@ servers from Keeper, so NodeClasses use `spec.vendors.aws` and types are
 `aws.<api_reference>`; run it with `--vendors=fake`. Flags (all
 `SCARPENTER_FAKE_*`, also listed in [the controller reference](controller.md#development-builds)): `--fake-catalog-vendor`, `--fake-config-namespace`
 (`scarpenter-system`), `--fake-config-name` (`scarpenter-fake`),
-`--fake-state-name` (`scarpenter-fake-state`), `--fake-launch-delay`.
+`--fake-state-name` (`scarpenter-fake-state`), `--fake-resources-name`
+(`scarpenter-fake-resources`), `--fake-launch-delay`.
 
 The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
 
@@ -100,17 +143,45 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   (`region`, `zone`, `types`). Usage = foreign usage plus the fake's own
   instances. Without the key the driver has no quota knowledge.
 - `launchDelay`, `orphans` (instances without a NodeClaim, for the GC scenario).
+- `unsupported`: rules `{kind, profile, instanceTypes, families, zones}` (empty
+  lists match everything) that make a profile invalid for the matching types and
+  zones. Besides, a storage profile with local storage is valid only on types
+  with local disks. A change of the rules rebuilds the catalog.
+- `existingResources`: the account's own resources, `{kind, region, id, name,
+  tags, default}`: what `use` references and the vendor's default resource
+  (`default: true`) resolve to.
 
-Decisions for later plans: with `--fake-catalog-vendor=aws` the fake serves
-the vendor ID `aws` (types `aws.*`, NodeClass block `spec.vendors.aws`), which
-is what the L3 lane of plan 04 uses. `spec.vendors.fake` and the fake profile
-and resource blocks stay in the API for plan 06, which decides how the fake
-gets its own vendor ID (for example `fake` with a catalog alias) so those
-blocks become meaningful. The fake re-reads its ConfigMap on every
-`CreateInstance`, so a rule written just before a launch is in effect.
+**Settings and resources.** The fake serves the blocks of the vendor it
+impersonates: with the default `aws` its NodeClass blocks, profiles and resource
+keys are AWS's (`storage.root.volumeSize`, `storage.data`, `placementGroup`, ...),
+which it reads through its own tolerant structs (it also understands the shape
+of the `fake` API package: `size`, `group`). Defaults: a 64 GiB root disk. Price
+delta: 0.10 USD per GiB-month for volumes (and for a root disk above the default),
+none for the defaults; provisioned `iops` or `throughput` and `tenancy:
+dedicated` are not priced, which makes the price incomplete. Resource kinds,
+named like the AWS block's resource keys: `subnets` (the regional network; shared,
+`idleTTL`), `placementGroups` (per run key, `perUse`; a placement profile with a
+group needs a run key; `use` references an existing group) and `volumes` (per
+node and volume, `perUse`, from `storage.data`; the device hint is
+`/dev/disk/by-id/fake-<id>`); `localStorage` yields a hint for `fake-local-*`. The
+fake refuses to delete a resource that an instance uses (`Retryable`) and one it
+did not create. Managed resources persist in the ConfigMap
+`scarpenter-fake-resources`, so they survive a restart of the controller like the
+resources of a real account (adoption); instances do not.
 
-It publishes `calls` and `instances` in the ConfigMap `scarpenter-fake-state`
-(an instance records the size of the user-data it was launched with,
-`userDataBytes`; the fake boots nothing). Development builds run the real NodeClass
-controller (plan 05 removed the stand-in of plan 04). See
-[Test and develop](../how-to-guides/testing.md#the-l3-lane).
+The fake re-reads its ConfigMap on every `CreateInstance`, so a rule written just
+before a launch is in effect.
+
+**State.** It publishes `calls`, `instances` and `resources` in the ConfigMap
+`scarpenter-fake-state` (an instance records the size of the user-data it was
+launched with, `userDataBytes`, the resolved `settings`, the applied `profiles`,
+its `resources` and `devices`; calls on resources are `resource-ensure`
+(`created` or `found`) and `resource-delete`, with `resource` and `kind`; the
+fake boots nothing). Writes are debounced and retried with backoff until they
+succeed. The ConfigMap carries a `revision`; the controller exposes the fake's
+current and published revision as the gauges `scarpenter_fake_state_revision` and
+`scarpenter_fake_state_published_revision`, so a test reads the current revision
+and waits until the ConfigMap has reached it instead of sleeping. Revisions count
+up from the start time of the process, so a restarted controller never publishes
+a lower one. Development builds run the real NodeClass controller (plan 05 removed
+the stand-in of plan 04). See [Test and develop](../how-to-guides/testing.md#the-l3-lane).

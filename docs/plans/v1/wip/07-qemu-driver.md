@@ -76,6 +76,29 @@ riskiest assumptions without a cloud account.
 - Run one NodeClass with an auth-key or custom-template Secret/ConfigMap through
   the namespaced Role of `config/rbac` (L3 does not exercise it).
 
+## Carried over from the plan 06 review
+
+- Boot the first-boot volume unit (`pkg/bootstrap/templates/`) on a real
+  Flatcar, which plan 06 tested only against stubbed tools: two data disks of
+  the same size matched by serial pattern (the `flock` and its `/run` lock file),
+  a disk that already carries the volume's label next to a new blank one, raid0
+  of local disks across a reboot (whether `--homehost=any` keeps
+  `/dev/md/scarpenter-local` stable), and that nothing is created twice on a
+  reboot.
+- Check the tools the scripts use exist on Flatcar: `blkid -p`,
+  `lsblk -dnbp -o PATH,SIZE,TYPE,SERIAL`, `findmnt`, `flock`, `mdadm`,
+  `mkfs.xfs`, `mkfs.btrfs`.
+- Decide whether the volume mounts are required: they are `WantedBy` (weak)
+  `local-fs.target` today, so a failed volume does not stop the boot. Make them
+  required, or give the kubelet `RequiresMountsFor=`; align the default 90 s
+  device timeout of the mount with the script's 180 s wait; fix
+  `docs/reference/node-settings.md` accordingly.
+- The NodeClass controller's trial rendering omits the volume unit (about 2.5 KiB
+  plus 0.3 KiB per volume): render the worst-case storage profile in
+  `VendorReady` so that the 16 KiB budget is checked before any launch.
+- Give the qemu driver `NodeOptions` and `ManagedResources` (bridge networks) with
+  its own vendor ID, a data-disk profile and local-disk hints.
+
 ## Gates
 
 CONVENTIONS gates 1–5. Report boot-to-Ready times, Q3/Q4/Q6 findings, and

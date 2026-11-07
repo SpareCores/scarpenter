@@ -62,6 +62,10 @@ type Options struct {
 	// Its answer may change at any time: the owner calls Unavailable.Bump when
 	// it does, which drops the cached results.
 	Gate Gate
+	// ClassGate is a Gate whose answer depends on the NodeClass, for example
+	// the vendor resources a NodeClass brings or forbids (plan 06); nil means
+	// none. Like Gate, its owner calls Unavailable.Bump when an answer changes.
+	ClassGate ClassGate
 	// Clock defaults to the real one.
 	Clock clock.Clock
 	// Registerer receives the catalog metrics; nil registers none.
@@ -74,6 +78,11 @@ type Options struct {
 // be cheap.
 type Gate interface {
 	Unavailable(vendor, apiReference, region, zone, capacityType string) bool
+}
+
+// ClassGate is a Gate for answers that differ between NodeClasses.
+type ClassGate interface {
+	UnavailableFor(class, vendor, apiReference, region, zone, capacityType string) bool
 }
 
 // Catalog holds the last good snapshot of the Keeper data for the union of the
@@ -459,12 +468,50 @@ func (c *Catalog) Type(className, name string) (*cloudprovider.InstanceType, boo
 	if !ok || !classHasVendor(class, vendor) {
 		return nil, false
 	}
-	for _, bt := range c.vendorBuild(snap, class, vendor).types {
-		if bt.it.Name == name {
-			return bt.it, true
-		}
+	if bt := c.vendorBuild(snap, class, vendor).byName[name]; bt != nil {
+		return bt.it, true
 	}
 	return nil, false
+}
+
+// OfferingPrice is the price of an offering as the catalog computed it.
+type OfferingPrice struct {
+	// Base is the instance's price from Keeper, Delta the price of the
+	// NodeClass's default settings on top of it (00a section 10): disks and
+	// public IPv4. USD is their sum, the price of the offering without a
+	// selected profile.
+	Base, Delta, USD float64
+	// Complete is false when the price misses components the data does not
+	// have.
+	Complete bool
+}
+
+// Price returns the real USD price of one offering of a type of the class
+// (independent of a pinned selection objective), and whether the offering
+// exists. It serves what Create records on the NodeClaim.
+func (c *Catalog) Price(className, name, region, zone, capacityType string) (OfferingPrice, bool) {
+	c.mu.RLock()
+	snap := c.snap
+	class := c.classes[className]
+	c.mu.RUnlock()
+	if snap == nil || class == nil {
+		return OfferingPrice{}, false
+	}
+	vendor, _, ok := strings.Cut(name, ".")
+	if !ok || !classHasVendor(class, vendor) {
+		return OfferingPrice{}, false
+	}
+	vb := c.vendorBuild(snap, class, vendor)
+	bt := vb.byName[name]
+	if bt == nil {
+		return OfferingPrice{}, false
+	}
+	for _, o := range bt.offerings {
+		if o.region == region && o.zone == zone && o.capacityType == capacityType {
+			return OfferingPrice{Base: o.base, Delta: o.delta, USD: o.usd, Complete: o.complete}, true
+		}
+	}
+	return OfferingPrice{}, false
 }
 
 func classHasVendor(class *Class, vendor string) bool {
@@ -511,6 +558,10 @@ func (c *Catalog) InstanceTypes(_ context.Context, q Query) ([]*cloudprovider.In
 	gen := strconv.FormatUint(snap.id, 10) + "/" + strconv.FormatUint(c.opts.Facts.Epoch(), 10) + "/" +
 		strconv.FormatUint(c.opts.Unavailable.Sequence(), 10)
 	key := class.Hash + "|" + strings.Join(vendors, ",") + "|" + q.Filter.key()
+	if c.opts.ClassGate != nil {
+		// Availability then depends on the class's name, which the hash leaves out.
+		key = q.Class + "|" + key
+	}
 	if its, ok := c.cached(gen, key); ok {
 		return its, nil
 	}
@@ -519,7 +570,7 @@ func (c *Catalog) InstanceTypes(_ context.Context, q Query) ([]*cloudprovider.In
 	for _, vendor := range vendors {
 		vb := c.vendorBuild(snap, class, vendor)
 		for _, bt := range vb.types {
-			if it := c.apply(bt, vendor, q.Filter, pin); it != nil {
+			if it := c.apply(bt, vendor, q.Class, q.Filter, pin); it != nil {
 				out = append(out, it)
 			}
 		}
@@ -531,7 +582,7 @@ func (c *Catalog) InstanceTypes(_ context.Context, q Query) ([]*cloudprovider.In
 // apply pre-filters a type's offerings, marks the unavailable ones and reprices
 // by a pinned selection objective. It returns the shared type when nothing
 // changes, a copy otherwise, and nil when the filter leaves nothing.
-func (c *Catalog) apply(bt *builtType, vendor string, f Filter, pin *pricedBy) *cloudprovider.InstanceType {
+func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pricedBy) *cloudprovider.InstanceType {
 	if !f.allowsType(bt.it.Name, bt.server.Arch) {
 		return nil
 	}
@@ -548,7 +599,9 @@ func (c *Catalog) apply(bt *builtType, vendor string, f Filter, pin *pricedBy) *
 		down := c.opts.Unavailable.IsUnavailable(unavailable.Offering{
 			Vendor: vendor, InstanceType: bt.it.Name, Region: o.region, Zone: o.zone, CapacityType: o.capacityType,
 		}) || (c.opts.Gate != nil &&
-			c.opts.Gate.Unavailable(vendor, bt.server.APIReference, o.region, o.zone, o.capacityType))
+			c.opts.Gate.Unavailable(vendor, bt.server.APIReference, o.region, o.zone, o.capacityType)) ||
+			(c.opts.ClassGate != nil &&
+				c.opts.ClassGate.UnavailableFor(class, vendor, bt.server.APIReference, o.region, o.zone, o.capacityType))
 		price := o.usd
 		if pin != nil {
 			p, ok := pin.effectivePrice(bt.server.Key(), o.usd)

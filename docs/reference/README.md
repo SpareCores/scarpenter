@@ -24,12 +24,14 @@ Available:
   the NodeClass controller, the serving certificate approver, RBAC and security
   notes (plan 05).
 
+- [**Node settings**](node-settings.md) — built-in defaults, vendor overrides,
+  profiles, how a node's settings are resolved, the labels workloads select by,
+  pricing, drift, the first-boot volume unit, kubelet reservations (plan 06).
+- [**Vendor resources**](vendor-resources.md) — resource kinds, `use` / `create`
+  / `forbid`, lifecycles, timing, status, garbage collection, metrics (plan 06).
+
 Planned for v1 (each written by the plan that implements it):
 
-- **Node settings** — built-in defaults, vendor overrides, profiles, how a
-  node's settings are resolved, drift (plan 06).
-- **Vendor resources** — resource kinds, `use` / `create` / `forbid`,
-  lifecycles, timing, status, garbage collection (plan 06).
 - **AWS driver** — regions, zones, AMIs, subnets and security groups, tags,
   quota classes and codes, IAM policy, error mapping (plan 08).
 - **Controller, complete** — Helm values, Events, metrics, permissions

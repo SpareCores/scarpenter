@@ -37,6 +37,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/cloudprovider"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/quota"
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -70,19 +71,21 @@ const (
 // env is a CloudProvider over the real catalog (the committed AWS snapshot,
 // two regions), the fake driver and the real quota tracker.
 type env struct {
-	t        *testing.T
-	cp       *cloudprovider.CloudProvider
-	client   client.Client
-	driver   *fakedriver.Driver
-	un       *unavailable.Cache
-	tracker  *quota.Tracker
-	cat      *catalog.Catalog
-	registry *vendors.Registry
-	tokens   *recordingTokens
-	events   *recordingEvents
-	nextUID  int
-	mu       sync.Mutex
-	clock    *testingclock.FakeClock
+	t         *testing.T
+	cp        *cloudprovider.CloudProvider
+	client    client.Client
+	driver    *fakedriver.Driver
+	un        *unavailable.Cache
+	tracker   *quota.Tracker
+	resources *resources.Engine
+	cat       *catalog.Catalog
+	registry  *vendors.Registry
+	tokens    *recordingTokens
+	renderer  *recordingRenderer
+	events    *recordingEvents
+	nextUID   int
+	mu        sync.Mutex
+	clock     *testingclock.FakeClock
 }
 
 func (e *env) advance(d time.Duration) { e.clock.Step(d) }
@@ -135,7 +138,10 @@ func newEnv(t *testing.T, o envOptions) *env {
 	reg := vendors.NewRegistryFrom(drv)
 	clk := testingclock.NewFakeClock(time.Now())
 	un := unavailable.New(clk, unavailable.TTLs{InsufficientCapacity: time.Minute})
-	e := &env{t: t, client: kube, driver: drv, un: un, registry: reg, tokens: &recordingTokens{}, events: &recordingEvents{}, clock: clk}
+	e := &env{t: t, client: kube, driver: drv, un: un, registry: reg, tokens: &recordingTokens{}, renderer: &recordingRenderer{}, events: &recordingEvents{}, clock: clk}
+	e.resources = resources.New(resources.Options{
+		Registry: reg, Reader: kube, Clock: clk, ClusterName: cluster, Unavailable: un,
+	})
 
 	e.tracker = quota.New(quota.Options{
 		Registry: reg, Unavailable: un, Clock: clk,
@@ -147,7 +153,7 @@ func newEnv(t *testing.T, o envOptions) *env {
 		t.Fatal(err)
 	}
 	e.cat = catalog.New(catalog.Options{
-		Source: catalogtest.SourceAt(keeperURL), Facts: f, Unavailable: un, Gate: e.tracker, Clock: clk,
+		Source: catalogtest.SourceAt(keeperURL), Facts: f, Unavailable: un, Gate: e.tracker, ClassGate: e.resources, Clock: clk,
 	})
 	class, err := catalog.ClassFromNodeClass(nc)
 	if err != nil {
@@ -169,9 +175,9 @@ func newEnv(t *testing.T, o envOptions) *env {
 
 func (e *env) build(kube client.Client, f *facts.Facts, reg *vendors.Registry, o envOptions) *env {
 	e.cp = cloudprovider.New(cloudprovider.Options{
-		Client: kube, Catalog: e.cat, Registry: reg, Unavailable: e.un, Quota: e.tracker,
+		Client: kube, Catalog: e.cat, Registry: reg, Unavailable: e.un, Quota: e.tracker, Resources: e.resources,
 		Scope:    &scope.Resolver{Reader: kube, Registry: reg, Regions: f},
-		Recorder: e.events, Tokens: e.tokens, ClusterName: cluster, MaxLaunchAttempts: o.attempts, Clock: e.clock,
+		Recorder: e.events, Tokens: e.tokens, UserData: e.renderer, ClusterName: cluster, MaxLaunchAttempts: o.attempts, Clock: e.clock,
 	})
 	return e
 }
@@ -277,6 +283,26 @@ func (e *env) setConfig(key, value string) {
 	if err := e.client.Update(e.t.Context(), cm); err != nil {
 		e.t.Fatal(err)
 	}
+}
+
+// recordingRenderer keeps the render requests of the launches; the user-data
+// is a marker.
+type recordingRenderer struct {
+	mu       sync.Mutex
+	requests []cloudprovider.RenderRequest
+}
+
+func (r *recordingRenderer) Render(_ context.Context, req cloudprovider.RenderRequest) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requests = append(r.requests, req)
+	return []byte("user-data"), nil
+}
+
+func (r *recordingRenderer) last() cloudprovider.RenderRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.requests[len(r.requests)-1]
 }
 
 // recordingTokens counts mints and deletes.

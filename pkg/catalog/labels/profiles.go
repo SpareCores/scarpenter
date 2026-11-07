@@ -42,22 +42,6 @@ func ProfileLabel(k ProfileKind) string {
 // Profiles are the profile names a NodeClass defines, by kind.
 type Profiles map[ProfileKind][]string
 
-// Supporter is the driver's Supported hook (00a section 5.3): which of the
-// NodeClass's profiles are valid for an instance type in a zone. The result
-// holds, per kind, the valid profile names; "default" is always valid and may
-// be omitted. Until plan 06 every driver reports only the default.
-type Supporter interface {
-	Supported(vendor, apiReference, zone string, defined Profiles) map[ProfileKind][]string
-}
-
-// DefaultOnly is the Supporter that allows no profile but the default.
-type DefaultOnly struct{}
-
-// Supported returns nothing beyond the default.
-func (DefaultOnly) Supported(string, string, string, Profiles) map[ProfileKind][]string {
-	return nil
-}
-
 // ProfileRequirements returns the three profile labels: In [default,
 // <supported...>] for each kind.
 func ProfileRequirements(supported map[ProfileKind][]string) []*scheduling.Requirement {

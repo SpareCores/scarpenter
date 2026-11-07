@@ -45,6 +45,13 @@ const (
 // the test. The dev status controller makes it Ready.
 func createNodeClass(t *testing.T, name string, regions ...string) *v1alpha1.SCNodeClass {
 	t.Helper()
+	return createNodeClassWith(t, name, nil, regions...)
+}
+
+// createNodeClassWith is createNodeClass with a hook that edits the NodeClass
+// before it is created (profiles, resources, pricing).
+func createNodeClassWith(t *testing.T, name string, edit func(*v1alpha1.SCNodeClass), regions ...string) *v1alpha1.SCNodeClass {
+	t.Helper()
 	nc := &v1alpha1.SCNodeClass{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: v1alpha1.SCNodeClassSpec{
@@ -54,6 +61,9 @@ func createNodeClass(t *testing.T, name string, regions ...string) *v1alpha1.SCN
 			Vendors:    v1alpha1.VendorBlocks{AWS: &awsapi.Settings{Regions: regions}},
 		},
 	}
+	if edit != nil {
+		edit(nc)
+	}
 	if err := k8s.Create(ctx(), nc); err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +72,14 @@ func createNodeClass(t *testing.T, name string, regions ...string) *v1alpha1.SCN
 			t.Logf("deleting NodeClass %s: %v", name, err)
 		}
 	})
+	waitNodeClassReady(t, name)
+	return nc
+}
+
+// waitNodeClassReady waits for the NodeClass to be Ready.
+func waitNodeClassReady(t *testing.T, name string) {
+	t.Helper()
+	nc := &v1alpha1.SCNodeClass{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	eventually(t, 5*time.Minute, time.Second, "NodeClass "+name+" Ready", func() (bool, string) {
 		got := &v1alpha1.SCNodeClass{}
 		if err := k8s.Get(ctx(), client.ObjectKeyFromObject(nc), got); err != nil {
@@ -74,7 +92,6 @@ func createNodeClass(t *testing.T, name string, regions ...string) *v1alpha1.SCN
 		}
 		return false, fmt.Sprintf("conditions %+v", got.Status.Conditions)
 	})
-	return nc
 }
 
 // req builds a NodePool requirement.
@@ -91,6 +108,12 @@ func in(key string, values ...string) karpv1.NodeSelectorRequirementWithMinValue
 // (and so its instances) to be gone.
 func createNodePool(t *testing.T, name, class string, reqs ...karpv1.NodeSelectorRequirementWithMinValues) *karpv1.NodePool {
 	t.Helper()
+	return createNodePoolWith(t, name, class, nil, reqs...)
+}
+
+// createNodePoolWith is createNodePool with taints on the nodes of the pool.
+func createNodePoolWith(t *testing.T, name, class string, taints []corev1.Taint, reqs ...karpv1.NodeSelectorRequirementWithMinValues) *karpv1.NodePool {
+	t.Helper()
 	all := append([]karpv1.NodeSelectorRequirementWithMinValues{in(v1alpha1.LabelVendor, vendor)}, reqs...)
 	np := &karpv1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
@@ -98,6 +121,7 @@ func createNodePool(t *testing.T, name, class string, reqs ...karpv1.NodeSelecto
 			Template: karpv1.NodeClaimTemplate{Spec: karpv1.NodeClaimTemplateSpec{
 				NodeClassRef: &karpv1.NodeClassReference{Group: v1alpha1.Group, Kind: "SCNodeClass", Name: class},
 				Requirements: all,
+				Taints:       taints,
 			}},
 			Disruption: karpv1.Disruption{
 				ConsolidationPolicy: karpv1.ConsolidationPolicyWhenEmpty,

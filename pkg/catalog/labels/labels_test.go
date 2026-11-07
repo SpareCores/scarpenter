@@ -210,9 +210,6 @@ func TestSelectionAndProfiles(t *testing.T) {
 	if values(reqs[0]) != "db,default" {
 		t.Errorf("storage = %s", values(reqs[0]))
 	}
-	if sup := (labels.DefaultOnly{}).Supported("aws", "m7i.large", "z", labels.Profiles{labels.ProfileStorage: {"db"}}); len(sup) != 0 {
-		t.Errorf("DefaultOnly supports %v", sup)
-	}
 }
 
 func TestLocation(t *testing.T) {

@@ -1,0 +1,26 @@
+# The NodeClass of scenario S13 (described, not named). It exists before the
+# controller starts: the label keys of a NodeClass's metrics are registered with
+# Karpenter core at start-up (docs/plans/v1/wip/00a-node-options.md section 7.2).
+# Three AWS regions, the ones the committed snapshot has selection profiles for.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: l3-described
+spec:
+  flatcar: {channel: stable, version: "4757.2.3"}
+  kubernetes: {version: v1.37.1}
+  network: {template: direct}
+  metrics:
+    single-core:
+      benchmark: {id: "geekbench:score", config: {cores: single}}
+  selections:
+    fast-single-core:
+      selector: {vcpus: {min: 2}}
+      ranking:
+        score: {benchmark: {id: "geekbench:score", config: {cores: single}}}
+        objective: Score
+        band: {withinPercent: 12}
+        families: {min: 3, max: 6}
+  vendors:
+    aws:
+      regions: [eu-central-1, eu-west-1, us-east-1]

@@ -37,10 +37,15 @@ type offeringInfo struct {
 	capacityType string
 	// usd is the hourly price: instance price plus the settings' price delta.
 	usd float64
+	// base is the instance price, delta the default settings' price delta and
+	// complete says whether the price has every component (00a section 10).
+	base, delta float64
+	complete    bool
 }
 
 type vendorBuild struct {
-	types []*builtType
+	types  []*builtType
+	byName map[string]*builtType
 }
 
 // vendorBuild returns the instance types of a vendor for a NodeClass, built
@@ -79,7 +84,7 @@ type regionInfo struct {
 // 5.3 to 5.5).
 func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vendorBuild {
 	vd := snap.vendors[vendor]
-	vb := &vendorBuild{}
+	vb := &vendorBuild{byName: map[string]*builtType{}}
 	if vd == nil {
 		return vb
 	}
@@ -145,7 +150,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			if _, seen := perZone[o.zone.Name]; seen {
 				continue
 			}
-			sup := facts.Supported(vendor, srv.APIReference, o.zone.Name, class.Profiles[vendor])
+			sup := facts.Supported(vendor, class, srv, o.zone.Name)
 			perZone[o.zone.Name] = sup
 			for k, names := range sup {
 				union[k] = append(union[k], names...)
@@ -186,9 +191,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 				}
 				if shared, ok := sharedReqs[shareKey]; ok {
 					it.Offerings = append(it.Offerings, &cloudprovider.Offering{Requirements: shared, Price: o.usd, Available: true})
-					bt.offerings = append(bt.offerings, offeringInfo{
-						region: o.region.region.Name, zone: o.zone.Name, capacityType: o.capacityType, usd: o.usd,
-					})
+					bt.offerings = append(bt.offerings, o.info())
 					continue
 				}
 			}
@@ -215,9 +218,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			it.Offerings = append(it.Offerings, &cloudprovider.Offering{
 				Requirements: offReqs, Price: o.usd, Available: true,
 			})
-			bt.offerings = append(bt.offerings, offeringInfo{
-				region: o.region.region.Name, zone: o.zone.Name, capacityType: o.capacityType, usd: o.usd,
-			})
+			bt.offerings = append(bt.offerings, o.info())
 		}
 
 		reqs := []*scheduling.Requirement{
@@ -245,6 +246,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 		it.Overhead = overhead(srv.VCPUs, class, it.Capacity)
 		bt.it = it
 		vb.types = append(vb.types, bt)
+		vb.byName[name] = bt
 	}
 	slices.SortFunc(vb.types, func(a, b *builtType) int { return strings.Compare(a.it.Name, b.it.Name) })
 	return vb
@@ -255,6 +257,15 @@ type resolvedOffering struct {
 	zone         Zone
 	capacityType string
 	usd          float64
+	base, delta  float64
+	complete     bool
+}
+
+func (o resolvedOffering) info() offeringInfo {
+	return offeringInfo{
+		region: o.region.region.Name, zone: o.zone.Name, capacityType: o.capacityType,
+		usd: o.usd, base: o.base, delta: o.delta, complete: o.complete,
+	}
 }
 
 // offeringsOf resolves the price rows of a server to offerings: one per zone
@@ -271,14 +282,15 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 			continue
 		}
 		for _, z := range resolveZones(vd, ri.region, p, zonesByRegion, hasZones) {
-			delta, complete := c.opts.Facts.PriceDelta(vendor, class, srv.APIReference, z.Name, p.CapacityType)
+			delta, complete := c.opts.Facts.PriceDelta(vendor, class, srv, z.Name, p.CapacityType)
 			if !complete && !class.AllowIncompletePrice {
 				continue
 			}
 			usd := p.USDPerHour + delta
 			k := key{ri.region.ID, z.ID, p.CapacityType}
 			if old, ok := best[k]; !ok || usd < old.usd {
-				best[k] = resolvedOffering{region: ri, zone: z, capacityType: p.CapacityType, usd: usd}
+				best[k] = resolvedOffering{region: ri, zone: z, capacityType: p.CapacityType, usd: usd,
+					base: p.USDPerHour, delta: delta, complete: complete}
 			}
 		}
 	}

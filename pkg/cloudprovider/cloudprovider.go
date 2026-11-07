@@ -13,6 +13,7 @@ package cloudprovider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -33,7 +34,9 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/quota"
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -75,6 +78,9 @@ type Options struct {
 	Scope *scope.Resolver
 	// Recorder publishes Events; nil publishes none.
 	Recorder events.Recorder
+	// Resources provides the vendor resources of a launch to the drivers'
+	// Prepare; nil means a driver that needs one fails the launch.
+	Resources *resources.Engine
 	// Tokens and UserData default to StubBootstrap.
 	Tokens   TokenMinter
 	UserData UserDataRenderer
@@ -206,10 +212,40 @@ func (c *CloudProvider) IsDrifted(ctx context.Context, nodeClaim *karpv1.NodeCla
 		return "", fmt.Errorf("resolving the NodeClass: %w", err)
 	}
 	current := nc.Status.Vendors[vendor].Hash
-	if current == "" || current == launched {
+	if current == "" {
 		return "", nil
 	}
-	return NodeClassDrift, nil
+	if current != launched {
+		return NodeClassDrift, nil
+	}
+	return c.profileDrift(nodeClaim, nc, vendor), nil
+}
+
+// profileDrift compares the hashes of the profiles the node was launched with
+// (recorded at launch) with the profiles' current blocks: changing one profile
+// drifts only the nodes that use it, and a profile that was removed or lost its
+// block for the vendor drifts them too (overview section 6.3).
+func (c *CloudProvider) profileDrift(
+	nodeClaim *karpv1.NodeClaim, nc *v1alpha1.SCNodeClass, vendor string,
+) cloudprovider.DriftReason {
+	raw := nodeClaim.Annotations[v1alpha1.AnnotationProfileHashes]
+	if raw == "" {
+		return ""
+	}
+	var launched map[string]string
+	if err := json.Unmarshal([]byte(raw), &launched); err != nil {
+		return ""
+	}
+	in, ok, err := options.InputFromNodeClass(nc, vendor)
+	if err != nil || !ok {
+		return ""
+	}
+	for key, hash := range launched {
+		if current, ok := in.CurrentHash(key); !ok || current != hash {
+			return NodeClassDrift
+		}
+	}
+	return ""
 }
 
 // Get returns the NodeClaim of the instance behind the provider ID: from the

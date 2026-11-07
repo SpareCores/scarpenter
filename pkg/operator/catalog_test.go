@@ -54,7 +54,7 @@ func TestCatalogFollowsTheNodeClasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := (&operator.Operator{Operator: &coreoperator.Operator{Manager: mgr}, Options: &options.Options{KeeperAPIKeyFile: "/does/not/exist"}}).
-		WithCatalog(catalog.StaticFacts{}, nil, nil); err == nil {
+		WithCatalog(catalog.StaticFacts{}, nil, nil, nil); err == nil {
 		t.Error("a missing API key file was accepted")
 	}
 
@@ -62,7 +62,7 @@ func TestCatalogFollowsTheNodeClasses(t *testing.T) {
 	op := &operator.Operator{Operator: &coreoperator.Operator{Manager: mgr}, Options: &options.Options{
 		KeeperURL: srv.URL, CatalogRefreshInterval: time.Hour, CatalogMaxAge: 24 * time.Hour,
 	}}
-	cat, err := op.WithCatalog(catalogtest.Facts(t, "aws"), nil, nil)
+	cat, err := op.WithCatalog(catalogtest.Facts(t, "aws"), nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

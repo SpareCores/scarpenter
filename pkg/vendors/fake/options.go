@@ -38,6 +38,7 @@ const (
 	DefaultConfigNamespace = "scarpenter-system"
 	DefaultConfigName      = "scarpenter-fake"
 	DefaultStateName       = "scarpenter-fake-state"
+	DefaultResourcesName   = "scarpenter-fake-resources"
 	defaultStateInterval   = 500 * time.Millisecond
 	defaultConfigTTL       = time.Second
 )
@@ -58,6 +59,10 @@ type Options struct {
 	ConfigNamespace string
 	ConfigName      string
 	StateName       string
+	// ResourcesName names the ConfigMap that holds the fake account's managed
+	// resources, so that they survive a restart of the controller like the
+	// resources of a real vendor account do.
+	ResourcesName string
 	// LaunchDelay is the simulated duration of CreateInstance, unless the
 	// ConfigMap sets launchDelay.
 	LaunchDelay time.Duration
@@ -72,7 +77,7 @@ type Options struct {
 func DefaultOptions() Options {
 	return Options{
 		CatalogVendor: DefaultCatalogVendor, ConfigNamespace: DefaultConfigNamespace,
-		ConfigName: DefaultConfigName, StateName: DefaultStateName,
+		ConfigName: DefaultConfigName, StateName: DefaultStateName, ResourcesName: DefaultResourcesName,
 		StateInterval: defaultStateInterval, ConfigTTL: defaultConfigTTL,
 	}
 }
@@ -83,6 +88,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.ConfigNamespace, "fake-config-namespace", env.WithDefaultString("SCARPENTER_FAKE_CONFIG_NAMESPACE", DefaultConfigNamespace), "Namespace of the fake driver's ConfigMaps.")
 	fs.StringVar(&o.ConfigName, "fake-config-name", env.WithDefaultString("SCARPENTER_FAKE_CONFIG_NAME", DefaultConfigName), "Name of the ConfigMap that steers the fake driver (errors, quotas, orphans).")
 	fs.StringVar(&o.StateName, "fake-state-name", env.WithDefaultString("SCARPENTER_FAKE_STATE_NAME", DefaultStateName), "Name of the ConfigMap the fake driver publishes its calls and instances in.")
+	fs.StringVar(&o.ResourcesName, "fake-resources-name", env.WithDefaultString("SCARPENTER_FAKE_RESOURCES_NAME", DefaultResourcesName), "Name of the ConfigMap that holds the fake account's managed resources.")
 	fs.DurationVar(&o.LaunchDelay, "fake-launch-delay", env.WithDefaultDuration("SCARPENTER_FAKE_LAUNCH_DELAY", 0), "Simulated duration of a fake instance launch.")
 }
 
@@ -95,7 +101,7 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 		return fmt.Errorf("parsing flags: %w", err)
 	}
 	o.StateInterval, o.ConfigTTL = defaultStateInterval, defaultConfigTTL
-	if o.CatalogVendor == "" || o.ConfigNamespace == "" || o.ConfigName == "" || o.StateName == "" {
+	if o.CatalogVendor == "" || o.ConfigNamespace == "" || o.ConfigName == "" || o.StateName == "" || o.ResourcesName == "" {
 		return errors.New("the --fake-* names must not be empty")
 	}
 	if o.LaunchDelay < 0 {

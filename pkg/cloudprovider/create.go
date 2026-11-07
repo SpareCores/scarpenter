@@ -8,11 +8,14 @@ package cloudprovider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
@@ -20,7 +23,10 @@ import (
 	"sigs.k8s.io/karpenter/pkg/scheduling"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/bootstrap"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
+	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/quota"
 	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
@@ -33,6 +39,7 @@ const (
 	skipUnavailable = "unavailable"
 	skipImage       = "image"
 	skipRegionFull  = "quota-exceeded"
+	skipResources   = "resources"
 )
 
 // launchState is what one Create keeps between its attempts.
@@ -40,10 +47,13 @@ type launchState struct {
 	nc        *v1alpha1.SCNodeClass
 	nodeClaim *karpv1.NodeClaim
 	token     string
-	// userData is rendered once per vendor, region and architecture.
-	userData map[string][]byte
+	// settings resolves the vendor settings of the offerings; runKey is the
+	// placement run key of the NodeClaim (overview section 4.1).
+	settings *settingsResolver
+	runKey   string
 	// blocked holds the (vendor, region, capacity type) that returned a quota
-	// error during this Create: the others of them are skipped.
+	// error during this Create, and the (vendor, region) whose vendor resources
+	// are missing: the others of them are skipped.
 	blocked map[string]bool
 	// attempts counts vendor calls; skipped counts candidates passed over
 	// because of quota; imageErr is the last image failure.
@@ -62,7 +72,7 @@ type launchState struct {
 // InsufficientCapacityError, and core deletes the NodeClaim.
 func (c *CloudProvider) Create(ctx context.Context, nodeClaim *karpv1.NodeClaim) (*karpv1.NodeClaim, error) {
 	started := c.opts.Clock.Now()
-	st := &launchState{nodeClaim: nodeClaim, userData: map[string][]byte{}, blocked: map[string]bool{}}
+	st := &launchState{nodeClaim: nodeClaim, blocked: map[string]bool{}}
 	created, err := c.create(ctx, st)
 	result := resultSuccess
 	if err != nil {
@@ -99,7 +109,13 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		return nil, err
 	}
 
-	cands, err := c.candidates(ctx, nc, nodeClaim)
+	st.settings = newSettingsResolver(nc, c.opts.Registry)
+	claimReqs := scheduling.NewNodeSelectorRequirementsWithMinValues(nodeClaim.Spec.Requirements...)
+	if st.runKey, err = options.RunKey(claimReqs); err != nil {
+		c.publish(nc, EventLaunchFailed, err.Error(), "run-key")
+		return nil, cloudprovider.NewCreateError(err, "InvalidRunKey", truncate(err.Error(), 200))
+	}
+	cands, err := c.candidates(ctx, nc, nodeClaim, st.settings)
 	if err != nil {
 		return nil, cloudprovider.NewCreateError(err, "InstanceTypeResolutionFailed", "error resolving instance types")
 	}
@@ -140,8 +156,8 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		}
 		inst, err := c.launch(ctx, st, cand)
 		if err == nil {
-			c.commit(res, inst.Ref)
-			return c.created(nc, nodeClaim, cands, cand, inst), nil
+			c.reconcileQuota(res, cand, inst, nodeClaim.Name)
+			return c.created(ctx, nc, nodeClaim, cands, cand, inst, st.runKey), nil
 		}
 		if _, isImage := errors.AsType[*imageError](err); isImage {
 			c.release(res)
@@ -160,6 +176,17 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		case vendors.InsufficientCapacity:
 			c.opts.Unavailable.MarkInsufficientCapacity(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 		case vendors.Unsupported:
+			if code := vendors.CodeOf(err); code == vendors.CodeResourceMissing || code == vendors.CodeResourceForbidden {
+				// A vendor resource of the region is missing: the engine made the
+				// region's offerings unavailable, and nothing of this type or zone is
+				// wrong. The other candidates of the region are not tried.
+				st.blocked[resourceKey(cand)] = true
+				continue
+			} else if code == vendors.CodeResourceMissingInZone {
+				// Only the zone lacks it: the other zones of the region are tried.
+				st.blocked[resourceKey(cand)+"/"+cand.zone] = true
+				continue
+			}
 			c.opts.Unavailable.MarkUnsupported(cand.vendor, cand.typeName, cand.zone)
 		case vendors.ZoneUnusable:
 			c.opts.Unavailable.MarkZoneUnusable(cand.vendor, cand.zone)
@@ -195,6 +222,9 @@ func (c *CloudProvider) skipReason(st *launchState, cand *candidate) string {
 	if st.blocked[regionKey(cand)] {
 		return skipRegionFull
 	}
+	if st.blocked[resourceKey(cand)] || st.blocked[resourceKey(cand)+"/"+cand.zone] {
+		return skipResources
+	}
 	if c.opts.Unavailable.IsUnavailable(unavailable.Offering{
 		Vendor: cand.vendor, InstanceType: cand.typeName, Region: cand.region, Zone: cand.zone,
 		CapacityType: cand.capacityType,
@@ -205,6 +235,10 @@ func (c *CloudProvider) skipReason(st *launchState, cand *candidate) string {
 }
 
 func regionKey(c *candidate) string { return c.vendor + "/" + c.region + "/" + c.capacityType }
+
+// resourceKey identifies the vendor resources of a region, which all offerings
+// of the region share.
+func resourceKey(c *candidate) string { return "resources/" + c.vendor + "/" + c.region }
 
 // onQuotaExceeded records a quota error (overview sections 4.1 and 5.6): a
 // vendor with a fresh quota view for the type refreshes its view of the region
@@ -224,7 +258,7 @@ func (c *CloudProvider) onQuotaExceeded(st *launchState, cand *candidate) {
 	c.opts.Unavailable.MarkQuotaExceeded(cand.vendor, cand.region, cand.capacityType)
 }
 
-// launch makes one vendor call for the candidate.
+// launch prepares the resources of the candidate and makes the vendor call.
 func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candidate) (*vendors.Instance, error) {
 	nc, nodeClaim := st.nc, st.nodeClaim
 	drv, ok := c.opts.Registry.Driver(cand.vendor)
@@ -236,31 +270,43 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	if err != nil {
 		return nil, &imageError{err: err}
 	}
-	providerID := scope.ProviderID(cand.vendor, cand.region, nodeClaim.Name)
-	udKey := cand.vendor + "/" + cand.region + "/" + arch
-	userData, ok := st.userData[udKey]
-	if !ok {
-		userData, err = c.opts.UserData.Render(ctx, RenderRequest{
-			NodeClass: nc, NodeClaim: nodeClaim, Vendor: cand.vendor, Region: cand.region, Arch: arch,
-			Token: st.token, NodeName: nodeClaim.Name, ProviderID: providerID,
+
+	// Resources the instance needs first: vendor resources with create,
+	// placement groups, separate volumes (overview section 4.1 step 3).
+	var prepared *vendors.Prepared
+	if no, ok := drv.(vendors.NodeOptions); ok {
+		prepared, err = no.Prepare(ctx, vendors.PrepareRequest{
+			Region: cand.region, Zone: cand.zone, InstanceType: cand.apiReference, CapacityType: cand.capacityType,
+			Type:     catalogTypeOf(cand),
+			Settings: cand.settings, Tags: c.launchTags(nc, nodeClaim), RunKey: st.runKey,
+			Resources: c.resourceProvider(nc, cand),
 		})
 		if err != nil {
-			return nil, vendors.NewError(vendors.Fatal, "UserDataRender", fmt.Errorf("rendering the user-data: %w", err))
+			return nil, fmt.Errorf("preparing the launch: %w", err)
 		}
-		st.userData[udKey] = userData
 	}
-	var settings vendors.VendorSettings
-	if no, ok := drv.(vendors.NodeOptions); ok {
-		settings = no.Defaults()
+	providerID := scope.ProviderID(cand.vendor, cand.region, nodeClaim.Name)
+	rr := RenderRequest{
+		NodeClass: nc, NodeClaim: nodeClaim, Vendor: cand.vendor, Region: cand.region, Zone: cand.zone,
+		InstanceType: cand.apiReference, Arch: arch, Token: st.token, NodeName: nodeClaim.Name, ProviderID: providerID,
+		KubeReserved: kubeReserved(cand.it),
+	}
+	if prepared != nil {
+		rr.Volumes, rr.Local = volumeHints(prepared)
+	}
+	userData, err := c.opts.UserData.Render(ctx, rr)
+	if err != nil {
+		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", fmt.Errorf("rendering the user-data: %w", err))
 	}
 	req := vendors.CreateRequest{
 		Region: cand.region, Zone: cand.zone, InstanceType: cand.apiReference, CapacityType: cand.capacityType,
-		Arch: arch, Image: *img, UserData: userData, Settings: settings,
+		Arch: arch, Image: *img, UserData: userData, Settings: cand.settings, Prepared: prepared,
 		Tags:           c.launchTags(nc, nodeClaim),
 		ExtraTags:      nc.Spec.Tags,
 		IdempotencyKey: string(nodeClaim.UID),
 		Node: vendors.NodeInfo{
-			Name: nodeClaim.Name, ProviderID: providerID, Labels: nodeLabels(nodeClaim.Name, cand.it, cand.off),
+			Name: nodeClaim.Name, ProviderID: providerID,
+			Labels:   nodeLabels(nodeClaim.Name, cand.it, cand.off, cand.sel.Applied(), st.runKey),
 			Capacity: cand.it.Capacity, Allocatable: cand.it.Allocatable(),
 		},
 	}
@@ -270,6 +316,91 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	}
 	c.metrics.launches.WithLabelValues(cand.vendor, cand.region, cand.capacityType, resultSuccess).Inc()
 	return inst, nil
+}
+
+// catalogTypeOf describes the candidate's instance type for the driver from the
+// labels the catalog stamped on it.
+func catalogTypeOf(cand *candidate) vendors.CatalogType {
+	one := func(key string) string {
+		r := cand.it.Requirements.Get(key)
+		if r.Operator() == corev1.NodeSelectorOpIn && len(r.Values()) == 1 {
+			return r.Values()[0]
+		}
+		return ""
+	}
+	num := func(key string) float64 {
+		f, _ := strconv.ParseFloat(one(key), 64)
+		return f
+	}
+	return vendors.CatalogType{
+		Vendor: cand.vendor, APIReference: cand.apiReference, Family: one(v1alpha1.LabelFamily),
+		Arch: one(corev1.LabelArchStable), VCPUs: int(num(v1alpha1.LabelVCPUs)), MemoryMiB: num(v1alpha1.LabelMemoryMiB),
+		LocalStorageGB: num(v1alpha1.LabelLocalStorageGB), LocalStorageCount: int(num(v1alpha1.LabelLocalStorageCount)),
+	}
+}
+
+// resourceProvider returns the vendor resources of the launch, as the
+// NodeClass configures them; without the engine a driver that needs a resource
+// fails clearly.
+func (c *CloudProvider) resourceProvider(nc *v1alpha1.SCNodeClass, cand *candidate) vendors.ResourceProvider {
+	if c.opts.Resources == nil {
+		return noResources{}
+	}
+	return c.opts.Resources.Provider(nc, cand.vendor, cand.region, cand.zone)
+}
+
+type noResources struct{}
+
+func (noResources) Require(_ context.Context, req vendors.ResourceRequest) ([]vendors.ResourceRef, error) {
+	return nil, vendors.Errorf(vendors.Fatal, "no resource engine is configured, cannot provide %s", req.Kind)
+}
+
+// kubeReserved is the kubelet's kubeReserved of the instance type: the
+// reservation the scheduler assumed for it, so that the node's allocatable is
+// what the scheduler counted on.
+func kubeReserved(it *cloudprovider.InstanceType) map[string]string {
+	if it.Overhead == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for name, q := range it.Overhead.KubeReserved {
+		out[string(name)] = q.String()
+	}
+	return out
+}
+
+// volumeHints converts the driver's device hints for the user-data.
+func volumeHints(p *vendors.Prepared) ([]bootstrap.VolumeHint, *bootstrap.LocalHint) {
+	vols := make([]bootstrap.VolumeHint, 0, len(p.Devices))
+	for _, d := range p.Devices {
+		vols = append(vols, bootstrap.VolumeHint{
+			Name: d.Name, Filesystem: d.Filesystem, MountPath: d.MountPath, ByID: d.ByID,
+			SerialPattern: d.SerialPattern, SizeBytes: d.SizeBytes,
+		})
+	}
+	var local *bootstrap.LocalHint
+	if p.Local != nil {
+		local = &bootstrap.LocalHint{
+			Policy: p.Local.Policy, MountPath: p.Local.MountPath, DevicePattern: p.Local.DevicePattern, Count: p.Local.Count,
+		}
+	}
+	return vols, local
+}
+
+// reconcileQuota commits the reservation of the attempted offering to the
+// instance the vendor returned. A replayed idempotency key returns the first
+// instance, which may be another offering than the one attempted now: the
+// reservation then follows the instance (the attempted one is released and the
+// instance's own consumption reserved against it).
+func (c *CloudProvider) reconcileQuota(res *quota.Reservation, cand *candidate, inst *vendors.Instance, owner string) {
+	if c.opts.Quota == nil {
+		return
+	}
+	if inst.Type == cand.apiReference && inst.Region == cand.region && inst.CapacityType == cand.capacityType {
+		c.opts.Quota.Commit(res, inst.Ref)
+		return
+	}
+	c.opts.Quota.Reconcile(res, cand.vendor, inst.Region, inst.Type, inst.CapacityType, owner, inst.Ref)
 }
 
 func (c *CloudProvider) launchTags(nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.NodeClaim) map[vendors.TagKey]string {
@@ -286,7 +417,8 @@ func (c *CloudProvider) launchTags(nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.N
 // allocatable of the chosen type, the labels and the annotations (overview
 // section 4.1 step 6).
 func (c *CloudProvider) created(
-	nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.NodeClaim, cands []candidate, attempted *candidate, inst *vendors.Instance,
+	ctx context.Context, nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.NodeClaim, cands []candidate, attempted *candidate,
+	inst *vendors.Instance, runKey string,
 ) *karpv1.NodeClaim {
 	// The instance is the truth: a replayed idempotency key returns the first
 	// instance, which may be another offering than the one attempted now.
@@ -303,7 +435,7 @@ func (c *CloudProvider) created(
 			}
 		}
 		if cand == nil {
-			log.FromContext(context.Background()).Info("the instance of a replayed idempotency key matches no candidate; "+
+			log.FromContext(ctx).Info("the instance of a replayed idempotency key matches no candidate; "+
 				"describing the NodeClaim from the catalog", "instance", inst.Ref, "type", inst.Type, "zone", inst.Zone)
 			return c.fromInstance(nc, attempted.vendor, inst)
 		}
@@ -313,14 +445,23 @@ func (c *CloudProvider) created(
 		c.opts.Quota.NotifyChanged(cand.vendor, cand.region)
 	}
 	out := &karpv1.NodeClaim{}
-	out.Labels = nodeLabels(nodeClaim.Name, cand.it, cand.off)
+	out.Labels = nodeLabels(nodeClaim.Name, cand.it, cand.off, cand.sel.Applied(), runKey)
 	out.Annotations = map[string]string{
 		v1alpha1.AnnotationInstanceRef: string(inst.Ref),
-		v1alpha1.AnnotationPrice:       formatPrice(cand.price),
+		v1alpha1.AnnotationPrice:       formatPrice(cand.usd),
+	}
+	if !cand.complete {
+		out.Annotations[v1alpha1.AnnotationPriceIncomplete] = "true"
 	}
 	if hash := nc.Status.Vendors[cand.vendor].Hash; hash != "" {
 		out.Annotations[v1alpha1.AnnotationNodeClassHash] = hash
 		out.Annotations[v1alpha1.AnnotationNodeClassHashVersion] = nodeclass.HashVersion
+	}
+	if in, ok, err := options.InputFromNodeClass(nc, cand.vendor); err == nil && ok {
+		if hashes := in.AppliedHashes(cand.sel); len(hashes) > 0 {
+			raw, _ := json.Marshal(hashes)
+			out.Annotations[v1alpha1.AnnotationProfileHashes] = string(raw)
+		}
 	}
 	out.Status.ProviderID = scope.ProviderID(cand.vendor, inst.Region, nodeClaim.Name)
 	out.Status.Capacity = cand.it.Capacity
@@ -329,13 +470,22 @@ func (c *CloudProvider) created(
 }
 
 // fromInstance describes a NodeClaim from an instance alone (the catalog type
-// and offering of the instance), for an instance no candidate explains.
+// and offering of the instance), for an instance no candidate explains. The
+// price is the catalog's for the NodeClass defaults: what profiles the
+// instance was launched with is not known here.
 func (c *CloudProvider) fromInstance(
 	nc *v1alpha1.SCNodeClass, vendor string, inst *vendors.Instance,
 ) *karpv1.NodeClaim {
 	c.putInstance(vendor, inst)
 	out := c.instanceToNodeClaim(vendor, inst)
 	out.Annotations[v1alpha1.AnnotationInstanceRef] = string(inst.Ref)
+	if p, ok := c.opts.Catalog.Price(nc.Name, catalog.InstanceTypeName(vendor, inst.Type), inst.Region, inst.Zone,
+		inst.CapacityType); ok {
+		out.Annotations[v1alpha1.AnnotationPrice] = formatPrice(p.USD)
+		if !p.Complete {
+			out.Annotations[v1alpha1.AnnotationPriceIncomplete] = "true"
+		}
+	}
 	if hash := nc.Status.Vendors[vendor].Hash; hash != "" {
 		out.Annotations[v1alpha1.AnnotationNodeClassHash] = hash
 		out.Annotations[v1alpha1.AnnotationNodeClassHashVersion] = nodeclass.HashVersion
@@ -391,13 +541,7 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
-// commit and release are nil-safe: without a tracker there is no reservation.
-func (c *CloudProvider) commit(res *quota.Reservation, ref vendors.InstanceRef) {
-	if c.opts.Quota != nil {
-		c.opts.Quota.Commit(res, ref)
-	}
-}
-
+// release is nil-safe: without a tracker there is no reservation.
 func (c *CloudProvider) release(res *quota.Reservation) {
 	if c.opts.Quota != nil {
 		c.opts.Quota.Release(res)

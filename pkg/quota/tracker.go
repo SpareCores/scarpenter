@@ -706,6 +706,47 @@ func (t *Tracker) Commit(r *Reservation, ref vendors.InstanceRef) {
 	t.mu.Unlock()
 }
 
+// Reconcile ties the reservation of an attempted launch to the instance the
+// vendor returned, when that is not the offering that was attempted (a replayed
+// idempotency key returns the first instance, whatever the replay asked for):
+// the attempted offering's reservation is released and the instance's own
+// consumption is reserved against the instance, unless a reservation of the
+// instance exists already. The headroom is not checked: the instance exists.
+// Nil-safe on res.
+func (t *Tracker) Reconcile(
+	res *Reservation, vendor, region, apiReference, capacityType, owner string, ref vendors.InstanceRef,
+) {
+	now := t.opts.Clock.Now()
+	t.mu.Lock()
+	changed := false
+	if res != nil {
+		changed = t.dropLocked(res)
+	}
+	has := false
+	for _, r := range t.ledger {
+		if r.vendor == vendor && r.ref == ref {
+			has = true
+			break
+		}
+	}
+	if !has {
+		if ns := t.needsLocked(vendor, region, apiReference, capacityType, now); len(ns) > 0 {
+			t.nextID++
+			r := &Reservation{id: t.nextID, vendor: vendor, region: region, owner: owner, createdAt: now, ref: ref}
+			for _, n := range ns {
+				r.items = append(r.items, item{n.key, n.amount})
+				t.reserved[n.key] += n.amount
+			}
+			t.ledger[r.id] = r
+			changed = true
+		}
+	}
+	t.mu.Unlock()
+	if changed {
+		t.bump()
+	}
+}
+
 // Release drops a reservation (the launch failed). Nil-safe and idempotent.
 func (t *Tracker) Release(r *Reservation) {
 	if r == nil {

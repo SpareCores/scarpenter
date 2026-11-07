@@ -23,15 +23,24 @@ import (
 )
 
 // RenderRequest is what the user-data of a node depends on (overview section
-// 8.2). It depends on the architecture (sysext URLs) and the region, not on the
-// instance type, so one rendering serves every launch attempt with the same
-// architecture and region.
+// 8.2): the architecture (sysext URLs), the offering of the launch attempt, the
+// kube-reserved of the instance type and the device hints of its volumes. A
+// request without the last three (no instance type, no hints) renders what is
+// the same for every attempt of the architecture and region.
 type RenderRequest struct {
 	NodeClass *v1alpha1.SCNodeClass
 	NodeClaim *karpv1.NodeClaim
 	Vendor    string
 	Region    string
-	Arch      string
+	Zone      string
+	// InstanceType is the vendor's API reference.
+	InstanceType string
+	Arch         string
+	// KubeReserved is the effective kubeReserved of the instance type
+	// (resource name to quantity), what the catalog assumed.
+	KubeReserved map[string]string
+	Volumes      []VolumeHint
+	Local        *LocalHint
 	// Token is the bootstrap token of the NodeClaim.
 	Token string
 	// NodeName and ProviderID are the node name (the NodeClaim name) and the
@@ -79,7 +88,8 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 		return nil, err
 	}
 	p.NodeName, p.ProviderID, p.BootstrapToken = req.NodeName, req.ProviderID, req.Token
-	p.Vendor, p.Region = req.Vendor, req.Region
+	p.Vendor, p.Region, p.Zone, p.InstanceType = req.Vendor, req.Region, req.Zone, req.InstanceType
+	p.KubeReserved, p.Volumes, p.Local = req.KubeReserved, req.Volumes, req.Local
 	if req.NodeClaim != nil {
 		p.Labels = req.NodeClaim.Labels
 	}

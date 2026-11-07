@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,7 +41,10 @@ const (
 // 255 MiB) leaves no room for a pod.
 const minAllocMem = 512 << 20
 
-var taken = map[string]bool{}
+var (
+	taken   = map[string]bool{}
+	takenMu sync.Mutex
+)
 
 func isOnDemand(o offering) bool { return o.Capacity == "on-demand" }
 
@@ -48,6 +52,8 @@ func isOnDemand(o offering) bool { return o.Capacity == "on-demand" }
 // in every region, cheapest first, and claims them.
 func takeTypes(t *testing.T, regions []string, vcpus int64, n int) []string {
 	t.Helper()
+	takenMu.Lock()
+	defer takenMu.Unlock()
 	price := map[string]float64{}
 	seen := map[string]map[string]bool{}
 	for _, o := range reference(t, regions...) {

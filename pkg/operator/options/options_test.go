@@ -52,6 +52,7 @@ func TestDefaults(t *testing.T) {
 		QuotaMaxStaleness:          15 * time.Minute,
 		GCInterval:                 2 * time.Minute,
 		ResourceDefaultTTL:         24 * time.Hour,
+		ResourceFullSweepEvery:     10,
 		AWSHomeRegion:              "us-east-1",
 	}
 	if o.ClusterName != want.ClusterName || o.APIServerEndpoint != want.APIServerEndpoint ||
@@ -60,6 +61,7 @@ func TestDefaults(t *testing.T) {
 		o.MaxLaunchAttempts != want.MaxLaunchAttempts || o.QuotaRefreshInterval != want.QuotaRefreshInterval ||
 		o.QuotaLimitsRefreshInterval != want.QuotaLimitsRefreshInterval || o.QuotaMaxStaleness != want.QuotaMaxStaleness ||
 		o.GCInterval != want.GCInterval || o.ResourceDefaultTTL != want.ResourceDefaultTTL ||
+		o.ResourceFullSweepEvery != want.ResourceFullSweepEvery ||
 		o.AWSHomeRegion != want.AWSHomeRegion || strings.Join(o.Vendors, ",") != "aws" {
 		t.Errorf("defaults differ:\n got %+v\nwant %+v", *o, want)
 	}
@@ -155,6 +157,7 @@ func TestValidation(t *testing.T) {
 		{"cluster dns not an ip", append([]string{"--cluster-dns=10.96.0.10,dns.example.com"}, required...), "--cluster-dns"},
 		{"empty cluster domain", append([]string{"--cluster-domain="}, required...), "--cluster-domain must not be empty"},
 		{"zero gc interval", append([]string{"--gc-interval=0s"}, required...), "--gc-interval must be positive"},
+		{"zero full sweep", append([]string{"--resource-full-sweep-every=0"}, required...), "--resource-full-sweep-every must be at least 1"},
 		{"zero resource ttl", append([]string{"--resource-default-ttl=0s"}, required...), "--resource-default-ttl must be positive"},
 		{"zero quota staleness", append([]string{"--quota-max-staleness=0s"}, required...), "--quota-max-staleness must be positive"},
 		{"max age below refresh interval", append([]string{"--catalog-max-age=10m"}, required...), "must not be shorter"},

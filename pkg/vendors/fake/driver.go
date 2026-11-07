@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -47,6 +48,31 @@ type instance struct {
 	// userData is the size of the user-data the instance was launched with
 	// (the fake boots nothing; the L3 lane checks the rendering by its size).
 	userData int
+	// settings, profiles, resources and devices are what the launch was given
+	// (the resolved vendor settings, the profiles applied, the prepared
+	// resources and device hints): the L3 scenarios assert on them.
+	settings  string
+	profiles  map[string]string
+	resources []string
+	devices   []string
+}
+
+// recordPrepared keeps what Prepare made ready: the resources the instance uses
+// and the device hints it was given.
+func (i *instance) recordPrepared(p *vendors.Prepared) {
+	if p == nil {
+		return
+	}
+	for _, r := range p.Resources {
+		i.resources = append(i.resources, r.ID)
+	}
+	for _, dev := range p.Devices {
+		i.devices = append(i.devices, dev.Name+"="+dev.ByID+" "+dev.Filesystem+" "+dev.MountPath)
+	}
+	if p.Local != nil {
+		i.devices = append(i.devices, fmt.Sprintf("local=%s %s %s x%d", p.Local.DevicePattern, p.Local.Policy,
+			p.Local.MountPath, p.Local.Count))
+	}
 }
 
 // Driver is the fake driver.
@@ -66,6 +92,13 @@ type Driver struct {
 	dataMu sync.Mutex
 	data   *catalogData
 
+	// resMu guards the fake account's resources (order: resMu, then mu).
+	resMu     sync.Mutex
+	resources map[string]*resourceRecord
+	resLoaded bool
+	// unsupportedEpoch changes with the steering's unsupported rules.
+	unsupportedEpoch atomic.Uint64
+
 	mu        sync.Mutex
 	seq       int
 	instances map[string]*instance // by ID
@@ -75,11 +108,18 @@ type Driver struct {
 	calls     []callRecord
 	dirty     bool
 	flushing  bool
+	// revision counts the changes of the published state; published is the
+	// revision the state ConfigMap holds; failures counts the failed writes in
+	// a row (the retry backoff).
+	revision  uint64
+	published uint64
+	failures  int
 }
 
 var (
 	_ vendors.Driver             = (*Driver)(nil)
 	_ vendors.NodeOptions        = (*Driver)(nil)
+	_ vendors.EpochReporter      = (*Driver)(nil)
 	_ vendors.QuotaReporter      = (*Driver)(nil)
 	_ vendors.OfferingLister     = (*Driver)(nil)
 	_ vendors.NodeClassValidator = (*Driver)(nil)
@@ -120,6 +160,12 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 		d.clock = clock.RealClock{}
 	}
 	d.instances, d.byKey = map[string]*instance{}, map[string]string{}
+	d.resources = map[string]*resourceRecord{}
+	// The revisions count up from the start time, so that a restarted
+	// controller never publishes a lower revision than its predecessor did and
+	// a waiter for the next revision cannot be released by the old state.
+	d.revision = uint64(d.clock.Now().UnixMilli()) //nolint:gosec // a time, not a security value
+	d.registerMetrics()
 	d.orphaned, d.ruleHits = map[string]bool{}, map[int]int{}
 	return nil
 }
@@ -137,6 +183,9 @@ func (o *Options) fill() {
 	}
 	if o.StateName == "" {
 		o.StateName = def.StateName
+	}
+	if o.ResourcesName == "" {
+		o.ResourcesName = def.ResourcesName
 	}
 }
 
@@ -211,24 +260,6 @@ func (d *Driver) ResolveImage(_ context.Context, req vendors.ImageRequest) (*ven
 
 // ValidateNodeClass accepts every NodeClass.
 func (d *Driver) ValidateNodeClass(context.Context, *v1alpha1.SCNodeClass) error { return nil }
-
-// Defaults implements vendors.NodeOptions.
-func (d *Driver) Defaults() vendors.VendorSettings {
-	return vendors.VendorSettings{RootDiskBytes: rootDiskBytes.Value()}
-}
-
-// Supported implements vendors.NodeOptions: nothing beyond the default profile.
-func (d *Driver) Supported(vendors.CatalogType, string, vendors.Profiles) map[string][]string {
-	return nil
-}
-
-// PriceDelta implements vendors.NodeOptions: no delta, complete.
-func (d *Driver) PriceDelta(vendors.VendorSettings, vendors.Offering) (float64, bool) { return 0, true }
-
-// Prepare implements vendors.NodeOptions.
-func (d *Driver) Prepare(context.Context, vendors.PrepareRequest) (*vendors.Prepared, error) {
-	return &vendors.Prepared{}, nil
-}
 
 func (d *Driver) record(op, region, zone, typ, capacityType, claim, result string) {
 	d.calls = append(d.calls, callRecord{
@@ -345,8 +376,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			Addresses: []string{fmt.Sprintf("10.%d.%d.%d", d.seq/65536%256, d.seq/256%256, d.seq%256)},
 		},
 		claim: claim, nodeName: req.Node.Name, vcpus: srv.vcpus, key: req.IdempotencyKey,
-		userData: len(req.UserData),
+		userData: len(req.UserData), settings: string(req.Settings.Raw), profiles: maps.Clone(req.Settings.Profiles),
 	}
+	inst.recordPrepared(req.Prepared)
 	d.instances[id] = inst
 	if req.IdempotencyKey != "" {
 		d.byKey[req.IdempotencyKey] = id
@@ -362,6 +394,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		return nil, vendors.NewError(vendors.Retryable, "NodeCreateFailed", err)
 	}
 
+	d.touchResources(inst.resources)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.record("create", req.Region, req.Zone, req.InstanceType, req.CapacityType, claim, "ok")
@@ -484,8 +517,10 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 	}
 	inst.State = vendors.StateTerminated
 	node := inst.nodeName
+	resIDs := slices.Clone(inst.resources)
 	d.record("delete", inst.Region, inst.Zone, inst.Type, inst.CapacityType, inst.claim, "ok")
 	d.mu.Unlock()
+	d.touchResources(resIDs)
 	if err := d.deleteNode(ctx, node); err != nil {
 		return vendors.NewError(vendors.Retryable, "NodeDeleteFailed", errors.New(err.Error()))
 	}

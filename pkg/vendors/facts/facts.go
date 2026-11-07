@@ -26,6 +26,8 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
+	"github.com/SpareCores/scarpenter/pkg/catalog/model"
+	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -54,9 +56,11 @@ type Options struct {
 }
 
 type vendorFacts struct {
-	regions  []string
-	zones    map[string][]catalog.Zone
-	hasZones bool
+	// zoneRegion maps a zone name to its region.
+	zoneRegion map[string]string
+	regions    []string
+	zones      map[string][]catalog.Zone
+	hasZones   bool
 }
 
 // Facts implements catalog.Facts and catalog.LaunchableFacts over the
@@ -68,6 +72,9 @@ type Facts struct {
 	data   map[string]*vendorFacts
 	loaded bool
 	epoch  atomic.Uint64
+
+	defaults  sync.Map // class hash/vendor -> resolved
+	defaultsN atomic.Int64
 }
 
 var (
@@ -121,7 +128,7 @@ func loadVendor(ctx context.Context, drv vendors.Driver) (*vendorFacts, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing regions: %w", err)
 	}
-	vf := &vendorFacts{zones: map[string][]catalog.Zone{}}
+	vf := &vendorFacts{zones: map[string][]catalog.Zone{}, zoneRegion: map[string]string{}}
 	for _, r := range regions {
 		vf.regions = append(vf.regions, r.Name)
 		zones, err := drv.Zones(ctx, r.Name)
@@ -134,6 +141,9 @@ func loadVendor(ctx context.Context, drv vendors.Driver) (*vendorFacts, error) {
 		}
 		slices.SortFunc(cz, func(a, b catalog.Zone) int { return compare(a.Name, b.Name) })
 		vf.zones[r.Name] = cz
+		for _, z := range cz {
+			vf.zoneRegion[z.Name] = r.Name
+		}
 		vf.hasZones = vf.hasZones || len(cz) > 0
 	}
 	slices.Sort(vf.regions)
@@ -229,45 +239,145 @@ func (f *Facts) nodeOptions(vendor string) vendors.NodeOptions {
 	return nil
 }
 
-// RootDiskBytes implements catalog.Facts.
-func (f *Facts) RootDiskBytes(vendor string, _ *catalog.Class) (int64, bool) {
+// defaultsFor returns the resolved settings of the class's default route (the
+// driver's defaults and the NodeClass's vendor block), cached per class
+// content: the catalog asks for every offering of every type.
+func (f *Facts) defaultsFor(
+	vendor string, class *catalog.Class, no vendors.NodeOptions,
+) (vendors.VendorSettings, bool) {
+	key := class.Hash + "/" + vendor
+	if v, ok := f.defaults.Load(key); ok {
+		d := v.(resolved)
+		return d.settings, d.ok
+	}
+	s, err := options.Resolve(no, class.Inputs[vendor], options.Selection{})
+	if f.defaultsN.Add(1) > maxCachedDefaults {
+		f.defaults.Clear()
+		f.defaultsN.Store(0)
+	}
+	f.defaults.Store(key, resolved{settings: s, ok: err == nil})
+	return s, err == nil
+}
+
+type resolved struct {
+	settings vendors.VendorSettings
+	ok       bool
+}
+
+// maxCachedDefaults bounds the cache of resolved defaults; NodeClass edits
+// leave entries of old content behind.
+const maxCachedDefaults = 256
+
+// RootDiskBytes implements catalog.Facts: the root disk of the class's
+// resolved default settings.
+func (f *Facts) RootDiskBytes(vendor string, class *catalog.Class) (int64, bool) {
 	no := f.nodeOptions(vendor)
 	if no == nil {
 		return 0, false
 	}
-	b := no.Defaults().RootDiskBytes
-	return b, b > 0
+	s, ok := f.defaultsFor(vendor, class, no)
+	if !ok {
+		s = no.Defaults()
+		s.RootDiskBytes = no.RootDiskBytes(s)
+	}
+	return s.RootDiskBytes, s.RootDiskBytes > 0
 }
 
-// Supported implements catalog.Facts (labels.Supporter).
-func (f *Facts) Supported(vendor, apiReference, zone string, defined labels.Profiles) map[labels.ProfileKind][]string {
+func catalogType(vendor string, srv *model.Server) vendors.CatalogType {
+	return vendors.CatalogType{
+		Vendor: vendor, APIReference: srv.APIReference, Family: srv.Family, Arch: srv.Arch,
+		VCPUs: srv.VCPUs, MemoryMiB: srv.MemoryMiB,
+		LocalStorageGB: srv.LocalStorageGB, LocalStorageCount: srv.LocalStorageCount,
+	}
+}
+
+// regionOf returns the region of a zone name, "" when unknown.
+func (f *Facts) regionOf(vendor, zone string) string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	vf := f.data[vendor]
+	if vf == nil {
+		return ""
+	}
+	if region, ok := vf.zoneRegion[zone]; ok {
+		return region
+	}
+	return zone // a vendor without zones is offered with zone = region
+}
+
+// Supported implements catalog.Facts: the driver says which of the class's
+// profiles the type can host in the zone. With pricing.allowIncomplete false a
+// profile whose price is incomplete is not supported either, so that the
+// scheduler rejects it instead of Create (00a section 10).
+func (f *Facts) Supported(vendor string, class *catalog.Class, srv *model.Server, zone string,
+) map[labels.ProfileKind][]string {
 	no := f.nodeOptions(vendor)
-	if no == nil {
+	in := class.Inputs[vendor]
+	if no == nil || len(in.Profiles) == 0 {
 		return nil
 	}
-	profiles := vendors.Profiles{}
-	for k, names := range defined {
-		profiles[string(k)] = names
-	}
-	got := no.Supported(vendors.CatalogType{Vendor: vendor, APIReference: apiReference}, zone, profiles)
+	ct := catalogType(vendor, srv)
+	got := no.Supported(ct, zone, vendors.Profiles(in.Profiles))
 	if len(got) == 0 {
 		return nil
 	}
+	region := f.regionOf(vendor, zone)
 	out := map[labels.ProfileKind][]string{}
-	for k, names := range got {
-		out[labels.ProfileKind(k)] = names
+	for kind, names := range got {
+		for _, name := range names {
+			if _, defined := in.Profiles[kind][name]; !defined {
+				continue
+			}
+			if !class.AllowIncompletePrice && !f.profileComplete(no, in, kind, name, ct, region, zone) {
+				continue
+			}
+			out[labels.ProfileKind(kind)] = append(out[labels.ProfileKind(kind)], name)
+		}
+	}
+	// A driver builds its answer from maps: the order is not its to define.
+	for _, names := range out {
+		slices.Sort(names)
 	}
 	return out
 }
 
-// PriceDelta implements catalog.Facts.
-func (f *Facts) PriceDelta(vendor string, _ *catalog.Class, apiReference, zone, capacityType string) (float64, bool) {
+func (f *Facts) profileComplete(no vendors.NodeOptions, in options.Input, kind, name string, ct vendors.CatalogType,
+	region, zone string) bool {
+	sel := options.Selection{}
+	switch kind {
+	case vendors.ProfileStorage:
+		sel.Storage = name
+	case vendors.ProfileNetwork:
+		sel.Network = name
+	default:
+		sel.Placement = name
+	}
+	s, err := options.Resolve(no, in, sel)
+	if err != nil {
+		return false
+	}
+	_, complete := no.PriceDelta(s, vendors.Offering{
+		Region: region, Zone: zone, CapacityType: vendors.CapacityOnDemand, APIReference: ct.APIReference, Type: ct,
+	})
+	return complete
+}
+
+// PriceDelta implements catalog.Facts: the price of the class's default
+// settings.
+func (f *Facts) PriceDelta(vendor string, class *catalog.Class, srv *model.Server, zone, capacityType string,
+) (float64, bool) {
 	no := f.nodeOptions(vendor)
 	if no == nil {
 		return 0, true
 	}
-	off := vendors.Offering{Zone: zone, CapacityType: capacityType, APIReference: apiReference}
-	return no.PriceDelta(no.Defaults(), off)
+	s, ok := f.defaultsFor(vendor, class, no)
+	if !ok {
+		return 0, true // the NodeClass controller reports the invalid block
+	}
+	ct := catalogType(vendor, srv)
+	return no.PriceDelta(s, vendors.Offering{
+		Region: f.regionOf(vendor, zone), Zone: zone, CapacityType: capacityType, APIReference: srv.APIReference, Type: ct,
+	})
 }
 
 // Launchable implements catalog.LaunchableFacts.
@@ -282,6 +392,13 @@ func (f *Facts) Launchable(vendor, apiReference, zoneID string) (launchable, kno
 // sets change.
 func (f *Facts) Epoch() uint64 {
 	e := f.epoch.Load()
+	for _, vendor := range f.opts.Registry.Vendors() {
+		if drv, ok := f.opts.Registry.Driver(vendor); ok {
+			if r, ok := drv.(vendors.EpochReporter); ok {
+				e += r.NodeOptionsEpoch()
+			}
+		}
+	}
 	if f.opts.Launchable != nil {
 		// The two counters only grow, so their sum changes whenever one does.
 		e += f.opts.Launchable.LaunchableEpoch()

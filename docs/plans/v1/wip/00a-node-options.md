@@ -595,6 +595,23 @@ Timing:
   (idle TTL does not apply to them); useful to take creation latency out of the
   first launch.
 
+Decided in plan 06:
+
+- A shared regional resource (one name per cluster, kind and region) is governed
+  by every live NodeClass that maps to it: the most conservative lifecycle wins
+  (`retain`, then `idleTTL` with the longest TTL, then `perUse`), and `preCreate`
+  of any of them protects it.
+- A resource that no live NodeClass maps to follows the NodeClass that created it
+  while that exists, else the kind's default lifecycle; that is later than "deleted
+  when its NodeClass is deleted" and is accepted.
+- The idle time never counts from before the controller process first saw the
+  resource (a restart restarts the clock).
+- `{zone}` in a `use` name pattern: a region is unavailable only when no zone
+  matches; a zone without a match is unavailable on its own.
+- Backlog: placement-group size limits (§6.3), NodeClass Events for pending pods
+  that use SCarpenter keys no type satisfies (§8.3), and the cleanup of managed
+  resources on uninstall.
+
 Deletion respects dependencies (instances → NICs/volumes → security groups →
 subnets → networks → resource groups), retries with backoff, and is recorded
 in Events and metrics. A resource that is still in use by something

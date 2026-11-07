@@ -26,7 +26,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/controllers/garbagecollection"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/controllers/quotastatus"
+	"github.com/SpareCores/scarpenter/pkg/controllers/resourcestatus"
 	"github.com/SpareCores/scarpenter/pkg/quota"
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -44,6 +46,7 @@ type Components struct {
 	Tracker     *quota.Tracker
 	Facts       *facts.Facts
 	Catalog     *catalog.Catalog
+	Resources   *resources.Engine
 	Scope       *scope.Resolver
 	// Artifacts, Refs, Renderer and Tokens are the node bootstrap (overview
 	// section 8): the sysext digests, the references of the NodeClasses, the
@@ -114,7 +117,25 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		Client: o.GetClient(), Reader: o.GetAPIReader(), TTL: opts.BootstrapTokenTTL,
 		Clock: o.Clock, Recorder: o.EventRecorder,
 	})
-	if c.Catalog, err = o.WithCatalog(c.Facts, un, c.Tracker); err != nil {
+	c.Resources = resources.New(resources.Options{
+		Registry: reg, Reader: o.GetClient(), Clock: o.Clock, ClusterName: opts.ClusterName,
+		DefaultTTL: opts.ResourceDefaultTTL, PerUseGrace: opts.ResourcePerUseGrace, DryRun: opts.GCDryRun,
+		Recorder: o.EventRecorder, DeploymentRef: deploymentRef, Unavailable: un,
+		Regions:        func(vendor string) []string { return c.regionsInUse(ctx, vendor) },
+		AllRegions:     c.Facts.Regions,
+		FullSweepEvery: opts.ResourceFullSweepEvery,
+		ResolveTTL:     min(opts.ResourceCheckInterval, 30*time.Second),
+		Zones: func(vendor, region string) []string {
+			zones, _ := c.Facts.Zones(vendor)
+			out := make([]string, 0, len(zones[region]))
+			for _, z := range zones[region] {
+				out = append(out, z.Name)
+			}
+			return out
+		},
+		Registerer: metrics.Registry,
+	})
+	if c.Catalog, err = o.WithCatalog(c.Facts, un, c.Tracker, c.Resources); err != nil {
 		return nil, err
 	}
 	for _, r := range []interface {
@@ -163,6 +184,7 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 		Registry:          c.Registry,
 		Unavailable:       c.Unavailable,
 		Quota:             c.Tracker,
+		Resources:         c.Resources,
 		Scope:             c.Scope,
 		Tokens:            c.Tokens,
 		UserData:          c.Renderer,
@@ -193,6 +215,7 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 		Regions:       func(vendor string) []string { return c.regionsInUse(ctx, vendor) },
 		DeploymentRef: deploymentRef,
 		OnDeleted:     c.Tracker.NotifyChanged,
+		Sweepers:      []garbagecollection.Sweeper{c.Resources.Sweep},
 		Registerer:    metrics.Registry,
 	})
 	if err := o.Add(gc); err != nil {
@@ -218,6 +241,13 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	})
 	if err := qs.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the quota status controller: %w", err)
+	}
+	rs := resourcestatus.New(resourcestatus.Options{
+		Client: o.GetClient(), Engine: c.Resources, Regions: c.Facts, Recorder: o.EventRecorder, Clock: o.Clock,
+		Interval: opts.ResourceCheckInterval,
+	})
+	if err := rs.Register(o.Manager); err != nil {
+		return fmt.Errorf("registering the resource status controller: %w", err)
 	}
 	return nil
 }

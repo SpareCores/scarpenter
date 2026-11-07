@@ -1,0 +1,80 @@
+# The first-boot volume unit (00a section 11): extra volumes and instance-local
+# disks. A oneshot service per volume finds the device from the hints the driver
+# returned and creates the filesystem label once; a mount unit per volume then
+# mounts by label. Rendered only for nodes that have volumes or local storage.
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+{{- if .Volumes }}
+    - path: /opt/scarpenter/bin/scarpenter-volume
+      mode: 0755
+      contents:
+        inline: |
+{{ .VolumeScript | indent 10 }}
+{{- end }}
+{{- if .Local }}
+    - path: /opt/scarpenter/bin/scarpenter-local-storage
+      mode: 0755
+      contents:
+        inline: |
+{{ .LocalScript | indent 10 }}
+{{- end }}
+systemd:
+  units:
+{{- range .Volumes }}
+    - name: {{ .ServiceUnit }}
+      contents: |
+        [Unit]
+        Description=Prepare the volume {{ .Name }}
+        DefaultDependencies=no
+        After=local-fs-pre.target
+        Before={{ .MountUnit }}
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/opt/scarpenter/bin/scarpenter-volume {{ .Args }}
+    - name: {{ .MountUnit }}
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Mount the volume {{ .Name }}
+        Requires={{ .ServiceUnit }}
+        After={{ .ServiceUnit }}
+        Before=local-fs.target
+        [Mount]
+        What=/dev/disk/by-label/{{ .Label }}
+        Where={{ .Where }}
+        Type={{ .Filesystem }}
+        [Install]
+        WantedBy=local-fs.target
+{{- end }}
+{{- with .Local }}
+    - name: scarpenter-local-storage.service
+      contents: |
+        [Unit]
+        Description=Prepare the instance-local disks
+        DefaultDependencies=no
+        After=local-fs-pre.target
+        Before=local-fs.target
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/opt/scarpenter/bin/scarpenter-local-storage {{ .Args }}
+{{- range .Mounts }}
+    - name: {{ .MountUnit }}
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Mount the local storage {{ .Label }}
+        Requires=scarpenter-local-storage.service
+        After=scarpenter-local-storage.service
+        Before=local-fs.target
+        [Mount]
+        What=/dev/disk/by-label/{{ .Label }}
+        Where={{ .Where }}
+        Type=ext4
+        [Install]
+        WantedBy=local-fs.target
+{{- end }}
+{{- end }}

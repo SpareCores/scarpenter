@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 )
 
 // Capacity types, as Karpenter spells them.
@@ -250,29 +251,62 @@ type ImageReporter interface {
 	ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]v1alpha1.ImageStatus, error)
 }
 
-// VendorSettings are the resolved vendor settings of a node (00a section 3:
-// defaults, NodeClass vendor block, profiles). Plan 06 fills them; plan 04 only
-// carries what the core itself needs.
+// Profile kinds, the keys of Profiles and of the maps the NodeOptions hooks
+// return (00a section 6): one label each.
+const (
+	ProfileStorage   = "storage"
+	ProfileNetwork   = "network"
+	ProfilePlacement = "placement"
+)
+
+// DefaultProfile is the name that stands for "no profile": the vendor defaults
+// and the NodeClass's vendor block.
+const DefaultProfile = v1alpha1.DefaultProfile
+
+// VendorSettings are the resolved vendor settings of a node (00a section 3):
+// the driver's built-in defaults, overridden by the NodeClass's vendor block,
+// overridden by the profiles the workload selected. The merge is generic (JSON
+// merge: objects merge key by key, lists and scalars replace); the driver
+// decodes the result into its own types.
 type VendorSettings struct {
-	// RootDiskBytes is the size of the root disk the scheduler assumes as
-	// ephemeral storage; 0 when unknown.
+	// RootDiskBytes is the size of the root disk, which the scheduler assumes
+	// as ephemeral storage; 0 when unknown. It is what the driver's
+	// RootDiskBytes says about the resolved settings.
 	RootDiskBytes int64
-	// Raw is the vendor block, decoded by the driver.
+	// Raw is the merged vendor block (regions and resources removed): its
+	// storage member already holds the selected storage profile.
 	Raw json.RawMessage
+	// Network and Placement are the blocks of the selected network and
+	// placement profiles; nil with the default.
+	Network   json.RawMessage
+	Placement json.RawMessage
+	// Networking is the generic networking: spec.networking with the vendor
+	// block's override applied.
+	Networking common.Networking
+	// Profiles are the applied profile names by kind (storage, network,
+	// placement): the selected name or "default".
+	Profiles map[string]string
 }
 
-// CatalogType identifies an instance type for the profile hook.
+// CatalogType identifies an instance type for the profile and price hooks.
 type CatalogType struct {
 	Vendor       string
 	APIReference string
+	Family       string
 	Arch         string
 	VCPUs        int
 	MemoryMiB    float64
+	// LocalStorageGB and LocalStorageCount describe the bundled local disks
+	// (0: none or unknown).
+	LocalStorageGB    float64
+	LocalStorageCount int
 }
 
-// Profiles are the profile names a NodeClass defines for the vendor, by kind
-// (storage, network, placement).
-type Profiles map[string][]string
+// Profiles are the profiles a NodeClass defines for the vendor: kind
+// (storage, network, placement) to profile name to the profile's block for
+// this vendor (JSON of the vendor package's type). A profile that has no block
+// for the vendor is not in it: it does not exist on the vendor (ADR-017).
+type Profiles map[string]map[string]json.RawMessage
 
 // Offering identifies an offering for the price hook.
 type Offering struct {
@@ -280,6 +314,47 @@ type Offering struct {
 	Zone         string
 	CapacityType string
 	APIReference string
+	Type         CatalogType
+}
+
+// ResourceProvider gives a driver's Prepare the vendor resources the instance
+// needs, as the NodeClass configures them (00a section 9): brought by the user
+// (use), the vendor's own default, or managed by SCarpenter (find or create
+// with ownership marker, serialised and tracked for garbage collection). The
+// driver says what it needs; the core decides where it comes from.
+type ResourceProvider interface {
+	// Require returns the resources of the kind for the launch. A resource
+	// that is missing, or that the NodeClass forbids to create and the vendor
+	// has no default for, is an *Error of class Unsupported with code
+	// ResourceMissing or ResourceForbidden.
+	Require(ctx context.Context, req ResourceRequest) ([]ResourceRef, error)
+}
+
+// Codes of the Unsupported errors of a ResourceProvider.
+const (
+	CodeResourceMissing   = "ResourceMissing"
+	CodeResourceForbidden = "ResourceForbidden"
+	// CodeResourceMissingInZone: a zone pattern of a `use` reference matches
+	// nothing in the launch's zone; the other zones of the region are fine.
+	CodeResourceMissingInZone = "ResourceMissingInZone"
+)
+
+// ResourceRequest asks a ResourceProvider for a resource kind.
+type ResourceRequest struct {
+	Kind ResourceKind
+	// Zone is set for zonal kinds.
+	Zone string
+	// Key discriminates managed resources of a per-run or per-node kind (the
+	// profile and run key of a placement group, the node and volume name of a
+	// volume); the engine derives the deterministic name from it. Empty for
+	// shared regional kinds.
+	Key string
+	// Params are the kind's create parameters, passed to Ensure as they are.
+	Params json.RawMessage
+	// Use overrides the NodeClass's configuration of the kind: the resource is
+	// referenced, never created and never deleted (a placement profile that
+	// names an existing group).
+	Use *UseRef
 }
 
 // PrepareRequest asks a driver to make the resources an instance needs first
@@ -289,24 +364,59 @@ type PrepareRequest struct {
 	Zone         string
 	InstanceType string
 	CapacityType string
-	Settings     VendorSettings
-	Tags         map[TagKey]string
+	// Type describes the instance type (its local disks, for example).
+	Type     CatalogType
+	Settings VendorSettings
+	Tags     map[TagKey]string
 	// RunKey is the placement run key, if any.
 	RunKey string
+	// Resources provides the vendor resources.
+	Resources ResourceProvider
 }
 
-// Prepared is what Prepare resolved or ensured: resource references and device
-// hints for the user-data (00a section 11).
+// DeviceHint says how the guest finds an extra volume and what to put on it
+// (00a section 11). Exactly one of ByID and SerialPattern identifies it.
+type DeviceHint struct {
+	// Name is the volume's name in the profile.
+	Name       string
+	Filesystem string
+	MountPath  string
+	// ByID is the stable device path (/dev/disk/by-id/...) when the vendor
+	// knows it before the instance exists.
+	ByID string
+	// SerialPattern is a shell pattern for the device serial, with SizeBytes,
+	// when the ID exists only after the create.
+	SerialPattern string
+	SizeBytes     int64
+}
+
+// LocalHint configures the instance-local disks (00a section 6.1).
+type LocalHint struct {
+	// Policy is mount or raid0 (ignore needs no hint).
+	Policy    string
+	MountPath string
+	// DevicePattern is a shell pattern over /dev/disk/by-id matching the local
+	// disks, Count their number.
+	DevicePattern string
+	Count         int
+}
+
+// Prepared is what Prepare resolved or ensured: resource references and the
+// device hints for the user-data.
 type Prepared struct {
-	Resources   []ResourceRef
-	DeviceHints map[string]string
+	Resources []ResourceRef
+	Devices   []DeviceHint
+	Local     *LocalHint
 }
 
 // NodeOptions is the optional capability for vendor-native node settings
 // (00a section 5.3).
 type NodeOptions interface {
-	// Defaults are the built-in settings (layer 1).
+	// Defaults are the built-in settings (layer 1): Raw is in the shape of the
+	// vendor block.
 	Defaults() VendorSettings
+	// RootDiskBytes is the root disk of the resolved settings.
+	RootDiskBytes(s VendorSettings) int64
 	// Supported returns the valid profile names per kind for the type in the
 	// zone ("default" is always valid).
 	Supported(it CatalogType, zone string, p Profiles) map[string][]string
@@ -317,41 +427,115 @@ type NodeOptions interface {
 	Prepare(ctx context.Context, req PrepareRequest) (*Prepared, error)
 }
 
-// ResourceKind is a kind of vendor resource (subnets, securityGroups, ...).
+// EpochReporter is the optional capability of a driver whose answers to
+// Supported and PriceDelta can change at runtime (the fake driver's steering):
+// the epoch changes whenever they may have, so the catalog rebuilds.
+type EpochReporter interface {
+	NodeOptionsEpoch() uint64
+}
+
+// ResourceKind is a kind of vendor resource (subnets, securityGroups, ...);
+// kinds are the keys of spec.vendors.<vendor>.resources.
 type ResourceKind string
 
-// UseRef says which existing resources to use: IDs, a name pattern or tags.
+// ResourceScope says how widely a managed resource is shared.
+type ResourceScope string
+
+// The scopes of a resource kind.
+const (
+	// ScopeRegion: one per region (or zone), shared by every node: networks,
+	// subnets, firewalls.
+	ScopeRegion ResourceScope = "region"
+	// ScopeRun: one per placement run key: placement groups.
+	ScopeRun ResourceScope = "run"
+	// ScopeNode: one per instance: separate volumes.
+	ScopeNode ResourceScope = "node"
+)
+
+// KindSpec describes a resource kind of a driver.
+type KindSpec struct {
+	Kind  ResourceKind
+	Scope ResourceScope
+	// DefaultPolicy is the lifecycle of a managed resource of the kind when
+	// the NodeClass says nothing (00a section 9.3).
+	DefaultPolicy common.LifecyclePolicy
+	// DeleteOrder orders deletions within a region: lower is deleted first
+	// (instances, volumes, placement groups, security groups, subnets,
+	// networks, resource groups).
+	DeleteOrder int
+}
+
+// UseRef says which existing resources to use. All empty means the vendor's own
+// default resource of the kind, where it has one.
 type UseRef struct {
 	IDs         []string
 	NamePattern string
 	Tags        map[string]string
 }
 
+// IsDefault reports whether the reference asks for the vendor's default.
+func (u UseRef) IsDefault() bool {
+	return len(u.IDs) == 0 && u.NamePattern == "" && len(u.Tags) == 0
+}
+
+// TagResource is the logical tag that records the kind of a managed resource;
+// with cluster, nodeclass and managed-by it is the ownership marker.
+const TagResource TagKey = "resource-kind"
+
+// ResourceTagKeys are the logical tags of a managed resource.
+var ResourceTagKeys = []TagKey{TagCluster, TagNodeClass, TagManagedBy, TagResource}
+
 // CreateSpec describes a resource to find or create.
 type CreateSpec struct {
-	Name   string
-	Tags   map[string]string
+	// Name is the deterministic name (scarpenter-<cluster>-<kind>-<region>[-<hash>]).
+	Name string
+	Zone string
+	// Tags are the ownership marker; ExtraTags the NodeClass's own tags.
+	Tags      map[TagKey]string
+	ExtraTags map[string]string
+	// Params are the kind's create parameters (a placement strategy, a size).
 	Params json.RawMessage
 }
 
 // ResourceRef is a vendor resource.
 type ResourceRef struct {
-	Kind    ResourceKind
-	Region  string
-	ID      string
-	Name    string
+	Kind   ResourceKind
+	Region string
+	ID     string
+	Name   string
+	// Managed is true for resources SCarpenter created (it carries the
+	// ownership marker); resources of use and the vendor's defaults are not.
 	Managed bool
+	// Tags are the marker tags of a managed resource, as List reads them.
+	Tags map[TagKey]string
+	// CreatedAt is when the resource was created, zero when unknown.
+	CreatedAt time.Time
 }
 
 // ManagedResources is the optional capability for vendor resources that are
 // brought by the user (use) or created by SCarpenter (create), 00a section 9.
 type ManagedResources interface {
-	Kinds() []ResourceKind
+	// Kinds lists the kinds the driver knows.
+	Kinds() []KindSpec
+	// Resolve finds existing resources of the kind in the region by IDs, name
+	// pattern or tags; with an empty UseRef the vendor's own default resources
+	// (AWS default VPC subnets, GCP default network). Nothing found is an
+	// empty result, not an error. Resolved resources are never modified.
 	Resolve(ctx context.Context, kind ResourceKind, region string, ref UseRef) ([]ResourceRef, error)
-	Ensure(ctx context.Context, kind ResourceKind, region string, spec CreateSpec) (ResourceRef, error)
-	InUse(ctx context.Context, ref ResourceRef) (bool, time.Time, error)
+	// Ensure finds the resource by name and ownership marker, or creates it;
+	// idempotent. created is false when an existing resource was adopted.
+	Ensure(ctx context.Context, kind ResourceKind, region string, spec CreateSpec) (
+		ref ResourceRef, created bool, err error)
+	// InUse says whether an instance uses the resource, and when it was last
+	// used (or created, when never): the garbage collector's input.
+	InUse(ctx context.Context, ref ResourceRef) (inUse bool, lastUsed time.Time, err error)
+	// Delete removes a managed resource; idempotent. A resource the vendor
+	// refuses to delete (still in use by something else) is an error of class
+	// Retryable.
 	Delete(ctx context.Context, ref ResourceRef) error
-	List(ctx context.Context, tags map[TagKey]string) ([]ResourceRef, error)
+	// List returns the resources in the regions that carry all the tags (the
+	// ownership marker), for adoption and garbage collection.
+	List(ctx context.Context, regions []string, tags map[TagKey]string) ([]ResourceRef, error)
 }
 
 // QuotaScope says whether a bucket is per region or account-wide.

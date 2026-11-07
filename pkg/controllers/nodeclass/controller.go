@@ -35,6 +35,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/artifacts"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -467,6 +468,16 @@ func (c *Controller) vendorReady(
 	}
 	if v, ok := drv.(vendors.NodeClassValidator); ok {
 		if err := v.ValidateNodeClass(ctx, nc); err != nil {
+			return false, ReasonVendorInvalid, trim(err.Error())
+		}
+	}
+	// The vendor block and every profile must merge with the driver's defaults.
+	if no, ok := drv.(vendors.NodeOptions); ok {
+		in, _, err := options.InputFromNodeClass(nc, vendor)
+		if err == nil {
+			err = options.Validate(no, in)
+		}
+		if err != nil {
 			return false, ReasonVendorInvalid, trim(err.Error())
 		}
 	}

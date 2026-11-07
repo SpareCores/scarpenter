@@ -29,7 +29,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/artifacts"
 )
 
-//go:embed templates/*.bu
+//go:embed templates/*.bu templates/*.sh
 var templates embed.FS
 
 // Size limits of the user-data. The limit is the smallest of the vendors, AWS's
@@ -85,9 +85,10 @@ type TailscaleData struct {
 
 // TemplateData are the variables of the Butane templates (overview section
 // 8.2). Templates are strict: a variable that does not exist is an error.
-// Zone and InstanceType are empty: the user-data is rendered once per vendor,
-// region and architecture and shared by every launch attempt (overview section
-// 4.1).
+// Zone and InstanceType are the offering of the launch attempt: the user-data
+// is rendered per attempt, because the kubelet's reservations (kube-reserved)
+// and the device hints depend on the instance type (plan 06); they are empty
+// in the trial rendering of the NodeClass controller.
 type TemplateData struct {
 	NodeName          string
 	ProviderID        string
@@ -116,6 +117,12 @@ type TemplateData struct {
 	// not set).
 	PoweroffAfter        string
 	PoweroffAfterSeconds int64
+	// Volumes and Local are the first-boot volume unit (volumes template);
+	// VolumeScript and LocalScript the scripts it installs.
+	Volumes      []VolumeData
+	Local        *LocalData
+	VolumeScript string
+	LocalScript  string
 }
 
 // Network is the network part of the node's configuration.
@@ -174,6 +181,15 @@ type Params struct {
 	UserSource string
 
 	PoweroffAfter time.Duration
+
+	// KubeReserved, when set, is the kubelet's kubeReserved for the instance
+	// type: what the catalog assumed for scheduling, so that the node's
+	// allocatable matches the scheduler's. It replaces Kubelet.KubeReserved.
+	KubeReserved map[string]string
+	// Volumes and Local are the device hints of the launch (00a section 11).
+	Volumes []VolumeHint
+	Local   *LocalHint
+
 	// Budget is the size above which Render fails; 0 means MaxUserDataSize.
 	Budget int
 }
@@ -192,6 +208,14 @@ func Render(p Params) (*Rendered, error) {
 		return nil, err
 	}
 	parts = append(parts, Part{Name: "base", Ignition: base})
+
+	if len(p.Volumes) > 0 || p.Local != nil {
+		volumes, err := renderBuiltin("volumes", "volumes.bu", data)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, Part{Name: "volumes", Ignition: volumes})
+	}
 
 	var network []byte
 	switch p.Network.Template {
@@ -262,7 +286,11 @@ func (p *Params) templateData() (*TemplateData, error) {
 		args = append(args, "--register-with-taints="+taints)
 	}
 
-	kubeletConfig, err := KubeletConfiguration(p.Kubelet, p.ClusterDNS, p.ClusterDomain)
+	kubelet := p.Kubelet
+	if len(p.KubeReserved) > 0 {
+		kubelet.KubeReserved = p.KubeReserved
+	}
+	kubeletConfig, err := KubeletConfiguration(kubelet, p.ClusterDNS, p.ClusterDomain)
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +307,25 @@ func (p *Params) templateData() (*TemplateData, error) {
 	}
 	if d.Labels == nil {
 		d.Labels = map[string]string{}
+	}
+	if len(p.Volumes) > 0 || p.Local != nil {
+		if d.Volumes, d.Local, err = volumesData(p.Volumes, p.Local); err != nil {
+			return nil, err
+		}
+		if len(d.Volumes) > 0 {
+			script, err := templates.ReadFile("templates/scarpenter-volume.sh")
+			if err != nil {
+				return nil, fmt.Errorf("reading the volume script: %w", err)
+			}
+			d.VolumeScript = string(script)
+		}
+		if d.Local != nil {
+			script, err := templates.ReadFile("templates/scarpenter-local-storage.sh")
+			if err != nil {
+				return nil, fmt.Errorf("reading the local storage script: %w", err)
+			}
+			d.LocalScript = string(script)
+		}
 	}
 	if p.PoweroffAfter > 0 {
 		d.PoweroffAfter = p.PoweroffAfter.String()

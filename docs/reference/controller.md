@@ -46,6 +46,9 @@ the last column.
 | `--unavailable-zone-unusable-ttl` | `SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL` | `0` (10m) | How long a zone stays unavailable after `ZoneUnusable`. | plan 04 |
 | `--keeper-prices-regions-per-request` | `SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST` | `0` (client default) | Regions per Keeper price request. The replay server of the test lanes has one region per recorded request and needs `1`. | plan 04 |
 | `--resource-default-ttl` | `SCARPENTER_RESOURCE_DEFAULT_TTL` | `24h` | `idleTTL` of managed shared resources when an SCNodeClass does not set one. | plan 06 |
+| `--resource-per-use-grace` | `SCARPENTER_RESOURCE_PER_USE_GRACE` | `2m` | How long an unused `perUse` managed resource is kept for launches in flight. | plan 06 |
+| `--resource-full-sweep-every` | `SCARPENTER_RESOURCE_FULL_SWEEP_EVERY` | `10` | Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed resources of every region of the driver are swept, not only of the regions in use. | plan 06 |
+| `--resource-check-interval` | `SCARPENTER_RESOURCE_CHECK_INTERVAL` | `30s` | How often the vendor resources of each SCNodeClass are checked (`status.vendors.<vendor>.resources`, `ResourcesReady`, preCreate). | plan 06 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region of the global endpoints. | plan 08 |
 
 All problems of the command line are reported together, and the controller
@@ -69,13 +72,17 @@ Per vendor, `status.vendors.<vendor>.conditions`:
 |---|---|---|
 | `VendorReady` | The vendor is enabled, its regions are ones the driver can use and the driver's `ValidateNodeClass` accepts the block. Reasons: `Ready`, `VendorNotEnabled`, `UnknownRegions`, `ValidationFailed`. | plan 05 |
 | `ImagesReady` | Boot images exist per region and architecture, as the driver's optional `ImageReporter` reports them (`status.vendors.<vendor>.images`); a driver without it resolves images at launch and counts as ready. Informational: a region without an image has unavailable offerings, the NodeClass stays `Ready`. | plan 05 (hook), plan 08 (AWS) |
-| `ResourcesReady` | Referenced resources exist and managed ones are in place. | plan 06 |
+| `ResourcesReady` | `False` (`ResourcesUnavailable`) when a region lacks a resource the NodeClass needs (a `use` reference matching nothing, a `forbid` kind without a vendor default, a preCreate resource that cannot be created): the offerings of that region are unavailable, the message names region and kind; `Unknown` (`CheckFailed`) when the vendor could not be asked. Informational for `Ready`. See [vendor resources](vendor-resources.md#status). | plan 06 |
 | `QuotaAvailable` | Informational: `False` when a quota bucket has no headroom. | plan 04 |
 
 The NodeClass controller (plan 05; see [node bootstrap](node-bootstrap.md#the-nodeclass-controller))
 writes these conditions, the resolved artifacts and the per-vendor drift hash with
 server-side apply under the field manager `scarpenter-nodeclass`; the quota status
-controller sets `QuotaAvailable` (see [Quota](#quota)) under `scarpenter-quota`.
+controller sets `QuotaAvailable` (see [Quota](#quota)) under `scarpenter-quota`, the
+resource status controller `ResourcesReady` and `resources` (see
+[vendor resources](vendor-resources.md#status)) under `scarpenter-resources`.
+`VendorReady` also requires that the vendor block and every profile merge with the
+driver's defaults (`ValidationFailed` otherwise).
 Development builds run the same controller; the stand-in of plan 04 is gone.
 
 `Create` needs `Ready=True` with the current `observedGeneration`. A vendor that
@@ -114,14 +121,32 @@ Binaries built with `-tags scarpenter_dev` add the fake driver and its flags
 (all `SCARPENTER_*` environment fallbacks): `--fake-catalog-vendor` (default
 `aws`: the Keeper vendor whose catalog the fake serves, under that vendor ID),
 `--fake-config-namespace` (`scarpenter-system`), `--fake-config-name`
-(`scarpenter-fake`), `--fake-state-name` (`scarpenter-fake-state`)
-and `--fake-launch-delay` (`0`). Details: [the fake driver](driver-contract.md#the-fake-driver).
-The NodeClass controller is the same as in production.
+(`scarpenter-fake`), `--fake-state-name` (`scarpenter-fake-state`), `--fake-resources-name`
+(`scarpenter-fake-resources`) and `--fake-launch-delay` (`0`). Details: [the fake driver](driver-contract.md#the-fake-driver).
+The NodeClass controller is the same as in production. Development builds also
+expose the gauges `scarpenter_fake_state_revision` and
+`scarpenter_fake_state_published_revision` (the revision of the fake's in-memory
+state and of its state ConfigMap).
 
 ## CloudProvider
 
 The CloudProvider is named `scarpenter` and supports the `SCNodeClass` kind. It
 is vendor-neutral on top of [the driver contract](driver-contract.md).
+
+`Create` resolves the vendor settings of each candidate (driver defaults, the
+vendor block, the profiles the NodeClaim's requirements select; see [node
+settings](node-settings.md)), orders the candidates by price plus the price delta
+of the settings, and for each attempt runs the driver's `Prepare` (vendor
+resources, placement groups, volumes, with the placement run key) before the
+vendor call, renders the user-data for that attempt (zone, instance type, the
+type's kube-reserved, the device hints), and stamps the profile labels, the run
+key, the price (`price-incomplete` where the price misses components) and the
+profile hashes on the NodeClaim. A vendor resource that is missing or forbidden
+fails the candidate (`Unsupported`, code `ResourceMissing` or `ResourceForbidden`)
+without marking the type or the zone, skips the other candidates of the region
+and makes the region's offerings unavailable. A replayed idempotency key that
+returns another instance than the attempted offering moves the quota reservation
+to the returned instance.
 
 - `GetInstanceTypes` returns the catalog's instance types for the NodePool's
   SCNodeClass, pre-filtered by the NodePool's requirements on vendor, region,
@@ -222,8 +247,11 @@ NodeClaim) and deletes those whose NodeClaim does not exist (or that lack the
 `nodeclaim` tag) and that are older than `--gc-grace-period`. Bootstrap-token
 Secrets (`kube-system`, label `scarpenter.sparecores.com/nodeclaim`) of missing
 NodeClaims are deleted the same way, with a `GarbageCollected` Event on the
-SCNodeClass of the token's `scarpenter.sparecores.com/nodeclass` label. Managed vendor resources are added by plan
-06. Every deletion is logged with its reason and published as the Normal Event
+SCNodeClass of the token's `scarpenter.sparecores.com/nodeclass` label. Managed
+vendor resources are swept after the instances and tokens by their lifecycle
+(`perUse`, `idleTTL`, `retain`) in the driver's dependency order, only when they
+carry both the deterministic name and the ownership marker, never those of `use`;
+the metrics and Events are in [vendor resources](vendor-resources.md#garbage-collection). Every deletion is logged with its reason and published as the Normal Event
 `GarbageCollected` on the SCNodeClass of the instance's `nodeclass` tag, else on
 the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 

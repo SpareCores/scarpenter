@@ -29,7 +29,24 @@ const (
 	keyQuota       = "quota"
 	keyLaunchDelay = "launchDelay"
 	keyOrphans     = "orphans"
+	// keyUnsupported lists profiles that instance types cannot host, and
+	// keyExisting the resources the account had before SCarpenter (what `use`
+	// references and the vendor's default resources resolve to).
+	keyUnsupported = "unsupported"
+	keyExisting    = "existingResources"
 )
+
+// unsupportedRule says that a profile is not valid for the matching types and
+// zones (Supported leaves it out): a profile kind and name, with the instance
+// types (API references or catalog names), families and zones it covers; empty
+// lists match everything.
+type unsupportedRule struct {
+	Kind          string   `json:"kind"`
+	Profile       string   `json:"profile"`
+	InstanceTypes []string `json:"instanceTypes,omitempty"`
+	Families      []string `json:"families,omitempty"`
+	Zones         []string `json:"zones,omitempty"`
+}
 
 // errorRule makes matching CreateInstance calls fail with an error class.
 type errorRule struct {
@@ -93,7 +110,32 @@ type config struct {
 	quota       *quotaConfig
 	launchDelay *time.Duration
 	orphans     []orphanConfig
+	rules       []unsupportedRule
+	existing    []existingResource
 	raw         map[string]string
+}
+
+// unsupported reports whether a rule makes the profile invalid for the type in
+// the zone.
+func (c *config) unsupported(kind, profile string, it vendors.CatalogType, zone string) bool {
+	for _, r := range c.rules {
+		if r.Kind != kind || r.Profile != profile {
+			continue
+		}
+		if len(r.InstanceTypes) > 0 && !slices.ContainsFunc(r.InstanceTypes, func(t string) bool {
+			return strings.TrimPrefix(t, it.Vendor+".") == it.APIReference
+		}) {
+			continue
+		}
+		if len(r.Families) > 0 && !slices.Contains(r.Families, it.Family) {
+			continue
+		}
+		if len(r.Zones) > 0 && !slices.Contains(r.Zones, zone) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // refreshConfig re-reads the steering ConfigMap unless it was read within the
@@ -130,7 +172,7 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	}
 	next := &config{raw: map[string]string{}}
 	prev := d.conf
-	for _, key := range []string{keyErrors, keyQuota, keyLaunchDelay, keyOrphans} {
+	for _, key := range []string{keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyUnsupported, keyExisting} {
 		next.raw[key] = cm.Data[key]
 	}
 	parse := func(key string, apply func(string) error, keep func()) {
@@ -206,6 +248,33 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	}, func() {
 		if prev != nil {
 			next.orphans = prev.orphans
+		}
+	})
+	parse(keyUnsupported, func(raw string) error {
+		var rules []unsupportedRule
+		if err := yaml.UnmarshalStrict([]byte(raw), &rules); err != nil {
+			return err
+		}
+		next.rules = rules
+		if prev == nil || prev.raw[keyUnsupported] != raw {
+			d.unsupportedEpoch.Add(1)
+		}
+		return nil
+	}, func() {
+		if prev != nil {
+			next.rules = prev.rules
+		}
+	})
+	parse(keyExisting, func(raw string) error {
+		var list []existingResource
+		if err := yaml.UnmarshalStrict([]byte(raw), &list); err != nil {
+			return err
+		}
+		next.existing = list
+		return nil
+	}, func() {
+		if prev != nil {
+			next.existing = prev.existing
 		}
 	})
 	d.conf = next

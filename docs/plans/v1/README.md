@@ -31,7 +31,7 @@ Execution protocol:
 | 03 | `done/03-catalog.md` | done | Keeper → instance types and offerings; attribute, metric, selection, location and profile labels; refresh; unavailable cache | 02 |
 | 04 | `done/04-cloudprovider-and-fake-driver.md` | done | CloudProvider, driver contract + registry + conformance, quota tracker, fake driver, GC, L3 KWOK lane, scale measurement | 03 |
 | 05 | `done/05-bootstrap.md` | done | tokens, artifacts, templates → Ignition, NodeClass controller, CSR approver | 04 |
-| 06 | `wip/06-node-options-and-resources.md` | todo | settings resolution and profiles, vendor resources (use/create, lifecycles, GC), pricing deltas, first-boot volume unit; fake driver + L3 scenarios | 05 |
+| 06 | `wip/06-node-options-and-resources.md` | review | settings resolution and profiles, vendor resources (use/create, lifecycles, GC), pricing deltas, first-boot volume unit; fake driver + L3 scenarios | 05 |
 | 07 | `wip/07-qemu-driver.md` | todo | qemu driver, L4 lane with real Flatcar VMs, k3s and a data volume | 06 |
 | 08 | `wip/08-aws-driver.md` | todo | AWS driver incl. quotas, storage/placement/network profiles and resources (in-memory EC2 + Service Quotas fake), IAM policy | 06 |
 | 09 | `wip/09-packaging.md` | todo | Helm chart, release workflow, install and credentials how-tos, controller reference | 08 |

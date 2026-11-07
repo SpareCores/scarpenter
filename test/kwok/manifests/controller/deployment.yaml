@@ -38,6 +38,11 @@ spec:
             - --unavailable-quota-exceeded-ttl=20s
             - --gc-interval=10s
             - --gc-grace-period=30s
+            # Managed resources: a short perUse grace and a quick status check make
+            # the lifecycle scenarios (S15, S16) fast.
+            - --resource-per-use-grace=20s
+            - --resource-check-interval=5s
+            - --resource-full-sweep-every=3
             - --max-launch-attempts=3
             # Core's own settings (the lane links core v1.15.1 as a library):
             # short batching windows keep the scenarios fast; NodeRepair and the

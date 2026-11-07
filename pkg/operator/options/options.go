@@ -51,6 +51,9 @@ const (
 	DefaultGCInterval                 = 2 * time.Minute
 	DefaultGCGracePeriod              = 5 * time.Minute
 	DefaultResourceDefaultTTL         = 24 * time.Hour
+	DefaultResourcePerUseGrace        = 2 * time.Minute
+	DefaultResourceCheckInterval      = 30 * time.Second
+	DefaultResourceFullSweepEvery     = 10
 	DefaultAWSHomeRegion              = "us-east-1"
 )
 
@@ -129,6 +132,15 @@ type Options struct {
 	// ResourceDefaultTTL is the idleTTL of managed shared resources when a
 	// SCNodeClass does not set one.
 	ResourceDefaultTTL time.Duration
+	// ResourcePerUseGrace is how long an unused perUse resource is kept for
+	// launches in flight; ResourceCheckInterval how often the vendor resources
+	// of each SCNodeClass are checked (status and preCreate).
+	ResourcePerUseGrace   time.Duration
+	ResourceCheckInterval time.Duration
+	// ResourceFullSweepEvery is how many garbage collection sweeps pass between
+	// two sweeps of every region of a driver (managed resources of regions no
+	// NodeClass or NodeClaim uses any more).
+	ResourceFullSweepEvery int
 	// AWSHomeRegion is the region of the AWS global endpoints.
 	AWSHomeRegion string
 
@@ -165,6 +177,9 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.UnavailableQuotaExceededTTL, "unavailable-quota-exceeded-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL", 0), "How long a region and capacity type stay unavailable after a QuotaExceeded error of a vendor without a quota API (0 = 30m).")
 	fs.DurationVar(&o.UnavailableZoneUnusableTTL, "unavailable-zone-unusable-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL", 0), "How long a zone stays unavailable after a ZoneUnusable error (0 = 10m).")
 	fs.IntVar(&o.KeeperPricesRegionsPerRequest, "keeper-prices-regions-per-request", env.WithDefaultInt("SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST", 0), "Regions per Keeper price request (0 = the client's default). Test lanes replaying a recorded snapshot set 1.")
+	fs.DurationVar(&o.ResourcePerUseGrace, "resource-per-use-grace", env.WithDefaultDuration("SCARPENTER_RESOURCE_PER_USE_GRACE", DefaultResourcePerUseGrace), "How long an unused perUse managed vendor resource is kept for launches in flight.")
+	fs.DurationVar(&o.ResourceCheckInterval, "resource-check-interval", env.WithDefaultDuration("SCARPENTER_RESOURCE_CHECK_INTERVAL", DefaultResourceCheckInterval), "How often the vendor resources of each SCNodeClass are checked (status, preCreate).")
+	fs.IntVar(&o.ResourceFullSweepEvery, "resource-full-sweep-every", env.WithDefaultInt("SCARPENTER_RESOURCE_FULL_SWEEP_EVERY", DefaultResourceFullSweepEvery), "Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed vendor resources of every region of the driver are swept, not only of the regions in use.")
 	fs.DurationVar(&o.ResourceDefaultTTL, "resource-default-ttl", env.WithDefaultDuration("SCARPENTER_RESOURCE_DEFAULT_TTL", DefaultResourceDefaultTTL), "idleTTL of managed shared vendor resources when an SCNodeClass does not set one.")
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 }
@@ -234,6 +249,9 @@ func (o *Options) Validate() error {
 	if o.ClusterDomain == "" {
 		errs = append(errs, errors.New("--cluster-domain must not be empty"))
 	}
+	if o.ResourceFullSweepEvery < 1 {
+		errs = append(errs, fmt.Errorf("--resource-full-sweep-every must be at least 1, got %d", o.ResourceFullSweepEvery))
+	}
 	if o.MaxLaunchAttempts < 1 {
 		errs = append(errs, fmt.Errorf("--max-launch-attempts must be at least 1, got %d", o.MaxLaunchAttempts))
 	}
@@ -248,6 +266,8 @@ func (o *Options) Validate() error {
 		"--gc-interval":                       o.GCInterval,
 		"--gc-grace-period":                   o.GCGracePeriod,
 		"--resource-default-ttl":              o.ResourceDefaultTTL,
+		"--resource-per-use-grace":            o.ResourcePerUseGrace,
+		"--resource-check-interval":           o.ResourceCheckInterval,
 	} {
 		if d <= 0 {
 			errs = append(errs, fmt.Errorf("%s must be positive, got %s", name, d))

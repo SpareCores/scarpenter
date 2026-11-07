@@ -8,6 +8,7 @@ package catalog
 
 import (
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
+	"github.com/SpareCores/scarpenter/pkg/catalog/model"
 )
 
 // Zone is a zone of a region as the driver's account sees it (overview section
@@ -38,12 +39,15 @@ type Facts interface {
 	RootDiskBytes(vendor string, class *Class) (bytes int64, ok bool)
 
 	// Supported is the driver's profile hook (00a section 5.3): the profiles of
-	// the class that are valid for the instance type in the zone.
-	labels.Supporter
+	// the class (class.Profiles, with their blocks in class.Inputs) that are
+	// valid for the instance type in the zone, by kind. "default" is always
+	// valid and may be left out.
+	Supported(vendor string, class *Class, srv *model.Server, zone string) map[labels.ProfileKind][]string
 
-	// PriceDelta is the price of the resolved default settings added to an
-	// offering (00a section 10), and whether it is complete.
-	PriceDelta(vendor string, class *Class, apiReference, zone, capacityType string) (usdPerHour float64, complete bool)
+	// PriceDelta is the price of the class's resolved default settings added
+	// to an offering (00a section 10), and whether it is complete.
+	PriceDelta(vendor string, class *Class, srv *model.Server, zone, capacityType string) (
+		usdPerHour float64, complete bool)
 
 	// Epoch changes whenever any answer above may have changed; it is part of
 	// the catalog's cache keys.
@@ -85,12 +89,12 @@ func (f StaticFacts) RootDiskBytes(vendor string, _ *Class) (int64, bool) {
 }
 
 // Supported implements Facts: nothing beyond the default profile.
-func (StaticFacts) Supported(string, string, string, labels.Profiles) map[labels.ProfileKind][]string {
+func (StaticFacts) Supported(string, *Class, *model.Server, string) map[labels.ProfileKind][]string {
 	return nil
 }
 
 // PriceDelta implements Facts: no delta, complete.
-func (StaticFacts) PriceDelta(string, *Class, string, string, string) (float64, bool) {
+func (StaticFacts) PriceDelta(string, *Class, *model.Server, string, string) (float64, bool) {
 	return 0, true
 }
 

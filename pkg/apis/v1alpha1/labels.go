@@ -81,6 +81,10 @@ const (
 	AnnotationNodeClassHashVersion = Group + "/nodeclass-hash-version"
 	// AnnotationPrice is the hourly price at launch in USD.
 	AnnotationPrice = Group + "/price"
+	// AnnotationProfileHashes records the hashes of the profiles a node was
+	// launched with, as JSON {"storage/<name>": "<hash>"}: changing one
+	// profile drifts only the nodes that use it.
+	AnnotationProfileHashes = Group + "/profile-hashes"
 	// AnnotationPriceIncomplete is "true" when the price misses components the
 	// data does not have.
 	AnnotationPriceIncomplete = Group + "/price-incomplete"

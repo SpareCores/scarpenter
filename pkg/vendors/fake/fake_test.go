@@ -149,6 +149,34 @@ func TestConformance(t *testing.T) {
 			raw, _ := json.Marshal(rule)
 			h.setConfig(t, "errors", string(raw))
 		},
+		Profiles: vendors.Profiles{
+			vendors.ProfileStorage: {
+				"db":    json.RawMessage(`{"data":[{"name":"pgdata","volumeSize":"100Gi","mountPath":"/var/lib/pgdata","filesystem":"xfs"}]}`),
+				"local": json.RawMessage(`{"localStorage":{"policy":"mount","mountPath":"/mnt/local"}}`),
+			},
+			vendors.ProfilePlacement: {
+				"colocated": json.RawMessage(`{"placementGroup":{"strategy":"cluster"}}`),
+				"dedicated": json.RawMessage(`{"tenancy":"dedicated"}`),
+			},
+			vendors.ProfileNetwork: {"fast": json.RawMessage(`{"enaExpress":{"enabled":true}}`)},
+		},
+		ProfileTypes: []vendors.CatalogType{
+			{Vendor: "aws", APIReference: "m7i.large", Family: "m7i", VCPUs: 2},
+			{Vendor: "aws", APIReference: "m6id.large", Family: "m6id", VCPUs: 2, LocalStorageGB: 118, LocalStorageCount: 1},
+		},
+		ResourceKind: fakedriver.KindNetwork,
+		PreCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
+			t.Helper()
+			h := &harness{d: d.(*fakedriver.Driver)}
+			h.c = clientOf(t, h.d)
+			raw, _ := json.Marshal([]map[string]any{{"kind": string(kind), "region": region, "id": "subnet-user", "name": "user-subnet", "tags": tags}})
+			h.setConfig(t, "existingResources", string(raw))
+			return vendors.ResourceRef{Kind: kind, Region: region, ID: "subnet-user", Name: "user-subnet"}
+		},
+		Restart: func(t *testing.T, d vendors.Driver) vendors.Driver {
+			t.Helper()
+			return restart(t, d.(*fakedriver.Driver))
+		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
 			t.Helper()
 			h := &harness{d: d.(*fakedriver.Driver)}
@@ -164,6 +192,24 @@ consumption:
 `)
 		},
 	})
+}
+
+// restart returns a new driver over the same Kubernetes objects: the account's
+// resources live in a ConfigMap, so the new process finds them.
+func restart(t *testing.T, d *fakedriver.Driver) *fakedriver.Driver {
+	t.Helper()
+	cl := clientOf(t, d)
+	opts := fakedriver.DefaultOptions()
+	opts.ConfigTTL = 0
+	opts.StateInterval = time.Hour
+	d2 := fakedriver.New(opts)
+	if err := d2.Init(t.Context(), vendors.Config{
+		ClusterName: "my-cluster", Client: cl, Reader: cl, Log: logr.Discard(), KeeperURL: keeperURL,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	clients[d2] = cl
+	return d2
 }
 
 // The conformance hooks only get the driver; the harness registers the client

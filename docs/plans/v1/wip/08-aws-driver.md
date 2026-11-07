@@ -125,6 +125,41 @@ plan 10.
 - Measure the real user-data size with the EKS CA bundle in L5; the budget is
   16 KiB and the default templates are about 5 KiB.
 
+## Carried over from the plan 06 review
+
+- `NodeOptions`: defaults gp3 / 64 GiB / encrypted; `Supported` (placement types,
+  local storage); `PriceDelta` from Keeper's storage price per region and the
+  IPv4 price, incomplete for provisioned IOPS/throughput and dedicated tenancy;
+  `Prepare` with device hints: the EBS NVMe serial is `vol` plus the volume ID
+  without the dash (pattern `vol*` plus size; the root volume has partitions and
+  is skipped; equal-size volumes rely on the volume unit's lock), instance store
+  `nvme-Amazon_EC2_NVMe_Instance_Storage_*` with the type's count.
+- `ManagedResources` for `subnets`, `securityGroups` and `placementGroups`:
+  keep the kinds and default policies of the fake driver (subnets `idleTTL` per
+  region, placement groups `perUse` per run) or adjust S15 and S16. `Resolve`
+  with an empty reference returns the default VPC's subnets; `Ensure` creates with
+  the ownership marker atomically (`TagSpecifications`, `ClientToken`) and finds by
+  name plus marker; `Delete` returns `Retryable` on a dependency violation;
+  `InUse` returns the zero time when the last use is unknown (the engine counts
+  from its first sighting); tags through `TagKey` including `resource-kind` (check
+  the AWS charset); names are at most 63 characters by the engine.
+- Subnets are zonal: set `ResourceRequest.Zone` and exercise `{zone}` `use`
+  patterns (a zone without a match is gated on its own).
+- Placement-group size limits (spread: 7 per zone); a changed `Params` gives a new
+  group by name, the old one is collected by `perUse`.
+- API volume: the status check resolves per (kind, region, reference) every
+  check interval (shared through the resolve cache); a full sweep lists every
+  region every 10th garbage collection.
+- IAM actions for the resource calls; the conformance fixture hooks (`Profiles`,
+  `ProfileTypes`, `ResourceKind`, `PreCreate`, `Restart`); `EpochReporter` if the
+  answers change at runtime.
+- `Prepare` and the resource resolution must return the `ResourceMissingInZone`
+  code unchanged when a `{zone}` reference resolves in some zones only, so that
+  `Create` skips just that zone and not the whole region.
+- Memory reference from the plan 06 L3 lane (S10, at rest): about 217 MiB RSS
+  with three regions and 377 MiB with all regions; compare after the AWS driver
+  lands.
+
 ## Gates
 
 CONVENTIONS gates 1–4 (L3 still green: the AWS driver must not change core

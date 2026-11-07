@@ -26,9 +26,10 @@ import (
 // and regions the SCNodeClasses allow, so it is idle until one exists.
 //
 // gate (nil: none) marks more offerings unavailable, for example for lack of
-// quota; the caller bumps un's sequence when its answers change.
+// quota, and classGate (nil: none) those of a NodeClass whose vendor resources
+// are missing; the caller bumps un's sequence when their answers change.
 func (o *Operator) WithCatalog(
-	facts catalog.Facts, un *unavailable.Cache, gate catalog.Gate,
+	facts catalog.Facts, un *unavailable.Cache, gate catalog.Gate, classGate catalog.ClassGate,
 ) (*catalog.Catalog, error) {
 	key, err := readAPIKey(o.Options.KeeperAPIKeyFile)
 	if err != nil {
@@ -42,6 +43,7 @@ func (o *Operator) WithCatalog(
 		Facts:           facts,
 		Unavailable:     un,
 		Gate:            gate,
+		ClassGate:       classGate,
 		RefreshInterval: o.Options.CatalogRefreshInterval,
 		MaxAge:          o.Options.CatalogMaxAge,
 		Registerer:      metrics.Registry,

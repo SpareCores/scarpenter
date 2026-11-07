@@ -132,13 +132,18 @@ core version matrix and no chart values: SCarpenter links core at the version of
 `manifests/controller/deployment.yaml` (batching windows 5 s and 500 ms,
 NodeRepair and the other optional feature gates off). The controller runs with
 short intervals: quota refresh 10 s, unavailable-offerings TTL 20 s, garbage
-collection every 10 s with a 30 s grace period.
+collection every 10 s with a 30 s grace period, managed resources checked every
+5 s and unused `perUse` resources kept for 20 s.
 
 Scenarios steer the fake driver through the ConfigMap `scarpenter-fake`
-(`errors`, `quota`, `orphans`, `launchDelay`) and read what it did from the
-ConfigMap `scarpenter-fake-state` (`calls`, `instances`); the formats are in the
-[driver contract](../reference/driver-contract.md#the-fake-driver). The
-scenarios are `TestS01` to `TestS11`:
+(`errors`, `quota`, `orphans`, `launchDelay`, `unsupported`, `existingResources`)
+and read what it did from the ConfigMap `scarpenter-fake-state` (`calls`,
+`instances`, `resources`, `revision`); the formats are in the
+[driver contract](../reference/driver-contract.md#the-fake-driver). The fake
+publishes its state debounced; the scenarios do not sleep for it: they read the
+fake's current revision from the controller's metrics
+(`scarpenter_fake_state_revision`) and wait until the ConfigMap's `revision` has
+reached it (`awaitState`). The scenarios are `TestS01` to `TestS17`:
 
 | Scenario | Proves |
 |---|---|
@@ -153,6 +158,12 @@ scenarios are `TestS01` to `TestS11`:
 | S09 | an orphan instance is deleted by the garbage collector after the grace period |
 | S10 | scale (Q7): 50 pods with distinct exact types, every region vs. three; the numbers go to `test/kwok/.out/q7.txt` |
 | S11 | the node bootstrap: the NodeClass resolves its artifacts and publishes a hash; the launch gets user-data within the size budget (the fake reports its size) and a bootstrap token, which is deleted, with an Event, when the NodeClaim registers |
+| S12 | exact placement: a Job with vendor, type, region and capacity type gets exactly that offering; hostname anti-affinity and a taint give one pod per node |
+| S13 | described, not named: continent, vCPU range and a benchmark percentile select the cheapest matching offering, a selection profile only its members (Q11: `Gt`/`Lt` match numeric requirements, `DoesNotExist` excludes unscored types); needs the NodeClass `l3-described`, applied by `run.sh` before the controller starts |
+| S14 | storage profiles: a profile with a block for the vendor is applied (settings, device hints and volume in the fake, labels on the node, price with the volume), a type that cannot host it is never chosen, a profile without a block for the vendor leaves the pod Pending |
+| S15 | the pair of 00a section 8.2: a StatefulSet and a Deployment with one placement profile and run key share one fake group in one zone on two nodes; the group is deleted (perUse) after both are gone |
+| S16 | vendor resources: `use` by tag selector in two regions (never touched), a missing `use` resource makes the region unavailable with a reason and recovers, default `create` on the first launch and its reuse, adoption after a controller restart, `idleTTL` deletion, `preCreate` kept while listed, `forbid` |
+| S17 | incomplete prices: offerings flagged `price-incomplete` and still used; excluded with `pricing.allowIncomplete: false` |
 
 Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
 (`KWOK_SCENARIOS=TestS0[12]`), `KEEP_CLUSTER=1` keeps the cluster and

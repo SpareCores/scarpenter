@@ -55,6 +55,18 @@ the controller reference.
   `SCARPENTER_DEPLOYMENT_NAME` environment variables of the Deployment.
 - Make L3 keep using the chart's RBAC (it applies `config/rbac` today).
 
+## Carried over from the plan 06 review
+
+- Helm values and flags: `--resource-per-use-grace` (2m), `--resource-check-interval`
+  (30s), `--resource-default-ttl` (24h), `--resource-full-sweep-every` (10).
+- Metrics `scarpenter_resource_operations_total` and
+  `scarpenter_resources_managed`; Events `ResourceCreated`, `ResourceAdopted`,
+  `ResourceDeleted`, `ResourceCreateFailed`, `ResourceDeleteFailed` and
+  `ResourcesUnavailable` for the complete controller reference. No new RBAC and no
+  state store were needed.
+- Uninstall cleanup of managed resources (00a section 9.3: "or SCarpenter is
+  uninstalled with cleanup") needs a design (a hook or a Job).
+
 ## Gates
 
 CONVENTIONS gates 1–4, plus `hack/dev.sh make test-chart`; the release

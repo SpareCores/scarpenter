@@ -158,7 +158,7 @@ func (c *CloudProvider) instanceToNodeClaim(vendor string, inst *vendors.Instanc
 			break
 		}
 	}
-	nc.Labels = nodeLabels(name, it, off)
+	nc.Labels = nodeLabels(name, it, off, nil, "")
 	if inst.Zone != "" {
 		nc.Labels[corev1.LabelTopologyZone] = inst.Zone
 	}
@@ -169,10 +169,14 @@ func (c *CloudProvider) instanceToNodeClaim(vendor string, inst *vendors.Instanc
 
 // nodeLabels are the labels Create returns for the chosen type and offering
 // (overview section 4.1 step 6): every requirement of the type and the offering
-// that has exactly one value, and the node name. Core copies them to the Node
-// after registration, and it must find a concrete label for every key a pod
-// selects on (00a section 2).
-func nodeLabels(nodeName string, it *cloudprovider.InstanceType, off *cloudprovider.Offering) map[string]string {
+// that has exactly one value, the node name, the profiles applied (profile
+// kind to name, "default" where none; nil stamps none, for the NodeClaims of
+// Get and List, which do not know them) and the placement run key. Core copies
+// them to the Node after registration, and it must find a concrete label for
+// every key a pod selects on (00a section 2).
+func nodeLabels(
+	nodeName string, it *cloudprovider.InstanceType, off *cloudprovider.Offering, applied map[string]string, runKey string,
+) map[string]string {
 	out := map[string]string{
 		corev1.LabelInstanceTypeStable: it.Name,
 		corev1.LabelHostname:           nodeName,
@@ -188,10 +192,13 @@ func nodeLabels(nodeName string, it *cloudprovider.InstanceType, off *cloudprovi
 	if off != nil {
 		add(off.Requirements)
 	}
-	// The profiles applied: plan 06 resolves them; until then every node runs
-	// the default.
 	for _, kind := range labels.ProfileKinds {
-		out[labels.ProfileLabel(kind)] = v1alpha1.DefaultProfile
+		if name, ok := applied[string(kind)]; ok {
+			out[labels.ProfileLabel(kind)] = name
+		}
+	}
+	if runKey != "" {
+		out[v1alpha1.LabelPlacementGroup] = runKey
 	}
 	return out
 }

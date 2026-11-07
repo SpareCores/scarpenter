@@ -198,6 +198,9 @@ type call struct {
 	CapacityType string    `json:"capacityType"`
 	NodeClaim    string    `json:"nodeClaim"`
 	Result       string    `json:"result"`
+	// Resource and Kind are set for the calls on vendor resources.
+	Resource string `json:"resource"`
+	Kind     string `json:"kind"`
 }
 
 type instance struct {
@@ -211,6 +214,25 @@ type instance struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	// UserDataBytes is the size of the user-data the fake received.
 	UserDataBytes int `json:"userDataBytes"`
+	// Settings, Profiles, Resources and Devices are what the launch was given:
+	// the resolved vendor settings (JSON), the profile applied per kind, the
+	// IDs of the prepared resources and the device hints.
+	Settings  string            `json:"settings"`
+	Profiles  map[string]string `json:"profiles"`
+	Resources []string          `json:"resources"`
+	Devices   []string          `json:"devices"`
+}
+
+// fakeResource is a resource of the fake account (state ConfigMap).
+type fakeResource struct {
+	Kind      string            `json:"kind"`
+	Region    string            `json:"region"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	Managed   bool              `json:"managed"`
+	Tags      map[string]string `json:"tags"`
+	CreatedAt time.Time         `json:"createdAt"`
+	LastUsed  time.Time         `json:"lastUsed"`
 }
 
 func readState(t *testing.T) ([]call, []instance) {
@@ -233,12 +255,69 @@ func readState(t *testing.T) ([]call, []instance) {
 	return calls, insts
 }
 
+// awaitState waits until the fake's state ConfigMap reflects everything the
+// fake did so far. The fake publishes its state debounced, and counts its
+// changes in a revision that it exposes as a metric next to the revision the
+// ConfigMap holds: read the current revision, then wait until the ConfigMap
+// has reached it. Nothing here sleeps for the debounce interval.
+func awaitState(t *testing.T) {
+	t.Helper()
+	m := metrics(t)
+	want, ok := m["scarpenter_fake_state_revision"]
+	if !ok {
+		t.Fatal("the controller does not expose scarpenter_fake_state_revision")
+	}
+	eventually(t, time.Minute, 100*time.Millisecond, "the fake's state is published", func() (bool, string) {
+		cm := &corev1.ConfigMap{}
+		if err := k8s.Get(ctx(), client.ObjectKey{Namespace: ns, Name: fakeState}, cm); err != nil {
+			return false, err.Error()
+		}
+		have, err := strconv.ParseFloat(cm.Data["revision"], 64)
+		if err != nil {
+			return false, fmt.Sprintf("revision %q", cm.Data["revision"])
+		}
+		return have >= want, fmt.Sprintf("published revision %v, want %v", have, want)
+	})
+}
+
+// readResources returns the resources of the fake account, as of its published
+// state (call awaitState first).
+func readResources(t *testing.T) []fakeResource {
+	t.Helper()
+	cm := &corev1.ConfigMap{}
+	if err := k8s.Get(ctx(), client.ObjectKey{Namespace: ns, Name: fakeState}, cm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		t.Fatal(err)
+	}
+	var out []fakeResource
+	if raw := cm.Data["resources"]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+			t.Fatalf("resources: %v", err)
+		}
+	}
+	return out
+}
+
+// resourcesOf returns the fake account's resources of a kind in a region
+// (region "" for every region), after the published state caught up.
+func resourcesOf(t *testing.T, kind, region string) []fakeResource {
+	t.Helper()
+	awaitState(t)
+	var out []fakeResource
+	for _, r := range readResources(t) {
+		if r.Kind == kind && (region == "" || r.Region == region) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // callsSince returns the calls made after the mark, optionally of one op.
 func callsSince(t *testing.T, since time.Time, op string) []call {
 	t.Helper()
-	// The fake publishes its state debounced (500 ms): let a call that just
-	// happened show up.
-	time.Sleep(1200 * time.Millisecond)
+	awaitState(t)
 	calls, _ := readState(t)
 	var out []call
 	for _, c := range calls {
@@ -252,7 +331,7 @@ func callsSince(t *testing.T, since time.Time, op string) []call {
 // liveInstances returns the instances that are not terminated.
 func liveInstances(t *testing.T) []instance {
 	t.Helper()
-	time.Sleep(1200 * time.Millisecond) // the fake publishes its state debounced
+	awaitState(t)
 	_, insts := readState(t)
 	var out []instance
 	for _, i := range insts {

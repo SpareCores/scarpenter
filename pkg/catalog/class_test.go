@@ -17,6 +17,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
+	"github.com/SpareCores/scarpenter/pkg/catalog/model"
 )
 
 func nodeClass(name string) *v1alpha1.SCNodeClass {
@@ -144,11 +145,11 @@ func TestClassProfilesPerVendor(t *testing.T) {
 // profileFacts supports every defined profile in one zone only.
 type profileFacts struct{ catalog.StaticFacts }
 
-func (profileFacts) Supported(_, _, zone string, defined labels.Profiles) map[labels.ProfileKind][]string {
+func (profileFacts) Supported(vendor string, class *catalog.Class, _ *model.Server, zone string) map[labels.ProfileKind][]string {
 	if zone != "zone-1" {
 		return nil
 	}
-	return defined
+	return class.Profiles[vendor]
 }
 
 func TestProfileLabelsFollowTheSupportedHook(t *testing.T) {

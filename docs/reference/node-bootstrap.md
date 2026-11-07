@@ -43,9 +43,11 @@ what the code does. The package is `pkg/bootstrap` (rendering, tokens),
 
 ## How a node joins
 
-1. `Create` mints a [bootstrap token](#bootstrap-tokens) and renders the
-   user-data once per vendor, region and architecture (not per instance type)
-   and gives it to the driver.
+1. `Create` mints a [bootstrap token](#bootstrap-tokens), runs the driver's
+   `Prepare` for the launch attempt, renders the user-data of that attempt (the
+   architecture, the offering, the type's kube-reserved and the volumes' device
+   hints) and gives it to the driver. A NodeClaim's attempts each render their own
+   user-data, since plan 06.
 2. The node boots Flatcar. Ignition downloads the pinned sysexts (sha256
    verified), writes the files and units; `systemd-sysext` activates the
    `kubernetes` sysext, whose `kubelet.service` starts.
@@ -175,7 +177,7 @@ template that uses a variable that does not exist fails (strict). Functions: `q`
 | `.BootstrapToken` | `<token-id>.<token-secret>` |
 | `.Arch` | `amd64` or `arm64` |
 | `.Vendor`, `.Region` | the offering the node is launched into |
-| `.Zone`, `.InstanceType` | always empty: the user-data is shared by every launch attempt of the vendor, region and architecture |
+| `.Zone`, `.InstanceType` | the offering of the launch attempt (the user-data is rendered per attempt, since plan 06); empty in the trial rendering of the NodeClass controller |
 | `.Labels` | the NodeClaim's labels (a map), for templates that need them; not passed to the kubelet |
 | `.KubeletConfig` | the `KubeletConfiguration` YAML |
 | `.KubeletArgs` | `--provider-id`, `--hostname-override` and `--register-with-taints` |
@@ -197,9 +199,12 @@ defaults; quantities are validated). From the controller: `clusterDomain`
 unset by default: Pods then use the node's resolver).
 
 The catalog assumes the AWS provider's kube-reserved formula for scheduling
-(which depends on the instance's vCPUs), while the kubelet reserves only what
-`kubelet.kubeReserved` sets: allocatable on the node is at least what the
-scheduler assumed, never less.
+(which depends on the instance's vCPUs and `maxPods`). Since plan 06 the user-data
+is rendered per launch attempt and its `kubeReserved` is exactly the reservation
+the catalog computed for the chosen instance type (the formula, with the keys of
+`spec.kubelet.kubeReserved` replacing single resources), so the node's allocatable
+matches the scheduler's. The trial rendering of the NodeClass controller has no
+instance type and keeps `spec.kubelet.kubeReserved` only.
 
 ## Network templates
 
@@ -247,7 +252,12 @@ by golden tests, measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM): ab
 4.9 KiB with `tailscale`, 3.5 KiB with `direct`. The CA is the largest fixed part and
 it does not compress (a 4096-bit CA adds about 0.7 KiB, a rotation bundle of two
 CAs about 1 KiB); the NodeClass controller's trial rendering uses the real cluster
-CA, so what validates fits at launch. Large
+CA, so what validates fits at launch. Nodes with extra volumes or local storage get a fourth part, the
+[first-boot volume unit](node-settings.md#extra-volumes-and-local-storage) (about
+2.5 KiB plus 0.3 KiB per volume: eight volumes and four local disks on the
+`tailscale` template measure about 11 KiB); the trial rendering of the NodeClass
+controller does not include it, so a NodeClass whose custom snippets take most of
+the budget can still fail at launch for a node with many volumes. Large
 payloads belong in sysexts, referenced by URL and sha256, not in snippets.
 (Compression helps repetitive content only: 20 KiB of random data does not fit.)
 

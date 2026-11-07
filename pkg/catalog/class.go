@@ -22,6 +22,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
+	"github.com/SpareCores/scarpenter/pkg/options"
 )
 
 // Scope says which vendors and regions to read: vendor to the region
@@ -58,6 +59,10 @@ type Class struct {
 	// Profiles are the profile names the NodeClass defines, per vendor that has
 	// a block in the profile, by kind.
 	Profiles map[string]labels.Profiles
+	// Inputs are what the NodeClass says about each vendor's nodes: the vendor
+	// block and the profiles' blocks for the vendor, for the driver's profile
+	// and price hooks (00a sections 3 and 5.3).
+	Inputs map[string]options.Input
 
 	// AllowIncompletePrice says whether offerings with an incomplete price (a
 	// component the data does not have) are offered (00a section 10).
@@ -72,6 +77,7 @@ func NewClass(name string, vendors Scope) Class {
 		Name: name, Vendors: map[string][]string{}, MaxPods: DefaultMaxPods,
 		VMMemoryOverheadPercent: DefaultVMMemoryOverheadPercent, AllowIncompletePrice: true,
 		CPUFlags: slices.Clone(v1alpha1.DefaultCPUFlagLabels), Profiles: map[string]labels.Profiles{},
+		Inputs: map[string]options.Input{},
 	}
 	for v, r := range vendors {
 		c.Vendors[v] = slices.Clone(r)
@@ -99,6 +105,7 @@ func ClassFromNodeClass(nc *v1alpha1.SCNodeClass) (Class, error) {
 		Metrics:                 maps.Clone(spec.Metrics),
 		Selections:              maps.Clone(spec.Selections),
 		Profiles:                map[string]labels.Profiles{},
+		Inputs:                  map[string]options.Input{},
 		AllowIncompletePrice:    spec.Pricing.AllowIncomplete == nil || *spec.Pricing.AllowIncomplete,
 	}
 	if spec.Kubelet.MaxPods != nil {
@@ -133,26 +140,13 @@ func ClassFromNodeClass(nc *v1alpha1.SCNodeClass) (Class, error) {
 		regions, _ := spec.Vendors.Regions(vendor)
 		c.Vendors[vendor] = slices.Clone(regions)
 		slices.Sort(c.Vendors[vendor])
-		p := labels.Profiles{}
-		for name, prof := range spec.Profiles.Storage {
-			if _, ok := prof.For(vendor); ok {
-				p[labels.ProfileStorage] = append(p[labels.ProfileStorage], name)
-			}
+		in, _, err := options.InputFromNodeClass(nc, vendor)
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
-		for name, prof := range spec.Profiles.Network {
-			if _, ok := prof.For(vendor); ok {
-				p[labels.ProfileNetwork] = append(p[labels.ProfileNetwork], name)
-			}
-		}
-		for name, prof := range spec.Profiles.Placement {
-			if _, ok := prof.For(vendor); ok {
-				p[labels.ProfilePlacement] = append(p[labels.ProfilePlacement], name)
-			}
-		}
-		for k := range p {
-			slices.Sort(p[k])
-		}
-		c.Profiles[vendor] = p
+		c.Inputs[vendor] = in
+		c.Profiles[vendor] = in.ProfileNames()
 	}
 	c.Hash = c.hash()
 	return c, errors.Join(errs...)

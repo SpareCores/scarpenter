@@ -157,6 +157,9 @@ kubectl wait --for=condition=Established crd/nodepools.karpenter.sh crd/nodeclai
   crd/scnodeclasses.scarpenter.sparecores.com --timeout=60s
 # SCarpenter's own RBAC is the production one (config/rbac); the lane's file adds
 # core's permissions and the fake driver's.
+# The NodeClass of the described-not-named scenario exists before the controller
+# starts, so that its metric labels are registered with core.
+kubectl apply -f "${here}/manifests/nodeclass-described.yaml"
 kubectl apply -f "${here}/manifests/controller/namespace.yaml"
 kubectl apply --server-side -k "${root}/config/rbac"
 kubectl kustomize "${here}/manifests/controller" | sed "s|controller:latest|${manager_image}|" | kubectl apply --server-side -f -

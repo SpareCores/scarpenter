@@ -69,5 +69,6 @@ operator at start-up (`Operator.RegisterLabelKeys`, plan 03):
 | `scarpenter.sparecores.com/instance-ref` | The driver's opaque instance reference, for example `us-east-1/i-0abc`. |
 | `scarpenter.sparecores.com/nodeclass-hash` | The vendor's drift hash at launch. |
 | `scarpenter.sparecores.com/nodeclass-hash-version` | Version of the hash computation. |
-| `scarpenter.sparecores.com/price` | Hourly price at launch, USD. |
-| `scarpenter.sparecores.com/price-incomplete` | `"true"` when the price misses components the data does not have. |
+| `scarpenter.sparecores.com/price` | Hourly price at launch, USD: the instance plus the selected settings (volumes, public IPv4). Also set when the NodeClaim is described from an existing instance after a replayed launch (then for the NodeClass defaults). |
+| `scarpenter.sparecores.com/price-incomplete` | `"true"` when the price misses components the data does not have (provisioned IOPS and throughput, dedicated tenancy). |
+| `scarpenter.sparecores.com/profile-hashes` | JSON `{"storage/db-io2": "<hash>"}`: the hashes of the profile blocks the node was launched with. A node drifts when one of them changes or the profile is removed ([drift](node-settings.md#drift)). Absent on the default route. |

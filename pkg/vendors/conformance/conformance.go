@@ -24,6 +24,12 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
+// PreCreateFunc makes a resource the way a user would: not managed, with the
+// tags.
+type PreCreateFunc func(
+	t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, tags map[string]string,
+) vendors.ResourceRef
+
 // Fixture connects the suite to a driver.
 type Fixture struct {
 	// New returns a fresh, initialised driver. The suite calls it once per
@@ -60,11 +66,33 @@ type Fixture struct {
 	// ExhaustQuota makes the buckets that req consumes unable to take another
 	// instance (the vendor's next launch of req fails with its quota error).
 	ExhaustQuota func(t *testing.T, d vendors.Driver, req vendors.CreateRequest)
+
+	// The node options subtests run for drivers that implement
+	// vendors.NodeOptions.
+	//
+	// Profiles are sample profile blocks (kind, name, the vendor's JSON) and
+	// ProfileTypes the instance types to check them against: for every type
+	// each profile is either supported, and then resolves, prices and prepares
+	// idempotently, or explicitly left out of Supported.
+	Profiles     vendors.Profiles
+	ProfileTypes []vendors.CatalogType
+
+	// The managed resources subtests run for drivers that implement
+	// vendors.ManagedResources.
+	//
+	// ResourceKind is a regional kind that SCarpenter may create. PreCreate
+	// makes a resource of the kind the way a user would (not managed, with the
+	// tags), Restart returns a new driver over the same account, as after a
+	// restart of the controller. Subtests without their hook are skipped.
+	ResourceKind vendors.ResourceKind
+	PreCreate    PreCreateFunc
+	Restart      func(t *testing.T, d vendors.Driver) vendors.Driver
 }
 
 const (
-	clusterName = "conformance"
-	otherSuffix = "-other"
+	clusterName   = "conformance"
+	nodeClassName = "class"
+	otherSuffix   = "-other"
 )
 
 var (
@@ -102,7 +130,7 @@ func (e *env) request(t *testing.T) vendors.CreateRequest {
 		UserData: []byte(`{"ignition":{"version":"3.4.0"}}`),
 		Tags: map[vendors.TagKey]string{
 			vendors.TagCluster: clusterName, vendors.TagNodeClaim: name, vendors.TagNodePool: "pool",
-			vendors.TagNodeClass: "class", vendors.TagManagedBy: vendors.ManagedByValue,
+			vendors.TagNodeClass: nodeClassName, vendors.TagManagedBy: vendors.ManagedByValue,
 		},
 		IdempotencyKey: fmt.Sprintf("uid-%d", n),
 		Node: vendors.NodeInfo{
@@ -171,6 +199,8 @@ func Run(t *testing.T, fx Fixture) {
 	sub("error classification", errorClassification)
 	sub("quota reporter", quotaReporter)
 	sub("offering lister", offeringLister)
+	sub("node options", nodeOptions)
+	sub("managed resources", managedResources)
 }
 
 func zoneMapping(t *testing.T, e *env) {

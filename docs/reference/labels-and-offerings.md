@@ -311,7 +311,9 @@ Offering-level, from Keeper's region table. Unknown is `DoesNotExist`.
 
 `storage-profile`, `network-profile` and `placement-profile` are `In [default,
 <profiles valid for the type>]` on every type. The driver decides validity
-through its `Supported` hook; until plan 06 every driver reports only `default`.
+through its `Supported` hook, given the profile blocks of the NodeClass for the
+vendor (a profile without a block for the vendor is not offered to the driver and
+does not exist on it; [node settings](node-settings.md#which-profiles-a-type-can-host)).
 The type carries the union over its zones; an offering whose zone supports fewer
 profiles carries its own list, so a profile a zone cannot host never matches
 there. `placement-group` is a free-form run key and is not defined on types.

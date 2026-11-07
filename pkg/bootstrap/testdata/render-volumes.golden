@@ -1,0 +1,149 @@
+=== base ===
+{
+  "ignition": {
+    "version": "3.4.0"
+  },
+  "storage": {
+    "files": [
+      {
+        "contents": {
+          "inline": "default-abc12\n"
+        },
+        "mode": 420,
+        "overwrite": true,
+        "path": "/etc/hostname"
+      },
+      {
+        "contents": {
+          "inline": "-----BEGIN CERTIFICATE-----\nlbjamFrxUwdt6wr5t6dJQFUlXYeb2NlhusgxM/LCRzmbEHFOaI91UDq8fB0ft/Fm\nbxbeqbGntBVLC+TVvFZhYQSpI7WRLtWaIoVRkivcG6JfzPd/R4jU8iOCfQZ8PvDj\nw3km9N84zGPUWbNB7rQbsw9sVD4oDGgeScWZrhl3wf12dqtDfeuIBw/OnOC7fIDH\nQJQzUY0mONbBUyU/jO6mOZqn+uy/P1zJ3w8Dx7xkN4TNVbHoNro2i/1DF7Qr298K\nWNzm8S6pxLOdqcS3eDMd5thOUd2BPD6Hh2T6LsdzqzMJm4G1VdEc1Zu92zKSBu+z\nmmayzHXgnZpXlswY3CZZhn4M8CDbm4AlAhX9QTCf636/fPo6i3Xhxi9T3+5F3zcG\nBPSHdQYY2xBjxo4avsy2PF63D0KiYl6usY8VWj9Psb9CxnR4GG8fB+ZbaoQa+at+\no3Mj1D93whfQn/v0nXbwDATjeqY+F+bSwKbx38qIGos98gD4uwBMKvNC4MFqJqY+\nTcpj4YseqP/ah96xMBT4t07pAZVFryosmNZu2jpjFcyKXN+ff8xkB0yZ8q00TGm+\ns46jDuqxWSybBp1LcMW9as5QhdcblqLbA92ngicUZrGjkhU1SNkJS/PiyZkp6vUG\nEfTpzQTpRxxKdOPwByFIQCsluiT3pxwbHgRTOzrZxkx68sFGwi41M0IemwYMvEld\nBjhQHq42/P1r9l3+2wl1eF0yqJ9tlRMm8hqiM96gI46rHBWhdKzJHEGKwPOAj5wk\nAUU1ZBplIPtpGWlaPVezClyKLn0CYW6YXsZrUqgcmV4bCpt8YLQkyNO3XE/4IUex\nIin7JAsOL5if7raeYJQXWRtULl7Ec/SNl/6VIhO3JEhiZtscrkJ6eqoidTm/eJMx\nNuu0XLuR5C5BurCRk/vJ5emeh4JMDDVxtFhoY/nbqlmgv7j7pd5wn385gzFgH4E2\nBp2K8V303SXC+F7pO9FTxVWjdTBIf5sSF/ntLvMQyu4VFs7yDYWUg75yRjK9tozh\n53eXFjl8cW0MRHVG\n-----END CERTIFICATE-----\n"
+        },
+        "mode": 420,
+        "path": "/etc/kubernetes/pki/ca.crt"
+      },
+      {
+        "contents": {
+          "inline": "apiVersion: v1\nkind: Config\nclusters:\n  - name: cluster\n    cluster:\n      server: \"https://api.my-cluster.example.com:6443\"\n      certificate-authority: /etc/kubernetes/pki/ca.crt\nusers:\n  - name: bootstrap\n    user:\n      token: \"abcdef.0123456789abcdef\"\ncontexts:\n  - name: bootstrap\n    context: {cluster: cluster, user: bootstrap}\ncurrent-context: bootstrap\n"
+        },
+        "mode": 384,
+        "path": "/etc/kubernetes/bootstrap-kubelet.conf"
+      },
+      {
+        "contents": {
+          "inline": "apiVersion: kubelet.config.k8s.io/v1beta1\nauthentication:\n  anonymous:\n    enabled: false\n  webhook:\n    enabled: true\n  x509:\n    clientCAFile: /etc/kubernetes/pki/ca.crt\nauthorization:\n  mode: Webhook\ncgroupDriver: systemd\nclusterDomain: cluster.local\nkind: KubeletConfiguration\nmaxPods: 110\nresolvConf: /run/systemd/resolve/resolv.conf\nrotateCertificates: true\nserverTLSBootstrap: true\n"
+        },
+        "mode": 420,
+        "path": "/var/lib/kubelet/config.yaml"
+      },
+      {
+        "contents": {
+          "source": "https://github.com/flatcar/sysext-bakery/releases/download/kubernetes-v1.37.1/kubernetes-v1.37.1-x86-64.raw",
+          "verification": {
+            "hash": "sha256-75072a32a1d87cfbe67907a0f6ebe3f0a860c2b2e15dbf1d8a354d5162e63b3b"
+          }
+        },
+        "mode": 420,
+        "path": "/opt/extensions/kubernetes/kubernetes-v1.37.1-x86-64.raw"
+      }
+    ],
+    "links": [
+      {
+        "hard": false,
+        "path": "/etc/extensions/kubernetes.raw",
+        "target": "/opt/extensions/kubernetes/kubernetes-v1.37.1-x86-64.raw"
+      }
+    ]
+  },
+  "systemd": {
+    "units": [
+      {
+        "mask": true,
+        "name": "update-engine.service"
+      },
+      {
+        "mask": true,
+        "name": "locksmithd.service"
+      },
+      {
+        "dropins": [
+          {
+            "contents": "# The kubernetes sysext ships kubelet.service and a kubeadm drop-in\n# (10-kubeadm.conf) that this drop-in overrides; the flags are spelled out so\n# that the unit does not depend on the variables of that drop-in.\n[Service]\nEnvironmentFile=-/run/scarpenter/node-ip.env\nExecStart=\nExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml --provider-id=scarpenter://aws/us-east-1/default-abc12 --hostname-override=default-abc12 --register-with-taints=karpenter.sh/unregistered:NoExecute,dedicated=gpu:NoSchedule $SCARPENTER_NODE_IP_ARGS\n",
+            "name": "20-scarpenter.conf"
+          }
+        ],
+        "name": "kubelet.service"
+      }
+    ]
+  }
+}
+=== volumes ===
+{
+  "ignition": {
+    "version": "3.4.0"
+  },
+  "storage": {
+    "files": [
+      {
+        "contents": {
+          "inline": "#!/bin/bash\n# First-boot preparation of one extra volume (docs/reference/node-settings.md,\n# 00a section 11): wait for the device, find it by its stable by-id path or by\n# vendor serial pattern and size, and create the filesystem with the label the\n# mount unit mounts by. It creates a filesystem only on a device that has no\n# signature at all and never touches one it did not create: a device that\n# already carries the label is left alone (a reboot), any other signature is an\n# error.\nset -euo pipefail\n\nlabel=\"\" fs=\"\" byid=\"\" serial=\"\" size=0 timeout=180\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --label) label=\"$2\" ;;\n    --fs) fs=\"$2\" ;;\n    --by-id) byid=\"$2\" ;;\n    --serial) serial=\"$2\" ;;\n    --size) size=\"$2\" ;;\n    --timeout) timeout=\"$2\" ;;\n    *) echo \"scarpenter-volume: unknown argument $1\" \u003e\u00262; exit 2 ;;\n  esac\n  shift 2\ndone\nif [ -z \"$label\" ] || [ -z \"$fs\" ] || { [ -z \"$byid\" ] \u0026\u0026 [ -z \"$serial\" ]; }; then\n  echo \"scarpenter-volume: --label, --fs and --by-id or --serial are required\" \u003e\u00262\n  exit 2\nfi\n\n# signature prints the filesystem or other signature type of a device, empty\n# when it has none.\nsignature() { blkid -p -o value -s TYPE \"$1\" 2\u003e/dev/null || true; }\ndevlabel() { blkid -p -o value -s LABEL \"$1\" 2\u003e/dev/null || true; }\n\n# candidates prints the whole disks that match the serial pattern and size, are\n# not mounted, have no partitions and carry no signature of someone else, one\n# per line (0 for the disk that already carries this volume's label, 1 for a\n# blank one), in path order. A disk labelled for another volume of ours (scv-*,\n# scl-*) is not a candidate either, and neither is a foreign filesystem: with\n# two volumes of the same size the other one must not be taken.\ncandidates() {\n  local path sz typ ser cl\n  lsblk -dnbp -o PATH,SIZE,TYPE,SERIAL | sort | while read -r path sz typ ser; do\n    [ \"$typ\" = disk ] || continue\n    # shellcheck disable=SC2254 # the serial is a glob pattern on purpose\n    case \"$ser\" in $serial) ;; *) continue ;; esac\n    if [ \"$size\" -gt 0 ] \u0026\u0026 [ \"$sz\" -ne \"$size\" ]; then continue; fi\n    if [ \"$(lsblk -nr -o NAME \"$path\" | wc -l)\" -gt 1 ]; then continue; fi\n    if findmnt -rn -S \"$path\" \u003e/dev/null; then continue; fi\n    cl=\"$(devlabel \"$path\")\"\n    if [ \"$cl\" = \"$label\" ]; then echo \"0 $path\"; continue; fi\n    case \"$cl\" in scv-*|scl-*) continue ;; esac\n    if [ -n \"$(signature \"$path\")\" ]; then continue; fi\n    echo \"1 $path\"\n  done\n}\n\n# The units of several volumes run in parallel: the choice of the device and\n# the creation of the filesystem happen under one lock, and the label is read\n# again once the lock is held, so that two volumes of the same size never take\n# the same disk.\nlockfile=\"${SCARPENTER_VOLUME_LOCK:-/run/scarpenter-volume.lock}\"\nexec 9\u003e\"$lockfile\"\n\ndeadline=$((SECONDS + timeout))\ndev=\"\"\nwhile :; do\n  flock 9\n  if [ -n \"$byid\" ]; then\n    if [ -e \"$byid\" ]; then dev=\"$(readlink -f \"$byid\")\"; fi\n  else\n    # A disk that already carries this volume's label comes before a blank one.\n    dev=\"$(candidates | sort -s -k1,1 | sed -n 1p | cut -d\" \" -f2)\"\n  fi\n  [ -z \"$dev\" ] || break\n  flock -u 9\n  if [ \"$SECONDS\" -ge \"$deadline\" ]; then\n    echo \"scarpenter-volume: no device for ${byid:-serial $serial size $size} after ${timeout}s\" \u003e\u00262\n    exit 1\n  fi\n  sleep 2\ndone\n\ncurrent=\"$(devlabel \"$dev\")\"\nif [ \"$current\" = \"$label\" ]; then\n  echo \"scarpenter-volume: $dev already carries the label $label\"\n  exit 0\nfi\nsig=\"$(signature \"$dev\")\"\nif [ -n \"$sig\" ]; then\n  echo \"scarpenter-volume: $dev has a $sig signature that scarpenter did not create, refusing to overwrite it\" \u003e\u00262\n  exit 1\nfi\ncase \"$fs\" in\n  ext4) mkfs.ext4 -q -F -L \"$label\" \"$dev\" ;;\n  xfs) mkfs.xfs -q -L \"$label\" \"$dev\" ;;\n  btrfs) mkfs.btrfs -q -L \"$label\" \"$dev\" ;;\n  *) echo \"scarpenter-volume: unsupported filesystem $fs\" \u003e\u00262; exit 2 ;;\nesac\necho \"scarpenter-volume: created $fs with the label $label on $dev\"\n"
+        },
+        "mode": 493,
+        "path": "/opt/scarpenter/bin/scarpenter-volume"
+      },
+      {
+        "contents": {
+          "inline": "#!/bin/bash\n# First-boot preparation of the instance-local disks (docs/reference/node-settings.md,\n# 00a section 6.1): mount puts an ext4 filesystem labelled scl-\u003cn\u003e on each disk,\n# raid0 stripes them into /dev/md/scarpenter-local with the label scl-raid. Like\n# scarpenter-volume it creates filesystems only on devices without any signature.\nset -euo pipefail\n\npolicy=\"\" pattern=\"\" count=0 timeout=180\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    --policy) policy=\"$2\" ;;\n    --pattern) pattern=\"$2\" ;;\n    --count) count=\"$2\" ;;\n    --timeout) timeout=\"$2\" ;;\n    *) echo \"scarpenter-local-storage: unknown argument $1\" \u003e\u00262; exit 2 ;;\n  esac\n  shift 2\ndone\nif [ \"$policy\" != mount ] \u0026\u0026 [ \"$policy\" != raid0 ]; then\n  echo \"scarpenter-local-storage: --policy is mount or raid0\" \u003e\u00262\n  exit 2\nfi\n[ -n \"$pattern\" ] || { echo \"scarpenter-local-storage: --pattern is required\" \u003e\u00262; exit 2; }\n\nsignature() { blkid -p -o value -s TYPE \"$1\" 2\u003e/dev/null || true; }\ndevlabel() { blkid -p -o value -s LABEL \"$1\" 2\u003e/dev/null || true; }\n\n# disks prints the resolved, de-duplicated local disks, in path order.\ndisks() {\n  local f\n  for f in \"${SCARPENTER_BY_ID_DIR:-/dev/disk/by-id}\"/$pattern; do\n    [ -e \"$f\" ] || continue\n    case \"$f\" in *-part*) continue ;; esac\n    readlink -f \"$f\"\n  done | sort -u\n}\n\ndeadline=$((SECONDS + timeout))\nwhile :; do\n  mapfile -t devs \u003c \u003c(disks)\n  # Without a count, whatever is there once the first disk shows up.\n  if [ \"${#devs[@]}\" -gt 0 ] \u0026\u0026 [ \"${#devs[@]}\" -ge \"$count\" ]; then break; fi\n  if [ \"$SECONDS\" -ge \"$deadline\" ]; then\n    echo \"scarpenter-local-storage: found ${#devs[@]} of $count local disks after ${timeout}s\" \u003e\u00262\n    exit 1\n  fi\n  sleep 2\ndone\n\nformat() { # format \u003cdevice\u003e \u003clabel\u003e\n  local dev=\"$1\" label=\"$2\" sig\n  if [ \"$(devlabel \"$dev\")\" = \"$label\" ]; then return 0; fi\n  sig=\"$(signature \"$dev\")\"\n  if [ -n \"$sig\" ]; then\n    echo \"scarpenter-local-storage: $dev has a $sig signature that scarpenter did not create, refusing to overwrite it\" \u003e\u00262\n    exit 1\n  fi\n  mkfs.ext4 -q -F -L \"$label\" \"$dev\"\n}\n\nif [ \"$policy\" = mount ]; then\n  i=0\n  for dev in \"${devs[@]}\"; do\n    format \"$dev\" \"scl-$i\"\n    i=$((i + 1))\n  done\n  exit 0\nfi\n\n# The array: members must be blank or already members of our array; anything\n# else is someone else's data and is never overwritten.\nif [ ! -e /dev/md/scarpenter-local ]; then\n  existing=0\n  fresh=0\n  for dev in \"${devs[@]}\"; do\n    sig=\"$(signature \"$dev\")\"\n    if [ -z \"$sig\" ]; then\n      fresh=$((fresh + 1))\n    elif [ \"$sig\" = linux_raid_member ] \u0026\u0026 mdadm --examine \"$dev\" 2\u003e/dev/null | grep -Eq '^[[:space:]]*Name[[:space:]]*:.*scarpenter-local'; then\n      existing=$((existing + 1))\n    else\n      echo \"scarpenter-local-storage: $dev has a $sig signature that scarpenter did not create, refusing to use it in the array\" \u003e\u00262\n      exit 1\n    fi\n  done\n  if [ \"$existing\" -gt 0 ] \u0026\u0026 [ \"$fresh\" -gt 0 ]; then\n    echo \"scarpenter-local-storage: some local disks belong to the array and some are blank, refusing to guess\" \u003e\u00262\n    exit 1\n  fi\n  if [ \"$existing\" -gt 0 ]; then\n    mdadm --assemble /dev/md/scarpenter-local --name=scarpenter-local --run \"${devs[@]}\"\n  else\n    mdadm --create /dev/md/scarpenter-local --name=scarpenter-local --homehost=any --run --level=0 \\\n      --raid-devices=\"${#devs[@]}\" \"${devs[@]}\"\n  fi\nfi\nformat /dev/md/scarpenter-local scl-raid\n"
+        },
+        "mode": 493,
+        "path": "/opt/scarpenter/bin/scarpenter-local-storage"
+      }
+    ]
+  },
+  "systemd": {
+    "units": [
+      {
+        "contents": "[Unit]\nDescription=Prepare the volume pgdata\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=var-lib-pgdata.mount\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/scarpenter/bin/scarpenter-volume --label scv-ff852343 --fs xfs --by-id /dev/disk/by-id/scsi-0HC_Volume_123\n",
+        "name": "scarpenter-volume-pgdata.service"
+      },
+      {
+        "contents": "[Unit]\nDescription=Mount the volume pgdata\nRequires=scarpenter-volume-pgdata.service\nAfter=scarpenter-volume-pgdata.service\nBefore=local-fs.target\n[Mount]\nWhat=/dev/disk/by-label/scv-ff852343\nWhere=/var/lib/pgdata\nType=xfs\n[Install]\nWantedBy=local-fs.target\n",
+        "enabled": true,
+        "name": "var-lib-pgdata.mount"
+      },
+      {
+        "contents": "[Unit]\nDescription=Prepare the volume scratch\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=mnt-scratch\\x2ddisk.mount\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/scarpenter/bin/scarpenter-volume --label scv-5a9cb6b5 --fs ext4 --serial vol* --size 107374182400\n",
+        "name": "scarpenter-volume-scratch.service"
+      },
+      {
+        "contents": "[Unit]\nDescription=Mount the volume scratch\nRequires=scarpenter-volume-scratch.service\nAfter=scarpenter-volume-scratch.service\nBefore=local-fs.target\n[Mount]\nWhat=/dev/disk/by-label/scv-5a9cb6b5\nWhere=/mnt/scratch-disk\nType=ext4\n[Install]\nWantedBy=local-fs.target\n",
+        "enabled": true,
+        "name": "mnt-scratch\\x2ddisk.mount"
+      },
+      {
+        "contents": "[Unit]\nDescription=Prepare the instance-local disks\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=local-fs.target\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/scarpenter/bin/scarpenter-local-storage --policy raid0 --pattern nvme-Amazon_EC2_NVMe_Instance_Storage_* --count 2\n",
+        "name": "scarpenter-local-storage.service"
+      },
+      {
+        "contents": "[Unit]\nDescription=Mount the local storage scl-raid\nRequires=scarpenter-local-storage.service\nAfter=scarpenter-local-storage.service\nBefore=local-fs.target\n[Mount]\nWhat=/dev/disk/by-label/scl-raid\nWhere=/mnt/local\nType=ext4\n[Install]\nWantedBy=local-fs.target\n",
+        "enabled": true,
+        "name": "mnt-local.mount"
+      }
+    ]
+  }
+}
+=== network ===
+{
+  "ignition": {
+    "version": "3.4.0"
+  },
+  "storage": {
+    "files": [
+      {
+        "contents": {
+          "inline": "direct\n"
+        },
+        "mode": 420,
+        "path": "/etc/scarpenter/network-template"
+      }
+    ]
+  }
+}
