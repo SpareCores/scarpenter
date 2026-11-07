@@ -27,8 +27,10 @@ real values into the repository; reference the secrets.
 ## Scope
 
 - **`.github/workflows/e2e-aws.yml`**: `workflow_dispatch` (inputs:
-  `scenarios`, `keep: false`) and weekly schedule; one job,
-  `environment: aws-e2e`, `concurrency` group, `timeout-minutes: 60`; steps
+  `scenarios`, and pins for the minimum-version run) and weekly schedule; one job,
+  `environment: aws-e2e`, `concurrency` group, `timeout-minutes: 90` (the
+  Scenarios step has its own limit, 55 min, so that at least 20 min stay for
+  diagnostics and teardown); steps
   of overview §13.4 (tailnet join with the official action and the OAuth
   client, k3s server with TLS SAN = tailscale IP and production-like flags,
   flannel `--iface=tailscale0` and kube-proxy DaemonSets, auth-key minting
@@ -76,7 +78,7 @@ real values into the repository; reference the secrets.
      (the workflow deletes them in teardown).
   5. Final check: no instance, security group or ENI tagged with the run's
      cluster remains after teardown.
-- **Teardown** (`if: always()` unless `keep`): delete NodePools, wait for
+- **Teardown** (`if: always()`): delete NodePools, wait for
   NodeClaims to go, then force-terminate anything tagged with the run's
   cluster, delete managed security groups, remove the runner from the
   tailnet; dump diagnostics on failure (SCarpenter logs, events, NodeClaims,
@@ -100,6 +102,9 @@ real values into the repository; reference the secrets.
   by its 5 minute launch timeout). A restart scenario must assert that the replay of
   `Create` ran (the qemu driver's `--qemu-launch-delay` is the model: the instance
   exists, `Create` has not returned), and that no instance is orphaned.
+  (Decided in the plan 10 fix round: on AWS the window is narrow and no test-only driver
+  flag is added, so the replay assertions are opportunistic: a missed window is noted,
+  never a failure.)
 - Volumes attached at or after launch: check on a real node that the label's device
   unit has `JobRunningTimeoutSec=240` and that a slow attach (about 100 s) does not
   fail the mount (plan 07 review N1; the lane's qemu disks exist at once and cannot

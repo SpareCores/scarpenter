@@ -65,6 +65,7 @@ A change is done when all of these pass, in this order
 | 3 | `hack/dev.sh make test` | L1 and L2: unit, golden and envtest suites, built with `-tags scarpenter_dev` so the dev-driver code is compiled and tested. No network access: Keeper calls go to the snapshot replay server, artifact fetches to local fixtures. |
 | 4 | `hack/dev.sh make test-kwok` | L3: the controller with the fake driver in kind (see [The L3 lane](#the-l3-lane)). |
 | 5 | `hack/dev.sh --privileged make test-qemu` | L4: real Flatcar VMs join a k3s control plane (see [The L4 lane](#the-l4-lane)). Run it when a change touches bootstrap, the qemu driver or `test/qemu`. |
+| 6 | `hack/dev.sh make test-e2e-aws-dryrun` | The L5 lane's parts that need no AWS: its manifests against an API server, the sweeper against the in-memory EC2, its shell helpers against stubs, the chart with its values (see [The L5 lane](#the-l5-lane)). Part of `make test` for the Go tests; CI runs the whole target. |
 
 Also: `hack/dev.sh make build` produces `bin/scarpenter-controller`, and
 `hack/dev.sh make image` builds the controller image for the host architecture
@@ -80,7 +81,7 @@ pushes `linux/amd64,linux/arm64`). `make help` lists every target.
 | Chart | `make test-chart` | The Helm chart without a cluster: lint, golden `helm template` output, the values schema and the template checks against bad values, every controller flag settable and accepted by the controller's own parser, the RBAC and CRDs equal to `config/` and Karpenter core's. | Plan 09: [The chart tests](#the-chart-tests). The install into a cluster is the L3 lane. |
 | L3 | `make test-kwok` | Real Karpenter core, SCarpenter (installed from the Helm chart) and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, extended to seventeen by plan 06; the chart since plan 09. [The L3 lane](#the-l3-lane). |
 | L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged` and `/dev/kvm`. | Plan 07: [The L4 lane](#the-l4-lane). |
-| L5 | a manual GitHub workflow | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10. |
+| L5 | `.github/workflows/e2e-aws.yml` (manual and weekly) | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10: [The L5 lane](#the-l5-lane). Written and statically validated; the first live run is the coordinator's. |
 
 The design of the layers is in
 [the overview](../plans/v1/wip/00-overview.md#13-testing) and ADR-010.
@@ -273,6 +274,213 @@ under 20 minutes are on record (overview section 15, Q6); then the flag goes. A
 self-hosted runner with `/dev/kvm` is the fallback, only for `schedule` and
 `workflow_dispatch`, never for pull requests: a fork's pull request would run
 arbitrary code on it (see the end of the workflow file).
+
+### The L5 lane
+
+L5 proves SCarpenter end to end on a real cloud: a k3s control plane on a GitHub
+runner, nodes on AWS that join over a Tailscale tailnet, both architectures, spot,
+the whole Karpenter path. It is the only lane that costs money and needs credentials,
+so it exists only as a workflow, `.github/workflows/e2e-aws.yml`, run on demand
+(`workflow_dispatch`) and weekly, from `main` only, in the GitHub environment
+`aws-e2e`. It never runs for a pull request, and nothing in the repository runs it
+from a developer machine. A run takes 40 to 60 minutes (the job's limit is 90: the Scenarios step has its own
+limit of 55 minutes, so that at least 20 minutes stay for the diagnostics and the
+teardown, which always run) and costs well
+under $0.20: a handful of small instances for minutes, a few GiB of EBS, no NAT
+gateway.
+
+```bash
+gh workflow run e2e-aws.yml                                  # everything
+gh workflow run e2e-aws.yml -f scenarios=amd64,arm64         # a subset
+```
+
+Inputs: `scenarios` (names below, comma separated), `k3s_version` and
+`kubernetes_version` (the pins of `test/e2e-aws/defaults.sh`; together they run the
+lane at another Kubernetes version, for example the chart's minimum, 1.31: the
+kubelet sysext must exist in the sysext-bakery for the version and be at most the
+API server's), `local_storage_type` (enables the optional local-storage scenario).
+The check that the dry run [below](#without-aws) cannot make, is the run itself.
+
+**What a run does** (overview section 13.4; the scripts are in `test/e2e-aws`):
+
+1. `tailscale/github-action` joins the runner to the tailnet with the OAuth client (tag
+   `tag:scarpenter-ci`); `bootstrap.sh` starts a k3s server on the runner's tailscale
+   address (TLS SAN, node IP) with the flags of a production k3s for remote workers, flannel
+   (`--iface=tailscale0`) and kube-proxy as DaemonSets. The runner's own node is
+   tainted `CriticalAddonsOnly`, so only the controller, CoreDNS and the DaemonSets
+   run on it.
+2. `mint-authkey.sh` mints an ephemeral, pre-authorized, reusable auth key tagged
+   `tag:scarpenter-ci-node`, valid for an hour, through the Tailscale API.
+3. The CI role is assumed through GitHub's OIDC (`aws-actions/configure-aws-credentials`);
+   `install.sh` puts the temporary credentials in a Secret (`vendors.aws.credentials.mode:
+   secret` with a session token). Web identity from the cluster's own issuer needs a
+   public issuer and EKS Pod Identity needs EKS: neither is testable on an ephemeral
+   runner, and both stay manual walks of [AWS credentials](aws-credentials.md).
+4. `install.sh` builds the controller image from the checkout (production build), imports
+   it into k3s, applies the CRDs and the NodeClasses (they must exist before the controller
+   starts, because the label keys of their metrics are registered at start-up), installs
+   **the chart** with `cluster.name=scarpenter-ci-<run id>`, and applies the NodePools
+   (`WhenEmpty`, `consolidateAfter: 0s`, limits, the instance types listed).
+5. `scenarios.sh` runs the scenarios below. The workloads of all of them start together,
+   so the nodes boot in parallel.
+6. `teardown.sh` (`if: always()`): deletes SCarpenter's NodePools and waits
+   for the NodeClaims, force-terminates and sweeps what the cluster tag finds, **fails the
+   job if anything tagged with the cluster remains** (instances, security groups, network
+   interfaces, placement groups, subnets, VPCs, gateways, route tables, volumes), revokes the
+   auth key and logs the runner out of the tailnet. On failure `diagnostics.sh` collects the
+   controller logs, events, NodeClaims, CSRs, the k3s journal and the serial console of every
+   instance first.
+
+| Scenario | Proves |
+|---|---|
+| preflight | the Flatcar AMIs exist by name (`Flatcar-<channel>-<version>[-arm64]-hvm`, owner `075585003325`, exactly one per architecture); the account's Standard quotas suffice (16 on-demand, 4 spot vCPUs); the NodeClasses are `Ready`, `VendorReady` and `ImagesReady` |
+| `amd64` | on-demand, exact type `aws.t3a.small`: Node Ready, Pod Running, `kubectl logs` and `exec`; node labels of overview section 5.5 (zone name and zone ID consistent with `DescribeAvailabilityZones`); instance tags, IMDSv2 required with hop limit 1 (and a token request from a Pod gets no answer), encrypted gp3 root volume made from the unencrypted snapshot; the price annotation is complete; the bootstrap token is gone; the serving CSR is approved over the tailnet; on the node, the checks of L4 scenarios Q09 and Q10 (tailscale sysext merged, `tailscaled` upheld, the kubelet ordered after and bound to the join unit and started with `--node-ip` = the tailscale address); the cluster DNS (the controller found the Service itself, the kubelet got `clusterDNS`, a Pod resolves a cluster Service) |
+| `arm64` | spot, exact type `aws.t4g.small`: the same on arm64, the instance's lifecycle is `spot`, the spot request carries the cluster tag |
+| `db` | overview 13.4 / 00a section 8.2: an `r`-family StatefulSet with the `db-io2` storage profile (a 4 GiB io2 volume with 100 IOPS) and a client Deployment, both `colocated` with one run key: one cluster placement group, named and tagged by SCarpenter, both instances in it and in one zone; the io2 volume is attached, encrypted, found by its NVMe serial (the volume ID) and mounted as xfs at `/var/lib/pgdata`, the Pod's file is on it; the device unit has `JobRunningTimeoutSec=240`; the labels of the applied profiles; `price-incomplete` for the unpriced IOPS; the managed security group allows its members; after deleting both workloads the group and the volume are gone |
+| `described` | a Deployment that selects by `vcpus`, `memory-mib` ranges and a `metric-single-core-pct` threshold within the allowed test types gets a type that satisfies all of them (checked against EC2's vCPUs of the type) |
+| `byo` | a security group and a subnet that the workflow creates with the AWS CLI (tagged with the cluster and the run's creation time) are `use`d by a second NodeClass: the node launches into them, and after the workload, the NodePool and the NodeClass are gone SCarpenter has not deleted them (the teardown does) |
+| `local` | optional (`local_storage_type`): a type with instance-store disks gets them striped and mounted at the profile's path |
+| `negative` | `publicIPv4: false` is refused on the default VPC (`VendorReady=False`, reason `ValidationFailed`), `publicIPv6: true` gates the zones of a default VPC without IPv6 (`ResourcesReady=False`); no instance is launched |
+| `quota` | the limits SCarpenter reports (`scarpenter_quota_limit`) equal `aws service-quotas get-service-quota` for all 18 codes; `scarpenter_quota_used` of the Standard on-demand and spot buckets equals what EC2 says is running and pending (the counting rules of overview section 11.8: a spot request with an instance is not counted twice); the in-flight reservations are released; the launched types are in `DescribeInstanceTypeOfferings` of their zones |
+| `drift` | a change to a storage profile no running node uses drifts nothing; a change to `vendors.aws.storage.root.volumeSize` replaces the node (new root size, old instance terminated, old NodeClaim and Node gone, the Pod moves). The controller Pod is killed hard (`--grace-period=0 --force`) while the replacement's `Create` is in flight, and the replacement carries `karpenter.sh/do-not-disrupt` until the Pod has moved (core forgets its disruption command at a restart and would consolidate the empty replacement). **The replay of `Create` is opportunistic**: the window (the instance exists, `Create` has not returned) is narrow on AWS and no test-only driver flag stretches it, so when the attempt misses it the run notes that and never fails for it. This is what the carry-over items "a restart must assert the replay of `Create` ran" (plan 07) and `IdempotentParameterMismatch` with changed user-data (plan 08) depend on. Always asserted: a claim that survived the restart owns one instance, no instance is orphaned; when the window was hit, the replay found the first launch's instance instead of making a second |
+| `scalezero` | the exit criterion: after the workloads are deleted every instance of the cluster is `terminated` within 2 minutes (`E2E_SCALE_DOWN_DEADLINE`); no node, NodeClaim or bootstrap token is left; a `client-token` filter still finds the terminated instance; the quota usage falls with the instances and no lingering spot request counts |
+| `uninstall` | the procedure of [Uninstall](install.md#uninstall) on the live account: SCarpenter's NodePools by `nodeClassRef.group`, the SCNodeClasses (once they are gone their security groups fall under `managedResources.defaultTTL`, 5 minutes in the lane, 24 hours by default), then `helm uninstall` |
+
+The report (`report.txt`, in the step summary), per-scenario logs and the notes
+(boot-to-Ready times, the measured scale-down time, how the restart attempt went) are in
+the job's artifact on failure.
+
+**Reading a failure.** The scenario's log names the assertion. Where to look next:
+
+| Symptom | Look at |
+|---|---|
+| a Pod stays Pending, no NodeClaim | `controller.log` and `events.txt` of the diagnostics: the NodePool's requirements, `QuotaAvailable=False` on the NodeClass, a type the role denies (`UnauthorizedOperation` on `RunInstances`) |
+| a NodeClaim, the instance runs, the node never registers | the instance's serial console (`console-<id>.txt`): Ignition, the sysext downloads, `scarpenter-tailscale-up` (a rejected auth key or an ACL that does not allow the tag); `kubectl get csr` |
+| the node is Ready but `kubectl logs`/`exec` fail | the tailnet ACL (tcp 10250 from the runner to the nodes), the serving CSR (`ServingCertificateDenied` events), the kubelet client CA (401) |
+| Pods on the nodes cannot reach cluster Services or DNS | flannel over the tailnet (udp 8472 between the tags), `flannel.log` |
+| `AccessDenied` or `UnauthorizedOperation` | the role's policy: `test/e2e-aws/ci-policy.sh` prints the one the lane was written for; CloudTrail names the condition that denied |
+| the teardown reports leftovers | the sweeper's output in the step log lists what it deleted and what is still in use; the next scheduled sweep takes the rest |
+
+#### Provisioning (outside this repository)
+
+The lane needs the following, provisioned once by a maintainer; nothing here is created
+by a workflow. Use your own values; the repository holds none.
+
+*GitHub*: the environment `aws-e2e` with deployments limited to the `main` branch
+(**no required reviewers**: the sweeper runs on a schedule in the same environment, and
+each run would wait for an approval, so leftovers would not be swept; the sweeper and the
+lane share the environment `aws-e2e` and with it the role and its trust policy); in it, or in the repository,
+the secrets `AWS_ROLE_ARN`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` and the variable
+`AWS_REGION` (`us-east-2`). In the repository's Actions settings, require approval for
+all outside collaborators.
+
+*AWS*: an IAM OIDC provider for `token.actions.githubusercontent.com` (client ID
+`sts.amazonaws.com`) and a role `scarpenter-ci-gha` with this trust policy (the
+environment claim keeps every other workflow and branch out):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:SpareCores/scarpenter:environment:aws-e2e"
+      }
+    }
+  }]
+}
+```
+
+Its permissions come from the policy of the controller
+([`aws-iam-policy.json`](../reference/aws-iam-policy.json), the IAM statements are explained in
+the [AWS driver reference](../reference/aws-driver.md#iam)) for the clusters `scarpenter-ci-*`;
+the script prints it with the lane's additions:
+
+```bash
+hack/dev.sh test/e2e-aws/ci-policy.sh 123456789012 us-east-2 > ci-policy.json
+aws iam create-policy --policy-name scarpenter-ci-gha --policy-document file://ci-policy.json
+aws iam attach-role-policy --role-name scarpenter-ci-gha --policy-arn arn:aws:iam::123456789012:policy/scarpenter-ci-gha
+```
+
+What it adds to the controller's policy: the tag conditions become wildcards
+(`scarpenter-ci-*`); the statements for an instance profile and a customer KMS key are
+dropped; the optional managed-network statements stay (the sweeper deletes a managed VPC,
+and the `byo` scenario creates and deletes one tagged subnet and security group in the
+default VPC: `LaneBringYourOwn` allows `ec2:CreateSubnet` in the region's VPCs, the subnet
+itself must carry the tag); `LaneReads` allows `DescribeVolumes`, `DescribeNetworkInterfaces` and
+`GetConsoleOutput`; an explicit deny of `RunInstances` for every instance type but the ones the
+lane launches (`t3a.small`, `t3a.medium`, `t3a.large`, `t4g.small`, `r6a.large`, and
+`E2E_LOCAL_STORAGE_TYPE` if set; the pools of `test/e2e-aws/manifests/nodepools.yaml` name the
+same types, and a test keeps this page and them together); an explicit deny of EC2 and Service
+Quotas calls outside the region (the sweeper visits every enabled region, is refused in the
+others and skips them). The role's maximum session duration must be at least **two hours**: the controller keeps
+the credentials of the first role assumption for the whole run (the workflow asks for 7200
+seconds). The account also needs the Spot service-linked role
+([AWS credentials](aws-credentials.md#account-setup-for-spot)) and **quotas that the new-account
+defaults do not give**: Standard on-demand 16 vCPUs and Standard spot 4 vCPUs in the region
+(`preflight` checks, and says so, before anything is launched).
+
+*Tailscale*: two tags and an OAuth client. In the tailnet policy file (HuJSON), with
+`tag:scarpenter-ci` for the runner and `tag:scarpenter-ci-node` for the nodes:
+
+```json
+{
+  "tagOwners": {
+    "tag:scarpenter-ci": ["autogroup:admin"],
+    "tag:scarpenter-ci-node": ["autogroup:admin", "tag:scarpenter-ci"]
+  },
+  "grants": [
+    {"src": ["tag:scarpenter-ci"], "dst": ["tag:scarpenter-ci-node"], "ip": ["tcp:10250", "udp:8472"]},
+    {"src": ["tag:scarpenter-ci-node"], "dst": ["tag:scarpenter-ci"], "ip": ["tcp:6443", "udp:8472"]},
+    {"src": ["tag:scarpenter-ci-node"], "dst": ["tag:scarpenter-ci-node"], "ip": ["udp:8472"]}
+  ]
+}
+```
+
+The ports are the kubelet (`kubectl logs` and `exec`: the API server on the runner calls
+10250), the API server (the nodes join and talk to 6443), and flannel's vxlan tunnel (udp 8472)
+between the runner and the nodes and between the nodes. Nothing else is open between the tags. Create an
+OAuth client (Settings, OAuth clients) with the scope **`auth_keys`** (write) and the tags
+`tag:scarpenter-ci` and `tag:scarpenter-ci-node`: the join action uses it for the runner's
+key, `mint-authkey.sh` for the nodes' key and for revoking it; its ID and secret are the two
+repository secrets. Nodes join as ephemeral devices, so they vanish from the tailnet when
+their instances do. If a tailnet uses other prefixes than `100.64.0.0/10` set
+`bootstrap.tailnetPrefixes` in `manifests/chart-values.yaml`.
+
+#### The sweeper
+
+`.github/workflows/e2e-aws-sweeper.yml` runs every three hours and on demand, in the same
+environment with the same role. It terminates the instances and deletes the placement
+groups, security groups and the network (subnets, route tables, internet gateways, VPCs) of every
+cluster whose `scarpenter.sparecores.com/cluster` tag starts with `scarpenter-ci-` and that
+is more than two hours old, in every enabled region. The age is the instance's launch time;
+a security group, a subnet or a VPC has no creation time in the API, so the lane's NodeClasses
+put the tag `ci-created-at` (Unix seconds) on everything they create through `spec.tags`, and
+the workflow's own resources carry it too. **A resource without the tag has no known age and
+is left alone**, so does a default VPC, a default security group and a main route table.
+Spot requests still open or active are only reported (a one-time request closes with its
+instance). The selection is `pkg/vendors/aws/sweep`, tested against the AWS driver's in-memory EC2
+(old and young instances, resources by tag and age, a cluster of another name, a managed network
+in a region without a default VPC deleted in dependency order, an unattached gateway, a region
+the role may not use, a dry run); `go run ./test/e2e-aws/sweeper -dry-run` (with credentials)
+lists what a sweep would delete, `-cluster <name> -max-age 0` is what the teardown uses for its own
+cluster.
+
+#### Without AWS
+
+`hack/dev.sh make test-e2e-aws-dryrun` (CI runs it) is what can be checked without an account:
+`manifests_test.go` renders every manifest of `test/e2e-aws/manifests` with sample values and
+sends it to an envtest API server as a server-side dry run with strict validation, with the CRDs
+of SCarpenter and Karpenter core (the CEL rules, the schema); `selftest.sh` runs the helpers of
+`lib.sh` against fixtures and stubs, checks that every scenario has a function and the workflow
+names it, that every action is pinned by SHA, that the lane's files hold no account ID, key or
+local path, that the CI policy script produces what the docs say, and renders the chart with the
+lane's values; the sweeper's tests run against the in-memory EC2. `make lint` runs `actionlint` and
+`shellcheck` on the workflows and the scripts.
 
 ### Artifact fixtures
 

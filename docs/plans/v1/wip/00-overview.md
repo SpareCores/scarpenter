@@ -1151,7 +1151,8 @@ only for schedule and manual runs, never for pull requests.
 ### 13.4 L5: AWS e2e over Tailscale
 
 Workflow `e2e-aws.yml` (`workflow_dispatch` and weekly), GitHub environment
-`aws-e2e`, `concurrency` group, `timeout-minutes: 60`:
+`aws-e2e`, `concurrency` group, `timeout-minutes: 90` (the scenarios step has
+its own limit, so that at least 20 minutes stay for diagnostics and teardown):
 
 1. Join the runner to the tailnet (Tailscale OAuth client, tag
    `tag:scarpenter-ci`). Start a k3s server bound to the runner's tailscale

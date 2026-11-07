@@ -1,0 +1,45 @@
+# The values the L5 lane installs the chart with (install.sh adds the image of the
+# build under test). What is left unset is the chart's own default on purpose: the
+# cluster DNS is found by the controller (kube-dns Service of the k3s cluster), the
+# Keeper is the public one, the sysexts come from the upstream releases, and the
+# kubelet client CA is copied from kube-system/extension-apiserver-authentication
+# (the client CA of k3s, which `kubectl logs` and `exec` need).
+#
+# Credentials: the temporary credentials of the CI role (GitHub OIDC) are given as a
+# Secret with a session token, mode secret. The webIdentity and Pod Identity modes
+# need a public OIDC issuer or EKS and are not testable on an ephemeral runner
+# (docs/how-to-guides/testing.md#the-l5-lane).
+cluster:
+  name: ${E2E_CLUSTER}
+  # The API server's tailnet address: the nodes reach it over Tailscale.
+  apiServerEndpoint: https://${E2E_API_HOST}:6443
+kubeletClientCA:
+  source: extensionApiserverAuthentication
+vendors:
+  aws:
+    homeRegion: ${AWS_REGION}
+    region: ${AWS_REGION}
+    credentials:
+      mode: secret
+      secret:
+        existingSecret: aws-credentials
+        sessionTokenKey: AWS_SESSION_TOKEN
+# Short intervals: the quota scenarios wait for refreshes (E2E_QUOTA_REFRESH).
+quota:
+  refreshInterval: 30s
+  limitsRefreshInterval: 1m
+  launchableRefreshInterval: 5m
+gc: {interval: 1m}
+# Once its NodeClass is deleted, a managed security group (an idleTTL kind) is governed
+# by this default, not by the NodeClass's own 5-minute lifetime: without it the
+# uninstall scenario would wait for a 24-hour TTL.
+managedResources: {defaultTTL: 5m}
+karpenter:
+  logLevel: debug
+# The control plane's node carries the CriticalAddonsOnly taint (bootstrap.sh), so
+# that test workloads land on SCarpenter's nodes only.
+tolerations:
+  - {key: CriticalAddonsOnly, operator: Exists}
+resources:
+  requests: {cpu: 200m, memory: 640Mi}
+  limits: {memory: 1536Mi}

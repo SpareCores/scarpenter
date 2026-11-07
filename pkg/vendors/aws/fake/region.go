@@ -340,3 +340,28 @@ func subnetIPv6(vpc56 string, index int) string {
 	b[7] = byte(index)
 	return netip.PrefixFrom(netip.AddrFrom16(b), 64).String()
 }
+
+// TagDefaultResources adds tags to the region's default VPC, its default security
+// groups and its main route tables, which nobody can tag in this fake through the API:
+// for tests of tools that must never delete them even when they carry a tag that selects
+// them (a hostile or mistaken tag on the account's defaults).
+func (a *Account) TagDefaultResources(regionName string, tags map[string]string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.regions[regionName]
+	for _, v := range r.vpcs {
+		if v.isDefault {
+			maps.Copy(v.tags, tags)
+		}
+	}
+	for _, g := range r.sgs {
+		if g.name == "default" {
+			maps.Copy(g.tags, tags)
+		}
+	}
+	for _, t := range r.rts {
+		if t.main {
+			maps.Copy(t.tags, tags)
+		}
+	}
+}

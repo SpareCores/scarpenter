@@ -228,6 +228,15 @@ func sdkFactory(ctx context.Context, home string) (ClientFactory, error) {
 	}, nil
 }
 
+// NewClientFactory returns the factory of real SDK clients (the default credential
+// chain, adaptive retries, the home region as the SDK's default region): what the driver
+// builds in Init. The sweeper CLI of the L5 lane (test/e2e-aws/sweeper) uses it to load the
+// credentials and the configuration through the driver package; pkg/vendors/aws/sweep, its
+// engine, only sees the narrow EC2API.
+func NewClientFactory(ctx context.Context, home string) (ClientFactory, error) {
+	return sdkFactory(ctx, home)
+}
+
 // clients returns the (lazily created) clients of a region, with per-call
 // timeouts.
 func (d *Driver) clients(ctx context.Context, region string) (Clients, error) {

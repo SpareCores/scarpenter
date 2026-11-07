@@ -1,0 +1,26 @@
+# The optional local-storage scenario: a type with instance-store disks, striped and
+# mounted at /var/lib/scratch by the first-boot unit (profile local-raid).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-local
+  labels: {app: e2e-local, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-local}
+  template:
+    metadata:
+      labels: {app: e2e-local, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-local
+        node.kubernetes.io/instance-type: ${E2E_LOCAL_STORAGE_TYPE}
+        scarpenter.sparecores.com/storage-profile: local-raid
+      containers:
+        - name: probe
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}

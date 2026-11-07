@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+# Helpers of the L5 lane (AWS e2e over Tailscale): docs/how-to-guides/testing.md#the-l5-lane.
+# Source it; it only defines functions and constants. Nothing here is run by `make
+# test`: the scripts that use it talk to a real AWS account and Tailscale, and only
+# the e2e-aws workflow runs them. `selftest.sh` runs the pure helpers against stubs.
+#
+# The environment the workflow (and a developer who runs the lane by hand with
+# their own account) provides:
+#
+#   E2E_CLUSTER             cluster name, scarpenter-ci-<run id>
+#   E2E_RUN_ID              the workflow run id (a unique suffix)
+#   E2E_CREATED_AT          Unix seconds of the start; tags every resource (sweeper)
+#   AWS_REGION              the region of the run (us-east-2)
+#   KUBECONFIG              the k3s cluster
+#   E2E_OUT                 directory for logs and the report (default test/e2e-aws/.out)
+#
+# Pins (defaults in defaults.sh).
+
+# shellcheck disable=SC2034  # constants used by the scripts that source this file
+
+e2e_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+e2e_root="$(cd "${e2e_dir}/../.." && pwd)"
+# shellcheck source=test/lib.sh
+source "${e2e_root}/test/lib.sh"
+# shellcheck source=test/e2e-aws/defaults.sh
+source "${e2e_dir}/defaults.sh"
+
+ns="scarpenter-system"
+ctag="scarpenter.sparecores.com/cluster"
+label_domain="scarpenter.sparecores.com"
+export AWS_PAGER=""
+export AWS_DEFAULT_OUTPUT=json
+
+# need <VAR>...: the variables must be set and non-empty.
+need() {
+  local v
+  for v in "$@"; do
+    [[ -n "${!v:-}" ]] || {
+      echo "the variable ${v} is required" >&2
+      exit 2
+    }
+  done
+}
+
+now() { date +%s; }
+
+# fail <message>: ends the running scenario (they run in subshells).
+fail() {
+  echo "FAIL: $*" >&2
+  exit 1
+}
+
+# note <message>: something to read in the report that is not a failure.
+note() {
+  echo "NOTE: $*"
+  [[ -z "${E2E_OUT:-}" ]] || echo "$*" >>"${E2E_OUT}/notes.txt"
+}
+
+assert_eq() { # assert_eq <what> <want> <got>
+  [[ "$2" == "$3" ]] || fail "$1: want '$2', got '$3'"
+  echo "ok: $1 = $2"
+}
+
+assert_nonempty() { # assert_nonempty <what> <value>
+  [[ -n "$2" && "$2" != "null" ]] || fail "$1 is empty"
+  echo "ok: $1 = $2"
+}
+
+assert_match() { # assert_match <what> <extended regexp> <got>
+  [[ "$3" =~ $2 ]] || fail "$1: '$3' does not match $2"
+  echo "ok: $1 = $3"
+}
+
+# wait_until <what> <timeout seconds> <command...>: polls every 3 s; on timeout
+# prints the last output of the command and ends the scenario.
+wait_until() {
+  local what="$1" timeout="$2" deadline last
+  shift 2
+  deadline=$((SECONDS + timeout))
+  while true; do
+    if last="$("$@" 2>&1)"; then
+      echo "ok: ${what} (after $((timeout - (deadline - SECONDS)))s)"
+      return 0
+    fi
+    if [[ "${SECONDS}" -ge "${deadline}" ]]; then
+      echo "last output: ${last}" >&2
+      fail "timed out after ${timeout}s waiting for ${what}"
+    fi
+    sleep 3
+  done
+}
+
+# ---------------------------------------------------------------- AWS -------
+
+ec2() { aws --region "${AWS_REGION}" ec2 "$@"; }
+
+# cluster_instances [states]: IDs of the cluster's instances in the states
+# (default: every state that is not terminated).
+cluster_instances() {
+  ec2 describe-instances \
+    --filters "Name=tag:${ctag},Values=${E2E_CLUSTER}" \
+    "Name=instance-state-name,Values=${1:-pending,running,stopping,stopped,shutting-down}" \
+    --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' '\n' | sed '/^$/d'
+}
+
+instance_json() { # instance_json <id>
+  ec2 describe-instances --instance-ids "$1" --query 'Reservations[0].Instances[0]'
+}
+
+# ---------------------------------------------------------- Kubernetes ------
+
+kjson() { kubectl get "$@" -o json; }
+
+# pod_node <pod name> [namespace]
+pod_node() { kubectl -n "${2:-default}" get pod "$1" -o jsonpath='{.spec.nodeName}'; }
+
+# claim_of_node <node>: the NodeClaim that registered as the node.
+claim_of_node() {
+  kjson nodeclaims | jq -r --arg n "$1" '.items[] | select(.status.nodeName == $n) | .metadata.name'
+}
+
+# instance_of_claim <claim>: the EC2 instance ID from the driver's annotation
+# (scarpenter.sparecores.com/instance-ref = <region>/<instance id>).
+instance_of_claim() {
+  kubectl get nodeclaim "$1" -o json | jq -r --arg k "${label_domain}/instance-ref" '.metadata.annotations[$k] // empty' | sed 's#.*/##'
+}
+
+node_label() { # node_label <node> <label>
+  kubectl get node "$1" -o json | jq -r --arg k "$2" '.metadata.labels[$k] // empty'
+}
+
+# ready_seconds <claim> <node>: seconds from the NodeClaim's creation to the node's Ready.
+ready_seconds() {
+  local created ready
+  created="$(kubectl get nodeclaim "$1" -o jsonpath='{.metadata.creationTimestamp}')"
+  ready="$(kubectl get node "$2" -o json | jq -r '.status.conditions[] | select(.type == "Ready") | .lastTransitionTime')"
+  echo $(($(date -d "${ready}" +%s) - $(date -d "${created}" +%s)))
+}
+
+# probe <name> <pool> <instance type> <capacity type>: a one-replica Deployment
+# pinned to a NodePool and an exact type (manifests/probe.yaml).
+probe() {
+  NAME="$1" POOL="$2" TYPE="$3" CAPACITY="$4" render "${e2e_dir}/manifests/probe.yaml" | kubectl apply -f -
+}
+
+# render <file>: envsubst with the variables the manifests use, and nothing else
+# (an unset one is an error, not an empty string).
+render() {
+  local -a vars
+  local v list=""
+  # shellcheck disable=SC2016  # the pattern is a literal ${NAME}
+  mapfile -t vars < <(grep -o '\${[A-Z0-9_]*}' "$1" | sort -u | tr -d '${}' || true)
+  for v in "${vars[@]}"; do
+    [[ -n "${!v+x}" ]] || {
+      echo "render $1: ${v} is not set" >&2
+      return 1
+    }
+    # shellcheck disable=SC2016  # envsubst takes the names as ${NAME}
+    list+="$(printf '${%s} ' "${v}")"
+  done
+  envsubst "${list}" <"$1"
+}
+
+pod_running() { # pod_running <label selector> [namespace]: every pod of the selector Running
+  local out
+  out="$(kubectl -n "${2:-default}" get pods -l "$1" -o json)"
+  [[ "$(jq '.items | length' <<<"${out}")" -gt 0 ]] &&
+    [[ "$(jq '[.items[] | select(.status.phase != "Running")] | length' <<<"${out}")" == 0 ]]
+}
+
+# node_shell <node> <command>: runs a command in the host's namespaces and root
+# directory of the node (a privileged Pod with the host's root mounted, chroot),
+# for the checks that look at systemd and files. Over kubectl exec, so it proves
+# the exec path as well.
+node_shell() {
+  local node="$1" pod="nodeshell-$1"
+  if ! kubectl get pod "${pod}" >/dev/null 2>&1; then
+    NODE="${node}" PODNAME="${pod}" render "${e2e_dir}/manifests/nodeshell.yaml" | kubectl apply -f - >/dev/null
+    kubectl wait --for=condition=Ready "pod/${pod}" --timeout=240s >/dev/null
+  fi
+  kubectl exec "${pod}" -- chroot /host sh -c "$2"
+}
+
+# ------------------------------------------------------------- metrics ------
+
+# metrics: the controller's metrics, through the API server's service proxy.
+metrics() { kubectl get --raw "/api/v1/namespaces/${ns}/services/scarpenter:metrics/proxy/metrics"; }
+
+# metric_value <metrics text file> <metric> <region> <bucket>: the value of a
+# quota series, empty when it does not exist (exposition format: name{labels} value).
+metric_value() {
+  awk -v n="$2" -v r="$3" -v b="$4" '
+    index($0, n "{") == 1 && index($0, "region=\"" r "\"") && index($0, "bucket=\"" b "\"") { print $NF; exit }' "$1"
+}
+
+# num <value>: an integer from a Prometheus or AWS number (5, 5.0, 5e+00).
+num() { awk -v v="$1" 'BEGIN { printf "%d", v + 0.5 }'; }
+
+# ------------------------------------------------------------ scenarios -----
+
+# The quota buckets of overview section 11.8: the on-demand and spot codes of the
+# classes that have both, and the on-demand codes of HPC and High Memory.
+quota_codes=(
+  L-1216C47A L-34B43A08 # Standard
+  L-74FC7D96 L-88CF9481 # F
+  L-DB2E81BA L-3819A6DF # G and VT
+  L-1945791B L-B5D1601B # Inf
+  L-417A185B L-7212CCBC # P
+  L-7295265B L-E3A00192 # X
+  L-2C3B7624 L-6B0D517C # Trn
+  L-6E869C2A L-85EED4F7 # DL
+  L-F7808C92            # HPC
+  L-43DA4232            # High Memory
+)
+standard_od="L-1216C47A"
+standard_spot="L-34B43A08"
+
+# is_empty <command...>: true when the command succeeds and prints nothing. A command
+# that fails (expired credentials, a throttle, a wrong selector) is not "empty": the check
+# fails, so that an error can never pass for "everything is gone". kubectl checks that mean
+# "the object is gone" must use --ignore-not-found. The command is run at every poll,
+# unlike a $(...) in the arguments of wait_until.
+is_empty() {
+  local out
+  out="$("$@" 2>/dev/null)" || return 1
+  [[ -z "${out}" ]]
+}
+
+# is_value <want> <command...>: true when the command prints exactly <want>.
+is_value() {
+  local want="$1"
+  shift
+  [[ "$("$@" 2>/dev/null)" == "${want}" ]]
+}

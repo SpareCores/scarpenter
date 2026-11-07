@@ -1,0 +1,43 @@
+# Scenario negative: NodeClasses the default network cannot serve. They are never used
+# by a NodePool, so nothing is launched.
+#   e2e-noipv4  publicIPv4: false: refused on the default VPC (the nodes would have no
+#               egress), unless the NodeClass brings its own subnets.
+#   e2e-ipv6    publicIPv6: true: the account's default VPC has no IPv6 block, so the
+#               zones are gated with the reason and the region is not ready.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-noipv4
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  networking: {publicIPv4: false}
+  vendors:
+    aws:
+      regions: [${AWS_REGION}]
+---
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-ipv6
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  networking: {publicIPv6: true}
+  vendors:
+    aws:
+      regions: [${AWS_REGION}]

@@ -1,0 +1,15 @@
+# The pool of the optional local-storage scenario.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-local
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-local}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [aws]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_LOCAL_STORAGE_TYPE}"]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "4"}

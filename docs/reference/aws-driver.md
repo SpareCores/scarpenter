@@ -320,7 +320,7 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
   - Security group rules take IPv4 and IPv6 CIDRs (an `icmp` rule with an IPv6 CIDR
     is ICMPv6); the serving certificate approver compares IPv6 addresses by value.
 - **No public IPv4** (`publicIPv4: false`) is refused (`VendorReady=False`, reason
-  `VendorInvalid`, the message names the fix) unless `resources.subnets.use` brings
+  `ValidationFailed`, the message names the fix) unless `resources.subnets.use` brings
   subnets: with the default VPC or the managed network the nodes would have no egress
   for sysexts and images. With `use` it is allowed: whether the subnets have a NAT
   gateway or a proxy is the user's job.
@@ -464,8 +464,9 @@ snapshots, Capacity Blocks and Dedicated Host quotas.
 
 ## What is not verified against AWS yet
 
-Everything above runs against the in-memory fake only; plan 10 (L5) confirms it
-live. Specifically:
+Everything above runs against the in-memory fake only; plan 10 (L5, the workflow
+`e2e-aws.yml`, see [the L5 lane](../how-to-guides/testing.md#the-l5-lane)) confirms
+it live. Specifically:
 
 - the exact `Flatcar-<channel>-<version>[-arm64]-hvm` AMI names (the public
   release lists carry AMI IDs, not names);

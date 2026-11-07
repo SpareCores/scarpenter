@@ -286,15 +286,45 @@ vendor resources it created:
    kubectl get nodeclaims -o json | jq '[.items[]
      | select(.spec.nodeClassRef.group == "scarpenter.sparecores.com")] | length'   # until 0
    ```
-2. Delete the SCNodeClasses (`kubectl delete scnodeclass --all`). The controller's
-   resource sweep then removes the vendor resources it created for them (networks,
-   security groups, placement groups) by their lifecycle, as soon as no instance
-   uses them; those with the policy `retain` go when their NodeClass does. Watch
-   the Events `ResourceDeleted` and the metric `scarpenter_resources_managed`
-   fall to 0 (about one garbage collection interval, two minutes, per dependency
-   level; a perUse grace of two minutes applies). Resources of `use` references are
-   never touched.
-3. Then `helm uninstall scarpenter --namespace scarpenter-system`.
+2. **Lower the idle lifetime, then delete the SCNodeClasses.** Managed networks and
+   security groups (lifecycle `idleTTL`, the default for them) are deleted **only by the
+   running controller, after they have been idle for their lifetime**: 24 hours by
+   default. Once the last NodeClass is gone, the NodeClass's own setting no longer
+   applies; the default of `managedResources.defaultTTL` (`--resource-default-ttl`) does.
+   An uninstall right after the NodeClasses would therefore leave them behind, because
+   nothing is left to delete them. Lower the default first:
+
+   ```bash
+   helm upgrade scarpenter oci://ghcr.io/sparecores/charts/scarpenter --namespace scarpenter-system \
+     --reuse-values --set managedResources.defaultTTL=1m      # and your other options, or --version
+   kubectl delete scnodeclass --all
+   ```
+
+   The sweep then removes what the NodeClasses created (networks, security groups,
+   placement groups) in dependency order once no instance uses them; resources with the
+   policy `retain` go when their NodeClass does (and are unused). Wait until the
+   controller reports them deleted: the Events `ResourceDeleted` and the metric
+   `scarpenter_resources_managed` falling to 0 (a garbage collection interval, two minutes,
+   per dependency level, plus the per-use grace of two minutes and the lowered idle
+   time). Resources of `use` references are never touched.
+3. **Verify that nothing is left, then uninstall.** Everything SCarpenter creates carries
+   the tag `scarpenter.sparecores.com/cluster=<cluster name>`; with the AWS CLI, per
+   region the NodeClasses allowed:
+
+   ```bash
+   f="Name=tag:scarpenter.sparecores.com/cluster,Values=my-cluster"
+   aws ec2 describe-instances --filters "$f" --query 'Reservations[].Instances[?State.Name!=`terminated`].InstanceId' --output text
+   aws ec2 describe-security-groups --filters "$f" --query 'SecurityGroups[].GroupId' --output text
+   aws ec2 describe-placement-groups --filters "$f" --query 'PlacementGroups[].GroupName' --output text
+   aws ec2 describe-vpcs --filters "$f" --query 'Vpcs[].VpcId' --output text
+   aws ec2 describe-subnets --filters "$f" --query 'Subnets[].SubnetId' --output text
+   ```
+
+   Every line must be empty (resources you brought with `use` are not tagged by
+   SCarpenter, and are yours). Then `helm uninstall scarpenter --namespace scarpenter-system`.
+   What a skipped step or an early uninstall leaves can be deleted by that tag, in this order:
+   instances (terminate and wait), placement groups, security groups, then a managed
+   network's subnets, route table, internet gateway (detach first) and VPC.
 
 There is **no automatic cleanup on uninstall** (`helm uninstall` removes the
 controller at once). A hook that deletes NodePools and NodeClasses would delete

@@ -1,0 +1,29 @@
+# The NodeClass of the bring-your-own-resources scenario: the security group and the
+# subnet the workflow created with the AWS CLI (tagged scarpenter-e2e-byo=<cluster>)
+# are used, not created. Applied by the scenario, after the resources exist.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-use
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every resource of the run, which the sweeper needs: a
+  # security group or a VPC has no creation time of its own in the API.
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    aws:
+      regions: [${AWS_REGION}]
+      storage:
+        root: {volumeType: gp3, volumeSize: 20Gi}
+      resources:
+        subnets: {use: {selector: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}}
+        securityGroups: {use: {selector: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}}
