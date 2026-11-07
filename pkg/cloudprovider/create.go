@@ -113,13 +113,22 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 	claimReqs := scheduling.NewNodeSelectorRequirementsWithMinValues(nodeClaim.Spec.Requirements...)
 	if st.runKey, err = options.RunKey(claimReqs); err != nil {
 		c.publish(nc, EventLaunchFailed, err.Error(), "run-key")
-		return nil, cloudprovider.NewCreateError(err, "InvalidRunKey", truncate(err.Error(), 200))
+		return nil, cloudprovider.NewCreateError(err, "InvalidRunKey", truncate(err.Error()))
 	}
 	cands, err := c.candidates(ctx, nc, nodeClaim, st.settings)
 	if err != nil {
 		return nil, cloudprovider.NewCreateError(err, "InstanceTypeResolutionFailed", "error resolving instance types")
 	}
 	if len(cands) == 0 {
+		// A catalog that is not ready (a controller that has just started, a
+		// snapshot that is too old) knows no types: that is not a lack of
+		// capacity, and InsufficientCapacity would make core delete the NodeClaim,
+		// also one whose instance a replayed idempotency key would find. The
+		// launch is retried instead.
+		if cs := c.opts.Catalog.Status(nc.Name); !cs.Ready {
+			err := fmt.Errorf("the catalog is not ready (%s): %s", cs.Reason, cs.Message)
+			return nil, cloudprovider.NewCreateError(err, "CatalogNotReady", truncate(err.Error()))
+		}
 		if vendor, reason := c.notReadyVendor(nc, nodeClaim); vendor != "" {
 			return nil, cloudprovider.NewNodeClassNotReadyError(fmt.Errorf("vendor %s is not ready: %s", vendor, reason))
 		}
@@ -199,14 +208,14 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 			c.publish(nc, EventLaunchFailed, fmt.Sprintf("launching %s in %s failed: %v", cand.typeName, cand.zone, err),
 				cand.vendor, vendors.CodeOf(err))
 			return nil, cloudprovider.NewCreateError(fmt.Errorf("launching %s: %w", cand.typeName, err),
-				"LaunchFailed", truncate(err.Error(), 200))
+				"LaunchFailed", truncate(err.Error()))
 		}
 	}
 
 	switch {
 	case st.attempts == 0 && st.skipped == 0 && st.imageErr != nil:
 		c.publish(nc, EventImageFailed, st.imageErr.Error(), "image")
-		return nil, cloudprovider.NewCreateError(st.imageErr, "ImageResolutionFailed", truncate(st.imageErr.Error(), 200))
+		return nil, cloudprovider.NewCreateError(st.imageErr, "ImageResolutionFailed", truncate(st.imageErr.Error()))
 	case st.lastErr != nil:
 		return nil, cloudprovider.NewInsufficientCapacityError(
 			fmt.Errorf("every launch attempt failed (%d attempts), the last: %w", st.attempts, st.lastErr))
@@ -533,12 +542,16 @@ func (c *CloudProvider) image(
 	return img, nil
 }
 
-func truncate(s string, n int) string {
+// maxConditionMessage is the longest message a CreateError carries into the
+// NodeClaim's Launched condition.
+const maxConditionMessage = 200
+
+func truncate(s string) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= n {
+	if len(s) <= maxConditionMessage {
 		return s
 	}
-	return s[:n]
+	return s[:maxConditionMessage]
 }
 
 // release is nil-safe: without a tracker there is no reservation.

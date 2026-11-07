@@ -461,6 +461,7 @@ Storage is the qemu storage block (vendor block and storage profile).
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `data` | array of [object](#specprofilesstorageqemudata) |  | data lists extra disks. At most 8 items. |
+| `localStorage` | [object](#specprofilesstorageqemulocalstorage) |  | localStorage configures the local disks of the instance types that have them (the driver attaches them as extra disk images). |
 | `root` | [object](#specprofilesstorageqemuroot) |  | root configures the root disk. |
 
 ### `spec.profiles.storage.*.qemu.data[]`
@@ -474,6 +475,15 @@ DataDisk is an extra disk image.
 | `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
 | `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
 | `size` (required) | integer or string |  | size of the disk image. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.profiles.storage.*.qemu.localStorage`
+
+localStorage configures the local disks of the instance types that have them (the driver attaches them as extra disk images).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mountPath` | string |  | mountPath is the absolute path the local storage is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `policy` (required) | string |  | policy: ignore leaves the disks alone, mount mounts them, raid0 stripes them into one volume and mounts it. One of `ignore`, `mount`, `raid0`. |
 
 ### `spec.profiles.storage.*.qemu.root`
 
@@ -1379,6 +1389,7 @@ storage overrides the qemu driver's defaults.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `data` | array of [object](#specvendorsqemustoragedata) |  | data lists extra disks. At most 8 items. |
+| `localStorage` | [object](#specvendorsqemustoragelocalstorage) |  | localStorage configures the local disks of the instance types that have them (the driver attaches them as extra disk images). |
 | `root` | [object](#specvendorsqemustorageroot) |  | root configures the root disk. |
 
 ### `spec.vendors.qemu.storage.data[]`
@@ -1392,6 +1403,15 @@ DataDisk is an extra disk image.
 | `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
 | `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
 | `size` (required) | integer or string |  | size of the disk image. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.vendors.qemu.storage.localStorage`
+
+localStorage configures the local disks of the instance types that have them (the driver attaches them as extra disk images).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mountPath` | string |  | mountPath is the absolute path the local storage is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `policy` (required) | string |  | policy: ignore leaves the disks alone, mount mounts them, raid0 stripes them into one volume and mounts it. One of `ignore`, `mount`, `raid0`. |
 
 ### `spec.vendors.qemu.storage.root`
 

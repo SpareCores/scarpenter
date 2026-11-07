@@ -90,16 +90,27 @@ if [[ "${privileged}" == 1 ]]; then
     priv_args+=(--device /dev/net/tun)
   fi
   caps=+net_admin,+net_raw,+net_bind_service
-  cmd_prefix=(setpriv "--reuid=$(id -u)" "--regid=$(id -g)" "--groups=${groups}"
+  # Two things the L4 lane needs that the image lacks for an arbitrary uid: k3s
+  # keeps its node password below /etc/rancher and refuses to start when the
+  # directory cannot be created, and ssh refuses to run for a uid without a
+  # passwd entry. Both are made while still root and die with the container.
+  # shellcheck disable=SC2016 # the script is for the container's shell
+  cmd_prefix=(sh -c 'install -d -m 1777 /etc/rancher
+    id -nu "$0" >/dev/null 2>&1 || echo "dev:x:$0:$1::/cache/home:/bin/bash" >>/etc/passwd
+    shift; exec "$@"' "$(id -u)" "$(id -g)"
+    setpriv "--reuid=$(id -u)" "--regid=$(id -g)" "--groups=${groups}"
     "--inh-caps=${caps}" "--ambient-caps=${caps}" --)
 fi
 
 # Settings of the local test lanes (test/kwok/run.sh, test/qemu/run.sh) that
 # pass through when set in the caller's environment.
 env_args=()
-for name in KWOK_SCENARIOS KWOK_SETUP_ONLY KEEP_CLUSTER REUSE_CLUSTER KIND_CLUSTER_NAME; do
+for name in KWOK_SCENARIOS KWOK_SETUP_ONLY KEEP_CLUSTER REUSE_CLUSTER KIND_CLUSTER_NAME \
+  QEMU_SCENARIOS QEMU_SETUP_ONLY SCARPENTER_QEMU_TAILSCALE_AUTHKEY SCARPENTER_QEMU_TAILSCALE_LOGIN_SERVER; do
   if [[ -n "${!name:-}" ]]; then
-    env_args+=(-e "${name}=${!name}")
+    # -e NAME copies the value from this environment: it does not show up in the
+    # process list or the container's command line (auth keys pass through here).
+    env_args+=(-e "${name}")
   fi
 done
 

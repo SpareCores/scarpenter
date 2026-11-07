@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -57,6 +58,10 @@ type RendererOptions struct {
 	// ClusterDNS and ClusterDomain are --cluster-dns and --cluster-domain.
 	ClusterDNS    []string
 	ClusterDomain string
+	// KubeletClientCAFile is --kubelet-client-ca-file: the CA that signs the
+	// API server's kubelet client certificates, when it is not the cluster CA.
+	// It is read at every rendering.
+	KubeletClientCAFile string
 }
 
 // Renderer renders the user-data of NodeClaims from the SCNodeClass (with the
@@ -87,6 +92,9 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
+	if p.KubeletClientCA, err = r.kubeletClientCA(); err != nil {
+		return nil, err
+	}
 	p.NodeName, p.ProviderID, p.BootstrapToken = req.NodeName, req.ProviderID, req.Token
 	p.Vendor, p.Region, p.Zone, p.InstanceType = req.Vendor, req.Region, req.Zone, req.InstanceType
 	p.KubeReserved, p.Volumes, p.Local = req.KubeReserved, req.Volumes, req.Local
@@ -103,7 +111,8 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 
 // Validate renders the NodeClass for the architecture with placeholder node
 // values and the loaded references, to find a broken template or a user-data
-// over the budget before the first launch. It uses the real cluster CA, which
+// over the budget before the first launch, also with every storage setup
+// of each vendor (the volume unit is not part of the plain rendering). It uses the real cluster CA, which
 // is the largest fixed part of the user-data (a CA bundle of 1 to 2 KiB, twice
 // that after compression and encoding), and falls back to a CA-sized
 // placeholder when it cannot be read: its availability is not the NodeClass's.
@@ -116,11 +125,47 @@ func (r *Renderer) Validate(ctx context.Context, nc *v1alpha1.SCNodeClass, arch 
 	if err != nil {
 		return err
 	}
+	// Like the cluster CA, a CA file that cannot be read now is not the
+	// NodeClass's fault: size it with a placeholder.
+	if r.opts.KubeletClientCAFile != "" {
+		if p.KubeletClientCA, err = r.kubeletClientCA(); err != nil {
+			p.KubeletClientCA = placeholderCA()
+		}
+	}
 	p.NodeName, p.ProviderID = "validation-node", "scarpenter://validation/validation/validation-node"
 	p.Vendor, p.Region, p.BootstrapToken = "validation", "validation", "000000.0000000000000000"
 	p.Taints = []corev1.Taint{karpv1.UnregisteredNoExecuteTaint}
-	_, err = Render(p)
-	return err
+	if _, err = Render(p); err != nil {
+		return err
+	}
+	// The first-boot volume unit adds to the user-data of nodes that have
+	// volumes (about 2.5 KiB and 0.3 KiB per volume): render the largest setup of
+	// each vendor, so that no launch the NodeClass allows can exceed the budget.
+	worst, err := worstCaseVolumes(nc)
+	if err != nil {
+		return err
+	}
+	for _, w := range worst {
+		wp := p
+		wp.Vendor, wp.Volumes, wp.Local = w.vendor, w.volumes, w.local
+		if _, err := Render(wp); err != nil {
+			return fmt.Errorf("with the storage setup of %s (%d volumes%s): %w", w.vendor, len(w.volumes),
+				map[bool]string{true: " and local storage", false: ""}[w.local != nil], err)
+		}
+	}
+	return nil
+}
+
+// kubeletClientCA reads --kubelet-client-ca-file ("" without the flag).
+func (r *Renderer) kubeletClientCA() (string, error) {
+	if r.opts.KubeletClientCAFile == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(r.opts.KubeletClientCAFile)
+	if err != nil {
+		return "", fmt.Errorf("reading --kubelet-client-ca-file: %w", err)
+	}
+	return validCA(string(b), "--kubelet-client-ca-file "+r.opts.KubeletClientCAFile)
 }
 
 // placeholderCA is a PEM of the size of an RSA-2048 CA (about 1.2 KiB), random

@@ -16,6 +16,13 @@ storage:
       contents:
         inline: |
 {{ .ClusterCA | indent 10 }}
+{{- if .KubeletClientCA }}
+    - path: /etc/kubernetes/pki/kubelet-client-ca.crt
+      mode: 0644
+      contents:
+        inline: |
+{{ .KubeletClientCA | indent 10 }}
+{{- end }}
     - path: /etc/kubernetes/bootstrap-kubelet.conf
       mode: 0600
       contents:

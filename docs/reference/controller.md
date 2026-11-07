@@ -24,6 +24,7 @@ the last column.
 | `--cluster-dns` | `SCARPENTER_CLUSTER_DNS` | empty | Comma-separated IPs of the cluster DNS service, set as the kubelet's `clusterDNS` on nodes. Empty leaves it unset: Pods then use the node's resolver. | plan 05 |
 | `--cluster-domain` | `SCARPENTER_CLUSTER_DOMAIN` | `cluster.local` | The kubelet's `clusterDomain` on nodes. | plan 05 |
 | `--cluster-ca-file` | `SCARPENTER_CLUSTER_CA_FILE` | empty | File with the cluster CA bundle given to nodes. Empty means the `kube-root-ca.crt` ConfigMap of the controller's namespace (`POD_NAMESPACE`; `kube-system` without it). | plan 05 |
+| `--kubelet-client-ca-file` | `SCARPENTER_KUBELET_CLIENT_CA_FILE` | empty | File with the CA bundle that signs the API server's kubelet client certificates, for control planes where it is not the cluster CA (k3s: `<data-dir>/server/tls/client-ca.crt`). Written to the nodes as `/etc/kubernetes/pki/kubelet-client-ca.crt` and used as the kubelet's `authentication.x509.clientCAFile`; without it the kubelet trusts the cluster CA, and `kubectl logs` and `exec` fail with 401 on k3s. Read at every rendering. | plan 07 |
 | `--vendors` | `SCARPENTER_VENDORS` | `aws` | Comma-separated list of enabled vendor drivers. | plan 04 |
 | `--keeper-url` | `SCARPENTER_KEEPER_URL` | `https://keeper.sparecores.net` | Base URL of the Spare Cores Keeper API. | plan 03 |
 | `--keeper-api-key-file` | `SCARPENTER_KEEPER_API_KEY_FILE` | empty | File with an optional Keeper API key. | plan 03 |
@@ -123,10 +124,21 @@ Binaries built with `-tags scarpenter_dev` add the fake driver and its flags
 `--fake-config-namespace` (`scarpenter-system`), `--fake-config-name`
 (`scarpenter-fake`), `--fake-state-name` (`scarpenter-fake-state`), `--fake-resources-name`
 (`scarpenter-fake-resources`) and `--fake-launch-delay` (`0`). Details: [the fake driver](driver-contract.md#the-fake-driver).
-The NodeClass controller is the same as in production. Development builds also
+The qemu driver adds `--qemu-state-dir`, `--qemu-cache-dir`, `--qemu-log-dir`,
+`--qemu-bridge` and `--qemu-launch-delay` (below). The NodeClass controller is the same as in production. Development builds also
 expose the gauges `scarpenter_fake_state_revision` and
 `scarpenter_fake_state_published_revision` (the revision of the fake's in-memory
 state and of its state ConfigMap).
+
+### qemu driver flags
+
+| Flag | Environment | Default | Meaning |
+|---|---|---|---|
+| `--qemu-state-dir` | `SCARPENTER_QEMU_STATE_DIR` | `<user cache dir>/scarpenter-qemu/state` | One directory per instance (record, disk images, Ignition file, serial log) and the records of managed networks. State survives restarts of the controller. |
+| `--qemu-cache-dir` | `SCARPENTER_QEMU_CACHE_DIR` | `<user cache dir>/scarpenter-qemu/cache` | Downloaded Flatcar releases (`flatcar/<channel>/<arch>/<version>`), verified against the release's digest file; honours `--flatcar-base-url`. |
+| `--qemu-log-dir` | `SCARPENTER_QEMU_LOG_DIR` | empty | If set, the serial log of every deleted instance is moved here (`<nodeclaim>-<id>.serial.log`). |
+| `--qemu-bridge` | `SCARPENTER_QEMU_BRIDGE` | `scbr0` | The bridge of the default network. |
+| `--qemu-launch-delay` | `SCARPENTER_QEMU_LAUNCH_DELAY` | `0` | Test aid: how long `CreateInstance` waits after the VM has started before it returns (the L4 scenario that kills the controller in that window). |
 
 ## CloudProvider
 
@@ -163,7 +175,12 @@ to the returned instance.
   for the TTL (vendor without), and the rest of that region and capacity type is
   skipped; `Retryable` is returned as is (core retries); `Fatal` returns a
   `CreateError` and an Event. When nothing launched it returns
-  `InsufficientCapacityError` and core deletes the NodeClaim. The NodeClaim UID
+  `InsufficientCapacityError` and core deletes the NodeClaim, except when there are
+  no candidates because the catalog is not ready (a controller that has just
+  restarted and has not read its first snapshot, a stale one): that is a
+  `CreateError` (`CatalogNotReady`) that core retries, because a replayed launch
+  of a NodeClaim whose instance exists must not delete the NodeClaim and orphan
+  the instance (found by the L4 scenario Q04). The NodeClaim UID
   is the idempotency key. The bootstrap token is minted once per NodeClaim (a retry
   gets the same one) and the user-data rendered once per vendor, region and
   architecture ([node bootstrap](node-bootstrap.md)).

@@ -25,6 +25,10 @@ const (
 	// ClusterCAPath is where the cluster CA is written on the node: the
 	// kubelet trusts it for the client certificates of the API server.
 	ClusterCAPath = "/etc/kubernetes/pki/ca.crt"
+	// KubeletClientCAPath is where the CA that signs the API server's kubelet
+	// client certificates is written, when it is not the cluster CA (k3s signs
+	// serving and client certificates with two CAs).
+	KubeletClientCAPath = "/etc/kubernetes/pki/kubelet-client-ca.crt"
 )
 
 // KubeletConfiguration returns the KubeletConfiguration (kubelet.config.k8s.io/v1beta1)
@@ -36,7 +40,15 @@ const (
 // Pods). What the NodeClass sets: maxPods (default 110), systemReserved,
 // kubeReserved and evictionHard (unset keeps the kubelet's defaults).
 // clusterDNS is only set with --cluster-dns. The output is deterministic.
-func KubeletConfiguration(spec v1alpha1.KubeletSpec, clusterDNS []string, clusterDomain string) (string, error) {
+//
+// clientCAFile is the file with the CA of the API server's client certificates
+// (authentication.x509.clientCAFile); empty means the cluster CA.
+func KubeletConfiguration(
+	spec v1alpha1.KubeletSpec, clusterDNS []string, clusterDomain, clientCAFile string,
+) (string, error) {
+	if clientCAFile == "" {
+		clientCAFile = ClusterCAPath
+	}
 	maxPods := int32(DefaultMaxPods)
 	if spec.MaxPods != nil {
 		maxPods = *spec.MaxPods
@@ -56,7 +68,7 @@ func KubeletConfiguration(spec v1alpha1.KubeletSpec, clusterDNS []string, cluste
 		"authentication": map[string]any{
 			"anonymous": map[string]any{"enabled": false},
 			"webhook":   map[string]any{"enabled": true},
-			"x509":      map[string]any{"clientCAFile": ClusterCAPath},
+			"x509":      map[string]any{"clientCAFile": clientCAFile},
 		},
 		"authorization": map[string]any{"mode": "Webhook"},
 	}

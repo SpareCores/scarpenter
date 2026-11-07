@@ -55,7 +55,7 @@ linters:
       # Flag registration: one flag per line, with its environment fallback.
       - linters:
           - lll
-        path: pkg/(operator/options|vendors/fake)/options\.go
+        path: pkg/(operator/options|vendors/(fake|qemu))/options\.go
       # Test helpers take the parameters scenarios vary, even where today's
       # scenarios pass one value.
       - linters:

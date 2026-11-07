@@ -33,6 +33,21 @@ release.
   verify the release workflow output (image signatures, chart pull and
   install into kind).
 
+## Carried over from the plan 07 review
+
+- The add-a-vendor guide points at `pkg/vendors/qemu` and its fake-host conformance
+  fixture (failures injected by failing the commands the driver runs), and at
+  `vendors.CatalogProvider` for a development driver with its own static catalog.
+- Split the conformance subtest "idempotency key semantics": its first half (a replay
+  returns the original instance) needs no second zone, and drivers with one zone skip
+  it entirely (N15).
+- If the qemu driver or an image importer ever runs outside development, verify the
+  Flatcar release's `.DIGESTS.asc` against the image signing key (the digest file
+  alone proves integrity, not authenticity) (N13).
+- Document the L4 lane's Headscale (pinned release, per-run keys) in the testing how-to
+  and the `tailscale` template how-to as the way to try the template without a SaaS
+  account.
+
 ## Gates
 
 CONVENTIONS gates 1–4; `hack/check-docs.py` clean (links, no local paths, no

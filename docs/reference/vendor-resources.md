@@ -193,6 +193,19 @@ controller Deployment): `ResourceCreated`, `ResourceAdopted`, `ResourceDeleted`
 deduplicated for 10 minutes), `ResourcesUnavailable` (Warning, on the NodeClass).
 Every creation, adoption and deletion is also logged.
 
+## The qemu driver's networks
+
+The development vendor `qemu` has one kind, `networks` (scope `region`, default
+policy `retain`): a Linux bridge of the machine, whose ID is its interface name.
+Without a `networks` block, and with `forbid`, the default bridge
+(`--qemu-bridge`) is used when it exists; `use` finds bridges by ID, name pattern
+or `key=value` tags in the interface alias (`ip link set <bridge> alias "env=lab"`);
+`create` makes a bridge with an address (a /24 of `10.88.0.0/16` derived from its
+name), no DHCP server and no NAT: those are the machine's job, so VMs on a created
+bridge only get an address when something serves DHCP there. Created bridges are
+recorded in the state directory, found again after a restart, recreated if the
+machine lost them, and deleted only while no VM is attached.
+
 ## Driver contract
 
 `vendors.ManagedResources`: `Kinds`, `Resolve` (existing resources by IDs, name

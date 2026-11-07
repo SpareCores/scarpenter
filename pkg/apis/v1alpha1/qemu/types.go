@@ -71,6 +71,11 @@ type Storage struct {
 	// +listMapKey=name
 	// +optional
 	Data []DataDisk `json:"data,omitempty"`
+
+	// localStorage configures the local disks of the instance types that have
+	// them (the driver attaches them as extra disk images).
+	// +optional
+	LocalStorage *common.LocalStorage `json:"localStorage,omitempty"`
 }
 
 // RootDisk configures the root disk image.

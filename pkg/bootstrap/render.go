@@ -94,13 +94,16 @@ type TemplateData struct {
 	ProviderID        string
 	APIServerEndpoint string
 	// ClusterCA is the PEM bundle of the cluster CA.
-	ClusterCA      string
-	BootstrapToken string
-	Arch           string
-	Vendor         string
-	Region         string
-	Zone           string
-	InstanceType   string
+	ClusterCA string
+	// KubeletClientCA is the PEM CA of the API server's kubelet client
+	// certificates when it differs from the cluster CA (empty: the same).
+	KubeletClientCA string
+	BootstrapToken  string
+	Arch            string
+	Vendor          string
+	Region          string
+	Zone            string
+	InstanceType    string
 	// Labels are the NodeClaim's labels, for templates that need them; they are
 	// not passed to the kubelet.
 	Labels map[string]string
@@ -123,6 +126,9 @@ type TemplateData struct {
 	Local        *LocalData
 	VolumeScript string
 	LocalScript  string
+	// MountPaths are the mount paths of the volumes and local storage, space
+	// separated, for the kubelet's RequiresMountsFor=.
+	MountPaths string
 }
 
 // Network is the network part of the node's configuration.
@@ -161,6 +167,7 @@ type Params struct {
 
 	APIServerEndpoint string
 	ClusterCA         string
+	KubeletClientCA   string
 	BootstrapToken    string
 
 	// Kubelet and the cluster DNS settings go into the KubeletConfiguration.
@@ -290,7 +297,11 @@ func (p *Params) templateData() (*TemplateData, error) {
 	if len(p.KubeReserved) > 0 {
 		kubelet.KubeReserved = p.KubeReserved
 	}
-	kubeletConfig, err := KubeletConfiguration(kubelet, p.ClusterDNS, p.ClusterDomain)
+	clientCAFile := ""
+	if strings.TrimSpace(p.KubeletClientCA) != "" {
+		clientCAFile = KubeletClientCAPath
+	}
+	kubeletConfig, err := KubeletConfiguration(kubelet, p.ClusterDNS, p.ClusterDomain, clientCAFile)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +313,8 @@ func (p *Params) templateData() (*TemplateData, error) {
 	d := &TemplateData{
 		NodeName: p.NodeName, ProviderID: p.ProviderID, APIServerEndpoint: p.APIServerEndpoint,
 		ClusterCA: strings.TrimSpace(p.ClusterCA) + "\n", BootstrapToken: p.BootstrapToken,
-		Arch: p.Arch, Vendor: p.Vendor, Region: p.Region, Zone: p.Zone, InstanceType: p.InstanceType,
+		KubeletClientCA: strings.TrimSpace(p.KubeletClientCA),
+		Arch:            p.Arch, Vendor: p.Vendor, Region: p.Region, Zone: p.Zone, InstanceType: p.InstanceType,
 		Labels: p.Labels, KubeletConfig: kubeletConfig, KubeletArgs: strings.Join(args, " "), Sysexts: sysexts,
 	}
 	if d.Labels == nil {
@@ -312,6 +324,16 @@ func (p *Params) templateData() (*TemplateData, error) {
 		if d.Volumes, d.Local, err = volumesData(p.Volumes, p.Local); err != nil {
 			return nil, err
 		}
+		var paths []string
+		for _, v := range d.Volumes {
+			paths = append(paths, v.Where)
+		}
+		if d.Local != nil {
+			for _, m := range d.Local.Mounts {
+				paths = append(paths, m.Where)
+			}
+		}
+		d.MountPaths = strings.Join(paths, " ")
 		if len(d.Volumes) > 0 {
 			script, err := templates.ReadFile("templates/scarpenter-volume.sh")
 			if err != nil {

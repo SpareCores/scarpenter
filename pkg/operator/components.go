@@ -77,6 +77,9 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	if err != nil {
 		return nil, fmt.Errorf("building the driver registry: %w", err)
 	}
+	if o.staticCatalogs, err = staticCatalogs(reg); err != nil {
+		return nil, err
+	}
 	un := unavailable.New(o.Clock, unavailable.TTLs{
 		InsufficientCapacity: opts.UnavailableInsufficientCapacityTTL,
 		Unsupported:          opts.UnavailableUnsupportedTTL,
@@ -111,7 +114,7 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	}
 	c.Renderer = bootstrap.NewRenderer(bootstrap.RendererOptions{
 		Refs: c.Refs, APIServerEndpoint: opts.APIServerEndpoint,
-		ClusterDNS: opts.ClusterDNS, ClusterDomain: opts.ClusterDomain,
+		ClusterDNS: opts.ClusterDNS, ClusterDomain: opts.ClusterDomain, KubeletClientCAFile: opts.KubeletClientCAFile,
 	})
 	c.Tokens = bootstrap.NewMinter(bootstrap.MinterOptions{
 		Client: o.GetClient(), Reader: o.GetAPIReader(), TTL: opts.BootstrapTokenTTL,

@@ -103,8 +103,7 @@ dev-check-privileged: ## Prove that hack/dev.sh --privileged gives NET_ADMIN and
 
 ##@ Test lanes
 
-# The lanes must be run via hack/dev.sh. test-qemu is a placeholder until plan
-# 07 and fails until then, so a green CI never means "skipped".
+# The lanes must be run via hack/dev.sh.
 .PHONY: test-kwok
 test-kwok: ## L3: SCarpenter with the fake driver (KWOK nodes) in kind; KWOK_SCENARIOS=<regexp> selects scenarios.
 	test/kwok/run.sh
@@ -118,8 +117,8 @@ kwok-down: ## Delete the cluster and the images of kwok-up.
 	test/kwok/down.sh
 
 .PHONY: test-qemu
-test-qemu: ## L4: the qemu driver with real Flatcar VMs (plan 07; run via hack/dev.sh --privileged).
-	@echo "test-qemu: the L4 lane arrives with plan 07" >&2; exit 1
+test-qemu: ## L4: SCarpenter and the qemu driver with real Flatcar VMs joining a k3s control plane (run via hack/dev.sh --privileged); QEMU_SCENARIOS=<regexp> selects scenarios.
+	test/qemu/run.sh
 
 ##@ Build
 

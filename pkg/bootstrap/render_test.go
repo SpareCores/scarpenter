@@ -413,7 +413,7 @@ func TestSizeBudget(t *testing.T) {
 }
 
 func TestKubeletConfiguration(t *testing.T) {
-	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{}, nil, "")
+	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{}, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,5 +453,36 @@ func TestHowToCustomTemplateRenders(t *testing.T) {
 	}
 	if !strings.Contains(string(r.Parts[1].Ignition), "default-abc12") {
 		t.Errorf("the example's variables were not substituted: %s", r.Parts[1].Ignition)
+	}
+}
+
+// TestKubeletClientCA: with a separate CA for the API server's kubelet client
+// certificates (k3s) it is written next to the cluster CA and the kubelet
+// trusts it for client authentication; without one the kubelet trusts the
+// cluster CA, as before.
+func TestKubeletClientCA(t *testing.T) {
+	clientCA := fakeCA(700)
+	with := baseParams("amd64", v1alpha1.NetworkTemplateDirect)
+	with.KubeletClientCA = clientCA + "\n"
+	got, err := bootstrap.Render(with)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(goldenText(t, got))
+	if !strings.Contains(text, "/etc/kubernetes/pki/kubelet-client-ca.crt") || !strings.Contains(text, "clientCAFile: /etc/kubernetes/pki/kubelet-client-ca.crt") {
+		t.Errorf("the client CA is not written and used:\n%s", text)
+	}
+	if !strings.Contains(text, "certificate-authority: /etc/kubernetes/pki/ca.crt") {
+		t.Error("the bootstrap kubeconfig must keep trusting the cluster CA for the API server")
+	}
+	if !strings.Contains(text, strings.Split(clientCA, "\n")[1]) {
+		t.Error("the client CA's PEM is not in the user-data")
+	}
+	plain, err := bootstrap.Render(baseParams("amd64", v1alpha1.NetworkTemplateDirect))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(goldenText(t, plain)); strings.Contains(s, "kubelet-client-ca") || !strings.Contains(s, "clientCAFile: /etc/kubernetes/pki/ca.crt") {
+		t.Errorf("without a client CA the kubelet must trust the cluster CA:\n%s", s)
 	}
 }

@@ -67,6 +67,24 @@ the controller reference.
 - Uninstall cleanup of managed resources (00a section 9.3: "or SCarpenter is
   uninstalled with cleanup") needs a design (a hook or a Job).
 
+## Carried over from the plan 07 review
+
+- N10: `--kubelet-client-ca-file` is a file flag, which an in-cluster install on
+  k3s cannot satisfy (the controller cannot read `<data-dir>/server/tls/client-ca.crt`
+  of the k3s host). Offer a chart value that mounts a user-supplied Secret or
+  ConfigMap, and consider an opt-in source `kube-system/extension-apiserver-authentication`
+  key `client-ca-file` (the API server's `--client-ca-file`: the client CA on k3s, the
+  cluster CA on kubeadm and EKS; needs a RoleBinding to the built-in
+  `extension-apiserver-authentication-reader`). Document that kubeadm and EKS need
+  no value, and that on k3s without it `kubectl logs` and `exec` fail with 401.
+- The install how-to links the k3s prerequisites of `docs/reference/node-bootstrap.md`
+  (production-like flags, the kubelet client CA) and the chart's controller reference
+  lists `--kubelet-client-ca-file`.
+- If a self-hosted runner is adopted for the L4 lane (overview section 15, Q6): only for
+  `schedule` and `workflow_dispatch`, never for pull requests (a fork's pull request
+  would run arbitrary code on it), and "require approval for fork workflows" in the
+  repository settings.
+
 ## Gates
 
 CONVENTIONS gates 1–4, plus `hack/dev.sh make test-chart`; the release

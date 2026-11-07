@@ -88,6 +88,23 @@ real values into the repository; reference the secrets.
 - **Docs**: testing how-to (L5 section: what it costs, how to trigger, how
   to read failures).
 
+## Carried over from the plan 07 review
+
+- The tailscale template is proven against a Headscale in the L4 lane (scenario Q09:
+  tailnet join, `--node-ip`, node Ready over the tailnet, `kubectl logs/exec`). What
+  stays for L5 is Tailscale SaaS with the OAuth-minted ephemeral, tagged key (the
+  optional L4 scenario Q11 takes a key of your own) and the real AWS nodes.
+- Reuse the unit-level checks of L4 scenario Q10 on real nodes: the tailscale sysext
+  merged, `tailscaled` upheld, the kubelet ordered after and bound to the join unit.
+- Expect `CatalogNotReady` retries after a controller restart (core retries; bounded
+  by its 5 minute launch timeout). A restart scenario must assert that the replay of
+  `Create` ran (the qemu driver's `--qemu-launch-delay` is the model: the instance
+  exists, `Create` has not returned), and that no instance is orphaned.
+- Volumes attached at or after launch: check on a real node that the label's device
+  unit has `JobRunningTimeoutSec=240` and that a slow attach (about 100 s) does not
+  fail the mount (plan 07 review N1; the lane's qemu disks exist at once and cannot
+  show it).
+
 ## Gates
 
 CONVENTIONS gates 1–4; `actionlint` and `shellcheck` clean on the workflows
