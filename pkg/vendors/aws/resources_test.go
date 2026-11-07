@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -330,7 +331,7 @@ func TestManagedNetworkIsCompletedAndDeletedInDependencyOrder(t *testing.T) {
 		t.Errorf("creations: vpc %d, subnets %d, attach %d", e.acct.Calls("CreateVpc"), e.acct.Calls("CreateSubnet"), e.acct.Calls("AttachInternetGateway"))
 	}
 	// The route table routes to the gateway and every subnet uses it.
-	if e.acct.Calls("CreateRoute") != 1 || e.acct.Calls("AssociateRouteTable") != 3 {
+	if e.acct.Calls("CreateRoute") != 2 || e.acct.Calls("AssociateRouteTable") != 3 {
 		t.Errorf("route %d, associations %d", e.acct.Calls("CreateRoute"), e.acct.Calls("AssociateRouteTable"))
 	}
 	if !isIDPrefix(ref.ID, "vpc-") {
@@ -542,7 +543,7 @@ func TestManagedNetworkCanBeRecreatedAndRepairsAMissingRoute(t *testing.T) {
 	for _, rt := range rts.RouteTables {
 		routes += len(rt.Routes)
 	}
-	if routes != 1 || e.acct.Calls("CreateRouteTable") != 1 {
+	if routes != 2 || e.acct.Calls("CreateRouteTable") != 1 {
 		t.Errorf("%d routes, %d tables created; want the missing route added to the existing table", routes, e.acct.Calls("CreateRouteTable"))
 	}
 
@@ -678,8 +679,17 @@ func TestManagedNetworkReplacesAStaleDefaultRoute(t *testing.T) {
 	rts, _ = ec.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{RouteTableIds: nil})
 	igws, _ := ec.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{})
 	for _, rt := range rts.RouteTables {
-		if *rt.RouteTableId == table && (len(rt.Routes) != 1 || *rt.Routes[0].GatewayId != *igws.InternetGateways[0].InternetGatewayId) {
-			t.Errorf("routes %v, want 0.0.0.0/0 to %s", rt.Routes, *igws.InternetGateways[0].InternetGatewayId)
+		if *rt.RouteTableId != table {
+			continue
+		}
+		gw := *igws.InternetGateways[0].InternetGatewayId
+		if len(rt.Routes) != 2 {
+			t.Errorf("routes %v, want 0.0.0.0/0 and ::/0 to %s", rt.Routes, gw)
+		}
+		for _, r := range rt.Routes {
+			if *r.GatewayId != gw {
+				t.Errorf("a route goes to %s, want %s", *r.GatewayId, gw)
+			}
 		}
 	}
 	if e.acct.Calls("ReplaceRoute") != 1 {
@@ -706,4 +716,123 @@ func TestDeletingTheNetworkRemovesAGatewayThatWasNeverAttached(t *testing.T) {
 	if len(igws.InternetGateways) != 0 {
 		t.Errorf("%d gateways leaked", len(igws.InternetGateways))
 	}
+}
+
+func subnetsOf(t *testing.T, e *env, vpc string) []ec2types.Subnet {
+	t.Helper()
+	out, err := e.acct.EC2(testRegion).DescribeSubnets(context.Background(), &ec2.DescribeSubnetsInput{
+		Filters: []ec2types.Filter{{Name: new("vpc-id"), Values: []string{vpc}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out.Subnets
+}
+
+func TestManagedNetworkHasIPv6(t *testing.T) {
+	e := noDefaultVPCEnv(t)
+	ctx := context.Background()
+	sp := spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil)
+	ref, _, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vpcs, _ := e.acct.EC2(testRegion).DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
+		Filters: []ec2types.Filter{{Name: new("vpc-id"), Values: []string{ref.ID}}}})
+	if len(vpcs.Vpcs[0].Ipv6CidrBlockAssociationSet) != 1 {
+		t.Fatalf("the VPC has no Amazon-provided IPv6 block: %+v", vpcs.Vpcs[0])
+	}
+	subs := subnetsOf(t, e, ref.ID)
+	seen := map[string]bool{}
+	for _, s := range subs {
+		v6 := ""
+		if len(s.Ipv6CidrBlockAssociationSet) == 1 {
+			v6 = *s.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock
+		}
+		if !strings.HasSuffix(v6, "/64") || seen[v6] {
+			t.Errorf("subnet %s has the IPv6 CIDR %q", *s.SubnetId, v6)
+		}
+		seen[v6] = true
+	}
+	// Routes: both families to the gateway; instances get an address on request.
+	rts, _ := e.acct.EC2(testRegion).DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{})
+	var v6route bool
+	for _, rt := range rts.RouteTables {
+		for _, r := range rt.Routes {
+			v6route = v6route || deref(r.DestinationIpv6CidrBlock) == "::/0"
+		}
+	}
+	if !v6route {
+		t.Error("no ::/0 route to the internet gateway")
+	}
+	// A subnet is not set to assign addresses on its own: addresses are requested.
+	if e.acct.Calls("ModifySubnetAttribute") != 0 {
+		t.Error("the subnet attribute was changed")
+	}
+}
+
+func TestManagedNetworkWithoutIPv6GetsItOnEnsure(t *testing.T) {
+	// A network of an earlier version: IPv4 only. The next Ensure adds the block,
+	// a /64 per subnet (the index of its /20) and the ::/0 route, and a zone added
+	// later gets the /64 of its own index.
+	e := noDefaultVPCEnv(t)
+	ctx := context.Background()
+	ec := e.acct.EC2(testRegion)
+	sp := spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil)
+	out, err := ec.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: new("10.240.0.0/16"),
+		TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeVpc, Tags: tagsOf(sp)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vpcID := *out.Vpc.VpcId
+	if len(out.Vpc.Ipv6CidrBlockAssociationSet) != 0 {
+		t.Fatal("the old VPC has IPv6")
+	}
+	for _, zone := range []string{"us-east-1a", "us-east-1c"} {
+		cidr := map[string]string{"us-east-1a": "10.240.0.0/20", "us-east-1c": "10.240.32.0/20"}[zone]
+		if _, err := ec.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: &vpcID, AvailabilityZone: &zone, CidrBlock: &cidr,
+			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeSubnet, Tags: tagsOf(sp)}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ref, created, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp)
+	if err != nil || created || ref.ID != vpcID {
+		t.Fatalf("Ensure = %+v, %v, %v", ref, created, err)
+	}
+	byZone := map[string]string{}
+	for _, s := range subnetsOf(t, e, vpcID) {
+		if len(s.Ipv6CidrBlockAssociationSet) != 1 {
+			t.Errorf("subnet %s in %s has no IPv6 CIDR", *s.SubnetId, *s.AvailabilityZone)
+			continue
+		}
+		byZone[*s.AvailabilityZone] = *s.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock
+	}
+	if len(byZone) != 3 {
+		t.Fatalf("subnets with IPv6: %v", byZone)
+	}
+	// Index n of the /20 gives the /64 n: a, b (new) and c are 0, 16 and 32 apart.
+	if !strings.HasSuffix(strings.TrimSuffix(byZone["us-east-1a"], "/64"), ":0::") && !strings.Contains(byZone["us-east-1a"], "00::/64") {
+		t.Errorf("zone a: %s", byZone["us-east-1a"])
+	}
+	if byZone["us-east-1b"] == byZone["us-east-1a"] || byZone["us-east-1b"] == byZone["us-east-1c"] {
+		t.Errorf("the zone that came later collides: %v", byZone)
+	}
+	if e.acct.Calls("AssociateVpcCidrBlock") != 1 || e.acct.Calls("AssociateSubnetCidrBlock") != 2 {
+		t.Errorf("associations: vpc %d, subnets %d", e.acct.Calls("AssociateVpcCidrBlock"), e.acct.Calls("AssociateSubnetCidrBlock"))
+	}
+	// Idempotent.
+	if _, _, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp); err != nil || e.acct.Calls("AssociateVpcCidrBlock") != 1 {
+		t.Errorf("the second Ensure: %v (%d VPC associations)", err, e.acct.Calls("AssociateVpcCidrBlock"))
+	}
+	// Deleting handles the IPv6 parts (they go with the subnets and the VPC).
+	if err := e.d.Delete(ctx, ref); err != nil {
+		t.Fatalf("deleting a network with IPv6: %v", err)
+	}
+}
+
+func tagsOf(sp vendors.CreateSpec) []ec2types.Tag {
+	var out []ec2types.Tag
+	for k, v := range sp.Tags {
+		out = append(out, ec2types.Tag{Key: new("scarpenter.sparecores.com/" + string(k)), Value: new(v)})
+	}
+	return append(out, ec2types.Tag{Key: new("Name"), Value: new(sp.Name)})
 }

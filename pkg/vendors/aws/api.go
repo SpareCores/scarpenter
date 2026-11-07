@@ -45,6 +45,8 @@ type EC2API interface {
 	CreateRouteTable(ctx context.Context, in *ec2.CreateRouteTableInput, opts ...func(*ec2.Options)) (*ec2.CreateRouteTableOutput, error)
 	DeleteRouteTable(ctx context.Context, in *ec2.DeleteRouteTableInput, opts ...func(*ec2.Options)) (*ec2.DeleteRouteTableOutput, error)
 	CreateRoute(ctx context.Context, in *ec2.CreateRouteInput, opts ...func(*ec2.Options)) (*ec2.CreateRouteOutput, error)
+	AssociateVpcCidrBlock(ctx context.Context, in *ec2.AssociateVpcCidrBlockInput, opts ...func(*ec2.Options)) (*ec2.AssociateVpcCidrBlockOutput, error)
+	AssociateSubnetCidrBlock(ctx context.Context, in *ec2.AssociateSubnetCidrBlockInput, opts ...func(*ec2.Options)) (*ec2.AssociateSubnetCidrBlockOutput, error)
 	ReplaceRoute(ctx context.Context, in *ec2.ReplaceRouteInput, opts ...func(*ec2.Options)) (*ec2.ReplaceRouteOutput, error)
 	AssociateRouteTable(ctx context.Context, in *ec2.AssociateRouteTableInput, opts ...func(*ec2.Options)) (*ec2.AssociateRouteTableOutput, error)
 	DisassociateRouteTable(ctx context.Context, in *ec2.DisassociateRouteTableInput, opts ...func(*ec2.Options)) (*ec2.DisassociateRouteTableOutput, error)

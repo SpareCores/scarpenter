@@ -9,6 +9,7 @@ package aws
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -31,6 +32,8 @@ const subnetTTL = 5 * time.Minute
 type subnetInfo struct {
 	id, vpc, zone string
 	free          int32
+	// ipv6 says the subnet has an IPv6 CIDR block.
+	ipv6 bool
 }
 
 type cachedSubnet struct {
@@ -38,12 +41,18 @@ type cachedSubnet struct {
 	until time.Time
 }
 
+func infoOf(s ec2types.Subnet) subnetInfo {
+	return subnetInfo{
+		id: deref(s.SubnetId), vpc: deref(s.VpcId), zone: deref(s.AvailabilityZone),
+		free: deref(s.AvailableIpAddressCount), ipv6: ipv6Of(s) != "",
+	}
+}
+
 func (d *Driver) rememberSubnet(s ec2types.Subnet) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.subnets[deref(s.SubnetId)] = cachedSubnet{
-		info: subnetInfo{id: deref(s.SubnetId), vpc: deref(s.VpcId), zone: deref(s.AvailabilityZone),
-			free: deref(s.AvailableIpAddressCount)},
+		info:  infoOf(s),
 		until: d.clock.Now().Add(subnetTTL),
 	}
 }
@@ -79,8 +88,7 @@ func (d *Driver) subnetsByID(ctx context.Context, cl Clients, ids []string) (map
 	}
 	for _, s := range subs {
 		d.rememberSubnet(s)
-		out[deref(s.SubnetId)] = subnetInfo{id: deref(s.SubnetId), vpc: deref(s.VpcId),
-			zone: deref(s.AvailabilityZone), free: deref(s.AvailableIpAddressCount)}
+		out[deref(s.SubnetId)] = infoOf(s)
 	}
 	return out, nil
 }
@@ -98,21 +106,18 @@ func (d *Driver) vpcSubnets(ctx context.Context, cl Clients, vpcID, zone string)
 	out := make([]subnetInfo, 0, len(subs))
 	for _, s := range subs {
 		d.rememberSubnet(s)
-		out = append(out, subnetInfo{id: deref(s.SubnetId), vpc: deref(s.VpcId), zone: deref(s.AvailabilityZone),
-			free: deref(s.AvailableIpAddressCount)})
+		out = append(out, infoOf(s))
 	}
 	return out, nil
 }
 
-// chooseSubnet picks, among the resolved subnets (or VPCs of a managed network),
-// the one in the zone with the most free addresses. A zone without one is
-// unusable (overview section 11.2).
-func (d *Driver) chooseSubnet(
-	ctx context.Context, region, zone string, refs []vendors.ResourceRef) (subnetInfo, error,
-) {
+// subnetCandidates returns the subnets of the resolved references in the zone.
+func (d *Driver) subnetCandidates(
+	ctx context.Context, region, zone string, refs []vendors.ResourceRef,
+) ([]subnetInfo, error) {
 	cl, err := d.clients(ctx, region)
 	if err != nil {
-		return subnetInfo{}, err
+		return nil, err
 	}
 	var ids []string
 	var cands []subnetInfo
@@ -123,7 +128,7 @@ func (d *Driver) chooseSubnet(
 		if strings.HasPrefix(r.ID, "vpc-") {
 			subs, err := d.vpcSubnets(ctx, cl, r.ID, zone)
 			if err != nil {
-				return subnetInfo{}, err
+				return nil, err
 			}
 			cands = append(cands, subs...)
 			continue
@@ -133,20 +138,39 @@ func (d *Driver) chooseSubnet(
 	if len(ids) > 0 {
 		known, err := d.subnetsByID(ctx, cl, ids)
 		if err != nil {
-			return subnetInfo{}, err
+			return nil, err
 		}
 		for _, id := range ids {
-			if s, ok := known[id]; ok && s.zone == zone {
+			if s, ok := known[id]; ok {
 				cands = append(cands, s)
 			}
 		}
 	}
-	cands = slices.DeleteFunc(cands, func(s subnetInfo) bool { return s.zone != zone })
+	return slices.DeleteFunc(cands, func(s subnetInfo) bool { return s.zone != zone }), nil
+}
+
+// chooseSubnet picks, among the resolved subnets (or VPCs of a managed network),
+// the one in the zone with the most free addresses; with wantIPv6 one that has an
+// IPv6 CIDR block comes first. A zone without one is unusable (overview section
+// 11.2).
+func (d *Driver) chooseSubnet(
+	ctx context.Context, region, zone string, refs []vendors.ResourceRef, wantIPv6 bool,
+) (subnetInfo, error) {
+	cands, err := d.subnetCandidates(ctx, region, zone, refs)
+	if err != nil {
+		return subnetInfo{}, err
+	}
 	if len(cands) == 0 {
 		return subnetInfo{}, vendors.NewError(vendors.ZoneUnusable, codeNoSubnet,
 			fmt.Errorf("no subnet in %s (%s)", zone, region))
 	}
 	slices.SortStableFunc(cands, func(a, b subnetInfo) int {
+		if wantIPv6 && a.ipv6 != b.ipv6 {
+			if a.ipv6 {
+				return -1
+			}
+			return 1
+		}
 		if a.free != b.free {
 			return int(b.free - a.free)
 		}
@@ -172,7 +196,7 @@ func (d *Driver) launchSubnet(ctx context.Context, region, zone, hint string) (s
 			return "", err
 		}
 	}
-	s, err := d.chooseSubnet(ctx, region, zone, refs)
+	s, err := d.chooseSubnet(ctx, region, zone, refs, false)
 	if err != nil {
 		return "", err
 	}
@@ -201,7 +225,7 @@ func (d *Driver) ensureNetwork(ctx context.Context, cl Clients, region string, s
 		vpc = vpcs.Vpcs[0]
 	} else {
 		out, err := cl.EC2.CreateVpc(ctx, &ec2.CreateVpcInput{
-			CidrBlock: aws.String(managedVPCCIDR),
+			CidrBlock: aws.String(managedVPCCIDR), AmazonProvidedIpv6CidrBlock: aws.Bool(true),
 			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeVpc,
 				Tags: d.resourceTags(spec)}},
 		})
@@ -210,7 +234,11 @@ func (d *Driver) ensureNetwork(ctx context.Context, cl Clients, region string, s
 		}
 		vpc, created = *out.Vpc, true
 	}
-	if err := d.completeNetwork(ctx, cl, region, vpc, spec); err != nil {
+	v6, err := d.ensureVPCIPv6(ctx, cl, vpc)
+	if err != nil {
+		return vendors.ResourceRef{}, false, fmt.Errorf("giving the network %s IPv6: %w", spec.Name, err)
+	}
+	if err := d.completeNetwork(ctx, cl, region, vpc, v6, spec); err != nil {
 		return vendors.ResourceRef{}, false, fmt.Errorf("completing the network %s: %w", spec.Name, err)
 	}
 	ref := vendors.ResourceRef{
@@ -226,7 +254,7 @@ func (d *Driver) ensureNetwork(ctx context.Context, cl Clients, region string, s
 // ensureZoneSubnets returns the subnets of the VPC, one per usable zone, creating
 // the missing ones.
 func (d *Driver) ensureZoneSubnets(
-	ctx context.Context, cl Clients, region, vpcID string, tagsFor func(string) []ec2types.Tag,
+	ctx context.Context, cl Clients, region, vpcID, vpcIPv6 string, tagsFor func(string) []ec2types.Tag,
 ) ([]string, error) {
 	zones, err := d.Zones(ctx, region)
 	if err != nil {
@@ -243,6 +271,12 @@ func (d *Driver) ensureZoneSubnets(
 	for _, sn := range haveRaw {
 		usedCIDRs[deref(sn.CidrBlock)] = true
 		have = append(have, subnetInfo{id: deref(sn.SubnetId), zone: deref(sn.AvailabilityZone)})
+		// A subnet of an older network without IPv6 gets the /64 of its IPv4 index.
+		if n, ok := ipv4Index(deref(sn.CidrBlock)); ok && ipv6Of(sn) == "" {
+			if err := d.associateSubnetIPv6(ctx, cl, deref(sn.SubnetId), vpcIPv6, n); err != nil {
+				return nil, err
+			}
+		}
 	}
 	var subnetIDs []string
 	for _, z := range zones {
@@ -253,10 +287,10 @@ func (d *Driver) ensureZoneSubnets(
 		}
 		// The first free /20: a zone that appears between others (the zones of an
 		// account change) must not collide with a subnet that exists.
-		cidr := ""
+		cidr, index := "", 0
 		for n := range 16 {
 			if c := fmt.Sprintf("10.240.%d.0/20", n*16); !usedCIDRs[c] {
-				cidr = c
+				cidr, index = c, n
 				break
 			}
 		}
@@ -266,6 +300,8 @@ func (d *Driver) ensureZoneSubnets(
 		usedCIDRs[cidr] = true
 		out, err := cl.EC2.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 			VpcId: aws.String(vpcID), AvailabilityZone: aws.String(z.Name), CidrBlock: aws.String(cidr),
+			// The /64 has the index of the /20: deterministic, also for zones added later.
+			Ipv6CidrBlock:     aws.String(subnetIPv6(vpcIPv6, index)),
 			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeSubnet, Tags: tagsFor(z.Name)}},
 		})
 		if err != nil {
@@ -281,7 +317,7 @@ func (d *Driver) ensureZoneSubnets(
 // attached internet gateway, a route table with the default route to it,
 // associated with every subnet.
 func (d *Driver) completeNetwork(
-	ctx context.Context, cl Clients, region string, vpc ec2types.Vpc, spec vendors.CreateSpec,
+	ctx context.Context, cl Clients, region string, vpc ec2types.Vpc, vpcIPv6 string, spec vendors.CreateSpec,
 ) error {
 	vpcID := deref(vpc.VpcId)
 	tagsFor := func(part string) []ec2types.Tag {
@@ -289,7 +325,7 @@ func (d *Driver) completeNetwork(
 		s.Name = networkName(spec.Name, part)
 		return d.resourceTags(s)
 	}
-	subnetIDs, err := d.ensureZoneSubnets(ctx, cl, region, vpcID, tagsFor)
+	subnetIDs, err := d.ensureZoneSubnets(ctx, cl, region, vpcID, vpcIPv6, tagsFor)
 	if err != nil {
 		return err
 	}
@@ -572,25 +608,123 @@ func (d *Driver) markedFor(tags []ec2types.Tag, ref vendors.ResourceRef) bool {
 	return owned(d.markerTags(tags), cluster)
 }
 
-// ensureDefaultRoute makes the route table send 0.0.0.0/0 to the gateway.
+// ensureDefaultRoute makes the route table send 0.0.0.0/0 and ::/0 to the gateway.
 func (d *Driver) ensureDefaultRoute(ctx context.Context, cl Clients, rt *ec2types.RouteTable, gw string) error {
-	const dest = "0.0.0.0/0"
-	existing := slices.IndexFunc(rt.Routes, func(r ec2types.Route) bool { return deref(r.DestinationCidrBlock) == dest })
-	switch {
-	case existing >= 0 && deref(rt.Routes[existing].GatewayId) == gw:
-		return nil
-	case existing >= 0:
-		if _, err := cl.EC2.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{
-			RouteTableId: rt.RouteTableId, DestinationCidrBlock: aws.String(dest), GatewayId: aws.String(gw),
-		}); err != nil {
-			return classify(err, errContext{})
+	for _, v6 := range []bool{false, true} {
+		dest := "0.0.0.0/0"
+		if v6 {
+			dest = "::/0"
 		}
-	default:
-		if _, err := cl.EC2.CreateRoute(ctx, &ec2.CreateRouteInput{
-			RouteTableId: rt.RouteTableId, DestinationCidrBlock: aws.String(dest), GatewayId: aws.String(gw),
-		}); err != nil && !isCode(err, "RouteAlreadyExists") {
+		existing := slices.IndexFunc(rt.Routes, func(r ec2types.Route) bool {
+			return deref(r.DestinationCidrBlock) == dest || deref(r.DestinationIpv6CidrBlock) == dest
+		})
+		if existing >= 0 && deref(rt.Routes[existing].GatewayId) == gw {
+			continue
+		}
+		var err error
+		switch {
+		case existing >= 0 && v6:
+			_, err = cl.EC2.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{RouteTableId: rt.RouteTableId,
+				DestinationIpv6CidrBlock: aws.String(dest), GatewayId: aws.String(gw)})
+		case existing >= 0:
+			_, err = cl.EC2.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{RouteTableId: rt.RouteTableId,
+				DestinationCidrBlock: aws.String(dest), GatewayId: aws.String(gw)})
+		case v6:
+			_, err = cl.EC2.CreateRoute(ctx, &ec2.CreateRouteInput{RouteTableId: rt.RouteTableId,
+				DestinationIpv6CidrBlock: aws.String(dest), GatewayId: aws.String(gw)})
+		default:
+			_, err = cl.EC2.CreateRoute(ctx, &ec2.CreateRouteInput{RouteTableId: rt.RouteTableId,
+				DestinationCidrBlock: aws.String(dest), GatewayId: aws.String(gw)})
+		}
+		if err != nil && !isCode(err, "RouteAlreadyExists") {
 			return classify(err, errContext{})
 		}
 	}
 	return nil
+}
+
+// ipv6Of returns the associated IPv6 /64 of a subnet, "" without one.
+func ipv6Of(s ec2types.Subnet) string {
+	for _, a := range s.Ipv6CidrBlockAssociationSet {
+		if a.Ipv6CidrBlockState != nil && a.Ipv6CidrBlockState.State == ec2types.SubnetCidrBlockStateCodeAssociated {
+			return deref(a.Ipv6CidrBlock)
+		}
+	}
+	return ""
+}
+
+// ipv4Index is the slot of a 10.240.<16*n>.0/20 subnet of the managed network.
+func ipv4Index(cidr string) (int, bool) {
+	p, err := netip.ParsePrefix(cidr)
+	if err != nil || p.Bits() != 20 || !netip.MustParsePrefix(managedVPCCIDR).Contains(p.Addr()) {
+		return 0, false
+	}
+	return int(p.Addr().As4()[2]) / 16, true
+}
+
+// subnetIPv6 returns the /64 with the index inside the VPC's /56.
+func subnetIPv6(vpc56 string, index int) string {
+	p, err := netip.ParsePrefix(vpc56)
+	if err != nil {
+		return ""
+	}
+	b := p.Addr().As16()
+	b[7] = byte(index)
+	return netip.PrefixFrom(netip.AddrFrom16(b), 64).String()
+}
+
+// associateSubnetIPv6 gives an existing subnet its /64.
+func (d *Driver) associateSubnetIPv6(ctx context.Context, cl Clients, subnetID, vpc56 string, index int) error {
+	if _, err := cl.EC2.AssociateSubnetCidrBlock(ctx, &ec2.AssociateSubnetCidrBlockInput{
+		SubnetId: aws.String(subnetID), Ipv6CidrBlock: aws.String(subnetIPv6(vpc56, index)),
+	}); err != nil {
+		return classify(err, errContext{})
+	}
+	d.forgetSubnet(subnetID)
+	return nil
+}
+
+// codeIPv6Pending: the VPC's Amazon-provided IPv6 block is not associated yet.
+const codeIPv6Pending = "VpcIPv6Pending"
+
+// ensureVPCIPv6 returns the associated IPv6 /56 of the managed VPC, associating an
+// Amazon-provided one to a VPC that has none (a network of an earlier version).
+// While the block is still being associated the call fails with a Retryable error;
+// the next Ensure continues.
+func (d *Driver) ensureVPCIPv6(ctx context.Context, cl Clients, vpc ec2types.Vpc) (string, error) {
+	block := func(v ec2types.Vpc) (cidr string, pending bool) {
+		for _, a := range v.Ipv6CidrBlockAssociationSet {
+			switch {
+			case a.Ipv6CidrBlockState != nil && a.Ipv6CidrBlockState.State == ec2types.VpcCidrBlockStateCodeAssociated:
+				return deref(a.Ipv6CidrBlock), false
+			case a.Ipv6CidrBlockState != nil && a.Ipv6CidrBlockState.State == ec2types.VpcCidrBlockStateCodeAssociating:
+				pending = true
+			}
+		}
+		return "", pending
+	}
+	cidr, pending := block(vpc)
+	if cidr != "" {
+		return cidr, nil
+	}
+	if !pending {
+		if _, err := cl.EC2.AssociateVpcCidrBlock(ctx, &ec2.AssociateVpcCidrBlockInput{
+			VpcId: vpc.VpcId, AmazonProvidedIpv6CidrBlock: aws.Bool(true),
+		}); err != nil {
+			return "", classify(err, errContext{})
+		}
+	}
+	out, err := cl.EC2.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
+		Filters: []ec2types.Filter{{Name: aws.String("vpc-id"), Values: []string{deref(vpc.VpcId)}}},
+	})
+	if err != nil {
+		return "", classify(err, errContext{})
+	}
+	if len(out.Vpcs) == 1 {
+		if cidr, _ = block(out.Vpcs[0]); cidr != "" {
+			return cidr, nil
+		}
+	}
+	return "", vendors.NewError(vendors.Retryable, codeIPv6Pending,
+		fmt.Errorf("the IPv6 block of the VPC %s is not associated yet", deref(vpc.VpcId)))
 }

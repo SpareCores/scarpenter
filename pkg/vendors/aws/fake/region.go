@@ -9,6 +9,7 @@ package fake
 import (
 	"fmt"
 	"maps"
+	"net/netip"
 	"slices"
 	"time"
 
@@ -32,17 +33,21 @@ type InstanceType struct {
 }
 
 type vpc struct {
-	id, cidr  string
+	id, cidr string
+	// ipv6 is the Amazon-provided /56 of the VPC, "" without one.
+	ipv6      string
 	isDefault bool
 	tags      map[string]string
 }
 
 type subnet struct {
 	id, vpc, az, cidr string
-	defaultForAZ      bool
-	free              int32
-	tags              map[string]string
-	mapPublic         bool
+	// ipv6 is the /64 of the subnet, "" without one.
+	ipv6         string
+	defaultForAZ bool
+	free         int32
+	tags         map[string]string
+	mapPublic    bool
 }
 
 type sgRule struct {
@@ -89,6 +94,7 @@ type instance struct {
 	tags                                                      map[string]string
 	groups                                                    []string
 	pg, tenancy, privateIP, publicIP, root                    string
+	ipv6                                                      string
 	volumes                                                   []string
 	metadata                                                  *types.InstanceMetadataOptionsResponse
 	owner                                                     string
@@ -167,6 +173,9 @@ func (a *Account) addRegionLocked(s RegionSpec) {
 	if !s.NoDefaultVPC {
 		v := a.newVPC(r, "172.31.0.0/16", map[string]string{})
 		v.isDefault = true
+		if s.DefaultVPCIPv6 {
+			v.ipv6 = a.newIPv6Block()
+		}
 		g := &igw{id: a.id("igw"), vpc: v.id, tags: map[string]string{}}
 		r.igws[g.id] = g
 		r.attached[g.id] = v.id
@@ -176,6 +185,9 @@ func (a *Account) addRegionLocked(s RegionSpec) {
 			}
 			sn := a.newSubnet(r, v, az.Name, fmt.Sprintf("172.31.%d.0/20", i*16), map[string]string{})
 			sn.defaultForAZ, sn.mapPublic = true, true
+			if s.DefaultVPCIPv6 {
+				sn.ipv6 = subnetIPv6(v.ipv6, i)
+			}
 		}
 	}
 }
@@ -309,4 +321,18 @@ func (a *Account) Regions() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return slices.Clone(a.order)
+}
+
+// newIPv6Block returns a fresh Amazon-provided /56.
+func (a *Account) newIPv6Block() string {
+	a.nextID++
+	return fmt.Sprintf("2600:1f00:%x:%x00::/56", a.nextID>>8, a.nextID&0xff)
+}
+
+// subnetIPv6 returns the /64 with the index inside the /56 of a VPC.
+func subnetIPv6(vpc56 string, index int) string {
+	p := netip.MustParsePrefix(vpc56)
+	b := p.Addr().As16()
+	b[7] = byte(index)
+	return netip.PrefixFrom(netip.AddrFrom16(b), 64).String()
 }

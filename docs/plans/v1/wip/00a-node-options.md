@@ -612,6 +612,17 @@ Decided in plan 06:
   that use SCarpenter keys no type satisfies (§8.3), and the cleanup of managed
   resources on uninstall.
 
+Backlog from plan 08:
+
+- **Publish the vendor's public addresses on the Node.** There is no
+  cloud-controller-manager, so nothing sets `ExternalIP` (checked 2026-11-07: the
+  kubelet reports only the `InternalIP` of `--node-ip` or its own detection, and no
+  SCarpenter component writes node addresses). Publish them as `ExternalIP`
+  addresses or as labels, from the driver's `Instance.Addresses`.
+- **Elastic IPs** (and the vendors' equivalents) as a `use` / `create` resource kind,
+  for stable, allowlistable addresses.
+- **A Keeper/crawler IPv4 price** (Keeper has none; the AWS driver uses a constant).
+
 Deletion respects dependencies (instances → NICs/volumes → security groups →
 subnets → networks → resource groups), retries with backoff, and is recorded
 in Events and metrics. A resource that is still in use by something

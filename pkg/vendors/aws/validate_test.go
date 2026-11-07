@@ -129,3 +129,37 @@ func TestValidateProfilesAndTags(t *testing.T) {
 		t.Errorf("no aws block: %v", err)
 	}
 }
+
+func TestValidateEgressWithoutAPublicIPv4(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	use := &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string][]string{"us-east-1": {"subnet-0123456789abcdef0"}}}}}
+	for name, tc := range map[string]struct {
+		ipv4, ipv6 *bool
+		res        *awsapi.Resources
+		override   *common.NetworkingOverride
+		want       string
+	}{
+		"the default":                         {nil, nil, nil, nil, ""},
+		"no public IPv4 on default subnets":   {new(false), nil, nil, nil, "no egress for sysexts and container images"},
+		"no public IPv4 on managed subnets":   {new(false), nil, &awsapi.Resources{Subnets: &common.Resource{Create: &common.ResourceCreate{}}}, nil, "NAT gateway or a proxy"},
+		"IPv6-only on default subnets":        {new(false), new(true), nil, nil, "IPv6-only nodes"},
+		"no public IPv4 on your own subnets":  {new(false), nil, use, nil, ""},
+		"IPv6-only on your own subnets":       {new(false), new(true), use, nil, ""},
+		"public IPv4 and IPv6 on defaults":    {nil, new(true), nil, nil, ""},
+		"the vendor's override turns it off":  {nil, nil, nil, &common.NetworkingOverride{PublicIPv4: new(false)}, "publicIPv4: false is refused"},
+		"the vendor's override turns it back": {new(false), nil, nil, &common.NetworkingOverride{PublicIPv4: new(true)}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			nc := &v1alpha1.SCNodeClass{}
+			nc.Spec.Networking = common.Networking{PublicIPv4: tc.ipv4, PublicIPv6: tc.ipv6}
+			nc.Spec.Vendors.AWS = &awsapi.Settings{Resources: tc.res, Networking: tc.override}
+			err := e.d.ValidateNodeClass(context.Background(), nc)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("unexpected error: %v", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("error %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}

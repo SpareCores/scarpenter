@@ -73,9 +73,12 @@ const (
 	EventArtifactsFailed  = "ArtifactsNotResolved"
 	EventValidationFailed = "ValidationFailed"
 	EventVendorNotReady   = "VendorNotReady"
-	EventRestartRequired  = "RestartRequired"
-	EventMetricInvalid    = "MetricInvalid"
-	eventDedupe           = 10 * time.Minute
+	// EventIPv6OnlyNeedsMirror: IPv6-only nodes cannot reach the default sysext
+	// source (GitHub releases have no IPv6).
+	EventIPv6OnlyNeedsMirror = "IPv6OnlyNeedsMirror"
+	EventRestartRequired     = "RestartRequired"
+	EventMetricInvalid       = "MetricInvalid"
+	eventDedupe              = 10 * time.Minute
 )
 
 // Defaults of the intervals.
@@ -117,7 +120,10 @@ type Options struct {
 	Regions interface{ Regions(vendor string) []string }
 	// ImageGate, if set, is told the regions without a boot image, whose offerings
 	// are then unavailable (overview section 9).
-	ImageGate interface {
+	// SysextMirror says --sysext-base-url points at a mirror: the default source
+	// (GitHub releases) has no IPv6, so IPv6-only nodes need one.
+	SysextMirror bool
+	ImageGate    interface {
 		SetImageGaps(class, vendor string, gaps map[string]string)
 	}
 	// ServerVersion returns the API server's version, for example v1.37.1; nil
@@ -442,6 +448,9 @@ func (c *Controller) vendor(
 		c.warn(desired, EventVendorNotReady, fmt.Sprintf("vendor %s: %s: %s", vendor, reason, msg), vendor)
 	}
 
+	if ready {
+		c.warnIPv6Only(desired, vendor)
+	}
 	images, ok, reason, msg := c.images(ctx, desired, vendor, ready)
 	if c.opts.ImageGate != nil {
 		c.opts.ImageGate.SetImageGaps(desired.Name, vendor, imageGaps(images))
@@ -673,4 +682,22 @@ func trim(s string) string {
 		return s[:maxMessage-3] + "..."
 	}
 	return s
+}
+
+// warnIPv6Only warns about nodes with IPv6 only (publicIPv4 false, publicIPv6 true)
+// while the sysexts come from the default source, which the nodes cannot reach: the
+// release host of the sysext-bakery has no IPv6. A sysext mirror with IPv6 fixes it.
+func (c *Controller) warnIPv6Only(nc *v1alpha1.SCNodeClass, vendor string) {
+	if c.opts.SysextMirror {
+		return
+	}
+	in, ok, err := options.InputFromNodeClass(nc, vendor)
+	if err != nil || !ok {
+		return
+	}
+	if n := in.Networking; n.PublicIPv4 != nil && !*n.PublicIPv4 && n.PublicIPv6 != nil && *n.PublicIPv6 {
+		c.warn(nc, EventIPv6OnlyNeedsMirror, fmt.Sprintf("vendor %s: the nodes have IPv6 only, and the default sysext "+
+			"source (GitHub releases) has no IPv6: set --sysext-base-url to a mirror that is reachable over IPv6",
+			vendor), vendor)
+	}
 }

@@ -257,6 +257,18 @@ func (t *timedEC2) ReplaceRoute(ctx context.Context, in *ec2.ReplaceRouteInput, 
 	return t.api.ReplaceRoute(ctx, in, opts...)
 }
 
+func (t *timedEC2) AssociateVpcCidrBlock(ctx context.Context, in *ec2.AssociateVpcCidrBlockInput, opts ...func(*ec2.Options)) (*ec2.AssociateVpcCidrBlockOutput, error) {
+	ctx, cancel := t.ctx(ctx, t.call)
+	defer cancel()
+	return t.api.AssociateVpcCidrBlock(ctx, in, opts...)
+}
+
+func (t *timedEC2) AssociateSubnetCidrBlock(ctx context.Context, in *ec2.AssociateSubnetCidrBlockInput, opts ...func(*ec2.Options)) (*ec2.AssociateSubnetCidrBlockOutput, error) {
+	ctx, cancel := t.ctx(ctx, t.call)
+	defer cancel()
+	return t.api.AssociateSubnetCidrBlock(ctx, in, opts...)
+}
+
 type timedQuotas struct {
 	api  ServiceQuotasAPI
 	call time.Duration

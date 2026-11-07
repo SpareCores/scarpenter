@@ -18,6 +18,7 @@ The vendor resources a node depends on are in
 - [What was applied](#what-was-applied)
 - [Pricing](#pricing)
 - [Drift](#drift)
+- [Network addresses and egress](#network-addresses-and-egress)
 - [Extra volumes and local storage](#extra-volumes-and-local-storage)
 - [Kubelet reservations](#kubelet-reservations)
 
@@ -146,6 +147,28 @@ block it uses (`profile-hashes`), and a node drifts when one of them differs fro
 the profile's current block for the vendor, or the profile was removed or lost
 its block for the vendor. Changing one profile therefore drifts only the nodes
 that use it; changing another vendor's block or profile drifts nothing.
+
+## Network addresses and egress
+
+`spec.networking.publicIPv4` (default on) and `publicIPv6` (default off) give nodes
+public addresses; a vendor block may override them. Generic meaning:
+
+- **Nodes need egress**: they fetch sysexts (GitHub releases, or a mirror) and
+  container images at boot. A public IPv4 address gives it on vendors whose default
+  network has an internet gateway and no NAT. A driver refuses `publicIPv4: false`
+  where the network SCarpenter would use has no other way out (the NodeClass is not
+  ready, with the fix in the message); with subnets or networks the user brings
+  (`use`), the driver cannot see a NAT or a proxy and allows it: egress is the
+  user's job.
+- **IPv6 needs IPv6 in the network.** `publicIPv6` is satisfied only by a subnet with
+  an IPv6 block; a zone whose subnets have none is unavailable with the reason, it
+  does not fail launches. A network SCarpenter creates has IPv6.
+- **IPv6-only** (`publicIPv4: false`, `publicIPv6: true`) is accepted with brought
+  subnets only. The sysext-bakery's release host (GitHub) has no IPv6: a NodeClass
+  with IPv6-only nodes and the default sysext source gets the Warning Event
+  `IPv6OnlyNeedsMirror`; set `--sysext-base-url` to a mirror reachable over IPv6.
+
+The AWS specifics are in [the AWS driver](aws-driver.md#network-addresses-and-egress).
 
 ## Extra volumes and local storage
 

@@ -546,6 +546,7 @@ func TestIPSANsAreCheckedAgainstTheInstancesAddresses(t *testing.T) {
 		"us-east-1/i-real":    {Addresses: []string{"10.1.2.3", "203.0.113.7"}},
 		"us-east-1/i-noaddrs": {},
 		"us-east-1/i-other":   {Addresses: []string{"10.7.7.7"}},
+		"us-east-1/i-v6":      {Addresses: []string{"10.1.2.3", "2600:1f00:0:1::5"}},
 		"us-east-1/i-gone":    {Addresses: []string{"10.1.2.3"}, State: vendors.StateTerminated},
 	}}
 	e.ctrl = csr.New(csr.Options{Client: e.c, Recorder: e.rec, Clock: e.clock, Grace: 5 * time.Minute, Registry: vendors.NewRegistryFrom(drv)})
@@ -571,6 +572,11 @@ func TestIPSANsAreCheckedAgainstTheInstancesAddresses(t *testing.T) {
 			name: "an address only the Node claims, after the grace period", want: "denied", after: time.Hour,
 			node: nodeOpts{instanceRef: "us-east-1/i-other", addresses: goodAddrs}, ips: []string{"10.1.2.3"},
 		},
+		{name: "the instance's IPv6 address, written differently", want: "approved",
+			node: nodeOpts{instanceRef: "us-east-1/i-v6", addresses: goodAddrs[:1]}, ips: []string{"10.1.2.3", "2600:1f00:0:1:0:0:0:5"}},
+		{name: "an IPv6 address the instance does not have", want: "denied", after: time.Hour,
+			node: nodeOpts{instanceRef: "us-east-1/i-v6", addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "2600:1f00:0:1::9"}}},
+			ips:  []string{"2600:1f00:0:1::9"}},
 		{name: "an address of the instance the Node does not report yet", want: "approved",
 			node: nodeOpts{instanceRef: "us-east-1/i-real", addresses: goodAddrs[:1]}, ips: []string{"203.0.113.7"}},
 		{name: "a request without IP SANs", want: "approved", node: nodeOpts{instanceRef: "us-east-1/i-other", addresses: goodAddrs}},

@@ -538,6 +538,19 @@ type ManagedResources interface {
 	List(ctx context.Context, regions []string, tags map[TagKey]string) ([]ResourceRef, error)
 }
 
+// ZoneChecker is the optional capability of a driver that can tell, before any
+// launch, which zones of a region cannot host a node with the resolved default
+// settings of a NodeClass: AWS with publicIPv6 on a subnet without an IPv6 CIDR
+// block. found holds the resources the NodeClass's configuration resolved in the
+// region, by kind. The result maps zone names to the reason; the resource check
+// makes those zones' offerings unavailable and reports the reason (a region where
+// every zone is a gap is not ready).
+type ZoneChecker interface {
+	ZoneGaps(
+		ctx context.Context, region string, s VendorSettings, found map[ResourceKind][]ResourceRef,
+	) (map[string]string, error)
+}
+
 // QuotaScope says whether a bucket is per region or account-wide.
 type QuotaScope string
 

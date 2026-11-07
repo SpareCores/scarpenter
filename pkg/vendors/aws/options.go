@@ -210,9 +210,16 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 	if err != nil {
 		return nil, err
 	}
-	sn, err := d.chooseSubnet(ctx, req.Region, req.Zone, subnetRefs)
+	wantIPv6 := boolOr(req.Settings.Networking.PublicIPv6, false)
+	sn, err := d.chooseSubnet(ctx, req.Region, req.Zone, subnetRefs, wantIPv6)
 	if err != nil {
 		return nil, err
+	}
+	if wantIPv6 && !sn.ipv6 {
+		// EC2 would refuse the launch; the zone is skipped for this Create, and the
+		// resource check reports the zone (ZoneGaps) so that its offerings are gated.
+		return nil, vendors.NewError(vendors.Unsupported, vendors.CodeResourceMissingInZone, fmt.Errorf(
+			"publicIPv6 needs an IPv6 CIDR block on the subnet, and %s in %s has none", sn.id, req.Zone))
 	}
 	prep.Resources = append(prep.Resources, vendors.ResourceRef{Kind: KindSubnets, Region: req.Region, ID: sn.id})
 
@@ -378,3 +385,34 @@ func (d *Driver) requirePlacementGroup(ctx context.Context, req vendors.PrepareR
 	}
 	return refs[0], nil
 }
+
+// ZoneGaps implements vendors.ZoneChecker: with publicIPv6 a zone whose subnets
+// (those the NodeClass brings, or the account's default ones) have no IPv6 CIDR block
+// cannot host a node: EC2 refuses the launch. A zone without any subnet is not a gap
+// here (NoSubnetInZone handles it), and a managed network that does not exist yet is
+// created with IPv6.
+func (d *Driver) ZoneGaps(
+	ctx context.Context, region string, s vendors.VendorSettings, found map[vendors.ResourceKind][]vendors.ResourceRef,
+) (map[string]string, error) {
+	if !boolOr(s.Networking.PublicIPv6, false) || len(found[KindSubnets]) == 0 {
+		return nil, nil
+	}
+	zones, err := d.Zones(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	gaps := map[string]string{}
+	for _, z := range zones {
+		cands, err := d.subnetCandidates(ctx, region, z.Name, found[KindSubnets])
+		if err != nil {
+			return nil, err
+		}
+		if len(cands) > 0 && !slices.ContainsFunc(cands, func(c subnetInfo) bool { return c.ipv6 }) {
+			gaps[z.Name] = fmt.Sprintf("publicIPv6 needs a subnet with an IPv6 CIDR block; the subnets in %s have none "+
+				"(associate one, or use subnets that have one)", z.Name)
+		}
+	}
+	return gaps, nil
+}
+
+var _ vendors.ZoneChecker = (*Driver)(nil)

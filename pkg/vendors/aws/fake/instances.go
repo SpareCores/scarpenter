@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -88,6 +89,9 @@ func (i *instance) toSDK() types.Instance {
 	}
 	if i.publicIP != "" {
 		ni.Association = &types.InstanceNetworkInterfaceAssociation{PublicIp: new(i.publicIP)}
+	}
+	if i.ipv6 != "" {
+		ni.Ipv6Addresses = []types.InstanceIpv6Address{{Ipv6Address: new(i.ipv6)}}
 	}
 	out.NetworkInterfaces = []types.InstanceNetworkInterface{ni}
 	return out
@@ -432,6 +436,9 @@ func (a *Account) network(r *region, in *ec2.RunInstancesInput, inst *instance) 
 			}
 		}
 	}
+	if err := a.assignIPv6(r, in, sn, inst); err != nil {
+		return err
+	}
 	inst.groups = slices.Clone(groups)
 	if sn.free <= 0 {
 		return apiError("InsufficientFreeAddressesInSubnet", "There are not enough free addresses in subnet "+sn.id)
@@ -575,4 +582,20 @@ func (a *Account) Volumes(regionName string) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// assignIPv6 gives the instance an IPv6 address when the interface asks for one; the
+// subnet must have an IPv6 CIDR block.
+func (a *Account) assignIPv6(r *region, in *ec2.RunInstancesInput, sn *subnet, inst *instance) error {
+	if len(in.NetworkInterfaces) == 0 || deref(in.NetworkInterfaces[0].Ipv6AddressCount) == 0 {
+		return nil
+	}
+	if sn.ipv6 == "" {
+		return apiError("InvalidParameterValue",
+			fmt.Sprintf("Network interface with Ipv6AddressCount: subnet %s does not have an IPv6 CIDR block", sn.id))
+	}
+	b := netip.MustParsePrefix(sn.ipv6).Addr().As16()
+	b[15] = byte(r.cidrNext + 1)
+	inst.ipv6 = netip.AddrFrom16(b).String()
+	return nil
 }

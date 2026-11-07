@@ -24,6 +24,7 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
 - [Launch](#launch)
 - [Node settings](#node-settings)
 - [Resources and network](#resources-and-network)
+- [Network addresses and egress](#network-addresses-and-egress)
 - [Tags](#tags)
 - [Quotas](#quotas)
 - [Error mapping](#error-mapping)
@@ -297,6 +298,36 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
   a full sweep lists the managed resources of every region every 10th garbage
   collection.
 
+## Network addresses and egress
+
+- **Public IPv4** is the default (`AssociatePublicIpAddress` on the primary
+  interface), because nodes need egress and the default VPC and the managed network
+  have an internet gateway and no NAT.
+- **IPv6.** `publicIPv6: true` requests one address (`Ipv6AddressCount=1`).
+  - The **managed network** has IPv6: an Amazon-provided `/56` on the VPC, a `/64` per
+    subnet (the index of the subnet's `/20`, so a zone added later gets its own),
+    and a `::/0` route to the internet gateway. Subnets do not assign addresses on
+    their own (`AssignIpv6AddressOnCreation` stays off): the launch asks for them. A
+    managed network from before this (IPv4 only) gets all of it at the next
+    `Ensure`; while EC2 is still associating the block `Ensure` fails `Retryable`
+    (`VpcIPv6Pending`). Deleting the subnets and the VPC releases the IPv6 parts.
+  - The account's **default VPC** has no IPv6 until the user associates one. With
+    `publicIPv6` a zone whose subnets (default or `use`) have no IPv6 CIDR block is
+    unavailable, with the reason in the resource status (`ResourcesReady` reports the
+    zone; a region where no zone qualifies is not ready), and a launch is refused for
+    that zone before the call. Where both kinds of subnet exist in a zone the one with
+    an IPv6 block is preferred.
+  - Security group rules take IPv4 and IPv6 CIDRs (an `icmp` rule with an IPv6 CIDR
+    is ICMPv6); the serving certificate approver compares IPv6 addresses by value.
+- **No public IPv4** (`publicIPv4: false`) is refused (`VendorReady=False`, reason
+  `VendorInvalid`, the message names the fix) unless `resources.subnets.use` brings
+  subnets: with the default VPC or the managed network the nodes would have no egress
+  for sysexts and images. With `use` it is allowed: whether the subnets have a NAT
+  gateway or a proxy is the user's job.
+- **IPv6-only** (`publicIPv4: false`, `publicIPv6: true`): `use` subnets with IPv6 only,
+  and the sysexts need a mirror reachable over IPv6 (the Warning Event
+  `IPv6OnlyNeedsMirror` otherwise).
+
 ## Tags
 
 `TagKey(k)` is `scarpenter.sparecores.com/<key>` for the logical keys `cluster`,
@@ -413,7 +444,7 @@ account ID.
 | `CreateSecurityGroups`, `CreateSecurityGroupsInAVpc` | `ec2:CreateSecurityGroup` with the cluster tag, in any VPC |
 | `ChangeSecurityGroups` | authorize and revoke ingress and delete, on groups with the cluster tag |
 | `CreatePlacementGroups`, `DeletePlacementGroups` | create with the cluster tag, delete groups with it |
-| `OptionalManagedNetwork*` | **optional**: VPC, subnet, internet gateway and route table creation, `ReplaceRoute` for a stale default route, and deletion, only with the cluster tag; needed only where a NodeClass uses (or defaults to) `create` for `subnets`, that is in regions without a default VPC |
+| `OptionalManagedNetwork*` | **optional**: VPC, subnet, internet gateway and route table creation, `ReplaceRoute` for a stale default route, `AssociateVpcCidrBlock` and `AssociateSubnetCidrBlock` for IPv6, and deletion, only with the cluster tag; needed only where a NodeClass uses (or defaults to) `create` for `subnets`, that is in regions without a default VPC |
 | `OptionalCustomerKmsKey`, `OptionalCustomerKmsKeyGrant` | **optional**: `kms:Decrypt`, `DescribeKey`, `GenerateDataKeyWithoutPlaintext` and, for AWS resources only (`kms:GrantIsForAWSResource`), `kms:CreateGrant` on the customer key of `kmsKeyID`, only through EC2 (`kms:ViaService`). The resource is the key's ARN even when `kmsKeyID` is an alias; the default `aws/ebs` key needs none |
 | `OptionalPassInstanceProfileRole` | **optional**: `iam:PassRole` for the role of `aws.instanceProfile`, only to `ec2.amazonaws.com`; remove when no instance profile is used |
 

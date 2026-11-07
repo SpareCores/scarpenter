@@ -786,3 +786,25 @@ func TestMirrorSwitchKeepsTheHash(t *testing.T) {
 		t.Error("the hash follows the artifact URL")
 	}
 }
+
+func TestIPv6OnlyNodesWarnAboutTheDefaultSysextSource(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mutate func(*v1alpha1.SCNodeClass)
+		warn   bool
+	}{
+		"ipv6 only": {func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Networking.PublicIPv4, nc.Spec.Networking.PublicIPv6 = new(false), new(true)
+		}, true},
+		"default":    {nil, false},
+		"dual stack": {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Networking.PublicIPv6 = new(true) }, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.create(e.newNodeClass(tc.mutate))
+			e.reconcile(e.name)
+			if got := contains(e.rec.reasons(), nodeclass.EventIPv6OnlyNeedsMirror); got != tc.warn {
+				t.Errorf("warned = %v, want %v (events %v)", got, tc.warn, e.rec.reasons())
+			}
+		})
+	}
+}

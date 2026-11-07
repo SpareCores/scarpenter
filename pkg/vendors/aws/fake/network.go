@@ -7,8 +7,10 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package fake
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -30,6 +32,77 @@ func (v *vpc) attrs(name string) ([]string, bool) {
 	return nil, false
 }
 
+func (v *vpc) toSDK() types.Vpc {
+	out := types.Vpc{VpcId: new(v.id), CidrBlock: new(v.cidr), IsDefault: new(v.isDefault), Tags: tagList(v.tags),
+		State: types.VpcStateAvailable}
+	if v.ipv6 != "" {
+		out.Ipv6CidrBlockAssociationSet = []types.VpcIpv6CidrBlockAssociation{{
+			Ipv6CidrBlock: new(v.ipv6), AssociationId: new("vpc-cidr-assoc-" + v.id),
+			Ipv6CidrBlockState: &types.VpcCidrBlockState{State: types.VpcCidrBlockStateCodeAssociated},
+		}}
+	}
+	return out
+}
+
+// AssociateVpcCidrBlock implements EC2API: an Amazon-provided IPv6 block, once.
+func (e *EC2) AssociateVpcCidrBlock(ctx context.Context, in *ec2.AssociateVpcCidrBlockInput, _ ...func(*ec2.Options),
+) (*ec2.AssociateVpcCidrBlockOutput, error) {
+	r, err := e.begin(ctx, "AssociateVpcCidrBlock", in)
+	if err != nil {
+		return nil, err
+	}
+	defer e.end()
+	v := r.vpcs[deref(in.VpcId)]
+	if v == nil {
+		return nil, apiError("InvalidVpcID.NotFound", "the vpc does not exist")
+	}
+	if in.AmazonProvidedIpv6CidrBlock == nil || !*in.AmazonProvidedIpv6CidrBlock {
+		return nil, apiError("MissingParameter", "only the Amazon-provided IPv6 block is supported by the fake")
+	}
+	if v.ipv6 != "" {
+		return nil, apiError("CidrConflict", "the vpc already has an IPv6 CIDR block")
+	}
+	v.ipv6 = e.a.newIPv6Block()
+	return &ec2.AssociateVpcCidrBlockOutput{VpcId: in.VpcId}, nil
+}
+
+// AssociateSubnetCidrBlock implements EC2API: a /64 inside the VPC's /56.
+func (e *EC2) AssociateSubnetCidrBlock(ctx context.Context, in *ec2.AssociateSubnetCidrBlockInput, _ ...func(*ec2.Options),
+) (*ec2.AssociateSubnetCidrBlockOutput, error) {
+	r, err := e.begin(ctx, "AssociateSubnetCidrBlock", in)
+	if err != nil {
+		return nil, err
+	}
+	defer e.end()
+	sn := r.subnets[deref(in.SubnetId)]
+	if sn == nil {
+		return nil, apiError("InvalidSubnetID.NotFound", "the subnet does not exist")
+	}
+	if err := r.checkSubnetIPv6(sn, deref(in.Ipv6CidrBlock)); err != nil {
+		return nil, err
+	}
+	sn.ipv6 = *in.Ipv6CidrBlock
+	return &ec2.AssociateSubnetCidrBlockOutput{SubnetId: in.SubnetId}, nil
+}
+
+// checkSubnetIPv6 checks that the /64 is inside the VPC's IPv6 block and not used.
+func (r *region) checkSubnetIPv6(sn *subnet, cidr string) error {
+	v := r.vpcs[sn.vpc]
+	p, err := netip.ParsePrefix(cidr)
+	if err != nil || p.Bits() != 64 {
+		return apiError("InvalidParameterValue", "the IPv6 CIDR of a subnet is a /64: "+cidr)
+	}
+	if v.ipv6 == "" || !netip.MustParsePrefix(v.ipv6).Contains(p.Addr()) {
+		return apiError("InvalidParameterValue", "the CIDR "+cidr+" is not inside an IPv6 block of the VPC")
+	}
+	for _, o := range r.subnets {
+		if o.vpc == sn.vpc && o.ipv6 == cidr {
+			return apiError("InvalidSubnet.Conflict", "the IPv6 CIDR "+cidr+" conflicts with another subnet")
+		}
+	}
+	return nil
+}
+
 // DescribeVpcs implements EC2API.
 func (e *EC2) DescribeVpcs(ctx context.Context, in *ec2.DescribeVpcsInput, _ ...func(*ec2.Options),
 ) (*ec2.DescribeVpcsOutput, error) {
@@ -49,8 +122,7 @@ func (e *EC2) DescribeVpcs(ctx context.Context, in *ec2.DescribeVpcsInput, _ ...
 			return nil, err
 		}
 		if ok {
-			out = append(out, types.Vpc{VpcId: new(id), CidrBlock: new(v.cidr), IsDefault: new(v.isDefault), Tags: tagList(v.tags),
-				State: types.VpcStateAvailable})
+			out = append(out, v.toSDK())
 		}
 	}
 	items, next := page(out, in.NextToken, in.MaxResults, e.a.pageSize)
@@ -69,7 +141,11 @@ func (e *EC2) CreateVpc(ctx context.Context, in *ec2.CreateVpcInput, _ ...func(*
 		return nil, apiError("MissingParameter", "CidrBlock is required")
 	}
 	v := e.a.newVPC(r, *in.CidrBlock, tags)
-	return &ec2.CreateVpcOutput{Vpc: &types.Vpc{VpcId: new(v.id), CidrBlock: new(v.cidr), Tags: tagList(v.tags)}}, nil
+	if in.AmazonProvidedIpv6CidrBlock != nil && *in.AmazonProvidedIpv6CidrBlock {
+		v.ipv6 = e.a.newIPv6Block()
+	}
+	sdk := v.toSDK()
+	return &ec2.CreateVpcOutput{Vpc: &sdk}, nil
 }
 
 // DeleteVpc implements EC2API: a VPC with subnets, an attached internet gateway,
@@ -144,11 +220,18 @@ func (s *subnet) toSDK(r *region) types.Subnet {
 	if z, ok := r.zoneByName(s.az); ok {
 		zoneID = z.ID
 	}
-	return types.Subnet{
+	out := types.Subnet{
 		SubnetId: new(s.id), VpcId: new(s.vpc), AvailabilityZone: new(s.az), AvailabilityZoneId: new(zoneID),
 		CidrBlock: new(s.cidr), AvailableIpAddressCount: new(s.free), DefaultForAz: new(s.defaultForAZ),
 		MapPublicIpOnLaunch: new(s.mapPublic), Tags: tagList(s.tags), State: types.SubnetStateAvailable,
 	}
+	if s.ipv6 != "" {
+		out.Ipv6CidrBlockAssociationSet = []types.SubnetIpv6CidrBlockAssociation{{
+			Ipv6CidrBlock: new(s.ipv6), AssociationId: new("subnet-cidr-assoc-" + s.id),
+			Ipv6CidrBlockState: &types.SubnetCidrBlockState{State: types.SubnetCidrBlockStateCodeAssociated},
+		}}
+	}
+	return out
 }
 
 // DescribeSubnets implements EC2API.
@@ -197,7 +280,14 @@ func (e *EC2) CreateSubnet(ctx context.Context, in *ec2.CreateSubnetInput, _ ...
 			return nil, apiError("InvalidSubnet.Conflict", "The CIDR '"+s.cidr+"' conflicts with another subnet")
 		}
 	}
+	s0 := &subnet{vpc: v.id}
+	if c := deref(in.Ipv6CidrBlock); c != "" {
+		if err := r.checkSubnetIPv6(s0, c); err != nil {
+			return nil, err
+		}
+	}
 	s := e.a.newSubnet(r, v, *in.AvailabilityZone, deref(in.CidrBlock), tagsFromSpecs(in.TagSpecifications, types.ResourceTypeSubnet))
+	s.ipv6 = deref(in.Ipv6CidrBlock)
 	sub := s.toSDK(r)
 	return &ec2.CreateSubnetOutput{Subnet: &sub}, nil
 }
@@ -403,7 +493,11 @@ func (e *EC2) CreateRoute(ctx context.Context, in *ec2.CreateRouteInput, _ ...fu
 			return nil, apiError("InvalidParameterValue", "the gateway is not attached to the route table's vpc")
 		}
 	}
-	route := deref(in.DestinationCidrBlock) + "->" + deref(in.GatewayId)
+	dest := deref(in.DestinationCidrBlock)
+	if dest == "" {
+		dest = deref(in.DestinationIpv6CidrBlock)
+	}
+	route := dest + "->" + deref(in.GatewayId)
 	if slices.Contains(t.routes, route) {
 		return nil, apiError("RouteAlreadyExists", "the route "+route+" already exists")
 	}
@@ -423,7 +517,7 @@ func (e *EC2) ReplaceRoute(ctx context.Context, in *ec2.ReplaceRouteInput, _ ...
 		return nil, apiError("InvalidRouteTableID.NotFound", "the route table does not exist")
 	}
 	for i, route := range t.routes {
-		if dest, _, _ := strings.Cut(route, "->"); dest == deref(in.DestinationCidrBlock) {
+		if dest, _, _ := strings.Cut(route, "->"); dest == cmp.Or(deref(in.DestinationCidrBlock), deref(in.DestinationIpv6CidrBlock)) {
 			t.routes[i] = dest + "->" + deref(in.GatewayId)
 			return &ec2.ReplaceRouteOutput{}, nil
 		}
@@ -519,7 +613,13 @@ func (e *EC2) DescribeRouteTables(ctx context.Context, in *ec2.DescribeRouteTabl
 		rt := types.RouteTable{RouteTableId: new(id), VpcId: new(t.vpc), Tags: tagList(t.tags)}
 		for _, route := range t.routes {
 			dest, gw, _ := strings.Cut(route, "->")
-			rt.Routes = append(rt.Routes, types.Route{DestinationCidrBlock: new(dest), GatewayId: new(gw)})
+			route := types.Route{GatewayId: new(gw)}
+			if strings.Contains(dest, ":") {
+				route.DestinationIpv6CidrBlock = new(dest)
+			} else {
+				route.DestinationCidrBlock = new(dest)
+			}
+			rt.Routes = append(rt.Routes, route)
 		}
 		if t.main {
 			rt.Associations = append(rt.Associations, types.RouteTableAssociation{Main: new(true), RouteTableId: new(id)})

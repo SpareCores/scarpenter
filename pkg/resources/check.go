@@ -9,6 +9,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -64,7 +65,8 @@ func (e *Engine) Check(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor str
 		rep.Errors = append(rep.Errors, err)
 		return rep
 	}
-	c := &checker{e: e, nc: nc, vendor: vendor, mr: mr, kinds: kinds, cfgs: cfgs, rep: &rep, seen: map[string]bool{}}
+	c := &checker{e: e, nc: nc, vendor: vendor, mr: mr, kinds: kinds, cfgs: cfgs, rep: &rep, seen: map[string]bool{},
+		refs: map[vendors.ResourceKind][]vendors.ResourceRef{}}
 	for _, region := range regions {
 		c.zones = nil
 		problems, failed := c.region(ctx, region)
@@ -112,6 +114,8 @@ type checker struct {
 	seen   map[string]bool
 	// zones are the zones of the region being checked that lack a resource.
 	zones map[string]string
+	// refs are the resources found in the region being checked, by kind.
+	refs map[vendors.ResourceKind][]vendors.ResourceRef
 }
 
 // uses says whether the NodeClass has anything to do with a managed resource:
@@ -139,6 +143,7 @@ func (c *checker) add(kind vendors.ResourceKind, region string, ref vendors.Reso
 		return
 	}
 	c.seen[k] = true
+	c.refs[kind] = append(c.refs[kind], ref)
 	rs := v1alpha1.ResourceStatus{Kind: string(kind), Region: region, ID: ref.ID, Managed: ref.Managed}
 	if ref.Managed {
 		id := c.vendor + "/" + ref.ID
@@ -157,6 +162,7 @@ func (c *checker) add(kind vendors.ResourceKind, region string, ref vendors.Reso
 // region checks every kind in one region: the problems that make its offerings
 // unavailable, and whether a transient failure left a kind unchecked.
 func (c *checker) region(ctx context.Context, region string) (problems []string, failed bool) {
+	c.refs = map[vendors.ResourceKind][]vendors.ResourceRef{}
 	for _, ks := range c.mr.Kinds() {
 		problem, transient := c.kind(ctx, ks, c.cfgs[string(ks.Kind)], region)
 		if problem != "" {
@@ -164,7 +170,54 @@ func (c *checker) region(ctx context.Context, region string) (problems []string,
 		}
 		failed = failed || transient
 	}
+	if len(problems) == 0 && !failed {
+		problems = append(problems, c.zoneGaps(ctx, region)...)
+	}
 	return problems, failed
+}
+
+// zoneGaps asks a driver with the ZoneChecker capability which zones cannot host a
+// node with the NodeClass's default settings, given the resources found. The zones
+// are gated individually; a region where every zone is a gap is a problem of the
+// region. An error is not a verdict: the zones stay as they were.
+func (c *checker) zoneGaps(ctx context.Context, region string) []string {
+	drv, ok := c.e.opts.Registry.Driver(c.vendor)
+	if !ok {
+		return nil
+	}
+	zc, isZC := drv.(vendors.ZoneChecker)
+	no, isNO := drv.(vendors.NodeOptions)
+	if !isZC || !isNO {
+		return nil
+	}
+	in, has, err := options.InputFromNodeClass(c.nc, c.vendor)
+	if err != nil || !has {
+		return nil
+	}
+	settings, err := options.Resolve(no, in, options.Selection{})
+	if err != nil {
+		return nil
+	}
+	gaps, err := zc.ZoneGaps(ctx, region, settings, c.refs)
+	if err != nil || len(gaps) == 0 {
+		return nil
+	}
+	var zones []string
+	if c.e.opts.Zones != nil {
+		zones = c.e.opts.Zones(c.vendor, region)
+	}
+	if len(zones) > 0 && len(gaps) >= len(zones) {
+		var reasons []string
+		for _, z := range slices.Sorted(maps.Keys(gaps)) {
+			reasons = append(reasons, z+": "+gaps[z])
+		}
+		return []string{"no zone can host the nodes: " + strings.Join(reasons, "; ")}
+	}
+	if c.zones == nil {
+		c.zones = map[string]string{}
+	}
+	maps.Copy(c.zones, gaps)
+	return nil
 }
 
 // kind checks one kind in one region.

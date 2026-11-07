@@ -19,6 +19,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	awsapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	"github.com/SpareCores/scarpenter/pkg/options"
 )
 
 // Syntax of what a NodeClass names.
@@ -224,6 +225,7 @@ func (d *Driver) ValidateNodeClass(_ context.Context, nc *v1alpha1.SCNodeClass) 
 	var errs []error
 	if b := nc.Spec.Vendors.AWS; b != nil {
 		errs = append(errs, validateBlock(b)...)
+		errs = append(errs, validateEgress(nc, b)...)
 	}
 	for name, p := range nc.Spec.Profiles.Storage {
 		if p.AWS != nil {
@@ -282,4 +284,28 @@ func validateBlock(b *awsapi.Settings) []error {
 			placementIDPattern)...)
 	}
 	return errs
+}
+
+// validateEgress refuses nodes without a public IPv4 address where nothing gives
+// them egress: the default VPC and the managed network have an internet gateway
+// and no NAT, so a node without a public address could not fetch its sysexts or its
+// container images. With subnets the NodeClass brings (resources.subnets.use) the
+// driver cannot see a NAT gateway or a proxy reliably, so it allows it: egress is the
+// user's job there.
+func validateEgress(nc *v1alpha1.SCNodeClass, b *awsapi.Settings) []error {
+	net := options.ResolveNetworking(nc.Spec.Networking, b.Networking)
+	if boolOr(net.PublicIPv4, true) {
+		return nil
+	}
+	if r := b.Resources; r != nil && r.Subnets != nil && r.Subnets.Use != nil {
+		return nil
+	}
+	what := "nodes without a public IPv4 address"
+	if boolOr(net.PublicIPv6, false) {
+		what = "IPv6-only nodes (publicIPv4: false)"
+	}
+	return []error{fmt.Errorf("networking.publicIPv4: false is refused: %s would have no egress for sysexts and "+
+		"container images, because the account's default VPC and the managed network have no NAT. "+
+		"Use your own private subnets with a NAT gateway or a proxy (vendors.aws.resources.subnets.use), "+
+		"or keep publicIPv4 on", what)}
 }

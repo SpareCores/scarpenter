@@ -227,7 +227,7 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	}
 	nodeClass := nodeclass.New(nodeclass.Options{
 		Client: o.GetClient(), Catalog: c.Catalog, Registry: c.Registry, Artifacts: c.Artifacts, Renderer: c.Renderer,
-		Refs: c.Refs, Regions: c.Facts, ImageGate: c.Resources,
+		Refs: c.Refs, Regions: c.Facts, ImageGate: c.Resources, SysextMirror: opts.SysextBaseURL != "",
 		ServerVersion: o.serverVersion, Recorder: o.EventRecorder, Clock: o.Clock,
 	})
 	if err := nodeClass.Register(o.Manager); err != nil {

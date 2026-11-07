@@ -81,7 +81,9 @@ func TestRunInstancesInputGoldenDefaults(t *testing.T) {
 }
 
 func TestRunInstancesInputGoldenEverything(t *testing.T) {
-	e := newEnv(t, envOptions{})
+	r6 := fake.DefaultRegion(testRegion, "use1")
+	r6.DefaultVPCIPv6 = true // publicIPv6 below needs a subnet with an IPv6 CIDR
+	e := newEnv(t, envOptions{regions: []fake.RegionSpec{r6}})
 	profiles := vendors.Profiles{
 		vendors.ProfileStorage: {"db": json.RawMessage(`{"data":[
 			{"name":"pgdata","volumeType":"gp3","volumeSize":"100Gi","iops":4000,"throughput":250,"mountPath":"/var/lib/pgdata","filesystem":"xfs"},
@@ -595,5 +597,34 @@ func TestDeleteInstanceTerminatesNothingItCouldNotCheck(t *testing.T) {
 	}
 	if n := acct.Calls("TerminateInstances"); n != 0 {
 		t.Errorf("%d terminations of an instance whose ownership was not seen", n)
+	}
+}
+
+func TestPublicIPv6NeedsASubnetWithIPv6(t *testing.T) {
+	ctx := context.Background()
+	for name, tc := range map[string]struct {
+		ipv6    bool
+		wantErr bool
+	}{"default VPC with IPv6": {true, false}, "default VPC without IPv6": {false, true}} {
+		t.Run(name, func(t *testing.T) {
+			r := fake.DefaultRegion(testRegion, "use1")
+			r.DefaultVPCIPv6 = tc.ipv6
+			e := newEnv(t, envOptions{regions: []fake.RegionSpec{r}})
+			req := request(testRegion, testZone, testType, vendors.CapacityOnDemand)
+			req.Settings = resolveSettings(t, e.d, "", common.Networking{PublicIPv6: new(true)}, nil, options.Selection{})
+			inst, err := e.d.CreateInstance(ctx, req)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("got %v", err)
+			}
+			if err == nil {
+				v6 := false
+				for _, a := range inst.Addresses {
+					v6 = v6 || strings.Contains(a, ":")
+				}
+				if !v6 {
+					t.Errorf("addresses %v: no IPv6", inst.Addresses)
+				}
+			}
+		})
 	}
 }

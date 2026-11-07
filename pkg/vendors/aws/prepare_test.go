@@ -9,6 +9,7 @@ package aws_test
 import (
 	"context"
 	"encoding/json"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -332,9 +333,9 @@ func TestPrepareCreatesAManagedNetworkWhereThereIsNoDefaultVPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	if e.acct.Calls("CreateVpc") != 1 || e.acct.Calls("CreateSubnet") != 3 || e.acct.Calls("CreateInternetGateway") != 1 ||
-		e.acct.Calls("AttachInternetGateway") != 1 || e.acct.Calls("CreateRouteTable") != 1 || e.acct.Calls("CreateRoute") != 1 ||
+		e.acct.Calls("AttachInternetGateway") != 1 || e.acct.Calls("CreateRouteTable") != 1 || e.acct.Calls("CreateRoute") != 2 ||
 		e.acct.Calls("AssociateRouteTable") != 3 {
-		t.Errorf("creations: vpc %d, subnets %d, igw %d, attach %d, rt %d, route %d, assoc %d", e.acct.Calls("CreateVpc"),
+		t.Errorf("creations: vpc %d, subnets %d, igw %d, attach %d, rt %d, route %d (IPv4 and IPv6), assoc %d", e.acct.Calls("CreateVpc"),
 			e.acct.Calls("CreateSubnet"), e.acct.Calls("CreateInternetGateway"), e.acct.Calls("AttachInternetGateway"),
 			e.acct.Calls("CreateRouteTable"), e.acct.Calls("CreateRoute"), e.acct.Calls("AssociateRouteTable"))
 	}
@@ -542,5 +543,74 @@ func TestAChangedStrategyIsAnotherGroup(t *testing.T) {
 	a, b, again := group("cluster"), group("spread"), group("cluster")
 	if a == b || a != again {
 		t.Errorf("groups %s (cluster), %s (spread), %s (cluster again)", a, b, again)
+	}
+}
+
+func ipv6Class(res *awsapi.Resources) *v1alpha1.SCNodeClass {
+	nc := classWith(res)
+	nc.Spec.Networking.PublicIPv6 = new(true)
+	return nc
+}
+
+func TestResourceCheckGatesTheZonesWithoutAnIPv6Subnet(t *testing.T) {
+	ctx := context.Background()
+	// The default VPC has no IPv6 (a default VPC has none until it is associated):
+	// every zone is a gap, so the region is not ready, with a reason naming the fix.
+	e := newEngineEnv(t, newEnv(t, envOptions{}))
+	rep := e.engine.Check(ctx, ipv6Class(nil), "aws", []string{testRegion})
+	st := rep.Regions[testRegion]
+	if st.Ready || !strings.Contains(st.Reason, "IPv6 CIDR block") || !strings.Contains(st.Reason, testZone) {
+		t.Errorf("region state %+v, want not ready naming the zones and the IPv6 CIDR block", st)
+	}
+	if !e.engine.UnavailableFor("class", "aws", "", testRegion, testZone, "on-demand") {
+		t.Error("the offerings of a region without IPv6 subnets are available")
+	}
+	// Without publicIPv6 nothing is a gap.
+	rep = e.engine.Check(ctx, classWith(nil), "aws", []string{testRegion})
+	if !rep.Regions[testRegion].Ready {
+		t.Errorf("without publicIPv6: %+v", rep.Regions[testRegion])
+	}
+
+	// Own subnets, IPv6 in zone b only: zone a is gated on its own.
+	e = newEngineEnv(t, newEnv(t, envOptions{}))
+	vpc := defaultVPC(t, e.env, testRegion)
+	ec := e.acct.EC2(testRegion)
+	mk := func(zone, cidr string) string {
+		out, err := ec.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: &vpc, AvailabilityZone: &zone, CidrBlock: &cidr})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *out.Subnet.SubnetId
+	}
+	a, b := mk("us-east-1a", "172.31.201.0/24"), mk("us-east-1b", "172.31.202.0/24")
+	if _, err := ec.AssociateVpcCidrBlock(ctx, &ec2.AssociateVpcCidrBlockInput{VpcId: &vpc, AmazonProvidedIpv6CidrBlock: new(true)}); err != nil {
+		t.Fatal(err)
+	}
+	vpcs, _ := ec.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{VpcIds: []string{vpc}})
+	block := *vpcs.Vpcs[0].Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock
+	p := netip.MustParsePrefix(block)
+	raw := p.Addr().As16()
+	raw[7] = 5
+	if _, err := ec.AssociateSubnetCidrBlock(ctx, &ec2.AssociateSubnetCidrBlockInput{
+		SubnetId: &b, Ipv6CidrBlock: new(netip.PrefixFrom(netip.AddrFrom16(raw), 64).String())}); err != nil {
+		t.Fatal(err)
+	}
+	nc := ipv6Class(&awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string][]string{testRegion: {a, b}}}}})
+	st = e.engine.Check(ctx, nc, "aws", []string{testRegion}).Regions[testRegion]
+	if !st.Ready || st.Zones["us-east-1a"] == "" || st.Zones["us-east-1b"] != "" {
+		t.Errorf("region state %+v, want ready with only zone a gated", st)
+	}
+	if !e.engine.UnavailableFor("class", "aws", "", testRegion, "us-east-1a", "on-demand") ||
+		e.engine.UnavailableFor("class", "aws", "", testRegion, "us-east-1b", "on-demand") {
+		t.Error("the gate does not follow the zones")
+	}
+	// A launch in zone b gets the IPv6 subnet (preferred although it is the one with
+	// fewer free addresses), and zone a is refused with the code that skips the zone.
+	s := resolveSettings(t, e.d, "", common.Networking{PublicIPv6: new(true)}, nil, options.Selection{})
+	if p, err := e.prepare(t, nc, testRegion, "us-east-1b", testType, s, ""); err != nil || ids(p, aws.KindSubnets)[0] != b {
+		t.Errorf("zone b: %v, %v", p, err)
+	}
+	if _, err := e.prepare(t, nc, testRegion, "us-east-1a", testType, s, ""); vendors.CodeOf(err) != vendors.CodeResourceMissingInZone {
+		t.Errorf("zone a: %v, want %s", err, vendors.CodeResourceMissingInZone)
 	}
 }

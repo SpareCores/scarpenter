@@ -147,6 +147,19 @@ Live verification list (everything in plan 08 ran against the in-memory fake onl
 15. Slow EBS attach versus the volume unit's device timeout (240 s): time from boot to
     the NVMe device of a data volume and of instance store, under load and with large
     volumes.
+16. IPv6 in the managed network: the Amazon-provided `/56`, a `/64` per subnet, the
+    `::/0` route; a node with `publicIPv6: true` gets a global address and reaches
+    the internet over IPv6; whether a security group created by `CreateSecurityGroup`
+    in an IPv6 VPC has the default `::/0` egress rule (otherwise add it); an older
+    IPv4-only managed VPC upgraded by `Ensure` (including the `VpcIPv6Pending`
+    wait); deleting a managed network with IPv6.
+17. `publicIPv6` with the default VPC without IPv6: the zones are gated with the
+    reason and the region is not ready; with `use` subnets that have an IPv6 block
+    the launch works and the serving certificate (IPv6 SAN) is approved.
+18. `publicIPv4: false`: refused on the default VPC and the managed network;
+    accepted with `use` private subnets (with a NAT gateway: the node joins; without
+    egress: it does not, as documented); IPv6-only with `use` subnets and a sysext
+    mirror reachable over IPv6, and the `IPv6OnlyNeedsMirror` Event without one.
 
 Sweeper: tags `scarpenter.sparecores.com/cluster` and `resource-kind`; tagged spot
 requests; the managed VPC layout (`10.240.0.0/16`, name

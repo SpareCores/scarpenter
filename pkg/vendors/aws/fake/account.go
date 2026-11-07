@@ -80,6 +80,9 @@ type RegionSpec struct {
 	AZs      []AZ
 	// NoDefaultVPC leaves the region without a default VPC.
 	NoDefaultVPC bool
+	// DefaultVPCIPv6 gives the default VPC and its subnets IPv6 (a default VPC has
+	// none until someone associates it).
+	DefaultVPCIPv6 bool
 }
 
 // Account is an AWS account: every region and everything in it.

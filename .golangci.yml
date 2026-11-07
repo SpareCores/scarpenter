@@ -69,6 +69,7 @@ linters:
       - linters:
           - lll
           - goconst
+          - dupl
         path: pkg/vendors/aws/fake/
       # The error table of the AWS driver and the test's independent copy of it.
       - linters:
