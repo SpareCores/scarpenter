@@ -1211,7 +1211,7 @@ and refreshed only by its manually triggered workflow.
 | 04 | [Cloud provider, driver contract, fake driver, L3](../done/04-cloudprovider-and-fake-driver.md) | 03 |
 | 05 | [Node bootstrap](../done/05-bootstrap.md) | 04 |
 | 06 | [Node options and vendor resources](../done/06-node-options-and-resources.md) | 05 |
-| 07 | [qemu driver and L4](07-qemu-driver.md) | 06 |
+| 07 | [qemu driver and L4](../done/07-qemu-driver.md) | 06 |
 | 08 | [AWS driver](08-aws-driver.md) | 06 |
 | 09 | [Packaging](09-packaging.md) | 08 |
 | 10 | [AWS e2e (L5) and sweeper](10-aws-e2e.md) | 09 |
