@@ -108,6 +108,8 @@ type envOptions struct {
 	notReady bool
 	// transform edits the NodeClass before it is created.
 	transform func(*v1alpha1.SCNodeClass)
+	// wrap decorates the driver the registry serves.
+	wrap func(*fakedriver.Driver) vendors.Driver
 }
 
 func newEnv(t *testing.T, o envOptions) *env {
@@ -135,7 +137,11 @@ func newEnv(t *testing.T, o envOptions) *env {
 	if err := drv.Init(ctx, vendors.Config{ClusterName: cluster, Client: kube, Reader: kube, Log: logr.Discard(), KeeperURL: keeperURL}); err != nil {
 		t.Fatal(err)
 	}
-	reg := vendors.NewRegistryFrom(drv)
+	var served vendors.Driver = drv
+	if o.wrap != nil {
+		served = o.wrap(drv)
+	}
+	reg := vendors.NewRegistryFrom(served)
 	clk := testingclock.NewFakeClock(time.Now())
 	un := unavailable.New(clk, unavailable.TTLs{InsufficientCapacity: time.Minute})
 	e := &env{t: t, client: kube, driver: drv, un: un, registry: reg, tokens: &recordingTokens{}, renderer: &recordingRenderer{}, events: &recordingEvents{}, clock: clk}

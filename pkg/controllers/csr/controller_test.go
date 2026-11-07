@@ -17,6 +17,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -597,6 +598,17 @@ func TestIPSANsAreCheckedAgainstTheInstancesAddresses(t *testing.T) {
 		},
 		{name: "tailscale: an IP the Node does not report is still denied", want: "denied", after: time.Hour,
 			node: nodeOpts{className: "ips-tailscale", instanceRef: "us-east-1/i-real", addresses: goodAddrs}, ips: []string{"100.64.9.9"}},
+		{
+			// A leaked token: the attacker's Node claims a VPC address as its only IP and
+			// asks for a certificate for it; with the tailscale template only tailnet
+			// addresses count from the Node.
+			name: "tailscale: a non-tailnet IP the Node claims is denied", want: "denied", after: time.Hour,
+			node: nodeOpts{className: "ips-tailscale", instanceRef: "us-east-1/i-other", addresses: goodAddrs}, ips: []string{"10.1.2.3"},
+		},
+		{name: "tailscale: an address of the instance is fine", want: "approved",
+			node: nodeOpts{className: "ips-tailscale", instanceRef: "us-east-1/i-real", addresses: goodAddrs[:1]}, ips: []string{"10.1.2.3"}},
+		{name: "tailscale: an IPv6 tailnet address", want: "approved",
+			node: nodeOpts{className: "ips-tailscale", instanceRef: "us-east-1/i-other", addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "fd7a:115c:a1e0::1234"}}}, ips: []string{"fd7a:115c:a1e0:0:0:0:0:1234"}},
 		{name: "custom: the Node's addresses stand", want: "approved",
 			node: nodeOpts{className: "ips-custom", instanceRef: "us-east-1/i-other", addresses: goodAddrs}, ips: []string{"10.1.2.3"}},
 	} {
@@ -631,4 +643,28 @@ func TestIPSANsAreCheckedAgainstTheInstancesAddresses(t *testing.T) {
 			t.Errorf("outcome = %s", got)
 		}
 	})
+}
+
+// A Headscale with other prefixes sets --tailnet-prefixes: the L4 lane's Headscale
+// uses the defaults, another one must keep working.
+func TestTailnetPrefixesAreConfigurable(t *testing.T) {
+	e := newEnv(t)
+	drv := &addrDriver{instances: map[vendors.InstanceRef]*vendors.Instance{"us-east-1/i-real": {Addresses: []string{"10.1.2.3"}}}}
+	e.class("pfx-tailscale", v1alpha1.NetworkTemplateTailscale)
+	for prefixes, want := range map[string]string{"": "denied", "10.9.0.0/16": "approved"} {
+		var ps []netip.Prefix
+		if prefixes != "" {
+			ps = []netip.Prefix{netip.MustParsePrefix(prefixes)}
+		}
+		e.ctrl = csr.New(csr.Options{Client: e.c, Recorder: e.rec, Clock: e.clock, Grace: 5 * time.Minute,
+			Registry: vendors.NewRegistryFrom(drv), TailnetPrefixes: ps})
+		name := e.node(nodeOpts{providerID: goodProviderID + "p", className: "pfx-tailscale", instanceRef: "us-east-1/i-real",
+			addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.9.1.1"}}})
+		csrName := e.csr(name, csrOpts{dns: []string{name}, ips: []string{"10.9.1.1"}})
+		e.clock.SetTime(time.Now().Add(time.Hour))
+		e.reconcile(csrName)
+		if got := e.outcome(csrName); got != want {
+			t.Errorf("prefixes %q: %s, want %s", prefixes, got, want)
+		}
+	}
 }

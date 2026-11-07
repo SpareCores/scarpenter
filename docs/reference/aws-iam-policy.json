@@ -226,6 +226,7 @@
       "Action": [
         "ec2:CreateSubnet",
         "ec2:CreateRouteTable",
+        "ec2:ReplaceRoute",
         "ec2:AttachInternetGateway",
         "ec2:DetachInternetGateway",
         "ec2:CreateRoute",
@@ -267,7 +268,6 @@
       "Sid": "OptionalCustomerKmsKey",
       "Effect": "Allow",
       "Action": [
-        "kms:CreateGrant",
         "kms:Decrypt",
         "kms:DescribeKey",
         "kms:GenerateDataKeyWithoutPlaintext"
@@ -278,6 +278,24 @@
       "Condition": {
         "StringLike": {
           "kms:ViaService": "ec2.*.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "OptionalCustomerKmsKeyGrant",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateGrant"
+      ],
+      "Resource": [
+        "arn:aws:kms:*:123456789012:key/KEY_ID"
+      ],
+      "Condition": {
+        "StringLike": {
+          "kms:ViaService": "ec2.*.amazonaws.com"
+        },
+        "Bool": {
+          "kms:GrantIsForAWSResource": "true"
         }
       }
     }

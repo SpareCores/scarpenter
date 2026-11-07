@@ -48,6 +48,21 @@ release.
   and the `tailscale` template how-to as the way to try the template without a SaaS
   account.
 
+## Carried over from the plan 08 review
+
+- AWS how-to and tutorial pages (credentials, IAM policy, default versus managed VPC).
+- Document the semantics: `isolation: none` means nobody (only `inbound` applies);
+  `isolation: run` without a run key makes the NodeClass one run (its group gets the
+  member rule); `ImagesReady` is `False` only for a named region without an image or
+  when no region has one, else `True` with `ImagesPartial`, and regions without any
+  image are gated; the IPv4 price is a constant; `aws.imageOwner` applies to status and
+  launch.
+- Add-a-vendor guide: type facts via the vendor API with an epoch, and why not via the
+  catalog (tracker lock order, usage of off-catalog types); internal resource kinds
+  (`runSecurityGroups`); the conformance hooks `ResourceParams` and
+  `type/capacity-type`; per-call timeouts; an independent fake with documented fidelity
+  gaps; an `ImageReporter` error that is transient must not gate a region.
+
 ## Gates
 
 CONVENTIONS gates 1–4; `hack/check-docs.py` clean (links, no local paths, no

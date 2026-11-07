@@ -8,6 +8,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -96,6 +97,15 @@ func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*v
 		},
 	})
 	if err != nil {
+		// A transient failure serves the last good image, even past its TTL: the
+		// answer of an earlier success is better than none.
+		d.mu.Lock()
+		stale, ok := d.images[key]
+		d.mu.Unlock()
+		if ok && stale.err == nil && vendors.IsClass(classify(err, errContext{}), vendors.Retryable) {
+			img := stale.image
+			return &img, nil
+		}
 		return nil, classify(err, errContext{})
 	}
 	switch len(out.Images) {
@@ -163,6 +173,8 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 		out []v1alpha1.ImageStatus
 		wg  sync.WaitGroup
 		sem = make(chan struct{}, reportParallel)
+
+		transient error
 	)
 	for _, region := range regions {
 		for _, arch := range arches {
@@ -174,18 +186,30 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 				img, err := d.ResolveImage(ctx, vendors.ImageRequest{
 					Region: region, Arch: arch, Channel: channel, Version: nc.Spec.Flatcar.Version, Owner: owner,
 				})
-				if err != nil {
-					st.Message = err.Error()
-				} else {
-					st.Ref, st.Ready = img.Ref, true
-				}
 				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case err == nil:
+					st.Ref, st.Ready = img.Ref, true
+				case !vendors.IsClass(err, vendors.Retryable):
+					// A definitive answer: no image, an ambiguous name, a region the
+					// account cannot use.
+					st.Message = err.Error()
+				default:
+					// Throttling, a timeout: the answer is unknown, and an unknown must
+					// not gate the region's offerings (the whole report fails and the
+					// status keeps the last verdict).
+					transient = errors.Join(transient, fmt.Errorf("%s/%s: %w", region, arch, err))
+					return
+				}
 				out = append(out, st)
-				mu.Unlock()
 			}()
 		}
 	}
 	wg.Wait()
+	if transient != nil {
+		return nil, transient
+	}
 	slices.SortFunc(out, func(a, b v1alpha1.ImageStatus) int {
 		if a.Region != b.Region {
 			return compare(a.Region, b.Region)

@@ -622,3 +622,88 @@ func TestManagedNetworkReusesAGatewayThatWasNotAttachedAndPicksAFreeCIDR(t *test
 		t.Fatalf("completing a network whose zone gets another CIDR: %v", err)
 	}
 }
+
+func noDefaultVPCEnv(t *testing.T) *env {
+	regions := []fake.RegionSpec{fake.DefaultRegion(testRegion, "use1")}
+	regions[0].NoDefaultVPC = true
+	return newEnv(t, envOptions{regions: regions})
+}
+
+func TestManagedNetworkSurvivesAHalfFinishedDelete(t *testing.T) {
+	// The deletion removed the route table and stopped at the VPC (something that is
+	// not ours is in it); the next Ensure needs a route table again, and EC2 must not
+	// answer with the deleted one (a replayed ClientToken would).
+	e := noDefaultVPCEnv(t)
+	ctx := context.Background()
+	sp := spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil)
+	ref, _, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := e.acct.EC2(testRegion).CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{GroupName: new("theirs"), Description: new("x"), VpcId: &ref.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.d.Delete(ctx, ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("got %v, want Retryable (a foreign group is in the VPC)", err)
+	}
+	_ = foreign
+	if _, _, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp); err != nil {
+		t.Errorf("Ensure after a half-finished deletion: %v", err)
+	}
+}
+
+func TestManagedNetworkReplacesAStaleDefaultRoute(t *testing.T) {
+	e := noDefaultVPCEnv(t)
+	ctx := context.Background()
+	sp := spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil)
+	e.acct.Fail(fake.Failure{Op: "CreateRoute", Code: "InternalError"})
+	if _, _, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp); err == nil {
+		t.Fatal("no error")
+	}
+	// The table exists without the route; a route to a gateway that no longer exists
+	// appears (a blackhole): the next call must point it at this network's gateway.
+	ec := e.acct.EC2(testRegion)
+	rts, _ := ec.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{})
+	var table string
+	for _, rt := range rts.RouteTables {
+		if len(rt.Associations) == 0 || !*rt.Associations[0].Main {
+			table = *rt.RouteTableId
+		}
+	}
+	e.acct.AddRoute(testRegion, table, "0.0.0.0/0", "igw-stale")
+	if _, _, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp); err != nil {
+		t.Fatal(err)
+	}
+	rts, _ = ec.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{RouteTableIds: nil})
+	igws, _ := ec.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{})
+	for _, rt := range rts.RouteTables {
+		if *rt.RouteTableId == table && (len(rt.Routes) != 1 || *rt.Routes[0].GatewayId != *igws.InternetGateways[0].InternetGatewayId) {
+			t.Errorf("routes %v, want 0.0.0.0/0 to %s", rt.Routes, *igws.InternetGateways[0].InternetGatewayId)
+		}
+	}
+	if e.acct.Calls("ReplaceRoute") != 1 {
+		t.Errorf("%d ReplaceRoute calls", e.acct.Calls("ReplaceRoute"))
+	}
+}
+
+func TestDeletingTheNetworkRemovesAGatewayThatWasNeverAttached(t *testing.T) {
+	e := noDefaultVPCEnv(t)
+	ctx := context.Background()
+	sp := spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil)
+	e.acct.Fail(fake.Failure{Op: "AttachInternetGateway", Code: "InternalError"})
+	if _, _, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp); err == nil {
+		t.Fatal("no error")
+	}
+	listed, err := e.d.List(ctx, nil, map[vendors.TagKey]string{vendors.TagCluster: testCluster})
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("%v, %v", listed, err)
+	}
+	if err := e.d.Delete(ctx, listed[0]); err != nil {
+		t.Fatal(err)
+	}
+	igws, _ := e.acct.EC2(testRegion).DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{})
+	if len(igws.InternetGateways) != 0 {
+		t.Errorf("%d gateways leaked", len(igws.InternetGateways))
+	}
+}

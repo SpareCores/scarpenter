@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"regexp"
@@ -104,8 +105,11 @@ type Options struct {
 	// ClusterDNS are the cluster DNS service IPs and ClusterDomain the cluster
 	// domain the kubelets of the nodes are configured with; with no ClusterDNS
 	// the Pods of the nodes use the node's resolver.
-	ClusterDNS    []string
-	ClusterDomain string
+	ClusterDNS []string
+	// TailnetPrefixes are the address ranges of the tailnet; empty means
+	// Tailscale's defaults.
+	TailnetPrefixes []string
+	ClusterDomain   string
 	// MaxLaunchAttempts is the number of vendor calls one Create may make.
 	MaxLaunchAttempts int
 	// QuotaRefreshInterval and QuotaLimitsRefreshInterval are the refresh
@@ -150,6 +154,7 @@ type Options struct {
 
 	vendorsRaw    string
 	clusterDNSRaw string
+	tailnetRaw    string
 }
 
 // AddFlags registers the flags. Their defaults come from the SCARPENTER_*
@@ -167,6 +172,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.SysextBaseURL, "sysext-base-url", env.WithDefaultString("SCARPENTER_SYSEXT_BASE_URL", ""), "Mirror of the Flatcar sysext-bakery releases. Empty means upstream.")
 	fs.StringVar(&o.FlatcarBaseURL, "flatcar-base-url", env.WithDefaultString("SCARPENTER_FLATCAR_BASE_URL", ""), "Mirror of the Flatcar release files. Empty means upstream.")
 	fs.DurationVar(&o.BootstrapTokenTTL, "bootstrap-token-ttl", env.WithDefaultDuration("SCARPENTER_BOOTSTRAP_TOKEN_TTL", DefaultBootstrapTokenTTL), "Lifetime of a node's bootstrap token; at least 20m, because core gives a NodeClaim 15 minutes to register.")
+	fs.StringVar(&o.tailnetRaw, "tailnet-prefixes", env.WithDefaultString("SCARPENTER_TAILNET_PREFIXES", ""), "Comma-separated CIDRs of the tailnet (default 100.64.0.0/10 and fd7a:115c:a1e0::/48): with the tailscale template a serving certificate may name a node address only inside them (set it for a Headscale with other prefixes).")
 	fs.StringVar(&o.clusterDNSRaw, "cluster-dns", env.WithDefaultString("SCARPENTER_CLUSTER_DNS", ""), "Comma-separated IPs of the cluster DNS service, for the kubelet of the nodes (clusterDNS). Empty leaves it unset: Pods then use the node's resolver.")
 	fs.StringVar(&o.ClusterDomain, "cluster-domain", env.WithDefaultString("SCARPENTER_CLUSTER_DOMAIN", DefaultClusterDomain), "Cluster domain of the kubelet of the nodes (clusterDomain).")
 	fs.IntVar(&o.MaxLaunchAttempts, "max-launch-attempts", env.WithDefaultInt("SCARPENTER_MAX_LAUNCH_ATTEMPTS", DefaultMaxLaunchAttempts), "Vendor calls one NodeClaim creation may make; candidates skipped for lack of quota headroom do not count.")
@@ -199,6 +205,7 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 	}
 	o.Vendors = splitList(o.vendorsRaw)
 	o.ClusterDNS = splitList(o.clusterDNSRaw)
+	o.TailnetPrefixes = splitList(o.tailnetRaw)
 	if err := o.Validate(); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
@@ -249,6 +256,11 @@ func (o *Options) Validate() error {
 	for _, ip := range o.ClusterDNS {
 		if net.ParseIP(ip) == nil {
 			errs = append(errs, fmt.Errorf("--cluster-dns: %q is not an IP address", ip))
+		}
+	}
+	for _, p := range o.TailnetPrefixes {
+		if _, err := netip.ParsePrefix(p); err != nil {
+			errs = append(errs, fmt.Errorf("--tailnet-prefixes: %q is not a CIDR", p))
 		}
 	}
 	if o.ClusterDomain == "" {

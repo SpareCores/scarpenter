@@ -105,6 +105,54 @@ real values into the repository; reference the secrets.
   fail the mount (plan 07 review N1; the lane's qemu disks exist at once and cannot
   show it).
 
+## Carried over from the plan 08 review
+
+Live verification list (everything in plan 08 ran against the in-memory fake only):
+
+1. Flatcar AMI names `Flatcar-<channel>-<version>-hvm` / `-arm64-hvm`, owner
+   `075585003325`, stable and lts, exactly one match per region and architecture;
+   `ImagesPartial` and the gated region in an account whose scope includes
+   `ap-northeast-3`.
+2. Spot `RunInstances` under the documented policy, with the tagged spot request;
+   every IAM condition: `RunInstances` used resources, `CreateTags` with
+   `ec2:CreateAction`, `CreateSecurityGroup` on `vpc/*`, the managed-network
+   statements (incl. `CreateRouteTable` on `vpc/*` and `ReplaceRoute`), the KMS
+   statements with a customer key.
+3. `DeleteInstance` refuses an instance without the cluster tag under broad
+   credentials.
+4. Web identity without `AWS_REGION` (the home region is the SDK default).
+5. Real `RunInstances` details: encrypted root from the unencrypted Flatcar snapshot,
+   KMS alias and ARN; ENA Express with and without UDP; IPv6 count; dedicated
+   tenancy; cluster, spread and partition groups and the real code of the spread
+   limit; IMDS hop limit 1 in practice; `vol*` NVMe serial matching; the
+   instance-store by-id pattern and count.
+6. `IdempotentParameterMismatch` with changed user-data; the `client-token` filter on
+   a terminated instance.
+7. Serving CSRs approved for `tailscale` and `direct` nodes; a forged IP denied under
+   `direct`; a VPC IP the Node claims denied under `tailscale`.
+8. A complete `PriceDelta` from `/storage_prices`; the IPv4 constant against the bill.
+9. Quota: `GetServiceQuota` for all 18 codes in a fresh region; `stopping` and
+   `shutting-down` counting; unused ODCR counting; a spot request `active` after
+   termination; the API volume of the 2-minute full `DescribeInstances` and of
+   `ReportImages`.
+10. The `Unsupported` / `InvalidParameterCombination` message for a type missing in a
+    zone.
+11. A region without a default VPC: create, delete, recreate within 24 h; a gateway
+    attach failure; a missing or stale default route; a half-finished delete followed
+    by a new Ensure.
+12. User-data size with an EKS-size CA bundle (16 KiB).
+13. Filtered `DescribeInstances` pages that are short or empty.
+14. `isolation: run` without a run key: nodes of a NodeClass reach each other privately
+    with the `direct` template; a run key isolates.
+15. Slow EBS attach versus the volume unit's device timeout (240 s): time from boot to
+    the NVMe device of a data volume and of instance store, under load and with large
+    volumes.
+
+Sweeper: tags `scarpenter.sparecores.com/cluster` and `resource-kind`; tagged spot
+requests; the managed VPC layout (`10.240.0.0/16`, name
+`scarpenter-<cluster>-subnets-<region>`, children `-<zone>`, `-igw`, `-rt`); unattached
+tagged gateways. Run one region without a default VPC.
+
 ## Gates
 
 CONVENTIONS gates 1–4; `actionlint` and `shellcheck` clean on the workflows

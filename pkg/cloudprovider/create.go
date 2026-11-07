@@ -509,7 +509,7 @@ type imageError struct{ err error }
 func (e *imageError) Error() string { return e.err.Error() }
 func (e *imageError) Unwrap() error { return e.err }
 
-type imageKey struct{ vendor, region, arch, channel, version string }
+type imageKey struct{ vendor, region, arch, channel, version, owner string }
 
 type cachedImage struct {
 	image vendors.Image
@@ -521,7 +521,9 @@ type cachedImage struct {
 func (c *CloudProvider) image(
 	ctx context.Context, drv vendors.Driver, nc *v1alpha1.SCNodeClass, vendor, region, arch string,
 ) (*vendors.Image, error) {
-	key := imageKey{vendor, region, arch, string(nc.Spec.Flatcar.Channel), nc.Spec.Flatcar.Version}
+	key := imageKey{
+		vendor, region, arch, string(nc.Spec.Flatcar.Channel), nc.Spec.Flatcar.Version, nc.Spec.Vendors.ImageOwner(vendor),
+	}
 	now := c.opts.Clock.Now()
 	c.imageMu.Lock()
 	if ci, ok := c.images[key]; ok && now.Before(ci.until) {
@@ -531,7 +533,7 @@ func (c *CloudProvider) image(
 	}
 	c.imageMu.Unlock()
 	img, err := drv.ResolveImage(ctx, vendors.ImageRequest{
-		Region: region, Arch: arch, Channel: key.channel, Version: key.version,
+		Region: region, Arch: arch, Channel: key.channel, Version: key.version, Owner: key.owner,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("resolving the image of %s in %s (%s): %w", vendor, region, arch, err)

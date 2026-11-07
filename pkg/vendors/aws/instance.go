@@ -498,8 +498,10 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 		}
 		return classify(err, errContext{})
 	}
+	seen := false
 	for _, r := range out.Reservations {
 		for _, i := range r.Instances {
+			seen = true
 			inst := toInstance(ref.Region(), i)
 			if inst.State == vendors.StateTerminated {
 				return nil
@@ -509,6 +511,10 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 					ref, d.cfg.ClusterName)
 			}
 		}
+	}
+	if !seen {
+		// Nothing came back to check the ownership of: there is nothing to terminate.
+		return nil
 	}
 	if _, err := cl.EC2.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{id}}); err != nil {
 		if isCode(err, "InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed") {

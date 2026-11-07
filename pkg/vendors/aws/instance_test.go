@@ -574,3 +574,26 @@ func TestDeleteInstanceRefusesAnInstanceThatIsNotOurs(t *testing.T) {
 		t.Errorf("a terminated foreign instance: %v", err)
 	}
 }
+
+// emptyDescribe answers every DescribeInstances with nothing and no error.
+type emptyDescribe struct{ aws.EC2API }
+
+func (emptyDescribe) DescribeInstances(context.Context, *ec2.DescribeInstancesInput, ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
+	return &ec2.DescribeInstancesOutput{}, nil
+}
+
+func TestDeleteInstanceTerminatesNothingItCouldNotCheck(t *testing.T) {
+	acct := fake.New()
+	d := aws.New(aws.WithClientFactory(func(_ context.Context, region string) (aws.Clients, error) {
+		return aws.Clients{EC2: emptyDescribe{acct.EC2(region)}, Quotas: acct.Quotas(region)}, nil
+	}))
+	if err := d.Init(context.Background(), vendors.Config{ClusterName: testCluster}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DeleteInstance(context.Background(), "us-east-1/i-00000000000000001"); err != nil {
+		t.Errorf("got %v", err)
+	}
+	if n := acct.Calls("TerminateInstances"); n != 0 {
+		t.Errorf("%d terminations of an instance whose ownership was not seen", n)
+	}
+}

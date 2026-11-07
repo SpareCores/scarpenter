@@ -141,7 +141,9 @@ region ID or an alias; only active regions match.
 `Price` is the hourly USD price of Keeper's `/server_prices` (or
 `/table/server_prices` with a Keeper API key) plus the price delta of the
 driver's default settings (root disk, public IPv4 where billed; zero until the
-drivers exist). Only active, hourly, USD, Linux rows count. With
+drivers exist). On AWS the EBS part comes from Keeper's storage prices, the IPv4
+part is a constant (0.005 USD per hour, `SCARPENTER_AWS_IPV4_PRICE`): an
+approximation, Keeper has no IPv4 price. Only active, hourly, USD, Linux rows count. With
 `pricing.allowIncomplete: false` offerings whose delta is incomplete are
 dropped. When several rows give the same zone and capacity type the lowest
 wins.

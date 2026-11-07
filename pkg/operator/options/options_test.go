@@ -155,6 +155,7 @@ func TestValidation(t *testing.T) {
 		{"negative token ttl", append([]string{"--bootstrap-token-ttl=-1m"}, required...), "--bootstrap-token-ttl must be positive"},
 		{"token ttl shorter than core's registration timeout", append([]string{"--bootstrap-token-ttl=10m"}, required...), "--bootstrap-token-ttl must be at least 20m0s"},
 		{"cluster dns not an ip", append([]string{"--cluster-dns=10.96.0.10,dns.example.com"}, required...), "--cluster-dns"},
+		{"tailnet prefix not a cidr", append([]string{"--tailnet-prefixes=100.64.0.0/10,nope"}, required...), "--tailnet-prefixes"},
 		{"empty cluster domain", append([]string{"--cluster-domain="}, required...), "--cluster-domain must not be empty"},
 		{"zero gc interval", append([]string{"--gc-interval=0s"}, required...), "--gc-interval must be positive"},
 		{"zero full sweep", append([]string{"--resource-full-sweep-every=0"}, required...), "--resource-full-sweep-every must be at least 1"},

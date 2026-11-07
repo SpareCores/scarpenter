@@ -9,6 +9,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"sync"
 	"time"
@@ -235,8 +236,12 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	if err := bootstraptoken.New(o.GetAPIReader(), c.Tokens).Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the bootstrap token controller: %w", err)
 	}
+	var tailnet []netip.Prefix
+	for _, p := range opts.TailnetPrefixes {
+		tailnet = append(tailnet, netip.MustParsePrefix(p)) // validated with the options
+	}
 	approver := csr.New(csr.Options{
-		Client: o.GetClient(), Recorder: o.EventRecorder, Clock: o.Clock, Registry: c.Registry,
+		Client: o.GetClient(), Recorder: o.EventRecorder, Clock: o.Clock, Registry: c.Registry, TailnetPrefixes: tailnet,
 	})
 	if err := approver.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the serving certificate controller: %w", err)

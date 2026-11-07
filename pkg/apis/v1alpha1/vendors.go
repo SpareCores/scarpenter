@@ -167,6 +167,24 @@ type RegionLister interface {
 	GetRegions() []string
 }
 
+// ImageOwnerGetter is implemented by the vendor blocks that name the account that
+// owns the boot images (AWS imageOwner); empty means the vendor's official owner.
+// +kubebuilder:object:generate=false
+type ImageOwnerGetter interface {
+	GetImageOwner() string
+}
+
+// ImageOwner returns the image owner the vendor's block names ("" for the
+// vendor's official one).
+func (v VendorBlocks) ImageOwner(vendor string) string {
+	if block, ok := v.Get(vendor); ok {
+		if g, ok := block.(ImageOwnerGetter); ok {
+			return g.GetImageOwner()
+		}
+	}
+	return ""
+}
+
 // Regions returns the region allow-list of the vendor's block (empty: every
 // region), and whether the vendor has a block.
 func (v VendorBlocks) Regions(vendor string) ([]string, bool) {

@@ -8,8 +8,6 @@ package aws
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
@@ -338,13 +336,13 @@ func (d *Driver) completeNetwork(
 		}
 	}
 	if rt == nil {
-		// The token names this VPC: the name of a managed network is deterministic,
-		// so a token of the name alone would be replayed with another VpcId after
-		// the network was deleted and recreated, which EC2 refuses.
-		sum := sha256.Sum256([]byte(spec.Name + "/route-table/" + vpcID))
+		// No ClientToken: the engine serialises the creation, and a table that a timed-out
+		// call created is found (by marker) and used or deleted with the network. A token
+		// would be replayed by EC2 for a table that was deleted since.
 		out, err := cl.EC2.CreateRouteTable(ctx, &ec2.CreateRouteTableInput{
-			VpcId: aws.String(vpcID), ClientToken: aws.String(hex.EncodeToString(sum[:16])),
-			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeRouteTable, Tags: tagsFor("rt")}},
+			VpcId: aws.String(vpcID),
+			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeRouteTable,
+				Tags: tagsFor("rt")}},
 		})
 		if err != nil {
 			return classify(err, errContext{})
@@ -352,15 +350,10 @@ func (d *Driver) completeNetwork(
 		rt = out.RouteTable
 	}
 	// The default route is checked on every call: a creation that stopped after the
-	// table would leave subnets without egress.
-	if !slices.ContainsFunc(rt.Routes, func(r ec2types.Route) bool {
-		return deref(r.DestinationCidrBlock) == "0.0.0.0/0" && deref(r.GatewayId) == gw
-	}) {
-		if _, err := cl.EC2.CreateRoute(ctx, &ec2.CreateRouteInput{
-			RouteTableId: rt.RouteTableId, DestinationCidrBlock: aws.String("0.0.0.0/0"), GatewayId: aws.String(gw),
-		}); err != nil && !isCode(err, "RouteAlreadyExists") {
-			return classify(err, errContext{})
-		}
+	// table would leave subnets without egress, and a route to a gateway that is not
+	// this network's (a stale one) is a blackhole that is replaced.
+	if err := d.ensureDefaultRoute(ctx, cl, rt, gw); err != nil {
+		return err
 	}
 	for _, id := range subnetIDs {
 		if associated[id] {
@@ -505,6 +498,9 @@ func (d *Driver) deleteNetwork(ctx context.Context, cl Clients, ref vendors.Reso
 	if err := d.deleteGateways(ctx, cl, ref.ID, cluster); err != nil {
 		return err
 	}
+	if err := d.deleteStrayGateways(ctx, cl, ref); err != nil {
+		return err
+	}
 	if _, err := cl.EC2.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(ref.ID)}); err != nil && !isCode(err,
 		"InvalidVpcID.NotFound") {
 		return classify(err, errContext{})
@@ -530,10 +526,37 @@ func (d *Driver) deleteGateways(ctx context.Context, cl Clients, vpcID, cluster 
 		}); err != nil && !isCode(err, "Gateway.NotAttached") {
 			return classify(err, errContext{})
 		}
-		if _, err := cl.EC2.DeleteInternetGateway(ctx,
-			&ec2.DeleteInternetGatewayInput{InternetGatewayId: g.InternetGatewayId}); err != nil &&
-			!isCode(err, "InvalidInternetGatewayID.NotFound") {
-			return classify(err, errContext{})
+		if err := d.deleteGateway(ctx, cl, g.InternetGatewayId); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteGateway deletes one internet gateway; one that is gone is success.
+func (d *Driver) deleteGateway(ctx context.Context, cl Clients, id *string) error {
+	if _, err := cl.EC2.DeleteInternetGateway(ctx, &ec2.DeleteInternetGatewayInput{InternetGatewayId: id}); err != nil &&
+		!isCode(err, "InvalidInternetGatewayID.NotFound") {
+		return classify(err, errContext{})
+	}
+	return nil
+}
+
+// deleteStrayGateways deletes the unattached gateways of the network (a failed attach
+// leaves one): found by marker and the network's gateway name.
+func (d *Driver) deleteStrayGateways(ctx context.Context, cl Clients, ref vendors.ResourceRef) error {
+	out, err := cl.EC2.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{
+		Filters: append(d.tagFilters(ref.Tags), ec2types.Filter{Name: aws.String("tag:Name"),
+			Values: []string{networkName(ref.Name, "igw")}}),
+	})
+	if err != nil {
+		return classify(err, errContext{})
+	}
+	for _, g := range out.InternetGateways {
+		if len(g.Attachments) == 0 && owned(d.markerTags(g.Tags), ref.Tags[vendors.TagCluster]) {
+			if err := d.deleteGateway(ctx, cl, g.InternetGatewayId); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -547,4 +570,27 @@ func (d *Driver) markedFor(tags []ec2types.Tag, ref vendors.ResourceRef) bool {
 		return false
 	}
 	return owned(d.markerTags(tags), cluster)
+}
+
+// ensureDefaultRoute makes the route table send 0.0.0.0/0 to the gateway.
+func (d *Driver) ensureDefaultRoute(ctx context.Context, cl Clients, rt *ec2types.RouteTable, gw string) error {
+	const dest = "0.0.0.0/0"
+	existing := slices.IndexFunc(rt.Routes, func(r ec2types.Route) bool { return deref(r.DestinationCidrBlock) == dest })
+	switch {
+	case existing >= 0 && deref(rt.Routes[existing].GatewayId) == gw:
+		return nil
+	case existing >= 0:
+		if _, err := cl.EC2.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{
+			RouteTableId: rt.RouteTableId, DestinationCidrBlock: aws.String(dest), GatewayId: aws.String(gw),
+		}); err != nil {
+			return classify(err, errContext{})
+		}
+	default:
+		if _, err := cl.EC2.CreateRoute(ctx, &ec2.CreateRouteInput{
+			RouteTableId: rt.RouteTableId, DestinationCidrBlock: aws.String(dest), GatewayId: aws.String(gw),
+		}); err != nil && !isCode(err, "RouteAlreadyExists") {
+			return classify(err, errContext{})
+		}
+	}
+	return nil
 }

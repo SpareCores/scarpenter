@@ -251,6 +251,12 @@ func (t *timedEC2) DescribeCapacityReservations(ctx context.Context, in *ec2.Des
 	return t.api.DescribeCapacityReservations(ctx, in, opts...)
 }
 
+func (t *timedEC2) ReplaceRoute(ctx context.Context, in *ec2.ReplaceRouteInput, opts ...func(*ec2.Options)) (*ec2.ReplaceRouteOutput, error) {
+	ctx, cancel := t.ctx(ctx, t.call)
+	defer cancel()
+	return t.api.ReplaceRoute(ctx, in, opts...)
+}
+
 type timedQuotas struct {
 	api  ServiceQuotasAPI
 	call time.Duration

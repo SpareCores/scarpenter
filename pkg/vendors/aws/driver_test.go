@@ -19,7 +19,6 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	opoptions "github.com/SpareCores/scarpenter/pkg/operator/options"
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -235,25 +234,39 @@ func TestKeeperPrices(t *testing.T) {
 }
 
 func TestIPv4PriceIsConfigurable(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("[]")) }))
-	defer srv.Close()
-	t.Setenv(aws.IPv4PriceEnv, "0.01")
-	acct := fake.New()
-	d := aws.New(aws.WithClientFactory(func(_ context.Context, region string) (aws.Clients, error) {
-		return aws.Clients{EC2: acct.EC2(region), Quotas: acct.Quotas(region)}, nil
-	}))
-	if err := d.Init(context.Background(), vendors.Config{ClusterName: testCluster, KeeperURL: srv.URL, Log: logr.Discard()}); err != nil {
+	raw, err := os.ReadFile("testdata/keeper_storage_prices.json")
+	if err != nil {
 		t.Fatal(err)
 	}
-	// No storage price: incomplete, but the IPv4 part is what the variable says.
-	net := common.Networking{PublicIPv4: new(true)}
-	s := resolveSettings(t, d, `{"storage":{"root":{"volumeSize":"1Gi"}}}`, net, nil, options.Selection{})
-	if got, _ := d.PriceDelta(s, vendors.Offering{Region: "us-east-1"}); math.Abs(got-0.01) > 1e-9 {
-		t.Errorf("IPv4 part %v, want 0.01", got)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(raw) }))
+	defer srv.Close()
+	acct := fake.New()
+	build := func() *aws.Driver {
+		return aws.New(aws.WithClientFactory(func(_ context.Context, region string) (aws.Clients, error) {
+			return aws.Clients{EC2: acct.EC2(region), Quotas: acct.Quotas(region)}, nil
+		}))
 	}
-	t.Setenv(aws.IPv4PriceEnv, "free")
-	if err := aws.New().Init(context.Background(), vendors.Config{KeeperURL: srv.URL, Log: logr.Discard()}); err == nil {
-		t.Error("an unparsable price was accepted")
+	cfg := vendors.Config{ClusterName: testCluster, KeeperURL: srv.URL, Log: logr.Discard()}
+	storage := 64 * 0.08 / 730
+	for env, want := range map[string]float64{"": aws.DefaultIPv4PricePerHour, "0.01": 0.01, "0": 0} {
+		t.Setenv(aws.IPv4PriceEnv, env)
+		d := build()
+		if err := d.Init(context.Background(), cfg); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.LoadPrices(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		got, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "us-east-1"})
+		if !complete || math.Abs(got-(storage+want)) > 1e-9 {
+			t.Errorf("%q: PriceDelta = %v, %v; want %v complete (0 is free, not unknown)", env, got, complete, storage+want)
+		}
+	}
+	for _, bad := range []string{"free", "NaN", "Inf", "-Inf", "-0.5"} {
+		t.Setenv(aws.IPv4PriceEnv, bad)
+		if err := build().Init(context.Background(), cfg); err == nil {
+			t.Errorf("%q was accepted as a price", bad)
+		}
 	}
 }
 

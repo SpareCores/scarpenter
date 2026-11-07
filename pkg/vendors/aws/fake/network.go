@@ -371,10 +371,10 @@ func (e *EC2) CreateRouteTable(ctx context.Context, in *ec2.CreateRouteTableInpu
 			if prev.vpc != *in.VpcId {
 				return nil, apiError("IdempotentParameterMismatch", "Client token "+tok+" was used with different parameters")
 			}
-			if t, alive := r.rts[prev.id]; alive {
-				return &ec2.CreateRouteTableOutput{RouteTable: &types.RouteTable{
-					RouteTableId: new(t.id), VpcId: new(t.vpc), Tags: tagList(t.tags)}}, nil
-			}
+			// EC2 replays the answer of the first call, also for a table that was deleted
+			// since.
+			return &ec2.CreateRouteTableOutput{RouteTable: &types.RouteTable{
+				RouteTableId: new(prev.id), VpcId: new(prev.vpc), Tags: tagList(prev.tags)}}, nil
 		}
 	}
 	t := &routeTable{id: e.a.id("rtb"), vpc: *in.VpcId, subnets: map[string]string{},
@@ -409,6 +409,26 @@ func (e *EC2) CreateRoute(ctx context.Context, in *ec2.CreateRouteInput, _ ...fu
 	}
 	t.routes = append(t.routes, route)
 	return &ec2.CreateRouteOutput{Return: new(true)}, nil
+}
+
+// ReplaceRoute implements EC2API: the destination must have a route.
+func (e *EC2) ReplaceRoute(ctx context.Context, in *ec2.ReplaceRouteInput, _ ...func(*ec2.Options)) (*ec2.ReplaceRouteOutput, error) {
+	r, err := e.begin(ctx, "ReplaceRoute", in)
+	if err != nil {
+		return nil, err
+	}
+	defer e.end()
+	t := r.rts[deref(in.RouteTableId)]
+	if t == nil {
+		return nil, apiError("InvalidRouteTableID.NotFound", "the route table does not exist")
+	}
+	for i, route := range t.routes {
+		if dest, _, _ := strings.Cut(route, "->"); dest == deref(in.DestinationCidrBlock) {
+			t.routes[i] = dest + "->" + deref(in.GatewayId)
+			return &ec2.ReplaceRouteOutput{}, nil
+		}
+	}
+	return nil, apiError("InvalidRoute.NotFound", "no route with destination-cidr-block "+deref(in.DestinationCidrBlock))
 }
 
 // AssociateRouteTable implements EC2API.
@@ -804,4 +824,12 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// AddRoute adds a route to a route table, for tests that need a stale one.
+func (a *Account) AddRoute(regionName, tableID, destination, gateway string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	t := a.regions[regionName].rts[tableID]
+	t.routes = append(t.routes, destination+"->"+gateway)
 }

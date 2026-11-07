@@ -26,9 +26,10 @@ const DefaultIPv4PricePerHour = 0.005
 const hoursPerMonth = 730
 
 // PriceSource answers the prices of what an offering costs on top of the
-// instance: EBS volumes and the public IPv4 address (00a section 10). Prices
-// come from Keeper's storage and IPv4 tables; a price the source does not know
-// makes the offering's price incomplete instead of guessing.
+// instance: EBS volumes and the public IPv4 address (00a section 10). The EBS prices
+// come from Keeper's storage prices, the IPv4 price is a constant (Keeper has none);
+// a price the source does not know makes the offering's price incomplete instead of
+// guessing.
 type PriceSource interface {
 	// StoragePrice is the price of a GiB of the EBS volume type per month in USD.
 	StoragePrice(region, volumeType string) (usdPerGiBMonth float64, ok bool)
@@ -55,7 +56,7 @@ func (p StaticPrices) IPv4Price(region string) (float64, bool) {
 	return v, ok
 }
 
-// keeperPrices reads the EBS and IPv4 prices from Keeper's table endpoints in
+// keeperPrices reads the EBS prices from Keeper's storage price endpoint in
 // the background. Until the first successful load (and for anything the tables
 // lack) the prices are unknown.
 type keeperPrices struct {
@@ -91,7 +92,7 @@ func (k *keeperPrices) StoragePrice(region, volumeType string) (float64, bool) {
 // IPv4Price implements PriceSource: Keeper has no IPv4 price (its only IPv4 field
 // is the number of addresses a server includes), so this is the driver's
 // constant, DefaultIPv4PricePerHour unless configured.
-func (k *keeperPrices) IPv4Price(string) (float64, bool) { return k.ipv4, k.ipv4 > 0 }
+func (k *keeperPrices) IPv4Price(string) (float64, bool) { return k.ipv4, true }
 
 // kick starts a load in the background when none ran lately: loaded prices are
 // trusted for priceRefresh, a failed load is tried again after a minute.

@@ -277,3 +277,12 @@ func (s *Settings) GetRegions() []string {
 	}
 	return s.Regions
 }
+
+// GetImageOwner returns the account that owns the Flatcar images ("" means the
+// official Flatcar account).
+func (s *Settings) GetImageOwner() string {
+	if s == nil {
+		return ""
+	}
+	return s.ImageOwner
+}

@@ -24,7 +24,7 @@ import (
 // KMS key, and PassRole.
 var withoutClusterTag = map[string]bool{
 	"RunInstancesUsedResources": true, "CreateSecurityGroupsInAVpc": true,
-	"OptionalPassInstanceProfileRole": true, "OptionalCustomerKmsKey": true,
+	"OptionalPassInstanceProfileRole": true, "OptionalCustomerKmsKey": true, "OptionalCustomerKmsKeyGrant": true,
 }
 
 type policyStatement struct {

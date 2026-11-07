@@ -10,6 +10,7 @@ package cloudprovider_test
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -30,6 +31,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/facts"
+	fakedriver "github.com/SpareCores/scarpenter/pkg/vendors/fake"
 )
 
 // offeringOf is an offering of the catalog with its price, as the scheduler
@@ -708,5 +710,40 @@ func TestCreateWithACatalogThatIsNotReadyIsRetriedNotRefused(t *testing.T) {
 	}
 	if _, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"})); err != nil {
 		t.Errorf("Create after the catalog was refreshed: %v", err)
+	}
+}
+
+// ownerDriver records the image owner each ResolveImage asks for.
+type ownerDriver struct {
+	*fakedriver.Driver
+	mu     sync.Mutex
+	owners []string
+}
+
+func (d *ownerDriver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
+	d.mu.Lock()
+	d.owners = append(d.owners, req.Owner)
+	d.mu.Unlock()
+	return d.Driver.ResolveImage(ctx, req)
+}
+
+// aws.imageOwner must reach the launch: the status reports the AMI of the override,
+// and the instance must boot it.
+func TestCreateResolvesTheImageOfTheNodeClassesOwner(t *testing.T) {
+	var drv *ownerDriver
+	e := newEnv(t, envOptions{
+		transform: func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.AWS.ImageOwner = "123456789012" },
+		wrap: func(d *fakedriver.Driver) vendors.Driver {
+			drv = &ownerDriver{Driver: d}
+			return drv
+		},
+	})
+	if _, err := e.cp.Create(t.Context(), e.newClaim("claim-owner", []string{"aws.m7i.large"})); err != nil {
+		t.Fatal(err)
+	}
+	drv.mu.Lock()
+	defer drv.mu.Unlock()
+	if len(drv.owners) == 0 || drv.owners[0] != "123456789012" {
+		t.Errorf("ResolveImage owners = %v, want the NodeClass's 123456789012", drv.owners)
 	}
 }

@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -72,6 +73,12 @@ const (
 	retryAfter   = 5 * time.Second
 )
 
+// DefaultTailnetPrefixes are the ranges Tailscale (and Headscale by default)
+// assign to nodes.
+func DefaultTailnetPrefixes() []netip.Prefix {
+	return []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("fd7a:115c:a1e0::/48")}
+}
+
 // Options configures the controller.
 type Options struct {
 	Client   client.Client
@@ -79,6 +86,11 @@ type Options struct {
 	Clock    clock.Clock
 	// Grace defaults to DefaultGrace.
 	Grace time.Duration
+	// TailnetPrefixes are the address ranges of the tailnet (Tailscale's
+	// 100.64.0.0/10 and fd7a:115c:a1e0::/48 when empty; a Headscale with other
+	// prefixes sets them): with the tailscale template the Node's addresses count
+	// only inside them.
+	TailnetPrefixes []netip.Prefix
 	// Registry gives access to the drivers, to check the IP addresses of a
 	// request against the addresses of the NodeClaim's instance. Without it (or
 	// for a driver that reports no addresses for the instance) the addresses the
@@ -95,6 +107,9 @@ type Controller struct {
 func New(opts Options) *Controller {
 	if opts.Clock == nil {
 		opts.Clock = clock.RealClock{}
+	}
+	if len(opts.TailnetPrefixes) == 0 {
+		opts.TailnetPrefixes = DefaultTailnetPrefixes()
 	}
 	if opts.Grace <= 0 {
 		opts.Grace = DefaultGrace
@@ -272,73 +287,121 @@ func checkRequest(r *certv1.CertificateSigningRequest, req *x509.CertificateRequ
 	return ""
 }
 
-// vendorAddresses says whether the node's IP addresses are the vendor's: with the
-// direct network template the kubelet's node IP is an address of the instance. With
-// tailscale it is the tailnet address (100.64.0.0/10), which the vendor does not
-// know and cannot vouch for (verifying it needs the Tailscale API); a custom
-// template says nothing. The rule of the instance's addresses applies to direct
-// only.
-func (c *Controller) vendorAddresses(ctx context.Context, claim *karpv1.NodeClaim) (bool, error) {
+// templateOf returns the network template of the NodeClaim's NodeClass; "" when the
+// class cannot be found.
+func (c *Controller) templateOf(ctx context.Context, claim *karpv1.NodeClaim) (v1alpha1.NetworkTemplateName, error) {
 	ref := claim.Spec.NodeClassRef
 	if ref == nil {
-		return false, nil
+		return "", nil
 	}
 	nc := &v1alpha1.SCNodeClass{}
 	if err := c.opts.Client.Get(ctx, types.NamespacedName{Name: ref.Name}, nc); err != nil {
 		if apierrors.IsNotFound(err) {
-			return false, nil
+			return "", nil
 		}
-		return false, fmt.Errorf("reading the SCNodeClass %s: %w", ref.Name, err)
+		return "", fmt.Errorf("reading the SCNodeClass %s: %w", ref.Name, err)
 	}
-	return nc.Spec.Network.Template == v1alpha1.NetworkTemplateDirect, nil
+	return nc.Spec.Network.Template, nil
 }
 
-// allowedIPs returns the IP addresses a serving certificate of the node may
-// name. With the direct template, where the driver reports the addresses of the
-// NodeClaim's instance they are the only ones: the Node's status is written by the
-// node, which a leaked bootstrap token does not bind to the NodeClaim's machine.
-// Otherwise (the tailscale and custom templates, a driver without addresses, a
-// NodeClaim without an instance reference) the Node's own addresses stand, as
-// before. An instance that cannot be read yet or is gone allows none, so a request
-// for an address waits and, after the grace period, is denied.
-func (c *Controller) allowedIPs(
-	ctx context.Context, claim *karpv1.NodeClaim, node *corev1.Node) (map[string]bool, error,
+// instanceAddresses asks the driver for the addresses of the NodeClaim's
+// instance. known is false when the driver cannot say (no driver, no instance
+// reference, no addresses reported); an instance that does not
+// exist or is terminated is known, with no addresses.
+func (c *Controller) instanceAddresses(
+	ctx context.Context, claim *karpv1.NodeClaim) (addrs []string, known bool, err error,
 ) {
-	direct := false
-	if c.opts.Registry != nil {
-		var err error
-		if direct, err = c.vendorAddresses(ctx, claim); err != nil {
-			return nil, err
-		}
+	vendor, _, _, perr := scope.ParseProviderID(claim.Status.ProviderID)
+	if perr != nil {
+		return nil, false, nil
 	}
-	if direct {
-		if vendor, _, _, err := scope.ParseProviderID(claim.Status.ProviderID); err == nil {
-			if drv, ok := c.opts.Registry.Driver(vendor); ok {
-				if ref := claim.Annotations[v1alpha1.AnnotationInstanceRef]; ref != "" {
-					inst, err := drv.GetInstance(ctx, vendors.InstanceRef(ref))
-					switch {
-					case err == nil && inst.Gone():
-						return map[string]bool{}, nil
-					case err == nil && len(inst.Addresses) > 0:
-						return ipSet(inst.Addresses), nil
-					case err == nil:
-						// The driver does not report addresses.
-					case vendors.IsClass(err, vendors.NotFound):
-						return map[string]bool{}, nil
-					default:
-						return nil, fmt.Errorf("reading the instance %s of the NodeClaim %s: %w", ref, claim.Name, err)
-					}
-				}
-			}
-		}
+	drv, ok := c.opts.Registry.Driver(vendor)
+	ref := claim.Annotations[v1alpha1.AnnotationInstanceRef]
+	if !ok || ref == "" {
+		return nil, false, nil
 	}
+	inst, err := drv.GetInstance(ctx, vendors.InstanceRef(ref))
+	switch {
+	case err == nil && inst.Gone():
+		return nil, true, nil
+	case err == nil && len(inst.Addresses) > 0:
+		return inst.Addresses, true, nil
+	case err == nil:
+		return nil, false, nil
+	case vendors.IsClass(err, vendors.NotFound):
+		return nil, true, nil
+	}
+	return nil, false, fmt.Errorf("reading the instance %s of the NodeClaim %s: %w", ref, claim.Name, err)
+}
+
+// nodeIPs are the IP addresses the Node reports.
+func nodeIPs(node *corev1.Node) []string {
 	var addrs []string
 	for _, a := range node.Status.Addresses {
 		if a.Type == corev1.NodeInternalIP || a.Type == corev1.NodeExternalIP {
 			addrs = append(addrs, a.Address)
 		}
 	}
-	return ipSet(addrs), nil
+	return addrs
+}
+
+// allowedIPs returns the IP addresses a serving certificate of the node may
+// name. The Node's status is written by the node, which a leaked bootstrap token
+// does not bind to the NodeClaim's machine, so the Node's word is limited:
+//   - direct template: where the driver reports the addresses of the NodeClaim's
+//     instance, those are the only ones;
+//   - tailscale template: the kubelet's node IP is the tailnet address, which the
+//     vendor cannot vouch for (that needs the Tailscale API), so the instance's
+//     addresses plus the Node's addresses inside the tailnet prefixes
+//     (--tailnet-prefixes) are allowed: a leaked token cannot get a certificate
+//     for a VPC or any other non-tailnet address;
+//   - custom template, a class that cannot be found, no registry, or a driver that
+//     reports no addresses: the Node's own addresses stand.
+//
+// An instance that cannot be read yet or is gone allows no instance address, so a
+// request for one waits and, after the grace period, is denied.
+func (c *Controller) allowedIPs(
+	ctx context.Context, claim *karpv1.NodeClaim, node *corev1.Node) (map[string]bool, error,
+) {
+	if c.opts.Registry == nil {
+		return ipSet(nodeIPs(node)), nil
+	}
+	tmpl, err := c.templateOf(ctx, claim)
+	if err != nil {
+		return nil, err
+	}
+	switch tmpl {
+	case v1alpha1.NetworkTemplateDirect:
+		addrs, known, err := c.instanceAddresses(ctx, claim)
+		if err != nil {
+			return nil, err
+		}
+		if known {
+			return ipSet(addrs), nil
+		}
+	case v1alpha1.NetworkTemplateTailscale:
+		addrs, _, err := c.instanceAddresses(ctx, claim)
+		if err != nil {
+			return nil, err
+		}
+		out := ipSet(addrs)
+		for _, a := range nodeIPs(node) {
+			if ip, perr := netip.ParseAddr(a); perr == nil && c.inTailnet(ip) {
+				out[ip.String()] = true
+			}
+		}
+		return out, nil
+	}
+	return ipSet(nodeIPs(node)), nil
+}
+
+func (c *Controller) inTailnet(ip netip.Addr) bool {
+	for _, p := range c.opts.TailnetPrefixes {
+		if p.Contains(ip.Unmap()) {
+			return true
+		}
+	}
+	return false
 }
 
 func ipSet(addrs []string) map[string]bool {

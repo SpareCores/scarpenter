@@ -85,6 +85,20 @@ the controller reference.
   would run arbitrary code on it), and "require approval for fork workflows" in the
   repository settings.
 
+## Carried over from the plan 08 review
+
+- Helm values `vendors.aws.enabled` and `--aws-home-region`; set `AWS_REGION` in the
+  Deployment anyway. New controller settings to expose: `--tailnet-prefixes`
+  (`SCARPENTER_TAILNET_PREFIXES`) and `SCARPENTER_AWS_IPV4_PRICE` (an approximation,
+  documented in the controller reference).
+- IRSA / web identity how-to from `docs/reference/aws-iam-policy.json`: replace
+  `CLUSTER_NAME`, `123456789012`, `NODE_ROLE_NAME`, `KEY_ID`; explain the optional
+  statements (managed network incl. `ReplaceRoute`, PassRole, customer KMS key and
+  grant) and the account's Spot service-linked role.
+- Egress to Keeper `/storage_prices` for the controller.
+- The serving certificate approver now uses the driver registry and reads
+  SCNodeClasses (RBAC for reading SCNodeClasses is already there).
+
 ## Gates
 
 CONVENTIONS gates 1–4, plus `hack/dev.sh make test-chart`; the release

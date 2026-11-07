@@ -88,7 +88,7 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
 ## Images
 
 - `ResolveImage`: `DescribeImages` with owner `075585003325` (the official Flatcar
-  account; `aws.imageOwner` overrides it), `state=available`, `architecture`
+  account; `aws.imageOwner` overrides it, for the status and for the launch), `state=available`, `architecture`
   `x86_64` or `arm64`, and the name of the release:
 
   | Architecture | Name |
@@ -116,7 +116,10 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
   `ImagesReady=False` only when a region the NodeClass **names** has no image, or
   when no region has one; otherwise `ImagesReady` is `True` with reason
   `ImagesPartial` naming the gaps, and the offerings of a region in which no image
-  is ready are unavailable (so a default NodeClass is not permanently `False`
+  is ready are unavailable (per region, not per architecture: a region with an amd64
+  but no arm64 image is not gated, an arm64 launch there is skipped when it fails),
+  and a transient `DescribeImages` error is not an answer: the last good image is
+  served, or the report fails and nothing is gated (so a default NodeClass is not permanently `False`
   because stable is not published in a default-enabled region).
 
 ## Launch
@@ -256,9 +259,11 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
   that carry the marker; anything else in the VPC (an instance, a group, a subnet
   someone added) is left alone and makes the deletion `Retryable`. A gateway whose
   attach failed is found again by name and marker and attached on the next call; the
-  route table's idempotency token names the VPC, so the network can be recreated
-  after the idle collection, and a missing default route is added on every call;
-  a zone that appears later gets the first free `/20`.
+  route table is created without a `ClientToken` (EC2 would replay the answer for a
+  table deleted since, after a half-finished deletion), so the network can be
+  recreated; the default route is checked on every call: a missing one is added, one
+  to another gateway is replaced; deleting also removes a gateway of the network that
+  was never attached; a zone that appears later gets the first free `/20`.
 - **Security groups** are created in the VPC of the launch's subnet with no
   inbound rule except `spec.networking.inbound`, all outbound (EC2's default),
   and: for `isolation: nodeclass` a rule that allows all traffic between members
@@ -408,8 +413,8 @@ account ID.
 | `CreateSecurityGroups`, `CreateSecurityGroupsInAVpc` | `ec2:CreateSecurityGroup` with the cluster tag, in any VPC |
 | `ChangeSecurityGroups` | authorize and revoke ingress and delete, on groups with the cluster tag |
 | `CreatePlacementGroups`, `DeletePlacementGroups` | create with the cluster tag, delete groups with it |
-| `OptionalManagedNetwork*` | **optional**: VPC, subnet, internet gateway and route table creation and deletion, only with the cluster tag; needed only where a NodeClass uses (or defaults to) `create` for `subnets`, that is in regions without a default VPC |
-| `OptionalCustomerKmsKey` | **optional**: `kms:CreateGrant`, `Decrypt`, `DescribeKey`, `GenerateDataKeyWithoutPlaintext` on the customer key of `kmsKeyID`, only through EC2 (`kms:ViaService`); the default `aws/ebs` key needs none |
+| `OptionalManagedNetwork*` | **optional**: VPC, subnet, internet gateway and route table creation, `ReplaceRoute` for a stale default route, and deletion, only with the cluster tag; needed only where a NodeClass uses (or defaults to) `create` for `subnets`, that is in regions without a default VPC |
+| `OptionalCustomerKmsKey`, `OptionalCustomerKmsKeyGrant` | **optional**: `kms:Decrypt`, `DescribeKey`, `GenerateDataKeyWithoutPlaintext` and, for AWS resources only (`kms:GrantIsForAWSResource`), `kms:CreateGrant` on the customer key of `kmsKeyID`, only through EC2 (`kms:ViaService`). The resource is the key's ARN even when `kmsKeyID` is an alias; the default `aws/ebs` key needs none |
 | `OptionalPassInstanceProfileRole` | **optional**: `iam:PassRole` for the role of `aws.instanceProfile`, only to `ec2.amazonaws.com`; remove when no instance profile is used |
 
 `ec2:DescribeInstanceTypes` is the one action beyond the plan's list: the driver

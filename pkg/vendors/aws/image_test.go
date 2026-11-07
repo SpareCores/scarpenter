@@ -298,3 +298,28 @@ func TestAMissingImageIsNotAskedForAtEveryReport(t *testing.T) {
 		t.Errorf("a new image was not found after the TTL: %+v", got)
 	}
 }
+
+func TestATransientImageErrorIsNotAnAnswer(t *testing.T) {
+	// Gating a region's offerings follows the report: a throttled DescribeImages must
+	// not look like "no image there".
+	e := newEnv(t, envOptions{})
+	ctx := context.Background()
+	nc := nodeClass("us-east-1")
+	good, err := e.d.ReportImages(ctx, nc)
+	if err != nil || !good[0].Ready {
+		t.Fatalf("%+v, %v", good, err)
+	}
+	// With a last good answer the stale image is served past its TTL.
+	e.clock.Step(2 * time.Hour)
+	e.acct.Fail(fake.Failure{Op: "DescribeImages", Code: "RequestLimitExceeded", Count: 2})
+	got, err := e.d.ReportImages(ctx, nc)
+	if err != nil || len(got) != 2 || !got[0].Ready || !got[1].Ready {
+		t.Errorf("a throttled refresh: %+v, %v; want the last good images", got, err)
+	}
+	// Without one the report fails (the controller then gates nothing).
+	e2 := newEnv(t, envOptions{})
+	e2.acct.Fail(fake.Failure{Op: "DescribeImages", Code: "RequestLimitExceeded", Count: 2})
+	if got, err := e2.d.ReportImages(ctx, nc); err == nil || got != nil {
+		t.Errorf("a throttled first report: %+v, %v; want an error, not not-ready images", got, err)
+	}
+}

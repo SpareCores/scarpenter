@@ -335,9 +335,11 @@ when all of these hold:
    those are the only addresses a serving certificate may name, because the Node
    object is written by the node, which a leaked bootstrap token does not bind to
    the NodeClaim's machine. With the `tailscale` template the kubelet's node IP is
-   the tailnet address (100.64.0.0/10), which the vendor does not know: the Node's
-   reported addresses stand (verifying the tailnet IP needs the Tailscale API, a
-   later hardening); so for `custom`, a driver that reports none and a NodeClaim
+   the tailnet address, which the vendor does not know: the instance's addresses
+   plus the Node's addresses inside the tailnet prefixes (`--tailnet-prefixes`,
+   default Tailscale's `100.64.0.0/10` and `fd7a:115c:a1e0::/48`; set it for a
+   Headscale with other prefixes) are allowed (verifying one tailnet IP against the
+   tailnet needs the Tailscale API, a later hardening); for `custom`, a driver that reports none and a NodeClaim
    without an instance reference. An instance that is gone or terminated allows no
    address (with `direct`).
 
@@ -387,9 +389,12 @@ principals that may describe the instance's attributes. What limits the damage:
   read what the Node authorizer allows, such as the Secrets of that node's Pods,
   and change that Node's reported addresses). This is inherent to bootstrap tokens
   (ADR-003); the short lifetime, the deletion at registration, the IMDSv2 hop limit
-  below and the check of the serving certificate's IP addresses against the
-  instance's addresses (where the driver reports them, as the AWS driver does)
-  instead of the Node's are the controls.
+  below and the check of the serving certificate's IP addresses are the controls:
+  with the `direct` template against the instance's addresses (where the driver
+  reports them, as the AWS driver does) instead of the Node's; with `tailscale`
+  the Node's addresses count only inside the tailnet prefixes
+  (`--tailnet-prefixes`) next to the instance's, so a leaked token cannot get a
+  certificate for a VPC or any other non-tailnet address.
 - The AWS driver requires IMDSv2 with a hop limit of 1, so Pods without host
   networking cannot reach the metadata service.
 - The tailscale auth key should be **ephemeral, pre-authorized and tagged**, with

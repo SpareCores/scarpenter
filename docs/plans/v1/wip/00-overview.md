@@ -914,7 +914,8 @@ Resource kinds (00a §9): `subnets` (and their VPC), `securityGroups`,
   VPC) with no inbound except `spec.networking.inbound`, a self-reference rule
   for `isolation: nodeclass`, all outbound (`idleTTL` 24 h); for
   `isolation: run`, one extra group per run key with a self-reference rule
-  (`perUse`).
+  (`perUse`); without a run key the NodeClass is one run, so the NodeClass's
+  group gets the self-reference rule (decided in plan 08).
 - **Placement groups**: from placement profiles (cluster, spread, partition),
   `create` per (region, profile, run key) (`perUse`), or `use` a named group.
 - `publicIPv4` (default true) via the primary network interface; nodes need
