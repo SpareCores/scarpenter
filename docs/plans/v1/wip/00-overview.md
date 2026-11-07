@@ -1214,7 +1214,7 @@ and refreshed only by its manually triggered workflow.
 | 06 | [Node options and vendor resources](../done/06-node-options-and-resources.md) | 05 |
 | 07 | [qemu driver and L4](../done/07-qemu-driver.md) | 06 |
 | 08 | [AWS driver](../done/08-aws-driver.md) | 06 |
-| 09 | [Packaging](09-packaging.md) | 08 |
+| 09 | [Packaging](../done/09-packaging.md) | 08 |
 | 10 | [AWS e2e (L5) and sweeper](10-aws-e2e.md) | 09 |
 | 11 | [Docs and v1 release](11-docs-and-release.md) | 07, 10 |
 | 12 | [GPU nodes on AWS (optional)](12-aws-gpu.md) | 10 + GPU spike |
