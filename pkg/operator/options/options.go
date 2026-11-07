@@ -81,6 +81,10 @@ type Options struct {
 	// ClusterCAFile is the cluster CA bundle given to nodes; empty means the
 	// kube-root-ca.crt ConfigMap of the controller's namespace.
 	ClusterCAFile string
+	// KubeletClientCAFile is the CA bundle that signs the API server's client
+	// certificates for kubelets, when it is not the cluster CA (k3s); empty
+	// means the cluster CA.
+	KubeletClientCAFile string
 	// Vendors are the enabled drivers.
 	Vendors []string
 	// KeeperURL is the base URL of the Keeper API.
@@ -154,6 +158,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.ClusterName, "cluster-name", env.WithDefaultString("SCARPENTER_CLUSTER_NAME", ""), "[REQUIRED] The cluster name: a tag value on vendor resources and part of their names.")
 	fs.StringVar(&o.APIServerEndpoint, "api-server-endpoint", env.WithDefaultString("SCARPENTER_API_SERVER_ENDPOINT", ""), "[REQUIRED] The API server URL nodes use to reach the control plane, for example https://10.0.0.1:6443.")
 	fs.StringVar(&o.ClusterCAFile, "cluster-ca-file", env.WithDefaultString("SCARPENTER_CLUSTER_CA_FILE", ""), "File with the cluster CA bundle given to nodes. If empty, the kube-root-ca.crt ConfigMap of the controller's namespace is used.")
+	fs.StringVar(&o.KubeletClientCAFile, "kubelet-client-ca-file", env.WithDefaultString("SCARPENTER_KUBELET_CLIENT_CA_FILE", ""), "File with the CA bundle that signs the API server's kubelet client certificates, for control planes where it is not the cluster CA (k3s: server/tls/client-ca.crt). Written to the nodes as the kubelet's client CA, so kubectl logs and exec work. Empty means the cluster CA.")
 	fs.StringVar(&o.vendorsRaw, "vendors", env.WithDefaultString("SCARPENTER_VENDORS", DefaultVendors), "Comma-separated list of enabled vendor drivers.")
 	fs.StringVar(&o.KeeperURL, "keeper-url", env.WithDefaultString("SCARPENTER_KEEPER_URL", DefaultKeeperURL), "Base URL of the Spare Cores Keeper API.")
 	fs.StringVar(&o.KeeperAPIKeyFile, "keeper-api-key-file", env.WithDefaultString("SCARPENTER_KEEPER_API_KEY_FILE", ""), "File with an optional Keeper API key (higher rate limits).")

@@ -101,7 +101,7 @@
   "systemd": {
     "units": [
       {
-        "contents": "[Unit]\nDescription=Prepare the volume pgdata\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=var-lib-pgdata.mount\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/scarpenter/bin/scarpenter-volume --label scv-ff852343 --fs xfs --by-id /dev/disk/by-id/scsi-0HC_Volume_123\n",
+        "contents": "[Unit]\nDescription=Prepare the volume pgdata\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=var-lib-pgdata.mount\n[Service]\nType=oneshot\nRemainAfterExit=yes\nTimeoutStartSec=210\nExecStart=/opt/scarpenter/bin/scarpenter-volume --label scv-ff852343 --fs xfs --by-id /dev/disk/by-id/scsi-0HC_Volume_123\n",
         "name": "scarpenter-volume-pgdata.service"
       },
       {
@@ -110,7 +110,16 @@
         "name": "var-lib-pgdata.mount"
       },
       {
-        "contents": "[Unit]\nDescription=Prepare the volume scratch\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=mnt-scratch\\x2ddisk.mount\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/scarpenter/bin/scarpenter-volume --label scv-5a9cb6b5 --fs ext4 --serial vol* --size 107374182400\n",
+        "dropins": [
+          {
+            "contents": "[Unit]\nJobRunningTimeoutSec=240\n",
+            "name": "10-scarpenter-timeout.conf"
+          }
+        ],
+        "name": "dev-disk-by\\x2dlabel-scv\\x2dff852343.device"
+      },
+      {
+        "contents": "[Unit]\nDescription=Prepare the volume scratch\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=mnt-scratch\\x2ddisk.mount\n[Service]\nType=oneshot\nRemainAfterExit=yes\nTimeoutStartSec=210\nExecStart=/opt/scarpenter/bin/scarpenter-volume --label scv-5a9cb6b5 --fs ext4 --serial vol* --size 107374182400\n",
         "name": "scarpenter-volume-scratch.service"
       },
       {
@@ -119,13 +128,40 @@
         "name": "mnt-scratch\\x2ddisk.mount"
       },
       {
-        "contents": "[Unit]\nDescription=Prepare the instance-local disks\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=local-fs.target\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/scarpenter/bin/scarpenter-local-storage --policy raid0 --pattern nvme-Amazon_EC2_NVMe_Instance_Storage_* --count 2\n",
+        "dropins": [
+          {
+            "contents": "[Unit]\nJobRunningTimeoutSec=240\n",
+            "name": "10-scarpenter-timeout.conf"
+          }
+        ],
+        "name": "dev-disk-by\\x2dlabel-scv\\x2d5a9cb6b5.device"
+      },
+      {
+        "contents": "[Unit]\nDescription=Prepare the instance-local disks\nDefaultDependencies=no\nAfter=local-fs-pre.target\nBefore=local-fs.target\n[Service]\nType=oneshot\nRemainAfterExit=yes\nTimeoutStartSec=210\nExecStart=/opt/scarpenter/bin/scarpenter-local-storage --policy raid0 --pattern nvme-Amazon_EC2_NVMe_Instance_Storage_* --count 2\n",
         "name": "scarpenter-local-storage.service"
       },
       {
         "contents": "[Unit]\nDescription=Mount the local storage scl-raid\nRequires=scarpenter-local-storage.service\nAfter=scarpenter-local-storage.service\nBefore=local-fs.target\n[Mount]\nWhat=/dev/disk/by-label/scl-raid\nWhere=/mnt/local\nType=ext4\n[Install]\nWantedBy=local-fs.target\n",
         "enabled": true,
         "name": "mnt-local.mount"
+      },
+      {
+        "dropins": [
+          {
+            "contents": "[Unit]\nJobRunningTimeoutSec=240\n",
+            "name": "10-scarpenter-timeout.conf"
+          }
+        ],
+        "name": "dev-disk-by\\x2dlabel-scl\\x2draid.device"
+      },
+      {
+        "dropins": [
+          {
+            "contents": "[Unit]\nRequiresMountsFor=/var/lib/pgdata /mnt/scratch-disk /mnt/local\n",
+            "name": "40-scarpenter-volumes.conf"
+          }
+        ],
+        "name": "kubelet.service"
       }
     ]
   }

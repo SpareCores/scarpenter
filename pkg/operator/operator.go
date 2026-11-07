@@ -28,6 +28,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/internal/version"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/operator/options"
 )
 
@@ -35,6 +36,10 @@ import (
 type Operator struct {
 	*coreoperator.Operator
 	Options *options.Options
+
+	// staticCatalogs are the catalogs of the drivers that bring their own
+	// (vendors.CatalogProvider), set by NewComponents.
+	staticCatalogs map[string]catalog.Source
 }
 
 // NewOperator wraps a core operator. The options were parsed (and validated)

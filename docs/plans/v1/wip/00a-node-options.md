@@ -657,7 +657,14 @@ resources (§9) are not attributed to offerings.
 | vultr | pre-create the block volume; by-id from its ID (to verify) |
 | aws, alicloud, upcloud, ovh | IDs exist only after create: a first-boot unit matches each volume by vendor serial pattern and size and creates the filesystem label |
 
-Mounts use filesystem labels everywhere.
+Mounts use filesystem labels everywhere. Verified on real Flatcar (plan 07): the
+mounts are weak for `local-fs.target` and required by the kubelet
+(`RequiresMountsFor=`), the preparing services have `TimeoutStartSec=210`, and the
+label's device unit has `JobRunningTimeoutSec=240` (its default start-job timeout
+of 90 s counts from the start of the boot, not from the end of the preparing
+service); `--homehost=any` keeps `/dev/md/scarpenter-local` stable across
+reboots; `blkid -p`, `lsblk`, `findmnt`, `flock`, `mdadm`, `mkfs.ext4/xfs/btrfs`
+exist on Flatcar 4757.2.3.
 
 ## 12. Spare Cores data: use what exists
 

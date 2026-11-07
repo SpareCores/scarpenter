@@ -8,7 +8,10 @@ package bootstrap_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +31,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 )
 
@@ -312,5 +316,62 @@ func TestForbiddenSecretNamesTheRoleBinding(t *testing.T) {
 	_, err := bootstrap.LoadInputs(t.Context(), refs, nodeClass(tailscaleClass))
 	if err == nil || !strings.Contains(err.Error(), "RoleBinding") || !strings.Contains(err.Error(), "namespace scarpenter") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// The first-boot volume unit adds to the user-data only for nodes that have
+// volumes, so a plain trial rendering misses it: Validate also renders the largest
+// storage setup of each vendor (plan 06 review).
+func TestValidateRendersTheLargestStorageSetup(t *testing.T) {
+	r := bootstrap.NewRenderer(bootstrap.RendererOptions{
+		Refs: kubeRefs(t, rootCA()), APIServerEndpoint: "https://api.example.com:6443"})
+	data := make([]aws.DataVolume, 0, 8)
+	for i := range 8 {
+		data = append(data, aws.DataVolume{GuestVolume: common.GuestVolume{
+			Name: fmt.Sprintf("volume-%d", i), Filesystem: common.FilesystemXFS, MountPath: fmt.Sprintf("/var/lib/data/volume-%d", i),
+		}})
+	}
+	withProfile := func(nc *v1alpha1.SCNodeClass) {
+		nc.Spec.Profiles.Storage = map[string]v1alpha1.StorageProfile{
+			"small": {AWS: &aws.Storage{Data: data[:1]}},
+			"big": {AWS: &aws.Storage{
+				Data: data, LocalStorage: &common.LocalStorage{Policy: common.LocalStorageMount, MountPath: "/mnt/local"},
+			}},
+		}
+	}
+	// A user Butane that makes the plain rendering fit with a little room, found
+	// by growing it: random-looking so that it compresses as badly as real
+	// content.
+	blob := func(n int) string {
+		var b strings.Builder
+		sum := sha256.Sum256([]byte("blob"))
+		for b.Len() < n {
+			b.WriteString(hex.EncodeToString(sum[:]))
+			sum = sha256.Sum256(sum[:])
+		}
+		return "variant: flatcar\nversion: 1.1.0\nstorage:\n  files:\n    - path: /etc/blob\n      contents:\n        inline: " + b.String()[:n] + "\n"
+	}
+	nc := nodeClass(nil)
+	profileOnly, profiled := nodeClass(withProfile), nodeClass(withProfile)
+	found := false
+	for n := 8000; n < 20000; n += 250 {
+		in := bootstrap.Inputs{UserButane: blob(n)}
+		if err := r.Validate(t.Context(), nc, "amd64", in); err != nil {
+			break
+		}
+		if err := r.Validate(t.Context(), profiled, "amd64", in); err != nil {
+			if !strings.Contains(err.Error(), "storage setup of aws (8 volumes and local storage)") || !strings.Contains(err.Error(), "over the budget") {
+				t.Fatalf("the error does not say what was too large: %v", err)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("no user Butane size fits without volumes and overflows with the largest storage profile: the volume unit is not part of the trial rendering")
+	}
+	// A profile alone never makes a NodeClass without profiles fail.
+	if err := r.Validate(t.Context(), profileOnly, "amd64", bootstrap.Inputs{}); err != nil {
+		t.Errorf("a NodeClass with a large profile and no other content: %v", err)
 	}
 }

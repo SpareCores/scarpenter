@@ -962,6 +962,29 @@ spec:
                               x-kubernetes-list-map-keys:
                               - name
                               x-kubernetes-list-type: map
+                            localStorage:
+                              description: |-
+                                localStorage configures the local disks of the instance types that have
+                                them (the driver attaches them as extra disk images).
+                              properties:
+                                mountPath:
+                                  description: mountPath is the absolute path the
+                                    local storage is mounted at.
+                                  maxLength: 255
+                                  pattern: ^/[^\x00]*$
+                                  type: string
+                                policy:
+                                  description: |-
+                                    policy: ignore leaves the disks alone, mount mounts them, raid0 stripes
+                                    them into one volume and mounts it.
+                                  enum:
+                                  - ignore
+                                  - mount
+                                  - raid0
+                                  type: string
+                              required:
+                              - policy
+                              type: object
                             root:
                               description: root configures the root disk.
                               properties:
@@ -2793,6 +2816,29 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
+                          localStorage:
+                            description: |-
+                              localStorage configures the local disks of the instance types that have
+                              them (the driver attaches them as extra disk images).
+                            properties:
+                              mountPath:
+                                description: mountPath is the absolute path the local
+                                  storage is mounted at.
+                                maxLength: 255
+                                pattern: ^/[^\x00]*$
+                                type: string
+                              policy:
+                                description: |-
+                                  policy: ignore leaves the disks alone, mount mounts them, raid0 stripes
+                                  them into one volume and mounts it.
+                                enum:
+                                - ignore
+                                - mount
+                                - raid0
+                                type: string
+                            required:
+                            - policy
+                            type: object
                           root:
                             description: root configures the root disk.
                             properties:

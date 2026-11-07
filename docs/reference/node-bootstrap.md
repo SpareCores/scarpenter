@@ -33,7 +33,19 @@ what the code does. The package is `pkg/bootstrap` (rendering, tokens),
   `https://` URL) and a CA bundle for it: `--cluster-ca-file`, or the
   `kube-root-ca.crt` ConfigMap of the controller's namespace.
 - A CNI and kube-proxy (or a replacement) that run on the remote nodes as
-  DaemonSets; no cloud-controller-manager is needed.
+  DaemonSets; no cloud-controller-manager is needed. They reach the API server by
+  its address (`KUBERNETES_SERVICE_HOST` of the DaemonSet), because the ClusterIP
+  needs the proxy itself.
+- On **k3s**, which signs the API server's client certificate for the kubelet
+  with its own client CA (`<data-dir>/server/tls/client-ca.crt`) and not with the
+  CA of `kube-root-ca.crt` (its server CA): `--kubelet-client-ca-file` (see
+  [the kubelet](#the-kubelet)). The L4 lane verified that a k3s server needs no
+  other flag than the ones of a production k3s for remote workers
+  (`--flannel-backend=none`, `--disable-kube-proxy`, `--disable-network-policy`,
+  `--egress-selector-mode=disabled`): it enables bootstrap-token authentication
+  and the `tokencleaner` controller by default and its `kube-root-ca.crt` holds
+  the CA nodes need (the server CA that signs the API server's serving
+  certificate).
 - The [RBAC](#rbac) for the join.
 - With the `tailscale` template: a tailnet (or Headscale) the control plane is
   on, and an auth key Secret. With `direct`: nodes and control plane reach each
@@ -190,8 +202,10 @@ template that uses a variable that does not exist fails (strict). Functions: `q`
 The kubelet configuration is generated, not templated by users (override it with
 extra Butane, see below). Fixed: `serverTLSBootstrap: true` and
 `rotateCertificates: true`, `cgroupDriver: systemd`, webhook authentication and
-authorization with `/etc/kubernetes/pki/ca.crt` as the client CA and anonymous
-access off, `resolvConf: /run/systemd/resolve/resolv.conf` (the stub resolver
+authorization with `/etc/kubernetes/pki/ca.crt` as the client CA (or, with
+`--kubelet-client-ca-file`, the CA written to `/etc/kubernetes/pki/kubelet-client-ca.crt`:
+the API server's client certificate for `kubectl logs` and `exec` must verify
+against it) and anonymous access off, `resolvConf: /run/systemd/resolve/resolv.conf` (the stub resolver
 address does not work inside Pods). From the NodeClass: `maxPods` (default 110),
 `systemReserved`, `kubeReserved`, `evictionHard` (unset keeps the kubelet's
 defaults; quantities are validated). From the controller: `clusterDomain`

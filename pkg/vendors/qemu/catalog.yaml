@@ -1,0 +1,32 @@
+# The qemu driver's catalog (overview section 13.3): one region and one zone on
+# the machine SCarpenter runs on. The prices are made up and only give the
+# scheduler an order. qemu.local has two local disks of 4 GB (the driver attaches
+# them as extra disk images), for the local storage policies.
+vendors:
+  - name: qemu
+    regions:
+      - {name: local, zones: [local-a]}
+    types:
+      - name: small
+        family: qemu
+        arch: amd64
+        vcpus: 2
+        memoryMiB: 2048
+        prices:
+          - {region: local, onDemand: 0.010}
+      - name: medium
+        family: qemu
+        arch: amd64
+        vcpus: 2
+        memoryMiB: 4096
+        prices:
+          - {region: local, onDemand: 0.020}
+      - name: local
+        family: qemu
+        arch: amd64
+        vcpus: 2
+        memoryMiB: 4096
+        localStorageGB: 8
+        localStorageCount: 2
+        prices:
+          - {region: local, onDemand: 0.025}

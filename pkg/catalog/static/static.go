@@ -79,7 +79,11 @@ type Type struct {
 	GPUs         float64  `json:"gpus,omitempty"`
 	GPUModel     string   `json:"gpuModel,omitempty"`
 	GPUMaker     string   `json:"gpuManufacturer,omitempty"`
-	Prices       []Price  `json:"prices"`
+	// LocalStorageGB is the size of the bundled local disks together and
+	// LocalStorageCount their number.
+	LocalStorageGB    float64 `json:"localStorageGB,omitempty"`
+	LocalStorageCount int     `json:"localStorageCount,omitempty"`
+	Prices            []Price `json:"prices"`
 }
 
 // Price is the hourly USD price of a type in a region.
@@ -177,6 +181,7 @@ func (s *Source) Load(_ context.Context, req catalog.Request) (*model.Data, erro
 				CPUManufacturer: t.Manufacturer, CPUFamily: t.CPUFamily, CPUSpeedGHz: t.ClockGHz, CPUFlags: t.Flags,
 				MemoryMiB: t.MemoryMiB, AcceleratorCount: t.GPUs, AcceleratorModel: t.GPUModel,
 				AcceleratorManufacturer: t.GPUMaker,
+				LocalStorageGB:          t.LocalStorageGB, LocalStorageCount: t.LocalStorageCount,
 			})
 			for _, p := range t.Prices {
 				if len(allowed) > 0 && !slices.Contains(allowed, p.Region) {

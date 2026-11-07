@@ -249,7 +249,11 @@ about a month; the L3 lane runs against the pinned core.
    `CreateError` and set a NodeClass Event.
 5. If no candidate has headroom or every attempt fails with capacity or
    quota, return `InsufficientCapacityError`: core deletes the NodeClaim and
-   the next scheduling round sees the offerings as unavailable.
+   the next scheduling round sees the offerings as unavailable. With no
+   candidates because the catalog is not ready (a restarted controller without a
+   first snapshot), return a retryable `CreateError` (`CatalogNotReady`) instead:
+   core would otherwise delete a NodeClaim whose instance a replayed idempotency
+   key finds (found by the L4 restart scenario, plan 07).
 6. Return the NodeClaim with `providerID`, capacity and allocatable of the
    chosen type, labels (§5.5) for the chosen offering and the applied
    profiles (or `default`), and annotations:
@@ -775,7 +779,9 @@ avoids YAML merging in our code.
 Template variables: `.NodeName`, `.ProviderID`, `.APIServerEndpoint`,
 `.ClusterCA`, `.BootstrapToken`, `.Arch`, `.Vendor`, `.Region`, `.Zone`,
 `.InstanceType`, `.KubeletConfig`, `.Sysexts`, `.Tailscale.*`, `.Labels`
-(for templates that need them; not passed to the kubelet).
+(for templates that need them; not passed to the kubelet), `.KubeletClientCA`
+(the CA of the API server's kubelet client certificates when it is not the cluster
+CA, as on k3s; set with `--kubelet-client-ca-file`).
 
 **Size budget**: ≤ 16 KiB of user-data after encoding (AWS's limit, the
 smallest common one). A golden test asserts the default templates stay below
@@ -1102,7 +1108,7 @@ all.
 | L1 | Unit and golden tests | every PR | catalog mapping (against the committed Keeper snapshot replayed by `sc-keeper-go`'s test server), label sanitising, offering selection and ordering, unavailable cache, quota tracker (headroom, ledger, staleness, conditions), attribute/metric/selection/profile labels, settings resolution, resource lifecycles, Ignition rendering (golden files, size budget, Butane strict mode), drift hash, error classification, AWS driver against an in-memory EC2 fake, driver conformance suite | seconds |
 | L2 | envtest | every PR | CRD validation (CEL, per-vendor blocks), NodeClass controller (per-vendor status), bootstrap token lifecycle, serving-CSR approver decisions, GC decisions | < 1 min |
 | L3 | kind + real Karpenter core + SCarpenter with the **fake** driver (KWOK nodes) | every PR | provisioning from pending Pods, price ordering, capacity-error fallback (the fake driver injects errors), quota-aware placement and pinned-region waiting (the fake driver simulates quotas), exact placement, range/percentile/selection-profile requests, profiles and the two-workload placement group (00a §8.2), a profile missing for a vendor stays Pending, `use`/`create` resources and their lifecycles, consolidation and empty-node deletion, drift, GC of orphans, catalog scale (§5.7) with the full AWS snapshot | ~10 min |
-| L4 | **qemu** driver: real Flatcar VMs on the runner, k3s control plane | every PR touching bootstrap; nightly | real Ignition, sysexts, TLS bootstrap against k3s, serving-CSR approval (`kubectl logs/exec`), a data volume formatted and mounted by the first-boot unit, Pod runs, delete → VM gone, drift → replacement, boot-to-Ready time | ~15 min |
+| L4 | **qemu** driver: real Flatcar VMs on the runner, k3s control plane | every PR touching bootstrap; nightly | real Ignition, sysexts, TLS bootstrap against k3s, serving-CSR approval (`kubectl logs/exec`), a data volume formatted and mounted by the first-boot unit, Pod runs, delete → VM gone, drift → replacement, boot-to-Ready time | ~7 min with KVM and warm caches |
 | L5 | Real AWS with a k3s control plane on the CI runner, joined over **Tailscale** | manual + weekly | everything on the real cloud, both architectures, spot, the tailscale template, a database + client run in one placement group with an io2 data volume, a described-not-named selection, pre-created (`use`) resources | ~30 min, < $0.20 |
 
 ### 13.2 L3: fake driver with KWOK
@@ -1122,18 +1128,24 @@ The kind and KWOK bootstrap comes from `sc-karpenter-nodepool`'s L3 lane.
 
 ### 13.3 L4: qemu driver
 
-The `qemu` driver boots `flatcar_production_qemu_image.img` (verified against
-the release's digests, cached per version) as qcow2 overlays with KVM, passes
+The `qemu` driver boots `flatcar_production_qemu_uefi_image.img.bz2` (a
+compressed **qcow2** of 13.2 GB virtual size, with the UEFI firmware files of
+the release; verified against the release's `.DIGESTS`, cached per version) as
+qcow2 overlays (backing file, `-F qcow2`) with KVM, passes
 Ignition through `-fw_cfg name=opt/org.flatcar-linux/config`, and attaches
 each VM to a bridge with NAT in the privileged dev container, where a k3s
 server (configured like a production k3s: no embedded flannel, no embedded
-kube-proxy; flannel and kube-proxy DaemonSets) also runs. Sysexts are served
-from a local HTTP mirror of the release files (exercising the mirror
-configuration). Its catalog is a static file (`qemu.small`: 2 vCPU/2 GiB,
-`qemu.medium`: 2 vCPU/4 GiB, region `local`, zone `local-a`). Uses the
-`direct` template. If KVM or bridging is not available on GitHub-hosted
-runners, the lane runs locally and nightly on a self-hosted runner instead
-(decided in plan 07).
+kube-proxy; flannel and kube-proxy DaemonSets) also runs. Only the sysexts are
+served from a local HTTP mirror (exercising the mirror configuration); the
+Flatcar release comes from the official release server through the driver. A
+Headscale in the lane lets the `tailscale` template run against a real tailnet,
+with the container itself on it. Its catalog is a static file
+(`qemu.small`: 2 vCPU/2 GiB, `qemu.medium`: 2 vCPU/4 GiB, `qemu.local`: 2 vCPU/
+4 GiB with two 4 GB local disks; region `local`, zone `local-a`), served through
+the optional `CatalogProvider` capability. Uses the `direct` template, and
+`tailscale` in the Headscale scenario. CI: GitHub-hosted `ubuntu-latest` (decided
+in plan 07, pending three green runs, Q6); a self-hosted runner only as a fallback,
+only for schedule and manual runs, never for pull requests.
 
 ### 13.4 L5: AWS e2e over Tailscale
 
@@ -1199,7 +1211,7 @@ and refreshed only by its manually triggered workflow.
 | 04 | [Cloud provider, driver contract, fake driver, L3](../done/04-cloudprovider-and-fake-driver.md) | 03 |
 | 05 | [Node bootstrap](../done/05-bootstrap.md) | 04 |
 | 06 | [Node options and vendor resources](../done/06-node-options-and-resources.md) | 05 |
-| 07 | [qemu driver and L4](07-qemu-driver.md) | 06 |
+| 07 | [qemu driver and L4](../done/07-qemu-driver.md) | 06 |
 | 08 | [AWS driver](08-aws-driver.md) | 06 |
 | 09 | [Packaging](09-packaging.md) | 08 |
 | 10 | [AWS e2e (L5) and sweeper](10-aws-e2e.md) | 09 |
@@ -1214,10 +1226,10 @@ and refreshed only by its manually triggered workflow.
 |---|---|---|
 | Q1 | Keeper price endpoints: **answered 2026-11-05** (§5.1). `/table/server_prices` needs an API key; anonymous `/server_prices` is per zone with nested objects (about 4 KB per row, uncompressed); `/table/*` is CDN-cached for an hour | plan 01 |
 | Q2 | **Answered 2026-11-06** (plan 05): the sysext ships `kubelet.service` plus the kubeadm drop-in `10-kubeadm.conf` (`/etc/kubernetes/bootstrap-kubelet.conf`, `/etc/kubernetes/kubelet.conf`, `/var/lib/kubelet/config.yaml`, `EnvironmentFile`s `kubeadm-flags.env` and `/etc/sysconfig/kubelet`) and `Upholds=kubelet.service`. SCarpenter writes those paths and adds a drop-in that resets `ExecStart` with the full command line | plan 05 |
-| Q3 | **Answered from documentation 2026-11-06** (plan 05): Flatcar 4757.2.3 ships Ignition 2.24.0, whose spec 3.4 allows `compression: gzip` and `data:` sources in `ignition.config.merge`, and sha256 or sha512 verification; no fallback needed. Boot proof is plan 07 | plan 07 (boot) |
-| Q4 | k3s accepts bootstrap-token auth for non-k3s kubelets with the default server flags; `kube-root-ca.crt` holds the CA nodes need | plan 07 |
+| Q3 | **Answered 2026-11-07** (plan 05 from documentation, plan 07 by boot): Flatcar 4757.2.3 ships Ignition 2.24.0, whose spec 3.4 allows `compression: gzip` and `data:` sources in `ignition.config.merge`, and sha256 verification; the gzip merges of base, network and user configs are applied on real VMs (L4 Q01); no fallback needed | plan 07 |
+| Q4 | **Answered 2026-11-07** (plan 07, L4): k3s with `--flannel-backend=none --disable-kube-proxy --disable-network-policy --egress-selector-mode=disabled` accepts bootstrap-token auth and the client CSR flow (bootstrap-token auth and `tokencleaner` are k3s defaults); `kube-root-ca.crt` is the k3s server CA, which nodes need. One more requirement: k3s signs the API server's kubelet client certificate with its client CA, so `kubectl logs/exec` need `--kubelet-client-ca-file` (kubeadm and EKS: not needed) | plan 07 |
 | Q5 | Flatcar AMI names for arm64 and the LTS channel | plan 08 |
-| Q6 | KVM and bridge networking on GitHub-hosted runners | plan 07 |
+| Q6 | KVM and bridge networking on GitHub-hosted runners: **decided 2026-11-07, pending three green runs** (plan 07): `ubuntu-latest` with KVM through the udev rule and the bridge in the privileged container's own network namespace; `.github/workflows/qemu.yml` is `continue-on-error` until three green `workflow_dispatch` runs under 20 minutes; self-hosted only as a fallback for schedule/dispatch, never for pull requests | plan 07 |
 | Q7 | Karpenter scheduling latency and memory with the full AWS catalog | plan 04 |
 | Q8 | Where Spare Cores' own deployment uses Headscale, the auth-key model (reusable vs. per node) | post-v1 |
 | Q9 | Karpenter core re-evaluates pending pods when offerings become available without any cluster event (quota freed elsewhere in the account); if not, how SCarpenter triggers a new scheduling round | plan 04 |

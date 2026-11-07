@@ -2,6 +2,10 @@
 # disks. A oneshot service per volume finds the device from the hints the driver
 # returned and creates the filesystem label once; a mount unit per volume then
 # mounts by label. Rendered only for nodes that have volumes or local storage.
+# The mounts are wanted by local-fs.target (a failed volume does not stop the
+# boot: the node stays reachable for debugging) but the kubelet requires them
+# (RequiresMountsFor): a node whose volume failed never registers, so that Pods
+# never write to the root disk instead of the volume they asked for.
 variant: flatcar
 version: 1.1.0
 storage:
@@ -33,6 +37,7 @@ systemd:
         [Service]
         Type=oneshot
         RemainAfterExit=yes
+        TimeoutStartSec=210
         ExecStart=/opt/scarpenter/bin/scarpenter-volume {{ .Args }}
     - name: {{ .MountUnit }}
       enabled: true
@@ -48,6 +53,16 @@ systemd:
         Type={{ .Filesystem }}
         [Install]
         WantedBy=local-fs.target
+    # The mount waits for the label's device unit, whose start job times out after
+    # DefaultDeviceTimeoutSec (90 s) counted from the start of the boot
+    # transaction, not from when the preparing service finishes: a volume that
+    # attaches late would get its label after the job failed.
+    - name: {{ .DeviceUnit }}
+      dropins:
+        - name: 10-scarpenter-timeout.conf
+          contents: |
+            [Unit]
+            JobRunningTimeoutSec=240
 {{- end }}
 {{- with .Local }}
     - name: scarpenter-local-storage.service
@@ -60,6 +75,7 @@ systemd:
         [Service]
         Type=oneshot
         RemainAfterExit=yes
+        TimeoutStartSec=210
         ExecStart=/opt/scarpenter/bin/scarpenter-local-storage {{ .Args }}
 {{- range .Mounts }}
     - name: {{ .MountUnit }}
@@ -76,5 +92,17 @@ systemd:
         Type=ext4
         [Install]
         WantedBy=local-fs.target
+    - name: {{ .DeviceUnit }}
+      dropins:
+        - name: 10-scarpenter-timeout.conf
+          contents: |
+            [Unit]
+            JobRunningTimeoutSec=240
 {{- end }}
 {{- end }}
+    - name: kubelet.service
+      dropins:
+        - name: 40-scarpenter-volumes.conf
+          contents: |
+            [Unit]
+            RequiresMountsFor={{ .MountPaths }}

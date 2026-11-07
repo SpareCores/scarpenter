@@ -40,11 +40,14 @@ type LocalHint struct {
 type VolumeData struct {
 	Name, Filesystem, Label, Where string
 	ServiceUnit, MountUnit, Args   string
+	// DeviceUnit is the device unit of the label the volume is mounted by.
+	DeviceUnit string
 }
 
 // LocalMount is one mount of the local storage.
 type LocalMount struct {
 	Label, Where, MountUnit string
+	DeviceUnit              string
 }
 
 // LocalData is the local storage as the volumes template sees it.
@@ -52,6 +55,12 @@ type LocalData struct {
 	Args   string
 	Mounts []LocalMount
 }
+
+// localPolicyMount is the local storage policy that mounts every disk by itself.
+const (
+	localPolicyMount = "mount"
+	localPolicyRaid0 = "raid0"
+)
 
 var (
 	volumeNamePattern   = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
@@ -92,6 +101,11 @@ func systemdPath(p string) string {
 }
 
 func mountUnit(path string) string { return systemdPath(path) + ".mount" }
+
+// labelDeviceUnit is the device unit of /dev/disk/by-label/<label>.
+func labelDeviceUnit(label string) string {
+	return systemdPath("/dev/disk/by-label/"+label) + ".device"
+}
 
 func cleanMountPath(what, p string) error {
 	if !mountPathPattern.MatchString(p) || strings.Contains(p, "//") || strings.Contains(p, "/../") ||
@@ -141,13 +155,14 @@ func volumesData(volumes []VolumeHint, local *LocalHint) ([]VolumeData, *LocalDa
 		out = append(out, VolumeData{
 			Name: v.Name, Filesystem: v.Filesystem, Label: label, Where: v.MountPath,
 			ServiceUnit: "scarpenter-volume-" + v.Name + ".service", MountUnit: mountUnit(v.MountPath),
-			Args: strings.Join(args, " "),
+			DeviceUnit: labelDeviceUnit(label),
+			Args:       strings.Join(args, " "),
 		})
 	}
 	if local == nil {
 		return out, nil, nil
 	}
-	if local.Policy != "mount" && local.Policy != "raid0" {
+	if local.Policy != localPolicyMount && local.Policy != localPolicyRaid0 {
 		return nil, nil, fmt.Errorf("the local storage policy %q is not mount or raid0", local.Policy)
 	}
 	if !devicePatternRegexp.MatchString(local.DevicePattern) {
@@ -164,20 +179,23 @@ func volumesData(volumes []VolumeHint, local *LocalHint) ([]VolumeData, *LocalDa
 	}
 	ld := &LocalData{Args: fmt.Sprintf("--policy %s --pattern %s --count %d",
 		local.Policy, local.DevicePattern, local.Count)}
-	if local.Policy == "raid0" || local.Count <= 1 {
+	if local.Policy == localPolicyRaid0 || local.Count <= 1 {
 		label := "scl-raid"
-		if local.Policy == "mount" {
+		if local.Policy == localPolicyMount {
 			label = "scl-0"
 		}
-		ld.Mounts = []LocalMount{{Label: label, Where: local.MountPath, MountUnit: mountUnit(local.MountPath)}}
+		ld.Mounts = []LocalMount{{
+			Label: label, Where: local.MountPath, MountUnit: mountUnit(local.MountPath), DeviceUnit: labelDeviceUnit(label),
+		}}
 	} else {
 		for i := range local.Count {
 			where := local.MountPath
 			if i > 0 {
 				where = fmt.Sprintf("%s-%d", local.MountPath, i)
 			}
+			label := "scl-" + strconv.Itoa(i)
 			ld.Mounts = append(ld.Mounts, LocalMount{
-				Label: "scl-" + strconv.Itoa(i), Where: where, MountUnit: mountUnit(where),
+				Label: label, Where: where, MountUnit: mountUnit(where), DeviceUnit: labelDeviceUnit(label),
 			})
 		}
 	}

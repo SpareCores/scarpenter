@@ -25,9 +25,11 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/cloudprovider"
 	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/facts"
 )
 
 // offeringOf is an offering of the catalog with its price, as the scheduler
@@ -662,5 +664,49 @@ func TestReplayedIdempotencyKeyDescribesTheOriginalInstance(t *testing.T) {
 	if first.Annotations[v1alpha1.AnnotationInstanceRef] != second.Annotations[v1alpha1.AnnotationInstanceRef] ||
 		first.Status.ProviderID != second.Status.ProviderID {
 		t.Errorf("the replay describes another instance: %v vs %v", first.Annotations, second.Annotations)
+	}
+}
+
+// TestCreateWithACatalogThatIsNotReadyIsRetriedNotRefused: a controller that has
+// just restarted has no snapshot yet. A NodeClaim whose launch is replayed then
+// must not get InsufficientCapacity (core would delete it, and the instance its
+// idempotency key finds would be orphaned): the launch is retried (L4 scenario
+// Q04).
+func TestCreateWithACatalogThatIsNotReadyIsRetriedNotRefused(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	f := facts.New(facts.Options{Registry: e.registry})
+	if err := f.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	fresh := catalog.New(catalog.Options{Source: catalogtest.SourceAt(keeperURL), Facts: f, Unavailable: e.un, Clock: e.clock})
+	nc := &v1alpha1.SCNodeClass{}
+	if err := e.client.Get(t.Context(), clientKey(className), nc); err != nil {
+		t.Fatal(err)
+	}
+	class, err := catalog.ClassFromNodeClass(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh.SetClasses([]catalog.Class{class})
+	e.cat = fresh
+	e.build(e.client, f, e.registry, envOptions{})
+
+	_, err = e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	if err == nil || karpcloudprovider.IsInsufficientCapacityError(err) || karpcloudprovider.IsNodeClassNotReadyError(err) {
+		t.Fatalf("Create error = %v, want a retryable error", err)
+	}
+	if !isCreateError(err) {
+		t.Errorf("Create error = %v, want a CreateError that core retries", err)
+	}
+	if n := len(e.calls("create")); n != 0 {
+		t.Errorf("%d vendor calls without a catalog", n)
+	}
+
+	// With the snapshot the launch goes through.
+	if err := fresh.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"})); err != nil {
+		t.Errorf("Create after the catalog was refreshed: %v", err)
 	}
 }

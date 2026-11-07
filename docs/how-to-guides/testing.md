@@ -2,7 +2,7 @@
 
 How to build, test and lint SCarpenter, and what the test lanes are. Every
 command runs in the dev container; the host only needs Docker (and `/dev/kvm`
-for the qemu lane that arrives with plan 07).
+for the qemu lane).
 
 ## The dev container
 
@@ -40,7 +40,9 @@ hack/dev.sh                      # an interactive shell
   command drops to your uid and gid with the network capabilities kept as
   ambient capabilities (`setpriv`). `hack/dev.sh --privileged make
   dev-check-privileged` proves it: it creates and deletes a bridge and checks
-  that `/dev/kvm` is usable.
+  that `/dev/kvm` is usable. While still root it also makes `/etc/rancher`
+  writable (k3s keeps its node password there) and gives your uid a passwd entry
+  (ssh refuses to run without one); both die with the container.
 - With a temporary `replace github.com/SpareCores/sc-keeper-go => ../sc-keeper-go`
   in `go.mod` (developing both together), the sibling checkout is mounted
   read-only at `/sc-keeper-go`.
@@ -62,15 +64,12 @@ A change is done when all of these pass, in this order
 | 2 | `hack/dev.sh make lint` | `go vet` (with every build tag), golangci-lint, `actionlint`, `shellcheck` on `hack/` and `test/` scripts, and `hack/check-docs.py` (relative links and anchors of all Markdown files). |
 | 3 | `hack/dev.sh make test` | L1 and L2: unit, golden and envtest suites, built with `-tags scarpenter_dev` so the dev-driver code is compiled and tested. No network access: Keeper calls go to the snapshot replay server, artifact fetches to local fixtures. |
 | 4 | `hack/dev.sh make test-kwok` | L3: the controller with the fake driver in kind (see [The L3 lane](#the-l3-lane)). |
-| 5 | `hack/dev.sh --privileged make test-qemu` | L4, from plan 07 on, when a change touches bootstrap, the qemu driver or `test/qemu`. |
+| 5 | `hack/dev.sh --privileged make test-qemu` | L4: real Flatcar VMs join a k3s control plane (see [The L4 lane](#the-l4-lane)). Run it when a change touches bootstrap, the qemu driver or `test/qemu`. |
 
 Also: `hack/dev.sh make build` produces `bin/scarpenter-controller`, and
 `hack/dev.sh make image` builds the controller image for the host architecture
 (the Dockerfile cross-compiles for `TARGETARCH`; `make image-buildx` builds and
 pushes `linux/amd64,linux/arm64`). `make help` lists every target.
-
-`make test-qemu` is a placeholder until plan 07 lands; it fails on purpose so
-that a green run never means "skipped".
 
 ## Test lanes
 
@@ -79,7 +78,7 @@ that a green run never means "skipped".
 | L1 | `make test` | Unit and golden tests: pure packages with no Kubernetes client. | Started in plan 02 (flag parsing, labels; plan 04: the CloudProvider, quota tracker, garbage collector and the driver conformance suite against the fake driver; plan 08: the AWS driver against the in-memory EC2 and Service Quotas of `pkg/vendors/aws/fake`, golden `RunInstances` inputs, the conformance suite over the AWS type list of the snapshot). |
 | L2 | `make test` | envtest: an API server and etcd (no kubelet), with the generated CRDs and Karpenter core's CRDs installed. | CRD admission tests (schema, defaults, every CEL rule, strict field validation) and a smoke test that starts the real manager with the production wiring (the NodeClass controller resolving sysext checksums from a local release server) and has core resolve an `SCNodeClass`; the NodeClass, quota status, serving certificate and bootstrap token controllers. |
 | L3 | `make test-kwok` | Real Karpenter core, SCarpenter and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, [The L3 lane](#the-l3-lane). |
-| L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged`. | Plan 07. |
+| L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged` and `/dev/kvm`. | Plan 07: [The L4 lane](#the-l4-lane). |
 | L5 | a manual GitHub workflow | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10. |
 
 The design of the layers is in
@@ -172,6 +171,73 @@ leaves the lane running (`KUBECONFIG=test/kwok/.cache/scarpenter-kwok.kubeconfig
 and `make kwok-down` removes it. On failure the logs of the controller,
 kwok-controller and the replay server, the NodeClaims and the fake ConfigMaps are
 collected in `test/kwok/.out/logs` (CI uploads them).
+
+### The L4 lane
+
+`hack/dev.sh --privileged make test-qemu` boots real Flatcar VMs with SCarpenter's
+rendered Ignition and lets them join a k3s control plane through the whole
+Karpenter path: the first time the bootstrap runs on a real operating system.
+Requirements: Docker, `/dev/kvm` (without it the VMs run under TCG emulation,
+which is too slow to be useful; the lane warns), about 2 GB of disk for the
+caches in `test/qemu/.cache` (the Flatcar image, 600 MB, is downloaded once and
+kept decompressed, 13 GB virtual but sparse, about 1.4 GB on disk; the Kubernetes
+sysext, 113 MB, the tailscale sysext, the Headscale and tailscale binaries, once) and 8 GB of memory for a few
+2 to 4 GiB VMs. The container started by `--privileged` has its own network
+namespace (see [the dev container](#the-dev-container)), so the lane's bridge,
+DHCP server and NAT rules never touch the host.
+
+`test/qemu/run.sh` builds, in that namespace: the controller (`-tags
+scarpenter_dev`, with the qemu driver); a bridge `scbr0` (10.77.0.1/24) with
+dnsmasq (DHCP and DNS) and NAT; an HTTP mirror of the sysext releases (downloaded
+once into the cache, checked against the release's `SHA256SUMS`) that the
+controller's `--sysext-base-url` and the VMs use; a k3s server (server only: the
+nodes are the VMs) configured like a production k3s for remote workers
+(`--flannel-backend=none --disable-kube-proxy --disable-network-policy
+--egress-selector-mode=disabled`; bootstrap-token authentication and the
+`tokencleaner` controller are k3s defaults); flannel and kube-proxy as
+DaemonSets (`test/qemu/manifests`; they reach the API server by address, because
+the ClusterIP needs the proxy itself) and the production RBAC of `config/rbac`; and a
+Headscale (pinned release, checksum-verified) with an ephemeral pre-authorized key
+minted per run, and a `tailscaled` that puts the container itself on the tailnet, so
+that the tailscale template runs against a real tailnet with no external network and
+no secrets.
+SCarpenter runs out of cluster as the ServiceAccount `scarpenter` (a token
+kubeconfig), not as the admin, so a permission missing from `config/rbac` fails
+the lane. The scenarios (`test/qemu/e2e`, build tag `qemu`) start and kill the
+controller themselves and look into the VMs with ssh: the NodeClass's user
+Butane, read from a ConfigMap, adds the lane's key.
+
+| Scenario | Proves |
+|---|---|
+| Q01 | a pending Pod makes a VM boot (gzip `data:` merges of Ignition, the Kubernetes sysext from the mirror, `Upholds=` starting the kubelet, masked `update-engine` and `locksmithd`, the user Butane as third merged config, the kubelet reading the CA file named in its bootstrap kubeconfig), join with its bootstrap token and become Ready; the Pod runs; `kubectl logs` and `exec` work (serving certificate approved, k3s client CA trusted by the kubelet); the bootstrap token Secret is gone; `kube-root-ca.crt` is the k3s server CA; the tools of the volume scripts exist; deleting the Pod removes Node, NodeClaim and VM; the boot-to-Ready time is recorded |
+| Q02 | a NodeClass with a custom network template and a storage profile (three data disks, two of one size found by serial pattern and size, one by by-id, ext4, xfs and btrfs, plus the raid0 of the two local disks of `qemu.local`): everything is formatted and mounted on first boot; after a reboot nothing is wiped or created twice (UUIDs), the array keeps its identity, a disk whose filesystem was destroyed gets a new one while its sibling of the same size keeps its data |
+| Q03 | a change of the root disk size drifts the NodeClaim; a replacement boots, the old node and VM go, the Pod moves |
+| Q04 | SCarpenter killed while the launch is in progress (the VM runs, `Create` has not returned: the driver's `--qemu-launch-delay` holds it there, and the scenario checks the NodeClaim is not launched yet, so the replay of `Create` is certain): after the restart the node is the first launch's, there is one VM per NodeClaim and no orphan process |
+| Q05 | an extra sysext that cannot be fetched: Ignition retries in the initrd (the mirror's log shows several requests of the VM, the console never reaches the login prompt), no node registers |
+| Q06 | a tailscale auth key Secret in the controller's namespace is read through the namespaced Role of `config/rbac`; a Secret in another namespace is refused with the Role named in the message until the documented Role and RoleBinding exist |
+| Q07 | why `--kubelet-client-ca-file` exists: without it the node joins but `kubectl logs` answers 401 on k3s |
+| Q08 | a data disk that already carries a foreign filesystem is never overwritten; the volume's mount fails and the kubelet (which requires the mounts) does not start; the node stays reachable and never registers |
+| Q09 | the tailscale template against the lane's Headscale: the VM joins the tailnet, the kubelet's `--node-ip` is its tailscale address, the node is Ready over the tailnet, the Pod runs, `kubectl logs` and `exec` work (the API server reaches the kubelet over the tailnet), the serving certificate is approved, the unit ordering holds |
+| Q10 | the tailscale template without a tailnet (a dummy key, a control server nobody listens on): the sysext is merged, `tailscaled` runs, the join unit cannot finish, and the kubelet, ordered after and bound to it, never starts: the sysext's `Upholds=` and the template's units and ordering work on real Flatcar |
+| Q11 | optional: Q09's node side against a tailnet of your own (Tailscale SaaS or another Headscale); needs `SCARPENTER_QEMU_TAILSCALE_AUTHKEY` (a pre-authorized, ephemeral key; `SCARPENTER_QEMU_TAILSCALE_LOGIN_SERVER` for a Headscale) and skips without it |
+
+Knobs: `QEMU_SCENARIOS=<go test -run regexp>` selects scenarios
+(`QEMU_SCENARIOS='Q0[12]'`), `QEMU_SETUP_ONLY=1` stops after the control plane is
+up and waits (experiment with `docker exec`). Boot-to-Ready is about half a
+minute with KVM; a full run takes about 7 minutes once the caches are warm. On
+failure the logs of k3s, dnsmasq and the mirror, the cluster's objects and the
+serial consoles of the VMs are collected in `test/qemu/.out` (CI uploads them);
+`test/qemu/.out/report.txt` has the boot times, `serial-excerpt.txt` the end of the
+console of the first boot.
+
+CI: `.github/workflows/qemu.yml` runs the lane on GitHub-hosted `ubuntu-latest`
+runners (KVM through a udev rule, the bridge inside the privileged container's own
+network namespace) for pull requests that touch what it tests, nightly and on
+demand. The job is `continue-on-error` until three green `workflow_dispatch` runs
+under 20 minutes are on record (overview section 15, Q6); then the flag goes. A
+self-hosted runner with `/dev/kvm` is the fallback, only for `schedule` and
+`workflow_dispatch`, never for pull requests: a fork's pull request would run
+arbitrary code on it (see the end of the workflow file).
 
 ### Artifact fixtures
 

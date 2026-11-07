@@ -30,7 +30,9 @@ returns the boot images of the NodeClass's release per region and architecture
 for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
 resolves images at launch with `ResolveImage` and counts as ready; the [AWS
 driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (below),
-`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ImageImporter` (reserved).
+`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ImageImporter` (reserved) and
+`CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
+static catalog instead of Keeper's; plan 07).
 
 ## Node options and vendor resources
 
@@ -127,6 +129,57 @@ returns the create parameters of the fixture's resource kind (the AWS security
 groups need their VPC). The AWS driver runs the suite once per resource kind over
 the complete AWS type list of the committed snapshot
 (`pkg/vendors/aws/conformance_test.go`).
+
+## The qemu driver
+
+The `qemu` driver (build tag `scarpenter_dev`; register name and vendor ID
+`qemu`) boots real Flatcar VMs on the machine SCarpenter runs on; it is the
+subject of the L4 lane ([testing](../how-to-guides/testing.md#the-l4-lane)). It
+brings its own catalog (the optional `CatalogProvider` capability: `CatalogYAML()`
+returns the document of `pkg/catalog/static`; the operator serves that vendor from
+it and every other vendor from Keeper, so a lane without a Keeper runs): region
+`local`, zone `local-a`, types `qemu.small` (2 vCPUs, 2 GiB), `qemu.medium` (2 vCPUs,
+4 GiB) and `qemu.local` (2 vCPUs, 4 GiB, two local disks of 4 GB), on-demand only.
+
+- **Images.** `ResolveImage` downloads `flatcar_production_qemu_uefi_image.img.bz2`
+  (a compressed qcow2) and the UEFI firmware files of the release from the Flatcar
+  release base (`--flatcar-base-url`), verifies each against the SHA512 of the
+  release's `.DIGESTS` file (a file already in the cache is verified, not fetched
+  again), decompresses the image and caches the release in `--qemu-cache-dir`.
+  `Image.Ref` is the release's directory in the cache; `RootDiskBytes` the image's
+  virtual size.
+- **Instances.** `CreateInstance` writes a record in `--qemu-state-dir` first, then
+  makes a qcow2 overlay of the image grown to the root disk size (`format: raw`
+  makes a full copy), extra disks, a copy of the firmware variables, the Ignition
+  file (user-data limit 16 KiB, like AWS), a tap device on the bridge, and starts
+  `qemu-system-<arch>` as a daemon (`-daemonize`; KVM when `/dev/kvm` is usable, TCG
+  otherwise, or as `accelerator` says) with the user-data in
+  `fw_cfg name=opt/org.flatcar-linux/config` and the serial port in a file. The ID is
+  derived from the idempotency key; a replayed key returns the running VM, a failed
+  launch removes everything it made. The VM processes are independent of the
+  controller: after a restart `Init` finds them again by their command line
+  (`-name <id>`), and removes what is left of launches that never got a process and
+  of VMs whose process is gone (a VM that powers itself off is reported once as
+  terminated). Addresses come from the ARP table of the bridge, by the VM's MAC.
+  `DeleteInstance` ends the process (SIGTERM, SIGKILL after 15 s), deletes the tap
+  and the directory and moves the serial log to `--qemu-log-dir`.
+- **Errors.** QEMU has no error codes, so launch failures are classified by its
+  messages, the documented exception to the rule of the error classes: `cannot
+  allocate memory` is `InsufficientCapacity`, a KVM that cannot be used is
+  `Unsupported`, `no space left on device` while making disks is `QuotaExceeded`, a
+  missing bridge is `ZoneUnusable`, other disk failures are `Fatal` and any other
+  failure to start the VM is `Retryable`.
+- **Node options.** Settings: `accelerator` and `storage` (`root.size` default 20 GiB,
+  `root.format`, `data[]` with name, size, filesystem and mount path, `localStorage`),
+  network profiles (`model`: the NIC) and placement profiles (`pinCPUs`: the VM runs
+  under `taskset` on consecutive host CPUs). Extra disks are virtio disks with a
+  serial. A data disk whose size no other data disk of the node has is announced
+  to the guest by its by-id link (`/dev/disk/by-id/virtio-<serial>`), disks of one
+  size by the serial pattern `scv*` and the size, local disks by the pattern
+  `virtio-scl*` and their count: the two ways of the first-boot unit both run on every
+  lane. A storage profile with local storage is supported only on `qemu.local`; a
+  profile that pins CPUs only when the host has enough. Settings are free of charge.
+- **Networks.** The `networks` kind ([vendor resources](vendor-resources.md#the-qemu-drivers-networks)).
 
 ## The fake driver
 

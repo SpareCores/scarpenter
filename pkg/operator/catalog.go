@@ -15,8 +15,10 @@ import (
 
 	"github.com/SpareCores/scarpenter/internal/version"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/static"
 	"github.com/SpareCores/scarpenter/pkg/controllers/catalogsync"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
 // WithCatalog builds the catalog from the flags (--keeper-url,
@@ -35,11 +37,15 @@ func (o *Operator) WithCatalog(
 	if err != nil {
 		return nil, err
 	}
+	var source catalog.Source = catalog.NewKeeperSource(catalog.KeeperOptions{
+		URL: o.Options.KeeperURL, APIKey: key, UserAgent: "scarpenter/" + version.Get().Version,
+		PricesRegionsPerRequest: o.Options.KeeperPricesRegionsPerRequest,
+	})
+	if len(o.staticCatalogs) > 0 {
+		source = &catalog.MuxSource{Default: source, Vendors: o.staticCatalogs}
+	}
 	cat := catalog.New(catalog.Options{
-		Source: catalog.NewKeeperSource(catalog.KeeperOptions{
-			URL: o.Options.KeeperURL, APIKey: key, UserAgent: "scarpenter/" + version.Get().Version,
-			PricesRegionsPerRequest: o.Options.KeeperPricesRegionsPerRequest,
-		}),
+		Source:          source,
 		Facts:           facts,
 		Unavailable:     un,
 		Gate:            gate,
@@ -71,4 +77,23 @@ func readAPIKey(path string) (string, error) {
 		return "", fmt.Errorf("the Keeper API key file %s is empty", path)
 	}
 	return key, nil
+}
+
+// staticCatalogs collects the catalogs of the drivers that bring their own
+// instead of reading Keeper's (the development drivers).
+func staticCatalogs(reg *vendors.Registry) (map[string]catalog.Source, error) {
+	out := map[string]catalog.Source{}
+	for _, vendor := range reg.Vendors() {
+		drv, _ := reg.Driver(vendor)
+		p, ok := drv.(vendors.CatalogProvider)
+		if !ok {
+			continue
+		}
+		src, err := static.Parse(p.CatalogYAML())
+		if err != nil {
+			return nil, fmt.Errorf("the catalog of the %s driver: %w", vendor, err)
+		}
+		out[vendor] = src
+	}
+	return out, nil
 }

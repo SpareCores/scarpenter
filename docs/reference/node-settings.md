@@ -171,8 +171,26 @@ The unit, rendered only for nodes that have volumes or local storage:
   (`flock`), so two volumes of the same size never take the same disk.
 - `<escaped-mount-path>.mount` mounts `/dev/disk/by-label/<label>` at the mount
   path, wanted by `local-fs.target` and ordered after the preparing service
-  (no `nofail`). A weak dependency does not stop the boot when a volume fails:
-  whether to make it required is decided with the first boot test of plan 07.
+  (no `nofail`). The mounts are **weak** for the boot (a failed volume does not
+  stop it: the node stays reachable by ssh, with the failed unit and its journal
+  to look at) but **required by the kubelet**: a drop-in
+  (`40-scarpenter-volumes.conf`) gives `kubelet.service` `RequiresMountsFor=` all
+  the mount paths, so a node whose volume failed never starts its kubelet and
+  never registers; Pods do not write to the root disk instead of the volume they
+  asked for, and core replaces the NodeClaim that does not register. (Plan 07
+  decided this with the first boots on real Flatcar, scenario Q08 of the L4
+  lane: making the mounts required for `local-fs.target` would have put the
+  node into emergency mode instead, unreachable.) The preparing services have an
+  explicit `TimeoutStartSec=210`, above the scripts' own 180 s wait for the device.
+  The mount also waits for the device unit of its label
+  (`dev-disk-by\x2dlabel-<label>.device`), whose start job times out after
+  `DefaultDeviceTimeoutSec` (90 s) counted from the start of the boot transaction,
+  not from the end of the preparing service: a volume that attaches late would
+  get its label after the job had failed and the mount, and with it the kubelet,
+  would fail although the script was still within its 180 s. Each label's device
+  unit therefore gets a drop-in with `JobRunningTimeoutSec=240` (what fstab's
+  `x-systemd.device-timeout=` generates); the L4 lane checks the setting on the
+  device unit of every volume.
 - With local storage, `scarpenter-local-storage.service`: `mount` puts an ext4
   filesystem labelled `scl-<n>` on every local disk (one disk at `mountPath`, more
   at `mountPath`, `mountPath-1`, ...); `raid0` stripes them into
@@ -188,6 +206,20 @@ and are checked when the user-data is rendered. The scripts are
 They add about 2.5 KiB (compressed and encoded) and 0.3 KiB per volume to the
 user-data: eight volumes and four local disks on the tailscale template are about
 11 KiB of the 16 KiB limit (the default templates themselves are held to 12 KiB).
+The NodeClass controller's trial rendering includes every storage setup each
+vendor allows (the vendor block's `storage` and each storage profile on top of it,
+with local disks counted as 24, the most a type has), so a NodeClass whose user Butane leaves
+no room for its volumes is `ValidationSucceeded=False` (`TemplateInvalid`) before
+any launch.
+
+The first-boot scripts were run on real Flatcar (L4 scenarios Q01 and Q02): the
+tools they use (`blkid -p`, `lsblk -dnbp -o PATH,SIZE,TYPE,SERIAL`, `findmnt`,
+`flock`, `mdadm`, `mkfs.ext4`, `mkfs.xfs`, `mkfs.btrfs`) all exist on Flatcar;
+two data disks of one size are told apart under the lock; a disk that carries a
+volume's label is taken before a blank one, and a reboot neither wipes nor
+creates anything twice (checked with the UUIDs); the raid0 array keeps its
+identity across a reboot (`--homehost=any` keeps `/dev/md/scarpenter-local`
+stable, the script assembles it from the members' metadata).
 
 ## Kubelet reservations
 
