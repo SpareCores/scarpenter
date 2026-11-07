@@ -34,7 +34,7 @@ Execution protocol:
 | 06 | `done/06-node-options-and-resources.md` | done | settings resolution and profiles, vendor resources (use/create, lifecycles, GC), pricing deltas, first-boot volume unit; fake driver + L3 scenarios | 05 |
 | 07 | `done/07-qemu-driver.md` | done | qemu driver, L4 lane with real Flatcar VMs, k3s and a data volume | 06 |
 | 08 | `done/08-aws-driver.md` | done | AWS driver incl. quotas, storage/placement/network profiles and resources (in-memory EC2 + Service Quotas fake), IAM policy | 06 |
-| 09 | `wip/09-packaging.md` | todo | Helm chart, release workflow, install and credentials how-tos, controller reference | 08 |
+| 09 | `wip/09-packaging.md` | review | Helm chart, release workflow, install and credentials how-tos, controller reference | 08 |
 | 10 | `wip/10-aws-e2e.md` | todo | L5 AWS e2e over Tailscale + sweeper (written and validated, run by the coordinator) | 09 |
 | 11 | `wip/11-docs-and-release.md` | todo | tutorials, how-tos for profiles, selection and resources, add-a-vendor guide, first release (v0.1.0) | 07, 10 |
 | 12 | `wip/12-aws-gpu.md` | optional | NVIDIA sysext on AWS GPU types | 10 + GPU spike |

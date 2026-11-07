@@ -375,3 +375,82 @@ func TestValidateRendersTheLargestStorageSetup(t *testing.T) {
 		t.Errorf("a NodeClass with a large profile and no other content: %v", err)
 	}
 }
+
+func dnsService(name string, labels map[string]string, ips ...string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "kube-system", Labels: labels},
+		Spec:       corev1.ServiceSpec{ClusterIP: ips[0], ClusterIPs: ips},
+	}
+}
+
+func TestClusterDNSFromTheService(t *testing.T) {
+	label := map[string]string{"k8s-app": "kube-dns"}
+	cases := map[string]struct {
+		objs    []client.Object
+		want    []string
+		wantErr string
+	}{
+		"labelled, any name": {[]client.Object{dnsService("coredns", label, "10.43.0.10")}, []string{"10.43.0.10"}, ""},
+		"dual stack":         {[]client.Object{dnsService("kube-dns", label, "10.96.0.10", "fd00::a")}, []string{"10.96.0.10", "fd00::a"}, ""},
+		"named, unlabelled":  {[]client.Object{dnsService("kube-dns", nil, "10.96.0.10")}, []string{"10.96.0.10"}, ""},
+		"label wins over the name": {[]client.Object{
+			dnsService("kube-dns", nil, "10.96.0.99"), dnsService("rke2-coredns", label, "10.43.0.10")}, []string{"10.43.0.10"}, ""},
+		"another namespace is not looked at": {[]client.Object{&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "kube-dns", Namespace: "other", Labels: label},
+			Spec:       corev1.ServiceSpec{ClusterIP: "10.1.1.1"}}}, nil, "no cluster DNS Service found"},
+		"headless":  {[]client.Object{dnsService("kube-dns", label, corev1.ClusterIPNone)}, nil, "no cluster DNS Service found"},
+		"not found": {nil, nil, "set --cluster-dns"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			kube := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(c.objs...).Build()
+			got, err := (&bootstrap.KubeReferences{Reader: kube}).ClusterDNS(t.Context())
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("err = %v, want %q", err, c.wantErr)
+				}
+				return
+			}
+			if err != nil || strings.Join(got, ",") != strings.Join(c.want, ",") {
+				t.Errorf("got %v, %v; want %v", got, err, c.want)
+			}
+		})
+	}
+}
+
+func TestRendererClusterDNSSources(t *testing.T) {
+	lookupCalls := 0
+	lookup := func(context.Context) ([]string, error) { lookupCalls++; return []string{"10.43.0.10"}, nil }
+	failing := func(context.Context) ([]string, error) { return nil, errors.New("no DNS Service") }
+	render := func(opts bootstrap.RendererOptions) (string, error) {
+		opts.APIServerEndpoint = "https://api.example.com:6443"
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ts-node-key", Namespace: "scarpenter"}, Data: map[string][]byte{"authkey": []byte(testAuthKey)}}
+		opts.Refs = kubeRefs(t, rootCA(), secret)
+		out, err := bootstrap.NewRenderer(opts).Render(t.Context(), bootstrap.RenderRequest{
+			NodeClass: nodeClass(tailscaleClass), NodeClaim: newClaim(), Vendor: "aws", Region: "us-east-1", Arch: "amd64",
+			Token: testToken, NodeName: "n", ProviderID: "scarpenter://aws/us-east-1/n",
+		})
+		if err != nil {
+			return "", err
+		}
+		_, parts := decode(t, out)
+		return readable(t, parts[0]), nil
+	}
+
+	explicit, err := render(bootstrap.RendererOptions{ClusterDNS: []string{"10.96.0.10"}, ClusterDNSLookup: lookup})
+	if err != nil || !strings.Contains(explicit, "10.96.0.10") || lookupCalls != 0 {
+		t.Errorf("an explicit value must win without a lookup: err %v, lookups %d", err, lookupCalls)
+	}
+	found, err := render(bootstrap.RendererOptions{ClusterDNSLookup: lookup})
+	if err != nil || !strings.Contains(found, "10.43.0.10") || lookupCalls != 1 {
+		t.Errorf("the found Service must be rendered: err %v, lookups %d", err, lookupCalls)
+	}
+	none, err := render(bootstrap.RendererOptions{})
+	if err != nil || strings.Contains(none, "clusterDNS") {
+		t.Errorf("without a lookup (--cluster-dns=none) clusterDNS stays unset: err %v", err)
+	}
+	_, err = render(bootstrap.RendererOptions{ClusterDNSLookup: failing})
+	if _, ok := errors.AsType[*bootstrap.ClusterDNSError](err); !ok {
+		t.Errorf("a DNS Service that is not found must fail the rendering with a ClusterDNSError, got %v", err)
+	}
+}

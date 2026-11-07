@@ -1,0 +1,92 @@
+# Every value set to something other than its default.
+nameOverride: ""
+fullnameOverride: scarpenter
+replicaCount: 2
+image:
+  repository: registry.example.com/scarpenter
+  digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  pullPolicy: Always
+imagePullSecrets: [{name: pull-secret}]
+serviceAccount:
+  annotations: {team: platform}
+cluster:
+  name: prod_1
+  apiServerEndpoint: https://api.example.com:6443
+  ca: {existingConfigMap: cluster-ca, key: ca.pem}
+  dns: [10.96.0.10, fd00::10]
+  domain: cluster.example
+kubeletClientCA:
+  source: inline
+  inline: |
+    -----BEGIN CERTIFICATE-----
+    MIIBpDCCAUqgAwIBAgIUEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEwCgYIKoZI
+    -----END CERTIFICATE-----
+vendors:
+  aws:
+    homeRegion: eu-central-1
+    region: eu-west-1
+    ipv4Price: "0.0036"
+    credentials:
+      mode: webIdentity
+      webIdentity:
+        roleArn: arn:aws:iam::123456789012:role/scarpenter-prod
+        audience: sts.example.com
+        expirationSeconds: 7200
+        sessionName: scarpenter
+keeper:
+  url: https://keeper.example.com
+  apiKey: {existingSecret: keeper-key, key: token}
+  pricesRegionsPerRequest: 3
+catalog: {refreshInterval: 30m, maxAge: 12h}
+artifacts:
+  sysextBaseURL: https://mirror.example.com/sysext
+  flatcarBaseURL: https://mirror.example.com/flatcar/{channel}
+bootstrap:
+  tokenTTL: 45m
+  tailnetPrefixes: [100.64.0.0/10, 10.1.0.0/16]
+launch: {maxAttempts: 5}
+quota: {refreshInterval: 90s, limitsRefreshInterval: 20m, maxStaleness: 30m, launchableRefreshInterval: 2h}
+gc: {interval: 3m, gracePeriod: 10m, dryRun: true}
+unavailable: {insufficientCapacityTTL: 4m, unsupportedTTL: 12h, quotaExceededTTL: 1h, zoneUnusableTTL: 15m}
+managedResources: {defaultTTL: 48h, perUseGrace: 3m, checkInterval: 45s, fullSweepEvery: 20}
+karpenter:
+  logLevel: debug
+  batchMaxDuration: 20s
+  batchIdleDuration: 2s
+  featureGates: NodeRepair=true
+  metricsPort: 9090
+  healthProbePort: 9091
+metrics:
+  service: {annotations: {example.com/scrape: "true"}}
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  interval: 15s
+  scrapeTimeout: 10s
+  labels: {release: prometheus}
+extraArgs: ["--enable-profiling"]
+extraEnv: [{name: HTTPS_PROXY, value: "http://proxy.example.com:3128"}]
+rbac:
+  authKeySecrets:
+    - {namespace: tailscale, name: ts-node-key}
+  extraRules:
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [list, watch]
+examples:
+  enabled: true
+  nodeClass:
+    name: prod
+    networkTemplate: tailscale
+    tailscale: {version: v1.98.10, secretName: ts-node-key, secretKey: authkey, tags: ["tag:k8s-node"]}
+  aws: {regions: [eu-central-1, eu-west-1]}
+  nodePool: {cpuLimit: "500"}
+podAnnotations: {example.com/note: full}
+podLabels: {tier: control}
+priorityClassName: system-cluster-critical
+resources:
+  requests: {cpu: 500m, memory: 1Gi}
+  limits: {memory: 2Gi}
+nodeSelector: {kubernetes.io/os: linux, node-group: system}
+tolerations: [{key: CriticalAddonsOnly, operator: Exists}]
+podDisruptionBudget: {minAvailable: 1}

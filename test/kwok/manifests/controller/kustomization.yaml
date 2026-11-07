@@ -1,6 +1,0 @@
-# The controller as the L3 lane runs it. SCarpenter's RBAC is config/rbac (run.sh
-# applies it); rbac.yaml here adds core's permissions and the fake driver's.
-resources:
-  - namespace.yaml
-  - rbac.yaml
-  - deployment.yaml

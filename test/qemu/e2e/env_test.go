@@ -181,6 +181,9 @@ func startController(t *testing.T) {
 		"--resource-check-interval=10s",
 		"--batch-max-duration=5s", "--batch-idle-duration=500ms",
 		"--log-level=debug",
+		// The lane's k3s runs without CoreDNS, so there is no DNS Service to find
+		// (the controller reads it itself when --cluster-dns is not set).
+		"--cluster-dns=none",
 	}
 	if ctlClientCA {
 		args = append(args, "--kubelet-client-ca-file="+lane.kubeletClientCA)

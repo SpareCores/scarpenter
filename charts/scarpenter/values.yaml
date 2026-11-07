@@ -1,0 +1,387 @@
+# Default values of the scarpenter chart. Every flag of the controller has a value
+# here (docs/reference/controller.md lists the flags next to their values); a
+# value left empty (or null) leaves the flag out, so the controller's own default
+# applies. test/chart/run.sh checks that every flag of the controller can be set.
+#
+# Required: cluster.name and cluster.apiServerEndpoint, and for the default
+# credentials vendors.aws.credentials.webIdentity.roleArn.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Replicas of the controller. With leaderElection.enabled only the leader
+# reconciles; the others are warm standbys (the controller keeps no state
+# outside the cluster and the vendor, so a standby takes over within the lease
+# duration).
+replicaCount: 1
+
+image:
+  # The production build: the drivers of the supported vendors only. The
+  # development image (scarpenter-dev, with the fake and qemu drivers) is for the
+  # test lanes.
+  repository: ghcr.io/sparecores/scarpenter
+  # Defaults to the chart's appVersion (the release tag without the "v").
+  tag: ""
+  # Takes precedence over tag when set, for example "sha256:...".
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  # Defaults to the full name of the release.
+  name: ""
+  annotations: {}
+  automount: true
+
+# --------------------------------------------------------------------------
+# The cluster the nodes join
+# --------------------------------------------------------------------------
+
+cluster:
+  # Tag value on vendor resources and part of their names; with AWS it is the
+  # value the IAM policy is scoped to (--cluster-name). Letters, digits, - and _,
+  # at most 63 characters. REQUIRED.
+  name: ""
+  # https:// URL nodes use to reach the API server (--api-server-endpoint).
+  # REQUIRED. Must be reachable from the nodes, not only from inside the cluster.
+  apiServerEndpoint: ""
+  # The CA bundle given to nodes. Without a value the controller reads the
+  # kube-root-ca.crt ConfigMap of its own namespace, which every namespace has.
+  # To give another one, name a ConfigMap or a Secret of the release namespace
+  # (mounted, --cluster-ca-file).
+  ca:
+    existingConfigMap: ""
+    existingSecret: ""
+    key: ca.crt
+  # IPs of the cluster DNS service, set as the kubelet's clusterDNS on nodes
+  # (--cluster-dns). Empty: derived, see dnsFromService.
+  dns: []
+  # With no dns: the ClusterIP of this Service is looked up when the chart is
+  # installed or upgraded (Helm's lookup, a convenience). Where the chart is
+  # rendered without a cluster (helm template, ArgoCD) the flag is left out and
+  # the controller finds the DNS Service itself (the Service of kube-system
+  # labelled k8s-app=kube-dns, else named kube-dns); an SCNodeClass is not valid
+  # (ValidationSucceeded=False, reason ClusterDNSUnknown) while it finds none. With
+  # enabled: false and no dns the flag is --cluster-dns=none: the nodes get no
+  # clusterDNS and their Pods use the node's resolver.
+  dnsFromService:
+    enabled: true
+    namespace: kube-system
+    name: kube-dns
+  # The kubelet's clusterDomain on nodes (--cluster-domain).
+  domain: ""
+
+# The CA that signs the API server's client certificate for kubelets, where it
+# is not the cluster CA (--kubelet-client-ca-file). Without it `kubectl logs` and
+# `exec` fail with 401 on k3s; kubeadm and EKS need no value.
+kubeletClientCA:
+  # none: the cluster CA is used.
+  # inline: the PEM in `inline`, kept in a ConfigMap of the release.
+  # configMap, secret: an existing object of the release namespace.
+  # extensionApiserverAuthentication: copy key client-ca-file of the ConfigMap
+  #   kube-system/extension-apiserver-authentication (the API server's
+  #   --client-ca-file: the client CA on k3s, the cluster CA elsewhere) into a
+  #   ConfigMap of the release when the chart is installed or upgraded (Helm's
+  #   lookup, so it needs a live cluster; upgrade after the CA is rotated).
+  source: none
+  inline: ""
+  configMap:
+    name: ""
+    key: client-ca.crt
+  secret:
+    name: ""
+    key: client-ca.crt
+
+# --------------------------------------------------------------------------
+# Vendors
+# --------------------------------------------------------------------------
+
+vendors:
+  aws:
+    enabled: true
+    # Region of the account-wide listings (--aws-home-region); default us-east-1.
+    homeRegion: ""
+    # AWS_REGION of the Deployment: the region the SDK's STS and default clients
+    # use. Empty: homeRegion, else us-east-1.
+    region: ""
+    # Price of a public IPv4 address per hour in USD, used in the price of AWS
+    # offerings (SCARPENTER_AWS_IPV4_PRICE). An approximation, not a Keeper price;
+    # empty: 0.005 (what AWS charges in every commercial region). "0": free.
+    ipv4Price: ""
+    credentials:
+      # webIdentity: the ServiceAccount's projected token is exchanged for the
+      #   role (IRSA on EKS, or any cluster whose ServiceAccount issuer is
+      #   registered as an IAM OIDC provider); recommended.
+      # secret: static keys from an existing Secret (the fallback).
+      # none: nothing is wired; the SDK's default chain finds the credentials
+      #   (EKS Pod Identity, an instance profile of the node).
+      mode: webIdentity
+      webIdentity:
+        # ARN of the IAM role to assume (AWS_ROLE_ARN). REQUIRED for this mode.
+        roleArn: ""
+        # Audience of the projected token: what the OIDC provider of the
+        # account lists as client ID.
+        audience: sts.amazonaws.com
+        expirationSeconds: 3600
+        # AWS_ROLE_SESSION_NAME; empty: the SDK's default.
+        sessionName: ""
+        # Also annotate the ServiceAccount with eks.amazonaws.com/role-arn, for
+        # clusters that run the EKS pod identity webhook (it then injects the
+        # same environment; the chart's explicit wiring wins).
+        annotateServiceAccount: true
+      secret:
+        existingSecret: ""
+        accessKeyIdKey: AWS_ACCESS_KEY_ID
+        secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
+        # Optional: the key of a session token.
+        sessionTokenKey: ""
+  # Further drivers compiled into the image, for the development image only
+  # (fake, qemu). Their flags go to extraArgs.
+  extra: []
+
+keeper:
+  # Base URL of the Spare Cores Keeper API (--keeper-url). The controller needs
+  # outbound HTTPS to it: the catalog (/table/*, /servers, /server_prices) and the
+  # AWS EBS prices (/storage_prices).
+  url: ""
+  # Optional Keeper API key, read from an existing Secret and mounted as a file
+  # (--keeper-api-key-file). Without it the access is anonymous.
+  apiKey:
+    existingSecret: ""
+    key: api-key
+  # Regions per price request (--keeper-prices-regions-per-request); 0 or empty:
+  # the client's default.
+  pricesRegionsPerRequest: null
+
+catalog:
+  # How often the catalog is refreshed from Keeper (--catalog-refresh-interval; 1h).
+  refreshInterval: ""
+  # Age after which a snapshot is stale (--catalog-max-age; 24h).
+  maxAge: ""
+
+artifacts:
+  # Mirrors of the Flatcar sysext-bakery releases and the Flatcar release files
+  # (--sysext-base-url, --flatcar-base-url); empty: upstream.
+  sysextBaseURL: ""
+  flatcarBaseURL: ""
+
+bootstrap:
+  # Lifetime of a node's bootstrap token (--bootstrap-token-ttl; 1h). At least
+  # 20m: core gives a NodeClaim 15 minutes to register.
+  tokenTTL: ""
+  # CIDRs of the tailnet the tailscale template's serving certificates may name
+  # (--tailnet-prefixes); empty: Tailscale's 100.64.0.0/10 and fd7a:115c:a1e0::/48.
+  tailnetPrefixes: []
+
+launch:
+  # Vendor calls one NodeClaim creation may make (--max-launch-attempts; 3).
+  maxAttempts: null
+
+quota:
+  # --quota-refresh-interval (2m), --quota-limits-refresh-interval (15m),
+  # --quota-max-staleness (15m), --quota-launchable-refresh-interval (1h).
+  refreshInterval: ""
+  limitsRefreshInterval: ""
+  maxStaleness: ""
+  launchableRefreshInterval: ""
+
+gc:
+  # --gc-interval (2m), --gc-grace-period (5m), --gc-dry-run.
+  interval: ""
+  gracePeriod: ""
+  dryRun: false
+
+unavailable:
+  # Lifetimes of the unavailable-offerings cache per error class; empty or 0
+  # keeps the class's default (3m, 24h, 30m, 10m).
+  # --unavailable-insufficient-capacity-ttl, --unavailable-unsupported-ttl,
+  # --unavailable-quota-exceeded-ttl, --unavailable-zone-unusable-ttl
+  insufficientCapacityTTL: ""
+  unsupportedTTL: ""
+  quotaExceededTTL: ""
+  zoneUnusableTTL: ""
+
+# Managed vendor resources (networks, security groups, placement groups, ...).
+managedResources:
+  # idleTTL of managed shared resources when an SCNodeClass sets none
+  # (--resource-default-ttl; 24h).
+  defaultTTL: ""
+  # How long an unused perUse resource is kept for launches in flight
+  # (--resource-per-use-grace; 2m).
+  perUseGrace: ""
+  # How often the resources of each SCNodeClass are checked
+  # (--resource-check-interval; 30s).
+  checkInterval: ""
+  # Every this many garbage collection sweeps (and after a NodeClass was
+  # deleted) every region of the driver is swept, not only the regions in use
+  # (--resource-full-sweep-every; 10). A full sweep lists the managed resources
+  # of every region the account can use: a few dozen read-only calls per
+  # sweep. Raise it to make them rarer.
+  fullSweepEvery: null
+
+# --------------------------------------------------------------------------
+# Karpenter core
+# --------------------------------------------------------------------------
+
+karpenter:
+  # --log-level: debug, info or error (info).
+  logLevel: ""
+  # The batching window for pending pods (--batch-max-duration, 10s;
+  # --batch-idle-duration, 1s).
+  batchMaxDuration: ""
+  batchIdleDuration: ""
+  # Core's feature gates (--feature-gates), for example "NodeRepair=true".
+  featureGates: ""
+  metricsPort: 8080
+  healthProbePort: 8081
+
+# Only one replica reconciles at a time; a Lease in the release namespace.
+leaderElection:
+  enabled: true
+
+metrics:
+  enabled: true
+  service:
+    type: ClusterIP
+    annotations: {}
+
+# Prometheus Operator ServiceMonitor (needs its CRD).
+serviceMonitor:
+  enabled: false
+  # Namespace of the ServiceMonitor; defaults to the release namespace.
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: ""
+  labels: {}
+
+# Arguments and environment added to the controller as they are (core's other
+# flags, the development drivers' flags).
+extraArgs: []
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
+
+# --------------------------------------------------------------------------
+# RBAC
+# --------------------------------------------------------------------------
+
+rbac:
+  # The rules are those of config/rbac and config/rbac-core (copied into the
+  # chart by make chart-rbac): no cluster-wide access to Secrets, a Role in
+  # kube-system for the bootstrap tokens, a Role in the release namespace for the
+  # tailscale auth key Secret, and the three ClusterRoleBindings that let nodes
+  # join.
+  create: true
+  # Tailscale auth key Secrets in other namespaces (an SCNodeClass's
+  # authKeySecretRef): a Role that reads just that Secret and a RoleBinding to
+  # the controller are created there.
+  authKeySecrets: []
+  #  - namespace: tailscale
+  #    name: ts-node-key
+  # Rules appended to the controller's ClusterRole.
+  extraRules: []
+
+# The CRDs (SCNodeClass, and Karpenter core's NodePool and NodeClaim) are in the
+# chart's crds/ directory: Helm installs them before the templates, skips those
+# that exist and never upgrades or deletes them. On a cluster that already runs
+# Karpenter its CRDs are kept at install, and the upgrade step of
+# docs/how-to-guides/install.md must NOT apply this chart's karpenter.sh files
+# over them. helm install --skip-crds leaves all of them out. NodeOverlay and
+# CapacityBuffer (core feature gates, off) are not shipped.
+
+# Example SCNodeClass and NodePool (one pair per enabled vendor). They are
+# examples: set the versions and regions, and the network, for your cluster
+# before you rely on them.
+examples:
+  enabled: false
+  nodeClass:
+    name: default
+    flatcarChannel: stable
+    flatcarVersion: "4757.2.3"
+    kubernetesVersion: "v1.37.1"
+    # direct, tailscale or custom (docs/how-to-guides/choose-a-network-template.md).
+    networkTemplate: direct
+    # tailscale only: the auth key Secret and the tags of the nodes.
+    tailscale:
+      version: ""
+      secretName: ts-node-key
+      secretKey: authkey
+      tags: ["tag:k8s-node"]
+  aws:
+    regions: [us-east-1]
+  nodePool:
+    # CPU limit of the NodePool; the example's guard against a runaway.
+    cpuLimit: "100"
+
+# --------------------------------------------------------------------------
+# Pod
+# --------------------------------------------------------------------------
+
+podAnnotations: {}
+podLabels: {}
+deploymentAnnotations: {}
+
+priorityClassName: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# Sized from the L3 scale measurement (50 pending pods, one NodePool): with
+# three regions the controller peaks at about 300 MiB RSS, with every AWS region
+# (about 135 000 offerings) at about 475 MiB. The memory limit also sets the
+# garbage collector's soft limit (core's MEMORY_LIMIT, 90 %). Keep the limit
+# above 700 MiB when every region is in scope.
+resources:
+  requests:
+    cpu: 200m
+    memory: 640Mi
+  limits:
+    memory: 1Gi
+
+livenessProbe:
+  initialDelaySeconds: 15
+  periodSeconds: 20
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+terminationGracePeriodSeconds: 30
+
+# The controller must not run on a node it manages: when Karpenter removes such
+# a node (consolidation, drift, expiry), the controller that would replace the
+# capacity goes with it. Prefer nodes that no NodePool owns. It is a preference,
+# not a requirement, so that the chart also schedules where every node is
+# Karpenter's; pin the controller with nodeSelector (and tolerations) to
+# nodes outside Karpenter's control, as docs/how-to-guides/install.md describes,
+# or make it required here.
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: karpenter.sh/nodepool
+              operator: DoesNotExist
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations: []
+
+topologySpreadConstraints: []
+
+podDisruptionBudget:
+  # Rendered only with more than one replica (a PDB with minAvailable 1 on a
+  # single replica blocks node drains).
+  enabled: true
+  minAvailable: 1

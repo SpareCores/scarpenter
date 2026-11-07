@@ -1,0 +1,42 @@
+SCarpenter {{ .Chart.AppVersion }} is installed in the namespace {{ .Release.Namespace }}.
+
+Check the controller:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "scarpenter.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs deployment/{{ include "scarpenter.fullname" . }}
+
+Cluster {{ .Values.cluster.name }}; nodes reach the API server at {{ .Values.cluster.apiServerEndpoint }}.
+{{- if eq (include "scarpenter.clusterDNS" .) "none" }}
+
+NOTE: cluster.dns is "none": the Pods of the nodes use the node's resolver and
+cannot resolve cluster Services.
+{{- else if not (include "scarpenter.clusterDNS" .) }}
+
+The cluster DNS was not set here (no cluster to look it up in): the controller
+reads the ClusterIP of the DNS Service of kube-system itself, and an SCNodeClass is
+not valid while it finds none. Set cluster.dns to give it explicitly.
+{{- end }}
+{{- if eq .Values.kubeletClientCA.source "none" }}
+
+NOTE: on k3s, kubectl logs and exec fail with 401 for the nodes unless
+kubeletClientCA.source is set (the API server's client CA is not the cluster CA
+there; kubeadm and EKS need nothing). See docs/how-to-guides/install.md.
+{{- end }}
+{{- if .Values.vendors.aws.enabled }}
+{{- if eq .Values.vendors.aws.credentials.mode "none" }}
+
+AWS credentials are not wired by the chart (credentials.mode none): the pod must
+get them from EKS Pod Identity or the node's instance profile.
+{{- end }}
+{{- end }}
+{{- if not .Values.examples.enabled }}
+
+Create an SCNodeClass and a NodePool that references it; examples:
+  https://github.com/SpareCores/scarpenter/tree/main/config/samples
+  (or helm upgrade --reuse-values --set examples.enabled=true)
+{{- end }}
+{{- if gt (len .Values.vendors.extra) 0 }}
+
+WARNING: vendors.extra names development drivers ({{ join ", " .Values.vendors.extra }}); they
+exist only in the development image (image.repository ghcr.io/sparecores/scarpenter-dev).
+{{- end }}

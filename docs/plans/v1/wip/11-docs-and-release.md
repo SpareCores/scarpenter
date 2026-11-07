@@ -63,6 +63,56 @@ release.
   `type/capacity-type`; per-call timeouts; an independent fake with documented fidelity
   gaps; an `ImageReporter` error that is transient must not gate a region.
 
+## Carried over from the plan 09 review
+
+Repository settings (they cannot be set from a work tree; do them before the first
+stable tag, and list them in `docs/how-to-guides/testing.md#releases`):
+
+- A tag ruleset on `v*`: creation, update and deletion restricted to maintainers (it also
+  blocks re-pointing a tag, which would republish a version with a new digest).
+- The environment `release` with required reviewers and "Selected tags: v*". The
+  workflow's own checks (commit on main, the environment) are guardrails against mistakes:
+  the workflow file of the tagged commit is the one that runs, and `packages: write` comes
+  from `GITHUB_TOKEN`, which no environment gates.
+- GHCR: the packages `scarpenter`, `scarpenter-dev` and `charts/scarpenter` public, linked
+  to the repository, Actions write access limited to it; default workflow permissions
+  read-only; "Require approval for all outside collaborators" for fork pull requests.
+
+Verify with a throwaway pre-release tag (`v0.1.0-rc.1`) before v0.1.0:
+
+- The tag path end to end: the verify job including the ancestry check, the environment
+  approval, both images pushed multi-arch, the SBOM extraction non-empty, the `helm push`
+  output parsing (`Digest:`), image and chart signatures, the release with notes and
+  assets, `--prerelease` set, `latest` and the minor tag not moved (the highest-stable-tag
+  logic of the `verify` job).
+- `cosign verify` with the identity of the release notes for the image, the dev image and
+  the chart, with the cosign version users will have (cosign 3 bundle format, GHCR
+  referrers or tag fallback); state the minimum cosign version in the notes.
+- `helm install` from `oci://ghcr.io/sparecores/charts/scarpenter` on a clean cluster at
+  the minimum Kubernetes version (1.31) and on a cluster that already runs Karpenter
+  (coexistence section of the install guide; the chart's `crds/` skips existing CRDs), with
+  Helm 3 and Helm 4 (the chart is only tested with Helm 4.3 so far; `test/chart` honours
+  `HELM=<binary>`). Apply `crds/` to a kind cluster at the minimum version in the release
+  checklist.
+
+Other:
+
+- Decide the long-term home of core's CRDs (a separate CRD chart, or templated CRDs behind
+  `crds.core.install`, so that ownership is explicit); NodeOverlay and CapacityBuffer are
+  not shipped and must be added when SCarpenter turns the gates on.
+- Chart README and icon for Artifact Hub; the install example version in the how-tos.
+- The uninstall Job: not for v0.1.0. If wanted later, an opt-in `cleanup.onUninstall`
+  implemented as a subcommand of the controller binary (`scarpenter-controller cleanup
+  --wait`) so that the hook uses the same signed image, with a documented timeout;
+  it must delete only NodePools whose `nodeClassRef.group` is SCarpenter's.
+- L4: apply `config/rbac-core` instead of `test/qemu/manifests/rbac.yaml` (still a wider
+  duplicate of core's rules).
+- Overview section 12 and 15: the new values and `--cluster-dns=none`, `--version`,
+  chart-owned RBAC (`config/rbac-core`), the cluster DNS discovery and the
+  `ClusterDNSUnknown` reason, the minimum Kubernetes version 1.31 (CEL `isCIDR`), the
+  coexistence rules, the lease name `<release>-leader-election`.
+- Reproducible image builds (`SOURCE_DATE_EPOCH`, `rewrite-timestamp`) are optional.
+
 ## Gates
 
 CONVENTIONS gates 1–4; `hack/check-docs.py` clean (links, no local paths, no

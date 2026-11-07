@@ -1,11 +1,13 @@
 version: "2"
 run:
   allow-parallel-runners: true
-  # The development vendors (scarpenter_dev) and the lanes (L3 kwok, L4 qemu).
+  # The development vendors (scarpenter_dev), the lanes (L3 kwok, L4 qemu) and
+  # the chart tests.
   build-tags:
     - scarpenter_dev
     - kwok
     - qemu
+    - chart
 linters:
   default: none
   enable:

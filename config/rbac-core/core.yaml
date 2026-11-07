@@ -1,13 +1,14 @@
-# The ServiceAccount, SCarpenter's own permissions (SCNodeClasses, certificate
-# approval, references, bootstrap tokens) and the node-join bindings are the
-# production ones, config/rbac, which run.sh applies; this file adds what the
-# lane needs besides them: Karpenter core's permissions and the fake driver's.
+# Karpenter core's own permissions: the NodePool and NodeClaim controllers, the
+# provisioner (pods, volumes, the objects scheduling reads), disruption (evictions
+# and node deletion) and the CRD check of the readiness probe. Derived from the
+# AWS provider's chart (clusterrole-core), without what only that provider
+# needs: no creation of Nodes (the nodes register themselves) and no write
+# access to leases outside the controller's own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: scarpenter-kwok
+  name: scarpenter-core
 rules:
-  # Karpenter core (derived from the AWS provider's chart, clusterrole-core).
   - apiGroups: ["karpenter.sh"]
     resources: ["nodepools", "nodepools/status", "nodeclaims", "nodeclaims/status", "nodeoverlays", "nodeoverlays/status"]
     verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
@@ -26,10 +27,10 @@ rules:
   - apiGroups: [""]
     resources: ["pods/eviction"]
     verbs: ["create"]
-  # Nodes: core updates and deletes them; the fake driver creates them.
+  # Core reads, updates and deletes the Nodes it manages; the kubelets create them.
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+    verbs: ["get", "list", "watch", "patch", "update", "delete"]
   - apiGroups: ["storage.k8s.io"]
     resources: ["storageclasses", "csinodes", "volumeattachments"]
     verbs: ["get", "list", "watch"]
@@ -42,18 +43,37 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["get", "list", "watch"]
+  # Core's cache watches the node heartbeat leases of kube-node-lease (a
+  # cluster-wide list and watch with a field selector).
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # The fake driver's configuration and state.
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: scarpenter-kwok
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: scarpenter-kwok}
+  name: scarpenter-core
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: scarpenter-core}
+subjects:
+  - {kind: ServiceAccount, name: scarpenter, namespace: scarpenter-system}
+---
+# Leader election: the lease of the controller (core's LEADER_ELECTION_NAMESPACE,
+# the controller's namespace).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-leader-election
+  namespace: scarpenter-system
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-leader-election
+  namespace: scarpenter-system
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: scarpenter-leader-election}
 subjects:
   - {kind: ServiceAccount, name: scarpenter, namespace: scarpenter-system}

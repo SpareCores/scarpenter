@@ -1,0 +1,29 @@
+{{- /*
+The ConfigMap behind kubeletClientCA.source inline and
+extensionApiserverAuthentication (the others use an existing object).
+*/ -}}
+{{- $s := .Values.kubeletClientCA.source }}
+{{- if or (eq $s "inline") (eq $s "extensionApiserverAuthentication") }}
+{{- $pem := "" }}
+{{- if eq $s "inline" }}
+{{- $pem = required "kubeletClientCA.inline is required with source inline: the PEM bundle" .Values.kubeletClientCA.inline }}
+{{- else }}
+{{- $cm := lookup "v1" "ConfigMap" "kube-system" "extension-apiserver-authentication" }}
+{{- if $cm }}
+{{- $pem = index $cm.data "client-ca-file" | default "" }}
+{{- end }}
+{{- if not $pem }}
+{{- fail "kubeletClientCA.source extensionApiserverAuthentication reads kube-system/extension-apiserver-authentication (key client-ca-file) of a live cluster and found nothing: use it with helm install or upgrade (not helm template), or pass the PEM with source inline" }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "scarpenter.kubeletClientCAName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "scarpenter.labels" . | nindent 4 }}
+data:
+  client-ca.crt: |
+    {{- $pem | trim | nindent 4 }}
+{{- end }}

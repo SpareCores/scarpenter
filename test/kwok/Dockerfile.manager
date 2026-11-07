@@ -1,6 +1,0 @@
-# The controller under test (a scarpenter_dev build made by run.sh in the dev
-# container).
-FROM scratch
-COPY manager /manager
-USER 65532:65532
-ENTRYPOINT ["/manager"]

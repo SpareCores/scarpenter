@@ -1,0 +1,347 @@
+name: Release
+
+# A tag v<semver> (for example v0.1.0 or v0.2.0-rc.1) pushed by a maintainer
+# publishes
+#   - the controller image ghcr.io/sparecores/scarpenter:<semver> for linux/amd64
+#     and linux/arm64 with the production driver set only,
+#   - the development image ghcr.io/sparecores/scarpenter-dev:<semver> (the fake
+#     and qemu drivers, for the test lanes; never installed in production),
+#   - the Helm chart as an OCI artifact, oci://ghcr.io/sparecores/charts/scarpenter,
+#     with the chart version and appVersion set to <semver>,
+#   - cosign keyless signatures of the image and chart digests, a BuildKit SBOM
+#     and SLSA provenance attached to each image (the SBOMs also as release
+#     assets), and a GitHub release with notes and the chart package.
+# The image tag and the chart version carry no "v". A tag with a pre-release
+# suffix creates a pre-release and does not move the "latest" image tag.
+#
+# Safe for a public repository against outsiders: it runs only for tags (creating one needs write
+# access) whose commit is on main, never for pull requests, and the only
+# credential is the job's GITHUB_TOKEN (packages: write and the OIDC token for
+# cosign, in the jobs that publish; contents: write in the last job only). The
+# publishing jobs run in the environment "release": add required reviewers to it
+# in the repository settings to put a human approval before the first publish.
+# The checks in this file are guardrails against mistakes, not against a
+# maintainer: the workflow file of the tagged commit is the one that runs. What
+# bounds a maintainer are repository settings (plan 11): a tag ruleset on v*, the
+# environment's required reviewers and tag filter, GHCR package access.
+# Every action is pinned by commit SHA. workflow_dispatch runs only the dry run
+# (hack/release.sh dry-run, the same script you run locally): it builds and
+# checks everything and publishes nothing, with a read-only token.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: >-
+          Build and check the images and the chart without publishing. Publishing
+          happens only for a tag pushed by a maintainer; false is refused.
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # workflow_dispatch: the build steps of the release, nothing published.
+  dry-run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Only the dry run is available here
+        env:
+          DRY_RUN: ${{ inputs.dryRun }}
+        run: |
+          if [[ "${DRY_RUN}" != "true" ]]; then
+            echo "publishing happens only for a tag pushed by a maintainer; run with dryRun: true" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/dev-image
+
+      - name: Dry run of the release builds
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: hack/dev.sh hack/release.sh dry-run "v0.0.0-dryrun.${RUN_NUMBER}"
+
+  # A tag: the same gates as CI on the tagged commit, which must be on main.
+  verify:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      latest: ${{ steps.latest.outputs.latest }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Version from the tag
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: hack/release.sh version "${TAG}" >>"${GITHUB_OUTPUT}"
+
+      # "latest" (and the major tag) only for the highest stable version: a patch
+      # of an older minor released later must not move it backwards.
+      - name: Is this the highest stable version
+        id: latest
+        env:
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          latest=false
+          if [[ "${PRERELEASE}" == "false" ]]; then
+            highest="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+            [[ "${highest}" == "${TAG}" ]] && latest=true
+          fi
+          echo "latest=${latest}" >>"${GITHUB_OUTPUT}"
+
+      - name: The tagged commit is on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" FETCH_HEAD; then
+            echo "the tagged commit ${GITHUB_SHA} is not on main" >&2
+            exit 1
+          fi
+
+      - uses: ./.github/actions/dev-image
+
+      - name: Generated files are up to date
+        run: |
+          hack/dev.sh make generate manifests chart-crds chart-rbac docs-api
+          git add -N .
+          git diff --exit-code
+
+      - name: Lint
+        run: hack/dev.sh make lint
+
+      - name: Test
+        run: hack/dev.sh make test
+
+      - name: Chart
+        run: hack/dev.sh make test-chart
+
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: controller
+            image: ghcr.io/sparecores/scarpenter
+            go_tags: ""
+            latest: "true"
+          - name: dev
+            image: ghcr.io/sparecores/scarpenter-dev
+            go_tags: scarpenter_dev
+            latest: "false"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ matrix.name == 'controller' && needs.verify.outputs.latest == 'true' }}
+            type=semver,pattern={{major}},enable=${{ matrix.name == 'controller' && needs.verify.outputs.latest == 'true' && !startsWith(github.ref_name, 'v0.') }}
+          # "latest", the minor and the major tag only for the production image of
+          # the highest stable version (verify decides).
+          flavor: latest=${{ matrix.latest == 'true' && needs.verify.outputs.latest == 'true' }}
+
+      # The Dockerfile cross-compiles on the build platform, so the arm64 image
+      # needs no emulation.
+      - name: Build and push the multi-arch image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.verify.outputs.version }}
+            COMMIT=${{ github.sha }}
+            GO_TAGS=${{ matrix.go_tags }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Sign the image (keyless, by digest)
+        env:
+          IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Both architectures are in the image; export the SBOM
+        env:
+          IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          NAME: ${{ matrix.name }}
+        run: |
+          docker buildx imagetools inspect "${IMAGE}@${DIGEST}" | tee inspect.txt
+          grep -q 'linux/amd64' inspect.txt
+          grep -q 'linux/arm64' inspect.txt
+          mkdir -p dist
+          docker buildx imagetools inspect "${IMAGE}@${DIGEST}" --format '{{ json .SBOM }}' >"dist/sbom-${NAME}.spdx.json"
+          test -s "dist/sbom-${NAME}.spdx.json"
+          echo "${IMAGE}@${DIGEST}" >"dist/digest-${NAME}.txt"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.name }}
+          path: dist/
+          if-no-files-found: error
+
+  chart:
+    needs: [verify, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/dev-image
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+
+      - name: Package the chart
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: hack/dev.sh hack/release.sh package-chart "${VERSION}" dist
+
+      # helm runs in the dev container (a pinned version); its registry login
+      # lives in the container's cache volume, which the next hack/dev.sh call
+      # sees. The token goes in through stdin.
+      - name: Push the chart
+        id: push
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          CHART_REPO: oci://ghcr.io/sparecores/charts
+        run: |
+          printf '%s' "${GHCR_TOKEN}" | hack/dev.sh helm registry login ghcr.io --username "${GHCR_USER}" --password-stdin
+          hack/dev.sh helm push "dist/scarpenter-${VERSION}.tgz" "${CHART_REPO}" 2>&1 | tee push.txt
+          digest="$(sed -n 's/^Digest: //p' push.txt | tail -n 1)"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest in the output of helm push" >&2; exit 1; }
+          echo "digest=${digest}" >>"${GITHUB_OUTPUT}"
+
+      - name: Sign the chart (keyless, by digest)
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/sparecores/charts/scarpenter@${DIGEST}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chart
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  release:
+    needs: [verify, images, chart]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          cat >notes.md <<NOTES
+          ## Install
+
+          \`\`\`bash
+          helm install scarpenter oci://ghcr.io/sparecores/charts/scarpenter \\
+            --version ${VERSION} --namespace scarpenter-system --create-namespace \\
+            --set cluster.name=my-cluster --set cluster.apiServerEndpoint=https://api.example.com:6443
+          \`\`\`
+
+          Images: \`ghcr.io/sparecores/scarpenter:${VERSION}\` (linux/amd64, linux/arm64);
+          \`ghcr.io/sparecores/scarpenter-dev:${VERSION}\` carries the development
+          drivers for the test lanes and is not for production.
+
+          ## Verify
+
+          The images and the chart are signed with cosign (keyless, GitHub OIDC;
+          the release is signed with cosign 3, use a current cosign), and each image carries an SBOM and SLSA
+          provenance attestation. Verify all three artifacts:
+
+          \`\`\`bash
+          identity="https://github.com/${GH_REPO}/.github/workflows/release.yml@refs/tags/${TAG}"
+          issuer=https://token.actions.githubusercontent.com
+          for ref in ghcr.io/sparecores/scarpenter:${VERSION} \\
+                     ghcr.io/sparecores/scarpenter-dev:${VERSION} \\
+                     ghcr.io/sparecores/charts/scarpenter:${VERSION}; do
+            cosign verify "\${ref}" --certificate-identity "\${identity}" --certificate-oidc-issuer "\${issuer}"
+          done
+          # or accept any release of this repository:
+          #   --certificate-identity-regexp "^https://github.com/${GH_REPO}/.github/workflows/release.yml@refs/tags/v"
+          \`\`\`
+
+          The SBOMs are attached to this release.
+
+          NOTES
+          flags=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "${TAG}" dist/*.tgz dist/sbom-*.spdx.json \
+            --title "${TAG}" --verify-tag --notes-file notes.md --generate-notes "${flags[@]}"

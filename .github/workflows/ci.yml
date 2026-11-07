@@ -26,9 +26,9 @@ jobs:
 
       - uses: ./.github/actions/dev-image
 
-      - name: Generated code, CRDs, chart CRDs and API docs are up to date
+      - name: Generated code, CRDs, chart CRDs and RBAC, and API docs are up to date
         run: |
-          hack/dev.sh make generate manifests chart-crds docs-api
+          hack/dev.sh make generate manifests chart-crds chart-rbac docs-api
           git add -N .
           git diff --exit-code
 
@@ -38,13 +38,17 @@ jobs:
       - name: Test (unit, golden, envtest)
         run: hack/dev.sh make test
 
+      - name: Helm chart (lint, golden output, flags, RBAC and CRDs in sync)
+        run: hack/dev.sh make test-chart
+
       - name: Build the controller binary
         run: hack/dev.sh make build
 
-      - name: Build the controller image
-        run: hack/dev.sh make image
+      - name: Build the controller image and the development image
+        run: hack/dev.sh make image image-dev
 
-  # L3: SCarpenter with the fake driver in kind (docs/how-to-guides/testing.md).
+  # L3: SCarpenter with the fake driver in kind, installed from the Helm chart
+  # (docs/how-to-guides/testing.md).
   kwok:
     runs-on: ubuntu-latest
     timeout-minutes: 45

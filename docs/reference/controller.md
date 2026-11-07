@@ -2,8 +2,10 @@
 
 The SCarpenter controller is one binary (`scarpenter-controller`) that runs
 Karpenter core's operator with SCarpenter's CloudProvider. This page lists what
-the controller accepts and reports. It grows with the plans that implement the
-behaviour; sections say which plan fills them in.
+the controller accepts and reports: flags and environment variables, the
+[Helm values](#helm-values) that set them, conditions, Events, metrics and
+[permissions](#permissions). `scarpenter-controller --version` prints the version
+and commit of the build and exits.
 
 ## Flags and environment variables
 
@@ -14,15 +16,14 @@ with their upstream names and environment variables (`LOG_LEVEL`,
 `METRICS_PORT`, ...); see the
 [Karpenter documentation](https://karpenter.sh/docs/reference/settings/).
 
-Flags marked "later" are parsed and validated now and used by the plan named in
-the last column.
+The last column names the plan that introduced the flag.
 
 | Flag | Environment | Default | Meaning | Used from |
 |---|---|---|---|---|
 | `--cluster-name` | `SCARPENTER_CLUSTER_NAME` | required | Tag value on vendor resources and part of their names. Letters, digits, `-` and `_`, at most 63 characters, starting with a letter or digit. | plan 04 |
 | `--api-server-endpoint` | `SCARPENTER_API_SERVER_ENDPOINT` | required | `https://` URL nodes use to reach the API server. | plan 05 |
 | `--tailnet-prefixes` | `SCARPENTER_TAILNET_PREFIXES` | empty (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) | Comma-separated CIDRs of the tailnet. With the `tailscale` template a kubelet serving certificate may name a node address only inside them (plus the instance's own addresses); set it for a Headscale with other prefixes. | plan 08 |
-| `--cluster-dns` | `SCARPENTER_CLUSTER_DNS` | empty | Comma-separated IPs of the cluster DNS service, set as the kubelet's `clusterDNS` on nodes. Empty leaves it unset: Pods then use the node's resolver. | plan 05 |
+| `--cluster-dns` | `SCARPENTER_CLUSTER_DNS` | empty | Comma-separated IPs of the cluster DNS service, set as the kubelet's `clusterDNS` on nodes. **Empty: the controller reads the ClusterIPs of the DNS Service of `kube-system` itself** (the Service labelled `k8s-app=kube-dns`, else the one named `kube-dns`; cached for 5 minutes), and an SCNodeClass is `ValidationSucceeded=False` with reason `ClusterDNSUnknown`, naming this flag and the Helm value, while it finds none. `none` leaves `clusterDNS` unset on purpose: Pods then use the node's resolver. | plan 05, 09 |
 | `--cluster-domain` | `SCARPENTER_CLUSTER_DOMAIN` | `cluster.local` | The kubelet's `clusterDomain` on nodes. | plan 05 |
 | `--cluster-ca-file` | `SCARPENTER_CLUSTER_CA_FILE` | empty | File with the cluster CA bundle given to nodes. Empty means the `kube-root-ca.crt` ConfigMap of the controller's namespace (`POD_NAMESPACE`; `kube-system` without it). | plan 05 |
 | `--kubelet-client-ca-file` | `SCARPENTER_KUBELET_CLIENT_CA_FILE` | empty | File with the CA bundle that signs the API server's kubelet client certificates, for control planes where it is not the cluster CA (k3s: `<data-dir>/server/tls/client-ca.crt`). Written to the nodes as `/etc/kubernetes/pki/kubelet-client-ca.crt` and used as the kubelet's `authentication.x509.clientCAFile`; without it the kubelet trusts the cluster CA, and `kubectl logs` and `exec` fail with 401 on k3s. Read at every rendering. | plan 07 |
@@ -49,7 +50,7 @@ the last column.
 | `--keeper-prices-regions-per-request` | `SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST` | `0` (client default) | Regions per Keeper price request. The replay server of the test lanes has one region per recorded request and needs `1`. | plan 04 |
 | `--resource-default-ttl` | `SCARPENTER_RESOURCE_DEFAULT_TTL` | `24h` | `idleTTL` of managed shared resources when an SCNodeClass does not set one. | plan 06 |
 | `--resource-per-use-grace` | `SCARPENTER_RESOURCE_PER_USE_GRACE` | `2m` | How long an unused `perUse` managed resource is kept for launches in flight. | plan 06 |
-| `--resource-full-sweep-every` | `SCARPENTER_RESOURCE_FULL_SWEEP_EVERY` | `10` | Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed resources of every region of the driver are swept, not only of the regions in use. | plan 06 |
+| `--resource-full-sweep-every` | `SCARPENTER_RESOURCE_FULL_SWEEP_EVERY` | `10` | Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed resources of every region of the driver are swept, not only of the regions in use. **Cost:** a full sweep asks the vendor, for every region the account can use, which managed resources exist (for AWS: a few `Describe*` calls per resource kind and region): read-only and free, but rate limited, and it runs on the leader only. At the default `--gc-interval` of 2m it happens every 20 minutes; raise the value to make it rarer, `1` makes every sweep a full one. | plan 06 |
 | `--resource-check-interval` | `SCARPENTER_RESOURCE_CHECK_INTERVAL` | `30s` | How often the vendor resources of each SCNodeClass are checked (`status.vendors.<vendor>.resources`, `ResourcesReady`, preCreate). | plan 06 |
 | (AWS only) | `SCARPENTER_AWS_IPV4_PRICE` | `0.005` | Price of a public IPv4 address per hour in USD, used in the price delta of AWS offerings. **An approximation, not a Keeper price** (Keeper has no IPv4 price): AWS charges 0.005 in every commercial region since 2024-02-01. `0` means free; negative, NaN and infinite values are refused at startup. The driver logs the value it uses. Environment only. | plan 08 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region the account's region list (`DescribeRegions`) is read from; the AWS driver's other calls go to the region they concern ([AWS driver](aws-driver.md)). | plan 08 |
@@ -58,6 +59,94 @@ All problems of the command line are reported together, and the controller
 refuses to start on any of them. Durations are Go durations (`90s`, `2h30m`) and
 must be positive.
 
+### Other environment variables
+
+| Variable | Meaning |
+|---|---|
+| `POD_NAMESPACE` | The controller's namespace: where `kube-root-ca.crt` is read when `--cluster-ca-file` is empty (`kube-system` without it) and the namespace of the Deployment its Events go to. The chart sets it from the Pod's namespace. |
+| `SCARPENTER_DEPLOYMENT_NAME` | The Deployment (in `POD_NAMESPACE`) that the Events of the garbage collector are attached to when an orphan has no NodeClass. The chart sets it to the release's full name. |
+| `LEADER_ELECTION_NAMESPACE`, `LEADER_ELECTION_NAME` | Namespace and name of core's leader election lease (default name `karpenter-leader-election`). The chart sets the namespace from the Pod's namespace, the name to `<release>-leader-election` (so that another Karpenter in the same namespace does not share the lease) and gives the controller a Role for it. |
+| `MEMORY_LIMIT`, `CPU_REQUESTS` | Core's: the container's memory limit in bytes (the garbage collector's soft limit is 90 % of it) and CPU request in millicores (sizes core's concurrency). The chart derives both from the container's resources. |
+| `DISABLE_LEADER_ELECTION` | Core's: `true` runs without leader election; the chart sets it with `leaderElection.enabled=false`. |
+| `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ACCESS_KEY_ID`, ... | The AWS SDK's own: the [credential modes](../how-to-guides/aws-credentials.md) of the chart set them. Without `AWS_REGION` the driver uses `--aws-home-region` as the SDK's default region. |
+
+Core's other flags and environment variables (`--log-level`/`LOG_LEVEL`,
+`--metrics-port`/`METRICS_PORT` (8080), `--health-probe-port`/`HEALTH_PROBE_PORT`
+(8081), `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, ...) are
+those of Karpenter core v1.15; the chart has values for the ones above and
+`extraArgs` for the rest. The controller serves `/healthz` and `/readyz` on the
+health port and Prometheus metrics on the metrics port (plain HTTP).
+
+## Helm values
+
+The chart is `charts/scarpenter` (installed from `oci://ghcr.io/sparecores/charts/scarpenter`,
+[install guide](../how-to-guides/install.md)); `values.yaml` documents every value
+and `values.schema.json` rejects unknown keys and malformed values. A value that is
+empty or `null` leaves its flag out, so the controller's default above applies.
+`test/chart` checks that every flag of the table above can be set from the chart
+and that the controller's own parser accepts what the chart renders.
+
+| Value | Flag or environment | Notes |
+|---|---|---|
+| `cluster.name` | `--cluster-name` | Required. |
+| `cluster.apiServerEndpoint` | `--api-server-endpoint` | Required, `https://`. |
+| `cluster.ca.existingConfigMap`, `existingSecret`, `key` | `--cluster-ca-file` | Mounts the object (of the release namespace) and points the flag at the key. Unset: the `kube-root-ca.crt` ConfigMap. |
+| `cluster.dns` | `--cluster-dns` | A list of IPs. |
+| `cluster.dnsFromService.*` | `--cluster-dns` | With no `dns`: the ClusterIP of the Service (default `kube-system/kube-dns`), looked up when the chart is installed or upgraded. Where Helm cannot look it up (`helm template`, ArgoCD) the flag is left out and the controller finds the DNS Service itself; `enabled: false` renders `--cluster-dns=none`. |
+| `cluster.domain` | `--cluster-domain` | |
+| `kubeletClientCA.source`, `inline`, `configMap.*`, `secret.*` | `--kubelet-client-ca-file` | `none`, `inline`, an existing `configMap` or `secret`, or `extensionApiserverAuthentication` (copies key `client-ca-file` of `kube-system/extension-apiserver-authentication` into a ConfigMap of the release with Helm's `lookup`; the API server's client CA: the k3s client CA, the cluster CA on kubeadm and EKS). kubeadm and EKS need none; on k3s without it `kubectl logs` and `exec` fail with 401. |
+| `vendors.aws.enabled`, `vendors.extra` | `--vendors` | `aws` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
+| `vendors.aws.homeRegion` | `--aws-home-region` | |
+| `vendors.aws.region` | `AWS_REGION` | Default: the home region, else `us-east-1`. |
+| `vendors.aws.ipv4Price` | `SCARPENTER_AWS_IPV4_PRICE` | An approximation, see the table above. |
+| `vendors.aws.credentials.mode`, `webIdentity.*`, `secret.*` | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, a projected ServiceAccount token, `AWS_ACCESS_KEY_ID`, ... | [AWS credentials](../how-to-guides/aws-credentials.md). `webIdentity` needs `roleArn`, `secret` an `existingSecret`. |
+| `keeper.url` | `--keeper-url` | |
+| `keeper.apiKey.existingSecret`, `key` | `--keeper-api-key-file` | The Secret's key is mounted as a file. |
+| `keeper.pricesRegionsPerRequest` | `--keeper-prices-regions-per-request` | |
+| `catalog.refreshInterval`, `maxAge` | `--catalog-refresh-interval`, `--catalog-max-age` | |
+| `artifacts.sysextBaseURL`, `flatcarBaseURL` | `--sysext-base-url`, `--flatcar-base-url` | |
+| `bootstrap.tokenTTL` | `--bootstrap-token-ttl` | At least 20m; the chart refuses less. |
+| `bootstrap.tailnetPrefixes` | `--tailnet-prefixes` | A list of CIDRs. |
+| `launch.maxAttempts` | `--max-launch-attempts` | |
+| `quota.refreshInterval`, `limitsRefreshInterval`, `maxStaleness`, `launchableRefreshInterval` | `--quota-*` | |
+| `gc.interval`, `gracePeriod`, `dryRun` | `--gc-interval`, `--gc-grace-period`, `--gc-dry-run` | |
+| `unavailable.insufficientCapacityTTL`, `unsupportedTTL`, `quotaExceededTTL`, `zoneUnusableTTL` | `--unavailable-*-ttl` | |
+| `managedResources.defaultTTL`, `perUseGrace`, `checkInterval`, `fullSweepEvery` | `--resource-default-ttl`, `--resource-per-use-grace`, `--resource-check-interval`, `--resource-full-sweep-every` | See the cost note of the full sweep. |
+| `karpenter.logLevel`, `batchMaxDuration`, `batchIdleDuration`, `featureGates`, `metricsPort`, `healthProbePort` | `--log-level`, `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, `--metrics-port`, `--health-probe-port` | Core's. |
+| `leaderElection.enabled` | `DISABLE_LEADER_ELECTION` | With more than one replica leave it on. |
+| `replicaCount`, `podDisruptionBudget.*` | | The PodDisruptionBudget is rendered with more than one replica. |
+| `image.repository`, `tag`, `digest`, `pullPolicy`, `imagePullSecrets` | | `ghcr.io/sparecores/scarpenter` (production drivers only), tag = the chart's `appVersion`. The development image is `ghcr.io/sparecores/scarpenter-dev`. The chart needs Kubernetes 1.31 or newer. |
+| `serviceAccount.*`, `rbac.*` | | `rbac.authKeySecrets`: a Role (`get` on that one Secret) and a RoleBinding for tailscale auth key Secrets in other namespaces; `rbac.extraRules` are appended to the controller's ClusterRole. |
+| `metrics.*`, `serviceMonitor.*` | | A Service for the metrics port and an optional ServiceMonitor (needs the Prometheus Operator CRD). |
+| `examples.*` | | An example `SCNodeClass` and `NodePool` per enabled vendor. |
+| `resources`, `affinity`, `nodeSelector`, `tolerations`, `topologySpreadConstraints`, `priorityClassName`, `podSecurityContext`, `securityContext`, probes, `podAnnotations`, `podLabels`, `extraArgs`, `extraEnv`, `extraVolumes`, `extraVolumeMounts` | | The default affinity prefers nodes without the `karpenter.sh/nodepool` label (the controller must not run on a node it manages). The default resources come from the L3 scale measurement: about 300 MiB peak with three regions, 475 MiB with every AWS region. |
+
+## Permissions
+
+The chart's RBAC is generated from `config/rbac` (SCarpenter) and
+`config/rbac-core` (Karpenter core) by `make chart-rbac`; `make test-chart` renders the
+chart and fails when its rules or bindings differ from those files. Kubernetes
+objects, all bound to the controller's ServiceAccount:
+
+| Object | Grants | For |
+|---|---|---|
+| ClusterRole `scarpenter` | `scnodeclasses` get, list, watch, update, patch and `scnodeclasses/status` get, update, patch; `nodeclaims`, `nodes`, `certificatesigningrequests` get, list, watch; `update` on `certificatesigningrequests/approval`; `approve` on the signer `kubernetes.io/kubelet-serving` only; `get` on ConfigMaps (references name their namespace) | the NodeClass controllers (server-side apply of the status), the serving certificate approver (it reads the NodeClaims, the Nodes and, through the driver registry, the SCNodeClasses), ConfigMap references and the cluster CA |
+| ClusterRole `scarpenter-core` | Karpenter core's: NodePools, NodeClaims and NodeOverlays (full), CapacityBuffers, pods, volumes, namespaces, services, events, storage classes, CSI nodes, volume attachments, workloads, PodDisruptionBudgets, CRDs (read), `pods/eviction` create, `pods` delete, Nodes get, list, watch, patch, update, delete, Events create and patch, leases get, list, watch | scheduling and disruption |
+| Role `scarpenter-bootstrap-tokens` in `kube-system` | Secrets get, list, create, delete | the bootstrap tokens (RBAC cannot limit `get` and `list` by label: the controller can read every Secret of `kube-system`) |
+| Role `scarpenter-cluster-dns` in `kube-system` | Services get, list | the cluster DNS Service, read when `--cluster-dns` is not set |
+| Role `scarpenter-auth-key` in the release namespace | Secrets get | the tailscale auth key Secret (`rbac.authKeySecrets` for other namespaces) |
+| Role `scarpenter-leader-election` in the release namespace | leases (full) | core's leader election |
+| ClusterRoleBindings `scarpenter-node-bootstrapper`, `scarpenter-auto-approve-node-client-csrs`, `scarpenter-auto-approve-node-client-renewals` | Kubernetes' `system:node-bootstrapper` and the `nodeclient` and `selfnodeclient` CSR approver roles for the group `system:bootstrappers:scarpenter` and `system:nodes` | the node join ([node bootstrap](node-bootstrap.md#rbac)) |
+
+**No ClusterRole grants access to Secrets.** SCarpenter creates no Nodes (the
+kubelets register them), and no state store is needed: its state is the cluster
+objects, the vendor's resources and their tags.
+
+The controller's network access is outbound only: the Kubernetes API, the Keeper
+API (HTTPS; the catalog and the AWS EBS prices from `/storage_prices`), the
+vendors' APIs and the artifact hosts (or their mirrors). It listens on the metrics
+and health ports only; no webhook, no admission controller.
+
 ## SCNodeClass status conditions
 
 | Condition | Meaning | Set by |
@@ -65,7 +154,7 @@ must be positive.
 | `Ready` | Root condition: true when `CatalogReady`, `ArtifactsReady` and `ValidationSucceeded` are. A vendor that is not ready only makes its own offerings unavailable. | derived (operatorpkg) |
 | `CatalogReady` | The catalog snapshot for the SCNodeClass is available and not older than `--catalog-max-age`. The catalog computes it (`Catalog.Status`: `NoSnapshot`, `ScopePending`, `Stale`); the NodeClass controller writes it to the status. | plan 03 (status), plan 05 (condition) |
 | `ArtifactsReady` | The sysext images for the pinned versions are resolved (`status.resolved`). Reasons: `Resolved`, `ReleaseNotFound`, `ResolutionFailed`. | plan 05 |
-| `ValidationSucceeded` | The semantic checks pass: kubelet quantities parse, the Kubernetes version is within the skew of the API server (at most three minors older, never newer), the referenced ConfigMaps and Secret exist, a trial rendering of the user-data succeeds within the size budget. Reasons: `Valid`, `InvalidKubeletSettings`, `KubernetesVersionNotSupported`, `ReferenceNotFound`, `ReferenceUnreadable`, `TemplateInvalid`. | plan 05 |
+| `ValidationSucceeded` | The semantic checks pass: kubelet quantities parse, the Kubernetes version is within the skew of the API server (at most three minors older, never newer), the referenced ConfigMaps and Secret exist, a trial rendering of the user-data succeeds within the size budget, and the cluster DNS is known (`--cluster-dns`, or found). Reasons: `Valid`, `InvalidKubeletSettings`, `KubernetesVersionNotSupported`, `ReferenceNotFound`, `ReferenceUnreadable`, `TemplateInvalid`, `ClusterDNSUnknown`. | plan 05 |
 | `RestartRequired` | Informational, not a dependent of `Ready`: a metric was added or renamed after start-up; its labels are selectable only after the controller restarts (see [labels](labels.md)). The catalog names the keys (`Catalog.RestartRequired`) and stops stamping them; the NodeClass controller writes the condition. | plan 03 (keys), plan 05 (condition) |
 
 Per vendor, `status.vendors.<vendor>.conditions`:
@@ -281,4 +370,32 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 | `scarpenter_gc_sweep_duration_seconds` | histogram | | Duration of a sweep. |
 | `scarpenter_gc_last_sweep_timestamp_seconds` | gauge | | Time of the last sweep. |
 
-Metrics, Events and Helm values are added here by the plans that introduce them.
+## Events
+
+| Reason | Type | On | Meaning |
+|---|---|---|---|
+| `LaunchFailed` | Warning | SCNodeClass | A `Fatal` vendor error ended a launch. |
+| `ImageResolutionFailed` | Warning | SCNodeClass | A boot image could not be resolved. |
+| `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `MetricInvalid`, `RestartRequired` | Warning / Normal | SCNodeClass | The NodeClass controller's findings ([conditions](#scnodeclass-status-conditions)). |
+| `IPv6OnlyNeedsMirror` | Warning | SCNodeClass | IPv6-only nodes and the default sysext source, which has no IPv6: set `--sysext-base-url`. |
+| `QuotaExhausted`, `QuotaZero` | Warning | SCNodeClass | No headroom in a quota bucket (deduplicated for 10 minutes). |
+| `BootstrapTokenDeleted` | Normal | NodeClaim | The node registered; its token was deleted. |
+| `GarbageCollected` | Normal | SCNodeClass, else the Deployment | An orphan instance, bootstrap token or resource was deleted ([garbage collection](#garbage-collection)). |
+| `ServingCertificateApproved`, `ServingCertificateDenied` | Normal / Warning | CertificateSigningRequest | The serving certificate approver's decision ([node bootstrap](node-bootstrap.md#the-serving-certificate-approver)). |
+| `ResourceCreated`, `ResourceAdopted`, `ResourceDeleted` | Normal | SCNodeClass, else the Deployment | A managed vendor resource was created, adopted after a restart, or deleted ([vendor resources](vendor-resources.md#metrics-and-events)). |
+| `ResourceCreateFailed`, `ResourceDeleteFailed` | Warning (deduplicated for 10 minutes) | SCNodeClass, else the Deployment | A creation or deletion failed; deletions retry with backoff. |
+| `ResourcesUnavailable` | Warning | SCNodeClass | A region lacks a resource the NodeClass needs, so its offerings are unavailable. |
+
+## Metrics
+
+Besides the metrics of Karpenter core, the controller serves, on the metrics port:
+
+| Metric | Section |
+|---|---|
+| `scarpenter_catalog_age_seconds`, `scarpenter_catalog_refresh_errors_total`, `scarpenter_catalog_instance_types`, `scarpenter_catalog_offerings` | [Catalog](#catalog) |
+| `scarpenter_launches_total`, `scarpenter_launch_skipped_total`, `scarpenter_launch_attempts`, `scarpenter_create_duration_seconds` | [CloudProvider](#cloudprovider) |
+| `scarpenter_quota_limit`, `scarpenter_quota_used`, `scarpenter_quota_reserved`, `scarpenter_quota_refresh_age_seconds`, `scarpenter_quota_refresh_errors_total` | [Quota](#quota) |
+| `scarpenter_gc_deletions_total`, `scarpenter_gc_sweep_duration_seconds`, `scarpenter_gc_last_sweep_timestamp_seconds` | [Garbage collection](#garbage-collection) |
+| `scarpenter_resource_operations_total` (`vendor`, `kind`, `region`, `operation` `create`, `adopt` or `delete`, `result` `ok`, `error` or `dry-run`) and `scarpenter_resources_managed` (`vendor`, `kind`, `region`: the managed resources the last sweep found) | [Vendor resources](vendor-resources.md#metrics-and-events) |
+
+Development builds add the `scarpenter_fake_state_*` gauges.

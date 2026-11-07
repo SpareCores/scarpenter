@@ -49,7 +49,7 @@ const (
 	fakeConfig  = "scarpenter-fake"
 	fakeState   = "scarpenter-fake-state"
 	vendor      = "aws"
-	controllerL = "app=scarpenter"
+	controllerL = "app.kubernetes.io/name=scarpenter"
 )
 
 var (

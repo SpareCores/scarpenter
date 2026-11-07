@@ -1,0 +1,11 @@
+# The defaults plus what is required: web identity (IRSA) credentials.
+cluster:
+  name: my-cluster
+  apiServerEndpoint: https://api.example.com:6443
+  # helm template cannot look up the DNS Service.
+  dns: [10.96.0.10]
+vendors:
+  aws:
+    credentials:
+      webIdentity:
+        roleArn: arn:aws:iam::123456789012:role/scarpenter-my-cluster

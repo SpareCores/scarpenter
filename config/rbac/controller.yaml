@@ -1,6 +1,8 @@
 # SCarpenter's own permissions. Karpenter core's permissions (NodePools,
-# NodeClaims, Nodes, Pods, ...) are the upstream ones and ship with the chart
-# (plan 09); these are what SCarpenter adds.
+# NodeClaims, Pods, ...) are the upstream ones, in config/rbac-core; these are
+# what SCarpenter adds. The Helm chart (charts/scarpenter) renders its RBAC from
+# these files: hack/chart-sync.sh rbac copies the rules, make test-chart fails
+# when they differ.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -101,5 +103,27 @@ metadata:
   name: scarpenter-auth-key
   namespace: scarpenter-system
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: scarpenter-auth-key}
+subjects:
+  - {kind: ServiceAccount, name: scarpenter, namespace: scarpenter-system}
+---
+# The cluster DNS: with no --cluster-dns the controller reads the ClusterIP of the
+# DNS Service (label k8s-app=kube-dns, else the Service kube-dns) of kube-system,
+# for the kubelets' clusterDNS. Read access to Services of that namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-cluster-dns
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-cluster-dns
+  namespace: kube-system
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: scarpenter-cluster-dns}
 subjects:
   - {kind: ServiceAccount, name: scarpenter, namespace: scarpenter-system}

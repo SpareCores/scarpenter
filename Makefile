@@ -2,6 +2,7 @@
 # run them through it: hack/dev.sh make test
 
 IMG ?= ghcr.io/sparecores/scarpenter:dev
+DEV_IMG ?= ghcr.io/sparecores/scarpenter-dev:dev
 # Versions come only from git tags: the release workflow passes the tag,
 # local builds use git describe (for example 0.1.0-3-gabc1234-dirty).
 VERSION ?= $(shell git -c safe.directory='*' describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
@@ -44,10 +45,10 @@ generate: ## Generate DeepCopy implementations.
 fmt: ## Run go fmt against code.
 	go fmt ./...
 
-# kwok and qemu are the build tags of the L3 and L4 lanes (test/kwok, test/qemu,
+# kwok, qemu and chart are the build tags of the L3 and L4 lanes and the chart tests (test/kwok, test/qemu, test/chart,
 # plans 04 and 07); the development vendors sit behind scarpenter_dev (overview
 # section 13). Vet and lint check them all.
-GO_TAGS = scarpenter_dev,kwok,qemu
+GO_TAGS = scarpenter_dev,kwok,qemu,chart
 
 .PHONY: vet
 vet: ## Run go vet against code.
@@ -76,6 +77,14 @@ golden: ## Rewrite the golden files under testdata/ (review the diff like code).
 .PHONY: chart-crds
 chart-crds: manifests ## Copy the generated CRD into the Helm chart.
 	hack/chart-sync.sh crds
+
+.PHONY: chart-rbac
+chart-rbac: ## Copy the rules of config/rbac and config/rbac-core into the Helm chart.
+	hack/chart-sync.sh rbac
+
+.PHONY: test-chart
+test-chart: ## Helm chart: lint, schema, golden `helm template` output, CRD, RBAC and flags in sync with the code (UPDATE=1 rewrites the golden files).
+	test/chart/run.sh
 
 .PHONY: docs-api
 docs-api: manifests ## Generate docs/reference/api.md from the CRD.
@@ -131,6 +140,10 @@ build: ## Build the controller binary (bin/scarpenter-controller).
 .PHONY: image
 image: ## Build the controller image for the host architecture.
 	$(CONTAINER_TOOL) build $(BUILD_ARGS) -t $(IMG) .
+
+.PHONY: image-dev
+image-dev: ## Build the development image (fake and qemu drivers, for the test lanes) for the host architecture.
+	$(CONTAINER_TOOL) build $(BUILD_ARGS) --build-arg GO_TAGS=scarpenter_dev -t $(DEV_IMG) .
 
 .PHONY: image-buildx
 image-buildx: ## Build the controller image for $(PLATFORMS) with buildx and push it.

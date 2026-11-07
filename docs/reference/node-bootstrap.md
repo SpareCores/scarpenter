@@ -209,8 +209,7 @@ against it) and anonymous access off, `resolvConf: /run/systemd/resolve/resolv.c
 address does not work inside Pods). From the NodeClass: `maxPods` (default 110),
 `systemReserved`, `kubeReserved`, `evictionHard` (unset keeps the kubelet's
 defaults; quantities are validated). From the controller: `clusterDomain`
-(`--cluster-domain`, default `cluster.local`) and `clusterDNS` (`--cluster-dns`,
-unset by default: Pods then use the node's resolver).
+(`--cluster-domain`, default `cluster.local`) and `clusterDNS` (`--cluster-dns`; when it is not set the controller reads the cluster DNS Service itself, and `--cluster-dns=none` leaves it unset: Pods then use the node's resolver).
 
 The catalog assumes the AWS provider's kube-reserved formula for scheduling
 (which depends on the instance's vCPUs and `maxPods`). Since plan 06 the user-data
@@ -353,7 +352,7 @@ logs` and `exec` fail on control planes that verify serving certificates (k3s).
 
 ## RBAC
 
-`config/rbac` (kustomize; the Helm chart of plan 09 templates the same):
+`config/rbac` (kustomize; the Helm chart renders the same rules, generated from these files and checked against them by `make test-chart`; Karpenter core's permissions are in `config/rbac-core`):
 
 - **The join** (`node-join.yaml`), three ClusterRoleBindings of Kubernetes' own
   roles: `system:node-bootstrapper` for the group `system:bootstrappers:scarpenter`;
@@ -374,7 +373,9 @@ logs` and `exec` fail on control planes that verify serving certificates (k3s).
   and without them the NodeClass reports `ValidationSucceeded=False`
   (`ReferenceUnreadable`) naming the missing binding. Reads of Secrets and
   ConfigMaps go to the API server directly (no cluster-wide informer). The L3 lane
-  runs with this RBAC.
+  runs with this RBAC (installed through the Helm chart). The chart can also create the
+  Role and RoleBinding for an auth key Secret in another namespace
+  (`rbac.authKeySecrets`).
 
 ## Security notes
 

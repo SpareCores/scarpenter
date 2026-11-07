@@ -1,0 +1,59 @@
+# The values the L3 lane installs the chart with (test/kwok/run.sh adds the image
+# of the build under test and the namespace). The development image has the fake
+# driver; the AWS vendor is off. What is left unset is the chart's own default on
+# purpose: the cluster DNS is derived from the kube-dns Service of the kind
+# cluster and the kubelet client CA is copied from
+# kube-system/extension-apiserver-authentication (Helm's lookup), so that the lane
+# proves both against a real API server.
+cluster:
+  name: scarpenter-kwok
+  apiServerEndpoint: https://kubernetes.default.svc
+kubeletClientCA:
+  source: extensionApiserverAuthentication
+vendors:
+  aws: {enabled: false}
+  extra: [fake]
+keeper:
+  url: http://keeper-replay.scarpenter-system:8080
+  # The replay server has one region per recorded request.
+  pricesRegionsPerRequest: 1
+artifacts:
+  # The sysext release checksums come from the replay server too.
+  sysextBaseURL: http://keeper-replay.scarpenter-system:8080/sysext
+launch: {maxAttempts: 3}
+quota:
+  refreshInterval: 10s
+  limitsRefreshInterval: 10s
+  launchableRefreshInterval: 10s
+unavailable:
+  insufficientCapacityTTL: 20s
+  quotaExceededTTL: 20s
+gc: {interval: 10s, gracePeriod: 30s}
+# Managed resources: a short perUse grace and a quick status check make the
+# lifecycle scenarios (S15, S16) fast.
+managedResources: {perUseGrace: 20s, checkInterval: 5s, fullSweepEvery: 3}
+karpenter:
+  logLevel: debug
+  # Core's batching windows: short ones keep the scenarios fast. NodeRepair and
+  # the other optional gates stay off.
+  batchMaxDuration: 5s
+  batchIdleDuration: 500ms
+extraArgs: ["--fake-catalog-vendor=aws"]
+# The lane taints the real node (workloads must not land on it) and lets the
+# infrastructure tolerate the taint.
+tolerations:
+  - {key: CriticalAddonsOnly, operator: Exists}
+resources:
+  requests: {cpu: 500m, memory: 512Mi}
+  limits: {cpu: "4", memory: 4Gi}
+# What the fake driver needs besides the production RBAC of the chart: its
+# configuration and state ConfigMaps, and the Node objects it creates (a real
+# driver's node registers itself).
+rbac:
+  extraRules:
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [list, watch, create, update, patch]
+    - apiGroups: [""]
+      resources: [nodes]
+      verbs: [create]

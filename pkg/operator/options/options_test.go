@@ -209,3 +209,20 @@ func TestRegisteredWithCore(t *testing.T) {
 		t.Error("the SCarpenter options are not among core's Injectables")
 	}
 }
+
+func TestClusterDNSNone(t *testing.T) {
+	o, err := parse(t, nil, append(required, "--cluster-dns=none")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !o.ClusterDNSNone || len(o.ClusterDNS) != 0 {
+		t.Errorf("none: ClusterDNSNone = %v, ClusterDNS = %v", o.ClusterDNSNone, o.ClusterDNS)
+	}
+	o, err = parse(t, nil, required...)
+	if err != nil || o.ClusterDNSNone {
+		t.Errorf("unset must stay unset (the controller then looks the Service up): %v %v", o.ClusterDNSNone, err)
+	}
+	if _, err = parse(t, nil, append(required, "--cluster-dns=none,10.0.0.1")...); err == nil {
+		t.Error("none next to an address must be refused")
+	}
+}

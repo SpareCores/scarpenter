@@ -77,7 +77,8 @@ pushes `linux/amd64,linux/arm64`). `make help` lists every target.
 |---|---|---|---|
 | L1 | `make test` | Unit and golden tests: pure packages with no Kubernetes client. | Started in plan 02 (flag parsing, labels; plan 04: the CloudProvider, quota tracker, garbage collector and the driver conformance suite against the fake driver; plan 08: the AWS driver against the in-memory EC2 and Service Quotas of `pkg/vendors/aws/fake`, golden `RunInstances` inputs, the conformance suite over the AWS type list of the snapshot). |
 | L2 | `make test` | envtest: an API server and etcd (no kubelet), with the generated CRDs and Karpenter core's CRDs installed. | CRD admission tests (schema, defaults, every CEL rule, strict field validation) and a smoke test that starts the real manager with the production wiring (the NodeClass controller resolving sysext checksums from a local release server) and has core resolve an `SCNodeClass`; the NodeClass, quota status, serving certificate and bootstrap token controllers. |
-| L3 | `make test-kwok` | Real Karpenter core, SCarpenter and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, [The L3 lane](#the-l3-lane). |
+| Chart | `make test-chart` | The Helm chart without a cluster: lint, golden `helm template` output, the values schema and the template checks against bad values, every controller flag settable and accepted by the controller's own parser, the RBAC and CRDs equal to `config/` and Karpenter core's. | Plan 09: [The chart tests](#the-chart-tests). The install into a cluster is the L3 lane. |
+| L3 | `make test-kwok` | Real Karpenter core, SCarpenter (installed from the Helm chart) and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, extended to seventeen by plan 06; the chart since plan 09. [The L3 lane](#the-l3-lane). |
 | L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged` and `/dev/kvm`. | Plan 07: [The L4 lane](#the-l4-lane). |
 | L5 | a manual GitHub workflow | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10. |
 
@@ -106,30 +107,36 @@ while iterating. The committed snapshot is about 4.4 MB.
 
 ### The L3 lane
 
-`hack/dev.sh make test-kwok` builds the controller with `-tags scarpenter_dev`
-(real Karpenter core as a library plus the fake driver), a Keeper replay server
-that serves the committed snapshot and, under `/sysext`, the `SHA256SUMS` fixtures
-of `pkg/artifacts/testdata` (the controller's `--sysext-base-url` points there, so
-the lane needs no access to GitHub), creates a kind cluster, installs
+`hack/dev.sh make test-kwok` builds the development image (the release `Dockerfile`
+with `GO_TAGS=scarpenter_dev`: real Karpenter core as a library plus the fake
+driver), a Keeper replay server that serves the committed snapshot and, under
+`/sysext`, the `SHA256SUMS` fixtures of `pkg/artifacts/testdata` (the
+controller's `--sysext-base-url` points there, so the lane needs no access to
+GitHub), creates a kind cluster, installs
 [kwok-controller](https://kwok.sigs.k8s.io) (the version is `KWOK_VERSION` in
 `test/kwok/run.sh`; the release files are downloaded once into
-`test/kwok/.cache`), the CRDs and the manifests of `test/kwok/manifests`, and
-runs the scenarios of `test/kwok/e2e` (build tag `kwok`). The fake driver
-creates a Node object for every instance; kwok-controller makes it Ready and
-runs the pods on it. The lane has its own RBAC in
-`test/kwok/manifests/controller/rbac.yaml` (core's permissions and the fake
-driver's); SCarpenter's own permissions are the production ones, `config/rbac`,
-which the lane applies, so a permission missing there fails the lane. The kind
-cluster runs without the controller manager's taint-eviction controller
+`test/kwok/.cache`), **installs the Helm chart** (`charts/scarpenter`, with the
+values of `test/kwok/manifests/chart-values.yaml`), and runs the scenarios of
+`test/kwok/e2e` (build tag `kwok`). The fake driver creates a Node object for every
+instance; kwok-controller makes it Ready and runs the pods on it. The controller
+therefore runs with the chart's production RBAC (the fake driver's extra
+permissions, ConfigMaps and creating Nodes, are `rbac.extraRules` of the lane's
+values), so a permission missing from `config/rbac` or `config/rbac-core` fails the
+lane, and `run.sh` fails when the controller logs a 403. The chart is installed in
+two steps (without replicas, then with) so that the NodeClass of S13 exists before
+the controller starts; `run.sh` also checks that what Helm derived from the live
+cluster reached the controller: `--cluster-dns` from the `kube-dns` Service and the
+kubelet client CA copied from `kube-system/extension-apiserver-authentication`
+(`kubeletClientCA.source: extensionApiserverAuthentication`). The kind cluster runs
+without the controller manager's taint-eviction controller
 (`test/kwok/kind.yaml`): KWOK nodes are Ready at once, and that controller would
 otherwise evict a pod bound within milliseconds of the removal of the
 unregistered taint.
 
-Unlike the lane of `sc-karpenter-nodepool` there is no core `kwok` image, no
-core version matrix and no chart values: SCarpenter links core at the version of
-`go.mod`, so core's settings are controller flags in
-`manifests/controller/deployment.yaml` (batching windows 5 s and 500 ms,
-NodeRepair and the other optional feature gates off). The controller runs with
+Unlike the lane of `sc-karpenter-nodepool` there is no core `kwok` image and no
+core version matrix: SCarpenter links core at the version of `go.mod`, so core's
+settings are chart values (batching windows 5 s and 500 ms, NodeRepair and the
+other optional feature gates off). The controller runs with
 short intervals: quota refresh 10 s, unavailable-offerings TTL 20 s, garbage
 collection every 10 s with a 30 s grace period, managed resources checked every
 5 s and unused `perUse` resources kept for 20 s.
@@ -171,6 +178,32 @@ leaves the lane running (`KUBECONFIG=test/kwok/.cache/scarpenter-kwok.kubeconfig
 and `make kwok-down` removes it. On failure the logs of the controller,
 kwok-controller and the replay server, the NodeClaims and the fake ConfigMaps are
 collected in `test/kwok/.out/logs` (CI uploads them).
+
+### The chart tests
+
+`hack/dev.sh make test-chart` (no cluster; `UPDATE=1` rewrites the golden files)
+runs `helm lint --strict` for every values file of `test/chart/testdata/values` and
+the Go tests of `test/chart` (build tag `chart`):
+
+- **golden** `helm template` output of each values file (`minimal`, `default` with
+  web identity, `full` with every value set, `static-keys`, `development`);
+- **flags**: the arguments the chart renders go through the controller's own flag
+  parsers (core's and SCarpenter's), the flags of all values files together must
+  cover every flag of `pkg/operator/options` (a new flag without a chart value fails
+  the test), and the `full` values must land in the option each is named for;
+- **negative cases**: the schema rejects unknown keys, bad ports, durations, URLs,
+  ARNs and names, and the templates refuse a missing cluster name or endpoint, a
+  web identity without a role, a token TTL under 20 minutes, no vendor at all, and
+  a kubelet CA source without a CA;
+- **RBAC drift**: the rendered ClusterRoles, Roles and the node-join bindings are
+  compared with `config/rbac` and `config/rbac-core`; no rendered ClusterRole may
+  grant Secrets;
+- **CRDs**: `crds/` equals `config/crd/bases` and Karpenter core's CRDs at the
+  version of `go.mod`;
+- the credential modes, the leader election and PodDisruptionBudget switches, the
+  extra auth key Secret Roles and the default affinity and security context.
+
+The chart is installed into a cluster by the L3 lane.
 
 ### The L4 lane
 
@@ -271,8 +304,12 @@ case.
 ## Updating generated files
 
 ```bash
-hack/dev.sh make generate manifests chart-crds docs-api
+hack/dev.sh make generate manifests chart-crds chart-rbac docs-api
 ```
+
+`chart-crds` copies the CRDs (SCarpenter's and Karpenter core's, at the version of
+`go.mod`) into `charts/scarpenter/crds`, `chart-rbac` the rules of `config/rbac` and
+`config/rbac-core` into `charts/scarpenter/files/rbac.yaml`.
 
 `docs/reference/api.md` is produced from the CRD by `hack/apidocs`; do not edit
 it by hand. The CRD embeds the selector and ranking types of
@@ -285,8 +322,42 @@ it by hand. The CRD embeds the selector and ranking types of
 `.github/workflows/ci.yml` runs the gates inside the same dev container:
 the dev image is built once per run (with a GitHub Actions layer cache, under
 the tag `hack/dev.sh` looks for) and every step reuses it. The workflow checks
-that generated files are up to date, lints, tests, and builds the binary and the
-image. Run `hack/dev.sh actionlint` to check workflow changes locally.
+that generated files are up to date, lints, tests, tests the chart, and builds the
+binary and the production and development images; the L3 lane is a second job. Run
+`hack/dev.sh actionlint` to check workflow changes locally.
+
+Rules for the workflows of this public repository: actions are pinned by commit
+SHA (with the version in a comment); `permissions:` default to `contents: read` and
+a job gets more only where it needs it; nothing that holds a secret or a write
+token runs for a pull request, and in the repository settings (Actions, General)
+set "Require approval for all outside collaborators" for fork pull requests. The L4
+workflow runs on GitHub-hosted runners. If a self-hosted runner is adopted for it
+(overview section 15, Q6), it must be for `schedule` and `workflow_dispatch` only,
+never for pull requests: a fork's pull request would run arbitrary code on it.
+
+## Releases
+
+`.github/workflows/release.yml` publishes on a tag `v<semver>` pushed by a
+maintainer: a production image (`ghcr.io/sparecores/scarpenter`, linux/amd64 and
+arm64, the drivers of the supported vendors only), a development image
+(`scarpenter-dev`, with the fake and qemu drivers, for the lanes), the OCI chart
+(`ghcr.io/sparecores/charts/scarpenter`), cosign keyless signatures of the image
+and chart digests, an SBOM and provenance per image, and a GitHub release. The
+version comes from the tag only (the Dockerfile stamps it, the chart is packaged
+with it as `version` and `appVersion`); nothing in the repository carries one.
+Before anything is published the tagged commit must be on `main` and pass the CI
+gates. The build steps are in `hack/release.sh`; the workflow's `workflow_dispatch`
+runs them as a dry run (read-only token, nothing pushed), and so can you:
+
+```bash
+hack/dev.sh hack/release.sh dry-run v0.1.0-rc.1
+```
+
+The dry run builds both images for amd64 and arm64 without pushing, checks that the
+production image has no development driver flags and reports the stamped version and
+commit, and packages and lints the chart. To put a human approval before the first
+publish, add required reviewers to the environment `release` (Settings, Environments);
+the publishing jobs run in it. Every action in the workflows is pinned by commit SHA.
 
 ## Troubleshooting
 

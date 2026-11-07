@@ -12,10 +12,14 @@
 #                      the cluster (make kwok-up)
 #   KIND_CLUSTER_NAME  cluster name (default scarpenter-kwok)
 #
-# Unlike the lane of sc-karpenter-nodepool there is no core "kwok" image, no
-# core version matrix and no chart values: SCarpenter links core at the version
-# of go.mod, so the controller image is the system under test and core's
-# settings are controller flags (manifests/controller/deployment.yaml).
+# The controller is installed from the Helm chart (charts/scarpenter) with the
+# values of manifests/chart-values.yaml, so the lane runs with the chart's
+# production RBAC and proves that the chart deploys a ready controller. Unlike
+# the lane of sc-karpenter-nodepool there is no core "kwok" image and no core
+# version matrix: SCarpenter links core at the version of go.mod, so the
+# development image (the Dockerfile with GO_TAGS=scarpenter_dev, the one the
+# release workflow publishes as scarpenter-dev) is the system under test and
+# core's settings are chart values.
 #
 # Logs and test output land in test/kwok/.out/.
 set -euo pipefail
@@ -51,6 +55,7 @@ phase() {
 collect() {
   log "collecting logs into ${out}"
   mkdir -p "${out}/logs"
+  helm -n "${ns}" get values scarpenter >"${out}/logs/helm-values.yaml" 2>&1 || true
   kubectl get nodes -o wide >"${out}/logs/nodes.txt" 2>&1 || true
   kubectl get pods -A -o wide >"${out}/logs/pods.txt" 2>&1 || true
   kubectl get scnodeclasses,nodepools,nodeclaims -o yaml >"${out}/logs/karpenter-objects.yaml" 2>&1 || true
@@ -106,9 +111,10 @@ download() { # download <url> <file>
 log "building the controller and replay images"
 ctx="${cache}/ctx"
 rm -rf "${ctx}"
-mkdir -p "${ctx}/manager" "${ctx}/replay"
-gobuild "${ctx}/manager/manager" ./cmd/controller scarpenter_dev
-docker build -q -t "${manager_image}" -f "${here}/Dockerfile.manager" "${ctx}/manager"
+mkdir -p "${ctx}/replay"
+# The image of the release (Dockerfile), with the development drivers.
+docker build -q -t "${manager_image}" --build-arg GO_TAGS=scarpenter_dev \
+  --build-arg VERSION=l3 --build-arg COMMIT="$(git -c safe.directory='*' rev-parse HEAD 2>/dev/null || true)" "${root}"
 gobuild "${ctx}/replay/replay" ./test/kwok/replay
 cp -r "${root}/test/data/sc-snapshot" "${ctx}/replay/snapshot"
 cp -r "${root}/pkg/artifacts/testdata" "${ctx}/replay/sysext"
@@ -149,23 +155,44 @@ kubectl -n kube-system rollout status deployment/kwok-controller --timeout=180s
 phase
 
 # ------------------------------------------------------------ controller ----
-log "installing the CRDs, the controller and the Keeper replay server"
-core_dir="$(go list -m -f '{{.Dir}}' sigs.k8s.io/karpenter)"
-kubectl apply --server-side -f "${core_dir}/pkg/apis/crds/"
-kubectl apply --server-side -f "${root}/config/crd/bases/"
-kubectl wait --for=condition=Established crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh \
-  crd/scnodeclasses.scarpenter.sparecores.com --timeout=60s
-# SCarpenter's own RBAC is the production one (config/rbac); the lane's file adds
-# core's permissions and the fake driver's.
-# The NodeClass of the described-not-named scenario exists before the controller
-# starts, so that its metric labels are registered with core.
-kubectl apply -f "${here}/manifests/nodeclass-described.yaml"
-kubectl apply -f "${here}/manifests/controller/namespace.yaml"
-kubectl apply --server-side -k "${root}/config/rbac"
-kubectl kustomize "${here}/manifests/controller" | sed "s|controller:latest|${manager_image}|" | kubectl apply --server-side -f -
+log "installing the Keeper replay server and the chart (CRDs, RBAC, the controller)"
+# The Keeper replay server comes first: the controller reads the catalog from it.
+kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "${here}/manifests/keeper-replay.yaml"
 kubectl -n "${ns}" rollout status deployment/keeper-replay --timeout=120s
+helm_values=(-f "${here}/manifests/chart-values.yaml"
+  --set "image.repository=${manager_image%%:*}" --set "image.tag=${manager_image##*:}")
+# Without replicas first: the NodeClass of the described-not-named scenario must
+# exist before the controller starts, so that its metric labels are registered
+# with core. The chart installs the CRDs (SCarpenter's and core's) before this
+# NodeClass can be created.
+helm upgrade --install scarpenter "${root}/charts/scarpenter" --namespace "${ns}" \
+  "${helm_values[@]}" --set replicaCount=0 --wait --timeout 3m
+kubectl wait --for=condition=Established crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh \
+  crd/scnodeclasses.scarpenter.sparecores.com --timeout=60s
+kubectl apply -f "${here}/manifests/nodeclass-described.yaml"
+helm upgrade --install scarpenter "${root}/charts/scarpenter" --namespace "${ns}" \
+  "${helm_values[@]}" --wait --timeout 5m
 kubectl -n "${ns}" rollout status deployment/scarpenter --timeout=180s
+# What Helm derived from the live cluster reached the controller: the DNS Service's
+# ClusterIP and the kubelet client CA (the API server's own client CA).
+args="$(kubectl -n "${ns}" get deployment scarpenter -o jsonpath='{.spec.template.spec.containers[0].args}')"
+dns_ip="$(kubectl -n kube-system get service kube-dns -o jsonpath='{.spec.clusterIP}')"
+[[ "${args}" == *"--cluster-dns=${dns_ip}"* ]] || { echo "the chart did not derive --cluster-dns=${dns_ip} from the kube-dns Service: ${args}" >&2; exit 1; }
+[[ "${args}" == *"--kubelet-client-ca-file="* ]] || { echo "the chart did not set --kubelet-client-ca-file: ${args}" >&2; exit 1; }
+kubectl -n "${ns}" get configmap scarpenter-kubelet-client-ca -o jsonpath='{.data.client-ca\.crt}' | grep -q 'BEGIN CERTIFICATE'
+# The production RBAC is enough: no request of the controller was refused. The
+# pattern is the API server's refusal of the controller's own ServiceAccount (a
+# scenario may log the word "forbidden" for a region policy); it is checked again
+# after the scenarios, which exercise the token Secrets, the CSR approval, garbage
+# collection and the resource sweeps.
+no_403() {
+  if kubectl -n "${ns}" logs deployment/scarpenter --tail=-1 2>/dev/null | grep -F 'is forbidden: User "system:serviceaccount:'; then
+    echo "the controller got a 403 with the chart's RBAC ($1)" >&2
+    exit 1
+  fi
+}
+no_403 "at start"
 phase
 
 if [[ "${KWOK_SETUP_ONLY:-}" == "1" ]]; then
@@ -178,4 +205,5 @@ run_args=()
 [[ -z "${KWOK_SCENARIOS:-}" ]] || run_args=(-run "${KWOK_SCENARIOS}")
 KWOK_OUT_DIR="${out}" \
   go test -tags kwok,scarpenter_dev -count=1 -timeout 60m -v "${run_args[@]}" ./test/kwok/e2e/ 2>&1 | tee "${out}/e2e.log"
+no_403 "after the scenarios"
 phase

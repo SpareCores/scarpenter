@@ -1,0 +1,28 @@
+apiVersion: v2
+name: scarpenter
+description: >-
+  SCarpenter: a multi-vendor Karpenter provider. Karpenter core with a
+  CloudProvider that launches Flatcar nodes on AWS (and further vendors) from
+  Spare Cores catalog data, joining any Kubernetes cluster.
+type: application
+# The release workflow (.github/workflows/release.yml) packages the chart with
+# the version of the Git tag for both fields; the image tag defaults to
+# appVersion. The development values below match `make image`.
+version: 0.0.0-dev
+appVersion: dev
+# 1.31: the SCNodeClass CRD uses the CEL CIDR library (isCIDR); older API servers
+# reject the CRD.
+kubeVersion: ">=1.31.0-0"
+home: https://github.com/SpareCores/scarpenter
+sources:
+  - https://github.com/SpareCores/scarpenter
+keywords:
+  - karpenter
+  - autoscaling
+  - spare-cores
+  - multi-cloud
+maintainers:
+  - name: Spare Cores
+    url: https://sparecores.com
+annotations:
+  artifacthub.io/license: MPL-2.0

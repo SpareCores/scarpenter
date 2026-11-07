@@ -1,0 +1,228 @@
+{{- if .Values.rbac.create }}
+{{- /*
+files/rbac.yaml is generated from config/rbac and config/rbac-core
+(make chart-rbac); test/chart/run.sh renders this file and compares the rules and
+bindings with them.
+*/ -}}
+{{- $rbac := .Files.Get "files/rbac.yaml" | fromYaml }}
+{{- $fullname := include "scarpenter.fullname" . }}
+{{- $sa := include "scarpenter.serviceAccountName" . }}
+{{- $ns := .Release.Namespace }}
+{{- $labels := include "scarpenter.labels" . }}
+# SCarpenter's own permissions (config/rbac/controller.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- toYaml $rbac.controller.rules | nindent 2 }}
+  {{- with .Values.rbac.extraRules }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $ns }}
+---
+# Karpenter core's permissions (config/rbac-core/core.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-core
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- toYaml $rbac.core.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-core
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}-core
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $ns }}
+---
+# The bootstrap tokens live in kube-system, where the API server's bootstrap
+# authenticator reads them (a Role there, not cluster-wide access to Secrets).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-bootstrap-tokens
+  namespace: kube-system
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- toYaml $rbac.bootstrapTokens.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-bootstrap-tokens
+  namespace: kube-system
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-bootstrap-tokens
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $ns }}
+---
+# The cluster DNS Service, read when --cluster-dns is not set (config/rbac/controller.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-cluster-dns
+  namespace: kube-system
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- toYaml $rbac.clusterDNS.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-cluster-dns
+  namespace: kube-system
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-cluster-dns
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $ns }}
+---
+# The tailscale auth key Secret of an SCNodeClass is read from the release
+# namespace (config/rbac/controller.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-auth-key
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- toYaml $rbac.authKey.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-auth-key
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-auth-key
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $ns }}
+{{- range $secret := .Values.rbac.authKeySecrets }}
+---
+# The auth key Secret {{ $secret.name }} of namespace {{ $secret.namespace }} (rbac.authKeySecrets).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-auth-key
+  namespace: {{ required "rbac.authKeySecrets[].namespace is required" $secret.namespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- range $rbac.authKey.rules }}
+  - apiGroups:
+      {{- toYaml .apiGroups | nindent 6 }}
+    resources:
+      {{- toYaml .resources | nindent 6 }}
+    resourceNames:
+      - {{ required "rbac.authKeySecrets[].name is required" $secret.name | quote }}
+    verbs:
+      {{- toYaml .verbs | nindent 6 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-auth-key
+  namespace: {{ $secret.namespace }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-auth-key
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $ns }}
+{{- end }}
+{{- if .Values.leaderElection.enabled }}
+---
+# Leader election: the lease of the controller (config/rbac-core/core.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-leader-election
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- toYaml $rbac.leaderElection.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-leader-election
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $ns }}
+{{- end }}
+{{- /* The three bindings that let a node join (config/rbac/node-join.yaml). */}}
+{{- range $rbac.nodeJoin }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-{{ trimPrefix "scarpenter-" .name }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  {{- toYaml .roleRef | nindent 2 }}
+subjects:
+  {{- toYaml .subjects | nindent 2 }}
+{{- end }}
+{{- end }}

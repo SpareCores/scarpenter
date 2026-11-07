@@ -1,0 +1,299 @@
+{{- /*
+The controller's flags are rendered from the values: a flag whose value is empty
+or null is left out (the controller's own default applies). test/chart/run.sh
+checks that every flag of pkg/operator/options can be set from here.
+*/ -}}
+{{- $clusterName := required "cluster.name is required: the tag value of vendor resources (and, on AWS, what the IAM policy is scoped to)" .Values.cluster.name }}
+{{- $endpoint := required "cluster.apiServerEndpoint is required: the https:// URL nodes use to reach the API server" .Values.cluster.apiServerEndpoint }}
+{{- if not (hasPrefix "https://" $endpoint) }}
+{{- fail "cluster.apiServerEndpoint must be an https:// URL" }}
+{{- end }}
+{{- $aws := .Values.vendors.aws }}
+{{- if not (include "scarpenter.vendors" .) }}
+{{- fail "enable at least one vendor: vendors.aws.enabled=true, or vendors.extra for the development image" }}
+{{- end }}
+{{- $mode := $aws.credentials.mode }}
+{{- if and $aws.enabled (eq $mode "webIdentity") (not $aws.credentials.webIdentity.roleArn) }}
+{{- fail "vendors.aws.credentials.webIdentity.roleArn is required with credentials mode webIdentity (docs/how-to-guides/aws-credentials.md); use mode secret or none otherwise" }}
+{{- end }}
+{{- if and $aws.enabled (eq $mode "secret") (not $aws.credentials.secret.existingSecret) }}
+{{- fail "vendors.aws.credentials.secret.existingSecret is required with credentials mode secret" }}
+{{- end }}
+{{- if and .Values.bootstrap.tokenTTL (lt (int (include "scarpenter.seconds" .Values.bootstrap.tokenTTL)) 1200) }}
+{{- fail "bootstrap.tokenTTL must be at least 20m: core gives a NodeClaim 15 minutes to register and the token must outlive that" }}
+{{- end }}
+{{- $kca := .Values.kubeletClientCA.source }}
+{{- $flags := dict
+  "cluster-name" $clusterName
+  "api-server-endpoint" $endpoint
+  "vendors" (include "scarpenter.vendors" .)
+  "cluster-dns" (include "scarpenter.clusterDNS" .)
+  "cluster-domain" .Values.cluster.domain
+  "tailnet-prefixes" (join "," .Values.bootstrap.tailnetPrefixes)
+  "keeper-url" .Values.keeper.url
+  "keeper-prices-regions-per-request" .Values.keeper.pricesRegionsPerRequest
+  "catalog-refresh-interval" .Values.catalog.refreshInterval
+  "catalog-max-age" .Values.catalog.maxAge
+  "sysext-base-url" .Values.artifacts.sysextBaseURL
+  "flatcar-base-url" .Values.artifacts.flatcarBaseURL
+  "bootstrap-token-ttl" .Values.bootstrap.tokenTTL
+  "max-launch-attempts" .Values.launch.maxAttempts
+  "quota-refresh-interval" .Values.quota.refreshInterval
+  "quota-limits-refresh-interval" .Values.quota.limitsRefreshInterval
+  "quota-max-staleness" .Values.quota.maxStaleness
+  "quota-launchable-refresh-interval" .Values.quota.launchableRefreshInterval
+  "gc-interval" .Values.gc.interval
+  "gc-grace-period" .Values.gc.gracePeriod
+  "gc-dry-run" (ternary "true" "" (default false .Values.gc.dryRun))
+  "unavailable-insufficient-capacity-ttl" .Values.unavailable.insufficientCapacityTTL
+  "unavailable-unsupported-ttl" .Values.unavailable.unsupportedTTL
+  "unavailable-quota-exceeded-ttl" .Values.unavailable.quotaExceededTTL
+  "unavailable-zone-unusable-ttl" .Values.unavailable.zoneUnusableTTL
+  "resource-default-ttl" .Values.managedResources.defaultTTL
+  "resource-per-use-grace" .Values.managedResources.perUseGrace
+  "resource-check-interval" .Values.managedResources.checkInterval
+  "resource-full-sweep-every" .Values.managedResources.fullSweepEvery
+  "aws-home-region" (ternary $aws.homeRegion "" $aws.enabled)
+  "log-level" .Values.karpenter.logLevel
+  "batch-max-duration" .Values.karpenter.batchMaxDuration
+  "batch-idle-duration" .Values.karpenter.batchIdleDuration
+  "feature-gates" .Values.karpenter.featureGates
+  "metrics-port" .Values.karpenter.metricsPort
+  "health-probe-port" .Values.karpenter.healthProbePort
+}}
+{{- if or .Values.cluster.ca.existingConfigMap .Values.cluster.ca.existingSecret }}
+{{- $_ := set $flags "cluster-ca-file" (printf "/etc/scarpenter/cluster-ca/%s" .Values.cluster.ca.key) }}
+{{- end }}
+{{- if ne $kca "none" }}
+{{- $_ := set $flags "kubelet-client-ca-file" (printf "/etc/scarpenter/kubelet-client-ca/%s" (include "scarpenter.kubeletClientCAKey" .)) }}
+{{- end }}
+{{- if .Values.keeper.apiKey.existingSecret }}
+{{- $_ := set $flags "keeper-api-key-file" "/etc/scarpenter/keeper/api-key" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "scarpenter.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "scarpenter.labels" . | nindent 4 }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "scarpenter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: controller
+        # Core must never voluntarily disrupt the node that hosts its own controller.
+        karpenter.sh/do-not-disrupt: "true"
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "scarpenter.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "scarpenter.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: controller
+          image: {{ include "scarpenter.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            {{- range $name, $value := $flags }}
+            {{- if not (kindIs "invalid" $value) }}
+            {{- if ne (toString $value) "" }}
+            - {{ printf "--%s=%s" $name (toString $value) | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            # Where kube-root-ca.crt is read, where events about the controller
+            # go and where core keeps its leader election lease.
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: LEADER_ELECTION_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            # Not core's default: another Karpenter in the same namespace would
+            # share the lease karpenter-leader-election and only one would run.
+            - name: LEADER_ELECTION_NAME
+              value: {{ printf "%s-leader-election" (include "scarpenter.fullname" .) | quote }}
+            # The Deployment the garbage collector's Events are attached to when
+            # an orphan has no NodeClass.
+            - name: SCARPENTER_DEPLOYMENT_NAME
+              value: {{ include "scarpenter.fullname" . | quote }}
+            # Core sizes its garbage collector and its concurrency from these.
+            - name: MEMORY_LIMIT
+              valueFrom: {resourceFieldRef: {containerName: controller, resource: limits.memory, divisor: "1"}}
+            - name: CPU_REQUESTS
+              valueFrom: {resourceFieldRef: {containerName: controller, resource: requests.cpu, divisor: 1m}}
+            {{- if not .Values.leaderElection.enabled }}
+            - name: DISABLE_LEADER_ELECTION
+              value: "true"
+            {{- end }}
+            {{- if $aws.enabled }}
+            - name: AWS_REGION
+              value: {{ default (default "us-east-1" $aws.homeRegion) $aws.region | quote }}
+            {{- if and (not (kindIs "invalid" $aws.ipv4Price)) (ne (toString $aws.ipv4Price) "") }}
+            - name: SCARPENTER_AWS_IPV4_PRICE
+              value: {{ toString $aws.ipv4Price | quote }}
+            {{- end }}
+            {{- if eq $mode "webIdentity" }}
+            - name: AWS_ROLE_ARN
+              value: {{ $aws.credentials.webIdentity.roleArn | quote }}
+            - name: AWS_WEB_IDENTITY_TOKEN_FILE
+              value: /var/run/secrets/aws/token
+            {{- with $aws.credentials.webIdentity.sessionName }}
+            - name: AWS_ROLE_SESSION_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- else if eq $mode "secret" }}
+            {{- $s := $aws.credentials.secret }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.accessKeyIdKey | quote }}}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.secretAccessKeyKey | quote }}}}
+            {{- if $s.sessionTokenKey }}
+            - name: AWS_SESSION_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.sessionTokenKey | quote }}}}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: {{ .Values.karpenter.healthProbePort }}
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.karpenter.metricsPort }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if and $aws.enabled (eq $mode "webIdentity") }}
+            - name: aws-token
+              mountPath: /var/run/secrets/aws
+              readOnly: true
+            {{- end }}
+            {{- if or .Values.cluster.ca.existingConfigMap .Values.cluster.ca.existingSecret }}
+            - name: cluster-ca
+              mountPath: /etc/scarpenter/cluster-ca
+              readOnly: true
+            {{- end }}
+            {{- if ne $kca "none" }}
+            - name: kubelet-client-ca
+              mountPath: /etc/scarpenter/kubelet-client-ca
+              readOnly: true
+            {{- end }}
+            {{- if .Values.keeper.apiKey.existingSecret }}
+            - name: keeper-api-key
+              mountPath: /etc/scarpenter/keeper
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and $aws.enabled (eq $mode "webIdentity") }}
+        - name: aws-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ $aws.credentials.webIdentity.audience | quote }}
+                  expirationSeconds: {{ $aws.credentials.webIdentity.expirationSeconds }}
+                  path: token
+        {{- end }}
+        {{- if .Values.cluster.ca.existingConfigMap }}
+        - name: cluster-ca
+          configMap:
+            name: {{ .Values.cluster.ca.existingConfigMap | quote }}
+            items:
+              - {key: {{ .Values.cluster.ca.key | quote }}, path: {{ .Values.cluster.ca.key | quote }}}
+        {{- else if .Values.cluster.ca.existingSecret }}
+        - name: cluster-ca
+          secret:
+            secretName: {{ .Values.cluster.ca.existingSecret | quote }}
+            items:
+              - {key: {{ .Values.cluster.ca.key | quote }}, path: {{ .Values.cluster.ca.key | quote }}}
+        {{- end }}
+        {{- if ne $kca "none" }}
+        - name: kubelet-client-ca
+          {{- if eq $kca "secret" }}
+          secret:
+            secretName: {{ include "scarpenter.kubeletClientCAName" . | quote }}
+            items:
+              - {key: {{ include "scarpenter.kubeletClientCAKey" . | quote }}, path: {{ include "scarpenter.kubeletClientCAKey" . | quote }}}
+          {{- else }}
+          configMap:
+            name: {{ include "scarpenter.kubeletClientCAName" . | quote }}
+            items:
+              - {key: {{ include "scarpenter.kubeletClientCAKey" . | quote }}, path: {{ include "scarpenter.kubeletClientCAKey" . | quote }}}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.keeper.apiKey.existingSecret }}
+        - name: keeper-api-key
+          secret:
+            secretName: {{ .Values.keeper.apiKey.existingSecret | quote }}
+            items:
+              - {key: {{ .Values.keeper.apiKey.key | quote }}, path: api-key}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

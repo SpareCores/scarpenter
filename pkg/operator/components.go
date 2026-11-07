@@ -113,10 +113,16 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	c.Refs = &bootstrap.KubeReferences{
 		Reader: o.GetAPIReader(), CAFile: opts.ClusterCAFile, Namespace: os.Getenv("POD_NAMESPACE"), Clock: o.Clock,
 	}
-	c.Renderer = bootstrap.NewRenderer(bootstrap.RendererOptions{
+	rendererOpts := bootstrap.RendererOptions{
 		Refs: c.Refs, APIServerEndpoint: opts.APIServerEndpoint,
 		ClusterDNS: opts.ClusterDNS, ClusterDomain: opts.ClusterDomain, KubeletClientCAFile: opts.KubeletClientCAFile,
-	})
+	}
+	if len(opts.ClusterDNS) == 0 && !opts.ClusterDNSNone {
+		// Not given and not switched off: the nodes get the DNS Service of the
+		// cluster, and a NodeClass is not valid while it cannot be found.
+		rendererOpts.ClusterDNSLookup = c.Refs.ClusterDNS
+	}
+	c.Renderer = bootstrap.NewRenderer(rendererOpts)
 	c.Tokens = bootstrap.NewMinter(bootstrap.MinterOptions{
 		Client: o.GetClient(), Reader: o.GetAPIReader(), TTL: opts.BootstrapTokenTTL,
 		Clock: o.Clock, Recorder: o.EventRecorder,

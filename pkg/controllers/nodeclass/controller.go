@@ -56,6 +56,7 @@ const (
 	ReasonReferenceNotFound   = "ReferenceNotFound"
 	ReasonReferenceUnreadable = "ReferenceUnreadable"
 	ReasonTemplateInvalid     = "TemplateInvalid"
+	ReasonClusterDNSUnknown   = "ClusterDNSUnknown"
 	ReasonVendorNotEnabled    = "VendorNotEnabled"
 	ReasonVendorInvalid       = "ValidationFailed"
 	ReasonUnknownRegions      = "UnknownRegions"
@@ -329,7 +330,11 @@ func (c *Controller) validate(
 	if artifactsOK {
 		for _, arch := range architectures {
 			if err := c.opts.Renderer.Validate(ctx, desired, arch, inputs); err != nil {
-				fail(ReasonTemplateInvalid, fmt.Errorf("rendering for %s: %w", arch, err))
+				reason := ReasonTemplateInvalid
+				if _, ok := errors.AsType[*bootstrap.ClusterDNSError](err); ok {
+					reason = ReasonClusterDNSUnknown
+				}
+				fail(reason, fmt.Errorf("rendering for %s: %w", arch, err))
 				return inputs, true
 			}
 		}

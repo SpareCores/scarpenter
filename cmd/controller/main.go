@@ -13,16 +13,24 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/samber/lo"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	coreoperator "sigs.k8s.io/karpenter/pkg/operator"
 
+	"github.com/SpareCores/scarpenter/internal/version"
 	"github.com/SpareCores/scarpenter/pkg/operator"
 )
 
 func main() {
+	// Handled before anything is parsed or connected: the release checks run it
+	// on the image without a cluster.
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-version") {
+		fmt.Println(version.Get())
+		return
+	}
 	ctx, op := operator.NewOperator(coreoperator.NewOperator())
 	components, err := op.NewComponents(ctx)
 	if err != nil {

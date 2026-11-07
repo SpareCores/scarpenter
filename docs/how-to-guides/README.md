@@ -17,13 +17,16 @@ Available:
   ID, name pattern or tags per region; or let SCarpenter create them, and choose
   their lifecycle.
 
+- [**Install SCarpenter**](install.md) (plan 09) — prerequisites (bootstrap-token
+  auth, CNI and kube-proxy that work on remote nodes), the Helm install, the values
+  that matter, the k3s kubelet client CA, upgrade, uninstall and what it leaves
+  behind.
+- [**Set up AWS credentials**](aws-credentials.md) (plan 09) — the IAM policy, web
+  identity federation from the cluster's ServiceAccount issuer, EKS Pod Identity,
+  static keys, the account's Spot service-linked role.
+
 Planned for v1:
 
-- **Install SCarpenter** (plan 09) — prerequisites (bootstrap-token auth, CNI
-  and kube-proxy that work on remote nodes), Helm values, API server endpoint
-  and CA, catalog URL and API key, upgrade, uninstall.
-- **Set up AWS credentials** (plan 09) — web identity federation from the
-  cluster's ServiceAccount issuer, or static keys; the IAM policy.
 - **Select instances** (plan 11) — exact choices, attribute ranges, benchmark
   thresholds and percentiles, selection profiles and objectives.
 - **Add a vendor driver** (plan 11) — the driver contract, the conformance

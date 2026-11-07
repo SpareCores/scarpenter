@@ -1,0 +1,8 @@
+# Karpenter core's permissions for the controller (the upstream ones, as in the
+# chart of the AWS provider), and the Role for its leader election lease. The
+# Helm chart templates the same rules (hack/chart-sync.sh rbac, checked by
+# make test-chart). Apply together with config/rbac:
+#
+#   kubectl apply -k config/rbac-core
+resources:
+  - core.yaml

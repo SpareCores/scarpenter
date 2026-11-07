@@ -1,0 +1,18 @@
+# Static AWS keys from a Secret, a kubelet client CA from an existing ConfigMap
+# (k3s), no leader election, and the AWS vendor turned off next to a development
+# driver.
+cluster:
+  name: lab
+  apiServerEndpoint: https://100.64.0.1:6443
+  dns: [10.43.0.10]
+kubeletClientCA:
+  source: configMap
+  configMap: {name: k3s-client-ca, key: client-ca.crt}
+leaderElection: {enabled: false}
+vendors:
+  aws:
+    credentials:
+      mode: secret
+      secret:
+        existingSecret: aws-keys
+        sessionTokenKey: AWS_SESSION_TOKEN

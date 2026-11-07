@@ -106,6 +106,9 @@ type Options struct {
 	// domain the kubelets of the nodes are configured with; with no ClusterDNS
 	// the Pods of the nodes use the node's resolver.
 	ClusterDNS []string
+	// ClusterDNSNone is --cluster-dns=none: nodes get no clusterDNS on purpose.
+	// With neither IPs nor none the controller finds the DNS Service itself.
+	ClusterDNSNone bool
 	// TailnetPrefixes are the address ranges of the tailnet; empty means
 	// Tailscale's defaults.
 	TailnetPrefixes []string
@@ -173,7 +176,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.FlatcarBaseURL, "flatcar-base-url", env.WithDefaultString("SCARPENTER_FLATCAR_BASE_URL", ""), "Mirror of the Flatcar release files. Empty means upstream.")
 	fs.DurationVar(&o.BootstrapTokenTTL, "bootstrap-token-ttl", env.WithDefaultDuration("SCARPENTER_BOOTSTRAP_TOKEN_TTL", DefaultBootstrapTokenTTL), "Lifetime of a node's bootstrap token; at least 20m, because core gives a NodeClaim 15 minutes to register.")
 	fs.StringVar(&o.tailnetRaw, "tailnet-prefixes", env.WithDefaultString("SCARPENTER_TAILNET_PREFIXES", ""), "Comma-separated CIDRs of the tailnet (default 100.64.0.0/10 and fd7a:115c:a1e0::/48): with the tailscale template a serving certificate may name a node address only inside them (set it for a Headscale with other prefixes).")
-	fs.StringVar(&o.clusterDNSRaw, "cluster-dns", env.WithDefaultString("SCARPENTER_CLUSTER_DNS", ""), "Comma-separated IPs of the cluster DNS service, for the kubelet of the nodes (clusterDNS). Empty leaves it unset: Pods then use the node's resolver.")
+	fs.StringVar(&o.clusterDNSRaw, "cluster-dns", env.WithDefaultString("SCARPENTER_CLUSTER_DNS", ""), "Comma-separated IPs of the cluster DNS service, for the kubelet of the nodes (clusterDNS). Empty: the controller reads the ClusterIP of the DNS Service of kube-system (label k8s-app=kube-dns, else the Service kube-dns), and a NodeClass is not valid while it finds none. \"none\" leaves clusterDNS unset: Pods then use the node's resolver.")
 	fs.StringVar(&o.ClusterDomain, "cluster-domain", env.WithDefaultString("SCARPENTER_CLUSTER_DOMAIN", DefaultClusterDomain), "Cluster domain of the kubelet of the nodes (clusterDomain).")
 	fs.IntVar(&o.MaxLaunchAttempts, "max-launch-attempts", env.WithDefaultInt("SCARPENTER_MAX_LAUNCH_ATTEMPTS", DefaultMaxLaunchAttempts), "Vendor calls one NodeClaim creation may make; candidates skipped for lack of quota headroom do not count.")
 	fs.DurationVar(&o.QuotaRefreshInterval, "quota-refresh-interval", env.WithDefaultDuration("SCARPENTER_QUOTA_REFRESH_INTERVAL", DefaultQuotaRefreshInterval), "How often quota usage is refreshed per vendor and region in scope.")
@@ -205,6 +208,9 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 	}
 	o.Vendors = splitList(o.vendorsRaw)
 	o.ClusterDNS = splitList(o.clusterDNSRaw)
+	if len(o.ClusterDNS) == 1 && strings.EqualFold(o.ClusterDNS[0], "none") {
+		o.ClusterDNS, o.ClusterDNSNone = nil, true
+	}
 	o.TailnetPrefixes = splitList(o.tailnetRaw)
 	if err := o.Validate(); err != nil {
 		return fmt.Errorf("validating options: %w", err)

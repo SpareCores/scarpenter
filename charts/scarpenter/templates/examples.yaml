@@ -1,0 +1,57 @@
+{{- if .Values.examples.enabled }}
+{{- $nc := .Values.examples.nodeClass }}
+{{- if .Values.vendors.aws.enabled }}
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: {{ $nc.name }}-aws
+  labels:
+    {{- include "scarpenter.labels" . | nindent 4 }}
+  annotations:
+    # Not deleted by helm uninstall, which would leave NodeClaims and the
+    # NodeClass stuck on finalizers once the controller is gone: delete them
+    # first (docs/how-to-guides/install.md#uninstall).
+    helm.sh/resource-policy: keep
+spec:
+  flatcar:
+    channel: {{ $nc.flatcarChannel }}
+    version: {{ $nc.flatcarVersion | quote }}
+  kubernetes:
+    version: {{ $nc.kubernetesVersion | quote }}
+  network:
+    template: {{ $nc.networkTemplate }}
+    {{- if eq $nc.networkTemplate "tailscale" }}
+    tailscale:
+      version: {{ required "examples.nodeClass.tailscale.version is required with the tailscale template (a sysext-bakery tailscale release)" $nc.tailscale.version | quote }}
+      authKeySecretRef: {name: {{ $nc.tailscale.secretName | quote }}, namespace: {{ .Release.Namespace | quote }}, key: {{ $nc.tailscale.secretKey | quote }}}
+      tags:
+        {{- toYaml $nc.tailscale.tags | nindent 8 }}
+    {{- end }}
+  vendors:
+    aws:
+      regions:
+        {{- toYaml .Values.examples.aws.regions | nindent 8 }}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: {{ $nc.name }}-aws
+  labels:
+    {{- include "scarpenter.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: {{ $nc.name }}-aws}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [aws]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [spot, on-demand]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
+  limits:
+    cpu: {{ .Values.examples.nodePool.cpuLimit | quote }}
+{{- end }}
+{{- end }}

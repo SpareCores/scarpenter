@@ -34,6 +34,7 @@ import (
 	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
+	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/operator"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -173,6 +174,31 @@ spec:
   vendors: {aws: {regions: [us-east-1]}}
 `)
 	if err := c.Create(ctx, nodeClass); err != nil {
+		t.Fatal(err)
+	}
+	// No --cluster-dns: the controller looks the cluster DNS Service up itself, and
+	// the NodeClass is not valid while there is none (ClusterDNSUnknown).
+	waitFor(t, "SCNodeClass ValidationSucceeded=False (ClusterDNSUnknown)", func() error {
+		nc := &v1alpha1.SCNodeClass{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(nodeClass), nc); err != nil {
+			return err
+		}
+		cond := nc.StatusConditions().Get(v1alpha1.ConditionTypeValidationSucceeded)
+		if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != nodeclass.ReasonClusterDNSUnknown {
+			return fmt.Errorf("ValidationSucceeded is not False/ClusterDNSUnknown: %+v", nc.Status.Conditions)
+		}
+		return nil
+	})
+	// The Service appears (not named kube-dns: the label finds it) and the
+	// NodeClass becomes valid.
+	if err := c.Create(ctx, object(t, `
+apiVersion: v1
+kind: Service
+metadata: {name: coredns, namespace: kube-system, labels: {k8s-app: kube-dns}}
+spec:
+  clusterIP: 10.0.0.10
+  ports: [{name: dns, port: 53, protocol: UDP}]
+`)); err != nil {
 		t.Fatal(err)
 	}
 	// The NodeClass controller of the same manager makes it Ready: it resolves the

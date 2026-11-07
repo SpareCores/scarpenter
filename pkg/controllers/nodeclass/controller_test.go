@@ -824,3 +824,27 @@ func TestIPv6OnlyNodesWarnAboutTheDefaultSysextSource(t *testing.T) {
 		})
 	}
 }
+
+// With no --cluster-dns the controller looks the DNS Service up; a NodeClass is
+// not valid while there is none, and says what to set.
+func TestClusterDNSMustBeKnown(t *testing.T) {
+	e := newEnv(t)
+	lookup := func(context.Context) ([]string, error) {
+		return nil, errors.New("no cluster DNS Service found: set --cluster-dns (Helm value cluster.dns)")
+	}
+	e.ctrl = nodeclass.New(nodeclass.Options{
+		Client: e.c, Catalog: e.cat, Registry: vendors.NewRegistryFrom(e.drv), Artifacts: artifacts.New(artifacts.Config{SysextBase: e.server}),
+		Renderer: bootstrap.NewRenderer(bootstrap.RendererOptions{
+			Refs: e.refs, APIServerEndpoint: "https://api.example.com:6443", ClusterDNSLookup: lookup}),
+		Refs:          e.refs,
+		ServerVersion: func(context.Context) (string, error) { return e.version, nil },
+		Recorder:      e.rec,
+	})
+	e.create(e.newNodeClass(nil))
+	nc := e.reconcile(e.name)
+	wantCond(t, nc, v1alpha1.ConditionTypeValidationSucceeded, metav1.ConditionFalse, nodeclass.ReasonClusterDNSUnknown)
+	if c := cond(nc, v1alpha1.ConditionTypeValidationSucceeded); c == nil || !strings.Contains(c.Message, "cluster.dns") {
+		t.Errorf("the message does not name the Helm value: %+v", c)
+	}
+	wantCond(t, nc, status.ConditionReady, metav1.ConditionFalse, "")
+}

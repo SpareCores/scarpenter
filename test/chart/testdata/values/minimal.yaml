@@ -1,0 +1,11 @@
+# The smallest valid install: the two required values, and no AWS credentials
+# wiring (the pod gets them from EKS Pod Identity or the node).
+cluster:
+  name: my-cluster
+  apiServerEndpoint: https://api.example.com:6443
+  # No cluster DNS on purpose.
+  dnsFromService: {enabled: false}
+vendors:
+  aws:
+    credentials:
+      mode: none

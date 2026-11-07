@@ -166,6 +166,27 @@ requests; the managed VPC layout (`10.240.0.0/16`, name
 `scarpenter-<cluster>-subnets-<region>`, children `-<zone>`, `-igw`, `-rt`); unattached
 tagged gateways. Run one region without a default VPC.
 
+## Carried over from the plan 09 review
+
+- Install the chart (`charts/scarpenter`), not manifests, on the L5 cluster with a real
+  `webIdentity` role (trust policy with the issuer path, `aud` and `sub`); then once
+  with EKS Pod Identity (`vendors.aws.credentials.mode: none`) and once with static
+  keys (`mode: secret`). Confirm the "Missing Region" behaviour, and that the EKS pod
+  identity webhook does not override the chart's explicit environment when
+  `annotateServiceAccount` is on.
+- The self-managed OIDC issuer steps of `docs/how-to-guides/aws-credentials.md`
+  (`--service-account-issuer`, publishing the discovery documents, the IAM provider and
+  its thumbprint remark, trust-policy condition keys with a path, the Pod Identity trust
+  policy) are untested: walk them once.
+- Run the uninstall procedure of `docs/how-to-guides/install.md#uninstall` (SCarpenter's
+  NodePools selected by `nodeClassRef.group`, then the SCNodeClasses, then
+  `helm uninstall`) on the live account and confirm that nothing tagged
+  `scarpenter.sparecores.com/cluster=<name>` remains.
+- Check the cluster DNS on real nodes: the controller discovers the DNS Service itself
+  when `cluster.dns` is empty; a node's kubelet gets `clusterDNS` and a Pod resolves a
+  cluster Service.
+- Install the chart at the minimum Kubernetes version (1.31) once.
+
 ## Gates
 
 CONVENTIONS gates 1–4; `actionlint` and `shellcheck` clean on the workflows

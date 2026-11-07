@@ -1,0 +1,15 @@
+# The development image with the fake driver only: what the L3 lane installs.
+image: {repository: ghcr.io/sparecores/scarpenter-dev, tag: dev}
+cluster:
+  name: scarpenter-kwok
+  apiServerEndpoint: https://kubernetes.default.svc
+  dns: [10.96.0.10]
+vendors:
+  aws: {enabled: false}
+  extra: [fake]
+karpenter: {logLevel: debug}
+rbac:
+  extraRules:
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [create, list, update, watch]

@@ -58,10 +58,33 @@ type RendererOptions struct {
 	// ClusterDNS and ClusterDomain are --cluster-dns and --cluster-domain.
 	ClusterDNS    []string
 	ClusterDomain string
+	// ClusterDNSLookup finds the cluster DNS when ClusterDNS is empty (the
+	// controller reads the DNS Service). Nil means no cluster DNS: the Pods of
+	// the nodes use the node's resolver (--cluster-dns=none).
+	ClusterDNSLookup func(ctx context.Context) ([]string, error)
 	// KubeletClientCAFile is --kubelet-client-ca-file: the CA that signs the
 	// API server's kubelet client certificates, when it is not the cluster CA.
 	// It is read at every rendering.
 	KubeletClientCAFile string
+}
+
+// ClusterDNSError means the cluster DNS was neither given (--cluster-dns) nor
+// found: rendering without it would silently give nodes no clusterDNS.
+type ClusterDNSError struct{ Err error }
+
+func (e *ClusterDNSError) Error() string { return e.Err.Error() }
+func (e *ClusterDNSError) Unwrap() error { return e.Err }
+
+// clusterDNS is --cluster-dns, else what the lookup finds.
+func (r *Renderer) clusterDNS(ctx context.Context) ([]string, error) {
+	if len(r.opts.ClusterDNS) > 0 || r.opts.ClusterDNSLookup == nil {
+		return r.opts.ClusterDNS, nil
+	}
+	ips, err := r.opts.ClusterDNSLookup(ctx)
+	if err != nil {
+		return nil, &ClusterDNSError{Err: err}
+	}
+	return ips, nil
 }
 
 // Renderer renders the user-data of NodeClaims from the SCNodeClass (with the
@@ -90,6 +113,9 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 	}
 	p, err := r.params(req.NodeClass, req.Arch, ca, in)
 	if err != nil {
+		return nil, err
+	}
+	if p.ClusterDNS, err = r.clusterDNS(ctx); err != nil {
 		return nil, err
 	}
 	if p.KubeletClientCA, err = r.kubeletClientCA(); err != nil {
@@ -123,6 +149,9 @@ func (r *Renderer) Validate(ctx context.Context, nc *v1alpha1.SCNodeClass, arch 
 	}
 	p, err := r.params(nc, arch, ca, in)
 	if err != nil {
+		return err
+	}
+	if p.ClusterDNS, err = r.clusterDNS(ctx); err != nil {
 		return err
 	}
 	// Like the cluster CA, a CA file that cannot be read now is not the
@@ -194,7 +223,7 @@ func (r *Renderer) params(nc *v1alpha1.SCNodeClass, arch, ca string, in Inputs) 
 	spec := &nc.Spec
 	p := Params{
 		Arch: arch, APIServerEndpoint: r.opts.APIServerEndpoint, ClusterCA: ca,
-		Kubelet: spec.Kubelet, ClusterDNS: r.opts.ClusterDNS, ClusterDomain: r.opts.ClusterDomain,
+		Kubelet: spec.Kubelet, ClusterDomain: r.opts.ClusterDomain,
 		ExtraSysexts: spec.Sysexts,
 		Network:      Network{Template: spec.Network.Template},
 		UserButane:   in.UserButane,
