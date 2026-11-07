@@ -40,6 +40,9 @@ func (v *vpc) toSDK() types.Vpc {
 			Ipv6CidrBlock: new(v.ipv6), AssociationId: new("vpc-cidr-assoc-" + v.id),
 			Ipv6CidrBlockState: &types.VpcCidrBlockState{State: types.VpcCidrBlockStateCodeAssociated},
 		}}
+		if v.ipv6Pending > 0 {
+			out.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlockState.State = types.VpcCidrBlockStateCodeAssociating
+		}
 	}
 	return out
 }
@@ -62,7 +65,7 @@ func (e *EC2) AssociateVpcCidrBlock(ctx context.Context, in *ec2.AssociateVpcCid
 	if v.ipv6 != "" {
 		return nil, apiError("CidrConflict", "the vpc already has an IPv6 CIDR block")
 	}
-	v.ipv6 = e.a.newIPv6Block()
+	v.ipv6, v.ipv6Pending = e.a.newIPv6Block(), e.a.ipv6Delay
 	return &ec2.AssociateVpcCidrBlockOutput{VpcId: in.VpcId}, nil
 }
 
@@ -123,6 +126,9 @@ func (e *EC2) DescribeVpcs(ctx context.Context, in *ec2.DescribeVpcsInput, _ ...
 		}
 		if ok {
 			out = append(out, v.toSDK())
+			if v.ipv6Pending > 0 {
+				v.ipv6Pending--
+			}
 		}
 	}
 	items, next := page(out, in.NextToken, in.MaxResults, e.a.pageSize)
@@ -142,7 +148,7 @@ func (e *EC2) CreateVpc(ctx context.Context, in *ec2.CreateVpcInput, _ ...func(*
 	}
 	v := e.a.newVPC(r, *in.CidrBlock, tags)
 	if in.AmazonProvidedIpv6CidrBlock != nil && *in.AmazonProvidedIpv6CidrBlock {
-		v.ipv6 = e.a.newIPv6Block()
+		v.ipv6, v.ipv6Pending = e.a.newIPv6Block(), e.a.ipv6Delay
 	}
 	sdk := v.toSDK()
 	return &ec2.CreateVpcOutput{Vpc: &sdk}, nil
@@ -230,6 +236,9 @@ func (s *subnet) toSDK(r *region) types.Subnet {
 			Ipv6CidrBlock: new(s.ipv6), AssociationId: new("subnet-cidr-assoc-" + s.id),
 			Ipv6CidrBlockState: &types.SubnetCidrBlockState{State: types.SubnetCidrBlockStateCodeAssociated},
 		}}
+		if s.ipv6Associating {
+			out.Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlockState.State = types.SubnetCidrBlockStateCodeAssociating
+		}
 	}
 	return out
 }
@@ -932,4 +941,14 @@ func (a *Account) AddRoute(regionName, tableID, destination, gateway string) {
 	defer a.mu.Unlock()
 	t := a.regions[regionName].rts[tableID]
 	t.routes = append(t.routes, destination+"->"+gateway)
+}
+
+// SetSubnetIPv6Associating gives a subnet the /64 with the index and shows it as
+// still being associated.
+func (a *Account) SetSubnetIPv6Associating(regionName, subnetID string, index int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.regions[regionName]
+	sn := r.subnets[subnetID]
+	sn.ipv6, sn.ipv6Associating = subnetIPv6(r.vpcs[sn.vpc].ipv6, index), true
 }

@@ -209,6 +209,7 @@ func Run(t *testing.T, fx Fixture) {
 	sub("offering lister", offeringLister)
 	sub("node options", nodeOptions)
 	sub("managed resources", managedResources)
+	sub("zone checker", zoneChecker)
 }
 
 func zoneMapping(t *testing.T, e *env) {
@@ -594,4 +595,54 @@ func refs(list []*vendors.Instance) []vendors.InstanceRef {
 		out = append(out, i.Ref)
 	}
 	return out
+}
+
+// zoneChecker checks the optional ZoneChecker capability: with nothing found the
+// driver has no gaps and no error, and what it reports names zones of the region
+// (so that the resource check can gate them) with a reason, deterministically.
+func zoneChecker(t *testing.T, e *env) {
+	zc, ok := e.d.(vendors.ZoneChecker)
+	if !ok {
+		t.Skip("the driver has no zone checker")
+	}
+	var settings vendors.VendorSettings
+	if no, ok := e.d.(vendors.NodeOptions); ok {
+		settings = no.Defaults()
+	}
+	gaps, err := zc.ZoneGaps(t.Context(), e.region, settings, nil)
+	if err != nil || len(gaps) != 0 {
+		t.Errorf("ZoneGaps with nothing found = %v, %v; want no gaps and no error", gaps, err)
+	}
+	var found map[vendors.ResourceKind][]vendors.ResourceRef
+	if mr, ok := e.d.(vendors.ManagedResources); ok {
+		found = map[vendors.ResourceKind][]vendors.ResourceRef{}
+		for _, k := range mr.Kinds() {
+			refs, err := mr.Resolve(t.Context(), k.Kind, e.region, vendors.UseRef{})
+			if err != nil {
+				t.Fatalf("Resolve(%s): %v", k.Kind, err)
+			}
+			found[k.Kind] = refs
+		}
+	}
+	first, err := zc.ZoneGaps(t.Context(), e.region, settings, found)
+	if err != nil {
+		t.Fatalf("ZoneGaps with the default resources: %v", err)
+	}
+	again, _ := zc.ZoneGaps(t.Context(), e.region, settings, found)
+	if fmt.Sprint(first) != fmt.Sprint(again) {
+		t.Errorf("ZoneGaps is not deterministic: %v and %v", first, again)
+	}
+	zones, err := e.d.Zones(t.Context(), e.region)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, z := range zones {
+		names[z.Name] = true
+	}
+	for zone, reason := range first {
+		if !names[zone] || reason == "" {
+			t.Errorf("a gap %q: %q is not a zone of %s with a reason", zone, reason, e.region)
+		}
+	}
 }

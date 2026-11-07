@@ -254,7 +254,7 @@ func (d *Driver) ensureNetwork(ctx context.Context, cl Clients, region string, s
 // ensureZoneSubnets returns the subnets of the VPC, one per usable zone, creating
 // the missing ones.
 func (d *Driver) ensureZoneSubnets(
-	ctx context.Context, cl Clients, region, vpcID, vpcIPv6 string, tagsFor func(string) []ec2types.Tag,
+	ctx context.Context, cl Clients, region, vpcID, vpcIPv6, cluster string, tagsFor func(string) []ec2types.Tag,
 ) ([]string, error) {
 	zones, err := d.Zones(ctx, region)
 	if err != nil {
@@ -271,8 +271,11 @@ func (d *Driver) ensureZoneSubnets(
 	for _, sn := range haveRaw {
 		usedCIDRs[deref(sn.CidrBlock)] = true
 		have = append(have, subnetInfo{id: deref(sn.SubnetId), zone: deref(sn.AvailabilityZone)})
-		// A subnet of an older network without IPv6 gets the /64 of its IPv4 index.
-		if n, ok := ipv4Index(deref(sn.CidrBlock)); ok && ipv6Of(sn) == "" {
+		// A subnet of an older network without IPv6 gets the /64 of its IPv4 index. Only
+		// a subnet that carries our marker: one someone else put in the VPC is never
+		// modified. One whose block is still being associated is left alone.
+		if n, ok := ipv4Index(deref(sn.CidrBlock)); ok && ipv6Of(sn) == "" && !ipv6Pending(sn) &&
+			owned(d.markerTags(sn.Tags), cluster) {
 			if err := d.associateSubnetIPv6(ctx, cl, deref(sn.SubnetId), vpcIPv6, n); err != nil {
 				return nil, err
 			}
@@ -325,7 +328,7 @@ func (d *Driver) completeNetwork(
 		s.Name = networkName(spec.Name, part)
 		return d.resourceTags(s)
 	}
-	subnetIDs, err := d.ensureZoneSubnets(ctx, cl, region, vpcID, vpcIPv6, tagsFor)
+	subnetIDs, err := d.ensureZoneSubnets(ctx, cl, region, vpcID, vpcIPv6, d.cluster(spec), tagsFor)
 	if err != nil {
 		return err
 	}
@@ -653,6 +656,16 @@ func ipv6Of(s ec2types.Subnet) string {
 	return ""
 }
 
+// ipv6Pending says an IPv6 block of the subnet is being associated.
+func ipv6Pending(s ec2types.Subnet) bool {
+	for _, a := range s.Ipv6CidrBlockAssociationSet {
+		if a.Ipv6CidrBlockState != nil && a.Ipv6CidrBlockState.State == ec2types.SubnetCidrBlockStateCodeAssociating {
+			return true
+		}
+	}
+	return false
+}
+
 // ipv4Index is the slot of a 10.240.<16*n>.0/20 subnet of the managed network.
 func ipv4Index(cidr string) (int, bool) {
 	p, err := netip.ParsePrefix(cidr)
@@ -684,6 +697,10 @@ func (d *Driver) associateSubnetIPv6(ctx context.Context, cl Clients, subnetID, 
 	return nil
 }
 
+// ipv6WaitMax is how long a call waits for the IPv6 block of a VPC to be associated
+// before it gives up with a Retryable error (the next call continues).
+const ipv6WaitMax = 90 * time.Second
+
 // codeIPv6Pending: the VPC's Amazon-provided IPv6 block is not associated yet.
 const codeIPv6Pending = "VpcIPv6Pending"
 
@@ -714,15 +731,29 @@ func (d *Driver) ensureVPCIPv6(ctx context.Context, cl Clients, vpc ec2types.Vpc
 			return "", classify(err, errContext{})
 		}
 	}
-	out, err := cl.EC2.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
-		Filters: []ec2types.Filter{{Name: aws.String("vpc-id"), Values: []string{deref(vpc.VpcId)}}},
-	})
-	if err != nil {
-		return "", classify(err, errContext{})
-	}
-	if len(out.Vpcs) == 1 {
-		if cidr, _ = block(out.Vpcs[0]); cidr != "" {
-			return cidr, nil
+	// EC2 associates the block asynchronously, usually within seconds: wait for it
+	// here, so that the first setup of a network does not fail (and does not set an
+	// error condition) while it happens.
+	looks := max(1, int(ipv6WaitMax/max(d.pollInterval, time.Millisecond)))
+	for i := range looks {
+		out, err := cl.EC2.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
+			Filters: []ec2types.Filter{{Name: aws.String("vpc-id"), Values: []string{deref(vpc.VpcId)}}},
+		})
+		if err != nil {
+			return "", classify(err, errContext{})
+		}
+		if len(out.Vpcs) == 1 {
+			if cidr, _ = block(out.Vpcs[0]); cidr != "" {
+				return cidr, nil
+			}
+		}
+		if i == looks-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", classify(ctx.Err(), errContext{})
+		case <-time.After(d.pollInterval):
 		}
 	}
 	return "", vendors.NewError(vendors.Retryable, codeIPv6Pending,

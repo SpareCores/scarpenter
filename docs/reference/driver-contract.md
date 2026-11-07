@@ -30,7 +30,7 @@ returns the boot images of the NodeClass's release per region and architecture
 for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
 resolves images at launch with `ResolveImage` and counts as ready; the [AWS
 driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (below),
-`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ImageImporter` (reserved) and
+`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker` (below), `ImageImporter` (reserved) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
 
@@ -129,6 +129,19 @@ returns the create parameters of the fixture's resource kind (the AWS security
 groups need their VPC). The AWS driver runs the suite once per resource kind over
 the complete AWS type list of the committed snapshot
 (`pkg/vendors/aws/conformance_test.go`).
+
+## Zone checks
+
+`ZoneChecker` (`ZoneGaps(ctx, region, settings, found)`) lets a driver say, before any
+launch, which zones of a region cannot host a node with the NodeClass's resolved
+default settings, given the resources the resource check found in the region (by kind).
+The AWS driver uses it for `publicIPv6` on subnets without an IPv6 CIDR block. The
+result maps zone names to a reason: the resource check makes those zones' offerings
+unavailable and shows the reason in the resource status; a region where every zone is a
+gap is not ready. An error is no verdict (the zones keep their last state). The
+conformance suite calls it with nothing found (no gaps, no error) and with the vendor's
+default resources, and requires deterministic answers that name zones of the region with a
+reason.
 
 ## The qemu driver
 

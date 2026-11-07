@@ -452,7 +452,19 @@ func (c *Controller) vendor(
 		c.warnIPv6Only(desired, vendor)
 	}
 	images, ok, reason, msg := c.images(ctx, desired, vendor, ready)
-	if c.opts.ImageGate != nil {
+	kept := false
+	if reason == ReasonImagesFailed {
+		// A lookup that failed (throttling, a timeout) is no verdict: keep the last one,
+		// the condition and the images, and leave the gated regions as they are.
+		for _, prev := range existing {
+			if prev.Type == v1alpha1.VendorConditionImagesReady && prev.Reason != ReasonImagesFailed {
+				images, ok, reason, msg = current.Status.Vendors[vendor].Images, prev.Status == metav1.ConditionTrue,
+					prev.Reason, prev.Message
+				kept = true
+			}
+		}
+	}
+	if c.opts.ImageGate != nil && !kept {
 		c.opts.ImageGate.SetImageGaps(desired.Name, vendor, imageGaps(images))
 	}
 	vs.Images = images

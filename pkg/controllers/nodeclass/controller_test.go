@@ -577,8 +577,24 @@ func TestImagesReportedByTheDriver(t *testing.T) {
 	if c == nil || c.Status != metav1.ConditionFalse || !strings.Contains(c.Message, testRegion+"/arm64") {
 		t.Errorf("ImagesReady = %+v", c)
 	}
+	// A lookup that fails is no verdict: the condition and the images of the last
+	// good answer stay.
 	e.drv.imagesErr = errors.New("describing images: throttled")
-	c = vcond(e.reconcile(e.name), "aws", v1alpha1.VendorConditionImagesReady)
+	nc = e.reconcile(e.name)
+	c = vcond(nc, "aws", v1alpha1.VendorConditionImagesReady)
+	if c == nil || c.Reason == nodeclass.ReasonImagesFailed || !strings.Contains(c.Message, testRegion+"/arm64") {
+		t.Errorf("ImagesReady after a failed lookup = %+v, want the previous verdict", c)
+	}
+	if len(nc.Status.Vendors["aws"].Images) != 2 {
+		t.Errorf("images after a failed lookup: %+v, want the previous two", nc.Status.Vendors["aws"].Images)
+	}
+}
+
+func TestAFailedImageLookupWithoutAPreviousVerdictIsReported(t *testing.T) {
+	e := newEnv(t)
+	e.drv.imagesErr = errors.New("describing images: throttled")
+	e.create(e.newNodeClass(nil))
+	c := vcond(e.reconcile(e.name), "aws", v1alpha1.VendorConditionImagesReady)
 	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != nodeclass.ReasonImagesFailed {
 		t.Errorf("ImagesReady = %+v", c)
 	}

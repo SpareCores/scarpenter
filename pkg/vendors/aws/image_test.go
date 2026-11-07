@@ -323,3 +323,19 @@ func TestATransientImageErrorIsNotAnAnswer(t *testing.T) {
 		t.Errorf("a throttled first report: %+v, %v; want an error, not not-ready images", got, err)
 	}
 }
+
+func TestAThrottledLookupKeepsTheLastNegativeAnswerToo(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	nc := nodeClass("us-east-1")
+	nc.Spec.Flatcar.Version = "9.9.9" // no such release: the answer is "no image"
+	ctx := context.Background()
+	if got, err := e.d.ReportImages(ctx, nc); err != nil || got[0].Ready {
+		t.Fatalf("%+v, %v", got, err)
+	}
+	e.clock.Step(10 * time.Minute) // past the negative TTL
+	e.acct.Fail(fake.Failure{Op: "DescribeImages", Code: "RequestLimitExceeded", Count: 2})
+	got, err := e.d.ReportImages(ctx, nc)
+	if err != nil || len(got) != 2 || got[0].Ready || got[0].Message == "" {
+		t.Errorf("a throttled refresh: %+v, %v; want the last (negative) answer, not a failed report", got, err)
+	}
+}

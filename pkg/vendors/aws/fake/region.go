@@ -37,7 +37,9 @@ type vpc struct {
 	// ipv6 is the Amazon-provided /56 of the VPC, "" without one.
 	ipv6      string
 	isDefault bool
-	tags      map[string]string
+	// ipv6Pending is how many more DescribeVpcs calls show the block as associating.
+	ipv6Pending int
+	tags        map[string]string
 }
 
 type subnet struct {
@@ -45,9 +47,11 @@ type subnet struct {
 	// ipv6 is the /64 of the subnet, "" without one.
 	ipv6         string
 	defaultForAZ bool
-	free         int32
-	tags         map[string]string
-	mapPublic    bool
+	// ipv6Associating shows the subnet's block as associating.
+	ipv6Associating bool
+	free            int32
+	tags            map[string]string
+	mapPublic       bool
 }
 
 type sgRule struct {

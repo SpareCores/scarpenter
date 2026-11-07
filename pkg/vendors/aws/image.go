@@ -102,7 +102,10 @@ func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*v
 		d.mu.Lock()
 		stale, ok := d.images[key]
 		d.mu.Unlock()
-		if ok && stale.err == nil && vendors.IsClass(classify(err, errContext{}), vendors.Retryable) {
+		if ok && vendors.IsClass(classify(err, errContext{}), vendors.Retryable) {
+			if stale.err != nil {
+				return nil, stale.err // the last answer was "no image": it still is the last answer
+			}
 			img := stale.image
 			return &img, nil
 		}

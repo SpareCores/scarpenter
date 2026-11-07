@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -736,5 +738,132 @@ func TestDescribeCallsOfTheNetworkObjects(t *testing.T) {
 	}
 	if a.Clock() == nil {
 		t.Error("no clock")
+	}
+}
+
+func TestIPv6AndRoutes(t *testing.T) {
+	a := fake.New(fake.WithSlowIPv6(2))
+	c := a.EC2("us-east-1")
+	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: new("10.1.0.0/16"), AmazonProvidedIpv6CidrBlock: new(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := *vpc.Vpc.VpcId
+	state := func() types.VpcCidrBlockStateCode {
+		out, _ := c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{VpcIds: []string{id}})
+		return out.Vpcs[0].Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlockState.State
+	}
+	seen := make([]types.VpcCidrBlockStateCode, 0, 3)
+	for range 3 {
+		seen = append(seen, state())
+	}
+	want := []types.VpcCidrBlockStateCode{types.VpcCidrBlockStateCodeAssociating,
+		types.VpcCidrBlockStateCodeAssociating, types.VpcCidrBlockStateCodeAssociated}
+	if !slices.Equal(seen, want) {
+		t.Errorf("states %v, want associating twice then associated", seen)
+	}
+	out, _ := c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{VpcIds: []string{id}})
+	block := *out.Vpcs[0].Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock
+	if _, err := c.AssociateVpcCidrBlock(ctx, &ec2.AssociateVpcCidrBlockInput{VpcId: &id, AmazonProvidedIpv6CidrBlock: new(true)}); code(err) != "CidrConflict" {
+		t.Errorf("a second block: %v", err)
+	}
+	if _, err := c.AssociateVpcCidrBlock(ctx, &ec2.AssociateVpcCidrBlockInput{VpcId: &id}); code(err) != "MissingParameter" {
+		t.Errorf("no block asked for: %v", err)
+	}
+	if _, err := c.AssociateVpcCidrBlock(ctx, &ec2.AssociateVpcCidrBlockInput{VpcId: new("vpc-nope"), AmazonProvidedIpv6CidrBlock: new(true)}); code(err) != "InvalidVpcID.NotFound" {
+		t.Errorf("an unknown VPC: %v", err)
+	}
+	// The /64 of a subnet must be inside the /56 and unique.
+	p := netip.MustParsePrefix(block)
+	raw := p.Addr().As16()
+	raw[7] = 3
+	cidr64 := netip.PrefixFrom(netip.AddrFrom16(raw), 64).String()
+	sn, err := c.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: &id, AvailabilityZone: new("us-east-1a"), CidrBlock: new("10.1.0.0/24"), Ipv6CidrBlock: &cidr64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sn.Subnet.Ipv6CidrBlockAssociationSet) != 1 {
+		t.Errorf("subnet %+v", sn.Subnet)
+	}
+	other, err := c.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: &id, AvailabilityZone: new("us-east-1b"), CidrBlock: new("10.1.1.0/24")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct{ cidr, want string }{
+		"a duplicate":  {cidr64, "InvalidSubnet.Conflict"},
+		"outside":      {"2001:db8::/64", "InvalidParameterValue"},
+		"not a /64":    {block, "InvalidParameterValue"},
+		"not a prefix": {"nonsense", "InvalidParameterValue"},
+	} {
+		if _, err := c.AssociateSubnetCidrBlock(ctx, &ec2.AssociateSubnetCidrBlockInput{SubnetId: other.Subnet.SubnetId, Ipv6CidrBlock: new(tc.cidr)}); code(err) != tc.want {
+			t.Errorf("%s: %v, want %s", name, err, tc.want)
+		}
+	}
+	if _, err := c.AssociateSubnetCidrBlock(ctx, &ec2.AssociateSubnetCidrBlockInput{SubnetId: new("subnet-nope"), Ipv6CidrBlock: &cidr64}); code(err) != "InvalidSubnetID.NotFound" {
+		t.Errorf("an unknown subnet: %v", err)
+	}
+	a.SetSubnetIPv6Associating("us-east-1", *other.Subnet.SubnetId, 9)
+	subs, _ := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{SubnetIds: []string{*other.Subnet.SubnetId}})
+	if subs.Subnets[0].Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlockState.State != types.SubnetCidrBlockStateCodeAssociating {
+		t.Error("the subnet's block is not associating")
+	}
+
+	// Routes of both families, replace and not found.
+	igw, _ := c.CreateInternetGateway(ctx, &ec2.CreateInternetGatewayInput{})
+	gw := igw.InternetGateway.InternetGatewayId
+	if _, err := c.AttachInternetGateway(ctx, &ec2.AttachInternetGatewayInput{InternetGatewayId: gw, VpcId: &id}); err != nil {
+		t.Fatal(err)
+	}
+	rt, _ := c.CreateRouteTable(ctx, &ec2.CreateRouteTableInput{VpcId: &id})
+	tbl := rt.RouteTable.RouteTableId
+	if _, err := c.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{RouteTableId: tbl, DestinationIpv6CidrBlock: new("::/0"), GatewayId: gw}); code(err) != "InvalidRoute.NotFound" {
+		t.Errorf("replacing a route that does not exist: %v", err)
+	}
+	if _, err := c.CreateRoute(ctx, &ec2.CreateRouteInput{RouteTableId: tbl, DestinationIpv6CidrBlock: new("::/0"), GatewayId: gw}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateRoute(ctx, &ec2.CreateRouteInput{RouteTableId: tbl, DestinationIpv6CidrBlock: new("::/0"), GatewayId: gw}); code(err) != "RouteAlreadyExists" {
+		t.Errorf("a duplicate route: %v", err)
+	}
+	a.AddRoute("us-east-1", *tbl, "0.0.0.0/0", "igw-stale")
+	if _, err := c.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{RouteTableId: tbl, DestinationCidrBlock: new("0.0.0.0/0"), GatewayId: gw}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ReplaceRoute(ctx, &ec2.ReplaceRouteInput{RouteTableId: new("rtb-nope"), DestinationCidrBlock: new("0.0.0.0/0"), GatewayId: gw}); code(err) != "InvalidRouteTableID.NotFound" {
+		t.Errorf("an unknown table: %v", err)
+	}
+	tables, _ := c.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{})
+	var v6, v4 bool
+	for _, tb := range tables.RouteTables {
+		for _, r := range tb.Routes {
+			v6 = v6 || (r.DestinationIpv6CidrBlock != nil && *r.GatewayId == *gw)
+			v4 = v4 || (r.DestinationCidrBlock != nil && *r.GatewayId == *gw)
+		}
+	}
+	if !v6 || !v4 {
+		t.Errorf("routes: ipv6 %v ipv4 %v", v6, v4)
+	}
+}
+
+func TestInstancesGetIPv6OnlyFromASubnetWithIt(t *testing.T) {
+	r := fake.DefaultRegion("us-east-1", "use1")
+	r.DefaultVPCIPv6 = true
+	a := fake.New(fake.WithRegions(r))
+	a.SetInstanceTypes([]fake.InstanceType{{Name: "m7i.large", VCPUs: 2}})
+	a.SetQuota("us-east-1", "L-1216C47A", 100)
+	c := a.EC2("us-east-1")
+	out, err := run(t, c, func(in *ec2.RunInstancesInput) {
+		in.NetworkInterfaces = []types.InstanceNetworkInterfaceSpecification{{Ipv6AddressCount: new(int32(1))}}
+	})
+	if err != nil || len(out.Instances[0].NetworkInterfaces[0].Ipv6Addresses) != 1 {
+		t.Fatalf("%v, %v", out, err)
+	}
+	b := fake.New()
+	b.SetInstanceTypes([]fake.InstanceType{{Name: "m7i.large", VCPUs: 2}})
+	b.SetQuota("us-east-1", "L-1216C47A", 100)
+	if _, err := run(t, b.EC2("us-east-1"), func(in *ec2.RunInstancesInput) {
+		in.NetworkInterfaces = []types.InstanceNetworkInterfaceSpecification{{Ipv6AddressCount: new(int32(1))}}
+	}); code(err) != "InvalidParameterValue" {
+		t.Errorf("a subnet without IPv6: %v", err)
 	}
 }

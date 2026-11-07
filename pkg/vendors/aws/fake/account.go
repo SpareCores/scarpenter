@@ -59,6 +59,10 @@ func WithBigPageSize(n int) Option { return func(a *Account) { a.bigPage = n } }
 // empty with a NextToken, as EC2 may when filters drop what the page held.
 func WithShortFilteredPages() Option { return func(a *Account) { a.shortPages = true } }
 
+// WithSlowIPv6 makes the association of an Amazon-provided IPv6 block take n
+// DescribeVpcs calls (it shows as associating until then), as EC2 does.
+func WithSlowIPv6(n int) Option { return func(a *Account) { a.ipv6Delay = n } }
+
 // WithRegions replaces the default regions.
 func WithRegions(r ...RegionSpec) Option { return func(a *Account) { a.regionSpecs = r } }
 
@@ -92,6 +96,7 @@ type Account struct {
 	pageSize    int
 	bigPage     int
 	shortPages  bool
+	ipv6Delay   int
 	regionSpecs []RegionSpec
 	regions     map[string]*region
 	order       []string

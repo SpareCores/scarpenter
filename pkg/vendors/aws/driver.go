@@ -79,6 +79,10 @@ func WithCallTimeouts(call, launch time.Duration) Option {
 	return func(d *Driver) { d.callTimeout, d.launchTimeout = call, launch }
 }
 
+// WithPollInterval sets how often the driver looks again while it waits for an
+// asynchronous EC2 state (the association of an IPv6 block).
+func WithPollInterval(p time.Duration) Option { return func(d *Driver) { d.pollInterval = p } }
+
 // WithPrices sets the source of the EBS and IPv4 prices; by default the driver
 // reads the EBS prices from Keeper (the IPv4 price is a constant).
 func WithPrices(p PriceSource) Option { return func(d *Driver) { d.prices = p } }
@@ -95,7 +99,9 @@ type Driver struct {
 	callTimeout   time.Duration
 	launchTimeout time.Duration
 	prices        PriceSource
-	keeper        *keeperPrices
+	// pollInterval is how often a wait on an asynchronous EC2 state looks again.
+	pollInterval time.Duration
+	keeper       *keeperPrices
 
 	// epoch changes when the answers of Supported and PriceDelta may have.
 	epoch atomic.Uint64
@@ -134,7 +140,8 @@ func (c *cached[T]) set(v T, until time.Time) { c.v, c.until, c.ok = v, until, t
 // New returns an uninitialised driver.
 func New(opts ...Option) *Driver {
 	d := &Driver{
-		callTimeout: DefaultCallTimeout, launchTimeout: DefaultLaunchTimeout, types: newTypeTable(),
+		pollInterval: 2 * time.Second,
+		callTimeout:  DefaultCallTimeout, launchTimeout: DefaultLaunchTimeout, types: newTypeTable(),
 		cl: map[string]Clients{}, zones: map[string]*cached[[]vendors.Zone]{}, images: map[imageKey]cachedImage{},
 		roots: map[string]string{}, subnets: map[string]cachedSubnet{}, quotas: map[string]*regionQuota{},
 		pgs: map[string]cachedGroup{}, sgCheck: map[string]cachedSG{},

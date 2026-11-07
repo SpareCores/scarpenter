@@ -836,3 +836,100 @@ func tagsOf(sp vendors.CreateSpec) []ec2types.Tag {
 	}
 	return append(out, ec2types.Tag{Key: new("Name"), Value: new(sp.Name)})
 }
+
+func TestManagedNetworkIsCreatedWithIPv6InTheCreatingCall(t *testing.T) {
+	e := noDefaultVPCEnv(t)
+	if _, _, err := e.d.Ensure(context.Background(), aws.KindSubnets, testRegion,
+		spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil)); err != nil {
+		t.Fatal(err)
+	}
+	in := e.acct.Inputs("CreateVpc")[0].(*ec2.CreateVpcInput)
+	if !deref(in.AmazonProvidedIpv6CidrBlock) || e.acct.Calls("AssociateVpcCidrBlock") != 0 {
+		t.Errorf("a new VPC is created with the IPv6 block (%v), not upgraded afterwards (%d associations)",
+			deref(in.AmazonProvidedIpv6CidrBlock), e.acct.Calls("AssociateVpcCidrBlock"))
+	}
+}
+
+func TestTheFirstSetupWaitsForTheIPv6BlockToBeAssociated(t *testing.T) {
+	// EC2 associates the block asynchronously; the first Ensure of a new network
+	// waits for it within the call instead of failing.
+	regions := []fake.RegionSpec{fake.DefaultRegion(testRegion, "use1")}
+	regions[0].NoDefaultVPC = true
+	acct := fake.New(fake.WithRegions(regions...), fake.WithSlowIPv6(3))
+	acct.SetInstanceTypes(smallTypes)
+	e := newEnvOver(t, acct, nil2clock(), envOptions{})
+	aws.WithPollInterval(time.Millisecond)(e.d)
+	ref, created, err := e.d.Ensure(context.Background(), aws.KindSubnets, testRegion,
+		spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil))
+	if err != nil || !created {
+		t.Fatalf("Ensure = %+v, %v, %v; want the network set up in one call", ref, created, err)
+	}
+	for _, s := range subnetsOf(t, e, ref.ID) {
+		if len(s.Ipv6CidrBlockAssociationSet) != 1 {
+			t.Errorf("subnet %s has no IPv6", *s.SubnetId)
+		}
+	}
+}
+
+func TestAnIPv6BlockThatNeverGetsAssociatedIsRetryable(t *testing.T) {
+	regions := []fake.RegionSpec{fake.DefaultRegion(testRegion, "use1")}
+	regions[0].NoDefaultVPC = true
+	acct := fake.New(fake.WithRegions(regions...), fake.WithSlowIPv6(1_000_000))
+	acct.SetInstanceTypes(smallTypes)
+	e := newEnvOver(t, acct, nil2clock(), envOptions{})
+	aws.WithPollInterval(time.Hour)(e.d) // one look, no wait
+	_, _, err := e.d.Ensure(context.Background(), aws.KindSubnets, testRegion,
+		spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil))
+	if !vendors.IsClass(err, vendors.Retryable) || !strings.Contains(err.Error(), "IPv6") {
+		t.Errorf("got %v, want Retryable VpcIPv6Pending", err)
+	}
+}
+
+func TestOnlyOurOwnSubnetsGetIPv6AndNotWhileAssociating(t *testing.T) {
+	e := noDefaultVPCEnv(t)
+	ctx := context.Background()
+	ec := e.acct.EC2(testRegion)
+	sp := spec("scarpenter-my-cluster-subnets-us-east-1", aws.KindSubnets, nil)
+	out, err := ec.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: new("10.240.0.0/16"),
+		TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeVpc, Tags: tagsOf(sp)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vpcID := *out.Vpc.VpcId
+	mk := func(zone, cidr string, tags []ec2types.Tag) string {
+		o, err := ec.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: &vpcID, AvailabilityZone: &zone, CidrBlock: &cidr,
+			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeSubnet, Tags: tags}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *o.Subnet.SubnetId
+	}
+	foreign := mk("us-east-1a", "10.240.0.0/20", []ec2types.Tag{{Key: new("team"), Value: new("theirs")}})
+	associating := mk("us-east-1b", "10.240.16.0/20", tagsOf(sp))
+	ours := mk("us-east-1c", "10.240.32.0/20", tagsOf(sp))
+	// Associate the VPC first so that the fake can attach a pending /64 to a subnet.
+	if _, err := ec.AssociateVpcCidrBlock(ctx, &ec2.AssociateVpcCidrBlockInput{VpcId: &vpcID, AmazonProvidedIpv6CidrBlock: new(true)}); err != nil {
+		t.Fatal(err)
+	}
+	e.acct.SetSubnetIPv6Associating(testRegion, associating, 1)
+	before := e.acct.Calls("AssociateSubnetCidrBlock")
+	if _, _, err := e.d.Ensure(ctx, aws.KindSubnets, testRegion, sp); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.acct.Calls("AssociateSubnetCidrBlock") - before; got != 1 {
+		t.Errorf("%d subnet associations, want 1 (only ours; not the foreign one, not the one being associated)", got)
+	}
+	for _, s := range subnetsOf(t, e, vpcID) {
+		has := len(s.Ipv6CidrBlockAssociationSet) > 0
+		switch *s.SubnetId {
+		case foreign:
+			if has {
+				t.Error("a subnet that is not ours was modified")
+			}
+		case ours:
+			if !has {
+				t.Error("our subnet got no IPv6")
+			}
+		}
+	}
+}

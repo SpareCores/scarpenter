@@ -216,8 +216,9 @@ Metrics:
 Events (on the SCNodeClass): `LaunchFailed` (a `Fatal` vendor error),
 `ImageResolutionFailed`. The NodeClass controller, the bootstrap token controller
 and the serving certificate approver add `ArtifactsNotResolved`,
-`ValidationFailed`, `VendorNotReady`, `RestartRequired`, `MetricInvalid` (on the
-SCNodeClass), `BootstrapTokenDeleted` (on the NodeClaim; also `GarbageCollected` on
+`ValidationFailed`, `VendorNotReady`, `RestartRequired`, `MetricInvalid`,
+`IPv6OnlyNeedsMirror` (Warning: IPv6-only nodes and the default sysext source, which
+has no IPv6; set `--sysext-base-url`) (on the SCNodeClass), `BootstrapTokenDeleted` (on the NodeClaim; also `GarbageCollected` on
 the NodeClass for orphan tokens) and `ServingCertificateApproved` /
 `ServingCertificateDenied` (on the certificate signing request); see
 [node bootstrap](node-bootstrap.md).
