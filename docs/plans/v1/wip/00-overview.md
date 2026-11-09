@@ -1189,7 +1189,8 @@ Static infrastructure (Spare Cores' private Pulumi project, outside this
 repository): GitHub environment `e2e`, the OIDC role
 `scarpenter-ci-gha` (the §11.6 policy for clusters `scarpenter-ci-*`, the
 instance-type deny, region limit), Tailscale federated identity (GitHub Actions issuer,
-scope `auth_keys`, write) and tailnet ACL for the two tags, a budget alert.
+scope `auth_keys`, write, tag `tag:scarpenter-ci` only, which owns `tag:scarpenter-ci-node`)
+and tailnet ACL for the two tags, a budget alert.
 Environment variables `AWS_REGION`, `TS_OAUTH_CLIENT_ID`, `TS_AUDIENCE`; secret
 `AWS_ROLE_ARN`.
 

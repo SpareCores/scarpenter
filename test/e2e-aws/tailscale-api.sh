@@ -4,8 +4,9 @@
 # OIDC token (requested with the audience TS_AUDIENCE) is exchanged for a short-lived
 # access token through workload identity federation. The federated identity
 # (TS_OAUTH_CLIENT_ID, TS_AUDIENCE, environment variables, not sensitive) needs the
-# scope auth_keys (write; nothing here or in the join action calls a device API), for the tags tag:scarpenter-ci and
-# tag:scarpenter-ci-node. Source it; tokens and keys stay in the environment and in
+# scope auth_keys (write; nothing here or in the join action calls a device API) and the
+# tag tag:scarpenter-ci only, which owns tag:scarpenter-ci-node in the tailnet policy, so
+# it can mint the nodes' key too. Source it; tokens and keys stay in the environment and in
 # files of mode 0600, never in a command line or the log. It needs the job's
 # permission id-token: write (ACTIONS_ID_TOKEN_REQUEST_URL and _TOKEN).
 

@@ -464,9 +464,13 @@ The ports are the kubelet (`kubectl logs` and `exec`: the API server on the runn
 between the runner and the nodes and between the nodes. Nothing else is open between the tags. Create a
 federated identity (Settings, Trust credentials) with the issuer GitHub Actions, the subject
 `repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e` (the immutable form, see above), the scope **`auth_keys`** (write; neither the join action nor the scripts call a device
-API, so no `devices` scope) and the tags `tag:scarpenter-ci` and `tag:scarpenter-ci-node`: the
+API, so no `devices` scope) and the tag `tag:scarpenter-ci` **only**: the
 join action uses it for the runner's key, `mint-authkey.sh` for the nodes' key and for
-revoking it. Its client ID and audience are the two environment variables
+revoking it. Do not add `tag:scarpenter-ci-node` to the identity. Tailscale requires the tags of a
+requested key to equal the credential's tags or be owned by them, and the runner joins with
+`tag:scarpenter-ci` alone; the nodes' key (tag `tag:scarpenter-ci-node` alone) is allowed because
+`tag:scarpenter-ci` owns that tag (the `tagOwners` above). With both tags on the identity, neither
+single-tag request would match. Its client ID and audience are the two environment variables
 `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`; nothing secret exists, because the workflow proves
 itself with its OIDC token (`id-token: write`). Nodes join as ephemeral devices, so they vanish from the tailnet when
 their instances do. If a tailnet uses other prefixes than `100.64.0.0/10` set

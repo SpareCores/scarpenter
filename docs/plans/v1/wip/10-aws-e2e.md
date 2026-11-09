@@ -19,7 +19,9 @@ shared by the cloud providers' lanes); variables `AWS_REGION` (`us-east-2`),
 federated identity (workload identity federation) with the issuer GitHub Actions, the
 subject `repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e` (GitHub
 issues immutable subject claims for this repository), the scope `auth_keys` (write)
-and the tags `tag:scarpenter-ci` and `tag:scarpenter-ci-node`; there is no
+and the tag `tag:scarpenter-ci` only (it owns `tag:scarpenter-ci-node` in the
+policy, so the identity can also mint the nodes' key, while the runner's
+single-tag request still matches the credential's tags); there is no
 OAuth client secret. The role carries overview §11.6's policy for
 cluster names `scarpenter-ci-*`, an explicit deny for instance types other
 than the small test types, a region limit, and the optional VPC-resource
