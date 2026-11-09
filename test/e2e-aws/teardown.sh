@@ -84,7 +84,7 @@ leaks "open spot requests" ec2 describe-spot-instance-requests \
   --filters "${filter[@]}" Name=state,Values=open --query 'SpotInstanceRequests[].SpotInstanceRequestId' --output text
 
 log "4. the auth key and the tailnet"
-if [[ -n "${TS_OAUTH_CLIENT_ID:-}" && -n "${TS_OAUTH_SECRET:-}" ]]; then
+if [[ -n "${TS_OAUTH_CLIENT_ID:-}" && -n "${TS_AUDIENCE:-}" ]]; then
   ts_revoke_key "${E2E_OUT}/ts-authkey.id" || echo "could not revoke the auth key (it expires after an hour anyway)"
 fi
 sudo tailscale logout >/dev/null 2>&1 || true

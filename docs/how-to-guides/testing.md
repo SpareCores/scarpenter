@@ -282,7 +282,7 @@ runner, nodes on AWS that join over a Tailscale tailnet, both architectures, spo
 the whole Karpenter path. It is the only lane that costs money and needs credentials,
 so it exists only as a workflow, `.github/workflows/e2e-aws.yml`, run on demand
 (`workflow_dispatch`) and weekly, from `main` only, in the GitHub environment
-`aws-e2e`. It never runs for a pull request, and nothing in the repository runs it
+`e2e`. It never runs for a pull request, and nothing in the repository runs it
 from a developer machine. A run takes 40 to 60 minutes (the job's limit is 90: the Scenarios step has its own
 limit of 55 minutes, so that at least 20 minutes stay for the diagnostics and the
 teardown, which always run) and costs well
@@ -303,14 +303,16 @@ The check that the dry run [below](#without-aws) cannot make, is the run itself.
 
 **What a run does** (overview section 13.4; the scripts are in `test/e2e-aws`):
 
-1. `tailscale/github-action` joins the runner to the tailnet with the OAuth client (tag
-   `tag:scarpenter-ci`); `bootstrap.sh` starts a k3s server on the runner's tailscale
+1. `tailscale/github-action` joins the runner to the tailnet with the federated identity (tag
+   `tag:scarpenter-ci`, no stored secret); `bootstrap.sh` starts a k3s server on the runner's tailscale
    address (TLS SAN, node IP) with the flags of a production k3s for remote workers, flannel
    (`--iface=tailscale0`) and kube-proxy as DaemonSets. The runner's own node is
    tainted `CriticalAddonsOnly`, so only the controller, CoreDNS and the DaemonSets
    run on it.
 2. `mint-authkey.sh` mints an ephemeral, pre-authorized, reusable auth key tagged
-   `tag:scarpenter-ci-node`, valid for an hour, through the Tailscale API.
+   `tag:scarpenter-ci-node`, valid for an hour, through the Tailscale API: the job's GitHub OIDC token (audience
+   `TS_AUDIENCE`) is exchanged for a short-lived API access token at
+   `POST /api/v2/oauth/token-exchange` (form fields `client_id` and `jwt`).
 3. The CI role is assumed through GitHub's OIDC (`aws-actions/configure-aws-credentials`);
    `install.sh` puts the temporary credentials in a Secret (`vendors.aws.credentials.mode:
    secret` with a session token). Web identity from the cluster's own issuer needs a
@@ -366,13 +368,28 @@ the job's artifact on failure.
 The lane needs the following, provisioned once by a maintainer; nothing here is created
 by a workflow. Use your own values; the repository holds none.
 
-*GitHub*: the environment `aws-e2e` with deployments limited to the `main` branch
-(**no required reviewers**: the sweeper runs on a schedule in the same environment, and
-each run would wait for an approval, so leftovers would not be swept; the sweeper and the
-lane share the environment `aws-e2e` and with it the role and its trust policy); in it, or in the repository,
-the secrets `AWS_ROLE_ARN`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` and the variable
-`AWS_REGION` (`us-east-2`). In the repository's Actions settings, require approval for
-all outside collaborators.
+*GitHub*: the environment `e2e` (shared by the cloud providers' e2e lanes) with
+deployments limited to the `main` branch and **no required reviewers** (the sweeper runs
+on a schedule in the same environment, and each run would wait for an approval, so
+leftovers would not be swept; the sweeper and the lane share the environment and with it
+the role and its trust policy). In it:
+
+- variables `AWS_REGION` (`us-east-2`), `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE` (the client
+  ID and audience of the Tailscale federated identity; not sensitive);
+- the secret `AWS_ROLE_ARN` (the workflow reads it as a secret; a variable would need the
+  workflow changed);
+- no Tailscale secret: there is no OAuth client secret.
+
+In the repository's Actions settings, require approval for all outside collaborators.
+
+The OIDC subject of the jobs is `repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e`.
+This repository was created after 2025-07-15, so GitHub issues *immutable* subject claims
+for it (the organization and repository IDs are part of the claim; both are public
+identifiers). The repository's OIDC customization reports `use_immutable_subject: true`
+with the prefix `repo:SpareCores@152076439/scarpenter@1447426340`. The classic form
+`repo:SpareCores/scarpenter:environment:e2e` is not what GitHub sends for it; a trust policy
+may list both forms (the classic one is harmless and keeps a policy valid if the
+customization is ever switched back).
 
 *AWS*: an IAM OIDC provider for `token.actions.githubusercontent.com` (client ID
 `sts.amazonaws.com`) and a role `scarpenter-ci-gha` with this trust policy (the
@@ -388,7 +405,7 @@ environment claim keeps every other workflow and branch out):
     "Condition": {
       "StringEquals": {
         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": "repo:SpareCores/scarpenter:environment:aws-e2e"
+        "token.actions.githubusercontent.com:sub": "repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e"
       }
     }
   }]
@@ -424,7 +441,8 @@ seconds). The account also needs the Spot service-linked role
 defaults do not give**: Standard on-demand 16 vCPUs and Standard spot 4 vCPUs in the region
 (`preflight` checks, and says so, before anything is launched).
 
-*Tailscale*: two tags and an OAuth client. In the tailnet policy file (HuJSON), with
+*Tailscale*: two tags and a federated identity (workload identity federation,
+[kb 1581](https://tailscale.com/kb/1581/workload-identity-federation)). In the tailnet policy file (HuJSON), with
 `tag:scarpenter-ci` for the runner and `tag:scarpenter-ci-node` for the nodes:
 
 ```json
@@ -443,11 +461,14 @@ defaults do not give**: Standard on-demand 16 vCPUs and Standard spot 4 vCPUs in
 
 The ports are the kubelet (`kubectl logs` and `exec`: the API server on the runner calls
 10250), the API server (the nodes join and talk to 6443), and flannel's vxlan tunnel (udp 8472)
-between the runner and the nodes and between the nodes. Nothing else is open between the tags. Create an
-OAuth client (Settings, OAuth clients) with the scope **`auth_keys`** (write) and the tags
-`tag:scarpenter-ci` and `tag:scarpenter-ci-node`: the join action uses it for the runner's
-key, `mint-authkey.sh` for the nodes' key and for revoking it; its ID and secret are the two
-repository secrets. Nodes join as ephemeral devices, so they vanish from the tailnet when
+between the runner and the nodes and between the nodes. Nothing else is open between the tags. Create a
+federated identity (Settings, Trust credentials) with the issuer GitHub Actions, the subject
+`repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e` (the immutable form, see above), the scope **`auth_keys`** (write; neither the join action nor the scripts call a device
+API, so no `devices` scope) and the tags `tag:scarpenter-ci` and `tag:scarpenter-ci-node`: the
+join action uses it for the runner's key, `mint-authkey.sh` for the nodes' key and for
+revoking it. Its client ID and audience are the two environment variables
+`TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`; nothing secret exists, because the workflow proves
+itself with its OIDC token (`id-token: write`). Nodes join as ephemeral devices, so they vanish from the tailnet when
 their instances do. If a tailnet uses other prefixes than `100.64.0.0/10` set
 `bootstrap.tailnetPrefixes` in `manifests/chart-values.yaml`.
 

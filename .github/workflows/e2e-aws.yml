@@ -6,9 +6,10 @@ name: L5 (AWS e2e)
 # on demand and weekly, from main only, and never for a pull request.
 #
 # Provisioned outside this repository (docs/how-to-guides/testing.md lists the exact
-# prerequisites): the environment aws-e2e (deployments from main only), the secrets
-# AWS_ROLE_ARN, TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET, the variable AWS_REGION, the
-# IAM role and the tailnet's ACL. The sweeper (e2e-aws-sweeper.yml) deletes what a
+# prerequisites): the environment e2e (deployments from main only), the variables
+# AWS_REGION, TS_OAUTH_CLIENT_ID and TS_AUDIENCE (a Tailscale federated identity for
+# GitHub Actions: no stored secret), the secret AWS_ROLE_ARN, the IAM role and the
+# tailnet's ACL. The sweeper (e2e-aws-sweeper.yml) deletes what a
 # run that died left behind.
 on:
   workflow_dispatch:
@@ -47,11 +48,13 @@ jobs:
     # 90 minutes: setup (up to 15), the scenarios (their own limit below) and at least
     # 20 minutes that stay for the diagnostics and the teardown.
     timeout-minutes: 90
-    environment: aws-e2e
+    environment: e2e
     permissions:
       contents: read
-      id-token: write # the OIDC token the AWS role is assumed with
+      id-token: write # the OIDC tokens the AWS role and the Tailscale identity are federated with
     env:
+      TS_OAUTH_CLIENT_ID: ${{ vars.TS_OAUTH_CLIENT_ID }}
+      TS_AUDIENCE: ${{ vars.TS_AUDIENCE }}
       E2E_CLUSTER: scarpenter-ci-${{ github.run_id }}
       E2E_RUN_ID: ${{ github.run_id }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
@@ -93,13 +96,13 @@ jobs:
           go-version-file: go.mod
           cache: false # a privileged job restores no cache
 
-      # Step 1: the runner joins the tailnet with the OAuth client (the scope auth_keys
-      # for tag:scarpenter-ci). The sha256 is that of the amd64 tarball of the release.
+      # Step 1: the runner joins the tailnet with the federated identity (the scope auth_keys
+      # for tag:scarpenter-ci; no stored secret). The sha256 is that of the amd64 tarball of the release.
       - name: Join the tailnet
         uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          oauth-client-id: ${{ vars.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ vars.TS_AUDIENCE }}
           tags: tag:scarpenter-ci
           version: 1.98.10
           sha256sum: 52490ce0832b245857e2afef7426d6ae5a4b49fb391412833cc95729bd23f7de
@@ -111,9 +114,6 @@ jobs:
 
       # Step 2: an ephemeral, pre-authorized, reusable key for the nodes.
       - name: Mint the nodes' auth key
-        env:
-          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: test/e2e-aws/mint-authkey.sh
 
       # Step 3: the CI role through GitHub's OIDC; its temporary credentials go into a
@@ -182,7 +182,4 @@ jobs:
 
       - name: Teardown
         if: always()
-        env:
-          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: test/e2e-aws/teardown.sh

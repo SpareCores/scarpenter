@@ -1151,16 +1151,16 @@ only for schedule and manual runs, never for pull requests.
 ### 13.4 L5: AWS e2e over Tailscale
 
 Workflow `e2e-aws.yml` (`workflow_dispatch` and weekly), GitHub environment
-`aws-e2e`, `concurrency` group, `timeout-minutes: 90` (the scenarios step has
+`e2e`, `concurrency` group, `timeout-minutes: 90` (the scenarios step has
 its own limit, so that at least 20 minutes stay for diagnostics and teardown):
 
-1. Join the runner to the tailnet (Tailscale OAuth client, tag
-   `tag:scarpenter-ci`). Start a k3s server bound to the runner's tailscale
+1. Join the runner to the tailnet (Tailscale federated identity, tag
+   `tag:scarpenter-ci`, no stored secret). Start a k3s server bound to the runner's tailscale
    IP (TLS SAN), no embedded flannel/kube-proxy; install flannel
    (`--iface=tailscale0`) and kube-proxy DaemonSets.
 2. Mint an ephemeral, pre-authorized, reusable auth key tagged
-   `tag:scarpenter-ci-node` (1 h expiry) through the Tailscale API; store it
-   as a Secret.
+   `tag:scarpenter-ci-node` (1 h expiry) through the Tailscale API (the job's GitHub OIDC token exchanged for an
+   access token); store it as a Secret.
 3. Assume the CI role through GitHub OIDC; put the short-lived credentials in
    a Secret for SCarpenter. (Web identity from the cluster issuer is not
    testable on an ephemeral runner; it is covered by configuration tests.)
@@ -1186,11 +1186,12 @@ Region `us-east-2` (cheap, default VPC). Instance types limited by an explicit
 IAM deny to `t3a.small`, `t4g.small` and similar.
 
 Static infrastructure (Spare Cores' private Pulumi project, outside this
-repository): GitHub environment `aws-e2e`, the OIDC role
+repository): GitHub environment `e2e`, the OIDC role
 `scarpenter-ci-gha` (the §11.6 policy for clusters `scarpenter-ci-*`, the
-instance-type deny, region limit), Tailscale OAuth client and tailnet ACL for
-the two tags, a budget alert. Repository secrets: `AWS_ROLE_ARN`,
-`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`; variable `AWS_REGION`.
+instance-type deny, region limit), Tailscale federated identity (GitHub Actions issuer,
+scope `auth_keys`, write) and tailnet ACL for the two tags, a budget alert.
+Environment variables `AWS_REGION`, `TS_OAUTH_CLIENT_ID`, `TS_AUDIENCE`; secret
+`AWS_ROLE_ARN`.
 
 Sweeper workflow (every 3 h): terminate instances and delete security groups
 tagged `scarpenter.sparecores.com/cluster=scarpenter-ci-*` older than 2 h.

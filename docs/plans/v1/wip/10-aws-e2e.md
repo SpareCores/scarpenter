@@ -13,9 +13,14 @@ first run and iterates).
 
 ## Prerequisites (provisioned outside this repository, do not change)
 
-GitHub environment `aws-e2e` (deployments from `main` only); repository
-secrets `AWS_ROLE_ARN`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`; variable
-`AWS_REGION` (`us-east-2`). The role carries overview §11.6's policy for
+GitHub environment `e2e` (deployments from `main` only, no required reviewers;
+shared by the cloud providers' lanes); variables `AWS_REGION` (`us-east-2`),
+`TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`; secret `AWS_ROLE_ARN`. The Tailscale side is a
+federated identity (workload identity federation) with the issuer GitHub Actions, the
+subject `repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e` (GitHub
+issues immutable subject claims for this repository), the scope `auth_keys` (write)
+and the tags `tag:scarpenter-ci` and `tag:scarpenter-ci-node`; there is no
+OAuth client secret. The role carries overview §11.6's policy for
 cluster names `scarpenter-ci-*`, an explicit deny for instance types other
 than the small test types, a region limit, and the optional VPC-resource
 statement of §11.6 (the `create` scenario) plus permission for the workflow
@@ -28,13 +33,14 @@ real values into the repository; reference the secrets.
 
 - **`.github/workflows/e2e-aws.yml`**: `workflow_dispatch` (inputs:
   `scenarios`, and pins for the minimum-version run) and weekly schedule; one job,
-  `environment: aws-e2e`, `concurrency` group, `timeout-minutes: 90` (the
+  `environment: e2e`, `concurrency` group, `timeout-minutes: 90` (the
   Scenarios step has its own limit, 55 min, so that at least 20 min stay for
   diagnostics and teardown); steps
-  of overview §13.4 (tailnet join with the official action and the OAuth
-  client, k3s server with TLS SAN = tailscale IP and production-like flags,
+  of overview §13.4 (tailnet join with the official action and the
+  federated identity, k3s server with TLS SAN = tailscale IP and production-like flags,
   flannel `--iface=tailscale0` and kube-proxy DaemonSets, auth-key minting
-  through the Tailscale API with `ephemeral`, `preauthorized`, `reusable`,
+  through the Tailscale API (the GitHub OIDC token exchanged at
+  `/api/v2/oauth/token-exchange`) with `ephemeral`, `preauthorized`, `reusable`,
   tag, 1 h expiry, OIDC role assumption, credentials Secret, image build and
   `k3s ctr images import`, chart install with
   `clusterName=scarpenter-ci-${{ github.run_id }}`).
@@ -94,7 +100,7 @@ real values into the repository; reference the secrets.
 
 - The tailscale template is proven against a Headscale in the L4 lane (scenario Q09:
   tailnet join, `--node-ip`, node Ready over the tailnet, `kubectl logs/exec`). What
-  stays for L5 is Tailscale SaaS with the OAuth-minted ephemeral, tagged key (the
+  stays for L5 is Tailscale SaaS with the federation-minted ephemeral, tagged key (the
   optional L4 scenario Q11 takes a key of your own) and the real AWS nodes.
 - Reuse the unit-level checks of L4 scenario Q10 on real nodes: the tailscale sysext
   merged, `tailscaled` upheld, the kubelet ordered after and bound to the join unit.

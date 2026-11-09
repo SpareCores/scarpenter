@@ -34,7 +34,7 @@ jobs:
     if: github.repository == 'SpareCores/scarpenter'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: aws-e2e
+    environment: e2e
     permissions:
       contents: read
       id-token: write
