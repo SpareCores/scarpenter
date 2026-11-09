@@ -5,11 +5,11 @@ Depends on: 03, and on Keeper's snapshot routes (below). Read
 coordinator folds overview §5.1 in when part B lands; until then §5.1 still
 describes the live endpoints.
 
-Status: **part A can start now; part B is blocked.** Part B waits until the
-Keeper specs are merged and implemented in sc-keeper and sc-keeper-go: the
-sc-specs ADRs of 2026-11-08 `keeper-snapshots`, `benchmark-config-id` and
-`keeper-select-routes`. That is expected in 1–3 days. Until then, part A and
-the other plans (10, 11) keep going, so nothing waits on Keeper.
+Status: **blocked.** The whole plan waits until the Keeper specs are merged
+and implemented in sc-keeper: the sc-specs ADRs of 2026-11-08
+`keeper-snapshots`, `benchmark-config-id` and `keeper-select-routes`. That is
+expected in 1–3 days. Meanwhile the other plans (10, 11) keep going. Once
+Keeper is ready, part A comes first, then part B.
 
 ## Goal
 
@@ -64,7 +64,7 @@ decided.
 - **Unchanged files.** We asked for ETags, or a manifest at
   `/snapshot/{hash}` with a checksum per file.
 
-## Part A — local selection (start now)
+## Part A — local selection
 
 Selection profiles now send `/servers` queries
 (`selection.PlanQueries` → `ServersAll` in `pkg/catalog/keeper.go`): region
@@ -98,7 +98,7 @@ part B then only swaps the transport.
 Part A must not change the labels or offerings of instance types. Selection
 membership may change only where step 4 documents why.
 
-## Part B — snapshots (blocked)
+## Part B — snapshots
 
 **A refresh, in order:**
 1. `GET /healthcheck`, and pin `database_hash`. If it equals the current
