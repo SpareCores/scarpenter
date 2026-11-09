@@ -1,168 +1,171 @@
-# 13 — Keeper catalog snapshot
+# 13 — Keeper catalog snapshots
 
-Depends on: 03. Read `docs/plans/v1/CONVENTIONS.md` first.
-Spec: overview §5.1–§5.2. This plan does not change overview §4 or plan 04.
-Do not start it while plan 04 is in review, and do not edit
-`04-cloudprovider-and-fake-driver.md` or the CloudProvider, driver, quota, or
-L3 code that plan owns.
+Depends on: 03, and on Keeper's snapshot routes (below). Read
+`docs/plans/v1/CONVENTIONS.md` first. Spec: overview §5.1–§5.2. The
+coordinator folds overview §5.1 in when part B lands; until then §5.1 still
+describes the live endpoints.
 
-Status: proposal. It is not the next plan after 04. Plans 05–12 do not depend
-on it. The coordinator folds overview §5.1 in when this is accepted; until
-then §5.1 still describes the live price endpoints.
+Status: **part A can start now; part B is blocked.** Part B waits until the
+Keeper specs are merged and implemented in sc-keeper and sc-keeper-go: the
+sc-specs ADRs of 2026-11-08 `keeper-snapshots`, `benchmark-config-id` and
+`keeper-select-routes`. That is expected in 1–3 days. Until then, part A and
+the other plans (10, 11) keep going, so nothing waits on Keeper.
 
 ## Goal
 
-Feed the catalog with one consistent, cheap-to-serve snapshot per vendor, and
-keep a small on-disk copy of the price rows that can be replaced on every
-database hash. Karpenter keeps scheduling from the in-memory offerings.
+Every catalog refresh reads one pinned Keeper data version, from files Keeper
+builds once per database hash, and SCarpenter selects instance types locally
+from that data. No live `/servers` queries and no `/server_prices`.
 
-## Why
+## Keeper (as specified; not implemented yet)
 
-A refresh runs about once an hour and pins `database_hash` from
-`GET /healthcheck`. It needs, for the vendors that have an `SCNodeClass` and
-the regions those classes allow (every active region when a class lists none):
+- **Headers.** Every response has `SC-Data-Hash` (the database hash) and
+  `SC-Data-Published-At` (RFC 3339, when that sc-data file was published).
+- **Snapshot routes.**
+  - Tables with a `vendor_id` column: `/snapshot/{hash}/{table}/{vendor}`.
+  - Benchmark scores: `/snapshot/{hash}/benchmark_score/{vendor}/{benchmark_config_id}`.
+    The spec's open question 2 proposes per benchmark instead,
+    `.../{vendor}/{benchmark_id}`, and we agreed.
+  - Columnar JSON: one array per column, all the same length.
+  - Gzip only: a request that does not accept gzip gets `406`.
+  - `Cache-Control: private, max-age=86400, immutable`.
+- **Contents.**
+  - Only `ACTIVE` and `PLANNED_FOR_RETIREMENT` rows, and only rows whose
+    references are included. Every reference resolves within a hash.
+  - Every column except `observed_at`.
+  - Prices converted to USD.
+  - Not filtered by unit, allocation, operating system or price.
+- **Access.** An API key is required, and a request costs 1 credit (the limit
+  is 60 credits a minute).
+- **Availability.** Every replica serves a hash for at least a day after it
+  first appears. A hash a replica can't serve gets
+  `404 /problems/snapshot-not-available`, with `current` (that replica's hash)
+  in the body. `/healthcheck` lists the replica's `snapshot_hashes`.
+- **Benchmark configs.**
+  - `/benchmark_configs` rows gain `benchmark_config_id`
+    (`<benchmark_id>~<8 hex>`). Clients copy the id and never compute it.
+  - The ids change when the benchmark restructure lands, so we don't persist
+    them.
+  - `/benchmark_configs` will list every benchmark; today it hides the
+    stress-ng benchmarks other than `stress_ng:best*`.
 
-- Specs of `active` and `planned-for-retirement` `x86_64` and `arm64` servers.
-- Regions and zones.
-- One hourly USD price per (server, region, zone, allocation) for `ondemand`
-  and `spot`. The operating system is blank or Linux, the price row is
-  `active`, and the price is positive. A blank zone is copied into every zone
-  the driver reports. Planned-for-retirement servers keep their prices.
-- One score per server for each benchmark a NodeClass asks for, keyed by
-  `api_reference`. Selection profiles still query `GET /servers` and rank locally.
+**Open at Keeper.** Our review asked for these; part B follows whatever is
+decided.
+- **The API key.** Three options:
+  1. Snapshots with a key for SCarpenter and sc-karpenter-nodepool. We lean to
+     this one.
+  2. Snapshots for SCarpenter, and `/servers/select` for sc-karpenter-nodepool.
+  3. No key: both stay on today's routes, and part B is dropped.
+- **Enum form.** The database stores `ACTIVE`, `HOUR`, `ONDEMAND`, `GB_MONTH`
+  and `X86_64`, while the API uses `active`, `hour`, `ondemand` and
+  `GB/month`. We asked for the API form.
+- **Pinning.** We asked that clients be told to pin from `/healthcheck`,
+  because it is the only uncached route.
+- **Unchanged files.** We asked for ETags, or a manifest at
+  `/snapshot/{hash}` with a checksum per file.
 
-Anonymous `GET /server_prices` embeds the server, vendor, region, and zone in
-every row (about 4 KB: 137 MB for four AWS regions, 32,970 rows) and holds one
-of two heavy-job slots. `GET /table/server_prices` is the flat row, but the
-Linux hourly slice is 135,239 rows for AWS and 316,326 for Azure. Selecting
-the AWS slice takes about 0.75 s before the rows are encoded, and the route is
-`private, no-store`, so every cluster would run that query on Keeper. It stays
-behind an API key.
+## Part A — local selection (start now)
 
-Numbers below are from a Keeper SQLite dump on 2026-11-06.
+Selection profiles now send `/servers` queries
+(`selection.PlanQueries` → `ServersAll` in `pkg/catalog/keeper.go`): region
+chunks of three, push-down bounds loosened by the churn margin, and data that
+is not pinned to the refresh's hash. Part A selects from the catalog data the
+refresh already holds instead. Part A is useful whatever Keeper decides, and
+part B then only swaps the transport.
 
-## Keeper
+1. **`sc-keeper-go/selection`:** a candidate builder from catalog data. For
+   each server it takes the specs, the lowest price per allocation over the
+   profile's regions, and the scores. `Evaluate` stays shared. The `/servers`
+   builder stays, for sc-karpenter-nodepool under option 2.
+2. **Filtering rules, written down and tested.** These are the rules
+   `/servers` applies:
+   - orderable status;
+   - Linux or blank operating system;
+   - hourly prices;
+   - price above zero;
+   - which allocation counts as the price.
 
-Built once, when Keeper loads a new SQLite file (it already copies the file,
-adds indexes, and fills `ServerExtra` then). One document per vendor per
-hash. The route sends those bytes. It does not query SQLite and does not take
-a heavy-job slot.
+   Read them in sc-keeper. Don't guess them.
+3. **`pkg/catalog`:** `loadSelections` uses the new builder on `model.Data`.
+   Metric scores keep today's source until part B.
+4. **Equivalence test:** on the recorded Keeper data of
+   `test/data/sc-snapshot/`, the local builder and the `/servers` path select
+   the same members for the profiles in the tests. Document every difference
+   and justify it.
+5. **Score join:** key scores by `server_id`, and map them to `api_reference`
+   through the server rows. They differ for GCP and Hetzner.
 
-`GET /table/server_prices` is unchanged: API key, 10 credits, `private, no-store`.
+Part A must not change the labels or offerings of instance types. Selection
+membership may change only where step 4 documents why.
 
-### `GET /table/server_prices/snapshot`
+## Part B — snapshots (blocked)
 
-Anonymous. `vendor` and `data_version` are required. `data_version` must be
-the loaded hash; otherwise `409` with the current hash. No `vendor_regions`,
-`columns`, or `currency`: each would be a different object. The document is
-already filtered to price row `active`, unit `hour`, allocation `ondemand` or
-`spot`, price `> 0`, operating system blank or `Linux` (case-insensitive).
+**A refresh, in order:**
+1. `GET /healthcheck`, and pin `database_hash`. If it equals the current
+   catalog's hash, stop: nothing changed.
+2. `GET /benchmark_configs`, which is live, and resolve each metric to its
+   config. A config with no rows in the pinned hash is an invalid metric; the
+   rest of the refresh goes on.
+3. For each vendor in scope, fetch `server`, `region`, `zone`,
+   `server_price`, `storage_price`, `ipv4_price`, and one score file for each
+   benchmark a metric uses.
+4. **Re-pin once.** On `snapshot-not-available`, pin the `current` hash from
+   the body and fetch everything again. A second such `404` keeps the previous
+   catalog until the next refresh.
+5. **Local filters:**
+   - architectures `x86_64` and `arm64`;
+   - prices that are hourly, `ondemand` or `spot`, Linux or blank operating
+     system, and above zero;
+   - regions in scope;
+   - a blank zone is copied into every zone the driver reports;
+   - scores with `resource_type=server`, matched by config text (never by
+     re-encoded JSON).
+6. Selection profiles run on the same data, with part A's builder.
 
-AWS is 15.2 MB of JSON and 0.86 MB gzipped; Azure is 35.2 MB and 1.70 MB.
-Both are over 10 MB, which CloudFront will not compress, so the route sends
-the gzip it built, with `Content-Encoding: gzip`, and
-`Cache-Control: public, max-age=31536000, immutable`. One representation per
-hash. `X-Database-Hash` is the hash.
-
-```http
-GET /table/server_prices/snapshot?vendor=aws&data_version=<database_hash>
-```
-
-```json
-[
-  {"region_id": "us-east-1", "zone_id": "use1-az1", "server_id": "m7i.large", "allocation": "ondemand", "price": 0.1008},
-  {"region_id": "us-east-1", "zone_id": "use1-az1", "server_id": "m7i.large", "allocation": "spot", "price": 0.0314},
-  {"region_id": "us-east-1", "zone_id": "", "server_id": "t4g.micro", "allocation": "ondemand", "price": 0.0084}
-]
-```
-
-All eight vendors are 542,129 rows and about 3.2 MB gzipped. Azure is more
-than half of the rows. A new vendor is one more file, built at the same load.
-
-### The other reads
-
-`GET /table/server` gains optional `columns` (as `/table/server/select`
-already has). The full table is 6,114 rows and 13.2 MB, just past what
-CloudFront compresses. The columns the catalog reads are 7.9 MB, one shared
-cached URL. No vendor or status filter: that would split the cache, and the
-client already drops other vendors, statuses, and architectures. `storages`
-stays; the disk count is its length.
-
-`GET /table/region` and `GET /table/zone` stay as they are (269 and 596 rows,
-already one cached object each).
-
-`GET /table/benchmark_score` is new. `benchmark_score` has 3,049,964 server
-rows and is not dumped. One benchmark for one vendor is an indexed aggregate
-(the index Keeper already builds at load): AWS `stress_ng:bestn` is 1,191
-rows, 59 KB. Required: `vendor`, `benchmark_id`. Optional: `benchmark_config`
-(canonical JSON, matched as on `/servers`), `resource_type=server`. The value
-is `max(score)` of active rows. Response:
-`{"server_id", "api_reference", "score"}`. Anonymous, cached for an hour.
-Unknown benchmark or config: an empty list, which the client reports as an
-invalid metric and continues the refresh.
-
-`GET /servers` gains optional `columns`. With it, each object is those server
-columns plus `price` and, when `benchmark_id` is set,
-`selected_benchmark_score`. The filters, the 3-region anonymous cap, and the
-3-credit cost stay. A selection cannot be precomputed: the filter set is per
-NodeClass.
-
-Cacheable responses carry `X-Database-Hash`. The client retries the whole
-refresh when it differs from the healthcheck hash.
-
-## SCarpenter
-
-Per vendor in scope, after `/healthcheck`:
-
-1. `GET /table/server` with `columns`, plus `/table/region` and `/table/zone`.
-2. `GET /table/server_prices/snapshot` for that vendor. Gunzip, keep rows
-   whose region is in scope, map `ondemand` → `on-demand` and `spot` → `spot`.
-3. `GET /benchmark_configs`, then one `GET /table/benchmark_score` per metric.
-4. `GET /servers` with `columns` for each selection, chunked by three
-   `vendor_regions`, ranked locally as today.
-
-The downloaded body is not kept. The snapshot holds `model.Data` until the
-next refresh succeeds, and a failed refresh keeps the previous one, so both
-exist during a refresh. The price rows are the resident cost: about 35 MB for
-all AWS regions (135,239 prices, stored again in the per-server index), about
-150 MB when every current vendor is in scope. Offerings built per NodeClass
-are a second block of that order when they share requirement maps, and larger
-when every offering carries its own metric requirements. Servers, regions,
-zones, and a few score maps are a couple of megabytes. A region allow-list
-cuts the price rows in proportion (three AWS regions are 26,459 prices).
-
-### On-disk prices
-
-The price rows also go to a new SQLite file per hash, written with
-`journal_mode=OFF` and `synchronous=OFF`, then atomically renamed over the
-current path. The previous file stays until the process drops it. A crash
-during the write leaves the previous hash in place.
-
-All eight vendors are 46 MB and took 4.1 s to write, including reading them
-out. The same rows as gzipped TSV are 3.1 MB. Three AWS regions query back in
-about 6 ms. Replacing that file on every hash (spot publishes about every
-five minutes; the catalog refresh stays hourly) is the whole rewrite. Do not
-restore `sc-data-all` (1.26 GB) on the cluster, and do not update one
-database in place.
-
-The file is the source for a restart and for a NodeClass that appears before
-the next refresh. After the offerings for the current classes are built, the
-Go price slice can be dropped; the scheduler still walks the in-memory
-offerings. The page cache is the only extra RAM the file adds.
+**Things that change with it:**
+- **AWS storage prices.** They come from `storage_price` and replace the
+  `/storage_prices` call in `pkg/vendors/aws/prices.go`.
+- **The AWS IPv4 price.** It comes from `ipv4_price` and replaces the
+  constant 0.005 USD/h and `SCARPENTER_AWS_IPV4_PRICE`. The rows are in
+  USD and CNY today, and Keeper converts them to USD.
+- **The API key** is required under options 1 and 2:
+  - `--keeper-api-key-file` becomes mandatory, and the chart value is
+    required;
+  - a missing or rejected key shows as a clear condition;
+  - plan 10 adds a Keeper key secret;
+  - L3 and L4 keep replaying recorded data, so they need new recordings but
+    no key.
+- **Data age.** `SC-Data-Published-At` becomes a metric and is shown in the
+  catalog status.
+- **Removed:**
+  - `/server_prices`, `/table/server_prices` and the full `/table/server`;
+  - the 3-region chunking and the `--keeper-prices-regions-per-request` flag;
+  - selection's `/servers` path in SCarpenter.
+- **Memory.** Decode the columnar files as streams; Azure's `server_price` is
+  32 MB of JSON. Report the resident heap for AWS with three regions and for
+  all vendors, and compare it with plan 06's 217 and 377 MiB.
+- **On-disk copy.** Keep the gzipped files of the pinned hash on disk, and
+  replace the set when the hash changes. A restart within the same hash then
+  needs no Keeper call. This replaces the earlier per-hash SQLite idea.
+  Dropping the Go price slice after the offerings are built is out of scope:
+  revisit it only if the memory numbers call for it.
 
 ## Scope
 
-- **sc-keeper**: render the snapshot at database load; the new routes and
-  `columns`; `X-Database-Hash`. `GET /table/server_prices` stays keyed.
-- **sc-keeper-go**: fetch the snapshot and the score route; `columns` on
-  `/table/server` and `/servers`.
-- **`pkg/catalog`**: `KeeperSource` reads the snapshot, filters regions, and
-  writes the per-hash SQLite file. Behavior of the built instance types is
-  unchanged. Tests replay a fixture of the snapshot document; no live Keeper
-  except the existing snapshot-refresh workflow.
+- **sc-keeper-go.** Part A: the local candidate builder. Part B: the
+  snapshot client, with re-pinning, gzip, columnar decoding and the headers,
+  and `benchmark_config_id`.
+- **SCarpenter.** `pkg/catalog` (part A and part B), and the AWS storage and
+  IPv4 prices. Part B also covers the options, the chart and the docs.
+- **Not here.**
+  - sc-keeper itself.
+  - sc-karpenter-nodepool: under option 1 it moves to snapshots in its own
+    repository; under option 2 it moves to `/servers/select`.
 
 ## Gates
 
-CONVENTIONS gates 1–3, plus the Keeper test suite for the new routes. Report
-the resident heap of an all-vendor catalog and of AWS with three regions, and
-the time and size of one price-file replacement.
+CONVENTIONS gates 1–3, plus L3 (`make test-kwok`), because the catalog feeds
+every scenario. Also:
+- **Part A:** the equivalence report from step 4.
+- **Part B:** the memory numbers, the size and time of one refresh for AWS and
+  for all vendors, and new recordings in `test/data/sc-snapshot/`.

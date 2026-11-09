@@ -38,7 +38,7 @@ Execution protocol:
 | 10 | `wip/10-aws-e2e.md` | review | L5 AWS e2e over Tailscale + sweeper (written and validated, run by the coordinator) | 09 |
 | 11 | `wip/11-docs-and-release.md` | todo | tutorials, how-tos for profiles, selection and resources, add-a-vendor guide, first release (v0.1.0) | 07, 10 |
 | 12 | `wip/12-aws-gpu.md` | optional | NVIDIA sysext on AWS GPU types | 10 + GPU spike |
-| 13 | `wip/13-keeper-catalog-snapshot.md` | proposal | per-vendor price snapshot from Keeper; hourly catalog reads it; on-disk price file replaced per hash. Not next, and not a dependency of 04–12 | 03 |
+| 13 | `wip/13-keeper-catalog-snapshot.md` | A: todo, B: blocked | catalog from Keeper snapshots pinned per data version; local selection (part A, can start now); part B waits for Keeper's snapshot routes | 03 + Keeper snapshots |
 
 Shared rules for every plan: [`CONVENTIONS.md`](CONVENTIONS.md).
 
