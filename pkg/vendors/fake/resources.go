@@ -264,12 +264,12 @@ func (d *Driver) Ensure(ctx context.Context, kind vendors.ResourceKind, region s
 	return r.ref(), true, nil
 }
 
-// usersLocked counts the live instances that use the resource and returns the
-// latest time one of them ended.
+// usersLocked counts the instances that use the resource: every one that is not
+// terminated, a powered-off (terminating) one included, which still holds it.
 func (d *Driver) usersLocked(id string) int {
 	n := 0
 	for _, i := range d.instances {
-		if !i.Gone() && slices.Contains(i.resources, id) {
+		if i.State != vendors.StateTerminated && slices.Contains(i.resources, id) {
 			n++
 		}
 	}

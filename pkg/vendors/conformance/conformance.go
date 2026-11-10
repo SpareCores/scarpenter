@@ -361,10 +361,6 @@ func notFound(t *testing.T, e *env) {
 	}
 }
 
-// malformedReferences pins the rule that a reference the driver cannot parse is
-// an instance that does not exist: GetInstance says NotFound and DeleteInstance
-// succeeds (or says NotFound), never Fatal, so that a stale annotation does not
-// put an Event on a NodeClass.
 // idempotencyTag pins the label of the vendors without a create token: the key
 // round-trips through GetInstance, FindInstance and the tag filter of
 // ListInstances, and a failed create leaves no instance with the key.
@@ -413,6 +409,10 @@ func idempotencyTag(t *testing.T, e *env) {
 	}
 }
 
+// malformedReferences pins the rule that a reference the driver cannot parse is
+// an instance that does not exist: GetInstance says NotFound and DeleteInstance
+// succeeds (or says NotFound), never Fatal, so that a stale annotation does not
+// put an Event on a NodeClass.
 func malformedReferences(t *testing.T, e *env) {
 	for _, ref := range []vendors.InstanceRef{
 		"", "/", "no-slash", vendors.NewInstanceRef(e.region, ""), vendors.NewInstanceRef("", "i-never-existed"),

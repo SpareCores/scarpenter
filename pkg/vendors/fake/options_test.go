@@ -263,6 +263,11 @@ func TestResourcesAreUsedPersistedAndDeletedByTheirUsers(t *testing.T) {
 	if err := h.d.Delete(t.Context(), ref); !vendors.IsClass(err, vendors.Retryable) {
 		t.Fatalf("deleting a resource in use: %v", err)
 	}
+	// A powered-off (terminating) instance still holds its resources.
+	h.d.PowerOff(inst.Ref)
+	if inUse, _, err := h.d.InUse(t.Context(), ref); err != nil || !inUse {
+		t.Fatalf("InUse with a powered-off user = %v, %v; want in use", inUse, err)
+	}
 	if err := h.d.DeleteInstance(t.Context(), inst.Ref); err != nil {
 		t.Fatal(err)
 	}
