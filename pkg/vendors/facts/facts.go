@@ -367,19 +367,32 @@ type resolved struct {
 // leave entries of old content behind.
 const maxCachedDefaults = 256
 
-// RootDiskBytes implements catalog.Facts: the root disk of the class's
-// resolved default settings.
-func (f *Facts) RootDiskBytes(vendor string, class *catalog.Class) (int64, bool) {
+// RootDiskBytes implements catalog.Facts: the root disk of the type under the
+// class's resolved default settings. The driver answers for a type that
+// defines its own root disk (RootDiskForType); else the settings' root disk;
+// for 0, or a vendor without NodeOptions, the catalog's storage size of the
+// type (Keeper's storage_size, taken as GB; 0 when the type has none).
+func (f *Facts) RootDiskBytes(vendor string, class *catalog.Class, srv *model.Server) (int64, bool) {
+	catalogBytes := func() (int64, bool) {
+		b := int64(srv.LocalStorageGB * 1e9)
+		return b, b > 0
+	}
 	no := f.nodeOptions(vendor)
 	if no == nil {
-		return 0, false
+		return catalogBytes()
 	}
 	s, ok := f.defaultsFor(vendor, class, no)
 	if !ok {
 		s = no.Defaults()
 		s.RootDiskBytes = no.RootDiskBytes(s)
 	}
-	return s.RootDiskBytes, s.RootDiskBytes > 0
+	if b, ok := no.RootDiskForType(s, catalogType(vendor, srv)); ok && b > 0 {
+		return b, true
+	}
+	if s.RootDiskBytes > 0 {
+		return s.RootDiskBytes, true
+	}
+	return catalogBytes()
 }
 
 func catalogType(vendor string, srv *model.Server) vendors.CatalogType {

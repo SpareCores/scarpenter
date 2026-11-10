@@ -166,6 +166,12 @@ func (d *Driver) Defaults() vendors.VendorSettings {
 	return s
 }
 
+// RootDiskForType implements vendors.NodeOptions: the root volume is an EBS
+// volume of the settings, not of the type.
+func (d *Driver) RootDiskForType(vendors.VendorSettings, vendors.CatalogType) (int64, bool) {
+	return 0, false
+}
+
 // RootDiskBytes implements vendors.NodeOptions: the size of the root volume,
 // which the scheduler assumes as ephemeral storage.
 func (d *Driver) RootDiskBytes(s vendors.VendorSettings) int64 {

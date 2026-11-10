@@ -465,6 +465,12 @@ type NodeOptions interface {
 	Defaults() VendorSettings
 	// RootDiskBytes is the root disk of the resolved settings.
 	RootDiskBytes(s VendorSettings) int64
+	// RootDiskForType is the root disk of an instance type whose root disk
+	// the type defines (hcloud, Vultr and UpCloud: the plan's disk; OVH
+	// flavors with a local root disk), whatever the settings say. ok is false
+	// when the type does not define it; the catalog then uses RootDiskBytes
+	// of the settings, and for 0 the catalog's own storage size of the type.
+	RootDiskForType(s VendorSettings, it CatalogType) (bytes int64, ok bool)
 	// Supported returns the valid profile names per kind for the type in the
 	// zone ("default" is always valid).
 	Supported(it CatalogType, zone string, p Profiles) map[string][]string

@@ -32,11 +32,13 @@ type Facts interface {
 	// every zone of the region.
 	Zones(vendor string) (zones map[string][]Zone, hasZones bool)
 
-	// RootDiskBytes is the size of the root disk of the vendor's resolved
-	// default settings for the class, the ephemeral storage the scheduler
-	// assumes. ok is false when the driver does not say (the resource is then
-	// omitted).
-	RootDiskBytes(vendor string, class *Class) (bytes int64, ok bool)
+	// RootDiskBytes is the size of the root disk of the instance type under
+	// the vendor's resolved default settings for the class, the ephemeral
+	// storage the scheduler assumes: the driver's answer for the type where
+	// the type defines its root disk, else the settings', else the catalog's
+	// storage size of the type. ok is false when none says (the resource is
+	// then omitted).
+	RootDiskBytes(vendor string, class *Class, srv *model.Server) (bytes int64, ok bool)
 
 	// Supported is the driver's profile hook (00a section 5.3): the profiles of
 	// the class (class.Profiles, with their blocks in class.Inputs) that are
@@ -83,7 +85,7 @@ func (f StaticFacts) Zones(vendor string) (map[string][]Zone, bool) {
 }
 
 // RootDiskBytes implements Facts.
-func (f StaticFacts) RootDiskBytes(vendor string, _ *Class) (int64, bool) {
+func (f StaticFacts) RootDiskBytes(vendor string, _ *Class, _ *model.Server) (int64, bool) {
 	b, ok := f.RootDisk[vendor]
 	return b, ok
 }

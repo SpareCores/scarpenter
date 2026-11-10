@@ -33,6 +33,12 @@ func (d *Driver) Defaults() vendors.VendorSettings {
 	return s
 }
 
+// RootDiskForType implements vendors.NodeOptions: the root disk is the VM's
+// own, from the settings.
+func (d *Driver) RootDiskForType(vendors.VendorSettings, vendors.CatalogType) (int64, bool) {
+	return 0, false
+}
+
 // RootDiskBytes implements vendors.NodeOptions.
 func (d *Driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 	set, err := decodeSettings(s)

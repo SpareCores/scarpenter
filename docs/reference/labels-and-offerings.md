@@ -78,7 +78,7 @@ it does not fit a label value that key is `DoesNotExist` on the type;
 | `cpu` | Keeper `vcpus` |
 | `memory` | Keeper `memory_amount` (MiB) less `kubelet.vmMemoryOverheadPercent` (default 7.5 %, rounded down) |
 | `pods` | `kubelet.maxPods` (default 110) |
-| `ephemeral-storage` | the root disk size of the vendor's resolved default settings, as the driver reports it; omitted when the driver does not say |
+| `ephemeral-storage` | the root disk of the type under the vendor's resolved default settings: the driver's per-type answer where the type defines its root disk, else the settings' root disk, else Keeper's `storage_size` of the type; omitted when none says |
 
 There are no GPU extended resources: without a device plugin they would never
 appear on the node and pods requesting them would loop. GPU types are selected

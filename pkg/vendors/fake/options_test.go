@@ -54,6 +54,28 @@ func TestDefaultsAndRootDisk(t *testing.T) {
 	}
 }
 
+func TestRootDiskForTypeFollowsTheSteeredRules(t *testing.T) {
+	h := newHarness(t, nil)
+	it := vendors.CatalogType{Vendor: "aws", APIReference: "cx22", Family: "cx"}
+	if b, ok := h.d.RootDiskForType(h.d.Defaults(), it); ok || b != 0 {
+		t.Errorf("without rules the type defines nothing: %d, %v", b, ok)
+	}
+	before := h.d.NodeOptionsEpoch()
+	h.setConfig(t, "rootDisks", `[{instanceTypes: [aws.cx22], size: 40Gi}, {families: [cx], size: 80Gi}]`)
+	if h.d.NodeOptionsEpoch() == before { // also reads the ConfigMap
+		t.Error("the catalog must rebuild when the root disks change")
+	}
+	for ref, want := range map[string]int64{"cx22": 40 << 30, "cx32": 80 << 30} {
+		got, ok := h.d.RootDiskForType(h.d.Defaults(), vendors.CatalogType{Vendor: "aws", APIReference: ref, Family: "cx"})
+		if !ok || got != want {
+			t.Errorf("%s: %d, %v; want %d (first matching rule)", ref, got, ok, want)
+		}
+	}
+	if _, ok := h.d.RootDiskForType(h.d.Defaults(), vendors.CatalogType{Vendor: "aws", APIReference: "m7i.large", Family: "m7i"}); ok {
+		t.Error("a type no rule matches defines nothing")
+	}
+}
+
 func TestSupportedHonoursTheTypeAndTheSteeredRules(t *testing.T) {
 	h := newHarness(t, nil)
 	profiles := vendors.Profiles{

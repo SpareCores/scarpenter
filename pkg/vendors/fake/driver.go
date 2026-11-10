@@ -96,7 +96,7 @@ type Driver struct {
 	resMu     sync.Mutex
 	resources map[string]*resourceRecord
 	resLoaded bool
-	// unsupportedEpoch changes with the steering's unsupported rules.
+	// unsupportedEpoch changes with the steering's unsupported and rootDisks rules.
 	unsupportedEpoch atomic.Uint64
 
 	mu        sync.Mutex

@@ -149,6 +149,12 @@ func (d *Driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 	return rootDiskBytes.Value()
 }
 
+// RootDiskForType implements vendors.NodeOptions: the steering's rootDisks
+// rules make a type define its own root disk.
+func (d *Driver) RootDiskForType(_ vendors.VendorSettings, it vendors.CatalogType) (int64, bool) {
+	return d.current().rootDisk(it)
+}
+
 // Supported implements vendors.NodeOptions: every defined profile is valid
 // except where it cannot be honoured (ADR-017): local storage needs a type with
 // local disks, and the ConfigMap's unsupported rules (steering, for the
@@ -177,7 +183,7 @@ func (d *Driver) Supported(it vendors.CatalogType, zone string, p vendors.Profil
 }
 
 // NodeOptionsEpoch implements vendors.EpochReporter: it changes when the
-// steering ConfigMap's unsupported rules do.
+// steering ConfigMap's unsupported and rootDisks rules do.
 func (d *Driver) NodeOptionsEpoch() uint64 {
 	d.refreshConfig(context.Background())
 	return d.unsupportedEpoch.Load()

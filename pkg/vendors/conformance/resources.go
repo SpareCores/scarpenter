@@ -65,6 +65,16 @@ func nodeOptions(t *testing.T, e *env) {
 	if got := no.RootDiskBytes(defaults); got != defaults.RootDiskBytes {
 		t.Errorf("RootDiskBytes(Defaults()) = %d, Defaults().RootDiskBytes = %d", got, defaults.RootDiskBytes)
 	}
+	// A root disk the type defines is positive, and the same for the same call.
+	for _, it := range e.fx.ProfileTypes {
+		b, ok := no.RootDiskForType(defaults, it)
+		if again, okAgain := no.RootDiskForType(defaults, it); again != b || okAgain != ok {
+			t.Errorf("%s: RootDiskForType is not deterministic", it.APIReference)
+		}
+		if ok && b <= 0 {
+			t.Errorf("%s: RootDiskForType says ok with %d bytes (an unknown root disk is ok=false)", it.APIReference, b)
+		}
+	}
 	// An empty profile set supports nothing but the default.
 	for _, it := range e.fx.ProfileTypes {
 		if got := no.Supported(it, e.zone, vendors.Profiles{}); len(got) != 0 {

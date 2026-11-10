@@ -93,7 +93,6 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 	zonesByRegion, hasZones := facts.Zones(vendor)
 	view := snap.view(class)
 	allowed := class.Vendors[vendor]
-	rootDisk, rootKnown := facts.RootDiskBytes(vendor, class)
 
 	// Core checks offerings with Requirements.IsCompatible, which rejects an
 	// offering that defines a key core does not know as well-known ("label does
@@ -242,6 +241,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 		reqs = append(reqs, labels.ProfileRequirements(union)...)
 		it.Requirements = scheduling.NewRequirements(reqs...)
 
+		rootDisk, rootKnown := facts.RootDiskBytes(vendor, class, srv)
 		it.Capacity = capacity(srv.VCPUs, srv.MemoryMiB, class, rootDisk, rootKnown)
 		it.Overhead = overhead(srv.VCPUs, class, it.Capacity)
 		bt.it = it

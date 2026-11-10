@@ -33,6 +33,15 @@ type driver struct {
 	prices atomic.Int32
 	// hosts says which profiles the types can host.
 	hosts func(kind, name string, it vendors.CatalogType, zone string) bool
+	// typeRoot is the root disk a type defines (RootDiskForType), by API reference.
+	typeRoot map[string]int64
+	// noRoot makes the settings say no root disk (RootDiskBytes 0).
+	noRoot bool
+}
+
+func (d *driver) RootDiskForType(_ vendors.VendorSettings, it vendors.CatalogType) (int64, bool) {
+	b, ok := d.typeRoot[it.APIReference]
+	return b, ok
 }
 
 func (d *driver) Vendor() string                             { return "aws" }
@@ -62,10 +71,13 @@ func (d *driver) DeleteInstance(context.Context, vendors.InstanceRef) error { re
 func (d *driver) TagKey(k vendors.TagKey) string                            { return vendors.DefaultTagKey(k) }
 
 func (d *driver) Defaults() vendors.VendorSettings {
-	return vendors.VendorSettings{Raw: json.RawMessage(`{"storage":{"root":{"volumeSize":"64Gi"}}}`), RootDiskBytes: 64 << 30}
+	return vendors.VendorSettings{Raw: json.RawMessage(`{"storage":{"root":{"volumeSize":"64Gi"}}}`), RootDiskBytes: d.RootDiskBytes(vendors.VendorSettings{Raw: json.RawMessage(`{"storage":{"root":{"volumeSize":"64Gi"}}}`)})}
 }
 
 func (d *driver) RootDiskBytes(s vendors.VendorSettings) int64 {
+	if d.noRoot {
+		return 0
+	}
 	var v struct {
 		Storage struct {
 			Root struct{ VolumeSize string }
@@ -180,11 +192,44 @@ func TestPriceDeltaAndRootDiskFollowTheClassDefaults(t *testing.T) {
 	if delta, ok := f.PriceDelta("aws", &big, srv, "us-east-1a", "on-demand"); delta < 0.99 || delta > 1.01 || !ok {
 		t.Errorf("a 100 GiB larger root disk costs %v, want 1.00", delta)
 	}
-	if b, ok := f.RootDiskBytes("aws", &big); !ok || b != 164<<30 {
+	if b, ok := f.RootDiskBytes("aws", &big, srv); !ok || b != 164<<30 {
 		t.Errorf("root disk of the class = %d, %v; the scheduler must assume the class's size", b, ok)
 	}
-	if b, _ := f.RootDiskBytes("aws", &small); b != 64<<30 {
+	if b, _ := f.RootDiskBytes("aws", &small, srv); b != 64<<30 {
 		t.Errorf("small root disk = %d", b)
+	}
+}
+
+func TestRootDiskIsPerType(t *testing.T) {
+	class, _ := catalog.ClassFromNodeClass(nodeClass("64Gi"))
+	withStorage := &model.Server{Vendor: "aws", APIReference: "cx22", Family: "cx", VCPUs: 2, LocalStorageGB: 40}
+	other := &model.Server{Vendor: "aws", APIReference: "cx32", Family: "cx", VCPUs: 4}
+
+	// The type defines its root disk: the driver's answer wins over the
+	// settings, per type.
+	f := setup(t, &driver{typeRoot: map[string]int64{"cx22": 40 << 30, "cx32": 80 << 30}})
+	for srv, want := range map[*model.Server]int64{withStorage: 40 << 30, other: 80 << 30} {
+		if b, ok := f.RootDiskBytes("aws", &class, srv); !ok || b != want {
+			t.Errorf("%s: root disk %d, %v; want %d", srv.APIReference, b, ok, want)
+		}
+	}
+	// A type the driver does not define uses the settings.
+	f = setup(t, &driver{typeRoot: map[string]int64{"cx22": 40 << 30}})
+	if b, ok := f.RootDiskBytes("aws", &class, other); !ok || b != 64<<30 {
+		t.Errorf("a type without its own root disk: %d, %v; want the settings' 64 GiB", b, ok)
+	}
+	// A driver that answers 0 and settings that say nothing: the catalog's
+	// storage size of the type, and unknown without one.
+	f = setup(t, &driver{typeRoot: map[string]int64{"cx22": 0}, noRoot: true})
+	if b, ok := f.RootDiskBytes("aws", &class, withStorage); !ok || b != 40_000_000_000 {
+		t.Errorf("fallback to the catalog: %d, %v; want 40 GB", b, ok)
+	}
+	if b, ok := f.RootDiskBytes("aws", &class, other); ok || b != 0 {
+		t.Errorf("nothing says: %d, %v; want unknown", b, ok)
+	}
+	// A vendor without NodeOptions falls back to the catalog too.
+	if b, ok := f.RootDiskBytes("nodriver", &class, withStorage); !ok || b != 40_000_000_000 {
+		t.Errorf("a vendor without NodeOptions: %d, %v", b, ok)
 	}
 }
 

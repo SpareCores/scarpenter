@@ -49,6 +49,10 @@ func (d driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 	return q.Value()
 }
 
+func (driver) RootDiskForType(vendors.VendorSettings, vendors.CatalogType) (int64, bool) {
+	return 0, false
+}
+
 func (driver) Supported(vendors.CatalogType, string, vendors.Profiles) map[string][]string {
 	return nil
 }

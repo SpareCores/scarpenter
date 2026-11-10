@@ -16,6 +16,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
@@ -37,7 +38,18 @@ const (
 	// references and the vendor's default resources resolve to).
 	keyUnsupported = "unsupported"
 	keyExisting    = "existingResources"
+	// keyRootDisks lists instance types whose root disk the type defines
+	// (RootDiskForType), as a vendor with fixed plan disks does.
+	keyRootDisks = "rootDisks"
 )
+
+// rootDiskRule gives the matching types a fixed root disk; empty lists match
+// everything.
+type rootDiskRule struct {
+	InstanceTypes []string          `json:"instanceTypes,omitempty"`
+	Families      []string          `json:"families,omitempty"`
+	Size          resource.Quantity `json:"size"`
+}
 
 // unsupportedRule says that a profile is not valid for the matching types and
 // zones (Supported leaves it out): a profile kind and name, with the instance
@@ -111,7 +123,7 @@ type orphanConfig struct {
 }
 
 // steeringKeys are the keys of the steering ConfigMap.
-var steeringKeys = []string{keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting}
+var steeringKeys = []string{keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting, keyRootDisks}
 
 // orEmpty is c, or an empty configuration when there is none yet.
 func orEmpty(c *config) *config {
@@ -131,6 +143,7 @@ type config struct {
 	orphans     []orphanConfig
 	powerOff    []string
 	rules       []unsupportedRule
+	rootDisks   []rootDiskRule
 	existing    []existingResource
 	raw         map[string]string
 }
@@ -156,6 +169,22 @@ func (c *config) unsupported(kind, profile string, it vendors.CatalogType, zone 
 		return true
 	}
 	return false
+}
+
+// rootDisk is the root disk the first matching rule gives the type.
+func (c *config) rootDisk(it vendors.CatalogType) (int64, bool) {
+	for _, r := range c.rootDisks {
+		if len(r.InstanceTypes) > 0 && !slices.ContainsFunc(r.InstanceTypes, func(t string) bool {
+			return strings.TrimPrefix(t, it.Vendor+".") == it.APIReference
+		}) {
+			continue
+		}
+		if len(r.Families) > 0 && !slices.Contains(r.Families, it.Family) {
+			continue
+		}
+		return r.Size.Value(), true
+	}
+	return 0, false
 }
 
 // refreshConfig re-reads the steering ConfigMap unless it was read within the
@@ -285,6 +314,21 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	}, func() {
 		if prev != nil {
 			next.rules = prev.rules
+		}
+	})
+	parse(keyRootDisks, func(raw string) error {
+		var rules []rootDiskRule
+		if err := yaml.UnmarshalStrict([]byte(raw), &rules); err != nil {
+			return err
+		}
+		next.rootDisks = rules
+		if prev == nil || prev.raw[keyRootDisks] != raw {
+			d.unsupportedEpoch.Add(1)
+		}
+		return nil
+	}, func() {
+		if prev != nil {
+			next.rootDisks = prev.rootDisks
 		}
 	})
 	parse(keyExisting, func(raw string) error {

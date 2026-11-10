@@ -84,6 +84,7 @@ addresses), never the billing period that has started ([ADR-024](../explanation/
 |---|---|
 | `Defaults()` | The built-in settings (layer 1) in the shape of the vendor block (`Raw` JSON, regions and resources left out) and the root disk. |
 | `RootDiskBytes(s)` | The root disk of resolved settings: the ephemeral storage the scheduler assumes. |
+| `RootDiskForType(s, type)` | The root disk of an instance type whose root disk the type defines (`ok` false when it does not). Asked first by the facts, per type: for `ok` the answer wins, else `RootDiskBytes(s)`, and for 0 the catalog's storage size of the type. Needed where pods that request ephemeral storage would otherwise never fit (OVH `i1` flavors: the root is the 50 GB `ssd` entry, not `storage_size`). |
 | `Supported(type, zone, profiles)` | The valid profile names per kind for the type and zone. `profiles` holds the profile blocks of the NodeClass for the vendor (kind, name, the vendor's JSON); a profile without a block for the vendor is not in it. Anything the driver cannot honour is left out (ADR-017). |
 | `PriceDelta(settings, offering)` | The price of the settings on top of the instance price per hour, and whether it is complete. |
 | `Prepare(ctx, req)` | Makes the pre-instance resources ready and returns them with the device hints. `req` carries the resolved settings, the zone, the type (`CatalogType`: family, vCPUs, local disks), the placement run key and a `ResourceProvider` that gives the vendor resources the NodeClass configures (`Require(kind, key, params)`; see [vendor resources](vendor-resources.md)). |
@@ -165,7 +166,7 @@ makes the next launch fail with a class), and for `QuotaReporter` drivers: every
 type maps to buckets or is on the fixture's unknown list, launches show up in
 `Used` with their refs, a quota error is `QuotaExceeded` (with `AccountWide` exactly when the fixture's
 `AccountWideQuota` says the vendor's limits are account-wide); and `OfferingLister`.
-For `NodeOptions`: the defaults decode and match `RootDiskBytes`; for the
+For `NodeOptions`: the defaults decode and match `RootDiskBytes`, and `RootDiskForType` is deterministic and positive when it answers; for the
 fixture's sample `Profiles` and `ProfileTypes`, `Supported` is deterministic,
 returns only defined profiles and nothing without profiles, and every supported
 profile resolves, has a finite non-negative price delta and prepares
@@ -286,6 +287,9 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   lists match everything) that make a profile invalid for the matching types and
   zones. Besides, a storage profile with local storage is valid only on types
   with local disks. A change of the rules rebuilds the catalog.
+- `rootDisks`: rules `{instanceTypes, families, size}` (empty lists match everything; the
+  first match wins) that make matching types define their own root disk, answered by
+  `RootDiskForType`.
 - `existingResources`: the account's own resources, `{kind, region, id, name,
   tags, default}`: what `use` references and the vendor's default resource
   (`default: true`) resolve to.
