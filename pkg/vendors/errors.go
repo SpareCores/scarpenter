@@ -29,6 +29,10 @@ const (
 	// ZoneUnusable: the zone cannot be used at all (no subnet, no free
 	// addresses).
 	ZoneUnusable Class = "ZoneUnusable"
+	// RegionUnavailable: the credentials cannot read or use the region (denied
+	// by policy, not opted in, disabled). Returned by the calls that list a
+	// region's facts, so that one region does not block the others.
+	RegionUnavailable Class = "RegionUnavailable"
 	// Retryable: a transient error (throttling, internal error).
 	Retryable Class = "Retryable"
 	// NotFound: the instance or resource does not exist.
@@ -38,7 +42,9 @@ const (
 )
 
 // Classes lists every class.
-var Classes = []Class{InsufficientCapacity, Unsupported, QuotaExceeded, ZoneUnusable, Retryable, NotFound, Fatal}
+var Classes = []Class{
+	InsufficientCapacity, Unsupported, QuotaExceeded, ZoneUnusable, RegionUnavailable, Retryable, NotFound, Fatal,
+}
 
 // Valid reports whether c is one of the classes.
 func (c Class) Valid() bool {

@@ -79,6 +79,7 @@ text.
 | `Unsupported` | Type unavailable in the zone (24 h), next candidate. |
 | `QuotaExceeded` | Quota refresh of the region (vendor with quota knowledge for the type) or region and capacity type unavailable (30 min); next candidate in another region or capacity type. A quota limit must never be reported as `InsufficientCapacity`. |
 | `ZoneUnusable` | Zone unavailable (10 min). |
+| `RegionUnavailable` | Only from `Zones`: the credentials cannot read the region. The facts skip the region (one warning) and load the others; if every region is unavailable the load fails. |
 | `Retryable` | Returned to core, which retries the NodeClaim. |
 | `NotFound` | The instance does not exist. |
 | `Fatal` | `CreateError` and an Event on the SCNodeClass. |

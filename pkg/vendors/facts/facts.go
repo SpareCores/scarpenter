@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -61,6 +63,8 @@ type vendorFacts struct {
 	regions    []string
 	zones      map[string][]catalog.Zone
 	hasZones   bool
+	// skipped maps the regions the credentials cannot read to the reason.
+	skipped map[string]string
 }
 
 // Facts implements catalog.Facts and catalog.LaunchableFacts over the
@@ -71,7 +75,10 @@ type Facts struct {
 	mu     sync.RWMutex
 	data   map[string]*vendorFacts
 	loaded bool
-	epoch  atomic.Uint64
+	// skippedSeen remembers the skipped regions already warned about
+	// (vendor/region -> reason).
+	skippedSeen map[string]string
+	epoch       atomic.Uint64
 
 	defaults  sync.Map // class hash/vendor -> resolved
 	defaultsN atomic.Int64
@@ -94,16 +101,32 @@ func New(opts Options) *Facts {
 }
 
 // Load reads the regions and the zones of every region of every enabled
-// vendor. A vendor that fails keeps its previous facts; the errors are joined.
+// vendor. One region cannot block the others:
+//
+//   - a region whose zones the credentials cannot read (the driver's
+//     RegionUnavailable: denied by policy, not opted in) is skipped, with one
+//     warning when it starts being skipped (later loads log it at V(1));
+//   - a region that fails otherwise (throttling, network, 5xx) keeps its
+//     last-known zones, or is left out when it has none, and Load returns the
+//     error so that Start retries soon, but the other regions' facts are used;
+//   - only a vendor with no readable region at all fails as a whole: it keeps
+//     its previous facts, the error is returned and Loaded is false.
 func (f *Facts) Load(ctx context.Context) error {
-	var errs []error
+	logger := log.FromContext(ctx).WithName("driver-facts")
+	var hard, soft []error
 	next := map[string]*vendorFacts{}
 	for _, vendor := range f.opts.Registry.Vendors() {
 		drv, _ := f.opts.Registry.Driver(vendor)
-		vf, err := loadVendor(ctx, drv)
+		f.mu.RLock()
+		prev := f.data[vendor]
+		f.mu.RUnlock()
+		vf, errs, err := loadVendor(ctx, drv, prev)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("vendor %s: %w", vendor, err))
+			hard = append(hard, fmt.Errorf("vendor %s: %w", vendor, err))
 			continue
+		}
+		for _, e := range errs {
+			soft = append(soft, fmt.Errorf("vendor %s: %w", vendor, e))
 		}
 		next[vendor] = vf
 	}
@@ -114,32 +137,77 @@ func (f *Facts) Load(ctx context.Context) error {
 			changed = true
 		}
 		f.data[vendor] = vf
+		f.logSkipped(logger, vendor, vf.skipped)
 	}
-	f.loaded = len(errs) == 0
+	f.loaded = len(hard) == 0
 	f.mu.Unlock()
 	if changed {
 		f.epoch.Add(1)
 	}
-	return errors.Join(errs...)
+	return errors.Join(append(hard, soft...)...)
 }
 
-func loadVendor(ctx context.Context, drv vendors.Driver) (*vendorFacts, error) {
+// logSkipped warns once for each region that starts being skipped, and says
+// when one is read again. Called with f.mu held.
+func (f *Facts) logSkipped(logger logr.Logger, vendor string, skipped map[string]string) {
+	if f.skippedSeen == nil {
+		f.skippedSeen = map[string]string{}
+	}
+	for region, why := range skipped {
+		key := vendor + "/" + region
+		if f.skippedSeen[key] == why {
+			logger.V(1).Info("still skipping a region the credentials cannot read",
+				"vendor", vendor, "region", region, "reason", why)
+			continue
+		}
+		f.skippedSeen[key] = why
+		logger.Info("skipping a region the credentials cannot read: its zones and offerings are not loaded",
+			"vendor", vendor, "region", region, "reason", why)
+	}
+	for key := range f.skippedSeen {
+		if v, r, _ := strings.Cut(key, "/"); v == vendor {
+			if _, still := skipped[r]; !still {
+				delete(f.skippedSeen, key)
+				logger.Info("a skipped region can be read again", "vendor", vendor, "region", r)
+			}
+		}
+	}
+}
+
+// loadVendor reads the zones of every region of the vendor. errs are the
+// regions that failed for another reason than RegionUnavailable; err is set
+// when no region could be read at all.
+func loadVendor(ctx context.Context, drv vendors.Driver, prev *vendorFacts) (vf *vendorFacts, errs []error, err error) {
 	regions, err := drv.Regions(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("listing regions: %w", err)
+		return nil, nil, fmt.Errorf("listing regions: %w", err)
 	}
-	vf := &vendorFacts{zones: map[string][]catalog.Zone{}, zoneRegion: map[string]string{}}
+	vf = &vendorFacts{zones: map[string][]catalog.Zone{}, zoneRegion: map[string]string{}, skipped: map[string]string{}}
+	var skipped []error
 	for _, r := range regions {
-		vf.regions = append(vf.regions, r.Name)
 		zones, err := drv.Zones(ctx, r.Name)
-		if err != nil {
-			return nil, fmt.Errorf("listing the zones of %s: %w", r.Name, err)
+		var cz []catalog.Zone
+		switch {
+		case err == nil:
+			cz = make([]catalog.Zone, 0, len(zones))
+			for _, z := range zones {
+				cz = append(cz, catalog.Zone{ID: z.ID, Name: z.Name})
+			}
+			slices.SortFunc(cz, func(a, b catalog.Zone) int { return compare(a.Name, b.Name) })
+		case vendors.IsClass(err, vendors.RegionUnavailable):
+			vf.skipped[r.Name] = err.Error()
+			skipped = append(skipped, fmt.Errorf("region %s: %w", r.Name, err))
+			continue
+		default:
+			err = fmt.Errorf("listing the zones of %s: %w", r.Name, err)
+			errs = append(errs, err)
+			old, ok := prev.zonesOf(r.Name)
+			if !ok {
+				continue
+			}
+			cz = old
 		}
-		cz := make([]catalog.Zone, 0, len(zones))
-		for _, z := range zones {
-			cz = append(cz, catalog.Zone{ID: z.ID, Name: z.Name})
-		}
-		slices.SortFunc(cz, func(a, b catalog.Zone) int { return compare(a.Name, b.Name) })
+		vf.regions = append(vf.regions, r.Name)
 		vf.zones[r.Name] = cz
 		for _, z := range cz {
 			vf.zoneRegion[z.Name] = r.Name
@@ -147,7 +215,19 @@ func loadVendor(ctx context.Context, drv vendors.Driver) (*vendorFacts, error) {
 		vf.hasZones = vf.hasZones || len(cz) > 0
 	}
 	slices.Sort(vf.regions)
-	return vf, nil
+	if len(regions) > 0 && len(vf.regions) == 0 {
+		return nil, nil, fmt.Errorf("no region could be read: %w", errors.Join(append(errs, skipped...)...))
+	}
+	return vf, errs, nil
+}
+
+// zonesOf returns the zones last loaded of the region.
+func (vf *vendorFacts) zonesOf(region string) ([]catalog.Zone, bool) {
+	if vf == nil {
+		return nil, false
+	}
+	z, ok := vf.zones[region]
+	return z, ok
 }
 
 func compare(a, b string) int {
@@ -213,6 +293,17 @@ func (f *Facts) Regions(vendor string) []string {
 	defer f.mu.RUnlock()
 	if vf := f.data[vendor]; vf != nil {
 		return slices.Clone(vf.regions)
+	}
+	return nil
+}
+
+// SkippedRegions returns the regions of the vendor that were skipped because
+// the credentials cannot read them, with the reason.
+func (f *Facts) SkippedRegions(vendor string) map[string]string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if vf := f.data[vendor]; vf != nil {
+		return maps.Clone(vf.skipped)
 	}
 	return nil
 }
@@ -411,6 +502,7 @@ func (f *Facts) LogFacts(logger logr.Logger) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	for vendor, vf := range f.data {
-		logger.Info("driver facts", "vendor", vendor, "regions", len(vf.regions), "zones", len(vf.zones))
+		logger.Info("driver facts", "vendor", vendor, "regions", len(vf.regions), "zones", len(vf.zones),
+			"skippedRegions", slices.Sorted(maps.Keys(vf.skipped)))
 	}
 }

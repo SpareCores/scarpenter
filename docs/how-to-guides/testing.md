@@ -466,7 +466,9 @@ lane launches (`t3a.small`, `t3a.medium`, `t3a.large`, `t4g.small`, `r6a.large`,
 `E2E_LOCAL_STORAGE_TYPE` if set; the pools of `test/e2e-aws/manifests/nodepools.yaml` name the
 same types, and a test keeps this page and them together); an explicit deny of EC2 and Service
 Quotas calls outside the region (the sweeper visits every enabled region, is refused in the
-others and skips them). The role's maximum session duration must be at least **two hours**: the controller keeps
+others and skips them; the controller's driver facts do the same: a region whose zones the role
+cannot read is skipped with one warning (`skipping a region the credentials cannot read`) and
+the other regions load). The role's maximum session duration must be at least **two hours**: the controller keeps
 the credentials of the first role assumption for the whole run (the workflow asks for 7200
 seconds). The account also needs the Spot service-linked role
 ([AWS credentials](aws-credentials.md#account-setup-for-spot)) and **quotas that the new-account

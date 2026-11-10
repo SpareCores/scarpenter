@@ -179,3 +179,24 @@ func isCode(err error, codes ...string) bool {
 	}
 	return slices.Contains(codes, c)
 }
+
+// regionDeniedCodes are the codes that say the credentials cannot use a
+// region: denied by an IAM policy, a region that is not opted in or disabled,
+// or credentials the region's endpoint does not accept.
+var regionDeniedCodes = []string{
+	"UnauthorizedOperation", "AuthFailure", "OptInRequired", "UnrecognizedClientException",
+	"InvalidClientTokenId", "UnauthorizedAccess", "AccessDenied",
+}
+
+// classifyRegionRead classifies the error of a call that reads the facts of a
+// region (DescribeAvailabilityZones): the codes of regionDeniedCodes are
+// RegionUnavailable, so that the facts skip the region; the rest is classify's.
+func classifyRegionRead(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := errors.AsType[*vendors.Error](err); !ok && isCode(err, regionDeniedCodes...) {
+		return vendors.NewError(vendors.RegionUnavailable, apiCode(err), err)
+	}
+	return classify(err, errContext{})
+}

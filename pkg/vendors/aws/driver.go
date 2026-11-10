@@ -319,7 +319,7 @@ func (d *Driver) Zones(ctx context.Context, region string) ([]vendors.Zone, erro
 		},
 	})
 	if err != nil {
-		return nil, classify(err, errContext{})
+		return nil, classifyRegionRead(err)
 	}
 	zones := make([]vendors.Zone, 0, len(out.AvailabilityZones))
 	for _, z := range out.AvailabilityZones {

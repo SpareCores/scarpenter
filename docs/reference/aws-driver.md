@@ -84,6 +84,16 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
   carries the name, `scarpenter.sparecores.com/zone-id` the ID. A zone the account
   does not have, or has not opted in to, is dropped; local zones and Wavelength
   zones are not offered.
+- A region whose `DescribeAvailabilityZones` fails with `UnauthorizedOperation`,
+  `AuthFailure`, `OptInRequired`, `UnrecognizedClientException`,
+  `InvalidClientTokenId`, `UnauthorizedAccess` or `AccessDenied` (an IAM policy
+  that denies EC2 outside some regions, a region that is not opted in) is
+  `RegionUnavailable`: the driver facts skip it, log one warning per region
+  (`skipping a region the credentials cannot read`) and load the others. Only
+  the facts' zone listing is treated this way; the same codes on a launch stay
+  `Fatal`. A transient error (throttling, 5xx, network) of one region keeps its
+  last-known zones and the load is retried; if no region can be read the load
+  fails and no offerings exist.
 - A launch into a zone name the account does not have is `ZoneUnusable`.
 
 ## Images
