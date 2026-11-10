@@ -9,6 +9,7 @@ package facts_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -102,8 +103,11 @@ func TestADeniedRegionIsSkippedAndTheOthersLoad(t *testing.T) {
 	if got := lines(); len(got) != 1 || !strings.Contains(got[0], "af-south-1") {
 		t.Errorf("want one warning naming the region, got %q", got)
 	}
-	// Later loads do not warn again (V(1) only).
-	for range 3 {
+	// Later loads do not warn again (V(1) only), also when the message differs
+	// (a real API error carries a new request ID every time).
+	for i := range 3 {
+		d.set("af-south-1", vendors.NewError(vendors.RegionUnavailable, "UnauthorizedOperation",
+			fmt.Errorf("explicit deny, RequestID: %d", i)))
 		if err := f.Load(ctx); err != nil {
 			t.Fatal(err)
 		}

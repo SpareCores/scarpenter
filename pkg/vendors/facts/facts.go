@@ -63,8 +63,11 @@ type vendorFacts struct {
 	regions    []string
 	zones      map[string][]catalog.Zone
 	hasZones   bool
-	// skipped maps the regions the credentials cannot read to the reason.
-	skipped map[string]string
+	// skipped maps the regions the credentials cannot read to the reason;
+	// skipCode to the class and code of the error, which, unlike the reason
+	// (it carries the request ID), stays the same from one load to the next.
+	skipped  map[string]string
+	skipCode map[string]string
 }
 
 // Facts implements catalog.Facts and catalog.LaunchableFacts over the
@@ -76,7 +79,7 @@ type Facts struct {
 	data   map[string]*vendorFacts
 	loaded bool
 	// skippedSeen remembers the skipped regions already warned about
-	// (vendor/region -> reason).
+	// (vendor/region -> class and code of the error).
 	skippedSeen map[string]string
 	epoch       atomic.Uint64
 
@@ -137,7 +140,7 @@ func (f *Facts) Load(ctx context.Context) error {
 			changed = true
 		}
 		f.data[vendor] = vf
-		f.logSkipped(logger, vendor, vf.skipped)
+		f.logSkipped(logger, vendor, vf)
 	}
 	f.loaded = len(hard) == 0
 	f.mu.Unlock()
@@ -149,18 +152,19 @@ func (f *Facts) Load(ctx context.Context) error {
 
 // logSkipped warns once for each region that starts being skipped, and says
 // when one is read again. Called with f.mu held.
-func (f *Facts) logSkipped(logger logr.Logger, vendor string, skipped map[string]string) {
+func (f *Facts) logSkipped(logger logr.Logger, vendor string, vf *vendorFacts) {
 	if f.skippedSeen == nil {
 		f.skippedSeen = map[string]string{}
 	}
+	skipped := vf.skipped
 	for region, why := range skipped {
 		key := vendor + "/" + region
-		if f.skippedSeen[key] == why {
+		if code := vf.skipCode[region]; f.skippedSeen[key] == code {
 			logger.V(1).Info("still skipping a region the credentials cannot read",
 				"vendor", vendor, "region", region, "reason", why)
 			continue
 		}
-		f.skippedSeen[key] = why
+		f.skippedSeen[key] = vf.skipCode[region]
 		logger.Info("skipping a region the credentials cannot read: its zones and offerings are not loaded",
 			"vendor", vendor, "region", region, "reason", why)
 	}
@@ -182,7 +186,10 @@ func loadVendor(ctx context.Context, drv vendors.Driver, prev *vendorFacts) (vf 
 	if err != nil {
 		return nil, nil, fmt.Errorf("listing regions: %w", err)
 	}
-	vf = &vendorFacts{zones: map[string][]catalog.Zone{}, zoneRegion: map[string]string{}, skipped: map[string]string{}}
+	vf = &vendorFacts{
+		zones: map[string][]catalog.Zone{}, zoneRegion: map[string]string{},
+		skipped: map[string]string{}, skipCode: map[string]string{},
+	}
 	var skipped []error
 	for _, r := range regions {
 		zones, err := drv.Zones(ctx, r.Name)
@@ -196,6 +203,7 @@ func loadVendor(ctx context.Context, drv vendors.Driver, prev *vendorFacts) (vf 
 			slices.SortFunc(cz, func(a, b catalog.Zone) int { return compare(a.Name, b.Name) })
 		case vendors.IsClass(err, vendors.RegionUnavailable):
 			vf.skipped[r.Name] = err.Error()
+			vf.skipCode[r.Name] = string(vendors.ClassOf(err)) + "/" + vendors.CodeOf(err)
 			skipped = append(skipped, fmt.Errorf("region %s: %w", r.Name, err))
 			continue
 		default:

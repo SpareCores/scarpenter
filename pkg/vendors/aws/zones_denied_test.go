@@ -35,7 +35,8 @@ func TestZonesOfAnUnreadableRegionAreRegionUnavailable(t *testing.T) {
 	for code, want := range map[string]vendors.Class{
 		"UnauthorizedOperation": vendors.RegionUnavailable, "AuthFailure": vendors.RegionUnavailable,
 		"OptInRequired": vendors.RegionUnavailable, "UnrecognizedClientException": vendors.RegionUnavailable,
-		"InvalidClientTokenId": vendors.RegionUnavailable,
+		"InvalidClientTokenId": vendors.RegionUnavailable, "UnauthorizedAccess": vendors.RegionUnavailable,
+		"AccessDenied":         vendors.RegionUnavailable,
 		"RequestLimitExceeded": vendors.Retryable, "InternalError": vendors.Retryable,
 		"InvalidParameterValue": vendors.Fatal,
 	} {
