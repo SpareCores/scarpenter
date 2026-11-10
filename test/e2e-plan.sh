@@ -80,7 +80,7 @@ tier_of() {
       return 0
       ;;
     # The chart and what it is generated from, the image, the Karpenter pin.
-    charts/* | config/crd/* | config/rbac* | Dockerfile | go.mod | go.sum)
+    charts/* | config/crd/* | config/rbac* | Dockerfile | .dockerignore | go.mod | go.sum)
       echo smoke
       return 0
       ;;

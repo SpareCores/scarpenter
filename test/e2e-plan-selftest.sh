@@ -46,6 +46,7 @@ expect "the chart" "aws:smoke oci:smoke" "$(pr_plan '[]' charts/scarpenter/value
 expect "the shared driver contract" "aws:smoke oci:smoke" "$(pr_plan '[]' pkg/vendors/driver.go)"
 expect "the driver facts" "aws:smoke oci:smoke" "$(pr_plan '[]' pkg/vendors/facts/facts.go)"
 expect "go.mod" "aws:smoke oci:smoke" "$(pr_plan '[]' go.mod)"
+expect "the image build" "aws:smoke oci:smoke" "$(pr_plan '[]' Dockerfile .dockerignore)"
 expect "a dev-only vendor package: nothing" "" "$(pr_plan '[]' pkg/vendors/fake/driver.go pkg/vendors/qemu/driver.go)"
 expect "full wins over smoke, per vendor" "aws:full oci:smoke" "$(pr_plan '[]' pkg/bootstrap/render.go pkg/vendors/aws/driver.go)"
 expect "the label l5:full forces every vendor" "aws:full oci:full" "$(pr_plan '["l5:full"]' docs/x.md)"

@@ -63,8 +63,10 @@ jobs:
     name: e2e (${{ inputs.vendor }}, ${{ inputs.mode }})
     runs-on: ubuntu-latest
     # One run per vendor at a time (the account's quotas are shared, and so is the
-    # tailnet's ACL budget); the next waits. A run that is still waiting is replaced by a
-    # newer one: GitHub keeps one pending run per group.
+    # tailnet's ACL budget; the quota scenario compares the controller's usage with every
+    # instance of the account, so two runs at once would fail it); the next waits. A run that
+    # is still waiting is replaced by a newer one: GitHub keeps one pending run per group,
+    # and that includes a waiting release gate (re-run its failed jobs).
     concurrency:
       group: e2e-${{ inputs.vendor }}
       cancel-in-progress: false

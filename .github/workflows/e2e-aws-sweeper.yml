@@ -5,7 +5,10 @@ name: L5 sweeper (AWS e2e)
 # the managed network of every cluster named scarpenter-ci-* that is older than two
 # hours, in the lane's region (AWS_REGION; the role is refused everywhere else). The selection logic is pkg/vendors/aws/sweep (tested
 # against the AWS driver's in-memory EC2); docs/how-to-guides/testing.md#the-l5-lane
-# describes the tag it reads. Same environment and role as the lane.
+# describes the tag it reads. Same role as the lane, but its own environment, e2e-sweeper:
+# limited to main and without reviewers, so that a scheduled sweep never waits for an
+# approval, and a manual run from another branch (whose code would hold the role without a
+# review) is refused. The role trusts the OIDC subject of both environments.
 on:
   schedule:
     - cron: "17 */3 * * *"
@@ -38,7 +41,7 @@ jobs:
     if: github.repository == 'SpareCores/scarpenter'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: e2e
+    environment: e2e-sweeper
     permissions:
       contents: read
       id-token: write

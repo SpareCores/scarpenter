@@ -19,9 +19,11 @@ name: Release
 # suffix creates a pre-release and does not move the "latest" image tag.
 #
 # Safe for a public repository against outsiders: it runs only for tags (creating one needs write
-# access) whose commit is on main, never for pull requests, and the only
-# credential is the job's GITHUB_TOKEN (packages: write and the OIDC token for
-# cosign, in the jobs that publish; contents: write in the last job only). The
+# access) whose commit is on main, never for pull requests, and the publishing
+# jobs' only credential is the job's GITHUB_TOKEN (packages: write and the OIDC
+# token for cosign, in the jobs that publish; contents: write in the last job
+# only); the release gate holds the L5 cloud role and tailnet identity of the
+# environment "e2e", behind its required reviewers. The
 # publishing jobs run in the environment "release": add required reviewers to it
 # in the repository settings to put a human approval before the first publish.
 # The checks in this file are guardrails against mistakes, not against a

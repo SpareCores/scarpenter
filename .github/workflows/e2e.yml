@@ -11,11 +11,17 @@ name: L5 (e2e)
 # Approval: the job that calls the lane waits in the GitHub environment "e2e", whose
 # required reviewers (configured outside this repository) approve every run: a pull
 # request's own workflow code runs with the cloud role, so a human reads the diff first.
-# Pull requests from forks and drafts never run it. Labels: l5:skip runs nothing, l5:full
-# forces the full lane on every vendor. The check "e2e-result" is the one to require.
+# Pull requests from forks and drafts never run it; their e2e-result fails when the plan
+# needs L5. The check "e2e-result" is the one to require.
+#
+# Labels: l5:skip runs nothing, l5:full forces the full lane on every vendor. They are read
+# live when the plan runs, and adding one does not start a run (no "labeled" trigger): a
+# run for an unrelated label would put a newer, green e2e-result on the same commit, and
+# a required check counts the newest check run of its name, so it would hide a failed or
+# still waiting L5 run. A label takes effect on the next push or "Re-run all jobs".
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       vendor:
@@ -40,33 +46,59 @@ permissions:
   contents: read
 
 jobs:
-  # No secret, no environment: it only reads the changed files and the inputs.
+  # No secret, no environment: it only reads the changed files, the labels and the inputs.
+  # It runs for forks and drafts too (it holds nothing a pull request could misuse), so
+  # that e2e-result knows whether they would need L5.
   plan:
-    # Not for forks (no credentials, and their code must never meet the role), not for drafts,
-    # and not when an unrelated label is added (only l5:skip and l5:full change the plan).
-    if: >-
-      github.repository == 'SpareCores/scarpenter' &&
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.draft == false &&
-      (github.event.action != 'labeled' || github.event.label.name == 'l5:skip' || github.event.label.name == 'l5:full')))
+    if: github.repository == 'SpareCores/scarpenter'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # the live labels and draft state
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       any: ${{ steps.plan.outputs.any }}
+      runnable: ${{ steps.state.outputs.runnable }}
+      reason: ${{ steps.state.outputs.reason }}
     steps:
+      # Before any code of the pull request is checked out. Read live rather than from the
+      # event, so that a re-run sees the labels and the draft state of now.
+      - name: Labels and draft state
+        id: state
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [[ "${EVENT}" == workflow_dispatch ]]; then
+            echo '[]' >"${RUNNER_TEMP}/labels.json"
+            { echo "runnable=true"; echo "reason=manual"; } | tee -a "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          [[ "${PR}" =~ ^[0-9]+$ ]] || { echo "::error::no pull request number" >&2; exit 1; }
+          gh api "repos/${GH_REPO}/pulls/${PR}" >"${RUNNER_TEMP}/pr.json"
+          jq -c '[.labels[].name]' "${RUNNER_TEMP}/pr.json" | tee "${RUNNER_TEMP}/labels.json"
+          if [[ "${HEAD_REPO}" != "${GH_REPO}" ]]; then
+            reason=fork
+          elif [[ "$(jq -r .draft "${RUNNER_TEMP}/pr.json")" != false ]]; then
+            reason=draft
+          else
+            reason=ready
+          fi
+          { [[ "${reason}" == ready ]] && echo "runnable=true" || echo "runnable=false"; echo "reason=${reason}"; } | tee -a "${GITHUB_OUTPUT}"
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 2 # the merge commit and its parents
 
       - name: Plan
         id: plan
         env:
           EVENT: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           INPUT_VENDOR: ${{ inputs.vendor }}
           INPUT_MODE: ${{ inputs.mode }}
           INPUT_SCENARIOS: ${{ inputs.scenarios }}
@@ -74,14 +106,20 @@ jobs:
           if [[ "${EVENT}" == workflow_dispatch ]]; then
             test/e2e-plan.sh dispatch "${INPUT_VENDOR}" "${INPUT_MODE}" "${INPUT_SCENARIOS}" | tee -a "${GITHUB_OUTPUT}"
           else
-            # The pull request's changes: the merge commit against the base it was made on.
-            git diff --name-only "${BASE_SHA}...HEAD" | tee changed.txt
-            E2E_LABELS="${LABELS}" test/e2e-plan.sh pr < changed.txt | tee -a "${GITHUB_OUTPUT}"
+            # The pull request's changes: the merge commit against its first parent, the base
+            # it was merged onto. No rename detection, so that a file moved out of a path
+            # that triggers is seen there too.
+            git rev-parse --verify -q HEAD^2 >/dev/null || { echo "::error::HEAD is not the merge commit of the pull request" >&2; exit 1; }
+            git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD | tee changed.txt
+            E2E_LABELS="$(cat "${RUNNER_TEMP}/labels.json")" test/e2e-plan.sh pr < changed.txt | tee -a "${GITHUB_OUTPUT}"
           fi
 
   e2e:
     needs: plan
-    if: needs.plan.outputs.any == 'true'
+    # Never for a fork or a draft (runnable is false for them): the lane holds the cloud role.
+    if: >-
+      needs.plan.outputs.any == 'true' && needs.plan.outputs.runnable == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       fail-fast: false # one vendor's failure says nothing about the others
       matrix:
@@ -96,7 +134,8 @@ jobs:
       contents: read
       id-token: write
 
-  # The one check to require: green when nothing was needed or everything that ran passed.
+  # The one check to require: green when nothing was needed or everything that ran passed;
+  # red when L5 was needed and did not run (a fork, a draft) or did not pass.
   e2e-result:
     needs: [plan, e2e]
     if: always()
@@ -105,16 +144,22 @@ jobs:
     steps:
       - name: Result
         env:
+          IN_REPO: ${{ github.repository == 'SpareCores/scarpenter' }}
           PLAN: ${{ needs.plan.result }}
           E2E: ${{ needs.e2e.result }}
           ANY: ${{ needs.plan.outputs.any }}
+          REASON: ${{ needs.plan.outputs.reason }}
         run: |
-          echo "plan: ${PLAN}, e2e: ${E2E}, any: ${ANY:-none}"
-          case "${PLAN}/${E2E}" in
-            success/success) echo "all L5 runs passed" ;;
-            success/skipped)
-              if [[ "${ANY}" == false ]]; then echo "no L5 run needed"; else echo "the L5 runs were skipped" >&2; exit 1; fi
+          echo "plan: ${PLAN}, e2e: ${E2E}, any: ${ANY:-none}, reason: ${REASON:-none}"
+          if [[ "${IN_REPO}" != true ]]; then echo "not applicable outside SpareCores/scarpenter"; exit 0; fi
+          [[ "${PLAN}" == success ]] || { echo "the plan did not succeed" >&2; exit 1; }
+          if [[ "${ANY}" == false ]]; then echo "no L5 run needed"; exit 0; fi
+          case "${E2E}/${REASON}" in
+            success/*) echo "all L5 runs passed" ;;
+            skipped/fork)
+              echo "this change needs L5, which never runs for a fork: a maintainer pushes it to a branch of the repository, or adds l5:skip and re-runs all jobs" >&2
+              exit 1
               ;;
-            skipped/skipped) echo "not applicable (a fork, a draft or an unrelated label)" ;;
+            skipped/draft) echo "this change needs L5: it runs when the pull request is marked ready for review" >&2; exit 1 ;;
             *) echo "L5 did not pass" >&2; exit 1 ;;
           esac

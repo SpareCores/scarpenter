@@ -412,8 +412,8 @@ by a workflow. Use your own values; the repository holds none.
 **required reviewers** (every run is approved by a maintainer: a pull request's workflow code runs
 with the role) and no limit to the `main` branch (pull requests run on `refs/pull/<n>/merge`, the
 release gate on a `v*` tag; see [Testing and releasing](testing-and-releasing.md#approval-and-fork-pull-requests)).
-The sweeper runs on a schedule in the same environment today, so with reviewers its runs wait for
-an approval too: see the end of [that page](testing-and-releasing.md#what-the-infrastructure-repository-provides).
+The sweeper runs in an environment of its own, `e2e-sweeper` (limited to `main`, no reviewers, the
+same role: see [The sweeper](#the-sweeper)), so that its scheduled runs never wait for an approval.
 The nightly canary has its own environment, `e2e-canary`, with a read-only role. In `e2e` there are:
 
 - variables `AWS_REGION` (`us-east-2`), `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE` (the client
@@ -435,7 +435,8 @@ customization is ever switched back).
 
 *AWS*: an IAM OIDC provider for `token.actions.githubusercontent.com` (client ID
 `sts.amazonaws.com`) and a role `scarpenter-ci-gha` with this trust policy (the
-environment claim keeps every other workflow and branch out):
+environment claims keep every other workflow and branch out; the second subject is the sweeper's
+environment, `e2e-sweeper`):
 
 ```json
 {
@@ -447,7 +448,10 @@ environment claim keeps every other workflow and branch out):
     "Condition": {
       "StringEquals": {
         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": "repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e"
+        "token.actions.githubusercontent.com:sub": [
+          "repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e",
+          "repo:SpareCores@152076439/scarpenter@1447426340:environment:e2e-sweeper"
+        ]
       }
     }
   }]
@@ -522,8 +526,10 @@ their instances do. If a tailnet uses other prefixes than `100.64.0.0/10` set
 
 #### The sweeper
 
-`.github/workflows/e2e-aws-sweeper.yml` runs every three hours and on demand, in the same
-environment with the same role. It terminates the instances and deletes the placement
+`.github/workflows/e2e-aws-sweeper.yml` runs every three hours and on demand with the lane's role,
+in the environment `e2e-sweeper`: no required reviewers (a sweep must not wait for an approval) and
+limited to `main` (a manual run from another branch, whose code would hold the role unreviewed, is
+refused; the variable `AWS_REGION` and the secret `AWS_ROLE_ARN` are set there too). It terminates the instances and deletes the placement
 groups, security groups and the network (subnets, route tables, internet gateways, VPCs) of every
 cluster whose `scarpenter.sparecores.com/cluster` tag starts with `scarpenter-ci-` and that
 is more than two hours old, in the lane's region (`AWS_REGION`, the only one the role may use; the
@@ -625,8 +631,8 @@ The real-cloud lane is the exception that costs money, so it has its own rules
 ([Testing and releasing](testing-and-releasing.md)): `e2e.yml` plans from the changed files of a pull
 request which vendors run what (a vendor's full lane, or a smoke of two scenarios on every vendor
 when shared node code changed, or nothing for documentation), the job that holds the cloud role waits
-for the required reviewers of the environment `e2e`, forks and drafts never run it, and the
-check `e2e-result` is the one to require. The nightly canary (`e2e-canary.yml`) is free and
+for the required reviewers of the environment `e2e`, forks and drafts never run it (their
+`e2e-result` fails when the plan needs L5), and the check `e2e-result` is the one to require. The nightly canary (`e2e-canary.yml`) is free and
 read-only. Neither runs on a timer that spends money.
 
 ## Releases

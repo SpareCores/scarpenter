@@ -69,11 +69,13 @@ local negative quota drift scalezero uninstall`; `local` only with a
 
 ## What triggers what
 
-`e2e.yml` runs on every pull request (opened, synchronized, reopened, ready for review,
-labeled) without a path filter, so that its result is a check that can be required.
-Its first job, `plan`, has no secret and no environment: it computes the changed
-files of the pull request (`git diff` of the merge commit against the base it was made
-on) and runs `test/e2e-plan.sh`, the only place the rules are written down. A vendor
+`e2e.yml` runs on every pull request (opened, synchronized, reopened, ready for review)
+without a path filter, so that its result is a check that can be required.
+Its first job, `plan`, has no secret and no environment: it reads the labels and the draft
+state of the pull request live (so that a re-run sees the current ones), computes the
+changed files (`git diff --no-renames` of the merge commit against its first parent, the
+base it was merged onto; a moved file counts at its old and its new path) and runs
+`test/e2e-plan.sh`, the only place the rules are written down. A vendor
 is a line of `test/e2e-vendors.txt`; `<vendor>` below stands for each of them.
 
 | Path | Tier for the vendor |
@@ -85,7 +87,7 @@ is a line of `test/e2e-vendors.txt`; `<vendor>` below stands for each of them.
 | `pkg/vendors/*.go` (the shared driver contract), `pkg/vendors/facts/**` | smoke |
 | `pkg/bootstrap/**`, `pkg/cloudprovider/**`, `pkg/artifacts/**`, `pkg/resources/**` | smoke |
 | `pkg/quota/**`, `pkg/controllers/**`, `pkg/catalog/**`, `pkg/unavailable/**`, `pkg/apis/**`, `pkg/options/**`, `pkg/operator/**`, `pkg/scope/**`, `cmd/**` | smoke |
-| `charts/**`, `config/crd/**`, `config/rbac*`, `Dockerfile`, `go.mod`, `go.sum` | smoke |
+| `charts/**`, `config/crd/**`, `config/rbac*`, `Dockerfile`, `.dockerignore`, `go.mod`, `go.sum` | smoke |
 | anything else (documentation, `hack/`, the other lanes, the canary's files, another vendor's package, the fake and qemu drivers) | nothing |
 
 - **Full wins over smoke**, per vendor: a pull request that touches `pkg/vendors/aws/**` and
@@ -102,10 +104,11 @@ is a line of `test/e2e-vendors.txt`; `<vendor>` below stands for each of them.
 
 The caller then runs `e2e-cloud.yml` once per entry of the matrix, one vendor per job
 (`fail-fast: false`: one vendor's failure says nothing about another), and the last
-job, **`e2e-result`**, always runs: it succeeds when the matrix was empty, when the pull request is a draft, a
-fork's or carries `l5:skip`, and when every run passed. Make `e2e-result` the required
-status check; do not require the `e2e` jobs themselves, which do not exist for a pull
-request that needs none.
+job, **`e2e-result`**, always runs: it succeeds when the matrix was empty (also with
+`l5:skip`) and when every run passed. It fails when a run failed or was cancelled, and when
+the plan needs L5 but the pull request is a draft or a fork's, which never run it. Make
+`e2e-result` the required status check; do not require the `e2e` jobs themselves, which do
+not exist for a pull request that needs none.
 
 ## Labels and manual runs
 
@@ -114,9 +117,13 @@ request that needs none.
 | `l5:skip` | runs nothing (the result is green): for a change the path rules call relevant that cannot change the node path. Wins over `l5:full`. |
 | `l5:full` | the full lane on every vendor, whatever the paths say: put it on a pull request that changes behaviour the paths do not show (a refactor across packages, a Karpenter bump you want proven everywhere). |
 
-Adding either label starts a run (the `labeled` event); a label that is neither is ignored.
-Removing a label starts nothing: push a commit or re-run the workflow. A draft pull
-request never runs L5; marking it ready for review does.
+**Adding or removing a label starts nothing**: push a commit, or "Re-run all jobs" of the
+latest run ("Re-run failed jobs" keeps the old plan). The plan reads the labels live, so a
+re-run uses the current ones. There is deliberately no `labeled` trigger: a required check
+counts the newest check run of its name on the commit, so a run for an unrelated label would
+put a green `e2e-result` over a failed L5 run of the same commit, or over one still waiting
+for its approval. Anyone who can label pull requests (the triage role) can add `l5:skip`, so
+review who has it. A draft pull request never runs L5; marking it ready for review does.
 
 Manual: Actions, "L5 (e2e)", Run workflow, or
 
@@ -146,20 +153,28 @@ approving that code, so read the diff of the lane's files and of the shared code
 only the description. The environment cannot be limited to `main`: a pull request runs
 on `refs/pull/<n>/merge`.
 
-- **Forks never get credentials.** A pull request from a fork, and a fork that enables
-  Actions, never runs the plan or the lane (`github.event.pull_request.head.repo.full_name !=
-  github.repository` and `github.repository != 'SpareCores/scarpenter'`). Setting
-  "Require approval for all outside collaborators" in the repository's Actions settings stays
-  required: it covers the L1 to L4 workflows. A maintainer who wants L5 for a fork's
-  change pushes it to a branch of the repository (and reviews it) or runs the workflow
-  by hand on the branch.
-- **Drafts never run.** The check is green (`e2e-result` accounts for it).
+- **Forks never get credentials.** A pull request from a fork never runs the lane
+  (`github.event.pull_request.head.repo.full_name != github.repository`), and a fork that
+  enables Actions runs nothing (`github.repository != 'SpareCores/scarpenter'`). These
+  conditions are guardrails: the workflow file of a pull request comes from the pull request,
+  so the boundary is GitHub's, which gives a fork's run no secrets and no OIDC token, and the
+  environment's reviewers. The plan still runs for a fork (it holds nothing), and when it needs
+  L5 the check `e2e-result` fails: a maintainer who wants the change pushes it to a branch of
+  the repository (and reviews it), or adds `l5:skip` and re-runs all jobs. Setting "Require
+  approval for all outside collaborators" in the repository's Actions settings stays required:
+  it covers the L1 to L4 workflows.
+- **Drafts never run.** The plan runs; when it needs L5 the check fails until the pull
+  request is marked ready for review, which starts a run.
 - The plan job and `e2e-result` have no secrets and no environment, so they run for
-  a pull request without approval; they only read file names and labels.
+  a pull request without approval; they only read file names and labels (`plan` has
+  `pull-requests: read` for the labels).
 - A run waits for the vendor's concurrency slot (`e2e-<vendor>`: one run per vendor at a
   time, because the account's quotas and the tailnet are shared). GitHub keeps one waiting run per
   group, so a third run replaces the second while it waits; after a push, the new run
-  replaces the waiting one and the running one finishes.
+  replaces the waiting one and the running one finishes. The release gate shares the slot
+  (two runs at once in one account would fail the quota scenario), so a pull request run can
+  replace a waiting gate: it shows as cancelled, and "Re-run failed jobs" of the release run
+  queues it again.
 - Every run's teardown deletes what it created; the [sweeper](testing.md#the-sweeper)
   deletes what a dead run left behind.
 
@@ -239,7 +254,8 @@ stamps the binary, the chart is packaged with the tag as `version` and `appVersi
    - **`e2e` (the release gate)**: the full L5 lane of **every** vendor against the tagged
      commit, one job per vendor, in the environment `e2e`: the required reviewers approve it
      like any L5 run, and it waits for each vendor's concurrency slot (so a run of a pull request
-     that holds the slot delays it). It builds the controller from the tagged checkout, so it
+     that holds the slot delays it, and a newer pull request run replaces it while it waits:
+     re-run the failed jobs; avoid starting L5 on pull requests while a release is pending). It builds the controller from the tagged checkout, so it
      proves the commit, which the next jobs then build the images from.
    - `images`, `chart` and `release` **need `e2e`**: a failed or rejected gate publishes
      nothing. `images` runs in the environment `release` (add required reviewers there for a
@@ -274,13 +290,13 @@ A vendor lane is not added to `test/e2e-vendors.txt` before every item is true f
 | The CI role denies instance types the lane does not use | `DenyOtherInstanceTypes` in `test/e2e-aws/ci-policy.sh` (from `defaults.sh`) |
 | The CI role cannot act outside the lane's region | `DenyOutsideRegion` |
 | Every resource carries a run tag, so cost and leftovers are attributable | `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` |
-| A sweeper that deletes what a dead run left behind, by tag and age | `e2e-aws-sweeper.yml`, every three hours |
+| A sweeper that deletes what a dead run left behind, by tag and age | `e2e-aws-sweeper.yml`, every three hours, environment `e2e-sweeper` |
 | A run time limit | 90 minutes for the job (60 for a smoke), 55 (25) for the scenarios step; the teardown always runs |
 | Small, cheap types; spot where the vendor has it | `t3a.small`, `t4g.small` (spot), `r6a.large` for the placement-group scenario |
 | A teardown that fails the job when anything tagged remains | `teardown.sh` |
 | A quota that bounds the damage of a bug | the vCPU quotas of the account (16 on-demand, 4 spot needed) are the ceiling |
 | A read-only role for the canary | `canary-policy.sh`, a role of its own, environment `e2e-canary` |
-| Approval for every run that reaches the account | the environment `e2e`'s required reviewers |
+| Approval for every run of pull request or release code that reaches the account | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) |
 
 ## Adding a vendor lane
 
@@ -324,18 +340,25 @@ infrastructure repository (`sc-infra`, `prod/k8s`) and this repository assumes i
 
 - **Environment `e2e`**: the secret `AWS_ROLE_ARN` (the CI role) and the variables
   `AWS_REGION`, `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`, **required reviewers** (the
-  maintainers who approve runs), and no branch restriction to `main`: pull request runs
+  maintainers who approve runs) with "Prevent self-review" on and administrators not allowed
+  to bypass them, and no branch restriction to `main`: pull request runs
   are on `refs/pull/<n>/merge`, and the release gate's on the tag `refs/tags/v*`. A
   deployment-branch policy, if any, must allow those refs (a `v*` tag policy and the
   merge refs of pull requests), so the controls that matter are the reviewers, the fork
   rule and the role's own limits.
 - **Environment `e2e-canary`**: the secret `AWS_ROLE_ARN` (the read-only role) and
   optionally `AWS_REGION`; no reviewers (it runs on a schedule); deployments limited to
-  `main`, because a scheduled run is on the default branch.
+  `main` (a scheduled run is on the default branch, and a manual run from another branch must
+  not reach even the read-only role without a review).
+- **Environment `e2e-sweeper`**: the secret `AWS_ROLE_ARN` (the CI role, the same as in `e2e`)
+  and the variable `AWS_REGION` (the lane's region); **no reviewers** (it runs every three
+  hours and must not wait for an approval); deployments limited to `main`, so that a manual
+  run from any other branch is refused (its code would hold the role without a review).
 - **Environment `release`** (existing): required reviewers for the publish.
-- **IAM**: the OIDC provider, the CI role (trust: the `e2e` environment's subject; the
-  policy printed by `ci-policy.sh`; two-hour maximum session) and the canary role (trust: the
-  `e2e-canary` environment's subject; the policy printed by `canary-policy.sh`).
+- **IAM**: the OIDC provider, the CI role (trust: the subjects of the `e2e` and the
+  `e2e-sweeper` environments; the policy printed by `ci-policy.sh`; two-hour maximum session)
+  and the canary role (trust: the `e2e-canary` environment's subject; the policy printed by
+  `canary-policy.sh`).
 - **Quotas** in the lane's region (Standard on-demand 16 vCPUs, Standard spot 4), the
   Spot service-linked role, the budget alert.
 - **Tailscale**: the tags `tag:scarpenter-ci` and `tag:scarpenter-ci-node`, the grants, and the
@@ -344,10 +367,7 @@ infrastructure repository (`sc-infra`, `prod/k8s`) and this repository assumes i
   ruleset on `v*`, approval for outside collaborators' workflows, and the label
   `e2e-canary` (the canary creates it if it is missing).
 
-The sweeper (`e2e-aws-sweeper.yml`) runs on a schedule in the environment `e2e`. With required
-reviewers on that environment its runs would wait for an approval, so either give the sweeper
-an environment of its own with the same role (the role's trust then needs that
-environment's subject, and the workflow's `environment:` line changes) or accept that
-leftovers are swept only after an approval. This is the one place where the policy of this
-page and the provisioning of [the L5 lane](testing.md#provisioning-outside-this-repository) disagree
-until the infrastructure repository decides.
+The sweeper (`e2e-aws-sweeper.yml`) runs in the environment `e2e-sweeper`, not `e2e`: the
+reviewers of `e2e` would make every scheduled sweep wait for an approval. What keeps that
+environment safe without reviewers is its limit to `main`: the only code that reaches the role
+through it is the reviewed sweeper of `main`.
