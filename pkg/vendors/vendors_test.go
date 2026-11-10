@@ -87,6 +87,27 @@ func TestRegistry(t *testing.T) {
 	vendors.Register("stub-a", nil)
 }
 
+func TestAccountWideQuotaErrors(t *testing.T) {
+	quota := vendors.NewError(vendors.QuotaExceeded, "ProjectLimit", errors.New("limit"))
+	if vendors.IsAccountWide(quota) {
+		t.Error("a quota error is regional unless marked")
+	}
+	wide := quota.AsAccountWide()
+	if !vendors.IsAccountWide(fmt.Errorf("launching: %w", wide)) || vendors.ClassOf(wide) != vendors.QuotaExceeded ||
+		vendors.CodeOf(wide) != "ProjectLimit" {
+		t.Errorf("AsAccountWide lost something: %+v", wide)
+	}
+	if quota.AccountWide {
+		t.Error("AsAccountWide modified the original")
+	}
+	if capacity := vendors.NewError(vendors.InsufficientCapacity, "", nil); vendors.IsAccountWide(capacity.AsAccountWide()) {
+		t.Error("only a QuotaExceeded can be account-wide")
+	}
+	if vendors.IsAccountWide(nil) || vendors.IsAccountWide(errors.New("plain")) {
+		t.Error("nil and plain errors are not account-wide")
+	}
+}
+
 // stubFinder answers FindInstance from a fixed instance.
 type stubFinder struct {
 	vendors.Driver

@@ -46,7 +46,7 @@ The last column names the plan that introduced the flag.
 | `--gc-dry-run` | `SCARPENTER_GC_DRY_RUN` | `false` | Log (and count, `result="dry-run"`) what the garbage collector would delete without deleting it. | plan 04 |
 | `--unavailable-insufficient-capacity-ttl` | `SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL` | `0` (3m) | How long an offering stays unavailable after `InsufficientCapacity`. | plan 04 |
 | `--unavailable-unsupported-ttl` | `SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL` | `0` (24h) | How long a type stays unavailable in a zone after `Unsupported`. | plan 04 |
-| `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (30m) | How long a region and capacity type stay unavailable after `QuotaExceeded` of a vendor without a quota API. | plan 04 |
+| `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (30m) | How long a region and capacity type stay unavailable after `QuotaExceeded` of a vendor without a quota API; every region of the vendor when the error is account-wide. | plan 04 |
 | `--unavailable-zone-unusable-ttl` | `SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL` | `0` (10m) | How long a zone stays unavailable after `ZoneUnusable`. | plan 04 |
 | `--keeper-prices-regions-per-request` | `SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST` | `0` (client default) | Regions per Keeper price request. The replay server of the test lanes has one region per recorded request and needs `1`. | plan 04 |
 | `--resource-default-ttl` | `SCARPENTER_RESOURCE_DEFAULT_TTL` | `24h` | `idleTTL` of managed shared resources when an SCNodeClass does not set one. | plan 06 |
@@ -264,7 +264,8 @@ to the returned instance.
   zone; `QuotaExceeded` triggers a quota refresh of the region (vendor with
   quota knowledge for the type) or marks region and capacity type unavailable
   for the TTL (vendor without), and the rest of that region and capacity type is
-  skipped; `Retryable` is returned as is (core retries); `Fatal` returns a
+  skipped (an account-wide quota error, `Error.AccountWide`, marks the capacity type
+  unavailable in every region of the vendor); `Retryable` is returned as is (core retries); `Fatal` returns a
   `CreateError` and an Event. When nothing launched it returns
   `InsufficientCapacityError` and core deletes the NodeClaim, except when there are
   no candidates because the catalog is not ready (a controller that has just

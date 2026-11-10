@@ -24,7 +24,8 @@ const (
 	InsufficientCapacity Class = "InsufficientCapacity"
 	// Unsupported: the type is not offered in the zone.
 	Unsupported Class = "Unsupported"
-	// QuotaExceeded: a region-wide limit is reached.
+	// QuotaExceeded: a limit is reached: the region's, or with Error.AccountWide
+	// the account's.
 	QuotaExceeded Class = "QuotaExceeded"
 	// ZoneUnusable: the zone cannot be used at all (no subnet, no free
 	// addresses).
@@ -57,6 +58,11 @@ type Error struct {
 	Class Class
 	Code  string
 	Err   error
+	// AccountWide is set by a driver on a QuotaExceeded of a vendor whose limits
+	// are account-wide (project or account limits, not per region): the
+	// unavailable-offerings cache then marks the capacity type unavailable in
+	// every region of the vendor, not in the one the call was made in.
+	AccountWide bool
 }
 
 // Error implements error.
@@ -82,6 +88,23 @@ func NewError(class Class, code string, err error) *Error {
 // Errorf is NewError with a formatted message and no code.
 func Errorf(class Class, format string, args ...any) *Error {
 	return &Error{Class: class, Err: fmt.Errorf(format, args...)}
+}
+
+// AsAccountWide returns a copy of the error marked as an account-wide quota
+// error (see Error.AccountWide).
+func (e *Error) AsAccountWide() *Error {
+	c := *e
+	c.AccountWide = true
+	return &c
+}
+
+// IsAccountWide reports whether the first *Error in the chain is a QuotaExceeded
+// that applies to the whole account.
+func IsAccountWide(err error) bool {
+	if e, ok := errors.AsType[*Error](err); ok {
+		return e.Class == QuotaExceeded && e.AccountWide
+	}
+	return false
 }
 
 // ClassOf returns the class of the first *Error in the chain; an error without

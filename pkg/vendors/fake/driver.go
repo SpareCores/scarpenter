@@ -333,8 +333,10 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			d.ruleHits[i]++
 			d.record("create", req.Region, req.Zone, req.InstanceType, req.CapacityType, claim, string(rule.Error))
 			d.mu.Unlock()
-			return nil, vendors.NewError(rule.Error, "Injected"+string(rule.Error),
+			err := vendors.NewError(rule.Error, "Injected"+string(rule.Error),
 				errors.New("injected by the fake driver's ConfigMap"))
+			err.AccountWide = rule.AccountWide
+			return nil, err
 		}
 	}
 	d.mu.Unlock()
@@ -360,11 +362,14 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			return out, nil
 		}
 	}
-	if bucket, exceeded := d.exceedsQuotaLocked(conf, req, srv); exceeded {
+	if bucket, scope, exceeded := d.exceedsQuotaLocked(conf, req, srv); exceeded {
 		d.record("create", req.Region, req.Zone, req.InstanceType, req.CapacityType, claim, string(vendors.QuotaExceeded))
 		d.mu.Unlock()
-		return nil, vendors.NewError(vendors.QuotaExceeded, "VcpuLimitExceeded",
+		err := vendors.NewError(vendors.QuotaExceeded, "VcpuLimitExceeded",
 			fmt.Errorf("the quota bucket %s of %s has no room for %d more", bucket, req.Region, srv.vcpus))
+		// An account-wide bucket is the whole account's limit.
+		err.AccountWide = scope == vendors.QuotaScopeGlobal
+		return nil, err
 	}
 	d.seq++
 	id := fmt.Sprintf("i-fake-%06d", d.seq)
@@ -402,10 +407,12 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 }
 
 // exceedsQuotaLocked reports a consumed bucket that cannot take the instance.
-func (d *Driver) exceedsQuotaLocked(conf *config, req vendors.CreateRequest, srv serverInfo) (string, bool) {
+func (d *Driver) exceedsQuotaLocked(
+	conf *config, req vendors.CreateRequest, srv serverInfo,
+) (bucket string, scope vendors.QuotaScope, exceeded bool) {
 	ids, known := conf.consumes(srv.family, req.CapacityType)
 	if !known {
-		return "", false
+		return "", "", false
 	}
 	for _, id := range ids {
 		b, ok := conf.bucket(id, req.Region)
@@ -414,10 +421,10 @@ func (d *Driver) exceedsQuotaLocked(conf *config, req vendors.CreateRequest, srv
 		}
 		used := b.Used + d.ownUsageLocked(conf, id, req.Region, b.Scope)
 		if b.Limit < used+srv.vcpus {
-			return id, true
+			return id, b.Scope, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // ownUsageLocked sums the vCPUs of the fake's own live instances that consume

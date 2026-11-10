@@ -200,7 +200,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		case vendors.ZoneUnusable:
 			c.opts.Unavailable.MarkZoneUnusable(cand.vendor, cand.zone)
 		case vendors.QuotaExceeded:
-			c.onQuotaExceeded(st, cand)
+			c.onQuotaExceeded(st, cand, vendors.IsAccountWide(err))
 		case vendors.Retryable:
 			st.keepToken = true
 			return nil, fmt.Errorf("launching %s: %w", cand.typeName, err)
@@ -253,8 +253,10 @@ func resourceKey(c *candidate) string { return "resources/" + c.vendor + "/" + c
 // vendor with a fresh quota view for the type refreshes its view of the region
 // and the tracker decides from then on; a vendor without one (no quota API, or a
 // stale or missing view) has the region and capacity type skipped for the TTL. Either way the other candidates of the
-// region and capacity type are not tried by this Create.
-func (c *CloudProvider) onQuotaExceeded(st *launchState, cand *candidate) {
+// region and capacity type are not tried by this Create. A quota error of a vendor
+// whose limits are account-wide (vendors.Error.AccountWide) has the capacity type
+// skipped in every region of the vendor instead of the one region.
+func (c *CloudProvider) onQuotaExceeded(st *launchState, cand *candidate, accountWide bool) {
 	st.blocked[regionKey(cand)] = true
 	if c.opts.Quota != nil && c.opts.Quota.HasQuotaInfo(cand.vendor, cand.apiReference, cand.capacityType) {
 		// A refresh is worth trying either way; a fresh view decides from then
@@ -263,6 +265,10 @@ func (c *CloudProvider) onQuotaExceeded(st *launchState, cand *candidate) {
 		if _, known := c.opts.Quota.Headroom(cand.vendor, cand.region, cand.apiReference, cand.capacityType); known {
 			return
 		}
+	}
+	if accountWide {
+		c.opts.Unavailable.MarkQuotaExceededAccountWide(cand.vendor, cand.capacityType)
+		return
 	}
 	c.opts.Unavailable.MarkQuotaExceeded(cand.vendor, cand.region, cand.capacityType)
 }

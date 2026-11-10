@@ -83,6 +83,10 @@ type Fixture struct {
 	// ExhaustQuota makes the buckets that req consumes unable to take another
 	// instance (the vendor's next launch of req fails with its quota error).
 	ExhaustQuota func(t *testing.T, d vendors.Driver, req vendors.CreateRequest)
+	// AccountWideQuota says that the vendor's limits are account-wide: the
+	// QuotaExceeded error of the launch after ExhaustQuota must then carry
+	// Error.AccountWide (and, for a vendor whose limits are per region, must not).
+	AccountWideQuota bool
 
 	// The node options subtests run for drivers that implement
 	// vendors.NodeOptions.
@@ -650,6 +654,9 @@ func quotaReporter(t *testing.T, e *env) {
 	_, err = e.d.CreateInstance(t.Context(), exhaust)
 	if !vendors.IsClass(err, vendors.QuotaExceeded) {
 		t.Errorf("a launch without quota: %v, want QuotaExceeded (not InsufficientCapacity)", err)
+	} else if got := vendors.IsAccountWide(err); got != e.fx.AccountWideQuota {
+		t.Errorf("the quota error has AccountWide=%v, the fixture says the vendor's limits are account-wide=%v",
+			got, e.fx.AccountWideQuota)
 	}
 }
 

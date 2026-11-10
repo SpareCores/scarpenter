@@ -65,6 +65,18 @@ func TestKeysAndTTLs(t *testing.T) {
 			},
 		},
 		{
+			name: "account-wide quota exceeded: (vendor, capacity type) in every region, 30 minutes",
+			mark: func(c *unavailable.Cache) { c.MarkQuotaExceededAccountWide("aws", "spot") },
+			ttl:  30 * time.Minute,
+			covered: []unavailable.Offering{
+				base, with(base, func(o *unavailable.Offering) { o.Region, o.Zone = "eu-west-1", "eu-west-1a" }),
+			},
+			free: []unavailable.Offering{
+				with(base, func(o *unavailable.Offering) { o.CapacityType = "on-demand" }),
+				with(base, func(o *unavailable.Offering) { o.Vendor = "gcp" }),
+			},
+		},
+		{
 			name:    "zone unusable: (vendor, zone), 10 minutes",
 			mark:    func(c *unavailable.Cache) { c.MarkZoneUnusable("aws", "us-east-1a") },
 			ttl:     10 * time.Minute,

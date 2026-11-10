@@ -443,6 +443,39 @@ func TestOrphansAreCreatedOnce(t *testing.T) {
 	}
 }
 
+// The quota error of an account-wide (global) bucket is marked account-wide, a
+// regional bucket's is not, and an error rule can mark its injected error.
+func TestAccountWideQuotaErrors(t *testing.T) {
+	h := newHarness(t, map[string]string{"quota": `
+buckets:
+  - {id: regional, scope: region, unit: vCPU, limit: 1000}
+  - {id: account, scope: global, unit: vCPU, limit: 0}
+consumption:
+  - {families: ["*"], capacityTypes: [on-demand], buckets: [account]}
+  - {families: ["*"], capacityTypes: [spot], buckets: [regional]}
+`})
+	zone := h.zone(t)
+	_, err := h.d.CreateInstance(t.Context(), h.req("wide", testType, zone, "on-demand"))
+	if !vendors.IsClass(err, vendors.QuotaExceeded) || !vendors.IsAccountWide(err) {
+		t.Errorf("a global bucket's error: %v, want an account-wide QuotaExceeded", err)
+	}
+	h.setConfig(t, "quota", `
+buckets:
+  - {id: regional, scope: region, unit: vCPU, limit: 0}
+consumption:
+  - {families: ["*"], capacityTypes: [on-demand], buckets: [regional]}
+`)
+	_, err = h.d.CreateInstance(t.Context(), h.req("regional", testType, zone, "on-demand"))
+	if !vendors.IsClass(err, vendors.QuotaExceeded) || vendors.IsAccountWide(err) {
+		t.Errorf("a regional bucket's error: %v, want a regional QuotaExceeded", err)
+	}
+	h.setConfig(t, "errors", "- {error: QuotaExceeded, accountWide: true, count: 1}")
+	_, err = h.d.CreateInstance(t.Context(), h.req("rule", testType, zone, "spot"))
+	if !vendors.IsAccountWide(err) {
+		t.Errorf("an error rule with accountWide: %v", err)
+	}
+}
+
 func TestPoweredOffOrphanIsListedTerminatingAndDeletable(t *testing.T) {
 	h := newHarness(t, map[string]string{"orphans": `
 - {name: stopped-1, region: us-east-1, zone: us-east-1a, instanceType: m7i.large, capacityType: on-demand, ageSeconds: 600, poweredOff: true}

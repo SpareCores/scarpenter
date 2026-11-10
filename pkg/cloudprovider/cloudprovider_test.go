@@ -295,6 +295,39 @@ func TestCreateWithoutQuotaKnowledgeMarksTheRegionOnQuotaErrors(t *testing.T) {
 	}
 }
 
+// A quota error of a vendor whose limits are account-wide gates the capacity type
+// in every region at once: no region is called a second time, and every region is
+// marked unavailable for the TTL.
+func TestAccountWideQuotaErrorGatesEveryRegion(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 5})
+	types := []string{"aws.m7i.large", "aws.c7i.large"}
+	offs := e.offerings(types...)
+	first := offs[0]
+	e.setConfig("errors", fmt.Sprintf("- {match: {capacityType: %s}, error: QuotaExceeded, accountWide: true}", first.capacityType))
+
+	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", types))
+	failed := 0
+	for _, c := range e.calls("create") {
+		if c.Result == string(vendors.QuotaExceeded) {
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Errorf("vendor calls = %+v, want exactly one quota error before every region of the capacity type is skipped",
+			e.calls("create"))
+	}
+	for _, o := range offs {
+		if o.capacityType == first.capacityType && !e.un.IsUnavailable(unavailableOf(o)) {
+			t.Errorf("%+v is still available after an account-wide quota error", o)
+		}
+	}
+	if err == nil {
+		if got := e.calls("create"); got[len(got)-1].CapacityType == first.capacityType {
+			t.Errorf("the launch used the gated capacity type: %+v", got)
+		}
+	}
+}
+
 func TestQuotaExhaustedRegionIsNeverCalled(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	types := []string{"aws.m7i.large", "aws.c7i.large"}

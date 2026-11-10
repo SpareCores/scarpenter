@@ -123,6 +123,13 @@ func (c *Cache) MarkQuotaExceeded(vendor, region, capacityType string) {
 		c.ttls.QuotaExceeded)
 }
 
+// MarkQuotaExceededAccountWide records that the vendor's account has no quota
+// left for the capacity type, in every region (hcloud project limits, Vultr and
+// UpCloud account limits). The entry has no region and matches every one.
+func (c *Cache) MarkQuotaExceededAccountWide(vendor, capacityType string) {
+	c.mark(key{class: classQuotaExceeded, vendor: vendor, capacityType: capacityType}, c.ttls.QuotaExceeded)
+}
+
 // MarkZoneUnusable records that the zone cannot be used at all (no subnet, no
 // free addresses).
 func (c *Cache) MarkZoneUnusable(vendor, zone string) {
@@ -150,6 +157,7 @@ func (c *Cache) IsUnavailable(o Offering) bool {
 		},
 		{class: classUnsupported, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone},
 		{class: classQuotaExceeded, vendor: o.Vendor, region: o.Region, capacityType: o.CapacityType},
+		{class: classQuotaExceeded, vendor: o.Vendor, capacityType: o.CapacityType}, // account-wide
 		{class: classZoneUnusable, vendor: o.Vendor, zone: o.Zone},
 	} {
 		if exp, ok := c.entries[k]; ok && now.Before(exp) {

@@ -118,7 +118,7 @@ text.
 |---|---|
 | `InsufficientCapacity` | Offering unavailable for the TTL (3 min), next candidate. |
 | `Unsupported` | Type unavailable in the zone (24 h), next candidate. |
-| `QuotaExceeded` | Quota refresh of the region (vendor with quota knowledge for the type) or region and capacity type unavailable (30 min); next candidate in another region or capacity type. A quota limit must never be reported as `InsufficientCapacity`. |
+| `QuotaExceeded` | Quota refresh of the region (vendor with quota knowledge for the type) or region and capacity type unavailable (30 min); next candidate in another region or capacity type. A quota limit must never be reported as `InsufficientCapacity`. A driver of a vendor whose limits are account-wide (project or account limits, not per region) sets `Error.AccountWide` (`err.AsAccountWide()`): the capacity type is then unavailable in every region of the vendor for the same 30 minutes, so that each region does not fail once before all are gated. A vendor that reports account-wide buckets in `GlobalQuotas` is gated by the quota tracker; the flag covers the reactive path, where the vendor reports no usage. |
 | `ZoneUnusable` | Zone unavailable (10 min). |
 | `RegionUnavailable` | Only from `Zones`: the credentials cannot read the region. The facts skip the region (one warning) and load the others; if every region is unavailable the load fails. |
 | `Retryable` | Returned to core, which retries the NodeClaim. |
@@ -152,7 +152,8 @@ hook stops an instance; it must report `terminating`, stay listed and delete cle
 round trip, user-data limit, error classification (the fixture's `Inject` hook
 makes the next launch fail with a class), and for `QuotaReporter` drivers: every
 type maps to buckets or is on the fixture's unknown list, launches show up in
-`Used` with their refs, a quota error is `QuotaExceeded`; and `OfferingLister`.
+`Used` with their refs, a quota error is `QuotaExceeded` (with `AccountWide` exactly when the fixture's
+`AccountWideQuota` says the vendor's limits are account-wide); and `OfferingLister`.
 For `NodeOptions`: the defaults decode and match `RootDiskBytes`; for the
 fixture's sample `Profiles` and `ProfileTypes`, `Supported` is deterministic,
 returns only defined profiles and nothing without profiles, and every supported
@@ -257,7 +258,8 @@ and the unit tests use it.
 The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
 
 - `errors`: rules `{match: {instanceType, region, zone, capacityType}, error:
-  <class>, count: N}`; the first match wins, `count` N fails the next N calls
+  <class>, accountWide: true, count: N}` (`accountWide` marks a `QuotaExceeded` as
+  account-wide; a quota error of a `global` bucket is account-wide too); the first match wins, `count` N fails the next N calls
   (changing the text resets the counts).
 - `quota`: `buckets` (`id`, `scope`, `unit`, `limit`, `foreignUsed`, per-region
   `regions` overrides), `consumption` (first match by `families` and
