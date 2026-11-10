@@ -28,9 +28,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -50,6 +52,8 @@ const (
 	CreatedAtTag = "ci-created-at"
 	// DefaultClusterPrefix is the cluster name prefix of the L5 lane.
 	DefaultClusterPrefix = "scarpenter-ci-"
+
+	kindRegion = "region"
 )
 
 // Options select what is swept.
@@ -64,7 +68,10 @@ type Options struct {
 	MaxAge time.Duration
 	// DryRun reports what would be deleted and deletes nothing.
 	DryRun bool
-	// Regions limits the sweep; empty means every enabled region of the account.
+	// Regions limits the sweep to these regions; empty means every enabled region
+	// of the account (see ParseRegions). Only in that all-regions mode is a region
+	// whose endpoint cannot be reached skipped; a requested region that cannot be
+	// reached is a failure.
 	Regions []string
 	// WaitTerminated bounds the wait, per region, for terminated instances to
 	// disappear before the groups and the network they used are deleted.
@@ -134,6 +141,7 @@ func Run(ctx context.Context, factory awsdriver.ClientFactory, home string, o Op
 	s := &sweeper{o: o, rep: &Report{}}
 	regions := o.Regions
 	if len(regions) == 0 {
+		s.allRegions = true
 		cl, err := factory(ctx, home)
 		if err != nil {
 			return nil, fmt.Errorf("creating the clients of the home region %s: %w", home, err)
@@ -150,7 +158,7 @@ func Run(ctx context.Context, factory awsdriver.ClientFactory, home string, o Op
 	for _, region := range regions {
 		cl, err := factory(ctx, region)
 		if err != nil {
-			s.add(Item{Region: region, Kind: "region", ID: region, Outcome: Failed, Reason: err.Error()})
+			s.add(Item{Region: region, Kind: kindRegion, ID: region, Outcome: Failed, Reason: err.Error()})
 			continue
 		}
 		s.region(ctx, region, cl.EC2)
@@ -161,6 +169,49 @@ func Run(ctx context.Context, factory awsdriver.ClientFactory, home string, o Op
 type sweeper struct {
 	o   Options
 	rep *Report
+	// allRegions: the regions come from the account, not from the caller.
+	allRegions bool
+}
+
+// ParseRegions turns the value of a -regions flag into Options.Regions: a comma
+// separated list (blanks and repeats dropped), or empty / "all" for every enabled
+// region of the account (nil). "all" among other names is an error.
+func ParseRegions(v string) ([]string, error) {
+	var out []string
+	all := false
+	for r := range strings.SplitSeq(v, ",") {
+		r = strings.TrimSpace(r)
+		switch {
+		case r == "":
+		case strings.EqualFold(r, "all"):
+			all = true
+		case !slices.Contains(out, r):
+			out = append(out, r)
+		}
+	}
+	if all && len(out) > 0 {
+		return nil, fmt.Errorf("regions: %q cannot be combined with region names", "all")
+	}
+	return out, nil
+}
+
+// unreachable reports an error that comes from the network layer: the endpoint of
+// the region does not answer (dial or I/O timeout, name not resolved, connection
+// refused), as opposed to an answer of the service. A cancelled sweep is not one.
+func unreachable(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil {
+		return false
+	}
+	if _, ok := errors.AsType[smithy.APIError](err); ok {
+		return false
+	}
+	if _, ok := errors.AsType[*net.DNSError](err); ok {
+		return true
+	}
+	if _, ok := errors.AsType[*net.OpError](err); ok {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func (s *sweeper) add(i Item) {
@@ -307,7 +358,13 @@ func (s *sweeper) region(ctx context.Context, region string, c awsdriver.EC2API)
 	if isCode(err, "UnauthorizedOperation", "AccessDenied", "AuthFailure", "OptInRequired") {
 		// The role has no access to the region (a region limit of the policy, a region
 		// the account has not opted into): nothing of the lane can exist there either.
-		s.add(Item{Region: region, Kind: "region", ID: region, Outcome: Skipped, Reason: "no access: " + err.Error()})
+		s.add(Item{Region: region, Kind: kindRegion, ID: region, Outcome: Skipped, Reason: "no access: " + err.Error()})
+		return
+	}
+	if s.allRegions && unreachable(ctx, err) {
+		// Only when the regions were not asked for: an opt-in region of the account may
+		// be down or blocked, and nothing of the lane can be swept there anyway.
+		s.add(Item{Region: region, Kind: kindRegion, ID: region, Outcome: Skipped, Reason: "unreachable: " + err.Error()})
 		return
 	}
 	if err != nil {

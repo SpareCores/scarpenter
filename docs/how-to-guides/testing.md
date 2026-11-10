@@ -465,7 +465,7 @@ itself must carry the tag); `LaneReads` allows `DescribeVolumes`, `DescribeNetwo
 lane launches (`t3a.small`, `t3a.medium`, `t3a.large`, `t4g.small`, `r6a.large`, and
 `E2E_LOCAL_STORAGE_TYPE` if set; the pools of `test/e2e-aws/manifests/nodepools.yaml` name the
 same types, and a test keeps this page and them together); an explicit deny of EC2 and Service
-Quotas calls outside the region (the sweeper visits every enabled region, is refused in the
+Quotas calls outside the region (the sweeper is told the lane's region and visits only that; with `-regions all` it is refused in the
 others and skips them; the controller's driver facts do the same: a region whose zones the role
 cannot read is skipped with one warning (`skipping a region the credentials cannot read`) and
 the other regions load). The role's maximum session duration must be at least **two hours**: the controller keeps
@@ -516,7 +516,8 @@ their instances do. If a tailnet uses other prefixes than `100.64.0.0/10` set
 environment with the same role. It terminates the instances and deletes the placement
 groups, security groups and the network (subnets, route tables, internet gateways, VPCs) of every
 cluster whose `scarpenter.sparecores.com/cluster` tag starts with `scarpenter-ci-` and that
-is more than two hours old, in every enabled region. The age is the instance's launch time;
+is more than two hours old, in the lane's region (`AWS_REGION`, the only one the role may use; the
+workflow's `regions` input takes another list or `all`). The age is the instance's launch time;
 a security group, a subnet or a VPC has no creation time in the API, so the lane's NodeClasses
 put the tag `ci-created-at` (Unix seconds) on everything they create through `spec.tags`, and
 the workflow's own resources carry it too. **A resource without the tag has no known age and
@@ -525,9 +526,13 @@ Spot requests still open or active are only reported (a one-time request closes 
 instance). The selection is `pkg/vendors/aws/sweep`, tested against the AWS driver's in-memory EC2
 (old and young instances, resources by tag and age, a cluster of another name, a managed network
 in a region without a default VPC deleted in dependency order, an unattached gateway, a region
-the role may not use, a dry run); `go run ./test/e2e-aws/sweeper -dry-run` (with credentials)
-lists what a sweep would delete, `-cluster <name> -max-age 0` is what the teardown uses for its own
-cluster.
+the role may not use, a region whose endpoint is unreachable, the `-regions` parsing, a dry run);
+`go run ./test/e2e-aws/sweeper -dry-run -regions all` (with credentials) lists what a sweep of every
+enabled region would delete, `-cluster <name> -max-age 0 -regions <region>` is what the teardown uses
+for its own cluster. `-regions` is a comma list; empty or `all` means every enabled region of the
+account, and only then is a region that cannot be reached at all (dial or I/O timeout, name not
+resolved, connection refused on the first listing) reported as `skipped: unreachable`; a region
+listed explicitly that cannot be reached is a failure (exit status 1).
 
 #### Without AWS
 

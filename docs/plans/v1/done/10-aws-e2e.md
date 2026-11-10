@@ -94,7 +94,8 @@ real values into the repository; reference the secrets.
 - **`.github/workflows/e2e-aws-sweeper.yml`**: every 3 hours and
   `workflow_dispatch`; terminate instances and delete security groups tagged
   `scarpenter.sparecores.com/cluster` = `scarpenter-ci-*` older than 2 hours,
-  in every enabled region of the account.
+  in every enabled region of the account (later narrowed to the lane's region by
+  `-regions`; `all` keeps the account-wide sweep, unreachable regions then skipped).
 - **Docs**: testing how-to (L5 section: what it costs, how to trigger, how
   to read failures).
 

@@ -6,9 +6,10 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Command sweeper deletes what test clusters of the L5 lane (AWS e2e) left in an
 // account: instances, placement groups, security groups and the managed network
-// of every cluster named scarpenter-ci-* that is older than -max-age, in every
-// enabled region. The e2e workflow runs it for its own cluster (-cluster, no age
-// limit) as the last step of the teardown. The selection logic is in
+// of every cluster named scarpenter-ci-* that is older than -max-age, in the
+// -regions given (the workflows pass the lane's region, the only one its role may
+// use) or, with -regions all, in every enabled region. The e2e workflow runs it for
+// its own cluster (-cluster, no age limit) as the last step of the teardown. The selection logic is in
 // pkg/vendors/aws/sweep, tested against the in-memory EC2 of the AWS driver.
 //
 //	go run ./test/e2e-aws/sweeper -dry-run
@@ -23,7 +24,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"time"
 
 	awsdriver "github.com/SpareCores/scarpenter/pkg/vendors/aws"
@@ -40,7 +40,7 @@ func run() int {
 		prefix  = flag.String("cluster-prefix", sweep.DefaultClusterPrefix, "sweep the clusters whose name starts with this")
 		maxAge  = flag.Duration("max-age", 2*time.Hour, "only resources at least this old; 0: any age, also unknown")
 		dryRun  = flag.Bool("dry-run", false, "report what would be deleted, delete nothing")
-		regions = flag.String("regions", "", "comma-separated regions (default: every enabled region of the account)")
+		regions = flag.String("regions", "", "regions, comma-separated; empty or all: every enabled one")
 		home    = flag.String("home-region", envOr("AWS_REGION", "us-east-1"), "region the enabled regions are listed from")
 		wait    = flag.Duration("wait", 5*time.Minute, "per region, how long to wait for terminated instances to be gone")
 	)
@@ -61,8 +61,9 @@ func run() int {
 	if *cluster != "" {
 		o.ClusterPrefix = ""
 	}
-	if *regions != "" {
-		o.Regions = strings.Split(*regions, ",")
+	if o.Regions, err = sweep.ParseRegions(*regions); err != nil {
+		fmt.Fprintln(os.Stderr, "sweeper:", err)
+		return 2
 	}
 	rep, err := sweep.Run(ctx, factory, *home, o)
 	if err != nil {
