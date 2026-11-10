@@ -622,7 +622,11 @@ Rules for the workflows of this public repository: actions are pinned by commit
 SHA (with the version in a comment); `permissions:` default to `contents: read` and
 a job gets more only where it needs it; nothing that holds a secret or a write
 token runs for a pull request, and in the repository settings (Actions, General)
-set "Require approval for all outside collaborators" for fork pull requests. The L4
+set "Require approval for all outside collaborators" for fork pull requests.
+`.github/CODEOWNERS` names the owners of `.github/workflows/`, `test/`, `hack/` and itself, who
+are requested to review every pull request that touches them; the review is requested, not
+enforced (the ruleset on `main` requires the `e2e-result` check only, and administrators
+bypass it). The L4
 workflow runs on GitHub-hosted runners. If a self-hosted runner is adopted for it
 (overview section 15, Q6), it must be for `schedule` and `workflow_dispatch` only,
 never for pull requests: a fork's pull request would run arbitrary code on it.

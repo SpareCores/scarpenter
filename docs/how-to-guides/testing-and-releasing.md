@@ -363,9 +363,15 @@ infrastructure repository (`sc-infra`, `prod/k8s`) and this repository assumes i
   Spot service-linked role, the budget alert.
 - **Tailscale**: the tags `tag:scarpenter-ci` and `tag:scarpenter-ci-node`, the grants, and the
   federated identity for the `e2e` environment (the canary does not join the tailnet).
-- **Repository settings**: the status check `e2e-result` required on `main`, the tag
-  ruleset on `v*`, approval for outside collaborators' workflows, and the label
-  `e2e-canary` (the canary creates it if it is missing).
+- **Repository settings**: a ruleset on `main` requiring the status check `e2e-result` from
+  GitHub Actions, which repository administrators bypass entirely (they can still push to
+  `main` directly), the tag ruleset on `v*`, approval for outside collaborators' workflows,
+  and the label `e2e-canary` (the canary creates it if it is missing). There is no
+  pull-request rule, so the reviews are not enforced.
+- **`.github/CODEOWNERS`** (in this repository): the owners of `.github/workflows/`, `test/`,
+  `hack/` and the file itself, the paths that run with the CI roles and the release
+  credentials. GitHub requests their review on a pull request that touches them
+  automatically; it is a request, not a gate, because the ruleset has no pull-request rule.
 
 The sweeper (`e2e-aws-sweeper.yml`) runs in the environment `e2e-sweeper`, not `e2e`: the
 reviewers of `e2e` would make every scheduled sweep wait for an approval. What keeps that

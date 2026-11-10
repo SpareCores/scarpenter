@@ -1,0 +1,7 @@
+# Workflows, tests and the scripts they run hold or reach the real-cloud CI roles and the
+# release credentials (see docs/how-to-guides/testing-and-releasing.md):
+# changes there need an owner's review.
+/.github/workflows/ @bra-fsn @daroczig
+/test/ @bra-fsn @daroczig
+/hack/ @bra-fsn @daroczig
+/.github/CODEOWNERS @bra-fsn @daroczig
