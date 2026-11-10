@@ -283,8 +283,8 @@ the whole Karpenter path. It is the only lane that costs money and needs credent
 so it exists only as a workflow, `.github/workflows/e2e-aws.yml`, run on demand
 (`workflow_dispatch`) and weekly, from `main` only, in the GitHub environment
 `e2e`. It never runs for a pull request, and nothing in the repository runs it
-from a developer machine. A run takes 40 to 60 minutes (the job's limit is 70: the Scenarios step has its own
-limit of 35 minutes, so that at least 20 minutes stay for the diagnostics and the
+from a developer machine. A run takes 40 to 60 minutes (the job's limit is 90: the Scenarios step has its own
+limit of 55 minutes, so that at least 20 minutes stay for the diagnostics and the
 teardown, which always run) and costs well
 under $0.20: a handful of small instances for minutes, a few GiB of EBS, no NAT
 gateway.

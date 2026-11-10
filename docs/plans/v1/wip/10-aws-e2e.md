@@ -35,8 +35,8 @@ real values into the repository; reference the secrets.
 
 - **`.github/workflows/e2e-aws.yml`**: `workflow_dispatch` (inputs:
   `scenarios`, and pins for the minimum-version run) and weekly schedule; one job,
-  `environment: e2e`, `concurrency` group, `timeout-minutes: 70` (the
-  Scenarios step has its own limit, 35 min, so that at least 20 min stay for
+  `environment: e2e`, `concurrency` group, `timeout-minutes: 90` (the
+  Scenarios step has its own limit, 55 min, so that at least 20 min stay for
   diagnostics and teardown); steps
   of overview §13.4 (tailnet join with the official action and the
   federated identity, k3s server with TLS SAN = tailscale IP and production-like flags,

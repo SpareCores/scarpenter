@@ -204,13 +204,14 @@ wait_node() {
         elif [[ "${out%% *}" -gt 0 ]]; then
           launched=1
         else
-          echo "last output: ${last}" >&2
+          echo "last output: ${last}" | redact >&2
           fail "never launched: ${what}: none of the ${out#* } NodeClaim(s) of the NodePool(s) '${pools:-any}' is launched (no Launched=True, no providerID) ${elapsed}s after the wait began; SCarpenter did not create an instance (E2E_LAUNCH_TIMEOUT=${E2E_LAUNCH_TIMEOUT}s)"
         fi
       fi
     fi
     if [[ "${SECONDS}" -ge "${deadline}" ]]; then
-      echo "last output: ${last}" >&2
+      echo "last output: ${last}" | redact >&2
+      [[ "${launched}" -eq 1 ]] || fail "timed out after ${timeout}s waiting for ${what}; whether a NodeClaim was launched is unknown (the API server did not answer)"
       fail "launched but not ready: timed out after ${timeout}s waiting for ${what}; the instance was launched, so the boot, the join or the Pod is what failed"
     fi
     if [[ "${SECONDS}" -ge "${next}" ]]; then
