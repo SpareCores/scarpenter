@@ -698,17 +698,27 @@ pre-created volumes), logical tags and the idempotency key. `Instance` carries: 
 state (`pending|running|terminating|terminated`), creation time, tags,
 addresses.
 
-Logical tag keys: `cluster`, `nodeclaim`, `nodepool`, `nodeclass`, `managed-by`.
-AWS maps them to `scarpenter.sparecores.com/<key>`; vendors with restrictive
-label charsets (e.g. GCP) to `scarpenter-<key>`.
+Logical tag keys: `cluster`, `nodeclaim`, `nodepool`, `nodeclass`, `managed-by`,
+`idempotency-key`. AWS maps them to `scarpenter.sparecores.com/<key>`; vendors with
+restrictive label charsets (e.g. GCP) to `scarpenter-<key>`. `idempotency-key` holds the
+NodeClaim UID on vendors with neither a create token nor a deterministic name: it is
+looked up before every create and written by the driver (`vendors.IdempotencyTag`);
+AWS has the client token and does not write it.
 
 ### 7.2 Error classes
 
 Drivers wrap every vendor error into one of: `InsufficientCapacity`,
 `Unsupported`, `QuotaExceeded`, `ZoneUnusable`, `Retryable`, `NotFound`,
 `Fatal`. Classification matches **SDK error codes**, never message text, except
-where a vendor only provides text (documented per driver). The class table and
-the codes per vendor are reference documentation.
+where a vendor only provides text (the `qemu` driver, and vendors whose API has no
+error codes). Message-based classification has four conditions: the driver documents
+each text, a table-driven test pins every text, the HTTP status is captured per
+request (a text alone never decides), and a text that matches nothing is `Fatal`,
+never `InsufficientCapacity` (ADR-013). `qemu` predates the rule and keeps its own
+documented fallback (an unmatched failure to start the VM is `Retryable`). The class
+table and the codes per vendor are reference documentation. A `QuotaExceeded` of a
+vendor with account-wide limits carries `AccountWide`, which gates the capacity type in
+every region of the vendor for the quota TTL.
 
 Quota and capacity classes stay distinct even when a vendor reports both
 with one error code: the driver decides from the code and payload whether a
@@ -737,7 +747,11 @@ show up in `used` with their refs, and a quota error is classified as
 `ManagedResources`: every profile block is either valid or explicitly
 unsupported for every catalog type; `Prepare` and `Ensure` are idempotent;
 `use` resources are never modified; managed resources are found again after a
-restart (adoption) and deleted in dependency order.
+restart (adoption) and deleted in dependency order. Plan 14 adds: a malformed
+instance reference is `NotFound`, never `Fatal`; the idempotency label round-trips for
+drivers that store it; a powered-off instance (fixture hook) reports `terminating`,
+stays listed and deletes cleanly; an account-wide quota error gates every region
+exactly when the fixture says the vendor's limits are account-wide.
 Adding a vendor = implement the interface + pass the suite.
 
 ## 8. Node bootstrap
@@ -882,6 +896,11 @@ Every 2 minutes (`--gc-interval`):
 
 - Instances tagged with this cluster whose NodeClaim does not exist and that
   are older than 5 minutes (launch-to-status-update grace) → delete.
+- Instances seen `terminating` for longer than `--terminating-grace` (default
+  10 minutes, first sighting in memory) → deleted again. An instance that is stopped
+  or powered off is `terminating` on every vendor (§7.2 states), so a stopped node is
+  collected; `ListInstances` returns terminating instances for this, and
+  `CloudProvider.Delete` applies the same grace.
 - Bootstrap-token Secrets labelled with a NodeClaim that does not exist →
   delete.
 - Managed vendor resources (00a §9): deleted by their lifecycle — `perUse`
