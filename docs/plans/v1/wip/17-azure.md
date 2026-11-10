@@ -300,8 +300,9 @@ region plus the SKU table hourly. The resource-check status reads are cached as 
 
 ### Billing period (ADR-024, plan 23)
 
-Billed per full minute (the pricing page) while Keeper says 1/300; the two disagree (a data issue, plan 13).
-Either value is under `minPeriod`, so retention does not apply. `BillingStart` stays unset.
+Azure bills per full minute (seconds dropped) with **no documented minimum**; Keeper's 1/300 is not supported by the page (a data issue,
+plan 13). Neither value is a period or a worthwhile minimum, so Azure is **not a retention candidate** (ADR-024, plan 23): the status reason
+is `PerSecondBilling`, and nothing is held. `BillingStart` stays unset.
 
 ## 4. Catalog
 

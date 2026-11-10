@@ -339,9 +339,13 @@ self-managed-cluster OIDC provider setup is unverified (step 0, as plan 10 did f
 
 ### Billing period (ADR-024, plan 23)
 
-Per-second billing settled hourly; the minimum (10, 5 or 2 minutes by vCPU) applies to the release only
-(**unverified**, the primary page was not read). Increment 1 s is under `minPeriod`, so retention does not
-apply; the minimum is not a period. `BillingStart` is `CreationTime`, for the record.
+Per-second billing settled hourly; a minimum of 10, 5 or 2 minutes by vCPU is charged when the billed time is below it, so a short-lived instance pays it (the pay-as-you-go page, read 2026-11-10;
+whether "the cycle" is the instance's life or the last hourly settlement is **unverified**, and only the first fits the rule below). Increment 1 s is under `minPeriod`, so no increment is held, but Alibaba is a
+**minimum-only retention candidate** (ADR-024, plan 23): a node is held to `start + minimum - margin`, reused meanwhile and
+deleted at once, because after the minimum every second costs. With the default 3-minute margin that is 7 minutes for a 10-minute
+minimum, 2 for 5, and none for 2 minutes (`MinimumTooShort`); the driver's `BillingRule` override gives the minimum by vCPU
+(plan 13). Gated on a verified minimum and billing start; until then retention is off. `BillingStart` is `CreationTime`
+(early against the billed start, the safe side; unverified).
 
 ### Catalog
 

@@ -281,12 +281,15 @@ placement groups and volumes. Nothing else is needed for a node with a public ad
   (a powered-off server bills); a monthly price cap exists (hours not published on the page read).
   Keeper has 3600/3600 and `stopped_server_charged: true`, which agrees. Retention is allowed once the
   live check below passes; until then the driver reports the rule as unverified and the feature stays off.
+  **Hetzner is the first vendor to get retention** (maintainer's decision, 2026-11-10): this live check is the gate.
 - **Start field**: `BillingStart` is the server's `created`. Hetzner bills once creation has
   completed, so `created` is earlier than the real start by the provisioning time (tens of seconds,
   **unverified**): boundaries computed from it fall early, the safe side.
 - **Delete latency**: `DELETE /servers/{id}` returns an action; the server is gone when it completes. Whether
   billing stops at the call or at completion is not documented: the margin assumes completion plus the node drain.
-- **Verify live (L5, one-time spike)**: that periods count from creation, not from the clock hour
+- **Verify live (L5, one-time spike)**: that periods count **from the server's creation, not from the clock hour** (the docs round
+  up partial hours but give no timed example, so from-start is inferred only; plan 23 has no `anchor` field and enables retention only
+  after this check)
   (create, delete at 59 and 61 minutes, read the hours billed per server on the Console's cost view or the
   invoice line); the `created` versus completion offset; delete action duration; skew of the API's clock
   against the controller's.

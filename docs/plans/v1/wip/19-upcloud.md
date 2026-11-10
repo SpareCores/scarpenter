@@ -273,7 +273,8 @@ for credentials supplied some other way), like AWS's modes.
 
 - **Rule**: hourly; the Simple plan capped at 672 hours a month (**unverified** on a primary page);
   Keeper 3600/3600 with `stopped_server_charged: true` (Cloud Native: not billed when stopped; irrelevant, a
-  retained node runs). Whether the period counts from creation or from first start is **unverified**.
+  retained node runs). Whether the period counts from creation or from first start, and that it counts from the start and not the clock hour (the docs are
+  silent on partial hours), is **unverified** and is checked live before retention is enabled (plan 23 has no `anchor` field).
 - **Start field**: no creation stamp on the server detail could be confirmed. The driver writes its own
   creation time into a server label (`scarpenter-created`, RFC 3339, set in the create call, so before the
   server exists, hence early: the safe side) and `BillingStart` reads it back; no label, no `BillingStart`,

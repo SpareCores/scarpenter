@@ -353,7 +353,7 @@ What it takes:
   to the kind's ID filter, `match` per the AWS table, `filters` passed through), and `validateResource`
   checks `filters` names against the per-kind list taken from the SDK's documentation of the
   `Describe*` calls (a test asserts every name appears in the pinned SDK's doc comments). The AWS `images`
-  kind (A1) is built on it. **Old fields: a clean rename, no deprecated alias.** The API is `v1alpha1`, an alias
+  kind (A1) is built on it. **Old fields: a clean rename, no deprecated alias (decided by the maintainer, 2026-11-10, renamed before v0.1.0).** The API is `v1alpha1`, an alias
   would keep two spellings in the CRD, the docs and the code for ever, and nothing is lost: a NodeClass with
   the old `selector` is pruned by the API server (or reported by strict field validation), its `use` then has
   no field and the new non-empty rule rejects it, so it fails loudly instead of selecting everything. A NodeClass

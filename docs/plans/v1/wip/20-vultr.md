@@ -318,7 +318,8 @@ some regions) is `Unsupported`, cached 24 h by core.
   must measure the offset before retention is enabled.
 - **Delete latency**: `DELETE /instances/{id}` is immediate from the caller's view; the billing stop time is
   **unverified**.
-- **Verify live (add to S7)**: the offset between `date_created` and the billing start; the hours billed for
+- **Verify live (add to S7)**: that periods count from the start, not the clock hour (the docs state no timed example; plan 23 has no
+  `anchor` field and enables retention only after this check); the offset between `date_created` and the billing start; the hours billed for
   a destroy at 59 and 61 minutes; behaviour at the monthly cap.
 
 ## 5. Catalog

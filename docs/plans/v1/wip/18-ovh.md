@@ -382,10 +382,11 @@ prices are on-demand only). The `spot` capacity type is not offered.
 ### Billing period (ADR-024, plan 23)
 
 - **Rule**: Keeper says 3600/3600, with a comment that EU, CA and APAC regions bill per second (60 s
-  minimum) and the US hourly; OVH's Public Cloud billing page says per second after one minute everywhere
-  ("never rounded up to the next hour"). The two contradict each other: **unverified which is right per region**.
+  minimum) and the US hourly. OVH's billing page confirms per second with a 1-minute minimum for EU, CA and APAC (no retention
+  there: the minimum is under the hold floor). For the US, the terms say hourly rounded up (their timed example, 9:50 to 10:10 is one hour,
+  refutes clock hours) but the US support guide says per second: **conflicting, unverified**.
   The driver reports the rule as unverified, so retention stays **off** for OVH until the live check confirms an
-  hourly region, and then only for that region (a driver override per region, until Keeper has `billing_rule`).
+  hourly US region, and then only for that region (a driver override per region, until Keeper has `billing_rule`).
   Stopped and paused instances bill; shelved ones only for the snapshot.
 - **Start field**: `BillingStart` is Nova's `created`, which is at `BUILD`; the meter starts at `ACTIVE`
   (**unverified**; not an API field). `created` is earlier, so boundaries fall early: the safe side. Not for

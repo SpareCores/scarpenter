@@ -48,7 +48,7 @@ Execution protocol:
 | 20 | `wip/20-vultr.md` | todo | Vultr driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
 | 21 | `wip/21-alicloud.md` | todo | Alibaba Cloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
 | 22 | `wip/22-flatcar-images.md` | todo | the Flatcar images repository (proposed `SpareCores/flatcar-images`): OEM-patched images for vultr, upcloud and aliyun, the GCP arm64 image, signatures, release tracking, upstream proposals | — |
-| 23 | `wip/23-billing-retention.md` | todo | opt-in `spec.billing`: keep period-billed nodes (hcloud, UpCloud, Vultr; OVH where hourly) until the end of their paid period and reuse them; Keeper vendor billing facts, `BillingStart`, the retention controller, metrics, fake-clock tests | 14 and the Keeper vendor table (live; plan 13 is not needed) |
+| 23 | `wip/23-billing-retention.md` | todo | opt-in `spec.billing`: keep period-billed nodes (hcloud first, then UpCloud, Vultr; OVH US if hourly; Alibaba until the end of its minimum) until the end of their paid period and reuse them; Keeper vendor billing facts, `BillingStart`, the retention controller, metrics, fake-clock tests | 14 and the Keeper vendor table (live; plan 13 is not needed) |
 
 Shared rules for every plan: [`CONVENTIONS.md`](CONVENTIONS.md).
 
@@ -74,8 +74,9 @@ Order:
 
 **23**, billing-period retention, needs 14 only (its Keeper data is the live vendor table, not
 plan 13's snapshots) and is fully testable on the fake driver; it can be built as soon as 14 is done,
-before or alongside the vendor plans. Each of 15, 18, 19 and 20 then turns it on for its vendor once its
-live billing check passes (AWS, GCP, Azure and Alibaba bill per second or minute and never use it).
+before or alongside the vendor plans. Each of 15, 18, 19, 20 and 21 then turns it on for its vendor once its
+live billing check passes, **Hetzner (15) first**; Alibaba qualifies only for the minimum of a minimum-then-per-second
+rule, and AWS, GCP and Azure (per second or minute, no worthwhile minimum) never use it.
 
 **22**, the images repository, is built before GCP arm64 and before 19, 20 and 21
 (OVH and Hetzner use Flatcar's own images and do not wait for it). It is a separate

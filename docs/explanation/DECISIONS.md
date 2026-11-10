@@ -597,7 +597,11 @@ Consequences: amends ADR-018's `use` forms and the wording of ADR-021 and ADR-02
 selector). The `ResourceUse` API type, its CEL rules, the driver capability declaration, the
 shared matcher and the AWS driver's migration are
 [plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) (A10); the AWS driver's today
-forms keep working in meaning (`selector.tags` is renamed `tags`). Adds the `use` fields
+forms keep their meaning and the one renamed field, `selector.tags`, becomes `tags` with **no deprecated alias**
+(decided by the maintainer, 2026-11-10): the API is `v1alpha1`, nothing is released, and a second spelling would
+live in the CRD, the docs and the code for ever. The old field is pruned or rejected, and a `use` that is
+then empty is invalid (`ValidationSucceeded=False`), never "nothing given", so a stored NodeClass fails loudly
+instead of selecting everything. Adds the `use` fields
 `match`, `filters`, `expression`, `select`, `orderBy` to every kind of every vendor, a
 capability table per driver to maintain, and one test matrix per driver in the conformance
 suite.
@@ -605,11 +609,12 @@ suite.
 ## ADR-024: Billing-period-aware node retention (accepted, 2026-11-10)
 
 Some vendors bill a server by the started period: hcloud, UpCloud and Vultr by the hour,
-OVH's US regions probably (the data disagrees, see below). A job that runs one minute every ten
+OVH's US regions probably (the data disagrees, see below). Others bill a minimum and then per second:
+Alibaba (2 to 10 minutes by vCPU, charged only to a short-lived instance; unverified). A job that runs one minute every ten
 minutes and gets a fresh node each time pays for six hours of node per hour; the same job on one
 node kept until its hour is about to end costs one. SCarpenter therefore offers, as an opt-in,
-to keep such nodes until the end of the billing period they have already paid for, so that
-Karpenter reuses them, and to delete them before the next period opens.
+to keep such nodes until the end of the billing period (or of the minimum) they have already paid for,
+so that Karpenter reuses them, and to delete them before the next charge starts.
 
 ```yaml
 kind: SCNodeClass
@@ -617,8 +622,8 @@ spec:
   billing:
     retainUntilPeriodEnd: true   # default false: nothing below happens
     margin: 3m                   # default 3m, at least 90s: stop this long before the boundary
-    minPeriod: 10m               # default 10m: only billing periods at least this long qualify
-    maxRetainedNodes: 0          # default 0 = no cap; else at most this many held nodes per NodeClass
+    minPeriod: 10m               # default 10m: only billing increments at least this long are held to their end
+    # maxRetainedNodes: 20       # unset by default; optional safety valve (below)
 ```
 
 **Where.** On the `SCNodeClass`, not the NodePool. The vendor and the region, which decide
@@ -629,15 +634,41 @@ is Karpenter's (consolidation policy, budgets, `expireAfter`).
 
 **Billing facts come from data.** Keeper's `/table/vendor` has `billing_increment_seconds`,
 `minimum_billing_seconds`, `stopped_server_charged` and `billing_comment` (the vendor table is
-live today; the catalog does not read it yet). SCarpenter caches them with the catalog. The period of a
-vendor is its increment; a period qualifies when it is at least `minPeriod` (so per-second
-vendors never qualify, with no vendor name in the core: AWS, GCP, Azure and Alibaba all have an increment
-of at most a minute). The first boundary is `start + max(minimum, increment)`, later ones add the increment.
+live today; the catalog does not read it yet). SCarpenter caches them with the catalog. A vendor's
+rule is a minimum `M` and an increment `I` (the charge for a run of `t` seconds is `M` up to `M`, then
+rounded up to whole increments; for hourly vendors `M` is `I` or less).
+
+**One rule for both shapes: the release deadlines.** A node is worth keeping only until a point where the
+charge is about to step up. These points, the *boundaries*, are:
+
+- the first boundary, `start + M` (or `start + max(M, I)` where increments are held, so that a minimum
+  below the increment still means one whole first increment);
+- then `first + n*I` for every `n >= 1`, **only where the increment is worth holding**, that is `I >= minPeriod`.
+
+For an hourly vendor (`M` = `I` = 1 h) that is every hour. For a **minimum, then per second** vendor
+(`I` < `minPeriod`; Alibaba, any vendor with `M` > `I`) there is one boundary, `start + M`: after it
+every second costs, so a node is held until `start + M - margin`, reused meanwhile, and released at once
+(no later deadline exists). The pure boundary function is the same for both, with no vendor name in the
+core. A per-second vendor with no minimum (AWS and GCP bill 60 seconds at least, below the hold floor)
+has nothing to hold and never qualifies.
+
+`minPeriod` therefore gates holding **per increment** (default 10 minutes, unchanged), not the minimum hold. The
+minimum hold has its own floor: it is worth it only when `M - margin >= 2 minutes` (the effective margin, below; an internal
+constant, not an API field; the window a job has to arrive in). With the default 3-minute margin a minimum of 5 minutes holds for
+2 minutes, 10 minutes holds for 7, and 120 seconds never holds (the status says `MinimumTooShort`). The margin
+default stays 3 minutes for both shapes: its floor is 90 seconds either way; on a minimum-then-per-second vendor
+missing the deadline costs only the seconds of overrun, not a period, so the floor is conservative there, and a
+smaller margin would not enlarge the window of a short minimum enough to matter.
+
 Keeper's value is per vendor and "worst case", but the rule can differ below that (OVH US versus
 EU, Alibaba's minimum by vCPU), so a driver may override per region and family
 (`BillingRule`) until Keeper has finer data (plan 13). A vendor fact that no live check has confirmed
 stays **off**: the driver reports it as unverified and retention does not apply to that vendor (the NodeClass
 status says so), never a guess ([ADR-017](#adr-017-never-degrade-an-option-silently-accepted-2026-11-05)).
+**The anchor is closed (2026-11-10):** no vendor documents clock-hour billing (OVH US's own timed example refutes it), so there
+is no `anchor` field and periods always count from the server's billing start. That is an inference for Hetzner, and the
+docs of Vultr and UpCloud are silent on partial hours, so **from-start is verified live per hourly vendor before retention
+is enabled for it** (Hetzner, Vultr, UpCloud; plans 15, 20, 19).
 
 **The period starts when the vendor says.** `Instance.BillingStart` (new, driver contract) is the
 vendor's own creation or billing-start stamp, never the NodeClaim's time. Where the stamp is earlier
@@ -654,7 +685,7 @@ restart loses nothing. Clock skew between the controller and the vendor is cover
 registered, on-demand node of a non-static NodePool, owned by a NodeClaim of such a NodeClass, whose
 `BillingStart` is known):
 
-1. While the current period has more than `margin` left, it holds the node with Karpenter's
+1. While the current period (or the minimum) has more than `margin` left, it holds the node with Karpenter's
    `karpenter.sh/do-not-disrupt: "true"` on the Node, plus its own annotation
    `scarpenter.sparecores.com/retain-until` (the deadline, so the state is visible and survives a
    restart; the reconcile is idempotent, there are no in-memory timers: every decision is a function of
@@ -662,18 +693,20 @@ registered, on-demand node of a non-static NodePool, owned by a NodeClaim of suc
    is Initialized (Karpenter never disrupts a node that is not), not at emptiness: with
    `consolidateAfter: 0s` Karpenter would otherwise pick a node the moment it empties. Karpenter binds pending pods to existing capacity first, so a held empty
    node takes the next job. Only annotations SCarpenter put there are removed; a `do-not-disrupt` it did
-   not set is the user's, and the node is left entirely alone.
-2. At `boundary - margin` (the deadline): an **empty** node (no pod except DaemonSet, static and
-   finished pods) is deleted by SCarpenter itself (`NodeClaim` delete: Karpenter taints, drains and calls
+   not set is the user's, and the node is left entirely alone (decision 3 below).
+2. At `boundary - margin` (the deadline): an **empty**, Initialized node (no pod except DaemonSet, static and
+   finished pods; a node not yet Initialized may be waiting for pods that have not bound, and counts as busy) is deleted by SCarpenter itself, if the NodePool's disruption budget allows it (`NodeClaim` delete: Karpenter taints, drains and calls
    the driver). Deleting it ourselves is deterministic; relying on `consolidateAfter` would not be, it
    is NodePool-wide and could land after the boundary. A **busy** node gets its hold released for the window
    `[deadline, boundary)` so that Karpenter's own consolidation may replace it at a moment that costs
    nothing (the period is nearly over), and the hold is put back after the boundary for the next period.
    If it empties inside the window, SCarpenter deletes it then, as at the deadline: the period is paid
    either way, and the delete saves the next one. Moving the hold straight to the next boundary
-   would block consolidation of a node for as long as it stays busy.
+   would block consolidation of a node for as long as it stays busy. At the **last** boundary (a
+   minimum-then-per-second vendor has only the minimum) a busy node's hold is released for good: after it every
+   second costs, and Karpenter's own consolidation takes over under its own rules.
 3. Before deleting it puts its own `NoSchedule` taint (`scarpenter.sparecores.com/releasing`) on the
-   Node, then re-reads the pods. A pod that landed before the taint makes the node busy: the taint is
+   Node, then re-reads the pods from the API server (not the cache). A pod that landed before the taint makes the node busy: the taint is
    removed and the busy path applies, so a node with work is never deleted by SCarpenter. Only a pod that
    tolerates every taint could still land, and the drain evicts it.
 
@@ -686,12 +719,17 @@ and that latency plus the 90-second floor (the drain and skew are on top of the 
 
 **Interactions.**
 
-- *Disruption budgets.* SCarpenter's own deletes **do not** respect them: they remove only nodes
-  that are empty, at a time the cost decides, and a budget of 0 for reason `Empty` (a maintenance window)
-  would hold an empty node over the boundary and cost a period. An Event and a metric record each delete.
-  Operators who want no deletions at all use `consolidateAfter: Never` on the NodePool, which the
-  controller respects (no hold, no delete: the pool says nodes stay). The release window of a busy node
-  is Karpenter's decision and does respect budgets.
+- *Disruption budgets (decided 2026-11-10).* SCarpenter's deadline deletes **respect** the NodePool's
+  disruption budgets, for reason `Empty`, computed as Karpenter core does and counting nodes already being
+  deleted. When a budget blocks the delete, the node is not deleted and is **held into the next period**: one more
+  period is paid (an Event `ReleaseBlockedByBudget` and a metric record it), and the next deadline is tried. A
+  budget of 0 (a maintenance window) therefore costs a period per node per window, which is the operator's
+  choice; on a minimum-then-per-second vendor a blocked node's hold is released and Karpenter's consolidation,
+  under the same budget, deletes it when allowed. A budget is never bypassed.
+- *Left alone (decided 2026-11-10).* A NodePool with `consolidateAfter: Never`, or a node with a
+  `karpenter.sh/do-not-disrupt` that SCarpenter did not set, is left completely alone: no hold, no delete, no
+  release for pressure. The NodeClass condition `BillingRetention` counts such nodes per reason, and a Node Event
+  `RetentionSkipped` (`ConsolidationNever` or `UserDoNotDisrupt`) says why on the node.
 - *Drift.* A node whose NodeClaim is `Drifted` is not held (and a hold is removed): a drifted node is
   replaced as it would be without retention. A held node would otherwise take new pods with stale settings.
 - *Consolidation.* Underutilised consolidation of a held node waits for the window. Karpenter cannot
@@ -708,25 +746,37 @@ and that latency plus the 90-second floor (the drain and skew are on top of the 
   and deleted, and it is never held. What that saves is not the current period, which is paid whether the
   node is deleted now or at its end; it saves the following periods, the disks and the addresses. The
   rule's text in the plans said otherwise and was corrected.
-- *Limits.* Held nodes count against NodePool `limits` and the quota tracker, so retention can starve a
-  new shape of capacity; `maxRetainedNodes` caps it (nodes over the cap are not held, oldest first). A pod
-  that does not fit the held node, because of its shape, taints or requirements, gets a new node: the saving
-  is for repeated work of the same shape.
+- *Limits and quotas: release under pressure (decided 2026-11-10).* Held nodes count against NodePool `limits`
+  and the quota tracker, so retention must never starve a new shape of capacity. There is **no fixed cap by
+  default**: when a launch is blocked by a NodePool limit (pods pending while the pool's resources are at its
+  limit) or by a vendor quota (the quota tracker refused `Create`), SCarpenter releases held **empty** nodes
+  first, enough to cover the blocked request and only those whose release frees what is blocking (the same
+  NodePool for a limit; the same vendor, region and quota family for a quota). The order is the **nearest
+  deadline first** (ties: the oldest start): the node nearest its deadline has the least paid time left, so
+  the release loses the least value, and for equal periods that is the oldest-paid-up node. Releases follow the same
+  rules as any delete (budgets, nodes left alone, the taint-and-re-read). `maxRetainedNodes`, an
+  optional **safety valve, unset by default** (`>= 1` when set), caps the held *empty* nodes per NodeClass; over it,
+  the same order applies. A release under pressure that the candidate's budget blocks drops that node's hold (it is then an
+  ordinary empty node, deleted by Karpenter's emptiness when the budget opens) and moves to the next candidate; the launch waits
+  for the budget as it would without retention, so retention never adds a wait of its own and cannot deadlock it. A pod that does not fit the held node, because of its shape, taints or requirements, gets a
+  new node: the saving is for repeated work of the same shape.
 
-**Observability.** Node Events `RetainedUntil` and `ReleasedAtPeriodEnd` (and a Warning
-`BillingStartUnknown`); metrics `scarpenter_billing_retained_nodes{vendor,nodeclass}`,
+**Observability.** Node Events `RetainedUntil`, `ReleasedAtPeriodEnd`, `ReleasedUnderPressure`, `ReleaseBlockedByBudget`,
+`RetentionSkipped` (and a Warning `BillingStartUnknown`); metrics `scarpenter_billing_retained_nodes{vendor,nodeclass}`,
 `scarpenter_billing_retained_seconds_total`, `scarpenter_billing_reuse_total` (a node that had been empty
 under the hold received a pod), `scarpenter_billing_periods_saved_estimate_total` (equal to the reuses: one
 new node, and so one period, avoided each; an estimate, not an invoice),
-`scarpenter_billing_deletes_at_deadline_total` and `scarpenter_billing_boundary_missed_total` (an empty node still
+`scarpenter_billing_deletes_at_deadline_total`, `scarpenter_billing_blocked_by_budget_total`, `scarpenter_billing_released_under_pressure_total`, `scarpenter_billing_skipped_nodes` and `scarpenter_billing_boundary_missed_total` (an empty node still
 alive 30 s after its boundary: the margin is too small). The NodeClass status has, per vendor, whether
-retention is active and why not (`Disabled`, `PerSecondBilling`, `Unverified`, `NoKeeperData`, `NoBillingStart`),
+retention is active and why not (`Disabled`, `PerSecondBilling`, `MinimumTooShort`, `Unverified`, `NoKeeperData`, `NoBillingStart`; `Active` otherwise),
 the period and where it came from (Keeper, driver).
 
 **Testing.** The boundary arithmetic is a pure function with table tests. The controller runs against the fake
 driver with a fake clock; the conformance and L3 scenarios are: a job every 10 minutes reuses one node, a busy
-node rolls over to the next period, an empty node is deleted before its boundary, a per-second vendor ignores
-the setting.
+node rolls over to the next period, an empty node is deleted before its boundary, a per-second vendor with no
+minimum ignores the setting, a job every 3 minutes on a 10-minute-minimum vendor reuses one node and the node is
+gone right after the minimum, a budget of 0 holds an empty node into the next period, a blocked launch releases the
+nearest-deadline empty node first, and `consolidateAfter: Never` or a user `do-not-disrupt` is left alone.
 
 Why: the saving is real and large for exactly the workloads Karpenter is good at (short, repeated
 jobs), it is invisible to Karpenter (offerings carry no per-node cost), and the data to do it exactly
@@ -737,13 +787,15 @@ Rejected: a NodePool-level `consolidateAfter` of one period (it is pool-wide, no
 in its period a node is); an own delete only (loses Karpenter's reuse, which needs the node to stay);
 delaying `CloudProvider.Delete` after Karpenter removed the Node (the instance can no longer take pods);
 hard-coding hours (the period comes from data, and any other period works); stopping nodes to pause billing
-(no hourly vendor pauses on stop); applying retention to per-second vendors (no saving; the `minPeriod`
-rule excludes them by data).
+(no hourly vendor pauses on stop); applying retention to per-second vendors with no minimum (no saving); a
+fixed default `maxRetainedNodes` (release under pressure serves the same purpose without guessing a number);
+deleting regardless of budgets (an operator's budget is a promise).
 
 Data issues found (raised with the data owners, plan 13): OVH is 3600/3600 in Keeper but OVH's page says per
-second everywhere; Azure is 1/300 in Keeper but the page says per full minute; the vendor row is "worst case"
-and cannot express regions, families, monthly caps (Hetzner, Vultr 672 hours, UpCloud Simple plan), the
-billing start event or whether periods are counted from the start or the clock hour.
+second everywhere (EU, CA and APAC: per second with a 1-minute minimum; US: hourly per the US terms, per second per the US
+support guide, so conflicting); Azure is 1/300 in Keeper but the page says per full minute and no 300 s minimum is documented; the
+vendor row is "worst case" and cannot express regions, families, monthly caps (Hetzner, Vultr 672 hours, UpCloud Simple plan) or the
+billing start event.
 
 Follow-up, not designed here: consolidation awareness, so that Karpenter treats a held node's remaining
 period as free (a hook that lowers its cost for replacement decisions); monthly caps (no deadline once the cap
@@ -751,6 +803,8 @@ is reached); per-region and per-family Keeper data replacing the driver override
 
 Consequences: a controller with node and NodeClaim write access and a pod cache; the `spec.billing` API field and
 CEL; `Instance.BillingStart` and `BillingRule` in the driver contract; the vendor table in the catalog, so a
-Keeper client method and, with plan 13, the snapshot; one conformance scenario set. Implemented by
+Keeper client method and, with plan 13, the snapshot; one conformance scenario set. **First vendor: Hetzner** (decided 2026-11-10), switched on when
+[plan 15](../plans/v1/wip/15-hcloud.md)'s live lane has verified its billing start and that its periods count from it; Alibaba becomes a
+minimum-only candidate, still gated on verified data; Azure bills per full minute with no documented minimum and is not one. Implemented by
 [plan 23](../plans/v1/wip/23-billing-retention.md); the user-facing description is
 [Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md).

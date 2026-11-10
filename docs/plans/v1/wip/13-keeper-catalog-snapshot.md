@@ -175,8 +175,9 @@ What this plan adds:
    - Alibaba's minimum by vCPU count (600, 300, 120 s);
    - UpCloud's stopped-server billing by family (Developer and General Purpose billed, Cloud Native not);
    - monthly caps (Hetzner, Vultr 672 hours, GPU 730, UpCloud Simple plan 672 hours);
-   - what starts the clock (create call, provisioning complete, running) and how periods are counted
-     (from the start, or per clock hour).
+   - what starts the clock (create call, provisioning complete, running). Not how periods are counted: no vendor documents
+     clock-hour billing (OVH US's own example refutes it), so the shape has no `anchor` column and periods always count from
+     the start.
 
    Proposed shape, a table next to `vendor`, whose row is the default (NULL in `region_id` or `family` means any,
    the most specific match wins):
@@ -185,7 +186,6 @@ What this plan adds:
    billing_rule(vendor_id, region_id NULL, family NULL,
                 increment_seconds, minimum_seconds,
                 start_event,                 -- create_call | provisioning_complete | running
-                anchor,                      -- from_start | clock_hour
                 monthly_cap_hours NULL,      -- cap over calendar_month
                 stopped_server_charged,
                 comment)
@@ -195,13 +195,12 @@ What this plan adds:
    override has a plan or ADR reference so it can be deleted when Keeper has the data. `ServerPrice.unit` is
    the price's time unit, not a billing granularity (it is `HOUR` for every row), so it cannot stand in.
 4. **Data inconsistencies to raise with the data owners** (found 2026-11-10 against the vendors' own pages):
-   - OVH is 3600/3600 in Keeper, but OVH's Public Cloud billing page says per second after one minute
-     everywhere ("never rounded up to the next hour"), while Keeper's own comment says the EU is per second and
-     the US hourly: which is right per region is open;
-   - Azure is 1/300 in Keeper, but Azure's pricing page says full minutes (increment 60); a minimum of 300 s
-     is on no page read;
-   - `minimum_billing_seconds` for Alibaba (600, the worst case of three) is a minimum for the release
-     only, not a period.
+   - OVH is 3600/3600 in Keeper, but EU, CA and APAC are per second with a 1-minute minimum, and the US is
+     hourly per the US terms while the US support guide says per second (conflicting: open);
+   - Azure is 1/300 in Keeper, but Azure's pricing page says full minutes (increment 60) and no 300 s minimum is
+     documented;
+   - `minimum_billing_seconds` for Alibaba (600, the worst case of three) is a minimum charged on an early release;
+     plan 23 uses it as the one boundary of a minimum-then-per-second rule, not as a period.
 
    Retention stays off for a vendor until its plan's live check settles the value, whatever Keeper says.
 
