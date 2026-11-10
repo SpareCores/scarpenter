@@ -443,6 +443,16 @@ func TestFindListAndDelete(t *testing.T) {
 	if _, err := e.d.GetInstance(ctx, "us-east-1/"); !vendors.IsClass(err, vendors.NotFound) {
 		t.Errorf("GetInstance without an ID: %v", err)
 	}
+	// A region part the account cannot use (empty or unknown) is a reference to
+	// nothing, not a Fatal error.
+	for _, ref := range []vendors.InstanceRef{"/i-00000000000000000", "no-such-region/i-00000000000000000", "i-00000000000000000"} {
+		if _, err := e.d.GetInstance(ctx, ref); !vendors.IsClass(err, vendors.NotFound) {
+			t.Errorf("GetInstance(%q) = %v, want NotFound", ref, err)
+		}
+		if err := e.d.DeleteInstance(ctx, ref); err != nil {
+			t.Errorf("DeleteInstance(%q) = %v, want success", ref, err)
+		}
+	}
 }
 
 func TestDeleteErrorsAreClassified(t *testing.T) {

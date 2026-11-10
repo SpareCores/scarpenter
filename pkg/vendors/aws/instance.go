@@ -406,6 +406,11 @@ func (d *Driver) GetInstance(ctx context.Context, ref vendors.InstanceRef) (*ven
 	if id == "" {
 		return nil, vendors.Errorf(vendors.NotFound, "the instance reference %q has no instance ID", ref)
 	}
+	// A region the account cannot use holds none of its instances: a stale or
+	// malformed reference is NotFound, never Fatal.
+	if !d.knownRegion(ctx, ref.Region()) {
+		return nil, vendors.Errorf(vendors.NotFound, "the instance reference %q names a region the account cannot use", ref)
+	}
 	insts, err := d.describeInstances(ctx, ref.Region(), &ec2.DescribeInstancesInput{InstanceIds: []string{id}})
 	if err != nil {
 		return nil, err
@@ -484,7 +489,7 @@ func (d *Driver) ListInstances(ctx context.Context, regions []string, tags map[v
 // and is refused with a Fatal error.
 func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error {
 	id := ref.ID()
-	if id == "" {
+	if id == "" || !d.knownRegion(ctx, ref.Region()) {
 		return nil
 	}
 	cl, err := d.clients(ctx, ref.Region())

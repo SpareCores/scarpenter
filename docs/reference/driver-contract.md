@@ -19,6 +19,13 @@ branches on no vendor name.
 | `DeleteInstance(ctx, ref)` | Idempotent: deleting an instance that is gone is not an error. |
 | `TagKey(k)` | Maps the logical keys `cluster`, `nodeclaim`, `nodepool`, `nodeclass`, `managed-by` to the vendor's charset (`vendors.DefaultTagKey`: `scarpenter.sparecores.com/<key>`). |
 
+A reference the driver cannot parse (no region, no ID, an ID without the parts the
+vendor needs, a region the account cannot use) is an instance that does not exist:
+`GetInstance` returns `NotFound` and `DeleteInstance` succeeds (or returns `NotFound`),
+never `Fatal`, so that a stale annotation does not put an Event on a NodeClass. The
+same holds for the resource calls (`Resolve` of an ID that cannot exist is an empty
+result).
+
 `InstanceRef` is `<region>/<vendor id>`; the core stores it in the annotation
 `scarpenter.sparecores.com/instance-ref`. `CreateRequest.InstanceType` is the
 vendor's API reference, not the catalog name. `CreateRequest.Node` describes
@@ -105,7 +112,8 @@ driver does).
 ## Conformance suite
 
 `conformance.Run(t, conformance.Fixture{...})` runs: identity, zone mapping,
-idempotent create and the two key rules, NotFound semantics, list by tags, delete idempotency, tag
+idempotent create and the two key rules, NotFound semantics, malformed references
+(`NotFound`, never `Fatal`), list by tags, delete idempotency, tag
 round trip, user-data limit, error classification (the fixture's `Inject` hook
 makes the next launch fail with a class), and for `QuotaReporter` drivers: every
 type maps to buckets or is on the fixture's unknown list, launches show up in

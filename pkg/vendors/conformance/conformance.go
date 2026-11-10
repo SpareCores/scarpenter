@@ -200,6 +200,7 @@ func Run(t *testing.T, fx Fixture) {
 	sub("idempotent create", idempotentCreate)
 	sub("idempotency key semantics", idempotencyKeySemantics)
 	sub("not found", notFound)
+	sub("malformed references", malformedReferences)
 	sub("list by tags", listByTags)
 	sub("delete is idempotent", deleteIdempotent)
 	sub("tag round trip", tagRoundTrip)
@@ -339,6 +340,33 @@ func notFound(t *testing.T, e *env) {
 	found, err := e.d.FindInstance(t.Context(), e.region, claimTag(req.Tags[vendors.TagNodeClaim]))
 	if err != nil || found.Ref != inst.Ref {
 		t.Fatalf("FindInstance: %v, %v", found, err)
+	}
+}
+
+// malformedReferences pins the rule that a reference the driver cannot parse is
+// an instance that does not exist: GetInstance says NotFound and DeleteInstance
+// succeeds (or says NotFound), never Fatal, so that a stale annotation does not
+// put an Event on a NodeClass.
+func malformedReferences(t *testing.T, e *env) {
+	for _, ref := range []vendors.InstanceRef{
+		"", "/", "no-slash", vendors.NewInstanceRef(e.region, ""), vendors.NewInstanceRef("", "i-never-existed"),
+		vendors.NewInstanceRef(e.region, "not an id/with/slashes"), vendors.NewInstanceRef("no-such-region", "i-never-existed"),
+	} {
+		if _, err := e.d.GetInstance(t.Context(), ref); !vendors.IsClass(err, vendors.NotFound) {
+			t.Errorf("GetInstance(%q): %v, want NotFound", ref, err)
+		}
+		if err := e.d.DeleteInstance(t.Context(), ref); err != nil && !vendors.IsClass(err, vendors.NotFound) {
+			t.Errorf("DeleteInstance(%q): %v, want success or NotFound", ref, err)
+		}
+	}
+	if mr, ok := e.d.(vendors.ManagedResources); ok && e.fx.ResourceKind != "" {
+		refs, err := mr.Resolve(t.Context(), e.fx.ResourceKind, e.region, vendors.UseRef{IDs: []string{"not a resource id"}})
+		if err != nil && !vendors.IsClass(err, vendors.NotFound) {
+			t.Errorf("Resolve of a malformed ID: %v, want an empty result", err)
+		}
+		if len(refs) != 0 {
+			t.Errorf("Resolve of a malformed ID returned %v", refs)
+		}
 	}
 }
 
