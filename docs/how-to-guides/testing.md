@@ -65,7 +65,7 @@ A change is done when all of these pass, in this order
 | 3 | `hack/dev.sh make test` | L1 and L2: unit, golden and envtest suites, built with `-tags scarpenter_dev` so the dev-driver code is compiled and tested. No network access: Keeper calls go to the snapshot replay server, artifact fetches to local fixtures. |
 | 4 | `hack/dev.sh make test-kwok` | L3: the controller with the fake driver in kind (see [The L3 lane](#the-l3-lane)). |
 | 5 | `hack/dev.sh --privileged make test-qemu` | L4: real Flatcar VMs join a k3s control plane (see [The L4 lane](#the-l4-lane)). Run it when a change touches bootstrap, the qemu driver or `test/qemu`. |
-| 6 | `hack/dev.sh make test-e2e-aws-dryrun` | The L5 lane's parts that need no AWS: its manifests against an API server, the sweeper against the in-memory EC2, its shell helpers against stubs, the chart with its values (see [The L5 lane](#the-l5-lane)). Part of `make test` for the Go tests; CI runs the whole target. |
+| 6 | `hack/dev.sh make test-e2e-aws-dryrun` | The L5 lane's parts that need no AWS: its manifests against an API server, the sweeper and the canary against the in-memory EC2, the path rules of the workflow planner, its shell helpers against stubs, the chart with its values (see [The L5 lane](#the-l5-lane)). Part of `make test` for the Go tests; CI runs the whole target. |
 
 Also: `hack/dev.sh make build` produces `bin/scarpenter-controller`, and
 `hack/dev.sh make image` builds the controller image for the host architecture
@@ -81,7 +81,7 @@ pushes `linux/amd64,linux/arm64`). `make help` lists every target.
 | Chart | `make test-chart` | The Helm chart without a cluster: lint, golden `helm template` output, the values schema and the template checks against bad values, every controller flag settable and accepted by the controller's own parser, the RBAC and CRDs equal to `config/` and Karpenter core's. | Plan 09: [The chart tests](#the-chart-tests). The install into a cluster is the L3 lane. |
 | L3 | `make test-kwok` | Real Karpenter core, SCarpenter (installed from the Helm chart) and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, extended to seventeen by plan 06; the chart since plan 09. [The L3 lane](#the-l3-lane). |
 | L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged` and `/dev/kvm`. | Plan 07: [The L4 lane](#the-l4-lane). |
-| L5 | `.github/workflows/e2e-aws.yml` (manual and weekly) | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10: [The L5 lane](#the-l5-lane). Has run green live (first green run 2026-11-10, all scenarios pass). |
+| L5 | `.github/workflows/e2e.yml` (pull requests that touch what it tests, manual), `e2e-cloud.yml` (the lane), `release.yml` (every tag) | Real cloud over Tailscale, AWS today. Never run from the dev container, never by a contributor's tooling; never on a timer ([when it runs](testing-and-releasing.md)). | Plan 10: [The L5 lane](#the-l5-lane). Has run green live (first green run 2026-11-10, all scenarios pass). |
 
 The design of the layers is in
 [the overview](../plans/v1/wip/00-overview.md#13-testing) and ADR-010.
@@ -280,9 +280,14 @@ arbitrary code on it (see the end of the workflow file).
 L5 proves SCarpenter end to end on a real cloud: a k3s control plane on a GitHub
 runner, nodes on AWS that join over a Tailscale tailnet, both architectures, spot,
 the whole Karpenter path. It is the only lane that costs money and needs credentials,
-so it exists only as a workflow, `.github/workflows/e2e-aws.yml`, run on demand
-(`workflow_dispatch`) and weekly, from `main` only, in the GitHub environment
-`e2e`. It never runs for a pull request, and nothing in the repository runs it
+so it exists only as a workflow, the reusable `.github/workflows/e2e-cloud.yml` (one
+vendor, AWS today; `mode` is `full` or `smoke`), called by `e2e.yml` and by `release.yml`,
+in the GitHub environment `e2e` whose required reviewers approve every run. **It does not run
+on a timer**: it runs for the pull requests that touch what it tests (a vendor's driver or
+lane: its full lane; code every node goes through: a smoke of two scenarios), on demand, and
+before every release; a free nightly canary watches the outside world. The tiers, the path
+rules, the labels, the approval and the release gate are in
+[Testing and releasing](testing-and-releasing.md). Nothing in the repository runs it
 from a developer machine. A full run takes about 22 minutes (the job's limit is 90: the Scenarios step has its own
 limit of 55 minutes, so that at least 20 minutes stay for the diagnostics and the
 teardown, which always run) and costs well
@@ -290,17 +295,20 @@ under $0.20: a handful of small instances for minutes, a few GiB of EBS, no NAT
 gateway.
 
 ```bash
-gh workflow run e2e-aws.yml                                  # everything
-gh workflow run e2e-aws.yml -f scenarios=amd64,arm64         # a subset
-gh workflow run e2e-aws.yml -f fail_fast=false               # run every scenario despite failures
+gh workflow run e2e.yml -f vendor=aws -f mode=full                     # everything
+gh workflow run e2e.yml -f vendor=aws -f mode=smoke                    # preflight, amd64, scalezero
+gh workflow run e2e.yml -f vendor=aws -f scenarios=amd64,arm64         # a subset
+gh workflow run e2e.yml -f vendor=aws -f fail_fast=false               # run every scenario despite failures
 ```
 
-Inputs: `scenarios` (names below, comma separated), `k3s_version` and
+Inputs of `e2e.yml`: `vendor`, `mode`, `scenarios` (names below, comma separated) and
+`fail_fast` (default `true`, see below). `e2e-cloud.yml` also takes `k3s_version` and
 `kubernetes_version` (the pins of `test/e2e-aws/defaults.sh`; together they run the
 lane at another Kubernetes version, for example the chart's minimum, 1.31: the
 kubelet sysext must exist in the sysext-bakery for the version and be at most the
-API server's), `local_storage_type` (enables the optional local-storage scenario) and
-`fail_fast` (default `true`, see below).
+API server's) and `local_storage_type` (enables the optional local-storage scenario); it
+cannot be dispatched by itself, so a minimum-version run is a one-off workflow change that
+calls it with them.
 The check that the dry run [below](#without-aws) cannot make, is the run itself.
 
 **Failing fast and watching a run.** A broken run must neither hide nor wait for the step
@@ -400,11 +408,13 @@ the job's artifact on failure.
 The lane needs the following, provisioned once by a maintainer; nothing here is created
 by a workflow. Use your own values; the repository holds none.
 
-*GitHub*: the environment `e2e` (shared by the cloud providers' e2e lanes) with
-deployments limited to the `main` branch and **no required reviewers** (the sweeper runs
-on a schedule in the same environment, and each run would wait for an approval, so
-leftovers would not be swept; the sweeper and the lane share the environment and with it
-the role and its trust policy). In it:
+*GitHub*: the environment `e2e` (shared by the cloud providers' e2e lanes), with
+**required reviewers** (every run is approved by a maintainer: a pull request's workflow code runs
+with the role) and no limit to the `main` branch (pull requests run on `refs/pull/<n>/merge`, the
+release gate on a `v*` tag; see [Testing and releasing](testing-and-releasing.md#approval-and-fork-pull-requests)).
+The sweeper runs on a schedule in the same environment today, so with reviewers its runs wait for
+an approval too: see the end of [that page](testing-and-releasing.md#what-the-infrastructure-repository-provides).
+The nightly canary has its own environment, `e2e-canary`, with a read-only role. In `e2e` there are:
 
 - variables `AWS_REGION` (`us-east-2`), `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE` (the client
   ID and audience of the Tailscale federated identity; not sensitive);
@@ -542,8 +552,10 @@ sends it to an envtest API server as a server-side dry run with strict validatio
 of SCarpenter and Karpenter core (the CEL rules, the schema); `selftest.sh` runs the helpers of
 `lib.sh` against fixtures and stubs, checks that every scenario has a function and the workflow
 names it, that every action is pinned by SHA, that the lane's files hold no account ID, key or
-local path, that the CI policy script produces what the docs say, and renders the chart with the
-lane's values; the sweeper's tests run against the in-memory EC2. `make lint` runs `actionlint` and
+local path, that the CI policy and the canary's read-only policy are what the docs say, and renders the chart with the
+lane's values; the sweeper's tests run against the in-memory EC2; `test/canary` runs the canary
+against the same in-memory EC2 and compares its calls with the read-only policy; `test/e2e-plan-selftest.sh`
+tests the path rules that decide which runs a pull request needs. `make lint` runs `actionlint` and
 `shellcheck` on the workflows and the scripts.
 
 ### Artifact fixtures
@@ -609,6 +621,14 @@ workflow runs on GitHub-hosted runners. If a self-hosted runner is adopted for i
 (overview section 15, Q6), it must be for `schedule` and `workflow_dispatch` only,
 never for pull requests: a fork's pull request would run arbitrary code on it.
 
+The real-cloud lane is the exception that costs money, so it has its own rules
+([Testing and releasing](testing-and-releasing.md)): `e2e.yml` plans from the changed files of a pull
+request which vendors run what (a vendor's full lane, or a smoke of two scenarios on every vendor
+when shared node code changed, or nothing for documentation), the job that holds the cloud role waits
+for the required reviewers of the environment `e2e`, forks and drafts never run it, and the
+check `e2e-result` is the one to require. The nightly canary (`e2e-canary.yml`) is free and
+read-only. Neither runs on a timer that spends money.
+
 ## Releases
 
 `.github/workflows/release.yml` publishes on a tag `v<semver>` pushed by a
@@ -619,8 +639,11 @@ arm64, the drivers of the supported vendors only), a development image
 and chart digests, an SBOM and provenance per image, and a GitHub release. The
 version comes from the tag only (the Dockerfile stamps it, the chart is packaged
 with it as `version` and `appVersion`); nothing in the repository carries one.
-Before anything is published the tagged commit must be on `main` and pass the CI
-gates. The build steps are in `hack/release.sh`; the workflow's `workflow_dispatch`
+Before anything is published the tagged commit must be on `main`, pass the CI
+gates and pass the **full real-cloud lane (L5) of every vendor**, a required job of
+the workflow that the publishing jobs `needs:` (it waits for the approval of the environment
+`e2e`). The process step by step, and why the gate is part of the workflow, are in
+[Testing and releasing](testing-and-releasing.md#releasing). The build steps are in `hack/release.sh`; the workflow's `workflow_dispatch`
 runs them as a dry run (read-only token, nothing pushed), and so can you:
 
 ```bash

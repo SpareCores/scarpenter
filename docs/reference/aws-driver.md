@@ -475,7 +475,7 @@ snapshots, Capacity Blocks and Dedicated Host quotas.
 ## What is not verified against AWS yet
 
 Everything above runs against the in-memory fake only; plan 10 (L5, the workflow
-`e2e-aws.yml`, see [the L5 lane](../how-to-guides/testing.md#the-l5-lane)) confirms
+`e2e-cloud.yml`, see [the L5 lane](../how-to-guides/testing.md#the-l5-lane)) confirms
 it live. Specifically:
 
 - the exact `Flatcar-<channel>-<version>[-arm64]-hvm` AMI names (the public

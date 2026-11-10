@@ -1110,7 +1110,7 @@ all.
 | L2 | envtest | every PR | CRD validation (CEL, per-vendor blocks), NodeClass controller (per-vendor status), bootstrap token lifecycle, serving-CSR approver decisions, GC decisions | < 1 min |
 | L3 | kind + real Karpenter core + SCarpenter with the **fake** driver (KWOK nodes) | every PR | provisioning from pending Pods, price ordering, capacity-error fallback (the fake driver injects errors), quota-aware placement and pinned-region waiting (the fake driver simulates quotas), exact placement, range/percentile/selection-profile requests, profiles and the two-workload placement group (00a §8.2), a profile missing for a vendor stays Pending, `use`/`create` resources and their lifecycles, consolidation and empty-node deletion, drift, GC of orphans, catalog scale (§5.7) with the full AWS snapshot | ~10 min |
 | L4 | **qemu** driver: real Flatcar VMs on the runner, k3s control plane | every PR touching bootstrap; nightly | real Ignition, sysexts, TLS bootstrap against k3s, serving-CSR approval (`kubectl logs/exec`), a data volume formatted and mounted by the first-boot unit, Pod runs, delete → VM gone, drift → replacement, boot-to-Ready time | ~7 min with KVM and warm caches |
-| L5 | Real AWS with a k3s control plane on the CI runner, joined over **Tailscale** | manual + weekly | everything on the real cloud, both architectures, spot, the tailscale template, a database + client run in one placement group with an io2 data volume, a described-not-named selection, pre-created (`use`) resources | ~30 min, < $0.20 |
+| L5 | Real AWS with a k3s control plane on the CI runner, joined over **Tailscale** | pull requests that touch what it tests, manual, every release | everything on the real cloud, both architectures, spot, the tailscale template, a database + client run in one placement group with an io2 data volume, a described-not-named selection, pre-created (`use`) resources | ~30 min, < $0.20 |
 
 ### 13.2 L3: fake driver with KWOK
 
@@ -1150,7 +1150,7 @@ only for schedule and manual runs, never for pull requests.
 
 ### 13.4 L5: AWS e2e over Tailscale
 
-Workflow `e2e-aws.yml` (`workflow_dispatch` and weekly), GitHub environment
+Reusable workflow `e2e-cloud.yml` (called by `e2e.yml`: pull requests that touch what it tests and `workflow_dispatch`, and by `release.yml`; never a timer, see [Testing and releasing](../../../how-to-guides/testing-and-releasing.md)), GitHub environment
 `e2e`, `concurrency` group, `timeout-minutes: 90` (the scenarios step has
 its own limit, so that at least 20 minutes stay for diagnostics and teardown):
 
