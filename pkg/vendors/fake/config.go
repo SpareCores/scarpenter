@@ -29,6 +29,9 @@ const (
 	keyQuota       = "quota"
 	keyLaunchDelay = "launchDelay"
 	keyOrphans     = "orphans"
+	// keyPowerOff lists NodeClaims whose instances are powered off once (as
+	// PowerOff does) and lose their Node, the way a stopped node goes away.
+	keyPowerOff = "powerOff"
 	// keyUnsupported lists profiles that instance types cannot host, and
 	// keyExisting the resources the account had before SCarpenter (what `use`
 	// references and the vendor's default resources resolve to).
@@ -107,6 +110,17 @@ type orphanConfig struct {
 	PoweredOff bool `json:"poweredOff,omitempty"`
 }
 
+// steeringKeys are the keys of the steering ConfigMap.
+var steeringKeys = []string{keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting}
+
+// orEmpty is c, or an empty configuration when there is none yet.
+func orEmpty(c *config) *config {
+	if c == nil {
+		return &config{}
+	}
+	return c
+}
+
 // config is the parsed steering ConfigMap. Every key is parsed on its own, so a
 // broken one keeps its last good value.
 type config struct {
@@ -115,6 +129,7 @@ type config struct {
 	quota       *quotaConfig
 	launchDelay *time.Duration
 	orphans     []orphanConfig
+	powerOff    []string
 	rules       []unsupportedRule
 	existing    []existingResource
 	raw         map[string]string
@@ -177,7 +192,7 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	}
 	next := &config{raw: map[string]string{}}
 	prev := d.conf
-	for _, key := range []string{keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyUnsupported, keyExisting} {
+	for _, key := range steeringKeys {
 		next.raw[key] = cm.Data[key]
 	}
 	parse := func(key string, apply func(string) error, keep func()) {
@@ -255,6 +270,8 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 			next.orphans = prev.orphans
 		}
 	})
+	parse(keyPowerOff, func(raw string) error { return yaml.UnmarshalStrict([]byte(raw), &next.powerOff) },
+		func() { next.powerOff = orEmpty(prev).powerOff })
 	parse(keyUnsupported, func(raw string) error {
 		var rules []unsupportedRule
 		if err := yaml.UnmarshalStrict([]byte(raw), &rules); err != nil {
@@ -284,6 +301,7 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	})
 	d.conf = next
 	d.createOrphans(ctx, next.orphans)
+	d.powerOffClaims(ctx, next.powerOff)
 }
 
 // current returns the last parsed configuration (never nil).

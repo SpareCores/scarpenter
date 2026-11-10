@@ -780,3 +780,46 @@ func TestS18StoppedInstanceIsCollected(t *testing.T) {
 		t.Errorf("the stopped instance was deleted after %s, before the terminating grace", after)
 	}
 }
+
+// S19: a node whose instance is powered off while its NodeClaim exists (the fake's
+// powerOff key stops the instance and removes its Node). The instance is reported
+// terminating, Karpenter core deletes the NodeClaim, and CloudProvider.Delete
+// leaves the instance for the terminating grace (30s in the lane) and then deletes
+// it, which releases the NodeClaim.
+func TestS19StoppedNodeIsDeletedWithItsNodeClaim(t *testing.T) {
+	createNodeClass(t, "s19", us1)
+	createNodePool(t, "s19", "s19", in(labelRegion, us1), in(labelCapacity, "on-demand"))
+	typ := takeTypes(t, []string{us1}, 2, 1)[0]
+	createPod(t, "s19", map[string]string{labelType: vendor + "." + typ, labelNodePool: "s19"}, "100m")
+	node := waitPodRunning(t, "s19", long)
+	claims := waitClaims(t, "s19", 1, time.Minute)
+	claim := claims[0].Name
+
+	state := func() string {
+		_, insts := readState(t)
+		for _, i := range insts {
+			if i.NodeClaim == claim {
+				return i.State
+			}
+		}
+		return "absent"
+	}
+	setFake(t, map[string]string{"powerOff": fmt.Sprintf("[%s]\n", claim)})
+	eventually(t, 2*time.Minute, time.Second, "the instance powered off", func() (bool, string) {
+		return state() == "terminating", state()
+	})
+	stopped := time.Now()
+	waitNodeGone(t, node)
+	eventually(t, 3*time.Minute, time.Second, "the stopped instance deleted", func() (bool, string) {
+		return state() == "terminated", state()
+	})
+	after := time.Since(stopped)
+	waitNoClaims(t, "s19", time.Minute)
+	if cs, _ := listClaims("s19"); len(cs) != 0 {
+		t.Errorf("NodeClaims of s19 left: %d", len(cs))
+	}
+	t.Logf("Delete: the stopped instance after %s (terminating grace 30s)", after.Round(time.Second))
+	if after < 15*time.Second {
+		t.Errorf("the stopped instance was deleted after %s, before the terminating grace", after)
+	}
+}

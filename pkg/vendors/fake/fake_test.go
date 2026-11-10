@@ -19,6 +19,7 @@ import (
 	"github.com/SpareCores/sc-keeper-go/keepertest"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -494,6 +495,50 @@ func TestPoweredOffOrphanIsListedTerminatingAndDeletable(t *testing.T) {
 	}
 	if list, _ := h.d.ListInstances(t.Context(), nil, tags); len(list) != 0 {
 		t.Errorf("a terminated instance is listed: %v", list)
+	}
+}
+
+// The powerOff key stops the running instance of each NodeClaim once and deletes
+// its Node; the instance stays listed, terminating, until it is deleted.
+func TestPowerOffKeyStopsTheInstanceAndRemovesItsNode(t *testing.T) {
+	h := newHarness(t, nil)
+	zone := h.zone(t)
+	inst, err := h.d.CreateInstance(t.Context(), h.req("claim-1", testType, zone, "on-demand"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := h.d.CreateInstance(t.Context(), h.req("claim-2", testType, zone, "on-demand"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.setConfig(t, "powerOff", "[claim-1, no-such-claim]")
+	list, err := h.d.ListInstances(t.Context(), []string{testRegion}, nil)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("list: %v, %v; want both instances", list, err)
+	}
+	for _, i := range list {
+		want := vendors.StateRunning
+		if i.Ref == inst.Ref {
+			want = vendors.StateTerminating
+		}
+		if i.State != want {
+			t.Errorf("%s is %s, want %s", i.Ref, i.State, want)
+		}
+	}
+	if err := h.c.Get(t.Context(), types.NamespacedName{Name: "claim-1"}, &corev1.Node{}); !apierrors.IsNotFound(err) {
+		t.Errorf("the Node of the powered-off instance: %v, want NotFound", err)
+	}
+	if err := h.c.Get(t.Context(), types.NamespacedName{Name: "claim-2"}, &corev1.Node{}); err != nil {
+		t.Errorf("the Node of the running instance: %v", err)
+	}
+	if err := h.d.DeleteInstance(t.Context(), inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.d.GetInstance(t.Context(), inst.Ref); got == nil || got.State != vendors.StateTerminated {
+		t.Errorf("after the delete: %+v, want terminated", got)
+	}
+	if got, _ := h.d.GetInstance(t.Context(), other.Ref); got == nil || got.State != vendors.StateRunning {
+		t.Errorf("the other instance: %+v, want running", got)
 	}
 }
 

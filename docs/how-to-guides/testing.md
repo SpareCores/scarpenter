@@ -79,7 +79,7 @@ pushes `linux/amd64,linux/arm64`). `make help` lists every target.
 | L1 | `make test` | Unit and golden tests: pure packages with no Kubernetes client. | Started in plan 02 (flag parsing, labels; plan 04: the CloudProvider, quota tracker, garbage collector and the driver conformance suite against the fake driver; plan 08: the AWS driver against the in-memory EC2 and Service Quotas of `pkg/vendors/aws/fake`, golden `RunInstances` inputs, the conformance suite over the AWS type list of the snapshot). |
 | L2 | `make test` | envtest: an API server and etcd (no kubelet), with the generated CRDs and Karpenter core's CRDs installed. | CRD admission tests (schema, defaults, every CEL rule, strict field validation) and a smoke test that starts the real manager with the production wiring (the NodeClass controller resolving sysext checksums from a local release server) and has core resolve an `SCNodeClass`; the NodeClass, quota status, serving certificate and bootstrap token controllers. |
 | Chart | `make test-chart` | The Helm chart without a cluster: lint, golden `helm template` output, the values schema and the template checks against bad values, every controller flag settable and accepted by the controller's own parser, the RBAC and CRDs equal to `config/` and Karpenter core's. | Plan 09: [The chart tests](#the-chart-tests). The install into a cluster is the L3 lane. |
-| L3 | `make test-kwok` | Real Karpenter core, SCarpenter (installed from the Helm chart) and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, extended to seventeen by plan 06; the chart since plan 09. [The L3 lane](#the-l3-lane). |
+| L3 | `make test-kwok` | Real Karpenter core, SCarpenter (installed from the Helm chart) and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, extended to seventeen by plan 06 and to nineteen by plan 14; the chart since plan 09. [The L3 lane](#the-l3-lane). |
 | L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged` and `/dev/kvm`. | Plan 07: [The L4 lane](#the-l4-lane). |
 | L5 | `.github/workflows/e2e.yml` (pull requests that touch what it tests, manual), `e2e-cloud.yml` (the lane), `release.yml` (every tag) | Real cloud over Tailscale, AWS today. Never run from the dev container, never by a contributor's tooling; never on a timer ([when it runs](testing-and-releasing.md)). | Plan 10: [The L5 lane](#the-l5-lane). Has run green live (first green run 2026-11-10, all scenarios pass). |
 
@@ -152,7 +152,7 @@ and read what it did from the ConfigMap `scarpenter-fake-state` (`calls`,
 publishes its state debounced; the scenarios do not sleep for it: they read the
 fake's current revision from the controller's metrics
 (`scarpenter_fake_state_revision`) and wait until the ConfigMap's `revision` has
-reached it (`awaitState`). The scenarios are `TestS01` to `TestS17`:
+reached it (`awaitState`). The scenarios are `TestS01` to `TestS19`:
 
 | Scenario | Proves |
 |---|---|
@@ -174,6 +174,7 @@ reached it (`awaitState`). The scenarios are `TestS01` to `TestS17`:
 | S16 | vendor resources: `use` by `tags` in two regions (never touched), a missing `use` resource makes the region unavailable with a reason and recovers, default `create` on the first launch and its reuse, adoption after a controller restart, `idleTTL` deletion, `preCreate` kept while listed, `forbid` |
 | S17 | incomplete prices: offerings flagged `price-incomplete` and still used; excluded with `pricing.allowIncomplete: false` |
 | S18 | a stopped (powered-off) orphan instance is reported terminating, left alone for the terminating grace and then deleted by the garbage collector |
+| S19 | a node powered off while its NodeClaim exists (the fake's `powerOff` key): Karpenter core deletes the NodeClaim, and `Delete` deletes the instance after the terminating grace |
 
 Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
 (`KWOK_SCENARIOS=TestS0[12]`), `KEEP_CLUSTER=1` keeps the cluster and

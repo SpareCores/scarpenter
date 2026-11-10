@@ -104,10 +104,12 @@ type Driver struct {
 	instances map[string]*instance // by ID
 	byKey     map[string]string    // idempotency key -> ID
 	orphaned  map[string]bool
-	ruleHits  map[int]int
-	calls     []callRecord
-	dirty     bool
-	flushing  bool
+	// poweredOff are the NodeClaims of the powerOff key already handled.
+	poweredOff map[string]bool
+	ruleHits   map[int]int
+	calls      []callRecord
+	dirty      bool
+	flushing   bool
 	// revision counts the changes of the published state; published is the
 	// revision the state ConfigMap holds; failures counts the failed writes in
 	// a row (the retry backoff).
@@ -166,7 +168,7 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 	// a waiter for the next revision cannot be released by the old state.
 	d.revision = uint64(d.clock.Now().UnixMilli()) //nolint:gosec // a time, not a security value
 	d.registerMetrics()
-	d.orphaned, d.ruleHits = map[string]bool{}, map[int]int{}
+	d.orphaned, d.poweredOff, d.ruleHits = map[string]bool{}, map[string]bool{}, map[int]int{}
 	return nil
 }
 
@@ -550,6 +552,34 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 		return vendors.NewError(vendors.Retryable, "NodeDeleteFailed", errors.New(err.Error()))
 	}
 	return nil
+}
+
+// powerOffClaims powers off, once per NodeClaim of the powerOff key, the running
+// instance of the NodeClaim and deletes its Node: a stopped node stops reporting,
+// and the kwok Node would stay Ready for ever.
+func (d *Driver) powerOffClaims(ctx context.Context, claims []string) {
+	var nodes []string
+	d.mu.Lock()
+	for _, claim := range claims {
+		if d.poweredOff[claim] {
+			continue
+		}
+		for _, inst := range d.instances {
+			if inst.claim != claim || inst.State != vendors.StateRunning {
+				continue
+			}
+			d.poweredOff[claim] = true
+			inst.State = vendors.StateTerminating
+			d.record("poweroff", inst.Region, inst.Zone, inst.Type, inst.CapacityType, inst.claim, "ok")
+			nodes = append(nodes, inst.nodeName)
+		}
+	}
+	d.mu.Unlock()
+	for _, node := range nodes {
+		if err := d.deleteNode(ctx, node); err != nil {
+			d.cfg.Log.Error(err, "deleting the Node of a powered-off instance", "node", node)
+		}
+	}
 }
 
 // createOrphans creates the instances of the ConfigMap's orphans list that do

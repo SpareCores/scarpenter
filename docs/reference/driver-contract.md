@@ -279,6 +279,9 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   instances. Without the key the driver has no quota knowledge.
 - `launchDelay`, `orphans` (instances without a NodeClaim, for the GC scenarios; `poweredOff: true`
   creates one stopped, reported `terminating`).
+- `powerOff`: a list of NodeClaim names; the running instance of each is powered off
+  once (reported `terminating`, as `PowerOff` does) and its Node is deleted, the way a
+  stopped node stops reporting (a KWOK Node would otherwise stay Ready).
 - `unsupported`: rules `{kind, profile, instanceTypes, families, zones}` (empty
   lists match everything) that make a profile invalid for the matching types and
   zones. Besides, a storage profile with local storage is valid only on types
