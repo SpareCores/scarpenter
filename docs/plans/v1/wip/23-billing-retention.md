@@ -222,6 +222,8 @@ These were open questions; ADR-024 records them.
 1. **Disruption budgets are respected.** A budget that blocks a deadline delete holds the node into the next period (one more period paid).
 2. **No fixed `maxRetainedNodes` by default.** A launch blocked by a NodePool limit or a vendor quota releases held empty nodes first, nearest
    deadline first (ties: oldest start); `maxRetainedNodes` stays as an optional safety valve, unset by default.
+   A candidate whose delete a disruption budget forbids loses its hold and the next candidate is tried, so the blocked launch waits
+   only as long as it would without retention (confirmed 2026-11-10).
 3. **`consolidateAfter: Never` and a user `do-not-disrupt`**: the node is left completely alone; the NodeClass condition and an Event say why.
 4. **Minimum-then-per-second billing** (Alibaba; Azure has no minimum) is optimised too: one rule, the boundaries `start + minimum` and, for increments worth
    holding, `+ n*increment`; `minPeriod` gates per-increment holding, a 2-minute hold floor gates the minimum hold, the 3-minute margin default stays.
