@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -57,18 +58,60 @@ const (
 	TagNodePool  TagKey = "nodepool"
 	TagNodeClass TagKey = "nodeclass"
 	TagManagedBy TagKey = "managed-by"
+	// TagIdempotencyKey holds the NodeClaim UID on the instances of vendors that
+	// have no create token (IdempotencyTag); drivers with a token or a
+	// deterministic name do not write it.
+	TagIdempotencyKey TagKey = "idempotency-key"
 )
 
 // ManagedByValue is the value of the managed-by tag.
 const ManagedByValue = "scarpenter"
 
 // TagKeys lists the logical tag keys in a fixed order.
-var TagKeys = []TagKey{TagCluster, TagNodeClaim, TagNodePool, TagNodeClass, TagManagedBy}
+var TagKeys = []TagKey{TagCluster, TagNodeClaim, TagNodePool, TagNodeClass, TagManagedBy, TagIdempotencyKey}
 
 // DefaultTagKey maps a logical key the way AWS does:
 // scarpenter.sparecores.com/<key>. Vendors with a restrictive label charset
 // map to scarpenter-<key> instead.
 func DefaultTagKey(k TagKey) string { return v1alpha1.Group + "/" + string(k) }
+
+// IdempotencyTag returns tags with the idempotency key added (the input is not
+// modified), for the driver of a vendor without a create token to write on the
+// instance. An empty key adds nothing. The NodeClaim UID is 36 lower-case
+// characters and fits every vendor's value rules.
+func IdempotencyTag(tags map[TagKey]string, key string) map[TagKey]string {
+	out := make(map[TagKey]string, len(tags)+1)
+	maps.Copy(out, tags)
+	if key != "" {
+		out[TagIdempotencyKey] = key
+	}
+	return out
+}
+
+// IdempotencyKeyOf reads the idempotency key back from an instance's tags; empty
+// when the instance has none.
+func IdempotencyKeyOf(tags map[TagKey]string) string { return tags[TagIdempotencyKey] }
+
+// FindByIdempotencyKey is the lookup of such a driver before every create: the
+// instance of the key in the region, in whatever zone, type or capacity type it
+// was launched, or nil when there is none (a failed create leaves the key
+// unused). Terminated instances do not count.
+func FindByIdempotencyKey(ctx context.Context, d Driver, region, key string) (*Instance, error) {
+	if key == "" {
+		return nil, nil
+	}
+	inst, err := d.FindInstance(ctx, region, map[TagKey]string{TagIdempotencyKey: key})
+	if err != nil {
+		if IsClass(err, NotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if inst.State == StateTerminated {
+		return nil, nil
+	}
+	return inst, nil
+}
 
 // InstanceRef is the driver-opaque reference of an instance: the driver's
 // region and its instance ID, "<region>/<id>" (for example us-east-1/i-0abc).

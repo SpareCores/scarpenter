@@ -351,7 +351,9 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
 
 `TagKey(k)` is `scarpenter.sparecores.com/<key>` for the logical keys `cluster`,
 `nodeclaim`, `nodepool`, `nodeclass`, `managed-by` (and `resource-kind` on
-resources); these characters are valid in EC2 tag keys. The NodeClass's
+resources); these characters are valid in EC2 tag keys. The logical key
+`idempotency-key` (the NodeClaim UID of vendors without a create token) is mapped the same
+way but never written: the AWS driver has the client token. The NodeClass's
 `spec.tags` are added to instances, volumes, network interfaces and managed
 resources; the logical tags and `Name` win over them.
 

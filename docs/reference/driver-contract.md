@@ -17,7 +17,7 @@ branches on no vendor name.
 | `CreateInstance(ctx, req)` | Launch one instance. Replaying an `IdempotencyKey` returns the original instance, whatever zone, type or capacity type the replay asks for (the CloudProvider builds the NodeClaim from the returned instance). A failed create leaves the key unused, so the next attempt with another offering launches. |
 | `GetInstance`, `FindInstance`, `ListInstances` | By reference, by tags, by tags in regions. `GetInstance` also returns terminated instances; `ListInstances` excludes only the terminated ones (it returns `terminating` instances, see [instance states](#instance-states)). |
 | `DeleteInstance(ctx, ref)` | Idempotent: deleting an instance that is gone is not an error. |
-| `TagKey(k)` | Maps the logical keys `cluster`, `nodeclaim`, `nodepool`, `nodeclass`, `managed-by` to the vendor's charset (`vendors.DefaultTagKey`: `scarpenter.sparecores.com/<key>`). |
+| `TagKey(k)` | Maps the logical keys `cluster`, `nodeclaim`, `nodepool`, `nodeclass`, `managed-by` and `idempotency-key` to the vendor's charset (`vendors.DefaultTagKey`: `scarpenter.sparecores.com/<key>`; a vendor whose labels allow no `/` or `.`, or only 32 characters, maps to `scarpenter-<key>`, which is 26 characters for the longest). Keys must stay distinct after the mapping. |
 
 A reference the driver cannot parse (no region, no ID, an ID without the parts the
 vendor needs, a region the account cannot use) is an instance that does not exist:
@@ -40,6 +40,20 @@ driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (bel
 `EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker` (below), `ImageImporter` (reserved) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
+
+## The idempotency label
+
+A vendor with a create token (AWS `ClientToken`, Alibaba Cloud `ClientToken`) or a
+deterministic instance name (Azure) keeps the replay rule of `CreateInstance` with that.
+A vendor without either stores the NodeClaim UID (`CreateRequest.IdempotencyKey`, 36
+lower-case characters, which fits every vendor's value rules) on the instance as the
+logical tag `idempotency-key` (`vendors.IdempotencyTag`) and looks it up before every create
+(`vendors.FindByIdempotencyKey`): any zone, type or capacity type of the replay returns the
+original instance, and a failed create leaves the key unused. The key is read back with
+`vendors.IdempotencyKeyOf`. A driver that writes the label sets the fixture's
+`StoresIdempotencyKey`, and the suite then requires that the key round-trips through
+`GetInstance`, `FindInstance` and the tag filter of `ListInstances`, and that a failed create
+leaves no instance with it. The AWS driver does not write it (it has the client token).
 
 ## Instance states
 
@@ -133,7 +147,7 @@ driver does).
 
 `conformance.Run(t, conformance.Fixture{...})` runs: identity, zone mapping,
 idempotent create and the two key rules, NotFound semantics, malformed references
-(`NotFound`, never `Fatal`), list by tags, the stopped-node rule (the fixture's `PowerOff`
+(`NotFound`, never `Fatal`), the idempotency label (drivers that store it), list by tags, the stopped-node rule (the fixture's `PowerOff`
 hook stops an instance; it must report `terminating`, stay listed and delete cleanly), delete idempotency, tag
 round trip, user-data limit, error classification (the fixture's `Inject` hook
 makes the next launch fail with a class), and for `QuotaReporter` drivers: every

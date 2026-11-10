@@ -58,6 +58,13 @@ type Fixture struct {
 	// class. Without it the classification subtests are skipped.
 	Inject func(t *testing.T, d vendors.Driver, class vendors.Class, req vendors.CreateRequest)
 
+	// StoresIdempotencyKey says that the driver is of a vendor without a create
+	// token and keeps the NodeClaim UID in the idempotency-key tag
+	// (vendors.IdempotencyTag): the tag must round-trip through GetInstance and
+	// FindInstance. Drivers with a create token or a deterministic name leave it
+	// false.
+	StoresIdempotencyKey bool
+
 	// PowerOff stops the instance the way a guest poweroff, or a stop call
 	// outside SCarpenter, would on the vendor's fixture; the subtest of the
 	// stopped-node rule is skipped without it.
@@ -205,6 +212,7 @@ func Run(t *testing.T, fx Fixture) {
 	sub("idempotent create", idempotentCreate)
 	sub("idempotency key semantics", idempotencyKeySemantics)
 	sub("not found", notFound)
+	sub("idempotency tag", idempotencyTag)
 	sub("malformed references", malformedReferences)
 	sub("list by tags", listByTags)
 	sub("delete is idempotent", deleteIdempotent)
@@ -353,6 +361,54 @@ func notFound(t *testing.T, e *env) {
 // an instance that does not exist: GetInstance says NotFound and DeleteInstance
 // succeeds (or says NotFound), never Fatal, so that a stale annotation does not
 // put an Event on a NodeClass.
+// idempotencyTag pins the label of the vendors without a create token: the key
+// round-trips through GetInstance, FindInstance and the tag filter of
+// ListInstances, and a failed create leaves no instance with the key.
+func idempotencyTag(t *testing.T, e *env) {
+	if !e.fx.StoresIdempotencyKey {
+		t.Skip("the driver has a create token or a deterministic name")
+	}
+	req := e.request(t)
+	if e.fx.Inject != nil {
+		failing := e.request(t)
+		e.fx.Inject(t, e.d, vendors.InsufficientCapacity, failing)
+		if _, err := e.d.CreateInstance(t.Context(), failing); err == nil {
+			t.Fatal("the injected error did not fail the create")
+		}
+		got, err := vendors.FindByIdempotencyKey(t.Context(), e.d, e.region, failing.IdempotencyKey)
+		if err != nil || got != nil {
+			t.Errorf("a failed create left an instance with its key: %v, %v", got, err)
+		}
+	}
+	inst := e.create(t, req)
+	if got := vendors.IdempotencyKeyOf(inst.Tags); got != req.IdempotencyKey {
+		t.Errorf("the created instance carries the key %q, want %q", got, req.IdempotencyKey)
+	}
+	got, err := e.d.GetInstance(t.Context(), inst.Ref)
+	if err != nil || vendors.IdempotencyKeyOf(got.Tags) != req.IdempotencyKey {
+		t.Errorf("GetInstance: key %q, %v; want %q", vendors.IdempotencyKeyOf(got.Tags), err, req.IdempotencyKey)
+	}
+	found, err := vendors.FindByIdempotencyKey(t.Context(), e.d, e.region, req.IdempotencyKey)
+	if err != nil || found == nil || found.Ref != inst.Ref {
+		t.Errorf("FindByIdempotencyKey = %v, %v; want %s", found, err, inst.Ref)
+	}
+	list, err := e.d.ListInstances(t.Context(), []string{e.region},
+		map[vendors.TagKey]string{vendors.TagIdempotencyKey: req.IdempotencyKey})
+	if err != nil || len(list) != 1 || list[0].Ref != inst.Ref {
+		t.Errorf("listing by the key returned %v, %v; want %s", refs(list), err, inst.Ref)
+	}
+	unused := req.IdempotencyKey + otherSuffix
+	if got, err := vendors.FindByIdempotencyKey(t.Context(), e.d, e.region, unused); err != nil || got != nil {
+		t.Errorf("another key found %v, %v", got, err)
+	}
+	if err := e.d.DeleteInstance(t.Context(), inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := vendors.FindByIdempotencyKey(t.Context(), e.d, e.region, req.IdempotencyKey); err != nil || got != nil {
+		t.Errorf("a deleted instance still holds its key: %v, %v", got, err)
+	}
+}
+
 func malformedReferences(t *testing.T, e *env) {
 	for _, ref := range []vendors.InstanceRef{
 		"", "/", "no-slash", vendors.NewInstanceRef(e.region, ""), vendors.NewInstanceRef("", "i-never-existed"),

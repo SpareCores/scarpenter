@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -84,4 +85,64 @@ func TestRegistry(t *testing.T) {
 		}
 	}
 	vendors.Register("stub-a", nil)
+}
+
+// stubFinder answers FindInstance from a fixed instance.
+type stubFinder struct {
+	vendors.Driver
+	inst *vendors.Instance
+	err  error
+	got  map[vendors.TagKey]string
+}
+
+func (s *stubFinder) FindInstance(_ context.Context, _ string, tags map[vendors.TagKey]string) (*vendors.Instance, error) {
+	s.got = tags
+	return s.inst, s.err
+}
+
+func TestIdempotencyTag(t *testing.T) {
+	in := map[vendors.TagKey]string{vendors.TagCluster: "c"}
+	out := vendors.IdempotencyTag(in, "0b6c3f2e-0000-4000-8000-000000000001")
+	if _, ok := in[vendors.TagIdempotencyKey]; ok {
+		t.Error("the input map was modified")
+	}
+	if out[vendors.TagCluster] != "c" || vendors.IdempotencyKeyOf(out) != "0b6c3f2e-0000-4000-8000-000000000001" {
+		t.Errorf("tags %v", out)
+	}
+	if _, ok := vendors.IdempotencyTag(in, "")[vendors.TagIdempotencyKey]; ok {
+		t.Error("an empty key must add no tag")
+	}
+	if vendors.DefaultTagKey(vendors.TagIdempotencyKey) != "scarpenter.sparecores.com/idempotency-key" {
+		t.Errorf("default tag key %q", vendors.DefaultTagKey(vendors.TagIdempotencyKey))
+	}
+	if !slices.Contains(vendors.TagKeys, vendors.TagIdempotencyKey) {
+		t.Error("idempotency-key is not a logical tag key")
+	}
+}
+
+func TestFindByIdempotencyKey(t *testing.T) {
+	running := &vendors.Instance{State: vendors.StateRunning}
+	for _, tc := range []struct {
+		name string
+		stub *stubFinder
+		key  string
+		want *vendors.Instance
+		err  bool
+	}{
+		{"found", &stubFinder{inst: running}, "k", running, false},
+		{"unused key", &stubFinder{err: vendors.Errorf(vendors.NotFound, "none")}, "k", nil, false},
+		{"terminated", &stubFinder{inst: &vendors.Instance{State: vendors.StateTerminated}}, "k", nil, false},
+		{"empty key", &stubFinder{inst: running}, "", nil, false},
+		{"vendor error", &stubFinder{err: vendors.Errorf(vendors.Retryable, "throttled")}, "k", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := vendors.FindByIdempotencyKey(context.Background(), tc.stub, "r", tc.key)
+			if got != tc.want || (err != nil) != tc.err {
+				t.Errorf("got %v, %v; want %v, error %v", got, err, tc.want, tc.err)
+			}
+			if tc.key != "" && tc.stub.got[vendors.TagIdempotencyKey] != tc.key {
+				t.Errorf("looked up %v, want the key tag only", tc.stub.got)
+			}
+		})
+	}
 }

@@ -372,7 +372,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		Instance: vendors.Instance{
 			Ref: vendors.NewInstanceRef(req.Region, id), Region: req.Region, Zone: req.Zone, Type: req.InstanceType,
 			CapacityType: req.CapacityType, State: vendors.StateRunning, CreatedAt: d.clock.Now(),
-			Tags:      maps.Clone(req.Tags),
+			Tags:      vendors.IdempotencyTag(req.Tags, req.IdempotencyKey),
 			Addresses: []string{fmt.Sprintf("10.%d.%d.%d", d.seq/65536%256, d.seq/256%256, d.seq%256)},
 		},
 		claim: claim, nodeName: req.Node.Name, vcpus: srv.vcpus, key: req.IdempotencyKey,

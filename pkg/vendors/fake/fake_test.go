@@ -135,7 +135,8 @@ func TestConformance(t *testing.T) {
 			return newHarness(t, map[string]string{"quota": baseQuota}).d
 		},
 		Region: testRegion, InstanceType: testType, MaxUserData: 16 * 1024,
-		InstanceTypes: []string{"m7i.large", "c7g.xlarge", "t3.micro", "p4d.24xlarge"},
+		InstanceTypes:        []string{"m7i.large", "c7g.xlarge", "t3.micro", "p4d.24xlarge"},
+		StoresIdempotencyKey: true,
 		PowerOff: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) {
 			t.Helper()
 			if !d.(*fakedriver.Driver).PowerOff(ref) {
