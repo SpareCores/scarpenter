@@ -42,6 +42,7 @@ The last column names the plan that introduced the flag.
 | `--quota-launchable-refresh-interval` | `SCARPENTER_QUOTA_LAUNCHABLE_REFRESH_INTERVAL` | `1h` | How often the instance types the account can launch per zone (`OfferingLister`) are refreshed. | plan 04 |
 | `--gc-interval` | `SCARPENTER_GC_INTERVAL` | `2m` | How often the garbage collector looks for orphans. | plan 04 |
 | `--gc-grace-period` | `SCARPENTER_GC_GRACE_PERIOD` | `5m` | Age an instance (or bootstrap token) without a NodeClaim must have before it is deleted. | plan 04 |
+| `--terminating-grace` | `SCARPENTER_TERMINATING_GRACE` | `10m` | How long an instance may be seen `terminating` before it is deleted again, by the garbage collector (no NodeClaim) and by `Delete`. The first sighting is kept in memory, so a restart restarts the clock. A stopped or powered-off instance is `terminating` for ever; one the vendor is deleting disappears well inside the grace. | plan 14 |
 | `--gc-dry-run` | `SCARPENTER_GC_DRY_RUN` | `false` | Log (and count, `result="dry-run"`) what the garbage collector would delete without deleting it. | plan 04 |
 | `--unavailable-insufficient-capacity-ttl` | `SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL` | `0` (3m) | How long an offering stays unavailable after `InsufficientCapacity`. | plan 04 |
 | `--unavailable-unsupported-ttl` | `SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL` | `0` (24h) | How long a type stays unavailable in a zone after `Unsupported`. | plan 04 |
@@ -108,7 +109,7 @@ and that the controller's own parser accepts what the chart renders.
 | `bootstrap.tailnetPrefixes` | `--tailnet-prefixes` | A list of CIDRs. |
 | `launch.maxAttempts` | `--max-launch-attempts` | |
 | `quota.refreshInterval`, `limitsRefreshInterval`, `maxStaleness`, `launchableRefreshInterval` | `--quota-*` | |
-| `gc.interval`, `gracePeriod`, `dryRun` | `--gc-interval`, `--gc-grace-period`, `--gc-dry-run` | |
+| `gc.interval`, `gracePeriod`, `terminatingGrace`, `dryRun` | `--gc-interval`, `--gc-grace-period`, `--terminating-grace`, `--gc-dry-run` | |
 | `unavailable.insufficientCapacityTTL`, `unsupportedTTL`, `quotaExceededTTL`, `zoneUnusableTTL` | `--unavailable-*-ttl` | |
 | `managedResources.defaultTTL`, `perUseGrace`, `checkInterval`, `fullSweepEvery` | `--resource-default-ttl`, `--resource-per-use-grace`, `--resource-check-interval`, `--resource-full-sweep-every` | See the cost note of the full sweep. |
 | `karpenter.logLevel`, `batchMaxDuration`, `batchIdleDuration`, `featureGates`, `metricsPort`, `healthProbePort` | `--log-level`, `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, `--metrics-port`, `--health-probe-port` | Core's. |
@@ -285,7 +286,10 @@ to the returned instance.
   Terminated and terminating instances are `NodeClaimNotFound`.
 - `Delete` terminates by the `instance-ref` annotation, else by tag lookup, and
   removes the bootstrap token. It returns `NodeClaimNotFound` once the instance
-  is gone.
+  is gone. An instance that is terminating (the vendor is deleting it, or it is
+  stopped or powered off, which every driver reports as terminating) is left alone
+  for `--terminating-grace` from the first time `Delete` saw it, then deleted again
+  (`DeleteInstance` is idempotent), and again after each further grace.
 - `IsDrifted` returns `NodeClassDrift` when the NodeClaim's `nodeclass-hash`
   differs from `status.vendors.<vendor>.hash`.
 
@@ -352,7 +356,12 @@ SCarpenter. The status is written by server-side apply with field manager
 Every `--gc-interval` (leader only) the collector lists the instances tagged with
 this cluster in the regions in use (allowed by a NodeClass, or holding a
 NodeClaim) and deletes those whose NodeClaim does not exist (or that lack the
-`nodeclaim` tag) and that are older than `--gc-grace-period`. Bootstrap-token
+`nodeclaim` tag) and that are older than `--gc-grace-period`. An instance without a
+NodeClaim that has been `terminating` for longer than `--terminating-grace` (a
+stopped or powered-off instance, which no vendor deletes by itself) is deleted again,
+with the reason `Terminating`; while its NodeClaim exists, Karpenter core deletes the
+NodeClaim (`Get` does not return it) and `Delete` deletes the instance after the
+grace. Bootstrap-token
 Secrets (`kube-system`, label `scarpenter.sparecores.com/nodeclaim`) of missing
 NodeClaims are deleted the same way, with a `GarbageCollected` Event on the
 SCNodeClass of the token's `scarpenter.sparecores.com/nodeclass` label. Managed
@@ -365,7 +374,7 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance` or `bootstrap-token`; `reason`: `NodeClaimNotFound` or `NoNodeClaimTag`; `result`: `deleted`, `dry-run`, `error`. |
+| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance` or `bootstrap-token`; `reason`: `NodeClaimNotFound`, `NoNodeClaimTag` or `Terminating`; `result`: `deleted`, `dry-run`, `error`. |
 | `scarpenter_gc_sweep_duration_seconds` | histogram | | Duration of a sweep. |
 | `scarpenter_gc_last_sweep_timestamp_seconds` | gauge | | Time of the last sweep. |
 

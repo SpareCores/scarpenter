@@ -44,6 +44,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "quota-launchable-refresh-interval" .Values.quota.launchableRefreshInterval
   "gc-interval" .Values.gc.interval
   "gc-grace-period" .Values.gc.gracePeriod
+  "terminating-grace" .Values.gc.terminatingGrace
   "gc-dry-run" (ternary "true" "" (default false .Values.gc.dryRun))
   "unavailable-insufficient-capacity-ttl" .Values.unavailable.insufficientCapacityTTL
   "unavailable-unsupported-ttl" .Values.unavailable.unsupportedTTL

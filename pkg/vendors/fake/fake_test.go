@@ -136,6 +136,12 @@ func TestConformance(t *testing.T) {
 		},
 		Region: testRegion, InstanceType: testType, MaxUserData: 16 * 1024,
 		InstanceTypes: []string{"m7i.large", "c7g.xlarge", "t3.micro", "p4d.24xlarge"},
+		PowerOff: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) {
+			t.Helper()
+			if !d.(*fakedriver.Driver).PowerOff(ref) {
+				t.Fatalf("PowerOff(%s): no such instance", ref)
+			}
+		},
 		Inject: func(t *testing.T, d vendors.Driver, class vendors.Class, req vendors.CreateRequest) {
 			t.Helper()
 			h := &harness{d: d.(*fakedriver.Driver)}
@@ -433,6 +439,27 @@ func TestOrphansAreCreatedOnce(t *testing.T) {
 	// Deleted once, not resurrected by the next config read.
 	if list, _ := h.d.ListInstances(t.Context(), nil, tags); len(list) != 0 {
 		t.Errorf("the orphan came back: %v", list)
+	}
+}
+
+func TestPoweredOffOrphanIsListedTerminatingAndDeletable(t *testing.T) {
+	h := newHarness(t, map[string]string{"orphans": `
+- {name: stopped-1, region: us-east-1, zone: us-east-1a, instanceType: m7i.large, capacityType: on-demand, ageSeconds: 600, poweredOff: true}
+`})
+	tags := map[vendors.TagKey]string{vendors.TagCluster: "my-cluster"}
+	list, err := h.d.ListInstances(t.Context(), []string{testRegion}, tags)
+	if err != nil || len(list) != 1 || list[0].State != vendors.StateTerminating {
+		t.Fatalf("list: %+v, %v; want the one terminating instance", list, err)
+	}
+	if err := h.d.DeleteInstance(t.Context(), list[0].Ref); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.d.GetInstance(t.Context(), list[0].Ref)
+	if err != nil || got.State != vendors.StateTerminated {
+		t.Errorf("after the delete: %+v, %v; want terminated", got, err)
+	}
+	if list, _ := h.d.ListInstances(t.Context(), nil, tags); len(list) != 0 {
+		t.Errorf("a terminated instance is listed: %v", list)
 	}
 }
 

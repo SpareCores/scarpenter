@@ -318,7 +318,7 @@ func (d *Driver) InUse(ctx context.Context, ref vendors.ResourceRef) (bool, time
 		MaxResults: aws.Int32(5),
 		Filters: []ec2types.Filter{
 			{Name: aws.String(filter), Values: []string{value}},
-			{Name: aws.String("instance-state-name"), Values: append(slices.Clone(launchStates), "shutting-down")},
+			{Name: aws.String("instance-state-name"), Values: listStates},
 		},
 	}
 	for {

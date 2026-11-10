@@ -166,16 +166,22 @@ use and are never set).
   it to the instance the token created (`DescribeInstances` by `client-token`,
   also when that instance is terminated). A failed create leaves the token
   unused.
-- **States.** `pending` is `pending`; `running`, `stopping` and `stopped` are
-  `running` (they still exist and cost, and are deleted with their NodeClaim);
-  `shutting-down` is `terminating`; `terminated` is `terminated`.
+- **States.** `pending` is `pending`; `running` is `running`; `shutting-down`,
+  `stopping` and `stopped` are `terminating`; `terminated` is `terminated`. A
+  stopped instance is not coming back and its volumes keep costing, so it is
+  reported terminating like every vendor's stopped nodes and deleted after
+  `--terminating-grace` ([driver contract](driver-contract.md#instance-states)). A guest
+  `poweroff` already terminates the instance (`InstanceInitiatedShutdownBehavior:
+  terminate`), so `stopped` arises only from a `StopInstances` call outside SCarpenter.
 - **Addresses.** `Instance.Addresses` lists the private and public IPv4 and the
   IPv6 addresses of every interface; the serving certificate approver checks the
   node's IP SANs against them.
-- `FindInstance` and `ListInstances` filter by the logical tags over pending,
-  running, stopping and stopped instances; regions the account cannot use list
-  nothing. `DeleteInstance` treats an unknown, malformed or terminated instance as
-  success.
+- `FindInstance` filters by the logical tags over pending, running, stopping and
+  stopped instances. `ListInstances` does too and adds the shutting-down ones: it
+  excludes only terminated instances, so the garbage collector sees the terminating
+  ones. Regions the account cannot use list nothing. `GetInstance` of a malformed
+  reference or of a region the account cannot use is `NotFound`; `DeleteInstance` treats an
+  unknown, malformed or terminated instance as success.
 
 ## Node settings
 

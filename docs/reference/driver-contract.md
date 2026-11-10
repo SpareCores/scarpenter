@@ -15,7 +15,7 @@ branches on no vendor name.
 | `Zones(ctx, region)` | The account's zones with Keeper zone IDs (`use1-az1`) and the account's names (`us-east-1a`). A vendor without zones returns none. |
 | `ResolveImage(ctx, req)` | The official image per region, architecture, Flatcar channel and version. |
 | `CreateInstance(ctx, req)` | Launch one instance. Replaying an `IdempotencyKey` returns the original instance, whatever zone, type or capacity type the replay asks for (the CloudProvider builds the NodeClaim from the returned instance). A failed create leaves the key unused, so the next attempt with another offering launches. |
-| `GetInstance`, `FindInstance`, `ListInstances` | By reference, by tags, by tags in regions. `GetInstance` also returns terminated instances; `ListInstances` excludes them. |
+| `GetInstance`, `FindInstance`, `ListInstances` | By reference, by tags, by tags in regions. `GetInstance` also returns terminated instances; `ListInstances` excludes only the terminated ones (it returns `terminating` instances, see [instance states](#instance-states)). |
 | `DeleteInstance(ctx, ref)` | Idempotent: deleting an instance that is gone is not an error. |
 | `TagKey(k)` | Maps the logical keys `cluster`, `nodeclaim`, `nodepool`, `nodeclass`, `managed-by` to the vendor's charset (`vendors.DefaultTagKey`: `scarpenter.sparecores.com/<key>`). |
 
@@ -40,6 +40,26 @@ driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (bel
 `EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker` (below), `ImageImporter` (reserved) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
+
+## Instance states
+
+`pending`, `running`, `terminating`, `terminated`. An instance that is stopped,
+powered off, suspended or deallocated by itself (a guest `poweroff`, a crash; its
+disks and addresses, and on most vendors the compute too, keep billing) is
+`terminating` on every vendor, as is one the vendor is deleting: each driver's state
+table maps stopped, off, powered-off, suspended and deallocated to `terminating`. A node that is off cannot
+take pods and does not come back. `Instance.Gone()` is true for `terminating` and
+`terminated`, so `Get` and `List` of the CloudProvider skip such instances, and Karpenter
+core's NodeClaim garbage collection deletes the NodeClaim of a stopped node.
+
+`ListInstances` returns terminating instances (the garbage collector must find them),
+and the garbage collector's orphan sweep and `CloudProvider.Delete` call `DeleteInstance`
+again for an instance that has been seen terminating for longer than `--terminating-grace`
+(default 10 minutes; the first sighting is in memory, so a restart restarts the clock).
+`DeleteInstance` of a terminating instance must therefore work and be idempotent.
+Instances the vendor is really deleting disappear inside the grace and cost no extra call.
+The rule saves what is charged from now on (the following billing periods, the disks, the
+addresses), never the billing period that has started ([ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10)).
 
 ## Node options and vendor resources
 
@@ -113,7 +133,8 @@ driver does).
 
 `conformance.Run(t, conformance.Fixture{...})` runs: identity, zone mapping,
 idempotent create and the two key rules, NotFound semantics, malformed references
-(`NotFound`, never `Fatal`), list by tags, delete idempotency, tag
+(`NotFound`, never `Fatal`), list by tags, the stopped-node rule (the fixture's `PowerOff`
+hook stops an instance; it must report `terminating`, stay listed and delete cleanly), delete idempotency, tag
 round trip, user-data limit, error classification (the fixture's `Inject` hook
 makes the next launch fail with a class), and for `QuotaReporter` drivers: every
 type maps to buckets or is on the fixture's unknown list, launches show up in
@@ -215,6 +236,10 @@ servers from Keeper, so NodeClasses use `spec.vendors.aws` and types are
 `--fake-state-name` (`scarpenter-fake-state`), `--fake-resources-name`
 (`scarpenter-fake-resources`), `--fake-launch-delay`.
 
+The fake's Go API has `PowerOff(ref)`, which stops an instance the way a guest
+poweroff would (it stays, reported `terminating`, until deleted); the conformance suite
+and the unit tests use it.
+
 The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
 
 - `errors`: rules `{match: {instanceType, region, zone, capacityType}, error:
@@ -225,7 +250,8 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   `capacityTypes` -> `buckets`; amount = the type's vCPUs), `notLaunchable`
   (`region`, `zone`, `types`). Usage = foreign usage plus the fake's own
   instances. Without the key the driver has no quota knowledge.
-- `launchDelay`, `orphans` (instances without a NodeClaim, for the GC scenario).
+- `launchDelay`, `orphans` (instances without a NodeClaim, for the GC scenarios; `poweredOff: true`
+  creates one stopped, reported `terminating`).
 - `unsupported`: rules `{kind, profile, instanceTypes, families, zones}` (empty
   lists match everything) that make a profile invalid for the matching types and
   zones. Besides, a storage profile with local storage is valid only on types

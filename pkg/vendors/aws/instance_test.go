@@ -340,8 +340,8 @@ func TestInstanceStatesAndAddresses(t *testing.T) {
 	id := inst.Ref.ID()
 	for state, want := range map[ec2types.InstanceStateName]string{
 		ec2types.InstanceStateNamePending:      vendors.StatePending,
-		ec2types.InstanceStateNameStopping:     vendors.StateRunning,
-		ec2types.InstanceStateNameStopped:      vendors.StateRunning,
+		ec2types.InstanceStateNameStopping:     vendors.StateTerminating,
+		ec2types.InstanceStateNameStopped:      vendors.StateTerminating,
 		ec2types.InstanceStateNameShuttingDown: vendors.StateTerminating,
 		ec2types.InstanceStateNameTerminated:   vendors.StateTerminated,
 	} {
@@ -420,14 +420,37 @@ func TestFindListAndDelete(t *testing.T) {
 	}
 	e.acct.SetInstanceState(testRegion, refs[1].ID(), ec2types.InstanceStateNameShuttingDown)
 	list, _ = e.d.ListInstances(ctx, []string{testRegion}, cluster)
-	if len(list) != 5 {
-		t.Errorf("listed %d, want 5 (terminated and shutting-down ones are gone)", len(list))
+	// Only the terminated one is dropped: a shutting-down instance is listed
+	// terminating, so that the garbage collector can delete it again.
+	if len(list) != 6 {
+		t.Errorf("listed %d, want 6 (terminated ones are not listed)", len(list))
 	}
-	// Find picks the newest of the instances that are not gone.
-	byClaim := map[vendors.TagKey]string{vendors.TagNodeClaim: list[0].Tags[vendors.TagNodeClaim]}
+	var running *vendors.Instance
+	for _, i := range list {
+		switch {
+		case i.Ref == refs[1] && i.State != vendors.StateTerminating:
+			t.Errorf("the shutting-down instance is listed %q, want terminating", i.State)
+		case i.Ref != refs[1] && running == nil:
+			running = i
+		}
+	}
+	// Find picks the newest of the instances that are not terminated or shutting down.
+	byClaim := map[vendors.TagKey]string{vendors.TagNodeClaim: running.Tags[vendors.TagNodeClaim]}
 	found, err := e.d.FindInstance(ctx, testRegion, byClaim)
-	if err != nil || found.Ref != list[0].Ref {
+	if err != nil || found.Ref != running.Ref {
 		t.Errorf("FindInstance = %v, %v", found, err)
+	}
+	e.acct.SetInstanceState(testRegion, refs[2].ID(), ec2types.InstanceStateNameStopped)
+	stopped, err := e.d.FindInstance(ctx, testRegion, map[vendors.TagKey]string{
+		vendors.TagNodeClaim: tagOf(t, e, refs[2], vendors.TagNodeClaim)})
+	if err != nil || stopped.Ref != refs[2] || stopped.State != vendors.StateTerminating {
+		t.Errorf("FindInstance of a stopped instance = %v, %v; want it, terminating", stopped, err)
+	}
+	if err := e.d.DeleteInstance(ctx, refs[2]); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.acct.InstanceStates(testRegion)[refs[2].ID()]; got != ec2types.InstanceStateNameTerminated {
+		t.Errorf("DeleteInstance of a stopped instance left it %s", got)
 	}
 	if _, err := e.d.FindInstance(ctx, "nowhere-1", byClaim); !vendors.IsClass(err, vendors.NotFound) {
 		t.Errorf("FindInstance in an unknown region: %v", err)
@@ -637,4 +660,13 @@ func TestPublicIPv6NeedsASubnetWithIPv6(t *testing.T) {
 			}
 		})
 	}
+}
+
+func tagOf(t *testing.T, e *env, ref vendors.InstanceRef, k vendors.TagKey) string {
+	t.Helper()
+	inst, err := e.d.GetInstance(context.Background(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return inst.Tags[k]
 }

@@ -28,7 +28,7 @@ quota:
 unavailable:
   insufficientCapacityTTL: 20s
   quotaExceededTTL: 20s
-gc: {interval: 10s, gracePeriod: 30s}
+gc: {interval: 10s, gracePeriod: 30s, terminatingGrace: 30s}
 # Managed resources: a short perUse grace and a quick status check make the
 # lifecycle scenarios (S15, S16) fast.
 managedResources: {perUseGrace: 20s, checkInterval: 5s, fullSweepEvery: 3}

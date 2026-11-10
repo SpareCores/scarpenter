@@ -445,3 +445,99 @@ func TestStartSweepsEveryInterval(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A terminating instance without a NodeClaim is left alone for the terminating
+// grace (the vendor may be deleting it) and deleted again after it; the clock
+// starts at the first sighting and restarts when the instance stops terminating.
+func TestTerminatingInstanceIsDeletedAfterTheGrace(t *testing.T) {
+	stopped := inst("i-stopped", "r1", "gone", time.Hour)
+	stopped.State = vendors.StateTerminating
+	drv := &stubDriver{vendor: "aws", instances: map[string][]*vendors.Instance{"r1": {stopped}}}
+	e := newEnv(t, drv, nil, func(o *gc.Options) { o.TerminatingGrace = vendors.DefaultTerminatingGrace })
+	sweep := func() {
+		t.Helper()
+		if _, err := e.c.Sweep(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sweep() // first sighting
+	e.clk.Step(vendors.DefaultTerminatingGrace - time.Second)
+	sweep()
+	if len(drv.deleted) != 0 {
+		t.Fatalf("deleted %v inside the grace", refs(drv.deleted))
+	}
+	e.clk.Step(time.Second)
+	sweep()
+	if got := refs(drv.deleted); !slices.Equal(got, []string{"r1/i-stopped"}) {
+		t.Fatalf("deleted %v, want the stopped instance", got)
+	}
+	if n := e.count(t, "aws", gc.KindInstance, gc.ReasonTerminating, gc.ResultDeleted); n != 1 {
+		t.Errorf("Terminating deletions counter %v, want 1", n)
+	}
+}
+
+func TestTerminatingInstanceWithANodeClaimIsKept(t *testing.T) {
+	stopped := inst("i-1", "r1", "live", time.Hour)
+	stopped.State = vendors.StateTerminating
+	drv := &stubDriver{vendor: "aws", instances: map[string][]*vendors.Instance{"r1": {stopped}}}
+	e := newEnv(t, drv, []client.Object{claim("live")}, nil)
+	for range 2 {
+		if _, err := e.c.Sweep(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		e.clk.Step(time.Hour)
+	}
+	if len(drv.deleted) != 0 {
+		t.Errorf("deleted %v; Karpenter core deletes the NodeClaim first", refs(drv.deleted))
+	}
+}
+
+// A failed listing does not reset the clocks of the region.
+func TestTerminatingClockSurvivesAListingError(t *testing.T) {
+	stopped := inst("i-1", "r1", "gone", time.Hour)
+	stopped.State = vendors.StateTerminating
+	drv := &stubDriver{vendor: "aws", instances: map[string][]*vendors.Instance{"r1": {stopped}}, listErr: map[string]error{}}
+	e := newEnv(t, drv, nil, nil)
+	_, _ = e.c.Sweep(context.Background())
+	e.clk.Step(vendors.DefaultTerminatingGrace / 2)
+	drv.listErr["r1"] = errors.New("throttled")
+	_, _ = e.c.Sweep(context.Background())
+	delete(drv.listErr, "r1")
+	e.clk.Step(vendors.DefaultTerminatingGrace / 2)
+	_, _ = e.c.Sweep(context.Background())
+	if len(drv.deleted) != 1 {
+		t.Errorf("deleted %v, want the instance after the grace counted from the first sighting", refs(drv.deleted))
+	}
+}
+
+// The clock restarts when an instance stops terminating (it was started again).
+func TestTerminatingClockRestartsWhenTheInstanceRuns(t *testing.T) {
+	flapping := inst("i-1", "r1", "live", time.Hour)
+	drv := &stubDriver{vendor: "aws", instances: map[string][]*vendors.Instance{"r1": {flapping}}}
+	e := newEnv(t, drv, []client.Object{claim("live")}, nil)
+	sweep := func(state string, step time.Duration) {
+		t.Helper()
+		flapping.State = state
+		if _, err := e.c.Sweep(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		e.clk.Step(step)
+	}
+	sweep(vendors.StateTerminating, vendors.DefaultTerminatingGrace-time.Second)
+	sweep(vendors.StateRunning, time.Second)
+	sweep(vendors.StateTerminating, 0) // the NodeClaim goes away from here on
+	if err := e.kube.Delete(context.Background(), claim("live")); err != nil {
+		t.Fatal(err)
+	}
+	e.clk.Step(vendors.DefaultTerminatingGrace - time.Second)
+	sweep(vendors.StateTerminating, 0)
+	if len(drv.deleted) != 0 {
+		t.Fatalf("deleted %v: the clock was not restarted", refs(drv.deleted))
+	}
+	e.clk.Step(time.Second)
+	sweep(vendors.StateTerminating, 0)
+	if len(drv.deleted) != 1 {
+		t.Errorf("deleted %v, want the instance after a full grace", refs(drv.deleted))
+	}
+}

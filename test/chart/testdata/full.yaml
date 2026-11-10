@@ -718,6 +718,7 @@ spec:
             - "--resource-per-use-grace=3m"
             - "--sysext-base-url=https://mirror.example.com/sysext"
             - "--tailnet-prefixes=100.64.0.0/10,10.1.0.0/16"
+            - "--terminating-grace=15m"
             - "--unavailable-insufficient-capacity-ttl=4m"
             - "--unavailable-quota-exceeded-ttl=1h"
             - "--unavailable-unsupported-ttl=12h"

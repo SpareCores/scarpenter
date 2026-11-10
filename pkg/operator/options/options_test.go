@@ -16,6 +16,7 @@ import (
 	coreoptions "sigs.k8s.io/karpenter/pkg/operator/options"
 
 	"github.com/SpareCores/scarpenter/pkg/operator/options"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
 // parse builds the options the way core's injection does: flags are registered
@@ -64,6 +65,10 @@ func TestDefaults(t *testing.T) {
 		o.ResourceFullSweepEvery != want.ResourceFullSweepEvery ||
 		o.AWSHomeRegion != want.AWSHomeRegion || strings.Join(o.Vendors, ",") != "aws" {
 		t.Errorf("defaults differ:\n got %+v\nwant %+v", *o, want)
+	}
+	if wantGrace := 10 * time.Minute; o.TerminatingGrace != wantGrace || vendors.DefaultTerminatingGrace != wantGrace {
+		t.Errorf("--terminating-grace defaults to %s, vendors.DefaultTerminatingGrace is %s; want both 10m",
+			o.TerminatingGrace, vendors.DefaultTerminatingGrace)
 	}
 	if len(o.ClusterDNS) != 0 || o.ClusterDomain != "cluster.local" {
 		t.Errorf("cluster DNS = %v, domain = %q; want none and cluster.local", o.ClusterDNS, o.ClusterDomain)
@@ -158,6 +163,7 @@ func TestValidation(t *testing.T) {
 		{"tailnet prefix not a cidr", append([]string{"--tailnet-prefixes=100.64.0.0/10,nope"}, required...), "--tailnet-prefixes"},
 		{"empty cluster domain", append([]string{"--cluster-domain="}, required...), "--cluster-domain must not be empty"},
 		{"zero gc interval", append([]string{"--gc-interval=0s"}, required...), "--gc-interval must be positive"},
+		{"zero terminating grace", append([]string{"--terminating-grace=0s"}, required...), "--terminating-grace must be positive"},
 		{"zero full sweep", append([]string{"--resource-full-sweep-every=0"}, required...), "--resource-full-sweep-every must be at least 1"},
 		{"zero resource ttl", append([]string{"--resource-default-ttl=0s"}, required...), "--resource-default-ttl must be positive"},
 		{"zero quota staleness", append([]string{"--quota-max-staleness=0s"}, required...), "--quota-max-staleness must be positive"},

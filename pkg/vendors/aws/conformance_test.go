@@ -115,6 +115,10 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func(*te
 			// The classification matches codes; the injected error message names the
 			// type and zone like the service does, for InvalidParameterCombination.
 		},
+		PowerOff: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) {
+			t.Helper()
+			envOf(t, d).acct.SetInstanceState(ref.Region(), ref.ID(), ec2types.InstanceStateNameStopped)
+		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
 			t.Helper()
 			e := envOf(t, d)

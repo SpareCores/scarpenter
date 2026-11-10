@@ -62,6 +62,10 @@ const (
 const (
 	ReasonNoNodeClaim = "NodeClaimNotFound"
 	ReasonUntagged    = "NoNodeClaimTag"
+	// ReasonTerminating: the instance has been terminating for longer than the
+	// terminating grace (a stopped or powered-off instance is reported
+	// terminating by every driver and is never going to disappear by itself).
+	ReasonTerminating = "Terminating"
 	EventReason       = "GarbageCollected"
 )
 
@@ -83,6 +87,10 @@ type Options struct {
 	// Interval defaults to 2 minutes, GracePeriod to 5 minutes.
 	Interval    time.Duration
 	GracePeriod time.Duration
+	// TerminatingGrace is how long an instance without a NodeClaim may be seen
+	// terminating before it is deleted again; defaults to
+	// vendors.DefaultTerminatingGrace.
+	TerminatingGrace time.Duration
 	// DryRun logs and counts what would be deleted without deleting it.
 	DryRun   bool
 	Recorder events.Recorder
@@ -109,6 +117,8 @@ type Result struct {
 // Runnable and runs on the leader only.
 type Collector struct {
 	opts Options
+	// terminating keeps the first sighting of each terminating instance.
+	terminating *vendors.TerminatingTracker
 
 	deletions *prometheus.CounterVec
 	duration  prometheus.Histogram
@@ -127,7 +137,8 @@ func New(opts Options) *Collector {
 		opts.GracePeriod = DefaultGracePeriod
 	}
 	c := &Collector{
-		opts: opts,
+		opts:        opts,
+		terminating: vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
 		deletions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_gc_deletions_total",
 			Help: "Orphans the garbage collector deleted (or would have, in dry-run), by vendor, kind, reason and result.",
@@ -237,9 +248,17 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			errs = append(errs, fmt.Errorf("listing %s instances in %s: %w", vendor, region, err))
 			continue
 		}
+		stillTerminating := map[vendors.InstanceRef]bool{}
 		for _, inst := range insts {
-			if inst.Gone() {
+			if inst.State == vendors.StateTerminated {
 				continue
+			}
+			// The clock of a terminating instance runs from its first sighting,
+			// whether or not its NodeClaim exists yet.
+			terminatingTooLong := false
+			if inst.State == vendors.StateTerminating {
+				stillTerminating[inst.Ref] = true
+				terminatingTooLong = c.terminating.Expired(vendor, inst.Ref)
 			}
 			claim := inst.Tags[vendors.TagNodeClaim]
 			if claim != "" && claims.Has(claim) {
@@ -249,7 +268,13 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 				continue
 			}
 			reason := ReasonNoNodeClaim
-			if claim == "" {
+			switch {
+			case inst.State == vendors.StateTerminating && !terminatingTooLong:
+				// The vendor may well be deleting it.
+				continue
+			case inst.State == vendors.StateTerminating:
+				reason = ReasonTerminating
+			case claim == "":
 				reason = ReasonUntagged
 			}
 			handled, err := c.deleteInstance(ctx, logger, drv, inst, reason)
@@ -258,8 +283,13 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			}
 			if handled {
 				deleted++
+				if reason == ReasonTerminating {
+					// The next delete of it comes after another grace.
+					c.terminating.Forget(vendor, inst.Ref)
+				}
 			}
 		}
+		c.terminating.Retain(vendor, region, stillTerminating)
 	}
 	return deleted, errors.Join(errs...)
 }

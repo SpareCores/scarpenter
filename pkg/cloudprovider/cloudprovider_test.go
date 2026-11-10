@@ -440,6 +440,51 @@ func TestGetListAndDeleteFollowTheInstance(t *testing.T) {
 	}
 }
 
+// A powered-off instance is terminating for ever: it is invisible to Get and
+// List, Delete leaves it to the vendor for the terminating grace and deletes it
+// again after it.
+func TestDeleteDeletesAStoppedInstanceAfterTheTerminatingGrace(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := vendors.InstanceRef(created.Annotations[v1alpha1.AnnotationInstanceRef])
+	if !e.driver.PowerOff(ref) {
+		t.Fatalf("no instance %s to power off", ref)
+	}
+	if _, err := e.cp.Get(t.Context(), created.Status.ProviderID); !karpcloudprovider.IsNodeClaimNotFoundError(err) {
+		t.Errorf("Get of a stopped instance = %v, want NodeClaimNotFound", err)
+	}
+	if listed, _ := e.cp.List(t.Context()); len(listed) != 0 {
+		t.Errorf("List = %v, want no stopped instances", listed)
+	}
+
+	claim := &karpv1.NodeClaim{}
+	claim.Name = "claim-1"
+	claim.Status.ProviderID = created.Status.ProviderID
+	claim.Annotations = created.Annotations
+	for _, step := range []time.Duration{0, vendors.DefaultTerminatingGrace - time.Second} {
+		e.advance(step)
+		if err := e.cp.Delete(t.Context(), claim); err != nil {
+			t.Fatalf("Delete inside the grace = %v, want nil", err)
+		}
+		if got := e.calls("delete"); len(got) != 0 {
+			t.Fatalf("delete calls %+v inside the grace", got)
+		}
+	}
+	e.advance(time.Second)
+	if err := e.cp.Delete(t.Context(), claim); err != nil {
+		t.Fatalf("Delete after the grace = %v, want nil", err)
+	}
+	if got := e.calls("delete"); len(got) != 1 {
+		t.Fatalf("delete calls %+v, want the one after the grace", got)
+	}
+	if err := e.cp.Delete(t.Context(), claim); !karpcloudprovider.IsNodeClaimNotFoundError(err) {
+		t.Errorf("Delete of the deleted instance = %v, want NodeClaimNotFound", err)
+	}
+}
+
 func TestDeleteFindsTheInstanceByTagWithoutTheAnnotation(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))

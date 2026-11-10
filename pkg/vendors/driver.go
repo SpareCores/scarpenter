@@ -35,7 +35,10 @@ const (
 )
 
 // Instance states. A terminating or terminated instance counts as gone for
-// Karpenter (Get returns NodeClaimNotFound).
+// Karpenter (Get returns NodeClaimNotFound). Terminating covers an instance the
+// vendor is deleting and one that is stopped, powered off, suspended or
+// deallocated by itself: it is not coming back, so the core deletes it after the
+// terminating grace (DefaultTerminatingGrace).
 const (
 	StatePending     = "pending"
 	StateRunning     = "running"
@@ -220,16 +223,18 @@ type Driver interface {
 	// another offering launches. Errors are *Error values (see ClassOf).
 	CreateInstance(ctx context.Context, req CreateRequest) (*Instance, error)
 	// GetInstance returns the instance, also when terminated; NotFound when
-	// the vendor does not know it.
+	// the vendor does not know it, and for a reference the driver cannot parse.
 	GetInstance(ctx context.Context, ref InstanceRef) (*Instance, error)
 	// FindInstance looks an instance up by tags (the fallback when the
 	// reference is unknown); NotFound when there is none.
 	FindInstance(ctx context.Context, region string, tags map[TagKey]string) (*Instance, error)
 	// ListInstances returns the instances in the regions that carry all the
-	// tags, terminated ones excluded.
+	// tags, terminated ones excluded; terminating ones are returned (the
+	// garbage collector deletes a stopped instance from this list).
 	ListInstances(ctx context.Context, regions []string, tags map[TagKey]string) ([]*Instance, error)
-	// DeleteInstance terminates the instance; idempotent: deleting an instance
-	// that is gone is not an error.
+	// DeleteInstance terminates the instance, a terminating (stopped) one
+	// included; idempotent: deleting an instance that is gone is not an error.
+	// A reference the driver cannot parse is an instance that is gone.
 	DeleteInstance(ctx context.Context, ref InstanceRef) error
 	// TagKey maps a logical key to the vendor's charset.
 	TagKey(k TagKey) string

@@ -51,6 +51,7 @@ const (
 	DefaultQuotaLaunchableInterval    = time.Hour
 	DefaultGCInterval                 = 2 * time.Minute
 	DefaultGCGracePeriod              = 5 * time.Minute
+	DefaultTerminatingGrace           = 10 * time.Minute // vendors.DefaultTerminatingGrace; options imports no scarpenter package
 	DefaultResourceDefaultTTL         = 24 * time.Hour
 	DefaultResourcePerUseGrace        = 2 * time.Minute
 	DefaultResourceCheckInterval      = 30 * time.Second
@@ -130,6 +131,10 @@ type Options struct {
 	GCInterval    time.Duration
 	GCGracePeriod time.Duration
 	GCDryRun      bool
+	// TerminatingGrace is how long an instance may be seen terminating (stopped,
+	// powered off, suspended: every driver reports those as terminating) before
+	// the garbage collector and Delete delete it again.
+	TerminatingGrace time.Duration
 	// The lifetimes of the unavailable-offerings cache entries per error class
 	// (overview section 5.6); zero uses the default of the class.
 	UnavailableInsufficientCapacityTTL time.Duration
@@ -185,6 +190,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.QuotaLaunchableInterval, "quota-launchable-refresh-interval", env.WithDefaultDuration("SCARPENTER_QUOTA_LAUNCHABLE_REFRESH_INTERVAL", DefaultQuotaLaunchableInterval), "How often the instance types the account can launch per zone are refreshed.")
 	fs.DurationVar(&o.GCInterval, "gc-interval", env.WithDefaultDuration("SCARPENTER_GC_INTERVAL", DefaultGCInterval), "How often the garbage collector looks for orphans.")
 	fs.DurationVar(&o.GCGracePeriod, "gc-grace-period", env.WithDefaultDuration("SCARPENTER_GC_GRACE_PERIOD", DefaultGCGracePeriod), "Age an instance without a NodeClaim must have before the garbage collector deletes it.")
+	fs.DurationVar(&o.TerminatingGrace, "terminating-grace", env.WithDefaultDuration("SCARPENTER_TERMINATING_GRACE", DefaultTerminatingGrace), "How long an instance may be seen terminating (a stopped instance never leaves that state by itself) before it is deleted again.")
 	fs.BoolVar(&o.GCDryRun, "gc-dry-run", env.WithDefaultBool("SCARPENTER_GC_DRY_RUN", false), "Log what the garbage collector would delete without deleting it.")
 	fs.DurationVar(&o.UnavailableInsufficientCapacityTTL, "unavailable-insufficient-capacity-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL", 0), "How long an offering stays unavailable after an InsufficientCapacity error (0 = 3m).")
 	fs.DurationVar(&o.UnavailableUnsupportedTTL, "unavailable-unsupported-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL", 0), "How long a type stays unavailable in a zone after an Unsupported error (0 = 24h).")
@@ -288,6 +294,7 @@ func (o *Options) Validate() error {
 		"--quota-launchable-refresh-interval": o.QuotaLaunchableInterval,
 		"--gc-interval":                       o.GCInterval,
 		"--gc-grace-period":                   o.GCGracePeriod,
+		"--terminating-grace":                 o.TerminatingGrace,
 		"--resource-default-ttl":              o.ResourceDefaultTTL,
 		"--resource-per-use-grace":            o.ResourcePerUseGrace,
 		"--resource-check-interval":           o.ResourceCheckInterval,

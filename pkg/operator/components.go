@@ -202,6 +202,7 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 		InstanceTypeStore: o.InstanceTypeStore,
 		ClusterName:       o.Options.ClusterName,
 		MaxLaunchAttempts: o.Options.MaxLaunchAttempts,
+		TerminatingGrace:  o.Options.TerminatingGrace,
 		Clock:             o.Clock,
 		Registerer:        metrics.Registry,
 	})
@@ -213,20 +214,21 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) error {
 	opts := o.Options
 	gc := garbagecollection.New(garbagecollection.Options{
-		Client:        o.GetClient(),
-		Reader:        o.GetAPIReader(),
-		Registry:      c.Registry,
-		Clock:         o.Clock,
-		ClusterName:   opts.ClusterName,
-		Interval:      opts.GCInterval,
-		GracePeriod:   opts.GCGracePeriod,
-		DryRun:        opts.GCDryRun,
-		Recorder:      o.EventRecorder,
-		Regions:       func(vendor string) []string { return c.regionsInUse(ctx, vendor) },
-		DeploymentRef: deploymentRef,
-		OnDeleted:     c.Tracker.NotifyChanged,
-		Sweepers:      []garbagecollection.Sweeper{c.Resources.Sweep},
-		Registerer:    metrics.Registry,
+		Client:           o.GetClient(),
+		Reader:           o.GetAPIReader(),
+		Registry:         c.Registry,
+		Clock:            o.Clock,
+		ClusterName:      opts.ClusterName,
+		Interval:         opts.GCInterval,
+		GracePeriod:      opts.GCGracePeriod,
+		TerminatingGrace: opts.TerminatingGrace,
+		DryRun:           opts.GCDryRun,
+		Recorder:         o.EventRecorder,
+		Regions:          func(vendor string) []string { return c.regionsInUse(ctx, vendor) },
+		DeploymentRef:    deploymentRef,
+		OnDeleted:        c.Tracker.NotifyChanged,
+		Sweepers:         []garbagecollection.Sweeper{c.Resources.Sweep},
+		Registerer:       metrics.Registry,
 	})
 	if err := o.Add(gc); err != nil {
 		return fmt.Errorf("adding the garbage collector to the manager: %w", err)

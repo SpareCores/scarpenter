@@ -290,7 +290,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 
 	d.mu.Lock()
 	if id, ok := d.byKey[req.IdempotencyKey]; ok && req.IdempotencyKey != "" {
-		if inst := d.instances[id]; inst != nil && !inst.Gone() {
+		if inst := d.instances[id]; inst != nil && inst.State != vendors.StateTerminated {
 			out := copyInstance(inst)
 			d.mu.Unlock()
 			return out, nil
@@ -354,7 +354,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	d.mu.Lock()
 	// Re-check idempotency: a concurrent call with the same key may have won.
 	if id, ok := d.byKey[req.IdempotencyKey]; ok && req.IdempotencyKey != "" {
-		if inst := d.instances[id]; inst != nil && !inst.Gone() {
+		if inst := d.instances[id]; inst != nil && inst.State != vendors.StateTerminated {
 			out := copyInstance(inst)
 			d.mu.Unlock()
 			return out, nil
@@ -486,6 +486,7 @@ func (d *Driver) FindInstance(ctx context.Context, region string,
 }
 
 // ListInstances implements vendors.Driver; no regions means every region.
+// Powered-off (terminating) instances are listed, terminated ones are not.
 func (d *Driver) ListInstances(ctx context.Context, regions []string,
 	tags map[vendors.TagKey]string) ([]*vendors.Instance, error) {
 	d.refreshConfig(ctx)
@@ -493,7 +494,8 @@ func (d *Driver) ListInstances(ctx context.Context, regions []string,
 	defer d.mu.Unlock()
 	var out []*vendors.Instance
 	for _, i := range d.instances {
-		if i.Gone() || (len(regions) > 0 && !slices.Contains(regions, i.Region)) || !hasTags(i.Tags, tags) {
+		if i.State == vendors.StateTerminated || (len(regions) > 0 && !slices.Contains(regions, i.Region)) ||
+			!hasTags(i.Tags, tags) {
 			continue
 		}
 		out = append(out, copyInstance(i))
@@ -507,11 +509,27 @@ func (d *Driver) ListInstances(ctx context.Context, regions []string,
 	return out, nil
 }
 
-// DeleteInstance implements vendors.Driver: terminated at once, idempotent.
+// PowerOff stops an instance the way a guest poweroff or a stop call outside
+// SCarpenter would: it stays, reported terminating (its disks keep billing on a
+// real vendor), until it is deleted. It reports whether the instance existed.
+func (d *Driver) PowerOff(ref vendors.InstanceRef) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	inst, ok := d.instances[ref.ID()]
+	if !ok || inst.Region != ref.Region() || inst.State == vendors.StateTerminated {
+		return false
+	}
+	inst.State = vendors.StateTerminating
+	d.record("poweroff", inst.Region, inst.Zone, inst.Type, inst.CapacityType, inst.claim, "ok")
+	return true
+}
+
+// DeleteInstance implements vendors.Driver: terminated at once, idempotent; a
+// powered-off instance is deleted like any other.
 func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error {
 	d.mu.Lock()
 	inst, ok := d.instances[ref.ID()]
-	if !ok || inst.Region != ref.Region() || inst.Gone() {
+	if !ok || inst.Region != ref.Region() || inst.State == vendors.StateTerminated {
 		d.mu.Unlock()
 		return nil
 	}
@@ -546,10 +564,14 @@ func (d *Driver) createOrphans(ctx context.Context, orphans []orphanConfig) {
 		d.orphaned[o.Name] = true
 		d.seq++
 		id := fmt.Sprintf("i-fake-%06d", d.seq)
+		state := vendors.StateRunning
+		if o.PoweredOff {
+			state = vendors.StateTerminating
+		}
 		d.instances[id] = &instance{
 			Instance: vendors.Instance{
 				Ref: vendors.NewInstanceRef(o.Region, id), Region: o.Region, Zone: o.Zone, Type: o.InstanceType,
-				CapacityType: o.CapacityType, State: vendors.StateRunning,
+				CapacityType: o.CapacityType, State: state,
 				CreatedAt: d.clock.Now().Add(-time.Duration(o.AgeSeconds) * time.Second),
 				Tags: map[vendors.TagKey]string{
 					vendors.TagCluster: d.cfg.ClusterName, vendors.TagNodeClaim: o.Name, vendors.TagManagedBy: vendors.ManagedByValue,

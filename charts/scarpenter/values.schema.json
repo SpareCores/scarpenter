@@ -361,6 +361,9 @@
         "gracePeriod": {
           "$ref": "#/definitions/duration"
         },
+        "terminatingGrace": {
+          "$ref": "#/definitions/duration"
+        },
         "dryRun": {
           "type": "boolean"
         }

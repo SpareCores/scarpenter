@@ -58,6 +58,11 @@ type Fixture struct {
 	// class. Without it the classification subtests are skipped.
 	Inject func(t *testing.T, d vendors.Driver, class vendors.Class, req vendors.CreateRequest)
 
+	// PowerOff stops the instance the way a guest poweroff, or a stop call
+	// outside SCarpenter, would on the vendor's fixture; the subtest of the
+	// stopped-node rule is skipped without it.
+	PowerOff func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef)
+
 	// The quota subtests run for drivers that implement vendors.QuotaReporter.
 	//
 	// InstanceTypes are the API references of the vendor's catalog (or a
@@ -203,6 +208,7 @@ func Run(t *testing.T, fx Fixture) {
 	sub("malformed references", malformedReferences)
 	sub("list by tags", listByTags)
 	sub("delete is idempotent", deleteIdempotent)
+	sub("powered-off instance", poweredOff)
 	sub("tag round trip", tagRoundTrip)
 	sub("user-data limit", userDataLimit)
 	sub("error classification", errorClassification)
@@ -350,7 +356,8 @@ func notFound(t *testing.T, e *env) {
 func malformedReferences(t *testing.T, e *env) {
 	for _, ref := range []vendors.InstanceRef{
 		"", "/", "no-slash", vendors.NewInstanceRef(e.region, ""), vendors.NewInstanceRef("", "i-never-existed"),
-		vendors.NewInstanceRef(e.region, "not an id/with/slashes"), vendors.NewInstanceRef("no-such-region", "i-never-existed"),
+		vendors.NewInstanceRef(e.region, "not an id/with/slashes"),
+		vendors.NewInstanceRef("no-such-region", "i-never-existed"),
 	} {
 		if _, err := e.d.GetInstance(t.Context(), ref); !vendors.IsClass(err, vendors.NotFound) {
 			t.Errorf("GetInstance(%q): %v, want NotFound", ref, err)
@@ -415,6 +422,58 @@ func deleteIdempotent(t *testing.T, e *env) {
 	unknown := vendors.NewInstanceRef(e.region, "i-never-existed")
 	if err := e.d.DeleteInstance(t.Context(), unknown); err != nil {
 		t.Errorf("deleting an unknown instance: %v", err)
+	}
+}
+
+// poweredOff pins the stopped-node rule: an instance that is off by itself is
+// terminating, stays listed (the garbage collector finds it there) and is deleted
+// by DeleteInstance like any other.
+func poweredOff(t *testing.T, e *env) {
+	if e.fx.PowerOff == nil {
+		t.Skip("the fixture has no PowerOff hook")
+	}
+	inst := e.create(t, e.request(t))
+	other := e.create(t, e.request(t))
+	e.fx.PowerOff(t, e.d, inst.Ref)
+
+	got, err := e.d.GetInstance(t.Context(), inst.Ref)
+	if err != nil || got.State != vendors.StateTerminating || !got.Gone() {
+		t.Fatalf("a powered-off instance: %+v, %v; want state %q", got, err, vendors.StateTerminating)
+	}
+	list, err := e.d.ListInstances(t.Context(), []string{e.region}, nil)
+	if err != nil || !hasRef(list, inst.Ref) || !hasRef(list, other.Ref) {
+		t.Fatalf("listing after the power-off returned %v, %v; want %s (terminating) and %s",
+			refs(list), err, inst.Ref, other.Ref)
+	}
+	for _, i := range list {
+		if i.Ref == inst.Ref && i.State != vendors.StateTerminating {
+			t.Errorf("the listed powered-off instance is %q, want %q", i.State, vendors.StateTerminating)
+		}
+		if i.Ref == other.Ref && i.State == vendors.StateTerminating {
+			t.Errorf("the running instance %s is listed terminating", i.Ref)
+		}
+	}
+
+	for i := range 2 {
+		if err := e.d.DeleteInstance(t.Context(), inst.Ref); err != nil {
+			t.Fatalf("DeleteInstance #%d of a powered-off instance: %v", i+1, err)
+		}
+	}
+	gone, err := e.d.GetInstance(t.Context(), inst.Ref)
+	if err == nil && gone.State != vendors.StateTerminated && gone.State != vendors.StateTerminating {
+		t.Errorf("a deleted powered-off instance is %q", gone.State)
+	}
+	if err != nil && !vendors.IsClass(err, vendors.NotFound) {
+		t.Errorf("GetInstance of a deleted powered-off instance: %v", err)
+	}
+	list, err = e.d.ListInstances(t.Context(), []string{e.region}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range list {
+		if i.State == vendors.StateTerminated {
+			t.Errorf("the listing contains the terminated instance %s", i.Ref)
+		}
 	}
 }
 

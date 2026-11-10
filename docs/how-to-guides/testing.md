@@ -173,6 +173,7 @@ reached it (`awaitState`). The scenarios are `TestS01` to `TestS17`:
 | S15 | the pair of 00a section 8.2: a StatefulSet and a Deployment with one placement profile and run key share one fake group in one zone on two nodes; the group is deleted (perUse) after both are gone |
 | S16 | vendor resources: `use` by `tags` in two regions (never touched), a missing `use` resource makes the region unavailable with a reason and recovers, default `create` on the first launch and its reuse, adoption after a controller restart, `idleTTL` deletion, `preCreate` kept while listed, `forbid` |
 | S17 | incomplete prices: offerings flagged `price-incomplete` and still used; excluded with `pricing.allowIncomplete: false` |
+| S18 | a stopped (powered-off) orphan instance is reported terminating, left alone for the terminating grace and then deleted by the garbage collector |
 
 Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
 (`KWOK_SCENARIOS=TestS0[12]`), `KEEP_CLUSTER=1` keeps the cluster and

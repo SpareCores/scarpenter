@@ -180,9 +180,12 @@ quota:
   launchableRefreshInterval: ""
 
 gc:
-  # --gc-interval (2m), --gc-grace-period (5m), --gc-dry-run.
+  # --gc-interval (2m), --gc-grace-period (5m), --terminating-grace (10m: how
+  # long a stopped or powered-off instance is left before it is deleted),
+  # --gc-dry-run.
   interval: ""
   gracePeriod: ""
+  terminatingGrace: ""
   dryRun: false
 
 unavailable:

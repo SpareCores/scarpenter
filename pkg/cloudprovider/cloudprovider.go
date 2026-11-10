@@ -89,9 +89,13 @@ type Options struct {
 	InstanceTypeStore *nodeoverlay.InstanceTypeStore
 	ClusterName       string
 	MaxLaunchAttempts int
-	InstanceCacheTTL  time.Duration
-	ImageCacheTTL     time.Duration
-	Clock             clock.Clock
+	// TerminatingGrace is how long an instance may be seen terminating before
+	// Delete deletes it again (a stopped instance is terminating for ever);
+	// defaults to vendors.DefaultTerminatingGrace.
+	TerminatingGrace time.Duration
+	InstanceCacheTTL time.Duration
+	ImageCacheTTL    time.Duration
+	Clock            clock.Clock
 	// Registerer receives the metrics; nil registers none.
 	Registerer prometheus.Registerer
 }
@@ -103,6 +107,10 @@ type CloudProvider struct {
 
 	listMu sync.Mutex
 	cache  instanceCache
+
+	// terminating keeps the first sighting of each terminating instance by
+	// Delete, keyed by the NodeClaim's provider ID.
+	terminating *vendors.TerminatingTracker
 
 	imageMu sync.Mutex
 	images  map[imageKey]cachedImage
@@ -130,7 +138,10 @@ func New(opts Options) *CloudProvider {
 	if opts.Clock == nil {
 		opts.Clock = clock.RealClock{}
 	}
-	return &CloudProvider{opts: opts, metrics: newMetrics(opts.Registerer), images: map[imageKey]cachedImage{}}
+	return &CloudProvider{
+		opts: opts, metrics: newMetrics(opts.Registerer), images: map[imageKey]cachedImage{},
+		terminating: vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
+	}
 }
 
 // Name returns scarpenter.
@@ -302,7 +313,8 @@ func (c *CloudProvider) tags(nodeClaim string) map[vendors.TagKey]string {
 // Delete terminates the instance of the NodeClaim (overview section 4): by the
 // instance-ref annotation, else by tag lookup. An instance that is gone is
 // NodeClaimNotFound, which core treats as done; core calls Delete again until it
-// says so.
+// says so. A terminating instance is left to the vendor for the terminating
+// grace and deleted again after it.
 func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim) error {
 	providerID := nodeClaim.Status.ProviderID
 	vendor, region, name, err := scope.ParseProviderID(providerID)
@@ -330,12 +342,18 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 		}
 		return fmt.Errorf("looking up the instance of %s: %w", providerID, err)
 	}
-	if inst.Gone() {
-		if inst.State == vendors.StateTerminated {
-			c.forget(ctx, vendor, region, providerID, name)
-			return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("instance of %s is terminated", providerID))
+	if inst.State == vendors.StateTerminated {
+		c.forget(ctx, vendor, region, providerID, name)
+		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("instance of %s is terminated", providerID))
+	}
+	if inst.State == vendors.StateTerminating {
+		// The vendor is probably deleting it and core asks again. One that stays
+		// terminating (a stopped instance never goes away by itself) is deleted
+		// again after the grace; DeleteInstance is idempotent.
+		if !c.terminating.Expired(vendor, vendors.InstanceRef(providerID)) {
+			return nil
 		}
-		return nil // terminating: core asks again
+		c.terminating.Forget(vendor, vendors.InstanceRef(providerID)) // the next delete comes after another grace
 	}
 	if err := drv.DeleteInstance(ctx, inst.Ref); err != nil {
 		if vendors.IsClass(err, vendors.NotFound) {
@@ -356,6 +374,7 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 // bootstrap token.
 func (c *CloudProvider) forget(ctx context.Context, vendor, region, providerID, nodeClaim string) {
 	c.dropInstance(providerID)
+	c.terminating.Forget(vendor, vendors.InstanceRef(providerID))
 	if err := c.opts.Tokens.Delete(ctx, nodeClaim); err != nil {
 		// A leftover token expires and is collected; it must not block the delete.
 		log.FromContext(ctx).Error(err, "deleting the bootstrap token", "nodeclaim", nodeClaim)

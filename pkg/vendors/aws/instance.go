@@ -26,12 +26,18 @@ import (
 // known to DescribeImages (a launch with it fails with InvalidAMIID anyway).
 const defaultRootDevice = "/dev/xvda"
 
-// launchStates are the states of instances that count as existing for Find and
-// List; terminated and shutting-down ones are gone for Karpenter.
+// launchStates are the states of instances that FindInstance returns:
+// everything but terminated and shutting-down (a stopped instance is reported
+// terminating, and found, so that it can be deleted).
 var launchStates = []string{
 	string(ec2types.InstanceStateNamePending), string(ec2types.InstanceStateNameRunning),
 	string(ec2types.InstanceStateNameStopping), string(ec2types.InstanceStateNameStopped),
 }
+
+// listStates are the states ListInstances returns: everything not terminated,
+// shutting-down included (the vendor is deleting it; the garbage collector
+// waits for the grace before deleting it again).
+var listStates = append(slices.Clone(launchStates), string(ec2types.InstanceStateNameShuttingDown))
 
 // launchResources are the resources of a launch, as Prepare resolved them.
 type launchResources struct {
@@ -328,9 +334,11 @@ func toInstance(region string, in ec2types.Instance) *vendors.Instance {
 	return inst
 }
 
-// stateOf maps an EC2 state: stopped and stopping instances still exist (and
-// still cost for their volumes), so they are not gone; shutting-down is
-// terminating.
+// stateOf maps an EC2 state: stopping and stopped instances are terminating, like
+// shutting-down ones. A stopped instance is not coming back and still costs for its
+// volumes, so the core deletes it after the terminating grace. A guest poweroff
+// terminates the instance (InstanceInitiatedShutdownBehavior), so stopped arises
+// only from a StopInstances call outside SCarpenter.
 func stateOf(s *ec2types.InstanceState) string {
 	if s == nil {
 		return vendors.StatePending
@@ -338,7 +346,7 @@ func stateOf(s *ec2types.InstanceState) string {
 	switch s.Name {
 	case ec2types.InstanceStateNamePending:
 		return vendors.StatePending
-	case ec2types.InstanceStateNameShuttingDown:
+	case ec2types.InstanceStateNameShuttingDown, ec2types.InstanceStateNameStopping, ec2types.InstanceStateNameStopped:
 		return vendors.StateTerminating
 	case ec2types.InstanceStateNameTerminated:
 		return vendors.StateTerminated
@@ -437,7 +445,7 @@ func (d *Driver) instanceFilters(tags map[vendors.TagKey]string) []ec2types.Filt
 }
 
 // FindInstance implements vendors.Driver: the newest instance with all the
-// tags that is not gone.
+// tags that is not terminated or shutting down.
 func (d *Driver) FindInstance(
 	ctx context.Context, region string, tags map[vendors.TagKey]string) (*vendors.Instance, error,
 ) {
@@ -460,8 +468,9 @@ func (d *Driver) FindInstance(
 	return toInstance(region, *best), nil
 }
 
-// ListInstances implements vendors.Driver. Regions the account cannot use have
-// no instances.
+// ListInstances implements vendors.Driver: every instance that is not terminated,
+// the terminating ones (shutting down, stopping, stopped) included. Regions the
+// account cannot use have no instances.
 func (d *Driver) ListInstances(ctx context.Context, regions []string, tags map[vendors.TagKey]string,
 ) ([]*vendors.Instance, error) {
 	var out []*vendors.Instance
@@ -469,12 +478,14 @@ func (d *Driver) ListInstances(ctx context.Context, regions []string, tags map[v
 		if !d.knownRegion(ctx, region) {
 			continue
 		}
-		insts, err := d.describeInstances(ctx, region, &ec2.DescribeInstancesInput{Filters: d.instanceFilters(tags)})
+		filters := append(d.tagFilters(tags),
+			ec2types.Filter{Name: aws.String("instance-state-name"), Values: listStates})
+		insts, err := d.describeInstances(ctx, region, &ec2.DescribeInstancesInput{Filters: filters})
 		if err != nil {
 			return nil, fmt.Errorf("listing the instances of %s: %w", region, err)
 		}
 		for _, i := range insts {
-			if inst := toInstance(region, i); !inst.Gone() {
+			if inst := toInstance(region, i); inst.State != vendors.StateTerminated {
 				out = append(out, inst)
 			}
 		}

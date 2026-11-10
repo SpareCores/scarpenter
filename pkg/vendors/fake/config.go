@@ -100,6 +100,9 @@ type orphanConfig struct {
 	InstanceType string `json:"instanceType"`
 	CapacityType string `json:"capacityType"`
 	AgeSeconds   int64  `json:"ageSeconds"`
+	// PoweredOff creates the instance stopped (reported terminating), the case
+	// of the terminating grace.
+	PoweredOff bool `json:"poweredOff,omitempty"`
 }
 
 // config is the parsed steering ConfigMap. Every key is parsed on its own, so a

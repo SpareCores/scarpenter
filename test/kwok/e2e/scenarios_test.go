@@ -745,3 +745,38 @@ func quotaMetrics(t *testing.T) string {
 	}
 	return sb.String()
 }
+
+// S18: a stopped instance (the fake's orphan with poweredOff) is terminating
+// for ever on its own; the garbage collector leaves it for the terminating grace
+// (30s in the lane) and then deletes it.
+func TestS18StoppedInstanceIsCollected(t *testing.T) {
+	createNodeClass(t, "s18", us1)
+	typ := takeTypes(t, []string{us1}, 2, 1)[0]
+	zone := byPrice(filterOfferings(reference(t, us1), func(o offering) bool { return isOnDemand(o) && o.API == typ }))[0].Zone
+	name := fmt.Sprintf("stopped-%d", time.Now().UnixNano()%1_000_000)
+	setFake(t, map[string]string{"orphans": fmt.Sprintf(
+		"- {name: %s, region: %s, zone: %s, instanceType: %s, capacityType: on-demand, ageSeconds: 600, poweredOff: true}\n",
+		name, us1, zone, typ)})
+
+	state := func() string {
+		_, insts := readState(t)
+		for _, i := range insts {
+			if i.NodeClaim == name {
+				return i.State
+			}
+		}
+		return "absent"
+	}
+	eventually(t, 2*time.Minute, time.Second, "the stopped instance exists", func() (bool, string) {
+		return state() == "terminating", state()
+	})
+	appeared := time.Now()
+	eventually(t, 3*time.Minute, time.Second, "the stopped instance collected", func() (bool, string) {
+		return state() == "terminated", state()
+	})
+	after := time.Since(appeared)
+	t.Logf("GC: the stopped instance after %s (terminating grace 30s, interval 10s)", after.Round(time.Second))
+	if after < 15*time.Second {
+		t.Errorf("the stopped instance was deleted after %s, before the terminating grace", after)
+	}
+}
