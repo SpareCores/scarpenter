@@ -46,6 +46,12 @@ stock image (quirks, RAM root); our own published images (not shareable across
 accounts at several vendors); Talos (API-driven configuration, opinionated
 join).
 
+*Superseded in part by [ADR-021](#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10):
+SCarpenter imports no images (the image ladder decides per vendor where the
+image comes from), our own published images are accepted on vendors that let
+anyone publish public images, and some vendors depend on images that Spare
+Cores builds (GCP arm64, UpCloud, Vultr, Alibaba).*
+
 ## ADR-003: Generic kubelet TLS bootstrap join (accepted, 2026-09-24)
 
 Nodes join with kubelet TLS bootstrap: SCarpenter mints a bootstrap token per
@@ -158,7 +164,10 @@ v1 = the vendor-neutral core (including quota-aware placement, ADR-013) + the
 development drivers + vendor drivers, **AWS first**. Further vendors are added
 as later v1 plans on the same driver contract; vendors without official
 Flatcar images are preceded by an image-import plan (`SCImage`,
-`ImageImporter`).
+`ImageImporter`). *Superseded in part by
+[ADR-021](#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10): no
+image-import plan precedes any vendor; the image ladder decides where each
+vendor's images come from.*
 Not planned yet: spot interruption handling, per-node tailnet keys, GPU
 extended resources (an optional AWS GPU plan exists). These are designed for
 (capability interfaces, API room) but not built. Spot prices are not fetched
@@ -352,3 +361,77 @@ explicitly what the other vendors get.
 Rejected: generic storage classes and numeric hints resolved per vendor
 (ambiguous mapping, the original 00a proposal); per-pod vendor parameters
 (R9 of `00a`: workloads must not bypass the admin's configuration).
+
+## ADR-021: Flatcar images: the image ladder (accepted, 2026-11-10)
+
+Every node boots the Flatcar version pinned in its NodeClass (ADR-012) from an
+image the vendor can boot. Where that image comes from is decided per vendor by
+the **first rung of this ladder that works**; "works" means the pinned channel
+and version can be named and read back from the image (ADR-012, ADR-017):
+
+1. **A public Flatcar image the vendor offers**: use it (AWS, Azure, GCP amd64).
+2. **The vendor lets anyone publish public images**: Spare Cores publishes
+   Flatcar images there, built and released from a separate GitHub repository
+   (GCP arm64; Alibaba community images later, if Spare Cores is eligible).
+3. **Images can be created in the user's own account**: pre-create them (per
+   region where the vendor's images are regional) with infrastructure as code,
+   sc-infra's Pulumi for Spare Cores and the user's own tooling otherwise, and
+   pass the IDs to SCarpenter (hcloud, OVH, UpCloud, Vultr, Alibaba). The source
+   is Flatcar's official image for that platform; where Flatcar ships none, the
+   image built by Spare Cores' images repository: the generic Flatcar image with
+   the OEM id set (`vultr`, `upcloud`, `aliyun`).
+4. **SCarpenter imports or builds images itself** (`SCImage`, `ImageImporter`):
+   reserved, not built in v1. No vendor needs it.
+
+Details:
+
+- **Images repository.** A new Spare Cores repository (proposed name
+  `SpareCores/flatcar-images`; plan 22). Per Flatcar release and channel it builds
+  the OEM-patched images for vultr, upcloud and aliyun in the format each vendor
+  imports, and the GCP arm64 image; it publishes the downloadable artifacts with
+  sha256 sums and signatures (cosign keyless from GitHub Actions), publishes the
+  GCP arm64 image publicly from a Spare Cores GCP project
+  (`allAuthenticatedUsers`), and later Alibaba community images. It also proposes
+  the missing platforms upstream to Flatcar; once Flatcar ships one, that vendor
+  moves to the official image.
+- **API.** One generic resource kind `images` in
+  `spec.vendors.<vendor>.resources`, in the shape of ADR-018: `use` with `ids`
+  per region, a `name` pattern and, where the vendor can filter images by tags or
+  labels, a `selector`. There is no `create` (that would be rung 4). On rungs 1
+  and 2, and on rung 3 where the vendor has a naming convention the driver can
+  look up, `images` is optional: without it the driver resolves the pinned
+  version itself. A vendor with global images still keys `ids` by region, the
+  same ID repeated. The pinned version is always checked against the image's
+  labels or name: an image of another version is not ready, never booted
+  (ADR-017).
+- **Hand-off.** sc-infra's inventory lists the images of each region
+  (`regions.<region>.images`), empty on rungs 1 and 2
+  ([plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md)).
+- **GCP arm64** is published by Spare Cores (rung 2), not left out of v1.
+- **Order.** GCP and Azure (rung 1) first, then Hetzner, then OVH, UpCloud, Vultr
+  and Alibaba (the order among these four is open).
+
+Why: every vendor gets the most official image it can. A vendor's own public
+image costs nothing and needs no maintenance by us; where only our own build
+exists, publishing it once for everyone (rung 2) beats every user building it;
+where nothing can be shared, the user's account holds a copy made by tooling that
+already exists (IaC), which keeps credentials with write access to images out of
+the controller. The reference per vendor is
+[Flatcar images](flatcar-images.md).
+
+Rejected: SCarpenter-side import in v1 (a CRD, a controller, image garbage
+collection and write permissions on images in every account, for flows every
+vendor can do without; the `ImageImporter` interface stays reserved); publishing
+our own images everywhere (impossible where the vendor cannot share publicly:
+Hetzner, UpCloud, Vultr, OVH); a vendor's own unpinned "Flatcar" entry as the
+default (its version cannot be read back, so ADR-012 and ADR-017 are broken);
+a per-vendor image field instead of one generic kind (every rung-3 vendor would
+get its own variant of the same three lookups).
+
+Consequences: supersedes ADR-002's sentence on importing the official image and
+its rejection of "our own published images" (still rejected where the vendor
+cannot share publicly, accepted on vendors that allow public images); amends
+ADR-011's "preceded by an image-import plan": no plan precedes any vendor. The
+images repository is a maintenance commitment: new Flatcar releases for up to
+four platforms, signatures and publishing credentials for one GCP project.
+Changing image IDs is not drift: the pinned version is (ADR-012).

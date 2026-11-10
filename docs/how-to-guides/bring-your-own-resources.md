@@ -5,7 +5,11 @@ similar objects at the vendor. By default it uses the vendor's own defaults
 where they exist and creates what is missing. This guide shows how to reference
 resources you manage yourself (infrastructure as code), and how to choose the
 lifecycle of the ones SCarpenter creates. The model is in
-[Vendor resources](../reference/vendor-resources.md).
+[Vendor resources](../reference/vendor-resources.md). What each vendor needs, and
+what sc-infra's inventory gives, is in the
+[infrastructure hand-off](../reference/infrastructure-handoff.md); the boot
+images, which are brought but never created by SCarpenter, are explained in
+[Flatcar images](../explanation/flatcar-images.md).
 
 ## Reference your own resources
 

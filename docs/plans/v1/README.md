@@ -39,13 +39,39 @@ Execution protocol:
 | 11 | `wip/11-docs-and-release.md` | todo | tutorials, how-tos for profiles, selection and resources, add-a-vendor guide, first release (v0.1.0) | 07, 10 |
 | 12 | `wip/12-aws-gpu.md` | optional | NVIDIA sysext on AWS GPU types | 10 + GPU spike |
 | 13 | `wip/13-keeper-catalog-snapshot.md` | blocked | catalog from Keeper snapshots pinned per data version, with local selection; waits for Keeper's snapshot routes | 03 + Keeper snapshots |
+| 14 | `wip/14-multi-vendor-groundwork.md` | todo | shared core and API changes the vendor plans need (the `images` kind and `ImageRequest`, per-type root disk, idempotency label, stopped-node rule, account-wide quota errors, message-based classification, Butane hook, region aliases, malformed references) and the sc-infra hand-off changes (inventory `images`, scope, per-vendor `vendor_block()`) | 10 |
+| 15 | `wip/15-hcloud.md` | todo | Hetzner Cloud driver, fake, conformance, L5 lane; images on rung 3 | 14 |
+| 16 | `wip/16-gcp.md` | todo | GCP driver, fake, conformance, L5 lane; amd64 on rung 1, arm64 on rung 2 | 14, 22 (arm64) |
+| 17 | `wip/17-azure.md` | todo | Azure driver, fake, conformance, L5 lane; images on rung 1 | 14 |
+| 18 | `wip/18-ovh.md` | todo | OVHcloud Public Cloud driver (OpenStack), fake, conformance, L5 lane; images on rung 3 | 14 |
+| 19 | `wip/19-upcloud.md` | todo | UpCloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
+| 20 | `wip/20-vultr.md` | todo | Vultr driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
+| 21 | `wip/21-alicloud.md` | todo | Alibaba Cloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
+| 22 | `wip/22-flatcar-images.md` | todo | the Flatcar images repository (proposed `SpareCores/flatcar-images`): OEM-patched images for vultr, upcloud and aliyun, the GCP arm64 image, signatures, release tracking, upstream proposals | — |
 
 Shared rules for every plan: [`CONVENTIONS.md`](CONVENTIONS.md).
 
 ## Further vendors
 
-More vendors are planned for v1 after AWS; their plans are added to the table
-above as they are written. Each further vendor is one plan: driver + in-memory fake + conformance + an
-opt-in e2e workflow. Vendors without official Flatcar images (hcloud first)
-are preceded by one plan for the image-import machinery (`SCImage` CRD,
-`ImageImporter`, image GC; overview §9).
+More vendors follow AWS as their own plans (15 to 21), each one driver, an in-memory
+fake, conformance and an opt-in e2e workflow, all on the shared groundwork of plan 14.
+Where a vendor's Flatcar image comes from is decided by the image ladder of
+[ADR-021](../../explanation/DECISIONS.md#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10)
+([per vendor](../../explanation/flatcar-images.md)): the vendor's own
+public image (AWS, Azure, GCP amd64), Spare Cores' published image (GCP arm64),
+or an image created in the user's account by infrastructure as code (hcloud, OVH,
+UpCloud, Vultr, Alibaba). No image-import plan precedes any vendor: SCarpenter does not
+import images, and `SCImage` and `ImageImporter` stay reserved.
+
+Order:
+
+1. **14**, the groundwork.
+2. **16 (GCP) and 17 (Azure)** first: rung 1, no image work. GCP's arm64 images wait
+   for plan 22.
+3. **15 (Hetzner)**: rung 3 with Flatcar's own image.
+4. **18 to 21** (OVH, UpCloud, Vultr, Alibaba); the order among them is open.
+
+**22**, the images repository, is built before GCP arm64 and before 19, 20 and 21
+(OVH and Hetzner use Flatcar's own images and do not wait for it). It is a separate
+repository with its own milestones, so it can start as soon as the maintainer confirms
+its name.

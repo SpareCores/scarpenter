@@ -34,3 +34,7 @@ Available:
   resources and network, tags, quota classes and codes, error mapping, IAM
   ([policy](aws-iam-policy.json)) and what is not verified live yet (plan 08).
 
+- [**Infrastructure hand-off**](infrastructure-handoff.md) — what your IaC (sc-infra
+  or your own) provides per vendor: resource kinds and `use` forms, account scope
+  and credentials, Flatcar images, and what sc-infra's `inventory` v1 maps to and
+  lacks (plan 14).

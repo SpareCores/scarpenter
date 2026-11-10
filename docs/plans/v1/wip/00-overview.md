@@ -88,9 +88,12 @@ spot interruption queues, out-of-process plugins.
 | F14 | Node settings and profiles | Vendor-native settings: built-in defaults, NodeClass vendor overrides, named storage/network/placement profiles that workloads pick by label; never a silent degradation (00a §3, §6, ADR-017, ADR-020) |
 | F15 | Vendor resources | Every resource a node depends on is brought by the user (IDs, name pattern or tags per region) or created by SCarpenter with a lifecycle (`perUse`, `idleTTL` 24 h, `retain`) (00a §9, ADR-018) |
 
-Further vendor drivers come after AWS as their own plans (§14), each on the
-same contract and conformance suite; vendors without official Flatcar images
-(hcloud first) are preceded by the image-import plan (§9).
+Further vendor drivers come after AWS as their own plans (15 to 21, listed in
+`docs/plans/v1/README.md`), each on the same contract and conformance suite and on
+the shared groundwork of plan 14. Where
+each vendor's Flatcar image comes from is decided by the image ladder of ADR-021
+(§9); SCarpenter imports no images in v1 (rung 4, `SCImage` and `ImageImporter`,
+stays reserved).
 
 Deferred (designed for, not built in the plans so far): GPU sysexts (plan 12
 is optional and gated on the GPU spike), interruption handling,
@@ -684,7 +687,7 @@ type QuotaReporter     interface { Quotas(ctx, region string) (*QuotaSnapshot, e
                                    GlobalQuotas(ctx) (*QuotaSnapshot, error)               // account-wide buckets; may be empty
                                    Consumption(instanceType, capacityType string) ([]Consumption, bool) } // false = unknown
 type OfferingLister    interface { LaunchableTypes(ctx, region string) (map[string][]string, error) } // type → zone IDs
-type ImageImporter     interface { ImportImage(…); DeleteImage(…); ListImages(…) } // with the first importing vendor (hcloud)
+type ImageImporter     interface { ImportImage(…); DeleteImage(…); ListImages(…) } // reserved: rung 4 of ADR-021, not built in v1
 ```
 
 `CreateRequest` carries: region, zone (account name), instance type
@@ -814,7 +817,7 @@ through the Tailscale/Headscale API are post-v1.
   `https://github.com/flatcar/sysext-bakery/releases/download`.
 - Flatcar release files: `<flatcarBase>/<arch>-usr/<version>/…` per channel
   (default `https://<channel>.release.flatcar-linux.net`). Used by the qemu
-  driver and future importers; AWS uses official AMIs.
+  driver and by the images repository (plan 22); AWS uses official AMIs.
 
 `SHA256SUMS` files are fetched by the NodeClass controller (no GitHub API, no
 rate limits), cached by URL, and the resolved digests are written to NodeClass
@@ -864,6 +867,14 @@ system and a snapshot, UpCloud and Vultr by URL import, OVH via Glance
 web-download, Alibaba via OSS and `ImportImage`). It is its own plan, run
 right before the first such vendor (hcloud). The `ImageImporter` capability
 interface reserves its place.
+
+**Superseded, 2026-11-10:** [ADR-021](../../../explanation/DECISIONS.md#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10)
+and [`docs/explanation/flatcar-images.md`](../../../explanation/flatcar-images.md) replace
+the image-import plan. No plan imports images; each vendor takes the first rung of the
+image ladder that works (the vendor's public Flatcar image, Spare Cores' published image,
+or an image created in the user's account by IaC, with an `images` resource kind to bring
+the IDs; [plan 14](14-multi-vendor-groundwork.md), [plan 22](22-flatcar-images.md)).
+`SCImage` and `ImageImporter` stay reserved and unbuilt in v1.
 
 ## 10. Garbage collection
 
