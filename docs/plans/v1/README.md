@@ -39,7 +39,7 @@ Execution protocol:
 | 11 | `wip/11-docs-and-release.md` | todo | tutorials, how-tos for profiles, selection and resources, add-a-vendor guide, first release (v0.1.0) | 07, 10 |
 | 12 | `wip/12-aws-gpu.md` | optional | NVIDIA sysext on AWS GPU types | 10 + GPU spike |
 | 13 | `wip/13-keeper-catalog-snapshot.md` | blocked | catalog from Keeper snapshots pinned per data version, with local selection; waits for Keeper's snapshot routes | 03 + Keeper snapshots |
-| 14 | `wip/14-multi-vendor-groundwork.md` | todo | shared core and API changes the vendor plans need (the `images` kind and `ImageRequest`, per-type root disk, idempotency label, stopped-node rule, account-wide quota errors, message-based classification, Butane hook, region aliases, malformed references) and the sc-infra hand-off changes (inventory `images`, scope, per-vendor `vendor_block()`) | 10 |
+| 14 | `wip/14-multi-vendor-groundwork.md` | todo | shared core and API changes the vendor plans need (the `images` kind and `ImageRequest`, per-type root disk, idempotency label, stopped-node rule, account-wide quota errors, message-based classification, Butane hook, region aliases, malformed references, the one `use` selector of ADR-023), the published hand-off contract (IaC-neutral), CRD schema and examples, and the resource resolution order of ADR-022 | 10 |
 | 15 | `wip/15-hcloud.md` | todo | Hetzner Cloud driver, fake, conformance, L5 lane; images on rung 3 | 14 |
 | 16 | `wip/16-gcp.md` | todo | GCP driver, fake, conformance, L5 lane; amd64 on rung 1, arm64 on rung 2 | 14, 22 (arm64) |
 | 17 | `wip/17-azure.md` | todo | Azure driver, fake, conformance, L5 lane; images on rung 1 | 14 |
@@ -48,6 +48,7 @@ Execution protocol:
 | 20 | `wip/20-vultr.md` | todo | Vultr driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
 | 21 | `wip/21-alicloud.md` | todo | Alibaba Cloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
 | 22 | `wip/22-flatcar-images.md` | todo | the Flatcar images repository (proposed `SpareCores/flatcar-images`): OEM-patched images for vultr, upcloud and aliyun, the GCP arm64 image, signatures, release tracking, upstream proposals | — |
+| 23 | `wip/23-billing-retention.md` | todo | opt-in `spec.billing`: keep period-billed nodes (hcloud, UpCloud, Vultr; OVH where hourly) until the end of their paid period and reuse them; Keeper vendor billing facts, `BillingStart`, the retention controller, metrics, fake-clock tests | 14 and the Keeper vendor table (live; plan 13 is not needed) |
 
 Shared rules for every plan: [`CONVENTIONS.md`](CONVENTIONS.md).
 
@@ -70,6 +71,11 @@ Order:
    for plan 22.
 3. **15 (Hetzner)**: rung 3 with Flatcar's own image.
 4. **18 to 21** (OVH, UpCloud, Vultr, Alibaba); the order among them is open.
+
+**23**, billing-period retention, needs 14 only (its Keeper data is the live vendor table, not
+plan 13's snapshots) and is fully testable on the fake driver; it can be built as soon as 14 is done,
+before or alongside the vendor plans. Each of 15, 18, 19 and 20 then turns it on for its vendor once its
+live billing check passes (AWS, GCP, Azure and Alibaba bill per second or minute and never use it).
 
 **22**, the images repository, is built before GCP arm64 and before 19, 20 and 21
 (OVH and Hetzner use Flatcar's own images and do not wait for it). It is a separate

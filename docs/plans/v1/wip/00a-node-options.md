@@ -151,8 +151,8 @@ spec:
       storage:                              # layer 2: overrides the built-in AWS defaults
         root: {volumeType: gp3, volumeSize: 128Gi, iops: 3000, throughput: 125, encrypted: true}
       resources:                            # §9
-        subnets: {selector: {tags: {scarpenter.sparecores.com/use: "true"}}}
-        securityGroups: {selector: {tags: {scarpenter.sparecores.com/use: "true"}}}
+        subnets: {use: {tags: {scarpenter.sparecores.com/use: "true"}}}
+        securityGroups: {use: {tags: {scarpenter.sparecores.com/use: "true"}}}
         placementGroups: {create: {lifecycle: perUse}}
     gcp:
       regions: [europe-west3]
@@ -542,7 +542,7 @@ vendors:
     resources:
       subnets:
         use:                                     # bring your own (never modified, never deleted)
-          selector: {tags: {scarpenter.sparecores.com/use: "true"}}   # per region, evaluated in every region in scope
+          tags: {scarpenter.sparecores.com/use: "true"}   # per region, evaluated in every region in scope
       securityGroups:
         use:
           ids: {us-east-1: [sg-0123], eu-central-1: [sg-0456]}       # explicit per region
@@ -556,8 +556,15 @@ vendors:
           timing: onDemand                       # or preCreate: [westeurope, eastus]
 ```
 
-- **`use`** — by explicit IDs per region, a name pattern (`{region}`,
-  `{zone}` placeholders), or a tag/label selector. SCarpenter validates them
+- **`use`** — one selector for every kind and vendor
+  ([ADR-023](../../../explanation/DECISIONS.md#adr-023-one-selector-for-every-vendor-resource-accepted-2026-11-10),
+  [reference](../../../reference/resource-selectors.md)): explicit `ids` per region (`*` =
+  every region), a `name` glob with placeholders (`{region}`, `{zone}`, `{arch}`, `{channel}`,
+  `{version}`, `{nodeclass}`), `tags` (labels where the vendor has none), portable `match`
+  attributes (`architecture`, `owner`, `state`, `cidr`, `within`, `zone`, `network`,
+  `createdAfter`, `description`), the vendor's native `filters` and `expression`, and
+  `select` / `orderBy`; all given fields ANDed, unsupported names rejected, never
+  ignored. SCarpenter validates them
   per region (`status.vendors.<v>.resources`, condition `ResourcesReady`); a
   region where a referenced resource is missing has unavailable offerings and
   a clear reason. It never modifies or deletes them.
@@ -566,15 +573,21 @@ vendors:
   an ownership marker (tags or labels, else name prefix plus description). It
   adopts an existing resource carrying both (e.g. after a restart) instead of
   creating a duplicate.
-- **Neither** — `create` with the kind's default lifecycle below (the
-  zero-configuration route; decided 2026-11-05). `forbid: true` opts a kind
-  out of auto-creation: offerings needing it are then unavailable.
-- **The vendor's own default resource** (AWS default VPC and its default
-  subnets, GCP `default` network, Alibaba default VPC and vSwitches) is part
-  of a driver's built-in defaults (§3, layer 1): where it exists and the kind
-  has neither `use` nor `create`, the driver uses it as found, like `use`
-  (never modified or deleted). Only where it does not exist does the default
-  `create` apply.
+- **Neither** — the resolution order of
+  [ADR-022](../../../explanation/DECISIONS.md#adr-022-resolving-vendor-resources-explicit-discovered-default-created-or-a-clear-failure-accepted-2026-11-10)
+  (the zero-configuration route; first decided 2026-11-05 as "`create`", amended
+  2026-11-10): explicit `use`; then discovery of resources tagged
+  `scarpenter.sparecores.com/use: "true"` (the selector `use: {tags: ...}` with the kind's default `select`,
+  built in; vendors without tags skip it); then the
+  vendor's own default resource where it exists and is safe (AWS default VPC and its
+  default subnets, GCP `default` network, Alibaba default VPC and vSwitches; part of
+  a driver's built-in defaults, §3 layer 1; used as found like `use`, skipped where it
+  cannot honour the request, ADR-017); then `create` with the kind's default lifecycle
+  below; else a stated failure (`ResourcesReady=False`, kind, region and what was
+  tried; no launch, nothing half-created). An explicit `create` skips discovery and
+  defaults. `forbid: true` opts a kind out of auto-creation: offerings needing it are
+  then unavailable. Implemented today for AWS: explicit, default, create, failure;
+  discovery and the other vendors are [plan 14](14-multi-vendor-groundwork.md).
 
 ### 9.3 Lifecycle of managed resources
 

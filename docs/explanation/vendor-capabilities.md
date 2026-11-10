@@ -30,7 +30,7 @@ check them before a driver depends on them.
 
 What must exist in the account before an instance can be created, and what
 a usable default exists for. Every resource here can be pre-created by the
-user (e.g. with Pulumi, in every region) and referenced, or created by
+user (e.g. with Pulumi or Terraform, in every region) and referenced, or created by
 SCarpenter on demand (design: [00a §9](../plans/v1/wip/00a-node-options.md#9-vendor-resources-bring-your-own-or-managed)).
 
 | Vendor | Required for every instance | Usual default | Needed for options |

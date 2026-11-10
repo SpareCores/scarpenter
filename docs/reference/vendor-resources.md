@@ -4,13 +4,15 @@ What a node depends on at the vendor besides the instance (resource groups,
 networks, subnets, security groups and firewalls, placement groups, separate
 volumes), and how SCarpenter gets them: brought by the user (`use`) or managed
 by SCarpenter (`create`) with an explicit lifecycle. Design: ADR-018 and
-`docs/plans/v1/wip/00a-node-options.md` section 9. How to reference your own
-resources: [Bring your own vendor resources](../how-to-guides/bring-your-own-resources.md).
+`docs/plans/v1/wip/00a-node-options.md` section 9. How `use` finds resources, for every
+kind and vendor: [Resource selectors](resource-selectors.md) (ADR-023). How to reference
+your own resources: [Bring your own vendor resources](../how-to-guides/bring-your-own-resources.md).
 
 ## Table of Contents
 
 - [Kinds](#kinds)
 - [use, create, forbid](#use-create-forbid)
+- [Resolution order](#resolution-order)
 - [Lifecycles](#lifecycles)
 - [Timing](#timing)
 - [Names and ownership](#names-and-ownership)
@@ -45,16 +47,20 @@ vendors:
   aws:
     resources:
       subnets:
-        use: {selector: {tags: {scarpenter.sparecores.com/use: "true"}}}
+        use: {tags: {scarpenter.sparecores.com/use: "true"}}
       securityGroups:
         use: {ids: {us-east-1: [sg-0123], eu-central-1: [sg-0456]}}
       placementGroups:
         create: {lifecycle: {policy: perUse}, timing: {mode: onDemand}}
 ```
 
-- **`use`** brings existing resources: by explicit IDs per region, by a name
-  pattern with `{region}` and `{zone}` placeholders, or by a tag (label)
-  selector, evaluated in every region in scope. `{zone}` is replaced by the zone
+- **`use`** brings existing resources, found by the one selector of
+  [Resource selectors](resource-selectors.md) (ADR-023), evaluated in every region in
+  scope: explicit `ids` per region, a `name` glob, `tags` (labels, where the vendor has
+  no tags), portable `match` attributes (architecture, owner, state, CIDR, zone,
+  creation time), the vendor's native `filters` and `expression`, and `select` and
+  `orderBy` for how many and which. All given fields are ANDed; a field a vendor does
+  not support for the kind is rejected. `{zone}` is replaced by the zone
   of the launch; the status check expands it for every zone of the region: the
   region is unavailable when no zone has a match, and a zone without one is
   unavailable on its own (its offerings are gated per NodeClass, the other zones
@@ -66,16 +72,50 @@ vendors:
 - **`create`** lets SCarpenter create and own the resource when a launch needs it.
 - **`forbid: true`** opts the kind out of creation: offerings that need it are
   unavailable unless the vendor's own default resource exists.
-- **Neither**: the vendor's own default resource (the AWS default VPC's
-  subnets, GCP's `default` network, Alibaba's default VPC) is used as found,
-  like `use`, where it exists (`Resolve` with an empty reference); only where it
-  does not exist the resource is created, with the kind's default lifecycle. This is
-  the zero-configuration route. Per-run and per-node kinds never have a vendor
-  default.
+- **Neither**: the resolution order below (explicit, discovered, vendor default,
+  created, or a clear failure). This is the zero-configuration route. Per-run and
+  per-node kinds never have a vendor default.
 
 A placement profile may reference an existing group instead of creating one
 (`aws: {placementGroup: {use: {name: my-pg}}}`): the group is resolved, never
 created or deleted, and the run key only separates NodeClaims.
+
+## Resolution order
+
+[ADR-022](../explanation/DECISIONS.md#adr-022-resolving-vendor-resources-explicit-discovered-default-created-or-a-clear-failure-accepted-2026-11-10).
+For each kind, in each region (steps 2 to 4 only for a kind without `use`):
+
+1. **Explicit `use`** (the [selector](resource-selectors.md)): as given, validated,
+   never modified. A `use` that matches nothing, or more than `select` allows, fails;
+   it never falls through.
+2. **Discovery**: resources carrying the opt-in tag or label
+   `scarpenter.sparecores.com/use: "true"` (encoded as the other SCarpenter tags:
+   `scarpenter-use` where `/` is not allowed; the selector `use: {tags: {...: "true"}}` with
+   the kind's default `select`, built in). The operator's explicit opt-in, so
+   it wins over a vendor default. Vendors whose resources have no tags or labels
+   skip this step. Treated as `use`. Nothing tagged goes on to step 3; more than
+   `select` allows fails.
+3. **Vendor default**, where the vendor has one and it is safe: the AWS default VPC
+   and its default subnets, GCP's `default` network, Alibaba's default VPC and
+   vSwitches (Azure, Hetzner, OVH, UpCloud and Vultr have none for the kinds
+   SCarpenter needs). A default that cannot honour the request (ADR-017: run
+   isolation, inbound rules, `publicIPv4: false`, IPv6) is skipped, not degraded.
+   Treated as `use`.
+4. **Create**, managed with the lifecycle below, where the vendor and the
+   credentials allow it. `forbid: true` removes this step.
+5. **Fail gracefully**: `ResourcesReady=False` (reason `ResourcesUnavailable`) names
+   the kind, the region and what was tried; no launch is attempted in that region;
+   nothing half-created is left behind.
+
+An explicit `create` skips steps 2 and 3. Kinds that live in a network (subnets,
+security groups) are resolved within the network that was resolved, whichever step found it.
+
+**Today and planned.** The AWS driver implements 1, 3, 4 and 5: `Resolve` with an empty
+reference returns the default VPC's subnets, then `Ensure` creates (the AWS e2e lane
+launches into the default VPC). Discovery (step 2) is not implemented: today the
+same tag works only as an explicit `tags` selector. [Plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md)
+adds step 2 and the whole order to the core, with per-driver hooks (which kinds have
+a default, how a default is checked against the request) and conformance cases.
 
 ## Lifecycles
 
@@ -143,11 +183,15 @@ an adoption) and the garbage collector lists them by marker.
 The vendor status `status.vendors.<vendor>` holds:
 
 - `resources`: the resources referenced and managed, per region (`kind`,
-  `region`, `id`, `managed`, `lastUsed` for managed ones, `message` for a
-  deletion that failed). At most 128 entries.
+  `region`, `id`, `name`, `managed`, `source`: `use`, `discovered`, `default` or
+  `created`; `lastUsed` for managed ones, `message` for a deletion that failed).
+  At most 128 entries. A `use` with `select: all` lists every match, so many regions
+  with many subnets can reach the cap; the entries are then truncated and
+  `message` says so.
 - the condition `ResourcesReady`: `True` when every region has what the NodeClass
   needs; `False` (reason `ResourcesUnavailable`) with a message that names each
-  region and kind (`eu-west-1: subnets: nothing matches the tags ...`), and a
+  region and kind and what excluded the rest (`eu-west-1: subnets: 14 listed, 3 match
+  tags, 0 match zone`, see [Resource selectors](resource-selectors.md#resolution-status-and-caching)), and a
   Warning Event `ResourcesUnavailable`, when a `use` reference matches nothing, a
   `forbid` kind has no default, or a preCreate resource cannot be created;
   `Unknown` (reason `CheckFailed`) when the vendor could not be asked (the
@@ -202,8 +246,8 @@ Every creation, adoption and deletion is also logged.
 The development vendor `qemu` has one kind, `networks` (scope `region`, default
 policy `retain`): a Linux bridge of the machine, whose ID is its interface name.
 Without a `networks` block, and with `forbid`, the default bridge
-(`--qemu-bridge`) is used when it exists; `use` finds bridges by ID, name pattern
-or `key=value` tags in the interface alias (`ip link set <bridge> alias "env=lab"`);
+(`--qemu-bridge`) is used when it exists; `use` finds bridges with the selector by `ids`,
+`name` or `tags` (`key=value` pairs in the interface alias, `ip link set <bridge> alias "env=lab"`);
 `create` makes a bridge with an address (a /24 of `10.88.0.0/16` derived from its
 name), no DHCP server and no NAT: those are the machine's job, so VMs on a created
 bridge only get an address when something serves DHCP there. Created bridges are
@@ -212,9 +256,9 @@ machine lost them, and deleted only while no VM is attached.
 
 ## Driver contract
 
-`vendors.ManagedResources`: `Kinds`, `Resolve` (existing resources by IDs, name
-pattern or tags; an empty reference means the vendor's default; nothing found is
-an empty result), `Ensure` (find by name and marker, else create; idempotent;
+`vendors.ManagedResources`: `Kinds`, `Resolve` (existing resources by the selector, `UseRef`: IDs, name, tags, `match`,
+`filters`, `expression`, `select` and `orderBy`, placeholders already expanded; an empty
+reference means the vendor's default; nothing found is an empty result), `Ensure` (find by name and marker, else create; idempotent;
 reports whether it created), `InUse` (in use now, and the last use or creation),
 `Delete` (idempotent; refuses resources that are not managed; a resource the
 vendor will not delete is `Retryable`) and `List` (by marker, per region). See

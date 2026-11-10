@@ -20,6 +20,9 @@ Available:
   ID, name pattern or tags per region; or let SCarpenter create them, and choose
   their lifecycle.
 
+- [**Reuse nodes within the billing period**](reuse-nodes-within-billing-period.md)
+  (plan 23, ADR-024) — keep hourly-billed nodes until the period they paid for is
+  about to end, and when that helps and where it stops.
 - [**Install SCarpenter**](install.md) (plan 09) — prerequisites (bootstrap-token
   auth, CNI and kube-proxy that work on remote nodes), the Helm install, the values
   that matter, the k3s kubelet client CA, upgrade, uninstall and what it leaves

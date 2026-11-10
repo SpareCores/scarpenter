@@ -106,7 +106,7 @@ membership may change only where step 4 documents why.
 2. `GET /benchmark_configs`, which is live, and resolve each metric to its
    config. A config with no rows in the pinned hash is an invalid metric; the
    rest of the refresh goes on.
-3. For each vendor in scope, fetch `server`, `region`, `zone`,
+3. For each vendor in scope, fetch `vendor` (billing facts, below), `server`, `region`, `zone`,
    `server_price`, `storage_price`, `ipv4_price`, and one score file for each
    benchmark a metric uses.
 4. **Re-pin once.** On `snapshot-not-available`, pin the `current` hash from
@@ -150,12 +150,67 @@ membership may change only where step 4 documents why.
   Dropping the Go price slice after the offerings are built is out of scope:
   revisit it only if the memory numbers call for it.
 
+## Vendor billing data (ADR-024, plan 23)
+
+[ADR-024](../../../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10)
+needs each vendor's billing rule. `GET /table/vendor` is live today (checked 2026-11-10) and has
+`billing_increment_seconds`, `minimum_billing_seconds`, `stopped_server_charged` and `billing_comment`;
+there is no `/vendors` route. Plan 13 does not gate it: [plan 23](23-billing-retention.md) reads it from
+the live route as soon as plan 14 is done. This plan makes it part of the snapshot.
+
+What this plan adds:
+
+1. **`sc-keeper-go`: `Vendors(ctx)`** over `/table/vendor`, with the same version pinning as the other
+   table methods, and a `Vendor` type whose billing fields are pointers (null is legal: "unknown"). Plan 23
+   adds the method (it is small and must not wait for snapshots); this plan's part B only moves it to
+   the snapshot transport.
+2. **The `vendor` table in the snapshot.** The refresh fetches `/snapshot/{hash}/vendor/{vendor}` (step 3
+   above). The table has a `vendor_id` column, so it rides on the "every column" rule today; the Keeper
+   spec must state that the four billing columns are part of the snapshot contract, so that a rename is a
+   breaking change. A catalog from a hash that lacks the table (an older Keeper) has no billing data and
+   retention is off with the status reason `NoKeeperData`, never a guess.
+3. **Finer data Keeper lacks** (raised as [SpareCores/sc-keeper#112](https://github.com/SpareCores/sc-keeper/issues/112)). The vendor row is one
+   worst-case value per vendor and cannot express:
+   - OVH regions (EU, CA and APAC per second with a 60 s minimum, the US hourly, per Keeper's comment);
+   - Alibaba's minimum by vCPU count (600, 300, 120 s);
+   - UpCloud's stopped-server billing by family (Developer and General Purpose billed, Cloud Native not);
+   - monthly caps (Hetzner, Vultr 672 hours, GPU 730, UpCloud Simple plan 672 hours);
+   - what starts the clock (create call, provisioning complete, running) and how periods are counted
+     (from the start, or per clock hour).
+
+   Proposed shape, a table next to `vendor`, whose row is the default (NULL in `region_id` or `family` means any,
+   the most specific match wins):
+
+   ```
+   billing_rule(vendor_id, region_id NULL, family NULL,
+                increment_seconds, minimum_seconds,
+                start_event,                 -- create_call | provisioning_complete | running
+                anchor,                      -- from_start | clock_hour
+                monthly_cap_hours NULL,      -- cap over calendar_month
+                stopped_server_charged,
+                comment)
+   ```
+
+   Until it exists, drivers override per region and family in code (plan 23, `BillingRule`), and every
+   override has a plan or ADR reference so it can be deleted when Keeper has the data. `ServerPrice.unit` is
+   the price's time unit, not a billing granularity (it is `HOUR` for every row), so it cannot stand in.
+4. **Data inconsistencies to raise with the data owners** (found 2026-11-10 against the vendors' own pages):
+   - OVH is 3600/3600 in Keeper, but OVH's Public Cloud billing page says per second after one minute
+     everywhere ("never rounded up to the next hour"), while Keeper's own comment says the EU is per second and
+     the US hourly: which is right per region is open;
+   - Azure is 1/300 in Keeper, but Azure's pricing page says full minutes (increment 60); a minimum of 300 s
+     is on no page read;
+   - `minimum_billing_seconds` for Alibaba (600, the worst case of three) is a minimum for the release
+     only, not a period.
+
+   Retention stays off for a vendor until its plan's live check settles the value, whatever Keeper says.
+
 ## Scope
 
 - **sc-keeper-go.** Part A: the local candidate builder. Part B: the
   snapshot client, with re-pinning, gzip, columnar decoding and the headers,
   and `benchmark_config_id`.
-- **SCarpenter.** `pkg/catalog` (part A and part B), and the AWS storage and
+- **SCarpenter.** `pkg/catalog` (part A and part B), the vendor table and the AWS storage and
   IPv4 prices. Part B also covers the options, the chart and the docs.
 - **Not here.**
   - sc-keeper itself.

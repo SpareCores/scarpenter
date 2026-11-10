@@ -31,8 +31,8 @@ read back from the image.
    (proposed name `SpareCores/flatcar-images`, [plan 22](../plans/v1/wip/22-flatcar-images.md)).
    Nobody has anything to create.
 3. **Images can be created in your own account.** You pre-create them, per region
-   where the vendor's images are regional, with infrastructure as code (sc-infra's
-   Pulumi for Spare Cores, your own tooling otherwise) and pass their IDs to
+   where the vendor's images are regional, with infrastructure as code (any
+   tool) and pass their IDs to
    SCarpenter, or name them by the documented convention. The source is Flatcar's
    official image for the platform. Where Flatcar ships none, it is the image the
    images repository builds: the generic Flatcar image with the OEM id set
@@ -63,8 +63,10 @@ read back from the image.
 
 The driver resolves `(region, architecture, channel, version)` to an image. By
 default it uses the vendor's convention (below); the optional `images` resource
-kind of the vendor block brings explicit IDs, a name pattern or, where the vendor
-filters images by tags or labels, a selector:
+kind of the vendor block brings the image with the one
+[selector](../reference/resource-selectors.md) of every resource kind: explicit IDs, a name
+pattern, tags or labels, portable attributes (`architecture`, `owner`, `state`) and native
+filters, `select` and `orderBy`:
 
 ```yaml
 spec:
@@ -73,7 +75,8 @@ spec:
       resources:
         images:
           use:
-            ids: {fsn1: ["123456789", "987654321"]}   # both architectures; a global image is listed per region
+            ids: {"*": ["123456789", "987654321"]}   # both architectures; a global image under the key "*" (every region)
+            # or, found by labels:  tags: {os: flatcar, flatcar-version: "{version}"}, match: {architecture: [amd64]}
 ```
 
 Whichever way the image was found, the driver compares the image's own labels or
@@ -141,7 +144,7 @@ hash; the pinned version is.
 | | |
 |---|---|
 | Rung | 2 |
-| Source | the generic arm64 image with the OEM id set for GCE, built by the images repository and published as a GCP image in a Spare Cores project (created by sc-infra), shared with `allAuthenticatedUsers` |
+| Source | the generic arm64 image with the OEM id set for GCE, built by the images repository and published as a GCP image in a Spare Cores project, shared with `allAuthenticatedUsers` |
 | Scope | global |
 | Created by | the images repository (GitHub Actions, keyless identity into the project) |
 | Pinned version | name `flatcar-<channel>-<major>-<minor>-<patch>-arm64` and the labels `flatcar-channel`, `flatcar-version` (dots as dashes: the label charset), `built-by` |
@@ -156,7 +159,7 @@ hash; the pinned version is.
 | Rung | 3 (Hetzner offers no Flatcar image, and its snapshots cannot be shared or made public) |
 | Source | Flatcar's official `flatcar_production_hetzner_image.bin.bz2`, uploaded as a snapshot with `hcloud-upload-image` (Hetzner has no import API) |
 | Scope | global in the project, bound to an architecture; a snapshot boots in any location |
-| Created by | your IaC or a CI job next to it (Pulumi has no upload resource); the L5 lane's bootstrap does it for the CI project |
+| Created by | your IaC or a CI job next to it (some IaC tools have no upload resource, Pulumi among them); the L5 lane's bootstrap does it for the CI project |
 | Pinned version | snapshot labels `os=flatcar`, `flatcar-channel=<channel>`, `flatcar-version=<version>` and the architecture; exactly one match |
 | Architectures | amd64, arm64 |
 | Later | an `ImageImporter` with the same upload library stays possible (rung 4) |

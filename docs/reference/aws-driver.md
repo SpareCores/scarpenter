@@ -194,7 +194,8 @@ storage profiles override them key by key.
 **Validation** (`ValidateNodeClass`, shown in the NodeClass status): region names,
 instance profile name (`[\w+=,.@-]{1,128}`), hop limit 1 to 64, tag keys and values
 (no `aws:` prefix, no `scarpenter.sparecores.com/` keys, at most 40 tags), inbound
-CIDRs, resource references (`subnet-`, `sg-`, `pg-` IDs per region; selector tags),
+CIDRs, resource references (`subnet-`, `sg-`, `pg-` IDs per region; the tags of a `use`;
+the rest of the selector is checked against the driver's capability table, plan 14 A10),
 and the EBS limits per volume type:
 
 | Type | Size (GiB) | IOPS | Throughput (MiB/s) | Boot volume |
@@ -256,8 +257,10 @@ are returned unchanged so that a launch skips only the zone.
 
 Deletion order: placement groups, run groups, NodeClass groups, then the network.
 
-- **Subnets.** `use` by IDs per region, name pattern (tag `Name`, wildcards, `{zone}`
-  expanded per zone) or tags. In each zone the launch takes the matching subnet
+- **Subnets.** `use` with the [selector](resource-selectors.md#aws): IDs per region, name
+  pattern (tag `Name`, wildcards, `{zone}` expanded per zone), tags, `match` (zone, network,
+  CIDR, owner, state) or native filters; today `ids`, `name` and `selector.tags` one at a time,
+  until plan 14 (A10) lands the rest. In each zone the launch takes the matching subnet
   with the most free addresses (cached 5 minutes); a zone without one is
   `ZoneUnusable` (`NoSubnetInZone`), and a `{zone}` pattern with no match in a zone
   gates only that zone. Without `use`, the default VPC's default subnets are used

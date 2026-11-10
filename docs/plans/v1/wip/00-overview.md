@@ -585,7 +585,7 @@ spec:
       instanceProfile: ""             # none by default: nodes hold no cloud credentials
       imageOwner: ""                  # "" = the official Flatcar account
       resources:                      # use (bring your own) or create (managed), per kind (00a §9)
-        subnets: {use: {selector: {tags: {scarpenter.sparecores.com/use: "true"}}}}
+        subnets: {use: {tags: {scarpenter.sparecores.com/use: "true"}}}
         securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 24h}}}
         placementGroups: {create: {lifecycle: {policy: perUse}}}
 status:
@@ -1196,8 +1196,8 @@ its own limit, so that at least 20 minutes stay for diagnostics and teardown):
 Region `us-east-2` (cheap, default VPC). Instance types limited by an explicit
 IAM deny to `t3a.small`, `t4g.small` and similar.
 
-Static infrastructure (Spare Cores' private Pulumi project, outside this
-repository): GitHub environment `e2e`, the OIDC role
+Static infrastructure (the CI account's, created by its operator with their own IaC,
+outside this repository): GitHub environment `e2e`, the OIDC role
 `scarpenter-ci-gha` (the §11.6 policy for clusters `scarpenter-ci-*`, the
 instance-type deny, region limit), Tailscale federated identity (GitHub Actions issuer,
 scope `auth_keys`, write, tag `tag:scarpenter-ci` only, which owns `tag:scarpenter-ci-node`)

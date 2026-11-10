@@ -77,12 +77,11 @@ access to the Flatcar release server and SSH reachability from the importer).
 **How the images get created** (the plan does not build a pipeline, it documents and
 checks):
 
-- Spare Cores: sc-infra's `hcloud` environment (or a small workflow next to it) runs
-  `hcloud-upload-image` for the pinned `(channel, version)` of the clusters, both
-  architectures, with the three labels above, and keeps them. Pulumi has no resource that
-  uploads an image; a `command`-style step or CI job is needed (sc-infra's decision).
-  Looking them up in Pulumi is possible with the provider's image data source
-  (`with_selector`; from memory, **unverified**).
+- The operator's IaC, or a CI job next to it, runs `hcloud-upload-image` for the pinned
+  `(channel, version)` of the clusters, both architectures, with the three labels above,
+  and keeps them. Some IaC tools (Pulumi among them) have no resource that uploads an
+  image; a command step or CI job is needed. Looking them up in an IaC tool is possible
+  with the provider's image data source (from memory, **unverified**).
 - Anyone else: the how-to `docs/how-to-guides/hcloud-images.md` (two commands, the
   Packer variant of the Flatcar docs, the label convention).
 - The L5 lane's `bootstrap.sh` creates them idempotently in the CI project when the pinned
@@ -108,9 +107,9 @@ spec:
         data:
           - {name: pgdata, size: 100Gi, filesystem: xfs, mountPath: /var/lib/pgdata}
       resources:
-        images:          {use: {ids: {fsn1: ["123456789", "987654321"], nbg1: ["123456789", "987654321"]}}}   # optional (plan 14, A1): default is the label lookup above; global snapshots, so the same IDs in every location (both architectures)
+        images:          {use: {ids: {"*": ["123456789", "987654321"]}}}   # optional (plan 14, A1, A10): default is the label lookup above (a built-in selector: tags os=flatcar and the pin, match.architecture); global snapshots, so the IDs under the key "*" (every location; both architectures)
         networks:        {use: {ids: {fsn1: ["12345"], nbg1: ["12346"]}}}
-        firewalls:       {use: {selector: {tags: {scarpenter.sparecores.com/use: "true"}}}}
+        firewalls:       {use: {tags: {scarpenter.sparecores.com/use: "true"}}}
         placementGroups: {create: {lifecycle: {policy: perUse}}}
   profiles:
     storage:   {db: {hcloud: {data: [{name: pgdata, size: 500Gi, filesystem: xfs, mountPath: /var/lib/pgdata}]}}}
@@ -124,22 +123,21 @@ CRD regenerated. `Settings` implements `GetRegions`; there is no `imageOwner`.
 
 ### Resource kinds
 
-| Kind | Scope, default policy | `use` forms | `create` | Default when neither | sc-infra `inventory` v1 field |
+| Kind | Scope, default policy | `use` forms | `create` | Without `use` (ADR-022) | What your IaC must output |
 |---|---|---|---|---|---|
-| `images` (snapshots; not managed) | region key, global in the project; per architecture | `ids` per location (the same IDs repeated), `selector.tags` (labels, `key=value`); the label convention is the default | never (rung 3; ADR-021) | the label lookup of the image section | `regions.<location>.images` (planned, plan 14 B1) |
-| `networks` (private network) | region (network zone of the location), `retain` | `ids` per region (location); `name` pattern (exact match after `{region}` expansion; the API filter is exact); `selector.tags` (API label selector, `key=value` pairs) | **not in v1** (open question 4); `create` is rejected by validation | no network: nodes have a public address only | `regions.<location>.network.id` (`use.ids`); the label `scarpenter.sparecores.com/use: "true"` is already on the network (selector works today) |
-| `firewalls` | region (one per location although Hetzner firewalls are project-wide: the engine's names are per region, 6 at most; the limit is 50 per project), `idleTTL` 24 h | `ids`, `name`, `selector` as above | yes: rules from `networking.inbound` (inbound only; outbound open), applied **at server create by ID**; deny all inbound when there are no rules | create (Hetzner's default is open, ADR-017 and `inbound` say deny) | `regions.<location>.security_groups.nodes.id` (the same ID in every location; never the `jobs` firewall); label `scarpenter.sparecores.com/use: "true"` already on the `nodes` firewall |
-| `placementGroups` (`spread`) | run, `perUse` | `use: {name}` inside a placement profile; by IDs or name in the kind block | yes, per (location, profile, run key) | n/a (per-run kinds have no default) | none (SCarpenter creates them) |
-| `volumes` | node, `perUse`, **internal** (no block key, no `use`): one per node and `storage.data` entry | n/a | yes, from the resolved storage settings | n/a | none |
+| `images` (snapshots; not managed) | region key, global in the project; per architecture | `ids` per location or under `*` (the same IDs), `tags` (labels, `key=value`; `expression` for a full label selector with `!=`, `in`, `notin`), `match.architecture` (`x86`/`arm`), `state`, `includeDeprecated`, `filters` `type`/`status`/`bound_to`; `name` matches system images only (snapshots have none); `newest` by `sort=created:desc` on the server; the label convention is the default | never (rung 3; ADR-021) | the label lookup of the image section | snapshot IDs per location (the same IDs repeated), or nothing when the labels follow the convention |
+| `networks` (private network) | region (network zone of the location), `retain` | `ids` per region (location); `name` (exact: the API filter is exact; a glob is finished client-side); `tags` and `expression` (the API label selector); `match.cidr` and `within` (client-side: `ip_range`), `match.zone` (the `network_zone` of a subnet) | **not in v1** (open question 4); `create` is rejected by validation | tagged networks (discovery, planned), else no network: nodes have a public address only (no vendor default, no `create`) | the network ID per location (`use.ids`), or the label `scarpenter.sparecores.com/use: "true"` on it |
+| `firewalls` | region (one per location although Hetzner firewalls are project-wide: the engine's names are per region, 6 at most; the limit is 50 per project), `idleTTL` 24 h | `ids`, `name`, `tags`, `expression` as above | yes: rules from `networking.inbound` (inbound only; outbound open), applied **at server create by ID**; deny all inbound when there are no rules | labelled firewalls (discovery, planned), else create (Hetzner has no default firewall and an open server is refused by ADR-017 and `inbound`) | the firewall ID (the same in every location; hand over only the one nodes may use), or the opt-in label on it |
+| `placementGroups` (`spread`) | run, `perUse` | `use: {name}` inside a placement profile; by IDs or name in the kind block | yes, per (location, profile, run key) | n/a (per-run kinds have no default) | nothing (SCarpenter creates them) |
+| `volumes` | node, `perUse`, **internal** (no block key, no `use`): one per node and `storage.data` entry | n/a | yes, from the resolved storage settings | n/a | nothing |
 
 Notes:
 
 - There is no subnet kind. A server created with `networks: [<id>]` gets an address from a
   subnet of that network in its location's network zone. `Resolve` of `networks` checks that
   the network has a `cloud` subnet in the zone of every configured location; a location
-  where it has none is gated with the reason (resource missing). The inventory's
-  `subnets[].id` is `null` for hcloud and stays unused; the inventory's network `cidr`
-  documents the range.
+  where it has none is gated with the reason (resource missing). Your IaC needs no subnet
+  ID for hcloud; the network's range can be matched with `use.match.cidr` or `within` (plan 14, A10).
 - The firewall is applied by ID in the create call, not by label selector: a label-selector
   firewall attaches with a delay of up to a few seconds (changelog 2025-09), during which a
   new server would be open. Hetzner refuses to attach a firewall to a server without a public
@@ -155,29 +153,29 @@ Notes:
   `-` plus an 8-character hash, the same function on write and on lookup (cluster,
   nodeclass and nodepool names, NodeClaim names).
 
-### What the inventory is missing for this driver (sc-infra)
+### What the operator's IaC must provide, and what SCarpenter self-manages
+
+The operator's IaC (any tool, or the Console) provides:
 
 1. **Flatcar snapshots** (x86 and arm, per pinned `channel`/`version`, with the three
-   labels). Not provisioned by `environments/hcloud.py`, not in the inventory. Decided
-   (plan 14, B1): the inventory gets the additive per-region key
-   `regions.<location>.images: [{id, name, arch, channel, version}]`, the same snapshots in
-   every location (they are project-wide), rendered as `resources.images.use.ids`; the
-   environment creates them (`hcloud-upload-image` from Flatcar's own image). If SCarpenter
-   finds them by label, nothing has to be rendered.
-2. **`blocks/scarpenter.py`**: `ACCEPTED_VENDORS` gets `hcloud`, and `vendor_block()` renders
-   the per-vendor kind map of plan 14 (B3): `networks.use.ids` from `network.id` and
-   `firewalls.use.ids` from `security_groups.nodes.id`, not `subnets` and `securityGroups`.
-3. **The controller's own token.** Not an inventory field: a Kubernetes Secret with a
-   read-write token of the project (the sc-infra token is a Pulumi secret for Pulumi; use
-   a separate token of the same project, created in the Console, so it can be rotated apart).
-4. **The e2e project and its token**: a dedicated Hetzner project for L5 (projects cannot be
-   created through the API), with a low server limit requested in the Console, a usage
-   alert, and two tokens (read-write for the lane, read-only for the canary); the secrets go
-   into the `e2e`, `e2e-sweeper` and `e2e-canary` environments via the `scarpenter-e2e`
-   tenant. The tailnet tags are unchanged.
-5. Optional: the `ssh_key` of the inventory (`name`, `id` is `null` for hcloud) is the
-   value of `sshKey`; nodes do not need it (Ignition), see the open question on the root
-   password.
+   labels), or a CI job that makes them. They are project-wide: the same IDs listed under
+   every location (`resources.images.use.ids`); if SCarpenter finds them by label, nothing
+   has to be passed.
+2. **Optionally a private network and a firewall per location** (`networks.use`,
+   `firewalls.use` by ID, name, label or, planned, CIDR). No `create` for networks in v1.
+3. **The controller's own token.** A Kubernetes Secret with a read-write token of the
+   project, separate from the IaC's own token, created in the Console, so it can be rotated
+   apart.
+4. **The e2e project and its token** (for the L5 lane): a dedicated Hetzner project
+   (projects cannot be created through the API), with a low server limit requested in the
+   Console, a usage alert, and two tokens (read-write for the lane, read-only for the
+   canary), stored as the secrets of the `e2e`, `e2e-sweeper` and `e2e-canary`
+   environments. The tailnet tags are unchanged.
+5. Optional: an SSH key, the value of `sshKey`; nodes do not need it (Ignition), see the open
+   question on the root password.
+
+SCarpenter self-manages, without `use`: a deny-inbound firewall per location (`idleTTL`),
+placement groups and volumes. Nothing else is needed for a node with a public address.
 
 ### Account scope and credentials
 
@@ -244,7 +242,8 @@ Notes:
 - **State mapping**: `initializing`, `starting` -> pending; `running`, `migrating`,
   `rebuilding`, `unknown` -> running; `stopping`, `off`, `deleting` -> terminating. **`off`
   is terminating on purpose** (the stopped-node rule of plan 14, A4): a stopped server still
-  bills, so a node that powered itself off (the base template's optional poweroff timer) must
+  bills (it is no node, and its charges continue into the next hours, which the deletion ends;
+  the started hour is paid either way), so a node that powered itself off (the base template's optional poweroff timer) must
   be collected, and `DeleteInstance` deletes it. `CreatedAt` is the server's `created`.
 - **`DeleteInstance`**: `DELETE /servers/{id}`; `not_found` is success; refused (a different
   `cluster` label, or no marker) with a clear error under broad credentials; `locked` is
@@ -275,6 +274,22 @@ Notes:
   the snapshot" (Flatcar docs); `--launch-timeout` of the core (5 minutes) still holds.
   The first-boot expansion of the root partition to the type's disk is standard Flatcar
   behaviour, **unverified** on Hetzner: L5 asserts `df` of the root.
+
+### Billing period (ADR-024, plan 23)
+
+- **Rule**: hourly, rounded up per started hour; deletion is the only thing that ends the charge
+  (a powered-off server bills); a monthly price cap exists (hours not published on the page read).
+  Keeper has 3600/3600 and `stopped_server_charged: true`, which agrees. Retention is allowed once the
+  live check below passes; until then the driver reports the rule as unverified and the feature stays off.
+- **Start field**: `BillingStart` is the server's `created`. Hetzner bills once creation has
+  completed, so `created` is earlier than the real start by the provisioning time (tens of seconds,
+  **unverified**): boundaries computed from it fall early, the safe side.
+- **Delete latency**: `DELETE /servers/{id}` returns an action; the server is gone when it completes. Whether
+  billing stops at the call or at completion is not documented: the margin assumes completion plus the node drain.
+- **Verify live (L5, one-time spike)**: that periods count from creation, not from the clock hour
+  (create, delete at 59 and 61 minutes, read the hours billed per server on the Console's cost view or the
+  invoice line); the `created` versus completion offset; delete action duration; skew of the API's clock
+  against the controller's.
 
 ## Catalog (Keeper)
 
@@ -387,7 +402,9 @@ are **unverified** and a table-driven test pins every code; L5 provokes the chea
   `isolation`: open question 3.
 - **First-hour minimum**: a server is billed for the whole started hour; the docs say so
   in the consolidation guidance (`consolidateAfter` of a few minutes does not save money
-  for nodes younger than one hour; no core change).
+  for nodes younger than one hour). Keeping and reusing such nodes until the hour ends is
+  the opt-in `spec.billing` of [plan 23](23-billing-retention.md) (ADR-024); this plan
+  adds nothing for it beyond the billing period section below.
 - **`NodeClassValidator`**: syntax of the block and the profile blocks (volume sizes 10 to
   10240 GB, filesystem, `sshKey` format, ID forms, regions are known locations, `networks.create`
   rejected with a pointer to open question 4, at least one public address).
@@ -455,7 +472,7 @@ tag, so the cost guards are different from AWS's table:
 
 | Guard | hcloud lane |
 |---|---|
-| Budget alert to a person | the project's usage alert (Console), in sc-infra's notes |
+| Budget alert to a person | the project's usage alert (Console) |
 | Instance-type deny | **none possible** in the token; the lane's NodePools list the types, and the project's server limit (requested low, for example 6) bounds a bug |
 | Region restriction | `E2E_HCLOUD_LOCATIONS` (default `fsn1,nbg1,hel1`: arm and cheap types are there); not enforceable by the token |
 | Run tag | label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` on every resource |
@@ -526,15 +543,15 @@ coverage at least 80 % (report the number), `make test-e2e-hcloud-dryrun`.
 
 Deferred: spot (does not exist), private-only servers, `networks.create`, per-run private
 networks and the isolation levels that need them, several projects per controller, floating
-IPs, load balancers, snapshots as node roots, an `ImageImporter`, `sc-infra` changes.
+IPs, load balancers, snapshots as node roots, an `ImageImporter`.
 
 ## Dependencies
 
 - Plans 06, 09, 10 (done) and 14. The image-import plan is **not** a dependency (rung 3).
 - Core, from plan 14: `RootDiskForType` (A2), the `images` kind (A1), the idempotency label
   (A3), the stopped-node rule (A4) and the account-wide quota flag (A5).
-- sc-infra: the five points above and plan 14's part B; none blocks the driver's tests; the
-  lane needs the CI project and token and the inventory `images` before its first run.
+- The operator's IaC: the points above; none blocks the driver's tests; the lane needs the
+  CI project and token and the images before its first run.
 
 ## Open questions for the maintainers
 
@@ -546,7 +563,7 @@ IPs, load balancers, snapshots as node roots, an `ImageImporter`, `sc-infra` cha
    `NodeOptions`, with the catalog falling back to Keeper's `storage_size` (GB, decimal) for
    `0` or unknown.
 3. **`networking.isolation` on Hetzner** (the default is `run`). Hetzner firewalls filter
-   only the public interface, so a shared private network (the one sc-infra provides) lets
+   only the public interface, so a shared private network (one your IaC provides) lets
    every attached node reach every other, whatever the level. Recommendation: with no
    network attached (the default), every level is satisfied (a deny-inbound firewall and no
    private path); with a `networks` block, the validator requires an explicit
@@ -555,11 +572,11 @@ IPs, load balancers, snapshots as node roots, an `ImageImporter`, `sc-infra` cha
    (ADR-017: never degrade silently).
 4. **`networks.create`.** Recommendation: not in v1. Creating a network needs an IP range
    that does not collide with the user's own, and network and subnet are a pair per network
-   zone; `use` covers sc-infra's per-location networks (each a /21, up to 100 attached
+   zone; `use` covers per-location networks the IaC made (for example a /21 each, up to 100 attached
    servers per network, which is also the node ceiling per location: document it).
 5. **Firewall default.** Recommendation: create a deny-inbound firewall per location by
-   default (`idleTTL` 24 h), since Hetzner's default is open and ADR-018 says a kind
-   without settings is created.
+   default (`idleTTL` 24 h), since Hetzner's default is open and ADR-022 says a kind
+   without settings is created when nothing else resolves it.
 6. **Primary IP lifecycle.** Recommendation: let Hetzner create them with the server
    (`public_net.enable_ipv4`), clean up unassigned ones after delete, and verify the
    auto-delete behaviour in L5. If auto-delete is false, make `primaryIPs` a managed
@@ -567,8 +584,8 @@ IPs, load balancers, snapshots as node roots, an `ImageImporter`, `sc-infra` cha
 7. **SSH key.** Recommendation: optional `sshKey`, default none (nodes are Ignition
    configured; an injected key gives shell access). Check in L5 whether a create without
    keys has side effects for the account (Hetzner returns a root password in the response
-   when no key is given and the account may get a mail; **unverified**); if it does, the
-   inventory's key becomes the default.
+   when no key is given and the account may get a mail; **unverified**); if it does, a key
+   becomes the default.
 8. **Optional server limit flag** for a synthetic global quota bucket (project limits are
    not readable). Recommendation: include, default off, so a Spare Cores deployment that
    knows its limit gets headroom-aware placement and `QuotaAvailable`.
@@ -602,7 +619,7 @@ IPs, load balancers, snapshots as node roots, an `ImageImporter`, `sc-infra` cha
   (GB or GiB).
 - Whether a pre-existing label-selector firewall attaches fast enough to matter (the
   plan avoids it).
-- The `hcloud` image data source of the Pulumi provider (`with_selector`).
+- The `hcloud` image data source of IaC providers (for example Pulumi's `with_selector`).
 - Creating a server without `ssh_keys`: account notification side effects.
 - Server and project limits of a new project, and whether dedicated-vCPU types (`ccx`) have
   a separate limit.

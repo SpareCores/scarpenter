@@ -21,6 +21,7 @@ The vendor resources a node depends on are in
 - [Network addresses and egress](#network-addresses-and-egress)
 - [Extra volumes and local storage](#extra-volumes-and-local-storage)
 - [Kubelet reservations](#kubelet-reservations)
+- [Billing periods](#billing-periods)
 
 ## Layers
 
@@ -253,3 +254,12 @@ user-data is rendered per launch attempt with exactly that reservation of the
 chosen instance type in the kubelet's `kubeReserved`, so the node's allocatable
 equals what the scheduler assumed (a user-data that carried only
 `spec.kubelet.kubeReserved` would leave the kubelet reserving less).
+
+## Billing periods
+
+`spec.billing` is an opt-in that keeps nodes of vendors that bill by the started period (the hour on
+hcloud, UpCloud and Vultr) until the end of their paid period, so that Karpenter reuses them. It is a
+NodeClass setting and not a node setting: it does not change a node, so it is not drift. How it works, when it
+helps and its limits are in
+[Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md)
+(ADR-024, plan 23; not released yet).

@@ -23,7 +23,7 @@ Vendor facts that shape everything:
 - **Regions are zones.** UpCloud has 15 data centres (`fi-hel1`, `de-fra1`, ...),
   no availability zones inside them. Keeper has a region and a dummy zone with
   the same ID for each. `Zones(region)` returns one zone (ID and name = region).
-- **x86_64 only.** The sc-crawler inventory has no ARM plan: amd64 only.
+- **x86_64 only.** The sc-crawler data has no ARM plan: amd64 only.
 - **The server is a plan name.** Keeper's `api_reference` is the plan
   (`1xCPU-2GB`, `HICPU-8xCPU-16GB`, `CLOUDNATIVE-...`, `GPU-...`); the create
   call takes `plan`. Plans that include storage (25 GB MaxIOPS and so on) and
@@ -33,8 +33,7 @@ Vendor facts that shape everything:
 - **Images are per zone, private and imported.** There is no Flatcar template,
   and nothing can be published to other accounts (next section).
 - **Two firewalls.** The *Public & Utility* firewall is per server, stateless
-  and cannot be shared; the *SDN* firewall (standalone rulesets, the thing
-  sc-infra's `nodes` ruleset is) only filters SDN private interfaces.
+  and cannot be shared; the *SDN* firewall (standalone rulesets) only filters SDN private interfaces.
 
 ## Images
 
@@ -75,11 +74,11 @@ The image hand-off (who builds, who imports, who passes the IDs):
    already support the platform. When it ships, the pipeline's source becomes
    the official `flatcar_production_upcloud_image.bin.gz` and step 1 shrinks to a
    download.
-3. **Import** (sc-infra Pulumi, or the user's IaC): per zone, a
+3. **Import** (the operator's IaC or a CI job): per zone, a
    `upcloud.Storage` (size 10, tier `maxiops`, `import` block with `http_import`
    or `direct_upload`, `source_hash`) and an `upcloud.StorageTemplate` with the
    labels above; delete the source storage afterwards (the template is a copy).
-   The inventory gets the template IDs (below).
+   The template IDs go into the NodeClass (below).
 4. **SCarpenter** only resolves and reports them (`ImageReporter`, condition
    `ImagesReady`, status `images`). It does not import. Rung 4 (`SCImage`,
    `ImageImporter`) would replace step 3 and could use the importer's
@@ -99,27 +98,26 @@ vendors:
       images:                         # rung 3; `use` only (plan 14, A1); optional
         use:
           ids: {fi-hel1: [<uuid maxiops>, <uuid standard>]}   # per zone; the tier is read from the template's label
-          # or selector: {tags: {scarpenter-image: flatcar}}   (default: this selector,
+          # or tags: {scarpenter-image: flatcar}   (default: this selector,
           # narrowed by channel, version and tier from the NodeClass)
-      networks:  {use: {selector: {tags: {scarpenter-use: "true"}}}}
+      networks:  {use: {tags: {scarpenter-use: "true"}}}
       firewalls: {use: {ids: {fi-hel1: [<ruleset uuid>]}}}
       serverGroups: {create: {lifecycle: {policy: perUse}}}
 ```
 
 Resource kinds the driver needs to launch a node:
 
-| Kind | Scope | `use` | `create` | Neither (vendor default) | Inventory field |
+| Kind | Scope | `use` | `create` | Without `use` (ADR-022) | What your IaC must output |
 |---|---|---|---|---|---|
-| `images` (templates) | zone and tier | `ids` per zone (both tiers in the list); `selector.tags` on template labels (default) | **no** (rung 3; ADR-021 reserves `SCImage`) | the label convention, narrowed by the NodeClass's Flatcar channel and version | **gap** (below) |
-| `networks` (SDN private network) | zone | ids; `name` pattern (`{region}` and `{zone}` are the same here); `selector.tags` (the list call filters by label) | yes, `idleTTL`: IPv4, DHCP on, no router, CIDR from the parameters (a /24; the range is open question 7); a limit exists (`NETWORK_LIMIT_REACHED`) | **no network**: the node has the public and utility interfaces only (the vendor's default). A private interface is added only when `networks` is configured | `regions.<zone>.network.id` (label `scarpenter-use: "true"`) |
-| `firewalls` (SDN rulesets) | region (the ruleset is account-wide; one managed ruleset per region by name, as hcloud and Vultr do) | ids; name; `selector.tags` (client side: the ruleset list has no label filter, **unverified** that its items carry labels) | yes, `idleTTL`: one stateful ruleset per NodeClass (inbound `spec.networking.inbound`, the network CIDR for `isolation: nodeclass`); attached to the private interface only | none attached (the SDN default is drop in, accept out, a server property) | `regions.<zone>.security_groups.nodes.id` (same ID in every zone, `firewall_model: ruleset`) |
-| `serverGroups` (anti-affinity) | run | name; ids | yes, `perUse` per (zone, profile, run key) | none | none |
+| `images` (templates) | zone and tier | `ids` per zone (both tiers in the list); `tags` on template labels (default), `match.zone`, `filters` `tier`/`template_type` (client-side), `orderBy: label:flatcar-version` (templates have no creation time and no architecture field) | **no** (rung 3; ADR-021 reserves `SCImage`) | the label convention, narrowed by the NodeClass's Flatcar channel and version | the template IDs per zone, or labelled templates |
+| `networks` (SDN private network) | zone | ids; `name` (glob, client-side; `{region}` and `{zone}` are the same here); `tags` (the list call filters by label), `match.zone` (server: `?zone=`), `match.cidr`/`within` (client-side), default `filters: type: [private]` | yes, `idleTTL`: IPv4, DHCP on, no router, CIDR from the parameters (a /24; the range is open question 7); a limit exists (`NETWORK_LIMIT_REACHED`) | labelled networks (discovery, planned), else **no network**: the node has the public and utility interfaces only. A private interface is added only when `networks` is configured | the network UUID per zone, or the label `scarpenter-use: "true"` on it |
+| `firewalls` (SDN rulesets) | region (the ruleset is account-wide; one managed ruleset per region by name, as hcloud and Vultr do) | ids; name; `tags` (client side: the ruleset list has no label filter, **unverified** that its items carry labels) | yes, `idleTTL`: one stateful ruleset per NodeClass (inbound `spec.networking.inbound`, the network CIDR for `isolation: nodeclass`); attached to the private interface only | none attached (the SDN default is drop in, accept out, a server property) | the ruleset UUID (the same in every zone) |
+| `serverGroups` (anti-affinity) | run | name; ids | yes, `perUse` per (zone, profile, run key) | none | nothing |
 
 Not a resource kind: the **Public & Utility firewall** of each server. It is
 per server, stateless, with at most 1000 rules, and cannot be brought or
 shared, so the driver writes it for every node from `spec.networking.inbound`
-plus built-in rules (below). `securityGroups.use` of sc-infra's README ("the
-brought group replaces SCarpenter's own") therefore does not apply to the
+plus built-in rules (below). A brought ruleset ("the brought group replaces SCarpenter's own", as for other vendors) therefore does not apply to the
 public interface on UpCloud: the brought ruleset only ever covers the SDN
 interface. State this in the reference docs.
 
@@ -129,36 +127,35 @@ keys; the create call sends `password_delivery: none` and
 mailed), a project or resource group (the token is the account), IPs (the
 public addresses come with the server), volumes (created in the call).
 
-**What sc-infra needs to add** (the inventory exists for the rest; its `network`,
-`security_groups.nodes`, `firewall_model`, `tags_supported` and the
-`scarpenter-use` / `sc-infra-role` labels are already there):
+**What the operator's IaC must provide, and what SCarpenter self-manages.** Provided by
+the operator (any tool, the API or the control panel):
 
-1. **`images`**: decided (plan 14, B1): the additive per-region key
-   `regions.<zone>.images: [{id, name, arch, channel, version}]` (amd64 only), one entry per
-   tier, the tier being part of the name (`flatcar-<channel>-<version>-amd64-<tier>`); the
-   template labels say the same. The key is present for every vendor, `[]` where unused, and
-   the inventory stays `version: 1`.
-2. **Template creation** in the upcloud environment (a `StorageTemplate` per zone
-   and tier, labelled as above) fed by the artifact URL and hash; and labels on
-   the template (`scarpenter-use: "true"`).
-3. **The SDN ruleset's meaning**: `nodes` is attached to the private interface
-   only. The environment's comment already says so; document in the inventory
-   README that for UpCloud the public interface is the driver's business.
-4. **Account scope**: `scope` stays `{}` (token bound). SCarpenter's own token must
-   see what the IaC token created (**unverified** across sub-accounts, S6).
-5. `ACCEPTED_VENDORS` and `vendor_block()` in `blocks/scarpenter.py`: render, through the
-   per-vendor kind map of plan 14 (B3), `regions` (zones with a network),
-   `resources.networks.use.ids`, `resources.firewalls.use.ids`, `resources.images.use.ids`.
-6. The managed network CIDR: sc-infra's pool gives every zone a /21 of the
-   upcloud pool (a /14 inside `10.0.0.0/8`); SCarpenter's own managed networks
-   must not overlap it ("networks of an account must not overlap"). Pick a
-   documented range outside the pool (open question 7).
+1. **Images**: the templates, one per zone and tier, as in "Images" above, passed as
+   `resources.images.use.ids` per zone (both tiers in the list) or found by their labels
+   (amd64 only; the tier is part of the name, `flatcar-<channel>-<version>-amd64-<tier>`,
+   and the template labels say the same).
+2. **Template creation**: a storage import and a template per zone and tier, labelled as
+   above, fed by the artifact URL and hash.
+3. **Optionally an SDN network per zone and an SDN ruleset** (ids, name, or the
+   `scarpenter-use: "true"` label for discovery, planned). The ruleset is attached to the
+   private interface only: for UpCloud the public interface's firewall is the driver's
+   business, and the reference says so.
+4. **Account scope**: none (the token is the account). SCarpenter's own token must see what
+   the IaC's token created (**unverified** across sub-accounts, S6).
+5. **A range for SCarpenter's own managed networks** outside the operator's networks
+   ("networks of an account must not overlap"): a documented `/16`, configurable (open
+   question 7).
+
+SCarpenter self-manages, without `use`: no network (the node has the public and utility
+interfaces only); a managed SDN network and ruleset where the NodeClass asks for a private
+interface or `isolation: nodeclass`, server groups. Images are never self-managed. There is
+no vendor default for any kind; discovery uses labels where the list call filters them.
 
 **Account scope and credentials.** UpCloud has no project: everything lives in the
 account of the credential, and region limits are account limits. The controller
 authenticates with an **API token** (bearer; `UPCLOUD_TOKEN`, a Secret in the
 chart; username and password also work and are not recommended). Tokens expire
-(sc-infra's sub-account tokens last 364 days) and have no scopes; the
+(a sub-account's tokens can last 364 days) and have no scopes; the
 sub-account's permission fragment (servers, storages, networks, tags) is the only
 narrowing, and it is by resource type, not by label. No workload identity or OIDC
 exists. The chart gets `vendors.upcloud.credentials.mode: secret` (and `none`
@@ -227,7 +224,7 @@ for credentials supplied some other way), like AWS's modes.
     (`scarpenter-cluster`, `scarpenter-nodeclaim`, `scarpenter-nodepool`,
     `scarpenter-nodeclass`, `scarpenter-managed-by`), because label keys are 2
     to 32 printable ASCII characters and `scarpenter.sparecores.com/cluster` has
-    33 (the same encoding sc-infra uses for `scarpenter-use`). `ValidateNodeClass`
+    33 (the same encoding as for the `scarpenter-use` label). `ValidateNodeClass`
     rejects `spec.tags` keys longer than 32 or starting with `_`, and more than
     255 labels in total.
   - After the call returns (the server is in `maintenance` while its storage is
@@ -246,7 +243,8 @@ for credentials supplied some other way), like AWS's modes.
   - **State mapping**: `maintenance` (while cloning) and `started` without a
     node yet are `pending`/`running`; `error` is `terminating`; a server we have
     stopped, or found `stopped`, is `terminating` (the stopped-node rule of plan 14, A4: a
-    stopped server is not coming back and may be billed, **unverified**).
+    stopped server is not coming back and may be billed for the next hours, **unverified**; the
+    hour already started is paid either way).
   - **Addresses** (`Instance.Addresses`): the server's public IPv4 and IPv6, the
     utility address and any SDN address, for the serving-certificate approver
     (`direct` template: IP SANs against these).
@@ -270,6 +268,23 @@ for credentials supplied some other way), like AWS's modes.
 - **GPU plans**: dropped from the v1 catalog (no GPU resources or drivers in v1,
   ADR-011); the driver keeps a table of plan families (`GPU-*`) it declares
   unsupported. Reconsider with plan 12's outcome.
+
+### Billing period (ADR-024, plan 23)
+
+- **Rule**: hourly; the Simple plan capped at 672 hours a month (**unverified** on a primary page);
+  Keeper 3600/3600 with `stopped_server_charged: true` (Cloud Native: not billed when stopped; irrelevant, a
+  retained node runs). Whether the period counts from creation or from first start is **unverified**.
+- **Start field**: no creation stamp on the server detail could be confirmed. The driver writes its own
+  creation time into a server label (`scarpenter-created`, RFC 3339, set in the create call, so before the
+  server exists, hence early: the safe side) and `BillingStart` reads it back; no label, no `BillingStart`,
+  no retention for that node (an Event, never a guess). Whether a label value may hold a timestamp (the
+  character set) is **unverified**; the fallback is epoch seconds.
+- **Delete latency**: the longest of the hourly vendors: the server is stopped first (hard stop, wait for
+  `stopped`), then deleted with its storages. The margin must cover it; the driver measures it in the lane
+  and exposes it as `DeleteLatency`; the core uses the larger of the NodeClass margin and that latency plus
+  the 90 s floor (ADR-024).
+- **Verify live**: the start of the period (create time versus first start); the billed hours for a server
+  deleted at 59 and 61 minutes; the stop-then-delete duration; the label value characters.
 
 ### Catalog and offerings
 
@@ -419,7 +434,7 @@ vendor-resources pages get the UpCloud rows; chart values for the credentials
 mode; the permission list (below) replaces an IAM policy.
 
 **Permissions** (UpCloud has no policy language): a dedicated sub-account with API
-access, server, storage and network access (as in sc-infra's `sc-infra.json`
+access, server, storage and network access (as in a typical sub-account permission file
 fragment) and no GUI access. List, in the doc, the operations the driver uses so
 that an operator can judge it.
 
@@ -435,11 +450,11 @@ vendor's section in the testing how-to.
   the `e2e` GitHub environment, with `UPCLOUD_ZONE` (one zone, for example
   `fi-hel1`) as a variable. The token expires (up to a year): the canary notices
   (a read-only `GET /account`), and the rotation is `bootstrap/upcloud.sh`'s.
-  sc-infra's tenant module cannot mint it; document the manual step. A leaked token
+  an IaC tenant may not be able to mint it; document the manual step. A leaked token
   is as powerful as the sub-account: its limits (small `resource_limits` cores and
   memory, set by the main account) are the cost guard, together with the sweeper.
 - **Prerequisite**: the Flatcar templates of the pinned test version in the lane's
-  zone (both tiers if S1 allows), created by sc-infra from the pipeline's artifact;
+  zone (both tiers if S1 allows), created by the operator's IaC from the pipeline's artifact;
   persistent, labelled `scarpenter-use: "true"`, never touched by the sweeper.
 - **`.github/workflows/e2e-upcloud.yml`**, a copy of the AWS lane with the
   UpCloud specifics: `environment: e2e`, concurrency group, 90-minute job, 55-minute
@@ -465,7 +480,7 @@ vendor's section in the testing how-to.
   4c. Described, not named: a `vcpus` range and a metric threshold within the
      allowed test plans.
   4d. Bring your own: the workflow creates a labelled SDN network and ruleset; a
-     NodeClass `use`s them by selector; the node gets a private address, the
+     NodeClass `use`s them by `tags`; the node gets a private address, the
      ruleset is attached and the private firewall on; both survive the run
      (teardown deletes them).
   4e. Data volume: a `storage.data` profile with a small MaxIOPS volume mounted at
@@ -522,12 +537,11 @@ tests. Their results go into the "not verified" section of the reference doc.
 ## Dependencies
 
 - Core, resource engine, conformance, AWS driver and the L5 lane (06, 08, 10).
-- **The images repository** (plan 22) and sc-infra's template creation and
-  inventory `images` (plan 14, B1): the driver can be written and tested against the fake
+- **The images repository** (plan 22) and the operator's template creation (plan 14, B1 contract): the driver can be written and tested against the fake
   without them; **L5 cannot run without them**. No `SCImage` plan is needed for
   this vendor (rung 3).
 - Plan 14 (the groundwork), which comes first.
-- sc-infra: the inventory additions above and `ACCEPTED_VENDORS`; the e2e
+- The operator's IaC: the points above; the e2e
   sub-account and its token (manual).
 - ADR text: ADR-021 is the image policy; it records that UpCloud uses a Spare Cores built
   artifact until Flatcar ships one.
@@ -540,7 +554,7 @@ tests. Their results go into the "not verified" section of the reference doc.
    the official file when it ships.
 2. **Hosting for `http_import`**: GitHub Releases (octet-stream, may defeat
    decompression) versus object storage with the right type versus
-   `direct_upload` from the Pulumi run. Recommendation: `direct_upload` first (no
+   `direct_upload` from the IaC run. Recommendation: `direct_upload` first (no
    hosting, the provider sets the type), object storage if runs get slow.
    Still open; the images repository (plan 22, open question 2) publishes the artifact either way.
 3. **SDK**: v8 plus a thin ruleset client, or v9 (alpha) for everything.
@@ -558,8 +572,8 @@ tests. Their results go into the "not verified" section of the reference doc.
    SDN network per run key (account network limit, create latency).
    Recommendation: unsupported in v1.
 7. **Managed network CIDR**: SCarpenter-created networks need a range that does not
-   overlap sc-infra's pool or a user's networks. Recommendation: a /24 hash-derived
-   inside a documented `/16` outside sc-infra's pool, configurable.
+   overlap a user's networks. Recommendation: a /24 hash-derived
+   inside a documented `/16`, configurable.
 8. **GPU plans**: drop from the catalog (recommended) or keep them selectable
    without drivers. Their spot variants stay out either way.
 9. **Credentials**: a dedicated `scarpenter` sub-account per cluster (the token can
@@ -588,8 +602,7 @@ Verified from documentation or source on 2026-11-10 (no UpCloud call):
   account `resource_limits` fields (SDK).
 - `upcloud-go-api` v8.42.0 contents and v9 alpha; the Terraform provider's
   `upcloud_storage` import block, `upcloud_storage_template`.
-- sc-crawler's UpCloud inventory: plan names, zones, no ARM, spot only for GPU.
-- sc-infra: the `upcloud` environment and `inventory` v1 as described.
+- sc-crawler's UpCloud data: plan names, zones, no ARM, spot only for GPU.
 
 Unverified (also marked inline): the Flatcar docs having no UpCloud page; the
 live boot of the patched image; GitHub Release `Content-Type`;

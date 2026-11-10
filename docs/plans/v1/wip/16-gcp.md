@@ -143,20 +143,21 @@ vendors:
     resources:
       subnets:   {use: {ids: {europe-west3: [projects/my-project/regions/europe-west3/subnetworks/my-env-europe-west3]}}}
       firewalls: {use: {ids: {europe-west3: [nodes]}}}
-      images:    {use: {ids: {europe-west3: [projects/my-project/global/images/flatcar-stable-4757-2-3]}}}   # optional (plan 14, A1): global, so the same IDs in every region; default is the lookup of section 1
+      images:    {use: {ids: {"*": [projects/my-project/global/images/flatcar-stable-4757-2-3]}}}   # optional (plan 14, A1, A10): global, so the IDs under the key "*" (every region); default is the lookup of section 1
       resourcePolicies: {create: {lifecycle: {policy: perUse}}}
 ```
 
 ### Resource kinds
 
-| Kind | Scope | Default lifecycle | `use` forms | `create` | inventory v1 field |
+| Kind | Scope | Default lifecycle | `use` forms | `create` | What your IaC must output |
 |---|---|---|---|---|---|
-| `subnets` (the network is implied by the subnet) | region | `idleTTL` | `ids` (`projects/<p>/regions/<r>/subnetworks/<n>`, also the short name), `name` pattern with `{region}`; **no `selector`** (subnetworks have no labels) | yes: custom-mode VPC `scarpenter-<cluster>-subnets` (global) plus one subnet per region with the next free `/20` of `10.240.0.0/12` (found by listing the VPC's subnets, as AWS finds the first free `/20`), dual stack with external IPv6 and private Google access to match sc-infra | `regions.<r>.subnets[0].id` (the network is `regions.<r>.network.id`, not needed) |
-| `firewalls` | region (the rules are global; one rule set per region, named with the region, to fit the engine's per-region key) | `idleTTL` | `ids` = **network tags** (the inventory's `nodes` group id is the tag `nodes`), `name` pattern; no `selector` (firewall rules have no labels) | yes: rules for one network tag `scarpenter-<cluster>-<nodeclass>-<region>` (hashed to 63 characters): inbound CIDR rules of `spec.networking.inbound`, for `isolation: nodeclass` allow-all from the same tag | `regions.<r>.security_groups.nodes.id` (a tag name; `firewall_model: network_tag`) |
-| `images` (not managed) | global, region key | not applicable | `ids` per region (the same image repeated; `projects/<p>/global/images/<name>`), `name` pattern; **no `selector`** is needed (an image carries labels, but `images.get` by name is the lookup) | never (ADR-021) | default: `kinvolk-public` by name (amd64), the Spare Cores project (arm64) | `regions.<r>.images` (always `[]` for gcp: rungs 1 and 2) |
-| `runFirewalls` (internal, like AWS `runSecurityGroups`) | run | `perUse` | not configurable | one rule per run key (source tag = target tag = `scarpenter-run-<hash>`), the tag goes on the instance | none |
-| `resourcePolicies` (placement) | run | `perUse` | `ids`/`name` through the placement profile (`use: {name}`), regional | yes: per (region, profile, run key) | none (SCarpenter-owned) |
+| `subnets` (the network is implied by the subnet) | region | `idleTTL` | `ids` (`projects/<p>/regions/<r>/subnetworks/<n>`, also the short name), `name` (glob, `{region}`), `match` (`network`, `cidr`, `within`, `state`, `owner` = the Shared VPC host project) and `filters` (`purpose`, `role`, `stackType`, ...), `expression` (a GCP filter); **no `tags`** (subnetworks have no labels, rejected) | yes: custom-mode VPC `scarpenter-<cluster>-subnets` (global) plus one subnet per region with the next free `/20` of `10.240.0.0/12` (found by listing the VPC's subnets, as AWS finds the first free `/20`), dual stack with external IPv6 and private Google access | the subnet resource ID per region (the network is implied) |
+| `firewalls` | region (the rules are global; one rule set per region, named with the region, to fit the engine's per-region key) | `idleTTL` | `ids` = **network tags** (for example the tag `nodes` on your firewall rules), `name` (glob on the tags found in the rules' `targetTags`), `match.network`, `filters` on the rules (`direction`, `priority`, `disabled`); no `tags` (firewall rules have no labels, rejected) | yes: rules for one network tag `scarpenter-<cluster>-<nodeclass>-<region>` (hashed to 63 characters): inbound CIDR rules of `spec.networking.inbound`, for `isolation: nodeclass` allow-all from the same tag | the network tag per region |
+| `images` (not managed) | global, region key | not applicable | `ids` under `*` or per region (`projects/<p>/global/images/<name>`), `name` (exact: `images.get`; a glob lists the project, which does not show publicly shared images), `tags` (labels), `match` (`architecture`, `owner` = the project listed, `state`, `includeDeprecated`, `createdAfter`), `filters` (`family`, `deprecated.state`, ...), `expression`; `newest` by `orderBy=creationTimestamp desc`. A publicly shared image (`kinvolk-public`, the Spare Cores project) is reachable only by `ids`, exact `name` or `family` | never (ADR-021); without `images`: `kinvolk-public` by name (amd64), the Spare Cores project (arm64) | nothing (rungs 1 and 2), or the image IDs |
+| `runFirewalls` (internal, like AWS `runSecurityGroups`) | run | `perUse` | not configurable | one rule per run key (source tag = target tag = `scarpenter-run-<hash>`), the tag goes on the instance | nothing |
+| `resourcePolicies` (placement) | run | `perUse` | `ids`/`name` through the placement profile (`use: {name}`), regional | yes: per (region, profile, run key) | nothing (SCarpenter-owned) |
 
+Without `use` (ADR-022): no discovery (no labels on these kinds), then the vendor default.
 `Resolve` with an empty reference: the project's `default` network and its subnetwork
 named `default` in the region (an auto-mode network has one per region) and, for
 firewalls, nothing (the `default` network's rules target no tag: a launch into it works
@@ -167,7 +168,7 @@ organization policy (`constraints/compute.skipDefaultNetworkCreation`, common), 
 falls to `create`.
 
 Ownership and marker. **Networks, subnetworks, firewall rules and resource policies have
-no labels** (sc-infra says so for the first three; Google's label page lists only
+no labels** (Google's label page lists only
 instances, images, disks and snapshots, buckets, some forwarding rules, VPN tunnels and
 static addresses): the marker is the name prefix `scarpenter-<cluster>-` **plus a
 `description`** holding `scarpenter: cluster=<c> nodeclass=<n> managed-by=scarpenter
@@ -175,29 +176,32 @@ resource-kind=<kind>` (ADR-018's fallback). Both are required before the garbage
 touches a resource; `List` filters by name prefix server-side and checks the description.
 Instances and disks carry real labels (section 3).
 
-### What the driver needs that the inventory does not have
+### What the operator's IaC must provide, and what SCarpenter self-manages
 
-1. **Project scope into the SCNodeClass.** `scope.project_id` exists for gcp, but
-   `blocks/scarpenter.py` renders only `aws` (`ACCEPTED_VENDORS`) and always builds
-   `securityGroups`. sc-infra must add `gcp` with the kinds `subnets` and `firewalls`
-   (a per-vendor kind map in `vendor_block()`), and `project`. `render_vendors()` merges
-   every environment of a vendor into one block; for gcp it must refuse environments with
-   different `project_id`s (one project per controller).
+The operator's IaC (any tool, or the console) provides, all optional (the driver works
+with the `default` network or its own):
+
+1. **A subnet per region and the firewall tag** (`subnets.use.ids`, `firewalls.use.ids`; no
+   `tags`, no discovery: networks have no labels). The tag's rules should allow self, UDP
+   41641 and ICMP. The `project` goes into the block and must equal the controller's.
 2. **The controller's identity**: the workload identity pool, provider and the service
-   account or principal with the custom role (section 8). The `scarpenter` block does
-   not create it ("pending" in the README).
-3. **For arm64 (rung 2)**: the Spare Cores GCP project that holds the published images and
-   the keyless identity of the images repository's workflow. Decided: sc-infra creates it
-   (plan 14, B5), the repository (plan 22) publishes into it, and the image name pattern is
-   plan 22's (`flatcar-<channel>-<major>-<minor>-<patch>-arm64`). The environments'
-   inventory carries `images: []` for gcp.
-4. **Egress for nodes without a public IPv4**: the environment creates no Cloud NAT, so
-   `publicIPv4: false` works only with `use` subnets that have one (as AWS needs a NAT).
-   Nothing to add; the reference documents it.
-5. Not gaps: no SSH key (nodes get Ignition; `ssh_key` is unused), no zone list (the
-   driver reads zones), IPv6 (`subnets[].ipv6_cidr` is present: the subnets are dual stack
-   with an external `/64`), the firewall rules for tag `nodes` already allow self, UDP 41641
-   and ICMP.
+   account or principal with the custom role (section 8), documented as a requirement; the
+   driver creates none of it.
+3. **Egress for nodes without a public IPv4**: a Cloud NAT on the subnet, or
+   `publicIPv4: false` fails for lack of egress (as AWS needs a NAT). The reference
+   documents it.
+4. **For arm64 (rung 2)** nothing: Spare Cores publishes the images from its own project
+   (plan 22, which owns that project and the keyless identity of the repository's
+   workflow); the image name pattern is plan 22's
+   (`flatcar-<channel>-<major>-<minor>-<patch>-arm64`). A user's own images go through
+   `images.use`.
+
+Not needed: an SSH key (nodes get Ignition), a zone list (the driver reads zones). IPv6
+needs a dual-stack subnet with an external `/64`.
+
+SCarpenter self-manages, without `use`: the `default` network where it exists and suits the
+request; else a custom-mode VPC, the subnets and the firewall rules (above); resource
+policies and run firewalls always.
 
 ### Account scope and credentials
 
@@ -225,8 +229,7 @@ Instances and disks carry real labels (section 3).
 - **Nodes carry no service account** by default (`serviceAccounts` omitted: no credentials
   on the node, as on AWS without an instance profile). `serviceAccount` attaches one
   (needs `iam.serviceAccounts.actAs`).
-- The CI identity (section 9) is a federated GitHub identity of the same kind, and sc-infra
-  already uses the same mechanism for its own jobs.
+- The CI identity (section 9) is a federated GitHub identity of the same kind.
 
 ## 3. Driver
 
@@ -265,7 +268,7 @@ client library's defaults for 429 and 5xx, plus the driver's classification.
   Flex-start. The Spot offering must exist for the machine type in Keeper's prices
   (Keeper has spot prices for GCP); whether some series refuse Spot is learned from the
   error (`Unsupported`).
-- **Project-wide SSH keys and OS Login.** sc-infra says the project is shared with other
+- **Project-wide SSH keys and OS Login.** the project may be shared with other
   workloads that use project-wide `ssh-keys` metadata (sc-runner). Flatcar's GCE image
   runs the guest account manager, so project keys would create logins on every node; OS
   Login support is built in (Flatcar docs: OS Login is used when enabled for the instance,
@@ -323,7 +326,7 @@ client library's defaults for 429 and 5xx, plus the driver's classification.
 - **Instance states**: `PROVISIONING`, `STAGING` -> `pending`; `RUNNING` -> `running`;
   `STOPPING` -> `terminating` (also what a deleting instance shows); `STOPPED` and
   `TERMINATED` (GCP's names for a stopped VM) and `SUSPENDED` -> `terminating` too (the
-  stopped-node rule of plan 14, A4: their disks still cost, so the garbage collector deletes
+  stopped-node rule of plan 14, A4: their disks still cost for as long as they exist, so the garbage collector deletes
   them; **open question 8, decided**); `REPAIRING` -> `running`. A deleted instance is gone from the API: `GetInstance`
   answers `NotFound` (the contract allows `NotFound` for a deleted instance; the
   conformance suite accepts either).
@@ -340,6 +343,12 @@ client library's defaults for 429 and 5xx, plus the driver's classification.
 - **Rate limits**: Compute API request quotas per project and per method apply (values
   not read: **unverified**); the driver reuses the AWS patterns (resolve caches, hourly
   machine type lists) and adds no per-call polling beyond the operation `wait`.
+
+### Billing period (ADR-024, plan 23)
+
+Per-second billing with a one-minute minimum (Keeper 1/60; the compute pricing page could not be read, so
+**unverified**). A period under the `minPeriod` default of 10 minutes does not qualify, so retention does
+not apply; `BillingStart` is `creationTimestamp` for the record only. Nothing to verify for retention.
 
 ## 4. Catalog, offerings and availability
 
@@ -551,7 +560,7 @@ template; the control plane, the tailnet and the scenarios' shape are the same):
    (`images.get` on `kinvolk-public` by the pinned version, and its `guestOsFeatures`),
    arm64 when configured, quotas against `E2E_MIN_VCPU_OD`/`_SPOT`-style minimums, machine
    type offerings for the lane's types with the quota mapping, and the read-only guard.
-8. **Provisioned in sc-infra's `scarpenter-e2e` tenant (not in this repo)**: the project, a
+8. **Provisioned in the CI account by its operator (not in this repo)**: the project, a
    workload identity pool and provider for the GitHub issuer (subject
    `repo:SpareCores@.../scarpenter@...:environment:e2e`, attribute condition on the
    repository and environment), the CI and canary roles, the quotas, the environment
@@ -631,7 +640,7 @@ coordinator's.
 6. **Metadata server exposure to Pods.** **Decided (plan 14, A7):** a vendor Butane fragment
    hook in the driver contract, `block-metadata-from-pods`, off by default; document the
    exposure.
-7. **Firewall by network tag versus service account.** Tags are what sc-infra provisions and
+7. **Firewall by network tag versus service account.** Tags are what an IaC typically provisions and
    what `isolation` maps to; anyone who can edit instance tags can join a tag. Recommendation:
    tags in v1; service-account-based rules (`sourceServiceAccounts`) need a service account
    on every node and are post-v1.
@@ -639,8 +648,6 @@ coordinator's.
    and garbage-collected, on every vendor (AWS's `stopped` changes too).
 9. **Quota consumption rules.** Recommendation: ship only the spike-confirmed families as
    known; the rest reactive; add the Cloud Quotas API only if `regions.get` is insufficient.
-10. **Managed network CIDR pool** `10.240.0.0/12` with the first free `/20`: it does not
-    overlap sc-infra's GCP pool (`10.4.0.0/14`; the vendor pools are `10.(4*slot).0.0/14`
-    with slots 0 to 8 assigned, read in `core/netalloc.py`), but it does overlap what a
-    user's own network may use. Recommendation: keep it, and let a NodeClass `create`
+10. **Managed network CIDR pool** `10.240.0.0/12` with the first free `/20`: it may overlap what a
+    user's own networks use. Recommendation: keep it, and let a NodeClass `create`
     parameter override the pool.

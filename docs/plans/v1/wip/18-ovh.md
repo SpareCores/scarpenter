@@ -30,8 +30,8 @@ run by the coordinator.
 | 3. Images in the user's own account, per region | **Yes.** Glance accepts raw and qcow2 uploads per region ([upload your own image](https://docs.ovhcloud.com/en/guides/public-cloud/compute/upload-own-image.md)). Images are regional. The Flatcar docs show exactly this procedure. |
 | 4. SCarpenter imports | Not needed. Later, an `ImageImporter` for OVH is a small step on top (Glance upload or `web-download`); reserved by ADR-021. |
 
-**Decided (ADR-021): v1 is rung 3**, from Flatcar's official OpenStack image: sc-infra's
-Pulumi (or the user's IaC, or the three-line `openstack image create` of the how-to) creates
+**Decided (ADR-021): v1 is rung 3**, from Flatcar's official OpenStack image: the
+operator's IaC, a CI job or the three-line `openstack image create` of the how-to creates
 one image per region and architecture, and passes the IDs to SCarpenter. S1 stays as the
 check for a **later move** to "Spare Cores publishes community images" (rung 2), which would
 make `images` below optional for most users. Nothing in the driver changes except the
@@ -88,7 +88,7 @@ carry the Glance tags `flatcar` and `flatcar-<channel>-<version>` and the proper
 `flatcar_channel`, `flatcar_version`, `architecture` (`x86_64`). `ResolveImage` lists the
 region's images with `status=active`, the tag and the exact name, and requires **exactly
 one** match (as AWS); explicit IDs per region and architecture override the lookup.
-Names are free-form in Glance, so the convention is ours and is documented; sc-infra's
+Names are free-form in Glance, so the convention is ours and is documented; the operator's
 image step produces it.
 
 ## The `spec.vendors.ovh` block
@@ -113,7 +113,8 @@ vendors:
       images:                          # rung 3; use only (plan 14, A1), SCarpenter never creates images; optional: the default is the name convention below
         use:
           ids: {GRA11: [9c1f..., 4be2...]}   # per region, both architectures as listed; OR
-          # name: "flatcar-{channel}-{version}-{arch}"   # the default; with a Glance tag selector, default [flatcar]
+          # name: "flatcar-{channel}-{version}-{arch}"   # the default; with the Glance tags, default [flatcar]
+          # (match: {architecture: [amd64]}, tags: {...}, filters: [{name: visibility, values: [private]}], select, orderBy: created)
       securityGroups: {use: {ids: {GRA11: [<uuid>]}}}    # or name pattern / tags; or create (default)
       serverGroups: {create: {lifecycle: {policy: perUse}}}   # placement profiles
       networks: {...}                  # optional second NIC on a private network: deferred (see below)
@@ -122,7 +123,7 @@ vendors:
 **Core change: decided, in plan 14 (A1).** The core resolved images at launch with
 `ImageRequest{Region, Arch, Channel, Version, Owner}` only; `Owner` comes from the block's
 `ImageOwnerGetter`, so `imageOwner` needs nothing new. The `images` kind's ids, name pattern
-and selector now reach `ResolveImage` through `ImageRequest`, for every vendor; this plan
+and the rest of the selector (`UseRef`, plan 14 A10) now reach `ResolveImage` through `ImageRequest`, for every vendor; this plan
 adds no core change of its own.
 
 `regions`: the vendor's unit is the region; its API names are the Keystone region names,
@@ -133,13 +134,13 @@ create call omits `availability_zone` (Nova's AZ name there is unverified, S4).
 
 ### Resource kinds
 
-| Kind | Needed to launch? | `use` forms | `create` | sc-infra `inventory` v1 field |
+| Kind | Needed to launch? | `use` forms | `create` | What your IaC must output |
 |---|---|---|---|---|
-| `images` (not a managed kind) | **yes** (rung 3) | `ids` per region (a list, both architectures), `name` pattern (`{channel}`, `{version}`, `{arch}`, `{region}`), `selector.tags` (Glance tags); `imageOwner` stays a block field | no (never) | `regions.<R>.images` (planned, plan 14 B1) |
-| `securityGroups` | no (the project's `default` group is used as found, like the AWS default VPC) | `ids`, name pattern, tags (Neutron tags: only if the extension is present, S5), name | yes: one per NodeClass and region, `idleTTL` 24 h; a per-run group for `isolation: run` (`perUse`), like AWS | `regions.<R>.security_groups.nodes.id` (the `jobs` group is never given) |
-| `serverGroups` | only with a placement profile | `ids`, name | yes: per region, profile and run key, `perUse` | none (nothing to hand off) |
-| `networks` (second NIC on a vRack private network) | no | `ids` (Neutron network UUID per region), name pattern | no in v1 | `regions.<R>.network.id` **only if** it is the Neutron UUID (see gaps) |
-| ports, floating IPs, gateways, SSH keys, volumes | no | n/a | n/a (volumes are part of the create call, below) | `ssh_key` unused |
+| `images` (not a managed kind) | **yes** (rung 3) | `ids` per region (a list, both architectures), `name` (exact on the server, a glob client-side; `{channel}`, `{version}`, `{arch}`, `{region}`), `tags` (Glance tag strings `k=v`), `match` (`architecture` through the image property, `owner`, `state`, `createdAfter`), `filters` (`visibility`, `member_status`, `os_hidden`, `property:<k>`, ...), `orderBy: created` on the server; `imageOwner` stays a block field | no (never) | the Glance image IDs per region, or images named by the convention |
+| `securityGroups` | no (the project's `default` group is used as found, like the AWS default VPC) | `ids`, name pattern, tags (Neutron tags: only if the extension is present, S5), name | yes: one per NodeClass and region, `idleTTL` 24 h; a per-run group for `isolation: run` (`perUse`), like AWS | the Neutron UUID of the nodes group per region |
+| `serverGroups` | only with a placement profile | `ids`, name | yes: per region, profile and run key, `perUse` | nothing |
+| `networks` (second NIC on a vRack private network) | no | `ids` (Neutron network UUID per region), name pattern | no in v1 | the Neutron network UUID per region (later; not used in v1) |
+| ports, floating IPs, gateways, SSH keys, volumes | no | n/a | n/a (volumes are part of the create call, below) | nothing |
 
 Notes:
 
@@ -149,8 +150,7 @@ Notes:
   Nodes join over Tailscale or over their public address, so they do not need it. A
   private-only node (`publicIPv4: false`) needs a billed Gateway for egress: **unsupported
   in v1** (ADR-017: the offering is infeasible, `publicIPv4: false` fails validation).
-  The sc-infra network and subnet stay in the inventory for the later `networks` kind and for
-  the benchmark jobs.
+  A network the operator made stays unused until the later `networks` kind.
 - **Security groups on public ports.** OVH's docs disagree whether the default group
   allows all inbound or only outbound; one says every port, "public and private", is open
   by default ([security group and private network](https://docs.ovhcloud.com/en/guides/public-cloud/cross-functional/security-group-private-network.md),
@@ -161,67 +161,61 @@ Notes:
 - Nova accepts `security_groups` by name (and, upstream, by UUID in the name field). The
   driver resolves ID to name per region and refuses an ambiguous name (S5). The alternative
   (create ports ourselves) adds a port lifecycle per node and is rejected.
-- The `jobs` group of sc-infra is wide open and must never be selected; the same tag rule
-  as for the other vendors cannot protect it (OVH resources have no tags in sc-infra), so
-  sc-infra hands over IDs only, as it does today.
+- A wide-open group meant for other workloads must never be selected; where OVH resources
+  have no tags, a `tags` selector cannot protect it, so hand over IDs only.
 
-### Hand-off: what sc-infra must add (inventory gaps)
+### What the operator's IaC must provide, and what SCarpenter self-manages
 
-1. **Images.** Decided (plan 14, B1): the additive per-region key
-   `regions.<R>.images: [{id, name, arch, channel, version}]` (always present, `[]` where the
-   vendor has none; a v1 addition), rendered as `resources.images.use.ids`. The image step
-   itself (it replaces the variant `images: {amd64: {id, name}}` proposed here): one Pulumi component per
-   Flatcar pin that downloads the file once, verifies it against the release `.DIGESTS`
-   and creates a private Glance image in every region (the OpenStack Pulumi provider
-   `images.Image`, auth by a project user: whether the OVH provider can create that user
-   and its password, `CloudProjectUser`, is unverified). The OVH Pulumi provider has no image resource that I could
-   find: unverified.
-2. **Region names.** sc-infra's static catalog (`ovh_regions.py`) uses the 2026 names
-   (`eu-west-gra`, `eu-central-waw`, ...) and `api_name()` upper-cases them (`EU-WEST-GRA`) for
-   the API calls of the environment itself. Keeper's priced OVH regions (16 for `b3-8`, checked
-   2026-11-10) are mostly the **legacy** names: `GRA7`, `GRA9`, `GRA11`, `SBG5`, `SBG7`, `DE1`,
-   `UK1`, `WAW1`, `BHS5`, `SGP1`, `SYD1`, `RBX-A`, `AP-SOUTH-MUM-1`, `AP-SOUTHEAST-SYD-2`, plus
-   `EU-WEST-PAR` and `EU-SOUTH-MIL` (the only new-style names Keeper prices; both 3-AZ). The
-   trigrams (`GRA`, `SBG`, `RBX`, `DE`, `UK`, `WAW`, `SGP`, `SYD`, `BHS`) exist in Keeper without
-   prices. OVH's announcement gives each region a name (`eu-west-gra`) and a code (`GRA`) "as
-   often called in API and UI", promises API compatibility, and gives no mapping to `GRA11`
-   ([regionalisation](https://www.ovhcloud.com/en/about-us/global-infrastructure/expansion-regions-az/));
+Provided by the operator (any tool, the OpenStack CLI or the Manager):
+
+1. **Images** (rung 3, mandatory): one private Glance image per region and architecture,
+   from the Flatcar release file downloaded once and verified against the release `.DIGESTS`
+   (a step of the operator's IaC or a CI job: an OpenStack provider's image resource with a
+   project user, or the `openstack image create` of the how-to; whether an IaC tool can
+   create that user and its password is unverified). Passed as `resources.images.use.ids`
+   per region, or found by the naming convention.
+2. **Region names.** The block's `regions` and the `ids` keys must be the **Keystone
+   catalog's** names. Keeper's priced OVH regions (16 for `b3-8`, checked 2026-11-10) are
+   mostly the **legacy** names: `GRA7`, `GRA9`, `GRA11`, `SBG5`, `SBG7`, `DE1`, `UK1`, `WAW1`,
+   `BHS5`, `SGP1`, `SYD1`, `RBX-A`, `AP-SOUTH-MUM-1`, `AP-SOUTHEAST-SYD-2`, plus `EU-WEST-PAR`
+   and `EU-SOUTH-MIL` (the only new-style names Keeper prices; both 3-AZ). The trigrams
+   (`GRA`, `SBG`, `RBX`, `DE`, `UK`, `WAW`, `SGP`, `SYD`, `BHS`) exist in Keeper without
+   prices. OVH's announcement gives each region a name (`eu-west-gra`) and a code (`GRA`)
+   "as often called in API and UI", promises API compatibility, and gives no mapping to
+   `GRA11` ([regionalisation](https://www.ovhcloud.com/en/about-us/global-infrastructure/expansion-regions-az/));
    the OVH service-account page uses `GRA` and `GRA1` as OpenStack region names. No source
    shows `EU-WEST-GRA` (or any 1-AZ region's long name) as a Keystone or OVH API region:
-   unverified, and if it is not one, sc-infra's own `ovh` environment fails in those regions,
-   not only the hand-off. The OpenStack region names a project sees are whatever its Keystone
-   catalog says.
-   The hand-off `ids` are keyed by region, so they only work if sc-infra's keys equal the
-   catalog's. Fix: sc-infra reads the project's regions from the API (`GET
-   /cloud/project/{serviceName}/region`, `ovh.get_cloud_project_regions`) instead of a
-   static list, and the driver treats the Keystone catalog as the truth, with a small
-   alias table (Keeper name to catalog name) only where the two differ (the contract
-   allowance is plan 14, A8; the table lives in the driver and the hand-off uses API names).
-   Spike S4. This is the highest risk of the plan.
-3. **Neutron UUIDs.** `network.id` and `subnets[].id` are Pulumi resource IDs of
-   `CloudNetworkPrivateVrack`/`...Subnet`; whether those are the Neutron UUIDs of the
-   region or OVH's own `pn-...` IDs is unverified. Needed only for the deferred `networks`
-   kind; the security group ID (`CloudSecurityGroup.id`) must be the Neutron UUID: check.
-4. **A controller identity.** A dedicated OVH service account for SCarpenter (not the
-   Pulumi one) with an IAM policy on the project URN for the OpenStack rights it needs,
-   created by the `scarpenter` block or the tenant, not by an environment: `computeOperator`,
-   `networkOperator`, `networkSecurityOperator`, `imageOperator` (the driver only reads
-   images; no read-only image role is documented), `volumeOperator`
-   (see [service accounts and OpenStack](https://docs.ovhcloud.com/en/guides/manage-and-operate/iam/authenticate-api-openstack-with-service-account),
+   unverified. The OpenStack region names a project sees are whatever its Keystone catalog
+   says, so the operator's tooling should read the project's regions from the API
+   (`GET /cloud/project/{serviceName}/region`) rather than from a static list, and the driver
+   treats the Keystone catalog as the truth, with a small alias table (Keeper name to catalog
+   name) only where the two differ (the contract allowance is plan 14, A8; the table lives in
+   the driver and the hand-off uses API names). Spike S4. This is the highest risk of the plan.
+3. **Neutron UUIDs.** Whatever tool created a security group or network, the value handed
+   over must be the **Neutron UUID** of the region, not an OVH-side resource ID (whether a
+   given IaC provider exposes the UUID is unverified; check). Needed for `securityGroups`
+   now and for the deferred `networks` kind.
+4. **A controller identity**, documented as a requirement: a dedicated OVH service account
+   for SCarpenter (not the IaC's own) with an IAM policy on the project URN for the
+   OpenStack rights it needs: `computeOperator`, `networkOperator`,
+   `networkSecurityOperator`, `imageOperator` (the driver only reads images; no read-only
+   image role is documented), `volumeOperator` (see
+   [service accounts and OpenStack](https://docs.ovhcloud.com/en/guides/manage-and-operate/iam/authenticate-api-openstack-with-service-account),
    which lists these rights). Exact least-privilege set: S6.
-5. `scarpenter.py`: `ACCEPTED_VENDORS` and `vendor_block()` are AWS-shaped. For `ovh` the
-   rendered block (plan 14, B3) is `{regions, resources: {images, securityGroups: {use: {ids}}}}`; no
-   `subnets`. `scope.service_name` is already exported (the project ID; the OpenStack
-   project ID is believed to be the same value: unverified).
-6. **The `nodes` group does not fit Ext-Net nodes.** sc-infra's `nodes` group admits
-   everything only from the environment's vRack ranges, plus UDP 41641 and ICMP from anywhere.
-   v1 nodes have only an `Ext-Net` port, so node-to-node and control-plane traffic over public
-   addresses is dropped: with the brought group only the `tailscale` join works, not `direct`.
-   Either the docs say so, or sc-infra adds a rule (a self-reference on the group, which S5
-   must show to work between `Ext-Net` ports).
-7. `SCOPE_KEYS['ovh']` stays `{service_name}`; nothing else is needed. `ssh_key` stays
-   unused. The `ovh` environment is commented out in `Pulumi.prod.yaml` until bootstrapped;
-   the plan does not depend on it, only the Spare Cores deployment does.
+5. **A security group for nodes**, optionally (by Neutron UUID per region); hand over only a
+   group nodes may use, never a wide-open one meant for other workloads (OVH resources have
+   no tags in some setups, so a `tags` selector cannot protect it). No `subnets` kind.
+6. **The group must fit `Ext-Net` nodes.** v1 nodes have only an `Ext-Net` port, so a group
+   that admits everything only from private (vRack) ranges, plus UDP 41641 and ICMP from
+   anywhere, drops node-to-node and control-plane traffic over public addresses: with it only
+   the `tailscale` join works, not `direct`. Either the docs say so, or the group carries a
+   self-reference rule (S5 must show it works between `Ext-Net` ports).
+
+SCarpenter self-manages, without `use`: no discovery that depends on tags unless S5 shows
+Neutron tags work; the project's `default` security group where it suits the request
+(skipped when `isolation` or inbound rules need what it cannot give), else a managed group
+per NodeClass and region (`idleTTL`), server groups and volumes. Images are never
+self-managed.
 
 ## Credentials and account scope
 
@@ -230,7 +224,7 @@ scoped to one Public Cloud project (the project ID is the account scope; one con
 serves one project). Two modes, same as the AWS `credentials.mode` idea:
 
 1. **`serviceAccount` (recommended)**: an OVH IAM service account (OAuth2 client credentials,
-   the kind sc-infra already uses). OVH documents the OpenStack side: auth type
+   the usual kind for automation). OVH documents the OpenStack side: auth type
    `v3oidcclientcredentials`, protocol `openid`, access token type `id_token`, scope
    `openid profile email publicCloudProject/all`, identity provider `ovhcloud-emea` (EU) or
    `ovhcloud-world`, discovery endpoints under `iam.ovh.net` / `iam.ovh.ca`, and one IAM action
@@ -266,7 +260,7 @@ read 2026-11-10):
   device mapping and no idempotency key**, and return an asynchronous `cloud.Operation`.
   We need tags/metadata (find, GC, sweeper) and `config_drive`.
 - The OVH API has no image import or Glance control, no Neutron security groups other than
-  the Pulumi provider's, and its instance statuses mirror Nova's anyway.
+  an IaC provider's, and its instance statuses mirror Nova's anyway.
 - What only the OVH API offers: the region list of a project, per-flavor stock (`available`)
   and per-flavor quota (`quota`: "number of instances you can spawn"), and quota changes
   (`/region/{r}/quota`, `/quota/allowed`). The driver does not need them in v1: regions come
@@ -278,7 +272,7 @@ SDK: **`github.com/gophercloud/gophercloud/v2`**, v2.15.0 (2026-09-18), mature a
 SDK of most OpenStack tooling; packages used: `identity/v3/tokens`, `compute/v2/{servers,
 flavors,servergroups,limits,availabilityzones}`, `blockstorage/v3/volumetypes`,
 `networking/v2/{networks,subnets,extensions/security/groups,rules,extensions/attributestags}`,
-`image/v2/{images,imagedata}`. No Pulumi/Terraform code in the driver. `go-ovh` is not a
+`image/v2/{images,imagedata}`. No IaC code in the driver. `go-ovh` is not a
 dependency.
 
 ## Driver
@@ -342,7 +336,8 @@ dependency.
   paused instance is still billed, a shelved one only for its snapshot
   ([billing](https://docs.ovhcloud.com/en/guides/public-cloud/cross-functional/analyze-billing),
   [shelve](https://docs.ovhcloud.com/en/guides/public-cloud/compute/suspend-or-pause-an-instance);
-  per-minute granularity: unverified). The GC rule above is therefore a cost rule too.
+  per-minute granularity: unverified). The GC rule above is therefore a cost rule for the following hours; the started hour is paid
+  either way (the billing period section below).
 
 ### Quotas (`QuotaReporter`)
 
@@ -383,6 +378,22 @@ codes in plan 14 (A6: HTTP status plus message text, texts pinned by tests).
 
 Spot, preemption and interruption: **none** (OVH Public Cloud has no spot and Keeper's OVH
 prices are on-demand only). The `spot` capacity type is not offered.
+
+### Billing period (ADR-024, plan 23)
+
+- **Rule**: Keeper says 3600/3600, with a comment that EU, CA and APAC regions bill per second (60 s
+  minimum) and the US hourly; OVH's Public Cloud billing page says per second after one minute everywhere
+  ("never rounded up to the next hour"). The two contradict each other: **unverified which is right per region**.
+  The driver reports the rule as unverified, so retention stays **off** for OVH until the live check confirms an
+  hourly region, and then only for that region (a driver override per region, until Keeper has `billing_rule`).
+  Stopped and paused instances bill; shelved ones only for the snapshot.
+- **Start field**: `BillingStart` is Nova's `created`, which is at `BUILD`; the meter starts at `ACTIVE`
+  (**unverified**; not an API field). `created` is earlier, so boundaries fall early: the safe side. Not for
+  per-second regions, where there is no period.
+- **Delete latency**: `DELETE /servers/{id}` is asynchronous (`DELETING`); when billing stops is not documented.
+- **Verify live**: per region, create and delete at 1, 59 and 61 minutes and read the usage per instance
+  (the Public Cloud billing page's per-instance view): whether a started hour is rounded up in the US
+  and nowhere else; the offset from `created` to `ACTIVE`; the deletion latency.
 
 ## Catalog
 
@@ -471,7 +482,7 @@ are written back into this plan and the reference doc.
 | S1 | `openstack image set --community` (and `--public`) a private Flatcar image; boot it from a second project by ID. List `--public` for Flatcar. | rung 2 or 3 |
 | S2 | Boot `flatcar_production_openstack_image.img` (stable, amd64) with Ignition user data through Nova on a `d2-2`/`b3-8` flavor: with and without `config_drive`, with only `Ext-Net`; Ignition applied; hostname, provider ID; user-data size limit (16 KiB, 64 KiB); time to boot; that `ignition.platform.id` is `openstack`. | image properties, `configDrive` default |
 | S3 | Glance import methods (`image-import-info`), `web-download` from the Flatcar release URL, direct upload time; `community` and `shared` visibility; image storage price. | how the image step uploads |
-| S4 | Keystone catalog region names of the project today vs Keeper vs sc-infra; Nova AZ names in 1-AZ and 3-AZ regions; Nova microversions (tags ≥ 2.26, `volume_type` ≥ 2.67). | region alias table, zones |
+| S4 | Keystone catalog region names of the project today vs Keeper vs the operator's tooling; Nova AZ names in 1-AZ and 3-AZ regions; Nova microversions (tags ≥ 2.26, `volume_type` ≥ 2.67). | region alias table, zones |
 | S5 | Security groups: attached by name and by UUID; does a group filter the `Ext-Net` port; default group rules; `Ext-Net` IPv6; Neutron tags extension; self-reference between public addresses; port quota. | managed groups, ADR-017 on firewalls |
 | S6 | Service-account OIDC flow against Keystone with a Go client; token lifetime; the minimal IAM action set (compute, network, network security, image read, volume); the canary's read-only role (`infrastructureSupervisor`: can it list images, networks, flavors?). | credentials mode |
 | S7 | Error texts and statuses: quota exceeded, `NoValidHost` (which flavor can be forced to fail?), a flavor missing in a region, `Ext-Net` exhaustion; rate limits. | error table |
@@ -517,7 +528,7 @@ limits equal the Control Panel/API quota; `used` follows launch and delete), `un
 and `poweroff` (a node that powers itself off is deleted by the GC: the OVH-specific case
 above). No `arm64`, no `spot`, no `local`.
 
-**Account and identity** (provisioned in sc-infra, not here): a **dedicated Public Cloud project**
+**Account and identity** (provisioned by the operator's IaC, not here): a **dedicated Public Cloud project**
 for the lane with one active region, low project quotas and a spending alert (OVH has per-project
 consumption alerts: unverified); the region restriction is "only the lane's region is activated in
 the project"; the instance-type restriction cannot be an IAM deny (IAM has no flavor condition:
@@ -540,7 +551,7 @@ project quota, read-only canary, approval by the `e2e` environment.
 **Sweeper** (`e2e-ovh-sweeper.yml`, every 3 hours, environment `e2e-sweeper`, `main` only): in every active region,
 delete servers whose tag or metadata marks a `scarpenter-ci-*` cluster and whose `created`
 is older than 2 hours, then their volumes (unattached, same marker in the name prefix and
-the description: Cinder volumes have no tags in sc-infra's setup), server groups and
+the description: Cinder volumes may have no tags), server groups and
 security groups (name prefix `scarpenter-scarpenter-ci-` plus the description marker). It never
 touches images.
 
@@ -551,7 +562,7 @@ naming convention, launch, node settings, resources, network and addresses, tags
 mapping, IAM actions, deferred, not verified), `docs/how-to-guides/ovh-credentials.md` (service
 account and user modes; the IAM policy as JSON under `docs/reference/ovh-iam-policy.json`,
 validated in `make lint`), `docs/how-to-guides/ovh-images.md` (upload per region with
-`openstack`, naming, tags, the sc-infra route), the OVH lane section of testing, the add-a-vendor
+`openstack`, naming, tags, the IaC-neutral route), the OVH lane section of testing, the add-a-vendor
 checklist entries, the chart's `vendors.ovh` values. Deferred in the docs: private networks and
 gateways, IPv6-only, GPU and Metal flavors, arm64, `localStorage`, Glance community publishing
 (S1), automatic image import (`ImageImporter`), flavor stock from the OVH API.
@@ -559,13 +570,12 @@ gateways, IPv6-only, GPU and Metal flavors, arm64, `localStorage`, Glance commun
 ## Dependencies and ordering
 
 1. S1 to S8 first (they change the plan's rung, region handling and credentials).
-2. sc-infra: the inventory `images` key, the OVH image step, the region discovery, the controller
-   service account (one sc-infra PR; the driver needs none of it to be coded, the lane needs
-   the project and account).
+2. The operator's IaC: the OVH image step, the region discovery, the controller service account
+   (the driver needs none of it to be coded, the lane needs the project and account).
 3. The driver, fake, conformance, docs (this plan's code).
 4. The lane and sweeper, canary.
 - No dependency on an image-import plan (ADR-021: rung 4 is reserved). Were it ever built, it
-  would replace the sc-infra image step; the driver's `ImageImporter` is a Glance upload from
+  would replace the operator's image step; the driver's `ImageImporter` is a Glance upload from
   the artifact URL.
 - The cross-vendor generics this plan needs from the core are plan 14's: the `images` kind
   reaching `ResolveImage` (A1); `RootDiskForType`, with the catalog's root disk as the
@@ -585,14 +595,14 @@ non-OVH parts run in the dry run (`make test-e2e-ovh-dryrun`); report the expect
 | # | Question | Recommendation |
 |---|---|---|
 | 1 | Rung 3 now, or wait for S1 and publish community images (rung 2)? | **Decided (ADR-021): rung 3 now.** Run S1 anyway (an hour): if `community` works, Spare Cores can later publish from one project in every region and `imageOwner` becomes the default hand-off; rung 3 stays for users who want their own. |
-| 2 | Region names: trust the Keystone catalog and keep an alias table, or move Keeper to the new names? | **Decided (plan 14, A8):** the catalog is the truth; sc-infra discovers regions from the API; the alias table lives in the driver and the hand-off uses API names; ask the crawler owners to keep one row per catalog name. |
-| 3 | Credentials: OIDC service account (custom Keystone flow) or OpenStack user/password first? | Ship `openstackUser` first (no custom code) and add `serviceAccount` as soon as S6 proves the flow; sc-infra already runs service accounts, so make that the documented default. |
+| 2 | Region names: trust the Keystone catalog and keep an alias table, or move Keeper to the new names? | **Decided (plan 14, A8):** the catalog is the truth; the operator's tooling reads regions from the API; the alias table lives in the driver and the hand-off uses API names; ask the crawler owners to keep one row per catalog name. |
+| 3 | Credentials: OIDC service account (custom Keystone flow) or OpenStack user/password first? | Ship `openstackUser` first (no custom code) and add `serviceAccount` as soon as S6 proves the flow; service accounts suit automation, so make that the documented default. |
 | 4 | CI credentials: OVH client secret in the `e2e` environment, or wait for a keyless option? | Accept the secret with a project-only, one-region, quota-limited account; revisit if OVH documents GitHub federation. |
 | 5 | Private network and `isolation: run` over a vRack network, and Gateway-based private-only nodes: v1 or later? | Later. v1 is public `Ext-Net` + security groups; the default-route problem and the billed Gateway are real costs. |
 | 6 | Wait for the scheduler inside `CreateInstance` (45 s) so capacity errors fall through to the next candidate? | Yes; the alternative leaves the node to the 5-minute launch timeout and loses the fallback. |
 | 7 | Metal (`bm-*`) and GPU flavors: exclude in v1? | Exclude; a later plan when the sysext and Ironic boot are proven. |
 | 8 | Read flavor stock from the OVH API (`flavor.available`) for `OfferingLister`? | Not in v1; revisit when the first `NoValidHost` storm shows in the lane. |
-| 9 | Should the sc-infra image step live in the `ovh` environment (per Flatcar pin) or a separate stack with its own OpenStack user? | In the environment, behind a `flatcar` param; the pin is the same as the cluster's NodeClass pin. |
+| 9 | Should the image step live with the operator's main IaC (per Flatcar pin) or in a separate job with its own OpenStack user? | Operator's choice; document both. Either way the pin is the same as the cluster's NodeClass pin. |
 | 10 | Generic OpenStack driver later (other OpenStack clouds, same gophercloud code)? | Keep the package layout (`auth`, `nova`, `neutron`, `glance`) so OVH is a thin layer; decide after a second OpenStack vendor appears. |
 
 ## Sources

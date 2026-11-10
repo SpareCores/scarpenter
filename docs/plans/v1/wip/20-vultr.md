@@ -92,22 +92,20 @@ Not in scope: bare metal (`/v2/bare-metals`, plans `vbm-*`), the GPU plans, bloc
 volumes, reserved IPs, VPC-only nodes behind a NAT gateway, per-run VPCs, backups, DDoS
 protection (section 10, Deferred).
 
-## 3. Hand-off: what sc-infra or the user's IaC gives SCarpenter
+## 3. Hand-off: what the operator's IaC gives SCarpenter
 
 ### 3.1 Account scope and credentials
 
 - **One API key = one account.** There is no project, subscription or tenant to name:
-  the key decides the account. `scope: {}` in the inventory is right and stays.
+  the key decides the account. The block has no scope.
 - **Authentication.** `VULTR_API_KEY` from a Kubernetes Secret (chart value
   `vendors.vultr.credentials.mode: secret`, secret key `apiKey`); no other mode:
   Vultr has no workload identity for callers (its `/v2/oidc` makes Vultr the issuer of
   tokens, it does not accept external ones; unverified that there is no consumer side).
-  The key is bound to an **IP allowlist** (sc-infra README): the controller's egress
+  The key is bound to an **IP allowlist**: the controller's egress
   address must be in it, which is a deployment fact to document in the how-to.
 - **Least privilege.** Vultr API keys belong to a user whose ACLs are coarse
-  (`provisioning`, `subscriptions`, `subscriptions_view`, `firewall`, ...; sc-infra's `sc-infra`
-  sub-user holds `provisioning, subscriptions, subscriptions_view, firewall, upgrade, dns,
-  loadbalancer, objstore`). The controller needs instances, firewall groups, VPCs and
+  (`provisioning`, `subscriptions`, `subscriptions_view`, `firewall`, ...; a broad sub-user may hold many more than the controller needs). The controller needs instances, firewall groups, VPCs and
   snapshots (read). Which ACL covers snapshots and VPCs is **unverified** (S5); the how-to
   names the minimal set once measured. There is no per-region or per-plan deny.
 - **Startup check**: `GET /v2/regions` (public) proves connectivity; `GET /v2/instances?per_page=1`
@@ -123,10 +121,10 @@ vendors:
     resources:
       images:                               # rung 3: the snapshot(s) (plan 14, A1); optional; global, so the same ID in every region
         use:
-          ids: {ewr: [1f2e3d4c-...], fra: [1f2e3d4c-...]}   # explicit snapshot IDs; or
+          ids: {"*": [1f2e3d4c-...]}   # explicit snapshot ID(s), global in the account: the key "*" (every region); or
           # name: "flatcar-{channel}-{version}-{arch}"   # description pattern (default)
       firewallGroups:
-        use: {ids: {ewr: [<group id>], fra: [<group id>]}}   # the same ID in every region
+        use: {ids: {"*": [<group id>]}}   # the same ID in every region
         # or: create: {lifecycle: {policy: idleTTL}}  (the default: a managed group)
       networks:                             # optional: no VPC unless configured
         use: {ids: {ewr: [<vpc id>]}}
@@ -138,16 +136,15 @@ vendors:
 
 | Kind | Scope | Needed to launch? | `use` | `create` | Default |
 |---|---|---|---|---|---|
-| `images` (the generic kind of plan 14, A1; not managed) | account (global), region key | **yes** (rung 3) | `ids` per region (snapshot UUIDs, the same repeated); `name` pattern on the description with `{channel}`, `{version}`, `{arch}, {region}`; no `selector` (no tags) | never (ADR-021; rung 4 would add `ImageImporter`) | the name pattern `flatcar-{channel}-{version}-{arch}` |
-| `firewallGroups` | region (the object is account-wide; one managed group per region by name, see below) | yes, because **inbound is open without a group** (vendor-capabilities) | `ids` per region (same ID repeated); `name` pattern against the description with `{region}`; **no `selector`** (no tags) | yes: a group with the rules of `spec.networking.inbound` (empty = deny all) | `create`, `idleTTL` 24 h |
-| `networks` (VPC) | region | no | `ids` per region; `name` pattern against the description | yes: a VPC per NodeClass and region (Vultr picks a free range unless the block gives `v4Subnet`: unverified) | none: no VPC, nodes use the public network |
+| `images` (the generic kind of plan 14, A1; not managed) | account (global), region key | **yes** (rung 3) | `ids` under `*` or per region (snapshot UUIDs); `name` (glob on the description, `{channel}`, `{version}`, `{arch}`, `{region}`), `match.state`/`createdAfter` and `orderBy: created` (client-side, `date_created`); no `tags` (rejected: no tags), `match.architecture` only `amd64` | never (ADR-021; rung 4 would add `ImageImporter`) | the name pattern `flatcar-{channel}-{version}-{arch}` |
+| `firewallGroups` | region (the object is account-wide; one managed group per region by name, see below) | yes, because **inbound is open without a group** (vendor-capabilities) | `ids` under `*` (the same ID everywhere); `name` (glob against the description, `{region}`); `match.createdAfter` (client-side); **no `tags`** (rejected: no tags) | yes: a group with the rules of `spec.networking.inbound` (empty = deny all) | `create`, `idleTTL` 24 h |
+| `networks` (VPC) | region | no | `ids` per region; `name` (glob against the description), `match` (`cidr` = `v4_subnet`/`v4_subnet_mask`, `within`) | yes: a VPC per NodeClass and region (Vultr picks a free range unless the block gives `v4Subnet`: unverified) | none: no VPC, nodes use the public network |
 | SSH key | global | **no** (Ignition installs keys) | not modelled | not modelled | none |
 | placement groups, volumes, reserved IPs | | no (v1) | | | |
 
-- `use.selector` is rejected by `NodeClassValidator` for Vultr: VPCs, firewall groups and
-  snapshots carry no tags, only a `description`. sc-infra marks them in the description
-  (`sc-<environment>-<thing>`, "managed by sc-infra"), which `use.name` can match
-  (`sc-main-nodes`).
+- `use.tags` is rejected by `NodeClassValidator` for Vultr (every kind but instances): VPCs, firewall groups and
+  snapshots carry no tags, only a `description`. An IaC can mark them in the description
+  (for example `<env>-<thing>`), which `use.name` can match.
 - **Ownership marker of managed resources** (ADR-018): the name prefix
   `scarpenter-<cluster>-<kind>-<region>` plus the marker `cluster`, `nodeclass`, `managed-by`,
   `resource-kind` written into the **description** (`scarpenter-my-cluster-firewall-groups-ewr
@@ -194,11 +191,10 @@ itself from a **public URL**, and Flatcar's stock URLs are not usable as they ar
    image's virtual size is 13.2 GB; the raw size is unverified, S1) and may hit Vultr's
    import size cap (S1); the pipeline then needs whatever compression Vultr accepts.
 2. **Per account, the snapshot**: Vultr snapshots cannot be shared, so every account that
-   runs SCarpenter on Vultr makes its own, once per (channel, version): in sc-infra a
-   `vultr.SnapshotFromUrl` resource (the community provider package `ediri-vultr` that sc-infra
-   already uses has it; `use_uefi` is a field) with the description
-   `flatcar-<channel>-<version>-amd64`; in a user's IaC the same, or
-   `vultr-cli snapshot create-url`. Cost: $0.05 per GB-month of the compressed size, so
+   runs SCarpenter on Vultr makes its own, once per (channel, version): in an IaC tool a
+   snapshot-from-URL resource where a provider has one (Pulumi's community `vultr` package has
+   `SnapshotFromUrl`; `use_uefi` is a field) with the description
+   `flatcar-<channel>-<version>-amd64`; or `vultr-cli snapshot create-url` in a CI job. Cost: $0.05 per GB-month of the compressed size, so
    cents per version. Import time and the deployability on every plan family (vc2, vhf,
    vhp, voc, vx1) are **unverified** (S1, S2).
 3. **BIOS or UEFI**: Flatcar's image boots both; Vultr's `uefi` flag is set explicitly at
@@ -217,20 +213,18 @@ itself from a **public URL**, and Flatcar's stock URLs are not usable as they ar
    `DeleteImage`): the API fits the reserved interface, so Vultr would be the first
    candidate; reserved by ADR-021, not built in v1, not required here.
 
-### 3.4 What the inventory has, and what it lacks
+### 3.4 What the operator's IaC must provide, and what SCarpenter self-manages
 
-| Driver needs | `inventory` v1 field today | Gap for sc-infra |
+| Driver needs | What your IaC must output | Without it (ADR-022) |
 |---|---|---|
-| VPC per region (`networks.use.ids`) | `regions.<r>.network.id` | none (the VPC description is `sc-<env>-<region>`: `name` is that) |
-| firewall group (`firewallGroups.use.ids`) | `regions.<r>.security_groups.nodes.id` (the same ID in every region) | none; the `jobs` group must never reach nodes (already so) |
-| subnet | `regions.<r>.subnets: []` | none (Vultr has no subnet object) |
-| SSH key | `regions.<r>.ssh_key` | not needed by the driver |
-| **boot image (snapshot ID per arch, channel, version)** | **absent** | **decided (plan 14, B1): the per-region key `regions.<r>.images: [{id, name, arch, channel, version}]`** (the same snapshot in every region, because snapshots are global; `[]` where unused; the inventory stays `version: 1`), a `vultr.SnapshotFromUrl` per pinned version, and the rendering of `resources.images.use.ids` in `blocks/scarpenter.py` (`vendor_block()`) |
-| account scope | `scope: {}` | none |
-| tags for `selector` | `tags_supported: false` | none (ids are used) |
-| rendered block | `ACCEPTED_VENDORS` lacks `vultr` | extend `ACCEPTED_VENDORS` and the per-vendor kind map of plan 14 (B3) with `regions`, `resources.images`, `resources.firewallGroups.use.ids` and `networks` (dropped by an `omit` param when the cluster does not want VPC isolation) |
-| the pipeline's public URL | absent | a parameter of the environment (`images: [{channel, version, url}]`), not a secret |
-| `Pulumi.prod.yaml` | `vultr-main` is commented out (not bootstrapped) | bootstrap and enable first (`bootstrap/vultr.sh`), per sc-infra's own rule |
+| boot image (one snapshot per pinned version, global in the account) | the snapshot ID, under `*` (or repeated per region) in `resources.images.use.ids`, or a snapshot described `flatcar-<channel>-<version>-amd64`; made from the pipeline's public URL with a snapshot-from-URL call per pinned version (a step of the IaC, or `vultr-cli snapshot create-url`) | `ImagesReady=False`: images are never self-managed |
+| VPC per region (`networks.use.ids`), optional | the VPC ID per region, or a description the `name` pattern matches | no VPC; a managed VPC when `isolation: nodeclass` needs one; no discovery (no tags) |
+| firewall group (`firewallGroups.use.ids`), optional | the group ID (the same in every region); hand over only a group nodes may use | a managed group per NodeClass and region |
+| subnet | nothing (Vultr has no subnet object) | n/a |
+| account scope | nothing (the key is the account) | n/a |
+| tags for `use.tags` | nothing: `use.tags` is rejected, ids and description patterns are used | n/a |
+| the pipeline's public URL | the URL of the pinned image, a parameter of the IaC step, not a secret | n/a |
+| the API key and its allowlist | the key of a user with the minimal ACLs (3.1) as a Secret, and the controller's egress address in the allowlist | n/a |
 
 ## 4. Driver
 
@@ -264,7 +258,8 @@ itself from a **public URL**, and Flatcar's stock URLs are not usable as they ar
   **State map**: `status` `pending` or `server_status` not `ok` is `pending`; `status`
   `active` with `power_status` `running` and `server_status` `ok` is `running`; `suspended`
   or `power_status` `stopped` is `terminating` (the stopped-node rule of plan 14, A4: a stopped
-  instance still bills, so the garbage collector deletes it; unverified that SCarpenter can ever
+  instance still bills for the following hours, which the deletion ends (the started hour is
+  paid either way), so the garbage collector deletes it; unverified that SCarpenter can ever
   see one).
 - **Addresses**: `main_ip` (`0.0.0.0` while pending: treated as none), `v6_main_ip`,
   `internal_ip` (VPC). They feed the serving-certificate approver; `Instance.Region` is
@@ -310,6 +305,21 @@ verify live (S4); the table below is a **hypothesis** for those rows.
 Quota versus capacity stay apart as in ADR-013: the pre-call availability check is capacity,
 a limit message is quota. A single plan family refused by name (for example VX1 only on
 some regions) is `Unsupported`, cached 24 h by core.
+
+### Billing period (ADR-024, plan 23)
+
+- **Rule**: "The minimum billing unit is one hour"; hourly charges begin at deploy, powered on or off;
+  billing stops only by destroying the server; monthly cap 672 hours (GPU 730), so once the cap is reached
+  more hours are free until month end (the marginal cost of keeping a node is then zero; later, plan 13's
+  `monthly_cap_hours`). Whether the started hour is billed in full on destroy is **unverified** (S7), and so is
+  the period anchor. Keeper has 3600/3600: retention stays off until S7 confirms it.
+- **Start field**: `BillingStart` is `date_created`. "When deployed" could be later than `date_created`: this
+  is the one vendor where the stamp might be after the real start (a late boundary, the unsafe side), so S7
+  must measure the offset before retention is enabled.
+- **Delete latency**: `DELETE /instances/{id}` is immediate from the caller's view; the billing stop time is
+  **unverified**.
+- **Verify live (add to S7)**: the offset between `date_created` and the billing start; the hours billed for
+  a destroy at 59 and 61 minutes; behaviour at the monthly cap.
 
 ## 5. Catalog
 
@@ -377,7 +387,7 @@ Driver rules:
   IPs and IPv6 are not used or free: unverified for IPv6 pricing, in vendor-capabilities
   "IPv6 and paid-bandwidth prices" are missing from the data).
 - `NodeClassValidator`: region IDs against `GET /v2/regions` syntax, `images` shape, no
-  `selector`, firewall rule count and protocols, `isolation` against the configured
+  `tags` (and any selector field the capability table does not list), firewall rule count and protocols, `isolation` against the configured
   resources.
 
 ## 8. In-memory fake and conformance
@@ -418,9 +428,9 @@ from AWS:
 
 | Guard (testing-and-releasing) | Vultr |
 |---|---|
-| CI identity by OIDC, no secret | **Not possible**: a static API key of a dedicated sub-user, stored as the secret `VULTR_API_KEY` of the `e2e` environment; its IP allowlist must be `0.0.0.0/0` for GitHub-hosted runners (sc-infra README); required reviewers and the fork rule are the wall |
+| CI identity by OIDC, no secret | **Not possible**: a static API key of a dedicated sub-user, stored as the secret `VULTR_API_KEY` of the `e2e` environment; its IP allowlist must be `0.0.0.0/0` for GitHub-hosted runners; required reviewers and the fork rule are the wall |
 | Deny other instance types, deny other regions | **Not enforceable** by credentials (ACLs are coarse). Replaced by: the lane's NodeClass and NodePool restrict types and region, and a **dedicated Vultr account (or sub-account) with a low account limit** (maximum instances and maximum instance cost, `Accounts > Limits`) as the ceiling |
-| Budget alert to a person | account level, in sc-infra (Vultr alert ACL: unverified) |
+| Budget alert to a person | account level (Vultr alert ACL: unverified) |
 | Run tag on every resource | instance tag `cluster=scarpenter-ci-<run id>` and `ci-created-at=<unix>`; groups and VPCs carry the marker in their description |
 | Sweeper by tag and age | every 3 hours, environment `e2e-sweeper`: instances with a cluster tag `scarpenter-ci-*` older than 2 hours; firewall groups and VPCs whose description marker names such a cluster and that have no instance; **never snapshots** (the Flatcar snapshot is permanent) |
 | Run limit, teardown that fails on leftovers | as AWS (90 and 55 minutes) |
@@ -430,7 +440,7 @@ from AWS:
 Canary checks: sysext and k3s as shared; regions (`GET /v2/regions`, the lane's region
 present); the Flatcar snapshot (`ResolveImage`: exactly one, `complete`); availability of the
 lane's types (`LaunchableTypes`); the read-only guard. The lane's account needs the
-snapshot, created by the `scarpenter-e2e` tenant of sc-infra (`SnapshotFromUrl`), and the
+snapshot, created by the CI account's operator (a snapshot-from-URL call), and the
 variables `VULTR_REGION` and the pinned Flatcar version.
 
 ## 10. Deferred
@@ -462,7 +472,7 @@ Run by a maintainer on a throwaway account with a restricted key; none belongs t
 - **S5** ACLs: the minimal set for create, delete, list, firewall, VPC, snapshot read; what
   `subscriptions_view` reads.
 - **S6** Limits and charsets: tag, description and label length and characters (`/`, `=`,
-  `|`); firewall groups per account and rules per group (the 50 of sc-infra's README);
+  `|`); firewall groups per account and rules per group (about 50);
   VPCs per region; VPC creation without `v4_subnet`; what the firewall group filters (public
   interface only?) and whether an empty group drops all inbound.
 - **S7** Billing: the minimum charge of a destroyed instance, IPv6 and IPv4 prices.
@@ -476,7 +486,7 @@ contract gap of section 5 is a separate core change or a documented follow-up), 
 `pkg/vendors/vultr` at least 80 %, `make generate manifests` clean (a new vendor key in the
 CRD), `actionlint` and `shellcheck` clean on the new workflows and scripts, the
 `test/e2e-plan-selftest.sh` rules for the vendor, and the dry-run of the lane against the fake.
-The L5 run is the coordinator's, after the spikes and the sc-infra hand-off (section 3.4).
+The L5 run is the coordinator's, after the spikes and the operator's setup (section 3.4).
 
 ## Open questions for the maintainers
 
@@ -493,7 +503,7 @@ The L5 run is the coordinator's, after the spikes and the sc-infra hand-off (sec
    (plan 22); GitHub release assets are limited to 2 GiB, so the raw URL needs the bucket or a
    compressed format Vultr accepts (S1): plan 22 open question 2.
 4. **Where `images` lives in the API**: **Decided (ADR-021, plan 14 A1):** the generic
-   `images` resource kind for every vendor (`use: {ids, name, selector}`, `ids` per region),
+   `images` resource kind for every vendor (the selector of ADR-023: `ids`, `name`, `tags`, `match`, `filters`, ...; `ids` per region or under `*`),
    not a Vultr-only block field.
 5. **Account-wide quota errors.** **Decided (plan 14, A5):** a driver marks a
    `QuotaExceeded` as account-wide: one boolean on `vendors.Error` and one core branch

@@ -15,7 +15,7 @@ around them.
 - [Releasing](#releasing)
 - [Per-vendor cost guards](#per-vendor-cost-guards)
 - [Adding a vendor lane](#adding-a-vendor-lane)
-- [What the infrastructure repository provides](#what-the-infrastructure-repository-provides)
+- [What the CI account's infrastructure provides](#what-the-ci-accounts-infrastructure-provides)
 
 ## Policy
 
@@ -286,7 +286,7 @@ A vendor lane is not added to `test/e2e-vendors.txt` before every item is true f
 
 | Guard | AWS lane |
 |---|---|
-| A budget alert on the account that hosts the lane, to a person | account-level, in the infrastructure repository |
+| A budget alert on the account that hosts the lane, to a person | account-level, in the CI account's infrastructure |
 | The CI role denies instance types the lane does not use | `DenyOtherInstanceTypes` in `test/e2e-aws/ci-policy.sh` (from `defaults.sh`) |
 | The CI role cannot act outside the lane's region | `DenyOutsideRegion` |
 | Every resource carries a run tag, so cost and leftovers are attributable | `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` |
@@ -330,13 +330,13 @@ line and a few credentials. In this repository:
 7. **Docs**: the vendor's lane section in [Test and develop](testing.md#the-l5-lane) and the
    provisioning notes next to the AWS ones.
 
-In the infrastructure repository (below): the cloud account or project, the CI role and the
+In the CI account's infrastructure (below): the cloud account or project, the CI role and the
 canary role, the environment secrets, the quotas, and the tailnet tags and ACL.
 
-## What the infrastructure repository provides
+## What the CI account's infrastructure provides
 
-None of the following lives here; it is created by the `scarpenter-e2e` tenant of the
-infrastructure repository (`sc-infra`, `prod/k8s`) and this repository assumes it:
+None of the following lives here; the operator of the CI account creates it, with whatever
+tool they use, and this repository assumes it (a fork needs the same, in its own account):
 
 - **Environment `e2e`**: the secret `AWS_ROLE_ARN` (the CI role) and the variables
   `AWS_REGION`, `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`, **required reviewers** (the

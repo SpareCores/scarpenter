@@ -75,7 +75,7 @@ Cloud account **in the image's region**
 - A deprecated (delisted) image stops being public; existing sharing relations stay.
 - **Sites.** Cross-site sharing between the China site and the international site
   is refused (`InvalidImageId.BidMismatch`); whether a community image crosses
-  sites is unverified. sc-infra's regions are international plus a few China
+  sites is unverified. an operator's regions may be international plus a few China
   regions; China regions may need a real-name-verified China-site account anyway.
 - **Finding them** (`DescribeImages`): community images are `ImageOwnerAlias=others`
   with `IsPublic=true`; `ImageOwnerId` (the publisher's account UID) narrows the
@@ -91,7 +91,7 @@ Cloud account **in the image's region**
 
 Custom images are created in the user's account, per region, from an OSS object
 with `ImportImage`, or copied across regions with `CopyImage` (own images only).
-By default sc-infra creates them (Pulumi `alicloud.ecs.ImageImport` exists;
+By default the operator's IaC or a CI job creates them (some IaC tools have an image import resource;
 `ImageCopy` and `ImageSharePermission` resources: unverified) and passes IDs.
 
 ### How the image gets into an account
@@ -190,7 +190,7 @@ vendors:
         use:
           ids: {ap-southeast-1: [m-aaa, m-bbb]}     # per region, both architectures as listed; or
           # name: "my-flatcar-{channel}-{version}-{arch}"
-          # selector: {tags: {flatcar-version: "{version}"}}
+          # tags: {flatcar-version: "{version}"}, match: {architecture: [amd64], owner: [self]}, select: newest
       subnets:        {use: {ids: {ap-southeast-1: [vsw-1, vsw-2]}}}     # vSwitches (+ their VPC)
       securityGroups: {use: {ids: {ap-southeast-1: [sg-1]}}}
       deploymentSets: {create: {lifecycle: {policy: perUse}}}
@@ -208,12 +208,12 @@ and `ResourceMissingInZone` apply as on AWS). Zone IDs are the zone names
 checked in the committed snapshot): there is no per-account zone shuffling to
 map (account independence of zone IDs: unverified, though nothing says otherwise).
 
-| Kind | `use` forms (what ECS/VPC can filter on) | `create` | Default when neither | sc-infra `inventory` v1 field |
+| Kind | `use` forms (what ECS/VPC can filter on) | `create` | Without `use` (ADR-022) | What your IaC must output |
 |---|---|---|---|---|
-| `subnets` | `ids` per region (`VSwitchId`); `name` (`VSwitchName`, exact, `{zone}` expanded); `selector.tags` (`Tag.N` on `DescribeVSwitches`: up to 20 tags; exact-match semantics unverified) | VPC (`10.240.0.0/16`) + one vSwitch per zone (a /20 each), lifecycle `idleTTL` 24 h. **No internet gateway or route table is needed**: ECS gives a public IPv4 through `InternetMaxBandwidthOut > 0`, and the VPC has a default route table | the account's **default VPC** (`DescribeVpcs IsDefault=true`) and its default vSwitch per zone (`IsDefault=true`), used as found, never modified; where there is no default VPC, `create` | `regions.<r>.subnets[].id` (explicit ids), selector tag `scarpenter.sparecores.com/use=true` on vswitches and the VPC |
-| `securityGroups` | `ids` (`SecurityGroupId`); `name`; `selector.tags` (`DescribeSecurityGroups` has `Tag.N`; name matching: unverified) | one **normal** group per (NodeClass, VPC), `idleTTL` 24 h: inbound only `spec.networking.inbound`, a self-referencing rule (`SourceGroupId`) for `isolation: nodeclass`, outbound is open by default; one more per run key for `isolation: run` (`perUse`, internal kind `runSecurityGroups`) | none exists by default: `create` | `regions.<r>.security_groups.nodes.id`, tag `scarpenter.sparecores.com/use=true` (only the `nodes` group carries it; the `jobs` group must never be given) |
-| `deploymentSets` | `use: {name}` or `{ids}` via a placement profile | per (region, profile, run key), `perUse` | none (per-run kinds have no default) | not provisioned by sc-infra |
-| `images` (not a `ManagedResources` kind) | `ids` per region (a list), `name` pattern, `selector.tags` (`Tag.N` on `DescribeImages`) | never (ADR-021; rung 4 would) | `imageOwner` + the name convention | `regions.<r>.images` (planned, plan 14 B1) |
+| `subnets` | `ids` per region (`VSwitchId`); `name` (`VSwitchName`, exact or fuzzy and finished client-side, `{zone}` expanded); `tags` (`Tag.N` on `DescribeVSwitches`: up to 20 tags, exact); `match` (`zone` = `ZoneId`, `network` = `VpcId`, `owner`, `cidr`/`within` client-side); `filters` `IsDefault`/`EnableIpv6`/`RouteTableId` | VPC (`10.240.0.0/16`) + one vSwitch per zone (a /20 each), lifecycle `idleTTL` 24 h. **No internet gateway or route table is needed**: ECS gives a public IPv4 through `InternetMaxBandwidthOut > 0`, and the VPC has a default route table | the account's **default VPC** (`DescribeVpcs IsDefault=true`) and its default vSwitch per zone (`IsDefault=true`), used as found, never modified; where there is no default VPC, `create`; discovery by the opt-in tag comes first (planned) | the vSwitch IDs per region, or the tag `scarpenter.sparecores.com/use=true` on vSwitches and the VPC |
+| `securityGroups` | `ids` (`SecurityGroupId`); `name`; `tags` (`DescribeSecurityGroups` has `Tag.N`; name matching: unverified, finished client-side); `match.network` (`VpcId`: the group must be in the vSwitches' VPC); `filters` `SecurityGroupType`/`ServiceManaged` | one **normal** group per (NodeClass, VPC), `idleTTL` 24 h: inbound only `spec.networking.inbound`, a self-referencing rule (`SourceGroupId`) for `isolation: nodeclass`, outbound is open by default; one more per run key for `isolation: run` (`perUse`, internal kind `runSecurityGroups`) | tagged groups (discovery, planned); none exists by default: `create` | the group ID per region, or the opt-in tag on it (only a group nodes may use) |
+| `deploymentSets` | `use: {name}` or `{ids}` via a placement profile | per (region, profile, run key), `perUse` | none (per-run kinds have no default) | nothing |
+| `images` (not a `ManagedResources` kind) | `ids` per region (a list), `name` (`ImageName` is fuzzy: finished client-side), `tags` (`Tag.N` on `DescribeImages`), `match` (`architecture`, `owner`: `self`/`system`/`marketplace`/an account UID, `state`, `createdAfter` with minute precision), `filters` (`ImageFamily`, `OSType`, `IsPublic`, ...); newest by `CreationTime` client-side | never (ADR-021; rung 4 would) | `imageOwner` + the name convention | the image IDs per region, or images named by the convention |
 
 A vSwitch must be in the same VPC as the group (`InvalidSecurityGroup.VpcMismatch`,
 `OperationDenied.InconsistentNetwork`): a brought group in another VPC skips the zone.
@@ -222,42 +222,38 @@ No SSH key, volume, EIP, NAT gateway or RAM instance role is needed to launch
 cloud credentials). Data disks are part of `RunInstances` (`DataDisk.N`,
 `DeleteWithInstance=true`), so there is no volume resource.
 
-### What sc-infra gives today and what is missing
+### What the operator's IaC must provide, and what SCarpenter self-manages
 
-Today (`prod/k8s/environments/alicloud.py`, `core/inventory.py`): per region a VPC
-`sc-<env>` (a /21 from the pool), a vSwitch per zone that can create vSwitches
-(`sc-<env>-<zone>`, a /25), the groups `sc-<env>-nodes` and `sc-<env>-jobs`, the
-ECS key pair; tags `scarpenter.sparecores.com/use` on the VPC, vSwitches and the
-`nodes` group; inventory `scope.account_id` (from the assumed role's ARN, `null` with
-a plain access key). `blocks/scarpenter.py` renders `subnets.use.ids` and
-`securityGroups.use.ids` for accepted vendors; because the kinds are named like the
-AWS ones, `vendor_block()` needs only `alicloud` added to `ACCEPTED_VENDORS`.
-`{zone}` in `use.name` is the zone ID, which is what the inventory's `zone` holds
-(`zone_name` stays `null`), so a name pattern `sc-<env>-{zone}` also works.
+Provided by the operator (any tool, the CLI or the console), all but the images optional:
 
-Gaps (for sc-infra):
+1. **Image IDs per region and architecture** (rung 3), passed as `resources.images.use.ids`
+   or found by the naming convention: the operator's IaC or a CI job imports or copies them
+   (an OSS bucket per region for `ImportImage`, the RAM role `AliyunECSImageImportDefaultRole`)
+   from the images repository's artifact. Some IaC tools have an image import resource
+   (Pulumi's `alicloud.ecs.ImageImport`); `ImageCopy` and `ImageSharePermission` resources:
+   unverified.
+2. **A VPC, a vSwitch per zone and a security group** (`subnets.use`, `securityGroups.use`
+   by ID, `VSwitchName` or `name` pattern with `{zone}` as the zone ID, or the tag
+   `scarpenter.sparecores.com/use=true` on the vSwitches, the VPC and the group for
+   discovery, planned). A group must be in the vSwitches' VPC. A group for nodes should allow
+   all traffic from itself, UDP 41641 (Tailscale) and ICMP; outbound open; hand over only a
+   group nodes may use. The `direct` template works inside the VPC; `tailscale` needs only
+   outbound.
+3. **The controller's identity**, documented as a requirement: a RAM OIDC identity provider
+   for the cluster's service account issuer, a RAM role with the policy of this plan, and
+   its ARNs (`ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`).
+4. **vSwitch size**: a /25 leaves 124 usable addresses per zone (Alibaba reserves 4 of
+   every vSwitch; unverified count): at most about 120 nodes per zone, then
+   `QuotaExceeded.PrivateIpAddress` (a `ZoneUnusable` for the driver). Size the vSwitches
+   to the expected nodes; document it.
+5. `account_id` is not needed (images use `imageOwner: self`). An optional resource group
+   (the account's default group is used if unset).
+6. IPv6: a VPC without an IPv6 CIDR makes `publicIPv6` unsupported (section 4).
 
-1. **Image IDs per region and architecture** (rung 3). Decided (plan 14, B1): the additive
-   per-region key `regions.<r>.images: [{id, name, arch, channel, version}]` (it replaces the
-   `images: {amd64: ..., arm64: ...}` and `scope.image_owner` proposed here); the Pulumi side
-   imports or copies them (an OSS bucket per region for `ImportImage`, the RAM role
-   `AliyunECSImageImportDefaultRole`) from the images repository's artifact, and the block
-   renders them as `resources.images.use.ids`.
-2. **The controller's identity**: a RAM OIDC identity provider for the cluster's
-   service account issuer, a RAM role with the policy of this plan, and its ARNs
-   (`ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`). Nothing creates them
-   yet (the `scarpenter` block does not create the Helm release or IAM either).
-3. **vSwitch size**: a /25 leaves 124 usable addresses per zone (Alibaba reserves
-   4 of every vSwitch; unverified count): at most about 120 nodes per zone, then
-   `QuotaExceeded.PrivateIpAddress` (a `ZoneUnusable` for the driver). The region /21
-   is fully allocated to 16 zone slots, so larger vSwitches need a different
-   plan; document it, change nothing now.
-4. `scope.account_id` is `null` with a plain access key; SCarpenter does not need
-   it (images use `imageOwner: self`).
-5. An optional `resource_group` scope (the account's default group is used if
-   unset).
-6. IPv6: no IPv6 CIDR on the VPC or vSwitches (the environment says so), so
-   `publicIPv6` is unsupported on this network (section 4).
+SCarpenter self-manages, without `use`: tagged resources (discovery); else the account's
+default VPC and its default vSwitches where they exist and suit the request; else a managed
+VPC (`10.240.0.0/16`), a vSwitch per zone and a group per NodeClass; deployment sets always;
+else a stated failure. Images are never self-managed.
 
 ### Account scope and credentials
 
@@ -315,10 +311,10 @@ self-managed-cluster OIDC provider setup is unverified (step 0, as plan 10 did f
 |---|---|
 | `RunInstances` | `Amount=1`, `MinAmount=1`, `RegionId`, `ZoneId`, `ImageId`, `InstanceType` (the type's `api_reference`, `ecs.g8y.large`), `VSwitchId`, `SecurityGroupIds.N`, `InstanceChargeType=PostPaid`, `InstanceName=<nodeclaim>`, `HostName=<nodeclaim>`, `UserData` (Base64 Ignition), `SystemDisk.*`, `DataDisk.N.*` (all `DeleteWithInstance=true`), `InternetMaxBandwidthOut`, `InternetChargeType`, `SecurityOptions` metadata options, `DeploymentSetId`, `Tag.N`, `ClientToken`, `ResourceGroupId` if set; spot: `SpotStrategy=SpotAsPriceGo`, `SpotDuration=0` (no protection period), `SpotInterruptionBehavior=Terminate`. No launch templates. |
 | Provider ID, ref | `scarpenter://alicloud/<region>/<nodeclaim>`; `InstanceRef` `<region>/i-xxxx` |
-| Tags | `Tag.N` on the instance, its disks and the primary ENI (one parameter does all three): the logical tags through `TagKey` = `scarpenter.sparecores.com/<key>` (slash keys are valid, per sc-infra's inventory rules: no `aliyun`/`acs:` prefix, no `http://`) and the NodeClass `spec.tags`. At most **20 tags**, 128 characters each (`QuotaExceed.Tags`, `NumberExceed.Tags`): five logical tags leave 15, so validation limits `spec.tags` to 15 (unverified that the ENI and disks count the same way) |
+| Tags | `Tag.N` on the instance, its disks and the primary ENI (one parameter does all three): the logical tags through `TagKey` = `scarpenter.sparecores.com/<key>` (slash keys are valid, per Alibaba's tag rules: no `aliyun`/`acs:` prefix, no `http://`) and the NodeClass `spec.tags`. At most **20 tags**, 128 characters each (`QuotaExceed.Tags`, `NumberExceed.Tags`): five logical tags leave 15, so validation limits `spec.tags` to 15 (unverified that the ENI and disks count the same way) |
 | Idempotency | `ClientToken` (64 ASCII) is documented: same token and parameters returns the same instance; same token with other parameters is `IdempotentParameterMismatch`, after which the idempotence page says to change the token; it says to retry (same token) only on `InternalError`, `ServiceUnavailable` or no response. There is **no `client-token` filter** in `DescribeInstances`. So: token = hex SHA-256 of (idempotency key, region, zone, type, capacity type, image, vSwitch); before each launch `FindInstance` by the nodeclaim tag in the region and return that instance if it exists (the contract's "replay with another offering returns the original"); on `IdempotentParameterMismatch` resolve through the same lookup, and if nothing is found retry once with a token salted by an attempt counter (the contract's "a failed create leaves the key unused"). Whether a failed call consumes its token: unverified (step 0) |
 | Async | `RunInstances` returns IDs while the instance is `Pending`; a stock shortage after acceptance appears as a `SystemFailure.Delete` event (`DescribeInstanceHistoryEvents`; documented on the RunInstances page) and the instance is released: the driver treats a created instance that disappears within the launch timeout as `InsufficientCapacity` (how fast, and whether `GetInstance` sees it first: unverified, step 0) |
-| States | `Pending`, `Starting` are `pending`; `Running` is `running`; `Stopping`, `Stopped` are `terminating` (the stopped-node rule of plan 14, A4: they exist and cost, so the garbage collector deletes them); a released instance is gone: `GetInstance` returns `NotFound` (the conformance suite allows it after delete); whether `DescribeInstances` ever returns released instances: unverified |
+| States | `Pending`, `Starting` are `pending`; `Running` is `running`; `Stopping`, `Stopped` are `terminating` (the stopped-node rule of plan 14, A4: they exist and their disks cost, so the garbage collector deletes them); a released instance is gone: `GetInstance` returns `NotFound` (the conformance suite allows it after delete); whether `DescribeInstances` ever returns released instances: unverified |
 | Addresses | `VpcAttributes.PrivateIpAddress`, `PublicIpAddress`, `EipAddress`, `NetworkInterfaces[].PrimaryIpAddress`, `Ipv6Sets`; the serving certificate approver checks them (overview §8.5) |
 | List / find | `DescribeInstances` with `Tag.N` (AND semantics: unverified), `NextToken`/`MaxResults` 100, per region; `InstanceIds` filter up to 100 |
 | Delete | read the instance, refuse one without this cluster's tag (as AWS), `DeleteInstance(Force=true)`; `InvalidInstanceId.NotFound` is success; disks and the primary ENI are released with it (`DeleteWithInstance`, `DeleteOnRelease` default true) |
@@ -340,6 +336,12 @@ self-managed-cluster OIDC provider setup is unverified (step 0, as plan 10 did f
   `WithoutStock`): `LaunchableTypes` returns `Available` ones, refreshed every 5 minutes
   (stock changes faster than AWS offerings; ADR-013 treats capacity as reactive, so this
   is an extra signal: open question 8).
+
+### Billing period (ADR-024, plan 23)
+
+Per-second billing settled hourly; the minimum (10, 5 or 2 minutes by vCPU) applies to the release only
+(**unverified**, the primary page was not read). Increment 1 s is under `minPeriod`, so retention does not
+apply; the minimum is not a period. `BillingStart` is `CreationTime`, for the record.
 
 ### Catalog
 
@@ -420,7 +422,7 @@ Decisions that differ from AWS, each an open question:
   core must not branch on the vendor; decided: this one, off by default); (b) `ModifyInstanceMetadataOptions(HttpEndpoint=disabled)`
   by a later reconcile once the node is registered (the kubelet needs no metadata; hostname
   is set by Ignition); (c) document the gap. Open question 4.
-- The `nodes` group from sc-infra allows all traffic from itself, UDP 41641 (Tailscale)
+- A `nodes` group as described in section 2 allows all traffic from itself, UDP 41641 (Tailscale)
   and ICMP; outbound is open. The `direct` template works inside the VPC; `tailscale` needs
   only outbound.
 
@@ -528,7 +530,7 @@ sc-inspector's code) are the second source to read at implementation.
 The build (steps 1 and 2) is done by the Spare Cores images repository of plan 22 (proposed
 `SpareCores/flatcar-images`), which publishes the artifact for `aliyun` (amd64 and arm64,
 `flatcar-aliyun-<channel>-<version>-<arch>.qcow2` and `.img.gz`) with checksums and
-signatures. In v1 (rung 3) steps 3 to 5 are the user's IaC (sc-infra's Pulumi for Spare Cores);
+signatures. In v1 (rung 3) steps 3 to 5 are the user's IaC or a CI job;
 steps 6 to 8 are the later rung 2, done by the repository in a Spare Cores account. Per
 Flatcar release and channel (stable and lts to start), per architecture:
 
@@ -543,7 +545,7 @@ Flatcar release and channel (stable and lts to start), per architecture:
    UEFI), `Platform=Others Linux`, `Features.NvmeSupport=supported`, `Features.ImdsSupport=v1`,
    `DetectionStrategy=Standard`, name and tags of section 1, `ClientToken`; wait for
    `Available`.
-5. `CopyImage` to every target region (the sc-infra regions list), same name and tags.
+5. `CopyImage` to every target region (the operator's regions list), same name and tags.
 6. Rung 2 (later): `ModifyImageSharePermission(IsPublic=true)` per region; rung 2 fallback:
    `AddAccount`. Rung 3 consumers skip this.
 7. Verify from a second account: `DescribeImages` finds each image (`others`, `IsPublic`),
@@ -571,8 +573,7 @@ runs, as for AWS.
   the chart install are the AWS lane's. The cloud calls use the Alibaba Cloud CLI (`aliyun`)
   for the byo scenario and diagnostics.
 - **CI identity**: a RAM role assumed through a RAM OIDC identity provider for GitHub
-  Actions (subject of the `e2e` environment), the same pattern as sc-infra's `sc-infra`
-  role (`ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`,
+  Actions (subject of the `e2e` environment), the usual pattern (a role of the CI account, `ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`,
   `ALIBABA_CLOUD_OIDC_TOKEN_FILE`; a GitHub OIDC token written to a file by a composite
   action); role ARNs live in the environment's secrets, never in the repository. A
   separate read-only role for the canary. The policy (RAM policy JSON, written by
@@ -584,7 +585,7 @@ runs, as for AWS.
   VPCs and deployment sets by resource tag, read-only `Describe*`, `ecs:DescribeAccountAttributes`,
   `vpc:Describe*`, `quotas:ListProductQuotas`/`GetProductQuota`, `ecs:TagResources`.
 - **Cost guards** (all required before the vendor is in the list): a budget alert on the
-  account (in sc-infra); the type deny above; the region limit; run tag
+  account; the type deny above; the region limit; run tag
   `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` on everything;
   the sweeper; the same 90 min job and 55 min scenario limits; spot where possible; a teardown
   that fails the job on leftovers; the account's vCPU quota as ceiling (pay-as-you-go 16 vCPU,
@@ -648,8 +649,7 @@ Settle, and record in `docs/reference/alicloud-driver.md`:
 
 - ADR-021 (the image ladder) and plan 11's add-a-vendor guide (reuse its checklist).
 - Plan 14 (the groundwork) and plan 22 (the images repository); the rung 3 images are made
-  from its artifact by sc-infra's Pulumi, which needs the inventory gaps of section 2 and
-  plan 14's part B.
+  from its artifact by the operator's IaC (the points of section 2) and plan 14's part B contract.
 - No `SCImage`/`ImageImporter` plan (rung 4 is not used; ADR-021).
 - Keeper: nothing new for v1 (region, zone, server and storage data exist); a `cloud_auto`
   and per-level ESSD price would complete prices.
@@ -678,7 +678,7 @@ Settle, and record in `docs/reference/alicloud-driver.md`:
    (5 minute refresh), or keep stock reactive only (ADR-013 line). Recommend using it, and report
    the effect in L5.
 9. **Explicit image IDs in the core**: **Decided (plan 14, A1):** the generic `images` kind
-   with `ids` per region (and a name pattern and selector) reaches `ResolveImage` through
+   with `ids` per region (and the rest of the selector, `UseRef` of plan 14 A10) reaches `ResolveImage` through
    `ImageRequest`, for every vendor.
 10. **Raw versus compressed QCOW2** for the import, decided by step 0 (copy support and time).
 11. **Deferred set**: IPv6, local storage, partition placement, bare-metal families. Recommend

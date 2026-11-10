@@ -29,12 +29,16 @@ Available:
   pricing, drift, the first-boot volume unit, kubelet reservations (plan 06).
 - [**Vendor resources**](vendor-resources.md) — resource kinds, `use` / `create`
   / `forbid`, lifecycles, timing, status, garbage collection, metrics (plan 06).
+- [**Resource selectors**](resource-selectors.md) — the one `use` selector for every
+  kind on every vendor (`ids`, `name`, `tags`, `match`, native `filters`, `expression`,
+  `select`, `orderBy`), its semantics and placeholders, and per vendor and kind what
+  the API filters server-side and what the client does (plan 14).
 
 - [**AWS driver**](aws-driver.md) — regions, zones, images, launch, node settings,
   resources and network, tags, quota classes and codes, error mapping, IAM
   ([policy](aws-iam-policy.json)) and what is not verified live yet (plan 08).
 
-- [**Infrastructure hand-off**](infrastructure-handoff.md) — what your IaC (sc-infra
-  or your own) provides per vendor: resource kinds and `use` forms, account scope
-  and credentials, Flatcar images, and what sc-infra's `inventory` v1 maps to and
-  lacks (plan 14).
+- [**Infrastructure hand-off**](infrastructure-handoff.md) — the IaC-neutral
+  contract: what you provide per vendor, by the [selector](resource-selectors.md) (resource
+  kinds and `use` forms, account scope and credentials, Flatcar images), and what
+  SCarpenter does without it (plan 14).

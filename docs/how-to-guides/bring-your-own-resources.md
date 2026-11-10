@@ -3,18 +3,20 @@
 SCarpenter needs networks, subnets, security groups, placement groups and
 similar objects at the vendor. By default it uses the vendor's own defaults
 where they exist and creates what is missing. This guide shows how to reference
-resources you manage yourself (infrastructure as code), and how to choose the
-lifecycle of the ones SCarpenter creates. The model is in
-[Vendor resources](../reference/vendor-resources.md). What each vendor needs, and
-what sc-infra's inventory gives, is in the
-[infrastructure hand-off](../reference/infrastructure-handoff.md); the boot
+resources you manage yourself, with any tool (Pulumi, Terraform or OpenTofu, a
+CLI script, the console), and how to choose the lifecycle of the ones SCarpenter
+creates. The model is in [Vendor resources](../reference/vendor-resources.md); the selector format
+and what each vendor can filter on are in [Resource selectors](../reference/resource-selectors.md).
+What each vendor needs, in neutral terms, is in the
+[hand-off contract](../reference/infrastructure-handoff.md); the boot
 images, which are brought but never created by SCarpenter, are explained in
 [Flatcar images](../explanation/flatcar-images.md).
 
 ## Reference your own resources
 
 Under `spec.vendors.<vendor>.resources`, per resource kind, `use` points at
-existing resources. Three ways to find them, per region in scope:
+existing resources. One selector finds them, per region in scope; its fields can be combined (all
+given fields must hold):
 
 ```yaml
 spec:
@@ -24,18 +26,31 @@ spec:
       resources:
         subnets:
           use:
-            selector: {tags: {scarpenter.sparecores.com/use: "true"}}
+            tags: {scarpenter.sparecores.com/use: "true"}
         securityGroups:
           use:
             ids: {us-east-1: [sg-0123456789abcdef0], eu-central-1: [sg-0fedcba9876543210]}
 ```
 
-- `selector: {tags: {...}}`: all resources that carry every listed tag (labels,
-  where the vendor has no tags). Tag your subnets with the key once in your
-  infrastructure code and every region is covered.
+- `tags: {...}`: all resources that carry every listed tag (labels, where the
+  vendor has no tags); the value `"*"` means the key exists. Tag your subnets with
+  the key once in your IaC and every region is covered.
 - `ids: {<region>: [...]}`: explicit IDs. A region without an entry is an error,
-  not "the default".
-- `name: "sc-{region}"`: a name pattern; `{region}` and `{zone}` are replaced.
+  not "the default"; the key `*` is every region (a global resource).
+- `name: "sc-{region}"`: a name pattern with `*` and `?`; `{region}` and `{zone}`
+  (and `{channel}`, `{version}`, `{arch}`, `{nodeclass}`) are replaced.
+- `match`: attributes with one spelling on every vendor, for example
+  `match: {architecture: [amd64], owner: [self], zone: [euw1-az1], cidr: 10.8.0.0/16}`.
+- `filters` and `expression`: the vendor's own filters, for what the above do not
+  reach: `filters: [{name: root-device-type, values: [ebs]}]` on AWS images.
+- `select` (`exactlyOne`, `all`, `newest`, `oldest`) and `orderBy`: how many of the
+  matches are used, and which. An image selector picks exactly one by default; a
+  subnet selector uses all.
+
+A field the vendor does not support for the kind is an error in the NodeClass
+status, never ignored (a typo cannot widen the selection), and a selector that
+matches nothing, or more than `select` allows, makes the region unavailable with the
+reason.
 
 SCarpenter validates the references per region. The vendor condition
 `ResourcesReady` in `status.vendors.<vendor>` says which region misses what
@@ -48,12 +63,15 @@ A pre-created placement group is referenced from the placement profile, not from
 the NodeClass: `aws: {placementGroup: {use: {name: my-pg}}}`. It is never
 deleted, and the run key then only keeps NodeClaims apart.
 
-## Use what the vendor has, or forbid creating anything
+## What happens without `use`
 
-With neither `use` nor `create` for a kind, SCarpenter uses the vendor's own
-default resource where it exists (the AWS default VPC and its subnets, GCP's
-`default` network) and creates the resource only where there is none. To make
-sure nothing is ever created, forbid it:
+With neither `use` nor `create` for a kind, SCarpenter tries, in order: resources
+you tagged `scarpenter.sparecores.com/use: "true"` (where the vendor has tags;
+planned, see [Vendor resources](../reference/vendor-resources.md#resolution-order));
+the vendor's own default where it exists and can honour your settings (the AWS
+default VPC and its subnets, GCP's `default` network); a resource it creates
+itself; else it reports what it tried in `ResourcesReady` and launches nothing. To
+make sure nothing is ever created, forbid it:
 
 ```yaml
       resources:

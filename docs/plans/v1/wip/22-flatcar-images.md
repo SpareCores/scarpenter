@@ -1,7 +1,8 @@
 # 22 — The Flatcar images repository
 
 Depends on: nothing in SCarpenter's code. The one shared piece is the Spare Cores GCP
-project, which sc-infra creates ([plan 14](14-multi-vendor-groundwork.md), B5). Needed
+project, which Spare Cores creates as an operator, outside SCarpenter's code (a documented
+requirement: a project, a bucket and a keyless identity for the workflow). Needed
 by: GCP arm64 ([16](16-gcp.md)), UpCloud ([19](19-upcloud.md)), Vultr
 ([20](20-vultr.md)) and Alibaba ([21](21-alicloud.md)): they come after it. Read
 `docs/plans/v1/CONVENTIONS.md` first; its rules 1, 3 to 6 and 8 apply to the new
@@ -130,8 +131,8 @@ only. The build route is **unproven** and is the spike of plan 16:
 3. Share it: `images.setIamPolicy` with `roles/compute.imageUser` to
    `allAuthenticatedUsers` (`allUsers` is refused; a whole project cannot be shared this
    way), so every authenticated account can launch from it by name.
-4. The project is created by sc-infra and holds only the bucket and the published images
-   (plan 14, B5). The workflow authenticates with **workload identity federation from
+4. The project is created by Spare Cores in its own account and holds only the bucket and the
+   published images. The workflow authenticates with **workload identity federation from
    GitHub Actions** (keyless: no service account key in the repository), with a role
    limited to that project's bucket and images.
 
@@ -204,15 +205,15 @@ built stay available for pins.
    release feed endpoints.
 2. vultr amd64 and aliyun amd64 and arm64; artifact formats confirmed with the spikes of
    plans 19, 20 and 21.
-3. The GCP arm64 build and publication (needs the project from sc-infra and the spike of
+3. The GCP arm64 build and publication (needs the Spare Cores GCP project and the spike of
    plan 16).
 4. `track-releases.yml` on a schedule for stable and LTS; retention and failure handling.
 5. The upstream issues and changes; later Alibaba community images.
 
 ## Dependencies
 
-- sc-infra: the Spare Cores GCP project and the keyless identity (plan 14, B5); needed
-  from milestone 3.
+- The Spare Cores GCP project and the keyless identity (created by Spare Cores in its account,
+  not by SCarpenter); needed from milestone 3.
 - Plans 16, 19, 20 and 21 supply the spike results that fix the formats and the GCE OEM
   id; the repository's first artifacts are what those spikes boot.
 - Flatcar's signing key and release feed.

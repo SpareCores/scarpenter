@@ -1,7 +1,7 @@
 # 17 — Azure driver and L5 lane
 
 Depends on: 14 (the shared groundwork: the optional `images` kind, the stopped-node rule,
-the per-vendor `vendor_block()`), 08 (the model driver), 10 (the model lane), and the
+the resolution order and the hand-off contract), 08 (the model driver), 10 (the model lane), and the
 vendor-resources, node-options and quota machinery of 04 and 06. Independent of the other
 vendor plans. No image-import plan is needed (rung 1 of the image ladder, ADR-021, below). Read
 `docs/plans/v1/CONVENTIONS.md` first. Spec: overview §5.8, §5.9, §7, §9; 00a §6, §9,
@@ -59,14 +59,14 @@ the terms (`MarketplaceAgreements.Get` / `Create`). The two `corevm` offers shou
 none (docs; arm64 *unverified*). **SCarpenter never accepts terms**: legal consent
 belongs to the account owner. If terms are needed and not accepted, `ImagesReady=False`
 with the reason `MarketplaceTermsNotAccepted` and the exact `az vm image terms accept`
-command; sc-infra can accept them with `MarketplaceAgreement` (inventory gap 6).
+command; the operator's IaC can accept them (a marketplace agreement resource).
 
 **Generation.** Gen2 only in v1 (arm64 is Gen2 only; amd64 Gen2 is the Flatcar default).
 Sizes without `HyperVGenerations` V2 are dropped from the launchable types (Gen1-only
 families such as Av2; decided per SKU from the SKU table, not by family name); Gen1 SKUs are
 deferred.
 
-## 2. Hand-off: `spec.vendors.azure` and sc-infra
+## 2. Hand-off: `spec.vendors.azure`
 
 Azure's unit is the **region** (location name, Keeper `api_reference`, e.g. `westeurope`;
 verified in the snapshot) with **logical zones** `1`, `2`, `3` (Keeper zone `0` means a
@@ -94,24 +94,25 @@ vendors:
 ```
 
 **Resource kinds.** A VM needs a NIC; a NIC needs a subnet; everything lives in a resource
-group; a public IP is needed for egress on the inventory's network (no NAT; newer subnets are
+group; a public IP is needed for egress on a subnet without a NAT (newer subnets are
 private by default, `defaultOutboundAccess: false`, and default outbound access is being
-retired; whether sc-infra's subnet has it is *unverified* and should not be relied on). All are free except the public IP
+retired; whether an operator's subnet has it is *unverified* and should not be relied on). All are free except the public IP
 (Standard SKU, about $0.005/h, *Keeper has no price*; constant like AWS, overridable).
 
-| Kind | Scope / default policy | `use` forms | `create` | Maps to inventory v1 |
+| Kind | Scope / default policy | `use` forms | `create` | What your IaC must output |
 |---|---|---|---|---|
-| `resourceGroups` | region / `retain` | `ids` (name or ARM ID), `name` pattern (`{region}`), `selector.tags` | yes; name `scarpenter-<cluster>-resource-groups-<region>`; **deleted only if it carries the marker and holds no resource without it** (an RG delete removes everything inside) | `regions.<r>.scope.resource_group` (name; **gap 1**: add the `scarpenter-use` tag to the RG for selectors) |
-| `subnets` (the VNet and its subnet, one unit like AWS's VPC) | region / `idleTTL` | `ids` (full subnet ARM ID), `name` pattern `<vnet>/<subnet>` (matched across the subscription's VNets), `selector.tags` (**matches the VNet's tags**: Azure subnets have no tags; every subnet of a matching VNet with free addresses is a candidate). No `{zone}`: subnets are regional (validation error) | yes: VNet `10.240.0.0/16` and one `/20` subnet `nodes`, IPv4 only | `regions.<r>.subnets[0].id`; the VNet carries `scarpenter-use: "true"` today |
-| `securityGroups` (NSG) | region / `idleTTL` | `ids` (ARM ID), `name`, `selector.tags` (sc-infra tags the `nodes` NSG `scarpenter-use`) | yes: no inbound rule except `spec.networking.inbound`, plus the isolation rules below | `regions.<r>.security_groups.nodes.id` (never `jobs`) |
-| `applicationSecurityGroups` | region (per NodeClass) / `idleTTL`; `runApplicationSecurityGroups`: run / `perUse` (internal kinds, like AWS `runSecurityGroups`) | not configurable | yes | none |
-| `proximityPlacementGroups` | run / `perUse` | `ids`, `name` | yes (placement profile) | none |
-| `publicIPs`, `networkInterfaces` | node / `perUse` (internal, never `use`) | no | yes, by `Prepare`, one per (NodeClaim, region) | none |
-| `images` (not managed; optional) | region key; marketplace offers are global | `ids` per region (URN, or a gallery image ID), `name` pattern; no `selector` | never (ADR-021) | the marketplace lookup of section 1 | `regions.<r>.images` (always `[]`: rung 1) |
+| `resourceGroups` | region / `retain` | `ids` (name or ARM ID), `name` (glob, `{region}`), `tags` (one pair server-side, the rest client-side), `expression` (Resource Graph) | yes; name `scarpenter-<cluster>-resource-groups-<region>`; **deleted only if it carries the marker and holds no resource without it** (an RG delete removes everything inside) | the group's name per region, or the `scarpenter-use` tag on it |
+| `subnets` (the VNet and its subnet, one unit like AWS's VPC) | region / `idleTTL` | `ids` (full subnet ARM ID), `name` pattern `<vnet>/<subnet>` (matched across the subscription's VNets), `tags` (**match the VNet's tags**: Azure subnets have no tags; `match.cidr`/`within`/`network`/`state` are client-side, `expression` is Resource Graph over the VNet; every subnet of a matching VNet with free addresses is a candidate). No `{zone}`: subnets are regional (validation error) | yes: VNet `10.240.0.0/16` and one `/20` subnet `nodes`, IPv4 only | the subnet's ARM ID per region, or the opt-in tag on the VNet |
+| `securityGroups` (NSG) | region / `idleTTL` | `ids` (ARM ID), `name`, `tags` (tag the NSG for nodes `scarpenter-use`), `filters` `resourceGroup`/`location` | yes: no inbound rule except `spec.networking.inbound`, plus the isolation rules below | the NSG's ARM ID per region (hand over only an NSG nodes may use) |
+| `applicationSecurityGroups` | region (per NodeClass) / `idleTTL`; `runApplicationSecurityGroups`: run / `perUse` (internal kinds, like AWS `runSecurityGroups`) | not configurable | yes | nothing |
+| `proximityPlacementGroups` | run / `perUse` | `ids`, `name` | yes (placement profile) | nothing |
+| `publicIPs`, `networkInterfaces` | node / `perUse` (internal, never `use`) | no | yes, by `Prepare`, one per (NodeClaim, region) | nothing |
+| `images` (not managed; optional) | region key; marketplace offers are global | `ids` per region or under `*` (URN, or a gallery image ID), `name` (`publisher:offer:sku:<version glob>` for the marketplace, `<gallery>/<image>/<version glob>` for a gallery; `orderBy: name` for the newest version), `match` (`architecture`, `state`, `includeDeprecated`: one `Get` per version), no `expression` on the marketplace | never (ADR-021) | the marketplace lookup of section 1 | nothing (rung 1) |
 
-Defaults: Azure has no default resource, so with no `resources` block everything is
-created: a resource group, a VNet with subnet, an NSG per NodeClass (on-demand creation,
-first launch waits). sc-infra's environment makes the `use` route the normal one.
+Without `use` (ADR-022): tagged resource groups, VNets and NSGs (discovery, planned); Azure
+has no default resource, so then everything is created: a resource group, a VNet with subnet,
+an NSG per NodeClass (on-demand creation, first launch waits); else a stated failure. The `use`
+route is the normal one for an operator with their own IaC.
 
 Isolation. Azure's NSGs have built-in `AllowVnetInBound` (priority 65000) that lets every
 node of the VNet reach every other, so `isolation: none|run` needs an explicit deny. A
@@ -122,10 +123,10 @@ managed NSG gets: an allow from the NodeClass's application security group to it
 implicit run (same semantics as AWS). A NIC takes **one** NSG, so a brought NSG (`use`) is
 attached as it is and decides alone: unlike AWS, where the run group is a second group whose
 allow is added, the NIC's run ASG membership grants nothing unless the brought NSG has a rule
-for it (sc-infra's `nodes` NSG allows the whole environment range at priority 100). With
+for it (a brought NSG would allow the nodes' range at a low priority). With
 `securityGroups.use`, `isolation` therefore has no effect, which the reference must say and
 `VendorReady` should warn about (open question 11). A subnet NSG, where the user attached one,
-applies as well (both must allow; sc-infra attaches none).
+applies as well (both must allow).
 
 **Account scope and credentials.**
 
@@ -143,9 +144,8 @@ applies as well (both must allow; sc-infra attaches none).
   identity (or app registration): issuer = the cluster's service account issuer (public
   discovery document, as for self-managed AWS), subject
   `system:serviceaccount:<namespace>:<sa>`, audience `api://AzureADTokenExchange`. For
-  GitHub the audience is the same and the subject is sc-infra's immutable form
-  (`repo:<org>@<org id>/<repo>@<repo id>:environment:e2e`, as `githubSubject` of the
-  `scarpenter-e2e` tenant).
+  GitHub the audience is the same and the subject is the immutable form
+  (`repo:<org>@<org id>/<repo>@<repo id>:environment:e2e`) of the CI account's setup.
 - Roles: a custom role at the subscription (or resource group) scope; actions in
   `docs/reference/azure-role.json` (this plan writes it): `Microsoft.Compute/virtualMachines/{read,write,delete}`,
   `disks/{read,write,delete}`, `proximityPlacementGroups/*`, `locations/*/read`,
@@ -165,33 +165,34 @@ applies as well (both must allow; sc-infra attaches none).
 accepted; Flatcar's docs pass `--ssh-key-values` and say the argument is not needed when
 Ignition supplies the `core` user's key, which is about the CLI, not the API). The driver
 sets `adminUsername: core`, `disablePasswordAuthentication: true` and one public key:
-`azure.adminSSHPublicKey` (the inventory's `ssh_key.public_key` where set), else an
+`azure.adminSSHPublicKey` (a public key the operator provides), else an
 ed25519 key generated at `Init` whose private half is discarded (nobody can use it;
 access is Ignition's business). `allowExtensionOperations: false`, VM agent on.
 
-**Gaps in sc-infra's `inventory` v1** (to add; nothing else is missing):
+**What the operator's IaC must provide, and what SCarpenter self-manages.** Provided by
+the operator (any tool, CLI or portal), all of it optional for the driver but the normal
+route:
 
-1. `regions.<r>.scope.resource_group` is a name, there is no ARM ID and no `scarpenter-use`
-   tag on the resource group (sc-infra tags it `ManagedBy`/`Environment`/`Name` only).
-   Either tag it, or render `resourceGroups.use.ids` from the name (accepted by the driver).
-2. `blocks/scarpenter.py`: `ACCEPTED_VENDORS` and `vendor_block()` are AWS-shaped; add the
-   Azure shape above through the per-vendor kind map of plan 14 (B3: `resourceGroups` from
-   `scope.resource_group`, `subnets` and `securityGroups` ids, `subscriptionID` from
-   `environments.<env>.scope.subscription_id`).
-   `render_vendors()` merges every environment of a vendor into one block; for azure it must
-   refuse environments with different subscriptions (one subscription per controller).
-3. `scope.tenant_id` (optional, for the chart's credentials values; plan 14, B2).
-4. The controller identity: user-assigned managed identity, its federated credentials, the
-   custom role and its assignment (the block's "controller role not created yet" item).
-5. The registered resource providers and the vCPU quotas of the regions in use (a
+1. A **resource group** per region: its name (`resourceGroups.use.ids`) or the
+   opt-in tag `scarpenter-use` on it for discovery (planned).
+2. A **VNet with a subnet** per region (the subnet's ARM ID, or the opt-in tag on the VNet),
+   and an **NSG** (its ARM ID or tag) whose rules allow the nodes' ranges, UDP 41641 and
+   ICMP for the `tailscale` and `direct` templates. The subnet has no NAT: nodes need
+   `publicIPv4: true` (default), as on AWS, or the operator adds a NAT gateway.
+3. The **`subscriptionID`** of the block (a guard against the wrong controller) and the tenant
+   ID for the chart's credentials values.
+4. The **controller identity**, documented as a requirement: a user-assigned managed
+   identity, its federated credentials, the custom role (`docs/reference/azure-role.json`)
+   and its assignment.
+5. The **registered resource providers** and the vCPU quotas of the regions in use (a
    precondition, checked by the canary).
-6. A `MarketplaceAgreement` for any Flatcar offer that has terms (probably none).
-7. Nothing for images (rung 1: the inventory's `images` key, plan 14 B1, is `[]` for azure),
-   SSH keys beyond the above, or placement.
+6. A **marketplace agreement** for any Flatcar offer that has terms (probably none); the
+   operator accepts it (the plan above). Nothing for images (rung 1), SSH keys beyond the
+   above, or placement.
 
-The inventory's `nodes` NSG is tagged for selection; its rules (everything from the
-environment's ranges, UDP 41641, ICMP) already suit the `tailscale` and `direct`
-templates. The `subnet` has no NAT: nodes need `publicIPv4: true` (default), as on AWS.
+SCarpenter self-manages, without `use`: Azure has no default resource, so after discovery it
+creates a resource group, a VNet with a subnet and an NSG per NodeClass, per section 2's
+table, else reports `ResourcesReady=False` with what was tried.
 
 ## 3. Driver
 
@@ -285,17 +286,22 @@ read first and refuse (`Fatal`) a VM without this cluster's tag; `BeginDelete` w
 `forceDeletion=true` (*unverified* that it combines with the delete options); NotFound
 is success.
 
-**Tags.** Azure tag names must not contain `< > % & \ ? /` (sc-infra's note), are case
+**Tags.** Azure tag names must not contain `< > % & \ ? /`, are case
 insensitive, at most 50 per resource, values at most 256 characters. `TagKey(k)` is
 `scarpenter-<key>` (`scarpenter-cluster`, `-nodeclaim`, `-nodepool`, `-nodeclass`,
 `-managed-by`, `-resource-kind`), as `vendors.DefaultTagKey` says for restrictive
-charsets; `Name=<nodeclaim>` too. sc-infra's `scarpenter-use` is a different tag.
+charsets; `Name=<nodeclaim>` too. The opt-in `scarpenter-use` is a different tag.
 
 **Limits.** ARM throttles per subscription and region with `429 Retry-After` (the numbers
 are *unverified*; older documentation gave 1200 writes and 12000 reads per hour per
 subscription). One launch is about 3 writes (public IP, NIC, VM) plus polls, one delete
 is a `DELETE` of the VM plus polls. Launches are serial per NodeClaim; the quota refresh (below) is one `usages` call per
 region plus the SKU table hourly. The resource-check status reads are cached as for AWS.
+
+### Billing period (ADR-024, plan 23)
+
+Billed per full minute (the pricing page) while Keeper says 1/300; the two disagree (a data issue, plan 13).
+Either value is under `minPeriod`, so retention does not apply. `BillingStart` stays unset.
 
 ## 4. Catalog
 
@@ -307,8 +313,8 @@ D/E `p` v6 families; four NVIDIA GB-class rows to exclude by the accelerator lab
 zones `0` to `3`. Types are named `azure.Standard_D2s_v5`; the family is Keeper's (`DSv5`),
 not Azure's quota family (`standardDSv5Family`): the quota mapping comes from the live
 SKU table, never from names. Some Keeper regions are staging or restricted
-(`eastusstg`, `centraluseuap`, `brazilus`, and sc-infra's `RESTRICTED`/`PREVIEW`
-lists): `Regions` returns the subscription's physical locations
+(`eastusstg`, `centraluseuap`, `brazilus`, and the `RESTRICTED`/`PREVIEW`
+region types): `Regions` returns the subscription's physical locations
 (`armsubscriptions` locations, `regionType: Physical`), and the facts skip a region
 whose SKUs are all restricted.
 
@@ -475,10 +481,10 @@ a Secret mounted as `AZURE_FEDERATED_TOKEN_FILE` and **refreshes it in a backgro
 (GitHub's OIDC token is short-lived, *unverified* lifetime; `WorkloadIdentityCredential`
 re-reads the file), because a 55-minute scenario run outlives it. No secret anywhere. The
 variables are IDs (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
-`AZURE_REGION`), not secrets, set by sc-infra's tenant like the AWS ones.
+`AZURE_REGION`), not secrets, set by the CI account's operator like the AWS ones.
 
-**Environment in sc-infra.** A dedicated one-region environment (its own resource group,
-VNet, subnet and `nodes` NSG from `environments/azure.py`) for the lane, so the CI role can
+**Environment of the CI account.** Required of its operator: a dedicated one-region environment (its own resource group,
+VNet, subnet and NSG) for the lane, so the CI role can
 be scoped to that resource group; Microsoft.Compute and Microsoft.Network registered; vCPU
 quotas (Standard regional and the lane's families 16, Spot 4, and Standard public IPs);
 a budget alert; marketplace terms if any.
@@ -518,7 +524,7 @@ read-only guard.
 - Plans 01 to 10 (done).
 - Plan 14 (the groundwork). **No image plan** (`SCImage`, `ImageImporter` stay reserved);
   the marketplace is the source (rung 1, ADR-021).
-- sc-infra: gaps 1 to 6 of section 2 before the lane and before real use.
+- The operator's IaC: the points of section 2 before the lane and before real use.
 - Core: nothing new expected; if the driver needs a **multi-bucket quota with an unknown
   second bucket**, the quota tracker already takes several (`Consumption` returns a list).
 - Docs in the same plan: `docs/reference/azure-driver.md`, `docs/reference/azure-role.json`
@@ -547,13 +553,13 @@ read-only guard.
 4. **Wait for the VM operation or return when it is accepted?** Waiting classifies
    capacity and quota errors in the launch (needed for the attempt loop) but holds the
    call up to 4 minutes. Recommendation: wait with the 4-minute bound, as designed.
-5. **Public IP per node.** Needed for egress on the current environment. Alternative: a
-   NAT gateway per subnet in sc-infra (about $0.045/h each plus data) and `publicIPv4:
-   false`. Recommendation: public IP for v1, a NAT option in sc-infra later.
+5. **Public IP per node.** Needed for egress on a subnet without NAT. Alternative: a
+   NAT gateway per subnet (about $0.045/h each plus data) and `publicIPv4:
+   false`. Recommendation: public IP for v1, a NAT option later.
 6. **Zone names:** `1` (Keeper, identity) or `<region>-<n>` (AKS convention)?
    Recommendation: `1`, consistent with Keeper and `zone-id`.
 7. **`subscriptionID` as a guard** in the NodeClass: keep or drop? Recommendation: keep
-   (an inventory fills it; it stops a NodeClass targeting the wrong controller).
+   (the IaC fills it; it stops a NodeClass targeting the wrong controller).
 8. **PremiumV2/Ultra disks and NVMe-only sizes in v1?** Recommendation: not in v1
    (milestone 6 and a spike), keep them out of `Supported`. Cost: NVMe-only covers the v6
    families, so v1 would offer only v5 and older sizes; decide after the spike shows whether

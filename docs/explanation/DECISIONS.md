@@ -16,7 +16,7 @@ support self-managed clusters out of the box; the others are tied to their
 vendor's managed Kubernetes (EKS, AKS, GKE, ACK, OKE, MKS, UKS). Running
 several Karpenter providers in one cluster is not a supported setup either.
 
-Rejected: provisioning VMs explicitly with an orchestrator and Pulumi (no
+Rejected: provisioning VMs explicitly with an orchestrator and an IaC tool (no
 Karpenter semantics, per-instance state); a hybrid of upstream providers and
 custom code (two code paths, upstream providers still need patching for
 non-managed clusters); Cluster API + cluster-autoscaler (an infrastructure
@@ -291,15 +291,23 @@ was asked for.
 For every kind of vendor resource a node depends on (resource groups,
 networks, subnets, routes, security groups/firewalls, placement constructs,
 separate volumes, public IPs, NICs), the NodeClass vendor block says either
-`use` (pre-created: explicit IDs per region, a `{region}`/`{zone}` name
-pattern, or a tag selector; validated, never modified or deleted) or `create`
+`use` (pre-created: found by one selector,
+[ADR-023](#adr-023-one-selector-for-every-vendor-resource-accepted-2026-11-10): IDs per
+region, a `{region}`/`{zone}` name pattern, tags, portable attributes or the vendor's own
+filters; validated, never modified or deleted) or `create`
 (SCarpenter creates it on demand or ahead of time, with a deterministic name,
 an ownership marker, adoption of its own leftovers, and a lifecycle policy:
-`perUse`, `idleTTL` or `retain`). A kind with neither defaults to `create`;
-managed shared infrastructure defaults to `idleTTL` 24 h. Details: `00a` §9.
+`perUse`, `idleTTL` or `retain`). A kind with neither follows the resolution order of
+[ADR-022](#adr-022-resolving-vendor-resources-explicit-discovered-default-created-or-a-clear-failure-accepted-2026-11-10)
+(it first read "defaults to `create`"); managed shared infrastructure defaults
+to `idleTTL` 24 h. Details: `00a` §9.
 
-Why: operators who manage their infrastructure as code (one Pulumi stack
-creating networks and keys in every region) must be able to hand those to
+Amended by ADR-022 (what a kind without `use` or `create` resolves to) and by
+ADR-023 (the forms of `use`: `ids`, `name` and `selector.tags` become the one selector
+`ids`, `name`, `tags`, `match`, `filters`, `expression`, `select`, `orderBy`).
+
+Why: operators who manage their infrastructure as code (one stack, in Pulumi,
+Terraform or any other tool, creating networks and keys in every region) must be able to hand those to
 SCarpenter; everyone else needs a zero-configuration route. Lifecycles make
 the trade-off between creation latency, churn and leaked resources explicit
 instead of hard-coding one.
@@ -374,9 +382,8 @@ and version can be named and read back from the image (ADR-012, ADR-017):
    Flatcar images there, built and released from a separate GitHub repository
    (GCP arm64; Alibaba community images later, if Spare Cores is eligible).
 3. **Images can be created in the user's own account**: pre-create them (per
-   region where the vendor's images are regional) with infrastructure as code,
-   sc-infra's Pulumi for Spare Cores and the user's own tooling otherwise, and
-   pass the IDs to SCarpenter (hcloud, OVH, UpCloud, Vultr, Alibaba). The source
+   region where the vendor's images are regional) with infrastructure as code or a
+   CI job of the operator's choice, and pass the IDs to SCarpenter (hcloud, OVH, UpCloud, Vultr, Alibaba). The source
    is Flatcar's official image for that platform; where Flatcar ships none, the
    image built by Spare Cores' images repository: the generic Flatcar image with
    the OEM id set (`vultr`, `upcloud`, `aliyun`).
@@ -395,18 +402,19 @@ Details:
   the missing platforms upstream to Flatcar; once Flatcar ships one, that vendor
   moves to the official image.
 - **API.** One generic resource kind `images` in
-  `spec.vendors.<vendor>.resources`, in the shape of ADR-018: `use` with `ids`
-  per region, a `name` pattern and, where the vendor can filter images by tags or
-  labels, a `selector`. There is no `create` (that would be rung 4). On rungs 1
+  `spec.vendors.<vendor>.resources`, in the shape of ADR-018: `use` with the one
+  selector of ADR-023 (`ids` per region, a `name` pattern, `tags` where the vendor has
+  tags or labels on images, `match` attributes such as `architecture`, `owner` and
+  `state`, the vendor's native `filters`, `select`, `orderBy`). There is no `create` (that would be rung 4). On rungs 1
   and 2, and on rung 3 where the vendor has a naming convention the driver can
   look up, `images` is optional: without it the driver resolves the pinned
-  version itself. A vendor with global images still keys `ids` by region, the
-  same ID repeated. The pinned version is always checked against the image's
+  version itself. A vendor with global images lists the ID once under the
+  region key `*` (every region in scope), or repeats it per region. The pinned version is always checked against the image's
   labels or name: an image of another version is not ready, never booted
   (ADR-017).
-- **Hand-off.** sc-infra's inventory lists the images of each region
-  (`regions.<region>.images`), empty on rungs 1 and 2
-  ([plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md)).
+- **Hand-off.** The operator's IaC lists the images of each region as
+  `resources.images.use.ids` of the NodeClass; nothing is needed on rungs 1 and 2
+  ([hand-off contract](../reference/infrastructure-handoff.md#images)).
 - **GCP arm64** is published by Spare Cores (rung 2), not left out of v1.
 - **Order.** GCP and Azure (rung 1) first, then Hetzner, then OVH, UpCloud, Vultr
   and Alibaba (the order among these four is open).
@@ -435,3 +443,314 @@ ADR-011's "preceded by an image-import plan": no plan precedes any vendor. The
 images repository is a maintenance commitment: new Flatcar releases for up to
 four platforms, signatures and publishing credentials for one GCP project.
 Changing image IDs is not drift: the pinned version is (ADR-012).
+
+## ADR-022: Resolving vendor resources: explicit, discovered, default, created, or a clear failure (accepted, 2026-11-10)
+
+SCarpenter is open source and does not know how an operator provisions the
+vendor account: Pulumi, Terraform or OpenTofu, a CLI script, the console, or
+nothing. One contract serves all of them: the operator creates resources any way
+they like and names them in the NodeClass with the one selector of
+[ADR-023](#adr-023-one-selector-for-every-vendor-resource-accepted-2026-11-10) (ID, name
+pattern, tags, portable attributes such as a CIDR, or the vendor's own filters)
+(`spec.vendors.<vendor>.resources.<kind>.use`, see the
+[hand-off contract](../reference/infrastructure-handoff.md)); what is not named,
+SCarpenter finds or manages itself. SCarpenter's code, docs and plans do not
+depend on any particular IaC project, its outputs or its layout.
+
+For each kind, in each region, the resolution order is (steps 2 to 4 only for a kind
+without `use`):
+
+1. **Explicit `use`** (the selector of ADR-023), as given: validated,
+   never modified or deleted.
+2. **Discovery**: resources carrying the well-known opt-in tag or label
+   `scarpenter.sparecores.com/use: "true"` in the region (encoded per vendor's
+   key rules, as the other SCarpenter tags; vendors without tags or labels skip
+   this step). Putting the tag on a resource is an explicit opt-in by the
+   operator, so it wins over a vendor default. Treated as `use`: never modified. No
+   tagged resource goes on to step 3; more than the kind's `select` allows fails
+   (the operator's opt-in is ambiguous, step 5) rather than falling through.
+3. **Vendor defaults** where the vendor has them and they are safe: the AWS
+   default VPC and its default subnets, GCP's `default` network, Alibaba's
+   default VPC and vSwitches. A default that cannot honour the requested
+   settings (ADR-017: isolation, inbound rules, `publicIPv4: false`, IPv6 on a
+   default firewall or network that has none) is skipped rather than degraded.
+   Treated as `use`: never modified.
+4. **Create** (managed, with the ADR-018 lifecycle), where the vendor and the
+   credentials allow it (`forbid: true` removes this step).
+5. **Fail gracefully**: the NodeClass reports `ResourcesReady=False`, reason
+   `ResourcesUnavailable`, naming the kind, the region and what was tried; no
+   launch is attempted for the region, and nothing half-created is left behind
+   (a creation that fails midway is rolled back or adopted and finished by the
+   next attempt, ADR-018).
+
+An explicit `create` skips steps 2 and 3. An explicit `use` that matches nothing
+fails; it never falls through to the next step. A kind that lives in a network
+(subnets, security groups) is resolved after the network and only within it,
+whichever step found the network. `images` has no step 4: its step 3 is the driver's
+own lookup of the pinned version (ADR-021). A `policy` knob (for example to
+forbid vendor defaults) is not added: `use`, `create` and `forbid` cover the
+known cases, and one is proposed only when a real case needs it.
+
+Today: the AWS driver does steps 1, 3, 4 and 5 (the e2e lane launches into the
+default VPC); step 2 is new and so is the same order in the other drivers, added by
+[plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) in the core and in
+per-driver hooks, with conformance cases.
+
+Why: the maintainer's rule is that every user can pre-provision with their own
+IaC and pass the result in one documented way, and otherwise get something
+working without configuration. Discovery by an explicit tag is the one place an
+IaC tool that cannot render a NodeClass (a Terraform module that only creates
+subnets) still reaches SCarpenter, and it must beat a vendor default because the
+operator asked for it. Failing with a stated reason beats creating a surprise
+resource that the credentials cannot manage.
+
+Rejected: SCarpenter reading an IaC tool's state or outputs (couples the open
+source code to one operator's layout); defaults before discovery (a tagged
+resource would be ignored in favour of a shared default network); silently
+degrading a request on a default resource (ADR-017); a `policy` field now.
+
+Consequences: amends ADR-018, whose "a kind with neither defaults to `create`" is
+replaced by this order. The discovery step is the selector `use: {tags:
+{scarpenter.sparecores.com/use: "true"}}` with the kind's default `select`, built in (ADR-023). Discovery adds one list call per kind and region to the
+resource check; the tag key is reserved for the opt-in.
+
+## ADR-023: One selector for every vendor resource (accepted, 2026-11-10)
+
+Every kind of vendor resource on every vendor is found with the same `use`
+selector. It replaces ADR-018's three forms (`ids`, `name`, `selector.tags`, exactly
+one of them) and can express every way the vendor's API offers to find the kind:
+
+```yaml
+use:
+  ids: {<region or *>: [id, ...]}   # checked, and ANDed with the other fields
+  name: "flatcar-{channel}-*"       # glob; exact without wildcards
+  tags: {key: value, key2: "*"}     # "*" = the key exists; labels where there are no tags
+  match:                            # portable attributes, one spelling on every vendor
+    architecture: [amd64]
+    owner: [self]
+    state: [available]
+    createdAfter: 2026-01-01T00:00:00Z
+    cidr: 10.0.0.0/16               # also within, zone, network, description, includeDeprecated
+  filters: [{name: root-device-type, values: [ebs]}]   # the vendor's own filters, passed through
+  expression: "..."                 # the vendor's query language, where it has one
+  select: exactlyOne                # exactlyOne | all | newest | oldest; default per kind
+  orderBy: created                  # created | name | label:<key>, for newest and oldest
+```
+
+Rules. All given fields are ANDed, list values are ORed. Placeholders `{region}`,
+`{zone}`, `{arch}`, `{vendorArch}`, `{channel}`, `{version}` and `{nodeclass}` are
+expanded in every string value. Each driver declares, per kind, which `match`
+attributes and which `filters` names it supports and whether the vendor or the
+client evaluates each; an unknown or unsupported name is rejected when the NodeClass is
+validated (CEL for the shape, the driver for the vendor), never ignored. The driver
+sends to the vendor what it can and the shared matcher then re-applies every given
+field to the answer, so a vendor-side filter may narrow to a superset (fuzzy and
+substring matching, an API that ignores a parameter) and never to a subset; a filter a
+vendor may silently ignore is offered only where it can be re-applied. Resolution is per
+region: zero matches, or more than `select` allows, makes the region unusable with a
+condition that says what excluded the rest (ADR-022 step 5); nothing is guessed. The
+resolved IDs are in the NodeClass status and a launched node records what it used;
+images stay pinned per node. An ID list that a vendor rejects as a whole when one ID
+is missing (AWS `*.NotFound`) is looked up through the ID filter, so one missing ID
+is reported by name. The format and the per-vendor, per-kind support tables are in the
+[resource selectors reference](../reference/resource-selectors.md).
+
+Why: one format for every kind and vendor, so that an operator's tool, the docs, the
+CRD, the validator and the conformance suite have one thing to know; the native
+`filters` and `expression` escape hatches keep every capability a vendor has (EC2
+root-device-type, a GCP regex over names, a Hetzner label selector with negation) without a
+new field per vendor; strict validation and the always-re-apply rule keep
+[ADR-017](#adr-017-never-degrade-an-option-silently-accepted-2026-11-05) true on APIs that
+silently ignore what they do not understand.
+
+Rejected: a bespoke `use` shape per vendor (what the first vendor plans drifted into:
+five variants of the same three image lookups); native filters only (not portable: a NodeClass
+could not move between vendors, and the same intent has seven spellings); portable
+attributes only (loses what the vendor can do, and the per-vendor field list would grow
+for ever); a single cross-vendor query language (none exists; GCP filters and Azure
+Resource Graph are two incompatible languages, the others have none, so it would be a
+SCarpenter-invented language to translate into each).
+
+Findings from the research that shaped the design (2026-11-10, eight vendors):
+
+- A flat `ids` list for global kinds cannot share a field with a per-region map in a structural CRD
+  schema (one field cannot be both an array and an object). Global kinds use the region key
+  `*` instead (`ids: {"*": [id]}`), and a region key adds to it.
+- Vultr has no filter at all but one or two hard-coded parameters, UpCloud and hcloud have only
+  labels and exact names, Azure has no per-kind filter, OVH's Glance and Neutron have no name wildcard:
+  `name` and most `match` attributes are client-side on those vendors, which is why the client
+  always re-applies the selector (a vendor-side narrowing is an optimisation only).
+- GCP cannot mix its AIP-160 and RE2 filters in one request and has no glob: a glob is a literal
+  substring on the server plus the client match. Publicly shared GCP images are not listed at all, only
+  readable by exact name or family: `ids` and exact `name` work for them, a glob does not.
+- Tags are not one thing: GCP networks, subnets and firewalls have no labels, Azure subnets none
+  (the VNet's tags are matched), Vultr only on instances, OVH tags are plain strings with no key and
+  value, Alibaba deployment sets none. A kind without tags rejects `tags` rather than ignoring it.
+- No creation time on many kinds (UpCloud templates, AWS subnets, Azure marketplace images):
+  `newest` and `oldest` need `orderBy: name` or `label:<key>` there, and the format rejects
+  `created` on those kinds.
+- `cidr` is an equality test (the plan of addresses an IaC knows); containment is a separate
+  `within`, client-side everywhere, because no API offers it.
+
+Consequences: amends ADR-018's `use` forms and the wording of ADR-021 and ADR-022
+(`selector.tags` is `tags`; the opt-in discovery of ADR-022 step 2 is a built-in `tags`
+selector). The `ResourceUse` API type, its CEL rules, the driver capability declaration, the
+shared matcher and the AWS driver's migration are
+[plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) (A10); the AWS driver's today
+forms keep working in meaning (`selector.tags` is renamed `tags`). Adds the `use` fields
+`match`, `filters`, `expression`, `select`, `orderBy` to every kind of every vendor, a
+capability table per driver to maintain, and one test matrix per driver in the conformance
+suite.
+
+## ADR-024: Billing-period-aware node retention (accepted, 2026-11-10)
+
+Some vendors bill a server by the started period: hcloud, UpCloud and Vultr by the hour,
+OVH's US regions probably (the data disagrees, see below). A job that runs one minute every ten
+minutes and gets a fresh node each time pays for six hours of node per hour; the same job on one
+node kept until its hour is about to end costs one. SCarpenter therefore offers, as an opt-in,
+to keep such nodes until the end of the billing period they have already paid for, so that
+Karpenter reuses them, and to delete them before the next period opens.
+
+```yaml
+kind: SCNodeClass
+spec:
+  billing:
+    retainUntilPeriodEnd: true   # default false: nothing below happens
+    margin: 3m                   # default 3m, at least 90s: stop this long before the boundary
+    minPeriod: 10m               # default 10m: only billing periods at least this long qualify
+    maxRetainedNodes: 0          # default 0 = no cap; else at most this many held nodes per NodeClass
+```
+
+**Where.** On the `SCNodeClass`, not the NodePool. The vendor and the region, which decide
+whether a period exists at all, are known only there (a NodePool names no vendor), and one
+NodeClass can span several vendors: the setting is one intent ("reuse nodes within their paid
+period"), and each vendor's rule decides whether it has any effect. The NodePool keeps what
+is Karpenter's (consolidation policy, budgets, `expireAfter`).
+
+**Billing facts come from data.** Keeper's `/table/vendor` has `billing_increment_seconds`,
+`minimum_billing_seconds`, `stopped_server_charged` and `billing_comment` (the vendor table is
+live today; the catalog does not read it yet). SCarpenter caches them with the catalog. The period of a
+vendor is its increment; a period qualifies when it is at least `minPeriod` (so per-second
+vendors never qualify, with no vendor name in the core: AWS, GCP, Azure and Alibaba all have an increment
+of at most a minute). The first boundary is `start + max(minimum, increment)`, later ones add the increment.
+Keeper's value is per vendor and "worst case", but the rule can differ below that (OVH US versus
+EU, Alibaba's minimum by vCPU), so a driver may override per region and family
+(`BillingRule`) until Keeper has finer data (plan 13). A vendor fact that no live check has confirmed
+stays **off**: the driver reports it as unverified and retention does not apply to that vendor (the NodeClass
+status says so), never a guess ([ADR-017](#adr-017-never-degrade-an-option-silently-accepted-2026-11-05)).
+
+**The period starts when the vendor says.** `Instance.BillingStart` (new, driver contract) is the
+vendor's own creation or billing-start stamp, never the NodeClaim's time. Where the stamp is earlier
+than the real start (hcloud, OVH, Azure: creation precedes the billed state) the computed boundaries fall
+early, the safe side. A vendor with no stamp (UpCloud) gets one the driver writes itself in the create call;
+no stamp means no retention for that node, with an Event. A stamp that may be *later* than the real start
+(Vultr's `date_created` against "when deployed") is the unsafe side and keeps the vendor unverified until its
+live check bounds the offset. `Create` returns the stamp as the NodeClaim annotation
+`scarpenter.sparecores.com/billing-start` (Karpenter core merges the annotations the cloud provider returns into
+the NodeClaim and copies them to the Node at registration), so the controller never asks the vendor and a
+restart loses nothing. Clock skew between the controller and the vendor is covered by the margin.
+
+**Mechanism: hold, then delete ourselves.** A new retention controller, per qualifying node (a
+registered, on-demand node of a non-static NodePool, owned by a NodeClaim of such a NodeClass, whose
+`BillingStart` is known):
+
+1. While the current period has more than `margin` left, it holds the node with Karpenter's
+   `karpenter.sh/do-not-disrupt: "true"` on the Node, plus its own annotation
+   `scarpenter.sparecores.com/retain-until` (the deadline, so the state is visible and survives a
+   restart; the reconcile is idempotent, there are no in-memory timers: every decision is a function of
+   `billing-start`, the rule, the clock and the pods). The hold is put on at registration, before the node
+   is Initialized (Karpenter never disrupts a node that is not), not at emptiness: with
+   `consolidateAfter: 0s` Karpenter would otherwise pick a node the moment it empties. Karpenter binds pending pods to existing capacity first, so a held empty
+   node takes the next job. Only annotations SCarpenter put there are removed; a `do-not-disrupt` it did
+   not set is the user's, and the node is left entirely alone.
+2. At `boundary - margin` (the deadline): an **empty** node (no pod except DaemonSet, static and
+   finished pods) is deleted by SCarpenter itself (`NodeClaim` delete: Karpenter taints, drains and calls
+   the driver). Deleting it ourselves is deterministic; relying on `consolidateAfter` would not be, it
+   is NodePool-wide and could land after the boundary. A **busy** node gets its hold released for the window
+   `[deadline, boundary)` so that Karpenter's own consolidation may replace it at a moment that costs
+   nothing (the period is nearly over), and the hold is put back after the boundary for the next period.
+   If it empties inside the window, SCarpenter deletes it then, as at the deadline: the period is paid
+   either way, and the delete saves the next one. Moving the hold straight to the next boundary
+   would block consolidation of a node for as long as it stays busy.
+3. Before deleting it puts its own `NoSchedule` taint (`scarpenter.sparecores.com/releasing`) on the
+   Node, then re-reads the pods. A pod that landed before the taint makes the node busy: the taint is
+   removed and the busy path applies, so a node with work is never deleted by SCarpenter. Only a pod that
+   tolerates every taint could still land, and the drain evicts it.
+
+**Margin.** Missing a boundary costs a whole extra period, so the bias is early. The margin covers the
+drain and the termination finalizer (the instance delete starts only after the Node drains), the vendor's delete
+latency (billing usually stops at the delete, or at completion on a vendor whose delete is an asynchronous
+action; UpCloud stops the server first) and clock skew. The floor of 90 seconds is enforced by CEL. A driver
+may declare its delete latency (`BillingRule.DeleteLatency`); the effective margin is the larger of `margin`
+and that latency plus the 90-second floor (the drain and skew are on top of the vendor's delete).
+
+**Interactions.**
+
+- *Disruption budgets.* SCarpenter's own deletes **do not** respect them: they remove only nodes
+  that are empty, at a time the cost decides, and a budget of 0 for reason `Empty` (a maintenance window)
+  would hold an empty node over the boundary and cost a period. An Event and a metric record each delete.
+  Operators who want no deletions at all use `consolidateAfter: Never` on the NodePool, which the
+  controller respects (no hold, no delete: the pool says nodes stay). The release window of a busy node
+  is Karpenter's decision and does respect budgets.
+- *Drift.* A node whose NodeClaim is `Drifted` is not held (and a hold is removed): a drifted node is
+  replaced as it would be without retention. A held node would otherwise take new pods with stale settings.
+- *Consolidation.* Underutilised consolidation of a held node waits for the window. Karpenter cannot
+  learn that the node's remaining period is free (offerings are per type, not per node), so it may
+  replace a busy, cheaper-to-keep node with a smaller one inside a period; recognising sunk cost is
+  a follow-up (below).
+- *`expireAfter`, `terminationGracePeriod`, interruption and node repair* are forceful in Karpenter and
+  ignore the hold; SCarpenter does not fight them. `expireAfter` counts from the NodeClaim's
+  creation, which is before the billing start, so an `expireAfter` of a multiple of the period minus the margin
+  (`23h55m` for an hour and a 5-minute margin) ends a node before a boundary; any other value wastes part of
+  its last period, or crosses into a new one. The docs say so.
+- *The stopped-node rule* ([plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md), A4): a stopped node
+  cannot take pods and no hourly vendor pauses billing by stopping, so it is still reported `terminating`
+  and deleted, and it is never held. What that saves is not the current period, which is paid whether the
+  node is deleted now or at its end; it saves the following periods, the disks and the addresses. The
+  rule's text in the plans said otherwise and was corrected.
+- *Limits.* Held nodes count against NodePool `limits` and the quota tracker, so retention can starve a
+  new shape of capacity; `maxRetainedNodes` caps it (nodes over the cap are not held, oldest first). A pod
+  that does not fit the held node, because of its shape, taints or requirements, gets a new node: the saving
+  is for repeated work of the same shape.
+
+**Observability.** Node Events `RetainedUntil` and `ReleasedAtPeriodEnd` (and a Warning
+`BillingStartUnknown`); metrics `scarpenter_billing_retained_nodes{vendor,nodeclass}`,
+`scarpenter_billing_retained_seconds_total`, `scarpenter_billing_reuse_total` (a node that had been empty
+under the hold received a pod), `scarpenter_billing_periods_saved_estimate_total` (equal to the reuses: one
+new node, and so one period, avoided each; an estimate, not an invoice),
+`scarpenter_billing_deletes_at_deadline_total` and `scarpenter_billing_boundary_missed_total` (an empty node still
+alive 30 s after its boundary: the margin is too small). The NodeClass status has, per vendor, whether
+retention is active and why not (`Disabled`, `PerSecondBilling`, `Unverified`, `NoKeeperData`, `NoBillingStart`),
+the period and where it came from (Keeper, driver).
+
+**Testing.** The boundary arithmetic is a pure function with table tests. The controller runs against the fake
+driver with a fake clock; the conformance and L3 scenarios are: a job every 10 minutes reuses one node, a busy
+node rolls over to the next period, an empty node is deleted before its boundary, a per-second vendor ignores
+the setting.
+
+Why: the saving is real and large for exactly the workloads Karpenter is good at (short, repeated
+jobs), it is invisible to Karpenter (offerings carry no per-node cost), and the data to do it exactly
+(period length, start time) exists. The hold reuses Karpenter's own reuse and validation; SCarpenter
+adds only what Karpenter cannot know, the vendor's clock.
+
+Rejected: a NodePool-level `consolidateAfter` of one period (it is pool-wide, not per node, and ignores where
+in its period a node is); an own delete only (loses Karpenter's reuse, which needs the node to stay);
+delaying `CloudProvider.Delete` after Karpenter removed the Node (the instance can no longer take pods);
+hard-coding hours (the period comes from data, and any other period works); stopping nodes to pause billing
+(no hourly vendor pauses on stop); applying retention to per-second vendors (no saving; the `minPeriod`
+rule excludes them by data).
+
+Data issues found (raised with the data owners, plan 13): OVH is 3600/3600 in Keeper but OVH's page says per
+second everywhere; Azure is 1/300 in Keeper but the page says per full minute; the vendor row is "worst case"
+and cannot express regions, families, monthly caps (Hetzner, Vultr 672 hours, UpCloud Simple plan), the
+billing start event or whether periods are counted from the start or the clock hour.
+
+Follow-up, not designed here: consolidation awareness, so that Karpenter treats a held node's remaining
+period as free (a hook that lowers its cost for replacement decisions); monthly caps (no deadline once the cap
+is reached); per-region and per-family Keeper data replacing the driver overrides.
+
+Consequences: a controller with node and NodeClaim write access and a pod cache; the `spec.billing` API field and
+CEL; `Instance.BillingStart` and `BillingRule` in the driver contract; the vendor table in the catalog, so a
+Keeper client method and, with plan 13, the snapshot; one conformance scenario set. Implemented by
+[plan 23](../plans/v1/wip/23-billing-retention.md); the user-facing description is
+[Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md).
