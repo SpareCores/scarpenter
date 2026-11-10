@@ -1,0 +1,120 @@
+name: L5 (e2e)
+
+# When the real-cloud lane runs (docs/how-to-guides/testing-and-releasing.md): not on a
+# timer. A pull request that touches what a vendor's lane tests runs that vendor's FULL
+# lane; one that touches code every vendor's nodes go through runs a SMOKE (preflight, one
+# node, scale to zero) on every vendor; anything else runs nothing here. The paths are the
+# rules of test/e2e-plan.sh, the vendors are the lines of test/e2e-vendors.txt. The lane
+# itself is e2e-cloud.yml; the release gate is release.yml; the nightly free check of the
+# outside world is e2e-canary.yml.
+#
+# Approval: the job that calls the lane waits in the GitHub environment "e2e", whose
+# required reviewers (configured outside this repository) approve every run: a pull
+# request's own workflow code runs with the cloud role, so a human reads the diff first.
+# Pull requests from forks and drafts never run it. Labels: l5:skip runs nothing, l5:full
+# forces the full lane on every vendor. The check "e2e-result" is the one to require.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  workflow_dispatch:
+    inputs:
+      vendor:
+        description: "Vendor (a line of test/e2e-vendors.txt) or all"
+        default: aws
+        type: string
+      mode:
+        description: "full: every scenario; smoke: preflight, one node, scale to zero"
+        default: full
+        type: choice
+        options: [full, smoke]
+      scenarios:
+        description: "Scenarios to run, comma separated, or empty for the mode's set (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall)"
+        default: ""
+        type: string
+      fail_fast:
+        description: "Skip the remaining scenarios after the first failure, so that the diagnostics and the teardown start at once"
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  # No secret, no environment: it only reads the changed files and the inputs.
+  plan:
+    # Not for forks (no credentials, and their code must never meet the role), not for drafts,
+    # and not when an unrelated label is added (only l5:skip and l5:full change the plan).
+    if: >-
+      github.repository == 'SpareCores/scarpenter' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false &&
+      (github.event.action != 'labeled' || github.event.label.name == 'l5:skip' || github.event.label.name == 'l5:full')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      any: ${{ steps.plan.outputs.any }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Plan
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          INPUT_VENDOR: ${{ inputs.vendor }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_SCENARIOS: ${{ inputs.scenarios }}
+        run: |
+          if [[ "${EVENT}" == workflow_dispatch ]]; then
+            test/e2e-plan.sh dispatch "${INPUT_VENDOR}" "${INPUT_MODE}" "${INPUT_SCENARIOS}" | tee -a "${GITHUB_OUTPUT}"
+          else
+            # The pull request's changes: the merge commit against the base it was made on.
+            git diff --name-only "${BASE_SHA}...HEAD" | tee changed.txt
+            E2E_LABELS="${LABELS}" test/e2e-plan.sh pr < changed.txt | tee -a "${GITHUB_OUTPUT}"
+          fi
+
+  e2e:
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    strategy:
+      fail-fast: false # one vendor's failure says nothing about the others
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    uses: ./.github/workflows/e2e-cloud.yml
+    with:
+      vendor: ${{ matrix.vendor }}
+      mode: ${{ matrix.mode }}
+      scenarios: ${{ matrix.scenarios }}
+      fail_fast: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_fast }}
+    permissions:
+      contents: read
+      id-token: write
+
+  # The one check to require: green when nothing was needed or everything that ran passed.
+  e2e-result:
+    needs: [plan, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Result
+        env:
+          PLAN: ${{ needs.plan.result }}
+          E2E: ${{ needs.e2e.result }}
+          ANY: ${{ needs.plan.outputs.any }}
+        run: |
+          echo "plan: ${PLAN}, e2e: ${E2E}, any: ${ANY:-none}"
+          case "${PLAN}/${E2E}" in
+            success/success) echo "all L5 runs passed" ;;
+            success/skipped)
+              if [[ "${ANY}" == false ]]; then echo "no L5 run needed"; else echo "the L5 runs were skipped" >&2; exit 1; fi
+              ;;
+            skipped/skipped) echo "not applicable (a fork, a draft or an unrelated label)" ;;
+            *) echo "L5 did not pass" >&2; exit 1 ;;
+          esac

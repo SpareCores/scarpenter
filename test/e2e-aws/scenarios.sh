@@ -148,8 +148,8 @@ scn_preflight() {
   local od spot
   od="$(aws --region "${AWS_REGION}" service-quotas get-service-quota --service-code ec2 --quota-code "${standard_od}" --query Quota.Value --output text)"
   spot="$(aws --region "${AWS_REGION}" service-quotas get-service-quota --service-code ec2 --quota-code "${standard_spot}" --query Quota.Value --output text)"
-  [[ "$(num "${od}")" -ge 16 ]] || fail "the Standard on-demand vCPU quota of ${AWS_REGION} is ${od}; the suite needs 16 (raise it, docs/how-to-guides/testing.md#the-l5-lane)"
-  [[ "$(num "${spot}")" -ge 4 ]] || fail "the Standard spot vCPU quota of ${AWS_REGION} is ${spot}; the suite needs 4"
+  [[ "$(num "${od}")" -ge "${E2E_MIN_VCPU_OD}" ]] || fail "the Standard on-demand vCPU quota of ${AWS_REGION} is ${od}; the suite needs ${E2E_MIN_VCPU_OD} (raise it, docs/how-to-guides/testing.md#the-l5-lane)"
+  [[ "$(num "${spot}")" -ge "${E2E_MIN_VCPU_SPOT}" ]] || fail "the Standard spot vCPU quota of ${AWS_REGION} is ${spot}; the suite needs ${E2E_MIN_VCPU_SPOT}"
 
   # 3. The controller and the NodeClasses.
   kubectl -n "${ns}" rollout status deploy/scarpenter --timeout=60s

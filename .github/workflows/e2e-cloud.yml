@@ -1,0 +1,246 @@
+name: L5 (cloud e2e)
+
+# One vendor's real-cloud run (the L5 lane, docs/how-to-guides/testing.md#the-l5-lane;
+# when it runs and why: docs/how-to-guides/testing-and-releasing.md): SCarpenter on a real
+# cloud with a k3s control plane on this runner and the nodes joining over Tailscale. It
+# costs money (a full AWS run: under $0.20, about 22 minutes; the job limit is 90) and
+# needs credentials, so it is only called from e2e.yml (pull requests that touch what the
+# lane tests, manual runs) and release.yml (every tag), never by itself.
+#
+# What differs per vendor lives in test/e2e-<vendor>/ (the scripts, the pins in
+# defaults.sh, the CI policy) and in the vendor's credential step below; everything else
+# is shared. Provisioned outside this repository (docs/how-to-guides/testing.md lists the
+# prerequisites): the environment e2e (required reviewers: a human approves every run), the
+# variables TS_OAUTH_CLIENT_ID, TS_AUDIENCE and AWS_REGION (a Tailscale federated identity
+# for GitHub Actions: no stored secret), the environment secret AWS_ROLE_ARN, the IAM role
+# and the tailnet's ACL. The sweeper (e2e-<vendor>-sweeper.yml) deletes what a run that
+# died left behind.
+on:
+  workflow_call:
+    inputs:
+      vendor:
+        description: "The vendor of the lane: a line of test/e2e-vendors.txt (aws)"
+        required: true
+        type: string
+      mode:
+        description: "full: every scenario (or the list below); smoke: E2E_SMOKE_SCENARIOS of the vendor's defaults.sh"
+        required: false
+        default: full
+        type: string
+      scenarios:
+        description: "Scenarios to run, comma separated, or all; overrides the mode's set when given"
+        required: false
+        default: ""
+        type: string
+      fail_fast:
+        description: "Skip the remaining scenarios after the first failure, so that the diagnostics and the teardown start at once"
+        required: false
+        default: true
+        type: boolean
+      k3s_version:
+        description: "k3s release of the control plane (empty: the pin of defaults.sh); v1.31.x+k3s1 with kubernetes_version for the minimum-version run"
+        required: false
+        default: ""
+        type: string
+      kubernetes_version:
+        description: "Kubernetes version of the nodes' kubelet sysext (empty: the pin); at most the API server's, at least three minors below it"
+        required: false
+        default: ""
+        type: string
+      local_storage_type:
+        description: "Optional: an instance type with instance-store disks for the local-storage scenario"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    # Not in forks that enable Actions: they have no environment, secrets or role.
+    if: github.repository == 'SpareCores/scarpenter'
+    name: e2e (${{ inputs.vendor }}, ${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    # One run per vendor at a time (the account's quotas are shared, and so is the
+    # tailnet's ACL budget); the next waits. A run that is still waiting is replaced by a
+    # newer one: GitHub keeps one pending run per group.
+    concurrency:
+      group: e2e-${{ inputs.vendor }}
+      cancel-in-progress: false
+    # Full: 90 minutes: setup (up to 15), the scenarios (their own limit below) and at least
+    # 20 minutes that stay for the diagnostics and the teardown. Smoke has two scenarios and
+    # a shorter limit for all of it.
+    timeout-minutes: ${{ inputs.mode == 'smoke' && 60 || 90 }}
+    environment: e2e
+    permissions:
+      contents: read
+      id-token: write # the OIDC tokens the cloud role and the Tailscale identity are federated with
+    env:
+      TS_OAUTH_CLIENT_ID: ${{ vars.TS_OAUTH_CLIENT_ID }}
+      TS_AUDIENCE: ${{ vars.TS_AUDIENCE }}
+      E2E_VENDOR: ${{ inputs.vendor }}
+      E2E_MODE: ${{ inputs.mode }}
+      E2E_CLUSTER: scarpenter-ci-${{ github.run_id }}
+      E2E_RUN_ID: ${{ github.run_id }}
+      # The vendor's region variable is read in the Prepare step.
+      VAR_AWS_REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Prepare
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_K3S_VERSION: ${{ inputs.k3s_version }}
+          INPUT_KUBERNETES_VERSION: ${{ inputs.kubernetes_version }}
+          INPUT_LOCAL_STORAGE_TYPE: ${{ inputs.local_storage_type }}
+          INPUT_SCENARIOS: ${{ inputs.scenarios }}
+          INPUT_FAIL_FAST: ${{ inputs.fail_fast }}
+        run: |
+          # The inputs reach GITHUB_ENV, a download URL, a path and sed expressions: only
+          # the shapes they are documented with are accepted (a newline or a sed delimiter
+          # would run code with the environment's secrets).
+          valid() { # valid <input> <value> <extended regexp>
+            [[ -z "$2" || "$2" =~ $3 ]] || { echo "::error::the input $1 must match $3" >&2; exit 1; }
+          }
+          valid vendor "${E2E_VENDOR}" '^[a-z][a-z0-9]*$'
+          grep -qxF -- "${E2E_VENDOR}" test/e2e-vendors.txt || { echo "::error::the vendor ${E2E_VENDOR} is not in test/e2e-vendors.txt" >&2; exit 1; }
+          [[ -d "test/e2e-${E2E_VENDOR}" ]] || { echo "::error::test/e2e-${E2E_VENDOR}/ does not exist" >&2; exit 1; }
+          valid mode "${INPUT_MODE}" '^(full|smoke)$'
+          valid k3s_version "${INPUT_K3S_VERSION}" '^v1\.[0-9]+\.[0-9]+\+k3s[0-9]+$'
+          valid kubernetes_version "${INPUT_KUBERNETES_VERSION}" '^v1\.[0-9]+\.[0-9]+$'
+          valid local_storage_type "${INPUT_LOCAL_STORAGE_TYPE}" '^[a-z0-9]+\.[a-z0-9-]+\.[a-z0-9]+$'
+          valid scenarios "${INPUT_SCENARIOS}" '^[a-z0-9,]+$'
+          valid fail_fast "${INPUT_FAIL_FAST}" '^(true|false)$'
+          # The scenarios: the input when given, else the mode's set (the smoke set is a pin of
+          # the vendor's defaults.sh, read by sourcing it in a subshell).
+          scenarios="${INPUT_SCENARIOS}"
+          if [[ -z "${scenarios}" && "${INPUT_MODE}" == smoke ]]; then
+            # shellcheck source=/dev/null
+            scenarios="$(. "test/e2e-${E2E_VENDOR}/defaults.sh" && printf '%s' "${E2E_SMOKE_SCENARIOS}")"
+            valid "the smoke scenarios of ${E2E_VENDOR}" "${scenarios}" '^[a-z0-9,]+$'
+            [[ -n "${scenarios}" ]] || { echo "::error::test/e2e-${E2E_VENDOR}/defaults.sh sets no E2E_SMOKE_SCENARIOS" >&2; exit 1; }
+          fi
+          {
+            echo "E2E_CREATED_AT=$(date +%s)"
+            echo "E2E_OUT=${RUNNER_TEMP}/e2e"
+            echo "KUBECONFIG=${RUNNER_TEMP}/e2e/admin.kubeconfig"
+            echo "E2E_K3S_VERSION=${INPUT_K3S_VERSION}"
+            echo "E2E_KUBERNETES_VERSION=${INPUT_KUBERNETES_VERSION}"
+            echo "E2E_LOCAL_STORAGE_TYPE=${INPUT_LOCAL_STORAGE_TYPE}"
+            echo "E2E_SCENARIOS=${scenarios:-all}"
+            echo "E2E_FAIL_FAST=${INPUT_FAIL_FAST:-true}"
+          } >> "${GITHUB_ENV}"
+          # The vendor's own environment: the region of its lane.
+          case "${E2E_VENDOR}" in
+            aws) echo "AWS_REGION=${VAR_AWS_REGION:-us-east-2}" >> "${GITHUB_ENV}" ;;
+          esac
+          mkdir -p "${RUNNER_TEMP}/e2e"
+          # Everything validated: from here the steps that always run may use the vendor in a path.
+          echo "E2E_PREPARED=true" >> "${GITHUB_ENV}"
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false # a privileged job restores no cache
+
+      # Step 1: the runner joins the tailnet with the federated identity (the scope auth_keys
+      # for tag:scarpenter-ci; no stored secret). The sha256 is that of the amd64 tarball of the release.
+      - name: Join the tailnet
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
+        with:
+          oauth-client-id: ${{ vars.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ vars.TS_AUDIENCE }}
+          tags: tag:scarpenter-ci
+          version: 1.98.10
+          sha256sum: 52490ce0832b245857e2afef7426d6ae5a4b49fb391412833cc95729bd23f7de
+          hostname: scarpenter-ci-${{ github.run_id }}-${{ inputs.vendor }}
+          use-cache: false
+
+      - name: k3s, flannel and kube-proxy
+        run: |
+          "test/e2e-${E2E_VENDOR}/bootstrap.sh"
+
+      # Step 2: an ephemeral, pre-authorized, reusable key for the nodes.
+      - name: Mint the nodes' auth key
+        run: |
+          "test/e2e-${E2E_VENDOR}/mint-authkey.sh"
+
+      # Step 3: the CI role through GitHub's OIDC; its temporary credentials go into a
+      # Secret for SCarpenter (the cluster issuer is not public, web identity from it is
+      # not testable on an ephemeral runner). One such step per vendor: add the next one
+      # here (docs/how-to-guides/testing-and-releasing.md#adding-a-vendor-lane).
+      - name: Assume the CI role (aws)
+        if: inputs.vendor == 'aws'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+          role-session-name: scarpenter-ci-${{ github.run_id }}
+          # The controller keeps these credentials for the whole run: two hours (the role's
+          # maximum session duration must allow it, docs/how-to-guides/testing.md).
+          role-duration-seconds: 7200
+
+      # Step 4: image and chart.
+      - name: Build the image, install the chart
+        run: |
+          "test/e2e-${E2E_VENDOR}/install.sh"
+
+      # Step 5: the scenarios.
+      # Its own limit, so that a hung scenario cannot take the time of the diagnostics and
+      # the teardown (90 - 55 minutes, less the setup, stay for them; smoke: 60 - 25).
+      - name: Scenarios
+        timeout-minutes: ${{ inputs.mode == 'smoke' && 25 || 55 }}
+        run: |
+          "test/e2e-${E2E_VENDOR}/scenarios.sh"
+
+      - name: Diagnostics
+        if: failure() && env.E2E_PREPARED == 'true'
+        timeout-minutes: 10 # never at the cost of the teardown
+        run: |
+          "test/e2e-${E2E_VENDOR}/diagnostics.sh"
+
+      # The artifacts of a public repository are public: the files are redacted
+      # (test/e2e-<vendor>/diagnostics.sh) and kept for three days.
+      - name: Upload the diagnostics and the report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-${{ inputs.vendor }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/e2e/diag/
+            ${{ runner.temp }}/e2e/logs/
+            ${{ runner.temp }}/e2e/report.txt
+            ${{ runner.temp }}/e2e/notes.txt
+          retention-days: 3
+          if-no-files-found: ignore
+
+      - name: Report
+        if: always() && env.E2E_PREPARED == 'true'
+        run: |
+          {
+            echo "### L5 ${E2E_VENDOR}: ${E2E_MODE} (${E2E_SCENARIOS})"
+            [ -f "${E2E_OUT}/report.txt" ] && { echo '```'; cat "${E2E_OUT}/report.txt"; echo '```'; }
+            [ -f "${E2E_OUT}/notes.txt" ] && { echo '### Notes'; echo '```'; cat "${E2E_OUT}/notes.txt"; echo '```'; }
+            true
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # Teardown: the first credentials may be an hour old (or the job was cancelled at the
+      # timeout), so the role is assumed again.
+      - name: Assume the CI role again for the teardown (aws)
+        if: always() && env.E2E_PREPARED == 'true' && inputs.vendor == 'aws'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+          role-session-name: scarpenter-ci-${{ github.run_id }}-teardown
+          unset-current-credentials: true
+
+      - name: Teardown
+        if: always() && env.E2E_PREPARED == 'true'
+        run: |
+          "test/e2e-${E2E_VENDOR}/teardown.sh"

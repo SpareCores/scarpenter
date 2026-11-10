@@ -38,6 +38,15 @@
 : "${E2E_QUOTA_REFRESH:=30}"
 # Optional scenarios, off unless set: a type with local disks (d or gd families).
 : "${E2E_LOCAL_STORAGE_TYPE:=}"
+# The scenarios of the smoke mode (docs/how-to-guides/testing-and-releasing.md): the
+# shortest path through the node path (the preflight always runs first, then one on-demand
+# node from the pods to Ready, then scale to zero). Standalone-safe: amd64 needs only its own
+# workload, and scalezero reads the amd64 node's state when it exists and checks the
+# cluster-wide exit criterion whatever ran before. Order is the runner's, not this list's.
+: "${E2E_SMOKE_SCENARIOS:=amd64,scalezero}"
+# The vCPU quotas of the Standard class the suite needs (the preflight and the canary check them).
+: "${E2E_MIN_VCPU_OD:=16}"
+: "${E2E_MIN_VCPU_SPOT:=4}"
 # The tailnet tags (docs/how-to-guides/testing.md#the-l5-lane).
 : "${E2E_TAG_RUNNER:=tag:scarpenter-ci}"
 : "${E2E_TAG_NODE:=tag:scarpenter-ci-node}"
@@ -50,4 +59,4 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 # envsubst (manifests) and the child processes read exported variables.
 export AWS_REGION E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
   E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
-  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_TAG_RUNNER E2E_TAG_NODE
+  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_TAG_RUNNER E2E_TAG_NODE

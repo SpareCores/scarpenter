@@ -1,6 +1,6 @@
 name: L5 sweeper (AWS e2e)
 
-# Deletes what the L5 lane (e2e-aws.yml) left behind in the account when a run died or
+# Deletes what the L5 lane (e2e-cloud.yml, vendor aws) left behind in the account when a run died or
 # was cancelled before its teardown: instances, placement groups, security groups and
 # the managed network of every cluster named scarpenter-ci-* that is older than two
 # hours, in the lane's region (AWS_REGION; the role is refused everywhere else). The selection logic is pkg/vendors/aws/sweep (tested

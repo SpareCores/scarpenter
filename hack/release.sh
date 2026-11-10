@@ -19,7 +19,10 @@
 #                                       pushing, checks them, packages and checks the chart;
 #                                       removes what it created
 #
-# Nothing here pushes, signs or publishes: that is the workflow's, on a tag.
+# Nothing here pushes, signs or publishes: that is the workflow's, on a tag. Nor does it run the
+# release gate: the workflow runs the full real-cloud lane (L5) of every vendor on the tagged
+# commit before it publishes (docs/how-to-guides/testing-and-releasing.md#releasing), and the
+# dry run does not need it: it checks what the build can check without a cloud.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

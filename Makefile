@@ -130,10 +130,11 @@ test-qemu: ## L4: SCarpenter and the qemu driver with real Flatcar VMs joining a
 	test/qemu/run.sh
 
 .PHONY: test-e2e-aws-dryrun
-test-e2e-aws-dryrun: ## L5 without AWS or Tailscale: the manifests against an API server, the sweeper against the in-memory EC2, the helpers against stubs, the chart with the lane's values.
+test-e2e-aws-dryrun: ## L5 without a cloud or Tailscale: the manifests against an API server, the sweeper and the canary against the in-memory EC2, the planner and the helpers against stubs, the chart with the lane's values.
 	@test -n "$$KUBEBUILDER_ASSETS" || { echo "KUBEBUILDER_ASSETS is not set; run via hack/dev.sh" >&2; exit 1; }
-	go test -count=1 ./test/e2e-aws/... ./pkg/vendors/aws/sweep/...
+	go test -count=1 ./test/e2e-aws/... ./test/canary/... ./pkg/vendors/aws/sweep/...
 	test/e2e-aws/selftest.sh
+	test/e2e-plan-selftest.sh
 
 ##@ Build
 

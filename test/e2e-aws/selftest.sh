@@ -210,15 +210,38 @@ t_scenarios_defined() {
       echo "no function scn_${n}"
       return 1
     }
-    grep -q "${n}" "${root}/.github/workflows/e2e-aws.yml" || [[ "${n}" == preflight ]] || {
+    grep -q "${n}" "${root}/.github/workflows/e2e.yml" || [[ "${n}" == preflight ]] || {
       echo "the workflow's scenarios input does not name ${n}"
       return 1
     }
   done
 }
-t_pins_pinned() { # every action of the L5 workflows is pinned by a full commit SHA
-  ! grep -hE '^\s*-?\s*uses:' "${root}/.github/workflows/e2e-aws.yml" "${root}/.github/workflows/e2e-aws-sweeper.yml" |
-    grep -vE 'uses: [^@ ]+@[0-9a-f]{40} # v[0-9]'
+t_pins_pinned() { # every action of the L5 workflows is pinned by a full commit SHA (a local reusable workflow has no pin)
+  local w="${root}/.github/workflows"
+  ! grep -hE '^\s*-?\s*uses:' "${w}/e2e.yml" "${w}/e2e-cloud.yml" "${w}/e2e-canary.yml" "${w}/e2e-aws-sweeper.yml" "${w}/release.yml" |
+    grep -vE 'uses: \./' | grep -vE 'uses: [^@ ]+@[0-9a-f]{40} # v[0-9]'
+}
+t_smoke_scenarios() { # the smoke set names known scenarios, and not the implicit preflight
+  local names s
+  names="$(sed -n 's/^all_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  [[ -n "${E2E_SMOKE_SCENARIOS}" ]]
+  for s in ${E2E_SMOKE_SCENARIOS//,/ }; do
+    [[ " ${names} " == *" ${s} "* ]] || {
+      echo "the smoke scenario ${s} is not one of: ${names}"
+      return 1
+    }
+  done
+}
+t_workflows_agree() { # the callers pass the reusable workflow its inputs; nothing names the old file
+  local w="${root}/.github/workflows" i
+  for i in vendor mode scenarios fail_fast; do
+    grep -qE "^      ${i}:" "${w}/e2e-cloud.yml" || { echo "e2e-cloud.yml has no input ${i}"; return 1; }
+    grep -qE "^      ${i}: " "${w}/e2e.yml" || { echo "e2e.yml does not pass ${i}"; return 1; }
+    grep -qE "^      ${i}: " "${w}/release.yml" || { echo "release.yml does not pass ${i}"; return 1; }
+  done
+  [[ ! -e "${w}/e2e-aws.yml" ]] || { echo "e2e-aws.yml still exists"; return 1; }
+  ! grep -rn 'e2e-aws\.yml' "${root}/.github" "${root}/test" "${root}/hack" "${root}/Makefile" "${root}/docs/how-to-guides" |
+    grep -v 'selftest.sh'
 }
 t_no_secrets_in_scripts() { # nothing that looks like an account ID, a key or a local path
   ! grep -rnE '(arn:aws:[a-z0-9-]*::[0-9]{12}|tskey-(auth|client)-[A-Za-z0-9]{6,}|AKIA[A-Z0-9]{16}|/home/[a-z]+|/tmp/)' \
@@ -226,6 +249,8 @@ t_no_secrets_in_scripts() { # nothing that looks like an account ID, a key or a 
 }
 check "every scenario has a function and is named by the workflow" t_scenarios_defined
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
+check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
+check "e2e.yml and release.yml pass what e2e-cloud.yml takes; nothing names the old e2e-aws.yml" t_workflows_agree
 check "no account ID, key or local path in the lane's files" t_no_secrets_in_scripts
 
 # ---- the CI role's policy ----------------------------------------------------
@@ -247,6 +272,27 @@ t_policy() {
 }
 check "ci-policy.sh prints the role's policy for scarpenter-ci-* with the lane's statements" t_policy
 check_fails "ci-policy.sh refuses a malformed account ID" "${here}/ci-policy.sh" 12345
+
+# ---- the canary's read-only policy -------------------------------------------
+t_canary_policy() {
+  local p="${tmp}/canary-policy.json"
+  "${here}/canary-policy.sh" 123456789012 eu-west-1 >"${p}"
+  # valid JSON, one Allow statement, only Describe/Get/List actions (no wildcard, no write),
+  # every call limited to the requested region
+  jq -e '
+    (.Statement | length) == 1 and .Statement[0].Effect == "Allow" and
+    (.Statement[0].Action | length > 0 and all(test("^(ec2|servicequotas):(Describe|Get|List)[A-Za-z]+$"))) and
+    (.Statement[0].Action | map(select(test("^servicequotas:"))) | sort) == ["servicequotas:GetServiceQuota", "servicequotas:ListServiceQuotas"] and
+    .Statement[0].Resource == "*" and
+    .Statement[0].Condition == {StringEquals: {"aws:RequestedRegion": ["eu-west-1"]}}' "${p}" >/dev/null
+}
+t_canary_policy_default_region() {
+  "${here}/canary-policy.sh" 123456789012 | jq -e '.Statement[0].Condition.StringEquals."aws:RequestedRegion" == ["us-east-2"]' >/dev/null
+}
+check "canary-policy.sh prints a read-only policy limited to the region" t_canary_policy
+check "canary-policy.sh defaults to the lane's region" t_canary_policy_default_region
+check_fails "canary-policy.sh refuses a malformed account ID" "${here}/canary-policy.sh" 12345
+check_fails "canary-policy.sh refuses a malformed region" "${here}/canary-policy.sh" 123456789012 "us east"
 
 # ---- the chart with the lane's values ----------------------------------------
 t_chart() {

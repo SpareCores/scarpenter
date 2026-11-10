@@ -1,0 +1,163 @@
+name: L5 canary
+
+# The free check that the outside world still matches what the real-cloud lanes pin
+# (docs/how-to-guides/testing-and-releasing.md#the-canary): the images, the quotas, the
+# instance types, the sysext and k3s releases. No instance, no cluster, no Tailscale; the
+# credentials are a READ-ONLY role (test/e2e-aws/canary-policy.sh prints its policy) in the
+# environment e2e-canary, which can be limited to main (a schedule runs from the default
+# branch). Nightly, and on demand. A failed nightly run opens or updates the one issue
+# labelled e2e-canary, with the redacted table; a green run closes it.
+#
+# Provisioned outside this repository: the environment e2e-canary with the secret
+# AWS_ROLE_ARN (the read-only role, trusted for this repository's OIDC subject of the
+# environment) and the variable AWS_REGION (optional, default us-east-2).
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+    inputs:
+      vendor:
+        description: "Vendor (a line of test/e2e-vendors.txt) or all"
+        default: all
+        type: string
+
+concurrency:
+  group: e2e-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: github.repository == 'SpareCores/scarpenter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Vendors
+        id: plan
+        env:
+          INPUT_VENDOR: ${{ inputs.vendor }}
+        run: test/e2e-plan.sh vendors "${INPUT_VENDOR:-all}" | tee -a "${GITHUB_OUTPUT}"
+
+  canary:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: e2e-canary
+    permissions:
+      contents: read
+      id-token: write # the OIDC token the read-only role is federated with
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      E2E_VENDOR: ${{ matrix.vendor }}
+      VAR_AWS_REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false # a job with a cloud role restores no cache
+
+      - name: Region
+        run: |
+          case "${E2E_VENDOR}" in
+            aws) echo "AWS_REGION=${VAR_AWS_REGION:-us-east-2}" >> "${GITHUB_ENV}" ;;
+          esac
+
+      - name: Assume the read-only role (aws)
+        if: matrix.vendor == 'aws'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+          role-session-name: scarpenter-canary-${{ github.run_id }}
+
+      # The output is redacted by the script (the job log, the artifact and the issue are public).
+      - name: Canary
+        run: |
+          set -o pipefail
+          mkdir -p out
+          test/canary/run.sh "${E2E_VENDOR}" | tee "out/canary-${E2E_VENDOR}.txt"
+
+      - name: Summary
+        if: always()
+        run: |
+          [ -f "out/canary-${E2E_VENDOR}.txt" ] && { echo "### Canary ${E2E_VENDOR}"; echo '```'; cat "out/canary-${E2E_VENDOR}.txt"; echo '```'; } >> "${GITHUB_STEP_SUMMARY}"
+          true
+
+      - name: Keep the table for the issue
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: canary-${{ matrix.vendor }}
+          path: out/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # No cloud credentials here: only the issue.
+  issue:
+    needs: canary
+    # Cancelled or skipped runs say nothing; scheduled runs only (a manual run is watched).
+    if: always() && github.event_name == 'schedule' && (needs.canary.result == 'failure' || needs.canary.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RESULT: ${{ needs.canary.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.canary.result == 'failure'
+        continue-on-error: true # no table when the job died before it wrote one
+        with:
+          pattern: canary-*
+          path: tables
+          merge-multiple: true
+
+      - name: Open, update or close the issue
+        run: |
+          label=e2e-canary
+          open="$(gh issue list --label "${label}" --state open --json number --jq '.[0].number // empty')"
+          if [[ "${RESULT}" == success ]]; then
+            if [[ -n "${open}" ]]; then
+              gh issue close "${open}" --comment "The canary is green again: ${RUN_URL}"
+            fi
+            exit 0
+          fi
+          {
+            echo "The nightly canary failed: ${RUN_URL}"
+            echo
+            for f in tables/*.txt; do
+              [[ -f "${f}" ]] || continue
+              echo "#### $(basename "${f}" .txt)"
+              echo '```'
+              head -c 20000 "${f}"
+              echo '```'
+            done
+            echo
+            echo "What to do: docs/how-to-guides/testing-and-releasing.md#the-canary"
+          } > body.md
+          if [[ -n "${open}" ]]; then
+            gh issue comment "${open}" --body-file body.md
+          else
+            gh label create "${label}" --color B60205 --description "The nightly real-cloud canary failed" 2>/dev/null || true
+            gh issue create --title "L5 canary failed: the outside world moved" --label "${label}" --body-file body.md
+          fi

@@ -41,7 +41,7 @@ jobs:
       - name: Helm chart (lint, golden output, flags, RBAC and CRDs in sync)
         run: hack/dev.sh make test-chart
 
-      - name: L5 without AWS (manifests, sweeper, helpers; the lane itself runs in e2e-aws.yml)
+      - name: L5 without a cloud (manifests, sweeper, canary, planner, helpers; the lane itself runs in e2e.yml)
         run: hack/dev.sh make test-e2e-aws-dryrun
 
       - name: Build the controller binary

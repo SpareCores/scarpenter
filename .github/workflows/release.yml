@@ -11,6 +11,10 @@ name: Release
 #   - cosign keyless signatures of the image and chart digests, a BuildKit SBOM
 #     and SLSA provenance attached to each image (the SBOMs also as release
 #     assets), and a GitHub release with notes and the chart package.
+# Before the first image is built the real-cloud lane (L5, e2e-cloud.yml) runs in FULL for
+# every vendor of test/e2e-vendors.txt against the tagged commit: the publishing jobs need
+# it, so a tag whose commit does not pass on a real cloud publishes nothing. It waits for the
+# approval of the environment "e2e" like any L5 run (docs/how-to-guides/testing-and-releasing.md#releasing).
 # The image tag and the chart version carry no "v". A tag with a pre-release
 # suffix creates a pre-release and does not move the "latest" image tag.
 #
@@ -83,6 +87,7 @@ jobs:
       prerelease: ${{ steps.version.outputs.prerelease }}
       latest: ${{ steps.latest.outputs.latest }}
       minor: ${{ steps.latest.outputs.minor }}
+      e2e_matrix: ${{ steps.e2e.outputs.matrix }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -105,6 +110,14 @@ jobs:
           TAG: ${{ github.ref_name }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: git tag --list 'v*' | hack/release.sh latest "${TAG}" "${PRERELEASE}" >>"${GITHUB_OUTPUT}"
+
+      # Every vendor of the list, full: the matrix of the L5 gate below.
+      - name: The vendors of the L5 gate
+        id: e2e
+        run: |
+          plan="$(test/e2e-plan.sh release)"
+          echo "${plan}" | tee -a "${GITHUB_OUTPUT}"
+          [[ "${plan}" == *$'\nany=true' ]] || { echo "no vendor in test/e2e-vendors.txt: the release gate would be empty" >&2; exit 1; }
 
       - name: The tagged commit is on main
         run: |
@@ -131,8 +144,26 @@ jobs:
       - name: Chart
         run: hack/dev.sh make test-chart
 
-  images:
+  # The release gate: the full L5 lane of every vendor on the tagged commit, in the environment
+  # "e2e" (its required reviewers approve it). Nothing is published unless all of them pass.
+  e2e:
     needs: verify
+    strategy:
+      fail-fast: false # every vendor's result is wanted, but the publishing jobs need all of them
+      matrix:
+        include: ${{ fromJSON(needs.verify.outputs.e2e_matrix) }}
+    uses: ./.github/workflows/e2e-cloud.yml
+    with:
+      vendor: ${{ matrix.vendor }}
+      mode: ${{ matrix.mode }}
+      scenarios: ${{ matrix.scenarios }}
+      fail_fast: true
+    permissions:
+      contents: read
+      id-token: write
+
+  images:
+    needs: [verify, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: release
