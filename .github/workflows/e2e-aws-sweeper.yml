@@ -63,7 +63,7 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_MAX_AGE: ${{ inputs.max_age }}
         run: |
-          # Not below two hours: a lane run may take 90 minutes, and its resources must never
+          # Not below two hours: a lane run may take 70 minutes, and its resources must never
           # look old enough to sweep while it runs.
           age="${INPUT_MAX_AGE:-2h}"
           if ! [[ "${age}" =~ ^(([2-9]|[1-9][0-9]+)h|(1[2-9][0-9]|[2-9][0-9]{2}|[1-9][0-9]{3,})m)$ ]]; then

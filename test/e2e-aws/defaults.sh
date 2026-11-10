@@ -20,6 +20,15 @@
 # How long a node may take from its Pod to Running, and the exit criterion for
 # scale to zero (seconds from the Pod's deletion to every instance terminated).
 : "${E2E_NODE_TIMEOUT:=720}"
+# A node's NodeClaim must be launched (the cloud instance created) this long after a wait
+# began, or the wait fails at once as "never launched" instead of running into
+# E2E_NODE_TIMEOUT. A progress block (NodeClaims, Pods, events, controller errors) is
+# printed to the job log this often during a wait.
+: "${E2E_LAUNCH_TIMEOUT:=180}"
+: "${E2E_PROGRESS_INTERVAL:=30}"
+# After the first failed scenario the remaining ones are skipped and the run ends, so
+# that the diagnostics and the teardown start at once; false runs every scenario.
+: "${E2E_FAIL_FAST:=true}"
 # The one knob to tune after the first live run: the roadmap says 2 minutes. The scenario
 # also notes how long it took until every instance was shutting down or gone, and until
 # every one was terminated.
@@ -41,4 +50,4 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 # envsubst (manifests) and the child processes read exported variables.
 export AWS_REGION E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
   E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
-  E2E_NODE_TIMEOUT E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_TAG_RUNNER E2E_TAG_NODE
+  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_TAG_RUNNER E2E_TAG_NODE

@@ -283,8 +283,8 @@ the whole Karpenter path. It is the only lane that costs money and needs credent
 so it exists only as a workflow, `.github/workflows/e2e-aws.yml`, run on demand
 (`workflow_dispatch`) and weekly, from `main` only, in the GitHub environment
 `e2e`. It never runs for a pull request, and nothing in the repository runs it
-from a developer machine. A run takes 40 to 60 minutes (the job's limit is 90: the Scenarios step has its own
-limit of 55 minutes, so that at least 20 minutes stay for the diagnostics and the
+from a developer machine. A run takes 40 to 60 minutes (the job's limit is 70: the Scenarios step has its own
+limit of 35 minutes, so that at least 20 minutes stay for the diagnostics and the
 teardown, which always run) and costs well
 under $0.20: a handful of small instances for minutes, a few GiB of EBS, no NAT
 gateway.
@@ -292,14 +292,46 @@ gateway.
 ```bash
 gh workflow run e2e-aws.yml                                  # everything
 gh workflow run e2e-aws.yml -f scenarios=amd64,arm64         # a subset
+gh workflow run e2e-aws.yml -f fail_fast=false               # run every scenario despite failures
 ```
 
 Inputs: `scenarios` (names below, comma separated), `k3s_version` and
 `kubernetes_version` (the pins of `test/e2e-aws/defaults.sh`; together they run the
 lane at another Kubernetes version, for example the chart's minimum, 1.31: the
 kubelet sysext must exist in the sysext-bakery for the version and be at most the
-API server's), `local_storage_type` (enables the optional local-storage scenario).
+API server's), `local_storage_type` (enables the optional local-storage scenario) and
+`fail_fast` (default `true`, see below).
 The check that the dry run [below](#without-aws) cannot make, is the run itself.
+
+**Failing fast and watching a run.** A broken run must neither hide nor wait for the step
+limit, so the Scenarios step shows what happens and stops early:
+
+- **Fail fast** (`E2E_FAIL_FAST`, default `true`; the input `fail_fast`): after the first failed scenario
+  the remaining ones are not run and appear as `SKIP` in the report and the step summary, and
+  the step exits non-zero, so that the diagnostics and the teardown start at once. `false`
+  runs every scenario whatever fails.
+- **Never launched** (`E2E_LAUNCH_TIMEOUT`, default 180 s): every wait for a node (the wait
+  for the Pod of a scenario) fails as soon as no NodeClaim of the Pod's NodePool is launched
+  (core's `Launched` condition is not `True` and there is no `providerID`) that long after the
+  wait began, or the Pod became Pending, whichever is earlier. The message starts with
+  `never launched`: SCarpenter did not create an instance, so the boot and the join are not
+  what to look at. A node that was launched but is not Ready or joined within
+  `E2E_NODE_TIMEOUT` (720 s) fails with `launched but not ready` instead.
+- **Live progress** (`E2E_PROGRESS_INTERVAL`, default 30 s): during a wait for a node the
+  job log gets a collapsed group, `L5 progress`, at that interval: the NodeClaims (NodePool, instance type,
+  capacity type, conditions as `type=status/reason`, age), the NodePools (`Ready`, resources against limits),
+  the pending Pods of the scenario with their last event, the SCNodeClasses' conditions,
+  the controller's warning and error log lines and the Warning events of all namespaces since the previous block.
+- **Failure snapshot**: when a scenario fails, one group, `L5 failure snapshot`, prints the same
+  plus `kubectl describe` of the NodePool's NodeClaims and the pending Pods (without the
+  Pods' environment) and the last 150 controller log lines.
+
+Everything these print goes through `redact()` of `test/e2e-aws/lib.sh`, the function
+that `diagnostics.sh` uses for the artifact (the job log of a public repository is public): account IDs,
+tailnet host names, Tailscale auth keys, AWS access key IDs, secret keys and session tokens, JWTs,
+`Authorization` and `Bearer` credentials, kubeconfig key data, e-mail addresses and bootstrap
+tokens. Only selected fields are printed, never a Secret, a ConfigMap's data, user-data or
+a Pod's environment. `selftest.sh` tests the redaction.
 
 **What a run does** (overview section 13.4; the scripts are in `test/e2e-aws`):
 
@@ -356,7 +388,7 @@ the job's artifact on failure.
 
 | Symptom | Look at |
 |---|---|
-| a Pod stays Pending, no NodeClaim | `controller.log` and `events.txt` of the diagnostics: the NodePool's requirements, `QuotaAvailable=False` on the NodeClass, a type the role denies (`UnauthorizedOperation` on `RunInstances`) |
+| a Pod stays Pending, no NodeClaim, or the failure says `never launched` | the `L5 progress` and `L5 failure snapshot` groups of the job log (live, redacted), then `controller.log` and `events.txt` of the diagnostics: the NodePool's requirements, `QuotaAvailable=False` on the NodeClass, a type the role denies (`UnauthorizedOperation` on `RunInstances`) |
 | a NodeClaim, the instance runs, the node never registers | the instance's serial console (`console-<id>.txt`): Ignition, the sysext downloads, `scarpenter-tailscale-up` (a rejected auth key or an ACL that does not allow the tag); `kubectl get csr` |
 | the node is Ready but `kubectl logs`/`exec` fail | the tailnet ACL (tcp 10250 from the runner to the nodes), the serving CSR (`ServingCertificateDenied` events), the kubelet client CA (401) |
 | Pods on the nodes cannot reach cluster Services or DNS | flannel over the tailnet (udp 8472 between the tags), `flannel.log` |

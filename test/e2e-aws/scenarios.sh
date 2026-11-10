@@ -12,7 +12,12 @@
 # assertion ends it, the runner records the result and goes on. Waits have explicit
 # deadlines. Workloads of all selected scenarios are started together
 # (the prelude), so that the nodes boot in parallel; a scenario then only waits and checks.
-# The exit status is 1 when a scenario failed. A run needs about 16 Standard on-demand
+# The exit status is 1 when a scenario failed; with E2E_FAIL_FAST=true (the default) the
+# scenarios after the first failure are reported as SKIP and not run, so that the
+# diagnostics and the teardown start at once. A failed scenario prints one redacted
+# snapshot of the cluster (observe.sh), and the waits for nodes print a progress block
+# every E2E_PROGRESS_INTERVAL seconds and fail early when no NodeClaim is launched
+# after E2E_LAUNCH_TIMEOUT. A run needs about 16 Standard on-demand
 # and 4 Standard spot vCPUs of quota in the region (preflight checks).
 #
 # Needs: kubectl, jq, helm, the aws CLI with the role's credentials, envsubst.
@@ -51,7 +56,7 @@ drop_nodeshells() { kubectl delete pods -l scarpenter-e2e=nodeshell --ignore-not
 # settle <app label>: waits for the Pod, records its node, claim, UID and instance.
 settle() {
   local app="$1" pod node claim iid
-  wait_until "the Pod ${app} running" "${E2E_NODE_TIMEOUT}" pod_running "app=${app}"
+  wait_node "the Pod ${app} running" "${E2E_NODE_TIMEOUT}" "app=${app}" "" pod_running "app=${app}"
   pod="$(kubectl get pod -l "app=${app}" -o jsonpath='{.items[0].metadata.name}')"
   node="$(pod_node "${pod}")"
   claim="$(claim_of_node "${node}")"
@@ -312,7 +317,8 @@ scn_arm64() {
 
 scn_db() {
   start_db
-  wait_until "the database and the client running" $((E2E_NODE_TIMEOUT + 300)) pod_running "scarpenter-e2e=true,app in (e2e-db,e2e-client)"
+  wait_node "the database and the client running" $((E2E_NODE_TIMEOUT + 300)) "scarpenter-e2e=true,app in (e2e-db,e2e-client)" "" \
+    pod_running "scarpenter-e2e=true,app in (e2e-db,e2e-client)"
   local dbpod clpod dbnode clnode dbiid cliid dbclaim pg pgname dbj clj vol
   dbpod="$(kubectl get pod -l app=e2e-db -o jsonpath='{.items[0].metadata.name}')"
   clpod="$(kubectl get pod -l app=e2e-client -o jsonpath='{.items[0].metadata.name}')"
@@ -406,7 +412,7 @@ cluster_instances_of() {
 
 scn_described() {
   start_described
-  wait_until "the Pod running" "${E2E_NODE_TIMEOUT}" pod_running app=e2e-described
+  wait_node "the Pod running" "${E2E_NODE_TIMEOUT}" app=e2e-described "" pod_running app=e2e-described
   local pod node claim iid t vcpus mem pct
   pod="$(kubectl get pod -l app=e2e-described -o jsonpath='{.items[0].metadata.name}')"
   node="$(pod_node "${pod}")"
@@ -434,7 +440,7 @@ scn_byo() {
   sg="$(getstate byo.sg)"
   wait_until "ResourcesReady on the NodeClass" 180 is_value True \
     kubectl get scnodeclass e2e-use -o jsonpath='{.status.vendors.aws.conditions[?(@.type=="ResourcesReady")].status}'
-  wait_until "the Pod running" "${E2E_NODE_TIMEOUT}" pod_running app=e2e-use
+  wait_node "the Pod running" "${E2E_NODE_TIMEOUT}" app=e2e-use "" pod_running app=e2e-use
   local pod node iid j
   pod="$(kubectl get pod -l app=e2e-use -o jsonpath='{.items[0].metadata.name}')"
   node="$(pod_node "${pod}")"
@@ -464,7 +470,7 @@ scn_local() {
     return 0
   fi
   start_local
-  wait_until "the Pod running" "${E2E_NODE_TIMEOUT}" pod_running app=e2e-local
+  wait_node "the Pod running" "${E2E_NODE_TIMEOUT}" app=e2e-local "" pod_running app=e2e-local
   local pod node
   pod="$(kubectl get pod -l app=e2e-local -o jsonpath='{.items[0].metadata.name}')"
   node="$(pod_node "${pod}")"
@@ -608,7 +614,7 @@ scn_drift() {
   log "the root volume size changes: the node is replaced"
   kubectl patch scnodeclass e2e-drift --type merge -p '{"spec":{"vendors":{"aws":{"storage":{"root":{"volumeSize":"24Gi"}}}}}}'
   restart_during_create e2e-drift "${old_claim}"
-  wait_until "the Pod on another node" "${E2E_NODE_TIMEOUT}" pod_moved_from app=e2e-drift "${old_node}"
+  wait_node "the Pod on another node" "${E2E_NODE_TIMEOUT}" app=e2e-drift "${old_claim}" pod_moved_from app=e2e-drift "${old_node}"
   release_do_not_disrupt
   local pod node claim iid
   pod="$(kubectl get pod -l app=e2e-drift -o jsonpath='{.items[0].metadata.name}')"
@@ -839,12 +845,22 @@ else
   done
 fi
 
+case "${E2E_FAIL_FAST}" in
+  true | false) ;;
+  *)
+    echo "E2E_FAIL_FAST must be true or false, not '${E2E_FAIL_FAST}'" >&2
+    exit 2
+    ;;
+esac
+
 results=()
 failed=0
+failed_name=""
 run_scenario() { # run_scenario <name>
-  local name="$1" rc start
+  local name="$1" rc start sel
   start="$(now)"
   log "scenario ${name}"
+  export E2E_CURRENT_SCENARIO="${name}"
   set +e
   (
     set -euo pipefail
@@ -857,6 +873,10 @@ run_scenario() { # run_scenario <name>
   else
     results+=("FAIL ${name} ($(($(now) - start))s)")
     failed=1
+    [[ -n "${failed_name}" ]] || failed_name="${name}"
+    # What the cluster looks like right now, redacted, before anything else happens.
+    sel="$(getstate "${name}.selector")"
+    failure_snapshot "${name}" "${sel:-scarpenter-e2e=true}" || true
   fi
 }
 
@@ -877,6 +897,10 @@ for s in "${selected[@]}"; do
 done
 
 for s in "${selected[@]}"; do
+  if [[ "${failed}" -ne 0 && "${E2E_FAIL_FAST}" == true ]]; then
+    results+=("SKIP ${s} (fail-fast: ${failed_name} failed)")
+    continue
+  fi
   run_scenario "${s}"
 done
 

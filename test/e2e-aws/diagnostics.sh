@@ -5,7 +5,7 @@
 # (get-console-output, also of terminated ones within the hour EC2 keeps them).
 #
 # The repository is public and so are the artifacts of its runs: everything passes
-# through redact(), which removes account IDs, tailnet host names, auth keys and
+# through redact() (lib.sh, shared with the live output of the scenarios), which removes account IDs, tailnet host names, auth keys and
 # credential-shaped strings. Review a file before sharing it anyway.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,19 +14,6 @@ source "${here}/lib.sh"
 need E2E_OUT
 diag="${E2E_OUT}/diag"
 mkdir -p "${diag}"
-
-# redact: stdin to stdout without what must not be published.
-redact() {
-  sed -E \
-    -e 's/[0-9]{12}/<account>/g' \
-    -e 's/tskey-[A-Za-z0-9_-]+/<tskey>/g' \
-    -e 's/[A-Za-z0-9-]+\.ts\.net/<tailnet-host>/g' \
-    -e 's/(AKIA|ASIA)[A-Z0-9]{16}/<aws-key-id>/g' \
-    -e 's/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*/<jwt>/g' \
-    -e 's/(AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)=[^ ]+/\1=<redacted>/g' \
-    -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g' \
-    -e 's/\b[a-z0-9]{6}\.[a-z0-9]{16}\b/<bootstrap-token>/g'
-}
 
 collect() { # collect <file> <command...>
   local f="${diag}/$1"

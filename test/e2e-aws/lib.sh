@@ -31,6 +31,31 @@ label_domain="scarpenter.sparecores.com"
 export AWS_PAGER=""
 export AWS_DEFAULT_OUTPUT=json
 
+# ------------------------------------------------------------ redaction -----
+
+# redact: stdin to stdout without what must not be published (the repository, its job
+# logs and its artifacts are public): account IDs, tailnet host names, Tailscale auth
+# keys, AWS access key IDs, secret keys and session tokens, JWTs, Authorization and
+# Bearer credentials, kubeconfig key material, e-mail addresses and bootstrap tokens.
+# The one place for it: diagnostics.sh and the live output of observe.sh use it, and
+# selftest.sh tests it. Review a file before sharing it anyway.
+read -r -d '' _redact_rules <<'SED' || true
+s#(authorization["']?[:=] *["']?)((bearer|basic|token) +)?[^ ,"']+#\1<redacted>#Ig
+s#(bearer +)[A-Za-z0-9._~+/=-]+#\1<redacted>#Ig
+s#((client-key|client-certificate|certificate-authority)-data: *)[A-Za-z0-9+/=]+#\1<redacted>#g
+s#(secret_?access_?key|session_?token)(["']?[:= ]+["']?)[^ ,"'}]+#\1\2<redacted>#Ig
+s#(IQoJb3JpZ2lu|FwoGZXIvYXdz|FQoGZXIvYXdz)[A-Za-z0-9/+=_-]{20,}#<aws-session-token>#g
+s/[0-9]{12}/<account>/g
+s/tskey-[A-Za-z0-9_-]+/<tskey>/g
+s/[A-Za-z0-9-]+\.ts\.net/<tailnet-host>/g
+s/(AKIA|ASIA)[A-Z0-9]{16}/<aws-key-id>/g
+s/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*/<jwt>/g
+s/(AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)=[^ ]+/\1=<redacted>/g
+s/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g
+s/\b[a-z0-9]{6}\.[a-z0-9]{16}\b/<bootstrap-token>/g
+SED
+redact() { sed -E -e "${_redact_rules}"; }
+
 # need <VAR>...: the variables must be set and non-empty.
 need() {
   local v
@@ -232,3 +257,8 @@ is_value() {
   shift
   [[ "$("$@" 2>/dev/null)" == "${want}" ]]
 }
+
+# ------------------------------------------------- live output, failures -----
+
+# shellcheck source=test/e2e-aws/observe.sh
+source "${e2e_dir}/observe.sh"

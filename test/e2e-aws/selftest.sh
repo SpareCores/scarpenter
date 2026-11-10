@@ -111,6 +111,95 @@ chmod +x "${tmp}/bin/aws"
 t_cluster_instances() { [[ "$(PATH="${tmp}/bin:${PATH}" cluster_instances | paste -sd,)" == "i-0aaa,i-0bbb" ]]; }
 check "cluster_instances lists IDs one per line" t_cluster_instances
 
+# ---- redaction ---------------------------------------------------------------
+# The test strings are assembled from parts: they must not look like real credentials.
+t_redact() {
+  local akia="AKIA""ABCDEFGHIJKLMNOP" asia="ASIA""ABCDEFGHIJKLMNOP" tskey="tskey-auth-""kABCDEF123456CNTRL-abcdefghijklmnop"
+  local sts="IQoJb3JpZ2lu""X2VjEKz//////////wEaCXVzLWVhc3QtMiJHMEUCIQD" boot="abcdef"".0123456789abcdef"
+  local in out leak
+  in="key ${akia} and ${asia}; ${tskey}; node host1.tail1234.ts.net; account 123456789012 arn:aws:iam::123456789012:role/x
+Authorization: Bearer abc.def-ghi_jkl
+authorization=Basic dXNlcjpwYXNz
+header \"Authorization\": \"Bearer secret-token-value\"
+curl -H 'Bearer zzz999' x
+AWS_SESSION_TOKEN=${sts} AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCY
+\"SessionToken\": \"${sts}\", \"SecretAccessKey\": \"wJalrXUtnFEMI/K7MDENG\"
+bare ${sts}
+token ${boot} here
+client-key-data: LS0tLS1CRUdJTg==
+mail user@example.com"
+  out="$(redact <<<"${in}")"
+  for leak in "${akia}" "${asia}" "${tskey}" "tail1234" "123456789012" "abc.def-ghi_jkl" "dXNlcjpwYXNz" "secret-token-value" \
+    "zzz999" "${sts}" "wJalrXUtnFEMI" "${boot}" "LS0tLS1CRUdJTg" "user@example.com"; do
+    if grep -qF -e "${leak}" <<<"${out}"; then
+      echo "not redacted: ${leak}"
+      echo "${out}"
+      return 1
+    fi
+  done
+  grep -q '<aws-key-id>' <<<"${out}" && grep -q '<account>' <<<"${out}" && grep -q '<bootstrap-token>' <<<"${out}" &&
+    grep -q '<tskey>' <<<"${out}" && grep -q '<aws-session-token>' <<<"${out}"
+}
+t_redact_keeps_text() { [[ "$(redact <<<'the node scarpenter-ci-1 is Ready after 42s')" == 'the node scarpenter-ci-1 is Ready after 42s' ]]; }
+check "redact removes account IDs, keys, session tokens, Authorization and Bearer, bootstrap tokens" t_redact
+check "redact leaves ordinary text alone" t_redact_keeps_text
+
+# ---- waits for nodes, progress and snapshots, against a stub kubectl ----------
+cat >"${tmp}/bin/kubectl" <<'STUB'
+#!/usr/bin/env bash
+# a stub of kubectl for selftest.sh: one Pending pod of pool1, the claims of $STUB_CLAIMS
+now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+case "$*" in
+  *"get pods"*) echo '{"items":[{"metadata":{"name":"p1","namespace":"default","creationTimestamp":"'"${now}"'"},"spec":{"nodeSelector":{"karpenter.sh/nodepool":"pool1"}},"status":{"phase":"Pending"}}]}' ;;
+  *"get nodeclaims"*) echo "${STUB_CLAIMS}" ;;
+  *"get events"*) echo '{"items":[{"type":"Warning","reason":"FailedScheduling","message":"0/1 nodes, key AKIAABCDEFGHIJKLMNOP","involvedObject":{"kind":"Pod","name":"p1","namespace":"default"},"lastTimestamp":"'"${now}"'","metadata":{"creationTimestamp":"'"${now}"'"}}]}' ;;
+  *"get nodepools"* | *"get scnodeclasses"*) echo '{"items":[]}' ;;
+  *" logs "*) printf 'level=info all fine\nlevel=error msg="create failed" token=abcdef.0123456789abcdef\n' ;;
+  *"describe pod"*) printf 'Name: p1\n    Environment:\n      SECRET_VALUE: hunter2\n    Mounts:\n' ;;
+  *) ;;
+esac
+STUB
+chmod +x "${tmp}/bin/kubectl"
+claim_launched='{"items":[{"metadata":{"name":"c1","labels":{"karpenter.sh/nodepool":"pool1"},"creationTimestamp":"2020-01-01T00:00:00Z"},"status":{"providerID":"aws:///us-east-2a/i-0aaa","conditions":[{"type":"Launched","status":"True"}]}}]}'
+claim_pending='{"items":[{"metadata":{"name":"c1","labels":{"karpenter.sh/nodepool":"pool1"},"creationTimestamp":"2020-01-01T00:00:00Z"},"status":{"conditions":[{"type":"Launched","status":"Unknown","reason":"Launching"}]}}]}'
+# wait_node_stub <claims json> <timeout> <claim to ignore>: the output of a wait that never succeeds
+wait_node_stub() {
+  PATH="${tmp}/bin:${PATH}" STUB_CLAIMS="$1" E2E_LAUNCH_TIMEOUT=1 E2E_PROGRESS_INTERVAL=1000 \
+    bash -c "source '${here}/lib.sh'; wait_node 'the pod' $2 app=x '$3' false" 2>&1
+}
+t_wait_never_launched() {
+  local out
+  out="$(wait_node_stub "${claim_pending}" 20 "")" && return 1
+  grep -q 'never launched' <<<"${out}" && ! grep -q 'launched but not ready' <<<"${out}"
+}
+t_wait_launched_not_ready() {
+  local out
+  out="$(wait_node_stub "${claim_launched}" 5 "")" && return 1
+  grep -q 'launched but not ready' <<<"${out}" && ! grep -q 'never launched' <<<"${out}"
+}
+t_wait_ignores_claim() { # the only claim is the ignored one: nothing is launched for the wait
+  local out
+  out="$(wait_node_stub "${claim_launched}" 20 c1)" && return 1
+  grep -q 'never launched' <<<"${out}"
+}
+t_progress_redacted() {
+  local out
+  out="$(PATH="${tmp}/bin:${PATH}" STUB_CLAIMS="${claim_pending}" progress_block app=x 30 2>&1)"
+  grep -q '^::group::' <<<"${out}" && grep -q '^::endgroup::' <<<"${out}" && grep -q 'create failed' <<<"${out}" &&
+    grep -q 'FailedScheduling' <<<"${out}" && grep -q 'Launched=Unknown/Launching' <<<"${out}" &&
+    ! grep -qE 'AKIA[A-Z0-9]{16}|abcdef\.0123456789abcdef' <<<"${out}"
+}
+t_snapshot_no_env() {
+  local out
+  out="$(PATH="${tmp}/bin:${PATH}" STUB_CLAIMS="${claim_pending}" failure_snapshot amd64 app=x 2>&1)"
+  grep -q 'kubectl describe pod default/p1' <<<"${out}" && ! grep -q 'hunter2' <<<"${out}" && grep -q '^::endgroup::' <<<"${out}"
+}
+check "wait_node: no launched NodeClaim fails as never launched" t_wait_never_launched
+check "wait_node: a launched NodeClaim that never gets the node fails as launched but not ready" t_wait_launched_not_ready
+check "wait_node: an ignored (older) NodeClaim does not count as launched" t_wait_ignores_claim
+check "progress_block prints a collapsible, redacted block" t_progress_redacted
+check "failure_snapshot describes the pending Pods without their environment" t_snapshot_no_env
+
 # ---- the runner and the workflow ---------------------------------------------
 t_scenarios_defined() {
   local names n
