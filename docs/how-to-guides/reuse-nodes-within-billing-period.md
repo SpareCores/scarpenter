@@ -49,11 +49,13 @@ vendor's own rule decides whether it has any effect.
   3-minute margin a 10-minute minimum holds a node for 7 minutes, a 5-minute minimum for 2, and a 2-minute minimum is never held.
   For example, a job every 3 minutes on a 10-minute-minimum vendor uses one node for the jobs at 0, 3 and 6 minutes, and the node is
   gone at about minute 7.
+- Before the delete SCarpenter checks that Karpenter has not nominated a pod to the node and waits about 5 seconds to re-check,
+  so about 25 seconds of the margin go on this at the deadline.
 - `margin` has to cover the drain and the vendor's delete; missing the boundary costs a whole extra period, so the
   default errs early.
 
 `kubectl describe scnodeclass` shows, per vendor, whether retention is active and why not (per-second billing with no worthwhile
-minimum, a minimum too short to hold, a vendor rule not yet verified, no billing data), and how many nodes it leaves alone.
+minimum, a minimum too short to hold, a vendor rule not yet verified, a rule shape that is not supported, no billing data), and how many nodes it leaves alone.
 
 ## When it helps
 
@@ -74,6 +76,10 @@ minutes. It saves nothing on per-second or per-minute vendors with no real minim
 - SCarpenter's deletes respect NodePool disruption budgets (see above: a blocked delete costs one more period).
   A NodePool with `consolidateAfter: Never`, or a node with a `karpenter.sh/do-not-disrupt` annotation of your own, is left
   completely alone: no hold and no delete. The NodeClass status and a Node event say why.
+- Only two rule shapes are supported: a minimum equal to the increment (hourly) or a minimum with per-second billing after it. A vendor
+  whose minimum differs from a held increment shows the reason `UnsupportedShape` and its nodes are not held.
+- The budget check can be raced by one node: if Karpenter starts a disruption at the same moment, the NodePool budget may be exceeded
+  by one node once (the `scarpenter_billing_budget_overshoot_total` metric counts it).
 - A drifted node is not held. `expireAfter`, `terminationGracePeriod`, interruption and node repair ignore the
   protection. `expireAfter` counts from the node's creation, so set it to a multiple of the period minus the margin
   (`23h57m` for hourly billing and the default 3m), or the last period is partly wasted or a new one is started.

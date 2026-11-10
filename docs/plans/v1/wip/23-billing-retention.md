@@ -39,6 +39,9 @@ protects (`consolidateAfter: Never`, a user `do-not-disrupt`) or unverified vend
   **qualifying** when `Verified`, the capacity is on-demand and either `Increment >= spec.billing.minPeriod` (increments are
   held) or `Minimum - margin >= 2m` with the effective margin of section 4 (the hold floor, a constant: a shorter window is not worth a hold; with the default
   margin a 5-minute minimum holds 2 minutes, a 10-minute one 7, 120 seconds never).
+  `Resolve` supports only two shapes: **increments held with `Minimum == Increment`** (or the minimum null or 0), and **minimum-only**
+  (`Increment < minPeriod`: one boundary, `start + Minimum`). Any other combination (a minimum different from a held increment,
+  such as 90m/60m or 30m/60m) gives `Verified=false`, status reason `UnsupportedShape` and no hold; no new field until a vendor needs one.
 
 ### 2. Driver contract
 
@@ -77,7 +80,7 @@ spec:
   margin on a vendor, a minimum under the hold floor) are conditions, not CEL: `BillingRetention` on the NodeClass.
 - Status: `status.billing` lists, per vendor in the NodeClass, `{vendor, active, reason, period, source}` with reason one of
   `Disabled`, `PerSecondBilling` (no minimum worth holding), `MinimumTooShort` (`minimum - margin` under the 2-minute hold floor
-  and no held increment), `Unverified`, `NoKeeperData`, `NoBillingStart` (the driver records no stamp for the vendor), and `Active` (its message says `increments` or `minimum only`). The same
+  and no held increment), `Unverified`, `UnsupportedShape` (a minimum different from a held increment), `NoKeeperData`, `NoBillingStart` (the driver records no stamp for the vendor), and `Active` (its message says `increments` or `minimum only`). The same
   condition counts the nodes left alone, per reason (`ConsolidationNever`, `UserDoNotDisrupt`). `NodeClassValidator`
   can add reasons of its own (a region where the rule differs).
 - Changing `spec.billing` is **not** drift (the nodes are the same); turning it off releases every hold at the next reconcile.
@@ -86,7 +89,9 @@ spec:
 ### 4. The retention controller (`pkg/controllers/retention`)
 
 Per Node owned by a NodeClaim (watch Nodes, NodeClaims and, through a field index on `spec.nodeName`, Pods; the NodeClass
-for its `billing` block and its vendor). Idempotent reconcile with no in-memory state; time comes from `clock.Clock`.
+for its `billing` block and its vendor). Idempotent reconcile with no in-memory state of its own; time comes from `clock.Clock`. The controller is built with the operator's
+`state.Cluster` (SCarpenter constructs it, `pkg/operator/operator.go`, and hands it to core), so Karpenter's in-memory mechanisms
+(nomination, mark-for-deletion, the budget helpers) are available to it. Karpenter paths below are in `sigs.k8s.io/karpenter@v1.15.1`.
 
 Qualification (anything else: remove an annotation SCarpenter set, and do nothing, a node left alone gets a once-only Event
 `RetentionSkipped` with the reason): `retainUntilPeriodEnd`; the vendor's rule
@@ -99,7 +104,7 @@ not `Drifted` and not being deleted; the node has no `do-not-disrupt` that SCarp
 
 The arithmetic is one pure function covering both shapes:
 `Window(start, rule, minPeriod, margin, now) (boundary, deadline time.Time, inMargin, last bool)`. With increments held
-(`Increment >= minPeriod`) the first boundary is `start + max(Minimum, Increment)` and later ones add the increment; without,
+(`Increment >= minPeriod`, and `Minimum == Increment` or no minimum: the shape `Resolve` accepts) the first boundary is `start + Increment` and later ones add the increment; without,
 the only boundary is `start + Minimum` and `last` is true (a per-second vendor after its minimum). `deadline = boundary - margin`, where `margin` is the effective
 one: the larger of `spec.billing.margin` and the rule's `DeleteLatency` plus 90 s; `inMargin` is
 `now >= deadline`. The anchor is always `start`: there is no `anchor` field (decided 2026-11-10: no vendor documents clock-hour billing).
@@ -111,10 +116,26 @@ Per reconcile of a qualifying node:
    empties). Requeue at the deadline.
 2. At the deadline: if the node is **empty** (no pod except DaemonSet, static and terminal pods: the same notion as Karpenter's
    reschedulable pods) and Initialized (a node not yet Initialized may have been launched for pods that have not bound yet: it is
-   treated as busy, and is never deleted by SCarpenter), ask the budget: the NodePool's allowed disruptions for reason `Empty`, computed with Karpenter core's
-   own budget helper (nodes already deleting count). Allowed: put the `NoSchedule` taint `scarpenter.sparecores.com/releasing` on the Node, re-read the pods from the API server (not the
-   informer cache, which can lag a fresh binding), and
-   delete the NodeClaim (Event `ReleasedAtPeriodEnd`, metric); a pod found on the re-read makes it busy (taint removed). **Blocked by
+   treated as busy, and is never deleted by SCarpenter), ask the budget (below). Allowed: run the **release sequence**:
+   (a) `cluster.IsNodeNominated(providerID)`: nominated means busy, requeue in 20 s (nomination is a per-node timestamp in cluster state,
+   set by every scheduling pass, window `max(2*BatchMaxDuration, 10s)` = 20 s by default; `pkg/controllers/state/statenode.go`,
+   `pkg/controllers/provisioning/scheduling/scheduler.go`; Karpenter's own emptiness validator rejects nominated candidates the same way,
+   `pkg/controllers/disruption/validation.go`);
+   (b) `cluster.MarkForDeletion(providerID)`: the scheduler then drops the node from existing capacity, so no new nomination can occur,
+   and Karpenter's candidate filter excludes it; (c) put the `NoSchedule` taint `scarpenter.sparecores.com/releasing`;
+   (d) requeue 5 s (Karpenter's `MinDrainTime`, for the same reason: a kube-scheduler cycle that started before the taint may still bind;
+   `pkg/controllers/node/termination/controller.go`); (e) re-read the pods from the API server (not the informer cache, which can lag a
+   fresh binding) and re-check `IsNodeNominated`: any hit means `UnmarkForDeletion`, remove the taint and take the busy path; otherwise
+   delete the NodeClaim (Event `ReleasedAtPeriodEnd`, metric). Residual: a pod that tolerates the taint, or binds in a cycle older than
+   5 s; Karpenter's drain evicts and reschedules it (delayed, never lost). The sequence costs about 25 s of the 3-minute margin.
+   **Budget**: the NodePool's allowed disruptions for reason `Empty`, computed from the same cluster-state snapshot with Karpenter's exported
+   `NodePoolStatsFromNodes` and `NodePoolBudgetMap` (`pkg/controllers/disruption/helpers.go`); nodes marked for deletion count as
+   disrupting, and so do nodes carrying `karpenter.sh/disrupted` or the NodeClaim `DisruptionReason` condition (Karpenter patches those in
+   `markDisrupted`, `pkg/controllers/disruption/queue.go`, before its own `MarkForDeletion`). `cluster.MarkForDeletion` comes before the
+   NodeClaim delete, so Karpenter's next budget build sees the slot taken under the mutex, and `Deleted()` keeps it counted after the delete.
+   Residual: Karpenter re-validates a command's budget 15 s after computing it and marks only in `StartCommand`, so a SCarpenter mark inside
+   those milliseconds overshoots the budget by one node. Accepted (core has no hook; its queue is private to `NewControllers`), documented,
+   and counted by `scarpenter_billing_budget_overshoot_total` when SCarpenter's post-mark recount is negative. **Blocked by
    the budget**: do nothing, Event `ReleaseBlockedByBudget` and the metric, and let the node pass the boundary held (one more period is paid; the
    how-to says so); step 3 gives the next deadline. If it is
    **busy**, remove the hold for the window `[deadline, boundary)` (Karpenter may then replace it) and requeue at the boundary;
@@ -122,11 +143,11 @@ Per reconcile of a qualifying node:
 3. After the boundary: back to step 1 for the next period. At the **last** boundary (`last`, a minimum-then-per-second vendor) there is no
    next period: an empty node is deleted at the deadline as above, a busy one, or one blocked by a budget, gets its hold removed for good and
    becomes an ordinary node (Karpenter's consolidation, under the same budget, decides).
-4. **Release under pressure.** The controller keeps a small signal per scope: a launch blocked by a NodePool limit (pods pending with
-   the pool's `status.resources` at `spec.limits`) or by a vendor quota (the quota tracker refused `Create`, reported to the controller
-   by the cloud provider). On a signal it releases held **empty** nodes of that scope, only as many as cover the request, in the order
+4. **Release under pressure.** The controller keeps a small signal per scope, read from cluster state: a launch blocked by a NodePool limit
+   (the `NodePoolState` resources against `spec.limits`, with pending pods and Karpenter's `Nominated` and failed-to-schedule events) or by a
+   vendor quota (a refusal from SCarpenter's own quota tracker, reported to the controller by the cloud provider). Confirmed in L3 (g). On a signal it releases held **empty** nodes of that scope, only as many as cover the request, in the order
    **nearest deadline first, ties by oldest start** (the least paid time left is lost; for equal periods it is the oldest-paid-up node), with the same
-   budget check, taint-and-re-read and Event (`ReleasedUnderPressure`). **A candidate blocked by its budget** is skipped (Event
+   budget check, release sequence and Event (`ReleasedUnderPressure`). **A candidate blocked by its budget** is skipped (Event
    `ReleaseBlockedByBudget`) and loses its hold, so it is an ordinary empty node that Karpenter's own emptiness deletes when the
    budget opens; the next candidate in order is tried. The blocked launch then waits for the budget exactly as it would without
    retention (Karpenter could not have deleted that node either): SCarpenter adds no wait and no lock of its own, and the signal is
@@ -150,15 +171,17 @@ On start the controller logs, once per vendor, the rule it resolved (period, sou
   under the hold receives a pod), `scarpenter_billing_periods_saved_estimate_total{vendor}` (equals the reuses: an estimate,
   not an invoice), `scarpenter_billing_deletes_at_deadline_total{vendor}`, `scarpenter_billing_blocked_by_budget_total{vendor}`,
   `scarpenter_billing_released_under_pressure_total{vendor,scope}`, `scarpenter_billing_skipped_nodes{vendor,nodeclass,reason}` (gauge),
-  `scarpenter_billing_boundary_missed_total{vendor}` (an empty node alive 30 s past its boundary: the margin is too small).
+  `scarpenter_billing_boundary_missed_total{vendor}` (an empty node alive 30 s past its boundary: the margin is too small),
+  `scarpenter_billing_budget_overshoot_total{vendor}` (SCarpenter's recount after its mark is negative: the budget race of section 4),
+  `scarpenter_billing_boot_seconds{vendor}` (histogram of `initialized - billingStart`: whether a short minimum leaves a window).
 - NodeClass status as in section 3. Log: vendor, `BillingStart`, period, deadline, decision.
 
 ### 6. Tests
 
-- **Pure function**: table tests of `Window` and `Resolve`: exactly on a boundary, inside the margin, many periods in, a first
-  boundary from a minimum above the period, zero start, null Keeper fields, override over Keeper, per-second vendors with and
+- **Pure function**: table tests of `Window` and `Resolve`: exactly on a boundary, inside the margin, many periods in, zero start, null Keeper fields, override over Keeper, per-second vendors with and
   without a minimum, minimum-only rules (600 s with the default margin holds 7 minutes; 300 s holds 2; 120 s is `MinimumTooShort`;
-  `last` is true), the hold floor at exactly `minimum - margin = 2m`, unverified.
+  `last` is true), the hold floor at exactly `minimum - margin = 2m`, unverified; `Resolve` rows: 90m/60m gives `UnsupportedShape`, 60m/60m
+  is hourly, 10m/1s is minimum-only, 30m/60m gives `UnsupportedShape`.
 - **Controller (L2, envtest)** with `k8s.io/utils/clock/testing.FakeClock` and the fake driver with an impersonated hourly vendor:
   advance the clock across the deadline: annotation on, off, on again after the boundary; a restart in the middle changes
   nothing; no hold for a per-second vendor with no minimum, spot, a static pool, `retainUntilPeriodEnd: false`, a minimum under the hold floor, a
@@ -167,17 +190,20 @@ On start the controller logs, once per vendor, the rule it resolved (period, sou
   empty node is deleted at the deadline with a budget that allows it, and **held into the next period** with a budget of 0 and deleted at
   the next deadline once the budget opens; a limit-blocked and a quota-blocked launch each release the nearest-deadline empty node first,
   and not a node of another pool or quota; a pressure release blocked by a budget drops that node's hold and takes the next candidate;
-  an empty node not yet Initialized at the deadline is not deleted; a minimum-only rule: the node is deleted at `start + minimum - margin` and a busy one loses its hold for good; a busy node rolls over; a pod that lands in the race is evicted
+  an empty node not yet Initialized at the deadline is not deleted; a nominated node (`cluster.NominateNodeForPod`) at the deadline is not
+  deleted until the window lapses (fake clock); a budget of 1 with two empty nodes, SCarpenter's deadline and a fake Karpenter mark in the same
+  tick: exactly one delete; a minimum-only rule: the node is deleted at `start + minimum - margin` and a busy one loses its hold for good; a busy node rolls over; a pod that lands in the race is evicted
   with the claim and the metrics move.
 - **Conformance** (fake and AWS): `BillingStart` rules of section 2. Catalog tests for the vendor table, nulls and a missing table.
 - **L3 (kind and KWOK, core's clock is real)**: the fake driver's vendor rule is shortened (period 5 minutes, margin 90 s, a hook
-  on the fake): (a) a job every minute-or-two reuses **one** node and no second NodeClaim appears; (a2) a vendor with a 10-minute minimum and per-second
+  on the fake): (a) a job every minute-or-two reuses **one** node and no second NodeClaim appears; (a2) (also covers a boot inside the window) a vendor with a 10-minute minimum and per-second
   increments (fake rule shortened to 5 minutes for the lane): a job every 3 minutes reuses one node and the node is gone right after the
   minimum, so the next job gets a fresh one;  (b) a node kept busy across
   the deadline is not deleted and holds again after the boundary; (c) an empty node is gone before the boundary; (d) a per-second
   vendor ignores the setting; (e) `expireAfter` shorter than the period still removes the node, and an `expireAfter` of a multiple of the period minus
-  the margin ends it before a boundary; (f) a budget of 0 for `Empty` holds an empty node into the next period and it goes at the next deadline once the budget opens;
+  the margin ends it before a boundary; (f) a budget of 0 for `Empty` (the budget race test of L2 runs here too) holds an empty node into the next period and it goes at the next deadline once the budget opens;
   (g) a NodePool at its `limits` with a held empty node: the pending pod gets the capacity after SCarpenter releases it.
+  (h) a pending pod created 1 s before the deadline never ends on a deleting node, and `scarpenter_billing_boundary_missed_total` stays 0.
 - **Per-vendor L5 lanes** (plans 15, 18, 19, 20): assert delete latency and instance state only; billing cannot be asserted
   from the API (the invoice is the check, the plans list what to read).
 
@@ -225,8 +251,8 @@ These were open questions; ADR-024 records them.
    A candidate whose delete a disruption budget forbids loses its hold and the next candidate is tried, so the blocked launch waits
    only as long as it would without retention (confirmed 2026-11-10).
 3. **`consolidateAfter: Never` and a user `do-not-disrupt`**: the node is left completely alone; the NodeClass condition and an Event say why.
-4. **Minimum-then-per-second billing** (Alibaba; Azure has no minimum) is optimised too: one rule, the boundaries `start + minimum` and, for increments worth
-   holding, `+ n*increment`; `minPeriod` gates per-increment holding, a 2-minute hold floor gates the minimum hold, the 3-minute margin default stays.
+4. **Minimum-then-per-second billing** (Alibaba; Azure has no minimum) is optimised too: one rule with two shapes, `start + minimum` (minimum only) or
+   `start + n*increment` (increments held, a minimum equal to the increment or none; decision 12); `minPeriod` gates per-increment holding, a 2-minute hold floor gates the minimum hold, the 3-minute margin default stays.
 5. **Hetzner is the first vendor**, verified in its live lane (billing start, from-start periods).
 6. **The period anchor is closed**: no vendor documents clock-hour billing, so there is no `anchor` field and periods count from the server's billing start; from-start is verified live per hourly vendor (Hetzner, Vultr, UpCloud) before retention is enabled for it.
 7. **Hold at registration** (settled from core v1.15.1, to confirm in L3): annotations returned by `Create` reach the
@@ -238,24 +264,26 @@ These were open questions; ADR-024 records them.
 9. **Default `margin`**: 3 minutes covers drain, the termination finalizer, a hcloud delete action and skew (measured in each vendor's lane);
    UpCloud's stop-then-delete may need more, hence the driver's `DeleteLatency`.
 
+10. **Nominated pods** (answered 2026-11-10): the retention controller shares the operator's `state.Cluster`, so it sees Karpenter's nomination.
+    The deadline delete is the release sequence of section 4 (nominated check, `MarkForDeletion`, taint, 5 s, re-read and re-check, delete or
+    undo). Residual: a pod that tolerates the taint or binds in a cycle older than 5 s is evicted and rescheduled, never lost. About 25 s of the margin.
+11. **No hold floor from registration**: the minimum is charged whether the node dies at minute 2 or 7, so a useless hold costs only an idle node,
+    which release under pressure handles. The floor stays a vendor-level fact counted from `start`; `scarpenter_billing_boot_seconds{vendor}`
+    shows whether a 5-minute minimum leaves any window, and the constant is revisited with data.
+12. **Minimum different from the increment** is not supported: `Resolve` accepts `Minimum == Increment` (or no minimum) with increments
+    held, and minimum-only; anything else is `Verified=false` with reason `UnsupportedShape` and no hold. Alibaba: both readings (per instance
+    life, per hourly consumption record) agree inside the first cycle, and SCarpenter deletes only before `start + minimum`, so no new paid
+    period is ever started either way; under the per-cycle reading the exposure is at most one minimum extra when the start falls within
+    one minimum of a clock hour. Live check in plan 21.
+13. **Budget race**: Karpenter's accounting is reused (section 4); the one-node overshoot against Karpenter's 15 s re-validation is accepted,
+    documented and counted by `scarpenter_billing_budget_overshoot_total`.
+14. **Hold floor and margin for short minimums**: keep both constants; the boot-time histogram decides.
+15. **Pressure signals** come from cluster state (`NodePoolState` against `spec.limits`, pending pods, Karpenter's events) and the quota
+    tracker; confirmed in L3 (g).
+
 ## Open questions for the maintainers
 
-1. **Hold floor and margin for short minimums.** The 2-minute floor is a constant and the margin default is 3 minutes for both shapes; the
-   first live measurement of a minimum-only vendor (Alibaba) may argue for a smaller margin there (missing the deadline costs
-   seconds, not a period) or a configurable floor.
-2. **Pending pods SCarpenter cannot see.** Karpenter's nomination of a pending pod to an existing node is in memory only; the
-   taint-and-re-read catches bound pods, not a nominated one, which then gets a new node (one launch wasted, never a busy node
-   deleted). If that shows up in L3, a short quiet time since the last pod event before a deadline delete would close it.
-3. **Margin and the first window.** The hold floor counts from the billing start, but a node is useful only after it registers (a
-   minute or more): a 5-minute minimum leaves well under 2 minutes of real reuse. Count the floor from registration instead?
-4. **Boundaries after a minimum longer than the increment.** `first + n*I` assumes increments are counted from the end of the minimum;
-   if a vendor counts them from the start (`ceil(t/I)*I`), a minimum that is not a multiple of a held increment puts the real boundaries
-   elsewhere. No known vendor has such a rule (hourly vendors have `M = I`); reject it as `Unverified` until one does? Alibaba's minimum
-   has the same question (per instance life or per hourly settlement, plan 21).
-5. **Budget race.** SCarpenter and Karpenter's disruption loop read the same budget independently and can each take the last allowed
-   disruption in the same second; accept an overshoot of one, or serialise through a core hook?
-6. **Pressure signals.** The exact detection of "blocked by a NodePool limit" (pending pods against the pool's status) is confirmed in L2/L3;
-   if Karpenter exposes a better signal, use it.
+None: all were answered on 2026-11-10 (decisions 10 to 15 above).
 
 ## Gates
 

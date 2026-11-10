@@ -347,6 +347,12 @@ minimum, 2 for 5, and none for 2 minutes (`MinimumTooShort`); the driver's `Bill
 (plan 13). Gated on a verified minimum and billing start; until then retention is off. `BillingStart` is `CreationTime`
 (early against the billed start, the safe side; unverified).
 
+Live check for the cycle question: create one instance at hh:50 and release it at hh:57, create another at hh:57 and release it at
+hh:04, then compare the hourly consumption details of both. If the minimum applies per instance life, each pays one minimum; if per
+hourly record, the second pays a minimum in each of its two hours. SCarpenter deletes only before `start + minimum`, so no new paid
+period starts either way; the exposure under the per-cycle reading is at most one minimum extra when the start falls within one minimum of
+a clock hour.
+
 ### Catalog
 
 Keeper already has the vendor (committed snapshot of 2026-11-05: 34 regions, 111 zones,

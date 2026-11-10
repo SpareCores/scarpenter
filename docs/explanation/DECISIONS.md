@@ -636,17 +636,20 @@ is Karpenter's (consolidation policy, budgets, `expireAfter`).
 `minimum_billing_seconds`, `stopped_server_charged` and `billing_comment` (the vendor table is
 live today; the catalog does not read it yet). SCarpenter caches them with the catalog. A vendor's
 rule is a minimum `M` and an increment `I` (the charge for a run of `t` seconds is `M` up to `M`, then
-rounded up to whole increments; for hourly vendors `M` is `I` or less).
+rounded up to whole increments; for hourly vendors `M` is `I` or none).
 
 **One rule for both shapes: the release deadlines.** A node is worth keeping only until a point where the
-charge is about to step up. These points, the *boundaries*, are:
+charge is about to step up. These points are the *boundaries*. Two shapes are supported, and no others:
 
-- the first boundary, `start + M` (or `start + max(M, I)` where increments are held, so that a minimum
-  below the increment still means one whole first increment);
-- then `first + n*I` for every `n >= 1`, **only where the increment is worth holding**, that is `I >= minPeriod`.
+- **increments held** (`I >= minPeriod`, with `M == I` or no minimum): the boundaries are `start + n*I` for `n >= 1`;
+- **minimum only** (`I < minPeriod`): one boundary, `start + M`.
+
+Any other combination (a minimum different from a held increment, such as 90 min with 60 min, or 30 min with 60 min) has an
+ambiguous formula (increments counted after the minimum, or rounded up with a floor at `M`), so `Resolve` marks it `Verified=false`
+with the status reason `UnsupportedShape` and nothing is held; a field for it is added when a vendor needs one.
 
 For an hourly vendor (`M` = `I` = 1 h) that is every hour. For a **minimum, then per second** vendor
-(`I` < `minPeriod`; Alibaba, any vendor with `M` > `I`) there is one boundary, `start + M`: after it
+(`I` < `minPeriod`; Alibaba) there is one boundary, `start + M`: after it
 every second costs, so a node is held until `start + M - margin`, reused meanwhile, and released at once
 (no later deadline exists). The pure boundary function is the same for both, with no vendor name in the
 core. A per-second vendor with no minimum (AWS and GCP bill 60 seconds at least, below the hold floor)
@@ -705,10 +708,17 @@ registered, on-demand node of a non-static NodePool, owned by a NodeClaim of suc
    would block consolidation of a node for as long as it stays busy. At the **last** boundary (a
    minimum-then-per-second vendor has only the minimum) a busy node's hold is released for good: after it every
    second costs, and Karpenter's own consolidation takes over under its own rules.
-3. Before deleting it puts its own `NoSchedule` taint (`scarpenter.sparecores.com/releasing`) on the
-   Node, then re-reads the pods from the API server (not the cache). A pod that landed before the taint makes the node busy: the taint is
-   removed and the busy path applies, so a node with work is never deleted by SCarpenter. Only a pod that
-   tolerates every taint could still land, and the drain evicts it.
+3. The delete is a *release sequence*. The controller shares the operator's `state.Cluster`: it checks Karpenter's nomination
+   (`IsNodeNominated`; a nominated node is busy), marks the node for deletion so that the scheduler stops using it, puts its own
+   `NoSchedule` taint (`scarpenter.sparecores.com/releasing`), waits 5 seconds (Karpenter's `MinDrainTime`), re-reads the pods from
+   the API server (not the cache) and re-checks the nomination. A hit undoes the mark and the taint and the busy path applies, so a
+   node with work is never deleted by SCarpenter. It costs about 25 seconds of the margin. A pod that tolerates the taint or binds in
+   an older scheduling cycle is evicted and rescheduled by the drain, delayed and never lost.
+
+*Budget accounting.* The budget comes from the same cluster-state snapshot with Karpenter's own helpers, counting nodes marked for
+deletion or already disrupted, and SCarpenter marks the node before deleting the NodeClaim. Karpenter re-validates its own commands 15 seconds
+after computing them and marks only when it starts one, so a SCarpenter mark between that re-validation and Karpenter's mark can overshoot a budget by one node: accepted
+(core has no hook), documented and counted by `scarpenter_billing_budget_overshoot_total`.
 
 **Margin.** Missing a boundary costs a whole extra period, so the bias is early. The margin covers the
 drain and the termination finalizer (the instance delete starts only after the Node drains), the vendor's delete
@@ -754,7 +764,7 @@ and that latency plus the 90-second floor (the drain and skew are on top of the 
   NodePool for a limit; the same vendor, region and quota family for a quota). The order is the **nearest
   deadline first** (ties: the oldest start): the node nearest its deadline has the least paid time left, so
   the release loses the least value, and for equal periods that is the oldest-paid-up node. Releases follow the same
-  rules as any delete (budgets, nodes left alone, the taint-and-re-read). `maxRetainedNodes`, an
+  rules as any delete (budgets, nodes left alone, the release sequence). `maxRetainedNodes`, an
   optional **safety valve, unset by default** (`>= 1` when set), caps the held *empty* nodes per NodeClass; over it,
   the same order applies. A release under pressure that the candidate's budget blocks drops that node's hold (it is then an
   ordinary empty node, deleted by Karpenter's emptiness when the budget opens) and moves to the next candidate; the launch waits
@@ -766,9 +776,10 @@ and that latency plus the 90-second floor (the drain and skew are on top of the 
 `scarpenter_billing_retained_seconds_total`, `scarpenter_billing_reuse_total` (a node that had been empty
 under the hold received a pod), `scarpenter_billing_periods_saved_estimate_total` (equal to the reuses: one
 new node, and so one period, avoided each; an estimate, not an invoice),
-`scarpenter_billing_deletes_at_deadline_total`, `scarpenter_billing_blocked_by_budget_total`, `scarpenter_billing_released_under_pressure_total`, `scarpenter_billing_skipped_nodes` and `scarpenter_billing_boundary_missed_total` (an empty node still
+`scarpenter_billing_deletes_at_deadline_total`, `scarpenter_billing_blocked_by_budget_total`, `scarpenter_billing_released_under_pressure_total`, `scarpenter_billing_skipped_nodes`, `scarpenter_billing_budget_overshoot_total`, `scarpenter_billing_boot_seconds` (registration time
+against the billing start) and `scarpenter_billing_boundary_missed_total` (an empty node still
 alive 30 s after its boundary: the margin is too small). The NodeClass status has, per vendor, whether
-retention is active and why not (`Disabled`, `PerSecondBilling`, `MinimumTooShort`, `Unverified`, `NoKeeperData`, `NoBillingStart`; `Active` otherwise),
+retention is active and why not (`Disabled`, `PerSecondBilling`, `MinimumTooShort`, `Unverified`, `UnsupportedShape`, `NoKeeperData`, `NoBillingStart`; `Active` otherwise),
 the period and where it came from (Keeper, driver).
 
 **Testing.** The boundary arithmetic is a pure function with table tests. The controller runs against the fake
