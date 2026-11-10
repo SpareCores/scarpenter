@@ -35,7 +35,7 @@ Execution protocol:
 | 07 | `done/07-qemu-driver.md` | done | qemu driver, L4 lane with real Flatcar VMs, k3s and a data volume | 06 |
 | 08 | `done/08-aws-driver.md` | done | AWS driver incl. quotas, storage/placement/network profiles and resources (in-memory EC2 + Service Quotas fake), IAM policy | 06 |
 | 09 | `done/09-packaging.md` | done | Helm chart, release workflow, install and credentials how-tos, controller reference | 08 |
-| 10 | `wip/10-aws-e2e.md` | review | L5 AWS e2e over Tailscale + sweeper (written and validated, run by the coordinator) | 09 |
+| 10 | `done/10-aws-e2e.md` | done | L5 AWS e2e over Tailscale + sweeper (first green live run 2026-11-10) | 09 |
 | 11 | `wip/11-docs-and-release.md` | todo | tutorials, how-tos for profiles, selection and resources, add-a-vendor guide, first release (v0.1.0) | 07, 10 |
 | 12 | `wip/12-aws-gpu.md` | optional | NVIDIA sysext on AWS GPU types | 10 + GPU spike |
 | 13 | `wip/13-keeper-catalog-snapshot.md` | blocked | catalog from Keeper snapshots pinned per data version, with local selection; waits for Keeper's snapshot routes | 03 + Keeper snapshots |

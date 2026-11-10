@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2329  # the scenario and start functions are called by name from the runner
 # L5: the scenarios, run against the cluster that bootstrap.sh and install.sh built
-# (docs/plans/v1/wip/10-aws-e2e.md; docs/how-to-guides/testing.md#the-l5-lane lists
+# (docs/plans/v1/done/10-aws-e2e.md; docs/how-to-guides/testing.md#the-l5-lane lists
 # what each proves and how to read a failure).
 #
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:

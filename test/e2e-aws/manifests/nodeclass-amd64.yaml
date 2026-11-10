@@ -1,4 +1,4 @@
-# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/10-aws-e2e.md): the
+# The NodeClass of the amd64 scenarios (docs/plans/v1/done/10-aws-e2e.md): the
 # tailscale template with pinned versions, a small gp3 root volume, a storage
 # profile with a small io2 data volume (low IOPS, to keep the cost down), the
 # placement profile that puts a database and its client into one cluster placement

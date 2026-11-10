@@ -81,7 +81,7 @@ pushes `linux/amd64,linux/arm64`). `make help` lists every target.
 | Chart | `make test-chart` | The Helm chart without a cluster: lint, golden `helm template` output, the values schema and the template checks against bad values, every controller flag settable and accepted by the controller's own parser, the RBAC and CRDs equal to `config/` and Karpenter core's. | Plan 09: [The chart tests](#the-chart-tests). The install into a cluster is the L3 lane. |
 | L3 | `make test-kwok` | Real Karpenter core, SCarpenter (installed from the Helm chart) and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, extended to seventeen by plan 06; the chart since plan 09. [The L3 lane](#the-l3-lane). |
 | L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged` and `/dev/kvm`. | Plan 07: [The L4 lane](#the-l4-lane). |
-| L5 | `.github/workflows/e2e-aws.yml` (manual and weekly) | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10: [The L5 lane](#the-l5-lane). Written and statically validated; the first live run is the coordinator's. |
+| L5 | `.github/workflows/e2e-aws.yml` (manual and weekly) | Real AWS over Tailscale. Never run from the dev container, never by a contributor's tooling. | Plan 10: [The L5 lane](#the-l5-lane). Has run green live (first green run 2026-11-10, all scenarios pass). |
 
 The design of the layers is in
 [the overview](../plans/v1/wip/00-overview.md#13-testing) and ADR-010.
@@ -283,7 +283,7 @@ the whole Karpenter path. It is the only lane that costs money and needs credent
 so it exists only as a workflow, `.github/workflows/e2e-aws.yml`, run on demand
 (`workflow_dispatch`) and weekly, from `main` only, in the GitHub environment
 `e2e`. It never runs for a pull request, and nothing in the repository runs it
-from a developer machine. A run takes 40 to 60 minutes (the job's limit is 90: the Scenarios step has its own
+from a developer machine. A full run takes about 22 minutes (the job's limit is 90: the Scenarios step has its own
 limit of 55 minutes, so that at least 20 minutes stay for the diagnostics and the
 teardown, which always run) and costs well
 under $0.20: a handful of small instances for minutes, a few GiB of EBS, no NAT

@@ -2,7 +2,7 @@ name: L5 (AWS e2e)
 
 # The L5 lane (docs/how-to-guides/testing.md#the-l5-lane): SCarpenter on real AWS with
 # a k3s control plane on this runner and the nodes joining over Tailscale. It costs
-# money (under $0.20; 40 to 60 minutes per run, the job limit is 90) and needs credentials, so it runs
+# money (under $0.20; about 22 minutes per run, the job limit is 90) and needs credentials, so it runs
 # on demand and weekly, from main only, and never for a pull request.
 #
 # Provisioned outside this repository (docs/how-to-guides/testing.md lists the exact

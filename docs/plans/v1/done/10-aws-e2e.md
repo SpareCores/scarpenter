@@ -206,3 +206,29 @@ CONVENTIONS gates 1–4; `actionlint` and `shellcheck` clean on the workflows
 and scripts; the scenario runner's non-AWS parts (manifests, waits, label
 assertions) run against the L4 lane or kind where possible
 (`make test-e2e-aws-dryrun`). Report the expected cost per run.
+
+## Outcome
+
+The first fully green live run was GitHub Actions run 42792527317 on 2026-11-10
+(commit 0c4196d): 22 minutes wall-clock (09:39:22Z to 10:01:28Z), every scenario
+passing, teardown clean.
+
+| scenario | result | time |
+|---|---|---|
+| preflight | pass | 8 s |
+| amd64 | pass | 144 s |
+| arm64 | pass | 5 s |
+| db | pass | 138 s |
+| described | pass | 2 s |
+| byo | pass | 177 s |
+| local | skipped (`E2E_LOCAL_STORAGE_TYPE` unset) | n/a |
+| negative | pass | 4 s |
+| quota | pass | 21 s |
+| drift | pass | 392 s |
+| scalezero | pass | 61 s |
+| uninstall | pass | 68 s |
+
+Fixes found by the earlier live runs: the driver's facts skip regions the
+credentials cannot read (8d0ced6, 66b1d91); the db scenario's resource-kind tag
+expectation (0c4196d); fail-fast, live progress and the never-launched abort
+(bdec5ef, b155a37).
