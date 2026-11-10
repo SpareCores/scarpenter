@@ -294,7 +294,7 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
   `scarpenter-<cluster>-<kind>-<region>[-<hash>]` (at most 63 characters, by the
   engine) and carry the ownership marker as tags **in the creating call**
   (`TagSpecifications`): `scarpenter.sparecores.com/cluster`, `nodeclass`,
-  `managed-by` and `resource-kind`. `Ensure` finds by name and marker (adoption
+  `managed-by` and `resource-kind` (the API kind identifier, e.g. `placementGroups`). `Ensure` finds by name and marker (adoption
   after a restart); a name that exists without the marker is `Fatal`. `Delete`
   refuses anything that does not carry the cluster's marker.
 - `InUse` asks `DescribeInstances` for instances in the VPC, using the group or

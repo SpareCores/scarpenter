@@ -340,7 +340,7 @@ scn_db() {
   [[ "${#pgname}" -le 63 ]] || fail "the group's name ${pgname} is longer than 63 characters"
   assert_eq "strategy" cluster "$(jq -r '.[0].Strategy' <<<"${pg}")"
   assert_eq "tag managed-by" scarpenter "$(tag_of "$(jq '.[0]' <<<"${pg}")" "${label_domain}/managed-by")"
-  assert_eq "tag resource-kind" placement-groups "$(tag_of "$(jq '.[0]' <<<"${pg}")" "${label_domain}/resource-kind")"
+  assert_eq "tag resource-kind" placementGroups "$(tag_of "$(jq '.[0]' <<<"${pg}")" "${label_domain}/resource-kind")"
   assert_eq "tag nodeclass" e2e-amd64 "$(tag_of "$(jq '.[0]' <<<"${pg}")" "${label_domain}/nodeclass")"
   assert_eq "the database is in the group" "${pgname}" "$(jq -r '.Placement.GroupName' <<<"${dbj}")"
   assert_eq "the client is in the group" "${pgname}" "$(jq -r '.Placement.GroupName' <<<"${clj}")"

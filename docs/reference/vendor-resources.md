@@ -125,10 +125,12 @@ shared per region (a placement group of a run key, a volume of a node; the creat
 parameters are part of the key, so a changed strategy does not adopt the group of
 the old one). Names are at most 63 characters: a long cluster name is shortened
 with a hash, and the middle of a long name is cut and replaced by a hash. The kind
-is written in lower case with hyphens (`placement-groups`). Every managed
+in the name is written in lower case with hyphens (`placement-groups`). Every managed
 resource carries the ownership marker as vendor tags (labels where there are no
 tags), through the driver's `TagKey` mapping: `cluster`, `nodeclass`,
-`managed-by` (`scarpenter`) and `resource-kind`, plus `spec.tags`. **Both the
+`managed-by` (`scarpenter`) and `resource-kind`, plus `spec.tags`. The
+`resource-kind` tag holds the kind identifier as in the API (`placementGroups`,
+not the hyphenated form of the name). **Both the
 name prefix and the marker are required** before the garbage collector touches a
 resource.
 
