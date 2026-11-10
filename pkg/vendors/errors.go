@@ -14,7 +14,11 @@ import (
 
 // Class is the class of a driver error (overview section 7.2). Drivers wrap
 // every vendor error into one of them by the vendor's error codes, never by
-// message text (unless the vendor only provides text).
+// message text, with one exception: a vendor whose API has no error codes (the
+// qemu driver, Vultr, OVH's OpenStack faults) may be classified by the HTTP status
+// plus the message text, under the conditions in docs/reference/driver-contract.md
+// (each text documented and pinned by a table-driven test, the status captured
+// per request, an unmatched text Fatal and never InsufficientCapacity).
 type Class string
 
 // The error classes.

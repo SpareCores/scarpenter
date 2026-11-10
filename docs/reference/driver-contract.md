@@ -112,7 +112,18 @@ collector never deletes it; deleting one that is in use is refused (`Retryable`)
 Drivers return `*vendors.Error` (`vendors.NewError(class, code, err)`);
 `vendors.ClassOf(err)` and `vendors.IsClass(err, class)` read it, and an error
 without a class is `Fatal`. Classification uses vendor error codes, not message
-text.
+text, with one documented exception.
+
+**Message-based classification.** A vendor whose API has no error codes (a body of
+free text and an HTTP status, or an OpenStack fault with only the status) may be
+classified by HTTP status plus message text: today the `qemu` driver, and the vendors
+whose APIs are like that. The conditions: the driver documents each text it matches
+(in its reference page), a table-driven test pins every text, the HTTP status is captured
+per request (a text alone never decides), and a text that matches nothing is `Fatal`,
+never `InsufficientCapacity` (a quota limit must never be reported as capacity,
+ADR-013). The `qemu` driver predates the rule and keeps its own documented fallback
+(an unmatched failure to start the VM is `Retryable`, [below](#the-qemu-driver)). The
+conformance suite has no extra case for it; the per-driver tests are the pin.
 
 | Class | Core behaviour |
 |---|---|
@@ -222,7 +233,7 @@ it and every other vendor from Keeper, so a lane without a Keeper runs): region
   `DeleteInstance` ends the process (SIGTERM, SIGKILL after 15 s), deletes the tap
   and the directory and moves the serial log to `--qemu-log-dir`.
 - **Errors.** QEMU has no error codes, so launch failures are classified by its
-  messages, the documented exception to the rule of the error classes: `cannot
+  messages, the documented [exception](#error-classes) to the rule of the error classes: `cannot
   allocate memory` is `InsufficientCapacity`, a KVM that cannot be used is
   `Unsupported`, `no space left on device` while making disks is `QuotaExceeded`, a
   missing bridge is `ZoneUnusable`, other disk failures are `Fatal` and any other
