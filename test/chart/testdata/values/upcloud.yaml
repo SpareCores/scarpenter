@@ -1,0 +1,17 @@
+# UpCloud only: the API token from an existing Secret, a managed network range of
+# the operator's choice and the example NodeClass.
+cluster:
+  name: my-cluster
+  apiServerEndpoint: https://api.example.com:6443
+  dns: [none]
+vendors:
+  aws:
+    enabled: false
+  upcloud:
+    enabled: true
+    credentials:
+      secret:
+        existingSecret: upcloud-token
+    networkRange: 10.250.0.0/16
+examples:
+  enabled: true

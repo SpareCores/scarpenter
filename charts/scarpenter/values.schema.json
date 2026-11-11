@@ -414,6 +414,44 @@
             }
           }
         },
+        "upcloud": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "networkRange": {
+              "type": "string",
+              "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/16$|^$"
+            },
+            "credentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "secret",
+                    "none"
+                  ]
+                },
+                "secret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "existingSecret": {
+                      "type": "string"
+                    },
+                    "tokenKey": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "vultr": {
           "type": "object",
           "additionalProperties": false,
@@ -854,6 +892,18 @@
           }
         },
         "ovh": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "regions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "upcloud": {
           "type": "object",
           "additionalProperties": false,
           "properties": {

@@ -12,6 +12,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- $ali := .Values.vendors.alicloud }}
 {{- $hcloud := .Values.vendors.hcloud }}
 {{- $ovh := .Values.vendors.ovh }}
+{{- $upcloud := .Values.vendors.upcloud }}
 {{- $vultr := .Values.vendors.vultr }}
 {{- $amode := $ali.credentials.mode }}
 {{- if and $ali.enabled (eq $amode "oidc") (or (not $ali.credentials.oidc.roleArn) (not $ali.credentials.oidc.providerArn)) }}
@@ -21,7 +22,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- fail "vendors.alicloud.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
 {{- if not (include "scarpenter.vendors" .) }}
-{{- fail "enable at least one vendor: vendors.alicloud.enabled=true, vendors.aws.enabled=true, vendors.hcloud.enabled=true, vendors.ovh.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
+{{- fail "enable at least one vendor: vendors.alicloud.enabled=true, vendors.aws.enabled=true, vendors.hcloud.enabled=true, vendors.ovh.enabled=true, vendors.upcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
 {{- end }}
 {{- if and $hcloud.enabled (not $hcloud.credentials.secret.existingSecret) }}
 {{- fail "vendors.hcloud.credentials.secret.existingSecret is required: the Secret that holds the API token of the Hetzner Cloud project (HCLOUD_TOKEN)" }}
@@ -35,6 +36,9 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- end }}
 {{- if and $ovh.enabled (eq $ovh.credentials.mode "secret") (not $ovh.credentials.secret.existingSecret) }}
 {{- fail "vendors.ovh.credentials.secret.existingSecret is required with credentials mode secret (docs/how-to-guides/ovh-credentials.md); use mode none to set the OS_* variables yourself" }}
+{{- end }}
+{{- if and $upcloud.enabled (eq $upcloud.credentials.mode "secret") (not $upcloud.credentials.secret.existingSecret) }}
+{{- fail "vendors.upcloud.credentials.secret.existingSecret is required with credentials mode secret (the API token of a sub-account); use mode none to supply UPCLOUD_TOKEN some other way" }}
 {{- end }}
 {{- if and $vultr.enabled (not $vultr.credentials.secret.existingSecret) }}
 {{- fail "vendors.vultr.credentials.secret.existingSecret is required when vultr is enabled: the API key of the account (docs/how-to-guides/vultr-credentials.md)" }}
@@ -258,6 +262,17 @@ spec:
             - name: {{ $env }}
               valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $key | quote }}}}
             {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if $upcloud.enabled }}
+            {{- if eq $upcloud.credentials.mode "secret" }}
+            {{- $s := $upcloud.credentials.secret }}
+            - name: UPCLOUD_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.tokenKey | quote }}}}
+            {{- end }}
+            {{- with $upcloud.networkRange }}
+            - name: SCARPENTER_UPCLOUD_NETWORK_RANGE
+              value: {{ . | quote }}
             {{- end }}
             {{- end }}
             {{- if $vultr.enabled }}

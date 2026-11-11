@@ -161,4 +161,56 @@ spec:
   limits:
     cpu: {{ .Values.examples.nodePool.cpuLimit | quote }}
 {{- end }}
+{{- if .Values.vendors.upcloud.enabled }}
+---
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: {{ $nc.name }}-upcloud
+  labels:
+    {{- include "scarpenter.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  flatcar:
+    channel: {{ $nc.flatcarChannel }}
+    version: {{ $nc.flatcarVersion | quote }}
+  kubernetes:
+    version: {{ $nc.kubernetesVersion | quote }}
+  network:
+    template: {{ $nc.networkTemplate }}
+    {{- if eq $nc.networkTemplate "tailscale" }}
+    tailscale:
+      version: {{ required "examples.nodeClass.tailscale.version is required with the tailscale template (a sysext-bakery tailscale release)" $nc.tailscale.version | quote }}
+      authKeySecretRef: {name: {{ $nc.tailscale.secretName | quote }}, namespace: {{ .Release.Namespace | quote }}, key: {{ $nc.tailscale.secretKey | quote }}}
+      tags:
+        {{- toYaml $nc.tailscale.tags | nindent 8 }}
+    {{- end }}
+  vendors:
+    upcloud:
+      regions:
+        {{- toYaml .Values.examples.upcloud.regions | nindent 8 }}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: {{ $nc.name }}-upcloud
+  labels:
+    {{- include "scarpenter.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: {{ $nc.name }}-upcloud}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [upcloud]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
+  limits:
+    cpu: {{ .Values.examples.nodePool.cpuLimit | quote }}
+{{- end }}
 {{- end }}

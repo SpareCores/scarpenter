@@ -203,6 +203,23 @@ vendors:
         passwordKey: OS_PASSWORD
         projectIdKey: OS_PROJECT_ID
         userDomainNameKey: OS_USER_DOMAIN_NAME
+  upcloud:
+    enabled: false
+    credentials:
+      # secret: the API token of a dedicated sub-account (UPCLOUD_TOKEN) from an
+      #   existing Secret; recommended. UpCloud has no workload identity or OIDC
+      #   federation, and tokens expire (up to a year for a sub-account): rotate
+      #   the Secret before that (docs/reference/upcloud-driver.md#credentials).
+      # none: nothing is wired; supply UPCLOUD_TOKEN yourself (extraEnv).
+      mode: secret
+      secret:
+        existingSecret: ""
+        tokenKey: UPCLOUD_TOKEN
+    # The /16 inside which SCarpenter's managed private networks take their /24
+    # (SCARPENTER_UPCLOUD_NETWORK_RANGE). It must stay clear of the networks you
+    # bring: the networks of an UpCloud account must not overlap. Empty:
+    # 10.241.0.0/16.
+    networkRange: ""
   vultr:
     enabled: false
     # How long the stock of a region is cached (SCARPENTER_VULTR_AVAILABILITY_TTL);
@@ -404,6 +421,10 @@ examples:
     regions: [us-east-1]
   ovh:
     regions: [GRA11]
+  # The example NodeClass of UpCloud (vendors.upcloud.enabled): the zones it may
+  # use. Flatcar templates must exist in them (docs/how-to-guides/import-flatcar-templates-into-upcloud.md).
+  upcloud:
+    regions: [fi-hel1]
   nodePool:
     # CPU limit of the NodePool; the example's guard against a runaway.
     cpuLimit: "100"

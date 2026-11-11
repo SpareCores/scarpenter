@@ -454,6 +454,51 @@ func TestOVHCredentialsAndOptions(t *testing.T) {
 	})
 }
 
+func TestUpCloudCredentialModes(t *testing.T) {
+	env := func(t *testing.T, args ...string) map[string]corev1.EnvVar {
+		t.Helper()
+		d := deployment(t, mustHelm(t, args...))
+		m := map[string]corev1.EnvVar{}
+		for _, e := range d.Spec.Template.Spec.Containers[0].Env {
+			m[e.Name] = e
+		}
+		return m
+	}
+	base := []string{"--set", "cluster.name=c", "--set", "cluster.apiServerEndpoint=https://a.example.com",
+		"--set", "vendors.aws.enabled=false", "--set", "vendors.upcloud.enabled=true"}
+	t.Run("secret", func(t *testing.T) {
+		m := env(t, append(slices.Clone(base), "--set", "vendors.upcloud.credentials.secret.existingSecret=uc-token",
+			"--set", "vendors.upcloud.networkRange=10.250.0.0/16")...)
+		ref := m["UPCLOUD_TOKEN"].ValueFrom
+		if ref == nil || ref.SecretKeyRef.Name != "uc-token" || ref.SecretKeyRef.Key != "UPCLOUD_TOKEN" {
+			t.Errorf("UPCLOUD_TOKEN = %+v", m["UPCLOUD_TOKEN"])
+		}
+		if m["SCARPENTER_UPCLOUD_NETWORK_RANGE"].Value != "10.250.0.0/16" {
+			t.Errorf("the network range = %q", m["SCARPENTER_UPCLOUD_NETWORK_RANGE"].Value)
+		}
+		if _, ok := m["AWS_REGION"]; ok {
+			t.Error("AWS_REGION set with the AWS vendor disabled")
+		}
+	})
+	t.Run("none", func(t *testing.T) {
+		m := env(t, append(slices.Clone(base), "--set", "vendors.upcloud.credentials.mode=none")...)
+		if _, ok := m["UPCLOUD_TOKEN"]; ok {
+			t.Error("UPCLOUD_TOKEN wired with mode none")
+		}
+		if _, ok := m["SCARPENTER_UPCLOUD_NETWORK_RANGE"]; ok {
+			t.Error("a network range without a value")
+		}
+	})
+	t.Run("both vendors", func(t *testing.T) {
+		d := deployment(t, mustHelm(t, "--set", "cluster.name=c", "--set", "cluster.apiServerEndpoint=https://a.example.com",
+			"--set", "vendors.aws.credentials.mode=none", "--set", "vendors.upcloud.enabled=true",
+			"--set", "vendors.upcloud.credentials.secret.existingSecret=uc-token"))
+		if args := strings.Join(d.Spec.Template.Spec.Containers[0].Args, " "); !strings.Contains(args, "--vendors=aws,upcloud") {
+			t.Errorf("args %s", args)
+		}
+	})
+}
+
 // TestRBACMatchesConfig is the drift check: the rules and bindings the chart
 // renders are those of config/rbac and config/rbac-core (the namespaces and
 // names aside).
@@ -719,6 +764,9 @@ func TestRejectedValues(t *testing.T) {
 		"no vendor":                 {[]string{"vendors.aws.enabled=false"}, "at least one vendor"},
 		"alicloud role missing":     {[]string{"vendors.alicloud.enabled=true"}, "roleArn and providerArn are required"},
 		"alicloud secret missing":   {[]string{"vendors.alicloud.enabled=true", "vendors.alicloud.credentials.mode=secret"}, "existingSecret is required"},
+		"upcloud secret missing":    {[]string{"vendors.upcloud.enabled=true"}, "vendors.upcloud.credentials.secret.existingSecret is required"},
+		"upcloud bad range":         {[]string{"vendors.upcloud.networkRange=10.0.0.0/24"}, "networkRange"},
+		"upcloud bad mode":          {[]string{"vendors.upcloud.credentials.mode=webIdentity"}, "mode"},
 		"inline CA without PEM":     {[]string{"kubeletClientCA.source=inline"}, "kubeletClientCA.inline is required"},
 		"lookup CA without cluster": {[]string{"kubeletClientCA.source=extensionApiserverAuthentication"}, "live cluster"},
 		"tailscale example":         {[]string{"examples.enabled=true", "examples.nodeClass.networkTemplate=tailscale"}, "tailscale.version is required"},
