@@ -1,0 +1,81 @@
+{
+  "server": {
+    "firewall": "on",
+    "hostname": "nc-abc",
+    "labels": {
+      "label": [
+        {
+          "key": "scarpenter-cluster",
+          "value": "c1"
+        },
+        {
+          "key": "scarpenter-created",
+          "value": "2026-11-11T10:00:00Z"
+        },
+        {
+          "key": "scarpenter-idempotency-key",
+          "value": "uid-nc-abc"
+        },
+        {
+          "key": "scarpenter-managed-by",
+          "value": "scarpenter"
+        },
+        {
+          "key": "scarpenter-nodeclaim",
+          "value": "nc-abc"
+        }
+      ]
+    },
+    "login_user": {
+      "create_password": "no"
+    },
+    "metadata": "yes",
+    "networking": {
+      "interfaces": {
+        "interface": [
+          {
+            "ip_addresses": {
+              "ip_address": [
+                {
+                  "family": "IPv4"
+                }
+              ]
+            },
+            "type": "public"
+          },
+          {
+            "ip_addresses": {
+              "ip_address": [
+                {
+                  "family": "IPv4"
+                }
+              ]
+            },
+            "type": "utility"
+          }
+        ]
+      }
+    },
+    "password_delivery": "none",
+    "plan": "1xCPU-2GB",
+    "simple_backup": "no",
+    "storage_devices": {
+      "storage_device": [
+        {
+          "action": "clone",
+          "encrypted": "yes",
+          "storage": "74000001-0000-4000-8000-000000000001",
+          "title": "nc-abc-root",
+          "size": 50,
+          "tier": "maxiops",
+          "type": "disk"
+        }
+      ]
+    },
+    "timezone": "UTC",
+    "title": "nc-abc",
+    "user_data": "{\"ignition\":{\"version\":\"3.4.0\"}}",
+    "remote_access_enabled": "no",
+    "zone": "fi-hel1"
+  }
+}

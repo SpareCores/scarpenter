@@ -1,0 +1,168 @@
+[
+  {
+    "action": "accept",
+    "comment": "icmp",
+    "direction": "in",
+    "family": "IPv4",
+    "position": "1",
+    "protocol": "icmp"
+  },
+  {
+    "action": "accept",
+    "comment": "icmp",
+    "direction": "in",
+    "family": "IPv6",
+    "position": "2",
+    "protocol": "icmp"
+  },
+  {
+    "action": "accept",
+    "comment": "dhcp reply",
+    "destination_port_start": "68",
+    "destination_port_end": "68",
+    "direction": "in",
+    "family": "IPv4",
+    "position": "3",
+    "protocol": "udp",
+    "source_port_start": "67",
+    "source_port_end": "67"
+  },
+  {
+    "action": "accept",
+    "comment": "dhcpv6 reply",
+    "destination_port_start": "546",
+    "destination_port_end": "546",
+    "direction": "in",
+    "family": "IPv6",
+    "position": "4",
+    "protocol": "udp",
+    "source_port_start": "547",
+    "source_port_end": "547"
+  },
+  {
+    "action": "accept",
+    "comment": "inbound",
+    "destination_port_start": "22",
+    "destination_port_end": "22",
+    "direction": "in",
+    "family": "IPv4",
+    "position": "5",
+    "protocol": "tcp",
+    "source_address_start": "198.51.100.0",
+    "source_address_end": "198.51.100.255"
+  },
+  {
+    "action": "accept",
+    "comment": "inbound",
+    "destination_port_start": "443",
+    "destination_port_end": "443",
+    "direction": "in",
+    "family": "IPv4",
+    "position": "6",
+    "protocol": "tcp"
+  },
+  {
+    "action": "accept",
+    "comment": "inbound",
+    "destination_port_start": "443",
+    "destination_port_end": "443",
+    "direction": "in",
+    "family": "IPv6",
+    "position": "7",
+    "protocol": "tcp"
+  },
+  {
+    "action": "accept",
+    "comment": "inbound",
+    "destination_port_start": "53",
+    "destination_port_end": "53",
+    "direction": "in",
+    "family": "IPv6",
+    "position": "8",
+    "protocol": "udp",
+    "source_address_start": "2001:db8:1::",
+    "source_address_end": "2001:db8:1:ffff:ffff:ffff:ffff:ffff"
+  },
+  {
+    "action": "accept",
+    "comment": "inbound",
+    "direction": "in",
+    "family": "IPv4",
+    "position": "9",
+    "protocol": "icmp",
+    "source_address_start": "203.0.113.7",
+    "source_address_end": "203.0.113.7"
+  },
+  {
+    "action": "accept",
+    "comment": "tailscale",
+    "destination_port_start": "41641",
+    "destination_port_end": "41641",
+    "direction": "in",
+    "family": "IPv4",
+    "position": "10",
+    "protocol": "udp"
+  },
+  {
+    "action": "accept",
+    "comment": "tailscale",
+    "destination_port_start": "41641",
+    "destination_port_end": "41641",
+    "direction": "in",
+    "family": "IPv6",
+    "position": "11",
+    "protocol": "udp"
+  },
+  {
+    "action": "accept",
+    "comment": "ephemeral",
+    "destination_port_start": "32768",
+    "destination_port_end": "60999",
+    "direction": "in",
+    "family": "IPv4",
+    "position": "12",
+    "protocol": "tcp"
+  },
+  {
+    "action": "accept",
+    "comment": "ephemeral",
+    "destination_port_start": "32768",
+    "destination_port_end": "60999",
+    "direction": "in",
+    "family": "IPv6",
+    "position": "13",
+    "protocol": "tcp"
+  },
+  {
+    "action": "accept",
+    "comment": "ephemeral",
+    "destination_port_start": "32768",
+    "destination_port_end": "60999",
+    "direction": "in",
+    "family": "IPv4",
+    "position": "14",
+    "protocol": "udp"
+  },
+  {
+    "action": "accept",
+    "comment": "ephemeral",
+    "destination_port_start": "32768",
+    "destination_port_end": "60999",
+    "direction": "in",
+    "family": "IPv6",
+    "position": "15",
+    "protocol": "udp"
+  },
+  {
+    "action": "drop",
+    "comment": "default",
+    "direction": "in",
+    "position": "16"
+  },
+  {
+    "action": "accept",
+    "comment": "outbound",
+    "direction": "out",
+    "position": "17"
+  }
+]
