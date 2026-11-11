@@ -228,7 +228,7 @@ t_workflows_agree() { # the callers pass the reusable workflow its inputs; nothi
   ! grep -qE '^    types: .*labeled' "${w}/e2e.yml" || { echo "e2e.yml runs on labeled"; return 1; }
   # The sweeper has no reviewers to wait for: its own environment, limited to main.
   grep -qE '^    environment: e2e-sweeper$' "${w}/e2e-hcloud-sweeper.yml" || { echo "the sweeper is not in the environment e2e-sweeper"; return 1; }
-  grep -qxF hcloud "${root}/test/e2e-vendors.txt" || { echo "hcloud is not in test/e2e-vendors.txt"; return 1; }
+  ! grep -qxF hcloud "${root}/test/e2e-vendors.txt" || { echo "hcloud is in test/e2e-vendors.txt before its server limit and usage alert are set (testing-and-releasing.md)"; return 1; }
   grep -q 'inputs.vendor == .hcloud.' "${w}/e2e-cloud.yml" || { echo "e2e-cloud.yml has no hcloud credentials step"; return 1; }
   grep -q 'matrix.vendor == .hcloud.' "${w}/e2e-canary.yml" || { echo "e2e-canary.yml has no hcloud credentials step"; return 1; }
 }

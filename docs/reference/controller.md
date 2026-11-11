@@ -75,7 +75,7 @@ must be positive.
 | `MEMORY_LIMIT`, `CPU_REQUESTS` | Core's: the container's memory limit in bytes (the garbage collector's soft limit is 90 % of it) and CPU request in millicores (sizes core's concurrency). The chart derives both from the container's resources. |
 | `DISABLE_LEADER_ELECTION` | Core's: `true` runs without leader election; the chart sets it with `leaderElection.enabled=false`. |
 | `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ACCESS_KEY_ID`, ... | The AWS SDK's own: the [credential modes](../how-to-guides/aws-credentials.md) of the chart set them. Without `AWS_REGION` the driver uses `--aws-home-region` as the SDK's default region. |
-| `HCLOUD_TOKEN`, `HCLOUD_ENDPOINT` | The Hetzner Cloud driver's: the API token of the project (a Secret; the chart's `vendors.hcloud.tokenSecretRef`) and, for tests, the API URL. Required when `hcloud` is in `--vendors`. See the [Hetzner Cloud driver](hcloud-driver.md). |
+| `HCLOUD_TOKEN`, `HCLOUD_ENDPOINT` | The Hetzner Cloud driver's: the API token of the project (a Secret; the chart's `vendors.hcloud.credentials.secret.existingSecret`) and, for tests, the API URL. Required when `hcloud` is in `--vendors`. See the [Hetzner Cloud driver](hcloud-driver.md). |
 
 Core's other flags and environment variables (`--log-level`/`LOG_LEVEL`,
 `--metrics-port`/`METRICS_PORT` (8080), `--health-probe-port`/`HEALTH_PROBE_PORT`
@@ -106,7 +106,7 @@ and that the controller's own parser accepts what the chart renders.
 | `vendors.aws.region` | `AWS_REGION` | Default: the home region, else `us-east-1`. |
 | `vendors.aws.ipv4Price` | `SCARPENTER_AWS_IPV4_PRICE` | An approximation, see the table above. |
 | `vendors.aws.credentials.mode`, `webIdentity.*`, `secret.*` | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, a projected ServiceAccount token, `AWS_ACCESS_KEY_ID`, ... | [AWS credentials](../how-to-guides/aws-credentials.md). `webIdentity` needs `roleArn`, `secret` an `existingSecret`. |
-| `vendors.hcloud.tokenSecretRef.name`, `key` | `HCLOUD_TOKEN` | The Secret that holds the project's API token ([Hetzner Cloud driver](hcloud-driver.md)); the name is required when the driver is enabled. |
+| `vendors.hcloud.credentials.secret.existingSecret`, `key` | `HCLOUD_TOKEN` | The Secret that holds the project's API token ([Hetzner Cloud driver](hcloud-driver.md)); the name is required when the driver is enabled. |
 | `vendors.hcloud.serverLimit` | `--hcloud-server-limit` | `0`: unknown (flag left out). |
 | `vendors.hcloud.ipv4Price` | `SCARPENTER_HCLOUD_IPV4_PRICE` | An approximation, see the table above. |
 | `vendors.vultr.enabled` | `--vendors` | Adds `vultr` after `aws` and `hcloud`. Requires `credentials.secret.existingSecret`. |

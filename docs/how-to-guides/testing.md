@@ -614,14 +614,14 @@ against the driver's in-memory Vultr API, and `selftest.sh`.
 
 ### The L5 lane of Hetzner Cloud
 
-The second vendor lane (`test/e2e-hcloud/`, `e2e-cloud.yml` with `vendor: hcloud`; plan 15) has the
+The second vendor lane (`test/e2e-hcloud/`, `e2e-cloud.yml` with `vendor: hcloud`; plan 15) is not in `test/e2e-vendors.txt` until the project's server limit and usage alert are set (see [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards)), so the workflows do not run it by themselves. It has the
 same shape as the AWS one: a k3s control plane on the runner, nodes that join over the tailnet, the
 same scripts and the same tiers, mode, approval and release gate ([Testing and
 releasing](testing-and-releasing.md)). What differs is the cloud:
 
 | | Hetzner Cloud |
 |---|---|
-| Credentials | no federation: the secret `HCLOUD_TOKEN` of the environment `e2e` (a **read-write** token of a dedicated CI project). The workflow puts it in the job's environment and masks it; `install.sh` makes the Secret `hcloud-credentials` the chart reads (`vendors.hcloud.tokenSecretRef`). |
+| Credentials | no federation: the secret `HCLOUD_TOKEN` of the environment `e2e` (a **read-write** token of a dedicated CI project). The workflow puts it in the job's environment and masks it; `install.sh` makes the Secret `hcloud-credentials` the chart reads (`vendors.hcloud.credentials.secret.existingSecret`). |
 | Images | `bootstrap.sh` installs `hcloud` and `hcloud-upload-image` with `go install` (the module proxy's checksum database verifies them) and makes **one Flatcar snapshot per architecture** for the pinned version when the project has none, in parallel (about five minutes), with the [label convention](hcloud-images.md); the snapshots are kept. |
 | Control plane | on the runner, as in the AWS lane: no server of the project is spent on it. |
 | Variables | `E2E_HCLOUD_LOCATIONS` (default `fsn1,nbg1,hel1`: the arm and the cheap types are there; the NodeClasses' `regions`), `TS_OAUTH_CLIENT_ID`, `TS_AUDIENCE`. |

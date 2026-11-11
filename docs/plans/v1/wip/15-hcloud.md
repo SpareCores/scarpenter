@@ -181,7 +181,7 @@ placement groups and volumes. Nothing else is needed for a node with a public ad
 
 - One credential, one Hetzner project: the API token is bound to one project and is read or
   read-write (no finer permissions). `HCLOUD_TOKEN` from a Secret (the chart's value
-  `hcloud.tokenSecretRef`), `HCLOUD_ENDPOINT` for tests. Nothing identifies the project in
+  `hcloud.credentials.secret.existingSecret`), `HCLOUD_ENDPOINT` for tests. Nothing identifies the project in
   the API (no project ID), so `scope` stays `{}`. Hetzner has no workload identity; the
   token is long lived. Use a project that holds only SCarpenter's workload; label-based
   filtering is the only scoping SCarpenter does (it deletes only what carries its marker).
@@ -463,7 +463,7 @@ USD per hour in `fsn1`), two small volumes, snapshots kept (about 1 GB, under a 
 **Files**: `test/e2e-hcloud/` with the standard scripts (`bootstrap.sh`, `mint-authkey.sh`,
 `install.sh`, `scenarios.sh`, `diagnostics.sh`, `teardown.sh`, `lib.sh` with `redact`,
 `defaults.sh`, `selftest.sh`, manifests, the sweeper `sweeper/main.go`), one line `hcloud` in
-`test/e2e-vendors.txt`, the credentials step and region variable in `e2e-cloud.yml` and
+`test/e2e-vendors.txt` (**not yet**, see below), the credentials step and region variable in `e2e-cloud.yml` and
 `e2e-canary.yml`, `e2e-hcloud-sweeper.yml`, `test/canary/hcloud.go` and
 `hcloud_guard.go`, added to `make test-e2e-hcloud-dryrun`.
 
@@ -483,6 +483,15 @@ tag, so the cost guards are different from AWS's table:
 | Run time limit, teardown | as AWS (90 min job, 55 min scenarios, `if: always()`) |
 | Read-only canary | read-only token, a transport guard that refuses every method but GET (with a test), like `aws_guard.go` |
 | Approval | the `e2e` environment's required reviewers |
+
+**The lane is not in `test/e2e-vendors.txt` yet.** The token cannot deny types, so the two guards
+that bound the damage of a bug are the project's server limit and the usage alert, and both are
+settings of the CI project that nobody has verified. Same rule as the Vultr lane: before the line
+`hcloud` is added, the operator (1) creates the dedicated CI project, (2) sets its server limit low
+(the Console shows it; ask Hetzner to lower it) and the usage alert to a person, and checks both,
+(3) sets the secrets `HCLOUD_TOKEN` in `e2e`, `e2e-sweeper` and `e2e-canary`, and (4) runs the
+unverified facts below. Until then the reusable workflow refuses the vendor (a live run) and the
+dry-run target works.
 
 **Scenarios** (names as AWS where the meaning holds):
 

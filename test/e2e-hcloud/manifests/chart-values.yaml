@@ -18,7 +18,7 @@ vendors:
     enabled: false
   hcloud:
     enabled: true
-    tokenSecretRef: {name: hcloud-credentials, key: HCLOUD_TOKEN}
+    credentials: {secret: {existingSecret: hcloud-credentials, key: HCLOUD_TOKEN}}
     # The project's server limit, so that the controller knows its headroom.
     serverLimit: ${E2E_HCLOUD_SERVER_LIMIT}
 gc: {interval: 1m}

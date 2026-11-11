@@ -46,10 +46,10 @@ func TestHCloudValuesReachTheController(t *testing.T) {
 // the vendors list names both drivers when both are on.
 func TestHCloudNeedsItsToken(t *testing.T) {
 	args := append(slices.Clone(required), "--set", "vendors.hcloud.enabled=true")
-	if _, err := helm(t, args...); err == nil || !strings.Contains(err.Error(), "tokenSecretRef.name is required") {
+	if _, err := helm(t, args...); err == nil || !strings.Contains(err.Error(), "credentials.secret.existingSecret is required") {
 		t.Errorf("without a token Secret: %v", err)
 	}
-	args = append(args, "--set", "vendors.hcloud.tokenSecretRef.name=tok")
+	args = append(args, "--set", "vendors.hcloud.credentials.secret.existingSecret=tok")
 	d := deployment(t, mustHelm(t, args...))
 	o, _, _ := parseControllerArgs(t, d.Spec.Template.Spec.Containers[0].Args)
 	if !slices.Equal(o.Vendors, []string{"aws", "hcloud"}) {

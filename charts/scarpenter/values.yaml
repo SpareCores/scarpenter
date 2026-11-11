@@ -133,11 +133,6 @@ vendors:
     # Hetzner Cloud: servers of one project, from Flatcar snapshots in that
     # project (docs/how-to-guides/hcloud-images.md, docs/reference/hcloud-driver.md).
     enabled: false
-    # The existing Secret that holds the API token of the project (HCLOUD_TOKEN): a
-    # read-write token, separate from your IaC's own, created in the Console.
-    tokenSecretRef:
-      name: ""
-      key: HCLOUD_TOKEN
     # The server limit of the project, as the Console shows it (the API does not
     # report it); with it the controller knows the headroom before a launch
     # (--hcloud-server-limit). 0: unknown.
@@ -146,6 +141,13 @@ vendors:
     # Hetzner offerings (SCARPENTER_HCLOUD_IPV4_PRICE). Keeper has none; empty:
     # 0.0007 (0.50 EUR a month). "0": free.
     ipv4Price: ""
+    credentials:
+      # The API token of the project (HCLOUD_TOKEN), from an existing Secret: a
+      # read-write token, created in the Console. Hetzner has no workload identity
+      # for callers, so this is the only mode. REQUIRED when hcloud is enabled.
+      secret:
+        existingSecret: ""
+        key: HCLOUD_TOKEN
   vultr:
     enabled: false
     # How long the stock of a region is cached (SCARPENTER_VULTR_AVAILABILITY_TTL);

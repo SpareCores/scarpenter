@@ -319,7 +319,10 @@ A vendor lane is not added to `test/e2e-vendors.txt` before every item is true f
 | A read-only role for the canary | `canary-policy.sh`, a role of its own, environment `e2e-canary` |
 | Approval for every run of pull request or release code that reaches the account | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) |
 
-**The Hetzner lane's guards** (plan 15), against the table above:
+**The Hetzner lane's guards** (plan 15), against the table above. The lane is **not yet a line
+of `test/e2e-vendors.txt`**: a token cannot deny types, so the project's server limit and usage alert
+are the ceiling, and the operator sets and checks both first (see [What the CI account's
+infrastructure provides](#what-the-ci-accounts-infrastructure-provides)); then adds `hcloud` to the file.
 
 | Guard | hcloud lane |
 |---|---|
@@ -373,7 +376,7 @@ canary role, the environment secrets, the quotas, and the tailnet tags and ACL.
 None of the following lives here; the operator of the CI account creates it, with whatever
 tool they use, and this repository assumes it (a fork needs the same, in its own account):
 
-- **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, and the secret
+- **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, both set and checked before `hcloud` is added to `test/e2e-vendors.txt`, and the secret
   `HCLOUD_TOKEN` in the environments `e2e` and `e2e-sweeper` (read-write) and `e2e-canary` (read-only); the optional
   variable `E2E_HCLOUD_LOCATIONS`. Details in [Test and develop](testing.md#the-l5-lane-of-hetzner-cloud).
 - **Environment `e2e`**: the secret `AWS_ROLE_ARN` (the CI role) and the variables

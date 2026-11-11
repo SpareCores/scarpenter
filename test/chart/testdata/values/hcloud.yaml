@@ -9,6 +9,6 @@ vendors:
     enabled: false
   hcloud:
     enabled: true
-    tokenSecretRef: {name: hcloud-token, key: token}
+    credentials: {secret: {existingSecret: hcloud-token, key: token}}
     serverLimit: 25
     ipv4Price: "0.0008"

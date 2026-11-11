@@ -246,19 +246,6 @@
             "enabled": {
               "type": "boolean"
             },
-            "tokenSecretRef": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "type": "string"
-                },
-                "key": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
-            },
             "serverLimit": {
               "type": "integer",
               "minimum": 0
@@ -270,6 +257,25 @@
               ],
               "pattern": "^([0-9]+(\\.[0-9]+)?)?$",
               "minimum": 0
+            },
+            "credentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "secret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "existingSecret": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
             }
           }
         },

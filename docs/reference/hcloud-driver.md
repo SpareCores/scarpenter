@@ -65,7 +65,7 @@ nothing in the repository's tests calls Hetzner (the first live run is the L5 la
 
 ## Credentials and the client
 
-One credential, one project: `HCLOUD_TOKEN` (the chart: `vendors.hcloud.tokenSecretRef`)
+One credential, one project: `HCLOUD_TOKEN` (the chart: `vendors.hcloud.credentials.secret.existingSecret`)
 is a read-write token of the project, created in the Console, separate from your IaC's
 own so that it can be rotated apart. It gives full control of the project: use a project
 that holds only SCarpenter's workload, because label filtering (the driver deletes only

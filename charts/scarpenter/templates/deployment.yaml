@@ -14,8 +14,8 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- if not (include "scarpenter.vendors" .) }}
 {{- fail "enable at least one vendor: vendors.aws.enabled=true, vendors.hcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
 {{- end }}
-{{- if and $hcloud.enabled (not $hcloud.tokenSecretRef.name) }}
-{{- fail "vendors.hcloud.tokenSecretRef.name is required: the Secret that holds the API token of the Hetzner Cloud project (HCLOUD_TOKEN)" }}
+{{- if and $hcloud.enabled (not $hcloud.credentials.secret.existingSecret) }}
+{{- fail "vendors.hcloud.credentials.secret.existingSecret is required: the Secret that holds the API token of the Hetzner Cloud project (HCLOUD_TOKEN)" }}
 {{- end }}
 {{- $mode := $aws.credentials.mode }}
 {{- if and $aws.enabled (eq $mode "webIdentity") (not $aws.credentials.webIdentity.roleArn) }}
@@ -193,7 +193,7 @@ spec:
             {{- end }}
             {{- if $hcloud.enabled }}
             - name: HCLOUD_TOKEN
-              valueFrom: {secretKeyRef: {name: {{ $hcloud.tokenSecretRef.name | quote }}, key: {{ $hcloud.tokenSecretRef.key | quote }}}}
+              valueFrom: {secretKeyRef: {name: {{ $hcloud.credentials.secret.existingSecret | quote }}, key: {{ $hcloud.credentials.secret.key | quote }}}}
             {{- if and (not (kindIs "invalid" $hcloud.ipv4Price)) (ne (toString $hcloud.ipv4Price) "") }}
             - name: SCARPENTER_HCLOUD_IPV4_PRICE
               value: {{ toString $hcloud.ipv4Price | quote }}
