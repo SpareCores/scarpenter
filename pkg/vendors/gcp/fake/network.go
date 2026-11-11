@@ -122,8 +122,12 @@ func (c *Compute) InsertNetwork(_ context.Context, r *computepb.InsertNetworkReq
 	in.Id = new(c.seq)
 	in.SelfLink = new(c.url("global/networks/" + name))
 	in.CreationTimestamp = new(c.timestamp())
-	c.networks[name] = in
-	op := c.newOp("insert", "global", "global/networks/"+name, c.takeOpFailure("InsertNetwork"), nil)
+	// An operation that fails creates nothing, as on Compute.
+	failed := c.takeOpFailure("InsertNetwork")
+	if failed == nil {
+		c.networks[name] = in
+	}
+	op := c.newOp("insert", "global", "global/networks/"+name, failed, nil)
 	c.remember("InsertNetwork", "global", r.RequestId, op)
 	return proto.Clone(op).(*computepb.Operation), nil
 }
@@ -287,8 +291,12 @@ func (c *Compute) InsertSubnetwork(
 	if in.StackType == nil {
 		in.StackType = new("IPV4_ONLY")
 	}
-	c.subnets[key] = in
-	op := c.newOp("insert", scope, scope+"/subnetworks/"+name, c.takeOpFailure("InsertSubnetwork"), nil)
+	// An operation that fails creates nothing, as on Compute.
+	failed := c.takeOpFailure("InsertSubnetwork")
+	if failed == nil {
+		c.subnets[key] = in
+	}
+	op := c.newOp("insert", scope, scope+"/subnetworks/"+name, failed, nil)
 	c.remember("InsertSubnetwork", scope, r.RequestId, op)
 	return proto.Clone(op).(*computepb.Operation), nil
 }
@@ -380,8 +388,12 @@ func (c *Compute) InsertFirewall(_ context.Context, r *computepb.InsertFirewallR
 	in.SelfLink = new(c.url("global/firewalls/" + name))
 	in.Network = new(c.url("global/networks/" + last(in.GetNetwork())))
 	in.CreationTimestamp = new(c.timestamp())
-	c.firewalls[name] = in
-	op := c.newOp("insert", "global", "global/firewalls/"+name, c.takeOpFailure("InsertFirewall"), nil)
+	// An operation that fails creates nothing, as on Compute.
+	failed := c.takeOpFailure("InsertFirewall")
+	if failed == nil {
+		c.firewalls[name] = in
+	}
+	op := c.newOp("insert", "global", "global/firewalls/"+name, failed, nil)
 	c.remember("InsertFirewall", "global", r.RequestId, op)
 	return proto.Clone(op).(*computepb.Operation), nil
 }
@@ -491,8 +503,12 @@ func (c *Compute) InsertResourcePolicy(
 	in.SelfLink = new(c.url(scope + "/resourcePolicies/" + name))
 	in.Status = new("READY")
 	in.CreationTimestamp = new(c.timestamp())
-	c.policies[key] = in
-	op := c.newOp("insert", scope, scope+"/resourcePolicies/"+name, c.takeOpFailure("InsertResourcePolicy"), nil)
+	// An operation that fails creates nothing, as on Compute.
+	failed := c.takeOpFailure("InsertResourcePolicy")
+	if failed == nil {
+		c.policies[key] = in
+	}
+	op := c.newOp("insert", scope, scope+"/resourcePolicies/"+name, failed, nil)
 	c.remember("InsertResourcePolicy", scope, r.RequestId, op)
 	return proto.Clone(op).(*computepb.Operation), nil
 }

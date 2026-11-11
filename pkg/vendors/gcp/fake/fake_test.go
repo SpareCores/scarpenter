@@ -795,3 +795,39 @@ func TestNetworkIPAndIPv6(t *testing.T) {
 		t.Fatalf("no IPv6: %v", nic)
 	}
 }
+
+// An insert whose operation fails creates nothing, as on Compute: the name is free
+// for the next attempt and nothing is listed.
+func TestFailedInsertOperationCreatesNothing(t *testing.T) {
+	c := NewSeeded(proj)
+	c.InjectOpError("InsertNetwork", "INTERNAL_ERROR", "x", 500)
+	op, err := c.InsertNetwork(ctx, &computepb.InsertNetworkRequest{Project: proj, NetworkResource: &computepb.Network{
+		Name: new("scarpenter-c1-subnets"), AutoCreateSubnetworks: new(false)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op, err = c.WaitGlobalOperation(ctx, &computepb.WaitGlobalOperationRequest{Project: proj, Operation: op.GetName()}); err != nil || op.GetError() == nil {
+		t.Fatalf("operation = %v, %v", op, err)
+	}
+	if _, err := c.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: proj, Network: "scarpenter-c1-subnets"}); httpCode(err) != 404 {
+		t.Fatalf("network after a failed insert = %v", err)
+	}
+	if _, err := c.InsertNetwork(ctx, &computepb.InsertNetworkRequest{Project: proj, NetworkResource: &computepb.Network{
+		Name: new("scarpenter-c1-subnets"), AutoCreateSubnetworks: new(false)}}); err != nil {
+		t.Fatal(err)
+	}
+	c.InjectOpError("InsertSubnetwork", "INTERNAL_ERROR", "x", 500)
+	sop, err := c.InsertSubnetwork(ctx, &computepb.InsertSubnetworkRequest{Project: proj, Region: SeedRegion,
+		SubnetworkResource: &computepb.Subnetwork{Name: new("s1"),
+			Network: new("projects/" + proj + "/global/networks/scarpenter-c1-subnets"), IpCidrRange: new("10.240.0.0/20")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sop, err = c.WaitRegionOperation(ctx, &computepb.WaitRegionOperationRequest{Project: proj, Region: SeedRegion,
+		Operation: sop.GetName()}); err != nil || sop.GetError() == nil {
+		t.Fatalf("operation = %v, %v", sop, err)
+	}
+	if _, err := c.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{Project: proj, Region: SeedRegion, Subnetwork: "s1"}); httpCode(err) != 404 {
+		t.Fatalf("subnetwork after a failed insert = %v", err)
+	}
+}
