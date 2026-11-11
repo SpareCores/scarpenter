@@ -655,7 +655,7 @@ func assertGroupShared(t *testing.T, mark time.Time, zone, runKey, nodeServer, n
 }
 
 func resourceUseConfig(tags map[string]string) *awsapi.Resources {
-	return &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Selector: &common.TagSelector{Tags: tags}}}}
+	return &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Tags: tags}}}
 }
 
 // waitResourcesReady waits for the vendor condition ResourcesReady of the class

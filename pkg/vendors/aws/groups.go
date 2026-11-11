@@ -20,6 +20,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // SecurityGroupParams are the create parameters of a security group (Params of
@@ -53,12 +54,17 @@ const sgDescription = "Managed by SCarpenter"
 func (d *Driver) resolveSecurityGroups(ctx context.Context, cl Clients, kind vendors.ResourceKind, region string,
 	ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
-	groups, err := d.describeGroups(ctx, cl, useFilters(ref, "group-id", "group-name"))
+	groups, err := d.describeGroups(ctx, cl, useFilters(ref, groupFilters))
 	if err != nil {
 		return nil, err
 	}
-	out := make([]vendors.ResourceRef, 0, len(groups))
-	for _, g := range groups {
+	res, err := selector.Apply(ref, d.Selectors()[kind], groups, groupFields)
+	d.noteMissing(kind, region, res.Missing)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]vendors.ResourceRef, 0, len(res.Items))
+	for _, g := range res.Items {
 		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: deref(g.GroupId), Name: deref(g.GroupName)})
 	}
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
@@ -320,19 +326,17 @@ func (d *Driver) resolvePlacementGroups(
 	if ref.IsDefault() {
 		return nil, nil
 	}
-	var filters []ec2types.Filter
-	if len(ref.IDs) == 0 {
-		filters = useFilters(ref, "", "group-name")
-	}
-	groups, err := d.describePlacementGroups(ctx, cl, filters)
+	groups, err := d.describePlacementGroups(ctx, cl, useFilters(ref, pgFilters))
 	if err != nil {
 		return nil, err
 	}
-	var out []vendors.ResourceRef
-	for _, g := range groups {
-		if len(ref.IDs) > 0 && !slices.Contains(ref.IDs, deref(g.GroupId)) {
-			continue
-		}
+	res, err := selector.Apply(ref, d.Selectors()[KindPlacementGroups], groups, placementGroupFields)
+	d.noteMissing(KindPlacementGroups, region, res.Missing)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]vendors.ResourceRef, 0, len(res.Items))
+	for _, g := range res.Items {
 		out = append(out, vendors.ResourceRef{Kind: KindPlacementGroups, Region: region, ID: deref(g.GroupId),
 			Name: deref(g.GroupName)})
 	}

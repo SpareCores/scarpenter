@@ -234,7 +234,7 @@ func TestPrepareUseSubnetsByIDChoosesTheZonesSubnetWithTheMostFreeAddresses(t *t
 	a1, a2, b1 := mk("us-east-1a", "172.31.201.0/24"), mk("us-east-1a", "172.31.202.0/24"), mk("us-east-1b", "172.31.203.0/24")
 	e.acct.SetFreeAddresses(testRegion, a1, 10)
 	e.acct.SetFreeAddresses(testRegion, a2, 200)
-	nc := classWith(&awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string][]string{testRegion: {a1, a2, b1}}}}})
+	nc := classWith(&awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{testRegion: {a1, a2, b1}}}}})
 	s := resolveSettings(t, e.d, "", defaultNetworking(), nil, options.Selection{})
 	p, err := e.prepare(t, nc, testRegion, "us-east-1a", testType, s, "")
 	if err != nil || ids(p, aws.KindSubnets)[0] != a2 {
@@ -314,7 +314,7 @@ func TestPrepareSecurityGroupOfAnotherVPCGatesTheZone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nc := classWith(&awsapi.Resources{SecurityGroups: &common.Resource{Use: &common.ResourceUse{IDs: map[string][]string{testRegion: {*g.GroupId}}}}})
+	nc := classWith(&awsapi.Resources{SecurityGroups: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{testRegion: {*g.GroupId}}}}})
 	s := resolveSettings(t, e.d, "", defaultNetworking(), nil, options.Selection{})
 	_, err = e.prepare(t, nc, testRegion, testZone, testType, s, "")
 	if vendors.CodeOf(err) != vendors.CodeResourceMissingInZone {
@@ -595,7 +595,7 @@ func TestResourceCheckGatesTheZonesWithoutAnIPv6Subnet(t *testing.T) {
 		SubnetId: &b, Ipv6CidrBlock: new(netip.PrefixFrom(netip.AddrFrom16(raw), 64).String())}); err != nil {
 		t.Fatal(err)
 	}
-	nc := ipv6Class(&awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string][]string{testRegion: {a, b}}}}})
+	nc := ipv6Class(&awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{testRegion: {a, b}}}}})
 	st = e.engine.Check(ctx, nc, "aws", []string{testRegion}).Regions[testRegion]
 	if !st.Ready || st.Zones["us-east-1a"] == "" || st.Zones["us-east-1b"] != "" {
 		t.Errorf("region state %+v, want ready with only zone a gated", st)

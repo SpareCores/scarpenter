@@ -16,8 +16,8 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 
@@ -123,7 +123,9 @@ type orphanConfig struct {
 }
 
 // steeringKeys are the keys of the steering ConfigMap.
-var steeringKeys = []string{keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting, keyRootDisks}
+var steeringKeys = []string{
+	keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting, keyRootDisks,
+}
 
 // orEmpty is c, or an empty configuration when there is none yet.
 func orEmpty(c *config) *config {
@@ -301,6 +303,30 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	})
 	parse(keyPowerOff, func(raw string) error { return yaml.UnmarshalStrict([]byte(raw), &next.powerOff) },
 		func() { next.powerOff = orEmpty(prev).powerOff })
+	d.parseProfileRules(parse, next, prev)
+	parse(keyExisting, func(raw string) error {
+		var list []existingResource
+		if err := yaml.UnmarshalStrict([]byte(raw), &list); err != nil {
+			return err
+		}
+		next.existing = list
+		return nil
+	}, func() {
+		if prev != nil {
+			next.existing = prev.existing
+		}
+	})
+	d.conf = next
+	d.createOrphans(ctx, next.orphans)
+	d.powerOffClaims(ctx, next.powerOff)
+}
+
+// parseProfileRules parses the keys that change what the catalog says about a
+// type (the unsupported profiles and the root disks): the catalog rebuilds when
+// they do.
+func (d *Driver) parseProfileRules(
+	parse func(key string, apply func(string) error, keep func()), next, prev *config,
+) {
 	parse(keyUnsupported, func(raw string) error {
 		var rules []unsupportedRule
 		if err := yaml.UnmarshalStrict([]byte(raw), &rules); err != nil {
@@ -331,21 +357,6 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 			next.rootDisks = prev.rootDisks
 		}
 	})
-	parse(keyExisting, func(raw string) error {
-		var list []existingResource
-		if err := yaml.UnmarshalStrict([]byte(raw), &list); err != nil {
-			return err
-		}
-		next.existing = list
-		return nil
-	}, func() {
-		if prev != nil {
-			next.existing = prev.existing
-		}
-	})
-	d.conf = next
-	d.createOrphans(ctx, next.orphans)
-	d.powerOffClaims(ctx, next.powerOff)
 }
 
 // current returns the last parsed configuration (never nil).

@@ -261,7 +261,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		}
 		r := vendors.ResourceRequest{Kind: KindGroup}
 		if use != "" {
-			r.Use = &vendors.UseRef{NamePattern: use}
+			r.Use = &vendors.UseRef{Name: use}
 		} else {
 			r.Key = req.Settings.Profiles[vendors.ProfilePlacement] + "/" + req.RunKey
 			r.Params, _ = json.Marshal(map[string]string{"strategy": strategy})

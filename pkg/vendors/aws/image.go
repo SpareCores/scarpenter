@@ -27,10 +27,13 @@ const imageTTL = time.Hour
 
 // Architectures of the images, as the catalog and EC2 spell them.
 // archARM64 is the architecture name of the catalog and of the image names.
-const archARM64 = "arm64"
+const (
+	archAMD64 = "amd64"
+	archARM64 = "arm64"
+)
 
 var imageArches = map[string]ec2types.ArchitectureValues{
-	"amd64":   ec2types.ArchitectureValuesX8664,
+	archAMD64: ec2types.ArchitectureValuesX8664,
 	archARM64: ec2types.ArchitectureValuesArm64,
 }
 

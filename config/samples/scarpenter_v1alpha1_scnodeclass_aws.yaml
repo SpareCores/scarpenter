@@ -81,6 +81,6 @@ spec:
       instanceProfile: ""
       imageOwner: ""
       resources:
-        subnets: {use: {selector: {tags: {scarpenter.sparecores.com/use: "true"}}}}
+        subnets: {use: {tags: {scarpenter.sparecores.com/use: "true"}}}
         securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 24h}}}
         placementGroups: {create: {lifecycle: {policy: perUse}}}

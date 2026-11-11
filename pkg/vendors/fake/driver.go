@@ -96,6 +96,8 @@ type Driver struct {
 	resMu     sync.Mutex
 	resources map[string]*resourceRecord
 	resLoaded bool
+	// selMode is the SelectorMode.
+	selMode atomic.Int32
 	// unsupportedEpoch changes with the steering's unsupported and rootDisks rules.
 	unsupportedEpoch atomic.Uint64
 

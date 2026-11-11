@@ -9,6 +9,7 @@ package aws_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -17,9 +18,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws/fake"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 func spec(name string, kind vendors.ResourceKind, params any) vendors.CreateSpec {
@@ -133,15 +136,16 @@ func TestResolveByIDsNamePatternAndTags(t *testing.T) {
 	}{
 		"ids":                     {vendors.UseRef{IDs: []string{*a.SubnetId, *b.SubnetId}}, []string{*a.SubnetId, *b.SubnetId}},
 		"an unknown id is absent": {vendors.UseRef{IDs: []string{*a.SubnetId, "subnet-00000000000000000"}}, []string{*a.SubnetId}},
-		"name pattern":            {vendors.UseRef{NamePattern: "nodes-*"}, []string{*a.SubnetId, *b.SubnetId}},
-		"exact name":              {vendors.UseRef{NamePattern: "nodes-a"}, []string{*a.SubnetId}},
+		"name pattern":            {vendors.UseRef{Name: "nodes-*"}, []string{*a.SubnetId, *b.SubnetId}},
+		"exact name":              {vendors.UseRef{Name: "nodes-a"}, []string{*a.SubnetId}},
 		"tags":                    {vendors.UseRef{Tags: map[string]string{"use": "scarpenter"}}, []string{*a.SubnetId, *b.SubnetId}},
 		"tags that match nothing": {vendors.UseRef{Tags: map[string]string{"use": "nobody"}}, nil},
 		"two tags":                {vendors.UseRef{Tags: map[string]string{"use": "scarpenter", "Name": "nodes-b"}}, []string{*b.SubnetId}},
 	} {
 		got, err := e.d.Resolve(ctx, aws.KindSubnets, testRegion, tc.ref)
 		slices.Sort(tc.want)
-		if err != nil || !slices.Equal(idsOf(got), tc.want) {
+		if _, none := errors.AsType[*selector.NoMatchError](err); none == (tc.want != nil) || (err != nil && !none) ||
+			!slices.Equal(idsOf(got), tc.want) {
 			t.Errorf("%s: %v, %v; want %v", name, idsOf(got), err, tc.want)
 		}
 		for _, r := range got {
@@ -156,7 +160,10 @@ func TestResolveByIDsNamePatternAndTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ref := range []vendors.UseRef{{IDs: []string{*g.GroupId}}, {NamePattern: "my-*"}, {Tags: map[string]string{"use": "yes"}}} {
+	for _, ref := range []vendors.UseRef{{IDs: []string{*g.GroupId}}, {Name: "my-*"}, {Tags: map[string]string{"use": "yes"}},
+		{Tags: map[string]string{"use": "*"}}, {Match: common.ResourceMatch{Network: []string{vpc}}, Name: "my-sg"},
+		{Match: common.ResourceMatch{Description: "x"}, Name: "my-sg"},
+		{Filters: []common.ResourceFilter{{Name: "group-name", Values: []string{"nope", "my-sg"}}}}} {
 		got, err := e.d.Resolve(ctx, aws.KindSecurityGroups, testRegion, ref)
 		if err != nil || len(got) != 1 || got[0].ID != *g.GroupId || got[0].Name != "my-sg" {
 			t.Errorf("security group by %+v: %v, %v", ref, got, err)
@@ -166,13 +173,13 @@ func TestResolveByIDsNamePatternAndTags(t *testing.T) {
 		TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypePlacementGroup, Tags: []ec2types.Tag{{Key: new("use"), Value: new("yes")}}}}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, ref := range []vendors.UseRef{{NamePattern: "my-pg"}, {Tags: map[string]string{"use": "yes"}}} {
+	for _, ref := range []vendors.UseRef{{Name: "my-pg"}, {Tags: map[string]string{"use": "yes"}}} {
 		got, err := e.d.Resolve(ctx, aws.KindPlacementGroups, testRegion, ref)
 		if err != nil || len(got) != 1 || got[0].Name != "my-pg" {
 			t.Errorf("placement group by %+v: %v, %v", ref, got, err)
 		}
 	}
-	pgs, _ := e.d.Resolve(ctx, aws.KindPlacementGroups, testRegion, vendors.UseRef{NamePattern: "my-pg"})
+	pgs, _ := e.d.Resolve(ctx, aws.KindPlacementGroups, testRegion, vendors.UseRef{Name: "my-pg"})
 	byID, err := e.d.Resolve(ctx, aws.KindPlacementGroups, testRegion, vendors.UseRef{IDs: []string{pgs[0].ID, "pg-00000000000000000"}})
 	if err != nil || len(byID) != 1 {
 		t.Errorf("placement group by ID: %v, %v", byID, err)

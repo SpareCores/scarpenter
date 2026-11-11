@@ -257,7 +257,19 @@ func (e *EC2) DescribeSubnets(ctx context.Context, in *ec2.DescribeSubnetsInput,
 		if len(in.SubnetIds) > 0 && !slices.Contains(in.SubnetIds, id) {
 			continue
 		}
-		ok, err := matches(in.Filters, s.tags, s.attrs)
+		attrs := func(name string) ([]string, bool) {
+			switch name {
+			case "availability-zone-id":
+				if z, ok := r.zoneByName(s.az); ok {
+					return []string{z.ID}, true
+				}
+				return nil, true
+			case "state":
+				return []string{string(types.SubnetStateAvailable)}, true
+			}
+			return s.attrs(name)
+		}
+		ok, err := matches(in.Filters, s.tags, attrs)
 		if err != nil {
 			return nil, err
 		}
@@ -653,6 +665,8 @@ func (g *sg) attrs(name string) ([]string, bool) {
 		return []string{g.name}, true
 	case "vpc-id":
 		return []string{g.vpc}, true
+	case "description":
+		return []string{g.desc}, true
 	}
 	return nil, false
 }
@@ -840,6 +854,8 @@ func (g *placementGroup) attrs(name string) ([]string, bool) {
 		return []string{g.name}, true
 	case "strategy":
 		return []string{g.strategy}, true
+	case "state":
+		return []string{string(types.PlacementGroupStateAvailable)}, true
 	}
 	return nil, false
 }

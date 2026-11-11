@@ -30,6 +30,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	fakedriver "github.com/SpareCores/scarpenter/pkg/vendors/fake"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 func raw(s string) json.RawMessage { return json.RawMessage(s) }
@@ -321,7 +322,7 @@ func TestResolveByNamePatternIDsTagsAndDefaults(t *testing.T) {
 `})
 	resolve := func(ref vendors.UseRef, region string) []string {
 		refs, err := h.d.Resolve(t.Context(), fakedriver.KindNetwork, region, ref)
-		if err != nil {
+		if _, none := errors.AsType[*selector.NoMatchError](err); err != nil && !none {
 			t.Fatal(err)
 		}
 		ids := make([]string, 0, len(refs))
@@ -339,11 +340,11 @@ func TestResolveByNamePatternIDsTagsAndDefaults(t *testing.T) {
 		want   []string
 	}{
 		"ids":         {vendors.UseRef{IDs: []string{"s-2"}}, "us-east-1", []string{"s-2"}},
-		"name":        {vendors.UseRef{NamePattern: "sc-us-*"}, "us-east-1", []string{"s-1"}},
+		"name":        {vendors.UseRef{Name: "sc-us-*"}, "us-east-1", []string{"s-1"}},
 		"tags":        {vendors.UseRef{Tags: map[string]string{"use": "true"}}, "us-east-1", []string{"s-1"}},
 		"default":     {vendors.UseRef{}, "us-east-1", []string{"s-default"}},
 		"no default":  {vendors.UseRef{}, "eu-west-1", nil},
-		"other zone":  {vendors.UseRef{NamePattern: "sc-*"}, "eu-west-1", []string{"s-3"}},
+		"other zone":  {vendors.UseRef{Name: "sc-*"}, "eu-west-1", []string{"s-3"}},
 		"no matching": {vendors.UseRef{Tags: map[string]string{"use": "maybe"}}, "us-east-1", nil},
 	} {
 		if got := resolve(tc.ref, tc.region); !slices.Equal(got, tc.want) {

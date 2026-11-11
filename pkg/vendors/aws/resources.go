@@ -20,6 +20,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // The resource kinds of the AWS driver (00a section 9). The first three are the
@@ -103,25 +104,6 @@ func nameOf(tags []ec2types.Tag) string {
 	return ""
 }
 
-// useFilters turns a UseRef into EC2 filters. idFilter and nameFilter are the
-// filter names of the kind (subnet-id and tag:Name for subnets, group-id and
-// group-name for groups); an empty idFilter means the kind has none.
-func useFilters(ref vendors.UseRef, idFilter, nameFilter string) []ec2types.Filter {
-	var out []ec2types.Filter
-	switch {
-	case len(ref.IDs) > 0:
-		out = append(out, ec2types.Filter{Name: aws.String(idFilter), Values: ref.IDs})
-	case ref.NamePattern != "":
-		out = append(out, ec2types.Filter{Name: aws.String(nameFilter), Values: []string{ref.NamePattern}})
-	default:
-		keys := slices.Sorted(maps.Keys(ref.Tags))
-		for _, k := range keys {
-			out = append(out, ec2types.Filter{Name: aws.String("tag:" + k), Values: []string{ref.Tags[k]}})
-		}
-	}
-	return out
-}
-
 // Resolve implements vendors.ManagedResources: existing resources by IDs, name
 // pattern or tags, never modified. With an empty reference the default VPC's
 // default subnets; security groups and placement groups have no default
@@ -151,7 +133,7 @@ func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region 
 func (d *Driver) resolveSubnets(
 	ctx context.Context, cl Clients, region string, ref vendors.UseRef) ([]vendors.ResourceRef, error,
 ) {
-	filters := useFilters(ref, "subnet-id", "tag:Name")
+	var filters []ec2types.Filter
 	if ref.IsDefault() {
 		vpcs, err := cl.EC2.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
 			Filters: []ec2types.Filter{{Name: aws.String("isDefault"), Values: []string{"true"}}},
@@ -166,19 +148,39 @@ func (d *Driver) resolveSubnets(
 			{Name: aws.String("vpc-id"), Values: []string{deref(vpcs.Vpcs[0].VpcId)}},
 			{Name: aws.String("default-for-az"), Values: []string{"true"}},
 		}
+	} else {
+		filters = useFilters(ref, subnetFilters)
 	}
 	subs, err := d.describeSubnetPages(ctx, cl, &ec2.DescribeSubnetsInput{Filters: filters})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]vendors.ResourceRef, 0, len(subs))
 	for _, s := range subs {
 		d.rememberSubnet(s)
+	}
+	if !ref.IsDefault() {
+		res, err := selector.Apply(ref, d.Selectors()[KindSubnets], subs, subnetFields)
+		d.noteMissing(KindSubnets, region, res.Missing)
+		if err != nil {
+			return nil, err
+		}
+		subs = res.Items
+	}
+	out := make([]vendors.ResourceRef, 0, len(subs))
+	for _, s := range subs {
 		out = append(out, vendors.ResourceRef{Kind: KindSubnets, Region: region, ID: deref(s.SubnetId),
 			Name: nameOf(s.Tags)})
 	}
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil
+}
+
+// noteMissing logs the IDs a `use` named that the vendor did not return: a
+// missing ID does not fail the others, so it would otherwise go unnoticed.
+func (d *Driver) noteMissing(kind vendors.ResourceKind, region string, ids []string) {
+	if len(ids) > 0 {
+		d.log.Info("IDs of a use selector are not in the vendor's answer", "kind", kind, "region", region, "ids", ids)
+	}
 }
 
 func (d *Driver) describeSubnetPages(

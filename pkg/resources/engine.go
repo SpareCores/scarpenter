@@ -21,9 +21,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -43,6 +45,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // Defaults of the options.
@@ -127,6 +130,7 @@ type regionKey struct{ class, vendor, region string }
 
 type cachedRefs struct {
 	refs  []vendors.ResourceRef
+	err   error // a selection error: nothing matched, or too much
 	until time.Time
 }
 
@@ -257,58 +261,86 @@ func forbidden(format string, args ...any) error {
 	return vendors.NewError(vendors.Unsupported, vendors.CodeResourceForbidden, fmt.Errorf(format, args...))
 }
 
-// useRefFor builds the UseRef of a `use` block for the region and zone. An
-// explicit ID list without an entry for the region is an error here: an empty
-// UseRef would mean the vendor's default.
-func useRefFor(u *common.ResourceUse, region, zone string) (vendors.UseRef, error) {
-	switch {
-	case u.IDs != nil:
-		ids := u.IDs[region]
-		if len(ids) == 0 {
-			return vendors.UseRef{}, fmt.Errorf("no IDs are configured for the region %s", region)
+// useContext is the placeholder context of a `use` block in a region and zone:
+// the NodeClass's name and channel, and the vendor's own architecture spelling.
+func (e *Engine) useContext(nc *v1alpha1.SCNodeClass, vendor, region, zone string) selector.Context {
+	x := selector.Context{Region: region, Zone: zone, NodeClass: nc.Name, Channel: string(nc.Spec.Flatcar.Channel),
+		Version: nc.Spec.Flatcar.Version}
+	if drv, ok := e.opts.Registry.Driver(vendor); ok {
+		if an, ok := drv.(vendors.ArchNamer); ok {
+			x.VendorArch = an.VendorArch
 		}
-		return vendors.UseRef{IDs: ids}, nil
-	case u.Name != "":
-		return vendors.UseRef{NamePattern: strings.NewReplacer("{region}", region, "{zone}", zone).Replace(u.Name)}, nil
-	case u.Selector != nil:
-		return vendors.UseRef{Tags: u.Selector.Tags}, nil
 	}
-	return vendors.UseRef{}, errors.New("the use block names no IDs, name or selector")
+	return x
+}
+
+// useRefFor builds the selector of a `use` block for the region and zone: the
+// region's IDs gathered (the key "*" and the region's), the placeholders
+// expanded and the kind's default select applied. A block that selects nothing
+// is an error here: an empty UseRef would mean the vendor's default.
+func (e *Engine) useRefFor(
+	nc *v1alpha1.SCNodeClass, mr vendors.ManagedResources, vendor string, kind vendors.ResourceKind,
+	u *common.ResourceUse, region, zone string,
+) (vendors.UseRef, error) {
+	return selector.Build(u, e.useContext(nc, vendor, region, zone), mr.Selectors()[kind])
+}
+
+// isSelection says that err is a selector that selected nothing, or too much:
+// a verdict about the region, not a failure of the vendor call.
+func isSelection(err error) bool {
+	_, none := errors.AsType[*selector.NoMatchError](err)
+	_, many := errors.AsType[*selector.AmbiguousError](err)
+	return none || many
 }
 
 func describe(ref vendors.UseRef) string {
-	switch {
-	case len(ref.IDs) > 0:
-		return "IDs " + strings.Join(ref.IDs, ", ")
-	case ref.NamePattern != "":
-		return "the name " + ref.NamePattern
-	case len(ref.Tags) > 0:
-		return fmt.Sprintf("the tags %v", ref.Tags)
+	var parts []string
+	if len(ref.IDs) > 0 {
+		parts = append(parts, "IDs "+strings.Join(ref.IDs, ", "))
 	}
-	return "the vendor's default"
+	if ref.Name != "" {
+		parts = append(parts, "the name "+ref.Name)
+	}
+	if len(ref.Tags) > 0 {
+		parts = append(parts, fmt.Sprintf("the tags %v", ref.Tags))
+	}
+	if len(ref.Filters) > 0 || ref.Expression != "" || !reflect.DeepEqual(ref.Match, common.ResourceMatch{}) {
+		parts = append(parts, "the match, filters or expression")
+	}
+	if len(parts) == 0 {
+		return "the vendor's default"
+	}
+	return strings.Join(parts, " and ")
 }
 
-// resolve asks the driver for existing resources, trusting a recent answer.
+// resolve asks the driver for existing resources, trusting a recent answer. A
+// selector that selects nothing, or too much, is returned as its typed error
+// and cached like an answer.
 func (e *Engine) resolve(
 	ctx context.Context, mr vendors.ManagedResources, vendor string, kind vendors.ResourceKind, region string,
 	ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
-	key := fmt.Sprintf("%s/%s/%s/%v", vendor, kind, region, ref)
+	enc, _ := json.Marshal(ref)
+	scope := region
+	if mr.Selectors()[kind].Global && !ref.IsDefault() {
+		scope = selector.RegionAll // one listing serves every region
+	}
+	key := fmt.Sprintf("%s/%s/%s/%s", vendor, kind, scope, enc)
 	now := e.opts.Clock.Now()
 	e.mu.Lock()
 	if c, ok := e.resolved[key]; ok && now.Before(c.until) {
 		e.mu.Unlock()
-		return c.refs, nil
+		return c.refs, c.err
 	}
 	e.mu.Unlock()
 	refs, err := mr.Resolve(ctx, kind, region, ref)
-	if err != nil {
+	if err != nil && !isSelection(err) {
 		return nil, err
 	}
 	e.mu.Lock()
-	e.resolved[key] = cachedRefs{refs: refs, until: now.Add(e.opts.ResolveTTL)}
+	e.resolved[key] = cachedRefs{refs: refs, err: err, until: now.Add(e.opts.ResolveTTL)}
 	e.mu.Unlock()
-	return refs, nil
+	return refs, err
 }
 
 func (e *Engine) require(
@@ -342,11 +374,17 @@ func (e *Engine) require(
 	// per-zone pattern (the other zones of the region are fine).
 	useRef := func(ref vendors.UseRef, gate bool, zone string) ([]vendors.ResourceRef, error) {
 		refs, err := e.resolve(ctx, mr, vendor, req.Kind, region, ref)
-		if err != nil {
+		var none error
+		switch {
+		case isSelection(err):
+			none = err
+		case err != nil:
 			return nil, err
+		case len(refs) == 0:
+			none = fmt.Errorf("nothing matches %s", describe(ref))
 		}
-		if len(refs) == 0 {
-			err := missing("no %s in %s matches %s", req.Kind, region, describe(ref))
+		if none != nil {
+			err := missing("no %s in %s: %v", req.Kind, region, none)
 			if gate {
 				return nil, fail(err)
 			}
@@ -370,11 +408,14 @@ func (e *Engine) require(
 		if zone == "" {
 			zone = launchZone
 		}
-		ref, err := useRefFor(cfg.Use, region, zone)
+		perZone := selector.UsesZone(cfg.Use)
+		if !perZone {
+			zone = ""
+		}
+		ref, err := e.useRefFor(nc, mr, vendor, req.Kind, cfg.Use, region, zone)
 		if err != nil {
 			return nil, fail(missing("%s in %s: %v", req.Kind, region, err))
 		}
-		perZone := strings.Contains(cfg.Use.Name, "{zone}")
 		if perZone {
 			return useRef(ref, false, zone)
 		}

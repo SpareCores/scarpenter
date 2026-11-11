@@ -23,8 +23,8 @@ A reference the driver cannot parse (no region, no ID, an ID without the parts t
 vendor needs, a region the account cannot use) is an instance that does not exist:
 `GetInstance` returns `NotFound` and `DeleteInstance` succeeds (or returns `NotFound`),
 never `Fatal`, so that a stale annotation does not put an Event on a NodeClass. The
-same holds for the resource calls (`Resolve` of an ID that cannot exist is an empty
-result).
+same holds for the resource calls (`Resolve` of an ID that cannot exist selects nothing:
+`NoMatch`, with the ID named).
 
 `InstanceRef` is `<region>/<vendor id>`; the core stores it in the annotation
 `scarpenter.sparecores.com/instance-ref`. `CreateRequest.InstanceType` is the
@@ -104,9 +104,40 @@ runtime implements `EpochReporter` (`NodeOptionsEpoch()`), so that the catalog
 rebuilds.
 
 `ManagedResources` ([vendor resources](vendor-resources.md#driver-contract)):
-`Kinds`, `Resolve`, `Ensure`, `InUse`, `Delete`, `List`. A resource a launch
+`Kinds`, `Resolve`, `Selectors`, `Ensure`, `InUse`, `Delete`, `List`. A resource a launch
 uses must show as in use (`InUse`) while its instance lives, so the garbage
 collector never deletes it; deleting one that is in use is refused (`Retryable`).
+
+### The `use` selector
+
+`Resolve(kind, region, ref)` takes a `vendors.UseRef`: the NodeClass's `use`
+([resource selectors](resource-selectors.md)) for one region and zone, with the IDs of the region
+gathered (the key `*` and the region's own), every string's placeholders expanded and `select`
+defaulted from the declaration. A default `UseRef` (nothing that selects) asks for the vendor's own
+default resource, as before. For anything else the driver does the vendor call and then
+`selector.Apply` (package `pkg/vendors/selector`); it writes no matching of its own:
+
+- It asks the vendor for what the vendor can filter (the server-side part), and passes a `Fields`
+  accessor per item (ID, name, tags, creation time, attributes). `Apply` ANDs every field, re-applies
+  each one it has data for (so the vendor may narrow to a superset), then applies `select` and
+  `orderBy`: `exactlyOne`, `all`, `newest`, `oldest`, with names and `label:<key>` compared in natural
+  order (`4081.3.1` before `4081.10.0`).
+- Zero matches return `*selector.NoMatchError`, too many for the `select` (or a tie for `newest` and
+  `oldest`) `*selector.AmbiguousError`: both carry the number of candidates after each stage
+  (`14 listed, 3 match tags, 0 match match.zone [euw1-az1]`), which is the text of `ResourcesReady`;
+  `NoMatchError` also names the requested IDs that were not in the answer and those that did not match.
+  A missing ID does not fail the others. The core treats both as the verdict that the region is
+  unusable, not as a failure of the vendor.
+- `Selectors()` declares, per kind that accepts `use`, a `SelectorCaps`: whether the kind is zonal, global
+  at the vendor (the core lists it once per check) and has a creation time, its tag form (`tags`,
+  `labels`, plain `strings`, none), where `name` is evaluated and the field it is matched against, each
+  supported `match` attribute with the native field and the side (`server`, `server+client`, `client`),
+  the accepted `filters` names (exact, or a prefix pattern such as `tag:*`) with their side, whether
+  `expression` is accepted and in which language, and the default `select`. The core rejects everything
+  outside it when it validates a NodeClass (`ValidationSucceeded` stays true; the vendor's `VendorReady`
+  says `ValidationFailed` with the vendor, kind, field and the supported names), and the AWS driver does the
+  same in `ValidateNodeClass`. A driver whose vendor spells architectures its own way implements `ArchNamer`
+  (`VendorArch`) for `{vendorArch}`.
 
 ## Error classes
 
@@ -166,6 +197,16 @@ makes the next launch fail with a class), and for `QuotaReporter` drivers: every
 type maps to buckets or is on the fixture's unknown list, launches show up in
 `Used` with their refs, a quota error is `QuotaExceeded` (with `AccountWide` exactly when the fixture's
 `AccountWideQuota` says the vendor's limits are account-wide); and `OfferingLister`.
+For `ManagedResources` with a `Seed` hook (a resource made the way a user would, with a name, tags and
+the attributes the vendor has) the selector cases: every declaration is well formed and validation rejects
+what it does not support (unknown filter, attribute, placeholder, `{zone}` on a regional kind, `created` on
+a kind without a creation time, an empty `use`); fields are ANDed; `ids` are ANDed with the rest, a
+missing ID does not fail the others and is named, an ID that does not match is named; `*` under `ids`
+is every region; zero matches and two matches under `exactlyOne` are `NoMatch` and `Ambiguous` with the
+counts; `newest`, `oldest` and a tie (by name in natural order, by label, by creation time); `{zone}` per
+zone; glob escapes; tags `"*"`; the CIDR attributes; and, for the fake driver, the same assertions with the
+vendor evaluating the selector exactly, narrowing to a superset, or not at all
+(`conformance.RunSelectors`).
 For `NodeOptions`: the defaults decode and match `RootDiskBytes`, and `RootDiskForType` is deterministic and positive when it answers; for the
 fixture's sample `Profiles` and `ProfileTypes`, `Supported` is deterministic,
 returns only defined profiles and nothing without profiles, and every supported
@@ -291,8 +332,12 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   first match wins) that make matching types define their own root disk, answered by
   `RootDiskForType`.
 - `existingResources`: the account's own resources, `{kind, region, id, name,
-  tags, default}`: what `use` references and the vendor's default resource
-  (`default: true`) resolve to.
+  tags, default, created, description, zone, network, cidr, state}`: what `use` selectors and the
+  vendor's default resource (`default: true`) resolve to; the attributes feed `match` (state
+  defaults to `available`). The fake declares every `match` attribute, the filters `state`, `zone`
+  and `tag:<key>`, and a creation time on `subnets` and `placementGroups`; its Go API has
+  `SetSelectorMode` (the fake evaluates the selector exactly, narrows to a superset, or lists everything), which
+  the conformance cases use.
 
 **Settings and resources.** The fake serves the blocks of the vendor it
 impersonates: with the default `aws` its NodeClass blocks, profiles and resource

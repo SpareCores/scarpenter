@@ -9,10 +9,13 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package qemu
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 func ids(refs []vendors.ResourceRef) []string {
@@ -40,13 +43,16 @@ func TestResolveFindsBridgesByIDNamePatternTagsAndDefaultAndNeverManagedOnes(t *
 	}{
 		"default":    {vendors.UseRef{}, []string{DefaultBridge}},
 		"ids":        {vendors.UseRef{IDs: []string{"other", "nope"}}, []string{"other"}},
-		"pattern":    {vendors.UseRef{NamePattern: "lab-*"}, []string{"lab-a", "lab-b"}},
+		"pattern":    {vendors.UseRef{Name: "lab-*", Select: common.SelectAll}, []string{"lab-a", "lab-b"}},
+		"ambiguous":  {vendors.UseRef{Name: "lab-*"}, nil},
 		"tags":       {vendors.UseRef{Tags: map[string]string{"env": "lab", "tier": "1"}}, []string{"lab-a"}},
 		"no match":   {vendors.UseRef{Tags: map[string]string{"env": "prod"}}, nil},
 		"managed id": {vendors.UseRef{IDs: []string{managed.ID}}, nil},
 	} {
 		got, err := d.Resolve(t.Context(), KindNetwork, Region, tc.ref)
-		if err != nil || (!slices.Equal(ids(got), tc.want) && (len(got) != 0 || len(tc.want) != 0)) {
+		_, none := errors.AsType[*selector.NoMatchError](err)
+		_, many := errors.AsType[*selector.AmbiguousError](err)
+		if (err != nil && !none && !many) || (many != (name == "ambiguous")) || (!slices.Equal(ids(got), tc.want) && (len(got) != 0 || len(tc.want) != 0)) {
 			t.Errorf("%s: %v, %v; want %v", name, ids(got), err, tc.want)
 		}
 	}

@@ -14,16 +14,17 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"path"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"k8s.io/utils/clock"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // The kinds of the double, named like the AWS block's resource keys.
@@ -67,6 +68,11 @@ type Driver struct {
 	DeleteErr map[string]error
 	// Calls records "ensure:created:<id>", "ensure:found:<id>" and "delete:<id>".
 	Calls []string
+	// GlobalSubnets makes the subnets kind global at the vendor: Resolve of a
+	// selector finds the resources of any region (they all list the same).
+	GlobalSubnets bool
+	// ResolveCalls counts the Resolve calls of selectors (not defaults).
+	ResolveCalls atomic.Int32
 }
 
 // New returns a driver serving the vendor ID.
@@ -160,30 +166,43 @@ func (d *Driver) Kinds() []vendors.KindSpec {
 func (d *Driver) Resolve(
 	_ context.Context, kind vendors.ResourceKind, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
-	var out []vendors.ResourceRef
+	if !ref.IsDefault() {
+		d.ResolveCalls.Add(1)
+	}
+	var cands []Existing
 	for _, e := range d.Existing {
-		if e.Kind != kind || e.Region != region {
-			continue
-		}
-		ok := false
-		switch {
-		case ref.IsDefault():
-			ok = e.Default
-		case len(ref.IDs) > 0:
-			ok = slices.Contains(ref.IDs, e.ID)
-		case ref.NamePattern != "":
-			ok, _ = path.Match(ref.NamePattern, e.Name)
-		default:
-			ok = true
-			for k, v := range ref.Tags {
-				ok = ok && e.Tags[k] == v
-			}
-		}
-		if ok {
-			out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: e.ID, Name: e.Name})
+		if e.Kind == kind && (e.Region == region || (d.GlobalSubnets && kind == Subnets && !ref.IsDefault())) &&
+			(!ref.IsDefault() || e.Default) {
+			cands = append(cands, e)
 		}
 	}
+	if !ref.IsDefault() {
+		res, err := selector.Apply(ref, d.Selectors()[kind], cands, func(e Existing) selector.Fields {
+			return selector.Fields{ID: e.ID, Name: e.Name, Tags: e.Tags}
+		})
+		if err != nil {
+			return nil, err
+		}
+		cands = res.Items
+	}
+	var out []vendors.ResourceRef
+	for _, e := range cands {
+		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: e.ID, Name: e.Name})
+	}
 	return out, nil
+}
+
+// Selectors implements vendors.ManagedResources: names and tags, evaluated by
+// the client, on the kinds a NodeClass can bring.
+func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
+	caps := vendors.SelectorCaps{
+		Global: d.GlobalSubnets,
+		Tags:   vendors.TagsMap, Name: &vendors.FieldCap{Field: "name", Side: vendors.SideClient},
+		DefaultSelect: common.SelectAll,
+	}
+	return map[vendors.ResourceKind]vendors.SelectorCaps{
+		PlacementGroups: caps, SecurityGroups: caps, Subnets: caps,
+	}
 }
 
 // Ensure implements vendors.ManagedResources.

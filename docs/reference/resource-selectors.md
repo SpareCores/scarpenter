@@ -10,8 +10,12 @@ What the kinds are, `create` and the lifecycles: [Vendor resources](vendor-resou
 What to hand over per vendor: the [hand-off contract](infrastructure-handoff.md).
 A walk-through: [Bring your own vendor resources](../how-to-guides/bring-your-own-resources.md).
 
-Status: only the `aws` driver exists; the selector replaces its `ids` / `name` /
-`selector` forms in [plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) (A10).
+Status: only the `aws` driver (and the development drivers) exist; the selector
+replaced the `ids` / `name` / `selector` forms of the first AWS driver in
+[plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) (A10): `use.selector.tags` is now
+`use.tags`, with no alias. The AWS tables are what the driver declares
+(`ManagedResources.Selectors`, checked by a test against this page); `match.owner` is not offered
+on AWS subnets and security groups yet (it needs the account ID of the caller).
 Every other vendor table below is written from the vendors' API references and SDKs
 (researched 2026-11-10, no cloud calls) and is what the vendor plans implement; a driver's
 change updates its table. Items marked *unverified* were not confirmed in a reference or
@@ -307,7 +311,6 @@ an account ID, `self`, `all`) and `include-disabled` (`IncludeDisabled`).
 | `match.zone` | filter `availability-zone-id` (the stable zone ID); `{zone}` in `name` or `filters` uses the account's name | server |
 | `match.network` | filter `vpc-id` | server |
 | `match.cidr` | filter `cidr-block` (exact) | server |
-| `match.owner` | filter `owner-id` (`self` is the caller's account; subnets shared through RAM show another owner) | server |
 | `match.state` | filter `state` (`pending`, `available`) | server |
 | `match.within` | `CidrBlock` | client |
 
@@ -328,12 +331,11 @@ does not.
 | `name` | filter `group-name` (unique per VPC; wildcards unverified) | server+client |
 | `tags` | `tag:<k>` ; `tag-key` | server |
 | `match.network` | filter `vpc-id` | server |
-| `match.owner` | filter `owner-id` | server |
 | `match.description` | filter `description` | server+client |
 
 No state, zone or creation time. Filters: `description`, `group-id`, `group-name`, `owner-id`, `vpc-id`, `tag:<k>`,
 `tag-key`, `ip-permission.{cidr,from-port,group-id,group-name,ipv6-cidr,prefix-list-id,protocol,to-port,user-id}`
-and `egress.ip-permission.{...}` (several rule filters match across different rules of the group). A group must be
+and the same with the prefix `egress.` (several rule filters match across different rules of the group). A group must be
 in the VPC of the chosen subnets: combine with `match.network`.
 
 **placementGroups** (`DescribePlacementGroups`, not paginated):

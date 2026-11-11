@@ -41,6 +41,12 @@ import (
 )
 
 // Names of the field manager and the condition reasons.
+// The keys of a status entry the controller applies.
+const (
+	fieldKind   = "kind"
+	fieldRegion = "region"
+)
+
 const (
 	FieldManager      = "scarpenter-resources"
 	ReasonReady       = "Ready"
@@ -154,7 +160,7 @@ func (c *Controller) vendor(ctx context.Context, nc *v1alpha1.SCNodeClass, vendo
 	for _, region := range notReady {
 		c.warn(nc, vendor, region, reasons[region])
 	}
-	return c.apply(ctx, nc, vendor, status, reason, message, rep.Resources)
+	return c.apply(ctx, nc, vendor, status, reason, message, rep.Resources, rep.Counts)
 }
 
 func (c *Controller) warn(nc *v1alpha1.SCNodeClass, vendor, region, reason string) {
@@ -171,7 +177,7 @@ func (c *Controller) warn(nc *v1alpha1.SCNodeClass, vendor, region, reason strin
 
 func (c *Controller) apply(
 	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, status metav1.ConditionStatus, reason, message string,
-	res []v1alpha1.ResourceStatus,
+	res []v1alpha1.ResourceStatus, counts []v1alpha1.ResourceCount,
 ) error {
 	now := metav1.NewTime(c.opts.Clock.Now())
 	current := nc.Status.Vendors[vendor]
@@ -186,12 +192,15 @@ func (c *Controller) apply(
 		changed = string(cond.Status) != string(status) || cond.Reason != reason || cond.Message != message ||
 			cond.ObservedGeneration != nc.Generation
 	}
-	if !changed && sameResources(current.Resources, res) {
+	if !changed && sameResources(current.Resources, res) && slices.Equal(current.ResourceCounts, counts) {
 		return nil
 	}
 	list := make([]any, len(res))
 	for i, r := range res {
-		m := map[string]any{"kind": r.Kind, "region": r.Region, "id": r.ID}
+		m := map[string]any{fieldKind: r.Kind, fieldRegion: r.Region, "id": r.ID}
+		if r.Name != "" {
+			m["name"] = r.Name
+		}
 		if r.Managed {
 			m["managed"] = true
 		}
@@ -202,6 +211,10 @@ func (c *Controller) apply(
 			m["message"] = r.Message
 		}
 		list[i] = m
+	}
+	countList := make([]any, len(counts))
+	for i, n := range counts {
+		countList[i] = map[string]any{fieldKind: n.Kind, fieldRegion: n.Region, "count": int64(n.Count)}
 	}
 	u := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": v1alpha1.GroupVersion.String(),
@@ -216,7 +229,8 @@ func (c *Controller) apply(
 				"lastTransitionTime": now.UTC().Format(time.RFC3339),
 				"observedGeneration": nc.Generation,
 			}},
-			"resources": list,
+			"resources":      list,
+			"resourceCounts": countList,
 		}}},
 	}}
 	err := c.opts.Client.SubResource("status").Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
@@ -239,7 +253,8 @@ func sameResources(a, b []v1alpha1.ResourceStatus) bool {
 	}
 	for i := range a {
 		x, y := a[i], b[i]
-		if x.Kind != y.Kind || x.Region != y.Region || x.ID != y.ID || x.Managed != y.Managed || x.Message != y.Message {
+		if x.Kind != y.Kind || x.Region != y.Region || x.ID != y.ID || x.Name != y.Name || x.Managed != y.Managed ||
+			x.Message != y.Message {
 			return false
 		}
 		switch {

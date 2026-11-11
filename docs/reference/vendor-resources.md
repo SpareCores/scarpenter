@@ -183,11 +183,16 @@ an adoption) and the garbage collector lists them by marker.
 The vendor status `status.vendors.<vendor>` holds:
 
 - `resources`: the resources referenced and managed, per region (`kind`,
-  `region`, `id`, `name`, `managed`, `source`: `use`, `discovered`, `default` or
-  `created`; `lastUsed` for managed ones, `message` for a deletion that failed).
-  At most 128 entries. A `use` with `select: all` lists every match, so many regions
-  with many subnets can reach the cap; the entries are then truncated and
-  `message` says so.
+  `region`, `id`, `name`, `managed`; `lastUsed` for managed ones, `message` for a
+  deletion that failed; `source`: `use`, `discovered`, `default` or `created` comes with
+  the resolution order of [plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) B3).
+  At most 128 entries, in the order kind, region, ID. A `use` with `select: all` lists
+  every match, so many regions with many subnets can reach the cap; the list is then cut
+  at 128 and `resourceCounts` (`kind`, `region`, `count`) says how many resources there
+  are in every region and kind. Without the cap `resourceCounts` is absent.
+- a launched node records the IDs it launched with in the annotation
+  `scarpenter.sparecores.com/resources` ([labels](labels.md)); a later re-resolution that
+  finds other resources changes new launches only.
 - the condition `ResourcesReady`: `True` when every region has what the NodeClass
   needs; `False` (reason `ResourcesUnavailable`) with a message that names each
   region and kind and what excluded the rest (`eu-west-1: subnets: 14 listed, 3 match
@@ -258,7 +263,9 @@ machine lost them, and deleted only while no VM is attached.
 
 `vendors.ManagedResources`: `Kinds`, `Resolve` (existing resources by the selector, `UseRef`: IDs, name, tags, `match`,
 `filters`, `expression`, `select` and `orderBy`, placeholders already expanded; an empty
-reference means the vendor's default; nothing found is an empty result), `Ensure` (find by name and marker, else create; idempotent;
+reference means the vendor's default; a selector that selects nothing, or too much, is
+a typed `NoMatch` or `Ambiguous` error with the counts), `Selectors` (what the driver
+supports of the selector per kind, and on which side), `Ensure` (find by name and marker, else create; idempotent;
 reports whether it created), `InUse` (in use now, and the last use or creation),
 `Delete` (idempotent; refuses resources that are not managed; a resource the
 vendor will not delete is `Retryable`) and `List` (by marker, per region). See

@@ -146,9 +146,18 @@ type VendorStatus struct {
 	// +optional
 	Images []ImageStatus `json:"images,omitempty"`
 
-	// resources are the vendor resources referenced or managed, per region.
+	// resources are the vendor resources referenced or managed, per region, up to
+	// 128 entries. Past that, resources is cut at 128 and resourceCounts says how
+	// many resources there are per region and kind.
+	// +kubebuilder:validation:MaxItems=128
 	// +optional
 	Resources []ResourceStatus `json:"resources,omitempty"`
+
+	// resourceCounts is the number of resources per region and kind, only when
+	// there are more than resources can list.
+	// +kubebuilder:validation:MaxItems=512
+	// +optional
+	ResourceCounts []ResourceCount `json:"resourceCounts,omitempty"`
 
 	// quota is the quota view per region and capacity type.
 	// +optional
@@ -183,6 +192,9 @@ type ResourceStatus struct {
 	// id of the resource at the vendor.
 	// +required
 	ID string `json:"id"`
+	// name of the resource, where the vendor has one.
+	// +optional
+	Name string `json:"name,omitempty"`
 	// managed is true for resources SCarpenter created.
 	// +optional
 	Managed bool `json:"managed,omitempty"`
@@ -192,6 +204,17 @@ type ResourceStatus struct {
 	// message explains a resource that is not ready or cannot be deleted.
 	// +optional
 	Message string `json:"message,omitempty"`
+}
+
+// ResourceCount is the number of resources of a kind in a region.
+type ResourceCount struct {
+	// +required
+	Kind string `json:"kind"`
+	// +required
+	Region string `json:"region"`
+	// count of the resources of the kind in the region.
+	// +required
+	Count int32 `json:"count"`
 }
 
 // QuotaStatus is the quota view of one bucket.

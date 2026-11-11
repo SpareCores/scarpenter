@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // keyResources is the key of the resource lists in the ConfigMaps.
@@ -79,6 +79,165 @@ type existingResource struct {
 	Tags   map[string]string `json:"tags,omitempty"`
 	// Default marks the vendor's own default resource of the kind.
 	Default bool `json:"default,omitempty"`
+	// The attributes the portable match reads; unset ones are unknown, and
+	// State defaults to available.
+	Created     *time.Time `json:"created,omitempty"`
+	Description string     `json:"description,omitempty"`
+	Zone        string     `json:"zone,omitempty"`
+	Network     string     `json:"network,omitempty"`
+	CIDR        string     `json:"cidr,omitempty"`
+	State       string     `json:"state,omitempty"`
+}
+
+// The architectures of images, as the platform names them.
+const (
+	archAMD64 = "amd64"
+	archARM64 = "arm64"
+)
+
+// SelectorMode says who evaluates the selector in the fake: the "vendor" (the
+// fake narrows exactly), a superset (the fake narrows loosely and the shared
+// matcher finishes) or only the client (the fake returns everything). The
+// conformance cases run the same assertions in every mode.
+type SelectorMode int
+
+// Selector modes.
+const (
+	SelectorServer SelectorMode = iota
+	SelectorSuperset
+	SelectorClient
+)
+
+// SetSelectorMode changes who evaluates the selector (tests).
+func (d *Driver) SetSelectorMode(m SelectorMode) { d.selMode.Store(int32(m)) }
+
+func (d *Driver) side() vendors.Side {
+	switch SelectorMode(d.selMode.Load()) {
+	case SelectorSuperset:
+		return vendors.SideServerClient
+	case SelectorClient:
+		return vendors.SideClient
+	}
+	return vendors.SideServer
+}
+
+// Selectors implements vendors.ManagedResources: the kinds a NodeClass can
+// bring. The fake declares everything the matcher can do, with the side of the
+// current mode, and the filters state, zone and tag:<key> (always evaluated by
+// the fake, like a native filter).
+func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
+	side := d.side()
+	match := func(attrs ...string) map[string]vendors.FieldCap {
+		m := map[string]vendors.FieldCap{}
+		for _, a := range attrs {
+			m[a] = vendors.FieldCap{Field: a, Side: side}
+		}
+		return m
+	}
+	filters := []vendors.FilterCap{
+		{Name: "state", Side: vendors.SideServer}, {Name: "zone", Side: vendors.SideServer},
+		{Name: "tag:*", Side: vendors.SideServer},
+	}
+	return map[vendors.ResourceKind]vendors.SelectorCaps{
+		KindNetwork: {
+			Zonal: true, HasCreated: true, Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: "name", Side: side},
+			Match: match(vendors.MatchZone, vendors.MatchNetwork, vendors.MatchCIDR, vendors.MatchWithin,
+				vendors.MatchState, vendors.MatchDescription, vendors.MatchCreatedAfter, vendors.MatchCreatedBefore),
+			Filters: filters, DefaultSelect: common.SelectAll,
+		},
+		KindGroup: {
+			HasCreated: true, Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: "name", Side: side},
+			Match:   match(vendors.MatchState, vendors.MatchCreatedAfter, vendors.MatchCreatedBefore),
+			Filters: filters, DefaultSelect: common.SelectExactlyOne,
+		},
+	}
+}
+
+// VendorArch implements vendors.ArchNamer (the fake serves the AWS spelling).
+func (d *Driver) VendorArch(arch string) (string, bool) {
+	switch arch {
+	case archAMD64:
+		return "x86_64", true
+	case archARM64:
+		return archARM64, true
+	}
+	return "", false
+}
+
+func (e existingResource) fields() selector.Fields {
+	f := selector.Fields{ID: e.ID, Name: e.Name, Tags: e.Tags, Attrs: map[string][]string{}}
+	if e.Created != nil {
+		f.Created = *e.Created
+	}
+	state := e.State
+	if state == "" {
+		state = "available"
+	}
+	f.Attrs[vendors.MatchState] = []string{state}
+	if e.Description != "" {
+		f.Attrs[vendors.MatchDescription] = []string{e.Description}
+	}
+	if e.Zone != "" {
+		f.Attrs[vendors.MatchZone] = []string{e.Zone}
+	}
+	if e.Network != "" {
+		f.Attrs[vendors.MatchNetwork] = []string{e.Network}
+	}
+	if e.CIDR != "" {
+		f.Attrs[vendors.MatchCIDR] = []string{e.CIDR}
+	}
+	return f
+}
+
+// nativeFilters applies the fake's own filters, which the fake always
+// evaluates: state, zone and tag:<key>.
+func nativeFilters(fs []common.ResourceFilter, f selector.Fields) bool {
+	for _, fl := range fs {
+		var have []string
+		switch name := fl.Name; {
+		case name == "state" || name == "zone":
+			have = f.Attrs[name]
+		case strings.HasPrefix(name, "tag:"):
+			if v, ok := f.Tags[strings.TrimPrefix(name, "tag:")]; ok {
+				have = []string{v}
+			}
+		}
+		if !slices.ContainsFunc(have, func(h string) bool { return slices.Contains(fl.Values, h) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// narrow is what the fake, as the vendor, does before answering: exactly what
+// it is asked (server), a superset of it (a substring of the name, tag keys
+// only) or nothing (client).
+func narrow(mode SelectorMode, ref vendors.UseRef, caps vendors.SelectorCaps, cands []existingResource,
+) []existingResource {
+	switch mode {
+	case SelectorClient:
+		return cands
+	case SelectorSuperset:
+		loose := vendors.UseRef{Tags: map[string]string{}, Select: common.SelectAll}
+		for k := range ref.Tags {
+			loose.Tags[k] = "*"
+		}
+		if lit := selector.LongestLiteral(ref.Name); ref.Name != "" && lit != "" {
+			cands = slices.DeleteFunc(slices.Clone(cands), func(e existingResource) bool {
+				return !strings.Contains(e.Name, lit)
+			})
+		}
+		if len(loose.Tags) == 0 {
+			return cands
+		}
+		res, _ := selector.Apply(loose, caps, cands, existingResource.fields)
+		return res.Items
+	}
+	exact := ref
+	exact.Filters = nil
+	exact.Select, exact.OrderBy = common.SelectAll, "" // a vendor lists, it does not choose
+	res, _ := selector.Apply(exact, caps, cands, existingResource.fields)
+	return res.Items
 }
 
 func (r *resourceRecord) ref() vendors.ResourceRef {
@@ -184,39 +343,37 @@ func tagStrings(in map[vendors.TagKey]string) map[string]string {
 }
 
 // Resolve implements vendors.ManagedResources: the account's existing
-// resources (steering), never the managed ones.
+// resources (steering), never the managed ones, selected as a vendor would:
+// narrowed by the fake (per the selector mode) and finished by the shared
+// matcher.
 func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
 	d.refreshConfig(ctx)
-	var out []vendors.ResourceRef
+	var cands []existingResource
 	for _, e := range d.current().existing {
 		if e.Kind != string(kind) || e.Region != region {
 			continue
 		}
-		switch {
-		case ref.IsDefault():
-			if !e.Default {
-				continue
+		if ref.IsDefault() {
+			if e.Default {
+				cands = append(cands, e)
 			}
-		case len(ref.IDs) > 0:
-			if !slices.Contains(ref.IDs, e.ID) {
-				continue
-			}
-		case ref.NamePattern != "":
-			if ok, _ := path.Match(ref.NamePattern, e.Name); !ok {
-				continue
-			}
-		default:
-			matches := true
-			for k, v := range ref.Tags {
-				if e.Tags[k] != v {
-					matches = false
-				}
-			}
-			if !matches {
-				continue
-			}
+			continue
 		}
+		cands = append(cands, e)
+	}
+	if !ref.IsDefault() {
+		caps := d.Selectors()[kind]
+		cands = slices.DeleteFunc(cands, func(e existingResource) bool { return !nativeFilters(ref.Filters, e.fields()) })
+		cands = narrow(SelectorMode(d.selMode.Load()), ref, caps, cands)
+		res, err := selector.Apply(ref, caps, cands, existingResource.fields)
+		if err != nil {
+			return nil, err
+		}
+		cands = res.Items
+	}
+	out := make([]vendors.ResourceRef, 0, len(cands))
+	for _, e := range cands {
 		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: e.ID, Name: e.Name})
 	}
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })

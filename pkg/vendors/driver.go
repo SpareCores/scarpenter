@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"reflect"
 	"strings"
 	"time"
 
@@ -519,17 +520,38 @@ type KindSpec struct {
 	DeleteOrder int
 }
 
-// UseRef says which existing resources to use. All empty means the vendor's own
-// default resource of the kind, where it has one.
+// UseRef is the selector of the resources to use (ADR-023, A10) for one region
+// (and zone): the NodeClass's `use` with the region's IDs gathered ("*" and the
+// region key) and the placeholders expanded. The fields are ANDed. A driver
+// asks the vendor for what it can filter and finishes with
+// selector.Apply; it never matches on its own. Nothing given means the vendor's
+// own default resource of the kind, where it has one.
 type UseRef struct {
-	IDs         []string
-	NamePattern string
-	Tags        map[string]string
+	// IDs are the vendor IDs for the region.
+	IDs []string
+	// Name is a glob on the kind's name field.
+	Name string
+	// Tags are the tags (labels) that must be present; "*" means the key
+	// exists.
+	Tags map[string]string
+	// Match holds the portable attributes.
+	Match common.ResourceMatch
+	// Filters are the vendor's own filters, passed through.
+	Filters []common.ResourceFilter
+	// Expression is a query in the vendor's own language.
+	Expression string
+	// Select and OrderBy say how many of the matches are used; the core fills
+	// Select with the kind's default when the NodeClass leaves it out.
+	Select  common.Select
+	OrderBy string
 }
 
-// IsDefault reports whether the reference asks for the vendor's default.
+// IsDefault reports whether the reference asks for the vendor's default:
+// nothing that selects was given (Select and OrderBy only choose among
+// matches).
 func (u UseRef) IsDefault() bool {
-	return len(u.IDs) == 0 && u.NamePattern == "" && len(u.Tags) == 0
+	return len(u.IDs) == 0 && u.Name == "" && len(u.Tags) == 0 && len(u.Filters) == 0 &&
+		u.Expression == "" && reflect.DeepEqual(u.Match, common.ResourceMatch{})
 }
 
 // TagResource is the logical tag that records the kind of a managed resource;
@@ -571,11 +593,19 @@ type ResourceRef struct {
 type ManagedResources interface {
 	// Kinds lists the kinds the driver knows.
 	Kinds() []KindSpec
-	// Resolve finds existing resources of the kind in the region by IDs, name
-	// pattern or tags; with an empty UseRef the vendor's own default resources
-	// (AWS default VPC subnets, GCP default network). Nothing found is an
-	// empty result, not an error. Resolved resources are never modified.
+	// Resolve finds the existing resources of the kind in the region that the
+	// selector selects (the vendor call, then selector.Apply: fields ANDed,
+	// Select applied); with a default UseRef the vendor's own default
+	// resources (AWS default VPC subnets, GCP default network). A selector
+	// that selects nothing, or too many for its Select, returns a
+	// *selector.NoMatchError or *selector.AmbiguousError (the counts after
+	// each stage); a default that does not exist is an empty result. Resolved
+	// resources are never modified.
 	Resolve(ctx context.Context, kind ResourceKind, region string, ref UseRef) ([]ResourceRef, error)
+	// Selectors declares, per kind that accepts `use`, what the driver's
+	// Resolve supports of the selector and on which side (SelectorCaps). A
+	// kind that is absent accepts no `use`.
+	Selectors() map[ResourceKind]SelectorCaps
 	// Ensure finds the resource by name and ownership marker, or creates it;
 	// idempotent. created is false when an existing resource was adopted.
 	Ensure(ctx context.Context, kind ResourceKind, region string, spec CreateSpec) (
@@ -590,6 +620,14 @@ type ManagedResources interface {
 	// List returns the resources in the regions that carry all the tags (the
 	// ownership marker), for adoption and garbage collection.
 	List(ctx context.Context, regions []string, tags map[TagKey]string) ([]ResourceRef, error)
+}
+
+// ArchNamer is the optional capability of a driver whose vendor spells the CPU
+// architectures of images its own way: the value of {vendorArch} in `use`
+// (AWS x86_64, GCP X86_64, Azure x64, hcloud x86). ok is false for an
+// architecture the vendor has no image for.
+type ArchNamer interface {
+	VendorArch(arch string) (name string, ok bool)
 }
 
 // ZoneChecker is the optional capability of a driver that can tell, before any

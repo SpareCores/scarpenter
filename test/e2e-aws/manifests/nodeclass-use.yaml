@@ -25,5 +25,5 @@ spec:
       storage:
         root: {volumeType: gp3, volumeSize: 20Gi}
       resources:
-        subnets: {use: {selector: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}}
-        securityGroups: {use: {selector: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}}
+        subnets: {use: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}
+        securityGroups: {use: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}

@@ -36,6 +36,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/options"
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -52,6 +53,7 @@ const (
 	ReasonResolutionFailed    = "ResolutionFailed"
 	ReasonValid               = "Valid"
 	ReasonInvalidKubelet      = "InvalidKubeletSettings"
+	ReasonInvalidUse          = "InvalidResourceUse"
 	ReasonVersionSkew         = "KubernetesVersionNotSupported"
 	ReasonReferenceNotFound   = "ReferenceNotFound"
 	ReasonReferenceUnreadable = "ReferenceUnreadable"
@@ -312,6 +314,10 @@ func (c *Controller) validate(
 		fail(ReasonInvalidKubelet, err)
 		return inputs, false
 	}
+	if err := resources.CheckUsesSelect(desired); err != nil {
+		fail(ReasonInvalidUse, err)
+		return inputs, false
+	}
 	if err := c.checkSkew(ctx, desired); err != nil {
 		fail(ReasonVersionSkew, err)
 		return inputs, false
@@ -505,6 +511,12 @@ func (c *Controller) vendorReady(
 	}
 	if v, ok := drv.(vendors.NodeClassValidator); ok {
 		if err := v.ValidateNodeClass(ctx, nc); err != nil {
+			return false, ReasonVendorInvalid, trim(err.Error())
+		}
+	}
+	// Every `use` block must be within what the driver declares it supports.
+	if mr, ok := drv.(vendors.ManagedResources); ok {
+		if err := resources.ValidateUses(nc, vendor, mr); err != nil {
 			return false, ReasonVendorInvalid, trim(err.Error())
 		}
 	}

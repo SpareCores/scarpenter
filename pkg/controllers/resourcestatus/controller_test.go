@@ -132,7 +132,7 @@ func TestResourceStatus(t *testing.T) {
 			Network:    v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateDirect},
 			Vendors: v1alpha1.VendorBlocks{AWS: &aws.Settings{Resources: &aws.Resources{
 				Subnets: &common.Resource{Use: &common.ResourceUse{
-					Selector: &common.TagSelector{Tags: map[string]string{"scarpenter.sparecores.com/use": "true"}}}},
+					Tags: map[string]string{"scarpenter.sparecores.com/use": "true"}}},
 				SecurityGroups: &common.Resource{Create: &common.ResourceCreate{
 					Timing: &common.Timing{Mode: common.TimingPreCreate, Regions: []string{"us-east-1"}}}},
 			}}},
@@ -230,5 +230,90 @@ func checkOwnership(ctx context.Context, t *testing.T, c client.Client, name str
 	}
 	if !owned {
 		t.Errorf("the status is not owned by %s: %+v", resourcestatus.FieldManager, final.ManagedFields)
+	}
+}
+
+// TestResourceStatusCountsPastTheCap: the status lists at most 128 resources;
+// with more, resourceCounts says how many there are per region and kind, and
+// every entry carries the name the vendor gave the resource.
+func TestResourceStatusCountsPastTheCap(t *testing.T) {
+	cfg, stop, err := testutil.StartEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stop() })
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{clientgoscheme.AddToScheme, v1alpha1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const className = "counts"
+	nc := &v1alpha1.SCNodeClass{
+		ObjectMeta: metav1.ObjectMeta{Name: className},
+		Spec: v1alpha1.SCNodeClassSpec{
+			Flatcar:    v1alpha1.FlatcarSpec{Version: "4757.2.3"},
+			Kubernetes: v1alpha1.KubernetesSpec{Version: "v1.37.1"},
+			Network:    v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateDirect},
+			Vendors: v1alpha1.VendorBlocks{AWS: &aws.Settings{Resources: &aws.Resources{
+				Subnets: &common.Resource{Use: &common.ResourceUse{
+					Tags: map[string]string{"use": "true"}, Select: common.SelectAll}},
+			}}},
+		},
+	}
+	if err := c.Create(t.Context(), nc); err != nil {
+		t.Fatal(err)
+	}
+	clk := clocktesting.NewFakeClock(time.Now())
+	drv := resourcestest.New("aws", clk)
+	for i := range 130 {
+		drv.Existing = append(drv.Existing, resourcestest.Existing{
+			Kind: resourcestest.Subnets, Region: "us-east-1", ID: fmt.Sprintf("subnet-%03d", i), Name: fmt.Sprintf("n-%03d", i),
+			Tags: map[string]string{"use": "true"}})
+	}
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"},
+		Controller: config.Controller{SkipNameValidation: new(true)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	engine := resources.New(resources.Options{
+		Registry: vendors.NewRegistryFrom(drv), Reader: mgr.GetClient(), Clock: clk, ClusterName: "my-cluster", Recorder: rec,
+	})
+	if err := resourcestatus.New(resourcestatus.Options{
+		Client: mgr.GetClient(), Engine: engine, Regions: regions{"us-east-1"}, Recorder: rec, Interval: 100 * time.Millisecond,
+	}).Register(mgr); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = mgr.Start(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	var got v1alpha1.SCNodeClass
+	err = wait.PollUntilContextTimeout(ctx, 50*time.Millisecond, 60*time.Second, true, func(context.Context) (bool, error) {
+		if err := c.Get(ctx, client.ObjectKey{Name: className}, &got); err != nil {
+			return false, err
+		}
+		return len(got.Status.Vendors["aws"].Resources) > 0, nil
+	})
+	if err != nil {
+		t.Fatalf("no resources in the status: %v", err)
+	}
+	vs := got.Status.Vendors["aws"]
+	if len(vs.Resources) != resources.MaxStatusEntries {
+		t.Errorf("%d entries, want the cap of %d", len(vs.Resources), resources.MaxStatusEntries)
+	}
+	if vs.Resources[0].Name != "n-000" {
+		t.Errorf("the entry has no name: %+v", vs.Resources[0])
+	}
+	if len(vs.ResourceCounts) != 1 || vs.ResourceCounts[0] != (v1alpha1.ResourceCount{Kind: "subnets", Region: "us-east-1", Count: 130}) {
+		t.Errorf("counts %+v, want 130 subnets in us-east-1", vs.ResourceCounts)
 	}
 }

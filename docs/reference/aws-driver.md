@@ -201,7 +201,9 @@ storage profiles override them key by key.
 instance profile name (`[\w+=,.@-]{1,128}`), hop limit 1 to 64, tag keys and values
 (no `aws:` prefix, no `scarpenter.sparecores.com/` keys, at most 40 tags), inbound
 CIDRs, resource references (`subnet-`, `sg-`, `pg-` IDs per region; the tags of a `use`;
-the rest of the selector is checked against the driver's capability table, plan 14 A10),
+the rest of the selector is checked against the driver's capability declaration: the `match` attributes, the
+`filters` names per kind (a test checks them against the pinned SDK's documentation of each `Describe*` call), the
+placeholders and `orderBy`; a `use` that selects nothing is invalid),
 and the EBS limits per volume type:
 
 | Type | Size (GiB) | IOPS | Throughput (MiB/s) | Boot volume |
@@ -265,8 +267,9 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
 
 - **Subnets.** `use` with the [selector](resource-selectors.md#aws): IDs per region, name
   pattern (tag `Name`, wildcards, `{zone}` expanded per zone), tags, `match` (zone, network,
-  CIDR, owner, state) or native filters; today `ids`, `name` and `selector.tags` one at a time,
-  until plan 14 (A10) lands the rest. In each zone the launch takes the matching subnet
+  CIDR, within, state) and the native `DescribeSubnets` filters, all ANDed (the old
+  `use.selector.tags` is now `use.tags`). EC2 evaluates what it has a filter for and the shared matcher
+  finishes the rest and chooses (`select`, default `all`). In each zone the launch takes the matching subnet
   with the most free addresses (cached 5 minutes); a zone without one is
   `ZoneUnusable` (`NoSubnetInZone`), and a `{zone}` pattern with no match in a zone
   gates only that zone. Without `use`, the default VPC's default subnets are used

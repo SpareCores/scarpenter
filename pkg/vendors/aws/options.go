@@ -358,7 +358,7 @@ func (d *Driver) requirePlacementGroup(ctx context.Context, req vendors.PrepareR
 	profile := req.Settings.Profiles[vendors.ProfilePlacement]
 	rr := vendors.ResourceRequest{Kind: KindPlacementGroups}
 	if g.Use != nil {
-		rr.Use = &vendors.UseRef{NamePattern: g.Use.Name}
+		rr.Use = &vendors.UseRef{Name: g.Use.Name}
 	} else {
 		if req.RunKey == "" {
 			return vendors.ResourceRef{}, vendors.NewError(vendors.Fatal, codeInvalidSettings, fmt.Errorf(

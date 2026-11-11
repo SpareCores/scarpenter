@@ -66,9 +66,9 @@ func TestValidateNodeClass(t *testing.T) {
 		{"duplicate data volume names", block(awsapi.Settings{Storage: &awsapi.Storage{Data: []awsapi.DataVolume{data("gp3", "10Gi", nil, nil), data("gp3", "10Gi", nil, nil)}}}), "used twice"},
 		{"local storage without a mount path", block(awsapi.Settings{Storage: &awsapi.Storage{LocalStorage: &common.LocalStorage{Policy: "mount"}}}), "needs a mountPath"},
 		{"inbound CIDR", block(awsapi.Settings{Networking: &common.NetworkingOverride{Inbound: &common.Inbound{Rules: []common.InboundRule{{Protocol: "tcp", CIDRs: []string{"not-a-cidr"}}}}}}), "is not a CIDR"},
-		{"subnet ids", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string][]string{"us-east-1": {"subnet-0123456789abcdef0", "sg-1"}}}}}}), `"sg-1" is not a valid ID`},
-		{"ids for a bad region", block(awsapi.Settings{Resources: &awsapi.Resources{SecurityGroups: &common.Resource{Use: &common.ResourceUse{IDs: map[string][]string{"nowhere": {"sg-0123456789abcdef0"}}}}}}), `"nowhere" is not a region`},
-		{"selector tag key", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Selector: &common.TagSelector{Tags: map[string]string{"aws:cloudformation:stack": "x"}}}}}}), "reserved prefix aws:"},
+		{"subnet ids", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{"us-east-1": {"subnet-0123456789abcdef0", "sg-1"}}}}}}), `"sg-1" is not a valid ID`},
+		{"ids for a bad region", block(awsapi.Settings{Resources: &awsapi.Resources{SecurityGroups: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{"nowhere": {"sg-0123456789abcdef0"}}}}}}), `"nowhere" is not a region`},
+		{"selector tag key", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Tags: map[string]string{"aws:cloudformation:stack": "x"}}}}}), "reserved prefix aws:"},
 		{"a name pattern is fine", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Name: "nodes-{zone}"}}}}), ""},
 	}
 	for _, tc := range cases {
@@ -132,7 +132,7 @@ func TestValidateProfilesAndTags(t *testing.T) {
 
 func TestValidateEgressWithoutAPublicIPv4(t *testing.T) {
 	e := newEnv(t, envOptions{})
-	use := &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string][]string{"us-east-1": {"subnet-0123456789abcdef0"}}}}}
+	use := &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{"us-east-1": {"subnet-0123456789abcdef0"}}}}}
 	for name, tc := range map[string]struct {
 		ipv4, ipv6 *bool
 		res        *awsapi.Resources

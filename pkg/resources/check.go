@@ -19,6 +19,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // MaxStatusEntries caps status.vendors.<v>.resources.
@@ -28,6 +29,9 @@ const MaxStatusEntries = 128
 type Report struct {
 	// Resources are the referenced and managed resources, sorted.
 	Resources []v1alpha1.ResourceStatus
+	// Counts are the resources per region and kind, set only when there are
+	// more than MaxStatusEntries (Resources is then cut).
+	Counts []v1alpha1.ResourceCount
 	// Regions says per checked region whether the resources the NodeClass
 	// needs are ready, with the reason when not. A region whose check failed
 	// for a transient reason is absent: its state stays as it was.
@@ -94,6 +98,16 @@ func (e *Engine) Check(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor str
 		return strings.Compare(a.Kind+"/"+a.Region+"/"+a.ID, b.Kind+"/"+b.Region+"/"+b.ID)
 	})
 	if len(rep.Resources) > MaxStatusEntries {
+		counts := map[[2]string]int32{}
+		for _, r := range rep.Resources {
+			counts[[2]string{r.Region, r.Kind}]++
+		}
+		for k, n := range counts {
+			rep.Counts = append(rep.Counts, v1alpha1.ResourceCount{Region: k[0], Kind: k[1], Count: n})
+		}
+		slices.SortFunc(rep.Counts, func(a, b v1alpha1.ResourceCount) int {
+			return strings.Compare(a.Region+"/"+a.Kind, b.Region+"/"+b.Kind)
+		})
 		rep.Resources = rep.Resources[:MaxStatusEntries]
 	}
 	for region, st := range rep.Regions {
@@ -144,7 +158,7 @@ func (c *checker) add(kind vendors.ResourceKind, region string, ref vendors.Reso
 	}
 	c.seen[k] = true
 	c.refs[kind] = append(c.refs[kind], ref)
-	rs := v1alpha1.ResourceStatus{Kind: string(kind), Region: region, ID: ref.ID, Managed: ref.Managed}
+	rs := v1alpha1.ResourceStatus{Kind: string(kind), Region: region, ID: ref.ID, Name: ref.Name, Managed: ref.Managed}
 	if ref.Managed {
 		id := c.vendor + "/" + ref.ID
 		c.e.mu.Lock()
@@ -230,42 +244,50 @@ func (c *checker) kind(
 			c.add(ks.Kind, region, r)
 		}
 	}
-	resolve := func(ref vendors.UseRef) ([]vendors.ResourceRef, bool) {
+	// resolve returns the resources, or none: why the selector selected nothing
+	// (or too much), with the counts after each stage.
+	resolve := func(ref vendors.UseRef) (refs []vendors.ResourceRef, none string, failed bool) {
 		refs, err := e.resolve(ctx, c.mr, c.vendor, ks.Kind, region, ref)
-		if err != nil {
+		switch {
+		case isSelection(err):
+			return nil, err.Error(), false
+		case err != nil:
 			c.rep.Errors = append(c.rep.Errors,
 				fmt.Errorf("resolving the %s of %s in %s: %w", ks.Kind, c.vendor, region, err))
-			return nil, true
+			return nil, "", true
+		case len(refs) == 0:
+			return nil, "nothing matches " + describe(ref), false
 		}
-		return refs, false
+		return refs, "", false
 	}
 	switch {
-	case cfg.Use != nil && strings.Contains(cfg.Use.Name, "{zone}"):
+	case cfg.Use != nil && selector.UsesZone(cfg.Use):
 		return c.perZone(ks, cfg, region, resolve, found)
 	case cfg.Use != nil:
-		ref, err := useRefFor(cfg.Use, region, "")
+		ref, err := e.useRefFor(c.nc, c.mr, c.vendor, ks.Kind, cfg.Use, region, "")
 		if err != nil {
 			return fmt.Sprintf("%s: %v", ks.Kind, err), false
 		}
-		refs, failed := resolve(ref)
+		refs, none, failed := resolve(ref)
 		if failed {
 			return "", true
 		}
-		if len(refs) == 0 {
-			return fmt.Sprintf("%s: nothing matches %s", ks.Kind, describe(ref)), false
+		if none != "" {
+			return fmt.Sprintf("%s: %s", ks.Kind, none), false
 		}
 		found(refs)
 	case cfg.Forbid:
-		refs, failed := resolve(vendors.UseRef{})
+		refs, none, failed := resolve(vendors.UseRef{})
 		if failed {
 			return "", true
 		}
-		if len(refs) == 0 {
+		if none != "" {
 			return fmt.Sprintf("%s: creating it is forbidden and the vendor has no default", ks.Kind), false
 		}
 		found(refs)
 	case cfg.Create == nil && ks.Scope == vendors.ScopeRegion:
-		refs, failed := resolve(vendors.UseRef{})
+		// The vendor's default; none is fine, the resource is created.
+		refs, _, failed := resolve(vendors.UseRef{})
 		if failed {
 			return "", true
 		}
@@ -280,35 +302,36 @@ func (c *checker) kind(
 	return "", false
 }
 
-// perZone checks a name pattern with {zone}: it is expanded for every zone of
-// the region. The region is unavailable when no zone has a match; a zone
-// without one fails only the launches into it (they are rejected with
-// ResourceMissing, the rest of the region is fine).
+// perZone checks a use block with {zone}: it is expanded for every zone of the
+// region. The region is unavailable when no zone has a match; a zone without one
+// fails only the launches into it (they are rejected with ResourceMissing, the
+// rest of the region is fine).
 func (c *checker) perZone(
 	ks vendors.KindSpec, cfg common.Resource, region string,
-	resolve func(vendors.UseRef) ([]vendors.ResourceRef, bool), found func([]vendors.ResourceRef),
+	resolve func(vendors.UseRef) ([]vendors.ResourceRef, string, bool), found func([]vendors.ResourceRef),
 ) (problem string, transient bool) {
 	var zones []string
 	if c.e.opts.Zones != nil {
 		zones = c.e.opts.Zones(c.vendor, region)
 	}
 	if len(zones) == 0 {
-		return fmt.Sprintf("%s: the pattern %q needs the zones of the region, which are not known",
-			ks.Kind, cfg.Use.Name), false
+		return fmt.Sprintf("%s: {zone} needs the zones of the region, which are not known", ks.Kind), false
 	}
 	matched := 0
+	reasons := map[string]string{}
 	var empty []string
 	for _, zone := range zones {
-		ref, err := useRefFor(cfg.Use, region, zone)
+		ref, err := c.e.useRefFor(c.nc, c.mr, c.vendor, ks.Kind, cfg.Use, region, zone)
 		if err != nil {
 			return fmt.Sprintf("%s: %v", ks.Kind, err), false
 		}
-		refs, failed := resolve(ref)
+		refs, none, failed := resolve(ref)
 		if failed {
 			return "", true
 		}
-		if len(refs) == 0 {
+		if none != "" {
 			empty = append(empty, zone)
+			reasons[zone] = none
 			continue
 		}
 		matched++
@@ -319,12 +342,15 @@ func (c *checker) perZone(
 			if c.zones == nil {
 				c.zones = map[string]string{}
 			}
-			c.zones[z] = fmt.Sprintf("%s: nothing matches the pattern %q in %s", ks.Kind, cfg.Use.Name, z)
+			c.zones[z] = fmt.Sprintf("%s in %s: %s", ks.Kind, z, reasons[z])
 		}
 	}
 	if matched == 0 {
-		return fmt.Sprintf("%s: nothing matches the pattern %q in any zone (%s)", ks.Kind, cfg.Use.Name,
-			strings.Join(empty, ", ")), false
+		var parts []string
+		for _, z := range empty {
+			parts = append(parts, z+": "+reasons[z])
+		}
+		return fmt.Sprintf("%s: nothing matches in any zone (%s)", ks.Kind, strings.Join(parts, "; ")), false
 	}
 	return "", false
 }

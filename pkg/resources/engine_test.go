@@ -138,9 +138,9 @@ func TestUseByIDsNameAndSelector(t *testing.T) {
 		{Kind: resourcestest.Subnets, Region: region1, ID: "subnet-other", Name: "other", Tags: map[string]string{"use": "false"}},
 	}
 	for name, use := range map[string]*common.ResourceUse{
-		"ids":      {IDs: map[string][]string{region1: {"subnet-a"}, region2: {"subnet-b"}}},
+		"ids":      {IDs: map[string]common.IDList{region1: {"subnet-a"}, region2: {"subnet-b"}}},
 		"name":     {Name: "sc-{region}"},
-		"selector": {Selector: &common.TagSelector{Tags: map[string]string{"use": "true"}}},
+		"selector": {Tags: map[string]string{"use": "true"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			nc := class(name, &aws.Resources{Subnets: &common.Resource{Use: use}})
@@ -159,7 +159,7 @@ func TestUseByIDsNameAndSelector(t *testing.T) {
 
 func TestMissingUseMakesTheRegionUnavailable(t *testing.T) {
 	nc := class("c", &aws.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{
-		Selector: &common.TagSelector{Tags: map[string]string{"use": "true"}}}}})
+		Tags: map[string]string{"use": "true"}}}})
 	e := newEnv(t, envOpts{classes: []*v1alpha1.SCNodeClass{nc}})
 	e.drv.Existing = []resourcestest.Existing{
 		{Kind: resourcestest.Subnets, Region: region1, ID: "subnet-a", Tags: map[string]string{"use": "true"}},
@@ -183,7 +183,7 @@ func TestMissingUseMakesTheRegionUnavailable(t *testing.T) {
 	}
 	// An ID list without an entry for the region must not mean "the default".
 	nc2 := class("c2", &aws.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{
-		IDs: map[string][]string{region1: {"subnet-a"}}}}})
+		IDs: map[string]common.IDList{region1: {"subnet-a"}}}}})
 	e.drv.Existing = append(e.drv.Existing, resourcestest.Existing{Kind: resourcestest.Subnets, Region: region2, ID: "dflt", Default: true})
 	if _, err := e.require(nc2, region2, subnets()); vendors.CodeOf(err) != vendors.CodeResourceMissing {
 		t.Errorf("ids without the region: %v, want ResourceMissing", err)
@@ -328,7 +328,7 @@ func TestPerRunResourcesAreNamedByKey(t *testing.T) {
 		t.Errorf("name %q", a1[0].Name)
 	}
 	// A per-run kind referenced with use is never created.
-	use := &vendors.UseRef{NamePattern: "my-pg"}
+	use := &vendors.UseRef{Name: "my-pg"}
 	e.drv.Existing = []resourcestest.Existing{{Kind: resourcestest.PlacementGroups, Region: region1, ID: "pg-mine", Name: "my-pg"}}
 	refs, err := e.require(nc, region1, vendors.ResourceRequest{Kind: resourcestest.PlacementGroups, Use: use, Key: "x"})
 	if err != nil || refs[0].ID != "pg-mine" || refs[0].Managed {
@@ -588,7 +588,7 @@ func TestSweepDryRunDeletesNothing(t *testing.T) {
 
 func TestCheckReportsUseForbidAndPreCreate(t *testing.T) {
 	nc := class("c", &aws.Resources{
-		Subnets: &common.Resource{Use: &common.ResourceUse{Selector: &common.TagSelector{Tags: map[string]string{"use": "true"}}}},
+		Subnets: &common.Resource{Use: &common.ResourceUse{Tags: map[string]string{"use": "true"}}},
 		SecurityGroups: &common.Resource{Create: &common.ResourceCreate{
 			Timing: &common.Timing{Mode: common.TimingPreCreate, Regions: []string{region1}}}},
 		PlacementGroups: &common.Resource{Forbid: true},
@@ -828,7 +828,7 @@ func TestAMissingProfileReferenceDoesNotGateTheRegion(t *testing.T) {
 	nc := class("c", nil)
 	e := newEnv(t, envOpts{})
 	_, err := e.require(nc, region1, vendors.ResourceRequest{
-		Kind: resourcestest.PlacementGroups, Key: "x", Use: &vendors.UseRef{NamePattern: "absent"}})
+		Kind: resourcestest.PlacementGroups, Key: "x", Use: &vendors.UseRef{Name: "absent"}})
 	if vendors.CodeOf(err) != vendors.CodeResourceMissing {
 		t.Fatalf("%v", err)
 	}

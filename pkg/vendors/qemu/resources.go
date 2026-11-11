@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // KindNetwork is the resource kind of the bridges the VMs attach to, the key
@@ -132,39 +132,52 @@ func (d *Driver) Resolve(_ context.Context, kind vendors.ResourceKind, region st
 	for _, n := range d.networks() {
 		managed[n.ID] = true
 	}
-	var out []vendors.ResourceRef
-	for _, b := range bridges {
-		if managed[b.Name] || !matches(b, ref, d.opts.Bridge) {
-			continue
+	if ref.IsDefault() {
+		var out []vendors.ResourceRef
+		for _, b := range bridges {
+			if !managed[b.Name] && b.Name == d.opts.Bridge {
+				out = append(out, vendors.ResourceRef{Kind: KindNetwork, Region: region, ID: b.Name, Name: b.Name})
+			}
 		}
+		return out, nil
+	}
+	var mine []bridgeInfo
+	for _, b := range bridges {
+		if !managed[b.Name] {
+			mine = append(mine, b)
+		}
+	}
+	res, err := selector.Apply(ref, d.Selectors()[KindNetwork], mine, bridgeFields)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]vendors.ResourceRef, 0, len(res.Items))
+	for _, b := range res.Items {
 		out = append(out, vendors.ResourceRef{Kind: KindNetwork, Region: region, ID: b.Name, Name: b.Name})
 	}
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil
 }
 
-func matches(b bridgeInfo, ref vendors.UseRef, def string) bool {
-	switch {
-	case ref.IsDefault():
-		return b.Name == def
-	case len(ref.IDs) > 0:
-		return slices.Contains(ref.IDs, b.Name)
-	case ref.NamePattern != "":
-		ok, _ := path.Match(ref.NamePattern, b.Name)
-		return ok
+// Selectors implements vendors.ManagedResources: a bridge is found by its name
+// (the ID) and by the key=value pairs of its alias, which stand for tags.
+func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
+	return map[vendors.ResourceKind]vendors.SelectorCaps{
+		KindNetwork: {
+			Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: "name", Side: vendors.SideClient},
+			DefaultSelect: common.SelectExactlyOne,
+		},
 	}
-	have := map[string]string{}
+}
+
+func bridgeFields(b bridgeInfo) selector.Fields {
+	tags := map[string]string{}
 	for kv := range strings.FieldsSeq(b.Alias) {
 		if k, v, ok := strings.Cut(kv, "="); ok {
-			have[k] = v
+			tags[k] = v
 		}
 	}
-	for k, v := range ref.Tags {
-		if have[k] != v {
-			return false
-		}
-	}
-	return true
+	return selector.Fields{ID: b.Name, Name: b.Name, Tags: tags}
 }
 
 // Ensure implements vendors.ManagedResources: a record in the state directory

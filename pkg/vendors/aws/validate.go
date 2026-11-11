@@ -20,6 +20,8 @@ import (
 	awsapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/options"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // Syntax of what a NodeClass names.
@@ -163,26 +165,37 @@ func validatePlacement(path string, p *awsapi.Placement) []error {
 	return errs
 }
 
-func validateResource(path string, r *common.Resource, idPattern *regexp.Regexp) []error {
+// validateResource checks a `use` block: the selector against the declaration of
+// the kind (every field, match attribute and filter name), then what only AWS
+// knows: region keys, the shape of IDs and the rules for tags.
+func validateResource(
+	kind vendors.ResourceKind, caps vendors.SelectorCaps, r *common.Resource, idPattern *regexp.Regexp,
+) []error {
 	if r == nil || r.Use == nil {
 		return nil
 	}
-	var errs []error
+	path := "vendors.aws.resources." + string(kind) + ".use"
+	errs := selector.Validate("aws", kind, path, r.Use, caps)
 	for region, ids := range r.Use.IDs {
-		if !regionPattern.MatchString(region) {
-			errs = append(errs, fmt.Errorf("%s.use.ids: %q is not a region", path, region))
+		if region != selector.RegionAll && !regionPattern.MatchString(region) {
+			errs = append(errs, fmt.Errorf("%s.ids: %q is not a region (an AWS region name, or %q for every region)",
+				path, region, selector.RegionAll))
 		}
 		for _, id := range ids {
-			if idPattern != nil && !idPattern.MatchString(id) {
-				errs = append(errs, fmt.Errorf("%s.use.ids[%s]: %q is not a valid ID", path, region, id))
+			if idPattern != nil && !strings.Contains(id, "{") && !idPattern.MatchString(id) {
+				errs = append(errs, fmt.Errorf("%s.ids[%s]: %q is not a valid ID", path, region, id))
 			}
 		}
 	}
-	if r.Use.Selector != nil {
-		for k, v := range r.Use.Selector.Tags {
-			if err := validateTag(k, v); err != nil {
-				errs = append(errs, fmt.Errorf("%s.use.selector.tags: %w", path, err))
-			}
+	for k, v := range r.Use.Tags {
+		if strings.Contains(k, "{") || strings.Contains(v, "{") {
+			continue // checked after the placeholders are expanded
+		}
+		if v == "*" {
+			v = ""
+		}
+		if err := validateTag(k, v); err != nil {
+			errs = append(errs, fmt.Errorf("%s.tags: %w", path, err))
 		}
 	}
 	return errs
@@ -278,9 +291,11 @@ func validateBlock(b *awsapi.Settings) []error {
 		errs = append(errs, validateInbound("vendors.aws.networking.inbound", b.Networking.Inbound)...)
 	}
 	if r := b.Resources; r != nil {
-		errs = append(errs, validateResource("vendors.aws.resources.subnets", r.Subnets, subnetIDPattern)...)
-		errs = append(errs, validateResource("vendors.aws.resources.securityGroups", r.SecurityGroups, groupIDPattern)...)
-		errs = append(errs, validateResource("vendors.aws.resources.placementGroups", r.PlacementGroups,
+		caps := (&Driver{}).Selectors()
+		errs = append(errs, validateResource(KindSubnets, caps[KindSubnets], r.Subnets, subnetIDPattern)...)
+		errs = append(errs, validateResource(KindSecurityGroups, caps[KindSecurityGroups], r.SecurityGroups,
+			groupIDPattern)...)
+		errs = append(errs, validateResource(KindPlacementGroups, caps[KindPlacementGroups], r.PlacementGroups,
 			placementIDPattern)...)
 	}
 	return errs

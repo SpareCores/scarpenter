@@ -907,21 +907,49 @@ Validation: regions is required with mode preCreate and invalid otherwise (`self
 
 use brings an existing resource: it is validated per region, never modified and never deleted.
 
-Validation: set exactly one of ids, name and selector (`(has(self.ids) ? 1 : 0) + (has(self.name) ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1`).
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `ids` | map of array values |  | ids lists the vendor IDs explicitly, per region. |
-| `name` | string |  | name is a name pattern; {region} and {zone} are replaced by the region and zone in scope. At most 255 characters. |
-| `selector` | [object](#specvendorsawsresourcesplacementgroupsuseselector) |  | selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope. |
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsawsresourcesplacementgroupsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsawsresourcesplacementgroupsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
 
-### `spec.vendors.aws.resources.placementGroups.use.selector`
+### `spec.vendors.aws.resources.placementGroups.use.filters[]`
 
-selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope.
+ResourceFilter is one of the vendor's own filters.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `tags` (required) | map of string values |  | tags must all be present with the given values on the resource. |
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.aws.resources.placementGroups.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
 
 ### `spec.vendors.aws.resources.securityGroups`
 
@@ -970,21 +998,49 @@ Validation: regions is required with mode preCreate and invalid otherwise (`self
 
 use brings an existing resource: it is validated per region, never modified and never deleted.
 
-Validation: set exactly one of ids, name and selector (`(has(self.ids) ? 1 : 0) + (has(self.name) ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1`).
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `ids` | map of array values |  | ids lists the vendor IDs explicitly, per region. |
-| `name` | string |  | name is a name pattern; {region} and {zone} are replaced by the region and zone in scope. At most 255 characters. |
-| `selector` | [object](#specvendorsawsresourcessecuritygroupsuseselector) |  | selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope. |
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsawsresourcessecuritygroupsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsawsresourcessecuritygroupsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
 
-### `spec.vendors.aws.resources.securityGroups.use.selector`
+### `spec.vendors.aws.resources.securityGroups.use.filters[]`
 
-selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope.
+ResourceFilter is one of the vendor's own filters.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `tags` (required) | map of string values |  | tags must all be present with the given values on the resource. |
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.aws.resources.securityGroups.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
 
 ### `spec.vendors.aws.resources.subnets`
 
@@ -1033,21 +1089,49 @@ Validation: regions is required with mode preCreate and invalid otherwise (`self
 
 use brings an existing resource: it is validated per region, never modified and never deleted.
 
-Validation: set exactly one of ids, name and selector (`(has(self.ids) ? 1 : 0) + (has(self.name) ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1`).
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `ids` | map of array values |  | ids lists the vendor IDs explicitly, per region. |
-| `name` | string |  | name is a name pattern; {region} and {zone} are replaced by the region and zone in scope. At most 255 characters. |
-| `selector` | [object](#specvendorsawsresourcessubnetsuseselector) |  | selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope. |
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsawsresourcessubnetsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsawsresourcessubnetsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
 
-### `spec.vendors.aws.resources.subnets.use.selector`
+### `spec.vendors.aws.resources.subnets.use.filters[]`
 
-selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope.
+ResourceFilter is one of the vendor's own filters.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `tags` (required) | map of string values |  | tags must all be present with the given values on the resource. |
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.aws.resources.subnets.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
 
 ### `spec.vendors.aws.storage`
 
@@ -1217,21 +1301,49 @@ Validation: regions is required with mode preCreate and invalid otherwise (`self
 
 use brings an existing resource: it is validated per region, never modified and never deleted.
 
-Validation: set exactly one of ids, name and selector (`(has(self.ids) ? 1 : 0) + (has(self.name) ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1`).
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `ids` | map of array values |  | ids lists the vendor IDs explicitly, per region. |
-| `name` | string |  | name is a name pattern; {region} and {zone} are replaced by the region and zone in scope. At most 255 characters. |
-| `selector` | [object](#specvendorsfakeresourcesnetworksuseselector) |  | selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope. |
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsfakeresourcesnetworksusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsfakeresourcesnetworksusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
 
-### `spec.vendors.fake.resources.networks.use.selector`
+### `spec.vendors.fake.resources.networks.use.filters[]`
 
-selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope.
+ResourceFilter is one of the vendor's own filters.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `tags` (required) | map of string values |  | tags must all be present with the given values on the resource. |
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.fake.resources.networks.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
 
 ### `spec.vendors.fake.storage`
 
@@ -1366,21 +1478,49 @@ Validation: regions is required with mode preCreate and invalid otherwise (`self
 
 use brings an existing resource: it is validated per region, never modified and never deleted.
 
-Validation: set exactly one of ids, name and selector (`(has(self.ids) ? 1 : 0) + (has(self.name) ? 1 : 0) + (has(self.selector) ? 1 : 0) == 1`).
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `ids` | map of array values |  | ids lists the vendor IDs explicitly, per region. |
-| `name` | string |  | name is a name pattern; {region} and {zone} are replaced by the region and zone in scope. At most 255 characters. |
-| `selector` | [object](#specvendorsqemuresourcesnetworksuseselector) |  | selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope. |
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsqemuresourcesnetworksusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsqemuresourcesnetworksusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
 
-### `spec.vendors.qemu.resources.networks.use.selector`
+### `spec.vendors.qemu.resources.networks.use.filters[]`
 
-selector matches resources by tags (labels, where the vendor has no tags), evaluated in every region in scope.
+ResourceFilter is one of the vendor's own filters.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `tags` (required) | map of string values |  | tags must all be present with the given values on the resource. |
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.qemu.resources.networks.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
 
 ### `spec.vendors.qemu.storage`
 
@@ -1485,7 +1625,8 @@ VendorStatus is the observed state of one vendor of the SCNodeClass.
 | `hash` | string |  | hash is the drift hash of the shared fields that change what a node is plus this vendor's block (overview section 6.3). |
 | `images` | array of [object](#statusvendorsimages) |  | images are the resolved boot images per region and architecture. |
 | `quota` | array of [object](#statusvendorsquota) |  | quota is the quota view per region and capacity type. |
-| `resources` | array of [object](#statusvendorsresources) |  | resources are the vendor resources referenced or managed, per region. |
+| `resourceCounts` | array of [object](#statusvendorsresourcecounts) |  | resourceCounts is the number of resources per region and kind, only when there are more than resources can list. At most 512 items. |
+| `resources` | array of [object](#statusvendorsresources) |  | resources are the vendor resources referenced or managed, per region, up to 128 entries. Past that, resources is cut at 128 and resourceCounts says how many resources there are per region and kind. At most 128 items. |
 
 ### `status.vendors.*.conditions[]`
 
@@ -1525,6 +1666,16 @@ QuotaStatus is the quota view of one bucket.
 | `region` (required) | string |  |  |
 | `used` (required) | integer (int64) |  | used is the current consumption in the bucket's unit. |
 
+### `status.vendors.*.resourceCounts[]`
+
+ResourceCount is the number of resources of a kind in a region.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `count` (required) | integer (int32) |  | count of the resources of the kind in the region. |
+| `kind` (required) | string |  |  |
+| `region` (required) | string |  |  |
+
 ### `status.vendors.*.resources[]`
 
 ResourceStatus is a vendor resource referenced (use) or managed (create).
@@ -1536,4 +1687,5 @@ ResourceStatus is a vendor resource referenced (use) or managed (create).
 | `lastUsed` | string (date-time) |  | lastUsed is when an instance last used a managed resource. |
 | `managed` | boolean |  | managed is true for resources SCarpenter created. |
 | `message` | string |  | message explains a resource that is not ready or cannot be deleted. |
+| `name` | string |  | name of the resource, where the vendor has one. |
 | `region` (required) | string |  |  |
