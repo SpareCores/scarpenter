@@ -1,0 +1,49 @@
+# The NodeClass of the amd64 scenarios (plan 19): the tailscale template with pinned
+# versions, a 25 GB root disk (the template's tier), a storage profile with a small
+# MaxIOPS data disk, the placement profile that puts the nodes of a run into one
+# anti-affinity server group, and a benchmark metric for the described-not-named
+# scenario. resources.images is unset: the driver finds the Flatcar template of the
+# pinned release by its labels (defaults.sh lists them).
+#
+# It must exist before the controller starts: the label keys of a NodeClass's
+# metrics are registered with Karpenter core at start-up (install.sh applies it
+# before the chart).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-amd64
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The run on every resource that takes a label (spec.tags are server labels; keys are
+  # at most 32 characters).
+  tags: {ci-run: "${E2E_RUN_ID}"}
+  metrics:
+    single-core:
+      benchmark: {id: "geekbench:score", config: {cores: single}}
+  profiles:
+    storage:
+      scratch:
+        upcloud:
+          data:
+            - {name: scratch, tier: maxiops, size: 10Gi, filesystem: ext4, mountPath: /var/lib/scratch}
+    placement:
+      spread:
+        upcloud: {serverGroup: {antiAffinity: strict}}
+  vendors:
+    upcloud:
+      regions: [${UPCLOUD_ZONE}]
+      storage:
+        root: {size: 25Gi}
+      # A short idle lifetime, so that the uninstall scenario sees the NodeClass's
+      # server groups go (the default is 24 hours).
+      resources:
+        serverGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

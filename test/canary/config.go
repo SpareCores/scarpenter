@@ -30,6 +30,9 @@ type config struct {
 	// minInstances is the number of servers the suite needs at once, for the vendors whose
 	// quota counts instances (E2E_MIN_INSTANCES, optional).
 	minInstances int64
+	// minCores and minMemoryMB are the account limits the UpCloud suite needs (cores and
+	// memory in MB; UpCloud's limits are account-wide, and have no spot).
+	minCores, minMemoryMB int64
 
 	// flatcarImageFile is the file the vendor's images are made from, which the canary checks on
 	// the Flatcar release server (hcloud: the Hetzner raw image); empty: nothing to check.
@@ -46,7 +49,7 @@ type config struct {
 var vendorEnv = map[string]string{
 	vendorAlicloud: "ALICLOUD_REGION", vendorAWS: "AWS_REGION",
 	vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOVH: "OS_REGION_NAME",
-	vendorVultr: "VULTR_REGION",
+	vendorUpCloud: "UPCLOUD_ZONE", vendorVultr: "VULTR_REGION",
 }
 
 // The vendors of the canary and the architecture its checks name.
@@ -62,12 +65,14 @@ const (
 const typeAMD64 = "E2E_TYPE_AMD64"
 
 // typeVars are the variables of the instance types a lane pins, where a vendor's differ from
-// AWS's (Vultr has no Arm instances and no database type, OVH no Arm); noQuota are the vendors without a
+// AWS's (Vultr has no Arm instances and no database type, OVH no Arm, UpCloud's lane one
+// architecture and no database pool); noQuota are the vendors without a
 // readable quota (the vCPU pins are then not needed; Hetzner's limits cannot be read).
 var (
 	typeVars = map[string][]string{
-		vendorOVH:   {typeAMD64, "E2E_TYPE_DB"},
-		vendorVultr: {typeAMD64, "E2E_TYPE_SECOND"},
+		vendorOVH:     {typeAMD64, "E2E_TYPE_DB"},
+		vendorUpCloud: {typeAMD64},
+		vendorVultr:   {typeAMD64, "E2E_TYPE_SECOND"},
 	}
 	noQuota = map[string]bool{vendorHCloud: true, vendorVultr: true}
 )
@@ -106,7 +111,15 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 		c.types = append(c.types, t)
 	}
 	var err error
-	if !noQuota[vendor] {
+	switch {
+	case vendor == vendorUpCloud: // account-wide cores and memory, no spot
+		if c.minCores, err = intEnv(getenv, "E2E_MIN_CORES", &missing); err != nil {
+			return nil, err
+		}
+		if c.minMemoryMB, err = intEnv(getenv, "E2E_MIN_MEMORY_MB", &missing); err != nil {
+			return nil, err
+		}
+	case !noQuota[vendor]:
 		if c.minOnDemand, err = intEnv(getenv, "E2E_MIN_VCPU_OD", &missing); err != nil {
 			return nil, err
 		}

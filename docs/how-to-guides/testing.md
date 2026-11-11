@@ -653,6 +653,68 @@ against the same in-memory EC2 and compares its calls with the read-only policy;
 tests the path rules that decide which runs a pull request needs. `make lint` runs `actionlint` and
 `shellcheck` on the workflows and the scripts.
 
+#### The UpCloud lane
+
+`test/e2e-upcloud/` is the L5 lane of the UpCloud driver ([plan 19](../plans/v1/wip/19-upcloud.md)):
+the same shape as the AWS lane (a k3s control plane on the runner, nodes joined over Tailscale,
+the scripts `bootstrap.sh`, `mint-authkey.sh`, `install.sh`, `scenarios.sh`, `diagnostics.sh`,
+`teardown.sh`), with the cloud calls made with `curl` and `jq` against the UpCloud API
+(`lib.sh`: `up`, the label filters of the list calls). Differences that matter:
+
+- **Credential.** UpCloud has no OIDC federation and no workload identity. The lane uses the API
+  token of a dedicated sub-account, `scarpenter-ci`, as the secret `UPCLOUD_TOKEN` of the `e2e`
+  environment (the same secret in `e2e-sweeper` and `e2e-canary`); the variable `UPCLOUD_ZONE` (default
+  `fi-hel1`) is the one zone of the run, because UpCloud's regions are its zones. The controller gets the
+  token as a Secret (chart `vendors.upcloud.credentials.mode: secret`). A token has no scopes and
+  cannot be read-only; the sub-account's **resource limits** (cores, memory, networks, set by the
+  main account) are the cost guard, together with the sweeper. Tokens expire (up to a year):
+  the canary reads `GET /account` every night and says so, the rotation is manual.
+- **Prerequisite.** In the lane's zone, persistent Flatcar **templates** of the pinned release, one per
+  storage tier (MaxIOPS is required, Standard where the account can make one), labelled
+  `scarpenter-use=true`, `scarpenter-image=flatcar`, `flatcar-channel`, `flatcar-version`,
+  `flatcar-arch=amd64` and `flatcar-tier`. They are built by the images repository (plan 22) and
+  imported by the operator; the lane's NodeClasses leave `resources.images` unset, so the driver finds
+  them by that label convention. The preflight fails, naming the missing template, when there is none.
+- **Plans.** `STARTER-1xCPU-1GB` (`upcloud.STARTER-1xCPU-1GB`) for every scenario, and
+  `STARTER-2xCPU-4GB` and `STARTER-2xCPU-8GB` for the described-not-named one. Plan 19 names `1xCPU-1GB`,
+  but the committed Keeper snapshot lists only the CLOUDNATIVE, PREMIUM, STARTER and GPU families as
+  active; change `E2E_TYPE_AMD64` in `defaults.sh` if the live account says otherwise.
+- **Scenarios** (`E2E_SCENARIOS`, in this order): `amd64`, `described`, `byo`, `data`, `servergroup`,
+  `negative`, `quota`, `publicfw`, `drift`, `scalezero`, `uninstall`, after the preflight. `amd64`:
+  node Ready, Pod running, `logs` and `exec`, the node labels, the server's plan, zone, labels, `metadata`,
+  firewall, interfaces and disks, the user-data size noted. `scalezero`: every server stopped and
+  deleted with its disks within `E2E_SCALE_DOWN_DEADLINE` (120 s) of the Pods' deletion, and the time noted
+  (the driver's delete latency, which the billing retention margin must cover). `drift`: a root disk
+  size change replaces the node, a change of an unused profile drifts nothing, the controller is
+  killed while the replacement is created (the idempotency label). `quota`: the controller's `cores` and
+  `memory` limits equal `GET /account` and the usage equals the sum over the account's servers.
+  `publicfw`: from the runner, the node's public TCP ports 22 and 10250 do not answer while the node
+  stays Ready over Tailscale, the rules on the server equal the driver's list (`fwrules`), and the
+  rollout window is noted. `servergroup`: two nodes of one run key in one named, labelled group, both
+  members and the anti-affinity met; the group goes with the workload. `described`: a `vcpus` range
+  and a metric threshold pick a plan of the allowed set. `byo`: the workflow creates a labelled SDN
+  network and ruleset, the NodeClass `use`s them by tag, the node gets a private address and the private
+  firewall is on, and both survive until the teardown deletes them. `data`: a `storage.data` profile with a
+  10 GB MaxIOPS disk mounted at the profile's path, deleted with the node. `negative`: `publicIPv4:
+  false` without a network of the user's own, and a label key over 32 characters, are refused. The
+  final check is the teardown: no server, disk, network, ruleset or server group labelled with the
+  run's cluster remains.
+- **The sweeper.** `.github/workflows/e2e-upcloud-sweeper.yml` (every three hours, environment
+  `e2e-sweeper`) runs `go run ./test/e2e-upcloud/sweeper`: one account-wide list of the servers
+  labelled `scarpenter-cluster`, those whose value starts with `scarpenter-ci-` and whose
+  `scarpenter-created` label is at least two hours old are stopped and deleted with their disks; then the
+  server groups, SDN rulesets and networks of such clusters, and unattached disks, when no young or
+  age-less server of the cluster is alive. Resources labelled `scarpenter-use` (the templates) and
+  anything without the prefix are never touched; the engine is `pkg/vendors/upcloud/sweep`, tested
+  against the driver's in-memory UpCloud. `-cluster <name> -max-age 0` is what the teardown uses.
+- **Cost per run.** A few `STARTER-1xCPU-1GB` servers (a full run has up to about nine cores at
+  once, for about an hour) at an hourly price: cents (price unverified, plan 19 S4). The persistent
+  cost is the templates (about 10 GB each, per tier). A full run needs about 10 cores and 12 GB of memory
+  of the sub-account's limits.
+- **Without UpCloud.** `hack/dev.sh make test-e2e-upcloud-dryrun` (the same checks as the AWS
+  target): the manifests against an API server, the sweeper and the canary (with its
+  read-only guard) against the in-memory UpCloud, the helpers against a `curl` stub, the planner rules.
+
 #### The Vultr lane
 
 `test/e2e-vultr/` is the same lane for Vultr (plan 20, section 9): the control plane, the tailnet,

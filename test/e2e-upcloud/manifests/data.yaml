@@ -1,0 +1,32 @@
+# Scenario data (plan 19 4e): a workload on a node with the storage profile `scratch`, a
+# small MaxIOPS data disk mounted at /var/lib/scratch, which the Pod sees through a hostPath.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-data
+  labels: {app: e2e-data, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-data}
+  template:
+    metadata:
+      labels: {app: e2e-data, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-amd64
+        node.kubernetes.io/instance-type: ${E2E_TYPE_AMD64}
+        karpenter.sh/capacity-type: on-demand
+        scarpenter.sparecores.com/storage-profile: scratch
+      containers:
+        - name: data
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "echo hello-from-the-volume > /data/hello; exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          hostPath: {path: /var/lib/scratch, type: Directory}

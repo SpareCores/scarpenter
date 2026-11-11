@@ -2,3 +2,4 @@
 # (after test/e2e-<vendor>/ exists) puts it in the pull request tiers, the nightly canary
 # and the release gate: docs/how-to-guides/testing-and-releasing.md#adding-a-vendor-lane
 aws
+upcloud

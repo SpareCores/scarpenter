@@ -78,6 +78,7 @@ jobs:
       VAR_OVH_AUTH_URL: ${{ vars.OVH_AUTH_URL }}
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
       VAR_ALICLOUD_REGION: ${{ vars.ALICLOUD_REGION }}
+      VAR_UPCLOUD_ZONE: ${{ vars.UPCLOUD_ZONE }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -106,6 +107,7 @@ jobs:
               ;;
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
             alicloud) echo "ALICLOUD_REGION=${VAR_ALICLOUD_REGION:-ap-southeast-1}" >> "${GITHUB_ENV}" ;;
+            upcloud) echo "UPCLOUD_ZONE=${VAR_UPCLOUD_ZONE:-fi-hel1}" >> "${GITHUB_ENV}" ;;
           esac
 
       - name: Assume the read-only role (aws)
@@ -164,6 +166,17 @@ jobs:
           ALICLOUD_OIDC_AUDIENCE: ${{ vars.ALICLOUD_OIDC_AUDIENCE || 'sts.aliyuncs.com' }}
           ALICLOUD_SESSION_NAME: scarpenter-canary-${{ github.run_id }}
         run: test/e2e-alicloud/oidc-token.sh
+      # UpCloud: the API token of the CI sub-account (the secret UPCLOUD_TOKEN of the
+      # environment e2e-canary; a token cannot be made read-only, the canary's guard
+      # refuses every write: test/canary/upcloud_guard.go).
+      - name: Export the API token (upcloud)
+        if: matrix.vendor == 'upcloud'
+        env:
+          UPCLOUD_TOKEN_IN: ${{ secrets.UPCLOUD_TOKEN }}
+        run: |
+          [[ -n "${UPCLOUD_TOKEN_IN}" ]] || { echo "::error::the environment secret UPCLOUD_TOKEN is not set" >&2; exit 1; }
+          echo "::add-mask::${UPCLOUD_TOKEN_IN}"
+          echo "UPCLOUD_TOKEN=${UPCLOUD_TOKEN_IN}" >> "${GITHUB_ENV}"
 
       # The output is redacted by the script (the job log, the artifact and the issue are public).
       - name: Canary

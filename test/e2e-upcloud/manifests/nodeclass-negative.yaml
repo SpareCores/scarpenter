@@ -1,0 +1,44 @@
+# Scenario negative: NodeClasses the driver refuses. They are never used by a NodePool,
+# so nothing is launched.
+#   e2e-noipv4  publicIPv4: false without a network of the user's own: the utility network
+#               has no internet access, so the nodes could not fetch their sysexts.
+#   e2e-badlabel a spec.tags key longer than the 32 characters an UpCloud label key may have.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-noipv4
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  networking: {publicIPv4: false}
+  vendors:
+    upcloud:
+      regions: [${UPCLOUD_ZONE}]
+---
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-badlabel
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  tags: {this-label-key-is-longer-than-32-characters: "x"}
+  vendors:
+    upcloud:
+      regions: [${UPCLOUD_ZONE}]

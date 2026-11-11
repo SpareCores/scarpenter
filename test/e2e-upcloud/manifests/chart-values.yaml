@@ -1,0 +1,42 @@
+# The values the L5 lane installs the chart with (install.sh adds the image of the
+# build under test). What is left unset is the chart's own default on purpose: the
+# cluster DNS is found by the controller (kube-dns Service of the k3s cluster), the
+# Keeper is the public one, the sysexts come from the upstream releases, and the
+# kubelet client CA is copied from kube-system/extension-apiserver-authentication.
+#
+# Credentials: UpCloud has no workload identity; the API token of the CI sub-account is
+# given as a Secret (mode secret, the only mode with a token).
+cluster:
+  name: ${E2E_CLUSTER}
+  # The API server's tailnet address: the nodes reach it over Tailscale.
+  apiServerEndpoint: https://${E2E_API_HOST}:6443
+kubeletClientCA:
+  source: extensionApiserverAuthentication
+vendors:
+  aws:
+    enabled: false
+  upcloud:
+    enabled: true
+    credentials:
+      mode: secret
+      secret:
+        existingSecret: upcloud-credentials
+        tokenKey: UPCLOUD_TOKEN
+# Short intervals: the quota scenarios wait for refreshes (E2E_QUOTA_REFRESH).
+quota:
+  refreshInterval: 30s
+  limitsRefreshInterval: 1m
+  launchableRefreshInterval: 5m
+gc: {interval: 1m}
+# Once its NodeClass is deleted, a managed resource (an idleTTL kind) is governed by this
+# default, not by the NodeClass's own 5-minute lifetime.
+managedResources: {defaultTTL: 5m}
+karpenter:
+  logLevel: debug
+# The control plane's node carries the CriticalAddonsOnly taint (bootstrap.sh), so
+# that test workloads land on SCarpenter's nodes only.
+tolerations:
+  - {key: CriticalAddonsOnly, operator: Exists}
+resources:
+  requests: {cpu: 200m, memory: 640Mi}
+  limits: {memory: 1536Mi}

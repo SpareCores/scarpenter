@@ -449,6 +449,25 @@ reviewers of `e2e` would make every scheduled sweep wait for an approval. What k
 environment safe without reviewers is its limit to `main`: the only code that reaches the role
 through it is the reviewed sweeper of `main`.
 
+### UpCloud
+
+UpCloud's lane ([The UpCloud lane](testing.md#the-upcloud-lane)) needs none of the IAM and OIDC
+items above; in the UpCloud account of the CI infrastructure, the operator provides:
+
+- **A sub-account `scarpenter-ci`** with API access, server, storage and network access and no
+  panel access, and small **resource limits** (cores, memory, networks) set by the main account:
+  they are the cost guard, because an UpCloud token has no scopes, cannot be read-only and cannot be
+  federated. The token is created by hand (a tenant of an infrastructure tool may not be able to mint it).
+- **The secret `UPCLOUD_TOKEN`** in the environments `e2e` (reviewers as for AWS), `e2e-sweeper` (limited
+  to `main`, no reviewers) and `e2e-canary` (limited to `main`), and the variable `UPCLOUD_ZONE`
+  (optional, default `fi-hel1`). The token expires (a sub-account's tokens last up to a year): the
+  canary's `API token` row fails when it does, and the rotation is manual: create a token, replace the
+  three secrets, delete the old one.
+- **The persistent Flatcar templates** of the pinned release in the lane's zone, labelled
+  `scarpenter-use=true` (the sweeper never touches them), built by the images repository and imported
+  by the operator.
+- **The tailnet** items above (tags, grants, the federated identity for `e2e`); the canary does not join it.
+
 ### Vultr
 
 The Vultr lane (`test/e2e-vultr/`) differs from AWS where Vultr has no equivalent, and it is

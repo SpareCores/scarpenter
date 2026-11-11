@@ -100,6 +100,7 @@ jobs:
       VAR_OVH_AUTH_URL: ${{ vars.OVH_AUTH_URL }}
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
       VAR_ALICLOUD_REGION: ${{ vars.ALICLOUD_REGION }}
+      VAR_UPCLOUD_ZONE: ${{ vars.UPCLOUD_ZONE }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -168,6 +169,7 @@ jobs:
               ;;
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
             alicloud) echo "ALICLOUD_REGION=${VAR_ALICLOUD_REGION:-ap-southeast-1}" >> "${GITHUB_ENV}" ;;
+            upcloud) echo "UPCLOUD_ZONE=${VAR_UPCLOUD_ZONE:-fi-hel1}" >> "${GITHUB_ENV}" ;;
           esac
           mkdir -p "${RUNNER_TEMP}/e2e"
           # Everything validated: from here the steps that always run may use the vendor in a path.
@@ -273,6 +275,19 @@ jobs:
           ALICLOUD_OIDC_AUDIENCE: ${{ vars.ALICLOUD_OIDC_AUDIENCE || 'sts.aliyuncs.com' }}
           ALICLOUD_SESSION_NAME: scarpenter-ci-${{ github.run_id }}
         run: test/e2e-alicloud/oidc-token.sh
+      # UpCloud has no OIDC federation and no workload identity: the credential is the API
+      # token of a dedicated sub-account (scarpenter-ci), the environment secret UPCLOUD_TOKEN.
+      # Its resource limits (set by the main account) are the cost guard, and the token expires
+      # (up to a year; the canary notices). It goes into GITHUB_ENV (masked) for the scripts
+      # below, which put it into the controller's Secret.
+      - name: Export the API token (upcloud)
+        if: inputs.vendor == 'upcloud'
+        env:
+          UPCLOUD_TOKEN_IN: ${{ secrets.UPCLOUD_TOKEN }}
+        run: |
+          [[ -n "${UPCLOUD_TOKEN_IN}" ]] || { echo "::error::the environment secret UPCLOUD_TOKEN is not set" >&2; exit 1; }
+          echo "::add-mask::${UPCLOUD_TOKEN_IN}"
+          echo "UPCLOUD_TOKEN=${UPCLOUD_TOKEN_IN}" >> "${GITHUB_ENV}"
 
       # Step 4: image and chart.
       - name: Build the image, install the chart

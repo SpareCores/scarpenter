@@ -1,0 +1,33 @@
+# Scenario servergroup (plan 19 4b): two Pods of one workload on two nodes in one run's
+# anti-affinity server group. Both select the placement profile `spread` and the same run
+# key; the Pods' own anti-affinity keeps them on separate nodes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-sg
+  labels: {app: e2e-sg, scarpenter-e2e: "true"}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: e2e-sg}
+  template:
+    metadata:
+      labels: {app: e2e-sg, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-amd64
+        node.kubernetes.io/instance-type: ${E2E_TYPE_AMD64}
+        karpenter.sh/capacity-type: on-demand
+        scarpenter.sparecores.com/placement-profile: spread
+        scarpenter.sparecores.com/placement-group: sg-${E2E_RUN_ID}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - {topologyKey: kubernetes.io/hostname, labelSelector: {matchLabels: {app: e2e-sg}}}
+      containers:
+        - name: probe
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}

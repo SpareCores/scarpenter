@@ -38,6 +38,7 @@ var vendorChecks = map[string]func(ctx context.Context, cfg *config, rep *report
 	vendorAWS:      checkAWS,
 	vendorHCloud:   checkHCloud,
 	vendorOVH:      checkOVH,
+	vendorUpCloud:  checkUpCloud,
 	vendorVultr:    checkVultr,
 }
 

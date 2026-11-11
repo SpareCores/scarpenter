@@ -1,0 +1,53 @@
+# The NodePools of the lane. Consolidation is WhenEmpty with 0 s, so an empty node goes
+# at once (the scale-to-zero exit criterion); limits keep a runaway small and the account's
+# own limits are the cost guard; every pool lists the plans it may launch, and the
+# workloads select their pool, so that two pools with the same type never compete.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-amd64
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-amd64}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [upcloud]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_TYPE_AMD64}"]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "6"}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-drift
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-drift}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [upcloud]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_TYPE_AMD64}"]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "2"}
+---
+# The described-not-named pool: the NodeClass of the metric, three plans. The workload
+# narrows it with vcpus, memory and a percentile threshold.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-described
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-amd64}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [upcloud]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: [${E2E_TYPES_DESCRIBED_YAML}]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "2"}
