@@ -135,9 +135,9 @@ type Fixture struct {
 	// ManagedResources.Selectors declares it, with SeedImage: it makes an image
 	// the way a user would (see ImageSpec). The cases that select by tags (the
 	// ordering and the placeholders) are skipped for a driver whose images kind
-	// declares no tags (Vultr snapshots have only a description).
+	// declares no tags (the driver's own tests then cover ordering by name).
 	SeedImage SeedImageFunc
-	// NoArm64 says that the vendor has no Arm instances (Vultr): the image cases
+	// NoArm64 says that the vendor has no Arm instances: the image cases
 	// that resolve an arm64 image are skipped, and ResolveImage of arm64 must be
 	// Unsupported.
 	NoArm64 bool
