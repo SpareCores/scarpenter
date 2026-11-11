@@ -28,7 +28,8 @@ type Fields struct {
 	// plain-string tags of OpenStack, where the pair k: v is the string "k=v".
 	Tags       map[string]string
 	TagStrings []string
-	// Created is the creation time; the zero time is unknown.
+	// Created is the creation time; the zero time is unknown, and an item with
+	// an unknown time never passes createdAfter or createdBefore.
 	Created time.Time
 	// Attrs holds the values of the portable attributes the item has, by
 	// attribute name (vendors.MatchArchitecture, ...): the item's own
@@ -338,12 +339,12 @@ func matchStage(attr string, m common.ResourceMatch, caps vendors.SelectorCaps) 
 	case vendors.MatchCreatedAfter:
 		if m.CreatedAfter != nil {
 			t := m.CreatedAfter.Time
-			return t.Format(time.RFC3339), func(f Fields) bool { return f.Created.IsZero() || f.Created.After(t) }, true
+			return t.Format(time.RFC3339), func(f Fields) bool { return !f.Created.IsZero() && f.Created.After(t) }, true
 		}
 	case vendors.MatchCreatedBefore:
 		if m.CreatedBefore != nil {
 			t := m.CreatedBefore.Time
-			return t.Format(time.RFC3339), func(f Fields) bool { return f.Created.IsZero() || f.Created.Before(t) }, true
+			return t.Format(time.RFC3339), func(f Fields) bool { return !f.Created.IsZero() && f.Created.Before(t) }, true
 		}
 	case vendors.MatchDescription:
 		if m.Description != "" {

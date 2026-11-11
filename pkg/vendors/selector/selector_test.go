@@ -241,6 +241,20 @@ func TestApplyAndsEveryField(t *testing.T) {
 	}
 }
 
+func TestCreatedBoundsExcludeAnUnknownTime(t *testing.T) {
+	unknown := item{id: "u", name: "flatcar-unknown", state: "available"}
+	items := append(slices.Clone(stock), unknown)
+	for name, m := range map[string]common.ResourceMatch{
+		"after":  {CreatedAfter: &metav1.Time{Time: day(0)}},
+		"before": {CreatedBefore: &metav1.Time{Time: day(9)}},
+	} {
+		res, err := selector.Apply(vendors.UseRef{Match: m, Select: common.SelectAll}, caps, items, fields)
+		if err != nil || slices.Contains(ids(res.Items), "u") || len(res.Items) == 0 {
+			t.Errorf("%s: %v, %v; an item without a creation time never passes a bound", name, ids(res.Items), err)
+		}
+	}
+}
+
 func TestApplyReAppliesWhatTheVendorOnlyNarrowed(t *testing.T) {
 	// The vendor returned a superset (everything): the answer is the same.
 	ref := vendors.UseRef{Name: "flatcar-*", Tags: map[string]string{"env": "prod"}, Match: common.ResourceMatch{Zone: []string{"z1"}}}
