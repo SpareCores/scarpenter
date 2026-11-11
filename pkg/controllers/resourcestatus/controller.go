@@ -40,13 +40,13 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/resources"
 )
 
-// Names of the field manager and the condition reasons.
 // The keys of a status entry the controller applies.
 const (
 	fieldKind   = "kind"
 	fieldRegion = "region"
 )
 
+// Names of the field manager and the condition reasons.
 const (
 	FieldManager      = "scarpenter-resources"
 	ReasonReady       = "Ready"

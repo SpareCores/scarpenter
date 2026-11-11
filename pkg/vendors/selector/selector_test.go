@@ -467,6 +467,7 @@ func TestValidate(t *testing.T) {
 	}{
 		"ok":                {common.ResourceUse{Name: "a", Tags: map[string]string{"a": "b"}, Expression: "x", Select: common.SelectNewest}, ""},
 		"filter by prefix":  {common.ResourceUse{Filters: []common.ResourceFilter{{Name: "labels.env", Values: []string{"a"}}, {Name: "status", Values: []string{"a"}}}}, ""},
+		"a bare prefix":     {common.ResourceUse{Filters: []common.ResourceFilter{{Name: "labels.", Values: []string{"a"}}}}, `filters[0]: "labels." is not a images filter`},
 		"unknown filter":    {common.ResourceUse{Filters: []common.ResourceFilter{{Name: "statuss", Values: []string{"a"}}}}, `filters[0]: "statuss" is not a images filter of v (labels.*, status)`},
 		"unknown match":     {common.ResourceUse{Match: &common.ResourceMatch{Zone: []string{"z"}}}, "match.zone is not supported: images of v is not zonal"},
 		"unsupported match": {common.ResourceUse{Match: &common.ResourceMatch{Owner: []string{"z"}}}, "match.owner is not supported for images of v (supported: createdAfter, state)"},

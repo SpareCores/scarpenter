@@ -24,10 +24,12 @@ const orderCreated = "created"
 const ImagesKind vendors.ResourceKind = "images"
 
 // FilterAllowed reports whether name is accepted under `filters`: an exact
-// name, or a pattern that ends in *.
+// name, or a pattern that ends in * with a non-empty rest.
 func FilterAllowed(caps vendors.SelectorCaps, name string) (vendors.FilterCap, bool) {
 	for _, f := range caps.Filters {
-		if f.Name == name || (strings.HasSuffix(f.Name, "*") && strings.HasPrefix(name, strings.TrimSuffix(f.Name, "*"))) {
+		prefix, pattern := strings.CutSuffix(f.Name, "*")
+		// A pattern needs something for its *: "tag:" alone is no filter.
+		if f.Name == name || (pattern && len(name) > len(prefix) && strings.HasPrefix(name, prefix)) {
 			return f, true
 		}
 	}
