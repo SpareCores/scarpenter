@@ -576,6 +576,23 @@ read-only guard.
     in the VM `PUT`?** Inline is fewer calls and no failed-launch leftovers, but the NIC is
     then not a vendor resource the engine tracks. No recommendation.
 
+**Decided by default, maintainer to confirm** (the end-to-end driver step):
+
+- Q1: marketplace, as recommended; the `images` kind takes URNs and version patterns only (no gallery or managed images, no
+  Resource Graph `expression`).
+- Q2, Q3, Q4, Q5, Q6, Q7, Q9, Q10: the recommendations.
+- Q8: no PremiumV2/Ultra disks; NVMe-only sizes are not offered.
+- Q11: document and log once (no refusal): a brought NSG decides alone and `networking.isolation` has no effect.
+- Q12: the public IP and NIC are separate resources made by the launch itself (not engine kinds: their names do not carry
+  the engine's prefix); a failed launch deletes them, the sweeper catches the rest.
+- Application security groups are not kinds: each belongs to a managed network security group (`<nsg>-nodes`), created and
+  deleted with it. Isolation `run` with a run key gets a network security group per run (`runSecurityGroups`, `perUse`),
+  because a NIC takes one group.
+- The subscription is read from `AZURE_SUBSCRIPTION_ID` only (no `--azure-subscription-id` flag: it would change the core's options).
+- The shared suite's resolution-order cases assume a vendor default resource; Azure has none, so they are skipped and
+  `resolution_test.go` covers the order. Core gap: the `ImagesReady` reason `MarketplaceTermsNotAccepted` is set on the image
+  status but the NodeClass controller only promotes the version reasons to the condition.
+
 ## Live verification list (everything above ran against the fake only)
 
 1. Marketplace: the exact image versions and SKUs per channel and arch (`lts2024-gen2`, no
