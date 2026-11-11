@@ -133,7 +133,8 @@ func Tags(logical map[vendors.TagKey]string, extra map[string]string) (map[strin
 	return out, nil
 }
 
-// LogicalTags reads the logical tags back from an Azure tag map; names match
+// LogicalTags reads the logical tags back from an Azure tag map (the instance's
+// and the resource-kind marker of a managed resource); names match
 // case-insensitively, as Azure's do.
 func LogicalTags(tags map[string]*string) map[vendors.TagKey]string {
 	byLower := make(map[string]string, len(tags))
@@ -143,7 +144,7 @@ func LogicalTags(tags map[string]*string) map[vendors.TagKey]string {
 		}
 	}
 	out := map[vendors.TagKey]string{}
-	for _, k := range vendors.TagKeys {
+	for _, k := range append(slices.Clone(vendors.TagKeys), vendors.TagResource) {
 		if v, ok := byLower[strings.ToLower(TagKey(k))]; ok {
 			out[k] = v
 		}

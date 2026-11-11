@@ -58,6 +58,10 @@ var errorClasses = map[string]vendors.Class{
 	"OverconstrainedZonalAllocationRequest": vendors.InsufficientCapacity,
 	// The size is not offered, or cannot be spot.
 	"AzureSpotIsNotSupportedForThisVMSize": vendors.Unsupported,
+	// A zone the subscription cannot use for the size (the code is unverified:
+	// the live verification list of plan 17); subnets are regional, so there is
+	// no NoSubnetInZone.
+	"ZoneNotAvailableForSubscription": vendors.ZoneUnusable,
 	// Quotas.
 	"QuotaExceeded":             vendors.QuotaExceeded,
 	"PublicIPCountLimitReached": vendors.QuotaExceeded,

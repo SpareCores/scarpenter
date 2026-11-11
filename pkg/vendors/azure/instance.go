@@ -9,6 +9,7 @@ package azure
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -24,6 +25,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		return nil, vendors.NewError(vendors.Fatal, codeUserDataTooLarge, fmt.Errorf(
 			"the user-data is %d bytes; Azure accepts at most %d (a larger cluster CA or Ignition addition does not fit)",
 			len(req.UserData), MaxUserData))
+	}
+	if err := d.checkZone(ctx, req.Region, req.Zone); err != nil {
+		return nil, err
 	}
 	img, err := ParseURN(req.Image.Ref)
 	if err != nil {
@@ -87,7 +91,17 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 func (d *Driver) Quotas(ctx context.Context, region string) (*vendors.QuotaSnapshot, error) {
 	// Consumption maps a size by the SKU table of the regions read so far.
 	_, _ = d.skuTable(ctx, region)
-	return d.quota.Quotas(ctx, region)
+	snap, err := d.quota.Quotas(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	// The usage is the subscription's, so the reservations of the in-flight
+	// ledger are released by the VMs of this cluster the usage already contains.
+	// Best effort: without the list the reservations expire on their own.
+	if refs, err := d.compute.Refs(ctx, region); err == nil {
+		snap.Counted = refs
+	}
+	return snap, nil
 }
 
 // GlobalQuotas implements vendors.QuotaReporter: every Azure limit is per region.
@@ -98,4 +112,18 @@ func (d *Driver) GlobalQuotas(ctx context.Context) (*vendors.QuotaSnapshot, erro
 // Consumption implements vendors.QuotaReporter.
 func (d *Driver) Consumption(instanceType, capacityType string) ([]vendors.Consumption, bool) {
 	return d.quota.Consumption(instanceType, capacityType)
+}
+
+// checkZone refuses a zone the region does not have: ZoneUnusable, which the
+// attempt loop answers with the next zone.
+func (d *Driver) checkZone(ctx context.Context, region, zone string) error {
+	zones, err := d.Zones(ctx, region)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(zones, func(z vendors.Zone) bool { return z.Name == zone }) {
+		return vendors.NewError(vendors.ZoneUnusable, "ZoneNotInRegion",
+			fmt.Errorf("the region %s has no zone %q", region, zone))
+	}
+	return nil
 }

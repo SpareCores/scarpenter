@@ -313,6 +313,30 @@ func (c *Compute) listByTag(
 	return out, nil
 }
 
+// Refs lists the references of this cluster's VMs in the region, from the tag
+// listing alone (no read of each VM): what the usage numbers of the region
+// contain of this cluster.
+func (c *Compute) Refs(ctx context.Context, region string) ([]vendors.InstanceRef, error) {
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	res, err := c.Clients.Resources.ListByTag(cctx, TagKey(vendors.TagCluster), c.Cluster)
+	if err != nil {
+		return nil, classify(err, errContext{})
+	}
+	var out []vendors.InstanceRef
+	for _, r := range res {
+		if r == nil || strings.ToLower(deref(r.Type)) != vmType || !inRegions(deref(r.Location), []string{region}) {
+			continue
+		}
+		id, err := arm.ParseResourceID(deref(r.ID))
+		if err != nil {
+			continue
+		}
+		out = append(out, InstanceRefOf(deref(r.Location), id.ResourceGroupName, id.Name))
+	}
+	return out, nil
+}
+
 func inRegions(location string, regions []string) bool {
 	for _, r := range regions {
 		if strings.EqualFold(r, location) {

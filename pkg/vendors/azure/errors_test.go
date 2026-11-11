@@ -28,6 +28,7 @@ var expected = map[string]vendors.Class{
 	"OverconstrainedAllocationRequest":         vendors.InsufficientCapacity,
 	"OverconstrainedZonalAllocationRequest":    vendors.InsufficientCapacity,
 	"AzureSpotIsNotSupportedForThisVMSize":     vendors.Unsupported,
+	"ZoneNotAvailableForSubscription":          vendors.ZoneUnusable,
 	"QuotaExceeded":                            vendors.QuotaExceeded,
 	"PublicIPCountLimitReached":                vendors.QuotaExceeded,
 	"TooManyRequests":                          vendors.Retryable,
