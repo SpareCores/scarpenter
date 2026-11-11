@@ -11,8 +11,10 @@ package fake_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,6 +132,65 @@ func (h *harness) zone(t *testing.T) string {
 	return zs[0].Name
 }
 
+var (
+	seededMu sync.Mutex
+	seeded   = map[*fakedriver.Driver][]map[string]any{}
+)
+
+// seedFake adds a resource the account had before SCarpenter (the steering
+// ConfigMap's existingResources), with the attributes the selector reads.
+func seedFake(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+	t.Helper()
+	fd := d.(*fakedriver.Driver)
+	seededMu.Lock()
+	defer seededMu.Unlock()
+	id := fmt.Sprintf("seed-%d", len(seeded[fd])+1)
+	r := map[string]any{"kind": string(kind), "region": region, "id": id, "name": spec.Name, "tags": spec.Tags}
+	if !spec.Created.IsZero() {
+		r["created"] = spec.Created.Format(time.RFC3339)
+	}
+	if spec.Description != "" {
+		r["description"] = spec.Description
+	}
+	if spec.CIDR != "" {
+		r["cidr"] = spec.CIDR
+	}
+	seeded[fd] = append(seeded[fd], r)
+	raw, _ := json.Marshal(seeded[fd])
+	h := &harness{d: fd, c: clientOf(t, fd)}
+	h.setConfig(t, "existingResources", string(raw))
+	return vendors.ResourceRef{Kind: kind, Region: region, ID: id, Name: spec.Name}
+}
+
+// TestSelectorConformanceInEveryMode runs the selector cases with the vendor
+// evaluating the selector exactly, narrowing to a superset, and not at all: the
+// answers are the same, because the shared matcher re-applies every field.
+func TestSelectorConformanceInEveryMode(t *testing.T) {
+	for name, mode := range map[string]fakedriver.SelectorMode{
+		"server": fakedriver.SelectorServer, "superset": fakedriver.SelectorSuperset, "client": fakedriver.SelectorClient,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fx := fakeFixture()
+			fx.New = func(t *testing.T) vendors.Driver {
+				d := newHarness(t, map[string]string{"quota": baseQuota}).d
+				d.SetSelectorMode(mode)
+				return d
+			}
+			conformance.RunSelectors(t, fx)
+		})
+	}
+}
+
+func fakeFixture() conformance.Fixture {
+	return conformance.Fixture{
+		Region: testRegion, InstanceType: testType,
+		ResourceKind: fakedriver.KindNetwork,
+		Seed:         seedFake, SeedKinds: []vendors.ResourceKind{fakedriver.KindNetwork, fakedriver.KindGroup},
+		SeedAttrs: []string{"created", "description", "cidr", "specialNames"},
+		SeedCIDRs: [2]string{"10.201.1.0/24", "10.201.2.0/24"}, SeedWithin: "10.201.0.0/16",
+	}
+}
+
 func TestConformance(t *testing.T) {
 	conformance.Run(t, conformance.Fixture{
 		New: func(t *testing.T) vendors.Driver {
@@ -173,6 +234,9 @@ func TestConformance(t *testing.T) {
 			{Vendor: "aws", APIReference: "m6id.large", Family: "m6id", VCPUs: 2, LocalStorageGB: 118, LocalStorageCount: 1},
 		},
 		ResourceKind: fakedriver.KindNetwork,
+		Seed:         seedFake, SeedKinds: []vendors.ResourceKind{fakedriver.KindNetwork, fakedriver.KindGroup},
+		SeedAttrs: []string{"created", "description", "cidr", "specialNames"},
+		SeedCIDRs: [2]string{"10.201.1.0/24", "10.201.2.0/24"}, SeedWithin: "10.201.0.0/16",
 		PreCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
 			t.Helper()
 			h := &harness{d: d.(*fakedriver.Driver)}

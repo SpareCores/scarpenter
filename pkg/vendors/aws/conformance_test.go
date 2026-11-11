@@ -9,8 +9,10 @@ package aws_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -97,6 +99,14 @@ var injected = map[vendors.Class]string{
 }
 
 func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func(*testing.T, vendors.Driver, string) json.RawMessage) conformance.Fixture {
+	fx := conformanceFixture0(t, kind, params)
+	if kind != aws.KindSubnets {
+		fx.Seed = nil // the selector cases cover every kind once, in the subnets run
+	}
+	return fx
+}
+
+func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*testing.T, vendors.Driver, string) json.RawMessage) conformance.Fixture {
 	all, unknown := conformanceTypes(t)
 	return conformance.Fixture{
 		New:    func(t *testing.T) vendors.Driver { return conformanceEnv(t).d },
@@ -146,6 +156,13 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func(*te
 			{Vendor: "aws", APIReference: "t3.micro", Family: "t3", VCPUs: 2},
 		},
 		ResourceKind: kind, ResourceParams: params,
+		Seed: func(t *testing.T, d vendors.Driver, k vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+			t.Helper()
+			return seed(t, envOf(t, d), k, region, spec)
+		},
+		SeedKinds: []vendors.ResourceKind{aws.KindSubnets, aws.KindSecurityGroups, aws.KindPlacementGroups},
+		SeedAttrs: []string{"description", "cidr"},
+		SeedCIDRs: [2]string{"172.31.201.0/24", "172.31.202.0/24"}, SeedWithin: "172.31.0.0/16",
 		PreCreate: func(t *testing.T, d vendors.Driver, k vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
 			t.Helper()
 			return preCreate(t, envOf(t, d), k, region, tags)
@@ -157,6 +174,62 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func(*te
 			return e.d
 		},
 	}
+}
+
+var seedCIDR atomic.Int32
+
+// seed makes a resource the way a user would, with the name, tags and the
+// attributes of the spec that EC2 has (description of a group, range of a
+// subnet).
+func seed(t *testing.T, e *env, kind vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+	t.Helper()
+	ctx := context.Background()
+	cl := e.acct.EC2(region)
+	tags := make([]ec2types.Tag, 0, 1+len(spec.Tags))
+	tags = append(tags, ec2types.Tag{Key: new("Name"), Value: new(spec.Name)})
+	for k, v := range spec.Tags {
+		tags = append(tags, ec2types.Tag{Key: new(k), Value: new(v)})
+	}
+	switch kind {
+	case aws.KindSubnets:
+		cidr := spec.CIDR
+		if cidr == "" {
+			cidr = fmt.Sprintf("172.31.%d.0/24", 100+seedCIDR.Add(1))
+		}
+		out, err := cl.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+			VpcId: new(defaultVPC(t, e, region)), AvailabilityZone: new(testZone), CidrBlock: &cidr,
+			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeSubnet, Tags: tags}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return vendors.ResourceRef{Kind: kind, Region: region, ID: *out.Subnet.SubnetId, Name: spec.Name}
+	case aws.KindPlacementGroups:
+		if _, err := cl.CreatePlacementGroup(ctx, &ec2.CreatePlacementGroupInput{
+			GroupName: &spec.Name, Strategy: ec2types.PlacementStrategySpread,
+			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypePlacementGroup, Tags: tags}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		out, err := cl.DescribePlacementGroups(ctx, &ec2.DescribePlacementGroupsInput{
+			Filters: []ec2types.Filter{{Name: new("group-name"), Values: []string{spec.Name}}}})
+		if err != nil || len(out.PlacementGroups) != 1 {
+			t.Fatalf("the placement group %s: %v", spec.Name, err)
+		}
+		return vendors.ResourceRef{Kind: kind, Region: region, ID: *out.PlacementGroups[0].GroupId, Name: spec.Name}
+	}
+	desc := spec.Description
+	if desc == "" {
+		desc = "user group"
+	}
+	out, err := cl.CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
+		GroupName: &spec.Name, Description: &desc, VpcId: new(defaultVPC(t, e, region)),
+		TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeSecurityGroup, Tags: tags}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return vendors.ResourceRef{Kind: kind, Region: region, ID: *out.GroupId, Name: spec.Name}
 }
 
 // preCreate makes a resource the way a user would: with the user's tags, not

@@ -111,6 +111,20 @@ type Fixture struct {
 	// ResourceParams, if set, returns the create parameters of the kind (AWS: the
 	// VPC of a security group); the suite passes them in CreateSpec.Params.
 	ResourceParams func(t *testing.T, d vendors.Driver, region string) json.RawMessage
+
+	// The selector subtests (A10, `use`) run for drivers that implement
+	// vendors.ManagedResources, with Seed: it makes a resource the way a user
+	// would, with the given name, tags and attributes (see SeedSpec), for each of
+	// SeedKinds (default: ResourceKind). SeedAttrs says which of the optional
+	// SeedSpec fields Seed honours: "created", "description", "zone", "cidr" (with
+	// two ranges in SeedCIDRs inside SeedWithin) and "specialNames" (a name with
+	// the glob characters * and ?).
+	Seed      SeedFunc
+	SeedKinds []vendors.ResourceKind
+	SeedAttrs []string
+	// SeedCIDRs are two disjoint ranges the vendor accepts, inside SeedWithin.
+	SeedCIDRs  [2]string
+	SeedWithin string
 }
 
 const (
@@ -175,10 +189,26 @@ func (e *env) create(t *testing.T, req vendors.CreateRequest) *vendors.Instance 
 // Run executes the suite.
 func Run(t *testing.T, fx Fixture) {
 	t.Helper()
+	sub := runner(t, fx)
+	runAll(sub)
+}
+
+// RunSelectors executes only the selector subtests (the `use` selector of the
+// driver's managed resources): a driver that can be steered through who
+// evaluates the selector (the fake) runs them once per mode.
+func RunSelectors(t *testing.T, fx Fixture) {
+	t.Helper()
+	sub := runner(t, fx)
+	sub("selectors", selectors)
+}
+
+// runner returns the function that runs one subtest on a fresh driver.
+func runner(t *testing.T, fx Fixture) func(name string, fn func(t *testing.T, e *env)) {
+	t.Helper()
 	if fx.New == nil || fx.InstanceType == "" {
 		t.Fatal("conformance: the fixture needs New and InstanceType")
 	}
-	sub := func(name string, fn func(t *testing.T, e *env)) {
+	return func(name string, fn func(t *testing.T, e *env)) {
 		t.Run(name, func(t *testing.T) {
 			d := fx.New(t)
 			e := &env{fx: fx, d: d, region: fx.Region, zone: fx.Zone}
@@ -201,7 +231,9 @@ func Run(t *testing.T, fx Fixture) {
 			fn(t, e)
 		})
 	}
+}
 
+func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 	sub("identity", func(t *testing.T, e *env) {
 		if e.d.Vendor() == "" {
 			t.Error("Vendor is empty")
@@ -228,6 +260,7 @@ func Run(t *testing.T, fx Fixture) {
 	sub("offering lister", offeringLister)
 	sub("node options", nodeOptions)
 	sub("managed resources", managedResources)
+	sub("selectors", selectors)
 	sub("zone checker", zoneChecker)
 }
 
@@ -428,8 +461,8 @@ func malformedReferences(t *testing.T, e *env) {
 	}
 	if mr, ok := e.d.(vendors.ManagedResources); ok && e.fx.ResourceKind != "" {
 		refs, err := mr.Resolve(t.Context(), e.fx.ResourceKind, e.region, vendors.UseRef{IDs: []string{"not a resource id"}})
-		if err != nil && !vendors.IsClass(err, vendors.NotFound) {
-			t.Errorf("Resolve of a malformed ID: %v, want an empty result", err)
+		if err != nil && !vendors.IsClass(err, vendors.NotFound) && !noMatch(err) {
+			t.Errorf("Resolve of a malformed ID: %v, want nothing found (NoMatch) and not Fatal", err)
 		}
 		if len(refs) != 0 {
 			t.Errorf("Resolve of a malformed ID returned %v", refs)

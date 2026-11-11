@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // directProvider is a ResourceProvider without the engine's policies: it
@@ -277,6 +279,12 @@ func checkEnsureAndList(
 	return first
 }
 
+// noMatch says that err is the selector's verdict that nothing matches.
+func noMatch(err error) bool {
+	_, ok := errors.AsType[*selector.NoMatchError](err)
+	return ok
+}
+
 const useTagKey = "scarpenter-conformance-use"
 
 // checkUseResources checks that resources the user brought are found, are not
@@ -294,8 +302,8 @@ func checkUseResources(t *testing.T, mr vendors.ManagedResources, e *env, kind v
 		}
 	}
 	nothing := vendors.UseRef{Tags: map[string]string{useTagKey: "absent"}}
-	if got, err := mr.Resolve(ctx, kind, e.region, nothing); err != nil || len(got) != 0 {
-		t.Errorf("Resolve of nothing = %+v, %v; want an empty result, not an error", got, err)
+	if got, err := mr.Resolve(ctx, kind, e.region, nothing); !noMatch(err) || len(got) != 0 {
+		t.Errorf("Resolve of nothing = %+v, %v; want a NoMatch error", got, err)
 	}
 	if err := mr.Delete(ctx, vendors.ResourceRef{Kind: kind, Region: e.region, ID: user.ID, Name: user.Name}); err == nil {
 		t.Error("Delete of a resource SCarpenter did not create succeeded")
