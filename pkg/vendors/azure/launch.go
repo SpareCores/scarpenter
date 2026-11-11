@@ -212,11 +212,14 @@ func (l LaunchSpec) NICName() string {
 // PIPName is the public IP's name.
 func (l LaunchSpec) PIPName() string { return l.VMName() + "-pip" }
 
-// PIP is the Standard static public IPv4 address, deleted with the VM.
+// PIP is the Standard static public IPv4 address, deleted with the VM. It has
+// no zones field (zone-redundant in a region with zones, which a VM of any zone
+// can use): its name does not carry the zone, and the zones of a public IP
+// cannot change, so a zonal address would make the attempt in the next zone
+// fail on the PUT of the address the previous zone left.
 func (l LaunchSpec) PIP() armnetwork.PublicIPAddress {
 	return armnetwork.PublicIPAddress{
 		Location: new(l.Region),
-		Zones:    zonesPtr(l.Zone),
 		Tags:     tagPtrs(l.Tags),
 		SKU:      &armnetwork.PublicIPAddressSKU{Name: new(armnetwork.PublicIPAddressSKUNameStandard)},
 		Properties: &armnetwork.PublicIPAddressPropertiesFormat{

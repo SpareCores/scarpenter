@@ -124,7 +124,7 @@ func TestNICAndPIPBodies(t *testing.T) {
 	require.Equal(t, "Static", string(*pip.Properties.PublicIPAllocationMethod))
 	require.Equal(t, "IPv4", string(*pip.Properties.PublicIPAddressVersion))
 	require.Equal(t, "Delete", string(*pip.Properties.DeleteOption))
-	require.Equal(t, []string{"1"}, []string{*pip.Zones[0]})
+	require.Nil(t, pip.Zones, "zone-redundant: the next zone's attempt reuses the address")
 	require.Equal(t, l.VMName()+"-pip", l.PIPName())
 
 	nic := l.NIC("/pip/1")

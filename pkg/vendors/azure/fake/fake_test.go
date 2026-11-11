@@ -194,6 +194,10 @@ func TestPublicIPLimitAndInUse(t *testing.T) {
 	again, err := s.PIPs().CreateOrUpdate(ctx, rg, "p1", armnetwork.PublicIPAddress{Location: new("westeurope")})
 	require.NoError(t, err)
 	require.Equal(t, *pip.Properties.IPAddress, *again.Properties.IPAddress)
+	// The zones of an address cannot change.
+	_, err = s.PIPs().CreateOrUpdate(ctx, rg, "p1", armnetwork.PublicIPAddress{Location: new("westeurope"), Zones: []*string{new("2")}})
+	code, _ = codeOf(t, err)
+	require.Equal(t, "PropertyChangeNotAllowed", code)
 
 	_, err = s.NICs().CreateOrUpdate(ctx, rg, "n", armnetwork.Interface{Location: new("westeurope"), Properties: &armnetwork.InterfacePropertiesFormat{
 		IPConfigurations: []*armnetwork.InterfaceIPConfiguration{{Name: new("ip"), Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{

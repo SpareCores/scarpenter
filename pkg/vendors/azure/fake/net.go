@@ -169,6 +169,12 @@ func (a *PIPs) CreateOrUpdate(ctx context.Context, rg, name string, pip armnetwo
 		stored.Properties = &armnetwork.PublicIPAddressPropertiesFormat{}
 	}
 	if old, ok := s.pips[k]; ok {
+		// The zones of a public IP cannot change (the exact ARM code is
+		// unverified).
+		if !sameZones(old.Zones, pip.Zones) {
+			return armnetwork.PublicIPAddress{}, Error(http.StatusBadRequest, "PropertyChangeNotAllowed",
+				fmt.Sprintf("Changing property 'zones' of public IP address %s is not allowed.", name))
+		}
 		stored.Properties.IPAddress = old.Properties.IPAddress
 	} else {
 		if l, ok := s.locations[strings.ToLower(val(pip.Location))]; ok {
@@ -186,6 +192,18 @@ func (a *PIPs) CreateOrUpdate(ctx context.Context, rg, name string, pip armnetwo
 	stored.Properties.ProvisioningState = new(armnetwork.ProvisioningStateSucceeded)
 	s.pips[k] = &stored
 	return copyPIP(stored), nil
+}
+
+func sameZones(a, b []*string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if val(a[i]) != val(b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Subscription) pipCount(loc string) int64 {
