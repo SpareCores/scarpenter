@@ -17,7 +17,11 @@ name: L5 (cloud e2e)
 # Keystone catalog name, default GRA11) and optionally OVH_AUTH_URL, and the environment secrets
 # OVH_OS_USERNAME and OVH_OS_PASSWORD of a dedicated OpenStack user of the lane's own Public
 # Cloud project (one active region, low quotas); OVH documents no GitHub OIDC trust, so the
-# password is a stored secret. The sweeper (e2e-<vendor>-sweeper.yml) deletes what a run that
+# password is a stored secret.
+# For the vendor gcp (a dedicated project): the variables GCP_PROJECT and
+# GCP_REGION and the environment secrets GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT (a
+# workload identity pool and provider for GitHub, and the service account with the CI roles of
+# test/e2e-gcp/ci-policy.sh; no key file). The sweeper (e2e-<vendor>-sweeper.yml) deletes what a run that
 # died left behind.
 # Alibaba Cloud (alicloud): the variables ALICLOUD_REGION and ALICLOUD_OIDC_AUDIENCE and the
 # environment secrets ALICLOUD_ROLE_ARN and ALICLOUD_OIDC_PROVIDER_ARN (a RAM role assumed
@@ -107,6 +111,8 @@ jobs:
       VAR_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       VAR_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       VAR_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      VAR_GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      VAR_GCP_REGION: ${{ vars.GCP_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -191,6 +197,14 @@ jobs:
                 echo "AZURE_SUBSCRIPTION_ID=${VAR_AZURE_SUBSCRIPTION_ID}"
                 echo "AZURE_RESOURCE_GROUP=${VAR_AZURE_RESOURCE_GROUP}"
               } >> "${GITHUB_ENV}"
+              ;;
+            gcp)
+              # The project has no default (none lives in this repository) and goes into
+              # paths and filters: only the shape of a project id is accepted.
+              [[ "${VAR_GCP_PROJECT}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || { echo "::error::the variable GCP_PROJECT must be a project id" >&2; exit 1; }
+              valid GCP_REGION "${VAR_GCP_REGION}" '^[a-z]+(-[a-z]+)*[0-9]+$'
+              echo "GCP_PROJECT=${VAR_GCP_PROJECT}" >> "${GITHUB_ENV}"
+              echo "GCP_REGION=${VAR_GCP_REGION:-us-central1}" >> "${GITHUB_ENV}"
               ;;
           esac
           mkdir -p "${RUNNER_TEMP}/e2e"
@@ -334,6 +348,20 @@ jobs:
         run: |
           test/e2e-azure/azure-token.sh start "${E2E_OUT}/azure-token"
 
+      # GCP: the job's OIDC token is exchanged through workload identity
+      # federation for the CI service account's access (no key file). The credentials file
+      # the action writes is what install.sh puts into the Secret for SCarpenter (the
+      # cluster issuer is not public, so web identity from it is not testable on a runner).
+      - name: Authenticate to Google Cloud (gcp)
+        if: inputs.vendor == 'gcp'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT }}
+          create_credentials_file: true
+          export_environment_variables: true
+
       # Step 4: image and chart.
       - name: Build the image, install the chart
         run: |
@@ -405,6 +433,15 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Authenticate to Google Cloud again for the teardown (gcp)
+        if: always() && env.E2E_PREPARED == 'true' && inputs.vendor == 'gcp'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT }}
+          create_credentials_file: true
+          export_environment_variables: true
 
       - name: Teardown
         if: always() && env.E2E_PREPARED == 'true'

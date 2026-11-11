@@ -64,6 +64,43 @@ expect "release: every vendor, full" "aws:full oci:full" "$("${plan}" release | 
 expect "canary: every vendor" '[{"vendor":"aws"},{"vendor":"oci"}]' "$("${plan}" vendors | sed -n 's/^matrix=//p')"
 expect "any=false for an empty plan" "any=false" "$(printf '%s\n' docs/x.md | "${plan}" pr | grep '^any=')"
 
+# The GCP lane is ready for its line in test/e2e-vendors.txt (not listed until its cost guards
+# are true, docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards): with a list that has
+# gcp, its driver, its lane, its sweeper and its sweep package are full rules of its own, the shared
+# paths reach it, and the canary, dispatch and release plans include it.
+printf 'aws\ngcp\n' >"${tmp}/vendors-gcp.txt"
+gcp_pr_plan() { # gcp_pr_plan <file>...
+  printf '%s\n' "$@" | E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" E2E_LABELS='[]' "${plan}" pr | sed -n 's/^matrix=//p' |
+    jq -r '[.[] | .vendor + ":" + .mode] | join(" ")'
+}
+expect "gcp listed: its driver" "gcp:full" "$(gcp_pr_plan pkg/vendors/gcp/driver.go)"
+expect "gcp listed: its sweep package" "gcp:full" "$(gcp_pr_plan pkg/vendors/gcp/sweep/sweep.go)"
+expect "gcp listed: its lane scripts" "gcp:full" "$(gcp_pr_plan test/e2e-gcp/scenarios.sh)"
+expect "gcp listed: its sweeper workflow" "gcp:full" "$(gcp_pr_plan .github/workflows/e2e-gcp-sweeper.yml)"
+expect "gcp listed: the AWS sweeper is not its business" "aws:full" "$(gcp_pr_plan .github/workflows/e2e-aws-sweeper.yml)"
+expect "gcp listed: bootstrap is a smoke for both" "aws:smoke gcp:smoke" "$(gcp_pr_plan pkg/bootstrap/render.go)"
+expect "gcp listed: the reusable workflow is full for both" "aws:full gcp:full" "$(gcp_pr_plan .github/workflows/e2e-cloud.yml)"
+expect "gcp listed: dispatch" '[{"vendor":"gcp","mode":"smoke","scenarios":""}]' \
+  "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" dispatch gcp smoke | sed -n 's/^matrix=//p' | jq -c .)"
+expect "gcp listed: the canary matrix" '[{"vendor":"aws"},{"vendor":"gcp"}]' \
+  "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" vendors | sed -n 's/^matrix=//p')"
+expect "gcp listed: the release gate" "aws:full gcp:full" \
+  "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" release | sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode] | join(" ")')"
+# What a listed vendor needs next to its directory: the sweeper workflow and the credentials
+# steps of the two reusable workflows (test/e2e-gcp/selftest.sh checks the gcp ones in detail).
+for v in $(env -u E2E_VENDORS_FILE "${plan}" vendors | sed -n 's/^matrix=//p' | jq -r '.[].vendor') gcp; do
+  [[ -f "${here}/../.github/workflows/e2e-${v}-sweeper.yml" ]] || {
+    echo "FAIL the vendor ${v} has no .github/workflows/e2e-${v}-sweeper.yml"
+    failures=$((failures + 1))
+  }
+  for w in e2e-cloud.yml e2e-canary.yml; do
+    grep -qE "vendor == '${v}'" "${here}/../.github/workflows/${w}" || {
+      echo "FAIL ${w} has no credentials step for the vendor ${v}"
+      failures=$((failures + 1))
+    }
+  done
+done
+
 # The real list names a lane directory for each vendor.
 unset E2E_VENDORS_FILE
 real="$("${plan}" vendors | sed -n 's/^matrix=//p' | jq -r '.[].vendor')"

@@ -1,0 +1,38 @@
+# The NodeClass of the drift scenario, on its own so that the changes it makes drift
+# nothing else. `scratch` is a storage profile no running node uses: changing it
+# must drift nothing; changing the GCP block (the root disk size) must replace the node.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-drift
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time and the run on every instance and disk of the run, which the
+  # sweeper reads (label keys and values: lower case, digits, - and _).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  profiles:
+    storage:
+      scratch:
+        gcp:
+          data:
+            - {name: scratch, diskType: pd-balanced, sizeGb: 10, filesystem: ext4, mountPath: /var/lib/scratch}
+  vendors:
+    gcp:
+      project: ${GCP_PROJECT}
+      regions: [${GCP_REGION}]
+      storage:
+        root: {diskType: pd-balanced, sizeGb: 20}
+      # The managed network, subnet and firewall rules: a short idle lifetime, so that the
+      # uninstall scenario sees them go (the default is 24 hours).
+      resources:
+        subnets: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
+        firewalls: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

@@ -15,8 +15,10 @@ import (
 // config is what the lane pins (test/e2e-<vendor>/defaults.sh, exported by it and read
 // from the environment here: one source of truth). The base URLs are for tests.
 type config struct {
-	vendor            string
-	region            string
+	vendor string
+	region string
+	// project is the cloud project of the vendors that have one (gcp).
+	project           string
 	flatcarChannel    string
 	flatcarVersion    string
 	kubernetesVersion string
@@ -39,6 +41,12 @@ type config struct {
 	flatcarImageFile string
 	// subscription is the Azure subscription ID (AZURE_SUBSCRIPTION_ID); empty for the other vendors.
 	subscription string
+	// armType is the lane's arm64 type; arm64 says whether the lane runs arm64 at all
+	// (E2E_ARM64=true, for the vendors where the arm64 image is not generally available:
+	// gcp) and arm64ImageProject is the project that holds that image ("" = the driver's own).
+	armType           string
+	arm64             bool
+	arm64ImageProject string
 
 	sysextBase string
 	k3sBase    string
@@ -50,7 +58,7 @@ type config struct {
 // For hcloud it is the comma-separated list of the lane's locations.
 var vendorEnv = map[string]string{
 	vendorAlicloud: "ALICLOUD_REGION", vendorAWS: "AWS_REGION", vendorAzure: "AZURE_REGION",
-	vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOVH: "OS_REGION_NAME",
+	vendorGCP: "GCP_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOVH: "OS_REGION_NAME",
 	vendorUpCloud: "UPCLOUD_ZONE", vendorVultr: "VULTR_REGION",
 }
 
@@ -79,6 +87,9 @@ var (
 	noQuota = map[string]bool{vendorHCloud: true, vendorVultr: true}
 )
 
+// vendorProjectEnv maps a vendor that works in a project to the variable that names it.
+var vendorProjectEnv = map[string]string{vendorGCP: "GCP_PROJECT"}
+
 func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	c := &config{vendor: vendor}
 	var missing []string
@@ -95,6 +106,12 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	if vendor == vendorAzure {
 		c.subscription = need("AZURE_SUBSCRIPTION_ID")
 	}
+	if projectVar, ok := vendorProjectEnv[vendor]; ok {
+		c.project = need(projectVar)
+	}
+	c.armType = strings.TrimSpace(getenv("E2E_TYPE_ARM64"))
+	c.arm64 = strings.TrimSpace(getenv("E2E_ARM64")) == "true"
+	c.arm64ImageProject = strings.TrimSpace(getenv("E2E_ARM64_IMAGE_PROJECT"))
 	c.flatcarChannel = need("E2E_FLATCAR_CHANNEL")
 	c.flatcarVersion = need("E2E_FLATCAR_VERSION")
 	c.kubernetesVersion = need("E2E_KUBERNETES_VERSION")

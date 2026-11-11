@@ -1,0 +1,51 @@
+# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/16-gcp.md section 9): the
+# tailscale template with pinned versions, a small pd-balanced root disk, a storage
+# profile with a small Hyperdisk Balanced data volume, the placement profile that puts a
+# database and its client into one compact (collocated) resource policy, and a benchmark
+# metric for the described-not-named scenario. The network, the subnet and the firewall
+# rules are SCarpenter's own (create), so that the lane does not depend on the project
+# having a default network.
+#
+# It must exist before the controller starts: the label keys of a NodeClass's
+# metrics are registered with Karpenter core at start-up (install.sh applies it
+# before the chart).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-amd64
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time and the run on every instance and disk of the run, which the
+  # sweeper reads (label keys and values: lower case, digits, - and _).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  metrics:
+    single-core:
+      benchmark: {id: "geekbench:score", config: {cores: single}}
+  profiles:
+    storage:
+      db-hd:
+        gcp:
+          data:
+            - {name: pgdata, diskType: hyperdisk-balanced, sizeGb: 10, filesystem: xfs, mountPath: /var/lib/pgdata}
+    placement:
+      colocated: {gcp: {resourcePolicy: {groupPlacement: {collocation: COLLOCATED}}}}
+  vendors:
+    gcp:
+      project: ${GCP_PROJECT}
+      regions: [${GCP_REGION}]
+      storage:
+        root: {diskType: pd-balanced, sizeGb: 20}
+      # The managed network, subnet and firewall rules: a short idle lifetime, so that the
+      # uninstall scenario sees them go (the default is 24 hours).
+      resources:
+        subnets: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
+        firewalls: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

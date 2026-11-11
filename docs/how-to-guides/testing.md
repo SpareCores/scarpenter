@@ -884,6 +884,111 @@ quota ceiling and a budget alert, the read-only canary role) is true on a live a
 (see [Azure](testing-and-releasing.md#azure)); the lane's selftest checks that the line is absent.
 Nothing in the lane has run against Azure.
 
+### The L5 lane on Google Cloud
+
+The GCP lane is the same lane as the AWS one (a k3s control plane on the runner, nodes that join over
+Tailscale, the reusable `e2e-cloud.yml`, the same pins of Kubernetes, k3s, Tailscale and Flatcar) with the
+cloud calls of Google Compute Engine; everything it adds lives in `test/e2e-gcp/`, `pkg/vendors/gcp/sweep`,
+`test/canary/gcp.go` and `.github/workflows/e2e-gcp-sweeper.yml`. **It is not in `test/e2e-vendors.txt` yet**:
+the line is added only when the cost guards of [Testing and releasing](testing-and-releasing.md#per-vendor-cost-guards)
+are true for the project, which is provisioned outside this repository. Everything else is ready, so that the
+single line `gcp` in that file is enough: the planner, the canary matrix and the release gate read it,
+and `test/e2e-plan-selftest.sh` and `test/e2e-gcp/selftest.sh` check that nothing else is missing (the
+credentials steps of both reusable workflows, the sweeper workflow, the canary's vendor part, the smoke set).
+Until then it runs by hand against a project of one's own:
+
+```bash
+export GCP_PROJECT=my-project GCP_REGION=us-central1     # the lane's variables; the project has no default
+test/canary/run.sh gcp                                    # the free check (read-only identity)
+go run ./test/e2e-gcp/sweeper -project my-project -dry-run -regions us-central1
+hack/dev.sh make test-e2e-gcp-dryrun                      # everything that needs no project
+```
+
+**What differs from AWS.**
+
+- **A dedicated project.** An IAM condition on Compute can test the resource name and type, **not labels** and not
+  the machine type, so the AWS statements "only with the cluster tag" and "only these instance types" have no
+  equivalent. The wall is the driver's own ownership check plus a project that holds nothing else, the CI
+  identity's write permissions limited to the lane's region and to names that start with `scarpenter-`, and the CPU
+  quotas of the project as the ceiling. That every Compute method honours such a name condition is **unverified**; the
+  first live run reads the denials in the audit log.
+- **Credentials.** The CI identity is a GitHub OIDC token exchanged through workload identity federation
+  (`google-github-actions/auth`, the provider and the service account in environment secrets; no key file).
+  `install.sh` puts the external-account credential file the action wrote into the Secret `gcp-credentials`
+  (`vendors.gcp.credentials.mode: secret`); the cluster's own ServiceAccount issuer is not public, so the chart's
+  workload identity mode is a manual walk, as AWS web identity is. The file asks GitHub for a fresh OIDC token whenever it needs one (the runner's token endpoint, reachable from the cluster that runs on the same runner), so there is no hour-long credential to expire; that this holds for the whole run is **unverified** until the first live run.
+- **Images.** The pinned Flatcar release is read **by name** from `kinvolk-public` (`flatcar-<channel>-<version with dashes>`);
+  the images cannot be listed. There is no official arm64 image on GCE: the `arm64` scenario and the canary's
+  arm64 check run only with `E2E_ARM64=true` and `E2E_ARM64_IMAGE_PROJECT` (the project that holds the Spare Cores image).
+- **Types.** `gcp.e2-small` (amd64, on demand and Spot), `gcp.e2-medium` and `gcp.e2-standard-2` (the described scenario),
+  `gcp.c3-standard-4` (the database: it takes Hyperdisk Balanced and compact placement, and needs the `GVNIC` guest OS
+  feature on the image, which the preflight and the canary read), and `gcp.t2a-standard-1` (arm64, optional). The pools
+  of `test/e2e-gcp/manifests/nodepools.yaml` name the same types, and a test keeps this page and them together.
+- **Quotas.** About 24 vCPUs of `CPUS` and 4 of `PREEMPTIBLE_CPUS` in the region (`E2E_MIN_VCPU_OD`, `E2E_MIN_VCPU_SPOT`).
+  A region without preemptible quota (limit 0) runs Spot VMs on `CPUS`, so then the preflight and the canary want both
+  added up. GCP reports the usage with the limit, so the `quota` scenario compares the controller's buckets with
+  `regions.get` and nothing is computed from instances.
+- **Ownership marker.** Instances and disks carry the label `scarpenter-cluster=scarpenter-ci-<run id>` (and
+  `ci-created-at`, `ci-run` from the NodeClass's `spec.tags`). Networks, subnetworks, firewall rules and resource
+  policies have no labels: they are SCarpenter's when the name starts with `scarpenter-<cluster>-` **and** the
+  description is the ownership marker (`scarpenter: cluster=<c> nodeclass=<n> managed-by=scarpenter
+  resource-kind=<kind>`). What the workflow brings itself for `byo` is named `scarpenter-e2e-byo-<run id>*` and described
+  `scarpenter-e2e-byo: cluster=<cluster>`, a marker the controller's garbage collector does not recognize and the sweeper does.
+
+| Scenario | Proves |
+|---|---|
+| preflight | the pinned Flatcar image exists, is `READY`, amd64, with `GVNIC`; every lane type is offered in the lane's zone; the `CPUS` and `PREEMPTIBLE_CPUS` quotas suffice; whether the project has a default network (the `default` scenario needs it); the NodeClasses are `Ready`, `VendorReady` and `ImagesReady` |
+| `amd64` | on demand, exact type `gcp.e2-small`: Node Ready, Pod Running, `kubectl logs` and `exec`; node labels of overview section 5.5 (the zone name and the numeric zone ID consistent with `gcloud compute zones describe`); the instance's labels (cluster, nodeclaim, nodepool, nodeclass, managed-by, the idempotency key equal to the NodeClaim's UID, the NodeClass's `spec.tags`); the metadata keys of plan 16 section 3 (`user-data`, `block-project-ssh-keys=TRUE`, `enable-oslogin=FALSE`, no `ssh-keys`), no service account, an external IPv4; the root disk (`pd-balanced`, 20 GB, from the pinned image, labelled, deleted with the instance); the price annotation; the bootstrap token is gone, the serving CSR approved; on the node, the checks of L4 scenarios Q09 and Q10; the metadata server answers on the node (the user-data is the Ignition) and no login user exists (project SSH keys and OS Login are off); the answer from a Pod is recorded as a note, the exposure that the reference documents |
+| `spot` | `gcp.e2-small` Spot: `provisioningModel: SPOT`, **`instanceTerminationAction: DELETE`** (the API's default is `STOP`, which leaves a stopped instance and its disks), no automatic restart, `onHostMaintenance: TERMINATE` |
+| `arm64` | optional (`E2E_ARM64=true`): `gcp.t2a-standard-1` Spot on the Spare Cores arm64 image; the image's architecture is `ARM64`, the join units are active |
+| `db` | a `c3-standard-4` StatefulSet with the `db-hd` storage profile (a 10 GB Hyperdisk Balanced data disk named `pgdata`) and a client Deployment, both `colocated` with one run key: **one compact resource policy**, named `scarpenter-<cluster>-...` (at most 63 characters) and described by SCarpenter, both instances in it and in one zone; the data disk has the device name `pgdata`, `autoDelete: true` (not GCE's default), the cluster label, and is found at `/dev/disk/by-id/google-pgdata`, mounted as xfs at `/var/lib/pgdata`; the labels of the applied profiles; `C3_CPUS` usage covers the two instances; after deleting both workloads the policy and the disk are gone |
+| `described` | a Deployment that selects by `vcpus`, `memory-mib` ranges and a `metric-single-core-pct` threshold within the allowed test types gets a type that satisfies all of them (checked against `machine-types describe`) |
+| `byo` | a custom network, a subnet and a firewall rule that the workflow creates with `gcloud` are `use`d by a second NodeClass (the subnet by its resource ID, the rule by its network tag): the node launches into them, carries the tag, and after the workload, the pool and the NodeClass are gone SCarpenter has not touched them (the rule is unchanged); the teardown (the sweeper) deletes them |
+| `create` | no `use`: SCarpenter creates a custom-mode network `scarpenter-<cluster>-...`, a subnet of the region from the pool `10.240.0.0/12` and firewall rules for the NodeClass's network tag, all described with the ownership marker; the node uses them; once the NodeClass is deleted its rules go by their lifecycle |
+| `default` | only when the project has a `default` network: a NodeClass without a resources block launches into the `default` network and its subnet of the region, and leaves the network alone |
+| `negative` | a NodeClass with another project than the controller's is refused (`VendorReady=False`, the message names the project); what `publicIPv4: false` does is recorded as a note for the first live run; no instance is launched for either |
+| `quota` | the buckets the controller reports (`scarpenter_quota_limit`, `scarpenter_quota_used` for `CPUS`, `PREEMPTIBLE_CPUS`, the per-series metrics and `INSTANCES`) equal `regions.get`; `CPUS` usage covers the running e2 instances; the in-flight reservations are released; the launched types are in `machine-types` of their zones |
+| `drift` | as on AWS with the root disk size (`vendors.gcp.storage.root.sizeGb`): a change to a profile no node uses drifts nothing, a change to the block replaces the node (new root size, old instance deleted, NodeClaim and Node gone, the Pod moves), the controller Pod is killed hard while the replacement's `Create` is in flight (opportunistic replay assertion). Always asserted: no orphan, and **at most one successful `instances.insert` operation for the replacement claim** (deleted instances vanish from the API, but the project's operations are listed) |
+| `scalezero` | the exit criterion: after the workloads are deleted every instance of the cluster is gone within 2 minutes; no node, NodeClaim, bootstrap token or **disk** is left; the quota usage equals `regions.get` again |
+| `uninstall` | the procedure of [Uninstall](install.md#uninstall): the NodePools, the SCNodeClasses (the managed firewall rules, subnets and networks fall under `managedResources.defaultTTL`), then `helm uninstall` |
+
+**Provisioning (outside this repository).** A maintainer provisions once, with whatever tool they use; the repository holds none of it:
+
+- a project for the lane and nothing else, with a budget alert, the Compute Engine API, and the quotas above in the lane's region
+  (new projects start low; the project's other regions can stay at their defaults);
+- a workload identity pool and a GitHub OIDC provider (`https://token.actions.githubusercontent.com`) with an attribute mapping of
+  `assertion.repository` and `assertion.environment` and an attribute condition that names the repository and the environments
+  `e2e`, `e2e-sweeper` and `e2e-canary`, and two service accounts: the CI one, which the principal set of the environments `e2e` and
+  `e2e-sweeper` may impersonate (`roles/iam.workloadIdentityUser` on the service account), and the canary one, for `e2e-canary` only;
+- the roles: `test/e2e-gcp/ci-policy.sh bindings <project> serviceAccount:<ci service account> <region>` prints the `gcloud` commands for
+  three custom roles (the reads; the regional writes, bound with a condition on the resource name `projects/<project>/zones/<region>-*` and
+  `projects/<project>/regions/<region>/*`; the global network writes, bound with a condition on names that start with `scarpenter-`), and
+  `ci-policy.sh role reads|regional|global` the YAML role definitions; `test/e2e-gcp/canary-policy.sh bindings <project> serviceAccount:<canary service account>`
+  one read-only role. No predefined role is used (the instance admin role is wider). Nothing grants `iam.serviceAccounts.actAs`: the nodes carry no service account;
+- the GitHub environments: `e2e` (required reviewers), `e2e-sweeper` (limited to `main`, no reviewers) and `e2e-canary` (limited to `main`) with the
+  variables `GCP_PROJECT` and `GCP_REGION` (the region is optional, `us-central1`) and the secrets `GCP_WORKLOAD_IDENTITY_PROVIDER` (the provider's resource
+  name) and `GCP_SERVICE_ACCOUNT` (the service account's e-mail address; the canary's own in `e2e-canary`); the Tailscale variables and tags are the AWS lane's;
+- for `byo`, nothing: the workflow creates and deletes its own network; for `default`, a project that still has its `default` network (an organization
+  policy often removes it; the scenario then skips itself).
+
+**The sweeper.** `.github/workflows/e2e-gcp-sweeper.yml` runs every three hours and on demand in the environment `e2e-sweeper`. It
+deletes, in dependency order, the instances, the resource policies, the firewall rules, the subnetworks and the networks of every cluster whose
+name starts with `scarpenter-ci-` and that is more than two hours old, in the lane's region (`-regions` takes a comma list or `all`). The age is the
+creation timestamp (every one of these resources has it). `pkg/vendors/gcp/sweep` is tested against the in-memory Compute API (old and young
+runs, another cluster's resources, a name without its marker and a marker without its name, the regions narrowing with a network kept alive by a subnet of another
+region, the byo resources by their own marker, a resource still in use retried, a failed operation, a zone that does not answer, a region without access, a dry
+run); `go run ./test/e2e-gcp/sweeper -dry-run` lists what a sweep would delete and `-cluster <name> -max-age 0 -regions <region>` is what the teardown uses.
+Disks are not swept: the driver creates every disk with `autoDelete`, `ComputeAPI` has no disk calls, and the teardown lists disks by the cluster
+label with `gcloud` and fails the job on a leftover (which it then deletes). Every call of the sweeper and of the canary runs under a deadline
+(`gcp.WithTimeouts` and a context deadline for the whole run).
+
+**Without a project.** `hack/dev.sh make test-e2e-gcp-dryrun` renders every manifest of `test/e2e-gcp/manifests` and sends it to an envtest API
+server as a server-side dry run, runs the sweeper's and the canary's tests against the in-memory Compute API, and `test/e2e-gcp/selftest.sh`: the helpers
+against stubs and fixtures (including the redaction of project ids, Google tokens and private keys), the scenario list, the workflows (federated credentials, no key file,
+every action pinned by SHA), the byo names shared by the scripts and the sweeper, the roles `ci-policy.sh` and `canary-policy.sh` print (the driver's
+permissions all there, no IAM, no overlap between the three, only reads in the canary's), that the lane is ready for its line in `test/e2e-vendors.txt`, and the chart
+with the lane's values once the chart knows `vendors.gcp`. The canary's test compares the permissions of the calls it made with `canary-policy.sh role`.
+
 ### Artifact fixtures
 
 `pkg/artifacts/testdata/<name>-<version>/SHA256SUMS` are the real checksum files of

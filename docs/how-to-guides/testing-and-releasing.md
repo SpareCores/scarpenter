@@ -261,6 +261,25 @@ before the network (`test/canary/hcloud_guard.go`), and the driver is given an A
 and `Delete*` call; `hcloud_test.go` checks both walls (every method of `hcloud.API` is a passed-through read or a
 refused write). There is no policy to print: Hetzner tokens are read or read-write for the whole project.
 
+**The GCP canary** (`test/canary/gcp.go`, `test/canary/run.sh gcp`; pins from `test/e2e-gcp/defaults.sh`, the project and region from the variables
+`GCP_PROJECT` and `GCP_REGION`) runs the GCP driver's read paths over the real Compute client, every call under a deadline (`gcp.WithTimeouts`) and the whole
+run under one more:
+
+| Check | What it calls | What it catches |
+|---|---|---|
+| regions and zones | the driver facts (`regions.list`, `zones.list`): the zone names and numeric IDs | the lane's region down or unreadable, zones gone |
+| Flatcar image, amd64 (and arm64 when `E2E_ARM64=true`) | `Driver.ResolveImage` (`images.get` by the pinned name from `kinvolk-public`, or the Spare Cores project for arm64) | the pinned version unpublished |
+| the image's guest OS features | `images.get` of the resolved image: ready, architecture, and `GVNIC` when the lane's types (c3 and later series) need it | an image the lane's db type cannot boot from |
+| vCPU quotas | `Driver.Quotas` (`regions.get`) and `GlobalQuotas` (`projects.get`): `CPUS` against `E2E_MIN_VCPU_OD`, `PREEMPTIBLE_CPUS` against `E2E_MIN_VCPU_SPOT` (when the region has none, Spot runs on `CPUS`, so the two add up), and `CPUS_ALL_REGIONS` when the project has it | a quota lowered below what the suite needs |
+| machine types | `Driver.LaunchableTypes` (`machine-types.list` per zone) for every type the lane uses, and, where the driver maps a type's quota consumption, that the buckets exist and fit one instance (an unmapped series is said, not failed: it takes the reactive path) | a type no longer offered in any zone of the region |
+| read-only guard | the audit of the run | a check that tried a write |
+
+The role is **read-only** and cannot be narrowed to the region (a list is checked against the project): `compute.images.get`,
+`compute.machineTypes.list`, `compute.projects.get`, `compute.regions.get`, `compute.regions.list` and `compute.zones.list`
+(`test/e2e-gcp/canary-policy.sh role` prints it, `bindings <project> <principal>` the `gcloud` commands). The second wall is
+`test/canary/gcp_guard.go`, which refuses every method of the driver's Compute interface that is not a get, a list or an operation read; `gcp_guard_test.go` checks by
+reflection that every method is passed through as a read or refused (and has its IAM permission in the table), and `gcp_test.go` compares the permissions of the calls the canary made with the role.
+
 ## Releasing
 
 There is no version bump commit: the version comes from the tag alone (the Dockerfile
@@ -384,6 +403,24 @@ are AWS's; the vCPU quotas (regional and the lane's families 16, Spot 4, Standar
 with a budget alert on the subscription; the canary's identity has a read-only custom role
 (`canary-policy.sh`) and a guard that refuses every write (`test/canary/azure_guard.go`); the identities are
 federated (GitHub OIDC, no secret), and the environment `e2e`'s required reviewers approve every run.
+
+The GCP lane's, which are **not all true yet**: `gcp` is not in `test/e2e-vendors.txt`, and the single line `gcp` there is all that is left to do once they are
+(the workflows' credentials steps, the sweeper, the canary part and the planner's rules are in place and tested by `test/e2e-plan-selftest.sh` and `test/e2e-gcp/selftest.sh`):
+
+| Guard | GCP lane |
+|---|---|
+| A budget alert on the project that hosts the lane, to a person | project-level, in the CI account's infrastructure (**to provision**) |
+| The CI identity cannot create instances of types the lane does not use | **not expressible**: an IAM condition tests the resource name, not the machine type; the pools name the types, the vCPU quotas are the ceiling |
+| The CI identity cannot act outside the lane's region | the regional role is bound with a condition on `projects/<project>/zones/<region>-*` and `projects/<project>/regions/<region>/*` (`ci-policy.sh`; that every method honours it is unverified until the first live run) |
+| The project holds nothing but the lane's resources (no IAM condition can protect instances by label) | a dedicated project; the driver refuses to delete an instance without its cluster's label |
+| Every resource carries a run marker, so cost and leftovers are attributable | the label `scarpenter-cluster=scarpenter-ci-<run id>` and `ci-created-at` on instances and disks; the name prefix `scarpenter-<cluster>-` plus the description marker on networks, subnetworks, firewall rules and resource policies |
+| A sweeper that deletes what a dead run left behind, by label, marker and age | `e2e-gcp-sweeper.yml`, every three hours, environment `e2e-sweeper` |
+| A run time limit | 90 minutes for the job (60 for a smoke), 55 (25) for the scenarios step; the teardown always runs |
+| Small, cheap types; spot where the vendor has it | `e2-small` (on demand and Spot), `e2-medium`, `e2-standard-2`, `t2a-standard-1` (arm64, optional), `c3-standard-4` for the placement-policy scenario |
+| A teardown that fails the job when anything of the run remains | `test/e2e-gcp/teardown.sh`: instances, disks, resource policies, firewall rules, subnetworks, networks |
+| A quota that bounds the damage of a bug | the project's `CPUS` (24 needed) and `PREEMPTIBLE_CPUS` (4) quotas in the lane's region are the ceiling (**to provision**) |
+| A read-only role for the canary | `canary-policy.sh`, a service account of its own, environment `e2e-canary` |
+| Approval for every run of pull request or release code that reaches the project | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) |
 
 ## Adding a vendor lane
 
@@ -614,3 +651,15 @@ the tailnet and the environments are the AWS lane's; what differs is the account
      does a plain GET; the hardened mode makes it fail with 403), and for an eighth-generation or later
      type such as `ecs.c8y.large` it must advertise NVMe support (otherwise the launch is refused as
      `ImageNotSupportInstanceType`). How the import sets these features: unverified.
+
+**For the vendor gcp** (the same environments, with Google Cloud's names; nothing here is created by this repository):
+
+- **Project**: a dedicated one, with the Compute Engine API, a budget alert and quotas in the lane's region (`CPUS` 24, `PREEMPTIBLE_CPUS` 4; a new project
+  starts lower), and, for the `default` scenario, its `default` network.
+- **Workload identity**: a pool and a GitHub OIDC provider whose attribute condition names the repository and the environments `e2e`, `e2e-sweeper` and `e2e-canary`; the CI
+  service account, impersonable (`roles/iam.workloadIdentityUser`) by the principal sets of the environments `e2e` and `e2e-sweeper`; the canary service account, by the principal set of
+  `e2e-canary` only.
+- **Roles**: the three custom roles and the conditional bindings printed by `test/e2e-gcp/ci-policy.sh bindings`, and the read-only role printed by `test/e2e-gcp/canary-policy.sh bindings`.
+- **Environments**: `e2e` (reviewers), `e2e-sweeper` (`main`, no reviewers) and `e2e-canary` (`main`) each with the variable `GCP_PROJECT`, the variable `GCP_REGION` (optional, default
+  `us-central1`) and the secrets `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`.
+- **Tailscale**: the same tags, grants and federated identity as for AWS.

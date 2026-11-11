@@ -22,6 +22,10 @@ name: L5 canary
 # the secrets ALICLOUD_ROLE_ARN (a read-only RAM role, test/e2e-alicloud/canary-policy.sh) and
 # ALICLOUD_OIDC_PROVIDER_ARN, the variables ALICLOUD_REGION (default ap-southeast-1) and
 # ALICLOUD_OIDC_AUDIENCE.
+# For the vendor gcp: the
+# variables GCP_PROJECT and GCP_REGION (optional, default us-central1) and the secrets
+# GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT (the read-only role of
+# test/e2e-gcp/canary-policy.sh; federated, no key file).
 on:
   schedule:
     - cron: "41 3 * * *"
@@ -84,6 +88,8 @@ jobs:
       VAR_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
       VAR_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       VAR_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      VAR_GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      VAR_GCP_REGION: ${{ vars.GCP_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -122,6 +128,12 @@ jobs:
               done
               [[ "${VAR_AZURE_REGION:-westeurope}" =~ ^[a-z0-9]+$ ]] || { echo "::error::the variable AZURE_REGION is not a region name" >&2; exit 1; }
               echo "AZURE_REGION=${VAR_AZURE_REGION:-westeurope}" >> "${GITHUB_ENV}"
+              ;;
+            gcp)
+              [[ "${VAR_GCP_PROJECT}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || { echo "::error::the variable GCP_PROJECT must be a project id" >&2; exit 1; }
+              [[ -z "${VAR_GCP_REGION}" || "${VAR_GCP_REGION}" =~ ^[a-z]+(-[a-z]+)*[0-9]+$ ]] || { echo "::error::the variable GCP_REGION must look like us-central1" >&2; exit 1; }
+              echo "GCP_PROJECT=${VAR_GCP_PROJECT}" >> "${GITHUB_ENV}"
+              echo "GCP_REGION=${VAR_GCP_REGION:-us-central1}" >> "${GITHUB_ENV}"
               ;;
           esac
 
@@ -208,6 +220,16 @@ jobs:
         run: |
           test/e2e-azure/azure-token.sh start "${RUNNER_TEMP}/azure-token"
           echo "AZURE_FEDERATED_TOKEN_FILE=${RUNNER_TEMP}/azure-token" >> "${GITHUB_ENV}"
+
+      - name: Authenticate to Google Cloud with the read-only identity (gcp)
+        if: matrix.vendor == 'gcp'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT }}
+          create_credentials_file: true
+          export_environment_variables: true
 
       # The output is redacted by the script (the job log, the artifact and the issue are public).
       - name: Canary

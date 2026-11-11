@@ -1,0 +1,26 @@
+# A privileged Pod on one node with the host's root mounted at /host: the scenarios
+# look at systemd, files and devices with `chroot /host` (lib.sh: node_shell). It is
+# pinned to the node by name (no scheduling, no taint matters) and removed with the
+# namespace's workloads.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${PODNAME}
+  labels: {scarpenter-e2e: "nodeshell"}
+spec:
+  nodeName: ${NODE}
+  hostPID: true
+  hostNetwork: true
+  terminationGracePeriodSeconds: 0
+  tolerations:
+    - operator: Exists
+  containers:
+    - name: shell
+      image: mirror.gcr.io/library/busybox:1.37.0
+      command: [sleep, "86400"]
+      securityContext: {privileged: true}
+      volumeMounts:
+        - {name: host, mountPath: /host}
+  volumes:
+    - name: host
+      hostPath: {path: /}
