@@ -12,6 +12,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources v1.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions v1.3.0
 	github.com/SpareCores/sc-keeper-go v0.1.2
+	github.com/UpCloudLtd/upcloud-go-api/v8 v8.42.0
 	github.com/aws/aws-sdk-go-v2 v1.47.8
 	github.com/aws/aws-sdk-go-v2/config v1.33.16
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.344.2
@@ -46,6 +47,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 // indirect
+	github.com/UpCloudLtd/httplog v0.0.0-20260624214043-23b0cab8e085 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.16 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.8 // indirect
