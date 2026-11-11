@@ -203,7 +203,9 @@ error (`Unsupported`).
   required before the garbage collector lists, uses or deletes a resource; a resource of the name without
   the description is a `Fatal` conflict on create and is never deleted. Instances and disks carry real labels.
 - **The managed network** is a custom-mode VPC with one subnetwork per region, **one VPC per region and
-  NodeClass** (not one global VPC: the engine's resources are per region), range `10.240.0.0/20`, dual stack
+  cluster**, shared by the cluster's NodeClasses (not one global VPC: the engine's resources are per
+  region), so nodes in different regions have no private path to each other and every region uses one of
+  the project's network quota; range `10.240.0.0/20`, dual stack
   with an external IPv6 range, private Google access. The VPC and its subnetwork are one resource: `List`
   returns the subnetwork, a VPC whose subnetwork is gone is listed as the network so it is not leaked, and
   `Delete` removes the subnetwork, then the VPC if it carries the marker.

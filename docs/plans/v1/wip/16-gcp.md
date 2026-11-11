@@ -680,7 +680,7 @@ recommendation or, where it gave none, the conservative option.
 9. **Quota consumption**: `ConfirmedSeries` is empty, so every machine type is unknown quota and takes
    the reactive path (`QUOTA_EXCEEDED` names the metric); Spot is always unknown; the Cloud Quotas API is
    not used.
-10. **Managed network CIDR**: one VPC per region and NodeClass (the resource engine's key is per region)
+10. **Managed network CIDR**: one VPC per region and cluster, shared by its NodeClasses (the resource engine's key is per region)
     with the fixed range `10.240.0.0/20`, instead of one global VPC with the first free `/20` of
     `10.240.0.0/12`; no `create` parameter overrides the range yet. A user's network peered with a managed
     one must avoid `10.240.0.0/20`.
