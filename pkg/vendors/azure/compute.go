@@ -68,7 +68,7 @@ func (c *Compute) owned(vm armcompute.VirtualMachine) bool {
 // failed attempt so that the key stays unused.
 func (c *Compute) Launch(ctx context.Context, l LaunchSpec) (*vendors.Instance, error) {
 	name, rg := l.VMName(), l.Network.ResourceGroup
-	ec := errContext{size: l.Size, spot: l.Spot}
+	ec := errContext{size: l.Size, spot: l.Spot, zone: l.Zone}
 
 	// A VM of this name is the replay: whatever zone, type or capacity type
 	// the replay asks for. A Failed one that differs from the request is a
@@ -92,12 +92,16 @@ func (c *Compute) Launch(ctx context.Context, l LaunchSpec) (*vendors.Instance, 
 		return nil, classify(err, ec)
 	}
 
+	// The public IP and the NIC have no VM yet: if either fails, nothing would
+	// collect them before the garbage collector, so they go now (a next attempt
+	// makes them again).
 	pipID := ""
 	if l.PublicIPv4 {
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
 		pip, err := c.Clients.PIPs.CreateOrUpdate(cctx, rg, l.PIPName(), l.PIP())
 		cancel()
 		if err != nil {
+			c.dropNetwork(ctx, rg, l)
 			return nil, classify(err, ec)
 		}
 		pipID = deref(pip.ID)
@@ -106,6 +110,7 @@ func (c *Compute) Launch(ctx context.Context, l LaunchSpec) (*vendors.Instance, 
 	nic, err := c.Clients.NICs.CreateOrUpdate(cctx, rg, l.NICName(), l.NIC(pipID))
 	cancel()
 	if err != nil {
+		c.dropNetwork(ctx, rg, l)
 		return nil, classify(err, ec)
 	}
 
@@ -148,16 +153,17 @@ func isLeftover(vm armcompute.VirtualMachine, l LaunchSpec) bool {
 // class that is not transient the VM of the attempt is deleted (waiting),
 // because a failed create leaves the key unused, and so are its NIC and public
 // IP, which nothing else would collect (their names do not carry the engine's
-// prefix). A transient error leaves them all, which the replay finds or the next
-// PUT completes. A delete that fails is Retryable.
+// prefix). A transient error leaves a VM that exists, which the replay finds or
+// the next PUT completes; when no VM exists its NIC and public IP go too (the
+// NodeClaim may never come back for them). A delete that fails is Retryable.
 func (c *Compute) launchFailed(
 	ctx context.Context, rg, name string, l LaunchSpec, err error, ec errContext,
 ) error {
 	cerr := classify(err, ec)
-	if ctx.Err() != nil {
-		return cerr
-	}
-	if vendors.IsClass(cerr, vendors.Retryable) {
+	if vendors.IsClass(cerr, vendors.Retryable) || ctx.Err() != nil {
+		if _, gerr := c.getVM(context.WithoutCancel(ctx), rg, name); isNotFound(gerr) {
+			c.dropNetwork(ctx, rg, l)
+		}
 		return cerr
 	}
 	if derr := c.deleteVM(ctx, rg, name); derr != nil {
@@ -169,9 +175,12 @@ func (c *Compute) launchFailed(
 }
 
 // dropNetwork deletes the NIC and the public IP of a launch that failed, best
-// effort: what it cannot delete is left to the sweeper, and the next attempt
-// creates them again under the same names.
+// effort and also when the caller's context is done (each call has its own
+// deadline): what it cannot delete is left to the garbage collector
+// (CollectLeftovers), and the next attempt creates them again under the same
+// names.
 func (c *Compute) dropNetwork(ctx context.Context, rg string, l LaunchSpec) {
+	ctx = context.WithoutCancel(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	_ = c.Clients.NICs.Delete(cctx, rg, l.NICName())
 	cancel()

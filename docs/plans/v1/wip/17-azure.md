@@ -584,7 +584,9 @@ read-only guard.
 - Q8: no PremiumV2/Ultra disks; NVMe-only sizes are not offered.
 - Q11: document and log once (no refusal): a brought NSG decides alone and `networking.isolation` has no effect.
 - Q12: the public IP and NIC are separate resources made by the launch itself (not engine kinds: their names do not carry
-  the engine's prefix); a failed launch deletes them, the sweeper catches the rest.
+  the engine's prefix); a failed launch deletes them (a transient failure keeps them only when a VM exists), and the
+  garbage collector deletes the ones an interrupted launch left without a VM once their NodeClaim is gone (the core's
+  optional `vendors.LeftoverCollector`); the CI sweeper is the lane's last line.
 - Application security groups are not kinds: each belongs to a managed network security group (`<nsg>-nodes`), created and
   deleted with it. Isolation `run` with a run key gets a network security group per run (`runSecurityGroups`, `perUse`),
   because a NIC takes one group.

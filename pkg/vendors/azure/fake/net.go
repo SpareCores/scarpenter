@@ -62,7 +62,16 @@ func (a *NICs) Get(ctx context.Context, rg, name string) (armnetwork.Interface, 
 	if !ok {
 		return armnetwork.Interface{}, notFound("ResourceNotFound", fmt.Sprintf("network interface %s/%s", rg, name))
 	}
-	return copyNIC(*n), nil
+	out := copyNIC(*n)
+	// Like ARM, the NIC names the VM that uses it.
+	for _, v := range s.vms {
+		for _, ref := range v.vm.Properties.NetworkProfile.NetworkInterfaces {
+			if strings.EqualFold(val(ref.ID), val(n.ID)) && out.Properties != nil {
+				out.Properties.VirtualMachine = &armnetwork.SubResource{ID: v.vm.ID}
+			}
+		}
+	}
+	return out, nil
 }
 
 // CreateOrUpdate creates a NIC (idempotent by name); the subnet must be given,
@@ -147,7 +156,16 @@ func (a *PIPs) Get(ctx context.Context, rg, name string) (armnetwork.PublicIPAdd
 	if !ok {
 		return armnetwork.PublicIPAddress{}, notFound("ResourceNotFound", fmt.Sprintf("public IP address %s/%s", rg, name))
 	}
-	return copyPIP(*p), nil
+	out := copyPIP(*p)
+	// Like ARM, the address names the IP configuration that uses it.
+	for _, n := range s.nics {
+		for _, c := range n.Properties.IPConfigurations {
+			if c.Properties.PublicIPAddress != nil && strings.EqualFold(val(c.Properties.PublicIPAddress.ID), val(p.ID)) {
+				out.Properties.IPConfiguration = &armnetwork.IPConfiguration{ID: new(val(n.ID) + "/ipConfigurations/" + val(c.Name))}
+			}
+		}
+	}
+	return out, nil
 }
 
 // CreateOrUpdate creates a public IP (idempotent by name). A Standard static

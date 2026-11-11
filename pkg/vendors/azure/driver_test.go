@@ -269,15 +269,23 @@ func TestFailedLaunchDropsItsNetwork(t *testing.T) {
 	require.Empty(t, e.sub.PIPNames(), "and its public IP")
 	require.Empty(t, e.sub.VMNames())
 
-	// A transient failure leaves them for the replay.
+	// A transient failure before any VM exists drops them too: the NodeClaim may
+	// never come back for them (the next attempt makes them again).
 	e.sub.ClearFailures()
 	e.sub.FailNext("vm.put", fake.Error(http.StatusServiceUnavailable, "ServerBusy", "x"), 1)
 	_, err = d.CreateInstance(ctx, e.launchReq(t, "busy"))
 	require.True(t, vendors.IsClass(err, vendors.Retryable), "%v", err)
-	require.Len(t, e.sub.NICNames(), 1)
+	require.Empty(t, e.sub.NICNames())
+	require.Empty(t, e.sub.PIPNames())
 	inst, err := d.CreateInstance(ctx, e.launchReq(t, "busy"))
 	require.NoError(t, err)
-	require.Len(t, e.sub.NICNames(), 1, "the replay reuses the NIC")
+	require.Len(t, e.sub.NICNames(), 1)
+
+	// A NIC that fails takes the public IP made for it along.
+	e.sub.FailNext("nic.put", fake.Error(http.StatusServiceUnavailable, "ServerBusy", "x"), 1)
+	_, err = d.CreateInstance(ctx, e.launchReq(t, "nicfail"))
+	require.True(t, vendors.IsClass(err, vendors.Retryable), "%v", err)
+	require.Len(t, e.sub.PIPNames(), 1, "only the running VM's public IP is left")
 	require.NoError(t, d.DeleteInstance(ctx, inst.Ref))
 	require.Empty(t, e.sub.NICNames(), "the delete options remove the NIC and the public IP")
 }
@@ -358,4 +366,51 @@ func TestStaticPrices(t *testing.T) {
 	require.True(t, ok)
 	require.InDelta(t, 0.004, v, 1e-9)
 	_ = armcompute.PurchasePlan{}
+}
+
+func TestCollectLeftovers(t *testing.T) {
+	e := newEnv(t)
+	d := e.driver(t)
+	ctx := context.Background()
+	_, err := d.LaunchableTypes(ctx, testRegion)
+	require.NoError(t, err)
+	live, err := d.CreateInstance(ctx, e.launchReq(t, "live"))
+	require.NoError(t, err)
+	// Two launches interrupted after their network: one whose NodeClaim is gone, one
+	// whose NodeClaim still exists (its launch may be in flight).
+	for _, nc := range []string{"gone", "pending"} {
+		l := e.spec(t, request{nodeClaim: nc})
+		pip, err := e.clients.PIPs.CreateOrUpdate(ctx, testRG, l.PIPName(), l.PIP())
+		require.NoError(t, err)
+		_, err = e.clients.NICs.CreateOrUpdate(ctx, testRG, l.NICName(), l.NIC(*pip.ID))
+		require.NoError(t, err)
+	}
+	require.Len(t, e.sub.NICNames(), 3)
+	exists := func(n string) bool { return n == "live" || n == "pending" }
+
+	// Another region holds none of them.
+	n, err := d.CollectLeftovers(ctx, "northeurope", exists)
+	require.NoError(t, err)
+	require.Zero(t, n)
+
+	n, err = d.CollectLeftovers(ctx, testRegion, exists)
+	require.NoError(t, err)
+	require.Equal(t, 2, n, "the NIC and the public IP of the gone NodeClaim")
+	require.Len(t, e.sub.NICNames(), 2)
+	require.Len(t, e.sub.PIPNames(), 2)
+
+	// A VM's NIC and address are never collected, even when its NodeClaim is gone
+	// (the instance sweep deletes the VM, its delete options the rest).
+	n, err = d.CollectLeftovers(ctx, testRegion, func(string) bool { return false })
+	require.NoError(t, err)
+	require.Equal(t, 2, n, "only the pending launch's")
+	require.Len(t, e.sub.NICNames(), 1)
+	require.Len(t, e.sub.PIPNames(), 1)
+	_, err = d.GetInstance(ctx, live.Ref)
+	require.NoError(t, err)
+
+	// Errors are reported, not hidden.
+	e.sub.FailNext("resources.list", fake.Error(http.StatusServiceUnavailable, "ServerBusy", "x"), 1)
+	_, err = d.CollectLeftovers(ctx, testRegion, exists)
+	require.True(t, vendors.IsClass(err, vendors.Retryable), "%v", err)
 }

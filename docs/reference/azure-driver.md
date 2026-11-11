@@ -47,7 +47,9 @@ the exact `az vm image terms accept` command). Only Gen2 sizes are launched.
 
 One `VirtualMachines` PUT per attempt, after a public IP and a NIC of the NodeClaim; no ARM template. The VM
 name `<nodeclaim>-<hash8(cluster)>` is the idempotency key: a replay returns the VM whatever zone or size it
-asks for; a failed create deletes its VM, NIC and public IP, so the key stays unused. The launch waits for the
+asks for; a failed create deletes its VM, NIC and public IP, so the key stays unused (a transient failure keeps
+them only when a VM exists, for the replay). NICs and public IPs that an interrupted launch leaves without a VM are
+deleted by the garbage collector once their NodeClaim is gone (`CollectLeftovers`). The launch waits for the
 long-running operation up to 4 minutes (capacity and quota errors arrive inside it); a VM still `Creating` is
 returned pending. Disks, NIC and public IP carry `deleteOption: Delete`. The VM has `core` as admin user and one
 public key (`adminSSHPublicKey`, else a key generated at start whose private half is discarded: access is
@@ -97,8 +99,9 @@ Quota is per subscription and region: the Usage APIs report the whole subscripti
 hand; the buckets are `cores` (total regional), the size's family (from the SKU table, never from names),
 `lowPriorityCores` (Spot) and `StandardPublicIPAddresses`. `Counted` lists this cluster's VMs so the in-flight ledger
 releases its reservations. Offerings come from the SKU table (zones, restrictions, Gen2, SCSI). Errors are classified
-by ARM code (never message text, except `OperationNotAllowed` and `InvalidParameter`); `SkuNotAvailable` is
-`InsufficientCapacity` for Spot and `Unsupported` on demand; 429 is always `Retryable`. The table is in
+by ARM code (never message text, except `OperationNotAllowed`, `InvalidParameter` and the zones of `SkuNotAvailable`);
+`SkuNotAvailable` is `InsufficientCapacity` for Spot, `ZoneUnusable` on demand when ARM names the zones (the size is
+not offered in that zone for the subscription) and `Unsupported` otherwise; 429 is always `Retryable`. The table is in
 `errors.go` and tested against an independent copy.
 
 ## Billing
@@ -120,6 +123,8 @@ statically only.
 Everything. In particular: the marketplace SKUs and versions per channel and architecture and whether the arm64
 offer has terms; that a VM with custom data and a throwaway key is accepted; the Compute and Network usage names, the
 SKU capability names and the family mapping; whether a failed allocation leaves a `Failed` VM; the `deleteOption`
-cascade; the codes of capacity, quota, zone and in-use errors (the zone and in-use codes are guesses); the role actions;
+cascade; the codes of capacity, quota, zone and in-use errors (the zonal `SkuNotAvailable` wording and the in-use codes
+`InUseSubnetCannotBeDeleted`, `InUseNetworkSecurityGroupCannotBeDeleted`, `PublicIPAddressCannotBeDeleted` and
+`NicInUse` are documented; `ZoneNotAvailableForSubscription` and the other in-use codes are guesses); the role actions;
 Keeper's storage ids for Azure disks; device paths of data disks on Flatcar; accelerated networking on Flatcar; NVMe-only
 sizes; boot time; the `DenyVnetInbound` rules between nodes; per-minute billing.
