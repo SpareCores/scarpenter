@@ -47,6 +47,7 @@ const (
 	reasonAlreadyExist = "alreadyExists"
 	reasonConditionNot = "conditionNotMet"
 	reasonInUse        = "resourceInUseByAnotherResource"
+	codeInUse          = "RESOURCE_IN_USE_BY_ANOTHER_RESOURCE"
 	reasonNotFound     = "notFound"
 	reasonQuota        = "quotaExceeded"
 )
@@ -83,6 +84,7 @@ var errorClasses = map[string]vendors.Class{
 	// attached to an instance): clears when the users are gone, like AWS's
 	// DependencyViolation.
 	reasonInUse: vendors.Retryable,
+	codeInUse:   vendors.Retryable,
 	// Things that do not exist.
 	reasonNotFound: vendors.NotFound,
 	// Fatal on purpose, listed so that the table documents them.

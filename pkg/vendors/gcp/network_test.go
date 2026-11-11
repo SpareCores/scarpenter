@@ -7,11 +7,15 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package gcp_test
 
 import (
+	"context"
 	"net/netip"
 	"sync"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
+	"github.com/go-logr/logr"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp"
@@ -203,5 +207,134 @@ func TestParsePool(t *testing.T) {
 		if _, err := gcp.ParsePool(p); (err == nil) != ok {
 			t.Errorf("ParsePool(%q) = %v, want ok=%v", p, err, ok)
 		}
+	}
+}
+
+// driverOver is a driver of the test cluster over another ComputeAPI (a wrapper
+// of the fake that plays a second controller).
+func driverOver(t *testing.T, api gcp.ComputeAPI) *gcp.Driver {
+	t.Helper()
+	d := gcp.New(gcp.WithAPI(api), gcp.WithProject(testProject), gcp.WithConfirmedSeries(confirmed),
+		gcp.WithCallTimeouts(5*time.Second, 5*time.Second), gcp.WithLaunchWait(10*time.Second))
+	clock := clocktesting.NewFakeClock(time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC))
+	if err := d.Init(t.Context(), vendors.Config{ClusterName: testCluster, Clock: clock, Log: logr.Discard()}); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// otherController deletes the managed network with its last subnetwork right
+// before the first subnetwork insert it forwards: another controller's garbage
+// collection between this one's network check and its insert.
+type otherController struct {
+	*fake.Compute
+	once sync.Once
+	t    *testing.T
+}
+
+func (o *otherController) InsertSubnetwork(ctx context.Context, r *computepb.InsertSubnetworkRequest,
+) (*computepb.Operation, error) {
+	o.once.Do(func() {
+		if _, err := o.DeleteSubnetwork(ctx, &computepb.DeleteSubnetworkRequest{Project: testProject,
+			Region: fake.SeedRegion, Subnetwork: subA}); err != nil {
+			o.t.Error(err)
+		}
+		if _, err := o.DeleteNetwork(ctx, &computepb.DeleteNetworkRequest{Project: testProject, Network: netName}); err != nil {
+			o.t.Error(err)
+		}
+	})
+	return o.Compute.InsertSubnetwork(ctx, r)
+}
+
+// The network goes (another controller deleted its last subnetwork) between the
+// check of the network and the insert of a subnetwork: the network is made again.
+func TestManagedNetworkGoneBeforeTheInsert(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	if _, _, err := e.d.Ensure(t.Context(), gcp.KindSubnets, fake.SeedRegion, spec(subA, "")); err != nil {
+		t.Fatal(err)
+	}
+	d := driverOver(t, &otherController{Compute: e.c, t: t})
+	b, created, err := d.Ensure(t.Context(), gcp.KindSubnets, fake.SeedOtherReg, spec(subB, ""))
+	if err != nil || !created || b.Network != netName {
+		t.Fatalf("Ensure = %+v, %v, %v", b, created, err)
+	}
+	if got := rangeOf(t, e, fake.SeedOtherReg, subB); got != "10.240.0.0/20" {
+		t.Errorf("range %s in the new network", got)
+	}
+}
+
+// A region that deletes the network's last subnetwork and a region that adds one,
+// at the same time in one controller: the network is never deleted under the
+// insert.
+func TestManagedNetworkDeleteAndEnsureConcurrent(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	for i := range 20 {
+		a, _, err := e.d.Ensure(t.Context(), gcp.KindSubnets, fake.SeedRegion, spec(subA, ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		var delErr, ensErr error
+		wg.Go(func() { delErr = e.d.Delete(t.Context(), a) })
+		wg.Go(func() { _, _, ensErr = e.d.Ensure(t.Context(), gcp.KindSubnets, fake.SeedOtherReg, spec(subB, "")) })
+		wg.Wait()
+		if delErr != nil || ensErr != nil {
+			t.Fatalf("round %d: delete %v, ensure %v", i, delErr, ensErr)
+		}
+		if _, err := e.c.GetSubnetwork(t.Context(), &computepb.GetSubnetworkRequest{Project: testProject,
+			Region: fake.SeedOtherReg, Subnetwork: subB}); err != nil {
+			t.Fatalf("round %d: %v", i, err)
+		}
+		b, _, err := e.d.Ensure(t.Context(), gcp.KindSubnets, fake.SeedOtherReg, spec(subB, ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := e.d.Delete(t.Context(), b); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Two controllers allocate the same range: Compute refuses the second in the
+// insert's operation, and the allocation is retried.
+func TestManagedSubnetRangeConflictInTheOperation(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	e.c.InjectOpError("InsertSubnetwork", "INVALID_USAGE",
+		"Invalid IPCidrRange: 10.240.0.0/20 conflicts with existing subnetwork 'other' in region 'us-central1'.", 400)
+	if _, _, err := e.d.Ensure(t.Context(), gcp.KindSubnets, fake.SeedRegion, spec(subA, "")); err != nil {
+		t.Fatalf("the conflict of the operation was not retried: %v", err)
+	}
+}
+
+// The network outlives its last subnetwork while rules of another NodeClass are
+// in it: the subnetwork's deletion is done, the network lists as an orphan, and
+// goes once the rules are gone.
+func TestManagedNetworkKeptByRules(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	a, _, err := e.d.Ensure(t.Context(), gcp.KindSubnets, fake.SeedRegion, spec(subA, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := "scarpenter-conformance-firewalls-other"
+	if _, err := e.c.InsertFirewall(t.Context(), &computepb.InsertFirewallRequest{Project: testProject,
+		FirewallResource: &computepb.Firewall{Name: &rule, Network: new("projects/" + testProject + "/global/networks/" + netName),
+			TargetTags: []string{rule}, Allowed: []*computepb.Allowed{{IPProtocol: new("all")}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.d.Delete(t.Context(), a); err != nil {
+		t.Fatalf("Delete with the network in use = %v", err)
+	}
+	listed, err := e.d.List(t.Context(), nil, nil)
+	if err != nil || len(listed) != 1 || listed[0].Name != netName {
+		t.Fatalf("List = %+v, %v: want the orphan network", listed, err)
+	}
+	if _, err := e.c.DeleteFirewall(t.Context(), &computepb.DeleteFirewallRequest{Project: testProject, Firewall: rule}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.d.Delete(t.Context(), listed[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.c.GetNetwork(t.Context(), &computepb.GetNetworkRequest{Project: testProject, Network: netName}); !gcp.IsNotFound(err) {
+		t.Errorf("the orphan network was not deleted: %v", err)
 	}
 }

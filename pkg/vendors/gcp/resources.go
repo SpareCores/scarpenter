@@ -11,13 +11,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
+	"google.golang.org/api/googleapi"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -516,31 +519,72 @@ func (d *Driver) ensureSubnet(ctx context.Context, api ComputeAPI, region string
 	}
 	name := shorten(spec.Name)
 	network := d.managedNetworkName()
-	created := false
+	// The network and the subnetwork are one critical section in this process, with
+	// the deletion of a network's last subnetwork (deleteSubnet): a region that
+	// deletes its subnetwork never removes the network under a region that is about
+	// to add one. Another process can still do that (two controllers during a
+	// handover); then the insert finds no network and the network is made again.
+	d.netMu.Lock()
+	defer d.netMu.Unlock()
+	var (
+		sub     *computepb.Subnetwork
+		created bool
+	)
+	for attempt := 0; ; attempt++ {
+		netCreated, err := d.ensureNetwork(ctx, api, network, spec)
+		if err != nil {
+			return vendors.ResourceRef{}, false, err
+		}
+		var subCreated bool
+		sub, subCreated, err = d.ensureSubnetwork(ctx, api, region, name, network, markerFor(spec, KindSubnets, region), pool)
+		if err != nil && attempt == 0 && IsNotFound(err) {
+			continue // the network went between the two: make it again
+		}
+		if err != nil {
+			return vendors.ResourceRef{}, false, err
+		}
+		created = netCreated || subCreated
+		break
+	}
+	ref := d.subnetRef(region, sub)
+	ref.Managed, ref.Tags = true, d.markerTags(spec.Tags[vendors.TagNodeClass], string(KindSubnets))
+	return ref, created, nil
+}
+
+// ensureNetwork finds the cluster's managed network or creates it.
+func (d *Driver) ensureNetwork(ctx context.Context, api ComputeAPI, network string, spec vendors.CreateSpec,
+) (bool, error) {
 	netw, err := api.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: d.project, Network: network})
 	switch {
 	case err == nil:
 		if _, _, ok := ownedBy(d.cfg.ClusterName, network, netw.GetDescription()); !ok {
-			return vendors.ResourceRef{}, false, vendors.Errorf(vendors.Fatal,
+			return false, vendors.Errorf(vendors.Fatal,
 				"a network named %s exists and does not carry the SCarpenter marker of cluster %q", network, d.cfg.ClusterName)
 		}
-	case IsNotFound(err):
-		desc := networkMarker(spec)
-		op, err := api.InsertNetwork(ctx, &computepb.InsertNetworkRequest{Project: d.project,
-			NetworkResource: &computepb.Network{Name: &network, Description: &desc, AutoCreateSubnetworks: new(false),
-				RoutingConfig: &computepb.NetworkRoutingConfig{RoutingMode: new("REGIONAL")}}})
-		if err != nil && !IsAlreadyExists(err) {
-			return vendors.ResourceRef{}, false, classify(err, errContext{})
-		}
-		if err == nil {
-			if err := d.finish(ctx, api, op); err != nil {
-				return vendors.ResourceRef{}, false, err
-			}
-		}
-		created = true
-	default:
-		return vendors.ResourceRef{}, false, classify(err, errContext{})
+		return false, nil
+	case !IsNotFound(err):
+		return false, classify(err, errContext{})
 	}
+	desc := networkMarker(spec)
+	op, err := api.InsertNetwork(ctx, &computepb.InsertNetworkRequest{Project: d.project,
+		NetworkResource: &computepb.Network{Name: &network, Description: &desc, AutoCreateSubnetworks: new(false),
+			RoutingConfig: &computepb.NetworkRoutingConfig{RoutingMode: new("REGIONAL")}}})
+	if err == nil {
+		err = d.finish(ctx, api, op)
+	}
+	switch {
+	case err == nil:
+		return true, nil
+	case IsAlreadyExists(err):
+		return false, nil // another process made it, in the call or in its operation
+	}
+	return false, classify(err, errContext{})
+}
+
+// ensureSubnetwork finds the managed subnetwork of the region by its name or
+// inserts it with the next free range of the pool.
+func (d *Driver) ensureSubnetwork(ctx context.Context, api ComputeAPI, region, name, network, desc string,
+	pool netip.Prefix) (*computepb.Subnetwork, bool, error) {
 	// An existing subnetwork of the name is the one this call, or an earlier run of
 	// the controller, created: its range stays, whatever the pool says now.
 	sub, err := api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{
@@ -548,25 +592,22 @@ func (d *Driver) ensureSubnet(ctx context.Context, api ComputeAPI, region string
 	switch {
 	case err == nil:
 		if _, _, ok := ownedBy(d.cfg.ClusterName, name, sub.GetDescription()); !ok {
-			return vendors.ResourceRef{}, false, vendors.Errorf(vendors.Fatal,
+			return nil, false, vendors.Errorf(vendors.Fatal,
 				"a subnetwork named %s exists in %s and does not carry the SCarpenter marker of cluster %q", name, region,
 				d.cfg.ClusterName)
 		}
-	case IsNotFound(err):
-		if err := d.insertSubnet(ctx, api, region, name, network, markerFor(spec, KindSubnets, region), pool); err != nil {
-			return vendors.ResourceRef{}, false, err
-		}
-		created = true
-		if sub, err = api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{
-			Project: d.project, Region: region, Subnetwork: name}); err != nil {
-			return vendors.ResourceRef{}, false, classify(err, errContext{})
-		}
-	default:
-		return vendors.ResourceRef{}, false, classify(err, errContext{})
+		return sub, false, nil
+	case !IsNotFound(err):
+		return nil, false, classify(err, errContext{})
 	}
-	ref := d.subnetRef(region, sub)
-	ref.Managed, ref.Tags = true, d.markerTags(spec.Tags[vendors.TagNodeClass], string(KindSubnets))
-	return ref, created, nil
+	if err := d.insertSubnet(ctx, api, region, name, network, desc, pool); err != nil {
+		return nil, false, err
+	}
+	if sub, err = api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{
+		Project: d.project, Region: region, Subnetwork: name}); err != nil {
+		return nil, false, classify(err, errContext{})
+	}
+	return sub, true, nil
 }
 
 // policyResource builds the placement policy of the parameters.
@@ -1131,6 +1172,9 @@ func (d *Driver) deleteSubnet(ctx context.Context, api ComputeAPI, ref vendors.R
 			return classify(err, errContext{})
 		}
 	}
+	// The network part is ensureSubnet's critical section (see there).
+	d.netMu.Lock()
+	defer d.netMu.Unlock()
 	n, err := api.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: d.project, Network: network})
 	if err != nil {
 		if IsNotFound(err) {
@@ -1144,7 +1188,31 @@ func (d *Driver) deleteSubnet(ctx context.Context, api ComputeAPI, ref vendors.R
 	if len(n.GetSubnetworks()) > 0 {
 		return nil // the network is global: the subnetworks of other regions keep it
 	}
-	return d.deleteOp(ctx, api, func() (*computepb.Operation, error) {
+	err = d.deleteOp(ctx, api, func() (*computepb.Operation, error) {
 		return api.DeleteNetwork(ctx, &computepb.DeleteNetworkRequest{Project: d.project, Network: network})
 	})
+	if isInUse(err) {
+		// A subnetwork another process added since the read, or rules of another
+		// NodeClass, keep the network: the subnetwork is gone, which is what was
+		// asked. A network left without subnetworks lists as an orphan (List) and
+		// goes when nothing uses it any more.
+		return nil
+	}
+	return err
+}
+
+// isInUse says whether Compute refused a deletion because something uses the
+// resource (resourceInUseByAnotherResource).
+func isInUse(err error) bool {
+	if err == nil {
+		return false
+	}
+	if ge, ok := errors.AsType[*googleapi.Error](err); ok {
+		for _, i := range ge.Errors {
+			if i.Reason == reasonInUse {
+				return true
+			}
+		}
+	}
+	return vendors.CodeOf(err) == reasonInUse || vendors.CodeOf(err) == codeInUse
 }

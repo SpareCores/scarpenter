@@ -168,15 +168,14 @@ func isRangeConflict(err error) bool {
 }
 
 // insertSubnet creates the subnetwork of the region in the network with the next
-// free /20 of the pool. The allocation and the insert are one critical section in
-// this process (the engine serialises one region, not the regions among
-// themselves); another process may still win a range, which the insert refuses
-// and the allocation then retries with a fresh listing.
+// free /20 of the pool. The caller holds netMu, so the allocation and the insert
+// are one critical section in this process (the engine serialises one region, not
+// the regions among themselves); another process may still win a range, which
+// Compute refuses, in the call or in its operation, and the allocation then
+// retries with a fresh listing.
 func (d *Driver) insertSubnet(
 	ctx context.Context, api ComputeAPI, region, name, network, desc string, pool netip.Prefix,
 ) error {
-	d.netMu.Lock()
-	defer d.netMu.Unlock()
 	var last error
 	for range allocateAttempts {
 		used, err := d.usedRanges(ctx, api, network)
@@ -193,9 +192,12 @@ func (d *Driver) insertSubnet(
 				IpCidrRange: new(cidr.String()), PrivateIpGoogleAccess: new(true),
 				StackType: new("IPV4_IPV6"), Ipv6AccessType: new("EXTERNAL"),
 			}})
+		if err == nil {
+			if err = d.finish(ctx, api, op); err == nil {
+				return nil
+			}
+		}
 		switch {
-		case err == nil:
-			return d.finish(ctx, api, op)
 		case IsAlreadyExists(err):
 			return nil // an earlier attempt of ours, or a concurrent one: the caller reads it
 		case isRangeConflict(err):
