@@ -19,6 +19,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
 	"github.com/SpareCores/scarpenter/pkg/catalog/model"
@@ -160,6 +161,57 @@ func TestSupportedPassesTheBlocksAndOnlyDefinedProfiles(t *testing.T) {
 	}
 	if got := f.Supported("gcp", &class, srv, "z"); got != nil {
 		t.Errorf("a vendor without a driver supports %v", got)
+	}
+}
+
+// networkAware is a driver with vendors.NetworkAwareOptions: under isolation
+// run it hosts no storage profile; it records the networking it was given.
+type networkAware struct {
+	*driver
+	got []common.Networking
+}
+
+func (d *networkAware) SupportedFor(it vendors.CatalogType, zone string, net common.Networking, p vendors.Profiles,
+) map[string][]string {
+	d.got = append(d.got, net)
+	if net.Isolation == common.IsolationRun {
+		return nil
+	}
+	return d.Supported(it, zone, p)
+}
+
+func TestSupportedAsksANetworkAwareDriverWithTheResolvedNetworking(t *testing.T) {
+	d := &networkAware{driver: &driver{}}
+	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(d)})
+	if err := f.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// No isolation set: the API default (run) reaches the driver.
+	byDefault, err := catalog.ClassFromNodeClass(nodeClass("64Gi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Supported("aws", &byDefault, srv, "us-east-1a"); len(got) != 0 {
+		t.Errorf("isolation run (the default): supported = %v, want nothing", got)
+	}
+	if len(d.got) != 1 || d.got[0].Isolation != common.IsolationRun || d.got[0].PublicIPv4 == nil {
+		t.Fatalf("the driver got %+v, want the resolved networking with isolation run", d.got)
+	}
+	// The vendor block's override wins, and the class (the catalog's cache key) differs.
+	nc := nodeClass("64Gi")
+	nc.Spec.Vendors.AWS.Networking = &common.NetworkingOverride{Isolation: common.IsolationNone}
+	none, err := catalog.ClassFromNodeClass(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none.Hash == byDefault.Hash {
+		t.Error("two isolations share a class hash: the catalog would serve one's offerings to the other")
+	}
+	if got := f.Supported("aws", &none, srv, "us-east-1a"); !slices.Equal(got[labels.ProfileStorage], []string{"plain", "provisioned"}) {
+		t.Errorf("isolation none: supported = %v", got)
+	}
+	if last := d.got[len(d.got)-1]; last.Isolation != common.IsolationNone {
+		t.Errorf("the override's isolation did not reach the driver: %+v", last)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
@@ -93,6 +94,7 @@ func nodeOptions(t *testing.T, e *env) {
 	if err := options.Validate(no, in); err != nil {
 		t.Fatalf("the fixture's profiles do not resolve against the defaults: %v", err)
 	}
+	networkAware(t, e, no)
 	for _, it := range e.fx.ProfileTypes {
 		first := no.Supported(it, e.zone, e.fx.Profiles)
 		again := no.Supported(it, e.zone, e.fx.Profiles)
@@ -137,6 +139,43 @@ func nodeOptions(t *testing.T, e *env) {
 					t.Errorf("%s: the price delta of %s/%s is %v", it.APIReference, kind, name, delta)
 				}
 				e.prepareTwice(t, no, it, settings)
+			}
+		}
+	}
+}
+
+// networkAware checks the optional vendors.NetworkAwareOptions: for each
+// isolation, with the networking resolved as the catalog passes it, SupportedFor
+// is deterministic, offers nothing without profiles, names only defined profiles,
+// and offers no profile Supported does not (the networking only narrows).
+func networkAware(t *testing.T, e *env, no vendors.NodeOptions) {
+	t.Helper()
+	na, ok := no.(vendors.NetworkAwareOptions)
+	if !ok {
+		return
+	}
+	for _, iso := range []common.Isolation{common.IsolationRun, common.IsolationNodeClass, common.IsolationNone} {
+		net := options.ResolveNetworking(common.Networking{Isolation: iso}, nil)
+		for _, it := range e.fx.ProfileTypes {
+			if got := na.SupportedFor(it, e.zone, net, vendors.Profiles{}); len(got) != 0 {
+				t.Errorf("%s, isolation %s: SupportedFor without profiles = %v", it.APIReference, iso, got)
+			}
+			first := na.SupportedFor(it, e.zone, net, e.fx.Profiles)
+			if again := na.SupportedFor(it, e.zone, net, e.fx.Profiles); fmt.Sprint(first) != fmt.Sprint(again) {
+				t.Errorf("%s, isolation %s: SupportedFor is not deterministic: %v and %v", it.APIReference, iso, first, again)
+			}
+			plain := no.Supported(it, e.zone, e.fx.Profiles)
+			for kind, names := range first {
+				for _, name := range names {
+					if _, defined := e.fx.Profiles[kind][name]; !defined && name != vendors.DefaultProfile {
+						t.Errorf("%s, isolation %s: SupportedFor returned the undefined profile %s/%s",
+							it.APIReference, iso, kind, name)
+					}
+					if !slices.Contains(plain[kind], name) {
+						t.Errorf("%s, isolation %s: SupportedFor offers %s/%s, which Supported does not",
+							it.APIReference, iso, kind, name)
+					}
+				}
 			}
 		}
 	}

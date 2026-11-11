@@ -523,10 +523,14 @@ type NodeOptions interface {
 
 // NetworkAwareOptions is the optional capability of a driver whose supported
 // profiles depend on the NodeClass's resolved networking (the isolation): the
-// catalog asks SupportedFor, with the networking of the NodeClass (API defaults
-// applied), instead of Supported. A profile the networking cannot satisfy is not
-// offered, so that Karpenter never picks it; the driver's ValidateNodeClass says
-// why in the NodeClass's status.
+// catalog asks SupportedFor, with the networking of the NodeClass for the
+// vendor (the vendor block's override and the API defaults applied, so the
+// isolation is never empty), instead of Supported. SupportedFor only narrows:
+// it returns a subset of what Supported returns for the same arguments. A
+// profile the networking cannot satisfy is not offered, so that Karpenter
+// never picks it; the driver's ValidateNodeClass says why in the NodeClass's
+// status. The catalog caches by the NodeClass's content, networking included.
+// A driver without it is asked Supported, as before.
 type NetworkAwareOptions interface {
 	SupportedFor(it CatalogType, zone string, net common.Networking, p Profiles) map[string][]string
 }
