@@ -103,6 +103,12 @@ type SCNodeClassStatus struct {
 	// vendors is the observed state per vendor.
 	// +optional
 	Vendors map[string]VendorStatus `json:"vendors,omitempty"`
+
+	// billing says per vendor whether billing retention is active and why not.
+	// +listType=map
+	// +listMapKey=vendor
+	// +optional
+	Billing []BillingStatus `json:"billing,omitempty"`
 }
 
 // ResolvedArtifacts are the sysext images resolved from the pinned versions,

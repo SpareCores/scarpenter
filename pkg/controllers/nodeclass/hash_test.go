@@ -67,6 +67,9 @@ func TestHashIgnoresWhatDoesNotChangeTheNode(t *testing.T) {
 		"another vendor": func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.Fake = nil },
 		"metrics":        func(nc *v1alpha1.SCNodeClass) { nc.Spec.Metrics = map[string]v1alpha1.Metric{"a": {}} },
 		"selections":     func(nc *v1alpha1.SCNodeClass) { nc.Spec.Selections = map[string]v1alpha1.Selection{"a": {}} },
+		"the billing retention": func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Billing = &v1alpha1.BillingSpec{RetainUntilPeriodEnd: true}
+		},
 		"the catalog settings": func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Catalog = &v1alpha1.CatalogSpec{CPUFlagLabels: []string{"avx2"}}
 		},

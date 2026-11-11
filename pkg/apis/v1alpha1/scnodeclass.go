@@ -80,6 +80,11 @@ type SCNodeClassSpec struct {
 	// +optional
 	Pricing PricingSpec `json:"pricing,omitempty"`
 
+	// billing opts in to keeping nodes until the end of the billing period
+	// they have already paid for (ADR-024). Changing it is not drift.
+	// +optional
+	Billing *BillingSpec `json:"billing,omitempty"`
+
 	// catalog configures the instance type catalog built from Keeper.
 	// +optional
 	Catalog *CatalogSpec `json:"catalog,omitempty"`

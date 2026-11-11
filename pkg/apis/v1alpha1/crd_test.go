@@ -185,6 +185,9 @@ func TestValidSpecsAreAccepted(t *testing.T) {
 		"images with filters":               `vendors: {aws: {resources: {images: {use: {filters: [{name: root-device-type, values: [ebs]}]}}}}}`,
 		"bootstrap hardening":               `bootstrap: {hardening: [metadata-from-pods]}`,
 		"bootstrap without hardening":       `bootstrap: {}`,
+		"billing retention":                 `billing: {retainUntilPeriodEnd: true, margin: 90s, minPeriod: 1m, maxRetainedNodes: 1}`,
+		"billing empty block":               `billing: {}`,
+		"billing composite durations":       `billing: {retainUntilPeriodEnd: true, margin: 1m30s, minPeriod: 1h}`,
 	}
 	for name, spec := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -251,6 +254,30 @@ profiles:
 	// Vendor blocks must not default anything the driver defaults itself.
 	if _, found, _ := nestedField(got.Object, "spec.vendors.qemu.storage"); found {
 		t.Error("spec.vendors.qemu.storage was defaulted")
+	}
+}
+
+func TestBillingDefaultsAreApplied(t *testing.T) {
+	obj := parseObject(t, "billing-defaults", withSpec(t, `billing: {}`))
+	if err := create(t, obj); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	spec := get(t, obj).Object["spec"].(map[string]any)
+	billing := spec["billing"].(map[string]any)
+	if billing["retainUntilPeriodEnd"] != false || billing["margin"] != "3m" || billing["minPeriod"] != "10m" {
+		t.Errorf("defaults: %v", billing)
+	}
+	if _, set := billing["maxRetainedNodes"]; set {
+		t.Errorf("maxRetainedNodes is unset by default: %v", billing)
+	}
+
+	// The block is optional: without it nothing is defaulted into existence.
+	plain := parseObject(t, "billing-absent", baseSpec)
+	if err := create(t, plain); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, set := get(t, plain).Object["spec"].(map[string]any)["billing"]; set {
+		t.Error("an absent billing block must stay absent")
 	}
 }
 
@@ -464,6 +491,11 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		{"qemu unknown disk format", `profiles: {storage: {s: {qemu: {root: {format: vmdk}}}}}`, "Unsupported value"},
 		{"qemu unknown nic model", `profiles: {network: {n: {qemu: {model: rtl8139}}}}`, "Unsupported value"},
 		{"fake unknown group strategy", `profiles: {placement: {p: {fake: {group: {strategy: ring}}}}}`, "Unsupported value"},
+		{"billing margin under 90s", `billing: {margin: 89s}`, "margin must be at least 90s"},
+		{"billing margin not a duration", `billing: {margin: soon}`, "should match"},
+		{"billing minPeriod under 1m", `billing: {minPeriod: 59s}`, "minPeriod must be at least 1m"},
+		{"billing maxRetainedNodes zero", `billing: {maxRetainedNodes: 0}`, "should be greater than or equal to 1"},
+		{"billing unknown field", `billing: {anchor: clock-hour}`, "unknown field"},
 		{"fake data disk without mountPath", `vendors: {fake: {storage: {data: [{name: d, size: 1Gi}]}}}`, "Required value"},
 	}
 	for i, tc := range tests {

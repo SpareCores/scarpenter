@@ -41,6 +41,36 @@
       "additionalProperties": false,
       "description": "SCNodeClassSpec is the node definition shared by every vendor, plus a typed\nblock per vendor (ADR-014). Which vendor a NodeClaim uses is chosen by the\nNodePool's scarpenter.sparecores.com/vendor requirement.",
       "properties": {
+        "billing": {
+          "additionalProperties": false,
+          "description": "billing opts in to keeping nodes until the end of the billing period\nthey have already paid for (ADR-024). Changing it is not drift.",
+          "properties": {
+            "margin": {
+              "default": "3m",
+              "description": "margin is how long before the end of the period the node is released:\nit has to cover the drain, the termination finalizer, the vendor's\ndelete and clock skew. At least 90 s; a vendor with a slow delete\nwidens it.",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(s|m|h))+$",
+              "type": "string"
+            },
+            "maxRetainedNodes": {
+              "description": "maxRetainedNodes is an optional safety valve: it trims the held empty\nnodes of the NodeClass down to this number, nearest deadline first.\nUnset means no cap; a launch blocked by a NodePool limit or a vendor\nquota releases held empty nodes first either way.",
+              "format": "int32",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "minPeriod": {
+              "default": "10m",
+              "description": "minPeriod is the shortest billing increment that is held to its end:\nshorter increments are not worth a hold. It does not gate the hold of a\nminimum (a minimum has its own 2 minute floor).",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(s|m|h))+$",
+              "type": "string"
+            },
+            "retainUntilPeriodEnd": {
+              "default": false,
+              "description": "retainUntilPeriodEnd keeps a node a vendor bills by the started period\n(an hour on hcloud, UpCloud, Vultr), or by a minimum and then per second\n(Alibaba), until its paid period is about to end, so that Karpenter\nreuses it for the next job, and deletes it before the next charge starts.\nOff by default.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
         "bootstrap": {
           "additionalProperties": false,
           "description": "bootstrap holds the opt-in changes to the node's boot configuration that\na vendor's driver can contribute (plan 14 A7).",
@@ -4255,6 +4285,47 @@
       "additionalProperties": false,
       "description": "SCNodeClassStatus is the observed state of an SCNodeClass.",
       "properties": {
+        "billing": {
+          "description": "billing says per vendor whether billing retention is active and why not.",
+          "items": {
+            "additionalProperties": false,
+            "description": "BillingStatus is what billing retention comes to for one vendor of the\nNodeClass.",
+            "properties": {
+              "active": {
+                "description": "active says that nodes of the vendor are held until their period ends.",
+                "type": "boolean"
+              },
+              "message": {
+                "description": "message explains the reason; with Active it says increments or minimum only.",
+                "type": "string"
+              },
+              "period": {
+                "description": "period is the billing period that is held to its end (the increment, or\nthe minimum of a minimum-only vendor); empty when none.",
+                "type": "string"
+              },
+              "reason": {
+                "description": "reason is Active, or why not: Disabled, PerSecondBilling (no minimum\nworth holding), MinimumTooShort, Unverified, UnsupportedShape,\nNoKeeperData, NoBillingStart (the driver records no stamp), PeriodTooShort\nor InvalidSettings.",
+                "type": "string"
+              },
+              "source": {
+                "description": "source says where the rule comes from (Keeper's vendor table, the\ndriver).",
+                "type": "string"
+              },
+              "vendor": {
+                "description": "vendor is the vendor ID.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "active",
+              "reason",
+              "vendor"
+            ],
+            "type": "object"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
         "conditions": {
           "description": "conditions of the SCNodeClass: Ready, CatalogReady, ArtifactsReady,\nValidationSucceeded, and RestartRequired when set.",
           "items": {

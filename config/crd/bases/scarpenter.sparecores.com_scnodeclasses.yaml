@@ -58,6 +58,53 @@ spec:
               block per vendor (ADR-014). Which vendor a NodeClaim uses is chosen by the
               NodePool's scarpenter.sparecores.com/vendor requirement.
             properties:
+              billing:
+                description: |-
+                  billing opts in to keeping nodes until the end of the billing period
+                  they have already paid for (ADR-024). Changing it is not drift.
+                properties:
+                  margin:
+                    default: 3m
+                    description: |-
+                      margin is how long before the end of the period the node is released:
+                      it has to cover the drain, the termination finalizer, the vendor's
+                      delete and clock skew. At least 90 s; a vendor with a slow delete
+                      widens it.
+                    pattern: ^([0-9]+(\.[0-9]+)?(s|m|h))+$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: margin must be at least 90s
+                      rule: duration(self) >= duration('90s')
+                  maxRetainedNodes:
+                    description: |-
+                      maxRetainedNodes is an optional safety valve: it trims the held empty
+                      nodes of the NodeClass down to this number, nearest deadline first.
+                      Unset means no cap; a launch blocked by a NodePool limit or a vendor
+                      quota releases held empty nodes first either way.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  minPeriod:
+                    default: 10m
+                    description: |-
+                      minPeriod is the shortest billing increment that is held to its end:
+                      shorter increments are not worth a hold. It does not gate the hold of a
+                      minimum (a minimum has its own 2 minute floor).
+                    pattern: ^([0-9]+(\.[0-9]+)?(s|m|h))+$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: minPeriod must be at least 1m
+                      rule: duration(self) >= duration('1m')
+                  retainUntilPeriodEnd:
+                    default: false
+                    description: |-
+                      retainUntilPeriodEnd keeps a node a vendor bills by the started period
+                      (an hour on hcloud, UpCloud, Vultr), or by a minimum and then per second
+                      (Alibaba), until its paid period is about to end, so that Karpenter
+                      reuses it for the next job, and deletes it before the next charge starts.
+                      Off by default.
+                    type: boolean
+                type: object
               bootstrap:
                 description: |-
                   bootstrap holds the opt-in changes to the node's boot configuration that
@@ -4404,6 +4451,51 @@ spec:
           status:
             description: SCNodeClassStatus is the observed state of an SCNodeClass.
             properties:
+              billing:
+                description: billing says per vendor whether billing retention is
+                  active and why not.
+                items:
+                  description: |-
+                    BillingStatus is what billing retention comes to for one vendor of the
+                    NodeClass.
+                  properties:
+                    active:
+                      description: active says that nodes of the vendor are held until
+                        their period ends.
+                      type: boolean
+                    message:
+                      description: message explains the reason; with Active it says
+                        increments or minimum only.
+                      type: string
+                    period:
+                      description: |-
+                        period is the billing period that is held to its end (the increment, or
+                        the minimum of a minimum-only vendor); empty when none.
+                      type: string
+                    reason:
+                      description: |-
+                        reason is Active, or why not: Disabled, PerSecondBilling (no minimum
+                        worth holding), MinimumTooShort, Unverified, UnsupportedShape,
+                        NoKeeperData, NoBillingStart (the driver records no stamp), PeriodTooShort
+                        or InvalidSettings.
+                      type: string
+                    source:
+                      description: |-
+                        source says where the rule comes from (Keeper's vendor table, the
+                        driver).
+                      type: string
+                    vendor:
+                      description: vendor is the vendor ID.
+                      type: string
+                  required:
+                  - active
+                  - reason
+                  - vendor
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - vendor
+                x-kubernetes-list-type: map
               conditions:
                 description: |-
                   conditions of the SCNodeClass: Ready, CatalogReady, ArtifactsReady,

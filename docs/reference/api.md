@@ -36,6 +36,7 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `billing` | [object](#specbilling) |  | billing opts in to keeping nodes until the end of the billing period they have already paid for (ADR-024). Changing it is not drift. |
 | `bootstrap` | [object](#specbootstrap) |  | bootstrap holds the opt-in changes to the node's boot configuration that a vendor's driver can contribute (plan 14 A7). |
 | `butane` | [object](#specbutane) |  | butane references extra Butane configuration merged into every node's Ignition. |
 | `catalog` | [object](#speccatalog) |  | catalog configures the instance type catalog built from Keeper. |
@@ -52,6 +53,17 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 | `sysexts` | array of [object](#specsysexts) |  | sysexts lists extra systemd sysexts installed on every node. At most 16 items. |
 | `tags` | map of string values |  | tags are added to every vendor resource SCarpenter creates (tags or labels, as the vendor calls them). Rule: tag keys in the scarpenter.sparecores.com domain are reserved (`self.all(k, !k.startsWith('scarpenter.sparecores.com/'))`). |
 | `vendors` (required) | [object](#specvendors) |  | vendors has one block per vendor; a vendor is enabled for this SCNodeClass by having a block. |
+
+### `spec.billing`
+
+billing opts in to keeping nodes until the end of the billing period they have already paid for (ADR-024). Changing it is not drift.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `margin` | string | `"3m"` | margin is how long before the end of the period the node is released: it has to cover the drain, the termination finalizer, the vendor's delete and clock skew. At least 90 s; a vendor with a slow delete widens it. Pattern `^([0-9]+(\.[0-9]+)?(s\|m\|h))+$`. Rule: margin must be at least 90s (`duration(self) >= duration('90s')`). |
+| `maxRetainedNodes` | integer (int32) |  | maxRetainedNodes is an optional safety valve: it trims the held empty nodes of the NodeClass down to this number, nearest deadline first. Unset means no cap; a launch blocked by a NodePool limit or a vendor quota releases held empty nodes first either way. Minimum 1. |
+| `minPeriod` | string | `"10m"` | minPeriod is the shortest billing increment that is held to its end: shorter increments are not worth a hold. It does not gate the hold of a minimum (a minimum has its own 2 minute floor). Pattern `^([0-9]+(\.[0-9]+)?(s\|m\|h))+$`. Rule: minPeriod must be at least 1m (`duration(self) >= duration('1m')`). |
+| `retainUntilPeriodEnd` | boolean | `false` | retainUntilPeriodEnd keeps a node a vendor bills by the started period (an hour on hcloud, UpCloud, Vultr), or by a minimum and then per second (Alibaba), until its paid period is about to end, so that Karpenter reuses it for the next job, and deletes it before the next charge starts. Off by default. |
 
 ### `spec.bootstrap`
 
@@ -1771,10 +1783,24 @@ SCNodeClassStatus is the observed state of an SCNodeClass.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `billing` | array of [object](#statusbilling) |  | billing says per vendor whether billing retention is active and why not. |
 | `conditions` | array of [object](#statusconditions) |  | conditions of the SCNodeClass: Ready, CatalogReady, ArtifactsReady, ValidationSucceeded, and RestartRequired when set. |
 | `resolved` | [object](#statusresolved) |  | resolved holds the artifacts resolved for the whole SCNodeClass. |
 | `vendorNames` | array of string |  | vendorNames lists the vendors that have a block in the spec, for the printer column. |
 | `vendors` | map of [object](#statusvendors) |  | vendors is the observed state per vendor. |
+
+### `status.billing[]`
+
+BillingStatus is what billing retention comes to for one vendor of the NodeClass.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `active` (required) | boolean |  | active says that nodes of the vendor are held until their period ends. |
+| `message` | string |  | message explains the reason; with Active it says increments or minimum only. |
+| `period` | string |  | period is the billing period that is held to its end (the increment, or the minimum of a minimum-only vendor); empty when none. |
+| `reason` (required) | string |  | reason is Active, or why not: Disabled, PerSecondBilling (no minimum worth holding), MinimumTooShort, Unverified, UnsupportedShape, NoKeeperData, NoBillingStart (the driver records no stamp), PeriodTooShort or InvalidSettings. |
+| `source` | string |  | source says where the rule comes from (Keeper's vendor table, the driver). |
+| `vendor` (required) | string |  | vendor is the vendor ID. |
 
 ### `status.conditions[]`
 
