@@ -18,12 +18,16 @@ import (
 )
 
 // Settings are the resolved vendor settings of a node as the launch request
-// builder reads them (the merged `vendors.ovh` block, plan 18 "The spec.vendors.ovh
-// block" and "Node options"). They are decoded from VendorSettings.Raw.
-//
-// TODO(plan 14): replace by the NodeClass API types once the `ovh` block exists in
-// pkg/apis; the JSON shape is the plan's.
+// builder reads them: the merged `vendors.ovh` block (the driver's defaults, the
+// NodeClass block and the selected storage profile), decoded from
+// VendorSettings.Raw. The JSON shape is that of the API type
+// pkg/apis/v1alpha1/ovh.Settings minus what the settings resolution takes out
+// before the merge (regions, resources and the networking override, which
+// arrives as VendorSettings.Networking); a test keeps the two in step.
 type Settings struct {
+	// ImageOwner is the project that owns the Flatcar images ("" is the
+	// credentials' project); the core passes it in ImageRequest.Owner.
+	ImageOwner string `json:"imageOwner,omitempty"`
 	// ConfigDrive is Nova's config_drive; default true (spike S2 may change it).
 	ConfigDrive *bool           `json:"configDrive,omitempty"`
 	Storage     StorageSettings `json:"storage"`
@@ -98,6 +102,23 @@ func ParseSettings(raw json.RawMessage) (Settings, error) {
 	if s.ConfigDrive == nil {
 		t := true
 		s.ConfigDrive = &t
+	}
+	return s, s.Validate()
+}
+
+// ParseVendorSettings is ParseSettings of the node's resolved settings, with the
+// generic networking the core resolved (public IPv4 on, IPv6 off unless the
+// NodeClass says otherwise) put into the result.
+func ParseVendorSettings(vs vendors.VendorSettings) (Settings, error) {
+	s, err := ParseSettings(vs.Raw)
+	if err != nil {
+		return Settings{}, err
+	}
+	if vs.Networking.PublicIPv4 != nil {
+		s.Networking.PublicIPv4 = vs.Networking.PublicIPv4
+	}
+	if vs.Networking.PublicIPv6 != nil {
+		s.Networking.PublicIPv6 = vs.Networking.PublicIPv6
 	}
 	return s, s.Validate()
 }

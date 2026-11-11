@@ -12,6 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	ovhapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -63,5 +67,48 @@ func TestSettingsValidation(t *testing.T) {
 	}
 	if _, err := ParseSettings(json.RawMessage(vol(8))); err != nil {
 		t.Errorf("eight data volumes are fine: %v", err)
+	}
+}
+
+// The merged block the core hands the driver is the API type's JSON minus what
+// the settings resolution takes out first (regions, resources, networking): the
+// driver's own Settings must decode every other field of the API type, so the two
+// cannot drift apart.
+func TestSettingsDecodeTheAPIType(t *testing.T) {
+	tr := true
+	api := ovhapi.Settings{
+		ImageOwner: "0a1b2c3d", ConfigDrive: &tr,
+		Storage: &ovhapi.Storage{
+			Root: &ovhapi.Root{BootFromVolume: &ovhapi.VolumeSpec{VolumeType: ovhapi.VolumeTypeHighSpeed, Size: resource.MustParse("64Gi")}},
+			Data: []ovhapi.DataVolume{{
+				GuestVolume: common.GuestVolume{Name: "d", Filesystem: common.FilesystemXFS, MountPath: "/d"},
+				VolumeType:  ovhapi.VolumeTypeClassic, Size: resource.MustParse("10Gi"),
+			}},
+		},
+	}
+	raw, err := json.Marshal(api)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := ParseSettings(raw)
+	if err != nil {
+		t.Fatalf("%s: %v", raw, err)
+	}
+	if s.ImageOwner != "0a1b2c3d" || s.Storage.Root.BootFromVolume.VolumeType != "high-speed" ||
+		s.Storage.Data[0].Filesystem != "xfs" || s.Storage.Data[0].MountPath != "/d" || s.RootDiskBytes() != 64<<30 {
+		t.Errorf("%+v", s)
+	}
+	// The generic networking arrives separately, resolved by the core.
+	f := false
+	vs := vendors.VendorSettings{Raw: raw, Networking: common.Networking{PublicIPv6: &f}}
+	if got, err := ParseVendorSettings(vs); err != nil || got.Networking.PublicIPv6 == nil || *got.Networking.PublicIPv6 {
+		t.Errorf("%+v %v", got, err)
+	}
+	vs.Networking.PublicIPv4 = &f
+	if _, err := ParseVendorSettings(vs); err == nil {
+		t.Error("a private-only node is refused")
+	}
+	if _, err := ParseVendorSettings(vendors.VendorSettings{Raw: json.RawMessage(`{`)}); err == nil {
+		t.Error("broken settings are refused")
 	}
 }

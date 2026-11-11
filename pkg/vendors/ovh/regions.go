@@ -145,8 +145,11 @@ func (m *RegionMap) Join(catalog []string) (joined []vendors.Region, unknown []s
 			unknown = append(unknown, c)
 		}
 	}
-	// TODO(plan 14, A8): vendors.Region carries the Keeper name it joins to;
-	// until then Name is the API name and Keeper(Name) is the join.
+	// vendors.Region has no field for the Keeper name it joins to (the A8 text of
+	// plan 14 proposes one, a core change): Name is the API name, and the facts
+	// join the catalog on it, which holds while the table rows are identities
+	// (today they are, for every Keeper region with prices). Keeper(Name) is the
+	// join the driver itself uses.
 	return joined, unknown
 }
 

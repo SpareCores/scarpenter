@@ -46,7 +46,7 @@ type WaitOptions struct {
 // returned as it was last seen, without an error: the ID is never lost and the
 // rest of the boot is the core's launch timeout.
 //
-// TODO(plan 14): CreateInstance is FindByKey, BuildCreateRequest, then this.
+// The driver's CreateInstance is FindByKey (replay), BuildCreateRequest, then this.
 func CreateAndWait(
 	ctx context.Context, c osapi.Compute, req osapi.CreateServerRequest, o WaitOptions,
 ) (*osapi.Server, error) {

@@ -8,6 +8,7 @@ package ovh
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -166,3 +167,55 @@ func (q *QuotaReader) Consumption(instanceType, capacityType string) ([]vendors.
 }
 
 var _ vendors.QuotaReporter = (*QuotaReader)(nil)
+
+// Quotas implements vendors.QuotaReporter: Nova's absolute limits and usage of the
+// region (plan 18, "Quotas"); the usage is the whole project, so foreign servers
+// count, and every OVH limit is per region.
+func (d *Driver) Quotas(ctx context.Context, region string) (*vendors.QuotaSnapshot, error) {
+	return d.quota.Quotas(ctx, region)
+}
+
+// GlobalQuotas implements vendors.QuotaReporter: there are no account-wide limits.
+func (d *Driver) GlobalQuotas(ctx context.Context) (*vendors.QuotaSnapshot, error) {
+	return d.quota.GlobalQuotas(ctx)
+}
+
+// Consumption implements vendors.QuotaReporter: one instance, the flavor's vCPUs
+// and RAM; known once the region's flavors have been read (Quotas and
+// LaunchableTypes read them).
+func (d *Driver) Consumption(instanceType, capacityType string) ([]vendors.Consumption, bool) {
+	return d.quota.Consumption(instanceType, capacityType)
+}
+
+// LaunchableTypes implements vendors.OfferingLister: the flavors of the region
+// that the driver launches (Launchable), mapped to every zone of the region (OVH
+// does not say which zone lacks a flavor). A flavor missing in a region is not
+// offered there; one that fails at the scheduler is capacity, found reactively.
+func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string][]string, error) {
+	cl, err := d.clients(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	zones, err := d.Zones(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	flavors, err := d.flavorMap(ctx, cl, region, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.quota.LoadFlavors(ctx, region); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(zones))
+	for _, z := range zones {
+		ids = append(ids, z.ID)
+	}
+	out := make(map[string][]string, len(flavors))
+	for name := range flavors {
+		if ok, _ := Launchable(name); ok {
+			out[name] = slices.Clone(ids)
+		}
+	}
+	return out, nil
+}

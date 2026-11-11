@@ -98,6 +98,9 @@ type Server struct {
 	Fault            *Fault
 	// Volumes are the IDs of the attached volumes.
 	Volumes []string
+	// SecurityGroups are the names of the security groups of the server (Nova
+	// reports names).
+	SecurityGroups []string
 }
 
 // ServerFilter narrows a server list server side.

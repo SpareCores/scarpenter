@@ -204,8 +204,8 @@ func ClassifyCatalog(err error) error {
 }
 
 // CatalogRegions reads the compute regions of the Keystone catalog and joins
-// them with the region table (RegionMap.Join). TODO(plan 14): the driver's
-// Regions is this plus the NodeClass allow-list.
+// them with the region table (RegionMap.Join); the driver's Regions is this,
+// sorted and cached.
 func CatalogRegions(
 	ctx context.Context, p osapi.Provider, m *RegionMap,
 ) (joined []vendors.Region, unknown []string, err error) {

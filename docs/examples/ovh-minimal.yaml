@@ -1,0 +1,19 @@
+# The smallest OVHcloud NodeClass. SCarpenter never creates Flatcar images: upload the
+# release to Glance once per region with the naming convention
+# flatcar-<channel>-<version>-<arch> (docs/how-to-guides/ovh-images.md) and the driver finds
+# it there. Nodes attach to the public Ext-Net network (no private network, no gateway)
+# and get a security group SCarpenter creates and owns per NodeClass and region.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: ovh-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    ovh:
+      regions: [GRA11, EU-WEST-PAR]

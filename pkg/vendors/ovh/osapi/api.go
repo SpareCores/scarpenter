@@ -29,6 +29,7 @@ type NetworkAPI interface {
 	ListSecurityGroups(ctx context.Context) ([]SecurityGroup, error)
 	CreateSecurityGroup(ctx context.Context, name, description string) (*SecurityGroup, error)
 	CreateSecurityRule(ctx context.Context, groupID string, r SecurityRule) (*SecurityRule, error)
+	DeleteSecurityRule(ctx context.Context, ruleID string) error
 	DeleteSecurityGroup(ctx context.Context, id string) error
 }
 

@@ -1,0 +1,42 @@
+# An OVHcloud NodeClass that brings its resources: the Glance images by ID per region
+# (the Neutron and Glance UUIDs, not OVH-side IDs), a security group of the project that
+# nodes may use, and a boot-from-volume root with a data volume for a database.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: ovh-bring-your-own
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    ovh:
+      regions: [GRA11]
+      storage:
+        root:
+          bootFromVolume: {volumeType: high-speed, size: 64Gi}
+      resources:
+        images:
+          use:
+            ids:
+              GRA11: ["9c1f4b8e-2a7d-4c63-9a55-0d1e6f3b7a21"]
+        securityGroups:
+          use:
+            ids:
+              GRA11: ["4be2a1c0-7f3d-4e9b-8a16-5c2d9e0f1b34"]
+        serverGroups:
+          create:
+            lifecycle: {policy: perUse}
+  profiles:
+    storage:
+      db:
+        ovh:
+          data:
+            - {name: pgdata, volumeType: high-speed, size: 200Gi, filesystem: xfs, mountPath: /var/lib/pgdata}
+    placement:
+      spread:
+        ovh:
+          serverGroup: {policy: anti-affinity}

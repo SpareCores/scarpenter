@@ -423,6 +423,7 @@ func (r *region) view(s *serverRec) osapi.Server {
 	out.Metadata = cloneMap(s.Metadata)
 	out.Tags = slices.Clone(s.Tags)
 	out.Addresses = slices.Clone(s.Addresses)
+	out.SecurityGroups = slices.Clone(s.secGroups)
 	for _, v := range s.volumes {
 		out.Volumes = append(out.Volumes, v.id)
 	}
@@ -876,6 +877,23 @@ func (cl *client) CreateSecurityRule(
 		}
 	}
 	return nil, apiErr("neutron", 404, "SecurityGroupNotFound: Security group %s does not exist", groupID)
+}
+
+func (cl *client) DeleteSecurityRule(ctx context.Context, ruleID string) error {
+	if err := cl.enter("DeleteSecurityRule"); err != nil {
+		cl.leave()
+		return err
+	}
+	defer cl.leave()
+	for _, g := range cl.r.secGroups {
+		for i, r := range g.Rules {
+			if r.ID == ruleID {
+				g.Rules = slices.Delete(g.Rules, i, i+1)
+				return nil
+			}
+		}
+	}
+	return apiErr("neutron", 404, "SecurityGroupRuleNotFound: Security group rule %s does not exist", ruleID)
 }
 
 func (cl *client) DeleteSecurityGroup(ctx context.Context, id string) error {

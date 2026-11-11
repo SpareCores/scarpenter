@@ -400,3 +400,57 @@ func TestRetries(t *testing.T) {
 		t.Fatalf("backoff cap: %v", d)
 	}
 }
+
+func TestDeletes(t *testing.T) {
+	ctx := context.Background()
+	sc, log := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/gone") {
+			status(w, 404, `{"NeutronError":{"type":"SecurityGroupNotFound","message":"nope"}}`)
+			return
+		}
+		status(w, 204, "")
+	})
+	sc.ResourceBase = sc.Endpoint + "v2.0/"
+	n := NewNetwork(sc)
+	if err := n.DeleteSecurityRule(ctx, "r1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.DeleteSecurityGroup(ctx, "g1"); err != nil {
+		t.Fatal(err)
+	}
+	var ae *osapi.APIError
+	if err := n.DeleteSecurityRule(ctx, "gone"); !errors.As(err, &ae) || ae.Status != 404 || ae.Service != "neutron" {
+		t.Errorf("a missing rule: %v", err)
+	}
+	got := make([]string, 0, len(*log))
+	for _, s := range *log {
+		got = append(got, s.line)
+	}
+	if got[0] != "DELETE /v2.0/security-group-rules/r1" || got[1] != "DELETE /v2.0/security-groups/g1" {
+		t.Errorf("requests %v", got)
+	}
+	c := NewCompute(sc)
+	c.sc.ResourceBase = sc.Endpoint
+	if err := c.DeleteServerGroup(ctx, "sg1"); err != nil {
+		t.Fatal(err)
+	}
+	if last := (*log)[len(*log)-1].line; last != "DELETE /os-server-groups/sg1" {
+		t.Errorf("request %s", last)
+	}
+}
+
+func TestEnvConfigured(t *testing.T) {
+	for _, k := range []string{"OS_AUTH_URL", "OS_USERNAME", "OS_PASSWORD", "OS_PROJECT_ID", "OS_PROJECT_NAME", "OS_TENANT_ID", "OS_TENANT_NAME"} {
+		t.Setenv(k, "")
+	}
+	if err := EnvConfigured(); err == nil {
+		t.Error("an empty environment is not configured")
+	}
+	t.Setenv("OS_AUTH_URL", "https://auth.example.test/v3")
+	t.Setenv("OS_USERNAME", "u")
+	t.Setenv("OS_PASSWORD", "p")
+	t.Setenv("OS_PROJECT_ID", "0a1b")
+	if err := EnvConfigured(); err != nil {
+		t.Errorf("a complete one is: %v", err)
+	}
+}

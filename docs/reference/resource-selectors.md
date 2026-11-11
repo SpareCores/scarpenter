@@ -568,50 +568,56 @@ Other kinds: **volumes** (`status`; location and attachment client-side), **SSH 
 
 ### ovh
 
-Plain OpenStack per region (Keystone region names, upper case): Glance, Neutron, Nova, Cinder; one project. Deviations on
-OVH from upstream (disabled extensions, admin-only filters) are *unverified for every row*; the plan's spikes S1 and S5
-verify them. `filters` entries are query parameters. Multiple values: Glance `in:a,b` on `id`, `name`, `status`, `container_format`,
-`disk_format` only; Neutron repeats the parameter (OR); Nova and Cinder one value (the driver makes one call per value). **Neutron
-silently ignores an unknown parameter** unless the `filter-validation` extension is on; Glance treats an unknown key as an image
-property and returns zero rows: so only filters the driver re-applies to a response field are offered, and the driver reads
-`GET /v2.0/extensions` and reports a missing extension as a region condition. Tags are plain strings (no key and value): see
-[Matching](#matching). Names are not unique (`default` security group per project, `Ext-Net` per region). Paging: Glance and Neutron
-`limit` and `marker` (server caps); Nova needs the client microversion set for tag filters (2.26) and key-pair paging (2.35),
-older ones drop the parameter. No `expression`. References: Glance `https://docs.openstack.org/api-ref/image/v2/index.html`,
-Neutron `https://docs.openstack.org/api-ref/network/v2/index.html`, Nova `https://docs.openstack.org/api-ref/compute/`.
+Plain OpenStack per region (Keystone region names, upper case): Glance, Neutron, Nova, Cinder; one project. The driver lists the
+kind in the region and applies what its API cannot filter itself, so every field below is answered completely; none of it
+has run against OVH yet (the plan's spikes S1 and S5 verify the deviations from upstream OpenStack on OVH). **Neutron silently
+ignores an unknown query parameter** and Glance treats an unknown key as an image property and returns zero rows: so the driver offers only
+`filters` it can re-apply to a response field. Neutron tags (the tag extension) are not offered for security groups: it is
+unverified on OVH (S5). Glance tags are plain strings with no key and value: see [Matching](#matching). Names are not unique
+(`default` security group per project, `Ext-Net` per region), so a name that matches two groups is ambiguous under
+`exactlyOne`. No `expression`. Nothing here reads zones: no kind of the driver is zonal. References: Glance
+`https://docs.openstack.org/api-ref/image/v2/index.html`, Neutron `https://docs.openstack.org/api-ref/network/v2/index.html`,
+Nova `https://docs.openstack.org/api-ref/compute/`.
 
-**images** (Glance `GET /v2/images`; regional):
+**images** (Glance `GET /v2/images`; regional; the driver never creates one):
 
 | Field | Maps to | Where |
 |---|---|---|
-| `ids` | `id` with `in:` | server |
-| `name` | `name` (exact; `in:` for several, quotes around names with a comma) | server (glob: client) |
-| `tags` | `tag` (repeatable, AND): the string `k=v`; `"*"` is client-side | server (`"*"`: client) |
-| `match.architecture` | image property `architecture` (`x86_64`, `aarch64`) as `?architecture=` | client until the spike confirms OVH honours property filters (*unverified*) |
-| `match.owner` | `owner` (a project ID; `self` is the credentials' project) | server |
-| `match.state` | `status` (`active` available; `queued`, `saving`, `uploading`, `importing` pending; `killed`, `deactivated` failed) with `in:` | server |
-| `match.createdAfter`, `createdBefore` | `created_at` with `gt:` / `lt:` (ISO 8601, UTC) | server |
+| `ids` | the image ID | client |
+| `name` | `name` (exact; a glob is client side) | server (glob: client) |
+| `tags` | `tag`: the Glance tag string `k=v` (repeatable, AND); `"*"` means a tag that starts with `k=` | server (`"*"`: client) |
+| `match.architecture` | the image property `architecture` (`x86_64`, `aarch64`); an image without the property never matches | client |
+| `match.owner` | `owner` (a project ID); `self` is the credentials' own private images | server |
+| `match.state` | `status` (`active` is available; `queued`, `saving`, `uploading`, `importing` are pending; the rest failed); the default is available | server (the default), client |
+| `match.createdAfter`, `match.createdBefore` | `created_at` | client |
 
-Order: `sort=created_at:desc/asc` (default newest first), `name`. Filters: `visibility` (`public`, `private`, `community`, `shared`,
-`all`; the default list excludes community), `member_status` (`accepted`, `pending`, `rejected`, `all`), `os_hidden`, `size_min`, `size_max`
-(bytes), `container_format`, `disk_format`, `updated_at` (with an operator prefix), `property:<k>` (a custom image property such as
-`os_distro`, `flatcar_version`: exact, client re-applied from `Properties`). No `description`.
+`orderBy: created` orders by `created_at`. Without `ids` and `match.owner` (and the owner of the block's `imageOwner`) the list is the
+project's own private images: a public, shared or community image needs its `match.owner` or a `visibility` filter. Filters:
+`visibility` (`public`, `private`, `community`, `shared`; the default list excludes community images; server side and re-applied) and
+`property:<k>` (a custom image property such as `flatcar_version`: exact, one of the values, client side). The pinned release must
+be readable from the image's name `flatcar-<channel>-<version>-<arch>`, its properties `flatcar_channel` and `flatcar_version` or its
+tag `flatcar-<channel>-<version>`, whatever selects it, and the sources must not contradict each other.
 
-**securityGroups** (Neutron `GET /v2.0/security-groups`): `ids` `id` (repeated, OR); `name` `name` (exact; glob client; names repeat);
-`tags` the Neutron tag extension (`tags`, all of them), unverified on OVH: without the extension `tags` is rejected for the region;
-`match.description` `description` (exact server, glob client). Filters: `stateful`, `project_id`, `description`, `tags-any`, `not-tags`,
-`not-tags-any` (native tag algebra, passed through and re-applied). No state, zone or creation time (`created_at` only with the timestamp
-extension and not filterable). Nova attaches a group by name.
+**securityGroups** (Neutron `GET /v2.0/security-groups`; Nova attaches a group by name):
 
-**networks** (Neutron `GET /v2.0/networks`; `Ext-Net` is `name: Ext-Net` per region): `ids`, `name`, `tags` as above;
-`match.state` `status` (`ACTIVE`, `BUILD`, `ERROR`); `match.owner` `project_id`. Filters: `shared`, `router:external`,
-`admin_state_up`, `mtu`, `description`, `is_default` and `provider:*` (often admin-only: unverified). **subnets**: `match.network` `network_id`,
-`match.cidr` `cidr` (exact string), `within` client; filters `ip_version`, `enable_dhcp`, `gateway_ip`, `subnetpool_id`.
-**serverGroups** (Nova `os-server-groups`): **no server filter at all**; `ids`, `name` and `policy` (`affinity`, `anti-affinity`,
-`soft-*`: filter `policy`, client) are client-side; no tags; names repeat. Other kinds: **keypairs** (Nova: only
-`Get` by name, no filter), **volumes** (Cinder `name`, `status`, `bootable`, `metadata` as exact key and value pairs: `tags` maps to
-`metadata`; `sort=created_at:desc`), **flavors** (`minDisk`, `minRam`, `is_public`; name client), **floating IPs** and **ports**
-(Neutron: `floating_ip_address`, `port_id`, `fixed_ips`, `device_id`, tags).
+| Field | Maps to | Where |
+|---|---|---|
+| `ids` | the group UUID | client |
+| `name` | `name` (exact or a glob) | client |
+| `match.description` | `description` (exact or a glob) | client |
+
+No `tags`, no `filters`, no state, zone or creation time. The managed groups SCarpenter creates carry an ownership marker in the
+description, so `use` a group of your own, never a wide-open one meant for other workloads.
+
+**serverGroups** (Nova `os-server-groups`: no server filter at all, no tags, names repeat):
+
+| Field | Maps to | Where |
+|---|---|---|
+| `ids` | the group UUID | client |
+| `name` | `name` (exact or a glob) | client |
+
+Other kinds the plan names (networks, subnets, keypairs, volumes, flavors, floating IPs, ports) are not kinds of the driver in v1: a
+node attaches to the public `Ext-Net` network, and volumes are part of the server create call.
 
 ### upcloud
 

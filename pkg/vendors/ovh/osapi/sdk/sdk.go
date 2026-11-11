@@ -73,7 +73,8 @@ type Provider struct {
 
 // New wraps an authenticated provider client (any auth method: the standard
 // environment, application credentials, the OIDC flow of the service-account
-// mode: TODO(plan 14) wire ProviderClient.ReauthFunc for it).
+// mode: its ReauthFunc is a later step, see "Not built yet" of
+// docs/reference/ovh-driver.md).
 func New(pc *gophercloud.ProviderClient, opts Options) *Provider {
 	if opts.ComputeMicroversion == "" {
 		opts.ComputeMicroversion = DefaultComputeMicroversion
@@ -160,6 +161,13 @@ func retryGateway(base time.Duration, maxRetries uint) gophercloud.RetryFunc {
 		}
 		return nil
 	}
+}
+
+// EnvConfigured checks, without any network call, that the standard OS_*
+// environment holds what FromEnv needs.
+func EnvConfigured() error {
+	_, err := openstack.AuthOptionsFromEnv()
+	return err
 }
 
 // FromEnv authenticates with the standard OS_* environment (OS_AUTH_URL,
@@ -319,6 +327,9 @@ type wireServer struct {
 	Volumes []struct {
 		ID string `json:"id"`
 	} `json:"os-extended-volumes:volumes_attached"`
+	SecurityGroups []struct {
+		Name string `json:"name"`
+	} `json:"security_groups"`
 }
 
 func (w wireServer) server() osapi.Server {
@@ -350,6 +361,9 @@ func (w wireServer) server() osapi.Server {
 	}
 	for _, v := range w.Volumes {
 		s.Volumes = append(s.Volumes, v.ID)
+	}
+	for _, g := range w.SecurityGroups {
+		s.SecurityGroups = append(s.SecurityGroups, g.Name)
 	}
 	return s
 }
@@ -656,6 +670,11 @@ func (n *Network) CreateSecurityRule(
 	}
 	out := fromRule(*created)
 	return &out, nil
+}
+
+// DeleteSecurityRule implements osapi.NetworkAPI.
+func (n *Network) DeleteSecurityRule(ctx context.Context, ruleID string) error {
+	return wrap("neutron", rules.Delete(ctx, n.sc, ruleID).Err)
 }
 
 // DeleteSecurityGroup implements osapi.NetworkAPI.

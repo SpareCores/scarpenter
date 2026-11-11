@@ -402,3 +402,31 @@ func TestImmediateDelete(t *testing.T) {
 		t.Fatalf("immediate delete: %v %v", err, c.ServerIDs("GRA11"))
 	}
 }
+
+func TestDeleteSecurityRuleAndServerGroups(t *testing.T) {
+	ctx := context.Background()
+	c := New()
+	c.AddRegion("GRA11", RegionConfig{})
+	cl, _ := c.Clients(ctx, "GRA11")
+	g, _ := cl.Network.CreateSecurityGroup(ctx, "g", "d")
+	r, err := cl.Network.CreateSecurityRule(ctx, g.ID, osapi.SecurityRule{Direction: "ingress", EtherType: "IPv4", Protocol: "tcp", PortMin: 22, PortMax: 22, RemoteCIDR: "10.0.0.0/8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cl.Network.DeleteSecurityRule(ctx, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := cl.Network.DeleteSecurityRule(ctx, r.ID); err == nil {
+		t.Error("a rule that is gone is a 404")
+	}
+	sg, _ := cl.Compute.CreateServerGroup(ctx, "sg", "affinity")
+	if gs, err := cl.Compute.ListServerGroups(ctx); err != nil || len(gs) != 1 || gs[0].ID != sg.ID {
+		t.Errorf("%v %v", gs, err)
+	}
+	if err := cl.Compute.DeleteServerGroup(ctx, sg.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := cl.Compute.DeleteServerGroup(ctx, sg.ID); err == nil {
+		t.Error("a group that is gone is a 404")
+	}
+}
