@@ -308,7 +308,7 @@ func TestConformance(t *testing.T) {
 		Seed:         seedFake, SeedKinds: []vendors.ResourceKind{fakedriver.KindNetwork, fakedriver.KindGroup},
 		SeedAttrs: []string{"created", "description", "cidr", "specialNames"},
 		SeedCIDRs: [2]string{"10.201.1.0/24", "10.201.2.0/24"}, SeedWithin: "10.201.0.0/16",
-		SeedImage: seedFakeImage,
+		SeedImage:  seedFakeImage,
 		OrderClass: orderClass, SetDefault: setFakeDefault,
 		PreCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
 			t.Helper()
