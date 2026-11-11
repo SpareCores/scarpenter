@@ -9,13 +9,23 @@ controller:
     - apiGroups: ["scarpenter.sparecores.com"]
       resources: ["scnodeclasses/status"]
       verbs: ["get", "update", "patch"]
-    # The serving certificate approver: it reads NodeClaims and Nodes and approves
-    # kubelet-serving requests, nothing else (the signer is named).
+    # The serving certificate approver reads NodeClaims and Nodes and approves
+    # kubelet-serving requests, nothing else (the signer is named). The billing
+    # retention controller (ADR-024) also patches Nodes (the do-not-disrupt and
+    # retain-until annotations, the releasing taint), deletes the NodeClaim of an
+    # empty node at the end of its paid period, reads the pods of a node and the
+    # NodePools (disruption budgets, limits).
     - apiGroups: ["karpenter.sh"]
       resources: ["nodeclaims"]
+      verbs: ["get", "list", "watch", "patch", "delete"]
+    - apiGroups: ["karpenter.sh"]
+      resources: ["nodepools"]
       verbs: ["get", "list", "watch"]
     - apiGroups: [""]
       resources: ["nodes"]
+      verbs: ["get", "list", "watch", "patch"]
+    - apiGroups: [""]
+      resources: ["pods"]
       verbs: ["get", "list", "watch"]
     - apiGroups: ["certificates.k8s.io"]
       resources: ["certificatesigningrequests"]

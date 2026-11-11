@@ -47,6 +47,7 @@ bootstrap:
 launch: {maxAttempts: 5}
 quota: {refreshInterval: 90s, limitsRefreshInterval: 20m, maxStaleness: 30m, launchableRefreshInterval: 2h}
 gc: {interval: 3m, gracePeriod: 10m, terminatingGrace: 15m, dryRun: true}
+billingRetention: {enabled: false}
 unavailable: {insufficientCapacityTTL: 4m, unsupportedTTL: 12h, quotaExceededTTL: 1h, zoneUnusableTTL: 15m}
 managedResources: {defaultTTL: 48h, perUseGrace: 3m, checkInterval: 45s, fullSweepEvery: 20}
 karpenter:

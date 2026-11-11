@@ -242,6 +242,7 @@ func TestFullValuesReachTheController(t *testing.T) {
 		{"GC interval", o.GCInterval, 3 * time.Minute},
 		{"GC grace", o.GCGracePeriod, 10 * time.Minute},
 		{"GC dry run", o.GCDryRun, true},
+		{"billing retention (default true)", o.BillingRetention, false},
 		{"unavailable insufficient capacity", o.UnavailableInsufficientCapacityTTL, 4 * time.Minute},
 		{"unavailable unsupported", o.UnavailableUnsupportedTTL, 12 * time.Hour},
 		{"unavailable quota exceeded", o.UnavailableQuotaExceededTTL, time.Hour},

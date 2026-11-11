@@ -46,6 +46,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "gc-grace-period" .Values.gc.gracePeriod
   "terminating-grace" .Values.gc.terminatingGrace
   "gc-dry-run" (ternary "true" "" (default false .Values.gc.dryRun))
+  "billing-retention" (ternary "false" "" (eq (toString .Values.billingRetention.enabled) "false"))
   "unavailable-insufficient-capacity-ttl" .Values.unavailable.insufficientCapacityTTL
   "unavailable-unsupported-ttl" .Values.unavailable.unsupportedTTL
   "unavailable-quota-exceeded-ttl" .Values.unavailable.quotaExceededTTL

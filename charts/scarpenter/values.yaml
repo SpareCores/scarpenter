@@ -188,6 +188,12 @@ gc:
   terminatingGrace: ""
   dryRun: false
 
+billingRetention:
+  # Run the billing retention controller (--billing-retention; true). It acts
+  # only on the SCNodeClasses that set spec.billing.retainUntilPeriodEnd; false
+  # turns the whole controller off.
+  enabled: true
+
 unavailable:
   # Lifetimes of the unavailable-offerings cache per error class; empty or 0
   # keeps the class's default (3m, 24h, 30m, 10m).

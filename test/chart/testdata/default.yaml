@@ -55,10 +55,29 @@ rules:
     - get
     - list
     - watch
+    - patch
+    - delete
+  - apiGroups:
+    - karpenter.sh
+    resources:
+    - nodepools
+    verbs:
+    - get
+    - list
+    - watch
   - apiGroups:
     - ""
     resources:
     - nodes
+    verbs:
+    - get
+    - list
+    - watch
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
     verbs:
     - get
     - list

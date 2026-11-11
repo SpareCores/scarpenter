@@ -95,10 +95,29 @@ rules:
     - get
     - list
     - watch
+    - patch
+    - delete
+  - apiGroups:
+    - karpenter.sh
+    resources:
+    - nodepools
+    verbs:
+    - get
+    - list
+    - watch
   - apiGroups:
     - ""
     resources:
     - nodes
+    verbs:
+    - get
+    - list
+    - watch
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
     verbs:
     - get
     - list
@@ -688,6 +707,7 @@ spec:
             - "--aws-home-region=eu-central-1"
             - "--batch-idle-duration=2s"
             - "--batch-max-duration=20s"
+            - "--billing-retention=false"
             - "--bootstrap-token-ttl=45m"
             - "--catalog-max-age=12h"
             - "--catalog-refresh-interval=30m"

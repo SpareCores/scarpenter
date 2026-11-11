@@ -351,6 +351,15 @@
         }
       }
     },
+    "billingRetention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
     "gc": {
       "type": "object",
       "additionalProperties": false,
