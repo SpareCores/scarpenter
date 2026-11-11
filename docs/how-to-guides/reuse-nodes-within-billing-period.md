@@ -8,8 +8,10 @@ period (or the minimum) it has already paid for is about to end, lets Karpenter 
 deletes it before the next charge starts.
 
 Status: designed in [ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10),
-built by [plan 23](../plans/v1/wip/23-billing-retention.md); not released yet. Each vendor is switched on only after
-its billing rule has been checked on a live account; Hetzner is the first. Periods always count from the server's start (no vendor documents clock-hour billing); each hourly vendor's live check confirms it
+built by [plan 23](../plans/v1/wip/23-billing-retention.md) (in review; not released yet), tested with the fake driver impersonating a vendor with a short
+period. **No real vendor has it switched on yet:** each vendor is enabled only after its billing rule has been checked on a live account (its
+driver then reports the rule as verified); Hetzner is the first. Until then the NodeClass status says `Unverified` for the vendor and nothing is held.
+Periods always count from the server's start (no vendor documents clock-hour billing); each hourly vendor's live check confirms it
 before the feature is enabled for it.
 
 ## Turn it on
@@ -49,13 +51,21 @@ vendor's own rule decides whether it has any effect.
   3-minute margin a 10-minute minimum holds a node for 7 minutes, a 5-minute minimum for 2, and a 2-minute minimum is never held.
   For example, a job every 3 minutes on a 10-minute-minimum vendor uses one node for the jobs at 0, 3 and 6 minutes, and the node is
   gone at about minute 7.
-- Before the delete SCarpenter checks that Karpenter has not nominated a pod to the node and waits about 5 seconds to re-check,
-  so about 25 seconds of the margin go on this at the deadline.
+- Before the delete SCarpenter checks that Karpenter has not nominated a pod to the node, marks the node for deletion in
+  Karpenter's cluster state (so the scheduler stops using it), puts the taint `scarpenter.sparecores.com/releasing`, waits 5 seconds, reads
+  the pods again from the API server and checks the nomination again: a pod, or a nomination, undoes the mark and the taint and the node is busy
+  after all. About 25 seconds of the margin go on this at the deadline. A pod that tolerates the taint, or that binds in a scheduling
+  cycle older than 5 seconds, is evicted and rescheduled by the drain: delayed, never lost.
 - `margin` has to cover the drain and the vendor's delete; missing the boundary costs a whole extra period, so the
   default errs early.
 
-`kubectl describe scnodeclass` shows, per vendor, whether retention is active and why not (per-second billing with no worthwhile
-minimum, a minimum too short to hold, a vendor rule not yet verified, a rule shape that is not supported, no billing data), and how many nodes it leaves alone.
+`kubectl describe scnodeclass` shows, per vendor, whether retention is active and why not (`status.billing`: `Disabled`, `PerSecondBilling`, `MinimumTooShort`,
+`Unverified`, `UnsupportedShape`, `NoKeeperData`, `NoBillingStart`, and `PeriodTooShort` or `InvalidSettings` when the margin and `minPeriod` leave no room), and the condition
+`BillingRetention` counts the nodes it leaves alone (`kubectl get scnodeclass -o yaml` has the details). On a node,
+`kubectl describe node` shows the Events: `RetainedUntil`, `ReleasedAtPeriodEnd`, `ReleaseBlockedByBudget`, `ReleasedUnderPressure`, and
+`RetentionSkipped` with the reason when a node is left alone. A node with `scarpenter.sparecores.com/retain-until` is held, and the value is its deadline.
+The metrics (`scarpenter_billing_*`) are in the [controller reference](../reference/controller.md#billing-retention): `reuse_total` is how often a held node took a job,
+`boundary_missed_total` should stay at 0 (if it does not, raise `margin`).
 
 ## When it helps
 
@@ -67,8 +77,8 @@ minutes. It saves nothing on per-second or per-minute vendors with no real minim
 - A pod that does not fit the held node (a different size, taints, requirements) gets a new node: the
   saving is for repeated work of the same shape.
 - Held nodes count against NodePool `limits` and vendor quotas, but retention never makes a launch wait longer than it would without
-  it: when a launch is blocked by a limit or a quota, SCarpenter first releases held empty nodes, the one nearest its deadline first (it
-  has the least paid time left). If a disruption budget blocks that release, the node loses its protection and Karpenter deletes it
+  it: when a pending pod that Karpenter has found no capacity for is blocked by a NodePool limit or by a vendor quota, SCarpenter releases held empty nodes
+  (the signals are read every 10 seconds), the one nearest its deadline first (it has the least paid time left), as many as cover the request. If a disruption budget blocks that release, the node loses its protection and Karpenter deletes it
   when the budget allows, as it would have without retention. There is
   no cap by default; `maxRetainedNodes` is an optional safety valve.
 - Stopping a node does not pause billing on any of these vendors, so a stopped node is still deleted (it

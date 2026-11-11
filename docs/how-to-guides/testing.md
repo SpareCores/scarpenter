@@ -145,14 +145,14 @@ collection every 10 s with a 30 s grace period, managed resources checked every
 5 s and unused `perUse` resources kept for 20 s.
 
 Scenarios steer the fake driver through the ConfigMap `scarpenter-fake`
-(`errors`, `quota`, `orphans`, `launchDelay`, `unsupported`, `existingResources`, `images`)
+(`errors`, `quota`, `orphans`, `launchDelay`, `unsupported`, `existingResources`, `images`, `billing`)
 and read what it did from the ConfigMap `scarpenter-fake-state` (`calls`,
 `instances`, `resources`, `revision`); the formats are in the
 [driver contract](../reference/driver-contract.md#the-fake-driver). The fake
 publishes its state debounced; the scenarios do not sleep for it: they read the
 fake's current revision from the controller's metrics
 (`scarpenter_fake_state_revision`) and wait until the ConfigMap's `revision` has
-reached it (`awaitState`). The scenarios are `TestS01` to `TestS20`:
+reached it (`awaitState`). The scenarios are `TestS01` to `TestS20` and, for billing retention, `TestR01` to `TestR09`:
 
 | Scenario | Proves |
 |---|---|
@@ -177,6 +177,15 @@ reached it (`awaitState`). The scenarios are `TestS01` to `TestS20`:
 | S18 | a stopped (powered-off) orphan instance is reported terminating, left alone for the terminating grace and then deleted by the garbage collector |
 | S19 | a node powered off while its NodeClaim exists (the fake's `powerOff` key): Karpenter core deletes the NodeClaim, and `Delete` deletes the instance after the terminating grace |
 | S20 | the `images` kind (the fake's `images` list): explicit IDs of both architectures give `ImagesReady=True` with the image of each architecture and a node launches; an image of another Flatcar version, or one that says none, makes `ImagesReady` false with `ImageVersionMismatch` or `ImageVersionUnknown` and nothing is launched; a named region without an image is not ready and only the region that has one launches |
+| R01 | billing retention (plan 23; the fake vendor's rule is shortened to a 4 minute period with a 90 s margin): jobs within the period reuse one node, the empty node is gone before the boundary |
+| R02 | a minimum then per second: reuse inside the minimum, the node gone before it ends, the next job gets a fresh node |
+| R03 | a node busy across the deadline is not deleted, its hold is released for the window and put back after the boundary |
+| R04 | a per-second vendor ignores the setting; `status.billing` says `PerSecondBilling` |
+| R05 | `expireAfter` shorter than the period, and the period minus the margin, still remove the held node |
+| R06 | a budget of 0 for `Empty` holds the empty node into the next period; it goes at the next deadline once the budget opens |
+| R07 | a budget of 1 with two empty nodes: never two releases at once, no overshoot |
+| R08 | a NodePool at its `limits` with a held empty node: the pending pod gets the capacity after the node is released under pressure |
+| R09 | a pod created one second before the deadline never ends on a node being deleted; no boundary is missed |
 
 Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
 (`KWOK_SCENARIOS=TestS0[12]`), `KEEP_CLUSTER=1` keeps the cluster and

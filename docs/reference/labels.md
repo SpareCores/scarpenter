@@ -73,3 +73,15 @@ operator at start-up (`Operator.RegisterLabelKeys`, plan 03):
 | `scarpenter.sparecores.com/price-incomplete` | `"true"` when the price misses components the data does not have (provisioned IOPS and throughput, dedicated tenancy). |
 | `scarpenter.sparecores.com/resources` | JSON `{"subnets": ["subnet-0abc"], "volumes": [...]}`: the IDs of the vendor resources the node was launched with, whether a `use` selector resolved them or SCarpenter manages them, by kind. A later re-resolution that finds other resources changes new launches only, never a running node. Absent when the launch used no vendor resource. |
 | `scarpenter.sparecores.com/profile-hashes` | JSON `{"storage/db-io2": "<hash>"}`: the hashes of the profile blocks the node was launched with. A node drifts when one of them changes or the profile is removed ([drift](node-settings.md#drift)). Absent on the default route. |
+| `scarpenter.sparecores.com/billing-start` | The vendor's own billing-start stamp of the instance, RFC 3339 (to the second, never later than the vendor's). `Create` returns it; core merges it into the NodeClaim and copies it to the Node at registration. Absent when the driver records none (billing retention then does not hold the node). See [billing retention](controller.md#billing-retention). |
+
+## Annotations and taint on Nodes
+
+Set by the billing retention controller ([controller reference](controller.md#billing-retention)), only on the Nodes of a NodeClass
+with `spec.billing.retainUntilPeriodEnd: true`:
+
+| Key | Meaning |
+|---|---|
+| `scarpenter.sparecores.com/retain-until` (annotation) | The deadline (RFC 3339) until which the node is held. It is also the marker that SCarpenter set `karpenter.sh/do-not-disrupt` on the node: only then does the controller remove that annotation, a `do-not-disrupt` without the marker is the user's and is never touched. |
+| `scarpenter.sparecores.com/billing-start` (annotation) | Copied from the NodeClaim at registration (see above). |
+| `scarpenter.sparecores.com/releasing` (taint, `NoSchedule`) | The node is being released at the end of its paid period (or under pressure: the taint's value is `period-end`, `limit`, `quota` or `max-retained`). Put on for the 5 seconds before the final check and left until the node is gone. |

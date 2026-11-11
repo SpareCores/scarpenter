@@ -42,6 +42,7 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
 | `NodeOptions`, `EpochReporter` | defaults, `Supported`, `PriceDelta`, `Prepare` with device hints; the epoch changes when the instance type table or the prices load |
 | `ManagedResources` | kinds `subnets`, `securityGroups`, `runSecurityGroups`, `placementGroups` |
 | `QuotaReporter`, `OfferingLister` | 18 vCPU quota buckets per region; launchable types by zone ID |
+| `BillingDescriber` | EC2 bills per second with a 60 second minimum: the rule is verified and under the hold floor, so [billing retention](controller.md#billing-retention) reports `MinimumTooShort` and never holds a node. `Instance.BillingStart` is the instance's `LaunchTime`. |
 
 ## Credentials and clients
 

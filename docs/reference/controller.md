@@ -44,6 +44,7 @@ The last column names the plan that introduced the flag.
 | `--gc-grace-period` | `SCARPENTER_GC_GRACE_PERIOD` | `5m` | Age an instance (or bootstrap token) without a NodeClaim must have before it is deleted. | plan 04 |
 | `--terminating-grace` | `SCARPENTER_TERMINATING_GRACE` | `10m` | How long an instance may be seen `terminating` before it is deleted again, by the garbage collector (no NodeClaim) and by `Delete`. The first sighting is kept in memory, so a restart restarts the clock. A stopped or powered-off instance is `terminating` for ever; one the vendor is deleting disappears well inside the grace. | plan 14 |
 | `--gc-dry-run` | `SCARPENTER_GC_DRY_RUN` | `false` | Log (and count, `result="dry-run"`) what the garbage collector would delete without deleting it. | plan 04 |
+| `--billing-retention` | `SCARPENTER_BILLING_RETENTION` | `true` | Run the [billing retention controller](#billing-retention). The NodeClass field `spec.billing.retainUntilPeriodEnd` is the real switch (off by default); `false` turns the whole controller off. | plan 23 |
 | `--unavailable-insufficient-capacity-ttl` | `SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL` | `0` (3m) | How long an offering stays unavailable after `InsufficientCapacity`. | plan 04 |
 | `--unavailable-unsupported-ttl` | `SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL` | `0` (24h) | How long a type stays unavailable in a zone after `Unsupported`. | plan 04 |
 | `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (30m) | How long a region and capacity type stay unavailable after `QuotaExceeded` of a vendor without a quota API; every region of the vendor when the error is account-wide. | plan 04 |
@@ -110,6 +111,7 @@ and that the controller's own parser accepts what the chart renders.
 | `launch.maxAttempts` | `--max-launch-attempts` | |
 | `quota.refreshInterval`, `limitsRefreshInterval`, `maxStaleness`, `launchableRefreshInterval` | `--quota-*` | |
 | `gc.interval`, `gracePeriod`, `terminatingGrace`, `dryRun` | `--gc-interval`, `--gc-grace-period`, `--terminating-grace`, `--gc-dry-run` | |
+| `billingRetention.enabled` | `--billing-retention` | `true`; the chart passes the flag only when it is `false`. |
 | `unavailable.insufficientCapacityTTL`, `unsupportedTTL`, `quotaExceededTTL`, `zoneUnusableTTL` | `--unavailable-*-ttl` | |
 | `managedResources.defaultTTL`, `perUseGrace`, `checkInterval`, `fullSweepEvery` | `--resource-default-ttl`, `--resource-per-use-grace`, `--resource-check-interval`, `--resource-full-sweep-every` | See the cost note of the full sweep. |
 | `karpenter.logLevel`, `batchMaxDuration`, `batchIdleDuration`, `featureGates`, `metricsPort`, `healthProbePort` | `--log-level`, `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, `--metrics-port`, `--health-probe-port` | Core's. |
@@ -130,7 +132,7 @@ objects, all bound to the controller's ServiceAccount:
 
 | Object | Grants | For |
 |---|---|---|
-| ClusterRole `scarpenter` | `scnodeclasses` get, list, watch, update, patch and `scnodeclasses/status` get, update, patch; `nodeclaims`, `nodes`, `certificatesigningrequests` get, list, watch; `update` on `certificatesigningrequests/approval`; `approve` on the signer `kubernetes.io/kubelet-serving` only; `get` on ConfigMaps (references name their namespace) | the NodeClass controllers (server-side apply of the status), the serving certificate approver (it reads the NodeClaims, the Nodes and, through the driver registry, the SCNodeClasses), ConfigMap references and the cluster CA |
+| ClusterRole `scarpenter` | `scnodeclasses` get, list, watch, update, patch and `scnodeclasses/status` get, update, patch; `nodeclaims` get, list, watch, patch, delete; `nodepools`, `pods`, `certificatesigningrequests` get, list, watch; `nodes` get, list, watch, patch; `update` on `certificatesigningrequests/approval`; `approve` on the signer `kubernetes.io/kubelet-serving` only; `get` on ConfigMaps (references name their namespace) | the NodeClass controllers (server-side apply of the status), the serving certificate approver (it reads the NodeClaims, the Nodes and, through the driver registry, the SCNodeClasses), ConfigMap references and the cluster CA, and the [billing retention controller](#billing-retention): it patches the Nodes (the hold annotations, the `releasing` taint) and the NodeClaims (the `billing-start` annotation of a claim launched before it existed), deletes the NodeClaim of an empty node at the end of its paid period, and reads the pods of a node and the NodePools (disruption budgets, limits) |
 | ClusterRole `scarpenter-core` | Karpenter core's: NodePools, NodeClaims and NodeOverlays (full), CapacityBuffers, pods, volumes, namespaces, services, events, storage classes, CSI nodes, volume attachments, workloads, PodDisruptionBudgets, CRDs (read), `pods/eviction` create, `pods` delete, Nodes get, list, watch, patch, update, delete, Events create and patch, leases get, list, watch | scheduling and disruption |
 | Role `scarpenter-bootstrap-tokens` in `kube-system` | Secrets get, list, create, delete | the bootstrap tokens (RBAC cannot limit `get` and `list` by label: the controller can read every Secret of `kube-system`) |
 | Role `scarpenter-cluster-dns` in `kube-system` | Services get, list | the cluster DNS Service, read when `--cluster-dns` is not set |
@@ -155,6 +157,7 @@ and health ports only; no webhook, no admission controller.
 | `CatalogReady` | The catalog snapshot for the SCNodeClass is available and not older than `--catalog-max-age`. The catalog computes it (`Catalog.Status`: `NoSnapshot`, `ScopePending`, `Stale`); the NodeClass controller writes it to the status. | plan 03 (status), plan 05 (condition) |
 | `ArtifactsReady` | The sysext images for the pinned versions are resolved (`status.resolved`). Reasons: `Resolved`, `ReleaseNotFound`, `ResolutionFailed`. | plan 05 |
 | `ValidationSucceeded` | The semantic checks pass: kubelet quantities parse, the Kubernetes version is within the skew of the API server (at most three minors older, never newer), the referenced ConfigMaps and Secret exist, a trial rendering of the user-data succeeds within the size budget, and the cluster DNS is known (`--cluster-dns`, or found). Reasons: `Valid`, `InvalidKubeletSettings`, `KubernetesVersionNotSupported`, `ReferenceNotFound`, `ReferenceUnreadable`, `TemplateInvalid`, `ClusterDNSUnknown`, `InvalidResourceUse`. A `use` block of a vendor resource that selects nothing (an empty `use`, which an old object stored before a field was renamed has after the API server pruned the field) is `InvalidResourceUse`, never "nothing given": the controller does not fall back to the vendor's default or to creating the resource. | plan 05, plan 14 |
+| `BillingRetention` | Informational, not a dependent of `Ready`: `True` (`Active`) when billing retention is active for at least one vendor of the NodeClass, else `False` (`Disabled` or `NotActive`). The message gives the reason per vendor and counts the nodes left alone per reason (`ConsolidationNever`, `UserDoNotDisrupt`, `StaticPool`, `Spot`, `Drifted`). See [Billing retention](#billing-retention). | plan 23 |
 | `RestartRequired` | Informational, not a dependent of `Ready`: a metric was added or renamed after start-up; its labels are selectable only after the controller restarts (see [labels](labels.md)). The catalog names the keys (`Catalog.RestartRequired`) and stops stamping them; the NodeClass controller writes the condition. | plan 03 (keys), plan 05 (condition) |
 
 Per vendor, `status.vendors.<vendor>.conditions`:
@@ -181,6 +184,78 @@ Development builds run the same controller; the stand-in of plan 04 is gone.
 is not ready offers no instance types; a `Create` fails with `NodeClassNotReady`
 only when every vendor the NodeClaim allows is not ready (when another, ready
 vendor simply has no capacity, it is `InsufficientCapacity`).
+
+## Billing retention
+
+The billing retention controller ([ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10),
+plan 23; how to use it: [Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md))
+holds the nodes of a NodeClass with `spec.billing.retainUntilPeriodEnd: true` until the end of the billing period
+they have paid for and deletes the empty ones before the next charge starts. It is
+the package `pkg/controllers/retention`, started with `--billing-retention` (default on) and built with
+Karpenter's own cluster state, so nomination, mark-for-deletion and the disruption-budget accounting are
+Karpenter's.
+
+**The rule.** Keeper's vendor table gives a vendor's billing increment and minimum
+(`billing_increment_seconds`, `minimum_billing_seconds`, `stopped_server_charged`), read with the catalog refresh
+(a failed or missing table never fails it: the status says `NoKeeperData`). The driver's optional
+`BillingDescriber` overrides it field by field per region and family and says whether the rule was verified on a live
+account ([driver contract](driver-contract.md#billing)); a driver without it is unverified and retention is off for it.
+Two shapes are supported: increments held with a minimum equal to the increment (hourly), and minimum only (a minimum, then per
+second: one boundary, `start + minimum`). Any other combination is `UnsupportedShape`. The boundaries count from
+the instance's `BillingStart` (annotation `scarpenter.sparecores.com/billing-start`, RFC 3339), never from the NodeClaim's
+time; the controller asks the cloud provider for it once for a NodeClaim that has none. The effective margin is the larger of
+`spec.billing.margin` and the rule's `DeleteLatency` plus 90 s.
+
+**What it does to a node**, per Node owned by a NodeClaim of an opted-in NodeClass, on-demand, registered, of a
+non-static NodePool whose `consolidateAfter` is not `Never`, not drifted, without a `karpenter.sh/do-not-disrupt` of its own:
+
+1. Before the deadline (`boundary - margin`): `karpenter.sh/do-not-disrupt: "true"` and
+   `scarpenter.sparecores.com/retain-until: <deadline>` on the Node, from registration on (Karpenter never disrupts a node that is not
+   Initialized, so no window is left). Only the annotations carrying this marker are ever removed.
+2. At the deadline an **empty** (no pod except DaemonSet, static and finished ones) and Initialized node is released: not nominated
+   (else look again in 20 s), the NodePool's `Empty` budget allows a deletion (else the node stays held into the next period and
+   `ReleaseBlockedByBudget` is published), `MarkForDeletion` in cluster state, the `NoSchedule` taint
+   `scarpenter.sparecores.com/releasing` (its value says why; its `timeAdded` carries the 5 s wait that Karpenter's `MinDrainTime` also
+   uses), then the pods are read again from the API server and the nomination checked again: a hit undoes the mark and the taint and the node is busy,
+   otherwise the NodeClaim is deleted. A busy node loses its hold for the window to the boundary and is held again for the next period; at
+   the last boundary of a minimum-only rule the hold is gone for good.
+3. **Pressure.** A pending pod that Karpenter has not mapped to a NodeClaim and that a NodePool's `spec.limits` leave no room for, a vendor
+   quota refused by the cloud provider (`OnQuotaRefusal`) or blocked in the quota tracker for every offering of a NodeClass, or more held empty
+   nodes than `spec.billing.maxRetainedNodes`, releases held empty nodes (nearest deadline first, ties by oldest billing start), as many as cover the request,
+   with the same budget check and sequence. A candidate that a budget blocks loses its hold and the next is tried. The signals are read every 10 s.
+
+A restart changes nothing: the state is on the Node (annotations and taint), the NodeClaim and the clock. The budget check and the mark are
+serialised; a race with Karpenter's own disruption (its 15 s re-validation) can exceed a budget by one node, which
+`scarpenter_billing_budget_overshoot_total` counts.
+
+**Annotations and taint** (see [labels](labels.md)): `scarpenter.sparecores.com/billing-start` (NodeClaim, Node),
+`scarpenter.sparecores.com/retain-until` (Node), taint `scarpenter.sparecores.com/releasing:NoSchedule` (Node).
+
+**Status**: `status.billing` lists per vendor of the NodeClass `{vendor, active, reason, message, period, source}` and the condition
+`BillingRetention` summarises it, under the field manager `scarpenter-billing`. Reasons: `Active` (the message says `increments` or
+`minimum only`), `Disabled`, `PerSecondBilling` (no minimum), `MinimumTooShort` (minimum less the margin under the 2 minute hold
+floor), `Unverified`, `UnsupportedShape`, `NoKeeperData`, `NoBillingStart` (every node of the vendor lacks a stamp), `PeriodTooShort`
+(a held period under twice the effective margin) and `InvalidSettings` (`minPeriod` under twice the margin). The
+status shows the vendor-wide rule (a driver is asked with an empty region and family); a node's own rule is the one of its region and family.
+At start-up, and when it changes, the controller logs the resolved rule per vendor (increment, minimum, period, source, verified).
+
+**Events** on the Node: `RetainedUntil` (Normal), `ReleasedAtPeriodEnd` (Normal), `ReleasedUnderPressure` (Normal),
+`ReleaseBlockedByBudget` (Warning), `RetentionSkipped` (Normal, once per node and reason: `Spot`, `StaticPool`,
+`ConsolidationNever`, `Drifted`, `UserDoNotDisrupt`) and `BillingStartUnknown` (Warning, once).
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `scarpenter_billing_retained_nodes` | gauge | `vendor`, `nodeclass` | Nodes held until the end of their period. |
+| `scarpenter_billing_retained_seconds_total` | counter | `vendor` | Node seconds spent held (counted at the status interval, 15 s). |
+| `scarpenter_billing_reuse_total` | counter | `vendor` | A node that was empty under the hold received a pod. |
+| `scarpenter_billing_periods_saved_estimate_total` | counter | `vendor` | Equals the reuses: an estimate, not an invoice. |
+| `scarpenter_billing_deletes_at_deadline_total` | counter | `vendor` | Empty nodes deleted before the end of their period. |
+| `scarpenter_billing_blocked_by_budget_total` | counter | `vendor` | Releases that a disruption budget blocked. |
+| `scarpenter_billing_released_under_pressure_total` | counter | `vendor`, `scope` | Releases for a launch blocked by `limit` or `quota`, or by `max-retained`. |
+| `scarpenter_billing_skipped_nodes` | gauge | `vendor`, `nodeclass`, `reason` | Nodes left alone (`ConsolidationNever`, `UserDoNotDisrupt`, `StaticPool`, `Spot`, `Drifted`). |
+| `scarpenter_billing_boundary_missed_total` | counter | `vendor` | An empty node held again 30 s past its boundary without a budget block: the margin is too small. |
+| `scarpenter_billing_budget_overshoot_total` | counter | `vendor` | The recount after a mark found the budget exceeded (the race with Karpenter). |
+| `scarpenter_billing_boot_seconds` | histogram | `vendor` | Seconds from the billing start to Initialized: whether a short minimum leaves a window. |
 
 ## Catalog
 
@@ -395,6 +470,7 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 | `ResourceCreated`, `ResourceAdopted`, `ResourceDeleted` | Normal | SCNodeClass, else the Deployment | A managed vendor resource was created, adopted after a restart, or deleted ([vendor resources](vendor-resources.md#metrics-and-events)). |
 | `ResourceCreateFailed`, `ResourceDeleteFailed` | Warning (deduplicated for 10 minutes) | SCNodeClass, else the Deployment | A creation or deletion failed; deletions retry with backoff. |
 | `ResourcesUnavailable` | Warning | SCNodeClass | A region lacks a resource the NodeClass needs, so its offerings are unavailable. |
+| `RetainedUntil`, `ReleasedAtPeriodEnd`, `ReleasedUnderPressure`, `ReleaseBlockedByBudget`, `RetentionSkipped`, `BillingStartUnknown` | Normal / Warning | Node | Billing retention ([Billing retention](#billing-retention)). |
 
 ## Metrics
 
@@ -406,6 +482,7 @@ Besides the metrics of Karpenter core, the controller serves, on the metrics por
 | `scarpenter_launches_total`, `scarpenter_launch_skipped_total`, `scarpenter_launch_attempts`, `scarpenter_create_duration_seconds` | [CloudProvider](#cloudprovider) |
 | `scarpenter_quota_limit`, `scarpenter_quota_used`, `scarpenter_quota_reserved`, `scarpenter_quota_refresh_age_seconds`, `scarpenter_quota_refresh_errors_total` | [Quota](#quota) |
 | `scarpenter_gc_deletions_total`, `scarpenter_gc_sweep_duration_seconds`, `scarpenter_gc_last_sweep_timestamp_seconds` | [Garbage collection](#garbage-collection) |
+| `scarpenter_billing_*` (11 metrics) | [Billing retention](#billing-retention) |
 | `scarpenter_resource_operations_total` (`vendor`, `kind`, `region`, `operation` `create`, `adopt` or `delete`, `result` `ok`, `error` or `dry-run`) and `scarpenter_resources_managed` (`vendor`, `kind`, `region`: the managed resources the last sweep found) | [Vendor resources](vendor-resources.md#metrics-and-events) |
 
 Development builds add the `scarpenter_fake_state_*` gauges.

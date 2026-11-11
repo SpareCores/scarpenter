@@ -268,4 +268,5 @@ hcloud, UpCloud and Vultr) until the end of their paid period, so that Karpenter
 NodeClass setting and not a node setting: it does not change a node, so it is not drift. How it works, when it
 helps and its limits are in
 [Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md)
-(ADR-024, plan 23; not released yet).
+(ADR-024, plan 23). The status, the metrics and the Events are in the
+[controller reference](controller.md#billing-retention).

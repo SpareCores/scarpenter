@@ -26,6 +26,10 @@ never `Fatal`, so that a stale annotation does not put an Event on a NodeClass. 
 same holds for the resource calls (`Resolve` of an ID that cannot exist selects nothing:
 `NoMatch`, with the ID named).
 
+`Instance.BillingStart` is the vendor's own creation or billing-start stamp, which the billing periods of
+the instance count from ([billing](#billing)); `CreatedAt` is not always that. Zero when the vendor has none and the driver
+could not record one.
+
 `InstanceRef` is `<region>/<vendor id>`; the core stores it in the annotation
 `scarpenter.sparecores.com/instance-ref`. `CreateRequest.InstanceType` is the
 vendor's API reference, not the catalog name. `CreateRequest.Node` describes
@@ -37,7 +41,7 @@ returns the boot images of the NodeClass's release per region and architecture
 for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
 resolves images at launch with `ResolveImage` and counts as ready; the [AWS
 driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (below),
-`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker` (below), `NodeHardener` ([Boot
+`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker`, `BillingDescriber` (below), `NodeHardener` ([Boot
 fragments](#boot-fragments)), `ImageImporter` (reserved) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
@@ -273,6 +277,33 @@ cached limits unless `QuotaRefreshFrom(ctx).Limits` is set. `Used` counts the
 whole account. `OfferingLister.LaunchableTypes` maps API references to Keeper
 zone IDs. See [the controller reference](controller.md#quota).
 
+## Billing
+
+Billing-period-aware node retention ([ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10),
+[the how-to](../how-to-guides/reuse-nodes-within-billing-period.md), [the controller](controller.md#billing-retention))
+needs two things of a driver, and the core never branches on a vendor name for either.
+
+**`Instance.BillingStart`.** The vendor's own creation or billing-start stamp. `Create` returns it as the NodeClaim annotation
+`scarpenter.sparecores.com/billing-start`; core merges it into the NodeClaim and copies it to the Node at registration, so
+the controller reads it without a vendor call and a restart loses nothing. The driver sets the earliest plausible stamp: an early stamp
+only makes the computed boundaries early, the safe side; a stamp that may be later than the real start (Vultr's `date_created`) keeps
+its vendor unverified until a live check bounds the offset. The conformance suite (`billing start`) requires that it is not after the
+instance's first `GetInstance` (a minute of skew is allowed), is stable across calls and survives `FindInstance` and `ListInstances`. Zero is
+allowed: the node is then not held and an Event says so. The AWS driver sets `LaunchTime` (EC2 bills per second, so
+retention never applies there); the planned vendors set hcloud's `created`, OVH's Nova `created`, Vultr's `date_created` and UpCloud's own
+`scarpenter-created` label.
+
+**`BillingDescriber`** (optional). `BillingRule(region, family) (BillingRule, bool)` returns the driver's own rule where it is finer than Keeper's
+vendor row or Keeper has none; empty region and family ask for the vendor-wide rule (what the NodeClass status shows). A `BillingRule` has the
+optional fields `Increment`, `Minimum` and `StoppedCharged` (a set field overrides Keeper's value of the same name; a value lower than
+Keeper's needs a code comment that links the vendor's documentation), `DeleteLatency` (how long a delete takes to stop the charge: UpCloud stops, then
+deletes; the margin is at least this plus 90 s), `Verified` and `Source` (for the status). A driver that does not implement it uses Keeper's
+row and is **unverified**: retention is off for it, and the status says `Unverified`. A rule is verified only after a live check of
+the vendor's partial-period billing and of the period's anchor (from the server's start; no vendor documents clock-hour billing).
+Only two shapes are accepted: an increment of a minute or more with a minimum equal to it (or none), and a minimum with a shorter
+increment; anything else is `UnsupportedShape`. The AWS driver reports its per-second rule (1 s, 60 s minimum), verified, which is under
+the hold floor.
+
 ## Registry
 
 Drivers register in `init()` with `vendors.Register(name, factory)`.
@@ -284,7 +315,7 @@ driver does).
 
 `conformance.Run(t, conformance.Fixture{...})` runs: identity, zone mapping,
 idempotent create and the two key rules, NotFound semantics, malformed references
-(`NotFound`, never `Fatal`), the idempotency label (drivers that store it), list by tags, the stopped-node rule (the fixture's `PowerOff`
+(`NotFound`, never `Fatal`), the idempotency label (drivers that store it), list by tags, the billing start rules (see [billing](#billing)), the stopped-node rule (the fixture's `PowerOff`
 hook stops an instance; it must report `terminating`, stay listed and delete cleanly), delete idempotency, tag
 round trip, user-data limit, error classification (the fixture's `Inject` hook
 makes the next launch fail with a class), and for `QuotaReporter` drivers: every
@@ -424,6 +455,11 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   instances. Without the key the driver has no quota knowledge.
 - `launchDelay`, `orphans` (instances without a NodeClaim, for the GC scenarios; `poweredOff: true`
   creates one stopped, reported `terminating`).
+- `billing`: the vendor's billing rule and the stamp new instances get: `{increment, minimum,
+  stoppedCharged, deleteLatency, verified, source, stampOffset, noStamp}` (durations as `5m`; `verified: true`
+  makes the rule count; a negative `stampOffset` is a vendor that stamps early, `noStamp` one that stamps
+  nothing). The fake implements `BillingDescriber` from it, so the L2 and L3 lanes can impersonate an hourly
+  vendor with periods of minutes; the stamp is the fake clock at creation and is kept when the key changes.
 - `powerOff`: a list of NodeClaim names; the running instance of each is powered off
   once (reported `terminating`, as `PowerOff` does) and its Node is deleted, the way a
   stopped node stops reporting (a KWOK Node would otherwise stay Ready).
