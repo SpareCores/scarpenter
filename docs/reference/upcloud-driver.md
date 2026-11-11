@@ -37,7 +37,8 @@ The contract the driver will implement is in the [driver contract](driver-contra
 | `pkg/vendors/upcloud` | Classification, mapping, request builder, firewall rules, lifecycle helpers, quota reader. |
 
 The fake is faithful to what the plan relies on: a created server is in the
-`maintenance` state until its storage is cloned; a stop passes through
+`maintenance` state until its storage is cloned, and its storages too (a storage
+that is not `online` cannot be modified); a stop passes through
 `maintenance` too; a server must be `stopped` before it is deleted; there is no
 idempotency token (a replayed create makes a second server); list answers carry
 no labels (the details do); templates belong to one zone and one tier; account
@@ -101,9 +102,12 @@ when asked), utility (always) and, when a network is configured, private.
 `publicIPv4: false` needs a private network with a gateway of the user's own and is
 `Unsupported` otherwise. The request is golden-tested field by field.
 
-The SDK's create call has no labels on storage devices: the driver sets the
-cluster, NodeClaim and managed-by labels on every storage afterwards
-(`LabelStorages`), which is what the sweeper and the orphan pass find storages by.
+The API takes labels per storage device in the create call (for `create` and
+`clone`), but the SDK's device type has no field for them: the driver's client adds
+the cluster, NodeClaim and managed-by labels to every device in the request body,
+so no storage of a node exists unlabelled (labelling afterwards would not work
+either: a storage can only be modified when `online`, and the clone runs in
+`maintenance`). The sweeper and the orphan pass find storages by these labels.
 
 ## Firewalls
 
@@ -149,19 +153,22 @@ whose address is billed separately).
 
 By the API's error code (`upcloud.Problem.ErrorCode()`, from the problem type or the
 legacy code), never by message text. Unlisted codes are `Fatal`; a 5xx or 429 with
-an unlisted code is `Retryable`.
+an unlisted code is `Retryable`, also when the body is not JSON (a proxy's page). On
+deletes an unlisted 409 is `Retryable` (a dependency under an unknown name) and any
+404 is "gone". The v8 SDK retries nothing but its state pollers (5xx, 3 tries).
 
 | Class | Codes |
 |---|---|
 | `InsufficientCapacity` | `SERVER_RESOURCES_UNAVAILABLE`, `STORAGE_RESOURCES_UNAVAILABLE`, `SERVER_RESOURCES_UNAVAILABLE_FOR_STRICT_AA`, `IP_ADDRESS_RESOURCES_UNAVAILABLE` |
 | `Unsupported` | `CORE_MEMORY_UNSUPPORTED`, `PLAN_CORE_NUMBER_ILLEGAL`, `PLAN_MEMORY_AMOUNT_ILLEGAL`, `STORAGE_TIER_ILLEGAL` |
-| `QuotaExceeded` (account-wide) | `SERVER_CORE_LIMIT_REACHED`, `SERVER_MEMORY_LIMIT_REACHED`, `MAXIOPS_STORAGE_LIMIT_REACHED`, `SSD_STORAGE_LIMIT_REACHED`, `HDD_STORAGE_LIMIT_REACHED`, `SERVER_IP_LIMIT_REACHED`, `NETWORK_LIMIT_REACHED`, `DETACHED_FLOATING_IP_LIMIT_REACHED` |
+| `QuotaExceeded` (account-wide) | `SERVER_CORE_LIMIT_REACHED`, `SERVER_MEMORY_LIMIT_REACHED`, `MAXIOPS_STORAGE_LIMIT_REACHED`, `STANDARD_STORAGE_LIMIT_REACHED`, `HDD_STORAGE_LIMIT_REACHED`, `SERVER_IP_LIMIT_REACHED`, `NETWORK_LIMIT_REACHED`, `DETACHED_FLOATING_IP_LIMIT_REACHED` |
 | `ZoneUnusable` | `ZONE_NOT_FOUND`, `ZONE_INVALID` |
-| `Retryable` | `SERVER_CREATING_LIMIT_REACHED`, `SERVER_STATE_ILLEGAL`, `STORAGE_STATE_ILLEGAL`, `STORAGE_IN_USE`, `NETWORK_IN_USE`, `FIREWALL_RULESET_IN_USE`, HTTP 5xx and 429, network errors, call timeouts |
+| `Retryable` | `SERVER_CREATING_LIMIT_REACHED`, `SERVER_STATE_ILLEGAL`, `STORAGE_STATE_ILLEGAL`, `STORAGE_IN_USE`, `NETWORK_NOT_EMPTY`, `FIREWALL_RULESET_IN_USE`, HTTP 5xx and 429, network errors, call timeouts |
 | `NotFound` | `SERVER_NOT_FOUND`, `STORAGE_NOT_FOUND`, `NETWORK_NOT_FOUND`, `FIREWALL_RULESET_NOT_FOUND` |
 | `Fatal` | everything else, among it `AUTHENTICATION_FAILED`, `ACTION_FORBIDDEN`, `*_FORBIDDEN`, `INSUFFICIENT_CREDITS` (billing, not capacity), `USER_DATA_INVALID`, `LABEL_LIMIT_REACHED` and `ZONE_MISMATCH` (our bugs) |
 
-Deletes treat any 404 as "gone", whatever the code is called.
+Deletes treat any 404 as "gone", whatever the code is called (except
+`LABEL_LIMIT_REACHED`, which the reference documents with status 404).
 
 ## Credentials
 
@@ -182,9 +189,10 @@ and the sweeper; the how-to for importing the Flatcar templates.
 Everything here was written from documentation and the SDK source; no UpCloud call
 was made.
 
-- The names of the not-found and dependency codes (`FIREWALL_RULESET_NOT_FOUND`,
-  `NETWORK_IN_USE`, `FIREWALL_RULESET_IN_USE`), of the per-tier storage limit codes
-  other than `MAXIOPS_STORAGE_LIMIT_REACHED`, and whether 429 is used.
+- The ruleset codes (`FIREWALL_RULESET_NOT_FOUND`, `FIREWALL_RULESET_IN_USE`; the
+  fallbacks above cover other names), and whether 429 is used. The storage limit
+  codes and `NETWORK_NOT_EMPTY` are from the API reference.
+- The storage labels in the create body (documented, but not in the SDK).
 - The ruleset endpoints (`/firewall-ruleset`, `/server/<uuid>/{attach,detach}_firewall_ruleset/private`)
   and their JSON, taken from the OpenAPI-generated v9 module (alpha), and whether a
   list answer carries labels.
