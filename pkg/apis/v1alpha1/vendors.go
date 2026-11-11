@@ -10,6 +10,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/vultr"
 )
@@ -38,6 +39,10 @@ type VendorBlocks struct {
 	// +optional
 	HCloud *hcloud.Settings `json:"hcloud,omitempty"`
 
+	// ovh configures OVHcloud Public Cloud nodes.
+	// +optional
+	OVH *ovh.Settings `json:"ovh,omitempty"`
+
 	// qemu configures the qemu development vendor.
 	// +optional
 	QEMU *qemu.Settings `json:"qemu,omitempty"`
@@ -53,6 +58,7 @@ const (
 	VendorAWS    = "aws"
 	VendorFake   = "fake"
 	VendorHCloud = "hcloud"
+	VendorOVH    = "ovh"
 	VendorQEMU   = "qemu"
 )
 
@@ -70,6 +76,9 @@ func (v VendorBlocks) Names() []string {
 	}
 	if v.HCloud != nil {
 		names = append(names, VendorHCloud)
+	}
+	if v.OVH != nil {
+		names = append(names, VendorOVH)
 	}
 	if v.QEMU != nil {
 		names = append(names, VendorQEMU)
@@ -90,6 +99,8 @@ type StorageProfile struct {
 	Fake *fake.Storage `json:"fake,omitempty"`
 	// +optional
 	HCloud *hcloud.Storage `json:"hcloud,omitempty"`
+	// +optional
+	OVH *ovh.Storage `json:"ovh,omitempty"`
 	// +optional
 	QEMU *qemu.Storage `json:"qemu,omitempty"`
 	// +optional
@@ -119,6 +130,8 @@ type PlacementProfile struct {
 	// +optional
 	HCloud *hcloud.Placement `json:"hcloud,omitempty"`
 	// +optional
+	OVH *ovh.Placement `json:"ovh,omitempty"`
+	// +optional
 	QEMU *qemu.Placement `json:"qemu,omitempty"`
 	// +optional
 	Vultr *vultr.Placement `json:"vultr,omitempty"`
@@ -137,6 +150,8 @@ func (v VendorBlocks) Get(vendor string) (any, bool) {
 		return orNil(v.Fake), v.Fake != nil
 	case VendorHCloud:
 		return orNil(v.HCloud), v.HCloud != nil
+	case VendorOVH:
+		return orNil(v.OVH), v.OVH != nil
 	case VendorQEMU:
 		return orNil(v.QEMU), v.QEMU != nil
 	case VendorVultr:
@@ -155,6 +170,8 @@ func (p StorageProfile) For(vendor string) (any, bool) {
 		return orNil(p.Fake), p.Fake != nil
 	case VendorHCloud:
 		return orNil(p.HCloud), p.HCloud != nil
+	case VendorOVH:
+		return orNil(p.OVH), p.OVH != nil
 	case VendorQEMU:
 		return orNil(p.QEMU), p.QEMU != nil
 	case VendorVultr:
@@ -187,6 +204,8 @@ func (p PlacementProfile) For(vendor string) (any, bool) {
 		return orNil(p.Fake), p.Fake != nil
 	case VendorHCloud:
 		return orNil(p.HCloud), p.HCloud != nil
+	case VendorOVH:
+		return orNil(p.OVH), p.OVH != nil
 	case VendorQEMU:
 		return orNil(p.QEMU), p.QEMU != nil
 	case VendorVultr:

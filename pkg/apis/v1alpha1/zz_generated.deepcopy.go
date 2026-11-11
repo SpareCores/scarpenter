@@ -15,6 +15,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/vultr"
 	"github.com/awslabs/operatorpkg/status"
@@ -361,6 +362,11 @@ func (in *PlacementProfile) DeepCopyInto(out *PlacementProfile) {
 	if in.HCloud != nil {
 		in, out := &in.HCloud, &out.HCloud
 		*out = new(hcloud.Placement)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.OVH != nil {
+		in, out := &in.OVH, &out.OVH
+		*out = new(ovh.Placement)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.QEMU != nil {
@@ -754,6 +760,11 @@ func (in *StorageProfile) DeepCopyInto(out *StorageProfile) {
 		*out = new(hcloud.Storage)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.OVH != nil {
+		in, out := &in.OVH, &out.OVH
+		*out = new(ovh.Storage)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.QEMU != nil {
 		in, out := &in.QEMU, &out.QEMU
 		*out = new(qemu.Storage)
@@ -828,6 +839,11 @@ func (in *VendorBlocks) DeepCopyInto(out *VendorBlocks) {
 	if in.HCloud != nil {
 		in, out := &in.HCloud, &out.HCloud
 		*out = new(hcloud.Settings)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.OVH != nil {
+		in, out := &in.OVH, &out.OVH
+		*out = new(ovh.Settings)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.QEMU != nil {

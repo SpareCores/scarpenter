@@ -318,6 +318,7 @@ PlacementProfile is a named placement and tenancy setup per vendor.
 | `aws` | [object](#specprofilesplacementaws) |  | Placement is the AWS block of a placement profile: a placement group and the tenancy. |
 | `fake` | [object](#specprofilesplacementfake) |  | Placement is the fake block of a placement profile. |
 | `hcloud` | [object](#specprofilesplacementhcloud) |  | Placement is the Hetzner block of a placement profile: a placement group. |
+| `ovh` | [object](#specprofilesplacementovh) |  | Placement is the OVH block of a placement profile. |
 | `qemu` | [object](#specprofilesplacementqemu) |  | Placement is the qemu block of a placement profile. |
 | `vultr` | object (free-form) |  | Placement is the Vultr block of a placement profile. Empty in v1: Vultr has no placement groups or tenancy choice. |
 
@@ -395,6 +396,33 @@ use references an existing placement group, which is never modified or deleted; 
 |---|---|---|---|
 | `name` (required) | string |  | name of the placement group. At most 255 characters. |
 
+### `spec.profiles.placement.*.ovh`
+
+Placement is the OVH block of a placement profile.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `serverGroup` | [object](#specprofilesplacementovhservergroup) |  | serverGroup is the Nova server group nodes join; one is created per run key (label placement-group). |
+
+### `spec.profiles.placement.*.ovh.serverGroup`
+
+serverGroup is the Nova server group nodes join; one is created per run key (label placement-group).
+
+Validation: set exactly one of policy and use (`has(self.policy) != has(self.use)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` | string |  | policy of the server groups SCarpenter creates. One of `affinity`, `anti-affinity`. |
+| `use` | [object](#specprofilesplacementovhservergroupuse) |  | use references an existing server group, which is never modified or deleted. |
+
+### `spec.profiles.placement.*.ovh.serverGroup.use`
+
+use references an existing server group, which is never modified or deleted.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name of the server group. At most 255 characters. |
+
 ### `spec.profiles.placement.*.qemu`
 
 Placement is the qemu block of a placement profile.
@@ -412,6 +440,7 @@ StorageProfile is a named storage setup, in the vendor's own terms, for each ven
 | `aws` | [object](#specprofilesstorageaws) |  | Storage is the AWS storage block: the settings of the root volume, the extra EBS volumes and the instance-local disks. It is the vendor block's storage (layer 2) and the AWS block of a storage profile (layer 3). |
 | `fake` | [object](#specprofilesstoragefake) |  | Storage is the fake storage block (vendor block and storage profile). |
 | `hcloud` | [object](#specprofilesstoragehcloud) |  | Storage is the Hetzner storage block: data volumes. It is the vendor block's storage (layer 2) and the hcloud block of a storage profile (layer 3). There is no root and no local storage: the root disk is the server type's, and Hetzner servers have no local disks. |
+| `ovh` | [object](#specprofilesstorageovh) |  | Storage is the OVH storage block: the root disk and the extra Cinder volumes. It is the vendor block's storage (layer 2) and the OVH block of a storage profile (layer 3). |
 | `qemu` | [object](#specprofilesstorageqemu) |  | Storage is the qemu storage block (vendor block and storage profile). |
 | `vultr` | object (free-form) |  | Storage is the Vultr block of a storage profile. It is empty in v1: the plan's disk is the root disk and extra block storage volumes are deferred, so a storage profile with a vultr block makes every Vultr offering unavailable with a reason. |
 
@@ -525,6 +554,54 @@ DataVolume is a data volume: its size plus the guest side (name, filesystem, mou
 | `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
 | `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
 | `size` (required) | integer or string |  | size of the volume, e.g. 100Gi. Hetzner counts GB: the size is rounded up to whole GB and is 10 GB to 10 TB. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.profiles.storage.*.ovh`
+
+Storage is the OVH storage block: the root disk and the extra Cinder volumes. It is the vendor block's storage (layer 2) and the OVH block of a storage profile (layer 3).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `data` | array of [object](#specprofilesstorageovhdata) |  | data lists extra Cinder volumes created with the instance (at most 8). At most 8 items. |
+| `localStorage` | [object](#specprofilesstorageovhlocalstorage) |  | localStorage is not supported on OVH: a profile that asks for it is unsupported for every type, and the vendor block is invalid with it. |
+| `root` | [object](#specprofilesstorageovhroot) |  | root selects the root disk: absent, the flavor's local NVMe disk. |
+
+### `spec.profiles.storage.*.ovh.data[]`
+
+DataVolume is an extra Cinder volume: its type and size plus the guest side (name, filesystem, mount path).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `filesystem` | string | `"ext4"` | filesystem the first-boot unit creates on the volume. One of `ext4`, `xfs`, `btrfs`. |
+| `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
+| `size` (required) | integer or string |  | size of the volume, 10Gi to 12000Gi. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+| `volumeType` (required) | string |  | volumeType is the Cinder volume type. One of `classic`, `high-speed`, `high-speed-gen2`. |
+
+### `spec.profiles.storage.*.ovh.localStorage`
+
+localStorage is not supported on OVH: a profile that asks for it is unsupported for every type, and the vendor block is invalid with it.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mountPath` | string |  | mountPath is the absolute path the local storage is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `policy` (required) | string |  | policy: ignore leaves the disks alone, mount mounts them, raid0 stripes them into one volume and mounts it. One of `ignore`, `mount`, `raid0`. |
+
+### `spec.profiles.storage.*.ovh.root`
+
+root selects the root disk: absent, the flavor's local NVMe disk.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `bootFromVolume` | [object](#specprofilesstorageovhrootbootfromvolume) |  | bootFromVolume boots from a Cinder volume created from the image; the flavor's disk is then unused. The only way to choose the root size and type. |
+
+### `spec.profiles.storage.*.ovh.root.bootFromVolume`
+
+bootFromVolume boots from a Cinder volume created from the image; the flavor's disk is then unused. The only way to choose the root size and type.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` (required) | integer or string |  | size of the volume, 10Gi to 12000Gi. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+| `volumeType` (required) | string |  | volumeType is the Cinder volume type. One of `classic`, `high-speed`, `high-speed-gen2`. |
 
 ### `spec.profiles.storage.*.qemu`
 
@@ -860,6 +937,7 @@ vendors has one block per vendor; a vendor is enabled for this SCNodeClass by ha
 | `aws` | [object](#specvendorsaws) |  | aws configures AWS nodes. |
 | `fake` | [object](#specvendorsfake) |  | fake configures the fake (KWOK) development vendor. |
 | `hcloud` | [object](#specvendorshcloud) |  | hcloud configures Hetzner Cloud nodes. |
+| `ovh` | [object](#specvendorsovh) |  | ovh configures OVHcloud Public Cloud nodes. |
 | `qemu` | [object](#specvendorsqemu) |  | qemu configures the qemu development vendor. |
 | `vultr` | [object](#specvendorsvultr) |  | vultr configures Vultr nodes. |
 
@@ -2088,6 +2166,394 @@ DataVolume is a data volume: its size plus the guest side (name, filesystem, mou
 | `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
 | `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
 | `size` (required) | integer or string |  | size of the volume, e.g. 100Gi. Hetzner counts GB: the size is rounded up to whole GB and is 10 GB to 10 TB. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.vendors.ovh`
+
+ovh configures OVHcloud Public Cloud nodes.
+
+Validation: publicIPv4 must stay true on OVH: a private-only node needs a billed gateway and is not supported (`!has(self.networking) \|\| !has(self.networking.publicIPv4) \|\| self.networking.publicIPv4`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `configDrive` | boolean |  | configDrive is Nova's config_drive: the user data is also attached as a config drive. Built-in default true. |
+| `imageOwner` | string |  | imageOwner is the project ID that owns the Flatcar images; empty means the credentials' own project. At most 64 characters. Pattern `^[0-9a-fA-F-]*$`. |
+| `networking` | [object](#specvendorsovhnetworking) |  | networking overrides the generic spec.networking for OVH. publicIPv4 must stay true. |
+| `regions` | array of string |  | regions is the allow-list of regions, by the names of the Keystone catalog of the project (upper case, such as GRA11 or EU-WEST-PAR); empty means every region the credentials' catalog has and Keeper prices. At most 64 items. |
+| `resources` | [object](#specvendorsovhresources) |  | resources says how the OpenStack resources a node depends on are provided. |
+| `storage` | [object](#specvendorsovhstorage) |  | storage overrides the built-in storage defaults (the flavor's local disk as the root; no extra volumes). |
+
+### `spec.vendors.ovh.networking`
+
+networking overrides the generic spec.networking for OVH. publicIPv4 must stay true.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `inbound` | [object](#specvendorsovhnetworkinginbound) |  | inbound replaces spec.networking.inbound. |
+| `isolation` | string |  | isolation overrides spec.networking.isolation. One of `none`, `nodeclass`, `run`. |
+| `publicIPv4` | boolean |  | publicIPv4 overrides spec.networking.publicIPv4. |
+| `publicIPv6` | boolean |  | publicIPv6 overrides spec.networking.publicIPv6. |
+
+### `spec.vendors.ovh.networking.inbound`
+
+inbound replaces spec.networking.inbound.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `rules` | array of [object](#specvendorsovhnetworkinginboundrules) |  | rules allow traffic from CIDRs; everything else is denied. At most 32 items. |
+
+### `spec.vendors.ovh.networking.inbound.rules[]`
+
+InboundRule allows inbound traffic from CIDRs.
+
+Validation: ports are only valid for tcp and udp (`!has(self.fromPort) \|\| self.protocol == 'tcp' \|\| self.protocol == 'udp'`).
+
+Validation: toPort needs fromPort (`!has(self.toPort) \|\| has(self.fromPort)`).
+
+Validation: toPort must not be smaller than fromPort (`!has(self.toPort) \|\| self.toPort >= self.fromPort`).
+
+Validation: cidrs must be valid CIDR notation (`self.cidrs.all(c, isCIDR(c))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `cidrs` (required) | array of string |  | cidrs are the allowed source networks. At least 1 items. At most 32 items. At most 43 characters. |
+| `fromPort` | integer (int32) |  | fromPort is the first port of the range (tcp and udp); without ports the rule covers every port. Minimum 1. Maximum 65535. |
+| `protocol` (required) | string |  | protocol of the rule. One of `tcp`, `udp`, `icmp`, `any`. |
+| `toPort` | integer (int32) |  | toPort is the last port of the range; defaults to fromPort. Minimum 1. Maximum 65535. |
+
+### `spec.vendors.ovh.resources`
+
+resources says how the OpenStack resources a node depends on are provided.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `images` | [object](#specvendorsovhresourcesimages) |  | images brings the Flatcar boot images, one per region and architecture (SCarpenter never creates images): explicit Glance image IDs per region, a name pattern, tags or native filters. Optional: without it the driver finds the image named flatcar-&lt;channel&gt;-&lt;version&gt;-&lt;arch&gt; in the project. Whatever the lookup, the image's name or tags must say the pinned channel and version, or the region's images are not ready. Images take use only. |
+| `securityGroups` | [object](#specvendorsovhresourcessecuritygroups) |  | securityGroups attached to nodes (Neutron groups, by UUID per region). The project's default group is used when the kind is not configured and the request needs nothing it cannot give. |
+| `serverGroups` | [object](#specvendorsovhresourcesservergroups) |  | serverGroups nodes are launched into (see the placement profiles). |
+
+### `spec.vendors.ovh.resources.images`
+
+images brings the Flatcar boot images, one per region and architecture (SCarpenter never creates images): explicit Glance image IDs per region, a name pattern, tags or native filters. Optional: without it the driver finds the image named flatcar-&lt;channel&gt;-&lt;version&gt;-&lt;arch&gt; in the project. Whatever the lookup, the image's name or tags must say the pinned channel and version, or the region's images are not ready. Images take use only.
+
+Validation: images accepts use only: it has no create and no forbid (`has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)`).
+
+Validation: images cannot use select all: a launch needs one image (`!has(self.use) \|\| !has(self.use.select) \|\| self.use.select != 'all'`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsovhresourcesimagescreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsovhresourcesimagesuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.ovh.resources.images.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsovhresourcesimagescreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsovhresourcesimagescreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.ovh.resources.images.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.ovh.resources.images.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.ovh.resources.images.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsovhresourcesimagesusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsovhresourcesimagesusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.ovh.resources.images.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.ovh.resources.images.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.ovh.resources.securityGroups`
+
+securityGroups attached to nodes (Neutron groups, by UUID per region). The project's default group is used when the kind is not configured and the request needs nothing it cannot give.
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsovhresourcessecuritygroupscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsovhresourcessecuritygroupsuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.ovh.resources.securityGroups.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsovhresourcessecuritygroupscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsovhresourcessecuritygroupscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.ovh.resources.securityGroups.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.ovh.resources.securityGroups.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.ovh.resources.securityGroups.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsovhresourcessecuritygroupsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsovhresourcessecuritygroupsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.ovh.resources.securityGroups.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.ovh.resources.securityGroups.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.ovh.resources.serverGroups`
+
+serverGroups nodes are launched into (see the placement profiles).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsovhresourcesservergroupscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsovhresourcesservergroupsuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.ovh.resources.serverGroups.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsovhresourcesservergroupscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsovhresourcesservergroupscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.ovh.resources.serverGroups.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.ovh.resources.serverGroups.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.ovh.resources.serverGroups.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsovhresourcesservergroupsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsovhresourcesservergroupsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.ovh.resources.serverGroups.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.ovh.resources.serverGroups.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.ovh.storage`
+
+storage overrides the built-in storage defaults (the flavor's local disk as the root; no extra volumes).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `data` | array of [object](#specvendorsovhstoragedata) |  | data lists extra Cinder volumes created with the instance (at most 8). At most 8 items. |
+| `localStorage` | [object](#specvendorsovhstoragelocalstorage) |  | localStorage is not supported on OVH: a profile that asks for it is unsupported for every type, and the vendor block is invalid with it. |
+| `root` | [object](#specvendorsovhstorageroot) |  | root selects the root disk: absent, the flavor's local NVMe disk. |
+
+### `spec.vendors.ovh.storage.data[]`
+
+DataVolume is an extra Cinder volume: its type and size plus the guest side (name, filesystem, mount path).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `filesystem` | string | `"ext4"` | filesystem the first-boot unit creates on the volume. One of `ext4`, `xfs`, `btrfs`. |
+| `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
+| `size` (required) | integer or string |  | size of the volume, 10Gi to 12000Gi. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+| `volumeType` (required) | string |  | volumeType is the Cinder volume type. One of `classic`, `high-speed`, `high-speed-gen2`. |
+
+### `spec.vendors.ovh.storage.localStorage`
+
+localStorage is not supported on OVH: a profile that asks for it is unsupported for every type, and the vendor block is invalid with it.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mountPath` | string |  | mountPath is the absolute path the local storage is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `policy` (required) | string |  | policy: ignore leaves the disks alone, mount mounts them, raid0 stripes them into one volume and mounts it. One of `ignore`, `mount`, `raid0`. |
+
+### `spec.vendors.ovh.storage.root`
+
+root selects the root disk: absent, the flavor's local NVMe disk.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `bootFromVolume` | [object](#specvendorsovhstoragerootbootfromvolume) |  | bootFromVolume boots from a Cinder volume created from the image; the flavor's disk is then unused. The only way to choose the root size and type. |
+
+### `spec.vendors.ovh.storage.root.bootFromVolume`
+
+bootFromVolume boots from a Cinder volume created from the image; the flavor's disk is then unused. The only way to choose the root size and type.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` (required) | integer or string |  | size of the volume, 10Gi to 12000Gi. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+| `volumeType` (required) | string |  | volumeType is the Cinder volume type. One of `classic`, `high-speed`, `high-speed-gen2`. |
 
 ### `spec.vendors.qemu`
 
