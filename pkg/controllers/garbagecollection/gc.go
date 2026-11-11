@@ -11,7 +11,9 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // covers the time between the vendor call and the NodeClaim status update.
 // Every deletion is logged with its reason, published as an Event and counted.
 //
-// Managed vendor resources (plan 06) plug in through Options.Sweepers.
+// Managed vendor resources (plan 06) plug in through Options.Sweepers; a driver
+// whose launch leaves resources of its own (vendors.LeftoverCollector) is asked
+// to collect them per region after the instance sweep.
 package garbagecollection
 
 import (
@@ -290,6 +292,15 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			}
 		}
 		c.terminating.Retain(vendor, region, stillTerminating)
+		if lc, ok := drv.(vendors.LeftoverCollector); ok && !c.opts.DryRun {
+			n, err := lc.CollectLeftovers(ctx, region, claims.Has)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("collecting %s launch leftovers in %s: %w", vendor, region, err))
+			}
+			if n > 0 {
+				logger.Info("deleted launch leftovers", "vendor", vendor, "region", region, "count", n)
+			}
+		}
 	}
 	return deleted, errors.Join(errs...)
 }

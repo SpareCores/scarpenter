@@ -9,6 +9,7 @@ package garbagecollection_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -539,5 +540,52 @@ func TestTerminatingClockRestartsWhenTheInstanceRuns(t *testing.T) {
 	sweep(vendors.StateTerminating, 0)
 	if len(drv.deleted) != 1 {
 		t.Errorf("deleted %v, want the instance after a full grace", refs(drv.deleted))
+	}
+}
+
+// leftoverDriver is a stub driver that also collects launch leftovers.
+type leftoverDriver struct {
+	stubDriver
+	calls []string // region, then whether each asked NodeClaim exists
+	err   error
+}
+
+func (d *leftoverDriver) CollectLeftovers(_ context.Context, region string, exists func(string) bool) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.calls = append(d.calls, fmt.Sprintf("%s live=%t gone=%t", region, exists("live"), exists("gone")))
+	return 1, d.err
+}
+
+func TestLeftoverCollectorIsCalledPerRegion(t *testing.T) {
+	drv := &leftoverDriver{stubDriver: stubDriver{vendor: "azure", instances: map[string][]*vendors.Instance{}},
+		err: errors.New("boom")}
+	e := gc.New(gc.Options{
+		Client:   fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(claim("live")).Build(),
+		Registry: vendors.NewRegistryFrom(drv), Clock: clocktesting.NewFakeClock(now), ClusterName: "c1",
+		Recorder: &recorder{}, Registerer: prometheus.NewRegistry(),
+		Regions: func(string) []string { return []string{"r1", "r2"} },
+	})
+	if _, err := e.Sweep(context.Background()); err == nil {
+		t.Fatal("the collector's error is not reported")
+	}
+	want := []string{"r1 live=true gone=false", "r2 live=true gone=false"}
+	if !slices.Equal(drv.calls, want) {
+		t.Fatalf("calls %v, want %v", drv.calls, want)
+	}
+
+	// Not in dry-run.
+	drv.calls = nil
+	dry := gc.New(gc.Options{
+		Client:   fake.NewClientBuilder().WithScheme(scheme(t)).Build(),
+		Registry: vendors.NewRegistryFrom(drv), Clock: clocktesting.NewFakeClock(now), ClusterName: "c1",
+		Recorder: &recorder{}, Registerer: prometheus.NewRegistry(), DryRun: true,
+		Regions: func(string) []string { return []string{"r1"} },
+	})
+	if _, err := dry.Sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(drv.calls) != 0 {
+		t.Fatalf("dry-run collected leftovers: %v", drv.calls)
 	}
 }

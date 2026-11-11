@@ -692,6 +692,18 @@ type ManagedResources interface {
 	List(ctx context.Context, regions []string, tags map[TagKey]string) ([]ResourceRef, error)
 }
 
+// LeftoverCollector is the optional capability of a driver whose launch makes
+// vendor resources of its own besides the instance (a network interface, a
+// public address) that are neither managed resources nor removed with the
+// instance when the launch fails or is interrupted before the instance exists.
+// The garbage collector calls it once per region after its instance sweep (not
+// in dry-run); nodeClaimExists says whether a NodeClaim of the name exists. The
+// driver deletes only what carries this cluster's tag, names a NodeClaim that
+// does not exist and nothing uses, and returns how many it deleted.
+type LeftoverCollector interface {
+	CollectLeftovers(ctx context.Context, region string, nodeClaimExists func(name string) bool) (int, error)
+}
+
 // ResourceDefaults is the optional capability of a driver whose vendor has a
 // default resource of a kind (step 3 of the resolution order, ADR-022): the AWS
 // default VPC and its default subnets, GCP's default network. A driver without it
