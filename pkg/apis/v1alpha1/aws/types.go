@@ -68,6 +68,17 @@ type Resources struct {
 	// placementGroups nodes are launched into (see the placement profiles).
 	// +optional
 	PlacementGroups *common.Resource `json:"placementGroups,omitempty"`
+
+	// images brings the Flatcar boot images with the one selector of every
+	// resource kind (plan 14 A1): explicit AMI IDs per region, a name pattern,
+	// tags or native filters. Optional: without it the driver finds the pinned
+	// release by name in the owner's account. Whatever the lookup, the image's
+	// name or tags must say the pinned channel and version, or the region's
+	// images are not ready. Images take use only.
+	// +kubebuilder:validation:XValidation:rule="has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)",message="images accepts use only: it has no create and no forbid"
+	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.select) || self.use.select != 'all'",message="images cannot use select all: a launch needs one image"
+	// +optional
+	Images *common.Resource `json:"images,omitempty"`
 }
 
 // VolumeType is an EBS volume type.

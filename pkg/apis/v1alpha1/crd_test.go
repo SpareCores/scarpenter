@@ -179,6 +179,12 @@ func TestValidSpecsAreAccepted(t *testing.T) {
 		"poweroffAfter composite":           `poweroffAfter: 1h30m`,
 		"curated cpu flags":                 `catalog: {cpuFlagLabels: [avx2, avx512_vnni, amx_tile, sha_ni, vaes, gfni]}`,
 		"alpha channel":                     `flatcar: {channel: alpha}`,
+		"images by ids":                     `vendors: {aws: {resources: {images: {use: {ids: {us-east-1: [ami-0123456789abcdef0], "*": [ami-0123456789abcdef1]}}}}}}`,
+		"images by name and match":          `vendors: {aws: {resources: {images: {use: {name: "Flatcar-{channel}-{version}-*", match: {owner: ["123456789012"], architecture: [amd64]}, select: newest, orderBy: created}}}}}`,
+		"images by tags, select exactlyOne": `vendors: {fake: {resources: {images: {use: {tags: {flatcar-version: "{version}"}, select: exactlyOne}}}}}`,
+		"images with filters":               `vendors: {aws: {resources: {images: {use: {filters: [{name: root-device-type, values: [ebs]}]}}}}}`,
+		"bootstrap hardening":               `bootstrap: {hardening: [metadata-from-pods]}`,
+		"bootstrap without hardening":       `bootstrap: {}`,
 	}
 	for name, spec := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -439,6 +445,20 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		{"placement unknown strategy", `profiles: {placement: {p: {aws: {placementGroup: {strategy: ring}}}}}`, "Unsupported value"},
 		{"unknown tenancy", `profiles: {placement: {p: {aws: {tenancy: host}}}}`, "Unsupported value"},
 		{"ena express without enabled", `profiles: {network: {n: {aws: {enaExpress: {udp: true}}}}}`, "Required value"},
+		// images (plan 14 A1): use only, one image per launch
+		{"images with create", `vendors: {aws: {resources: {images: {create: {}}}}}`, "images accepts use only"},
+		{"images forbid", `vendors: {aws: {resources: {images: {forbid: true}}}}`, "images accepts use only"},
+		{"images empty", `vendors: {aws: {resources: {images: {}}}}`, "images accepts use only"},
+		{"images use and create", `vendors: {fake: {resources: {images: {use: {name: x}, create: {}}}}}`, "at most one of use, create and forbid"},
+		{"images select all", `vendors: {aws: {resources: {images: {use: {name: x, select: all}}}}}`, "images cannot use select all"},
+		{"images fake select all", `vendors: {fake: {resources: {images: {use: {name: x, select: all}}}}}`, "images cannot use select all"},
+		{"images empty use", `vendors: {aws: {resources: {images: {use: {}}}}}`, "set at least one of ids, name, tags, match, filters and expression"},
+		{"images orderBy without select", `vendors: {aws: {resources: {images: {use: {name: x, orderBy: created}}}}}`, "orderBy is only valid with select newest or oldest"},
+		{"images match architecture unknown", `vendors: {aws: {resources: {images: {use: {match: {architecture: [riscv]}}}}}}`, "Unsupported value"},
+		{"images unknown field", `vendors: {aws: {resources: {images: {use: {selector: {tags: {a: b}}}}}}}`, "unknown field"},
+		// bootstrap hardening (plan 14 A7)
+		{"unknown hardening", `bootstrap: {hardening: [no-pods]}`, "Unsupported value"},
+		{"hardening twice", `bootstrap: {hardening: [metadata-from-pods, metadata-from-pods]}`, "Duplicate value"},
 		// fake and qemu
 		{"qemu unknown accelerator", `vendors: {qemu: {accelerator: hvf}}`, "Unsupported value"},
 		{"qemu unknown disk format", `profiles: {storage: {s: {qemu: {root: {format: vmdk}}}}}`, "Unsupported value"},

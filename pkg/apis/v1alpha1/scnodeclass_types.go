@@ -180,6 +180,12 @@ type ImageStatus struct {
 	// message explains an image that is not ready.
 	// +optional
 	Message string `json:"message,omitempty"`
+	// reason says why an image is not ready when the cause is the image itself:
+	// ImageVersionMismatch (it is another Flatcar release than the pinned one) or
+	// ImageVersionUnknown (it does not say which). It becomes the reason of the
+	// ImagesReady condition.
+	// +optional
+	Reason string `json:"reason,omitempty"`
 }
 
 // ResourceStatus is a vendor resource referenced (use) or managed (create).

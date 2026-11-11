@@ -48,6 +48,11 @@ type SCNodeClassSpec struct {
 	// +optional
 	Butane *ButaneSpec `json:"butane,omitempty"`
 
+	// bootstrap holds the opt-in changes to the node's boot configuration that
+	// a vendor's driver can contribute (plan 14 A7).
+	// +optional
+	Bootstrap *BootstrapSpec `json:"bootstrap,omitempty"`
+
 	// sysexts lists extra systemd sysexts installed on every node.
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=map
@@ -104,6 +109,44 @@ type SCNodeClassSpec struct {
 	// SCNodeClass by having a block.
 	// +required
 	Vendors VendorBlocks `json:"vendors"`
+}
+
+// Hardening is a named, opt-in hardening of the node's boot configuration. A
+// driver that offers it contributes a Butane fragment that the core merges into
+// the base config.
+// +kubebuilder:validation:Enum=metadata-from-pods
+type Hardening string
+
+// Hardenings.
+const (
+	// HardeningMetadataFromPods drops Pod traffic that is forwarded to the
+	// vendor's metadata address (the user-data holds a bootstrap token and, with
+	// the tailscale template, the Tailscale key), on vendors with nothing like
+	// AWS's hop limit. The node's own units and host-network Pods are unaffected.
+	HardeningMetadataFromPods Hardening = "metadata-from-pods"
+)
+
+// BootstrapSpec is the optional bootstrap hardening of the node.
+type BootstrapSpec struct {
+	// hardening lists the opt-in hardenings of the boot configuration. Off by
+	// default: they change what Pods on the node can reach. A vendor whose driver
+	// offers none of them (AWS) ignores the list and says so in an Event.
+	// +kubebuilder:validation:MaxItems=8
+	// +listType=set
+	// +optional
+	Hardening []Hardening `json:"hardening,omitempty"`
+}
+
+// HardeningNames returns the enabled hardenings as strings (nil when none).
+func (s *SCNodeClassSpec) HardeningNames() []string {
+	if s.Bootstrap == nil {
+		return nil
+	}
+	out := make([]string, len(s.Bootstrap.Hardening))
+	for i, h := range s.Bootstrap.Hardening {
+		out[i] = string(h)
+	}
+	return out
 }
 
 // ButaneSpec references extra Butane configuration.

@@ -36,6 +36,7 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `bootstrap` | [object](#specbootstrap) |  | bootstrap holds the opt-in changes to the node's boot configuration that a vendor's driver can contribute (plan 14 A7). |
 | `butane` | [object](#specbutane) |  | butane references extra Butane configuration merged into every node's Ignition. |
 | `catalog` | [object](#speccatalog) |  | catalog configures the instance type catalog built from Keeper. |
 | `flatcar` (required) | [object](#specflatcar) |  | flatcar selects the Flatcar Container Linux release nodes boot. |
@@ -51,6 +52,14 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 | `sysexts` | array of [object](#specsysexts) |  | sysexts lists extra systemd sysexts installed on every node. At most 16 items. |
 | `tags` | map of string values |  | tags are added to every vendor resource SCarpenter creates (tags or labels, as the vendor calls them). Rule: tag keys in the scarpenter.sparecores.com domain are reserved (`self.all(k, !k.startsWith('scarpenter.sparecores.com/'))`). |
 | `vendors` (required) | [object](#specvendors) |  | vendors has one block per vendor; a vendor is enabled for this SCNodeClass by having a block. |
+
+### `spec.bootstrap`
+
+bootstrap holds the opt-in changes to the node's boot configuration that a vendor's driver can contribute (plan 14 A7).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `hardening` | array of string |  | hardening lists the opt-in hardenings of the boot configuration. Off by default: they change what Pods on the node can reach. A vendor whose driver offers none of them (AWS) ignores the list and says so in an Event. One of `metadata-from-pods`. At most 8 items. |
 
 ### `spec.butane`
 
@@ -856,9 +865,105 @@ resources says how the AWS resources a node depends on are provided.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `images` | [object](#specvendorsawsresourcesimages) |  | images brings the Flatcar boot images with the one selector of every resource kind (plan 14 A1): explicit AMI IDs per region, a name pattern, tags or native filters. Optional: without it the driver finds the pinned release by name in the owner's account. Whatever the lookup, the image's name or tags must say the pinned channel and version, or the region's images are not ready. Images take use only. |
 | `placementGroups` | [object](#specvendorsawsresourcesplacementgroups) |  | placementGroups nodes are launched into (see the placement profiles). |
 | `securityGroups` | [object](#specvendorsawsresourcessecuritygroups) |  | securityGroups attached to nodes. |
 | `subnets` | [object](#specvendorsawsresourcessubnets) |  | subnets nodes are launched into. |
+
+### `spec.vendors.aws.resources.images`
+
+images brings the Flatcar boot images with the one selector of every resource kind (plan 14 A1): explicit AMI IDs per region, a name pattern, tags or native filters. Optional: without it the driver finds the pinned release by name in the owner's account. Whatever the lookup, the image's name or tags must say the pinned channel and version, or the region's images are not ready. Images take use only.
+
+Validation: images accepts use only: it has no create and no forbid (`has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)`).
+
+Validation: images cannot use select all: a launch needs one image (`!has(self.use) \|\| !has(self.use.select) \|\| self.use.select != 'all'`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsawsresourcesimagescreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsawsresourcesimagesuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.aws.resources.images.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsawsresourcesimagescreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsawsresourcesimagescreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.aws.resources.images.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.aws.resources.images.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.aws.resources.images.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsawsresourcesimagesusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsawsresourcesimagesusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.aws.resources.images.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.aws.resources.images.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
 
 ### `spec.vendors.aws.resources.placementGroups`
 
@@ -1252,7 +1357,103 @@ resources says how the fake resources a node depends on are provided.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `images` | [object](#specvendorsfakeresourcesimages) |  | images brings the fake boot images (the fake driver's `images` list in its configuration) with the one selector. Images take use only. |
 | `networks` | [object](#specvendorsfakeresourcesnetworks) |  | networks the fake nodes attach to. |
+
+### `spec.vendors.fake.resources.images`
+
+images brings the fake boot images (the fake driver's `images` list in its configuration) with the one selector. Images take use only.
+
+Validation: images accepts use only: it has no create and no forbid (`has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)`).
+
+Validation: images cannot use select all: a launch needs one image (`!has(self.use) \|\| !has(self.use.select) \|\| self.use.select != 'all'`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsfakeresourcesimagescreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsfakeresourcesimagesuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.fake.resources.images.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsfakeresourcesimagescreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsfakeresourcesimagescreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.fake.resources.images.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.fake.resources.images.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.fake.resources.images.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsfakeresourcesimagesusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsfakeresourcesimagesusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.fake.resources.images.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.fake.resources.images.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
 
 ### `spec.vendors.fake.resources.networks`
 
@@ -1650,6 +1851,7 @@ ImageStatus is the boot image of a region and architecture.
 | `arch` (required) | string |  | arch is amd64 or arm64. |
 | `message` | string |  | message explains an image that is not ready. |
 | `ready` (required) | boolean |  | ready says whether the image can be launched in the region. |
+| `reason` | string |  | reason says why an image is not ready when the cause is the image itself: ImageVersionMismatch (it is another Flatcar release than the pinned one) or ImageVersionUnknown (it does not say which). It becomes the reason of the ImagesReady condition. |
 | `ref` (required) | string |  | ref is the vendor's image reference (for example an AMI ID). |
 | `region` (required) | string |  |  |
 

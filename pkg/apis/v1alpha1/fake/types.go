@@ -46,6 +46,13 @@ type Resources struct {
 	// networks the fake nodes attach to.
 	// +optional
 	Networks *common.Resource `json:"networks,omitempty"`
+
+	// images brings the fake boot images (the fake driver's `images` list in its
+	// configuration) with the one selector. Images take use only.
+	// +kubebuilder:validation:XValidation:rule="has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)",message="images accepts use only: it has no create and no forbid"
+	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.select) || self.use.select != 'all'",message="images cannot use select all: a launch needs one image"
+	// +optional
+	Images *common.Resource `json:"images,omitempty"`
 }
 
 // Storage is the fake storage block (vendor block and storage profile).
