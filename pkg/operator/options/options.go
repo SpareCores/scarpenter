@@ -159,6 +159,9 @@ type Options struct {
 	ResourceFullSweepEvery int
 	// AWSHomeRegion is the region of the AWS global endpoints.
 	AWSHomeRegion string
+	// GCPProject is the Google Cloud project of the GCP driver; empty means the
+	// project of the credentials.
+	GCPProject string
 	// HCloudServerLimit is the server limit of the Hetzner Cloud project, which
 	// the API does not report (0 unknown: no headroom is known before a launch).
 	HCloudServerLimit int
@@ -210,6 +213,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.ResourceDefaultTTL, "resource-default-ttl", env.WithDefaultDuration("SCARPENTER_RESOURCE_DEFAULT_TTL", DefaultResourceDefaultTTL), "idleTTL of managed shared vendor resources when an SCNodeClass does not set one.")
 	fs.BoolVar(&o.BillingRetention, "billing-retention", env.WithDefaultBool("SCARPENTER_BILLING_RETENTION", true), "Run the billing retention controller (it holds nodes until the end of their paid billing period for the SCNodeClasses that set spec.billing.retainUntilPeriodEnd). The NodeClass field is the real switch; false turns the controller off as a whole.")
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
+	fs.StringVar(&o.GCPProject, "gcp-project", env.WithDefaultString("SCARPENTER_GCP_PROJECT", ""), "Google Cloud project of the GCP driver's nodes; empty means the project of the credentials (a service account key or the metadata server; workload identity federation has none, so set it there).")
 	fs.IntVar(&o.HCloudServerLimit, "hcloud-server-limit", env.WithDefaultInt("SCARPENTER_HCLOUD_SERVER_LIMIT", 0), "Server limit of the Hetzner Cloud project (shown in its Console; the API does not report it). 0 means unknown: only the API's own refusal ends a launch.")
 }
 

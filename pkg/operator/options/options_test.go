@@ -103,6 +103,7 @@ func TestEnvironmentFallbacks(t *testing.T) {
 		"SCARPENTER_GC_INTERVAL":                   "5m",
 		"SCARPENTER_RESOURCE_DEFAULT_TTL":          "48h",
 		"SCARPENTER_AWS_HOME_REGION":               "eu-central-1",
+		"SCARPENTER_GCP_PROJECT":                   "my-project",
 		"SCARPENTER_CLUSTER_DNS":                   "10.96.0.10, fd00::a",
 		"SCARPENTER_CLUSTER_DOMAIN":                "k8s.example.com",
 		"SCARPENTER_BILLING_RETENTION":             "false",
@@ -122,6 +123,7 @@ func TestEnvironmentFallbacks(t *testing.T) {
 		o.QuotaRefreshInterval != time.Minute || o.QuotaLimitsRefreshInterval != 10*time.Minute ||
 		o.QuotaMaxStaleness != 20*time.Minute || o.GCInterval != 5*time.Minute ||
 		o.ResourceDefaultTTL != 48*time.Hour || o.AWSHomeRegion != "eu-central-1" ||
+		o.GCPProject != "my-project" ||
 		strings.Join(o.ClusterDNS, ",") != "10.96.0.10,fd00::a" || o.ClusterDomain != "k8s.example.com" {
 		t.Errorf("environment fallbacks not applied: %+v", *o)
 	}
