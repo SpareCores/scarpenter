@@ -8,7 +8,9 @@ package aws
 
 import (
 	"maps"
+	"net/netip"
 	"slices"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -126,7 +128,13 @@ type useFilter struct {
 
 var (
 	subnetFilters = useFilter{id: "subnet-id", name: "tag:Name", zone: filterZoneID, network: filterVPC,
-		cidr: filterCIDR, state: func(s string) []string { return []string{s} }}
+		cidr: filterCIDR, state: func(s string) []string {
+			if s == stateFailed {
+				return []string{string(ec2types.SubnetStateUnavailable), string(ec2types.SubnetStateFailed),
+					string(ec2types.SubnetStateFailedInsufficientCapacity)}
+			}
+			return []string{s}
+		}}
 	groupFilters = useFilter{id: "group-id", name: filterGroupName, network: filterVPC, description: filterDescription}
 	pgFilters    = useFilter{name: filterGroupName, state: func(s string) []string {
 		if s == stateFailed {
@@ -153,17 +161,19 @@ func useFilters(ref vendors.UseRef, f useFilter) []ec2types.Filter {
 		add(f.name, ref.Name)
 	}
 	for _, k := range slices.Sorted(maps.Keys(ref.Tags)) {
+		// Tag keys and values are exact; EC2 reads * ? and \ in a filter value
+		// as wildcards and an escape, so they are escaped.
 		if ref.Tags[k] == "*" {
-			add(filterTagKey, k)
+			add(filterTagKey, ec2Literal(k))
 		} else {
-			add("tag:"+k, ref.Tags[k])
+			add("tag:"+k, ec2Literal(ref.Tags[k]))
 		}
 	}
 	m := ref.Match
 	add(f.zone, m.Zone...)
 	add(f.network, m.Network...)
-	if m.CIDR != "" {
-		add(f.cidr, m.CIDR)
+	if v, ok := ec2CIDR(m.CIDR); ok {
+		add(f.cidr, v)
 	}
 	if m.Description != "" {
 		add(f.description, m.Description)
@@ -185,6 +195,24 @@ func useFilters(ref vendors.UseRef, f useFilter) []ec2types.Filter {
 	return out
 }
 
+// ec2Literal escapes the wildcards of an EC2 filter value, so that EC2 compares
+// it exactly, as the shared matcher does.
+func ec2Literal(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`).Replace(s)
+}
+
+// ec2CIDR is the value of the cidr-block filter for match.cidr: the IPv4 range
+// in EC2's canonical spelling (10.0.0.1/16 is the range 10.0.0.0/16, which the
+// matcher compares on parsed prefixes). An IPv6 range is not sent (cidr-block is
+// the IPv4 block): the matcher compares it with the subnet's IPv6 blocks.
+func ec2CIDR(text string) (string, bool) {
+	p, err := netip.ParsePrefix(text)
+	if err != nil || !p.Addr().Is4() {
+		return "", false
+	}
+	return p.Masked().String(), true
+}
+
 func tagMap(tags []ec2types.Tag) map[string]string {
 	m := make(map[string]string, len(tags))
 	for _, t := range tags {
@@ -200,7 +228,8 @@ func subnetFields(s ec2types.Subnet) selector.Fields {
 		vendors.MatchCIDR:    {deref(s.CidrBlock)},
 		vendors.MatchState:   {string(s.State)},
 	}
-	if s.State == ec2types.SubnetStateUnavailable || s.State == ec2types.SubnetStateFailed {
+	switch s.State {
+	case ec2types.SubnetStateUnavailable, ec2types.SubnetStateFailed, ec2types.SubnetStateFailedInsufficientCapacity:
 		attrs[vendors.MatchState] = []string{stateFailed}
 	}
 	for _, a := range s.Ipv6CidrBlockAssociationSet {

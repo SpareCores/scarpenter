@@ -273,10 +273,27 @@ func deref[T any](p *T) T {
 	return *p
 }
 
-// glob matches an EC2 filter value: * and ? are wildcards.
+// glob matches an EC2 filter value: * and ? are wildcards and a backslash
+// makes the next character literal.
 func glob(pattern, s string) bool {
-	re := "^" + strings.NewReplacer(`\*`, ".*", `\?`, ".").Replace(regexp.QuoteMeta(pattern)) + "$"
-	ok, _ := regexp.MatchString(re, s)
+	var re strings.Builder
+	re.WriteString("^")
+	rs := []rune(pattern)
+	for i := 0; i < len(rs); i++ {
+		switch c := rs[i]; {
+		case c == '\\' && i+1 < len(rs):
+			i++
+			re.WriteString(regexp.QuoteMeta(string(rs[i])))
+		case c == '*':
+			re.WriteString("(?s:.*)")
+		case c == '?':
+			re.WriteString("(?s:.)")
+		default:
+			re.WriteString(regexp.QuoteMeta(string(c)))
+		}
+	}
+	re.WriteString("$")
+	ok, _ := regexp.MatchString(re.String(), s)
 	return ok
 }
 

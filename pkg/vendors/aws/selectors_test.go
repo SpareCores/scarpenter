@@ -48,6 +48,9 @@ func TestSelectorsOfTheSubnetsAreSentToEC2AndFinishedByTheMatcher(t *testing.T) 
 	a := mk("n-9", "10.8.4.0/24", "us-east-1a", map[string]string{"team": "x", "env": "prod"})
 	b := mk("n-10", "10.8.5.0/24", "us-east-1b", map[string]string{"team": "x"})
 	c := mk("n-2", "10.9.0.0/24", "us-east-1a", map[string]string{"env": "dev"})
+	// Tag values with EC2's wildcard characters are compared exactly on both sides.
+	lit := mk("lit-1", "10.7.1.0/24", "us-east-1a", map[string]string{"lit": `a*b\c`})
+	mk("lit-2", "10.7.2.0/24", "us-east-1a", map[string]string{"lit": `aXb\c`})
 	zoneID := func(name string) string {
 		zs, err := e.d.Zones(ctx, testRegion)
 		if err != nil {
@@ -89,6 +92,9 @@ func TestSelectorsOfTheSubnetsAreSentToEC2AndFinishedByTheMatcher(t *testing.T) 
 		"oldest by name, natural": {vendors.UseRef{Name: "n-*", Select: common.SelectOldest, OrderBy: "name"}, sorted(c)},
 		"a tie is ambiguous":      {vendors.UseRef{Tags: map[string]string{"team": "x"}, Select: common.SelectOldest, OrderBy: "label:team"}, nil},
 		"state default available": {vendors.UseRef{Name: "n-9", Select: common.SelectAll}, sorted(a)},
+		"a tag value is exact":    {vendors.UseRef{Tags: map[string]string{"lit": `a*b\c`}, Select: common.SelectAll}, sorted(lit)},
+		"cidr, not canonical":     {vendors.UseRef{Match: common.ResourceMatch{CIDR: "10.8.4.1/24"}, Select: common.SelectAll}, sorted(a)},
+		"cidr, IPv6":              {vendors.UseRef{Match: common.ResourceMatch{CIDR: "2001:db8::/64"}, Select: common.SelectAll}, nil},
 		"failed is not available": {vendors.UseRef{Name: "n-9", Match: common.ResourceMatch{State: []string{"failed"}}, Select: common.SelectAll}, nil},
 	} {
 		got, err := subnets(tc.ref)

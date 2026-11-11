@@ -268,7 +268,10 @@ wildcards in string values, `\` escapes; at most 50 filters of 200 values), so `
 the call's filter list. An unknown filter name is rejected by EC2 (`InvalidParameterValue`, unverified);
 a wrong-case value silently matches nothing. Never use an ID parameter (`ImageIds`, `SubnetIds`,
 `GroupIds`): one missing ID fails the whole call with `*.NotFound`; the driver uses the ID filter. No
-ordering and no negation anywhere; `*` for `tags` is the `tag-key` filter. AMI tags of other
+ordering and no negation anywhere; `*` for `tags` is the `tag-key` filter. Tag keys and values are
+exact: the driver escapes `*`, `?` and `\` in them before sending. `match.cidr` is sent as the
+canonical IPv4 range (`cidr-block`); an IPv6 range is matched client-side against the subnet's IPv6
+blocks. AMI tags of other
 accounts' images are not visible to a consumer (unverified): tags select your own images. No kind has
 an `expression`. API reference per call: `https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_<Action>.html`.
 
