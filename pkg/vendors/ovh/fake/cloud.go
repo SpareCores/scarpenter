@@ -63,6 +63,11 @@ type Cloud struct {
 	// BuildReads is the number of reads (get or list) after the scheduling one
 	// that a server stays in BUILD before it turns ACTIVE; default 1.
 	BuildReads int
+	// DeleteReads is the number of calls into the region after a delete that
+	// the server stays deleting (its status kept, task state deleting, still counted by the
+	// limits, its volumes and groups still held) before it is gone; default 1.
+	// 0 removes it at once.
+	DeleteReads int
 	// Now is the clock of created timestamps.
 	Now func() time.Time
 
@@ -80,11 +85,13 @@ type injection struct {
 
 type serverRec struct {
 	osapi.Server
-	reads     int
-	groupID   string
-	secGroups []string
-	volumes   []*volumeRec
-	foreign   bool
+	reads int
+	// deleteCalls counts the calls since the delete; -1 when not deleting.
+	deleteCalls int
+	groupID     string
+	secGroups   []string
+	volumes     []*volumeRec
+	foreign     bool
 }
 
 type volumeRec struct {
@@ -113,7 +120,7 @@ type region struct {
 
 // New returns an empty cloud with the project ID "proj-0".
 func New() *Cloud {
-	return &Cloud{ProjectID: "proj-0", BuildReads: 1, Now: time.Now, regions: map[string]*region{}}
+	return &Cloud{ProjectID: "proj-0", BuildReads: 1, DeleteReads: 1, Now: time.Now, regions: map[string]*region{}}
 }
 
 func (c *Cloud) id(kind string) string {
@@ -277,7 +284,7 @@ func (c *Cloud) AddForeignServer(region, name, flavor string) string {
 	defer c.mu.Unlock()
 	r := c.region(region)
 	f := r.flavorByName(flavor)
-	s := &serverRec{Server: osapi.Server{
+	s := &serverRec{deleteCalls: -1, Server: osapi.Server{
 		ID: c.id("srv"), Name: name, Status: osapi.StatusActive, Created: c.Now(), FlavorID: f.ID,
 		Metadata: map[string]string{},
 	}, foreign: true}
@@ -340,7 +347,39 @@ type client struct {
 // enter takes the lock and checks the injected errors.
 func (cl *client) enter(op string) error {
 	cl.c.mu.Lock()
+	cl.reap()
 	return cl.c.injected(cl.r.name, op)
+}
+
+// reap advances the servers in DELETING: after DeleteReads calls into the
+// region they are gone, with their volumes and group membership.
+func (cl *client) reap() {
+	for _, id := range slices.Clone(cl.r.order) {
+		s := cl.r.servers[id]
+		if s.deleteCalls < 0 {
+			continue
+		}
+		if s.deleteCalls >= cl.c.DeleteReads {
+			cl.remove(s)
+			continue
+		}
+		s.deleteCalls++
+	}
+}
+
+func (cl *client) remove(s *serverRec) {
+	for _, v := range s.volumes {
+		if v.deleteOnTerminate {
+			delete(cl.r.volumes, v.id)
+		} else {
+			v.attachedTo = ""
+		}
+	}
+	if g := cl.r.groups[s.groupID]; g != nil {
+		g.Members = slices.DeleteFunc(g.Members, func(m string) bool { return m == s.ID })
+	}
+	delete(cl.r.servers, s.ID)
+	cl.r.order = slices.DeleteFunc(cl.r.order, func(o string) bool { return o == s.ID })
 }
 
 func (cl *client) leave() { cl.c.mu.Unlock() }
@@ -542,7 +581,7 @@ func (cl *client) CreateServer(ctx context.Context, req osapi.CreateServerReques
 		return nil, apiErr(svcNova, 403,
 			"Quota exceeded for ram: Requested %d, but already used %d of %d ram", f.RAMMiB, l.UsedRAMMiB, l.MaxRAMMiB)
 	}
-	s := &serverRec{Server: osapi.Server{
+	s := &serverRec{deleteCalls: -1, Server: osapi.Server{
 		ID: cl.c.id("srv"), Name: req.Name, Status: osapi.StatusBuild, TaskState: osapi.TaskScheduling,
 		Created: cl.c.Now(), FlavorID: f.ID, ImageID: req.ImageID, AvailabilityZone: req.AvailabilityZone,
 		Metadata: cloneMap(req.Metadata), Tags: slices.Clone(req.Tags),
@@ -707,18 +746,15 @@ func (cl *client) DeleteServer(ctx context.Context, id string) error {
 	if s == nil {
 		return apiErr("nova", 404, "Instance %s could not be found.", id)
 	}
-	for _, v := range s.volumes {
-		if v.deleteOnTerminate {
-			delete(cl.r.volumes, v.id)
-		} else {
-			v.attachedTo = ""
-		}
+	if s.deleteCalls >= 0 {
+		return nil // Nova accepts a delete of a server already deleting
 	}
-	if g := cl.r.groups[s.groupID]; g != nil {
-		g.Members = slices.DeleteFunc(g.Members, func(m string) bool { return m == id })
+	if cl.c.DeleteReads <= 0 {
+		cl.remove(s)
+		return nil
 	}
-	delete(cl.r.servers, id)
-	cl.r.order = slices.DeleteFunc(cl.r.order, func(o string) bool { return o == id })
+	// Nova keeps the status (ACTIVE, ERROR, ...) and sets the task state.
+	s.TaskState, s.deleteCalls = osapi.TaskDeleting, 0
 	return nil
 }
 

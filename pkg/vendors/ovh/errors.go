@@ -9,6 +9,7 @@ package ovh
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -41,7 +42,16 @@ const (
 	CodeBadRequest       = "BadRequest"
 	CodeUnauthorized     = "Unauthorized"
 	CodeForbidden        = "Forbidden"
+	CodeAmbiguousGroup   = "AmbiguousSecurityGroup"
 )
+
+// codeHints are prefixed to the message of a classified error where the
+// vendor's text alone does not say what the operator must change.
+var codeHints = map[string]string{
+	CodeAmbiguousGroup: "the security group name matches more than one group in the region " +
+		"(Nova attaches groups by name): rename one or hand over a group whose name is unique",
+	CodeUnauthorized: "the OpenStack credentials were rejected (expired, revoked or wrong)",
+}
 
 // Service names of osapi.APIError.
 const (
@@ -96,6 +106,10 @@ var textRules = []textRule{
 	// Ext-Net is out of addresses (unverified on OVH): the zone cannot host
 	// another node.
 	{[]int{409, 500}, "", "No more IP addresses available", vendors.ZoneUnusable, CodeIPExhausted},
+	// Nova attaches security groups by name; a name more than one group in the
+	// project has is NoUniqueMatch (HTTP 409). A retry fails the same way: it is
+	// a configuration error, not a conflict that passes.
+	{[]int{409}, svcNova, "Multiple security groups found", vendors.Fatal, CodeAmbiguousGroup},
 	// The image of the call is gone or not usable: the hand-off is wrong, no
 	// other candidate helps.
 	{[]int{400}, svcNova, "Invalid imageRef provided", vendors.Fatal, CodeImageMissing},
@@ -141,11 +155,15 @@ func classifyStatus(service string, status int, msg string, err error) error {
 	for _, r := range textRules {
 		if (r.Service == "" || r.Service == service) && containsInt(r.Status, status) &&
 			strings.Contains(lower, strings.ToLower(r.Contains)) {
-			return vendors.NewError(r.Class, r.Code, err)
+			return newError(r.Class, r.Code, err)
 		}
 	}
 	switch {
-	case service == svcKeystone && (status == 401 || status == 403):
+	case service == svcKeystone && status == 401:
+		// The credentials themselves: no region helps (the contract keeps
+		// RegionUnavailable for a region the credentials cannot read).
+		return newError(vendors.Fatal, CodeUnauthorized, err)
+	case service == svcKeystone && status == 403:
 		return vendors.NewError(vendors.RegionUnavailable, CodeRegionDenied, err)
 	case status == 404:
 		return vendors.NewError(vendors.NotFound, CodeNotFound, err)
@@ -156,13 +174,47 @@ func classifyStatus(service string, status int, msg string, err error) error {
 	case status == 409:
 		return vendors.NewError(vendors.Retryable, CodeConflict, err)
 	case status == 401:
-		return vendors.NewError(vendors.Fatal, CodeUnauthorized, err)
+		return newError(vendors.Fatal, CodeUnauthorized, err)
 	case status == 403:
 		return vendors.NewError(vendors.Fatal, CodeForbidden, err)
 	case status == 400:
 		return vendors.NewError(vendors.Fatal, CodeBadRequest, err)
 	}
 	return vendors.NewError(vendors.Fatal, "", err)
+}
+
+func newError(class vendors.Class, code string, err error) error {
+	if h, ok := codeHints[code]; ok {
+		err = fmt.Errorf("%s: %w", h, err)
+	}
+	return vendors.NewError(class, code, err)
+}
+
+// ClassifyCatalog classifies an error of reading the catalog's regions
+// (Provider.Regions), which is not about one region: a Keystone 401 or 403
+// there is a credentials problem (Fatal), never RegionUnavailable, which the
+// contract allows only from Zones for a region the credentials cannot read.
+func ClassifyCatalog(err error) error {
+	c := Classify(err)
+	if vendors.IsClass(c, vendors.RegionUnavailable) {
+		return vendors.NewError(vendors.Fatal, CodeForbidden,
+			fmt.Errorf("the credentials may not read the service catalog: %w", err))
+	}
+	return c
+}
+
+// CatalogRegions reads the compute regions of the Keystone catalog and joins
+// them with the region table (RegionMap.Join). TODO(plan 14): the driver's
+// Regions is this plus the NodeClass allow-list.
+func CatalogRegions(
+	ctx context.Context, p osapi.Provider, m *RegionMap,
+) (joined []vendors.Region, unknown []string, err error) {
+	names, err := p.Regions(ctx)
+	if err != nil {
+		return nil, nil, ClassifyCatalog(err)
+	}
+	joined, unknown = m.Join(names)
+	return joined, unknown, nil
 }
 
 func containsInt(s []int, v int) bool {

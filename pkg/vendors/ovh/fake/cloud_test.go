@@ -120,6 +120,15 @@ func TestServerLifecycle(t *testing.T) {
 	if err := cl.Compute.DeleteServer(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
+	// Deleting: a second delete is accepted; the next call sees the status
+	// kept with the task state deleting, the one after finds nothing.
+	if err := cl.Compute.DeleteServer(ctx, s.ID); err != nil {
+		t.Fatalf("delete while deleting: %v", err)
+	}
+	c.DeleteReads = 2
+	if got, err := cl.Compute.GetServer(ctx, s.ID); err != nil || got.Status != osapi.StatusShutoff || got.TaskState != osapi.TaskDeleting {
+		t.Fatalf("deleting server: %+v %v", got, err)
+	}
 	if _, err := cl.Compute.GetServer(ctx, s.ID); status(t, err) != 404 {
 		t.Fatalf("deleted server: %v", err)
 	}
@@ -238,6 +247,11 @@ func TestVolumesFollowServer(t *testing.T) {
 	if err := cl.Compute.DeleteServer(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
+	if c.VolumeCount("GRA11") != 2 {
+		t.Fatal("the volumes stay while the server is deleting")
+	}
+	_, _ = cl.Compute.ListServers(ctx, osapi.ServerFilter{})
+	_, _ = cl.Compute.ListServers(ctx, osapi.ServerFilter{})
 	if c.VolumeCount("GRA11") != 1 {
 		t.Fatalf("only the delete_on_termination volume goes with the server, %d left", c.VolumeCount("GRA11"))
 	}
@@ -324,6 +338,7 @@ func TestSecurityGroups(t *testing.T) {
 		t.Fatalf("ambiguous name: %v", err)
 	}
 	_ = cl.Compute.DeleteServer(ctx, s.ID)
+	_, _ = cl.Compute.ListServers(ctx, osapi.ServerFilter{})
 	if err := cl.Network.DeleteSecurityGroup(ctx, g.ID); err != nil {
 		t.Fatalf("delete after the server is gone: %v", err)
 	}
@@ -372,5 +387,18 @@ func TestInjectedErrors(t *testing.T) {
 	c.ClearErrors()
 	if _, err := c.Clients(ctx, "GRA11"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// DeleteReads 0 removes a server at once.
+func TestImmediateDelete(t *testing.T) {
+	ctx := context.Background()
+	c := New()
+	c.DeleteReads = 0
+	c.AddRegion("GRA11", RegionConfig{Flavors: []osapi.Flavor{{Name: "d2-2", VCPUs: 1, RAMMiB: 2048, DiskGB: 25}}})
+	cl, _ := c.Clients(ctx, "GRA11")
+	id := c.AddForeignServer("GRA11", "x", "d2-2")
+	if err := cl.Compute.DeleteServer(ctx, id); err != nil || len(c.ServerIDs("GRA11")) != 0 {
+		t.Fatalf("immediate delete: %v %v", err, c.ServerIDs("GRA11"))
 	}
 }

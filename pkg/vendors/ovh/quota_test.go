@@ -78,6 +78,9 @@ func TestQuotas(t *testing.T) {
 	// Counted drops what the tracker no longer needs: a deleted server.
 	ids := c.ServerIDs("GRA11")
 	_ = cl.Compute.DeleteServer(ctx, ids[0])
+	if snap, _ = q.Quotas(ctx, "GRA11"); snap.Buckets[0].Used != 2 {
+		t.Errorf("a server being deleted still counts in Nova's usage: %+v", snap)
+	}
 	snap, _ = q.Quotas(ctx, "GRA11")
 	if len(snap.Counted) != 1 || snap.Buckets[0].Used != 1 {
 		t.Errorf("after delete: %+v", snap)

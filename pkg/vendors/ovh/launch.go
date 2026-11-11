@@ -177,7 +177,7 @@ func InstanceFrom(region, zone string, s osapi.Server) *vendors.Instance {
 	}
 	return &vendors.Instance{
 		Ref: InstanceRef(region, s.ID), Region: region, Zone: zone, Type: s.FlavorName,
-		CapacityType: vendors.CapacityOnDemand, State: InstanceState(s.Status), CreatedAt: s.Created,
+		CapacityType: vendors.CapacityOnDemand, State: ServerState(s), CreatedAt: s.Created,
 		Tags: TagsFromMetadata(s.Metadata), Addresses: slices.Concat(v4, v6),
 	}
 }

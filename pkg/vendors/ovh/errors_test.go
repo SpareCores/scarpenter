@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/ovh/fake"
 	"github.com/SpareCores/scarpenter/pkg/vendors/ovh/osapi"
 )
 
@@ -60,7 +62,7 @@ func TestClassify(t *testing.T) {
 		{"ext-net full in a fault", api("nova", 500, "Build of instance x aborted: No more IP addresses available on network 1234"), vendors.ZoneUnusable, CodeIPExhausted},
 		// region
 		{"no endpoint", fmt.Errorf("compute: %w", osapi.ErrNoEndpoint), vendors.RegionUnavailable, CodeNoEndpoint},
-		{"keystone 401", api("keystone", 401, "The request you have made requires authentication."), vendors.RegionUnavailable, CodeRegionDenied},
+		{"keystone 401 is the credentials", api("keystone", 401, "The request you have made requires authentication."), vendors.Fatal, CodeUnauthorized},
 		{"keystone 403", api("keystone", 403, "You are not authorized to perform the requested action."), vendors.RegionUnavailable, CodeRegionDenied},
 		// not found
 		{"server 404", api("nova", 404, "Instance x could not be found."), vendors.NotFound, CodeNotFound},
@@ -72,6 +74,7 @@ func TestClassify(t *testing.T) {
 		{"503", api("glance", 503, "Service Unavailable"), vendors.Retryable, CodeServerError},
 		{"504", api("nova", 504, "Gateway Time-out"), vendors.Retryable, CodeServerError},
 		{"conflict", api("nova", 409, "Cannot 'delete' instance x while it is in task_state deleting"), vendors.Retryable, CodeConflict},
+		{"ambiguous group name is configuration", api("nova", 409, "Multiple security groups found matching 'nodes'. Use an ID to be more specific."), vendors.Fatal, CodeAmbiguousGroup},
 		{"group in use", api("neutron", 409, "SecurityGroupInUse: Security Group x in use."), vendors.Retryable, CodeConflict},
 		{"deadline", fmt.Errorf("call: %w", context.DeadlineExceeded), vendors.Retryable, CodeTimeout},
 		{"canceled", context.Canceled, vendors.Retryable, CodeCanceled},
@@ -103,6 +106,45 @@ func TestClassify(t *testing.T) {
 	pre := vendors.NewError(vendors.Unsupported, "x", errors.New("e"))
 	if Classify(fmt.Errorf("wrapped: %w", pre)) == nil || vendors.ClassOf(Classify(fmt.Errorf("wrapped: %w", pre))) != vendors.Unsupported {
 		t.Fatal("classified errors pass through")
+	}
+}
+
+func TestClassifyHints(t *testing.T) {
+	err := Classify(api("nova", 409, "Multiple security groups found matching 'nodes'. Use an ID to be more specific."))
+	if !strings.Contains(err.Error(), "unique") || !strings.Contains(err.Error(), "Multiple security groups") {
+		t.Errorf("ambiguous group message: %v", err)
+	}
+	var ae *osapi.APIError
+	if !errors.As(err, &ae) || ae.Status != 409 {
+		t.Error("the hint keeps the API error in the chain")
+	}
+}
+
+// Reading the catalog is not about one region: a Keystone 401 or 403 there
+// is Fatal, never RegionUnavailable (the contract allows that only from Zones).
+func TestCatalogRegions(t *testing.T) {
+	ctx := context.Background()
+	m, err := NewRegionMap(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := fake.New()
+	c.AddRegion("GRA11", fake.RegionConfig{})
+	c.AddRegion("MARS1", fake.RegionConfig{})
+	joined, unknown, err := CatalogRegions(ctx, c, m)
+	if err != nil || len(joined) != 1 || joined[0].Name != "GRA11" || len(unknown) != 1 || unknown[0] != "MARS1" {
+		t.Fatalf("joined %v unknown %v err %v", joined, unknown, err)
+	}
+	for _, st := range []int{401, 403} {
+		c.InjectError("", "Regions", api("keystone", st, "denied"), 1)
+		_, _, err = CatalogRegions(ctx, c, m)
+		if !vendors.IsClass(err, vendors.Fatal) {
+			t.Errorf("keystone %d on the catalog: %v", st, err)
+		}
+	}
+	c.InjectError("", "Regions", api("keystone", 503, "down"), 1)
+	if _, _, err = CatalogRegions(ctx, c, m); !vendors.IsClass(err, vendors.Retryable) {
+		t.Errorf("keystone 503 on the catalog: %v", err)
 	}
 }
 

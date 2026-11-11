@@ -62,7 +62,8 @@ IDs per region, the server state machine (`BUILD` with task state `scheduling`, 
 `ERROR` with the `NoValidHost` fault or `ACTIVE`, advanced by reads), anchored name
 regex and tag filters, metadata limits, server groups (anti-affinity bounded by a host
 count), absolute limits with `OverQuota` (foreign servers count, `ERROR` servers count
-until deleted), a guest poweroff leaving a `SHUTOFF` server, the 65,535-byte base64
+until deleted), a delete that keeps the status with task state `deleting` (still counted,
+volumes and groups held) for `DeleteReads` calls before the server is gone, a guest poweroff leaving a `SHUTOFF` server, the 65,535-byte base64
 user data limit, flavor and image checks, volumes created by block device mappings and
 deleted by `delete_on_termination`, Neutron's default group and creation defaults, a
 group in use refusing delete, Glance visibility and owner rules, and injected errors per
@@ -109,7 +110,17 @@ resize and migration statuses and any unknown status to pending; `ACTIVE` and th
 statuses to running; `SHUTOFF`, `STOPPED`, `PAUSED`, `SUSPENDED`, `SHELVED*`, `RESCUE`,
 `DELETING` and `ERROR` to terminating (a stopped node is billed and never comes back,
 so the garbage collector deletes it after the grace period); `DELETED` and
-`SOFT_DELETED` to terminated.
+`SOFT_DELETED` to terminated. `ServerState` adds the task state: Nova keeps a server's
+status while it is deleted, so task state `deleting` is terminating whatever the status.
+
+`CreateAndWait` creates the server and polls it (2 s, at most 45 s) until the task state
+leaves `scheduling` or the status is `ERROR`. A server in `ERROR` is deleted before the
+fault's class is returned, so the idempotency key is not left on a broken server; if that
+delete fails the error is `Retryable` (`ErrorServerNotDeleted`). A server still
+scheduling at the timeout, or whose poll fails, is returned as last seen, so its ID is
+never lost. `FindByKey` picks the live server carrying the idempotency key, skips servers
+being deleted, and returns servers with the key in `ERROR` as stale ones to delete before
+the next create.
 
 ## Error classification
 
@@ -125,10 +136,14 @@ confirmed on OVH.
 | `QuotaExceeded` | Nova 403 "Quota exceeded for instances", "cores", "ram", "server_groups", "Quota exceeded, too many server groups", "Maximum number of ports exceeded"; Neutron 409 `OverQuota`. Never account-wide: OVH's limits are per project and region |
 | `Unsupported` | Nova 400 "Invalid flavorRef provided", "Flavor's disk is too small", "Flavor's memory is too small" |
 | `ZoneUnusable` | 409 or 500 "No more IP addresses available" |
-| `RegionUnavailable` | no endpoint in the catalog; Keystone 401 or 403 |
+| `RegionUnavailable` | no endpoint for the region in the catalog; Keystone 403 for a region |
 | `NotFound` | any 404 |
-| `Retryable` | 429, 5xx, a 409 that is not a quota, timeouts, canceled calls, network errors |
-| `Fatal` | everything else: other 400s (including a missing or inactive image: "Invalid imageRef provided", "Can not find requested image", "is not active"), 401 and 403 of Nova without a quota text |
+| `Retryable` | 429, 5xx, a 409 that is neither a quota nor an ambiguous group name, timeouts, canceled calls, network errors |
+| `Fatal` | everything else: other 400s (including a missing or inactive image: "Invalid imageRef provided", "Can not find requested image", "is not active"), Nova 409 "Multiple security groups found" (a group name more than one group has: Nova attaches by name, a retry fails the same way), any 401 (Keystone's included: the credentials, not a region), 403 of Nova without a quota text |
+
+Reading the catalog's regions (`CatalogRegions`, through `ClassifyCatalog`) is not about
+one region: a Keystone 401 or 403 there is `Fatal`; the contract keeps `RegionUnavailable`
+for `Zones`.
 
 `ClassifyFault` classifies the fault of a server in `ERROR` the same way, using the
 fault's code as status.

@@ -52,7 +52,7 @@ func Snapshot(region string, l osapi.Limits, servers []osapi.Server) *vendors.Qu
 		}
 	}
 	for _, s := range servers {
-		if InstanceState(s.Status) != vendors.StateTerminated {
+		if ServerState(s) != vendors.StateTerminated {
 			snap.Counted = append(snap.Counted, InstanceRef(region, s.ID))
 		}
 	}
