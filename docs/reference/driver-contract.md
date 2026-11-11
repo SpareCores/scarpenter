@@ -202,6 +202,10 @@ takes part through optional capabilities on the driver value, none required:
   own ID), and a launch names the network it chose in `ResourceRequest.Network`. `ResourceRequest.Settings`
   carries the launch's resolved settings for `DefaultSuits`; without it the core asks about the NodeClass's
   default settings.
+- `KindSpec.Optional` marks a kind a launch may go without and that is never created (Hetzner's private
+  networks): when no `use`, opt-in tag or vendor default provides it, `Require` returns no resource and no
+  error and the status check reports no problem. The driver asks for it on every launch and attaches what
+  comes back; its validation refuses a `create` of the kind.
 
 The failure and the order's rules (a vendor error stops it, an ambiguous opt-in fails, the sources recorded in
 the status) belong to the core: a driver reports what it found and writes no policy.

@@ -85,6 +85,8 @@ type Driver struct {
 	Fail map[string]error
 	// EnsureErr makes the Ensure of a kind fail.
 	EnsureErr map[vendors.ResourceKind]error
+	// OptionalSubnets declares the subnets kind optional (KindSpec.Optional).
+	OptionalSubnets bool
 }
 
 // New returns a driver serving the vendor ID.
@@ -180,7 +182,8 @@ func (d *Driver) Kinds() []vendors.KindSpec {
 		{Kind: PlacementGroups, Scope: vendors.ScopeRun, DefaultPolicy: common.LifecyclePerUse, DeleteOrder: 20},
 		{Kind: SecurityGroups, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleRetain, DeleteOrder: 25,
 			InNetwork: Subnets},
-		{Kind: Subnets, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleIdleTTL, DeleteOrder: 30},
+		{Kind: Subnets, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleIdleTTL, DeleteOrder: 30,
+			Optional: d.OptionalSubnets},
 	}
 }
 

@@ -564,6 +564,12 @@ type KindSpec struct {
 	// where the kind's selector supports it). Empty: the kind is not
 	// network-scoped.
 	InNetwork ResourceKind
+	// Optional marks a kind a launch may go without and that SCarpenter never
+	// creates (a private network the operator may bring): when no `use`, no
+	// opt-in tag and no vendor default provides it, Require returns no
+	// resource and no error, and the status check reports no problem. A
+	// `create` of such a kind is the driver's validation to refuse.
+	Optional bool
 }
 
 // UseRef is the selector of the resources to use (ADR-023, A10) for one region

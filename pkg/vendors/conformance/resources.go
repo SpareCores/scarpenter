@@ -35,6 +35,11 @@ func (p directProvider) Require(ctx context.Context, req vendors.ResourceRequest
 	if req.Use != nil {
 		return p.mr.Resolve(ctx, req.Kind, p.region, *req.Use)
 	}
+	for _, k := range p.mr.Kinds() {
+		if k.Kind == req.Kind && k.Optional {
+			return nil, nil // nothing brings it: the engine never creates an optional kind
+		}
+	}
 	sum := sha256.Sum256([]byte(req.Zone + "/" + req.Key))
 	name := fmt.Sprintf("scarpenter-conformance-%s-%s-%s",
 		req.Kind, p.region, hex.EncodeToString(sum[:])[:8])

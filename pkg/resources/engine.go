@@ -493,6 +493,9 @@ func (e *Engine) require(
 			return nil, err
 		case len(res.refs) > 0:
 			return res.refs, nil
+		case spec.Optional:
+			// Nothing provides an optional kind: the launch goes without it.
+			return nil, nil
 		case cfg.Forbid:
 			return nil, fail(forbidden("%s", failureMessage(req.Kind, region, res.tried, "creating it is forbidden")))
 		}

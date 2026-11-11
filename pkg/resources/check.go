@@ -307,6 +307,8 @@ func (c *checker) kind(
 			return "", true
 		case len(res.refs) > 0:
 			found(res.source, res.refs)
+		case ks.Optional:
+			// Nothing provides an optional kind: nodes go without it.
 		case cfg.Forbid:
 			return failureMessage(ks.Kind, "", res.tried, "creating it is forbidden"), false
 		}

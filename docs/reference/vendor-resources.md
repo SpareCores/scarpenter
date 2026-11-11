@@ -133,7 +133,9 @@ The drivers add three optional hooks (below): the AWS driver has defaults for `s
 VPC's default subnets, skipped for `publicIPv6` when any of them lacks an IPv6 CIDR block, so the
 managed network, which has IPv6, is created instead) and the qemu driver for `networks` (the
 `--qemu-bridge` bridge). The other vendors' drivers declare their defaults, if any, with their
-`ManagedResources` implementation.
+`ManagedResources` implementation. A kind the driver declares optional (`KindSpec.Optional`, a
+network the operator may bring) ends after step 3: nothing found means the launch goes without
+it, never a creation or a failure.
 
 A kind that lives in a network (`KindSpec.InNetwork`: AWS security groups live in the network of
 the subnets) is resolved after it and only inside the networks it resolved to, whichever step

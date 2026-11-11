@@ -242,6 +242,40 @@ func TestForbidFailsWithTheKindAndWhatWasTried(t *testing.T) {
 	}
 }
 
+func TestAnOptionalKindThatNothingProvidesIsLeftOut(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		res  *aws.Resources
+	}{
+		{"unconfigured", nil},
+		{"forbidden", &aws.Resources{Subnets: &common.Resource{Forbid: true}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			nc := class("c", tc.res)
+			e := newEnv(t, envOpts{classes: []*v1alpha1.SCNodeClass{nc}})
+			e.drv.OptionalSubnets = true
+			refs, err := e.require(nc, region1, subnets())
+			if err != nil || len(refs) != 0 {
+				t.Fatalf("require = %+v, %v; want nothing and no error", refs, err)
+			}
+			if got := e.drv.Managed(); len(got) != 0 {
+				t.Errorf("an optional kind was created: %v", got)
+			}
+			rep := e.engine.Check(t.Context(), nc, "aws", []string{region1})
+			if bad, why := rep.NotReady(); len(bad) != 0 {
+				t.Errorf("not ready: %v", why)
+			}
+			// A tagged resource or the vendor's default still provides it.
+			e.drv.Existing = []resourcestest.Existing{ex(resourcestest.Subnets, region1, "tagged", tagged)}
+			e.clock.Step(2 * time.Minute)
+			refs, err = e.require(nc, region1, subnets())
+			if err != nil || len(refs) != 1 || refs[0].ID != "tagged" {
+				t.Errorf("with a tagged resource: %+v, %v", refs, err)
+			}
+		})
+	}
+}
+
 func TestACreationThatFailsLeavesNothingAndIsNotAFallThrough(t *testing.T) {
 	boom := vendors.Errorf(vendors.Fatal, "access denied")
 	nc := class("c", nil)
