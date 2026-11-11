@@ -33,6 +33,19 @@ implements is the [driver contract](driver-contract.md).
   `terminating`; a `Failed` VM that exists is `running`.
 - Azure's limits are per subscription and region, so no quota error is
   account-wide.
+- Any HTTP 429 is `Retryable`, whatever its code (the compute provider throttles
+  with `OperationNotAllowed`); azcore has retried it before.
+- Message texts the classification matches (the documented exception of the
+  contract; `errors_test.go` pins each, an unmatched text is `Fatal`):
+  `OperationNotAllowed` containing "exceeding approved" and "quota" is
+  `QuotaExceeded`, containing "another operation" and "progress" is `Retryable`;
+  `InvalidParameter` naming the launch's size with "not available" or "not
+  supported" is `Unsupported`.
+- The public IP has no zones field (zone-redundant in a zonal region), so the
+  attempt in the next zone reuses the address of the previous one.
+- The terms check reads `MarketplaceAgreements.Get` with the offer type
+  `virtualmachine` (role action
+  `Microsoft.MarketplaceOrdering/offerTypes/publishers/offers/plans/agreements/read`).
 - Sizes without Gen2, without a SCSI disk controller, or restricted for the
   subscription are not launchable.
 - SCarpenter never accepts marketplace terms: the check fails with
