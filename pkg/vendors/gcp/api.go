@@ -6,11 +6,10 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package gcp is the Google Compute Engine driver of SCarpenter (plan 16).
 //
-// Status: the lower layers only. This package holds the Compute API wrapped
-// behind ComputeAPI, the error classification, the quota reader, and the pure
-// mapping code (names, labels, provider IDs, states, the launch request). The
-// vendors.Driver implementation, its registration, the NodeClass API types and
-// the conformance wiring wait for plan 14 (TODO(plan 14) marks the seams).
+// The package holds the Compute API wrapped behind ComputeAPI, the error
+// classification, the pure mapping code (names, labels, provider IDs, states, the
+// launch request) and the Driver that implements vendors.Driver and its
+// capabilities on top of them.
 package gcp
 
 import (
@@ -48,6 +47,10 @@ type ComputeAPI interface {
 
 	GetImage(ctx context.Context, req *computepb.GetImageRequest) (*computepb.Image, error)
 	GetImageFromFamily(ctx context.Context, req *computepb.GetFromFamilyImageRequest) (*computepb.Image, error)
+	// ListImages lists the images of one project (the driver's own project, or a
+	// project whose images the credentials can list). Publicly shared images do
+	// not appear in a list: they are read with GetImage.
+	ListImages(ctx context.Context, req *computepb.ListImagesRequest) (*computepb.ImageList, error)
 
 	GetSubnetwork(ctx context.Context, req *computepb.GetSubnetworkRequest) (*computepb.Subnetwork, error)
 	ListSubnetworks(ctx context.Context, req *computepb.ListSubnetworksRequest) (*computepb.SubnetworkList, error)

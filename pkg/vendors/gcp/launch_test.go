@@ -49,7 +49,7 @@ func TestBuildInsertGolden(t *testing.T) {
 	if req.GetProject() != "proj" || req.GetZone() != fake.SeedZoneA {
 		t.Fatalf("request scope = %s %s", req.GetProject(), req.GetZone())
 	}
-	if want := RequestID(uid, fake.SeedZoneA, "e2-small", vendors.CapacityOnDemand); req.GetRequestId() != want {
+	if want := RequestID(uid, fake.SeedZoneA, "e2-small", vendors.CapacityOnDemand, "", 0); req.GetRequestId() != want {
 		t.Fatalf("request id = %s, want %s", req.GetRequestId(), want)
 	}
 	in := req.GetInstanceResource()

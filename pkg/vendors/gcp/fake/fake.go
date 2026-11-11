@@ -56,6 +56,7 @@ type Compute struct {
 	zones     map[string]*computepb.Zone
 	types     map[string]map[string]*computepb.MachineType // zone -> name
 	images    map[string]*computepb.Image                  // project/name
+	public    map[string]bool                              // project/name: shared with everyone, not listed
 	families  map[string]string                            // project/family -> name
 	instances map[string]*computepb.Instance               // zone/name
 	networks  map[string]*computepb.Network
@@ -96,7 +97,7 @@ func New(project string) *Compute {
 	return &Compute{
 		project: project, now: time.Now,
 		regions: map[string]*computepb.Region{}, zones: map[string]*computepb.Zone{},
-		types: map[string]map[string]*computepb.MachineType{}, images: map[string]*computepb.Image{},
+		types: map[string]map[string]*computepb.MachineType{}, images: map[string]*computepb.Image{}, public: map[string]bool{},
 		families: map[string]string{}, instances: map[string]*computepb.Instance{},
 		networks: map[string]*computepb.Network{}, subnets: map[string]*computepb.Subnetwork{},
 		firewalls: map[string]*computepb.Firewall{}, policies: map[string]*computepb.ResourcePolicy{},
@@ -206,14 +207,49 @@ func (c *Compute) AddImage(project, name, family, arch string, features ...strin
 	img := &computepb.Image{
 		Name: new(name), Family: new(family), Architecture: new(arch),
 		DiskSizeGb: proto.Int64(12), Status: new("READY"),
-		SelfLink: new(c.url("projects/" + project + "/global/images/" + name)),
+		SelfLink: new(apiBase + "projects/" + project + "/global/images/" + name),
 	}
 	for _, f := range features {
 		img.GuestOsFeatures = append(img.GuestOsFeatures, &computepb.GuestOsFeature{Type: new(f)})
 	}
 	c.images[project+"/"+name] = img
+	c.public[project+"/"+name] = true
 	if family != "" {
 		c.families[project+"/"+family] = name
+	}
+}
+
+// ImageSpec describes a listed image of AddImageSpec.
+type ImageSpec struct {
+	Project, Name, Family, Arch string
+	Labels                      map[string]string
+	Created                     time.Time
+	// Deprecated is the deprecation state (DEPRECATED, OBSOLETE, DELETED); empty
+	// for an active image.
+	Deprecated string
+}
+
+// AddImageSpec adds an image of the project that appears in the project's image
+// list (a user's own image, unlike the publicly shared ones of AddImage).
+func (c *Compute) AddImageSpec(s ImageSpec) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	created := s.Created
+	if created.IsZero() {
+		created = c.now()
+	}
+	img := &computepb.Image{
+		Name: new(s.Name), Family: new(s.Family), Architecture: new(s.Arch), Labels: s.Labels,
+		DiskSizeGb: proto.Int64(12), Status: new("READY"),
+		CreationTimestamp: new(created.UTC().Format(time.RFC3339)),
+		SelfLink:          new(apiBase + "projects/" + s.Project + "/global/images/" + s.Name),
+	}
+	if s.Deprecated != "" {
+		img.Deprecated = &computepb.DeprecationStatus{State: new(s.Deprecated)}
+	}
+	c.images[s.Project+"/"+s.Name] = img
+	if s.Family != "" {
+		c.families[s.Project+"/"+s.Family] = s.Name
 	}
 }
 
@@ -475,6 +511,9 @@ func (c *Compute) remember(method, scope string, id *string, op *computepb.Opera
 		c.requestIDs[method+"|"+scope+"|"+*id] = op.GetName()
 	}
 }
+
+// peekOpFailure says whether an operation failure is injected for the method.
+func (c *Compute) peekOpFailure(method string) bool { return len(c.failOps[method]) > 0 }
 
 // takeOpFailure returns an injected operation failure for the method.
 func (c *Compute) takeOpFailure(method string) *opFailure {

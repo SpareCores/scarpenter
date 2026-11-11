@@ -28,9 +28,7 @@ const (
 // the limit (regions.get: quotas[] of metric, limit, usage), unlike AWS, so no
 // usage is computed from instances.
 //
-// TODO(plan 14): the driver embeds it to implement vendors.QuotaReporter
-// (Quotas, GlobalQuotas, Consumption) and adds the limits cache the AWS driver
-// has (limitsTTL, QuotaRefresh).
+// The Driver embeds it to implement vendors.QuotaReporter.
 type QuotaReader struct {
 	API     ComputeAPI
 	Project string
@@ -139,7 +137,6 @@ func SeriesMetrics(series string) []string {
 // the project has preemptible quota in the region and only preemptible quota
 // after, which depends on the region's PREEMPTIBLE_CPUS limit that the
 // vendors.QuotaReporter signature (no region) cannot see.
-// TODO(plan 14): resolve Spot per region once the tracker passes the region.
 func (r *QuotaReader) Consumption(machineType string, vcpus int64, capacityType string) ([]vendors.Consumption, bool) {
 	if capacityType == vendors.CapacitySpot || vcpus <= 0 {
 		return nil, false

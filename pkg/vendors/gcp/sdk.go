@@ -406,3 +406,11 @@ func (s *SDK) AggregatedListInstances(
 	}
 	return out, nil
 }
+
+func (s *SDK) ListImages(ctx context.Context, req *computepb.ListImagesRequest) (*computepb.ImageList, error) {
+	items, next, err := page[*computepb.Image](s.images.List(ctx, req), req.MaxResults, req.PageToken)
+	if err != nil {
+		return nil, err
+	}
+	return &computepb.ImageList{Items: items, NextPageToken: nextOf(next)}, nil
+}

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
@@ -208,8 +209,8 @@ func (c *Compute) InsertInstance(_ context.Context, r *computepb.InsertInstanceR
 	in.Zone = new(c.url(scope))
 	var failed *opFailure
 	switch {
-	case c.takeOpFailure("InsertInstance") != nil:
-		failed = &opFailure{"INTERNAL_ERROR", "injected failure", http.StatusInternalServerError}
+	case c.peekOpFailure("InsertInstance"):
+		failed = c.takeOpFailure("InsertInstance")
 	case c.orgPolicy:
 		failed = &opFailure{"CONDITION_NOT_MET",
 			"Constraint constraints/compute.trustedImageProjects violates the organization policy.",
@@ -691,4 +692,65 @@ func (c *Compute) GetImageFromFamily(
 		return nil, notFound("projects/" + r.GetProject() + "/global/images/family/" + r.GetFamily())
 	}
 	return proto.Clone(c.images[r.GetProject()+"/"+name]).(*computepb.Image), nil
+}
+
+func imageValues(img *computepb.Image) func(string) ([]string, bool) {
+	return func(f string) ([]string, bool) {
+		switch {
+		case f == fieldName:
+			return []string{img.GetName()}, true
+		case f == fieldStatus:
+			return []string{img.GetStatus()}, true
+		case f == "family":
+			return []string{img.GetFamily()}, true
+		case f == "architecture":
+			return []string{img.GetArchitecture()}, true
+		case f == "deprecated.state":
+			return []string{img.GetDeprecated().GetState()}, true
+		case strings.HasPrefix(f, "labels."):
+			if v, ok := img.GetLabels()[strings.TrimPrefix(f, "labels.")]; ok {
+				return []string{v}, true
+			}
+			return nil, true
+		}
+		return nil, false
+	}
+}
+
+// ListImages lists the images of the project that are not publicly shared (a
+// publicly shared image never appears in a list), newest first with
+// orderBy=creationTimestamp desc and by name otherwise.
+func (c *Compute) ListImages(_ context.Context, r *computepb.ListImagesRequest) (*computepb.ImageList, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.begin("ListImages"); err != nil {
+		return nil, err
+	}
+	var all []*computepb.Image
+	for _, k := range sortedKeys(c.images) {
+		if !strings.HasPrefix(k, r.GetProject()+"/") || c.public[k] {
+			continue
+		}
+		ok, err := matchFilter(r.Filter, imageValues(c.images[k]))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			all = append(all, c.images[k])
+		}
+	}
+	if r.GetOrderBy() == "creationTimestamp desc" {
+		slices.SortStableFunc(all, func(a, b *computepb.Image) int {
+			return strings.Compare(b.GetCreationTimestamp(), a.GetCreationTimestamp())
+		})
+	}
+	lo, hi, next, err := pageBounds(len(all), r.MaxResults, r.PageToken)
+	if err != nil {
+		return nil, err
+	}
+	out := &computepb.ImageList{NextPageToken: next}
+	for _, img := range all[lo:hi] {
+		out.Items = append(out.Items, proto.Clone(img).(*computepb.Image))
+	}
+	return out, nil
 }

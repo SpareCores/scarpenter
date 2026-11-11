@@ -14,6 +14,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/SpareCores/scarpenter/pkg/scope"
@@ -304,9 +305,18 @@ var requestIDNamespace = [16]byte{
 
 // RequestID is the requestId of an instances.insert: a UUIDv5 of the NodeClaim
 // UID, zone, machine type and capacity type, so that only a retry of the same
-// offering shares an ID (a replay in another zone must not).
-func RequestID(uid, zone, machineType, capacityType string) string {
-	return uuidV5(requestIDNamespace, strings.Join([]string{uid, zone, machineType, capacityType}, "\x00"))
+// offering shares an ID (a replay in another zone must not). The ID also carries
+// the driver's epoch (a random value per process start) and the attempt counter
+// of the offering: GCE answers a replay of a request ID with the operation of
+// the first request, and whether that holds for an operation that failed is
+// unverified. After a failed insert the driver therefore counts the attempt up,
+// so that the next try of the same offering is a new request and not the replay
+// of a failure; a retry after a lost response keeps the counter, so it is still
+// the replay of the original request. A restart changes the epoch: what an
+// earlier process created is found by its idempotency label before any insert.
+func RequestID(uid, zone, machineType, capacityType, epoch string, attempt int) string {
+	return uuidV5(requestIDNamespace, strings.Join([]string{
+		uid, zone, machineType, capacityType, epoch, strconv.Itoa(attempt)}, "\x00"))
 }
 
 func uuidV5(ns [16]byte, name string) string {

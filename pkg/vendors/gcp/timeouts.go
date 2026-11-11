@@ -32,7 +32,6 @@ const (
 // WithTimeouts wraps the API so that every call has a deadline: call for the
 // requests, wait for the Wait*Operation long polls; zero selects the default.
 // A deadline already on the caller's context that is shorter wins.
-// TODO(plan 14): the driver wraps NewSDK's client with it.
 func WithTimeouts(api ComputeAPI, call, wait time.Duration) ComputeAPI {
 	if call <= 0 {
 		call = DefaultCallTimeout
@@ -253,4 +252,10 @@ func (t *timedCompute) GetGlobalOperation(
 	ctx context.Context, req *computepb.GetGlobalOperationRequest,
 ) (*computepb.Operation, error) {
 	return within(ctx, t.call, t.api.GetGlobalOperation, req)
+}
+
+func (t *timedCompute) ListImages(
+	ctx context.Context, req *computepb.ListImagesRequest,
+) (*computepb.ImageList, error) {
+	return within(ctx, t.call, t.api.ListImages, req)
 }

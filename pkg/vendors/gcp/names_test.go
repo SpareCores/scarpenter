@@ -235,15 +235,18 @@ func TestMarker(t *testing.T) {
 }
 
 func TestRequestID(t *testing.T) {
-	a := RequestID("uid-1", "europe-west3-a", "e2-small", "spot")
-	if a != RequestID("uid-1", "europe-west3-a", "e2-small", "spot") {
+	a := RequestID("uid-1", "europe-west3-a", "e2-small", "spot", "ep", 0)
+	if a != RequestID("uid-1", "europe-west3-a", "e2-small", "spot", "ep", 0) {
 		t.Fatal("not deterministic")
 	}
 	for _, other := range []string{
-		RequestID("uid-2", "europe-west3-a", "e2-small", "spot"),
-		RequestID("uid-1", "europe-west3-b", "e2-small", "spot"),
-		RequestID("uid-1", "europe-west3-a", "n2-standard-2", "spot"),
-		RequestID("uid-1", "europe-west3-a", "e2-small", "on-demand"),
+		RequestID("uid-2", "europe-west3-a", "e2-small", "spot", "ep", 0),
+		RequestID("uid-1", "europe-west3-b", "e2-small", "spot", "ep", 0),
+		RequestID("uid-1", "europe-west3-a", "n2-standard-2", "spot", "ep", 0),
+		RequestID("uid-1", "europe-west3-a", "e2-small", "on-demand", "ep", 0),
+		// A new attempt and a new epoch are new requests.
+		RequestID("uid-1", "europe-west3-a", "e2-small", "spot", "ep", 1),
+		RequestID("uid-1", "europe-west3-a", "e2-small", "spot", "ep2", 0),
 	} {
 		if other == a {
 			t.Fatal("a different offering must have a different request ID")

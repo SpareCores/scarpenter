@@ -47,10 +47,8 @@ type Disk struct {
 }
 
 // LaunchSpec is everything the launch request depends on, already resolved:
-// the driver (once it exists) fills it from the CreateRequest, the settings and
-// the prepared resources. BuildInsert is pure.
-// TODO(plan 14): the driver fills this from vendors.CreateRequest and the
-// resolved settings (unified `use` selector, `images` kind, RootDiskForType).
+// the driver fills it from the CreateRequest, the settings and the prepared
+// resources. BuildInsert is pure.
 type LaunchSpec struct {
 	Project string
 	Zone    string
@@ -91,6 +89,9 @@ type LaunchSpec struct {
 	IdempotencyKey string
 	// CapacityType is the logical capacity type, for the request ID.
 	CapacityType string
+	// Epoch and Attempt complete the request ID (RequestID).
+	Epoch   string
+	Attempt int
 }
 
 // BuildInsert builds the instances.insert request: every field of the plan's
@@ -136,7 +137,7 @@ func BuildInsert(s LaunchSpec) (*computepb.InsertInstanceRequest, error) {
 	// would be shared by every keyless launch of the same offering, and the API
 	// would answer the second with the first one's operation.
 	if s.IdempotencyKey != "" {
-		req.RequestId = new(RequestID(s.IdempotencyKey, s.Zone, s.MachineType, s.CapacityType))
+		req.RequestId = new(RequestID(s.IdempotencyKey, s.Zone, s.MachineType, s.CapacityType, s.Epoch, s.Attempt))
 	}
 	return req, nil
 }
@@ -271,7 +272,7 @@ func initParams(
 // hyperdiskOnlySeries boot only from Hyperdisk. UNVERIFIED: the list comes from
 // the plan (vendor-capabilities); the spike and a test against Keeper's types
 // keep it honest.
-var hyperdiskOnlySeries = []string{"c4", "n4", "c4a", "n4a", "a3", "a4", "a4x"}
+var hyperdiskOnlySeries = []string{"c4", "n4", "c4a", "n4a", "c4d", "n4d", "c4n", "a3", "a4", "a4x", "h4d", "z4d", "z4m"}
 
 // DefaultRootDiskType is the one type-dependent default of the root disk
 // (plan 16, section 6): hyperdisk-balanced for the series that boot only from
