@@ -91,6 +91,34 @@ kubeletClientCA:
 # --------------------------------------------------------------------------
 
 vendors:
+  alicloud:
+    enabled: false
+    # Region of the global DescribeRegions call (SCARPENTER_ALICLOUD_HOME_REGION);
+    # empty: ap-southeast-1.
+    homeRegion: ""
+    credentials:
+      # oidc: the ServiceAccount's projected token is exchanged for a RAM role
+      #   through a RAM OIDC identity provider that trusts the cluster's issuer;
+      #   recommended (docs/how-to-guides/alicloud-credentials.md).
+      # secret: an access key from an existing Secret (the fallback).
+      # none: nothing is wired; the SDK's default chain finds the credentials.
+      mode: oidc
+      oidc:
+        # ARN of the RAM role to assume (ALIBABA_CLOUD_ROLE_ARN). REQUIRED for this mode.
+        roleArn: ""
+        # ARN of the RAM OIDC identity provider (ALIBABA_CLOUD_OIDC_PROVIDER_ARN). REQUIRED.
+        providerArn: ""
+        # Audience of the projected token: what the identity provider lists as client ID.
+        audience: sts.aliyuncs.com
+        expirationSeconds: 3600
+        # ALIBABA_CLOUD_ROLE_SESSION_NAME; empty: the SDK's default.
+        sessionName: ""
+      secret:
+        existingSecret: ""
+        accessKeyIdKey: ALIBABA_CLOUD_ACCESS_KEY_ID
+        accessKeySecretKey: ALIBABA_CLOUD_ACCESS_KEY_SECRET
+        # Optional: the key of a security token.
+        securityTokenKey: ""
   aws:
     enabled: true
     # Region of the account-wide listings (--aws-home-region); default us-east-1.
@@ -370,6 +398,8 @@ examples:
       secretName: ts-node-key
       secretKey: authkey
       tags: ["tag:k8s-node"]
+  alicloud:
+    regions: [ap-southeast-1]
   aws:
     regions: [us-east-1]
   ovh:

@@ -1,0 +1,18 @@
+# Alibaba Cloud next to AWS: the RAM OIDC role of the projected token, a home
+# region and the example NodeClass.
+cluster:
+  name: lab
+  apiServerEndpoint: https://api.example.com
+vendors:
+  alicloud:
+    enabled: true
+    homeRegion: ap-southeast-1
+    credentials:
+      oidc:
+        roleArn: acs:ram::123456789012:role/scarpenter
+        providerArn: acs:ram::123456789012:oidc-provider/my-cluster
+  aws:
+    credentials:
+      mode: none
+examples:
+  enabled: true

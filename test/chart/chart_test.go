@@ -717,6 +717,8 @@ func TestRejectedValues(t *testing.T) {
 		"ovh bad schedule wait":     {[]string{"vendors.ovh.scheduleWait=soon"}, "scheduleWait"},
 		"ovh bad region alias":      {[]string{"vendors.ovh.regionAliases.gra_11=GRA11"}, "does not match pattern"},
 		"no vendor":                 {[]string{"vendors.aws.enabled=false"}, "at least one vendor"},
+		"alicloud role missing":     {[]string{"vendors.alicloud.enabled=true"}, "roleArn and providerArn are required"},
+		"alicloud secret missing":   {[]string{"vendors.alicloud.enabled=true", "vendors.alicloud.credentials.mode=secret"}, "existingSecret is required"},
 		"inline CA without PEM":     {[]string{"kubeletClientCA.source=inline"}, "kubeletClientCA.inline is required"},
 		"lookup CA without cluster": {[]string{"kubeletClientCA.source=extensionApiserverAuthentication"}, "live cluster"},
 		"tailscale example":         {[]string{"examples.enabled=true", "examples.nodeClass.networkTemplate=tailscale"}, "tailscale.version is required"},

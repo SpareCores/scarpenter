@@ -158,6 +158,78 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "alicloud": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "homeRegion": {
+              "type": "string",
+              "pattern": "^([a-z]{2}(-[a-z0-9]+)+)?$"
+            },
+            "credentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "oidc",
+                    "secret",
+                    "none"
+                  ]
+                },
+                "oidc": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "roleArn": {
+                      "type": "string",
+                      "pattern": "^(acs:ram::[0-9]+:role/[^\\s]+)?$"
+                    },
+                    "providerArn": {
+                      "type": "string",
+                      "pattern": "^(acs:ram::[0-9]+:oidc-provider/[^\\s]+)?$"
+                    },
+                    "audience": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "expirationSeconds": {
+                      "type": "integer",
+                      "minimum": 600,
+                      "maximum": 86400
+                    },
+                    "sessionName": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "secret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "existingSecret": {
+                      "type": "string"
+                    },
+                    "accessKeyIdKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "accessKeySecretKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "securityTokenKey": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "aws": {
           "type": "object",
           "additionalProperties": false,
@@ -753,6 +825,18 @@
                     "type": "string"
                   }
                 }
+              }
+            }
+          }
+        },
+        "alicloud": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "regions": {
+              "type": "array",
+              "items": {
+                "type": "string"
               }
             }
           }

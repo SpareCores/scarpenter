@@ -69,6 +69,7 @@ Seconds of a Go duration made of h, m and s parts ("1h", "90s", "1h30m").
 {{/* The vendors flag: aws, hcloud, ovh and vultr if enabled, then the extra ones (development builds: fake, qemu). */}}
 {{- define "scarpenter.vendors" -}}
 {{- $v := list }}
+{{- if .Values.vendors.alicloud.enabled }}{{ $v = append $v "alicloud" }}{{ end }}
 {{- if .Values.vendors.aws.enabled }}{{ $v = append $v "aws" }}{{ end }}
 {{- if .Values.vendors.hcloud.enabled }}{{ $v = append $v "hcloud" }}{{ end }}
 {{- if .Values.vendors.ovh.enabled }}{{ $v = append $v "ovh" }}{{ end }}
