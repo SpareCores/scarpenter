@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -611,23 +612,28 @@ func (c *Controller) images(
 	// A region the NodeClass names must have its images; without a region list
 	// (every region of the vendor) a gap only costs the offerings of that region,
 	// unless no region has an image at all.
-	// The reason is the driver's own when a not-ready image gives one (for
+	// The reason is the driver's own when an image that blocks gives one (for
 	// example terms the account has not accepted), with that image's message.
 	named, _ := nc.Spec.Vendors.Regions(vendor)
-	for _, img := range images {
-		if !img.Ready && slices.Contains(named, img.Region) || len(readyIn) == 0 {
-			gap := "no usable image for " + strings.Join(notReady, ", ")
-			for _, why := range images {
-				if !why.Ready && why.Reason != "" {
-					return images, false, why.Reason, trim(why.Message + "; " + gap)
-				}
+	blocks := func(img v1alpha1.ImageStatus) bool {
+		return !img.Ready && (slices.Contains(named, img.Region) || len(readyIn) == 0)
+	}
+	if slices.ContainsFunc(images, blocks) {
+		gap := "no usable image for " + strings.Join(notReady, ", ")
+		for _, img := range images {
+			if blocks(img) && img.Reason != "" && conditionReason.MatchString(img.Reason) {
+				return images, false, img.Reason, trim(strings.TrimPrefix(img.Message+"; "+gap, "; "))
 			}
-			return images, false, ReasonImagesNotReady, trim(gap)
 		}
+		return images, false, ReasonImagesNotReady, trim(gap)
 	}
 	return images, true, ReasonImagesPartial, trim("no usable image for " + strings.Join(notReady, ", ") +
 		"; the offerings of those regions are unavailable")
 }
+
+// conditionReason is the format the API server accepts for a condition's reason
+// (metav1.Condition); a driver's image reason outside it is not promoted.
+var conditionReason = regexp.MustCompile(`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`)
 
 // imageGaps returns the regions in which no image is ready, with the reason.
 func imageGaps(images []v1alpha1.ImageStatus) map[string]string {

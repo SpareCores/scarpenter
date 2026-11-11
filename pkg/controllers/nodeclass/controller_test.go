@@ -945,3 +945,45 @@ func TestConfigurationWarningShowsInTheVendorStatus(t *testing.T) {
 		t.Errorf("ConfigurationWarning = %+v after the warning is gone, want none", c)
 	}
 }
+
+// A driver's reason is promoted only from an image that blocks (a named region,
+// or no region ready) and only when the API server accepts it as a reason.
+func TestADriverReasonIsPromotedOnlyFromABlockingImage(t *testing.T) {
+	cases := map[string]struct {
+		images  []v1alpha1.ImageStatus
+		regions []string
+		want    string
+	}{
+		"reason of an unnamed region": {
+			images: []v1alpha1.ImageStatus{
+				{Region: "r1", Arch: "amd64", Message: "no image"},
+				{Region: "r2", Arch: "amd64", Message: "terms", Reason: "MarketplaceTermsNotAccepted"},
+				{Region: "r3", Arch: "amd64", Ready: true},
+			},
+			regions: []string{"r1"},
+			want:    nodeclass.ReasonImagesNotReady,
+		},
+		"invalid reason": {
+			images:  []v1alpha1.ImageStatus{{Region: "r1", Arch: "amd64", Message: "terms", Reason: "not a reason!"}},
+			regions: []string{"r1"},
+			want:    nodeclass.ReasonImagesNotReady,
+		},
+		"no region ready": {
+			images:  []v1alpha1.ImageStatus{{Region: "r2", Arch: "amd64", Message: "terms", Reason: "MarketplaceTermsNotAccepted"}},
+			regions: nil,
+			want:    "MarketplaceTermsNotAccepted",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.drv.images = tc.images
+			e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.AWS.Regions = tc.regions }))
+			nc := e.reconcile(e.name)
+			c := vcond(nc, "aws", v1alpha1.VendorConditionImagesReady)
+			if c == nil || c.Status != metav1.ConditionFalse || c.Reason != tc.want {
+				t.Errorf("ImagesReady = %+v, want False with reason %s", c, tc.want)
+			}
+		})
+	}
+}
