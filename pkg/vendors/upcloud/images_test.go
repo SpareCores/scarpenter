@@ -154,6 +154,37 @@ func TestImageSelectorsByIDsTagsAndFilters(t *testing.T) {
 	}
 }
 
+// Every selector, not only the label convention, gives amd64 templates only:
+// arm64 is Unsupported, a template labelled with another architecture never
+// matches, and a launch from such a template is refused.
+func TestEverySelectorRejectsOtherArchitectures(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	armLabels := flatcarLabels(upcloud.StorageTierMaxIOPS, testVersion)
+	armLabels[uc.LabelFlatcarArch] = "arm64"
+	armLabels["mine"] = "arm"
+	arm := e.f.AddTemplate(testZone, "flatcar-arm64", upcloud.StorageTierMaxIOPS, 10, armLabels)
+	for name, use := range map[string]vendors.UseRef{
+		"by ID":   {IDs: []string{arm}},
+		"by tags": {Tags: map[string]string{"mine": "arm"}},
+	} {
+		req := imageReq(testZone)
+		req.Use = use
+		if img, err := e.d.ResolveImage(e.ctx(), req); !vendors.IsClass(err, vendors.NotFound) {
+			t.Errorf("%s, an arm64 template for amd64: %+v, %v; want NotFound", name, img, err)
+		}
+		req.Arch = "arm64"
+		if img, err := e.d.ResolveImage(e.ctx(), req); !vendors.IsClass(err, vendors.Unsupported) {
+			t.Errorf("%s, arm64: %+v, %v; want Unsupported", name, img, err)
+		}
+	}
+	req := e.request("n-arm", testType)
+	req.Image.Ref = arm
+	if _, err := e.d.CreateInstance(e.ctx(), req); !vendors.IsClass(err, vendors.Unsupported) ||
+		!strings.Contains(err.Error(), "x86_64") {
+		t.Errorf("a launch from an arm64 template: %v, want Unsupported", err)
+	}
+}
+
 func class(version string, regions []string, images *common.Resource) *v1alpha1.SCNodeClass {
 	return &v1alpha1.SCNodeClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "class"},

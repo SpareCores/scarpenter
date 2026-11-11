@@ -96,7 +96,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params json.Raw
 			return warm(t, newEnv(t, opts)).d
 		},
 		Region: testZone, Zone: testZone, InstanceType: testType, MaxUserData: uc.MaxUserData,
-		StoresIdempotencyKey: true, AccountWideQuota: true,
+		NoArm64: true, StoresIdempotencyKey: true, AccountWideQuota: true,
 		InstanceTypes: all, UnknownQuotaTypes: unknown,
 		Inject: func(t *testing.T, d vendors.Driver, class vendors.Class, _ vendors.CreateRequest) {
 			t.Helper()

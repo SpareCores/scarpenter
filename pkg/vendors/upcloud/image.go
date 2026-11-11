@@ -47,6 +47,9 @@ type Template struct {
 	// Channel and Version are the Flatcar release the template's labels say it is.
 	Channel string
 	Version string
+	// Arch is the architecture its label says, "" when it has none (UpCloud runs
+	// x86_64 only, so an unlabelled template is taken as amd64).
+	Arch string
 }
 
 func labelMap(ls []upcloud.Label) map[string]string {
@@ -65,9 +68,13 @@ func templateOf(s upcloud.Storage) Template {
 	}
 	return Template{
 		UUID: s.UUID, Zone: s.Zone, Tier: tier, SizeGB: s.Size,
-		Channel: l[LabelFlatcarChannel], Version: l[LabelFlatcarVersion],
+		Channel: l[LabelFlatcarChannel], Version: l[LabelFlatcarVersion], Arch: l[LabelFlatcarArch],
 	}
 }
+
+// amd64 says whether a template can boot an UpCloud server: its label says
+// amd64, or it has none.
+func (t Template) amd64() bool { return t.Arch == "" || t.Arch == archAMD64 }
 
 // templateState normalises a storage state.
 func templateState(s string) string {
@@ -147,15 +154,17 @@ func tierRank(t string) int {
 	return len(tierPreference)
 }
 
-// imageUse is the selector of a request: the NodeClass's, narrowed to the
-// request's architecture; without one the label convention, narrowed by the
-// pinned channel and version.
+// imageUse is the selector of a request: the NodeClass's, narrowed to amd64;
+// without one the label convention, narrowed by the pinned channel and version.
+// UpCloud has x86_64 plans only: a request for another architecture is
+// Unsupported whatever the selector, and a selector's templates labelled with
+// another architecture never match.
 func imageUse(req vendors.ImageRequest) (vendors.UseRef, error) {
+	if req.Arch != "" && req.Arch != archAMD64 {
+		return vendors.UseRef{}, vendors.NewError(vendors.Unsupported, "UnsupportedArch", fmt.Errorf(
+			"UpCloud has x86_64 plans only, no %s: there is no %s template", req.Arch, req.Arch))
+	}
 	if req.Use.IsDefault() {
-		if req.Arch != "" && req.Arch != archAMD64 {
-			return vendors.UseRef{}, vendors.NewError(vendors.Unsupported, "UnsupportedArch", fmt.Errorf(
-				"UpCloud has x86_64 plans only, no %s: there is no default %s template", req.Arch, req.Arch))
-		}
 		return vendors.UseRef{
 			Tags: map[string]string{
 				LabelImage: ImageFlatcar, LabelFlatcarChannel: req.Channel, LabelFlatcarVersion: req.Version,
@@ -165,10 +174,10 @@ func imageUse(req vendors.ImageRequest) (vendors.UseRef, error) {
 			Select: common.SelectExactlyOne,
 		}, nil
 	}
-	use, ok := selector.NarrowArchitecture(req.Use, req.Arch)
+	use, ok := selector.NarrowArchitecture(req.Use, archAMD64)
 	if !ok {
 		return use, vendors.NewError(vendors.NotFound, codeImageNotFound, fmt.Errorf(
-			"no image for %s in %s: match.architecture %v excludes it", req.Arch, req.Region, req.Use.Match.Architecture))
+			"no image for %s in %s: match.architecture %v excludes it", archAMD64, req.Region, req.Use.Match.Architecture))
 	}
 	if use.Select == common.SelectAll {
 		return use, vendors.Errorf(vendors.Fatal, "select all is not valid for images: a launch needs one image")
@@ -384,6 +393,10 @@ func (d *Driver) templateFor(ctx context.Context, zone, ref, wantTier string, pl
 				"%s is not a template of %s", ref, zone))
 		}
 		base = templateOf(s.Storage)
+		if !base.amd64() {
+			return Template{}, vendors.NewError(vendors.Unsupported, "UnsupportedArch", fmt.Errorf(
+				"the template %s is labelled %s=%s: UpCloud has x86_64 plans only", ref, LabelFlatcarArch, base.Arch))
+		}
 		known = append(known, base)
 	}
 	want := wantTier
@@ -401,7 +414,7 @@ func (d *Driver) templateFor(ctx context.Context, zone, ref, wantTier string, pl
 		return base, nil
 	}
 	for _, t := range known {
-		if t.Tier == want && t.Channel == base.Channel && t.Version == base.Version {
+		if t.Tier == want && t.Channel == base.Channel && t.Version == base.Version && t.amd64() {
 			return t, nil
 		}
 	}

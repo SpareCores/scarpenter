@@ -100,7 +100,9 @@ platform); `NodeClassValidator` refuses it.
   select are ambiguous.
 - `ReportImages` lists the account's templates once and applies the selector per zone: a zone without a template is
   not ready, with the zone named and "import the Flatcar template for <version>".
-- The template's size is the image's root disk size. amd64 only: without a `use`, an `arm64` request is `Unsupported`.
+- The template's size is the image's root disk size. amd64 only (UpCloud has x86_64 plans only): an `arm64` request is `Unsupported` with or
+  without a `use`, and a template labelled `flatcar-arch` with another architecture never matches a
+  selector and is refused at launch (an unlabelled template is taken as amd64).
 
 ## Launch
 
