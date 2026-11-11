@@ -93,7 +93,7 @@ func (d *Driver) ValidateNodeClass(_ context.Context, nc *v1alpha1.SCNodeClass) 
 	}
 	for _, k := range slices.Sorted(maps.Keys(nc.Spec.Tags)) {
 		if err := ValidateTags(map[string]string{k: nc.Spec.Tags[k]}); err != nil {
-			errs = append(errs, fmt.Errorf("tags: %w", err))
+			errs = append(errs, fmt.Errorf("tags: %w", plain(err)))
 		}
 		if strings.HasPrefix(strings.ToLower(k), "scarpenter-") || strings.EqualFold(k, TagNameName) {
 			errs = append(errs, fmt.Errorf("tags: the key %q is reserved for SCarpenter", k))
@@ -274,7 +274,7 @@ func validateResource(
 			v = ""
 		}
 		if err := ValidateTags(map[string]string{k: v}); err != nil {
-			errs = append(errs, fmt.Errorf("%s.tags: %w", path, err))
+			errs = append(errs, fmt.Errorf("%s.tags: %w", path, plain(err)))
 		}
 	}
 	return errs
@@ -300,4 +300,13 @@ func validateEgress(nc *v1alpha1.SCNodeClass, b *azapi.Settings) []error {
 	return append(errs, errors.New("networking.publicIPv4: false is refused: nodes without a public IPv4 address would "+
 		"have no egress for sysexts and container images, because the managed subnet has no NAT gateway. "+
 		"Use your own subnets with a NAT gateway (vendors.azure.resources.subnets.use), or keep publicIPv4 on"))
+}
+
+// plain is the message of a driver error without its class: what a NodeClass
+// author reads in the status.
+func plain(err error) error {
+	if ve, ok := errors.AsType[*vendors.Error](err); ok && ve.Err != nil {
+		return ve.Err
+	}
+	return err
 }

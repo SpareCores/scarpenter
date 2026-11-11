@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -76,10 +77,7 @@ func newEnv(t *testing.T) *env {
 		sub.AddImage(DefaultPublisher, im.offer, im.sku, im.version, nil)
 	}
 	e := &env{sub: sub}
-	e.clients = Clients{
-		VMs: sub.VMs(), NICs: sub.NICs(), PIPs: sub.PIPs(), Resources: sub.Resources(), SKUs: sub.SKUs(),
-		Usages: sub.Usages(), Images: sub.Images(), Agreements: sub.Agreements(), Locations: sub.Locations(),
-	}
+	e.clients = clientsOf(sub)
 	e.c = &Compute{Clients: e.clients, Cluster: testCluster}
 	e.imgs = &Images{API: e.clients.Images, Terms: e.clients.Agreements}
 	return e
@@ -144,4 +142,22 @@ func (e *env) launch(t *testing.T, r request) (*vendors.Instance, error) {
 
 func planOf(p *ImagePlan) *armcompute.PurchasePlan {
 	return &armcompute.PurchasePlan{Name: new(p.Name), Product: new(p.Product), Publisher: new(p.Publisher)}
+}
+
+// clientsOf wires the driver's clients over a fake subscription.
+func clientsOf(sub *fake.Subscription) Clients {
+	return Clients{
+		VMs: sub.VMs(), NICs: sub.NICs(), PIPs: sub.PIPs(), Groups: sub.Groups(), VNets: sub.VNets(), NSGs: sub.NSGs(),
+		ASGs: sub.ASGs(), PPGs: sub.PPGs(), Resources: sub.Resources(), SKUs: sub.SKUs(), Usages: sub.Usages(),
+		Images: sub.Images(), Agreements: sub.Agreements(), Locations: sub.Locations(),
+	}
+}
+
+// driver builds an initialised Driver over the env's subscription.
+func (e *env) driver(t *testing.T, opts ...Option) *Driver {
+	t.Helper()
+	opts = append([]Option{WithClients(e.clients), WithSubscription("sub-1"), WithPrices(StaticPrices{})}, opts...)
+	d := New(opts...)
+	require.NoError(t, d.Init(context.Background(), vendors.Config{ClusterName: testCluster, Log: logr.Discard()}))
+	return d
 }

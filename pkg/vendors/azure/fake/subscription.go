@@ -64,10 +64,12 @@ const (
 )
 
 type location struct {
-	name   string
-	zonal  bool
-	skus   []*armcompute.ResourceSKU
-	limits map[string]int64 // usage name -> limit
+	name  string
+	zonal bool
+	// logical marks a location that is not a physical region.
+	logical bool
+	skus    []*armcompute.ResourceSKU
+	limits  map[string]int64 // usage name -> limit
 	// foreign is the usage of resources outside the fake's VMs (usage name ->
 	// value), standing for the rest of the subscription.
 	foreign map[string]int64
@@ -252,6 +254,14 @@ func (s *Subscription) AddLocation(name string, zonal bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.locations[name] = &location{name: name, zonal: zonal, limits: map[string]int64{}, foreign: map[string]int64{}}
+}
+
+// AddLogicalLocation registers a location of the type Logical: listed by the
+// subscription, but not a place a VM can go.
+func (s *Subscription) AddLogicalLocation(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.locations[name] = &location{name: name, logical: true, limits: map[string]int64{}, foreign: map[string]int64{}}
 }
 
 // AddResourceGroup creates a resource group (the fake does not create one on
@@ -499,6 +509,9 @@ func (l *Locations) List(ctx context.Context) ([]*armsubscriptions.Location, err
 		al := &armsubscriptions.Location{
 			Name: new(loc.name), DisplayName: new(loc.name),
 			Metadata: &armsubscriptions.LocationMetadata{RegionType: new(armsubscriptions.RegionTypePhysical)},
+		}
+		if loc.logical {
+			al.Metadata.RegionType = new(armsubscriptions.RegionTypeLogical)
 		}
 		if loc.zonal {
 			for _, z := range []string{"1", "2", "3"} {

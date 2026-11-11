@@ -691,3 +691,10 @@ func (a *NICs) ListInGroup(ctx context.Context, rg string) ([]armnetwork.Interfa
 	}
 	return out, nil
 }
+
+// Names lists the application security groups that exist (rg/name, lower case).
+func (a *ASGs) Names() []string {
+	a.s.mu.Lock()
+	defer a.s.mu.Unlock()
+	return sortedKeys(a.s.asgs)
+}
