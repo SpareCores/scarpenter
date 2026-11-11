@@ -194,13 +194,20 @@ func (s *Subscription) check(vm armcompute.VirtualMachine, rg string) error {
 		restricted := val(r.Type) == armcompute.ResourceSKURestrictionsTypeLocation ||
 			(val(r.Type) == armcompute.ResourceSKURestrictionsTypeZone && zone != "" && slices.ContainsFunc(r.Values, func(z *string) bool { return val(z) == zone }))
 		if restricted {
+			// ARM names the zones when the restriction is a zone's.
+			where := fmt.Sprintf("location '%s'", val(vm.Location))
+			if val(r.Type) == armcompute.ResourceSKURestrictionsTypeZone {
+				where += fmt.Sprintf(" zones '%s'", zone)
+			}
 			return Error(http.StatusBadRequest, "SkuNotAvailable", fmt.Sprintf(
-				"The requested VM size for resource 'Following SKUs have failed for Capacity Restrictions: %s' is currently not available in location '%s'.", size, val(vm.Location)))
+				"The requested VM size for resource 'Following SKUs have failed for Capacity Restrictions: %s' is currently not available in %s.", size, where))
 		}
 	}
 	if zone != "" {
 		if len(sku.LocationInfo) == 0 || !slices.ContainsFunc(sku.LocationInfo[0].Zones, func(z *string) bool { return val(z) == zone }) {
-			return Error(http.StatusBadRequest, "SkuNotAvailable", fmt.Sprintf("The size %s is not available in zone %s.", size, zone))
+			return Error(http.StatusBadRequest, "SkuNotAvailable", fmt.Sprintf(
+				"The requested VM size for resource 'Following SKUs have failed for Capacity Restrictions: %s' is currently not available in location '%s' zones '%s'.",
+				size, val(vm.Location), zone))
 		}
 	}
 	sp := p.StorageProfile

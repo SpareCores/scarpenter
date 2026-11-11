@@ -39,6 +39,7 @@ var expected = map[string]vendors.Class{
 	"AnotherOperationInProgress":               vendors.Retryable,
 	"OSProvisioningTimedOut":                   vendors.Retryable,
 	"InUseSubnetCannotBeDeleted":               vendors.Retryable,
+	"NicInUse":                                 vendors.Retryable,
 	"NetworkSecurityGroupInUse":                vendors.Retryable,
 	"PublicIPAddressCannotBeDeleted":           vendors.Retryable,
 	"InUseNetworkSecurityGroupCannotBeDeleted": vendors.Retryable,
@@ -80,6 +81,13 @@ func TestClassifySkuNotAvailableDependsOnPriority(t *testing.T) {
 	err := fake.Error(http.StatusBadRequest, "SkuNotAvailable", "not available")
 	require.Equal(t, vendors.Unsupported, vendors.ClassOf(classify(err, errContext{})))
 	require.Equal(t, vendors.InsufficientCapacity, vendors.ClassOf(classify(err, errContext{spot: true})))
+	// On-demand in a zone the subscription lacks for the size: the zone, not the size.
+	zonal := fake.Error(http.StatusConflict, "SkuNotAvailable",
+		"The requested VM size for resource 'Following SKUs have failed for Capacity Restrictions: Standard_D2s_v5' "+
+			"is currently not available in location 'westeurope' zones '2'. Please try another size or deploy to a different location or zones.")
+	require.Equal(t, vendors.ZoneUnusable, vendors.ClassOf(classify(zonal, errContext{zone: "2"})))
+	require.Equal(t, vendors.Unsupported, vendors.ClassOf(classify(zonal, errContext{zone: ZoneNone})))
+	require.Equal(t, vendors.InsufficientCapacity, vendors.ClassOf(classify(zonal, errContext{zone: "2", spot: true})))
 }
 
 func TestClassifyMessageExceptions(t *testing.T) {

@@ -124,7 +124,7 @@ func TestLaunchFailuresAreClassifiedAndLeaveNothing(t *testing.T) {
 			request{nodeClaim: "a", capacity: vendors.CapacitySpot}, vendors.QuotaExceeded, "OperationNotAllowed"},
 		{"public IP quota", func(e *env) { e.sub.SetForeignUsage(testRegion, "StandardPublicIPAddresses", 10) },
 			request{nodeClaim: "a"}, vendors.QuotaExceeded, "PublicIPCountLimitReached"},
-		{"restricted zone", func(e *env) {}, request{nodeClaim: "a", size: "Standard_D8s_v5", zone: "3"}, vendors.Unsupported, "SkuNotAvailable"},
+		{"restricted zone", func(e *env) {}, request{nodeClaim: "a", size: "Standard_D8s_v5", zone: "3"}, vendors.ZoneUnusable, "SkuNotAvailable"},
 		{"throttled", func(e *env) { e.sub.FailNext("vm.put", fake.Error(429, "TooManyRequests", "slow down"), 1) },
 			request{nodeClaim: "a"}, vendors.Retryable, "TooManyRequests"},
 		{"denied", func(e *env) { e.sub.FailNext("vm.put", fake.Error(403, "AuthorizationFailed", "no"), 1) },
@@ -221,6 +221,8 @@ func TestLaunchCanceledIsRetryableAndKeepsTheVM(t *testing.T) {
 	go func() { time.Sleep(30 * time.Millisecond); cancel() }()
 	_, err := e.c.Launch(ctx, e.spec(t, request{nodeClaim: "nc-1"}))
 	require.Equal(t, vendors.Retryable, vendors.ClassOf(err))
+	require.Len(t, e.sub.VMNames(), 1)
+	require.Len(t, e.sub.NICNames(), 1, "a VM exists: its NIC stays for the replay")
 }
 
 func TestGetNotFoundAndMalformedRef(t *testing.T) {

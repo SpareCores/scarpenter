@@ -58,9 +58,11 @@ var errorClasses = map[string]vendors.Class{
 	"OverconstrainedZonalAllocationRequest": vendors.InsufficientCapacity,
 	// The size is not offered, or cannot be spot.
 	"AzureSpotIsNotSupportedForThisVMSize": vendors.Unsupported,
-	// A zone the subscription cannot use for the size (the code is unverified:
-	// the live verification list of plan 17); subnets are regional, so there is
-	// no NoSubnetInZone.
+	// A zone the subscription cannot use for the size. ARM reports it as
+	// SkuNotAvailable naming the zones ("... is currently not available in
+	// location 'X' zones '1'"; see classify); this code is kept in case the
+	// compute provider answers with it (unverified, the live verification list
+	// of plan 17). Subnets are regional, so there is no NoSubnetInZone.
 	"ZoneNotAvailableForSubscription": vendors.ZoneUnusable,
 	// Quotas.
 	"QuotaExceeded":             vendors.QuotaExceeded,
@@ -73,7 +75,11 @@ var errorClasses = map[string]vendors.Class{
 	"ReferencedResourceNotProvisioned":         vendors.Retryable,
 	"AnotherOperationInProgress":               vendors.Retryable,
 	"OSProvisioningTimedOut":                   vendors.Retryable,
+	// Dependency errors of a delete. InUseSubnetCannotBeDeleted,
+	// InUseNetworkSecurityGroupCannotBeDeleted, PublicIPAddressCannotBeDeleted
+	// and NicInUse are documented ARM codes; the others are unverified names.
 	"InUseSubnetCannotBeDeleted":               vendors.Retryable,
+	"NicInUse":                                 vendors.Retryable,
 	"NetworkSecurityGroupInUse":                vendors.Retryable,
 	"PublicIPAddressCannotBeDeleted":           vendors.Retryable,
 	"InUseNetworkSecurityGroupCannotBeDeleted": vendors.Retryable,
@@ -95,9 +101,11 @@ var regionUnavailableCodes = []string{
 
 // errContext is what the classification of one call knows about it.
 type errContext struct {
-	// size is the VM size of a launch, spot says its priority.
+	// size is the VM size of a launch, spot says its priority, zone its zone
+	// ("" or "0" for none).
 	size string
 	spot bool
+	zone string
 }
 
 // responseError returns the ARM error of err.
@@ -136,6 +144,12 @@ func classify(err error, ec errContext) error {
 		case codeSkuNotAvailable:
 			if ec.spot {
 				return vendors.NewError(vendors.InsufficientCapacity, code, err)
+			}
+			// The size is offered in the region but not in the zone for the
+			// subscription: ARM names the zones in the message (an exception to
+			// the code rule, like the quota text). The next zone may take it.
+			if ec.zone != "" && ec.zone != ZoneNone && strings.Contains(msg, " zones ") {
+				return vendors.NewError(vendors.ZoneUnusable, code, err)
 			}
 			return vendors.NewError(vendors.Unsupported, code, err)
 		case codeOperationNotAllowed:
