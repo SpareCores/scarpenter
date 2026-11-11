@@ -72,12 +72,14 @@ const (
 	codeStock           = "OutOfStock"
 	codeInvalidPlan     = "InvalidPlan"
 	codeIncompatible    = "Incompatible"
+	codeRegionUnusable  = "RegionUnusable"
 	codeImageNotFound   = "ImageNotFound"
 	codeImageAmbiguous  = "ImageAmbiguous"
 	codeUserData        = "InvalidUserData"
 	codeUserDataTooBig  = "UserDataTooLarge"
 	codeUnsupportedArch = "NoSuchInstances"
 	codeNotOurs         = "NotOurInstance"
+	codeNoPublicIPv4Off = "PublicIPv4Required"
 	codeInvalid         = "InvalidRequest"
 )
 
@@ -153,6 +155,14 @@ var textRules = []textRule{
 			"does not support",
 		},
 		class: vendors.Unsupported, code: codeIncompatible,
+	},
+	{
+		// Vultr has no zones, so a region the create refuses outright is the "zone
+		// that cannot be used at all" of the contract: the region is gated for a
+		// while instead of one (plan, region) pair at a time.
+		ops: []operation{opCreateInstance}, statuses: []int{400, 412, 422},
+		contains: []string{"invalid region", "unknown region", "region is disabled", "region is not enabled"},
+		class:    vendors.ZoneUnusable, code: codeRegionUnusable,
 	},
 }
 

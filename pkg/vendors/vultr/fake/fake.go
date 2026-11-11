@@ -177,6 +177,22 @@ func (a *Account) AddSnapshot(description, status string) string {
 	return s.ID
 }
 
+// AddSnapshotAs adds a snapshot with a chosen ID and creation time (the zero
+// time is now), for the conformance suite, whose requests carry a fixed image ID.
+func (a *Account) AddSnapshotAs(id, description, status string, created time.Time) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if created.IsZero() {
+		created = a.now()
+	}
+	if id == "" {
+		id = a.id("5a000000")
+	}
+	a.snapshots = append(a.snapshots, &govultr.Snapshot{ID: id, Description: description, Status: status,
+		DateCreated: created.UTC().Format(time.RFC3339), Size: 1 << 30, CompressedSize: 1 << 29})
+	return id
+}
+
 // Advance completes what is pending: snapshots become complete, instances become
 // active and running with their IP and server_status ok.
 func (a *Account) Advance() {

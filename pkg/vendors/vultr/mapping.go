@@ -18,6 +18,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
+// archAMD64 is the only architecture of Vultr's cloud plans.
+const archAMD64 = "amd64"
+
 // ProviderID is scarpenter://vultr/<region>/<nodeclaim>.
 func ProviderID(region, nodeClaim string) string {
 	return scope.ProviderID(Vendor, region, nodeClaim)
@@ -56,7 +59,7 @@ func RegionsOf(listed []govultr.Region, allowed []string) []vendors.Region {
 // PlanOf is the Vultr plan of a catalog instance type: Keeper's api_reference
 // (vc2-2c-4gb). Vultr has no Arm instances, so an arm64 type is Unsupported.
 func PlanOf(t vendors.CatalogType) (string, error) {
-	if t.Arch != "" && t.Arch != "amd64" && t.Arch != "x86_64" {
+	if t.Arch != "" && t.Arch != archAMD64 && t.Arch != "x86_64" {
 		return "", vendors.NewError(vendors.Unsupported, codeUnsupportedArch,
 			fmt.Errorf("%s has no %s instances", Vendor, t.Arch))
 	}
@@ -139,19 +142,32 @@ func (s TagStyle) ParseTags(tags []string) map[vendors.TagKey]string {
 // written into the description because neither object has tags.
 type Marker struct {
 	Cluster, NodeClass, ResourceKind string
+	// Region is the region a managed resource is for. A firewall group is
+	// account-wide at Vultr, so the region lives in the marker; a VPC has it
+	// as a field and the marker repeats it. Optional when parsed (an older marker
+	// has none).
+	Region string
 }
 
 // FormatDescription is "<name> | cluster=<c> nodeclass=<n> managed-by=scarpenter
-// resource-kind=<k>". The values must be free of spaces and "|". The length and
-// charset limits of a description are unverified (spike S6).
+// resource-kind=<k> region=<r>". The values must be free of spaces, "|" and "=";
+// the region is left out when empty. The length and charset limits of a
+// description are unverified (spike S6).
 func FormatDescription(name string, m Marker) (string, error) {
 	for _, v := range []string{name, m.Cluster, m.NodeClass, m.ResourceKind} {
 		if v == "" || strings.ContainsAny(v, " |=") {
 			return "", fmt.Errorf("%q cannot be part of a resource description", v)
 		}
 	}
-	return fmt.Sprintf("%s | cluster=%s nodeclass=%s managed-by=%s resource-kind=%s",
-		name, m.Cluster, m.NodeClass, vendors.ManagedByValue, m.ResourceKind), nil
+	if strings.ContainsAny(m.Region, " |=") {
+		return "", fmt.Errorf("%q cannot be part of a resource description", m.Region)
+	}
+	out := fmt.Sprintf("%s | cluster=%s nodeclass=%s managed-by=%s resource-kind=%s",
+		name, m.Cluster, m.NodeClass, vendors.ManagedByValue, m.ResourceKind)
+	if m.Region != "" {
+		out += " region=" + m.Region
+	}
+	return out, nil
 }
 
 // ParseDescription reads a description FormatDescription wrote. ok is false for
@@ -170,10 +186,14 @@ func ParseDescription(desc string) (name string, m Marker, ok bool) {
 		}
 		fields[k] = v
 	}
-	if len(fields) != 4 || fields["managed-by"] != vendors.ManagedByValue {
+	_, hasRegion := fields["region"]
+	if len(fields) != 4+boolInt(hasRegion) || fields["managed-by"] != vendors.ManagedByValue {
 		return "", Marker{}, false
 	}
-	m = Marker{Cluster: fields["cluster"], NodeClass: fields["nodeclass"], ResourceKind: fields["resource-kind"]}
+	m = Marker{
+		Cluster: fields["cluster"], NodeClass: fields["nodeclass"], ResourceKind: fields["resource-kind"],
+		Region: fields["region"],
+	}
 	if m.Cluster == "" || m.NodeClass == "" || m.ResourceKind == "" {
 		return "", Marker{}, false
 	}
@@ -221,4 +241,11 @@ func ClassifyPlan(id string, diskGB int) (ok bool, reason string) {
 		return false, "diskless vx1 plans boot from a block storage volume, which v1 does not support"
 	}
 	return true, ""
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

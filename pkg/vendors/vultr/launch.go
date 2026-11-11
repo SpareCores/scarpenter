@@ -23,10 +23,8 @@ import (
 const MaxUserDataBytes = 16 << 10
 
 // LaunchOptions are what the driver resolved for one launch beyond the generic
-// CreateRequest.
-// TODO(plan 14): fill from vendors.CreateRequest.Settings (the resolved
-// `vultr` block and networking) and Prepared (the firewall group and the VPC
-// resource refs) once the NodeClass types exist.
+// CreateRequest: the snapshot (CreateRequest.Image.Ref), the resources Prepare
+// made ready, and the networking (launchOptions in driver.go fills it).
 type LaunchOptions struct {
 	// SnapshotID is the Flatcar snapshot from ResolveImage (CreateRequest.Image.Ref).
 	SnapshotID string
@@ -145,7 +143,7 @@ func ToInstance(in govultr.Instance, style TagStyle) *vendors.Instance {
 	// date_created is the billing start (ADR-024); it may be a little earlier
 	// than the real start, which is the safe side, except possibly on Vultr (S7).
 	if t, err := time.Parse(time.RFC3339, in.DateCreated); err == nil {
-		inst.CreatedAt = t
+		inst.CreatedAt, inst.BillingStart = t, t
 	}
 	for _, a := range []string{in.MainIP, in.V6MainIP, in.InternalIP} {
 		if a != "" && a != noIP && a != "::" {

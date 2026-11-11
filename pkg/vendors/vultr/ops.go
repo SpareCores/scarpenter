@@ -38,9 +38,7 @@ const (
 
 // Ops are the operations of the driver on top of API: everything the plan
 // specifies about launching, finding, listing and deleting instances and about
-// snapshots and stock, without the vendors.Driver surface.
-// TODO(plan 14): the Driver wraps Ops (Init builds the client from
-// VULTR_API_KEY, the CreateRequest carries Settings and Prepared).
+// stock, without the vendors.Driver surface, which wraps them (driver.go).
 type Ops struct {
 	API     API
 	Cluster string
@@ -238,7 +236,14 @@ func (o *Ops) Launch(ctx context.Context, req vendors.CreateRequest, lo LaunchOp
 	key := req.IdempotencyKey
 	if key != "" {
 		if inst := o.recentCreate(key); inst != nil {
-			return inst, nil
+			// The replay is rare, so the cache is confirmed: an instance deleted
+			// since (the garbage collector, an operator) must not be handed back.
+			if cur, err := o.GetInstance(ctx, inst.Ref); err == nil && cur.State != vendors.StateTerminating {
+				return cur, nil
+			} else if err != nil && !vendors.IsClass(err, vendors.NotFound) {
+				return nil, err
+			}
+			o.forgetCreate(key)
 		}
 		found, err := o.FindInstance(ctx, "", map[vendors.TagKey]string{vendors.TagIdempotencyKey: key})
 		switch {
@@ -272,6 +277,12 @@ func (o *Ops) Launch(ctx context.Context, req vendors.CreateRequest, lo LaunchOp
 		o.mu.Unlock()
 	}
 	return inst, nil
+}
+
+func (o *Ops) forgetCreate(key string) {
+	o.mu.Lock()
+	delete(o.recent, key)
+	o.mu.Unlock()
 }
 
 func (o *Ops) recentCreate(key string) *vendors.Instance {
@@ -360,46 +371,5 @@ func (o *Ops) LaunchableTypes(ctx context.Context, region string) ([]string, err
 	return out, nil
 }
 
-// SnapshotDescription is the description the images pipeline gives the Flatcar
-// snapshot of a release: flatcar-<channel>-<version>-<arch>.
-func SnapshotDescription(channel, version, arch string) string {
-	return fmt.Sprintf("flatcar-%s-%s-%s", channel, version, arch)
-}
-
-// ResolveSnapshot finds the Flatcar snapshot of a release by its description:
-// exactly one snapshot with that exact description (the API filter may match a
-// substring, so the compare is client-side) and the status complete. Vultr has
-// no Arm instances, so arm64 is Unsupported.
-// TODO(plan 14): images.use.ids skips the lookup, images.use.name replaces the
-// pattern, and the Image carries RootDiskBytes where the snapshot tells.
-func (o *Ops) ResolveSnapshot(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
-	if req.Arch != "amd64" {
-		return nil, noInstancesOf(req.Arch)
-	}
-	desc := SnapshotDescription(req.Channel, req.Version, req.Arch)
-	all, err := listAll(ctx, opOther, govultr.ListOptions{Description: desc}, o.API.ListSnapshots)
-	if err != nil {
-		return nil, err
-	}
-	var exact, complete []govultr.Snapshot
-	for _, s := range all {
-		if s.Description != desc {
-			continue
-		}
-		exact = append(exact, s)
-		if s.Status == "complete" {
-			complete = append(complete, s)
-		}
-	}
-	switch {
-	case len(complete) == 1:
-		return &vendors.Image{Ref: complete[0].ID}, nil
-	case len(complete) > 1:
-		return nil, vendors.NewError(vendors.Fatal, codeImageAmbiguous,
-			fmt.Errorf("%d complete snapshots are described %q; exactly one is required", len(complete), desc))
-	case len(exact) > 0:
-		return nil, vendors.NewError(vendors.Fatal, codeImageNotFound,
-			fmt.Errorf("the snapshot described %q is not complete yet (status %q)", desc, exact[0].Status))
-	}
-	return nil, vendors.NewError(vendors.Fatal, codeImageNotFound, fmt.Errorf("no snapshot is described %q", desc))
-}
+// listOne is the list options of a call that only proves the key and the ACL.
+func listOne() *govultr.ListOptions { return &govultr.ListOptions{PerPage: 1} }

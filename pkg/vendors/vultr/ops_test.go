@@ -118,6 +118,33 @@ func TestLaunchReplayReturnsTheOriginal(t *testing.T) {
 	}
 }
 
+// The cache is confirmed before it answers: an instance that is gone (deleted by
+// the garbage collector, an operator) or stopped is not handed back.
+func TestLaunchReplayDoesNotReturnAGoneInstance(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	first := e.launch(t, "claim-1", "uid-1")
+	if err := e.acct.DeleteInstance(ctx, first.Ref.ID()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := e.ops.Launch(ctx, e.request("claim-1", "uid-1"), e.launchOpts())
+	if err != nil || second.Ref == first.Ref || len(e.acct.Instances()) != 1 {
+		t.Fatalf("replay after a delete: %+v, %v, %d instances", second, err, len(e.acct.Instances()))
+	}
+	// A transient failure of the confirmation is the caller's to retry.
+	e.acct.FailNext("GetInstance", 1, &fake.Error{Status: 503, Message: "down"})
+	if _, err := e.ops.Launch(ctx, e.request("claim-1", "uid-1"), e.launchOpts()); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("got %v", err)
+	}
+	// A stopped one is returned as it is, terminating: the core treats it as
+	// gone, and no second instance is created for the key.
+	e.acct.SetInstanceStatus(second.Ref.ID(), "active", "stopped", "ok")
+	if third, err := e.ops.Launch(ctx, e.request("claim-1", "uid-1"), e.launchOpts()); err != nil || third.Ref != second.Ref ||
+		third.State != vendors.StateTerminating || len(e.acct.Instances()) != 1 {
+		t.Fatalf("replay of a stopped instance: %+v, %v", third, err)
+	}
+}
+
 func TestLaunchFailedCreateLeavesTheKeyUnused(t *testing.T) {
 	e := newEnv(t)
 	e.acct.FailNext("CreateInstance", 1, &fake.Error{Status: 500, Message: "boom"})
@@ -435,61 +462,6 @@ func TestListErrorsAreClassified(t *testing.T) {
 	e.acct.FailNext("ListInstances", 1, &fake.Error{Status: 429, Message: fake.MsgRateLimited})
 	if _, err := e.ops.ListInstances(context.Background(), nil, nil); !vendors.IsClass(err, vendors.Retryable) {
 		t.Fatalf("got %v", err)
-	}
-}
-
-func TestResolveSnapshot(t *testing.T) {
-	ctx := context.Background()
-	req := vendors.ImageRequest{Arch: "amd64", Channel: "stable", Version: "4081.2.0"}
-
-	e := newEnv(t)
-	img, err := e.ops.ResolveSnapshot(ctx, req)
-	if err != nil || img.Ref != e.snap {
-		t.Fatalf("got %+v %v", img, err)
-	}
-
-	// Not found, with the substring filter on: the exact compare is client-side.
-	e.acct.SubstringDescriptionFilter = true
-	e.acct.AddSnapshot("flatcar-stable-4081.2.0-amd64-old", fake.SnapshotComplete)
-	if img, err = e.ops.ResolveSnapshot(ctx, req); err != nil || img.Ref != e.snap {
-		t.Fatalf("substring filter: %+v %v", img, err)
-	}
-	req2 := req
-	req2.Version = "9999.0.0"
-	if _, err = e.ops.ResolveSnapshot(ctx, req2); vendors.CodeOf(err) != "ImageNotFound" || !vendors.IsClass(err, vendors.Fatal) {
-		t.Fatalf("not found: %v", err)
-	}
-
-	// Ambiguous.
-	e.acct.AddSnapshot(snapDsc, fake.SnapshotComplete)
-	if _, err = e.ops.ResolveSnapshot(ctx, req); vendors.CodeOf(err) != "ImageAmbiguous" {
-		t.Fatalf("ambiguous: %v", err)
-	}
-
-	// Pending only.
-	e2 := newEnv(t)
-	e2.acct = fake.New()
-	e2.acct.AddSnapshot(snapDsc, fake.SnapshotPendingState)
-	ops := vultr.NewOps(e2.acct, cluster)
-	if _, err = ops.ResolveSnapshot(ctx, req); vendors.CodeOf(err) != "ImageNotFound" {
-		t.Fatalf("pending: %v", err)
-	}
-	e2.acct.Advance()
-	if _, err = ops.ResolveSnapshot(ctx, req); err != nil {
-		t.Fatalf("complete: %v", err)
-	}
-
-	// A pending twin does not make a complete snapshot ambiguous.
-	e3 := newEnv(t)
-	e3.acct.AddSnapshot(snapDsc, fake.SnapshotPendingState)
-	if img, err = e3.ops.ResolveSnapshot(ctx, req); err != nil || img.Ref != e3.snap {
-		t.Fatalf("pending twin: %+v %v", img, err)
-	}
-
-	// arm64 is unsupported.
-	req.Arch = "arm64"
-	if _, err = e.ops.ResolveSnapshot(ctx, req); !vendors.IsClass(err, vendors.Unsupported) {
-		t.Fatalf("arm64: %v", err)
 	}
 }
 

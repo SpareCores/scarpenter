@@ -48,6 +48,7 @@ func TestClassify(t *testing.T) {
 		{"firewall group limit", st(400, "Firewall group limit reached."), opOther, vendors.QuotaExceeded, codeResourceLimit, true},
 		{"invalid plan", st(400, fake.MsgInvalidPlan), opCreateInstance, vendors.Unsupported, codeIncompatible, false},
 		{"incompatible snapshot", st(400, "Snapshot is not compatible with this plan."), opCreateInstance, vendors.Unsupported, codeIncompatible, false},
+		{"invalid region on a create gates the region", st(400, fake.MsgInvalidRegion), opCreateInstance, vendors.ZoneUnusable, codeRegionUnusable, false},
 		{"bad user data", st(400, fake.MsgInvalidUserData), opCreateInstance, vendors.Fatal, codeUserData, false},
 		{"delete of a used group", st(400, fake.MsgGroupInUse), opDelete, vendors.Retryable, codeDependency, false},
 		{"delete of an attached VPC", st(400, fake.MsgVPCAttached), opDelete, vendors.Retryable, codeDependency, false},

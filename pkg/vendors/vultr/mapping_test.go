@@ -116,6 +116,18 @@ func TestDescriptionMarker(t *testing.T) {
 	if !ok || name != "scarpenter-my-cluster-firewall-groups-ewr" || got != m {
 		t.Fatalf("parse: %q %+v %v", name, got, ok)
 	}
+	// The region is an optional fifth field.
+	m.Region = "ewr"
+	dr, err := FormatDescription("scarpenter-my-cluster-firewall-groups-ewr", m)
+	if err != nil || dr != want+" region=ewr" {
+		t.Fatalf("with a region: %q, %v", dr, err)
+	}
+	if _, got, ok := ParseDescription(dr); !ok || got != m {
+		t.Fatalf("parse with a region: %+v %v", got, ok)
+	}
+	if _, _, ok := ParseDescription(dr + " region=fra"); ok {
+		t.Error("a repeated region parsed")
+	}
 	for _, bad := range []string{
 		"", "plain", "name | cluster=a", "name | cluster=a nodeclass=b managed-by=someone resource-kind=k",
 		"name | cluster=a nodeclass=b managed-by=scarpenter", "name | cluster= nodeclass=b managed-by=scarpenter resource-kind=k",
@@ -126,12 +138,12 @@ func TestDescriptionMarker(t *testing.T) {
 			t.Errorf("%q parsed", bad)
 		}
 	}
-	for _, m := range []Marker{{"a b", "n", "k"}, {"a", "", "k"}, {"a", "n|", "k"}} {
+	for _, m := range []Marker{{Cluster: "a b", NodeClass: "n", ResourceKind: "k"}, {Cluster: "a", ResourceKind: "k"}, {Cluster: "a", NodeClass: "n|", ResourceKind: "k"}, {Cluster: "a", NodeClass: "n", ResourceKind: "k", Region: "e w"}} {
 		if _, err := FormatDescription("x", m); err == nil {
 			t.Errorf("%+v formatted", m)
 		}
 	}
-	if _, err := FormatDescription("two words", Marker{"a", "n", "k"}); err == nil {
+	if _, err := FormatDescription("two words", Marker{Cluster: "a", NodeClass: "n", ResourceKind: "k"}); err == nil {
 		t.Error("a name with a space formatted")
 	}
 }
