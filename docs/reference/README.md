@@ -44,7 +44,10 @@ Available:
 - [**Hetzner Cloud driver**](hcloud-driver.md) — the `hcloud` driver: regions, images and the label convention,
   launch, node settings, resources, quotas, billing, error mapping and what is not verified live yet (plan 15).
 - [**Vultr driver**](vultr-driver.md) — the Vultr Cloud Compute driver: snapshots as images, firewall groups and VPCs, the plan list, error mapping and what is not verified live yet (plan 20).
-- [**GCP driver**](gcp-driver.md) — the Google Compute Engine driver, lower layers (plan 16).
+- [**GCP driver**](gcp-driver.md) — the Google Compute Engine driver: regions and zones, images and
+  the arm64 status, launch, node settings, resources and defaults, quotas, error mapping, the IAM
+  roles ([role](gcp-iam-role.yaml), [managed networks](gcp-iam-role-managed.yaml)) and what is not
+  verified live yet (plan 16).
 - [**UpCloud driver**](upcloud-driver.md) — regions that are zones, the Flatcar template
   convention, the two firewalls, launch, node settings, resources, quotas, errors, credentials
   and what is not verified live yet (plan 19).

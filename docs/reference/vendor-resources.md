@@ -29,6 +29,10 @@ the keys of `spec.vendors.<vendor>.resources` (for AWS `subnets`,
 `runSecurityGroups`, see the [AWS driver](aws-driver.md#resources-and-network)).
 For UpCloud they are `networks`, `firewalls` and `serverGroups`, plus the use-only
 `images` ([UpCloud driver](upcloud-driver.md#resources-and-network)).
+For GCP they are `subnets`,
+`firewalls` (network tags) and `resourcePolicies`, with the internal `runFirewalls`, see the
+[GCP driver](gcp-driver.md#resources-and-network); their networks, subnetworks, rules and policies have no
+labels, so they are marked by a name prefix and a description and `tags` is rejected.
 Each kind has:
 
 | Property | Meaning |

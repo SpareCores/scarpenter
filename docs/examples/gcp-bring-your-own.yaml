@@ -1,0 +1,33 @@
+# Subnetworks and a firewall tag your own tooling provides, by ID per region, and an image of your own
+# (a Flatcar image you made in your project). SCarpenter uses them and never changes or deletes them. The
+# firewall's ids are network tags: your rules should target the tag and allow the nodes' traffic (self,
+# UDP 41641, ICMP). Subnetworks, networks and firewall rules have no labels, so they are named by ID or
+# name, never by tags.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: gcp-bring-your-own
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    gcp:
+      project: my-project
+      regions: [europe-west3]
+      resources:
+        subnets:
+          use:
+            ids:
+              europe-west3: [projects/my-project/regions/europe-west3/subnetworks/my-env-europe-west3]
+        firewalls:
+          use:
+            ids:
+              europe-west3: [nodes]
+        images:
+          use:
+            ids:
+              "*": [projects/my-project/global/images/flatcar-stable-4757-2-3]

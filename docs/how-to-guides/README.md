@@ -52,6 +52,9 @@ Available:
   repository's release asset; what SCarpenter reports.
 - [**Set up Azure credentials**](azure-credentials.md) (plan 17) — the custom role, workload
   identity federation, a client secret, AKS, the marketplace terms.
+- [**Set up GCP credentials**](gcp-credentials.md) (plan 16) — the custom roles,
+  workload identity federation, a service account key, the metadata server, the
+  chart values, egress for nodes without a public address.
 
 Planned for v1:
 

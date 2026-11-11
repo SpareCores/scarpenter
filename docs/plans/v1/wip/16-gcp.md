@@ -652,3 +652,44 @@ coordinator's.
 10. **Managed network CIDR pool** `10.240.0.0/12` with the first free `/20`: it may overlap what a
     user's own networks use. Recommendation: keep it, and let a NodeClass `create`
     parameter override the pool.
+
+### Decided by default, maintainer to confirm
+
+Taken while executing this plan (the lower layers, the driver, the lane); each is the plan's
+recommendation or, where it gave none, the conservative option.
+
+1. **arm64**: implemented as decided: the default lookup of an arm64 image has no project
+   (`SpareCoresImageProject` is empty until plan 22 publishes), so `ImagesReady` reports arm64 not
+   ready and its offerings are unavailable; `imageProject` or an `images` selector serve it.
+2. **Project**: the controller flag `--gcp-project` (`SCARPENTER_GCP_PROJECT`, Helm
+   `vendors.gcp.project`), else the credentials' project; the NodeClass `project` is optional and must
+   equal it. The option is a separate core commit (`pkg/operator/options`).
+3. **Dedicated project**: recommended in the docs and used by the lane; nothing else in the driver
+   depends on it beyond the ownership check at delete.
+4. **The `default` network**: used for `subnets` only when it can honour the request. `DefaultSuits`
+   skips it, with the reason, when `publicIPv6` is on or when an enabled ingress rule of the default network
+   applies to every instance (`default-allow-internal`, `default-allow-ssh`), which isolation and the
+   inbound rules cannot override (GCP rules only add allows). No synthetic "no tag" firewall: that
+   would be a silent downgrade (ADR-017). Firewalls are `create`-only without a `use`. On a standard
+   project the zero-configuration path therefore creates a managed network.
+5. **`kinvolk-public`**: relied on; `imageProject` overrides; `CONDITION_NOT_MET` is `Fatal` with the code
+   `OrganizationPolicyViolation`. No mirror (the spike's `GVNIC` finding decides).
+6. **Metadata exposure**: the hook `block-metadata-from-pods` is offered (`NodeHardener`), off by default.
+7. **Tags, not service accounts, for firewalls** in v1.
+8. **`STOPPED`/`TERMINATED`**: terminating, as decided.
+9. **Quota consumption**: `ConfirmedSeries` is empty, so every machine type is unknown quota and takes
+   the reactive path (`QUOTA_EXCEEDED` names the metric); Spot is always unknown; the Cloud Quotas API is
+   not used.
+10. **Managed network CIDR**: one VPC per region and NodeClass (the resource engine's key is per region)
+    with the fixed range `10.240.0.0/20`, instead of one global VPC with the first free `/20` of
+    `10.240.0.0/12`; no `create` parameter overrides the range yet. A user's network peered with a managed
+    one must avoid `10.240.0.0/20`.
+
+Other defaults taken: the request ID of an insert carries a random per-process epoch and an attempt
+counter that counts up after a definitive failure (a failed operation, a non-retryable HTTP error) and
+stays after a lost response, because the replay of a failed operation's request ID is unverified; the
+billing rule is reported unverified (retention off); a managed firewall always has a lowest-priority deny
+rule, so it exists as an object the garbage collector can find; GPU (`a2`, `a3`, `a4`, `a4x`, `g2`, `g4`) and
+TPU series, custom machine types and bare metal are dropped from the offerings; the role does not hold
+`compute.firewalls.get` or `compute.diskTypes.list`, which no call uses; `gcp` is **not** in
+`test/e2e-vendors.txt` (its cost guards are provisioned outside this repository), one line adds it.

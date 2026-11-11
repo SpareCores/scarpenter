@@ -1,0 +1,38 @@
+# SCarpenter creates and owns the network, subnetwork and firewall rules of each region, keeps them while
+# nodes use them and deletes them five minutes after the last node is gone (the default is 24 hours), plus a
+# root disk of 100 GiB, a data disk through a storage profile, and a compact placement profile that creates a
+# resource policy per run. The resources carry the name prefix scarpenter-<cluster>- and a description.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: gcp-managed
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  networking:
+    isolation: nodeclass
+    inbound:
+      rules:
+        - {protocol: tcp, fromPort: 22, cidrs: ["203.0.113.0/24"]}
+  profiles:
+    storage:
+      db:
+        gcp:
+          data:
+            - {name: pgdata, diskType: hyperdisk-balanced, sizeGb: 500, filesystem: xfs, mountPath: /var/lib/pgdata}
+    placement:
+      colocated:
+        gcp: {resourcePolicy: {groupPlacement: {collocation: COLLOCATED}}}
+  vendors:
+    gcp:
+      project: my-project
+      regions: [europe-west3]
+      storage:
+        root: {diskType: pd-balanced, sizeGb: 100}
+      resources:
+        subnets: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
+        firewalls: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

@@ -220,3 +220,25 @@ func TestEveryCallKeepsItsDeadline(t *testing.T) {
 		t.Fatal("a call hung: it has no deadline")
 	}
 }
+
+func TestHardeningBlocksTheMetadataServer(t *testing.T) {
+	d := gcp.New()
+	if got := d.Hardenings(); len(got) != 1 || got[0] != vendors.HardeningMetadataFromPods {
+		t.Fatalf("hardenings = %v", got)
+	}
+	off, un := vendors.OfferedHardenings(d, []string{vendors.HardeningMetadataFromPods, "other"})
+	if len(off) != 1 || len(un) != 1 {
+		t.Errorf("offered %v, unoffered %v", off, un)
+	}
+	none, err := vendors.BootFragmentsFor(d, nil, vendors.BootFragmentRequest{})
+	if err != nil || len(none) != 0 {
+		t.Errorf("without a hardening: %v, %v (nothing is always on)", none, err)
+	}
+	frags, err := vendors.BootFragmentsFor(d, []string{vendors.HardeningMetadataFromPods}, vendors.BootFragmentRequest{})
+	if err != nil || len(frags) != 1 || !strings.Contains(frags[0].Butane, gcp.MetadataAddress) {
+		t.Errorf("the hardening: %v, %v", frags, err)
+	}
+	if _, err := d.BootFragments(vendors.BootFragmentRequest{Hardening: []string{"nope"}}); err == nil {
+		t.Error("an unknown hardening is accepted")
+	}
+}

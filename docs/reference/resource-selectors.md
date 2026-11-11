@@ -386,9 +386,10 @@ Compute Engine `*.list` per project (the NodeClass's `project`; every kind belon
 project's images names that project in `match.owner`). One generic mechanism: the `filter` string of every list call,
 in **one of two syntaxes per request**: AIP-160 (`field = value`, `!=`, `<`, `>`, `:` substring, `field:*` is set,
 `(a) OR (b)`, labels as `labels.<k>`) or RE2 (`field eq <regex>`, the regex must match the whole field). They cannot be
-mixed in one request. There is no glob and no list-valued filter; the driver therefore sends equality predicates in
-AIP-160 and, for a glob `name`, the longest literal segment as `name:<segment>` (a substring, a superset), finishing
-the glob client-side. Any field of the returned resource is filterable in principle; which fields work for repeated or
+mixed in one request. There is no glob and no list-valued filter; the driver therefore sends only AIP-160 (never RE2): an
+exact `name` as `name = x`, the native `filters` as `=` equalities (several values ORed), `tags` of images as
+`labels.<k> = v` or `labels.<k>:*`, and an `expression` as written (it replaces the generated predicates). A glob
+`name` and every `match` attribute are evaluated client-side by the shared matcher on the paged list. Any field of the returned resource is filterable in principle; which fields work for repeated or
 nested fields is not documented per resource (*unverified*), so `filters` offers the fields below, and `expression` is
 the escape hatch for the rest. An unknown field is an API error (`Invalid value for field 'filter'`, unverified), not
 an empty list. `orderBy` is `name` or `creationTimestamp desc` only. Paging `maxResults` up to 500 with `pageToken`
@@ -400,40 +401,38 @@ applies every other field client-side. Reference: `https://docs.cloud.google.com
 
 | Field | Maps to | Where |
 |---|---|---|
-| `ids` | `images.get` by name or `projects/<p>/global/images/<n>` | by id |
-| `name` | `name = x`; a glob: `name:<longest literal segment>` | server+client (exact: server; a name without wildcard is also looked up with `images.get`) |
+| `ids` | `images.get` by name or `projects/<p>/global/images/<n>` (a short name is in the controller's project) | by id |
+| `name` | `name = x`; a glob lists and matches client-side; a name without wildcard is also looked up with `images.get` | server+client |
 | `tags` | `labels.<k> = v` ; `labels.<k>:*` for `"*"` | server |
-| `match.architecture` | `architecture = X86_64 / ARM64` | server |
-| `match.owner` | the project listed (default `imageProject`; the public projects `debian-cloud`, `ubuntu-os-cloud`, `cos-cloud` need list rights) | server (one list per project) |
-| `match.state` | `status` (`READY`, `PENDING`, `FAILED`) | server |
+| `match.architecture` | `architecture` (`X86_64` / `ARM64`), also the request's own architecture | client |
+| `match.owner` | the project listed (`self` is the controller's project; without it `imageProject`, else the controller's project: the public project is reachable by name only; other public projects need list rights) | server (one list per project) |
+| `match.state` | `status` (`READY`, `PENDING`, `FAILED`) | client |
 | `match.includeDeprecated` | `deprecated.state` (`ACTIVE`, `DEPRECATED`, `OBSOLETE`, `DELETED`); how an image with no `deprecated` object compares is unverified | client |
-| `match.description` | `description:<segment>` | server+client |
-| `match.createdAfter`, `createdBefore` | `creationTimestamp > / <` (comparison semantics unverified) | server+client |
+| `match.description` | `description` | client |
+| `match.createdAfter`, `createdBefore` | `creationTimestamp` | client |
 
 **Publicly shared images do not appear in `images.list`** (`allAuthenticatedUsers`, as `kinvolk-public` and the
 Spare Cores arm64 project): they are reachable only by `images.get` / `getFromFamily`. So `ids`, a `name` without
 wildcard, and `filters: family` (`getFromFamily`, which skips deprecated images) work for them; a glob `name`,
 `tags` and `match` on such a project list nothing, and the `ResourcesUnavailable` message says so. Order:
-`orderBy=creationTimestamp desc` (newest on the server; `oldest` client-side). Filters: `family`, `deprecated.state`,
+`orderBy` is `created`, evaluated client-side by the shared matcher on the listed images. Filters: `family`, `deprecated.state`,
 `sourceType`, `diskSizeGb`, `id`, `labels.<k>`, `licenses`, `storageLocations`, `guestOsFeatures` (the last three repeated
 fields: unverified).
 
-**subnets** (`subnetworks.list` per region; `listUsable` for Shared VPC; regional, **no zone, no labels**):
+**subnets** (`subnetworks.list` per region; `subnetworks.get` for `ids`, which also reaches a Shared VPC host project's; regional, **no zone, no labels**):
 
 | Field | Maps to | Where |
 |---|---|---|
-| `ids` | `subnetworks.get` | by id |
+| `ids` | `subnetworks.get` of `projects/<p>/regions/<r>/subnetworks/<n>` (a Shared VPC host project's too) or the short name | by id |
 | `name` | as images | server+client |
-| `match.network` | `network = <URL>` (the driver builds the URL from the network name) | server |
-| `match.cidr` | `ipCidrRange = x` (string equality) | server |
+| `match.network` | the network name or its URL | client |
+| `match.cidr` | `ipCidrRange` and the IPv6 ranges, compared as prefixes | client |
 | `match.within` | `ipCidrRange` | client |
-| `match.owner` | the host project of a Shared VPC (the driver then calls `listUsable` with `serviceProject`) | server (*unverified*) |
-| `match.state` | `state` (`READY`, `DRAINING`) | server |
-| `match.description`, `createdAfter`, `createdBefore` | as images | server+client |
+| `match.state` | `state` (`READY`, `DRAINING`) | client |
+| `match.description`, `createdAfter`, `createdBefore` | as images | client |
 
 `tags` and `zone` are rejected (the marker of a managed subnet is its name prefix and description). Filters: `purpose`,
-`role`, `stackType`, `ipv6AccessType`, `ipv6CidrRange`, `privateIpGoogleAccess`, `enableFlowLogs`, `network`. Order:
-`creationTimestamp desc`. Free-address counts exist only on an aggregated list with `views=WITH_UTILIZATION` and are
+`role`, `stackType`, `ipv6AccessType`, `ipv6CidrRange`, `privateIpGoogleAccess`, `enableFlowLogs`. Free-address counts exist only on an aggregated list with `views=WITH_UTILIZATION` and are
 client-side.
 
 **firewalls** (`firewalls.list`, global rules; the kind resolves to **network tags**, which are not resources: `ids` are
@@ -443,8 +442,8 @@ tag names and `name` is a glob on the tag names found in the rules' `targetTags`
 |---|---|---|
 | `ids` | network tag names (no get: a tag exists if a rule names it) | client |
 | `name` | the tag names in `targetTags` of the matching rules | client |
-| `match.network` | `network = <URL>` | server |
-| `match.state` | `disabled = false` (a disabled rule does not make the tag available) | server |
+| `match.network` | the network of the rules that carry the tag (name or URL) | client |
+| `match.state` | `disabled = false` (a disabled rule does not make the tag available) | client |
 
 Rule fields are filterable under `filters` (the rules that carry the tag are the candidates): `direction`, `priority`,
 `disabled`, `logConfig.enable`, `network`, `name` (of the rule); repeated fields (`targetTags`, `sourceRanges`,

@@ -1,0 +1,20 @@
+# The smallest GCP NodeClass: no vendor resources are named, so SCarpenter resolves them itself in each
+# region, in this order (ADR-022): the project's default network and its subnetwork (when they can honour the
+# request: no firewall rule of the default network applies to every instance, and no publicIPv6), else a
+# network, subnetwork and firewall rules it creates and owns, else ResourcesReady=False naming what it
+# tried. GCP resources have no labels, so there is no opt-in discovery.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: gcp-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    gcp:
+      project: my-project
+      regions: [europe-west3, us-east1]

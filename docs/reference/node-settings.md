@@ -84,6 +84,11 @@ spec:
       colocated: {aws: {placementGroup: {strategy: cluster}}}
 ```
 
+On GCP the same profiles are in the driver's terms, for example
+`gcp: {data: [{name: pgdata, diskType: hyperdisk-balanced, sizeGb: 500, mountPath: /var/lib/pgdata}]}` for storage and
+`gcp: {resourcePolicy: {groupPlacement: {collocation: COLLOCATED}}}` for placement
+([GCP driver](gcp-driver.md#node-settings)).
+
 The profile kinds are `storage` (root and extra volumes, local storage),
 `network` (NIC features) and `placement` (placement construct, tenancy). A node
 has at most one profile of each kind.
