@@ -68,13 +68,13 @@ var errorClasses = map[string]vendors.Class{
 	"QuotaExceeded":             vendors.QuotaExceeded,
 	"PublicIPCountLimitReached": vendors.QuotaExceeded,
 	// Transient.
-	"TooManyRequests":                          vendors.Retryable,
-	"InternalServerError":                      vendors.Retryable,
-	"ServerBusy":                               vendors.Retryable,
-	"RetryableError":                           vendors.Retryable,
-	"ReferencedResourceNotProvisioned":         vendors.Retryable,
-	"AnotherOperationInProgress":               vendors.Retryable,
-	"OSProvisioningTimedOut":                   vendors.Retryable,
+	"TooManyRequests":                  vendors.Retryable,
+	"InternalServerError":              vendors.Retryable,
+	"ServerBusy":                       vendors.Retryable,
+	"RetryableError":                   vendors.Retryable,
+	"ReferencedResourceNotProvisioned": vendors.Retryable,
+	"AnotherOperationInProgress":       vendors.Retryable,
+	"OSProvisioningTimedOut":           vendors.Retryable,
 	// Dependency errors of a delete. InUseSubnetCannotBeDeleted,
 	// InUseNetworkSecurityGroupCannotBeDeleted, PublicIPAddressCannotBeDeleted
 	// and NicInUse are documented ARM codes; the others are unverified names.
