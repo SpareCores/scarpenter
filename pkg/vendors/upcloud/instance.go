@@ -127,9 +127,9 @@ func (d *Driver) launchSpec(ctx context.Context, req vendors.CreateRequest) (Lau
 	if spec.Name == "" {
 		spec.Name = req.Tags[vendors.TagNodeClaim]
 	}
-	rules, err := PublicFirewallRules(FirewallOptions{Inbound: inboundOf(net.Inbound), Tailscale: true})
+	rules, err := d.publicRules(ctx, req)
 	if err != nil {
-		return LaunchSpec{}, PostCreate{}, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
+		return LaunchSpec{}, PostCreate{}, err
 	}
 	post := PostCreate{Rules: rules}
 	if pr.network != "" {
@@ -187,11 +187,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 func (d *Driver) replay(
 	ctx context.Context, req vendors.CreateRequest, found *upcloud.ServerDetails,
 ) (*vendors.Instance, error) {
-	rules, err := PublicFirewallRules(FirewallOptions{
-		Inbound: inboundOf(req.Settings.Networking.Inbound), Tailscale: true,
-	})
+	rules, err := d.publicRules(ctx, req)
 	if err != nil {
-		return nil, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
+		return nil, err
 	}
 	cctx, cancel := CallContext(ctx, CallTimeout)
 	have, err := d.api.GetFirewallRules(cctx, &request.GetFirewallRulesRequest{ServerUUID: found.UUID})
@@ -205,6 +203,23 @@ func (d *Driver) replay(
 		}
 	}
 	return ToInstance(found), nil
+}
+
+// publicRules are the Public & Utility firewall rules of a launch: the NodeClass's
+// inbound rules, and Tailscale's UDP port only where the NodeClass uses the
+// tailscale template (read from the NodeClass: the launch does not carry it).
+func (d *Driver) publicRules(ctx context.Context, req vendors.CreateRequest) ([]upcloud.FirewallRule, error) {
+	cfg, err := d.classResources(ctx, req.Tags[vendors.TagNodeClass])
+	if err != nil {
+		return nil, err
+	}
+	rules, err := PublicFirewallRules(FirewallOptions{
+		Inbound: inboundOf(req.Settings.Networking.Inbound), Tailscale: cfg.tailscale,
+	})
+	if err != nil {
+		return nil, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
+	}
+	return rules, nil
 }
 
 // discard deletes a server whose create steps failed: it waits for the clone to

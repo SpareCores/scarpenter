@@ -80,9 +80,15 @@ func ids(p *vendors.Prepared, kind vendors.ResourceKind) []string {
 	return out
 }
 
+func noneNet() common.Networking {
+	n := defaultNet()
+	n.Isolation = common.IsolationNone
+	return n
+}
+
 func TestPrepareGivesNoPrivateNetworkWithoutConfiguration(t *testing.T) {
 	e := newEngineEnv(t, class(testVersion, nil, nil))
-	p, err := e.prepare(settings(t, e.d, "", defaultNet(), nil, options.Selection{}), "")
+	p, err := e.prepare(settings(t, e.d, "", noneNet(), nil, options.Selection{}), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +113,7 @@ func TestPrepareCreatesTheNetworkWhereTheNodeClassConfiguresIt(t *testing.T) {
 	nc := class(testVersion, nil, nil)
 	nc.Spec.Vendors.UpCloud.Resources.Networks = &common.Resource{Create: &common.ResourceCreate{}}
 	e := newEngineEnv(t, nc)
-	s := settings(t, e.d, "", defaultNet(), nil, options.Selection{})
+	s := settings(t, e.d, "", noneNet(), nil, options.Selection{})
 	first, err := e.prepare(s, "")
 	if err != nil {
 		t.Fatal(err)
@@ -127,9 +133,16 @@ func TestPrepareCreatesTheNetworkWhereTheNodeClassConfiguresIt(t *testing.T) {
 }
 
 func TestIsolationNodeClassNeedsTheNetworkAndARulesetOfItsRange(t *testing.T) {
+	t.Run("nodeclass", func(t *testing.T) { isolationNeedsNetworkAndRuleset(t, common.IsolationNodeClass) })
+	// The API default: without a run key the nodes of the NodeClass are one run and
+	// reach each other privately, as with nodeclass.
+	t.Run("run without a run key", func(t *testing.T) { isolationNeedsNetworkAndRuleset(t, common.IsolationRun) })
+}
+
+func isolationNeedsNetworkAndRuleset(t *testing.T, iso common.Isolation) {
 	e := newEngineEnv(t, class(testVersion, nil, nil))
 	net := defaultNet()
-	net.Isolation = common.IsolationNodeClass
+	net.Isolation = iso
 	net.Inbound = &common.Inbound{Rules: []common.InboundRule{{Protocol: "tcp", FromPort: new(int32(443)), CIDRs: []string{"192.0.2.0/24"}}}}
 	p, err := e.prepare(settings(t, e.d, "", net, nil, options.Selection{}), "")
 	if err != nil {
@@ -343,10 +356,38 @@ func TestDataDisksGetDeviceHints(t *testing.T) {
 func TestPrepareWithoutTheNodeClassReaderUsesNoConfiguration(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	p, err := e.d.Prepare(context.Background(), vendors.PrepareRequest{
-		Region: testZone, Zone: testZone, Settings: settings(t, e.d, "", defaultNet(), nil, options.Selection{}),
+		Region: testZone, Zone: testZone, Settings: settings(t, e.d, "", noneNet(), nil, options.Selection{}),
 		Tags: map[vendors.TagKey]string{vendors.TagNodeClass: "class"},
 	})
 	if err != nil || len(p.Resources) != 0 {
 		t.Errorf("Prepare = %v, %v", p, err)
+	}
+}
+
+// TestTailscalePortFollowsTheNetworkTemplate: the public firewall opens UDP 41641 only
+// for a NodeClass with the tailscale template; other templates get no extra port.
+func TestTailscalePortFollowsTheNetworkTemplate(t *testing.T) {
+	for tmpl, want := range map[v1alpha1.NetworkTemplateName]bool{
+		v1alpha1.NetworkTemplateTailscale: true, v1alpha1.NetworkTemplateDirect: false,
+	} {
+		t.Run(string(tmpl), func(t *testing.T) {
+			nc := class(testVersion, nil, nil)
+			nc.Spec.Network.Template = tmpl
+			e := newEngineEnv(t, nc)
+			req := e.request("n1", testType)
+			req.Settings = settings(t, e.d, "", noneNet(), nil, options.Selection{})
+			inst, err := e.d.CreateInstance(e.ctx(), req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, uuid, _ := uc.ParseRef(inst.Ref)
+			var got bool
+			for _, r := range e.f.ServerFirewall(uuid) {
+				got = got || (r.Direction == "in" && r.Action == "accept" && r.DestinationPortStart == "41641")
+			}
+			if got != want {
+				t.Errorf("UDP 41641 open = %v, want %v", got, want)
+			}
+		})
 	}
 }

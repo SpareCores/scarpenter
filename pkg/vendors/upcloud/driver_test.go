@@ -154,7 +154,8 @@ func TestCreateInstanceWritesTheRequestTheDriverPromises(t *testing.T) {
 	}
 	checkStorages(t, e, srv)
 	want, err := uc.PublicFirewallRules(uc.FirewallOptions{
-		Inbound: []uc.Inbound{{CIDR: "192.0.2.0/24", Protocol: "tcp", PortStart: 8080, PortEnd: 8080}}, Tailscale: true,
+		// No NodeClass to read the network template from: no Tailscale port.
+		Inbound: []uc.Inbound{{CIDR: "192.0.2.0/24", Protocol: "tcp", PortStart: 8080, PortEnd: 8080}},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -218,15 +218,22 @@ func (d *Driver) ipv4Price(region string) (float64, bool) {
 	return d.prices.IPv4Price(region)
 }
 
-// resourceCfg is how the NodeClass provides the kinds the launch may need.
+// resourceCfg is how the NodeClass provides the kinds the launch may need, and
+// whether its nodes join through the tailscale template.
 type resourceCfg struct {
 	networks, firewalls *common.Resource
+	// tailscale: the NodeClass uses the tailscale network template, whose direct
+	// paths need UDP 41641 open on the public interface.
+	tailscale bool
 }
 
-// classResources reads the resources configuration of the NodeClass named by the
-// tags: the settings of a launch do not carry it, and whether a node gets a
-// private interface depends on it (there is no vendor default network). Without
-// a Kubernetes reader or the NodeClass the configuration is empty.
+// classResources reads the resources configuration and the network template of
+// the NodeClass named by the tags: the settings of a launch carry neither, and
+// whether a node gets a private interface, and whether its public firewall opens
+// Tailscale's port, depend on them (there is no vendor default network). Without
+// a Kubernetes reader or the NodeClass the configuration is empty (no private
+// interface unless the isolation asks for one, no Tailscale port: the least
+// exposure; Tailscale then relays through DERP).
 func (d *Driver) classResources(ctx context.Context, class string) (resourceCfg, error) {
 	if d.cfg.Reader == nil || class == "" {
 		return resourceCfg{}, nil
@@ -243,7 +250,7 @@ func (d *Driver) classResources(ctx context.Context, class string) (resourceCfg,
 	if err != nil {
 		return resourceCfg{}, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
 	}
-	var out resourceCfg
+	out := resourceCfg{tailscale: nc.Spec.Network.Template == v1alpha1.NetworkTemplateTailscale}
 	if c, ok := cfgs[string(KindNetworks)]; ok {
 		out.networks = &c
 	}
@@ -261,8 +268,23 @@ func (r resourceCfg) wantsFirewall() bool {
 	return r.firewalls != nil && !r.firewalls.Forbid
 }
 
+// isolationRun says whether the isolation is run, the API default (the settings of
+// a launch hold the resolved networking, so an empty value is not a default).
+func isolationRun(iso common.Isolation) bool {
+	return iso == common.IsolationRun
+}
+
+// peersReach says whether the nodes of the NodeClass must reach each other
+// privately: isolation nodeclass, and run without a run key (the nodes of the
+// NodeClass are then one run, as on every vendor). Both need the SDN network and a
+// ruleset that accepts its range.
+func peersReach(iso common.Isolation, runKey string) bool {
+	return iso == common.IsolationNodeClass || (isolationRun(iso) && runKey == "")
+}
+
 // FirewallParams are the create parameters of a managed ruleset: the inbound
-// rules of the NodeClass and, with isolation nodeclass, the network's range.
+// rules of the NodeClass and, where the nodes of the NodeClass reach each other
+// (isolation nodeclass, or run without a run key), the network's range.
 type FirewallParams struct {
 	Inbound []common.InboundRule `json:"inbound,omitempty"`
 	// CIDR is the private network's range: the nodes of the NodeClass reach each
@@ -278,7 +300,8 @@ type ServerGroupParams struct {
 // Prepare implements vendors.NodeOptions: it makes the resources of the launch
 // ready through the resource provider (the engine decides whether a resource is
 // brought, discovered or managed): the SDN network and the ruleset where the
-// NodeClass configures them or isolates by NodeClass, the server group of the
+// NodeClass configures them or its nodes reach each other (isolation nodeclass,
+// or run without a run key), the server group of the
 // placement profile, and the device hints of the data disks for the first-boot
 // unit. An error of the provider is returned as it is: a ResourceMissingInZone
 // must reach the attempt loop with its code.
@@ -292,7 +315,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		return nil, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
 	}
 	net := req.Settings.Networking
-	if net.Isolation == common.IsolationRun && req.RunKey != "" {
+	if isolationRun(net.Isolation) && req.RunKey != "" {
 		return nil, vendors.NewError(vendors.Unsupported, codeIsolationRun, fmt.Errorf(
 			"isolation run needs one SDN network per run key, which UpCloud nodes do not get in this version "+
 				"(account network limit, create latency); use isolation nodeclass or none"))
@@ -303,8 +326,9 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 	}
 	prep := &vendors.Prepared{}
 
+	peers := peersReach(net.Isolation, req.RunKey)
 	var network *vendors.ResourceRef
-	if cfg.wantsNetwork() || net.Isolation == common.IsolationNodeClass {
+	if cfg.wantsNetwork() || peers {
 		refs, err := req.Resources.Require(ctx, vendors.ResourceRequest{
 			Kind: KindNetworks, Zone: req.Zone, Settings: &req.Settings,
 		})
@@ -318,12 +342,12 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		network = &refs[0]
 		prep.Resources = append(prep.Resources, refs[0])
 	}
-	if network != nil && (cfg.wantsFirewall() || net.Isolation == common.IsolationNodeClass) {
+	if network != nil && (cfg.wantsFirewall() || peers) {
 		params := FirewallParams{}
 		if net.Inbound != nil {
 			params.Inbound = net.Inbound.Rules
 		}
-		if net.Isolation == common.IsolationNodeClass {
+		if peers {
 			cidr, err := d.networkCIDR(ctx, network.ID)
 			if err != nil {
 				return nil, err
