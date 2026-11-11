@@ -154,6 +154,7 @@ func TestStateOf(t *testing.T) {
 		status, power, server, want string
 	}{
 		{"pending", "running", "none", vendors.StatePending},
+		{"pending", "stopped", "none", vendors.StatePending},
 		{"active", "running", "ok", vendors.StateRunning},
 		{"active", "running", "installingbooting", vendors.StatePending},
 		{"active", "running", "none", vendors.StatePending},

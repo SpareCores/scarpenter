@@ -107,12 +107,17 @@ func MarshalCreateRequest(r *govultr.InstanceCreateReq) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// StateOf maps an instance's status fields (plan 20, section 4.1). A suspended
-// or powered-off instance is terminating (plan 14, A4): it still bills for the
-// started hour, so the garbage collector deletes it. Anything not yet fully
-// up is pending.
+// StateOf maps an instance's status fields (plan 20, section 4.1). An
+// instance whose status is pending is pending whatever its power_status says
+// (whether Vultr reports stopped while installing is unverified, S4, and a
+// terminating answer would let the garbage collector delete a booting node).
+// Otherwise a suspended or powered-off instance is terminating (plan 14, A4):
+// it still bills for the started hour, so the garbage collector deletes it.
+// Anything not yet fully up is pending.
 func StateOf(in govultr.Instance) string {
 	switch {
+	case in.Status == "pending":
+		return vendors.StatePending
 	case in.Status == "suspended" || in.PowerStatus == "stopped":
 		return vendors.StateTerminating
 	case in.Status == "active" && in.PowerStatus == "running" && in.ServerStatus == "ok":

@@ -23,10 +23,11 @@ console only). Stock is read per region from `GET /v2/regions/{id}/availability`
 ## Provider ID, zones, state
 
 - Provider ID `scarpenter://vultr/<region>/<nodeclaim>`; instance reference
-  `<region>/<instance id>`.
+  `<region>/<instance id>`. A reference whose ID is not a UUID is `NotFound` without a
+  call.
 - Vultr has no zones. The zone of a node is its region ID (Keeper's zone ID equals
   the region ID).
-- State: `suspended` or `power_status: stopped` is `terminating` (a stopped instance
+- State: `status: pending` is `pending`; otherwise `suspended` or `power_status: stopped` is `terminating` (a stopped instance
   still bills, so the garbage collector deletes it); `active` with `running` and
   `server_status: ok` is `running`; everything else is `pending`. `main_ip` is
   `0.0.0.0` while pending and is then not an address.

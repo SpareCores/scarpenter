@@ -290,10 +290,15 @@ func TestLaunchAttachesFirewallGroupAndVPC(t *testing.T) {
 
 func TestGetInstance(t *testing.T) {
 	e := newEnv(t)
-	for _, ref := range []vendors.InstanceRef{"ewr/missing", "ewr", "ewr/", ""} {
+	refs := []vendors.InstanceRef{"ewr/1a000000-0000-4000-8000-0000000000ff", "ewr/missing", "ewr", "ewr/", ""}
+	for _, ref := range refs {
 		if _, err := e.ops.GetInstance(context.Background(), ref); !vendors.IsClass(err, vendors.NotFound) {
 			t.Errorf("%q: %v", ref, err)
 		}
+	}
+	// Only the well-formed reference reaches the API.
+	if n := e.acct.Calls("GetInstance"); n != 1 {
+		t.Errorf("%d get calls", n)
 	}
 }
 

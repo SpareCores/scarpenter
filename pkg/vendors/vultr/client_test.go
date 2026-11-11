@@ -165,10 +165,10 @@ func TestClientStatusClassifiedThroughOps(t *testing.T) {
 	if creates.Load() != 1 {
 		t.Errorf("%d creates", creates.Load())
 	}
-	if _, err := ops.GetInstance(context.Background(), "ewr/gone"); !vendors.IsClass(err, vendors.NotFound) {
+	if _, err := ops.GetInstance(context.Background(), "ewr/1a000000-0000-4000-8000-0000000000ff"); !vendors.IsClass(err, vendors.NotFound) {
 		t.Fatalf("get: %v", err)
 	}
-	if err := ops.DeleteInstance(context.Background(), "ewr/gone"); err != nil {
+	if err := ops.DeleteInstance(context.Background(), "ewr/1a000000-0000-4000-8000-0000000000ff"); err != nil {
 		t.Fatalf("delete of a gone instance: %v", err)
 	}
 }
@@ -321,5 +321,16 @@ func TestClientCallsEveryEndpoint(t *testing.T) {
 	}
 	if strings.Join(paths, "\n") != strings.Join(want, "\n") {
 		t.Errorf("requests:\n%s\nwant:\n%s", strings.Join(paths, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// A rate under one per second still lets a call through (the limiter's burst
+// is at least one).
+func TestClientFractionalRate(t *testing.T) {
+	c := newClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		jsonReply(w, 200, `{"regions":[],"meta":{"total":0,"links":{}}}`)
+	}, func(cfg *vultr.ClientConfig) { cfg.RatePerSecond = 0.5 })
+	if _, _, err := c.ListRegions(context.Background(), nil); err != nil {
+		t.Fatal(err)
 	}
 }

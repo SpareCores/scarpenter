@@ -9,6 +9,7 @@ package vultr
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -174,12 +175,21 @@ func (o *Ops) FindInstance(
 	return list[0], nil
 }
 
+// instanceID is the shape of a Vultr instance ID, a UUID.
+var instanceID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// isInstanceID reports whether id can be a Vultr instance ID. Anything else is
+// answered locally (plan 14, A9): what the API answers for a malformed ID (404
+// or a 400 that would classify Fatal) is unverified.
+func isInstanceID(id string) bool { return instanceID.MatchString(id) }
+
 // GetInstance reads an instance by reference. A deleted instance disappears
 // (there is no terminated state), so this never returns a terminated one; a
-// reference that does not parse is NotFound.
+// reference without an instance UUID is NotFound without a call.
 func (o *Ops) GetInstance(ctx context.Context, ref vendors.InstanceRef) (*vendors.Instance, error) {
-	if ref.ID() == "" {
-		return nil, vendors.NewError(vendors.NotFound, codeNotFound, fmt.Errorf("instance reference %q has no ID", ref))
+	if !isInstanceID(ref.ID()) {
+		return nil, vendors.NewError(vendors.NotFound, codeNotFound,
+			fmt.Errorf("instance reference %q has no instance UUID", ref))
 	}
 	in, err := o.API.GetInstance(ctx, ref.ID())
 	if err != nil {
@@ -193,7 +203,7 @@ func (o *Ops) GetInstance(ctx context.Context, ref vendors.InstanceRef) (*vendor
 // cluster is refused; a refusal because the instance is still installing is
 // Retryable (unverified, spike S4).
 func (o *Ops) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error {
-	if ref.ID() == "" {
+	if !isInstanceID(ref.ID()) {
 		return nil
 	}
 	in, err := o.API.GetInstance(ctx, ref.ID())
