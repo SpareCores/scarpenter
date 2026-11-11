@@ -348,9 +348,14 @@ t_ready_for_the_list() {
   grep -q 'echo "GCP_PROJECT=' "${w}/e2e-cloud.yml" || { echo "the Prepare step of e2e-cloud.yml does not set the project"; return 1; }
   grep -q 'echo "GCP_PROJECT=' "${w}/e2e-canary.yml" || { echo "the Region step of e2e-canary.yml does not set the project"; return 1; }
   [[ -x "${root}/test/canary/run.sh" && -d "${here}/sweeper" ]] || { echo "canary run.sh or sweeper missing"; return 1; }
-  if grep -qxF gcp "${root}/test/e2e-vendors.txt"; then echo "(gcp is listed in test/e2e-vendors.txt)"; else echo "(gcp is not listed yet: the cost guards are provisioned outside this repository)"; fi
 }
 check "the lane has everything the vendor list's consumers read (one line in test/e2e-vendors.txt is enough)" t_ready_for_the_list
+t_vendor_list() { # the cost guards are not verified on a live project: the CI cost-guard policy is unmet, so gcp stays out of the list
+  # Whoever verifies them adds the line, removes the note in defaults.sh and changes this check (plan 16, section 9).
+  ! grep -qxF gcp "${root}/test/e2e-vendors.txt" || { echo "gcp is in test/e2e-vendors.txt, but its cost guards are not verified"; return 1; }
+  grep -q 'THIS LANE IS NOT IN test/e2e-vendors.txt' "${here}/defaults.sh" || { echo "defaults.sh does not say why gcp is not in the list"; return 1; }
+}
+check "gcp is not in test/e2e-vendors.txt until its cost guards are verified, and defaults.sh lists them" t_vendor_list
 
 # ---- the CI roles -------------------------------------------------------------
 role_perms() { "$@" | sed -n 's/^- //p'; }

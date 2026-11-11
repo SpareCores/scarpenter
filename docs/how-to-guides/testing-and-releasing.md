@@ -472,6 +472,10 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
   policies, the quotas and a budget alert, the two user-assigned managed identities with their
   federated credentials, all set and checked before `azure` is added to `test/e2e-vendors.txt`.
   Details in [Azure](#azure).
+- **GCP** (vendor `gcp`): a dedicated project with the quotas and a budget alert, the workload
+  identity pool and provider, the CI and canary service accounts with the roles of `ci-policy.sh` and
+  `canary-policy.sh`, all set and checked before `gcp` is added to `test/e2e-vendors.txt`. Details in
+  [GCP](#gcp).
 - **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, both set and checked before `hcloud` is added to `test/e2e-vendors.txt`, and the secret
   `HCLOUD_TOKEN` in the environments `e2e` and `e2e-sweeper` (read-write) and `e2e-canary` (read-only); the optional
   variable `E2E_HCLOUD_LOCATIONS`. Details in [Test and develop](testing.md#the-l5-lane-of-hetzner-cloud).
@@ -541,6 +545,37 @@ show. In the subscription of the CI infrastructure, the operator provides:
   sweeper, run with the real CI identity, deletes a planted tagged VM, NIC, public IP and disk; the canary
   identity can read everything the canary reads and write nothing. Then the line is added, with the note
   in `defaults.sh` and the selftest's check changed; until then the selftest checks that it is absent.
+
+### GCP
+
+The GCP lane ([The L5 lane on Google Cloud](testing.md#the-l5-lane-on-google-cloud)) uses GitHub's
+OIDC through workload identity federation (no key file), and it is **not yet a line of
+`test/e2e-vendors.txt`**: its guards are a dedicated project, IAM conditions on resource names and
+quotas that only a live project can show. The operator provides (nothing here is created by this
+repository):
+
+- **Project**: a dedicated one, with the Compute Engine API, a budget alert and quotas in the lane's region (`CPUS` 24, `PREEMPTIBLE_CPUS` 4; a new project
+  starts lower), and, for the `default` scenario, its `default` network.
+- **Workload identity**: a pool and a GitHub OIDC provider whose attribute condition names the repository and the environments `e2e`, `e2e-sweeper` and `e2e-canary`; the CI
+  service account, impersonable (`roles/iam.workloadIdentityUser`) by the principal sets of the environments `e2e` and `e2e-sweeper`; the canary service account, by the principal set of
+  `e2e-canary` only.
+- **Roles**: the three custom roles and the conditional bindings printed by `test/e2e-gcp/ci-policy.sh bindings`, and the read-only role printed by `test/e2e-gcp/canary-policy.sh bindings`.
+- **Environments**: `e2e` (reviewers), `e2e-sweeper` (`main`, no reviewers) and `e2e-canary` (`main`) each with the variable `GCP_PROJECT`, the variable `GCP_REGION` (optional, default
+  `us-central1`) and the secrets `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`.
+- **Tailscale**: the same tags, grants and federated identity as for AWS.
+- **Before `gcp` is added to `test/e2e-vendors.txt`**, the operator checks: the regional role's
+  conditions bite (an instance insert in another region, and a network, subnetwork, firewall rule or
+  resource policy whose name does not start with `scarpenter-`, are refused for the CI service
+  account: that every Compute method honours a name condition is unverified); the project holds
+  nothing but the lane, its `CPUS` and `PREEMPTIBLE_CPUS` quotas in the lane's region are no higher
+  than the lane needs (24 and 4; no IAM condition can deny a machine type, so the quotas are the
+  ceiling) and the budget alert reaches a person; the sweeper, run with the real CI identity, deletes
+  a planted labelled instance and a marked firewall rule, subnetwork, network and resource policy,
+  and the teardown finds a planted labelled disk; the canary service account reads what the canary
+  reads and writes nothing; `e2e-sweeper` and `e2e-canary` are limited to `main` and the provider's
+  attribute condition names only this repository and the three environments. Then the line is added,
+  with the note in `test/e2e-gcp/defaults.sh` and the selftest's check changed; until then the
+  selftest checks that it is absent.
 
 ### UpCloud
 
@@ -651,15 +686,3 @@ the tailnet and the environments are the AWS lane's; what differs is the account
      does a plain GET; the hardened mode makes it fail with 403), and for an eighth-generation or later
      type such as `ecs.c8y.large` it must advertise NVMe support (otherwise the launch is refused as
      `ImageNotSupportInstanceType`). How the import sets these features: unverified.
-
-**For the vendor gcp** (the same environments, with Google Cloud's names; nothing here is created by this repository):
-
-- **Project**: a dedicated one, with the Compute Engine API, a budget alert and quotas in the lane's region (`CPUS` 24, `PREEMPTIBLE_CPUS` 4; a new project
-  starts lower), and, for the `default` scenario, its `default` network.
-- **Workload identity**: a pool and a GitHub OIDC provider whose attribute condition names the repository and the environments `e2e`, `e2e-sweeper` and `e2e-canary`; the CI
-  service account, impersonable (`roles/iam.workloadIdentityUser`) by the principal sets of the environments `e2e` and `e2e-sweeper`; the canary service account, by the principal set of
-  `e2e-canary` only.
-- **Roles**: the three custom roles and the conditional bindings printed by `test/e2e-gcp/ci-policy.sh bindings`, and the read-only role printed by `test/e2e-gcp/canary-policy.sh bindings`.
-- **Environments**: `e2e` (reviewers), `e2e-sweeper` (`main`, no reviewers) and `e2e-canary` (`main`) each with the variable `GCP_PROJECT`, the variable `GCP_REGION` (optional, default
-  `us-central1`) and the secrets `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`.
-- **Tailscale**: the same tags, grants and federated identity as for AWS.

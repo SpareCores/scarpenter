@@ -352,5 +352,8 @@ field); the disk size and IOPS limits outside `pd-balanced` and `hyperdisk-balan
 address price; that every method the lane's CI role uses supports IAM name conditions; the pricing page's
 billing rule; that a failed instance insert leaves no disk (hence no `LeftoverCollector`); whether a range
 conflict between two concurrent subnetwork inserts is refused in the call or in the operation (both are
-retried). The L5 lane (`test/e2e-gcp`) is written and statically validated; its first live run is the
+retried). The L5 lane (`test/e2e-gcp`) is written and statically validated, and it is not in `test/e2e-vendors.txt` until its
+cost guards (the regional role's name conditions, the quotas and a budget alert of the dedicated project, the
+sweeper with the real identity, the read-only canary role) are verified on a live project:
+[Per-vendor cost guards](../how-to-guides/testing-and-releasing.md#gcp). Its first live run is the
 coordinator's and reports each of these.

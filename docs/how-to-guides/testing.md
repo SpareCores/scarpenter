@@ -891,7 +891,8 @@ Tailscale, the reusable `e2e-cloud.yml`, the same pins of Kubernetes, k3s, Tails
 cloud calls of Google Compute Engine; everything it adds lives in `test/e2e-gcp/`, `pkg/vendors/gcp/sweep`,
 `test/canary/gcp.go` and `.github/workflows/e2e-gcp-sweeper.yml`. **It is not in `test/e2e-vendors.txt` yet**:
 the line is added only when the cost guards of [Testing and releasing](testing-and-releasing.md#per-vendor-cost-guards)
-are true for the project, which is provisioned outside this repository. Everything else is ready, so that the
+are true on a live project, which is provisioned outside this repository, and nobody has verified them yet (what to
+check first: [GCP](testing-and-releasing.md#gcp)); the lane's selftest checks that the line is absent. Everything else is ready, so that the
 single line `gcp` in that file is enough: the planner, the canary matrix and the release gate read it,
 and `test/e2e-plan-selftest.sh` and `test/e2e-gcp/selftest.sh` check that nothing else is missing (the
 credentials steps of both reusable workflows, the sweeper workflow, the canary's vendor part, the smoke set).

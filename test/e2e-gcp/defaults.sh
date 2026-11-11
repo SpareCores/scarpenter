@@ -1,6 +1,23 @@
 #!/usr/bin/env bash
 # The pins of the L5 lane (GCP). Every value can be overridden through the environment
 # (the workflow's inputs do it for the minimum-Kubernetes run).
+#
+# THIS LANE IS NOT IN test/e2e-vendors.txt, ON PURPOSE. A line there puts GCP into the
+# pull request tiers, the nightly canary and the release gate, and may only be added when
+# every cost guard of docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards
+# is true on a LIVE project. Nobody has verified them; the guards still to be verified
+# live (docs/how-to-guides/testing-and-releasing.md#gcp) are:
+#   - the regional role's conditions on resource names (ci-policy.sh) refuse a write in
+#     another region and a network resource not named scarpenter-*;
+#   - the project holds nothing else, its CPUS and PREEMPTIBLE_CPUS quotas in the region
+#     are no higher than the pins below need, and the budget alert reaches a person (no IAM
+#     condition can deny a machine type: the quotas are the ceiling);
+#   - the sweeper (e2e-gcp-sweeper.yml, environment e2e-sweeper) deletes a dead run's
+#     instances, rules, subnetworks, networks and policies with the real CI identity, and
+#     the teardown finds a leftover disk;
+#   - the canary's service account reads what the canary reads and writes nothing;
+#   - e2e-sweeper and e2e-canary are limited to main, and the workload identity provider's
+#     attribute condition names only this repository and the three environments.
 # shellcheck disable=SC2034  # used by the scripts that source lib.sh
 
 # The project of the lane (a dedicated one: no IAM condition can protect instances by

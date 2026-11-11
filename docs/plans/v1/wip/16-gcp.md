@@ -552,6 +552,17 @@ template; the control plane, the tailnet and the scenarios' shape are the same):
    networks, subnets, firewalls and policies); sweeper every 3 hours; 90/55 minute limits;
    teardown fails the job when anything with the run's marker remains; approval through the
    `e2e` environment's reviewers.
+   **The lane is not in `test/e2e-vendors.txt` yet**: none of these is shown on a live project.
+   Before the line `gcp` is added, the operator verifies that the regional role's name
+   conditions refuse a write outside the lane's region and a network resource not named
+   `scarpenter-*`; that the project holds nothing else, its `CPUS` and `PREEMPTIBLE_CPUS` quotas
+   are no higher than the lane needs (24 and 4) and the budget alert reaches a person; that the
+   sweeper, with the real CI identity, deletes a dead run's instances, rules, subnetworks,
+   networks and policies, and the teardown finds a leftover disk; that the canary role reads what
+   the canary reads; and that `e2e-sweeper` and `e2e-canary` are limited to `main` and the
+   provider's attribute condition names only this repository and its environments. Until then
+   `make test-e2e-gcp-dryrun` works and the lane's selftest checks that the line is absent (the
+   list in `test/e2e-gcp/defaults.sh` is the same).
 6. **Sweeper** (`pkg/vendors/gcp/sweep`, as AWS): instances and disks by label cluster
    `scarpenter-ci-*` and age (over 2 hours), firewall rules, subnets, VPCs and resource
    policies by name prefix `scarpenter-scarpenter-ci-`, description marker and age, region
