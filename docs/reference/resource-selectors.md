@@ -237,6 +237,9 @@ cases are in `pkg/vendors` and run for every driver (plan 14, A10).
 
 ## Resolution, status and caching
 
+- **Without a `use`**, the opt-in step of the [resolution order](vendor-resources.md#resolution-order)
+  is this selector too: `tags: {scarpenter.sparecores.com/use: "true"}` (the key is encoded per vendor
+  like the other SCarpenter tags) with the kind's default `select`, for a kind that has tags or labels.
 - **Per region** (and per zone for zonal kinds with `{zone}`): the placeholders are expanded, the
   driver lists the kind with the server-side part of the selector, the matcher finishes it, `select`
   chooses.

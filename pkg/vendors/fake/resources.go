@@ -438,7 +438,8 @@ func (d *Driver) Default(ctx context.Context, kind vendors.ResourceKind, region 
 // DefaultSuits implements vendors.DefaultChecker: a default marked noIPv6
 // cannot honour publicIPv6.
 func (d *Driver) DefaultSuits(
-	ctx context.Context, kind vendors.ResourceKind, region string, defaults []vendors.ResourceRef, s vendors.VendorSettings,
+	ctx context.Context, kind vendors.ResourceKind, region string, defaults []vendors.ResourceRef,
+	s vendors.VendorSettings,
 ) (bool, string, error) {
 	if s.Networking.PublicIPv6 == nil || !*s.Networking.PublicIPv6 {
 		return true, "", nil

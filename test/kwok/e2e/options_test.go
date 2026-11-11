@@ -1009,7 +1009,9 @@ func s16Forbid(t *testing.T) {
 	createNodeClassWith(t, "s16-forbid", func(nc *v1alpha1.SCNodeClass) {
 		nc.Spec.Vendors.AWS.Resources = &awsapi.Resources{Subnets: &common.Resource{Forbid: true}}
 	}, noDefault, withDefault)
-	waitResourcesReady(t, "s16-forbid", metav1.ConditionFalse, []string{noDefault, "forbidden"}, withDefault)
+	// The failure names the kind and what was tried (ADR-022 step 5).
+	waitResourcesReady(t, "s16-forbid", metav1.ConditionFalse,
+		[]string{noDefault, "subnets", "tried", "opt-in tag", "the vendor's default: none", "creating it is forbidden"}, withDefault)
 	createNodePool(t, "s16-forbid", "s16-forbid", in(labelCapacity, "on-demand"))
 	mark := time.Now()
 	podWith(t, "s16-forbid-no", map[string]string{labelNodePool: "s16-forbid", labelRegion: noDefault, labelType: vendor + "." + types[0]}, nil)
@@ -1024,6 +1026,90 @@ func s16Forbid(t *testing.T) {
 	for _, c := range callsSince(t, mark, "") {
 		if c.Region == noDefault || (c.Kind == "subnets" && c.Op == "resource-ensure") {
 			t.Errorf("the fake was called for the forbidden region: %+v", c)
+		}
+	}
+}
+
+// statusResources returns the resources the class's status lists for the vendor.
+func statusResources(class string) []v1alpha1.ResourceStatus {
+	nc := &v1alpha1.SCNodeClass{}
+	if err := k8s.Get(ctx(), client.ObjectKey{Name: class}, nc); err != nil {
+		return nil
+	}
+	return nc.Status.Vendors[vendor].Resources
+}
+
+// waitSource waits until the status lists the resource of the kind in the region with the
+// source, and returns it; id "" accepts any resource of the kind there.
+func waitSource(t *testing.T, class, kind, region, id string, source v1alpha1.ResourceSource) v1alpha1.ResourceStatus {
+	t.Helper()
+	var got v1alpha1.ResourceStatus
+	eventually(t, 3*time.Minute, 2*time.Second, fmt.Sprintf("%s in %s with the source %s", kind, region, source), func() (bool, string) {
+		list := statusResources(class)
+		for _, r := range list {
+			if r.Kind == kind && r.Region == region && (id == "" || r.ID == id) && r.Source == source {
+				got = r
+				return true, ""
+			}
+		}
+		return false, fmt.Sprintf("%+v", list)
+	})
+	return got
+}
+
+// S16b: the resolution order (ADR-022): without use or create, a resource tagged for
+// SCarpenter wins over the vendor's default, the default is used when nothing is tagged,
+// a default that cannot honour publicIPv6 is skipped for a created resource, and the
+// status says which step produced each resource.
+func TestS16bResolutionOrder(t *testing.T) {
+	tagged := map[string]string{useTag: "true"}
+	tag, noIPv6 := "ap-northeast-1", "ap-northeast-2"
+	types := takeTypes(t, []string{tag, noIPv6}, 2, 2)
+	steer := func(withTagged bool) {
+		items := []string{
+			fmt.Sprintf("- {kind: subnets, region: %s, id: subnet-default-a, default: true}", tag),
+			fmt.Sprintf("- {kind: subnets, region: %s, id: subnet-default-b, default: true, noIPv6: true}", noIPv6),
+		}
+		if withTagged {
+			items = append(items, subnetEntry(tag, "subnet-tagged-a", tagged))
+		}
+		setFake(t, map[string]string{"existingResources": existing(items...)})
+	}
+	steer(true)
+	t.Cleanup(func() { setFake(t, map[string]string{"existingResources": "[]\n"}) })
+	createNodeClassWith(t, "s16-order", func(nc *v1alpha1.SCNodeClass) {
+		nc.Spec.Networking.PublicIPv6 = new(true)
+	}, tag, noIPv6)
+	waitResourcesReady(t, "s16-order", metav1.ConditionTrue, nil)
+	createNodePool(t, "s16-order", "s16-order", in(labelCapacity, "on-demand"))
+
+	// The tagged subnet beats the default; the default of the other region cannot honour
+	// publicIPv6, so it is not reported and nothing is created until a launch needs it.
+	waitSource(t, "s16-order", "subnets", tag, "subnet-tagged-a", v1alpha1.ResourceSourceDiscovered)
+	for _, r := range statusResources("s16-order") {
+		if r.ID == "subnet-default-a" || r.ID == "subnet-default-b" {
+			t.Errorf("the status lists the default %+v although a tagged subnet exists or the default cannot honour publicIPv6", r)
+		}
+	}
+	podWith(t, "s16-order-tag", map[string]string{labelNodePool: "s16-order", labelRegion: tag, labelType: vendor + "." + types[0]}, nil)
+	inst := instanceOfNode(t, waitPodRunning(t, "s16-order-tag", long))
+	if !slices.Contains(inst.Resources, "subnet-tagged-a") || slices.Contains(inst.Resources, "subnet-default-a") {
+		t.Errorf("the instance in %s uses %v, want the tagged subnet and not the default", tag, inst.Resources)
+	}
+	podWith(t, "s16-order-v6", map[string]string{labelNodePool: "s16-order", labelRegion: noIPv6, labelType: vendor + "." + types[1]}, nil)
+	inst = instanceOfNode(t, waitPodRunning(t, "s16-order-v6", long))
+	made := managedOfClass(t, "subnets", noIPv6, "s16-order")
+	if len(made) != 1 || !slices.Contains(inst.Resources, made[0].ID) || slices.Contains(inst.Resources, "subnet-default-b") {
+		t.Fatalf("the instance in %s uses %v, want the created subnet %+v and not the default without IPv6", noIPv6, inst.Resources, made)
+	}
+	waitSource(t, "s16-order", "subnets", noIPv6, made[0].ID, v1alpha1.ResourceSourceCreated)
+
+	// The tag is removed: the default of the region takes over, as a default.
+	steer(false)
+	waitSource(t, "s16-order", "subnets", tag, "subnet-default-a", v1alpha1.ResourceSourceDefault)
+	for _, r := range statusResources("s16-order") {
+		if r.ID == "subnet-tagged-a" {
+			t.Errorf("the untagged subnet is still listed: %+v", r)
 		}
 	}
 }

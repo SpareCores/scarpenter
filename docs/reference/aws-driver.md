@@ -291,8 +291,11 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
   finishes the rest and chooses (`select`, default `all`). In each zone the launch takes the matching subnet
   with the most free addresses (cached 5 minutes); a zone without one is
   `ZoneUnusable` (`NoSubnetInZone`), and a `{zone}` pattern with no match in a zone
-  gates only that zone. Without `use`, the default VPC's default subnets are used
-  as found and never modified. The **managed network** is one resource, the VPC
+  gates only that zone. Without `use` (and without `create`) the [resolution
+  order](vendor-resources.md#resolution-order) runs: subnets tagged `scarpenter.sparecores.com/use=true`
+  (all of them, in every VPC), then the default VPC's default subnets as found and never modified
+  (`Default`; skipped for `publicIPv6` when any of them lacks an IPv6 CIDR block, `DefaultSuits`),
+  then the managed network. Security groups and placement groups have no default. The **managed network** is one resource, the VPC
   (`10.240.0.0/16`, tagged with the ownership marker), with a `/20` public subnet
   per usable zone, an attached internet gateway and a route table with
   `0.0.0.0/0` to it associated with every subnet. Each part carries the marker from
@@ -353,7 +356,9 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
     `Ensure`; while EC2 is still associating the block `Ensure` fails `Retryable`
     (`VpcIPv6Pending`). Deleting the subnets and the VPC releases the IPv6 parts.
   - The account's **default VPC** has no IPv6 until the user associates one. With
-    `publicIPv6` a zone whose subnets (default or `use`) have no IPv6 CIDR block is
+    `publicIPv6` the default subnets are skipped, so without `use` the managed network (which has
+    IPv6) is created instead. A zone whose subnets that `use` or the opt-in tag brought have
+    no IPv6 CIDR block is
     unavailable, with the reason in the resource status (`ResourcesReady` reports the
     zone; a region where no zone qualifies is not ready), and a launch is refused for
     that zone before the call. Where both kinds of subnet exist in a zone the one with

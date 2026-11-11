@@ -169,7 +169,8 @@ func (d *Driver) Default(ctx context.Context, kind vendors.ResourceKind, region 
 // publicIPv6 only if every one of them has an IPv6 CIDR block (a default VPC
 // usually has none: SCarpenter then creates its own network, which has).
 func (d *Driver) DefaultSuits(
-	ctx context.Context, kind vendors.ResourceKind, region string, defaults []vendors.ResourceRef, s vendors.VendorSettings,
+	ctx context.Context, kind vendors.ResourceKind, region string, defaults []vendors.ResourceRef,
+	s vendors.VendorSettings,
 ) (bool, string, error) {
 	if kind != KindSubnets || !boolOr(s.Networking.PublicIPv6, false) {
 		return true, "", nil

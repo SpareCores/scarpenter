@@ -70,7 +70,8 @@ func (e *Engine) Check(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor str
 		return rep
 	}
 	drv, _ := e.opts.Registry.Driver(vendor)
-	c := &checker{e: e, nc: nc, vendor: vendor, drv: drv, mr: mr, kinds: kinds, cfgs: cfgs, rep: &rep, seen: map[string]bool{},
+	c := &checker{e: e, nc: nc, vendor: vendor, drv: drv, mr: mr, kinds: kinds, cfgs: cfgs, rep: &rep,
+		seen: map[string]bool{},
 		refs: map[vendors.ResourceKind][]vendors.ResourceRef{}}
 	for _, region := range regions {
 		c.zones = nil

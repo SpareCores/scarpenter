@@ -104,11 +104,15 @@ func (e *Engine) discover(ctx context.Context, in orderIn) ([]vendors.ResourceRe
 	var refs []vendors.ResourceRef
 	var err error
 	if d, ok := in.drv.(vendors.ResourceDiscoverer); ok {
-		refs, err = e.cached(fmt.Sprintf("%s/%s/%s/discover", in.vendor, in.spec.Kind, in.region), func() ([]vendors.ResourceRef, error) {
+		key := fmt.Sprintf("%s/%s/%s/discover", in.vendor, in.spec.Kind, in.region)
+		refs, err = e.cached(key, func() ([]vendors.ResourceRef, error) {
 			return d.Discover(ctx, in.spec.Kind, in.region)
 		})
 	} else {
-		ref := vendors.UseRef{Tags: map[string]string{in.drv.TagKey(vendors.TagUse): vendors.OptInValue}, Select: caps.DefaultSelect}
+		ref := vendors.UseRef{
+			Tags:   map[string]string{in.drv.TagKey(vendors.TagUse): vendors.OptInValue},
+			Select: caps.DefaultSelect,
+		}
 		in.constrain(&ref, caps)
 		refs, err = e.resolve(ctx, in.mr, in.vendor, in.spec.Kind, in.region, ref)
 	}
@@ -134,7 +138,8 @@ func (e *Engine) vendorDefault(ctx context.Context, in orderIn) ([]vendors.Resou
 	if !ok {
 		return nil, "no vendor default for " + string(in.spec.Kind), nil
 	}
-	refs, err := e.cached(fmt.Sprintf("%s/%s/%s/default", in.vendor, in.spec.Kind, in.region), func() ([]vendors.ResourceRef, error) {
+	key := fmt.Sprintf("%s/%s/%s/default", in.vendor, in.spec.Kind, in.region)
+	refs, err := e.cached(key, func() ([]vendors.ResourceRef, error) {
 		return d.Default(ctx, in.spec.Kind, in.region)
 	})
 	if err != nil {

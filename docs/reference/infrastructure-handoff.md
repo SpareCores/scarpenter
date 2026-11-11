@@ -8,7 +8,8 @@ equal. Whatever creates the resources passes them to SCarpenter in one way, the
 `resources.<kind>`, each with `use`: one selector, the same for every kind and vendor
 ([Resource selectors](resource-selectors.md)). Your tool renders or templates that block
 (an example is [below](#example-a-nodeclass-fragment-your-iac-can-render)); the
-CRD schema and examples it renders against are published with the API reference.
+CRD, a JSON Schema of the `SCNodeClass` and example NodeClasses it renders against are
+[published with every release](#published-schema-and-examples).
 
 The design is ADR-018 (vendor resources), ADR-022 (resolution order), ADR-023 (the selector) and
 [ADR-021](../explanation/DECISIONS.md#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10)
@@ -16,11 +17,11 @@ The design is ADR-018 (vendor resources), ADR-022 (resolution order), ADR-023 (t
 [Bring your own vendor resources](../how-to-guides/bring-your-own-resources.md);
 where the images come from is in [Flatcar images](../explanation/flatcar-images.md).
 
-Status of this page: only the `aws` driver exists today; every other vendor block
+Status of this page: only the `aws` driver is wired to a vendor today; every other vendor block
 is a plan ([`../plans/v1/wip/`](../plans/v1/wip/)), written from research on
-2026-11-10, and its kinds and fields may change when the driver is written. Parts
-that [plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) adds are marked
-*planned*.
+2026-11-10, and its kinds and fields may change when the driver is written. The core's
+resolution order, the `source` in the status and the published schema exist for every driver; what
+a vendor's section marks *planned* (its tagged discovery, its default) arrives with its driver.
 
 ## Table of Contents
 
@@ -28,6 +29,8 @@ that [plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) adds are marked
 - [The `use` selector](#the-use-selector)
 - [Without `use`](#without-use)
 - [Example: a NodeClass fragment your IaC can render](#example-a-nodeclass-fragment-your-iac-can-render)
+- [Published schema and examples](#published-schema-and-examples)
+- [The controller's identity](#the-controllers-identity)
 - [Images](#images)
 - [aws](#aws)
 - [gcp](#gcp)
@@ -76,8 +79,10 @@ allowed (subnets): keep resources apart as above.
 For a kind with neither `use` nor `create`, per region (ADR-022, details in
 [Vendor resources](vendor-resources.md#resolution-order)):
 
-1. resources tagged `scarpenter.sparecores.com/use: "true"` (*planned*; the same as a `tags` selector with
-   the kind's default `select`; vendors without tags or labels skip it);
+1. resources tagged `scarpenter.sparecores.com/use: "true"` (the same as a `tags` selector with
+   the kind's default `select`; the key is encoded like the other SCarpenter tags, `scarpenter-use`
+   where `/` is not allowed, and is reserved; a kind without tags or labels skips it; more than the
+   default `select` allows fails, it does not fall through);
 2. the vendor's own default where it exists and is safe for the request (AWS default
    VPC and subnets, GCP `default` network, Alibaba default VPC and vSwitches);
 3. a resource SCarpenter creates and owns, with a lifecycle, where the credentials
@@ -85,8 +90,11 @@ For a kind with neither `use` nor `create`, per region (ADR-022, details in
 4. otherwise `ResourcesReady=False` naming the kind, the region and what was tried;
    nothing is launched there.
 
-An explicit `use` skips all of this, and one that matches nothing (or too much for `select`) fails. Images are
-never created by SCarpenter.
+An explicit `use` skips all of this, and one that matches nothing (or too much for `select`) fails. An
+explicit `create` skips steps 1 and 2. Kinds that live in a network (AWS security groups) are
+resolved inside the network the subnets resolved to. The status says which step produced each
+resource (`status.vendors.<vendor>.resources[].source`: `use`, `discovered`, `default` or
+`created`). Images are never created by SCarpenter.
 
 ## Example: a NodeClass fragment your IaC can render
 
@@ -117,6 +125,48 @@ maps its outputs to the `ids` maps (or tags its resources and emits a `tags` sel
 values file, or a hand-written manifest.
 A tool that only creates and tags resources can skip the NodeClass part and rely on
 the opt-in tag. The same shape holds for every vendor; only the kinds differ.
+
+## Published schema and examples
+
+Everything a tool needs to render a NodeClass and check it without a cluster comes with every
+release (the GitHub release assets), generated from the same API types as the CRD, so it never
+drifts:
+
+| File | What it is |
+|---|---|
+| `scnodeclass-crd.yaml` | the CRD, with its validation and defaults: `kubectl apply --dry-run=server` against a cluster that has it checks everything, the CEL rules included |
+| `scnodeclass.schema.json` | the JSON Schema (draft 2020-12) of the `SCNodeClass`, for validating the rendered object offline in any language (`docs/reference/schema/scnodeclass.schema.json` in the repository, written by `make docs-api`). It rejects unknown fields as the API server prunes them, so a misspelt `use` field is an error; it cannot express the CEL rules ("at least one of ids, name, tags, ..."), which the API server enforces |
+| `scarpenter-examples-<version>.tgz` | the files of [`docs/examples`](../examples): `aws-minimal.yaml` (nothing named: the resolution order does the work), `aws-opt-in-tags.yaml` (a tool that only tags), `aws-bring-your-own.yaml` (`ids` per region, `name`, `tags`, `match.within` for a plan of addresses), `aws-managed.yaml` (`create` with lifecycles) and `qemu.yaml` |
+
+The vendor blocks of the other vendors are in the schema as their API types land, and each gets an
+example then. Every example is checked in CI: the API server accepts it (with the generated CRD), it
+validates against the JSON Schema, and the driver accepts what each `use` names (its selector
+declaration). `match.cidr` (the range equals it) and `match.within` (the range lies inside it) are
+the way to pick networks and subnets by a plan of addresses: equality is sent to the vendor where it
+can filter by range (AWS `cidr-block`), containment is always checked by the client, and a kind
+without a range rejects both.
+
+## The controller's identity
+
+SCarpenter creates no identity in your account: the role, service account or token it runs as is
+yours to create, with the permissions below, by any means. The credentials go in the vendor block or
+the controller's flags; the how-to guides carry the steps for the console or the CLI. What each vendor
+needs, in neutral terms:
+
+| Vendor | You create |
+|---|---|
+| aws | the IAM role (web identity) and its policy ([`aws-iam-policy.json`](aws-iam-policy.json)) |
+| gcp | the workload identity pool and provider, the service account with the custom role, and the Cloud Quotas permission if quota spikes need it |
+| azure | the user-assigned managed identity, its federated credential, the custom role and its assignment, and the registered resource providers (`Microsoft.Compute`, `Microsoft.Network`, `Microsoft.MarketplaceOrdering`) |
+| hcloud | a separate read-write token of the project, as a Secret |
+| ovh | a dedicated service account with an IAM policy on the project, and the `nodes` group's rules for `Ext-Net` nodes (or `tailscale` only) |
+| upcloud | a token (sub-account) that sees the templates and networks you created |
+| vultr | the API key with the minimal ACLs and the controller's egress address in its allowlist |
+| alicloud | the RAM OIDC identity provider and role; the vSwitch size (a /25 allows about 120 nodes per zone) |
+
+The images of rung 3 are created by your own tooling or a CI job, never by SCarpenter. The real-cloud
+(e2e) lane of a vendor lists what its CI account needs in the same neutral terms, in the vendor's
+plan, and the account is created the same way.
 
 ## Images
 
@@ -162,7 +212,7 @@ node's role; the account is the one of the credentials. Defaults: the default VP
 | `securityGroups` | one security group ID per region for nodes | `ids`, `name`, `tags`, `match` (`network`: the subnets' VPC, `description`), `filters`; with it `networking.inbound` and `isolation: nodeclass` rules do not apply (the run-isolation group is still added) |
 | `placementGroups` | nothing; referenced from placement profiles | `name` in the profile |
 
-Without `use`: tagged subnets (*planned*), then the default VPC's default subnets
+Without `use`: tagged subnets, then the default VPC's default subnets
 (skipped when the request needs what they cannot give, for example `publicIPv4: false`
 or IPv6 on a VPC without it), then a managed VPC, subnet and security group, else a
 stated failure.

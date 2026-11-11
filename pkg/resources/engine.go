@@ -356,6 +356,65 @@ func (e *Engine) cached(key string, fn func() ([]vendors.ResourceRef, error)) ([
 	return refs, err
 }
 
+// errNoMatch marks the verdict that a reference matches nothing in the region (or in
+// the network of the launch), with the reason.
+var errNoMatch = errors.New("no match")
+
+// resolveUse resolves a reference for a launch, within the launch's networks. A
+// reference that selects nothing wraps errNoMatch.
+func (e *Engine) resolveUse(
+	ctx context.Context, in orderIn, ref vendors.UseRef, req vendors.ResourceRequest,
+) ([]vendors.ResourceRef, error) {
+	refs, err := e.resolve(ctx, in.mr, in.vendor, req.Kind, in.region, ref)
+	var none error
+	switch {
+	case isSelection(err):
+		none = err
+	case err != nil:
+		return nil, err
+	case len(refs) == 0:
+		none = fmt.Errorf("nothing matches %s", describe(ref))
+	}
+	if none == nil {
+		if refs = in.inNetworks(refs); len(refs) == 0 {
+			none = fmt.Errorf("nothing matches %s%s", describe(ref), networkNote(in.networks))
+		}
+	}
+	if none != nil {
+		return nil, fmt.Errorf("%w: no %s in %s: %v", errNoMatch, req.Kind, in.region, none)
+	}
+	return refs, nil
+}
+
+// missingUse is the error of a reference that matches nothing. gate says whether
+// that makes the whole region unavailable: not a reference of a profile (it
+// concerns that placement only), not a per-zone pattern (the other zones of the
+// region are fine), and not a constraint of the launch's network (the launch's
+// zone only).
+func (e *Engine) missingUse(
+	nc *v1alpha1.SCNodeClass, in orderIn, cause error, gate bool, zone, launchZone, reqZone string,
+	fail func(error) error,
+) error {
+	err := missing("%s", strings.TrimPrefix(cause.Error(), errNoMatch.Error()+": "))
+	if gate && len(in.networks) == 0 {
+		return fail(err)
+	}
+	if zone == "" && len(in.networks) > 0 {
+		zone = reqZone
+		if zone == "" {
+			zone = launchZone
+		}
+	}
+	if zone != "" {
+		// Only this zone lacks the resource.
+		e.setZoneMissing(nc.Name, in.vendor, in.region, zone, err.Error())
+	}
+	if zone != "" || len(in.networks) > 0 {
+		return vendors.NewError(vendors.Unsupported, vendors.CodeResourceMissingInZone, err)
+	}
+	return err
+}
+
 func (e *Engine) require(
 	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor, region, launchZone string, req vendors.ResourceRequest,
 ) ([]vendors.ResourceRef, error) {
@@ -389,48 +448,15 @@ func (e *Engine) require(
 	}
 	in := orderIn{nc: nc, drv: drv, mr: mr, vendor: vendor, spec: spec, region: region, settings: req.Settings,
 		networks: networks}
-	// gate says whether a missing reference makes the whole region unavailable:
-	// not a reference of a profile (it concerns that placement only), not a
-	// per-zone pattern (the other zones of the region are fine), and not a
-	// constraint of the launch's network (the launch's zone only).
 	useRef := func(ref vendors.UseRef, gate bool, zone string) ([]vendors.ResourceRef, error) {
-		refs, err := e.resolve(ctx, mr, vendor, req.Kind, region, ref)
-		var none error
-		switch {
-		case isSelection(err):
-			none = err
-		case err != nil:
-			return nil, err
-		case len(refs) == 0:
-			none = fmt.Errorf("nothing matches %s", describe(ref))
+		refs, err := e.resolveUse(ctx, in, ref, req)
+		if err == nil {
+			return refs, nil
 		}
-		if none == nil {
-			if refs = in.inNetworks(refs); len(refs) == 0 {
-				none = fmt.Errorf("nothing matches %s%s", describe(ref), networkNote(networks))
-			}
-		}
-		if none != nil {
-			err := missing("no %s in %s: %v", req.Kind, region, none)
-			if gate && len(networks) == 0 {
-				return nil, fail(err)
-			}
-			if zone == "" && len(networks) > 0 {
-				zone = req.Zone
-				if zone == "" {
-					zone = launchZone
-				}
-			}
-			if zone != "" {
-				// Only this zone lacks the resource.
-				e.setZoneMissing(nc.Name, vendor, region, zone, err.Error())
-				return nil, vendors.NewError(vendors.Unsupported, vendors.CodeResourceMissingInZone, err)
-			}
-			if len(networks) > 0 {
-				return nil, vendors.NewError(vendors.Unsupported, vendors.CodeResourceMissingInZone, err)
-			}
+		if !errors.Is(err, errNoMatch) {
 			return nil, err
 		}
-		return refs, nil
+		return nil, e.missingUse(nc, in, err, gate, zone, launchZone, req.Zone, fail)
 	}
 
 	switch {

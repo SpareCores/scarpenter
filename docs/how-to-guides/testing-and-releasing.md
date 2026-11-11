@@ -242,7 +242,7 @@ stamps the binary, the chart is packaged with the tag as `version` and `appVersi
    `hack/dev.sh hack/release.sh dry-run v0.2.0-rc.1` locally, or Actions, "Release", Run
    workflow with `dryRun: true`: builds both images for amd64 and arm64 without pushing, checks the
    production image has no development driver flags and reports the stamped version, and packages
-   and lints the chart. Nothing is published and no cloud is touched.
+   and lints the chart and the schema files. Nothing is published and no cloud is touched.
 3. **Tag the commit on `main` and push the tag.**
    `git tag -s v0.2.0 <commit> && git push origin v0.2.0`. A tag ruleset on `v*`
    (repository settings) bounds who can do this.
@@ -262,8 +262,11 @@ stamps the binary, the chart is packaged with the tag as `version` and `appVersi
      second approval before the first push): the controller and development images for
      both architectures, SBOM and provenance, cosign signatures by digest. `chart` packages
      the chart with the version and pushes it to `oci://ghcr.io/sparecores/charts`, signed.
-     `release` creates the GitHub release with notes, the chart package and the SBOMs
-     (pre-release for a tag with a suffix, which does not move `latest`).
+     `schema` packs the CRD, the JSON Schema of the `SCNodeClass` and the example
+     NodeClasses (`hack/release.sh package-schema`; files only). `release` creates the GitHub
+     release with notes, the chart package, the SBOMs and those files
+     ([published schema and examples](../reference/infrastructure-handoff.md#published-schema-and-examples);
+     pre-release for a tag with a suffix, which does not move `latest`).
 5. **If the gate fails**, nothing was published. Fix on `main`, and tag the next version (or
    the next `-rc.N`): do not move or reuse a tag. Re-running the failed jobs of the same run
    is right for a flake (a spot capacity error, an infrastructure hiccup that the diagnostics

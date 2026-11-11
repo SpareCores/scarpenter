@@ -122,12 +122,34 @@ For each kind, in each region (steps 2 to 4 only for a kind without `use`):
 An explicit `create` skips steps 2 and 3. Kinds that live in a network (subnets,
 security groups) are resolved within the network that was resolved, whichever step found it.
 
-**Today and planned.** The AWS driver implements 1, 3, 4 and 5: `Resolve` with an empty
-reference returns the default VPC's subnets, then `Ensure` creates (the AWS e2e lane
-launches into the default VPC). Discovery (step 2) is not implemented: today the
-same tag works only as an explicit `tags` selector. [Plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md)
-adds step 2 and the whole order to the core, with per-driver hooks (which kinds have
-a default, how a default is checked against the request) and conformance cases.
+**How it runs.** The core runs the order for a launch and for the status check alike
+(`pkg/resources/order.go`), per vendor, kind and region, and records which step produced each
+resource in the status (`source`). Only regional kinds (`scope: region`) are discovered or have a
+default: a per-run or per-node kind (placement groups, separate volumes) is `use`, `create` or
+created. A step that finds nothing goes on; a step that errors stops the order. A vendor error is
+`CheckFailed` (the last verdict stays) and a launch fails with the vendor's class, never "fall
+through to create"; an opt-in that is ambiguous for the kind's `select` is the failure of step 5.
+The drivers add three optional hooks (below): the AWS driver has defaults for `subnets` (the default
+VPC's default subnets, skipped for `publicIPv6` when any of them lacks an IPv6 CIDR block, so the
+managed network, which has IPv6, is created instead) and the qemu driver for `networks` (the
+`--qemu-bridge` bridge). The other vendors' drivers declare their defaults, if any, with their
+`ManagedResources` implementation.
+
+A kind that lives in a network (`KindSpec.InNetwork`: AWS security groups live in the network of
+the subnets) is resolved after it and only inside the networks it resolved to, whichever step
+found them: the core adds `match.network` to the selector of steps 1 and 2 where the driver declares
+it (an explicit `match.network` of the NodeClass is kept) and filters a default by the network the
+driver reports on each resource. At a launch the driver names the network it chose
+(`ResourceRequest.Network`: the VPC of the subnet), and a resource outside it skips that zone
+only. While the network does not exist yet (a managed one is created on demand) nothing constrains
+the dependent kind.
+
+The failure of step 5 names the kind and what was tried, for a launch and the status condition
+alike: `subnets: no resource found; tried the opt-in tag scarpenter.sparecores.com/use=true: nothing
+is tagged; the vendor's default cannot honour the request: publicIPv6 needs an IPv6 CIDR block and
+the default subnets subnet-0a1 have none; creating it is forbidden`. A launch's error names the
+region too. Nothing half-created is left behind: a creation that fails midway is adopted and
+completed by the next attempt (`Ensure` is idempotent).
 
 ## Lifecycles
 
@@ -196,8 +218,8 @@ The vendor status `status.vendors.<vendor>` holds:
 
 - `resources`: the resources referenced and managed, per region (`kind`,
   `region`, `id`, `name`, `managed`; `lastUsed` for managed ones, `message` for a
-  deletion that failed; `source`: `use`, `discovered`, `default` or `created` comes with
-  the resolution order of [plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) B3).
+  deletion that failed; `source`: the step of the [resolution order](#resolution-order) that
+  produced the resource, `use`, `discovered`, `default` or `created`).
   At most 128 entries, in the order kind, region, ID. A `use` with `select: all` lists
   every match, so many regions with many subnets can reach the cap; the list is then cut
   at 128 and `resourceCounts` (`kind`, `region`, `count`) says how many resources there
@@ -275,10 +297,16 @@ machine lost them, and deleted only while no VM is attached.
 
 `vendors.ManagedResources`: `Kinds`, `Resolve` (existing resources by the selector, `UseRef`: IDs, name, tags, `match`,
 `filters`, `expression`, `select` and `orderBy`, placeholders already expanded; an empty
-reference means the vendor's default; a selector that selects nothing, or too much, is
+reference selects nothing; a selector that selects nothing, or too much, is
 a typed `NoMatch` or `Ambiguous` error with the counts), `Selectors` (what the driver
 supports of the selector per kind, and on which side), `Ensure` (find by name and marker, else create; idempotent;
 reports whether it created), `InUse` (in use now, and the last use or creation),
 `Delete` (idempotent; refuses resources that are not managed; a resource the
-vendor will not delete is `Retryable`) and `List` (by marker, per region). See
+vendor will not delete is `Retryable`) and `List` (by marker, per region). Optional hooks, all with a no-op default:
+`ResourceDefaults.Default` (the vendor's own default resources of a kind, none when it has none:
+step 3), `DefaultChecker.DefaultSuits` (whether the default honours the settings of the request;
+`false` skips it with a reason, never degrades the request) and `ResourceDiscoverer.Discover`
+(an override of step 2; without it the core runs the selector `tags: {<opt-in key>: "true"}` with
+the kind's default `select` through `Resolve`, and skips the step for a kind whose declaration has no
+tags). See
 [the driver contract](driver-contract.md#node-options-and-vendor-resources).

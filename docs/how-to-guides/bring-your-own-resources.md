@@ -66,8 +66,8 @@ deleted, and the run key then only keeps NodeClaims apart.
 ## What happens without `use`
 
 With neither `use` nor `create` for a kind, SCarpenter tries, in order: resources
-you tagged `scarpenter.sparecores.com/use: "true"` (where the vendor has tags;
-planned, see [Vendor resources](../reference/vendor-resources.md#resolution-order));
+you tagged `scarpenter.sparecores.com/use: "true"` (where the vendor has tags; see
+[Vendor resources](../reference/vendor-resources.md#resolution-order));
 the vendor's own default where it exists and can honour your settings (the AWS
 default VPC and its subnets, GCP's `default` network); a resource it creates
 itself; else it reports what it tried in `ResourcesReady` and launches nothing. To

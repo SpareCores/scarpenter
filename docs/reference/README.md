@@ -48,5 +48,6 @@ Available:
 
 - [**Infrastructure hand-off**](infrastructure-handoff.md) — the IaC-neutral
   contract: what you provide per vendor, by the [selector](resource-selectors.md) (resource
-  kinds and `use` forms, account scope and credentials, Flatcar images), and what
-  SCarpenter does without it (plan 14).
+  kinds and `use` forms, account scope and credentials, Flatcar images), what
+  SCarpenter does without it, the published CRD, [JSON Schema](schema/scnodeclass.schema.json) and
+  [examples](../examples), and what the controller's identity needs per vendor (plan 14).

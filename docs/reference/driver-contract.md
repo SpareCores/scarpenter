@@ -176,13 +176,39 @@ rebuilds.
 uses must show as in use (`InUse`) while its instance lives, so the garbage
 collector never deletes it; deleting one that is in use is refused (`Retryable`).
 
+### The resolution order and its hooks
+
+The core resolves each kind in each region in the order of ADR-022 (explicit `use`, the opt-in tag, the
+vendor's default, create, a failure; [vendor resources](vendor-resources.md#resolution-order)). A driver
+takes part through optional capabilities on the driver value, none required:
+
+- `ResourceDefaults.Default(kind, region)`: the vendor's own default resources of a regional kind (AWS: the
+  default VPC's default subnets; qemu: the `--qemu-bridge` bridge), or none. Never modified or deleted.
+- `DefaultChecker.DefaultSuits(kind, region, defaults, settings)`: whether the default can honour the
+  settings (ADR-017: a default firewall that cannot isolate runs or restrict inbound rules, a default network
+  without IPv6, `publicIPv4: false`). `false` with a reason skips the default; the order goes on to creation
+  and never degrades the request. An error is the vendor's and stops the order.
+- `ResourceDiscoverer.Discover(kind, region)`: only for a driver that cannot express the opt-in selector.
+  Without it the core builds `tags: {<opt-in key>: "true"}` with the kind's default `select`, where the
+  opt-in key is `Driver.TagKey(vendors.TagUse)` (`scarpenter.sparecores.com/use`, `scarpenter-use` where `/` is
+  not allowed; reserved, and not one of `TagKeys`: instances do not carry it), and runs it through `Resolve`. A
+  kind whose `Selectors()` declaration has no tags skips the step.
+- `KindSpec.InNetwork` names the kind that provides the network a kind lives in (AWS security groups: `subnets`);
+  the driver sets `ResourceRef.Network` on what it returns (a subnet's VPC, a group's VPC, a managed network's
+  own ID), and a launch names the network it chose in `ResourceRequest.Network`. `ResourceRequest.Settings`
+  carries the launch's resolved settings for `DefaultSuits`; without it the core asks about the NodeClass's
+  default settings.
+
+The failure and the order's rules (a vendor error stops it, an ambiguous opt-in fails, the sources recorded in
+the status) belong to the core: a driver reports what it found and writes no policy.
+
 ### The `use` selector
 
 `Resolve(kind, region, ref)` takes a `vendors.UseRef`: the NodeClass's `use`
 ([resource selectors](resource-selectors.md)) for one region and zone, with the IDs of the region
 gathered (the key `*` and the region's own), every string's placeholders expanded and `select`
-defaulted from the declaration. A default `UseRef` (nothing that selects) asks for the vendor's own
-default resource, as before. For anything else the driver does the vendor call and then
+defaulted from the declaration. An empty `UseRef` selects nothing (the driver returns a `Fatal` error): the vendor's
+own default resources are `Default`'s, below. The driver does the vendor call and then
 `selector.Apply` (package `pkg/vendors/selector`); it writes no matching of its own:
 
 - It asks the vendor for what the vendor can filter (the server-side part), and passes a `Fields`
@@ -272,11 +298,18 @@ a kind without a creation time, an empty `use`); fields are ANDed; `ids` are AND
 missing ID does not fail the others and is named, an ID that does not match is named; `*` under `ids`
 is every region; zero matches and two matches under `exactlyOne` are `NoMatch` and `Ambiguous` with the
 counts; `newest`, `oldest` and a tie (by name in natural order, by label, by creation time); `{zone}` per
-zone; glob escapes; tags `"*"`; the CIDR attributes; and, for the fake driver, the same assertions with the
+zone; glob escapes; tags `"*"`; the CIDR attributes (a fixture with two ranges resolves the right one by `cidr`
+and by `within`, and a kind without a range rejects both); and, for the fake driver, the same assertions with the
 vendor evaluating the selector exactly, narrowing to a superset, or not at all
 (`conformance.RunSelectors`).
 For a driver that declares the `images` kind with a `SeedImage` hook the [image cases](#images) (explicit IDs, both
 architectures, the version check, ordering, placeholders, the default image).
+For `ManagedResources` with `Seed`, `OrderClass` and `SetDefault` hooks, the resolution order behind the core's engine:
+explicit `use` beats the opt-in tag beats the default beats create; an explicit `use` that matches nothing fails and
+does not fall through; an explicit `create` skips discovery and the default; a default that cannot honour
+`publicIPv6` is skipped; `forbid` ends at a failure that names the kind, the region and the steps; a creation
+interrupted midway (`FailCreate`) is adopted and completed by the next pass; a kind that lives in a network resolves
+only within it. `TagKey(TagUse)` must be non-empty for every driver (`identity`).
 For `NodeOptions`: the defaults decode and match `RootDiskBytes`, and `RootDiskForType` is deterministic and positive when it answers; for the
 fixture's sample `Profiles` and `ProfileTypes`, `Supported` is deterministic,
 returns only defined profiles and nothing without profiles, and every supported

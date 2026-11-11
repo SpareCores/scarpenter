@@ -59,7 +59,8 @@ func newOrder(t *testing.T, e *env) *order {
 	if !ok || e.fx.OrderClass == nil || e.fx.Seed == nil || e.fx.SetDefault == nil || e.fx.ResourceKind == "" {
 		t.Skip("the fixture has no OrderClass, SetDefault and Seed, or the driver no managed resources")
 	}
-	o := &order{t: t, e: e, kind: e.fx.ResourceKind, mr: mr, optIn: map[string]string{e.d.TagKey(vendors.TagUse): vendors.OptInValue}}
+	o := &order{t: t, e: e, kind: e.fx.ResourceKind, mr: mr,
+		optIn: map[string]string{e.d.TagKey(vendors.TagUse): vendors.OptInValue}}
 	o.engine = resources.New(resources.Options{Registry: vendors.NewRegistryFrom(e.d), ClusterName: clusterName})
 	return o
 }
@@ -84,9 +85,9 @@ func (o *order) check(nc *v1alpha1.SCNodeClass) resources.Report {
 	return o.engine.Check(o.t.Context(), nc, o.e.d.Vendor(), []string{o.e.region})
 }
 
-func (o *order) seedTagged(name string) vendors.ResourceRef {
+func (o *order) seedTagged() vendors.ResourceRef {
 	o.t.Helper()
-	return o.e.fx.Seed(o.t, o.e.d, o.kind, o.e.region, SeedSpec{Name: name, Tags: o.optIn})
+	return o.e.fx.Seed(o.t, o.e.d, o.kind, o.e.region, SeedSpec{Name: "order-tagged", Tags: o.optIn})
 }
 
 func (o *order) setDefault(state DefaultState) {
@@ -148,12 +149,13 @@ func resolutionOrder(t *testing.T, e *env) {
 
 func explicitBeatsTaggedBeatsDefault(t *testing.T, o *order) {
 	o.setDefault(DefaultPresent)
-	tagged := o.seedTagged("order-tagged")
+	tagged := o.seedTagged()
 	named := o.e.fx.Seed(t, o.e.d, o.kind, o.e.region, SeedSpec{Name: "order-explicit", Tags: map[string]string{"x": "y"}})
 	nc := o.class(&common.Resource{Use: &common.ResourceUse{Name: "order-explicit"}}, false)
 	refs, err := o.require(nc, vendors.ResourceRequest{})
 	if err != nil || !slices.Equal(idsOf(refs), idsOf([]vendors.ResourceRef{named})) {
-		t.Fatalf("explicit use = %v, %v; want only %s (not the tagged %s, not the default)", idsOf(refs), err, named.ID, tagged.ID)
+		t.Fatalf("explicit use = %v, %v; want only %s (not the tagged %s, not the default)",
+			idsOf(refs), err, named.ID, tagged.ID)
 	}
 	rep := o.check(nc)
 	if got := sourceOf(rep, o.kind, named.ID); got != v1alpha1.ResourceSourceUse {
@@ -182,7 +184,7 @@ func taggedBeatsDefaultBeatsCreate(t *testing.T, o *order) {
 	// without the tag is not discovered. (The engine trusts an answer for a while; a
 	// new engine asks again.)
 	o.e.fx.Seed(t, o.e.d, o.kind, o.e.region, SeedSpec{Name: "order-untagged", Tags: map[string]string{"x": "y"}})
-	tagged := o.seedTagged("order-tagged")
+	tagged := o.seedTagged()
 	o.engine = resources.New(resources.Options{Registry: vendors.NewRegistryFrom(o.e.d), ClusterName: clusterName})
 	refs, err = o.require(nc, vendors.ResourceRequest{})
 	if err != nil || !slices.Equal(idsOf(refs), []string{tagged.ID}) {
@@ -217,7 +219,7 @@ func (o *order) createParams() []byte {
 
 func explicitMatchesNothing(t *testing.T, o *order) {
 	o.setDefault(DefaultPresent)
-	o.seedTagged("order-tagged")
+	o.seedTagged()
 	nc := o.class(&common.Resource{Use: &common.ResourceUse{Name: "order-absent"}}, false)
 	refs, err := o.require(nc, vendors.ResourceRequest{})
 	if vendors.CodeOf(err) != vendors.CodeResourceMissing || len(refs) != 0 {
@@ -237,7 +239,7 @@ func explicitMatchesNothing(t *testing.T, o *order) {
 
 func explicitCreateSkips(t *testing.T, o *order) {
 	o.setDefault(DefaultPresent)
-	tagged := o.seedTagged("order-tagged")
+	tagged := o.seedTagged()
 	nc := o.class(&common.Resource{Create: &common.ResourceCreate{}}, false)
 	refs, err := o.require(nc, vendors.ResourceRequest{Params: o.createParams()})
 	if err != nil || len(refs) != 1 || !refs[0].Managed || refs[0].ID == tagged.ID {
@@ -263,7 +265,8 @@ func unsuitableDefaultIsSkipped(t *testing.T, o *order) {
 	// With creation forbidden the skipped default ends in the failure, which says so.
 	forbid := o.class(&common.Resource{Forbid: true}, true)
 	_, err = o.require(forbid, vendors.ResourceRequest{Settings: ipv6})
-	if vendors.CodeOf(err) != vendors.CodeResourceForbidden || !strings.Contains(err.Error(), "cannot honour the request") {
+	if vendors.CodeOf(err) != vendors.CodeResourceForbidden ||
+		!strings.Contains(err.Error(), "cannot honour the request") {
 		t.Errorf("forbid with an unsuitable default: %v; want ResourceForbidden naming why the default was skipped", err)
 	}
 }

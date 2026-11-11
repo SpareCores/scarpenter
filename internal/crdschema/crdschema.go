@@ -33,6 +33,20 @@ import (
 // Draft is the JSON Schema dialect of the output.
 const Draft = "https://json-schema.org/draft/2020-12/schema"
 
+// Keywords and type names of the schema, as the conversion and the validator use them.
+const (
+	kwType        = "type"
+	kwDescription = "description"
+	kwAdditional  = "additionalProperties"
+	kwAllOf       = "allOf"
+	kwAnyOf       = "anyOf"
+	kwOneOf       = "oneOf"
+	typeObject    = "object"
+	typeString    = "string"
+	typeInteger   = "integer"
+	typeNumber    = "number"
+)
+
 // Convert returns the JSON Schema of the first version of the CRD, as
 // indented JSON with sorted keys (deterministic: the output is checked in).
 func Convert(crdYAML []byte) ([]byte, error) {
@@ -58,15 +72,15 @@ func Convert(crdYAML []byte) ([]byte, error) {
 	out["$schema"] = Draft
 	out["title"] = fmt.Sprintf("%s (%s/%s)", kind, group, version)
 	props := out["properties"].(map[string]any)
-	props["apiVersion"] = map[string]any{"const": group + "/" + version, "description": "The API group and version."}
-	props["kind"] = map[string]any{"const": kind, "description": "The kind of the object."}
+	props["apiVersion"] = map[string]any{"const": group + "/" + version, kwDescription: "The API group and version."}
+	props["kind"] = map[string]any{"const": kind, kwDescription: "The kind of the object."}
 	// A cluster-scoped object is named; its other metadata is the API server's.
 	props["metadata"] = map[string]any{
-		"type": "object", "description": "Standard object metadata; only the name is required.",
+		kwType: typeObject, kwDescription: "Standard object metadata; only the name is required.",
 		"properties": map[string]any{
-			"name":        map[string]any{"type": "string", "minLength": 1, "maxLength": 253},
-			"labels":      map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
-			"annotations": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+			"name":        map[string]any{kwType: typeString, "minLength": 1, "maxLength": 253},
+			"labels":      map[string]any{kwType: typeObject, kwAdditional: map[string]any{kwType: typeString}},
+			"annotations": map[string]any{kwType: typeObject, kwAdditional: map[string]any{kwType: typeString}},
 		},
 		"required": []any{"name"},
 	}
@@ -120,14 +134,14 @@ func convert(in map[string]any, name string) map[string]any {
 			out[k] = props
 		case "items":
 			out[k] = convert(v.(map[string]any), "")
-		case "additionalProperties":
+		case kwAdditional:
 			if m, ok := v.(map[string]any); ok {
 				out[k] = convert(m, "")
 			} else {
 				out[k] = v
 			}
-		case "allOf", "anyOf", "oneOf":
-			var l []any
+		case kwAllOf, kwAnyOf, kwOneOf:
+			l := make([]any, 0, len(asSlice(v)))
 			for _, s := range asSlice(v) {
 				l = append(l, convert(s.(map[string]any), ""))
 			}
@@ -141,12 +155,12 @@ func convert(in map[string]any, name string) map[string]any {
 		}
 	}
 	if in["x-kubernetes-int-or-string"] == true {
-		delete(out, "type")
-		out["anyOf"] = []any{map[string]any{"type": "integer"}, map[string]any{"type": "string"}}
+		delete(out, kwType)
+		out[kwAnyOf] = []any{map[string]any{kwType: typeInteger}, map[string]any{kwType: typeString}}
 	}
 	if in["nullable"] == true {
-		if t, ok := out["type"].(string); ok {
-			out["type"] = []any{t, "null"}
+		if t, ok := out[kwType].(string); ok {
+			out[kwType] = []any{t, "null"}
 		}
 	}
 	if in["x-kubernetes-list-type"] == "set" || in["x-kubernetes-list-type"] == "map" {
@@ -154,8 +168,8 @@ func convert(in map[string]any, name string) map[string]any {
 	}
 	// A structural schema prunes the fields it does not list: reject them, unless
 	// the object holds free-form content or its values are a typed map.
-	if _, has := out["properties"]; has && !preserve && out["additionalProperties"] == nil && name != "metadata" {
-		out["additionalProperties"] = false
+	if _, has := out["properties"]; has && !preserve && out[kwAdditional] == nil && name != "metadata" {
+		out[kwAdditional] = false
 	}
 	return out
 }
@@ -178,18 +192,18 @@ func typeOf(v any) []string {
 	case bool:
 		return []string{"boolean"}
 	case string:
-		return []string{"string"}
+		return []string{typeString}
 	case []any:
 		return []string{"array"}
 	case map[string]any:
-		return []string{"object"}
+		return []string{typeObject}
 	case float64:
 		if x == float64(int64(x)) {
-			return []string{"integer", "number"}
+			return []string{typeInteger, typeNumber}
 		}
-		return []string{"number"}
+		return []string{typeNumber}
 	case int, int32, int64:
-		return []string{"integer", "number"}
+		return []string{typeInteger, typeNumber}
 	}
 	return []string{fmt.Sprintf("%T", v)}
 }
@@ -208,6 +222,17 @@ func num(v any) (float64, bool) {
 	return 0, false
 }
 
+// check is the state of the validation of one value.
+type check struct {
+	s    map[string]any
+	path string
+	errs *[]error
+}
+
+func (c check) fail(format string, args ...any) {
+	*c.errs = append(*c.errs, fmt.Errorf("%s: "+format, append([]any{c.path}, args...)...))
+}
+
 func validate(schema, doc any, path string, errs *[]error) {
 	s, ok := schema.(map[string]any)
 	if !ok {
@@ -216,118 +241,144 @@ func validate(schema, doc any, path string, errs *[]error) {
 		}
 		return
 	}
-	fail := func(format string, args ...any) {
-		*errs = append(*errs, fmt.Errorf("%s: "+format, append([]any{path}, args...)...))
+	c := check{s: s, path: path, errs: errs}
+	if !c.typeOK(doc) {
+		return
 	}
+	if k, ok := s["const"]; ok && fmt.Sprint(k) != fmt.Sprint(doc) {
+		c.fail("is %v, want %v", doc, k)
+	}
+	if e, ok := s["enum"]; ok &&
+		!slices.ContainsFunc(asSlice(e), func(x any) bool { return fmt.Sprint(x) == fmt.Sprint(doc) }) {
+		c.fail("is %v, want one of %v", doc, e)
+	}
+	c.combinators(doc)
+	switch x := doc.(type) {
+	case string:
+		c.str(x)
+	case float64, int, int32, int64:
+		f, _ := num(x)
+		c.number(f)
+	case []any:
+		c.array(x)
+	case map[string]any:
+		c.object(x)
+	}
+}
 
-	if t, ok := s["type"]; ok {
-		var want []string
-		switch x := t.(type) {
-		case string:
-			want = []string{x}
-		case []any:
-			for _, e := range x {
-				want = append(want, e.(string))
-			}
-		}
-		if !slices.ContainsFunc(typeOf(doc), func(have string) bool { return slices.Contains(want, have) }) {
-			fail("is %s, want %s", typeOf(doc)[0], strings.Join(want, " or "))
-			return
-		}
+// typeOK checks the type keyword; false means the value is of another type and nothing
+// else is checked.
+func (c check) typeOK(doc any) bool {
+	t, ok := c.s[kwType]
+	if !ok {
+		return true
 	}
-	if c, ok := s["const"]; ok && fmt.Sprint(c) != fmt.Sprint(doc) {
-		fail("is %v, want %v", doc, c)
-	}
-	if e, ok := s["enum"]; ok {
-		if !slices.ContainsFunc(asSlice(e), func(x any) bool { return fmt.Sprint(x) == fmt.Sprint(doc) }) {
-			fail("is %v, want one of %v", doc, e)
+	var want []string
+	switch x := t.(type) {
+	case string:
+		want = []string{x}
+	case []any:
+		for _, e := range x {
+			want = append(want, e.(string))
 		}
 	}
-	for _, kw := range []string{"anyOf", "oneOf", "allOf"} {
-		subs := asSlice(s[kw])
+	if slices.ContainsFunc(typeOf(doc), func(have string) bool { return slices.Contains(want, have) }) {
+		return true
+	}
+	c.fail("is %s, want %s", typeOf(doc)[0], strings.Join(want, " or "))
+	return false
+}
+
+func (c check) combinators(doc any) {
+	for _, kw := range []string{kwAnyOf, kwOneOf, kwAllOf} {
+		subs := asSlice(c.s[kw])
 		if len(subs) == 0 {
 			continue
 		}
 		matches := 0
 		for _, sub := range subs {
 			var sub1 []error
-			validate(sub, doc, path, &sub1)
+			validate(sub, doc, c.path, &sub1)
 			if len(sub1) == 0 {
 				matches++
 			}
 		}
-		switch {
-		case kw == "allOf" && matches != len(subs), kw == "anyOf" && matches == 0, kw == "oneOf" && matches != 1:
-			fail("does not satisfy %s", kw)
+		if (kw == kwAllOf && matches != len(subs)) || (kw == kwAnyOf && matches == 0) || (kw == kwOneOf && matches != 1) {
+			c.fail("does not satisfy %s", kw)
 		}
 	}
-	switch x := doc.(type) {
-	case string:
-		if n, ok := num(s["minLength"]); ok && float64(len([]rune(x))) < n {
-			fail("is shorter than %v characters", n)
+}
+
+func (c check) str(x string) {
+	if n, ok := num(c.s["minLength"]); ok && float64(len([]rune(x))) < n {
+		c.fail("is shorter than %v characters", n)
+	}
+	if n, ok := num(c.s["maxLength"]); ok && float64(len([]rune(x))) > n {
+		c.fail("is longer than %v characters", n)
+	}
+	if p, ok := c.s["pattern"].(string); ok {
+		if re, err := regexp.Compile(p); err == nil && !re.MatchString(x) {
+			c.fail("does not match %s", p)
 		}
-		if n, ok := num(s["maxLength"]); ok && float64(len([]rune(x))) > n {
-			fail("is longer than %v characters", n)
-		}
-		if p, ok := s["pattern"].(string); ok {
-			if re, err := regexp.Compile(p); err == nil && !re.MatchString(x) {
-				fail("does not match %s", p)
+	}
+}
+
+func (c check) number(f float64) {
+	if n, ok := num(c.s["minimum"]); ok && f < n {
+		c.fail("is below %v", n)
+	}
+	if n, ok := num(c.s["maximum"]); ok && f > n {
+		c.fail("is above %v", n)
+	}
+}
+
+func (c check) array(x []any) {
+	if n, ok := num(c.s["minItems"]); ok && float64(len(x)) < n {
+		c.fail("has fewer than %v items", n)
+	}
+	if n, ok := num(c.s["maxItems"]); ok && float64(len(x)) > n {
+		c.fail("has more than %v items", n)
+	}
+	if c.s["uniqueItems"] == true {
+		seen := map[string]bool{}
+		for _, e := range x {
+			b, _ := json.Marshal(e)
+			if seen[string(b)] {
+				c.fail("lists %s twice", b)
 			}
+			seen[string(b)] = true
 		}
-	case float64, int, int32, int64:
-		f, _ := num(x)
-		if n, ok := num(s["minimum"]); ok && f < n {
-			fail("is below %v", n)
+	}
+	if items, ok := c.s["items"]; ok {
+		for i, e := range x {
+			validate(items, e, fmt.Sprintf("%s[%d]", c.path, i), c.errs)
 		}
-		if n, ok := num(s["maximum"]); ok && f > n {
-			fail("is above %v", n)
+	}
+}
+
+func (c check) object(x map[string]any) {
+	if n, ok := num(c.s["minProperties"]); ok && float64(len(x)) < n {
+		c.fail("has fewer than %v properties", n)
+	}
+	if n, ok := num(c.s["maxProperties"]); ok && float64(len(x)) > n {
+		c.fail("has more than %v properties", n)
+	}
+	for _, r := range asSlice(c.s["required"]) {
+		if _, ok := x[r.(string)]; !ok {
+			c.fail("lacks the required field %q", r)
 		}
-	case []any:
-		if n, ok := num(s["minItems"]); ok && float64(len(x)) < n {
-			fail("has fewer than %v items", n)
-		}
-		if n, ok := num(s["maxItems"]); ok && float64(len(x)) > n {
-			fail("has more than %v items", n)
-		}
-		if s["uniqueItems"] == true {
-			seen := map[string]bool{}
-			for _, e := range x {
-				b, _ := json.Marshal(e)
-				if seen[string(b)] {
-					fail("lists %s twice", b)
-				}
-				seen[string(b)] = true
-			}
-		}
-		if items, ok := s["items"]; ok {
-			for i, e := range x {
-				validate(items, e, fmt.Sprintf("%s[%d]", path, i), errs)
-			}
-		}
-	case map[string]any:
-		if n, ok := num(s["minProperties"]); ok && float64(len(x)) < n {
-			fail("has fewer than %v properties", n)
-		}
-		if n, ok := num(s["maxProperties"]); ok && float64(len(x)) > n {
-			fail("has more than %v properties", n)
-		}
-		for _, r := range asSlice(s["required"]) {
-			if _, ok := x[r.(string)]; !ok {
-				fail("lacks the required field %q", r)
-			}
-		}
-		props, _ := s["properties"].(map[string]any)
-		for _, k := range slices.Sorted(maps.Keys(x)) {
-			sub, known := props[k]
-			switch {
-			case known:
-				validate(sub, x[k], path+"."+k, errs)
-			case s["additionalProperties"] == false:
-				fail("has the unknown field %q", k)
-			default:
-				if ap, ok := s["additionalProperties"].(map[string]any); ok {
-					validate(ap, x[k], path+"."+k, errs)
-				}
+	}
+	props, _ := c.s["properties"].(map[string]any)
+	for _, k := range slices.Sorted(maps.Keys(x)) {
+		sub, known := props[k]
+		switch {
+		case known:
+			validate(sub, x[k], c.path+"."+k, c.errs)
+		case c.s[kwAdditional] == false:
+			c.fail("has the unknown field %q", k)
+		default:
+			if ap, ok := c.s[kwAdditional].(map[string]any); ok {
+				validate(ap, x[k], c.path+"."+k, c.errs)
 			}
 		}
 	}

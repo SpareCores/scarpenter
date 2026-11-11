@@ -90,7 +90,8 @@ type Driver struct {
 // New returns a driver serving the vendor ID.
 func New(vendor string, clk clock.Clock) *Driver {
 	return &Driver{
-		VendorID: vendor, Clock: clk, kindCalls: map[vendors.ResourceKind]int{}, managed: map[string]*record{}, users: map[string]int{}, DeleteErr: map[string]error{},
+		VendorID: vendor, Clock: clk, kindCalls: map[vendors.ResourceKind]int{}, managed: map[string]*record{},
+		users: map[string]int{}, DeleteErr: map[string]error{},
 		Fail: map[string]error{}, EnsureErr: map[vendors.ResourceKind]error{},
 	}
 }
@@ -217,7 +218,7 @@ func (d *Driver) Resolve(
 }
 
 func refsOf(kind vendors.ResourceKind, region string, items []Existing) []vendors.ResourceRef {
-	var out []vendors.ResourceRef
+	out := make([]vendors.ResourceRef, 0, len(items))
 	for _, e := range items {
 		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: e.ID, Name: e.Name, Network: e.Network})
 	}

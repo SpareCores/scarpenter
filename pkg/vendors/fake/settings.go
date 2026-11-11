@@ -251,7 +251,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		prep.Resources = append(prep.Resources, refs...)
 		return nil
 	}
-	if err := require(vendors.ResourceRequest{Kind: KindNetwork}); err != nil {
+	if err := require(vendors.ResourceRequest{Kind: KindNetwork, Settings: &req.Settings}); err != nil {
 		return nil, err
 	}
 	if strategy, use, ok := pl.group(); ok {
