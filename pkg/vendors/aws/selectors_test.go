@@ -9,6 +9,7 @@ package aws_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -169,6 +170,73 @@ func TestEC2FiltersCarryTheWholeSelector(t *testing.T) {
 	}
 }
 
+func TestEC2FilterNamesAreSentOnce(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	ctx := context.Background()
+	vpc := defaultVPC(t, e, testRegion)
+	_, _ = e.d.Resolve(ctx, aws.KindSubnets, testRegion, vendors.UseRef{
+		Name: "nodes-*", Tags: map[string]string{"a": "*", "b": "*", "Name": "nodes-1"},
+		Match: common.ResourceMatch{Network: []string{vpc}},
+		Filters: []common.ResourceFilter{
+			{Name: "state", Values: []string{"available", "pending"}}, {Name: "state", Values: []string{"pending"}},
+			{Name: "vpc-id", Values: []string{vpc}},
+		},
+		Select: common.SelectAll,
+	})
+	in := e.acct.Inputs("DescribeSubnets")
+	last := in[len(in)-1].(*ec2.DescribeSubnetsInput)
+	seen := map[string][]string{}
+	for _, f := range last.Filters {
+		if _, dup := seen[*f.Name]; dup {
+			t.Errorf("the filter %s is sent twice: %v", *f.Name, last.Filters)
+		}
+		seen[*f.Name] = f.Values
+	}
+	// Native filters under one name are ANDed (intersected); a native filter
+	// replaces the field's filter of the same name, which the matcher applies.
+	if !slices.Equal(seen["state"], []string{"pending"}) {
+		t.Errorf("state %v, want the intersection [pending]", seen["state"])
+	}
+	if !slices.Equal(seen["tag-key"], []string{"a"}) || !slices.Equal(seen["tag:Name"], []string{"nodes-*"}) {
+		t.Errorf("the selector's own fields: %v", seen)
+	}
+
+	// The matcher still applies what is not on the wire: tag-key b and the
+	// Name tag nodes-1 next to the pattern.
+	mk := func(name string, tags map[string]string) string {
+		tl := make([]ec2types.Tag, 0, 1+len(tags))
+		tl = append(tl, ec2types.Tag{Key: new("Name"), Value: new(name)})
+		for k, v := range tags {
+			tl = append(tl, ec2types.Tag{Key: new(k), Value: new(v)})
+		}
+		out, err := e.acct.EC2(testRegion).CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: &vpc,
+			AvailabilityZone: new("us-east-1a"), CidrBlock: new("10.6." + fmt.Sprint(len(name)) + ".0/24"),
+			TagSpecifications: []ec2types.TagSpecification{{ResourceType: ec2types.ResourceTypeSubnet, Tags: tl}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *out.Subnet.SubnetId
+	}
+	both := mk("dup-1", map[string]string{"a": "x", "b": "y"})
+	mk("dup-22", map[string]string{"a": "x"})
+	refs, err := e.d.Resolve(ctx, aws.KindSubnets, testRegion, vendors.UseRef{
+		Name: "dup-*", Tags: map[string]string{"a": "*", "b": "*"}, Select: common.SelectAll})
+	if err != nil || len(refs) != 1 || refs[0].ID != both {
+		t.Errorf("two tags with *: %v, %v; want %s", refs, err, both)
+	}
+
+	// An empty intersection matches nothing, without asking EC2.
+	calls := len(e.acct.Inputs("DescribeSubnets"))
+	_, err = e.d.Resolve(ctx, aws.KindSubnets, testRegion, vendors.UseRef{Filters: []common.ResourceFilter{
+		{Name: "subnet-id", Values: []string{both}}, {Name: "subnet-id", Values: []string{"subnet-00000000000000000"}}}})
+	if _, ok := errors.AsType[*selector.NoMatchError](err); !ok {
+		t.Errorf("an empty intersection: %v, want NoMatch", err)
+	}
+	if n := len(e.acct.Inputs("DescribeSubnets")); n != calls {
+		t.Errorf("an empty intersection called EC2 %d times", n-calls)
+	}
+}
+
 func TestValidateRejectsWhatTheDeclarationDoesNotSupport(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	_ = e
@@ -186,6 +254,7 @@ func TestValidateRejectsWhatTheDeclarationDoesNotSupport(t *testing.T) {
 		"newest without orderBy": {aws.KindSecurityGroups, common.ResourceUse{Name: "a", Select: common.SelectNewest}, "needs orderBy"},
 		"expression":             {aws.KindSubnets, common.ResourceUse{Expression: "x"}, "expression is not supported"},
 		"zone on groups":         {aws.KindSecurityGroups, common.ResourceUse{Name: "a-{zone}"}, "{zone} is only valid on zonal kinds"},
+		"zone in match.zone":     {aws.KindSubnets, common.ResourceUse{Match: &common.ResourceMatch{Zone: []string{"{zone}"}}}, "match.zone compares zone IDs"},
 		"zone on subnets":        {aws.KindSubnets, common.ResourceUse{Name: "a-{zone}"}, ""},
 		"unknown placeholder":    {aws.KindSubnets, common.ResourceUse{Name: "a-{zoen}"}, "unknown placeholder {zoen}"},
 		"arch outside images":    {aws.KindSubnets, common.ResourceUse{Name: "a-{arch}"}, "{arch} is only valid in images"},

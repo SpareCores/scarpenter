@@ -192,9 +192,9 @@ each; an unsupported attribute is rejected. Lists are ORed, attributes are ANDed
 | `owner` | list of `self`, an account / project ID, or the vendor's public alias | Whose resources to look at: AWS `Owners` (`self`, an account ID, `amazon`, `aws-marketplace`), GCP the project to list, Alibaba `ImageOwnerAlias` / `ImageOwnerId`, OVH Glance `owner`, UpCloud `private` / `public`. Not a filter on vendors without an owner notion (Hetzner, Vultr): rejected there. |
 | `state` | list of `available`, `pending`, `failed` | The vendor's state, normalised (the mapping is in each vendor section). Default `[available]` for every kind that has a state, so a resource still being created is never selected. |
 | `includeDeprecated` | bool | Images the vendor marked deprecated are excluded unless `true` (AWS, GCP, Hetzner, Azure, Alibaba have the notion; an old pinned system image disappears from lists otherwise). |
-| `createdAfter`, `createdBefore` | RFC 3339 time | The creation time. Only kinds that have one (below). |
+| `createdAfter`, `createdBefore` | RFC 3339 time | The creation time. Only kinds that have one (below); a resource whose creation time the vendor does not report is excluded. |
 | `description` | glob | The description field, where the kind has one. |
-| `zone` | list of zone IDs | The zone of a zonal resource, by the vendor's zone ID ([ADR-009](../explanation/DECISIONS.md#adr-009-zones-are-matched-by-vendor-zone-id-accepted-2026-11-05)); the driver maps it to the field. Rejected on regional kinds. |
+| `zone` | list of zone IDs | The zone of a zonal resource, by the vendor's zone ID ([ADR-009](../explanation/DECISIONS.md#adr-009-zones-are-matched-by-vendor-zone-id-accepted-2026-11-05)); the driver maps it to the field. Rejected on regional kinds. `{zone}` (a zone name) is rejected here: use it in `name` or `filters`. |
 | `network` | list of IDs | The network a subnet or a security group belongs to (AWS `vpc-id`, Alibaba `VpcId`, GCP `network`, Neutron `network_id`). A group in another network than the subnet is a launch failure on AWS and Alibaba, so this is how a `use` stays consistent. |
 | `cidr` | a CIDR | The resource's range equals the CIDR (a network with several prefixes matches if any equals). |
 | `within` | a CIDR | The resource's range lies inside the CIDR (`10.8.0.0/16` matches a subnet `10.8.4.0/24`). Evaluated client-side on every vendor. |
@@ -269,7 +269,11 @@ the call's filter list. An unknown filter name is rejected by EC2 (`InvalidParam
 a wrong-case value silently matches nothing. Never use an ID parameter (`ImageIds`, `SubnetIds`,
 `GroupIds`): one missing ID fails the whole call with `*.NotFound`; the driver uses the ID filter. No
 ordering and no negation anywhere; `*` for `tags` is the `tag-key` filter. Tag keys and values are
-exact: the driver escapes `*`, `?` and `\` in them before sending. `match.cidr` is sent as the
+exact: the driver escapes `*`, `?` and `\` in them before sending. Each filter name is sent once
+(EC2 does not document a repeated name): `filters` entries with the same name are ANDed by
+intersecting their values (rejected when one has a wildcard), and a `filters` entry that names a
+filter a field also produces (`state`, `vpc-id`, `tag:<k>`) replaces it in the request while the
+matcher still applies the field. `match.cidr` is sent as the
 canonical IPv4 range (`cidr-block`); an IPv6 range is matched client-side against the subnet's IPv6
 blocks. AMI tags of other
 accounts' images are not visible to a consumer (unverified): tags select your own images. No kind has

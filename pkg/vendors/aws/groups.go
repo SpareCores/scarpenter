@@ -54,9 +54,15 @@ const sgDescription = "Managed by SCarpenter"
 func (d *Driver) resolveSecurityGroups(ctx context.Context, cl Clients, kind vendors.ResourceKind, region string,
 	ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
-	groups, err := d.describeGroups(ctx, cl, useFilters(ref, groupFilters))
+	filters, none, err := useFilters(ref, groupFilters)
 	if err != nil {
 		return nil, err
+	}
+	var groups []ec2types.SecurityGroup
+	if !none {
+		if groups, err = d.describeGroups(ctx, cl, filters); err != nil {
+			return nil, err
+		}
 	}
 	res, err := selector.Apply(ref, d.Selectors()[kind], groups, groupFields)
 	d.noteMissing(kind, region, res.Missing)
@@ -326,9 +332,15 @@ func (d *Driver) resolvePlacementGroups(
 	if ref.IsDefault() {
 		return nil, nil
 	}
-	groups, err := d.describePlacementGroups(ctx, cl, useFilters(ref, pgFilters))
+	filters, none, err := useFilters(ref, pgFilters)
 	if err != nil {
 		return nil, err
+	}
+	var groups []ec2types.PlacementGroup
+	if !none {
+		if groups, err = d.describePlacementGroups(ctx, cl, filters); err != nil {
+			return nil, err
+		}
 	}
 	res, err := selector.Apply(ref, d.Selectors()[KindPlacementGroups], groups, placementGroupFields)
 	d.noteMissing(KindPlacementGroups, region, res.Missing)

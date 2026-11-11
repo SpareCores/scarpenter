@@ -117,6 +117,14 @@ func (v *validator) match(m *common.ResourceMatch) {
 			v.bad("match.%s is not supported for %s of %s (supported: %s)", a, v.kind, v.vendor, nameList(names, 20))
 		}
 	}
+	// {zone} is the zone's name (the account's name on AWS); match.zone compares
+	// zone IDs, so the two never meet.
+	for _, z := range m.Zone {
+		if names, err := Placeholdered(z); err == nil && slices.Contains(names, phZone) {
+			v.bad("match.zone: %q: {zone} is the zone's name and match.zone compares zone IDs; use {zone} in name "+
+				"or filters, or list the zone IDs", z)
+		}
+	}
 	for name, text := range map[string]string{"cidr": m.CIDR, "within": m.Within} {
 		if text == "" || strings.Contains(text, "{") {
 			continue

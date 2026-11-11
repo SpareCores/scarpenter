@@ -187,6 +187,18 @@ func validateResource(
 			}
 		}
 	}
+	// EC2 takes each filter name once: native filters under one name are ANDed
+	// by intersecting their values, which needs values without wildcards.
+	for i, f := range r.Use.Filters {
+		for _, g := range r.Use.Filters[:i] {
+			if g.Name == f.Name && (slices.ContainsFunc(f.Values, selector.HasWildcard) ||
+				slices.ContainsFunc(g.Values, selector.HasWildcard)) {
+				errs = append(errs, fmt.Errorf("%s.filters[%d]: %q is given twice with a wildcard value; EC2 takes "+
+					"each filter name once, so give it once", path, i, f.Name))
+				break
+			}
+		}
+	}
 	for k, v := range r.Use.Tags {
 		if strings.Contains(k, "{") || strings.Contains(v, "{") {
 			continue // checked after the placeholders are expanded

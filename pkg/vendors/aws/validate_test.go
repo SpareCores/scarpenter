@@ -69,6 +69,8 @@ func TestValidateNodeClass(t *testing.T) {
 		{"subnet ids", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{"us-east-1": {"subnet-0123456789abcdef0", "sg-1"}}}}}}), `"sg-1" is not a valid ID`},
 		{"ids for a bad region", block(awsapi.Settings{Resources: &awsapi.Resources{SecurityGroups: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{"nowhere": {"sg-0123456789abcdef0"}}}}}}), `"nowhere" is not a region`},
 		{"selector tag key", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Tags: map[string]string{"aws:cloudformation:stack": "x"}}}}}), "reserved prefix aws:"},
+		{"a filter twice with a wildcard", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Filters: []common.ResourceFilter{{Name: "tag:x", Values: []string{"a*"}}, {Name: "tag:x", Values: []string{"ab"}}}}}}}), "given twice with a wildcard value"},
+		{"a filter twice, exact values", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Filters: []common.ResourceFilter{{Name: "tag:x", Values: []string{"a", "b"}}, {Name: "tag:x", Values: []string{"b"}}}}}}}), ""},
 		{"a name pattern is fine", block(awsapi.Settings{Resources: &awsapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{Name: "nodes-{zone}"}}}}), ""},
 	}
 	for _, tc := range cases {

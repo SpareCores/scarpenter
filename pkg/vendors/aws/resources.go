@@ -149,7 +149,15 @@ func (d *Driver) resolveSubnets(
 			{Name: aws.String("default-for-az"), Values: []string{"true"}},
 		}
 	} else {
-		filters = useFilters(ref, subnetFilters)
+		var none bool
+		var err error
+		if filters, none, err = useFilters(ref, subnetFilters); err != nil {
+			return nil, err
+		}
+		if none {
+			_, err := selector.Apply(ref, d.Selectors()[KindSubnets], []ec2types.Subnet(nil), subnetFields)
+			return nil, err
+		}
 	}
 	subs, err := d.describeSubnetPages(ctx, cl, &ec2.DescribeSubnetsInput{Filters: filters})
 	if err != nil {

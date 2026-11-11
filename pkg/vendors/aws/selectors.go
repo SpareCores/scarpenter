@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package aws
 
 import (
+	"fmt"
 	"maps"
 	"net/netip"
 	"slices"
@@ -147,12 +148,23 @@ var (
 // useFilters builds the EC2 filter list of a selector: the whole selector the
 // vendor can evaluate, tags as tag:<k> or tag-key, the native filters passed
 // through. A field EC2 cannot filter on is left to the shared matcher.
-func useFilters(ref vendors.UseRef, f useFilter) []ec2types.Filter {
-	var out []ec2types.Filter
+//
+// Every filter name is sent once: what EC2 does with a name given twice is not
+// documented. A name the selector's own fields produce twice (two tags with
+// "*", a name and a Name tag) is sent once and the matcher, which re-applies
+// every field, enforces the rest; a native filter that names one of them
+// replaces it on the wire for the same reason. Native filters given twice
+// under one name are ANDed by intersecting their values, which is exact for
+// values without wildcards (validation rejects the others). none is true when
+// the intersection is empty: nothing can match and EC2 is not asked.
+func useFilters(ref vendors.UseRef, f useFilter) (out []ec2types.Filter, none bool, err error) {
 	add := func(name string, values ...string) {
-		if name != "" && len(values) > 0 {
-			out = append(out, ec2types.Filter{Name: aws.String(name), Values: values})
+		if name == "" || len(values) == 0 || slices.ContainsFunc(out, func(x ec2types.Filter) bool {
+			return deref(x.Name) == name
+		}) {
+			return // the matcher enforces this one
 		}
+		out = append(out, ec2types.Filter{Name: aws.String(name), Values: values})
 	}
 	if f.id != "" {
 		add(f.id, ref.IDs...)
@@ -189,10 +201,38 @@ func useFilters(ref vendors.UseRef, f useFilter) []ec2types.Filter {
 		}
 		add(filterState, values...)
 	}
-	for _, fl := range ref.Filters {
-		add(fl.Name, fl.Values...)
+	native, err := mergeNative(ref.Filters)
+	if err != nil {
+		return nil, false, err
 	}
-	return out
+	for _, fl := range native {
+		if len(fl.Values) == 0 {
+			return nil, true, nil
+		}
+		out = slices.DeleteFunc(out, func(x ec2types.Filter) bool { return deref(x.Name) == fl.Name })
+		out = append(out, ec2types.Filter{Name: aws.String(fl.Name), Values: fl.Values})
+	}
+	return out, false, nil
+}
+
+// mergeNative ANDs native filters that share a name into one by intersecting
+// their values (an empty intersection matches nothing). That is exact only for
+// values without wildcards: a repeated name with a wildcard value is an error.
+func mergeNative(fs []common.ResourceFilter) ([]common.ResourceFilter, error) {
+	var out []common.ResourceFilter
+	for _, fl := range fs {
+		i := slices.IndexFunc(out, func(x common.ResourceFilter) bool { return x.Name == fl.Name })
+		if i < 0 {
+			out = append(out, common.ResourceFilter{Name: fl.Name, Values: slices.Clone(fl.Values)})
+			continue
+		}
+		if slices.ContainsFunc(out[i].Values, selector.HasWildcard) || slices.ContainsFunc(fl.Values, selector.HasWildcard) {
+			return nil, fmt.Errorf("the filter %s is given twice with a wildcard value: EC2 takes each filter name "+
+				"once, so give it once", fl.Name)
+		}
+		out[i].Values = slices.DeleteFunc(out[i].Values, func(v string) bool { return !slices.Contains(fl.Values, v) })
+	}
+	return out, nil
 }
 
 // ec2Literal escapes the wildcards of an EC2 filter value, so that EC2 compares
