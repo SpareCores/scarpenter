@@ -483,7 +483,9 @@ without `use`):
    (a creation that fails midway is rolled back or adopted and finished by the
    next attempt, ADR-018).
 
-An explicit `create` skips steps 2 and 3. An explicit `use` that matches nothing
+An explicit `create` skips steps 2 and 3. Steps 2 and 3 apply to regional kinds only: a
+per-run or per-node kind (placement groups, separate volumes) is `use`, `create` or
+created, since one tagged or default resource cannot stand for every run or instance. An explicit `use` that matches nothing
 fails; it never falls through to the next step. A kind that lives in a network
 (subnets, security groups) is resolved after the network and only within it,
 whichever step found the network. `images` has no step 4: its step 3 is the driver's
