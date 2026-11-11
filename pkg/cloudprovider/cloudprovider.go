@@ -98,6 +98,23 @@ type Options struct {
 	Clock            clock.Clock
 	// Registerer receives the metrics; nil registers none.
 	Registerer prometheus.Registerer
+	// OnQuotaRefusal is told when a launch attempt is refused for quota (the
+	// quota tracker has no headroom, or the vendor says so): the billing
+	// retention controller releases held empty nodes of the scope on it. Nil
+	// tells nobody.
+	OnQuotaRefusal func(QuotaRefusal)
+}
+
+// QuotaRefusal is a launch of a NodeClass that was refused for a vendor quota
+// in a region and capacity type.
+type QuotaRefusal struct {
+	NodeClass    string
+	Vendor       string
+	Region       string
+	CapacityType string
+	// CPU is the vCPUs of the type the launch wanted, the amount that would
+	// have to be freed.
+	CPU int64
 }
 
 // CloudProvider is SCarpenter's implementation of core's interface.

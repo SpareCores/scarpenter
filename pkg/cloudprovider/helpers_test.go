@@ -110,6 +110,8 @@ type envOptions struct {
 	transform func(*v1alpha1.SCNodeClass)
 	// wrap decorates the driver the registry serves.
 	wrap func(*fakedriver.Driver) vendors.Driver
+	// onQuotaRefusal is the CloudProvider's OnQuotaRefusal hook.
+	onQuotaRefusal func(cloudprovider.QuotaRefusal)
 }
 
 func newEnv(t *testing.T, o envOptions) *env {
@@ -184,6 +186,7 @@ func (e *env) build(kube client.Client, f *facts.Facts, reg *vendors.Registry, o
 		Client: kube, Catalog: e.cat, Registry: reg, Unavailable: e.un, Quota: e.tracker, Resources: e.resources,
 		Scope:    &scope.Resolver{Reader: kube, Registry: reg, Regions: f},
 		Recorder: e.events, Tokens: e.tokens, UserData: e.renderer, ClusterName: cluster, MaxLaunchAttempts: o.attempts, Clock: e.clock,
+		OnQuotaRefusal: o.onQuotaRefusal,
 	})
 	return e
 }

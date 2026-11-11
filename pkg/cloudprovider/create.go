@@ -158,6 +158,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 			var d quota.Decision
 			res, d = c.opts.Quota.Reserve(cand.vendor, cand.region, cand.apiReference, cand.capacityType, nodeClaim.Name)
 			if !d.Allowed {
+				c.reportQuotaRefusal(st.nc, cand)
 				st.skipped++
 				c.metrics.skipped.WithLabelValues(cand.vendor, cand.region, cand.capacityType, skipNoQuota).Inc()
 				logger.V(1).Info("skipping an offering without quota headroom", "type", cand.typeName,
@@ -203,6 +204,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		case vendors.ZoneUnusable:
 			c.opts.Unavailable.MarkZoneUnusable(cand.vendor, cand.zone)
 		case vendors.QuotaExceeded:
+			c.reportQuotaRefusal(st.nc, cand)
 			c.onQuotaExceeded(st, cand, vendors.IsAccountWide(err))
 		case vendors.Retryable:
 			st.keepToken = true
@@ -225,6 +227,18 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 	}
 	return nil, cloudprovider.NewInsufficientCapacityError(
 		fmt.Errorf("no candidate offering had quota headroom (%d skipped)", st.skipped))
+}
+
+// reportQuotaRefusal tells the OnQuotaRefusal hook that the candidate's launch
+// was refused for quota.
+func (c *CloudProvider) reportQuotaRefusal(nc *v1alpha1.SCNodeClass, cand *candidate) {
+	if c.opts.OnQuotaRefusal == nil {
+		return
+	}
+	cpu := cand.it.Capacity[corev1.ResourceCPU]
+	c.opts.OnQuotaRefusal(QuotaRefusal{
+		NodeClass: nc.Name, Vendor: cand.vendor, Region: cand.region, CapacityType: cand.capacityType, CPU: cpu.Value(),
+	})
 }
 
 // skipReason says why a candidate is passed over without a vendor call: it
@@ -478,6 +492,7 @@ func (c *CloudProvider) created(
 		v1alpha1.AnnotationInstanceRef: string(inst.Ref),
 		v1alpha1.AnnotationPrice:       formatPrice(cand.usd),
 	}
+	setBillingStart(out.Annotations, inst)
 	if !cand.complete {
 		out.Annotations[v1alpha1.AnnotationPriceIncomplete] = "true"
 	}

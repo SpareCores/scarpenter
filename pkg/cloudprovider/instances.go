@@ -144,6 +144,7 @@ func (c *CloudProvider) instanceToNodeClaim(vendor string, inst *vendors.Instanc
 		},
 		Status: karpv1.NodeClaimStatus{ProviderID: scope.ProviderID(vendor, inst.Region, name)},
 	}
+	setBillingStart(nc.Annotations, inst)
 	typeName := catalog.InstanceTypeName(vendor, inst.Type)
 	it, ok := c.opts.Catalog.Type(inst.Tags[vendors.TagNodeClass], typeName)
 	if !ok {
@@ -201,6 +202,16 @@ func nodeLabels(
 		out[v1alpha1.LabelPlacementGroup] = runKey
 	}
 	return out
+}
+
+// setBillingStart records the vendor's billing-start stamp as the annotation
+// the billing retention controller reads (RFC 3339, to the second: truncating
+// only makes the stamp earlier, the safe side). An instance without a stamp
+// gets none.
+func setBillingStart(annotations map[string]string, inst *vendors.Instance) {
+	if !inst.BillingStart.IsZero() {
+		annotations[v1alpha1.AnnotationBillingStart] = inst.BillingStart.UTC().Format(time.RFC3339)
+	}
 }
 
 func formatPrice(p float64) string { return strconv.FormatFloat(p, 'f', -1, 64) }

@@ -265,6 +265,72 @@ func TestCreateMarksUnsupportedAndUnusableZones(t *testing.T) {
 	}
 }
 
+// Create returns the vendor's billing start as an annotation, which core copies
+// to the NodeClaim and the Node; Get and List return it too, so a NodeClaim
+// launched before the annotation existed can be given it.
+func TestCreateReturnsTheBillingStart(t *testing.T) {
+	e := newEnv(t, envOptions{config: map[string]string{"billing": "stampOffset: -30s\nverified: true\nincrement: 1h\n"}})
+	before := time.Now()
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := created.Annotations[v1alpha1.AnnotationBillingStart]
+	start, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("billing-start %q: %v", raw, err)
+	}
+	if start.After(before.Add(-29*time.Second)) || start.Before(before.Add(-32*time.Second)) {
+		t.Errorf("billing start %s, want about 30 s before %s", start, before)
+	}
+	got, err := e.cp.Get(t.Context(), created.Status.ProviderID)
+	if err != nil || got.Annotations[v1alpha1.AnnotationBillingStart] != raw {
+		t.Errorf("Get: %v, %v; want the same billing start %s", got, err, raw)
+	}
+	list, err := e.cp.List(t.Context())
+	if err != nil || len(list) != 1 || list[0].Annotations[v1alpha1.AnnotationBillingStart] != raw {
+		t.Errorf("List: %v, %v", list, err)
+	}
+}
+
+func TestCreateWithoutABillingStartSetsNoAnnotation(t *testing.T) {
+	e := newEnv(t, envOptions{config: map[string]string{"billing": "noStamp: true\n"}})
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, set := created.Annotations[v1alpha1.AnnotationBillingStart]; set {
+		t.Errorf("a vendor without a stamp must not get an annotation, got %q", v)
+	}
+}
+
+// A launch refused for quota, by the vendor or by the tracker, tells the hook
+// which scope it was and how many vCPUs it wanted.
+func TestQuotaRefusalIsReported(t *testing.T) {
+	var mu sync.Mutex
+	var got []cloudprovider.QuotaRefusal
+	e := newEnv(t, envOptions{attempts: 3, onQuotaRefusal: func(r cloudprovider.QuotaRefusal) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, r)
+	}})
+	types := []string{"aws.m7i.large", "aws.c7i.large"}
+	target := e.offerings(types...)[0]
+	e.setConfig("errors", fmt.Sprintf("- match: {region: %s}\n  error: QuotaExceeded", target.region))
+	if _, err := e.cp.Create(t.Context(), e.newClaim("claim-1", types)); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) == 0 {
+		t.Fatal("no refusal reported")
+	}
+	if r := got[0]; r.Vendor != "aws" || r.Region != target.region || r.CapacityType != target.capacityType ||
+		r.NodeClass != className || r.CPU != 2 {
+		t.Errorf("refusal %+v, want aws %s %s of %s, 2 vCPU", r, target.region, target.capacityType, className)
+	}
+}
+
 func TestCreateWithoutQuotaKnowledgeMarksTheRegionOnQuotaErrors(t *testing.T) {
 	e := newEnv(t, envOptions{attempts: 3})
 	types := []string{"aws.m7i.large", "aws.c7i.large"}
