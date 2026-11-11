@@ -1,0 +1,16 @@
+# The optional second custom role of the SCarpenter controller: the networks, subnetworks and
+# firewall rules the driver creates and deletes itself (the `create` of the subnets and firewalls
+# kinds, and the default when the project has no usable default network). Skip it when your own
+# tooling provides them and the NodeClass only uses them (`use`). Create it next to the main role:
+#   gcloud iam roles create scarpenterManaged --project=<project> --file=docs/reference/gcp-iam-role-managed.yaml
+title: SCarpenter controller, managed networks
+description: Creates and deletes the networks, subnetworks and firewall rules SCarpenter owns.
+stage: GA
+includedPermissions:
+- compute.firewalls.create
+- compute.firewalls.delete
+- compute.networks.create
+- compute.networks.delete
+- compute.networks.updatePolicy
+- compute.subnetworks.create
+- compute.subnetworks.delete

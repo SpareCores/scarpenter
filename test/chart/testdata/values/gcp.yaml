@@ -1,0 +1,19 @@
+# The GCP driver next to the development driver: workload identity federation
+# (an external_account credential configuration from a ConfigMap, its token the
+# ServiceAccount's projected token), the project, and the AWS vendor off.
+cluster:
+  name: lab
+  apiServerEndpoint: https://100.64.0.1:6443
+  dns: [10.43.0.10]
+vendors:
+  aws:
+    enabled: false
+  gcp:
+    enabled: true
+    project: my-project
+    ipv4Price: "0.004"
+    credentials:
+      mode: workloadIdentity
+      workloadIdentity:
+        configMap: gcp-credential-configuration
+        audience: //iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/my-pool/providers/my-provider

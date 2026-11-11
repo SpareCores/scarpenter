@@ -18,7 +18,10 @@ cluster:
 kubeletClientCA:
   source: extensionApiserverAuthentication
 vendors:
+  aws:
+    enabled: false
   gcp:
+    enabled: true
     project: ${GCP_PROJECT}
     credentials:
       mode: secret

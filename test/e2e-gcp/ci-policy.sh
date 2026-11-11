@@ -38,7 +38,7 @@ reads=(
   compute.diskTypes.get compute.diskTypes.list
   compute.firewalls.get compute.firewalls.list
   compute.globalOperations.get compute.globalOperations.list
-  compute.images.get compute.images.getFromFamily compute.images.useReadOnly
+  compute.images.get compute.images.getFromFamily compute.images.list compute.images.useReadOnly
   compute.instances.get compute.instances.getSerialPortOutput compute.instances.list
   compute.machineTypes.get compute.machineTypes.list
   compute.networks.get compute.networks.list compute.networks.use

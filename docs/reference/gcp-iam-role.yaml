@@ -1,0 +1,60 @@
+# The custom role of the SCarpenter controller in the project of its GCP nodes. Create it with
+#   gcloud iam roles create scarpenter --project=<project> --file=docs/reference/gcp-iam-role.yaml
+# and grant it to the controller's identity (docs/how-to-guides/gcp-credentials.md). It holds
+# exactly what the driver's calls need (pkg/vendors/gcp/iam_test.go keeps the file and the driver
+# in step) and nothing that changes IAM, images or secrets. It is deliberately not
+# roles/compute.instanceAdmin.v1, which is wider.
+#
+# GCP IAM conditions cannot test labels, so nothing here limits the role to the cluster's own
+# instances: the driver refuses to delete an instance without the cluster's label, and a project
+# dedicated to the nodes is the real wall (docs/reference/gcp-driver.md#iam).
+#
+# Add iam.serviceAccounts.actAs on a service account only if vendors.gcp.serviceAccount is set.
+# The role for the networks and rules SCarpenter creates itself is gcp-iam-role-managed.yaml; skip
+# it when your own tooling provides the subnetworks and firewall tags.
+title: SCarpenter controller
+description: Launches, lists and deletes the nodes SCarpenter manages, reads the project's facts and quotas.
+stage: GA
+includedPermissions:
+- compute.disks.create
+- compute.disks.delete
+- compute.disks.get
+- compute.disks.list
+- compute.disks.setLabels
+- compute.disks.use
+- compute.firewalls.list
+- compute.globalOperations.get
+- compute.images.get
+- compute.images.getFromFamily
+- compute.images.list
+- compute.images.useReadOnly
+- compute.instances.create
+- compute.instances.delete
+- compute.instances.get
+- compute.instances.list
+- compute.instances.setLabels
+- compute.instances.setMetadata
+- compute.instances.setScheduling
+- compute.instances.setServiceAccount
+- compute.instances.setTags
+- compute.machineTypes.get
+- compute.machineTypes.list
+- compute.networks.get
+- compute.networks.list
+- compute.networks.use
+- compute.projects.get
+- compute.regionOperations.get
+- compute.regions.get
+- compute.regions.list
+- compute.resourcePolicies.create
+- compute.resourcePolicies.delete
+- compute.resourcePolicies.get
+- compute.resourcePolicies.list
+- compute.resourcePolicies.use
+- compute.subnetworks.get
+- compute.subnetworks.list
+- compute.subnetworks.use
+- compute.subnetworks.useExternalIp
+- compute.zoneOperations.get
+- compute.zones.get
+- compute.zones.list

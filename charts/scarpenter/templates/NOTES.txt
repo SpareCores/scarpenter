@@ -31,6 +31,14 @@ Azure credentials are not wired by the chart (credentials.mode none): the pod mu
 get them from the Azure workload identity webhook or the managed identity of the node.
 {{- end }}
 {{- end }}
+{{- if .Values.vendors.gcp.enabled }}
+{{- if eq .Values.vendors.gcp.credentials.mode "none" }}
+
+GCP credentials are not wired by the chart (credentials.mode none): the pod must
+get them from the metadata server (GKE Workload Identity, or the node's service
+account) and set --gcp-project (vendors.gcp.project) if they carry no project.
+{{- end }}
+{{- end }}
 {{- if not .Values.examples.enabled }}
 
 Create an SCNodeClass and a NodePool that references it; examples:

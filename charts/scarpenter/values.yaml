@@ -190,6 +190,40 @@ vendors:
         clientIdKey: AZURE_CLIENT_ID
         tenantIdKey: AZURE_TENANT_ID
         clientSecretKey: AZURE_CLIENT_SECRET
+  gcp:
+    # Off by default: set true to run the GCP (Compute Engine) driver
+    # (docs/reference/gcp-driver.md). The controller targets one project.
+    enabled: false
+    # Project of the nodes (--gcp-project). Empty: the project of the credentials
+    # (a service account key, or the metadata server); workload identity
+    # federation carries none, so set it there.
+    project: ""
+    # Price of an external IPv4 address per hour in USD, used in the price of GCP
+    # offerings (SCARPENTER_GCP_IPV4_PRICE). An approximation, not a Keeper price;
+    # empty: 0.005. "0": free.
+    ipv4Price: ""
+    credentials:
+      # workloadIdentity: an external_account credential configuration (an existing
+      #   ConfigMap) whose token file is the ServiceAccount's projected token
+      #   (workload identity federation, docs/how-to-guides/gcp-credentials.md);
+      #   recommended for a cluster outside Google Cloud.
+      # secret: a service account key from an existing Secret (the fallback).
+      # none: nothing is wired; Application Default Credentials find the identity
+      #   (the metadata server on GKE or GCE).
+      mode: workloadIdentity
+      workloadIdentity:
+        # ConfigMap holding the credential configuration (GOOGLE_APPLICATION_CREDENTIALS);
+        # its credential_source.file must be /var/run/secrets/gcp/token. REQUIRED.
+        configMap: ""
+        key: credential-configuration.json
+        # Audience of the projected token: the workload identity provider, in the form
+        # //iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>.
+        # REQUIRED.
+        audience: ""
+        expirationSeconds: 3600
+      secret:
+        existingSecret: ""
+        key: key.json
   hcloud:
     # Hetzner Cloud: servers of one project, from Flatcar snapshots in that
     # project (docs/how-to-guides/hcloud-images.md, docs/reference/hcloud-driver.md).

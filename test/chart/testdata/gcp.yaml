@@ -1,0 +1,698 @@
+---
+# Source: scarpenter/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scarpenter
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+
+---
+# Source: scarpenter/templates/rbac.yaml
+# SCarpenter's own permissions (config/rbac/controller.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scarpenter
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+    - scarpenter.sparecores.com
+    resources:
+    - scnodeclasses
+    verbs:
+    - get
+    - list
+    - watch
+    - update
+    - patch
+  - apiGroups:
+    - scarpenter.sparecores.com
+    resources:
+    - scnodeclasses/status
+    verbs:
+    - get
+    - update
+    - patch
+  - apiGroups:
+    - karpenter.sh
+    resources:
+    - nodeclaims
+    verbs:
+    - get
+    - list
+    - watch
+    - delete
+  - apiGroups:
+    - karpenter.sh
+    resources:
+    - nodepools
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - nodes
+    verbs:
+    - get
+    - list
+    - watch
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - certificates.k8s.io
+    resources:
+    - certificatesigningrequests
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - certificates.k8s.io
+    resources:
+    - certificatesigningrequests/approval
+    verbs:
+    - update
+  - apiGroups:
+    - certificates.k8s.io
+    resourceNames:
+    - kubernetes.io/kubelet-serving
+    resources:
+    - signers
+    verbs:
+    - approve
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    verbs:
+    - get
+
+---
+# Source: scarpenter/templates/rbac.yaml
+# Karpenter core's permissions (config/rbac-core/core.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scarpenter-core
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+    - karpenter.sh
+    resources:
+    - nodepools
+    - nodepools/status
+    - nodeclaims
+    - nodeclaims/status
+    - nodeoverlays
+    - nodeoverlays/status
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - delete
+    - update
+    - patch
+  - apiGroups:
+    - autoscaling.x-k8s.io
+    resources:
+    - capacitybuffers
+    - capacitybuffers/status
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    - persistentvolumes
+    - persistentvolumeclaims
+    - replicationcontrollers
+    - namespaces
+    - podtemplates
+    - events
+    - services
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - events
+    verbs:
+    - create
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    verbs:
+    - delete
+  - apiGroups:
+    - ""
+    resources:
+    - pods/eviction
+    verbs:
+    - create
+  - apiGroups:
+    - ""
+    resources:
+    - nodes
+    verbs:
+    - get
+    - list
+    - watch
+    - patch
+    - update
+    - delete
+  - apiGroups:
+    - storage.k8s.io
+    resources:
+    - storageclasses
+    - csinodes
+    - volumeattachments
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - apps
+    resources:
+    - daemonsets
+    - deployments
+    - replicasets
+    - statefulsets
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - policy
+    resources:
+    - poddisruptionbudgets
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - apiextensions.k8s.io
+    resources:
+    - customresourcedefinitions
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - coordination.k8s.io
+    resources:
+    - leases
+    verbs:
+    - get
+    - list
+    - watch
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: scarpenter
+subjects:
+  - kind: ServiceAccount
+    name: scarpenter
+    namespace: scarpenter-system
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter-core
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: scarpenter-core
+subjects:
+  - kind: ServiceAccount
+    name: scarpenter
+    namespace: scarpenter-system
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter-node-bootstrapper
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:node-bootstrapper
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:bootstrappers:scarpenter
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter-auto-approve-node-client-csrs
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:certificates.k8s.io:certificatesigningrequests:nodeclient
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:bootstrappers:scarpenter
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scarpenter-auto-approve-node-client-renewals
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:certificates.k8s.io:certificatesigningrequests:selfnodeclient
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:nodes
+
+---
+# Source: scarpenter/templates/rbac.yaml
+# The bootstrap tokens live in kube-system, where the API server's bootstrap
+# authenticator reads them (a Role there, not cluster-wide access to Secrets).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-bootstrap-tokens
+  namespace: kube-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+    - ""
+    resources:
+    - secrets
+    verbs:
+    - get
+    - list
+    - create
+    - delete
+
+---
+# Source: scarpenter/templates/rbac.yaml
+# The cluster DNS Service, read when --cluster-dns is not set (config/rbac/controller.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-cluster-dns
+  namespace: kube-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+    - ""
+    resources:
+    - services
+    verbs:
+    - get
+    - list
+
+---
+# Source: scarpenter/templates/rbac.yaml
+# The tailscale auth key Secret of an SCNodeClass is read from the release
+# namespace (config/rbac/controller.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-auth-key
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+    - ""
+    resources:
+    - secrets
+    verbs:
+    - get
+
+---
+# Source: scarpenter/templates/rbac.yaml
+# Leader election: the lease of the controller (config/rbac-core/core.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-leader-election
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+    - coordination.k8s.io
+    resources:
+    - leases
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+    - delete
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-bootstrap-tokens
+  namespace: kube-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scarpenter-bootstrap-tokens
+subjects:
+  - kind: ServiceAccount
+    name: scarpenter
+    namespace: scarpenter-system
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-cluster-dns
+  namespace: kube-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scarpenter-cluster-dns
+subjects:
+  - kind: ServiceAccount
+    name: scarpenter
+    namespace: scarpenter-system
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-auth-key
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scarpenter-auth-key
+subjects:
+  - kind: ServiceAccount
+    name: scarpenter
+    namespace: scarpenter-system
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-leader-election
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scarpenter-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: scarpenter
+    namespace: scarpenter-system
+
+---
+# Source: scarpenter/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: scarpenter
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
+
+---
+# Source: scarpenter/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scarpenter
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scarpenter
+      app.kubernetes.io/instance: scarpenter
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: controller
+        # Core must never voluntarily disrupt the node that hosts its own controller.
+        karpenter.sh/do-not-disrupt: "true"
+      labels:
+        helm.sh/chart: scarpenter-0.0.0-dev
+        app.kubernetes.io/name: scarpenter
+        app.kubernetes.io/instance: scarpenter
+        app.kubernetes.io/version: "dev"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: scarpenter
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: controller
+          image: "ghcr.io/sparecores/scarpenter:dev"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--api-server-endpoint=https://100.64.0.1:6443"
+            - "--cluster-dns=10.43.0.10"
+            - "--cluster-name=lab"
+            - "--gcp-project=my-project"
+            - "--health-probe-port=8081"
+            - "--metrics-port=8080"
+            - "--vendors=gcp"
+          env:
+            # Where kube-root-ca.crt is read, where events about the controller
+            # go and where core keeps its leader election lease.
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: LEADER_ELECTION_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            # Not core's default: another Karpenter in the same namespace would
+            # share the lease karpenter-leader-election and only one would run.
+            - name: LEADER_ELECTION_NAME
+              value: "scarpenter-leader-election"
+            # The Deployment the garbage collector's Events are attached to when
+            # an orphan has no NodeClass.
+            - name: SCARPENTER_DEPLOYMENT_NAME
+              value: "scarpenter"
+            # Core sizes its garbage collector and its concurrency from these.
+            - name: MEMORY_LIMIT
+              valueFrom: {resourceFieldRef: {containerName: controller, resource: limits.memory, divisor: "1"}}
+            - name: CPU_REQUESTS
+              valueFrom: {resourceFieldRef: {containerName: controller, resource: requests.cpu, divisor: 1m}}
+            - name: SCARPENTER_GCP_IPV4_PRICE
+              value: "0.004"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/scarpenter/gcp/credential-configuration.json
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 640Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: gcp-token
+              mountPath: /var/run/secrets/gcp
+              readOnly: true
+            - name: gcp-credentials
+              mountPath: /etc/scarpenter/gcp
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: gcp-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: "//iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/my-pool/providers/my-provider"
+                  expirationSeconds: 3600
+                  path: token
+        - name: gcp-credentials
+          configMap:
+            name: "gcp-credential-configuration"
+            items:
+              - {key: "credential-configuration.json", path: "credential-configuration.json"}
+      nodeSelector:
+        kubernetes.io/os: linux
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: karpenter.sh/nodepool
+                operator: DoesNotExist
+            weight: 100

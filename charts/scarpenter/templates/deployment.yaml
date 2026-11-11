@@ -14,6 +14,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- $ovh := .Values.vendors.ovh }}
 {{- $upcloud := .Values.vendors.upcloud }}
 {{- $vultr := .Values.vendors.vultr }}
+{{- $gcp := .Values.vendors.gcp }}
 {{- $amode := $ali.credentials.mode }}
 {{- if and $ali.enabled (eq $amode "oidc") (or (not $ali.credentials.oidc.roleArn) (not $ali.credentials.oidc.providerArn)) }}
 {{- fail "vendors.alicloud.credentials.oidc.roleArn and providerArn are required with credentials mode oidc (docs/how-to-guides/alicloud-credentials.md); use mode secret or none otherwise" }}
@@ -22,7 +23,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- fail "vendors.alicloud.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
 {{- if not (include "scarpenter.vendors" .) }}
-{{- fail "enable at least one vendor: vendors.alicloud.enabled=true, vendors.aws.enabled=true, vendors.azure.enabled=true, vendors.hcloud.enabled=true, vendors.ovh.enabled=true, vendors.upcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
+{{- fail "enable at least one vendor: vendors.alicloud.enabled=true, vendors.aws.enabled=true, vendors.azure.enabled=true, vendors.gcp.enabled=true, vendors.hcloud.enabled=true, vendors.ovh.enabled=true, vendors.upcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
 {{- end }}
 {{- if and $hcloud.enabled (not $hcloud.credentials.secret.existingSecret) }}
 {{- fail "vendors.hcloud.credentials.secret.existingSecret is required: the Secret that holds the API token of the Hetzner Cloud project (HCLOUD_TOKEN)" }}
@@ -53,6 +54,16 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- end }}
 {{- if and $vultr.enabled (not $vultr.credentials.secret.existingSecret) }}
 {{- fail "vendors.vultr.credentials.secret.existingSecret is required when vultr is enabled: the API key of the account (docs/how-to-guides/vultr-credentials.md)" }}
+{{- end }}
+{{- $gcpMode := $gcp.credentials.mode }}
+{{- if and $gcp.enabled (eq $gcpMode "workloadIdentity") (not $gcp.credentials.workloadIdentity.configMap) }}
+{{- fail "vendors.gcp.credentials.workloadIdentity.configMap is required with credentials mode workloadIdentity (docs/how-to-guides/gcp-credentials.md); use mode secret or none otherwise" }}
+{{- end }}
+{{- if and $gcp.enabled (eq $gcpMode "workloadIdentity") (not $gcp.credentials.workloadIdentity.audience) }}
+{{- fail "vendors.gcp.credentials.workloadIdentity.audience is required with credentials mode workloadIdentity: the audience of the workload identity provider" }}
+{{- end }}
+{{- if and $gcp.enabled (eq $gcpMode "secret") (not $gcp.credentials.secret.existingSecret) }}
+{{- fail "vendors.gcp.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
 {{- if and .Values.bootstrap.tokenTTL (lt (int (include "scarpenter.seconds" .Values.bootstrap.tokenTTL)) 1200) }}
 {{- fail "bootstrap.tokenTTL must be at least 20m: core gives a NodeClaim 15 minutes to register and the token must outlive that" }}
@@ -91,6 +102,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "resource-check-interval" .Values.managedResources.checkInterval
   "resource-full-sweep-every" .Values.managedResources.fullSweepEvery
   "aws-home-region" (ternary $aws.homeRegion "" $aws.enabled)
+  "gcp-project" (ternary $gcp.project "" $gcp.enabled)
   "hcloud-server-limit" (ternary $hcloud.serverLimit "" (and $hcloud.enabled (gt (int $hcloud.serverLimit) 0)))
   "log-level" .Values.karpenter.logLevel
   "batch-max-duration" .Values.karpenter.batchMaxDuration
@@ -321,6 +333,19 @@ spec:
               valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.clientSecretKey | quote }}}}
             {{- end }}
             {{- end }}
+            {{- if $gcp.enabled }}
+            {{- if and (not (kindIs "invalid" $gcp.ipv4Price)) (ne (toString $gcp.ipv4Price) "") }}
+            - name: SCARPENTER_GCP_IPV4_PRICE
+              value: {{ toString $gcp.ipv4Price | quote }}
+            {{- end }}
+            {{- if eq $gcpMode "workloadIdentity" }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/scarpenter/gcp/{{ $gcp.credentials.workloadIdentity.key }}
+            {{- else if eq $gcpMode "secret" }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/scarpenter/gcp-key/{{ $gcp.credentials.secret.key }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -363,6 +388,18 @@ spec:
             {{- if and $azure.enabled (eq $azMode "workloadIdentity") }}
             - name: azure-token
               mountPath: /var/run/secrets/azure/tokens
+              readOnly: true
+            {{- end }}
+            {{- if and $gcp.enabled (eq $gcpMode "workloadIdentity") }}
+            - name: gcp-token
+              mountPath: /var/run/secrets/gcp
+              readOnly: true
+            - name: gcp-credentials
+              mountPath: /etc/scarpenter/gcp
+              readOnly: true
+            {{- else if and $gcp.enabled (eq $gcpMode "secret") }}
+            - name: gcp-key
+              mountPath: /etc/scarpenter/gcp-key
               readOnly: true
             {{- end }}
             {{- if or .Values.cluster.ca.existingConfigMap .Values.cluster.ca.existingSecret }}
@@ -412,6 +449,26 @@ spec:
                   audience: {{ $azure.credentials.workloadIdentity.audience | quote }}
                   expirationSeconds: {{ $azure.credentials.workloadIdentity.expirationSeconds }}
                   path: azure-identity-token
+        {{- end }}
+        {{- if and $gcp.enabled (eq $gcpMode "workloadIdentity") }}
+        - name: gcp-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ $gcp.credentials.workloadIdentity.audience | quote }}
+                  expirationSeconds: {{ $gcp.credentials.workloadIdentity.expirationSeconds }}
+                  path: token
+        - name: gcp-credentials
+          configMap:
+            name: {{ $gcp.credentials.workloadIdentity.configMap | quote }}
+            items:
+              - {key: {{ $gcp.credentials.workloadIdentity.key | quote }}, path: {{ $gcp.credentials.workloadIdentity.key | quote }}}
+        {{- else if and $gcp.enabled (eq $gcpMode "secret") }}
+        - name: gcp-key
+          secret:
+            secretName: {{ $gcp.credentials.secret.existingSecret | quote }}
+            items:
+              - {key: {{ $gcp.credentials.secret.key | quote }}, path: {{ $gcp.credentials.secret.key | quote }}}
         {{- end }}
         {{- if .Values.cluster.ca.existingConfigMap }}
         - name: cluster-ca
