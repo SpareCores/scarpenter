@@ -10,6 +10,7 @@ package azure
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -264,9 +265,17 @@ type sdkAgreements struct {
 	c *armmarketplaceordering.MarketplaceAgreementsClient
 }
 
+// Accepted reads the terms of the plan (MarketplaceAgreements.Get with the
+// offer type virtualmachine, what `az vm image terms show` reads): it answers
+// with accepted=false for terms never accepted. GetAgreement reads a signed
+// agreement instead, which does not exist before the first acceptance. A 404
+// is read as not accepted.
 func (s *sdkAgreements) Accepted(ctx context.Context, publisher, offer, plan string) (bool, error) {
-	r, err := s.c.GetAgreement(ctx, publisher, offer, plan, nil)
+	r, err := s.c.Get(ctx, armmarketplaceordering.OfferTypeVirtualmachine, publisher, offer, plan, nil)
 	if err != nil {
+		if re, ok := responseError(err); ok && re.StatusCode == http.StatusNotFound {
+			return false, nil
+		}
 		return false, err
 	}
 	return r.Properties != nil && deref(r.Properties.Accepted), nil

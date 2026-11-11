@@ -17,6 +17,8 @@ import (
 	azfake "github.com/Azure/azure-sdk-for-go/sdk/azcore/fake"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/marketplaceordering/armmarketplaceordering"
+	marketfake "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/marketplaceordering/armmarketplaceordering/fake"
 	computefake "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9/fake"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
 	networkfake "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12/fake"
@@ -37,11 +39,13 @@ func (token) GetToken(context.Context, policy.TokenRequestOptions) (azcore.Acces
 }
 
 // router sends each request to the SDK fake server of its service.
-type router struct{ compute, network, resources, subs policy.Transporter }
+type router struct{ compute, network, resources, subs, market policy.Transporter }
 
 func (r router) Do(req *http.Request) (*http.Response, error) {
 	p := req.URL.Path
 	switch {
+	case strings.Contains(p, "/providers/Microsoft.MarketplaceOrdering/"):
+		return r.market.Do(req)
 	case strings.Contains(p, "/providers/Microsoft.Compute/"):
 		return r.compute.Do(req)
 	case strings.Contains(p, "/providers/Microsoft.Network/"):
@@ -235,6 +239,43 @@ func TestSDKTagListingAndImages(t *testing.T) {
 	_, err = c.Images.Get(ctx, "westeurope", "kinvolk", "o", "s", "0.0.0")
 	require.True(t, isNotFound(err))
 	require.Equal(t, vendors.NotFound, vendors.ClassOf(classify(err, errContext{})))
+}
+
+func TestSDKAgreements(t *testing.T) {
+	var gotType armmarketplaceordering.OfferType
+	srv := marketfake.MarketplaceAgreementsServer{
+		Get: func(_ context.Context, offerType armmarketplaceordering.OfferType, pub, offer, plan string, _ *armmarketplaceordering.MarketplaceAgreementsClientGetOptions) (azfake.Responder[armmarketplaceordering.MarketplaceAgreementsClientGetResponse], azfake.ErrorResponder) {
+			gotType = offerType
+			var r azfake.Responder[armmarketplaceordering.MarketplaceAgreementsClientGetResponse]
+			var e azfake.ErrorResponder
+			switch plan {
+			case "missing":
+				e.SetResponseError(http.StatusNotFound, "NotFound")
+			case "denied":
+				e.SetResponseError(http.StatusForbidden, "AuthorizationFailed")
+			default:
+				// Terms never accepted are a 200 with accepted=false.
+				r.SetResponse(http.StatusOK, armmarketplaceordering.MarketplaceAgreementsClientGetResponse{AgreementTerms: armmarketplaceordering.AgreementTerms{
+					Properties: &armmarketplaceordering.AgreementProperties{Accepted: new(plan == "accepted")},
+				}}, nil)
+			}
+			return r, e
+		},
+	}
+	cl, err := NewSDKClients(token{}, "sub-1", SDKOptions{ClientOptions: &azcore.ClientOptions{
+		Transport: router{market: marketfake.NewMarketplaceAgreementsServerTransport(&srv)},
+		Retry:     policy.RetryOptions{MaxRetries: -1},
+	}})
+	require.NoError(t, err)
+	ctx := context.Background()
+	for plan, want := range map[string]bool{"accepted": true, "never": false, "missing": false} {
+		ok, err := cl.Agreements.Accepted(ctx, "kinvolk", "offer", plan)
+		require.NoError(t, err, plan)
+		require.Equal(t, want, ok, plan)
+	}
+	require.Equal(t, armmarketplaceordering.OfferTypeVirtualmachine, gotType)
+	_, err = cl.Agreements.Accepted(ctx, "kinvolk", "offer", "denied")
+	require.Equal(t, vendors.Fatal, vendors.ClassOf(classify(err, errContext{})))
 }
 
 func TestNewSDKClientsRejectsNoCredential(t *testing.T) {
