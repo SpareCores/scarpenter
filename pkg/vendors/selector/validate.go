@@ -155,6 +155,9 @@ func (v *validator) filters(fs []common.ResourceFilter) {
 
 // order checks select and orderBy against the kind's creation time and labels.
 func (v *validator) order(u *common.ResourceUse) {
+	if v.kind == ImagesKind && u.Select == common.SelectAll {
+		v.bad("select all is not supported for images: a launch needs one image (use exactlyOne, newest or oldest)")
+	}
 	if u.OrderBy == orderCreated && !v.caps.HasCreated {
 		v.bad("orderBy created is not supported: %s of %s has no creation time (use name or label:<key>)", v.kind, v.vendor)
 	}

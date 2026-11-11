@@ -38,6 +38,10 @@ const (
 	// references and the vendor's default resources resolve to).
 	keyUnsupported = "unsupported"
 	keyExisting    = "existingResources"
+	// keyImages lists the boot images the account has (id, region or "*", name,
+	// arch, channel, version, tags, created, ...): what the `images` selector and
+	// the version check resolve against.
+	keyImages = "images"
 	// keyRootDisks lists instance types whose root disk the type defines
 	// (RootDiskForType), as a vendor with fixed plan disks does.
 	keyRootDisks = "rootDisks"
@@ -124,7 +128,7 @@ type orphanConfig struct {
 
 // steeringKeys are the keys of the steering ConfigMap.
 var steeringKeys = []string{
-	keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting, keyRootDisks,
+	keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting, keyRootDisks, keyImages,
 }
 
 // orEmpty is c, or an empty configuration when there is none yet.
@@ -147,6 +151,7 @@ type config struct {
 	rules       []unsupportedRule
 	rootDisks   []rootDiskRule
 	existing    []existingResource
+	images      []existingResource
 	raw         map[string]string
 }
 
@@ -314,6 +319,21 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	}, func() {
 		if prev != nil {
 			next.existing = prev.existing
+		}
+	})
+	parse(keyImages, func(raw string) error {
+		var list []existingResource
+		if err := yaml.UnmarshalStrict([]byte(raw), &list); err != nil {
+			return err
+		}
+		for i := range list {
+			list[i].Kind = string(KindImages)
+		}
+		next.images = list
+		return nil
+	}, func() {
+		if prev != nil {
+			next.images = prev.images
 		}
 	})
 	d.conf = next

@@ -8,8 +8,10 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sync"
 	"time"
@@ -19,7 +21,9 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // imageTTL is how long a resolved image is trusted (overview section 9).
@@ -37,13 +41,14 @@ var imageArches = map[string]ec2types.ArchitectureValues{
 	archARM64: ec2types.ArchitectureValuesArm64,
 }
 
-type imageKey struct{ region, arch, channel, version, owner string }
+type imageKey struct{ region, arch, channel, version, owner, use string }
 
 type cachedImage struct {
 	image vendors.Image
 	until time.Time
-	// err is a NotFound answer, remembered for imageMissTTL so that the NodeClass
-	// status does not ask again at every reconcile for a region without an image.
+	// err is a definitive answer that is not an image (none, several, another
+	// release), remembered for imageMissTTL so that the NodeClass status does not
+	// ask again at every reconcile for a region without an image.
 	err error
 }
 
@@ -62,20 +67,119 @@ func imageName(channel, version, arch string) string {
 	return fmt.Sprintf("Flatcar-%s-%s-hvm", channel, version)
 }
 
-// ResolveImage implements vendors.Driver: DescribeImages with the owner, the
-// name of the release, state available and the architecture. Exactly one match
-// is required. The root device name comes from the image (cached for the
-// launch).
-func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
-	arch, ok := imageArches[req.Arch]
+// The tags with which an AMI says which Flatcar release it is when its name does
+// not (a copy under another name, an image of the operator's own build).
+const (
+	tagFlatcarChannel = "flatcar-channel"
+	tagFlatcarVersion = "flatcar-version"
+)
+
+var imageNamePattern = regexp.MustCompile(`^Flatcar-([a-z]+)-([0-9]+\.[0-9]+\.[0-9]+)(?:-arm64)?-hvm$`)
+
+// imageRelease reads the Flatcar release an AMI says it is: from its name when
+// that is the official naming, else from the tags flatcar-channel and
+// flatcar-version. Empty when it says neither (the version check then refuses
+// it, ADR-017).
+func imageRelease(im ec2types.Image) (channel, version string) {
+	if m := imageNamePattern.FindStringSubmatch(deref(im.Name)); m != nil {
+		return m[1], m[2]
+	}
+	tags := tagMap(im.Tags)
+	return tags[tagFlatcarChannel], tags[tagFlatcarVersion]
+}
+
+// imageUse is the selector of a request: the NodeClass's, narrowed to the
+// request's architecture; without one the built-in selector, the name of the
+// pinned release in the owner's account in state available. Owners is the list
+// for the call: match.owner, else the owner of the block, except for a selector
+// that names IDs (an ID is exact; the version check still applies), never "every
+// image the account can see": a stranger's image of the same name must not win.
+func imageUse(req vendors.ImageRequest, owner string) (use vendors.UseRef, owners []string, err error) {
+	if req.Use.IsDefault() {
+		use = vendors.UseRef{
+			Name:   imageName(req.Channel, req.Version, req.Arch),
+			Match:  common.ResourceMatch{Architecture: []string{req.Arch}, State: []string{stateAvailable}},
+			Select: common.SelectExactlyOne,
+		}
+		return use, []string{owner}, nil
+	}
+	use, ok := selector.NarrowArchitecture(req.Use, req.Arch)
 	if !ok {
+		return use, nil, vendors.NewError(vendors.NotFound, codeImageNotFound, fmt.Errorf(
+			"no image for %s in %s: match.architecture %v excludes it", req.Arch, req.Region, req.Use.Match.Architecture))
+	}
+	switch {
+	case len(use.Match.Owner) > 0:
+		owners = use.Match.Owner
+	case len(use.IDs) == 0:
+		owners = []string{owner}
+	}
+	if use.Select == common.SelectAll {
+		return use, nil, vendors.Errorf(vendors.Fatal, "select all is not valid for images: a launch needs one image")
+	}
+	return use, owners, nil
+}
+
+// describeImages lists the AMIs of a selector: every field EC2 can evaluate goes
+// into the call, the request parameters among the filters are lifted out.
+func describeImages(
+	ctx context.Context, cl Clients, use vendors.UseRef, owners []string,
+) ([]ec2types.Image, error) {
+	all, none, err := useFilters(use, imageFilters)
+	if err != nil {
+		return nil, vendors.Errorf(vendors.Fatal, "%w", err)
+	}
+	if none {
+		return nil, nil // native filters that cannot all hold: nothing matches
+	}
+	in := &ec2.DescribeImagesInput{Owners: owners}
+	var filters []ec2types.Filter
+	for _, f := range all {
+		switch deref(f.Name) {
+		case paramExecutableUser:
+			in.ExecutableUsers = append(in.ExecutableUsers, f.Values...)
+		case paramIncludeDisabled:
+			in.IncludeDisabled = aws.Bool(slices.Contains(f.Values, "true"))
+		default:
+			filters = append(filters, f)
+		}
+	}
+	in.Filters = filters
+	if use.Match.IncludeDeprecated != nil {
+		in.IncludeDeprecated = use.Match.IncludeDeprecated
+	}
+	var out []ec2types.Image
+	for {
+		res, err := cl.EC2.DescribeImages(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, res.Images...)
+		if res.NextToken == nil || *res.NextToken == "" {
+			return out, nil
+		}
+		in.NextToken = res.NextToken
+	}
+}
+
+// ResolveImage implements vendors.Driver: DescribeImages with the selector (the
+// NodeClass's images.use, narrowed to the architecture; without one the owner,
+// the name of the release, state available and the architecture), finished by the
+// shared matcher, and exactly one match under the default select. The chosen
+// image must say it is the pinned release (ADR-017): by its name or its tags
+// flatcar-channel and flatcar-version; another release is ImageVersionMismatch,
+// none ImageVersionUnknown, and the image is not returned. The root device name
+// comes from the image (cached for the launch).
+func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
+	if _, ok := imageArches[req.Arch]; !ok {
 		return nil, vendors.Errorf(vendors.Fatal, "unsupported architecture %q (amd64 and arm64 are)", req.Arch)
 	}
 	owner := req.Owner
 	if owner == "" {
 		owner = DefaultImageOwner
 	}
-	key := imageKey{req.Region, req.Arch, req.Channel, req.Version, owner}
+	enc, _ := json.Marshal(req.Use)
+	key := imageKey{req.Region, req.Arch, req.Channel, req.Version, owner, string(enc)}
 	d.mu.Lock()
 	if c, ok := d.images[key]; ok && d.clock.Now().Before(c.until) {
 		d.mu.Unlock()
@@ -86,19 +190,15 @@ func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*v
 		return &img, nil
 	}
 	d.mu.Unlock()
+	use, owners, err := imageUse(req, owner)
+	if err != nil {
+		return nil, err
+	}
 	cl, err := d.clients(ctx, req.Region)
 	if err != nil {
 		return nil, err
 	}
-	name := imageName(req.Channel, req.Version, req.Arch)
-	out, err := cl.EC2.DescribeImages(ctx, &ec2.DescribeImagesInput{
-		Owners: []string{owner},
-		Filters: []ec2types.Filter{
-			{Name: aws.String("name"), Values: []string{name}},
-			{Name: aws.String("state"), Values: []string{string(ec2types.ImageStateAvailable)}},
-			{Name: aws.String("architecture"), Values: []string{string(arch)}},
-		},
-	})
+	images, err := describeImages(ctx, cl, use, owners)
 	if err != nil {
 		// A transient failure serves the last good image, even past its TTL: the
 		// answer of an earlier success is better than none.
@@ -114,22 +214,32 @@ func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*v
 		}
 		return nil, classify(err, errContext{})
 	}
-	switch len(out.Images) {
-	case 0:
-		err := vendors.NewError(vendors.NotFound, codeImageNotFound,
-			fmt.Errorf("no available image %q (%s) owned by %s in %s", name, req.Arch, owner, req.Region))
+	remember := func(err error) error {
 		d.mu.Lock()
 		d.images[key] = cachedImage{err: err, until: d.clock.Now().Add(imageMissTTL)}
 		d.mu.Unlock()
-		return nil, err
-	case 1:
-	default:
-		return nil, vendors.NewError(vendors.Fatal, codeImageAmbiguous,
-			fmt.Errorf("%d available images named %q (%s) are owned by %s in %s; exactly one is required",
-				len(out.Images), name, req.Arch, owner, req.Region))
+		return err
 	}
-	im := out.Images[0]
-	img := vendors.Image{Ref: deref(im.ImageId)}
+	res, err := selector.Apply(use, d.Selectors()[KindImages], images, imageFields)
+	d.noteMissing(KindImages, req.Region, res.Missing)
+	if err != nil {
+		if _, none := errors.AsType[*selector.NoMatchError](err); none && req.Use.IsDefault() {
+			err = vendors.NewError(vendors.NotFound, codeImageNotFound, fmt.Errorf(
+				"no available image %q (%s) owned by %s in %s: %w", use.Name, req.Arch, owner, req.Region, err))
+		} else {
+			err = selector.ImageError(err, req.Region, req.Arch)
+		}
+		if vendors.ClassOf(err) == vendors.NotFound || vendors.ClassOf(err) == vendors.Fatal {
+			return nil, remember(err)
+		}
+		return nil, err
+	}
+	im := res.Items[0]
+	channel, version := imageRelease(im)
+	if err := vendors.CheckImageVersion(deref(im.ImageId), channel, version, req); err != nil {
+		return nil, remember(err)
+	}
+	img := vendors.Image{Ref: deref(im.ImageId), Channel: channel, Version: version}
 	for _, bd := range im.BlockDeviceMappings {
 		if bd.DeviceName != nil && im.RootDeviceName != nil && *bd.DeviceName == *im.RootDeviceName && bd.Ebs != nil &&
 			bd.Ebs.VolumeSize != nil {
@@ -189,9 +299,13 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 			go func() {
 				defer func() { <-sem; wg.Done() }()
 				st := v1alpha1.ImageStatus{Region: region, Arch: arch}
-				img, err := d.ResolveImage(ctx, vendors.ImageRequest{
-					Region: region, Arch: arch, Channel: channel, Version: nc.Spec.Flatcar.Version, Owner: owner,
-				})
+				use, _, err := selector.ImageUse(nc, d, region, arch)
+				var img *vendors.Image
+				if err == nil {
+					img, err = d.ResolveImage(ctx, vendors.ImageRequest{
+						Region: region, Arch: arch, Channel: channel, Version: nc.Spec.Flatcar.Version, Owner: owner, Use: use,
+					})
+				}
 				mu.Lock()
 				defer mu.Unlock()
 				switch {
@@ -201,6 +315,9 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 					// A definitive answer: no image, an ambiguous name, a region the
 					// account cannot use.
 					st.Message = err.Error()
+					if code := vendors.CodeOf(err); vendors.IsImageVersionCode(code) {
+						st.Reason = code
+					}
 				default:
 					// Throttling, a timeout: the answer is unknown, and an unknown must
 					// not gate the region's offerings (the whole report fails and the

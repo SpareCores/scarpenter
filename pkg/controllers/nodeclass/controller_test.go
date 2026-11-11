@@ -848,3 +848,45 @@ func TestClusterDNSMustBeKnown(t *testing.T) {
 	}
 	wantCond(t, nc, status.ConditionReady, metav1.ConditionFalse, "")
 }
+
+// An image that is not the pinned release is a fault of what the NodeClass named,
+// not a gap of the vendor: ImagesReady is False with the image's own reason, also
+// for a region the NodeClass does not name, and the region's offerings are
+// gated.
+func TestAnImageOfAnotherVersionMakesTheImagesNotReady(t *testing.T) {
+	for name, tc := range map[string]struct {
+		regions []string
+		reason  string
+	}{
+		"named region":   {[]string{"r1"}, vendors.CodeImageVersionMismatch},
+		"unnamed region": {nil, vendors.CodeImageVersionUnknown},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			gate := &gateRecorder{}
+			e.ctrl = nodeclass.New(nodeclass.Options{
+				Client: e.c, Catalog: e.cat, Registry: vendors.NewRegistryFrom(e.drv), ImageGate: gate,
+				Artifacts: artifacts.New(artifacts.Config{SysextBase: e.server}),
+				Renderer:  bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: e.refs, APIServerEndpoint: "https://api.example.com:6443"}),
+				Refs:      e.refs, Recorder: e.rec,
+			})
+			msg := "the image ami-9 in r1 is Flatcar stable 4500.1.0, but stable 4757.2.3 is pinned"
+			e.drv.images = []v1alpha1.ImageStatus{
+				{Region: "r1", Arch: "amd64", Ref: "ami-1", Ready: true},
+				{Region: "r1", Arch: "arm64", Message: msg, Reason: tc.reason},
+				{Region: "r2", Arch: "amd64", Ref: "ami-2", Ready: true}, {Region: "r2", Arch: "arm64", Ref: "ami-3", Ready: true},
+			}
+			e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.AWS.Regions = tc.regions }))
+			nc := e.reconcile(e.name)
+			c := vcond(nc, "aws", v1alpha1.VendorConditionImagesReady)
+			if c == nil || c.Status != metav1.ConditionFalse || c.Reason != tc.reason || !strings.Contains(c.Message, "ami-9") {
+				t.Errorf("ImagesReady = %+v, want False with %s naming the image", c, tc.reason)
+			}
+			// The NodeClass itself stays ready; the vendor's offerings are what is gated.
+			wantCond(t, nc, status.ConditionReady, metav1.ConditionTrue, "")
+			if c := vcond(nc, "aws", v1alpha1.VendorConditionReady); c == nil || c.Status != metav1.ConditionTrue {
+				t.Errorf("VendorReady = %+v", c)
+			}
+		})
+	}
+}

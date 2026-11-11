@@ -104,7 +104,7 @@ spec:
         securityGroups:
           use:
             ids: {us-east-1: [sg-0123], eu-central-1: [sg-0456]}
-        images:                              # planned (plan 14); optional on AWS (rung 1); for your own AMIs
+        images:                              # optional on AWS (rung 1); for your own AMIs
           use:
             match: {owner: [self], architecture: [amd64]}
             tags: {flatcar-version: "{version}"}
@@ -136,7 +136,12 @@ There is no `create`. The placeholders are `{channel}`, `{version}`, `{arch}`, `
 and `{nodeclass}` ([placeholders](resource-selectors.md#placeholders)). The selector's matches are narrowed to the
 request: the image's own architecture (the `ids` list may hold both), channel and version, which must equal the
 NodeClass's pin (ADR-017); several IDs in a region (the two architectures, UpCloud's tiers) are not an
-ambiguity. `owner` defaults to the block's owner field, never to every image the account can see. Where a
+ambiguity. `owner` defaults to the block's owner field, never to every image the account can see
+(an `ids` selector needs none). **An image whose version cannot be read back is not used:** whatever names the
+image, the driver reads the Flatcar channel and version from its labels, tags or name, and an image of another
+release, or one that does not say, makes the region's images not ready (`ImagesReady=False`, `ImageVersionMismatch`
+or `ImageVersionUnknown`) and is never booted. So label or tag the images you create (AWS: the tags
+`flatcar-channel` and `flatcar-version` when the AMI name is not `Flatcar-<channel>-<version>[-arm64]-hvm`). Where a
 vendor has no creation time on images (UpCloud templates, Azure marketplace), `select: newest` needs
 `orderBy: label:<key>` or `name`. Without `images` the driver resolves the pinned version itself: from the vendor's
 own images (rungs 1 and 2) or by the documented naming convention in your account (rung 3, which is a built-in
@@ -146,7 +151,8 @@ either follows the convention or passes the IDs or a selector. Who creates the i
 
 ## aws
 
-Images: rung 1, nothing to provide (`imageOwner` overrides the AMI owner).
+Images: rung 1, nothing to provide (`imageOwner` overrides the AMI owner). Your own AMIs: `resources.images.use`
+(IDs per region, or `name`, `tags`, `match.owner: [self]`), tagged `flatcar-channel` and `flatcar-version`.
 Credentials: an IAM role with web identity (recommended), keys in a Secret, or the
 node's role; the account is the one of the credentials. Defaults: the default VPC.
 

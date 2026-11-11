@@ -283,8 +283,10 @@ func TestFilterNamesAreInTheSDKDocumentation(t *testing.T) {
 	dir := strings.TrimSpace(string(out))
 	files := map[vendors.ResourceKind]string{
 		aws.KindSubnets: "api_op_DescribeSubnets.go", aws.KindSecurityGroups: "api_op_DescribeSecurityGroups.go",
-		aws.KindPlacementGroups: "api_op_DescribePlacementGroups.go",
+		aws.KindPlacementGroups: "api_op_DescribePlacementGroups.go", aws.KindImages: "api_op_DescribeImages.go",
 	}
+	// Request parameters of DescribeImages that `filters` offers next to its filters.
+	params := []string{"executable-user", "include-disabled"}
 	for kind, caps := range (&aws.Driver{}).Selectors() {
 		raw, err := os.ReadFile(filepath.Join(dir, files[kind]))
 		if err != nil {
@@ -295,7 +297,10 @@ func TestFilterNamesAreInTheSDKDocumentation(t *testing.T) {
 		for _, f := range caps.Filters {
 			name := strings.TrimSuffix(f.Name, "*")
 			name = strings.TrimSuffix(name, ":")
-			if !regexp.MustCompile(`- ` + regexp.QuoteMeta(name) + ` ?:? -`).MatchString(doc) {
+			if slices.Contains(params, name) {
+				continue
+			}
+			if !regexp.MustCompile(`- ` + regexp.QuoteMeta(name) + ` ?:? [-–]`).MatchString(doc) {
 				t.Errorf("%s: the filter %q is not in the SDK's documentation of the call", kind, f.Name)
 			}
 		}

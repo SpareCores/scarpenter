@@ -294,7 +294,8 @@ Per vendor in `status.vendors.<vendor>`: `VendorReady` (the driver is enabled,
 the regions are ones the driver can use, the driver's `ValidateNodeClass`
 accepts the block; reasons `VendorNotEnabled`, `UnknownRegions`,
 `ValidationFailed`), `ImagesReady` (the driver's `ImageReporter`, when it has one;
-a driver without it resolves images at launch and counts as ready), `images`, and
+a driver without it resolves images at launch and counts as ready; an image that is not the pinned release
+makes it `False` with `ImageVersionMismatch` or `ImageVersionUnknown`), `images`, and
 `hash`. A vendor that is not ready does not make the NodeClass not ready; it only
 makes its own offerings unavailable, and a `Create` fails with
 `NodeClassNotReady` only when **every** vendor the NodeClaim allows is not ready.

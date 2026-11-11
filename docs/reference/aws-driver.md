@@ -98,7 +98,8 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
 
 ## Images
 
-- `ResolveImage`: `DescribeImages` with owner `075585003325` (the official Flatcar
+- `ResolveImage`: `DescribeImages` with the NodeClass's `resources.images.use` when it has one
+  (see below), else the built-in selector: owner `075585003325` (the official Flatcar
   account; `aws.imageOwner` overrides it, for the status and for the launch), `state=available`, `architecture`
   `x86_64` or `arm64`, and the name of the release:
 
@@ -110,7 +111,23 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
   `<channel>` is `stable`, `beta`, `alpha` or `lts`, as the NodeClass spells it.
   Exactly one image must match: none is `NotFound` (code `ImageNotFound`), more
   than one is `Fatal` (`ImageAmbiguous`). The root device name and size come from
-  the image. Results are cached for 1 hour.
+  the image. Results are cached for 1 hour (an answer that is not an image, for 5 minutes).
+- **`resources.images.use`** (optional; plan 14 A1) brings your own AMIs, or another selection than the
+  built-in one, with the [one selector](resource-selectors.md#aws) (`ids`, `name`, `tags`, `match`, `filters`,
+  `select`, `orderBy`), `use` only. What EC2 can evaluate goes into the `DescribeImages` call (the `image-id`,
+  `name`, `tag:<k>`, `architecture`, `state` and `description` filters, `Owners`, `IncludeDeprecated`, and the
+  request parameters `executable-user` and `include-disabled` under `filters`), and the shared matcher
+  re-applies every field to the answer. The request's architecture always narrows the selector, so an `ids` list
+  of both architectures is not ambiguous. Without `match.owner` a selector without `ids` is limited to
+  `imageOwner` (or the official account), never to every image the account can see; with `ids` there is no
+  owner restriction (an ID is exact; the version check still applies). The default `select` is `exactlyOne`;
+  `select: all` is rejected. IDs must be `ami-` IDs and `match.owner` an account ID, `self`, `amazon` or
+  `aws-marketplace` (`ValidateNodeClass`).
+- **Version check.** The chosen AMI must say which Flatcar release it is: by its name when it is the official
+  naming (`Flatcar-<channel>-<version>[-arm64]-hvm`), else by the tags `flatcar-channel` and `flatcar-version`
+  (for a copy under another name, or your own build). Another release is `Fatal` with the code
+  `ImageVersionMismatch`, an AMI that says none `ImageVersionUnknown`: the region's images are not ready
+  (`ImagesReady=False`, with that reason, naming the region and the AMI), the AMI is never launched.
 - **Published regions** (verified 2026-11-07 from `flatcar_production_ami_all.json`
   of the public release server, both architectures; no AWS call): the lists of the
   `amd64-usr` and `arm64-usr` releases name the same regions per channel: 20 for
@@ -122,7 +139,8 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
 - `ReportImages` (`ImageReporter`): the image of the NodeClass's release in every
   region of its `aws` block (every region of the account without a list) for
   both architectures, cached like `ResolveImage`. A region or architecture
-  without an image is reported `ready: false` with the reason (a missing image is
+  without an image is reported `ready: false` with the reason, and `reason` set to
+  `ImageVersionMismatch` or `ImageVersionUnknown` for an AMI that is not the pinned release (a missing image is
   not asked for again for 5 minutes). The NodeClass controller turns that into
   `ImagesReady=False` only when a region the NodeClass **names** has no image, or
   when no region has one; otherwise `ImagesReady` is `True` with reason

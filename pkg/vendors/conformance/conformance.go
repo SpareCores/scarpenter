@@ -125,7 +125,19 @@ type Fixture struct {
 	// SeedCIDRs are two disjoint ranges the vendor accepts, inside SeedWithin.
 	SeedCIDRs  [2]string
 	SeedWithin string
+
+	// The image subtests (A1, the `images` kind) run for drivers whose
+	// ManagedResources.Selectors declares it, with SeedImage: it makes an image
+	// the way a user would (see ImageSpec).
+	SeedImage SeedImageFunc
 }
+
+// The architectures and the creation-time order the suite names.
+const (
+	archAMD64    = "amd64"
+	archARM64    = "arm64"
+	orderCreated = "created"
+)
 
 const (
 	clusterName   = "conformance"
@@ -160,7 +172,7 @@ func (e *env) request(t *testing.T) vendors.CreateRequest {
 	}
 	arch := e.fx.Arch
 	if arch == "" {
-		arch = "amd64"
+		arch = archAMD64
 	}
 	return vendors.CreateRequest{
 		Region: e.region, Zone: e.zone, InstanceType: e.fx.InstanceType, CapacityType: capType, Arch: arch,
@@ -261,6 +273,7 @@ func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 	sub("node options", nodeOptions)
 	sub("managed resources", managedResources)
 	sub("selectors", selectors)
+	sub("images", images)
 	sub("zone checker", zoneChecker)
 }
 

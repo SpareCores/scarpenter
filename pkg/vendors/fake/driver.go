@@ -25,6 +25,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // maxUserData is the user-data size limit the fake enforces: AWS's 16 KiB, the
@@ -251,15 +252,100 @@ func (d *Driver) Zones(ctx context.Context, region string) ([]vendors.Zone, erro
 	return zones, nil
 }
 
-// ResolveImage implements vendors.Driver: every release has an image.
-func (d *Driver) ResolveImage(_ context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
+// ResolveImage implements vendors.Driver. Without an `images` selector every
+// release has a synthesised image. With one, the image is selected from the
+// `images` list of the steering ConfigMap by the shared matcher, narrowed to the
+// request's architecture, and must say it is the pinned release (ADR-017): an
+// image that says another one is ImageVersionMismatch, one that says none
+// ImageVersionUnknown, and neither is returned.
+func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
 	if req.Arch != "amd64" && req.Arch != "arm64" {
 		return nil, vendors.Errorf(vendors.Fatal, "unsupported architecture %q", req.Arch)
 	}
-	return &vendors.Image{
-		Ref:           fmt.Sprintf("fake-flatcar-%s-%s-%s", req.Channel, req.Version, req.Arch),
-		RootDiskBytes: rootDiskBytes.Value(),
-	}, nil
+	if req.Use.IsDefault() {
+		return &vendors.Image{
+			Ref:           fmt.Sprintf("fake-flatcar-%s-%s-%s", req.Channel, req.Version, req.Arch),
+			RootDiskBytes: rootDiskBytes.Value(),
+			Channel:       req.Channel, Version: req.Version,
+		}, nil
+	}
+	use, ok := selector.NarrowArchitecture(req.Use, req.Arch)
+	if !ok {
+		return nil, vendors.Errorf(vendors.NotFound, "no image for %s in %s: match.architecture %v excludes it",
+			req.Arch, req.Region, req.Use.Match.Architecture)
+	}
+	refs, err := d.Resolve(ctx, KindImages, req.Region, use)
+	if err != nil {
+		return nil, selector.ImageError(err, req.Region, req.Arch)
+	}
+	if len(refs) == 0 {
+		return nil, vendors.Errorf(vendors.NotFound, "no image for %s in %s", req.Arch, req.Region)
+	}
+	var rec existingResource
+	for _, e := range d.current().images {
+		if e.ID == refs[0].ID && (e.Region == req.Region || e.Region == selector.RegionAll) {
+			rec = e
+		}
+	}
+	channel, version := rec.Channel, rec.Version
+	if channel == "" {
+		channel = rec.Tags["flatcar-channel"]
+	}
+	if version == "" {
+		version = rec.Tags["flatcar-version"]
+	}
+	if err := vendors.CheckImageVersion(rec.ID, channel, version, req); err != nil {
+		return nil, err
+	}
+	return &vendors.Image{Ref: rec.ID, RootDiskBytes: rootDiskBytes.Value(), Channel: channel, Version: version}, nil
+}
+
+// ReportImages implements vendors.ImageReporter: the image of the NodeClass's
+// release per region of its vendor block (every region of the catalog without a
+// list) and architecture, resolved like a launch does. A region without an image,
+// or with one that is not the pinned release, is reported not ready with the
+// reason.
+func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]v1alpha1.ImageStatus, error) {
+	regions, _ := nc.Spec.Vendors.Regions(d.Vendor())
+	if len(regions) == 0 {
+		all, err := d.Regions(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range all {
+			regions = append(regions, r.Name)
+		}
+	}
+	channel := string(nc.Spec.Flatcar.Channel)
+	if channel == "" {
+		channel = selector.DefaultChannel
+	}
+	var out []v1alpha1.ImageStatus
+	for _, region := range regions {
+		for _, arch := range []string{archAMD64, archARM64} {
+			st := v1alpha1.ImageStatus{Region: region, Arch: arch}
+			use, _, err := selector.ImageUse(nc, d, region, arch)
+			var img *vendors.Image
+			if err == nil {
+				img, err = d.ResolveImage(ctx, vendors.ImageRequest{
+					Region: region, Arch: arch, Channel: channel, Version: nc.Spec.Flatcar.Version, Use: use,
+				})
+			}
+			switch {
+			case err == nil:
+				st.Ref, st.Ready = img.Ref, true
+			case vendors.IsClass(err, vendors.Retryable):
+				return nil, fmt.Errorf("%s/%s: %w", region, arch, err)
+			default:
+				st.Message = err.Error()
+				if code := vendors.CodeOf(err); vendors.IsImageVersionCode(code) {
+					st.Reason = code
+				}
+			}
+			out = append(out, st)
+		}
+	}
+	return out, nil
 }
 
 // ValidateNodeClass accepts every NodeClass.

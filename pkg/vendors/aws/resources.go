@@ -40,6 +40,9 @@ const (
 	KindRunSecurityGroups vendors.ResourceKind = "runSecurityGroups"
 	// KindPlacementGroups is a placement group of a run key and profile.
 	KindPlacementGroups vendors.ResourceKind = "placementGroups"
+	// KindImages is the boot image: a kind that only accepts `use` (plan 14 A1),
+	// so it is not one of Kinds and Resolve does not serve it; ResolveImage does.
+	KindImages = selector.ImagesKind
 )
 
 // Kinds implements vendors.ManagedResources. The deletion order is placement

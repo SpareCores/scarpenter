@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -93,8 +94,23 @@ func (i *Image) attrs(name string) ([]string, bool) {
 		return []string{i.ID}, true
 	case "owner-id":
 		return []string{i.Owner}, true
+	case "description":
+		return []string{i.Description}, true
+	case "creation-date":
+		return []string{i.created().Format("2006-01-02T15:04:05.000Z")}, true
+	case "root-device-type":
+		return []string{"ebs"}, true
+	case "virtualization-type":
+		return []string{"hvm"}, true
 	}
 	return nil, false
+}
+
+func (i *Image) created() time.Time {
+	if i.Created.IsZero() {
+		return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	return i.Created.UTC()
 }
 
 // DescribeImages implements EC2API.
@@ -119,14 +135,22 @@ func (e *EC2) DescribeImages(ctx context.Context, in *ec2.DescribeImagesInput, _
 		if len(in.Owners) > 0 && !slices.Contains(in.Owners, img.Owner) {
 			continue
 		}
-		ok, err := matches(in.Filters, nil, img.attrs)
+		ok, err := matches(in.Filters, img.Tags, img.attrs)
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			continue
 		}
+		if img.Deprecated && !deref(in.IncludeDeprecated) {
+			continue
+		}
+		var tags []types.Tag
+		for _, k := range sortedKeys(img.Tags) {
+			tags = append(tags, types.Tag{Key: new(k), Value: new(img.Tags[k])})
+		}
 		out.Images = append(out.Images, types.Image{
+			Tags: tags, Description: new(img.Description), CreationDate: new(img.created().Format("2006-01-02T15:04:05.000Z")),
 			ImageId: new(img.ID), Name: new(img.Name), OwnerId: new(img.Owner), Architecture: types.ArchitectureValues(img.Arch),
 			State: types.ImageState(img.State), RootDeviceName: new(img.RootDevice), RootDeviceType: types.DeviceTypeEbs,
 			BlockDeviceMappings: []types.BlockDeviceMapping{{

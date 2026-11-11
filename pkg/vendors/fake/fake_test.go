@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,6 +30,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	awsapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/conformance"
@@ -162,6 +166,30 @@ func seedFake(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region 
 	return vendors.ResourceRef{Kind: kind, Region: region, ID: id, Name: spec.Name}
 }
 
+// seedFakeImage adds an image to the steering ConfigMap's images list, saying its
+// release in the fields channel and version.
+func seedFakeImage(t *testing.T, d vendors.Driver, region string, spec conformance.ImageSpec) string {
+	t.Helper()
+	fd := d.(*fakedriver.Driver)
+	seededMu.Lock()
+	defer seededMu.Unlock()
+	id := fmt.Sprintf("img-%d", len(seededImages[fd])+1)
+	r := map[string]any{"region": region, "id": id, "name": "conformance-" + id, "arch": spec.Arch, "tags": spec.Tags}
+	if spec.Version != "" {
+		r["channel"], r["version"] = spec.Channel, spec.Version
+	}
+	if !spec.Created.IsZero() {
+		r["created"] = spec.Created.Format(time.RFC3339)
+	}
+	seededImages[fd] = append(seededImages[fd], r)
+	raw, _ := json.Marshal(seededImages[fd])
+	h := &harness{d: fd, c: clientOf(t, fd)}
+	h.setConfig(t, "images", string(raw))
+	return id
+}
+
+var seededImages = map[*fakedriver.Driver][]map[string]any{}
+
 // TestSelectorConformanceInEveryMode runs the selector cases with the vendor
 // evaluating the selector exactly, narrowing to a superset, and not at all: the
 // answers are the same, because the shared matcher re-applies every field.
@@ -237,6 +265,7 @@ func TestConformance(t *testing.T) {
 		Seed:         seedFake, SeedKinds: []vendors.ResourceKind{fakedriver.KindNetwork, fakedriver.KindGroup},
 		SeedAttrs: []string{"created", "description", "cidr", "specialNames"},
 		SeedCIDRs: [2]string{"10.201.1.0/24", "10.201.2.0/24"}, SeedWithin: "10.201.0.0/16",
+		SeedImage: seedFakeImage,
 		PreCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
 			t.Helper()
 			h := &harness{d: d.(*fakedriver.Driver)}
@@ -685,5 +714,73 @@ func TestRegistration(t *testing.T) {
 	}
 	if !reg.Enabled("aws") || reg.Enabled("fake") {
 		t.Errorf("registry serves %v, want the impersonated vendor aws", reg.Vendors())
+	}
+}
+
+const fakeImages = `
+- {id: img-amd, region: us-east-1, name: a, arch: amd64, channel: stable, version: "4757.2.3"}
+- {id: img-arm, region: us-east-1, name: b, arch: arm64, channel: stable, version: "4757.2.3"}
+- {id: img-old, region: us-east-1, name: c, arch: amd64, channel: stable, version: "4500.1.0"}
+- {id: img-mute, region: us-east-1, name: d, arch: arm64}
+- {id: img-tagged, region: "*", name: e, arch: amd64, tags: {flatcar-channel: stable, flatcar-version: "4757.2.3"}}
+`
+
+func imagesNodeClass(use *common.ResourceUse) *v1alpha1.SCNodeClass {
+	nc := &v1alpha1.SCNodeClass{}
+	nc.Spec.Flatcar = v1alpha1.FlatcarSpec{Version: "4757.2.3"}
+	nc.Spec.Vendors.AWS = &awsapi.Settings{Regions: []string{testRegion, "us-east-2"},
+		Resources: &awsapi.Resources{Images: &common.Resource{Use: use}}}
+	return nc
+}
+
+// ReportImages resolves what a launch resolves: an explicit ID that is the pinned
+// release is ready, another release or one that says none is not, with the reason
+// of the version check, and a region without IDs or without the image is not ready.
+func TestReportImagesFollowsTheImagesSelectorAndTheVersionCheck(t *testing.T) {
+	h := newHarness(t, map[string]string{"quota": baseQuota, "images": fakeImages})
+	byKey := func(use *common.ResourceUse) map[string]v1alpha1.ImageStatus {
+		got, err := h.d.ReportImages(t.Context(), imagesNodeClass(use))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]v1alpha1.ImageStatus{}
+		for _, st := range got {
+			m[st.Region+"/"+st.Arch] = st
+		}
+		return m
+	}
+	// No selector: every release has a synthesised image, in every region.
+	for k, st := range byKey(nil) {
+		if !st.Ready || st.Ref == "" {
+			t.Errorf("default %s: %+v", k, st)
+		}
+	}
+	m := byKey(&common.ResourceUse{IDs: map[string]common.IDList{testRegion: {"img-amd", "img-arm"}}})
+	if st := m[testRegion+"/amd64"]; !st.Ready || st.Ref != "img-amd" {
+		t.Errorf("amd64: %+v", st)
+	}
+	if st := m[testRegion+"/arm64"]; !st.Ready || st.Ref != "img-arm" {
+		t.Errorf("arm64: %+v", st)
+	}
+	if st := m["us-east-2/amd64"]; st.Ready || !strings.Contains(st.Message, "us-east-2") {
+		t.Errorf("a region without IDs: %+v", st)
+	}
+	m = byKey(&common.ResourceUse{IDs: map[string]common.IDList{testRegion: {"img-old", "img-mute"}}})
+	if st := m[testRegion+"/amd64"]; st.Ready || st.Reason != vendors.CodeImageVersionMismatch || !strings.Contains(st.Message, "img-old") {
+		t.Errorf("another version: %+v", st)
+	}
+	if st := m[testRegion+"/arm64"]; st.Ready || st.Reason != vendors.CodeImageVersionUnknown || !strings.Contains(st.Message, "img-mute") {
+		t.Errorf("no version: %+v", st)
+	}
+	// The release is read from the labels when the fields say none, and an image
+	// global to every region ("*") is there in each.
+	m = byKey(&common.ResourceUse{IDs: map[string]common.IDList{"*": {"img-tagged"}}})
+	for _, region := range []string{testRegion, "us-east-2"} {
+		if st := m[region+"/amd64"]; !st.Ready || st.Ref != "img-tagged" {
+			t.Errorf("%s: a global image read by its labels: %+v", region, st)
+		}
+		if st := m[region+"/arm64"]; st.Ready {
+			t.Errorf("%s: the amd64 image is ready for arm64: %+v", region, st)
+		}
 	}
 }

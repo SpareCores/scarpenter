@@ -92,7 +92,7 @@ func checkDeclaration(t *testing.T, vendor string, kind vendors.ResourceKind, c 
 		{Name: "no-such-filter-zz", Values: []string{"x"}}}}, "no-such-filter-zz")
 	reject("unknown placeholder", common.ResourceUse{Name: "x-{nope}"}, "unknown placeholder {nope}")
 	if !c.HasCreated {
-		reject("created order", common.ResourceUse{Name: "x", Select: common.SelectNewest, OrderBy: "created"},
+		reject("created order", common.ResourceUse{Name: "x", Select: common.SelectNewest, OrderBy: orderCreated},
 			"has no creation time")
 		reject("created match", common.ResourceUse{Match: &common.ResourceMatch{CreatedAfter: &metaTime}},
 			"has no creation time")
@@ -172,7 +172,7 @@ func matchOf(attr string) *common.ResourceMatch {
 	m := &common.ResourceMatch{}
 	switch attr {
 	case vendors.MatchArchitecture:
-		m.Architecture = []string{"amd64"}
+		m.Architecture = []string{archAMD64}
 	case vendors.MatchOwner:
 		m.Owner = []string{"self"}
 	case vendors.MatchState:

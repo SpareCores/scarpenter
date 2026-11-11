@@ -145,14 +145,14 @@ collection every 10 s with a 30 s grace period, managed resources checked every
 5 s and unused `perUse` resources kept for 20 s.
 
 Scenarios steer the fake driver through the ConfigMap `scarpenter-fake`
-(`errors`, `quota`, `orphans`, `launchDelay`, `unsupported`, `existingResources`)
+(`errors`, `quota`, `orphans`, `launchDelay`, `unsupported`, `existingResources`, `images`)
 and read what it did from the ConfigMap `scarpenter-fake-state` (`calls`,
 `instances`, `resources`, `revision`); the formats are in the
 [driver contract](../reference/driver-contract.md#the-fake-driver). The fake
 publishes its state debounced; the scenarios do not sleep for it: they read the
 fake's current revision from the controller's metrics
 (`scarpenter_fake_state_revision`) and wait until the ConfigMap's `revision` has
-reached it (`awaitState`). The scenarios are `TestS01` to `TestS19`:
+reached it (`awaitState`). The scenarios are `TestS01` to `TestS20`:
 
 | Scenario | Proves |
 |---|---|
@@ -175,6 +175,7 @@ reached it (`awaitState`). The scenarios are `TestS01` to `TestS19`:
 | S17 | incomplete prices: offerings flagged `price-incomplete` and still used; excluded with `pricing.allowIncomplete: false` |
 | S18 | a stopped (powered-off) orphan instance is reported terminating, left alone for the terminating grace and then deleted by the garbage collector |
 | S19 | a node powered off while its NodeClaim exists (the fake's `powerOff` key): Karpenter core deletes the NodeClaim, and `Delete` deletes the instance after the terminating grace |
+| S20 | the `images` kind (the fake's `images` list): explicit IDs of both architectures give `ImagesReady=True` with the image of each architecture and a node launches; an image of another Flatcar version, or one that says none, makes `ImagesReady` false with `ImageVersionMismatch` or `ImageVersionUnknown` and nothing is launched; a named region without an image is not ready and only the region that has one launches |
 
 Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
 (`KWOK_SCENARIOS=TestS0[12]`), `KEEP_CLUSTER=1` keeps the cluster and

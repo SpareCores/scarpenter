@@ -81,8 +81,11 @@ spec:
 
 Whichever way the image was found, the driver compares the image's own labels or
 name with the pinned channel and version. A mismatch, or an image that does not
-say, makes the region's images not ready (`ImagesReady`, with the reason): the
-node is never booted from another version. An image ID is not part of the drift
+say, makes the region's images not ready (`ImagesReady`, with the reason
+`ImageVersionMismatch` or `ImageVersionUnknown`, naming the region and the image): the
+node is never booted from another version. This holds for an image the NodeClass names
+by ID as much as for one found by name: there is no softer rule that boots an unlabelled image
+with a warning, because it would break ADR-017 (a benchmark must know what it ran on). An image ID is not part of the drift
 hash; the pinned version is.
 
 ## Overview
@@ -109,7 +112,7 @@ hash; the pinned version is.
 | Source | Flatcar's public AMIs, owner `075585003325` (`aws.imageOwner` overrides it) |
 | Scope | regional: one AMI per region and architecture; a region without a published image reports its images not ready |
 | Created by | Flatcar |
-| Pinned version | the name `Flatcar-<channel>-<version>-hvm` (amd64) or `Flatcar-<channel>-<version>-arm64-hvm`; exactly one match |
+| Pinned version | the name `Flatcar-<channel>-<version>-hvm` (amd64) or `Flatcar-<channel>-<version>-arm64-hvm`; exactly one match. An AMI you name with `images` says its release by that name or by the tags `flatcar-channel` and `flatcar-version` |
 | Architectures | amd64, arm64 |
 | Later | nothing |
 

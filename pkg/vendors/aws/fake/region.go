@@ -121,6 +121,13 @@ type Image struct {
 	State      string
 	RootDevice string
 	RootGiB    int32
+	// Tags, Description and Created (zero: a fixed time) are what DescribeImages
+	// returns and filters on; Deprecated images are left out of a listing without
+	// IncludeDeprecated.
+	Tags        map[string]string
+	Description string
+	Created     time.Time
+	Deprecated  bool
 }
 
 // CapacityReservation is an On-Demand Capacity Reservation.

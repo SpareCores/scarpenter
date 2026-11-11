@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -102,6 +103,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func(*te
 	fx := conformanceFixture0(t, kind, params)
 	if kind != aws.KindSubnets {
 		fx.Seed = nil // the selector cases cover every kind once, in the subnets run
+		fx.SeedImage = nil
 	}
 	return fx
 }
@@ -160,6 +162,7 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 			t.Helper()
 			return seed(t, envOf(t, d), k, region, spec)
 		},
+		SeedImage: seedImage,
 		SeedKinds: []vendors.ResourceKind{aws.KindSubnets, aws.KindSecurityGroups, aws.KindPlacementGroups},
 		SeedAttrs: []string{"description", "cidr"},
 		SeedCIDRs: [2]string{"172.31.201.0/24", "172.31.202.0/24"}, SeedWithin: "172.31.0.0/16",
@@ -176,7 +179,27 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 	}
 }
 
-var seedCIDR atomic.Int32
+var seedCIDR, seedAMI atomic.Int32
+
+// seedImage makes an AMI the way a user would: in the official owner's scope (a
+// selector without match.owner finds it), with the release in the tags
+// flatcar-channel and flatcar-version when it says one.
+func seedImage(t *testing.T, d vendors.Driver, region string, spec conformance.ImageSpec) string {
+	t.Helper()
+	tags := map[string]string{}
+	maps.Copy(tags, spec.Tags)
+	if spec.Version != "" {
+		tags["flatcar-channel"], tags["flatcar-version"] = spec.Channel, spec.Version
+	}
+	arch := "x86_64"
+	if spec.Arch == "arm64" {
+		arch = "arm64"
+	}
+	id := fmt.Sprintf("ami-0c0f%012x", seedAMI.Add(1))
+	envOf(t, d).acct.AddImage(region, fake.Image{ID: id, Name: "conformance-" + id, Owner: aws.DefaultImageOwner,
+		Arch: arch, Tags: tags, Created: spec.Created})
+	return id
+}
 
 // seed makes a resource the way a user would, with the name, tags and the
 // attributes of the spec that EC2 has (description of a group, range of a

@@ -566,6 +566,15 @@ func (c *Controller) images(
 	if len(notReady) == 0 {
 		return images, true, ReasonReady, ""
 	}
+	// An image that is not the pinned release (it says another version, or none)
+	// is a fault of what the NodeClass named, not a gap of the vendor: the images
+	// are not ready, with the image's own reason, and the region's offerings are
+	// unavailable. Never booted (ADR-017).
+	for _, img := range images {
+		if !img.Ready && vendors.IsImageVersionCode(img.Reason) {
+			return images, false, img.Reason, trim(img.Message)
+		}
+	}
 	// A region the NodeClass names must have its images; without a region list
 	// (every region of the vendor) a gap only costs the offerings of that region,
 	// unless no region has an image at all.

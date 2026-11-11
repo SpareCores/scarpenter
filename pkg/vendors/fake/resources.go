@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +43,16 @@ const (
 	KindNetwork vendors.ResourceKind = "subnets"
 	KindGroup   vendors.ResourceKind = "placementGroups"
 	KindVolume  vendors.ResourceKind = "volumes"
+	// KindImages is the boot image of a release: not managed (no create, never
+	// deleted), only brought with `use` and resolved against the `images` list of
+	// the steering ConfigMap.
+	KindImages vendors.ResourceKind = "images"
+)
+
+// The names of the fields the fake declares.
+const (
+	fieldState = "state"
+	fieldName  = "name"
 )
 
 // Kinds implements vendors.ManagedResources. Deletion order: volumes, then
@@ -87,6 +98,16 @@ type existingResource struct {
 	Network     string     `json:"network,omitempty"`
 	CIDR        string     `json:"cidr,omitempty"`
 	State       string     `json:"state,omitempty"`
+	// The attributes of an image (the steering key `images`): the CPU
+	// architecture (amd64 or arm64), the owner, whether it is deprecated, and
+	// the Flatcar release it says it is (empty: it does not say), which the
+	// version check reads, next to the labels flatcar-channel and flatcar-version
+	// of Tags.
+	Arch       string `json:"arch,omitempty"`
+	Owner      string `json:"owner,omitempty"`
+	Deprecated bool   `json:"deprecated,omitempty"`
+	Channel    string `json:"channel,omitempty"`
+	Version    string `json:"version,omitempty"`
 }
 
 // The architectures of images, as the platform names them.
@@ -135,20 +156,29 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 		return m
 	}
 	filters := []vendors.FilterCap{
-		{Name: "state", Side: vendors.SideServer}, {Name: "zone", Side: vendors.SideServer},
+		{Name: fieldState, Side: vendors.SideServer}, {Name: "zone", Side: vendors.SideServer},
 		{Name: "tag:*", Side: vendors.SideServer},
 	}
 	return map[vendors.ResourceKind]vendors.SelectorCaps{
 		KindNetwork: {
-			Zonal: true, HasCreated: true, Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: "name", Side: side},
+			Zonal: true, HasCreated: true, Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: fieldName, Side: side},
 			Match: match(vendors.MatchZone, vendors.MatchNetwork, vendors.MatchCIDR, vendors.MatchWithin,
 				vendors.MatchState, vendors.MatchDescription, vendors.MatchCreatedAfter, vendors.MatchCreatedBefore),
 			Filters: filters, DefaultSelect: common.SelectAll,
 		},
 		KindGroup: {
-			HasCreated: true, Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: "name", Side: side},
+			HasCreated: true, Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: fieldName, Side: side},
 			Match:   match(vendors.MatchState, vendors.MatchCreatedAfter, vendors.MatchCreatedBefore),
 			Filters: filters, DefaultSelect: common.SelectExactlyOne,
+		},
+		KindImages: {
+			HasCreated: true, Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: fieldName, Side: side},
+			Match: match(vendors.MatchArchitecture, vendors.MatchOwner, vendors.MatchState, vendors.MatchIncludeDeprecated,
+				vendors.MatchCreatedAfter, vendors.MatchCreatedBefore, vendors.MatchDescription),
+			Filters: []vendors.FilterCap{
+				{Name: fieldState, Side: vendors.SideServer}, {Name: "tag:*", Side: vendors.SideServer},
+			},
+			DefaultSelect: common.SelectExactlyOne,
 		},
 	}
 }
@@ -186,6 +216,13 @@ func (e existingResource) fields() selector.Fields {
 	if e.CIDR != "" {
 		f.Attrs[vendors.MatchCIDR] = []string{e.CIDR}
 	}
+	if e.Arch != "" {
+		f.Attrs[vendors.MatchArchitecture] = []string{e.Arch}
+	}
+	if e.Owner != "" {
+		f.Attrs[vendors.MatchOwner] = []string{e.Owner}
+	}
+	f.Attrs[vendors.MatchIncludeDeprecated] = []string{strconv.FormatBool(e.Deprecated)}
 	return f
 }
 
@@ -350,8 +387,13 @@ func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region 
 ) ([]vendors.ResourceRef, error) {
 	d.refreshConfig(ctx)
 	var cands []existingResource
-	for _, e := range d.current().existing {
-		if e.Kind != string(kind) || e.Region != region {
+	source := d.current().existing
+	if kind == KindImages {
+		source = d.current().images
+	}
+	for _, e := range source {
+		global := kind == KindImages && e.Region == selector.RegionAll
+		if e.Kind != string(kind) || (e.Region != region && !global) {
 			continue
 		}
 		if ref.IsDefault() {

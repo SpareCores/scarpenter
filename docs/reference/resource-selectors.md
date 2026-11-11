@@ -10,7 +10,7 @@ What the kinds are, `create` and the lifecycles: [Vendor resources](vendor-resou
 What to hand over per vendor: the [hand-off contract](infrastructure-handoff.md).
 A walk-through: [Bring your own vendor resources](../how-to-guides/bring-your-own-resources.md).
 
-Status: only the `aws` driver (and the development drivers) exist; the selector
+Status: only the `aws` driver (and the development drivers) exist; `images` is implemented for `aws` and the fake driver; the selector
 replaced the `ids` / `name` / `selector` forms of the first AWS driver in
 [plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) (A10): `use.selector.tags` is now
 `use.tags`, with no alias. The AWS tables are what the driver declares
@@ -158,7 +158,16 @@ pinned channel and version, which must equal the image's labels or name
 [ADR-021](../explanation/DECISIONS.md#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10)).
 `select` applies to what is left. An image with the wrong version is not ready; it is never
 booted. `owner` for images defaults to the block's owner field (`imageOwner`, `imageProject`),
-never to "every image the account can see": that would let a stranger's image of the same name win.
+never to "every image the account can see": that would let a stranger's image of the same name win. A
+selector that names `ids` is exact and needs no owner (the version check still applies).
+
+**The version check applies to every image, also one named by ID.** The driver reads the channel and version
+the chosen image says it is (its labels, tags, properties or name, per vendor) and compares them with the
+pin: another release is `ImageVersionMismatch`, an image that does not say is `ImageVersionUnknown`; the
+region's images are then not ready (`ImagesReady=False` with that reason, naming the region and the image) and the
+image is never booted. There is no softer mode (a warning) for images without labels: it would break
+[ADR-017](../explanation/DECISIONS.md#adr-017-never-degrade-an-option-silently-accepted-2026-11-05).
+`images` takes `use` only (no `create`, no `forbid`) and rejects `select: all`; both are CRD rules.
 
 ## Placeholders
 
@@ -292,7 +301,7 @@ image, and a name alone would match a stranger's image):
 | `match.state` | filter `state` (`available`, `pending`, `failed`) | server |
 | `match.includeDeprecated` | request `IncludeDeprecated` (the owner always sees its own) | server |
 | `match.description` | filter `description` | server+client |
-| `match.createdAfter`, `createdBefore` | `CreationDate` (the `creation-date` filter takes only an exact value or a prefix wildcard) | client |
+| `match.createdAfter`, `match.createdBefore` | `CreationDate` (the `creation-date` filter takes only an exact value or a prefix wildcard) | client |
 
 Order: `CreationDate`. Filters: `architecture`, `block-device-mapping.{delete-on-termination,
 device-name,snapshot-id,volume-size,volume-type,encrypted}`, `boot-mode`, `creation-date`, `description`,

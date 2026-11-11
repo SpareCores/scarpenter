@@ -31,6 +31,8 @@ var (
 	subnetIDPattern        = regexp.MustCompile(`^subnet-[0-9a-f]{8,17}$`)
 	groupIDPattern         = regexp.MustCompile(`^sg-[0-9a-f]{8,17}$`)
 	placementIDPattern     = regexp.MustCompile(`^pg-[0-9a-f]{8,17}$`)
+	imageIDPattern         = regexp.MustCompile(`^ami-[0-9a-f]{8,17}$`)
+	imageOwnerPattern      = regexp.MustCompile(`^([0-9]{12}|self|amazon|aws-marketplace)$`)
 	tagKeyPattern          = regexp.MustCompile(`^[\p{L}\p{Z}\p{N}_.:/=+\-@]{1,128}$`)
 	tagValuePattern        = regexp.MustCompile(`^[\p{L}\p{Z}\p{N}_.:/=+\-@]{0,256}$`)
 )
@@ -309,6 +311,15 @@ func validateBlock(b *awsapi.Settings) []error {
 			groupIDPattern)...)
 		errs = append(errs, validateResource(KindPlacementGroups, caps[KindPlacementGroups], r.PlacementGroups,
 			placementIDPattern)...)
+		errs = append(errs, validateResource(KindImages, caps[KindImages], r.Images, imageIDPattern)...)
+		if r.Images != nil && r.Images.Use != nil && r.Images.Use.Match != nil {
+			for _, o := range r.Images.Use.Match.Owner {
+				if !strings.Contains(o, "{") && !imageOwnerPattern.MatchString(o) {
+					errs = append(errs, fmt.Errorf("vendors.aws.resources.images.use.match.owner: %q is not an account ID, "+
+						"self, amazon or aws-marketplace", o))
+				}
+			}
+		}
 	}
 	return errs
 }

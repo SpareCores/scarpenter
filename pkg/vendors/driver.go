@@ -157,7 +157,7 @@ type Zone struct {
 	Name string
 }
 
-// ImageRequest asks for the official image of a Flatcar release.
+// ImageRequest asks for the image of a Flatcar release.
 type ImageRequest struct {
 	Region  string
 	Arch    string // amd64 or arm64
@@ -165,6 +165,14 @@ type ImageRequest struct {
 	Version string
 	// Owner overrides the official image owner where the vendor has one.
 	Owner string
+	// Use is the NodeClass's `images` selector for the region and architecture,
+	// with the placeholders expanded and the IDs of the region gathered (A1). When
+	// it IsDefault the NodeClass gave none and the driver finds the pinned release
+	// by its own convention (rungs 1 and 2 of ADR-021) or has none (rung 3: the
+	// image is then not found). Whatever the lookup, the driver finishes with
+	// CheckImageVersion: an image that does not say it is the pinned release is
+	// never returned.
+	Use UseRef
 }
 
 // Image is a boot image the driver resolved.
@@ -173,6 +181,10 @@ type Image struct {
 	Ref string
 	// RootDiskBytes is the size of the image's root disk, 0 when unknown.
 	RootDiskBytes int64
+	// Channel and Version are the Flatcar release the image says it is, read
+	// from its own labels, tags, properties or name; empty when it does not say.
+	Channel string
+	Version string
 }
 
 // NodeInfo describes the Node the instance will become. Real drivers ignore it

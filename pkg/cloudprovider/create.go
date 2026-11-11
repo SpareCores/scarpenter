@@ -31,6 +31,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // skip reasons of a candidate, as metric label values.
@@ -529,7 +530,7 @@ type imageError struct{ err error }
 func (e *imageError) Error() string { return e.err.Error() }
 func (e *imageError) Unwrap() error { return e.err }
 
-type imageKey struct{ vendor, region, arch, channel, version, owner string }
+type imageKey struct{ vendor, region, arch, channel, version, owner, use string }
 
 type cachedImage struct {
 	image vendors.Image
@@ -541,8 +542,17 @@ type cachedImage struct {
 func (c *CloudProvider) image(
 	ctx context.Context, drv vendors.Driver, nc *v1alpha1.SCNodeClass, vendor, region, arch string,
 ) (*vendors.Image, error) {
+	use, _, err := selector.ImageUse(nc, drv, region, arch)
+	if err != nil {
+		return nil, fmt.Errorf("resolving the image of %s in %s (%s): %w", vendor, region, arch, err)
+	}
+	enc, _ := json.Marshal(use)
+	channel := string(nc.Spec.Flatcar.Channel)
+	if channel == "" {
+		channel = selector.DefaultChannel // the CRD defaults it; an object built in code may not
+	}
 	key := imageKey{
-		vendor, region, arch, string(nc.Spec.Flatcar.Channel), nc.Spec.Flatcar.Version, nc.Spec.Vendors.ImageOwner(vendor),
+		vendor, region, arch, channel, nc.Spec.Flatcar.Version, nc.Spec.Vendors.ImageOwner(vendor), string(enc),
 	}
 	now := c.opts.Clock.Now()
 	c.imageMu.Lock()
@@ -553,7 +563,7 @@ func (c *CloudProvider) image(
 	}
 	c.imageMu.Unlock()
 	img, err := drv.ResolveImage(ctx, vendors.ImageRequest{
-		Region: region, Arch: arch, Channel: key.channel, Version: key.version, Owner: key.owner,
+		Region: region, Arch: arch, Channel: key.channel, Version: key.version, Owner: key.owner, Use: use,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("resolving the image of %s in %s (%s): %w", vendor, region, arch, err)

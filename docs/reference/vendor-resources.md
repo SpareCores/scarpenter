@@ -38,6 +38,18 @@ Each kind has:
 The driver says what an instance needs (`Prepare` asks the `ResourceProvider`
 for each kind); the core decides where each comes from.
 
+**`images`** is a kind of its own (plan 14 A1): the boot image of a launch, in every vendor block's
+`resources`, optional. It takes `use` only, with the one selector: there is no `create`
+(SCarpenter does not create images, rung 4 of the [image ladder](../explanation/flatcar-images.md) is
+reserved) and no `forbid`, and `select: all` is rejected (a launch needs one image); the CRD enforces all three.
+It is not a kind the engine lists, creates or deletes: the driver resolves it per launch request
+(`ImageRequest.Use`, [driver contract](driver-contract.md#images)), narrowed to the request's
+architecture, and the image must say it is the pinned Flatcar release or its region's images are not
+ready. For rungs 1 and 2 `images` is optional (AWS without it finds the pinned release by name in the
+owner's account); for rung 3 the driver has a documented convention and `images` overrides it. The vendor
+fields that name an owner (`aws.imageOwner`) stay: they say whose images to look in, not which. The qemu
+development vendor has no `images` kind (it downloads the release itself).
+
 ## use, create, forbid
 
 Every kind has at most one of three settings (a CEL rule of the CRD):

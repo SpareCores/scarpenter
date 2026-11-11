@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -31,8 +32,16 @@ const (
 	filterState       = "state"
 	filterDescription = "description"
 	filterGroupName   = "group-name"
-	stateAvailable    = "available"
-	stateFailed       = "failed"
+	filterImageID     = "image-id"
+	filterOwnerID     = "owner-id"
+	filterName        = "name"
+	filterArch        = "architecture"
+	// The request parameters of DescribeImages that `filters` may set.
+	paramExecutableUser  = "executable-user"
+	paramIncludeDisabled = "include-disabled"
+	stateAvailable       = "available"
+	stateFailed          = "failed"
+	statePending         = "pending"
 )
 
 // Filter names of the EC2 Describe* calls, as the SDK documents them (a test
@@ -44,7 +53,7 @@ var (
 		"customer-owned-ipv4-pool", "default-for-az", "enable-dns64", "enable-lni-at-device-index",
 		"ipv6-cidr-block-association.ipv6-cidr-block", "ipv6-cidr-block-association.association-id",
 		"ipv6-cidr-block-association.state", "ipv6-native", "map-customer-owned-ip-on-launch",
-		"map-public-ip-on-launch", "outpost-arn", "owner-id",
+		"map-public-ip-on-launch", "outpost-arn", filterOwnerID,
 		"private-dns-name-options-on-launch.hostname-type",
 		"private-dns-name-options-on-launch.enable-resource-name-dns-a-record",
 		"private-dns-name-options-on-launch.enable-resource-name-dns-aaaa-record",
@@ -57,7 +66,25 @@ var (
 		"egress.ip-permission.user-id", "group-id", filterGroupName, "ip-permission.cidr", "ip-permission.from-port",
 		"ip-permission.group-id", "ip-permission.group-name", "ip-permission.ipv6-cidr",
 		"ip-permission.prefix-list-id", "ip-permission.protocol", "ip-permission.to-port", "ip-permission.user-id",
-		"owner-id", filterTagPattern, filterTagKey, filterVPC,
+		filterOwnerID, filterTagPattern, filterTagKey, filterVPC,
+	}
+	imageFilterNames = []string{
+		"architecture", "block-device-mapping.delete-on-termination", "block-device-mapping.device-name",
+		"block-device-mapping.snapshot-id", "block-device-mapping.volume-size", "block-device-mapping.volume-type",
+		"block-device-mapping.encrypted", "boot-mode", "creation-date", filterDescription, "ena-support",
+		"free-tier-eligible", "hypervisor", "image-allowed", filterImageID, "image-type",
+		"image-watermark.source-image-creation-time", "image-watermark.source-image-id",
+		"image-watermark.source-image-region", "image-watermark.watermark-creation-time", "image-watermark.watermark-key",
+		"instance-type-specification.supported-instance-type", "instance-type-specification.unsupported-instance-type",
+		"is-public", "kernel-id", "manifest-location", filterName, "owner-alias", filterOwnerID, "platform", "product-code",
+		"product-code.type", "public-ssm-parameter-name", "ramdisk-id", "root-device-name", "root-device-type",
+		"scan-result.critical-fix-available-since", "scan-result.finding-scan-date", "scan-result.high-fix-available-since",
+		"scan-result.highest-finding-severity-label", "scan-result.informational-fix-available-since",
+		"scan-result.low-fix-available-since", "scan-result.medium-fix-available-since", "source-image-id",
+		"source-image-region", "source-instance-id", filterState, "state-reason-code", "state-reason-message",
+		"sriov-net-support", filterTagPattern, filterTagKey, "virtualization-type",
+		// Request parameters of the call, offered as filters (ExecutableUsers, IncludeDisabled).
+		paramExecutableUser, paramIncludeDisabled,
 	}
 	placementGroupFilterNames = []string{
 		filterGroupName, "group-arn", "spread-level", filterState, "strategy", filterTagPattern, filterTagKey,
@@ -102,6 +129,22 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 			Filters:       ec2Filters(securityGroupFilterNames),
 			DefaultSelect: common.SelectAll,
 		},
+		KindImages: {
+			HasCreated: true,
+			Tags:       vendors.TagsMap,
+			Name:       &vendors.FieldCap{Field: filterName, Side: vendors.SideServer},
+			Match: map[string]vendors.FieldCap{
+				vendors.MatchArchitecture:      {Field: filterArch, Side: vendors.SideServer},
+				vendors.MatchOwner:             {Field: "Owners", Side: vendors.SideServer},
+				vendors.MatchState:             {Field: filterState, Side: vendors.SideServer},
+				vendors.MatchIncludeDeprecated: {Field: "IncludeDeprecated", Side: vendors.SideServer},
+				vendors.MatchDescription:       {Field: filterDescription, Side: vendors.SideServerClient},
+				vendors.MatchCreatedAfter:      {Field: "CreationDate", Side: vendors.SideClient},
+				vendors.MatchCreatedBefore:     {Field: "CreationDate", Side: vendors.SideClient},
+			},
+			Filters:       ec2Filters(imageFilterNames),
+			DefaultSelect: common.SelectExactlyOne,
+		},
 		KindPlacementGroups: {
 			Tags: vendors.TagsMap,
 			Name: &vendors.FieldCap{Field: filterGroupName, Side: vendors.SideServer},
@@ -125,6 +168,9 @@ type useFilter struct {
 	// match are the filters of the match attributes: zone, network, cidr,
 	// description (a kind without the attribute leaves it empty).
 	zone, network, cidr, description string
+	// arch is the filter of match.architecture, with the EC2 spelling of the
+	// portable names (images).
+	arch string
 }
 
 var (
@@ -137,7 +183,19 @@ var (
 			return []string{s}
 		}}
 	groupFilters = useFilter{id: "group-id", name: filterGroupName, network: filterVPC, description: filterDescription}
-	pgFilters    = useFilter{name: filterGroupName, state: func(s string) []string {
+	imageFilters = useFilter{id: filterImageID, name: filterName, description: filterDescription, arch: filterArch,
+		state: func(s string) []string {
+			switch s {
+			case stateFailed:
+				return []string{
+					string(ec2types.ImageStateFailed), string(ec2types.ImageStateError), string(ec2types.ImageStateInvalid),
+				}
+			case statePending:
+				return []string{string(ec2types.ImageStatePending), string(ec2types.ImageStateTransient)}
+			}
+			return []string{s}
+		}}
+	pgFilters = useFilter{name: filterGroupName, state: func(s string) []string {
 		if s == stateFailed {
 			return []string{string(ec2types.PlacementGroupStateDeleting), string(ec2types.PlacementGroupStateDeleted)}
 		}
@@ -182,6 +240,17 @@ func useFilters(ref vendors.UseRef, f useFilter) (out []ec2types.Filter, none bo
 		}
 	}
 	m := ref.Match
+	if f.arch != "" {
+		var arches []string
+		for _, a := range m.Architecture {
+			if v, ok := imageArches[a]; ok {
+				arches = append(arches, string(v))
+			}
+		}
+		if len(arches) == len(m.Architecture) { // an unknown one is left to the matcher
+			add(f.arch, arches...)
+		}
+	}
 	add(f.zone, m.Zone...)
 	add(f.network, m.Network...)
 	if v, ok := ec2CIDR(m.CIDR); ok {
@@ -251,6 +320,34 @@ func ec2CIDR(text string) (string, bool) {
 		return "", false
 	}
 	return p.Masked().String(), true
+}
+
+// imageFields reads what the matcher re-applies of an AMI. The owner is left
+// out: it is an account ID, an alias such as self or amazon, or the owner of a
+// shared image, so only EC2 can say whether it matches.
+func imageFields(im ec2types.Image) selector.Fields {
+	arch := ""
+	for k, v := range imageArches {
+		if v == im.Architecture {
+			arch = k
+		}
+	}
+	state := stateAvailable
+	switch im.State {
+	case ec2types.ImageStatePending, ec2types.ImageStateTransient:
+		state = statePending
+	case ec2types.ImageStateFailed, ec2types.ImageStateError, ec2types.ImageStateInvalid, ec2types.ImageStateDeregistered:
+		state = stateFailed
+	}
+	attrs := map[string][]string{vendors.MatchState: {state}, vendors.MatchDescription: {deref(im.Description)}}
+	if arch != "" {
+		attrs[vendors.MatchArchitecture] = []string{arch}
+	}
+	f := selector.Fields{ID: deref(im.ImageId), Name: deref(im.Name), Tags: tagMap(im.Tags), Attrs: attrs}
+	if t, err := time.Parse(time.RFC3339, deref(im.CreationDate)); err == nil {
+		f.Created = t
+	}
+	return f
 }
 
 func tagMap(tags []ec2types.Tag) map[string]string {

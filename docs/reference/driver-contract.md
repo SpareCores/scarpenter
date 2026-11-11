@@ -13,7 +13,7 @@ branches on no vendor name.
 | `Init(ctx, cfg)` | Prepare; `cfg` has the cluster name, a Kubernetes client (for drivers that need one), a clock, a logger and the Keeper URL. Must not fail on transient network errors. |
 | `Regions(ctx)` | Regions the credentials can use (Keeper region `api_reference`). |
 | `Zones(ctx, region)` | The account's zones with Keeper zone IDs (`use1-az1`) and the account's names (`us-east-1a`). A vendor without zones returns none. |
-| `ResolveImage(ctx, req)` | The official image per region, architecture, Flatcar channel and version. |
+| `ResolveImage(ctx, req)` | The image per region, architecture, Flatcar channel and version: the NodeClass's `images` selector when it has one (`req.Use`), else the driver's own convention. See [Images](#images). |
 | `CreateInstance(ctx, req)` | Launch one instance. Replaying an `IdempotencyKey` returns the original instance, whatever zone, type or capacity type the replay asks for (the CloudProvider builds the NodeClaim from the returned instance). A failed create leaves the key unused, so the next attempt with another offering launches. |
 | `GetInstance`, `FindInstance`, `ListInstances` | By reference, by tags, by tags in regions. `GetInstance` also returns terminated instances; `ListInstances` excludes only the terminated ones (it returns `terminating` instances, see [instance states](#instance-states)). |
 | `DeleteInstance(ctx, ref)` | Idempotent: deleting an instance that is gone is not an error. |
@@ -40,6 +40,50 @@ driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (bel
 `EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker` (below), `ImageImporter` (reserved) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
+
+## Images
+
+`ResolveImage(ctx, ImageRequest{Region, Arch, Channel, Version, Owner, Use})` returns one `Image`
+for the pinned Flatcar release ([ADR-021](../explanation/DECISIONS.md#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10)).
+`Use` is the NodeClass's `spec.vendors.<vendor>.resources.images.use` for the region and the request's
+architecture, with the IDs of the region gathered (`ids` under `*` and under the region) and the
+placeholders expanded (`{arch}`, `{vendorArch}`, `{channel}`, `{version}`, `{region}`, `{nodeclass}`);
+the core builds it with `selector.ImageUse`, and a driver that lists images for the status
+(`ReportImages`) builds the same. It is the [one selector](resource-selectors.md) of every resource
+kind, and `images` takes `use` only: no `create` (that would be rung 4 of the ladder), `select: all` is
+rejected (a launch needs one image), and the default `select` is `exactlyOne`. The kind is declared in
+`ManagedResources.Selectors()` like any other (it is not one of `Kinds()`: nothing is created, listed
+for garbage collection or deleted).
+
+- **`Use.IsDefault()`.** The NodeClass gave no selector: a driver of rung 1 or 2 resolves the pinned
+  release itself (AWS by name and owner), a driver of rung 3 has a documented naming convention or
+  reports the image not found.
+- **The request's architecture narrows the selector** (`selector.NarrowArchitecture`): an `ids` list that
+  holds both architectures is not ambiguous, the image's own architecture decides. A
+  `match.architecture` that excludes it finds nothing.
+- **The version check ([ADR-017](../explanation/DECISIONS.md#adr-017-never-degrade-an-option-silently-accepted-2026-11-05)).**
+  Whatever the lookup, the driver reads the Flatcar channel and version back from the chosen image's own
+  labels, tags, properties or name (`Image.Channel`, `Image.Version`) and calls
+  `vendors.CheckImageVersion(id, channel, version, req)`: another release is a `Fatal` error with the code
+  `ImageVersionMismatch`, an image that says no version `ImageVersionUnknown`, and the image is not
+  returned. The channel is compared when the image gives one. An explicitly given image (IDs or name)
+  is held to the same rule as a found one: never booted on a guess.
+- **Errors.** No match is `NotFound` (`ImageNotFound`), several under `exactlyOne` `Fatal`
+  (`ImageAmbiguous`): `selector.ImageError` maps the matcher's typed errors. A launch that cannot resolve
+  its image skips the candidate without counting an attempt.
+- **`ReportImages` and the status.** `ImageReporter.ReportImages(ctx, nc)` reports each region and
+  architecture; for an image refused by the check it sets `ImageStatus.Reason` to the code
+  (`ImageVersionMismatch` or `ImageVersionUnknown`) and `Message` names the region and the image. The
+  NodeClass controller makes that the reason of `ImagesReady=False` (also for a region the NodeClass does not
+  name: the image is what the NodeClass chose, not a gap of the vendor), and the region's offerings are
+  unavailable.
+- **Drift.** Image IDs are not part of the drift hash; the pinned version is
+  ([ADR-012](../explanation/DECISIONS.md)). A rebuilt image of the same version is the same OS.
+
+The conformance suite (`images` subtests, fixture hook `SeedImage`) runs for a driver that declares the
+kind: an explicit ID, both architectures in one list, an excluded architecture, a missing ID, another
+version, another channel, no version, `exactlyOne`, `newest` and `oldest`, placeholders, and the default
+image.
 
 ## The idempotency label
 
@@ -207,6 +251,8 @@ counts; `newest`, `oldest` and a tie (by name in natural order, by label, by cre
 zone; glob escapes; tags `"*"`; the CIDR attributes; and, for the fake driver, the same assertions with the
 vendor evaluating the selector exactly, narrowing to a superset, or not at all
 (`conformance.RunSelectors`).
+For a driver that declares the `images` kind with a `SeedImage` hook the [image cases](#images) (explicit IDs, both
+architectures, the version check, ordering, placeholders, the default image).
 For `NodeOptions`: the defaults decode and match `RootDiskBytes`, and `RootDiskForType` is deterministic and positive when it answers; for the
 fixture's sample `Profiles` and `ProfileTypes`, `Supported` is deterministic,
 returns only defined profiles and nothing without profiles, and every supported
@@ -331,6 +377,12 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
 - `rootDisks`: rules `{instanceTypes, families, size}` (empty lists match everything; the
   first match wins) that make matching types define their own root disk, answered by
   `RootDiskForType`.
+- `images`: the account's boot images, `{id, region (or "*": every region), name, arch (amd64 or arm64),
+  channel, version, owner, deprecated, tags, created, description, state}`: what the `images` selector and the
+  version check resolve against. An image says its release in `channel` and `version` or in the
+  tags `flatcar-channel` and `flatcar-version`; without either it says none (`ImageVersionUnknown`).
+  Without an `images` selector in the NodeClass every release has a synthesised image. The fake
+  also implements `ImageReporter`.
 - `existingResources`: the account's own resources, `{kind, region, id, name,
   tags, default, created, description, zone, network, cidr, state}`: what `use` selectors and the
   vendor's default resource (`default: true`) resolve to; the attributes feed `match` (state
