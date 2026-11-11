@@ -1,0 +1,69 @@
+# A database and its client in one anti-affinity server group (plan 18). Both select the
+# placement profile `spread` and the same run key, the database also the storage profile
+# `db-volume` (a small high-speed volume mounted at /var/lib/pgdata, which the Pod sees
+# through a hostPath). Both use the same flavor, so the client's pod anti-affinity (as in
+# 00a section 8.2) keeps Karpenter from packing the two Pods onto one node.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: e2e-db
+  labels: {app: e2e-db, scarpenter-e2e: "true"}
+spec:
+  serviceName: e2e-db
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-db}
+  template:
+    metadata:
+      labels: {app: e2e-db, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-amd64
+        node.kubernetes.io/instance-type: ${E2E_TYPE_DB}
+        karpenter.sh/capacity-type: on-demand
+        scarpenter.sparecores.com/storage-profile: db-volume
+        scarpenter.sparecores.com/placement-profile: spread
+        scarpenter.sparecores.com/placement-group: pg-${E2E_RUN_ID}
+      containers:
+        - name: db
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "echo hello-from-the-volume > /data/hello; exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          hostPath: {path: /var/lib/pgdata, type: Directory}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-client
+  labels: {app: e2e-client, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-client}
+  template:
+    metadata:
+      labels: {app: e2e-client, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-amd64
+        node.kubernetes.io/instance-type: ${E2E_TYPE_DB}
+        karpenter.sh/capacity-type: on-demand
+        scarpenter.sparecores.com/placement-profile: spread
+        scarpenter.sparecores.com/placement-group: pg-${E2E_RUN_ID}
+      affinity:
+        podAntiAffinity: # never on the database's node
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - {topologyKey: kubernetes.io/hostname, labelSelector: {matchLabels: {app: e2e-db}}}
+      containers:
+        - name: client
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}

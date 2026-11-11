@@ -336,6 +336,14 @@ infrastructure provides](#what-the-ci-accounts-infrastructure-provides)); then a
 | Read-only canary | a read-only token, a transport guard that refuses every method but GET, with a test |
 | Approval | the environment `e2e`'s required reviewers |
 
+**The OVH lane's guards** (plan 18; statically validated, not yet run live; **not yet a line of `test/e2e-vendors.txt`**: no flavor deny is possible and the project budget alert is unverified, see [What the CI account's infrastructure provides](#what-the-ci-accounts-infrastructure-provides)): the flavors are the lane's own (`defaults.sh`: `d2-2`, `d2-4`, `b3-8`; no
+IAM condition limits flavors), the region is the only one activated in the lane's dedicated project, the run tag is the server
+tag `scarpenter-cluster=scarpenter-ci-<run id>` with the managed groups' marker, `e2e-ovh-sweeper.yml` is the sweeper, the teardown fails
+the job when a server, security group, server group or available volume remains, the project's core and instance quota is the ceiling,
+the canary uses a read-only OpenStack user behind `test/canary/ovh_guard.go`, and the environments are the same
+(`e2e`, `e2e-canary`, `e2e-sweeper`) with the secrets and variables of [the OVH lane](testing.md#the-l5-lane-of-ovhcloud). The account-level
+budget alert (OVH has per-project consumption alerts: unverified) is in the CI project's own infrastructure.
+
 ## Adding a vendor lane
 
 Eight or more vendors will follow AWS (OCI is next); the mechanics are one directory, one

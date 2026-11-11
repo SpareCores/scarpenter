@@ -1,0 +1,20 @@
+# Scenario negative: the vendor block's own publicIPv4 override is refused by the API
+# server's CEL rule ("publicIPv4 must stay true on OVH"): this manifest must be REJECTED.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-noipv4-override
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    ovh:
+      regions: [${OS_REGION_NAME}]
+      networking: {publicIPv4: false}

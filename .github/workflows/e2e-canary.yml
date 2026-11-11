@@ -12,6 +12,8 @@ name: L5 canary
 # AWS_ROLE_ARN (the read-only role, trusted for this repository's OIDC subject of the
 # environment) and the variable AWS_REGION (optional, default us-east-2); for hcloud the secret
 # HCLOUD_TOKEN (a read-only token of the CI project) and the optional variable E2E_HCLOUD_LOCATIONS.
+# For OVH: the secrets OVH_OS_CANARY_USERNAME and OVH_OS_CANARY_PASSWORD (a read-only OpenStack
+# user of the lane's project) and the variables OVH_PROJECT_ID and OVH_REGION (optional, default GRA11).
 # The Vultr canary (once vultr is a line of test/e2e-vendors.txt) needs the environment secret
 # VULTR_API_KEY, the key of a second sub-user with read access only (its IP allowlist must admit
 # the runners), and the variable VULTR_REGION (optional, default ewr). The pinned Flatcar version
@@ -67,6 +69,9 @@ jobs:
       E2E_VENDOR: ${{ matrix.vendor }}
       VAR_AWS_REGION: ${{ vars.AWS_REGION }}
       VAR_HCLOUD_LOCATIONS: ${{ vars.E2E_HCLOUD_LOCATIONS }}
+      VAR_OVH_REGION: ${{ vars.OVH_REGION }}
+      VAR_OVH_PROJECT_ID: ${{ vars.OVH_PROJECT_ID }}
+      VAR_OVH_AUTH_URL: ${{ vars.OVH_AUTH_URL }}
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -83,6 +88,17 @@ jobs:
           case "${E2E_VENDOR}" in
             aws) echo "AWS_REGION=${VAR_AWS_REGION:-us-east-2}" >> "${GITHUB_ENV}" ;;
             hcloud) echo "E2E_HCLOUD_LOCATIONS=${VAR_HCLOUD_LOCATIONS:-fsn1,nbg1,hel1}" >> "${GITHUB_ENV}" ;;
+            ovh)
+              [[ -z "${VAR_OVH_REGION}" || "${VAR_OVH_REGION}" =~ ^[A-Za-z0-9-]+$ ]] || { echo "::error::OVH_REGION" >&2; exit 1; }
+              [[ -z "${VAR_OVH_PROJECT_ID}" || "${VAR_OVH_PROJECT_ID}" =~ ^[0-9a-f]{32}$ ]] || { echo "::error::OVH_PROJECT_ID" >&2; exit 1; }
+              [[ -z "${VAR_OVH_AUTH_URL}" || "${VAR_OVH_AUTH_URL}" =~ ^https://[A-Za-z0-9./-]+$ ]] || { echo "::error::OVH_AUTH_URL" >&2; exit 1; }
+              {
+                echo "OS_REGION_NAME=${VAR_OVH_REGION:-GRA11}"
+                echo "OS_PROJECT_ID=${VAR_OVH_PROJECT_ID}"
+                echo "OS_AUTH_URL=${VAR_OVH_AUTH_URL:-https://auth.cloud.ovh.net/v3}"
+                echo "OS_USER_DOMAIN_NAME=Default"
+              } >> "${GITHUB_ENV}"
+              ;;
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
           esac
 
@@ -105,6 +121,23 @@ jobs:
           [ -n "${HCLOUD_TOKEN_SECRET}" ] || { echo "::error::the environment secret HCLOUD_TOKEN is not set"; exit 1; }
           echo "::add-mask::${HCLOUD_TOKEN_SECRET}"
           echo "HCLOUD_TOKEN=${HCLOUD_TOKEN_SECRET}" >> "${GITHUB_ENV}"
+
+      # A second, read-only OpenStack user of the lane's project (the Infrastructure Supervisor
+      # role: it lists flavors, networks, images and servers, and changes nothing; the driver
+      # of the canary sits behind a guard that refuses writes as well).
+      - name: OpenStack read-only credentials (ovh)
+        if: matrix.vendor == 'ovh'
+        env:
+          OVH_OS_USERNAME: ${{ secrets.OVH_OS_CANARY_USERNAME }}
+          OVH_OS_PASSWORD: ${{ secrets.OVH_OS_CANARY_PASSWORD }}
+        run: |
+          [[ -n "${OVH_OS_USERNAME}" && -n "${OVH_OS_PASSWORD}" ]] || { echo "::error::the secrets OVH_OS_CANARY_USERNAME and OVH_OS_CANARY_PASSWORD are not set in the environment e2e-canary" >&2; exit 1; }
+          [[ "${OVH_OS_USERNAME}${OVH_OS_PASSWORD}" != *$'\n'* ]] || { echo "::error::a credential contains a newline" >&2; exit 1; }
+          echo "::add-mask::${OVH_OS_PASSWORD}"
+          {
+            echo "OS_USERNAME=${OVH_OS_USERNAME}"
+            echo "OS_PASSWORD=${OVH_OS_PASSWORD}"
+          } >> "${GITHUB_ENV}"
 
       # Vultr has no OIDC for callers: a read-only sub-user's key (the canary's guard refuses
       # every non-read call as well).

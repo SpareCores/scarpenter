@@ -34,7 +34,7 @@ on:
         type: choice
         options: [full, smoke]
       scenarios:
-        description: "Scenarios to run, comma separated, or empty for the mode's set (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall)"
+        description: "Scenarios to run, comma separated, or empty for the mode's set (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall)"
         default: ""
         type: string
       fail_fast:

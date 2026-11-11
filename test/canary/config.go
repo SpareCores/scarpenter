@@ -27,6 +27,9 @@ type config struct {
 	types []string
 	// minOnDemand and minSpot are the vCPUs of quota the suite needs.
 	minOnDemand, minSpot int64
+	// minInstances is the number of servers the suite needs at once, for the vendors whose
+	// quota counts instances (E2E_MIN_INSTANCES, optional).
+	minInstances int64
 
 	// flatcarImageFile is the file the vendor's images are made from, which the canary checks on
 	// the Flatcar release server (hcloud: the Hetzner raw image); empty: nothing to check.
@@ -41,23 +44,27 @@ type config struct {
 // vendorEnv maps a vendor to the environment variable of its region.
 // For hcloud it is the comma-separated list of the lane's locations.
 var vendorEnv = map[string]string{
-	vendorAWS: "AWS_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorVultr: "VULTR_REGION",
+	vendorAWS: "AWS_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOVH: "OS_REGION_NAME", vendorVultr: "VULTR_REGION",
 }
 
 // The vendors of the canary and the architecture its checks name.
 const (
 	vendorAWS    = "aws"
 	vendorHCloud = "hcloud"
+	vendorOVH    = "ovh"
 	archAMD64    = "amd64"
 	archARM64    = "arm64"
 )
 
 // typeVars are the variables of the instance types a lane pins, where a vendor's differ from
-// AWS's (Vultr has no Arm instances and no database type); noQuota are the vendors without a
+// AWS's (Vultr has no Arm instances and no database type, OVH no Arm); noQuota are the vendors without a
 // readable quota (the vCPU pins are then not needed; Hetzner's limits cannot be read).
 var (
-	typeVars = map[string][]string{vendorVultr: {"E2E_TYPE_AMD64", "E2E_TYPE_SECOND"}}
-	noQuota  = map[string]bool{vendorHCloud: true, vendorVultr: true}
+	typeVars = map[string][]string{
+		vendorOVH:   {"E2E_TYPE_AMD64", "E2E_TYPE_DB"},
+		vendorVultr: {"E2E_TYPE_AMD64", "E2E_TYPE_SECOND"},
+	}
+	noQuota = map[string]bool{vendorHCloud: true, vendorVultr: true}
 )
 
 func loadConfig(vendor string, getenv func(string) string) (*config, error) {
@@ -98,12 +105,21 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 		if c.minOnDemand, err = intEnv(getenv, "E2E_MIN_VCPU_OD", &missing); err != nil {
 			return nil, err
 		}
-		if c.minSpot, err = intEnv(getenv, "E2E_MIN_VCPU_SPOT", &missing); err != nil {
-			return nil, err
+		if vendor != vendorOVH { // no spot on OVH
+			if c.minSpot, err = intEnv(getenv, "E2E_MIN_VCPU_SPOT", &missing); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if vendor == vendorHCloud {
 		c.flatcarImageFile = "flatcar_production_hetzner_image.bin.bz2"
+	}
+	if v := strings.TrimSpace(getenv("E2E_MIN_INSTANCES")); v != "" {
+		n, perr := strconv.ParseInt(v, 10, 64)
+		if perr != nil || n < 0 {
+			return nil, fmt.Errorf("E2E_MIN_INSTANCES=%q is not a number of instances", v)
+		}
+		c.minInstances = n
 	}
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("missing %s: the pins come from test/e2e-%s/defaults.sh, run test/canary/run.sh %s",

@@ -13,7 +13,11 @@ name: L5 (cloud e2e)
 # prerequisites): the environment e2e (required reviewers: a human approves every run), the
 # variables TS_OAUTH_CLIENT_ID, TS_AUDIENCE and AWS_REGION (a Tailscale federated identity
 # for GitHub Actions: no stored secret), the environment secret AWS_ROLE_ARN, the IAM role
-# and the tailnet's ACL. The sweeper (e2e-<vendor>-sweeper.yml) deletes what a run that
+# and the tailnet's ACL. For OVH (vendor ovh): the variables OVH_PROJECT_ID, OVH_REGION (a
+# Keystone catalog name, default GRA11) and optionally OVH_AUTH_URL, and the environment secrets
+# OVH_OS_USERNAME and OVH_OS_PASSWORD of a dedicated OpenStack user of the lane's own Public
+# Cloud project (one active region, low quotas); OVH documents no GitHub OIDC trust, so the
+# password is a stored secret. The sweeper (e2e-<vendor>-sweeper.yml) deletes what a run that
 # died left behind.
 on:
   workflow_call:
@@ -88,6 +92,9 @@ jobs:
       # The vendor's region variable is read in the Prepare step.
       VAR_AWS_REGION: ${{ vars.AWS_REGION }}
       VAR_HCLOUD_LOCATIONS: ${{ vars.E2E_HCLOUD_LOCATIONS }}
+      VAR_OVH_REGION: ${{ vars.OVH_REGION }}
+      VAR_OVH_PROJECT_ID: ${{ vars.OVH_PROJECT_ID }}
+      VAR_OVH_AUTH_URL: ${{ vars.OVH_AUTH_URL }}
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -143,6 +150,17 @@ jobs:
             hcloud)
               valid E2E_HCLOUD_LOCATIONS "${VAR_HCLOUD_LOCATIONS}" '^[a-z0-9]+(,[a-z0-9]+)*$'
               echo "E2E_HCLOUD_LOCATIONS=${VAR_HCLOUD_LOCATIONS:-fsn1,nbg1,hel1}" >> "${GITHUB_ENV}"
+              ;;
+            ovh)
+              valid OVH_REGION "${VAR_OVH_REGION}" '^[A-Za-z0-9-]+$'
+              valid OVH_PROJECT_ID "${VAR_OVH_PROJECT_ID}" '^[0-9a-f]{32}$'
+              valid OVH_AUTH_URL "${VAR_OVH_AUTH_URL}" '^https://[A-Za-z0-9./-]+$'
+              {
+                echo "OS_REGION_NAME=${VAR_OVH_REGION:-GRA11}"
+                echo "OS_PROJECT_ID=${VAR_OVH_PROJECT_ID}"
+                echo "OS_AUTH_URL=${VAR_OVH_AUTH_URL:-https://auth.cloud.ovh.net/v3}"
+                echo "OS_USER_DOMAIN_NAME=Default"
+              } >> "${GITHUB_ENV}"
               ;;
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
           esac
@@ -204,6 +222,26 @@ jobs:
           # The controller keeps these credentials for the whole run: two hours (the role's
           # maximum session duration must allow it, docs/how-to-guides/testing.md).
           role-duration-seconds: 7200
+
+      # The OVH lane's identity: a dedicated OpenStack user of the lane's own project (the
+      # five operator roles, docs/how-to-guides/ovh-credentials.md), from environment secrets;
+      # the openstack CLI and the controller read the standard OS_* variables. A newline in a
+      # secret would add a variable to GITHUB_ENV: refused.
+      - name: OpenStack credentials and CLI (ovh)
+        if: inputs.vendor == 'ovh'
+        env:
+          OVH_OS_USERNAME: ${{ secrets.OVH_OS_USERNAME }}
+          OVH_OS_PASSWORD: ${{ secrets.OVH_OS_PASSWORD }}
+        run: |
+          [[ -n "${OVH_OS_USERNAME}" && -n "${OVH_OS_PASSWORD}" ]] || { echo "::error::the secrets OVH_OS_USERNAME and OVH_OS_PASSWORD are not set in the environment e2e" >&2; exit 1; }
+          [[ "${OVH_OS_USERNAME}${OVH_OS_PASSWORD}" != *$'\n'* ]] || { echo "::error::a credential contains a newline" >&2; exit 1; }
+          echo "::add-mask::${OVH_OS_PASSWORD}"
+          {
+            echo "OS_USERNAME=${OVH_OS_USERNAME}"
+            echo "OS_PASSWORD=${OVH_OS_PASSWORD}"
+          } >> "${GITHUB_ENV}"
+          # The CLI of the lane's scripts (pinned; check the pin when the lane first runs).
+          pipx install "python-openstackclient==8.2.0"
 
       # Vultr has no OIDC for callers: the key of the CI account's dedicated sub-user is a
       # secret of the environment e2e (plan 20, section 9; its IP allowlist must admit

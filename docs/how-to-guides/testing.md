@@ -680,6 +680,52 @@ checks that every scenario has a function, that every action is pinned, that the
 path, and renders the chart with the lane's values; the sweeper's tests run against the in-memory API of the
 driver; `test/canary` runs the Hetzner canary against it too and checks both read-only guards.
 
+### The L5 lane of OVHcloud
+
+`test/e2e-ovh/` is the OVH lane (`vendor: ovh` of the same reusable workflow; plan 18), statically
+validated only until its first live run: nodes on OVHcloud Public Cloud (Nova servers on the
+public `Ext-Net` network) that join over Tailscale, in one region (`OVH_REGION`, a Keystone catalog
+name, default `GRA11`). The scenarios are `amd64` (an exact flavor, on-demand: node labels, server
+metadata and tags, the managed security group and its marker, config drive, `kubectl logs` and `exec`,
+the units on the node, the `metadata-from-pods` hardening), `db` (an anti-affinity server group and a
+`high-speed` data volume mounted by the first-boot unit), `described` (the flavor picked from
+vCPU, memory and a benchmark percentile), `byo` (a security group the workflow creates is `use`d and
+SCarpenter never deletes it), `negative` (`publicIPv4: false` is not ready and refused by the API
+server's CEL rule; a profile that asks for local storage stays Pending without a NodeClaim), `quota` (Nova's
+absolute limits equal the controller's `scarpenter_quota_limit`, and `used` follows launch and delete),
+`drift` (a root disk that becomes a volume replaces the node), `poweroff` (a guest that powers itself off
+leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific case), `scalezero` and
+`uninstall`. There is no arm64, no spot and no local-storage scenario: OVH has none of them.
+
+- **Flavors** (`defaults.sh`): `d2-2` (shared CPU, the cheapest) for the probes, `b3-8` for the database and its
+  client, and `d2-2`, `d2-4` and `b3-8` for the described scenario. No IAM condition limits flavors, so the guard is
+  the lane's own types plus the project's core and instance quota as the ceiling.
+- **Identity**: a dedicated OpenStack user of the lane's own Public Cloud project with the five operator roles
+  ([OVH credentials](ovh-credentials.md)): the environment secrets `OVH_OS_USERNAME` and `OVH_OS_PASSWORD` (OVH
+  documents no GitHub OIDC trust, so the password is stored), the variables `OVH_PROJECT_ID`, `OVH_REGION` and
+  optionally `OVH_AUTH_URL`. The lane's scripts use the `openstack` CLI (the workflow installs a pinned
+  `python-openstackclient`; check the pin at the first run).
+- **Run tag**: the server tag and metadata `scarpenter-cluster=scarpenter-ci-<run id>`, the managed security group's
+  description marker (it records its creation time) and the server groups' name prefix.
+- **Sweeper**: `e2e-ovh-sweeper.yml`, every three hours, environment `e2e-sweeper`: `pkg/vendors/ovh/sweep` deletes the
+  servers of `scarpenter-ci-*` clusters older than two hours (by the server's own creation time), then the managed
+  security groups (by marker and age) and server groups (by name, and only when the cluster has no server left and its oldest group is
+  old enough), never images. `go run ./test/e2e-ovh/sweeper -dry-run` lists what it would delete. Volumes are not swept: the driver's
+  volumes go with their server, and a leaked one is found by the teardown's check.
+- **Canary**: `test/canary/ovh.go` (login and the catalog's regions and zones, `Ext-Net`, the pinned image resolved to exactly one,
+  Nova's cores and instances limits against `E2E_MIN_VCPU_OD` and `E2E_MIN_INSTANCES`, the flavors offered and mapped to a quota),
+  behind `ovh_guard.go`, which refuses every write (a reflection test over the four OpenStack interfaces), with a second OpenStack
+  user in the Infrastructure Supervisor (`infrastructureSupervisor`) role, read-only: the secrets `OVH_OS_CANARY_USERNAME` and
+  `OVH_OS_CANARY_PASSWORD` of the environment `e2e-canary`. Whether that role can list images, networks and flavors is spike S6.
+- **Cost**: about $0.15 per full run, an estimate from Keeper's `b3-8` price of 0.0656 USD per hour for a handful of small
+  servers for minutes plus a few volumes (the `d2-2` price is not in this repository); EU regions bill per second, a US region
+  may round up to the hour (plan 18, "Billing period"). Images stay in the project (cents per month).
+- **Without OVH**: `hack/dev.sh make test-e2e-ovh-dryrun` renders every manifest against an envtest API server, runs `selftest.sh`
+  (helpers, redaction of OpenStack IDs and tokens, the chart with the lane's values), the sweeper's and the canary's tests
+  against the driver's in-memory OpenStack.
+- **Provisioned outside this repository**: the project (one active region, low quotas, a spending alert), the two users, the
+  images of [Upload the Flatcar image to OVH](ovh-images.md) in the lane's region, the environment secrets and variables above.
+
 ### Artifact fixtures
 
 `pkg/artifacts/testdata/<name>-<version>/SHA256SUMS` are the real checksum files of
