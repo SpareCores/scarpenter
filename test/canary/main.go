@@ -36,6 +36,7 @@ import (
 var vendorChecks = map[string]func(ctx context.Context, cfg *config, rep *report){
 	vendorAlicloud: checkAlicloud,
 	vendorAWS:      checkAWS,
+	vendorAzure:    checkAzure,
 	vendorHCloud:   checkHCloud,
 	vendorOVH:      checkOVH,
 	vendorUpCloud:  checkUpCloud,

@@ -1,0 +1,24 @@
+# Scenario negative: a NodeClass that must be refused and never used by a NodePool, so
+# nothing is launched.
+#   e2e-wrongsub  spec.vendors.azure.subscriptionID is a guard that must equal the
+#                 controller's subscription: another one gives VendorReady=False,
+#                 reason ValidationFailed.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-wrongsub
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  tags: {scarpenter-ci-created-at: "${E2E_CREATED_AT_RFC3339}", scarpenter-ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    azure:
+      regions: [${AZURE_REGION}]
+      # Not a real subscription: the all-zero GUID is never the lane's.
+      subscriptionID: 00000000-0000-0000-0000-000000000000

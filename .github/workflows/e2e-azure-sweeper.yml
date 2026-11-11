@@ -1,0 +1,82 @@
+name: L5 sweeper (Azure e2e)
+
+# Deletes what the L5 lane (e2e-cloud.yml, vendor azure) left behind in its resource group
+# when a run died or was cancelled before its teardown: virtual machines, network
+# interfaces, public IPs, managed disks, network security groups, virtual networks and
+# proximity placement groups of every cluster named scarpenter-ci-* that is older than two
+# hours, in the lane's resource group (AZURE_RESOURCE_GROUP; the identity's role is scoped
+# to it). The selection logic is pkg/vendors/azure/sweep (tested against the Azure driver's
+# in-memory ARM); docs/how-to-guides/testing-and-releasing.md describes the tags it reads.
+# Same identity as the lane, but its own environment, e2e-sweeper: limited to main and
+# without reviewers, so that a scheduled sweep never waits for an approval, and a manual run
+# from another branch (whose code would hold the identity without a review) is refused. The
+# identity's federated credentials trust the OIDC subject of both environments. The client,
+# tenant and subscription IDs are variables, not secrets.
+on:
+  schedule:
+    - cron: "37 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only report what would be deleted"
+        default: false
+        type: boolean
+      max_age:
+        description: "Minimum age of what is deleted (a Go duration)"
+        default: 2h
+        type: string
+
+# One sweep at a time, and not while a lane run is tearing down (the age limit keeps it
+# away from a running one anyway).
+concurrency:
+  group: e2e-azure-sweeper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    if: github.repository == 'SpareCores/scarpenter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: e2e-sweeper
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false # a privileged job restores no cache
+
+      - name: Log in to Azure (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sweep
+        env:
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_MAX_AGE: ${{ inputs.max_age }}
+          # The Azure CLI's session (from azure/login) is the credential of the sweeper.
+          SCARPENTER_AZURE_DEVELOPMENT: "true"
+        run: |
+          # Not below two hours: a lane run may take 90 minutes, and its resources must never
+          # look old enough to sweep while it runs.
+          age="${INPUT_MAX_AGE:-2h}"
+          if ! [[ "${age}" =~ ^(([2-9]|[1-9][0-9]+)h|(1[2-9][0-9]|[2-9][0-9]{2}|[1-9][0-9]{3,})m)$ ]]; then
+            echo "::error::max_age must be at least 2h (a Go duration in whole hours or minutes)"; exit 1
+          fi
+          args=(-max-age "${age}")
+          if [ "${INPUT_DRY_RUN}" = "true" ]; then args+=(-dry-run); fi
+          go run ./test/e2e-azure/sweeper "${args[@]}"

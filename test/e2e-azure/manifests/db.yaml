@@ -1,0 +1,73 @@
+# Scenario db (00a section 8.2): a database and its client in one proximity placement
+# group. Both select the placement profile `colocated` and the same run key, the database
+# also the storage profile `db-premium` (a small Premium data disk at
+# /dev/disk/azure/scsi1/lun0, mounted at /var/lib/pgdata, which the Pod sees through a
+# hostPath). The zone is pinned so that the group's zone is deterministic. Both types are
+# on-demand and support Premium IO. Both use the same type, so the client's pod
+# anti-affinity keeps Karpenter from packing the two Pods onto one node.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: e2e-db
+  labels: {app: e2e-db, scarpenter-e2e: "true"}
+spec:
+  serviceName: e2e-db
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-db}
+  template:
+    metadata:
+      labels: {app: e2e-db, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-amd64
+        node.kubernetes.io/instance-type: ${E2E_TYPE_DB}
+        karpenter.sh/capacity-type: on-demand
+        topology.kubernetes.io/zone: "${E2E_PG_ZONE}"
+        scarpenter.sparecores.com/storage-profile: db-premium
+        scarpenter.sparecores.com/placement-profile: colocated
+        scarpenter.sparecores.com/placement-group: pg-${E2E_RUN_ID}
+      containers:
+        - name: db
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "echo hello-from-the-volume > /data/hello; exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          hostPath: {path: /var/lib/pgdata, type: Directory}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-client
+  labels: {app: e2e-client, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-client}
+  template:
+    metadata:
+      labels: {app: e2e-client, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-amd64
+        node.kubernetes.io/instance-type: ${E2E_TYPE_DB}
+        karpenter.sh/capacity-type: on-demand
+        topology.kubernetes.io/zone: "${E2E_PG_ZONE}"
+        scarpenter.sparecores.com/placement-profile: colocated
+        scarpenter.sparecores.com/placement-group: pg-${E2E_RUN_ID}
+      affinity:
+        podAntiAffinity: # never on the database's node
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - {topologyKey: kubernetes.io/hostname, labelSelector: {matchLabels: {app: e2e-db}}}
+      containers:
+        - name: client
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}

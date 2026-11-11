@@ -1,0 +1,55 @@
+# The NodeClasses of the bring-your-own-resources scenario: the VNet (with its subnet) and
+# the NSG the scenario created with the az CLI in the lane's resource group (tagged
+# scarpenter-e2e-byo=<cluster>) are used, not created. Applied by the scenario, after the
+# resources exist.
+#   e2e-use       by ID: the resource group by name, the subnet by its ARM ID, the NSG by its
+#                 ARM ID; the node is launched on it.
+#   e2e-use-tags  by tag: the subnet through the tags of its VNet, the NSG by its tag; only
+#                 its readiness is checked (no node, no cost).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-use
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  tags: {scarpenter-ci-created-at: "${E2E_CREATED_AT_RFC3339}", scarpenter-ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    azure:
+      regions: [${AZURE_REGION}]
+      storage:
+        root: {storageAccountType: Premium_LRS, diskSizeGB: 32}
+      resources:
+        resourceGroups: {use: {ids: {${AZURE_REGION}: ["${AZURE_RESOURCE_GROUP}"]}}}
+        subnets: {use: {ids: {${AZURE_REGION}: ["${E2E_BYO_SUBNET_ID}"]}}}
+        securityGroups: {use: {ids: {${AZURE_REGION}: ["${E2E_BYO_NSG_ID}"]}}}
+---
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-use-tags
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  tags: {scarpenter-ci-created-at: "${E2E_CREATED_AT_RFC3339}", scarpenter-ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    azure:
+      regions: [${AZURE_REGION}]
+      resources:
+        resourceGroups: {use: {ids: {${AZURE_REGION}: ["${AZURE_RESOURCE_GROUP}"]}}}
+        subnets: {use: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}
+        securityGroups: {use: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}

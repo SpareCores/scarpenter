@@ -1,0 +1,57 @@
+# The values the Azure L5 lane installs the chart with (install.sh adds the image of the
+# build under test). What is left unset is the chart's own default on purpose: the
+# cluster DNS is found by the controller (kube-dns Service of the k3s cluster), the
+# Keeper is the public one, the sysexts come from the upstream releases, and the
+# kubelet client CA is copied from kube-system/extension-apiserver-authentication
+# (the client CA of k3s, which `kubectl logs` and `exec` need).
+#
+# Credentials: the CI identity is federated with GitHub's OIDC, and the controller reads
+# the federated token from a file, the way the Azure workload identity webhook wires it
+# (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_FEDERATED_TOKEN_FILE). The cluster's own issuer
+# is not public, so the file holds the job's GitHub token, renewed by azure-token.sh into
+# the Secret azure-federated-token. The chart's credentials mode is none (nothing is
+# wired by the chart); the environment and the mounted Secret are the lane's own, through
+# the chart's generic extraEnv and extraVolumes. NOTE: the vendors.azure keys follow the
+# plan (docs/plans/v1/wip/17-azure.md section 2); align them with the chart's final names.
+cluster:
+  name: ${E2E_CLUSTER}
+  # The API server's tailnet address: the nodes reach it over Tailscale.
+  apiServerEndpoint: https://${E2E_API_HOST}:6443
+kubeletClientCA:
+  source: extensionApiserverAuthentication
+vendors:
+  aws:
+    enabled: false
+  azure:
+    enabled: true
+    credentials:
+      mode: none
+extraEnv:
+  - {name: AZURE_SUBSCRIPTION_ID, value: "${AZURE_SUBSCRIPTION_ID}"}
+  - {name: AZURE_TENANT_ID, value: "${AZURE_TENANT_ID}"}
+  - {name: AZURE_CLIENT_ID, value: "${AZURE_CLIENT_ID}"}
+  - {name: AZURE_FEDERATED_TOKEN_FILE, value: /var/run/secrets/azure/tokens/token}
+extraVolumes:
+  - name: azure-federated-token
+    secret: {secretName: azure-federated-token, defaultMode: 0440}
+extraVolumeMounts:
+  - {name: azure-federated-token, mountPath: /var/run/secrets/azure/tokens, readOnly: true}
+# Short intervals: the quota scenarios wait for refreshes (E2E_QUOTA_REFRESH).
+quota:
+  refreshInterval: 30s
+  limitsRefreshInterval: 1m
+  launchableRefreshInterval: 5m
+gc: {interval: 1m}
+# Once its NodeClass is deleted, a managed network or security group (idleTTL kinds) is
+# governed by this default, not by the NodeClass's own 5-minute lifetime: without it the
+# uninstall scenario would wait for a 24-hour TTL.
+managedResources: {defaultTTL: 5m}
+karpenter:
+  logLevel: debug
+# The control plane's node carries the CriticalAddonsOnly taint (bootstrap.sh), so
+# that test workloads land on SCarpenter's nodes only.
+tolerations:
+  - {key: CriticalAddonsOnly, operator: Exists}
+resources:
+  requests: {cpu: 200m, memory: 640Mi}
+  limits: {memory: 1536Mi}

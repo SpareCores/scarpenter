@@ -101,6 +101,12 @@ jobs:
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
       VAR_ALICLOUD_REGION: ${{ vars.ALICLOUD_REGION }}
       VAR_UPCLOUD_ZONE: ${{ vars.UPCLOUD_ZONE }}
+      VAR_AZURE_REGION: ${{ vars.AZURE_REGION }}
+      # Azure (variables, not secrets: IDs only; the identity is federated, no secret anywhere).
+      VAR_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      VAR_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      VAR_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      VAR_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -170,6 +176,22 @@ jobs:
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
             alicloud) echo "ALICLOUD_REGION=${VAR_ALICLOUD_REGION:-ap-southeast-1}" >> "${GITHUB_ENV}" ;;
             upcloud) echo "UPCLOUD_ZONE=${VAR_UPCLOUD_ZONE:-fi-hel1}" >> "${GITHUB_ENV}" ;;
+            azure)
+              # IDs and names, validated like the inputs (a newline would reach GITHUB_ENV).
+              guid='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+              valid AZURE_CLIENT_ID "${VAR_AZURE_CLIENT_ID}" "${guid}"
+              valid AZURE_TENANT_ID "${VAR_AZURE_TENANT_ID}" "${guid}"
+              valid AZURE_SUBSCRIPTION_ID "${VAR_AZURE_SUBSCRIPTION_ID}" "${guid}"
+              valid AZURE_REGION "${VAR_AZURE_REGION}" '^[a-z0-9]+$'
+              valid AZURE_RESOURCE_GROUP "${VAR_AZURE_RESOURCE_GROUP}" '^[A-Za-z0-9._()-]{1,90}$'
+              {
+                echo "AZURE_REGION=${VAR_AZURE_REGION:-westeurope}"
+                echo "AZURE_CLIENT_ID=${VAR_AZURE_CLIENT_ID}"
+                echo "AZURE_TENANT_ID=${VAR_AZURE_TENANT_ID}"
+                echo "AZURE_SUBSCRIPTION_ID=${VAR_AZURE_SUBSCRIPTION_ID}"
+                echo "AZURE_RESOURCE_GROUP=${VAR_AZURE_RESOURCE_GROUP}"
+              } >> "${GITHUB_ENV}"
+              ;;
           esac
           mkdir -p "${RUNNER_TEMP}/e2e"
           # Everything validated: from here the steps that always run may use the vendor in a path.
@@ -288,6 +310,29 @@ jobs:
           [[ -n "${UPCLOUD_TOKEN_IN}" ]] || { echo "::error::the environment secret UPCLOUD_TOKEN is not set" >&2; exit 1; }
           echo "::add-mask::${UPCLOUD_TOKEN_IN}"
           echo "UPCLOUD_TOKEN=${UPCLOUD_TOKEN_IN}" >> "${GITHUB_ENV}"
+      # Azure: the CI identity through GitHub's OIDC (a federated credential on a
+      # user-assigned managed identity: no secret). The runner's az session is for the scenarios
+      # and the teardown; the controller in k3s reads a federated token file (next step).
+      - name: Log in to Azure (azure)
+        if: inputs.vendor == 'azure'
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # The controller's federated token: written to the file it reads (AZURE_FEDERATED_TOKEN_FILE
+      # is set by the chart values of the lane, from the Secret install.sh makes of this file) and
+      # renewed in the background: GitHub's OIDC token is short-lived and a run outlives it, and
+      # WorkloadIdentityCredential re-reads the file. The loop also logs the runner's az session
+      # in again now and then (its access token lasts about an hour) and stops with the teardown.
+      - name: Federated token for the controller (azure)
+        if: inputs.vendor == 'azure'
+        env:
+          AZURE_TOKEN_SECRET: scarpenter-system/azure-federated-token
+          AZURE_RELOGIN: "true"
+        run: |
+          test/e2e-azure/azure-token.sh start "${E2E_OUT}/azure-token"
 
       # Step 4: image and chart.
       - name: Build the image, install the chart
@@ -353,6 +398,13 @@ jobs:
           ALICLOUD_OIDC_AUDIENCE: ${{ vars.ALICLOUD_OIDC_AUDIENCE || 'sts.aliyuncs.com' }}
           ALICLOUD_SESSION_NAME: scarpenter-ci-${{ github.run_id }}-teardown
         run: test/e2e-alicloud/oidc-token.sh
+      - name: Log in to Azure again for the teardown (azure)
+        if: always() && env.E2E_PREPARED == 'true' && inputs.vendor == 'azure'
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Teardown
         if: always() && env.E2E_PREPARED == 'true'

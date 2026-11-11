@@ -1,0 +1,38 @@
+# The NodeClass of the drift scenario, on its own so that the changes it makes drift
+# nothing else. `scratch` is a storage profile no running node uses: changing it
+# must drift nothing; changing the Azure block (the root disk's size) must replace the node.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-drift
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every resource of the run, which the sweeper needs (the tag name
+  # is test/e2e-azure's created_tag).
+  tags: {scarpenter-ci-created-at: "${E2E_CREATED_AT_RFC3339}", scarpenter-ci-run: "${E2E_RUN_ID}"}
+  profiles:
+    storage:
+      scratch:
+        azure:
+          data:
+            - {name: scratch, storageAccountType: StandardSSD_LRS, diskSizeGB: 1, filesystem: ext4, mountPath: /var/lib/scratch}
+  vendors:
+    azure:
+      regions: [${AZURE_REGION}]
+      # The guard: the controller's subscription must be this one.
+      subscriptionID: ${AZURE_SUBSCRIPTION_ID}
+      storage:
+        root: {storageAccountType: Premium_LRS, diskSizeGB: 32}
+      resources:
+        resourceGroups: {use: {ids: {${AZURE_REGION}: ["${AZURE_RESOURCE_GROUP}"]}}}
+        subnets: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
+        securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

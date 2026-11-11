@@ -79,6 +79,11 @@ jobs:
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
       VAR_ALICLOUD_REGION: ${{ vars.ALICLOUD_REGION }}
       VAR_UPCLOUD_ZONE: ${{ vars.UPCLOUD_ZONE }}
+      VAR_AZURE_REGION: ${{ vars.AZURE_REGION }}
+      # Azure: IDs, not secrets (the read-only identity is federated with this environment).
+      VAR_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      VAR_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      VAR_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -108,6 +113,16 @@ jobs:
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
             alicloud) echo "ALICLOUD_REGION=${VAR_ALICLOUD_REGION:-ap-southeast-1}" >> "${GITHUB_ENV}" ;;
             upcloud) echo "UPCLOUD_ZONE=${VAR_UPCLOUD_ZONE:-fi-hel1}" >> "${GITHUB_ENV}" ;;
+            azure)
+              guid='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+              for v in CLIENT_ID TENANT_ID SUBSCRIPTION_ID; do
+                x="VAR_AZURE_${v}"
+                [[ "${!x}" =~ ${guid} ]] || { echo "::error::the variable AZURE_${v} must be a GUID" >&2; exit 1; }
+                echo "AZURE_${v}=${!x}" >> "${GITHUB_ENV}"
+              done
+              [[ "${VAR_AZURE_REGION:-westeurope}" =~ ^[a-z0-9]+$ ]] || { echo "::error::the variable AZURE_REGION is not a region name" >&2; exit 1; }
+              echo "AZURE_REGION=${VAR_AZURE_REGION:-westeurope}" >> "${GITHUB_ENV}"
+              ;;
           esac
 
       - name: Assume the read-only role (aws)
@@ -177,6 +192,22 @@ jobs:
           [[ -n "${UPCLOUD_TOKEN_IN}" ]] || { echo "::error::the environment secret UPCLOUD_TOKEN is not set" >&2; exit 1; }
           echo "::add-mask::${UPCLOUD_TOKEN_IN}"
           echo "UPCLOUD_TOKEN=${UPCLOUD_TOKEN_IN}" >> "${GITHUB_ENV}"
+      # Azure: the read-only identity through GitHub's OIDC. The canary's own Go code reads the
+      # federated token file (the driver's workload identity chain), which a background loop
+      # keeps fresh for the length of the job; the az session is for anything the script shells to.
+      - name: Log in with the read-only identity (azure)
+        if: matrix.vendor == 'azure'
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2.3.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Federated token for the canary (azure)
+        if: matrix.vendor == 'azure'
+        run: |
+          test/e2e-azure/azure-token.sh start "${RUNNER_TEMP}/azure-token"
+          echo "AZURE_FEDERATED_TOKEN_FILE=${RUNNER_TEMP}/azure-token" >> "${GITHUB_ENV}"
 
       # The output is redacted by the script (the job log, the artifact and the issue are public).
       - name: Canary

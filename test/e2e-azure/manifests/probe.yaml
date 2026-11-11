@@ -1,0 +1,28 @@
+# A one-replica workload pinned to a NodePool, an exact instance type and a capacity
+# type (lib.sh: probe). It logs a line (kubectl logs) and sleeps (kubectl exec); no
+# grace period, so that deleting it does not hold the node. Public ECR mirror of
+# busybox: no Docker Hub pull limits for the nodes' public addresses.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${NAME}
+  labels: {app: ${NAME}, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ${NAME}}
+  template:
+    metadata:
+      labels: {app: ${NAME}, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: ${POOL}
+        node.kubernetes.io/instance-type: ${TYPE}
+        karpenter.sh/capacity-type: ${CAPACITY}
+      containers:
+        - name: probe
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "echo scarpenter-e2e-up; exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}

@@ -37,6 +37,8 @@ type config struct {
 	// flatcarImageFile is the file the vendor's images are made from, which the canary checks on
 	// the Flatcar release server (hcloud: the Hetzner raw image); empty: nothing to check.
 	flatcarImageFile string
+	// subscription is the Azure subscription ID (AZURE_SUBSCRIPTION_ID); empty for the other vendors.
+	subscription string
 
 	sysextBase string
 	k3sBase    string
@@ -47,7 +49,7 @@ type config struct {
 // vendorEnv maps a vendor to the environment variable of its region.
 // For hcloud it is the comma-separated list of the lane's locations.
 var vendorEnv = map[string]string{
-	vendorAlicloud: "ALICLOUD_REGION", vendorAWS: "AWS_REGION",
+	vendorAlicloud: "ALICLOUD_REGION", vendorAWS: "AWS_REGION", vendorAzure: "AZURE_REGION",
 	vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOVH: "OS_REGION_NAME",
 	vendorUpCloud: "UPCLOUD_ZONE", vendorVultr: "VULTR_REGION",
 }
@@ -89,6 +91,9 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	}
 	if regionVar, ok := vendorEnv[vendor]; ok {
 		c.region = need(regionVar)
+	}
+	if vendor == vendorAzure {
+		c.subscription = need("AZURE_SUBSCRIPTION_ID")
 	}
 	c.flatcarChannel = need("E2E_FLATCAR_CHANNEL")
 	c.flatcarVersion = need("E2E_FLATCAR_VERSION")
