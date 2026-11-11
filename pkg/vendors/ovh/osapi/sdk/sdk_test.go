@@ -240,26 +240,29 @@ func TestComputeSmallCalls(t *testing.T) {
 	}
 }
 
-func TestNeutronGlanceCinder(t *testing.T) {
-	ctx := context.Background()
-	sc, log := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/v2.0/networks":
+func neutronGlanceCinderServer(t *testing.T) (*gophercloud.ServiceClient, *[]seen) {
+	return serve(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2.0/networks":
 			status(w, 200, `{"networks":[{"id":"n1","name":"Ext-Net","router:external":true},{"id":"n2","name":"priv","router:external":false}]}`)
-		case r.URL.Path == "/v2.0/security-groups":
+		case "/v2.0/security-groups":
 			status(w, 200, `{"security_groups":[{"id":"g1","name":"default","description":"d","tags":["a"],"security_group_rules":[{"id":"r1","direction":"ingress","ethertype":"IPv4","protocol":"udp","port_range_min":41641,"port_range_max":41641,"remote_ip_prefix":"0.0.0.0/0","security_group_id":"g1"}]}]}`)
-		case r.URL.Path == "/v2.0/security-group-rules":
+		case "/v2.0/security-group-rules":
 			status(w, 201, `{"security_group_rule":{"id":"r2","direction":"ingress","ethertype":"IPv4","protocol":"tcp","port_range_min":22,"port_range_max":22,"remote_group_id":"g1","security_group_id":"g1"}}`)
-		case r.URL.Path == "/v2/images":
+		case "/v2/images":
 			status(w, 200, `{"images":[{"id":"i1","name":"flatcar-stable-4757.2.3-amd64","status":"active","visibility":"private","owner":"p","tags":["flatcar"],"virtual_size":13200000000,"architecture":"x86_64","size":594542592,"created_at":"2026-11-10T12:00:00Z"}]}`)
-		case r.URL.Path == "/v3/types":
+		case "/v3/types":
 			status(w, 200, `{"volume_types":[{"id":"t1","name":"high-speed"}]}`)
 		default:
 			status(w, 404, `{}`)
 		}
 	})
-	base := sc.Endpoint
-	sc.ResourceBase = base + "v2.0/"
+}
+
+func TestNeutron(t *testing.T) {
+	ctx := context.Background()
+	sc, log := neutronGlanceCinderServer(t)
+	sc.ResourceBase = sc.Endpoint + "v2.0/"
 	n := NewNetwork(sc)
 	nets, err := n.ListNetworks(ctx)
 	if err != nil || len(nets) != 2 || !nets[0].External || nets[1].External {
@@ -279,8 +282,12 @@ func TestNeutronGlanceCinder(t *testing.T) {
 	if sent["security_group_rule"]["security_group_id"] != "g1" || sent["security_group_rule"]["remote_group_id"] != "g1" {
 		t.Fatalf("rule body %v", sent)
 	}
+}
 
-	sc.ResourceBase = base + "v2/"
+func TestGlance(t *testing.T) {
+	ctx := context.Background()
+	sc, log := neutronGlanceCinderServer(t)
+	sc.ResourceBase = sc.Endpoint + "v2/"
 	ims, err := NewImages(sc).ListImages(ctx, osapi.ImageFilter{Name: "flatcar-stable-4757.2.3-amd64", Status: "active", Tags: []string{"flatcar"}, Owner: "p"})
 	if err != nil || len(ims) != 1 {
 		t.Fatalf("images %v %v", ims, err)
@@ -295,8 +302,12 @@ func TestNeutronGlanceCinder(t *testing.T) {
 			t.Errorf("image query %q lacks %q", q, want)
 		}
 	}
+}
 
-	sc.ResourceBase = base + "v3/"
+func TestCinder(t *testing.T) {
+	ctx := context.Background()
+	sc, _ := neutronGlanceCinderServer(t)
+	sc.ResourceBase = sc.Endpoint + "v3/"
 	vts, err := NewVolumes(sc).ListVolumeTypes(ctx)
 	if err != nil || len(vts) != 1 || vts[0].Name != "high-speed" {
 		t.Fatalf("volume types %v %v", vts, err)

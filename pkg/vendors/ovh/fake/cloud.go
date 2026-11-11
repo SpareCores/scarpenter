@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -393,11 +394,7 @@ func cloneMap(m map[string]string) map[string]string {
 	if m == nil {
 		return nil
 	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
+	return maps.Clone(m)
 }
 
 func (cl *client) ListFlavors(ctx context.Context) ([]osapi.Flavor, error) {
@@ -525,83 +522,25 @@ func (cl *client) CreateServer(ctx context.Context, req osapi.CreateServerReques
 	}
 	defer cl.leave()
 	r := cl.r
-	if req.Name == "" || len(req.Name) > 255 {
-		return nil, apiErr("nova", 400, "Invalid input for field/attribute name. Value: %q. is too short or too long", req.Name)
+	f, err := cl.checkParameters(req)
+	if err != nil {
+		return nil, err
 	}
-	f, ok := r.flavorByID(req.FlavorID)
-	if !ok {
-		return nil, apiErr("nova", 400, "Invalid flavorRef provided.")
-	}
-	if base64.StdEncoding.EncodedLen(len(req.UserData)) > MaxUserDataBase64 {
-		return nil, apiErr("nova", 400, "User data too large. User data must be no larger than %d bytes once base64 encoded. Your data is %d bytes", MaxUserDataBase64, base64.StdEncoding.EncodedLen(len(req.UserData)))
-	}
-	if len(req.Metadata) > 128 {
-		return nil, apiErr("nova", 403, "Quota exceeded for metadata items: Requested %d, but already used 0 of 128 metadata items", len(req.Metadata))
-	}
-	for k, v := range req.Metadata {
-		if k == "" || len(k) > 255 || len(v) > 255 {
-			return nil, apiErr("nova", 400, "Invalid metadata: Metadata item key/value is not a string of 1 to 255 characters")
-		}
-	}
-	if req.AvailabilityZone != "" {
-		zones := r.cfg.AZs
-		if len(zones) == 0 {
-			zones = []string{"nova"}
-		}
-		if !slices.Contains(zones, req.AvailabilityZone) {
-			return nil, apiErr("nova", 400, "The requested availability zone is not available")
-		}
-	}
-	imageGiB := int64(0)
-	if req.ImageID != "" {
-		im, found := r.image(req.ImageID)
-		if !found {
-			return nil, apiErr("nova", 400, "Invalid imageRef provided.")
-		}
-		if im.Status != osapi.ImageActive {
-			return nil, apiErr("nova", 400, "Image %s is not active.", im.ID)
-		}
-		imageGiB = (im.VirtualSizeBytes + 1<<30 - 1) >> 30
-		if imageGiB > f.DiskGB {
-			return nil, apiErr("nova", 400, "Flavor's disk is too small for requested image. Flavor disk is %d bytes, image is %d bytes.", f.DiskGB<<30, im.VirtualSizeBytes)
-		}
-	}
-	for _, n := range req.NetworkIDs {
-		if n != r.extNet.ID && !r.hasNet(n) {
-			return nil, apiErr("nova", 400, "Network %s could not be found.", n)
-		}
-	}
-	for _, name := range req.SecurityGroups {
-		switch n := r.countGroups(name); {
-		case n == 0:
-			return nil, apiErr("nova", 400, "Unable to find security group %s", name)
-		case n > 1:
-			return nil, apiErr("nova", 409, "Multiple security groups found matching '%s'. Use an ID to be more specific.", name)
-		}
-	}
-	var vols []*volumeRec
-	for _, b := range req.BlockDevices {
-		if b.DestinationType == "volume" && b.VolumeType != "" && !r.hasVolType(b.VolumeType) {
-			return nil, apiErr("nova", 400, "Invalid input received: Invalid input received: volume_type %q not found", b.VolumeType)
-		}
-		if b.DestinationType == "volume" {
-			vols = append(vols, &volumeRec{volType: b.VolumeType, sizeGiB: b.SizeGiB, deleteOnTerminate: b.DeleteOnTermination, source: b.SourceType})
-		}
-	}
-	var grp *osapi.ServerGroup
-	if req.SchedulerGroup != "" {
-		if grp = r.groups[req.SchedulerGroup]; grp == nil {
-			return nil, apiErr("nova", 400, "Server group %s could not be found.", req.SchedulerGroup)
-		}
+	vols, grp, err := cl.checkReferences(req, f)
+	if err != nil {
+		return nil, err
 	}
 	l := cl.limits()
 	switch {
 	case l.UsedInstances+1 > l.MaxInstances:
-		return nil, apiErr("nova", 403, "Quota exceeded for instances: Requested 1, but already used %d of %d instances", l.UsedInstances, l.MaxInstances)
+		return nil, apiErr(svcNova, 403,
+			"Quota exceeded for instances: Requested 1, but already used %d of %d instances", l.UsedInstances, l.MaxInstances)
 	case l.UsedCores+f.VCPUs > l.MaxCores:
-		return nil, apiErr("nova", 403, "Quota exceeded for cores: Requested %d, but already used %d of %d cores", f.VCPUs, l.UsedCores, l.MaxCores)
+		return nil, apiErr(svcNova, 403,
+			"Quota exceeded for cores: Requested %d, but already used %d of %d cores", f.VCPUs, l.UsedCores, l.MaxCores)
 	case l.UsedRAMMiB+f.RAMMiB > l.MaxRAMMiB:
-		return nil, apiErr("nova", 403, "Quota exceeded for ram: Requested %d, but already used %d of %d ram", f.RAMMiB, l.UsedRAMMiB, l.MaxRAMMiB)
+		return nil, apiErr(svcNova, 403,
+			"Quota exceeded for ram: Requested %d, but already used %d of %d ram", f.RAMMiB, l.UsedRAMMiB, l.MaxRAMMiB)
 	}
 	s := &serverRec{Server: osapi.Server{
 		ID: cl.c.id("srv"), Name: req.Name, Status: osapi.StatusBuild, TaskState: osapi.TaskScheduling,
@@ -619,8 +558,106 @@ func (cl *client) CreateServer(ctx context.Context, req osapi.CreateServerReques
 	}
 	r.servers[s.ID] = s
 	r.order = append(r.order, s.ID)
-	out := cl.r.view(s)
+	out := r.view(s)
 	return &out, nil
+}
+
+const svcNova = "nova"
+
+// checkParameters validates what the request says by itself: name, flavor, user
+// data, metadata and availability zone.
+func (cl *client) checkParameters(req osapi.CreateServerRequest) (osapi.Flavor, error) {
+	r := cl.r
+	if req.Name == "" || len(req.Name) > 255 {
+		return osapi.Flavor{}, apiErr(svcNova, 400,
+			"Invalid input for field/attribute name. Value: %q. is too short or too long", req.Name)
+	}
+	f, ok := r.flavorByID(req.FlavorID)
+	if !ok {
+		return osapi.Flavor{}, apiErr(svcNova, 400, "Invalid flavorRef provided.")
+	}
+	if n := base64.StdEncoding.EncodedLen(len(req.UserData)); n > MaxUserDataBase64 {
+		return osapi.Flavor{}, apiErr(svcNova, 400,
+			"User data too large. User data must be no larger than %d bytes once base64 encoded. "+
+				"Your data is %d bytes", MaxUserDataBase64, n)
+	}
+	if len(req.Metadata) > 128 {
+		return osapi.Flavor{}, apiErr(svcNova, 403,
+			"Quota exceeded for metadata items: Requested %d, but already used 0 of 128 metadata items", len(req.Metadata))
+	}
+	for k, v := range req.Metadata {
+		if k == "" || len(k) > 255 || len(v) > 255 {
+			return osapi.Flavor{}, apiErr(svcNova, 400,
+				"Invalid metadata: Metadata item key/value is not a string of 1 to 255 characters")
+		}
+	}
+	if req.AvailabilityZone != "" {
+		zones := r.cfg.AZs
+		if len(zones) == 0 {
+			zones = []string{"nova"}
+		}
+		if !slices.Contains(zones, req.AvailabilityZone) {
+			return osapi.Flavor{}, apiErr(svcNova, 400, "The requested availability zone is not available")
+		}
+	}
+	return f, nil
+}
+
+// checkReferences validates the objects the request points at (image, networks,
+// security groups, volume types, server group) and returns the volumes the block
+// device mappings will create and the server group.
+func (cl *client) checkReferences(
+	req osapi.CreateServerRequest, f osapi.Flavor,
+) ([]*volumeRec, *osapi.ServerGroup, error) {
+	r := cl.r
+	if req.ImageID != "" {
+		im, found := r.image(req.ImageID)
+		if !found {
+			return nil, nil, apiErr(svcNova, 400, "Invalid imageRef provided.")
+		}
+		if im.Status != osapi.ImageActive {
+			return nil, nil, apiErr(svcNova, 400, "Image %s is not active.", im.ID)
+		}
+		if imageGiB := (im.VirtualSizeBytes + 1<<30 - 1) >> 30; imageGiB > f.DiskGB {
+			return nil, nil, apiErr(svcNova, 400,
+				"Flavor's disk is too small for requested image. "+
+					"Flavor disk is %d bytes, image is %d bytes.", f.DiskGB<<30, im.VirtualSizeBytes)
+		}
+	}
+	for _, n := range req.NetworkIDs {
+		if n != r.extNet.ID && !r.hasNet(n) {
+			return nil, nil, apiErr(svcNova, 400, "Network %s could not be found.", n)
+		}
+	}
+	for _, name := range req.SecurityGroups {
+		switch n := r.countGroups(name); {
+		case n == 0:
+			return nil, nil, apiErr(svcNova, 400, "Unable to find security group %s", name)
+		case n > 1:
+			return nil, nil, apiErr(svcNova, 409,
+				"Multiple security groups found matching '%s'. Use an ID to be more specific.", name)
+		}
+	}
+	var vols []*volumeRec
+	for _, b := range req.BlockDevices {
+		if b.DestinationType != "volume" {
+			continue
+		}
+		if b.VolumeType != "" && !r.hasVolType(b.VolumeType) {
+			return nil, nil, apiErr(svcNova, 400,
+				"Invalid input received: Invalid input received: volume_type %q not found", b.VolumeType)
+		}
+		vols = append(vols, &volumeRec{
+			volType: b.VolumeType, sizeGiB: b.SizeGiB, deleteOnTerminate: b.DeleteOnTermination, source: b.SourceType,
+		})
+	}
+	var grp *osapi.ServerGroup
+	if req.SchedulerGroup != "" {
+		if grp = r.groups[req.SchedulerGroup]; grp == nil {
+			return nil, nil, apiErr(svcNova, 400, "Server group %s could not be found.", req.SchedulerGroup)
+		}
+	}
+	return vols, grp, nil
 }
 
 func (r *region) image(id string) (osapi.Image, bool) {
@@ -708,7 +745,8 @@ func (cl *client) CreateServerGroup(ctx context.Context, name, policy string) (*
 	}
 	defer cl.leave()
 	if !slices.Contains(serverGroupPolicies, policy) {
-		return nil, apiErr("nova", 400, "Invalid input for field/attribute policy. Value: %q. is not one of the allowed values", policy)
+		return nil, apiErr("nova", 400,
+			"Invalid input for field/attribute policy. Value: %q. is not one of the allowed values", policy)
 	}
 	if l := cl.limits(); l.UsedServerGroups+1 > l.MaxServerGroups {
 		return nil, apiErr("nova", 403, "Quota exceeded, too many server groups.")
@@ -778,7 +816,9 @@ func (cl *client) CreateSecurityGroup(ctx context.Context, name, description str
 	return &out, nil
 }
 
-func (cl *client) CreateSecurityRule(ctx context.Context, groupID string, rule osapi.SecurityRule) (*osapi.SecurityRule, error) {
+func (cl *client) CreateSecurityRule(
+	ctx context.Context, groupID string, rule osapi.SecurityRule,
+) (*osapi.SecurityRule, error) {
 	if err := cl.enter("CreateSecurityRule"); err != nil {
 		cl.leave()
 		return nil, err
@@ -813,7 +853,8 @@ func (cl *client) DeleteSecurityGroup(ctx context.Context, id string) error {
 			continue
 		}
 		if id == cl.r.defaultSGs {
-			return apiErr("neutron", 409, "SecurityGroupCannotRemoveDefault: Insufficient rights for removing default security group.")
+			return apiErr("neutron", 409,
+				"SecurityGroupCannotRemoveDefault: Insufficient rights for removing default security group.")
 		}
 		for _, s := range cl.r.servers {
 			if slices.Contains(s.secGroups, g.Name) || slices.Contains(s.secGroups, g.ID) {

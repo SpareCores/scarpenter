@@ -259,7 +259,7 @@ func TestServerGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var ids []string
+	ids := make([]string, 0, 2)
 	for range 2 {
 		s, err := cl.Compute.CreateServer(ctx, osapi.CreateServerRequest{Name: "m", FlavorID: flavorID(t, cl, "d2-2"), ImageID: img, SchedulerGroup: g.ID})
 		if err != nil {

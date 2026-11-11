@@ -12,6 +12,7 @@ require (
 	github.com/awslabs/operatorpkg v0.0.0-20261002163259-5e8ed3699dea
 	github.com/coreos/butane v0.29.0
 	github.com/go-logr/logr v1.4.3
+	github.com/gophercloud/gophercloud/v2 v2.15.0
 	github.com/prometheus/client_golang v1.24.0
 	github.com/samber/lo v1.53.0
 	k8s.io/api v0.36.1
@@ -70,7 +71,6 @@ require (
 	github.com/google/cel-go v0.29.2 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gophercloud/gophercloud/v2 v2.15.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect

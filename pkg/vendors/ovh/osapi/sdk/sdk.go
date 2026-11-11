@@ -15,8 +15,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -122,7 +122,7 @@ func computeRegions(cat *tokens.ServiceCatalog) []string {
 			}
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -143,7 +143,9 @@ func (p *Provider) Clients(ctx context.Context, region string) (osapi.Clients, e
 	if err != nil {
 		return osapi.Clients{}, convertEndpoint(err)
 	}
-	c := osapi.Clients{Compute: NewCompute(nova), Network: NewNetwork(neutron), Images: NewImages(glance), Volumes: noVolumes{}}
+	c := osapi.Clients{
+		Compute: NewCompute(nova), Network: NewNetwork(neutron), Images: NewImages(glance), Volumes: noVolumes{},
+	}
 	if cinder, err := openstack.NewBlockStorageV3(p.pc, eo); err == nil {
 		c.Volumes = NewVolumes(cinder)
 	}
@@ -255,7 +257,7 @@ func (w wireServer) server() osapi.Server {
 	for n := range w.Addresses {
 		nets = append(nets, n)
 	}
-	sort.Strings(nets)
+	slices.Sort(nets)
 	for _, n := range nets {
 		for _, a := range w.Addresses[n] {
 			s.Addresses = append(s.Addresses, osapi.Address{Network: n, Addr: a.Addr, Version: a.Version})
@@ -282,7 +284,9 @@ func (c *Compute) ListFlavors(ctx context.Context) ([]osapi.Flavor, error) {
 	}
 	out := make([]osapi.Flavor, 0, len(fl))
 	for _, f := range fl {
-		out = append(out, osapi.Flavor{ID: f.ID, Name: f.Name, VCPUs: int64(f.VCPUs), RAMMiB: int64(f.RAM), DiskGB: int64(f.Disk)})
+		out = append(out, osapi.Flavor{
+			ID: f.ID, Name: f.Name, VCPUs: int64(f.VCPUs), RAMMiB: int64(f.RAM), DiskGB: int64(f.Disk),
+		})
 	}
 	return out, nil
 }
@@ -362,9 +366,7 @@ func CreateBody(req osapi.CreateServerRequest) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		for k, v := range h {
-			body[k] = v // {"os:scheduler_hints": {"group": id}}
-		}
+		maps.Copy(body, h) // {"os:scheduler_hints": {"group": id}}
 	}
 	return body, nil
 }
@@ -545,7 +547,9 @@ func (n *Network) CreateSecurityGroup(ctx context.Context, name, description str
 }
 
 // CreateSecurityRule implements osapi.NetworkAPI.
-func (n *Network) CreateSecurityRule(ctx context.Context, groupID string, r osapi.SecurityRule) (*osapi.SecurityRule, error) {
+func (n *Network) CreateSecurityRule(
+	ctx context.Context, groupID string, r osapi.SecurityRule,
+) (*osapi.SecurityRule, error) {
 	o := rules.CreateOpts{
 		Direction: rules.RuleDirection(r.Direction), EtherType: rules.RuleEtherType(r.EtherType), SecGroupID: groupID,
 		Protocol: rules.RuleProtocol(r.Protocol), PortRangeMin: r.PortMin, PortRangeMax: r.PortMax,
