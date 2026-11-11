@@ -30,6 +30,13 @@ import (
 // that finds nothing goes on; a step that errors, a vendor error or an ambiguous
 // opt-in, stops the order: it never falls through to creation.
 
+// SEAM (plan 14, A1 `images`, built on another branch): the `images` kind has no step 4
+// (SCarpenter never creates an image) and its step 3 is the driver's own lookup of the
+// pinned version (ADR-021), not a vendor default. When A1 lands, the kind's Default hook
+// is that lookup, its resolution ends at the failure of step 5 instead of Ensure
+// (see the call of ensure in require and in the preCreate branch of the check), and its
+// explicit `use` is already this file's step 1. Nothing here names the kind.
+
 // orderIn is what steps 2 and 3 need.
 type orderIn struct {
 	nc     *v1alpha1.SCNodeClass

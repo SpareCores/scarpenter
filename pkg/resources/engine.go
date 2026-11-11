@@ -497,6 +497,8 @@ func (e *Engine) require(
 			return nil, fail(forbidden("%s", failureMessage(req.Kind, region, res.tried, "creating it is forbidden")))
 		}
 	}
+	// Step 4. SEAM (plan 14, A1): a kind that is never created (images) ends at the
+	// failure of step 5 here instead; see order.go.
 	ref, err := e.ensure(ctx, nc, mr, vendor, region, spec, req)
 	if err != nil {
 		return nil, err
