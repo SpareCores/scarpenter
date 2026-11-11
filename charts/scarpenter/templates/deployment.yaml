@@ -9,6 +9,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- fail "cluster.apiServerEndpoint must be an https:// URL" }}
 {{- end }}
 {{- $aws := .Values.vendors.aws }}
+{{- $vultr := .Values.vendors.vultr }}
 {{- if not (include "scarpenter.vendors" .) }}
 {{- fail "enable at least one vendor: vendors.aws.enabled=true, or vendors.extra for the development image" }}
 {{- end }}
@@ -18,6 +19,9 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- end }}
 {{- if and $aws.enabled (eq $mode "secret") (not $aws.credentials.secret.existingSecret) }}
 {{- fail "vendors.aws.credentials.secret.existingSecret is required with credentials mode secret" }}
+{{- end }}
+{{- if and $vultr.enabled (not $vultr.credentials.secret.existingSecret) }}
+{{- fail "vendors.vultr.credentials.secret.existingSecret is required when vultr is enabled: the API key of the account (docs/how-to-guides/vultr-credentials.md)" }}
 {{- end }}
 {{- if and .Values.bootstrap.tokenTTL (lt (int (include "scarpenter.seconds" .Values.bootstrap.tokenTTL)) 1200) }}
 {{- fail "bootstrap.tokenTTL must be at least 20m: core gives a NodeClaim 15 minutes to register and the token must outlive that" }}
@@ -180,6 +184,14 @@ spec:
             - name: AWS_SESSION_TOKEN
               valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.sessionTokenKey | quote }}}}
             {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if $vultr.enabled }}
+            - name: VULTR_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ $vultr.credentials.secret.existingSecret | quote }}, key: {{ $vultr.credentials.secret.key | quote }}}}
+            {{- if $vultr.availabilityTTL }}
+            - name: SCARPENTER_VULTR_AVAILABILITY_TTL
+              value: {{ $vultr.availabilityTTL | quote }}
             {{- end }}
             {{- end }}
             {{- with .Values.extraEnv }}

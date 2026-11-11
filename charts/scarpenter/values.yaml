@@ -129,6 +129,20 @@ vendors:
         secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
         # Optional: the key of a session token.
         sessionTokenKey: ""
+  vultr:
+    enabled: false
+    # How long the stock of a region is cached (SCARPENTER_VULTR_AVAILABILITY_TTL);
+    # empty: 5m. Vultr's stock moves faster than other vendors'.
+    availabilityTTL: ""
+    credentials:
+      # The API key of the account (VULTR_API_KEY), from an existing Secret.
+      # Vultr has no workload identity for callers, so this is the only mode.
+      # The key is bound to an IP allowlist that must contain the controller's
+      # egress address (docs/how-to-guides/vultr-credentials.md). REQUIRED when
+      # vultr is enabled.
+      secret:
+        existingSecret: ""
+        key: apiKey
   # Further drivers compiled into the image, for the development image only
   # (fake, qemu). Their flags go to extraArgs.
   extra: []

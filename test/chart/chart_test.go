@@ -362,6 +362,49 @@ func TestAWSCredentialModes(t *testing.T) {
 	})
 }
 
+// TestVultrCredentials: the API key of Vultr comes from an existing Secret into
+// VULTR_API_KEY, the only mode (no workload identity), and the vendor is in the
+// --vendors flag only when enabled.
+func TestVultrCredentials(t *testing.T) {
+	base := []string{
+		"--set", "cluster.name=c", "--set", "cluster.apiServerEndpoint=https://a.example.com",
+		"--set", "vendors.aws.credentials.mode=none",
+	}
+	enabled := append(slices.Clone(base), "--set", "vendors.vultr.enabled=true",
+		"--set", "vendors.vultr.credentials.secret.existingSecret=vultr-key",
+		"--set", "vendors.vultr.availabilityTTL=2m")
+	d := deployment(t, mustHelm(t, enabled...))
+	c := d.Spec.Template.Spec.Containers[0]
+	env := map[string]corev1.EnvVar{}
+	for _, e := range c.Env {
+		env[e.Name] = e
+	}
+	ref := env["VULTR_API_KEY"].ValueFrom
+	if ref == nil || ref.SecretKeyRef.Name != "vultr-key" || ref.SecretKeyRef.Key != "apiKey" {
+		t.Errorf("VULTR_API_KEY = %+v", env["VULTR_API_KEY"])
+	}
+	if env["SCARPENTER_VULTR_AVAILABILITY_TTL"].Value != "2m" {
+		t.Errorf("SCARPENTER_VULTR_AVAILABILITY_TTL = %+v", env["SCARPENTER_VULTR_AVAILABILITY_TTL"])
+	}
+	if !slices.Contains(c.Args, "--vendors=aws,vultr") {
+		t.Errorf("args %v: want --vendors=aws,vultr", c.Args)
+	}
+	off := deployment(t, mustHelm(t, base...))
+	for _, e := range off.Spec.Template.Spec.Containers[0].Env {
+		if strings.Contains(e.Name, "VULTR") {
+			t.Errorf("%s set with the Vultr vendor disabled", e.Name)
+		}
+	}
+	if _, err := helm(t, append(slices.Clone(base), "--set", "vendors.vultr.enabled=true")...); err == nil ||
+		!strings.Contains(err.Error(), "vendors.vultr.credentials.secret.existingSecret is required") {
+		t.Errorf("an enabled Vultr without a Secret: %v", err)
+	}
+	if _, err := helm(t, append(slices.Clone(enabled), "--set", "vendors.vultr.availabilityTTL=soon")...); err == nil ||
+		!strings.Contains(err.Error(), "availabilityTTL") {
+		t.Errorf("a bad TTL: %v", err)
+	}
+}
+
 // TestRBACMatchesConfig is the drift check: the rules and bindings the chart
 // renders are those of config/rbac and config/rbac-core (the namespaces and
 // names aside).
