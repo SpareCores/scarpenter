@@ -4,7 +4,7 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
-//nolint:lll,goconst,dupl,gocyclo // the fake repeats the SDK shapes and the API's checks
+//nolint:lll // the fake repeats the SDK's long method signatures and type names
 package fake
 
 import (
@@ -175,7 +175,7 @@ func (v *VPC) DescribeVpcs(ctx context.Context, in *vpc.DescribeVpcsRequest) (*v
 	for _, x := range all[from:to] {
 		sdk := &vpc.DescribeVpcsResponseBodyVpcsVpc{
 			VpcId: new(x.id), VpcName: new(x.name), CidrBlock: new(x.cidr), IsDefault: new(x.isDefault),
-			RegionId: new(v.region), Status: new("Available"),
+			RegionId: new(v.region), Status: new(statusAvailable),
 			CreationTime: new(x.created.UTC().Format("2006-01-02T15:04:05Z")),
 			Tags:         &vpc.DescribeVpcsResponseBodyVpcsVpcTags{},
 			VSwitchIds:   &vpc.DescribeVpcsResponseBodyVpcsVpcVSwitchIds{},
@@ -304,7 +304,7 @@ func (v *VPC) DescribeVSwitches(ctx context.Context, in *vpc.DescribeVSwitchesRe
 	for _, s := range all[from:to] {
 		sdk := &vpc.DescribeVSwitchesResponseBodyVSwitchesVSwitch{
 			VSwitchId: new(s.id), VSwitchName: new(s.name), VpcId: new(s.vpc), ZoneId: new(s.zone),
-			CidrBlock: new(s.cidr.String()), IsDefault: new(s.isDefault), Status: new("Available"),
+			CidrBlock: new(s.cidr.String()), IsDefault: new(s.isDefault), Status: new(statusAvailable),
 			AvailableIpAddressCount: new(int64(max(s.free(), 0))),
 			CreationTime:            new(s.created.UTC().Format("2006-01-02T15:04:05Z")),
 			Tags:                    &vpc.DescribeVSwitchesResponseBodyVSwitchesVSwitchTags{},

@@ -4,7 +4,7 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
-//nolint:lll,goconst,dupl,gocyclo // the fake repeats the SDK shapes and the API's checks
+//nolint:lll // the fake repeats the SDK's long method signatures and type names
 package fake
 
 import (
@@ -214,6 +214,10 @@ func runResponse(ids []string) *ecs.RunInstancesResponseBody {
 	return out
 }
 
+// launch runs RunInstances' checks and creates the instance Pending; the
+// checks stay one flat list, like the API's error table.
+//
+//nolint:gocyclo // a flat list of the API's checks
 func (f *Cloud) launch(r *regionState, in *ecs.RunInstancesRequest) (*instance, error) {
 	if dara.Int32Value(in.Amount) != 1 || dara.Int32Value(in.MinAmount) != 1 {
 		return nil, badRequest("InvalidParameter", "the fake takes Amount=1 and MinAmount=1")
@@ -222,7 +226,7 @@ func (f *Cloud) launch(r *regionState, in *ecs.RunInstancesRequest) (*instance, 
 		return nil, badRequest("InvalidChargeType.ValueNotSupported", "only PostPaid is supported")
 	}
 	img, ok := r.images[dara.StringValue(in.ImageId)]
-	if !ok || img.status != "Available" {
+	if !ok || img.status != statusAvailable {
 		return nil, badRequest("InvalidImageId.NotFound", "the image %q does not exist", dara.StringValue(in.ImageId))
 	}
 	vs, ok := r.vswitches[dara.StringValue(in.VSwitchId)]

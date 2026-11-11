@@ -4,7 +4,7 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
-//nolint:lll,goconst,dupl,gocyclo // the fake repeats the SDK shapes and the API's checks
+//nolint:lll // the fake repeats the SDK's long method signatures and type names
 package fake
 
 import (
@@ -111,7 +111,7 @@ func (f *Cloud) AddImage(regionName string, s ImageSpec) string {
 	}
 	st := s.Status
 	if st == "" {
-		st = "Available"
+		st = statusAvailable
 	}
 	r.images[s.ID] = &image{ImageSpec: s, status: st}
 	return s.ID
@@ -132,7 +132,7 @@ func (e *ECS) DescribeImages(ctx context.Context, in *ecs.DescribeImagesRequest)
 	for _, t := range in.Tag {
 		filter[dara.StringValue(t.Key)] = dara.StringValue(t.Value)
 	}
-	status := "Available"
+	status := statusAvailable
 	if in.Status != nil {
 		status = *in.Status
 	}
@@ -188,15 +188,15 @@ func sortedKeys(m map[string]string) []string {
 // tagsOf returns the tags of a taggable resource, nil when there is none.
 func (r *regionState) tagsOf(typ, id string) tagSet {
 	switch typ {
-	case "instance":
+	case resInstance:
 		if i, ok := r.instances[id]; ok {
 			return i.tags
 		}
-	case "securitygroup":
+	case resSecurityGroup:
 		if g, ok := r.groups[id]; ok {
 			return g.tags
 		}
-	case "image":
+	case resImage:
 		if im, ok := r.images[id]; ok {
 			if im.Tags == nil {
 				im.Tags = map[string]string{}
@@ -219,7 +219,7 @@ func (e *ECS) TagResources(ctx context.Context, in *ecs.TagResourcesRequest) (*e
 		return nil, err
 	}
 	typ := dara.StringValue(in.ResourceType)
-	if !slices.Contains([]string{"instance", "securitygroup", "image"}, typ) {
+	if !slices.Contains([]string{resInstance, resSecurityGroup, resImage}, typ) {
 		return nil, badRequest("InvalidResourceType.NotSupported", "the resource type %q is not taggable here", typ)
 	}
 	keys := make([]string, 0, len(in.Tag))
@@ -257,15 +257,15 @@ func (e *ECS) ListTagResources(ctx context.Context, in *ecs.ListTagResourcesRequ
 	typ := dara.StringValue(in.ResourceType)
 	var ids []string
 	switch typ {
-	case "instance":
+	case resInstance:
 		for id := range r.instances {
 			ids = append(ids, id)
 		}
-	case "securitygroup":
+	case resSecurityGroup:
 		for id := range r.groups {
 			ids = append(ids, id)
 		}
-	case "image":
+	case resImage:
 		for id := range r.images {
 			ids = append(ids, id)
 		}

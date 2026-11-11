@@ -17,8 +17,6 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // Faithful where the plan relies on it: the codes it returns are the codes of
 // plan 21 section 6; behaviours the plan marks unverified are options or
 // comments here, so a spike result changes the fake in one place.
-//
-//nolint:lll,goconst,dupl,gocyclo // the fake repeats the SDK shapes and the API's checks
 package fake
 
 import (
@@ -38,6 +36,17 @@ import (
 const (
 	StatusAvailable = "Available"
 	StatusSoldOut   = "SoldOut"
+)
+
+// statusAvailable is the Status of an image, a VPC and a vSwitch that can be
+// used (not the stock status, which happens to read the same).
+const statusAvailable = "Available"
+
+// Resource types of TagResources, UntagResources and ListTagResources.
+const (
+	resInstance      = "instance"
+	resSecurityGroup = "securitygroup"
+	resImage         = "image"
 )
 
 // Capacity types of the offerings.
