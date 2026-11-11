@@ -553,6 +553,28 @@
                 "description": "NetworkProfile is a named network setup (NIC features) per vendor.",
                 "minProperties": 1,
                 "properties": {
+                  "alicloud": {
+                    "additionalProperties": false,
+                    "description": "Network is the Alibaba Cloud block of a network profile.",
+                    "properties": {
+                      "internetChargeType": {
+                        "description": "internetChargeType is how the public bandwidth is billed.",
+                        "enum": [
+                          "PayByTraffic",
+                          "PayByBandwidth"
+                        ],
+                        "type": "string"
+                      },
+                      "internetMaxBandwidthOut": {
+                        "description": "internetMaxBandwidthOut is the peak public outbound bandwidth in Mbit/s;\n0 means no public IPv4 address.",
+                        "format": "int32",
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "aws": {
                     "additionalProperties": false,
                     "description": "Network is the AWS block of a network profile.",
@@ -621,6 +643,44 @@
                 "description": "PlacementProfile is a named placement and tenancy setup per vendor.",
                 "minProperties": 1,
                 "properties": {
+                  "alicloud": {
+                    "additionalProperties": false,
+                    "description": "Placement is the Alibaba Cloud block of a placement profile.",
+                    "properties": {
+                      "deploymentSet": {
+                        "additionalProperties": false,
+                        "description": "deploymentSet is the placement construct nodes join; it needs a run key\n(label placement-group) to be created per run.",
+                        "properties": {
+                          "strategy": {
+                            "description": "strategy of the deployment sets SCarpenter creates.",
+                            "enum": [
+                              "LowLatency",
+                              "Availability"
+                            ],
+                            "type": "string"
+                          },
+                          "use": {
+                            "additionalProperties": false,
+                            "description": "use references an existing deployment set, which is never modified or\ndeleted; the run key then only separates NodeClaims.",
+                            "properties": {
+                              "name": {
+                                "description": "name of the deployment set.",
+                                "maxLength": 128,
+                                "minLength": 1,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "name"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "aws": {
                     "additionalProperties": false,
                     "description": "Placement is the AWS block of a placement profile: a placement group and the\ntenancy.",
@@ -803,6 +863,191 @@
                 "description": "StorageProfile is a named storage setup, in the vendor's own terms, for each\nvendor it applies to. On a vendor without a block the profile does not exist.",
                 "minProperties": 1,
                 "properties": {
+                  "alicloud": {
+                    "additionalProperties": false,
+                    "description": "Storage is the Alibaba Cloud storage block: the system disk and the extra data\ndisks created with the instance. It is the vendor block's storage (layer 2)\nand the alicloud block of a storage profile (layer 3).",
+                    "properties": {
+                      "data": {
+                        "description": "data lists extra disks created with the instance (all deleted with it).",
+                        "items": {
+                          "additionalProperties": false,
+                          "description": "DataDisk is an extra disk: ECS settings plus the guest side (name,\nfilesystem, mount path).",
+                          "properties": {
+                            "burstingEnabled": {
+                              "description": "burstingEnabled turns performance bursting on for a cloud_auto disk.",
+                              "type": "boolean"
+                            },
+                            "category": {
+                              "description": "category is the disk category. Built-in default cloud_essd.",
+                              "enum": [
+                                "cloud_essd",
+                                "cloud_auto",
+                                "cloud_essd_entry",
+                                "cloud_efficiency",
+                                "cloud_ssd"
+                              ],
+                              "type": "string"
+                            },
+                            "encrypted": {
+                              "description": "encrypted encrypts the disk. Built-in default false.",
+                              "type": "boolean"
+                            },
+                            "filesystem": {
+                              "default": "ext4",
+                              "description": "filesystem the first-boot unit creates on the volume.",
+                              "enum": [
+                                "ext4",
+                                "xfs",
+                                "btrfs"
+                              ],
+                              "type": "string"
+                            },
+                            "kmsKeyID": {
+                              "description": "kmsKeyID is the KMS key used for encryption.",
+                              "maxLength": 2048,
+                              "type": "string"
+                            },
+                            "mountPath": {
+                              "description": "mountPath is the absolute path the volume is mounted at.",
+                              "maxLength": 255,
+                              "pattern": "^/[^\\x00]*$",
+                              "type": "string"
+                            },
+                            "name": {
+                              "description": "name identifies the volume in the profile and in the device hints\nrendered into Ignition.",
+                              "maxLength": 40,
+                              "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                              "type": "string"
+                            },
+                            "performanceLevel": {
+                              "description": "performanceLevel of a cloud_essd disk. Built-in default PL0.",
+                              "enum": [
+                                "PL0",
+                                "PL1",
+                                "PL2",
+                                "PL3"
+                              ],
+                              "type": "string"
+                            },
+                            "provisionedIops": {
+                              "description": "provisionedIops of a cloud_auto disk.",
+                              "format": "int64",
+                              "maximum": 50000,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "size": {
+                              "anyOf": [
+                                {
+                                  "type": "integer"
+                                },
+                                {
+                                  "type": "string"
+                                }
+                              ],
+                              "description": "size of the disk, e.g. 100Gi.",
+                              "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+                            }
+                          },
+                          "required": [
+                            "mountPath",
+                            "name",
+                            "size"
+                          ],
+                          "type": "object"
+                        },
+                        "maxItems": 16,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "localStorage": {
+                        "additionalProperties": false,
+                        "description": "localStorage is accepted so that a profile written for a vendor with\nlocal disks is not pruned silently, and is not supported on Alibaba Cloud\nyet: a policy other than ignore makes the profile supported by no\ninstance type, and the NodeClass validation refuses it.",
+                        "properties": {
+                          "mountPath": {
+                            "description": "mountPath is the absolute path the local storage is mounted at.",
+                            "maxLength": 255,
+                            "pattern": "^/[^\\x00]*$",
+                            "type": "string"
+                          },
+                          "policy": {
+                            "description": "policy: ignore leaves the disks alone, mount mounts them, raid0 stripes\nthem into one volume and mounts it.",
+                            "enum": [
+                              "ignore",
+                              "mount",
+                              "raid0"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "policy"
+                        ],
+                        "type": "object"
+                      },
+                      "root": {
+                        "additionalProperties": false,
+                        "description": "root configures the system disk.",
+                        "properties": {
+                          "burstingEnabled": {
+                            "description": "burstingEnabled turns performance bursting on for a cloud_auto disk.",
+                            "type": "boolean"
+                          },
+                          "category": {
+                            "description": "category is the disk category. Built-in default cloud_essd.",
+                            "enum": [
+                              "cloud_essd",
+                              "cloud_auto",
+                              "cloud_essd_entry",
+                              "cloud_efficiency",
+                              "cloud_ssd"
+                            ],
+                            "type": "string"
+                          },
+                          "encrypted": {
+                            "description": "encrypted encrypts the disk. Built-in default false: ECS refuses encrypted\nsystem disks in some zones (Singapore zone A, Hong Kong zone D), and true\ntakes those zones out of the offerings.",
+                            "type": "boolean"
+                          },
+                          "kmsKeyID": {
+                            "description": "kmsKeyID is the KMS key used for encryption; the account's default\nservice key when empty.",
+                            "maxLength": 2048,
+                            "type": "string"
+                          },
+                          "performanceLevel": {
+                            "description": "performanceLevel of a cloud_essd disk. Built-in default PL0.",
+                            "enum": [
+                              "PL0",
+                              "PL1",
+                              "PL2",
+                              "PL3"
+                            ],
+                            "type": "string"
+                          },
+                          "provisionedIops": {
+                            "description": "provisionedIops of a cloud_auto disk.",
+                            "format": "int64",
+                            "maximum": 50000,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "size": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ],
+                            "description": "size of the disk, e.g. 64Gi. Built-in default 64Gi for the system disk.",
+                            "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "aws": {
                     "additionalProperties": false,
                     "description": "Storage is the AWS storage block: the settings of the root volume, the extra\nEBS volumes and the instance-local disks. It is the vendor block's storage\n(layer 2) and the AWS block of a storage profile (layer 3).",
@@ -2012,6 +2257,1368 @@
           "description": "vendors has one block per vendor; a vendor is enabled for this\nSCNodeClass by having a block.",
           "minProperties": 1,
           "properties": {
+            "alicloud": {
+              "additionalProperties": false,
+              "description": "alicloud configures Alibaba Cloud (ECS) nodes.",
+              "properties": {
+                "imageOwner": {
+                  "description": "imageOwner is the account UID that owns the Flatcar images. Empty means\nthe account of the controller's credentials (images created there with\nImportImage or CopyImage, the supported path of v1); set it for images\nanother account shares or publishes.",
+                  "pattern": "^([0-9]{1,20})?$",
+                  "type": "string"
+                },
+                "internetChargeType": {
+                  "description": "internetChargeType is how the public bandwidth is billed. Built-in\ndefault PayByTraffic. PayByBandwidth makes the offering's price incomplete.",
+                  "enum": [
+                    "PayByTraffic",
+                    "PayByBandwidth"
+                  ],
+                  "type": "string"
+                },
+                "internetMaxBandwidthOut": {
+                  "description": "internetMaxBandwidthOut is the peak public outbound bandwidth in Mbit/s;\n0 means no public IPv4 address (the same as networking.publicIPv4: false).\nBuilt-in default 100.",
+                  "format": "int32",
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "metadataOptions": {
+                  "additionalProperties": false,
+                  "description": "metadataOptions configures the instance metadata service. Built-in\ndefault: httpTokens optional, because Ignition's aliyun provider reads\nthe user data without a token (see the reference for the consequence and\nthe hardening that closes it).",
+                  "properties": {
+                    "httpTokens": {
+                      "description": "httpTokens: required allows the hardened mode (IMDSv2) only, which\nIgnition's aliyun provider cannot read at boot: nodes do not boot with it.\nBuilt-in default optional.",
+                      "enum": [
+                        "optional",
+                        "required"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "networking": {
+                  "additionalProperties": false,
+                  "description": "networking overrides the generic spec.networking for Alibaba Cloud.",
+                  "properties": {
+                    "inbound": {
+                      "additionalProperties": false,
+                      "description": "inbound replaces spec.networking.inbound.",
+                      "properties": {
+                        "rules": {
+                          "description": "rules allow traffic from CIDRs; everything else is denied.",
+                          "items": {
+                            "additionalProperties": false,
+                            "description": "InboundRule allows inbound traffic from CIDRs.",
+                            "properties": {
+                              "cidrs": {
+                                "description": "cidrs are the allowed source networks.",
+                                "items": {
+                                  "maxLength": 43,
+                                  "type": "string"
+                                },
+                                "maxItems": 32,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "fromPort": {
+                                "description": "fromPort is the first port of the range (tcp and udp); without ports\nthe rule covers every port.",
+                                "format": "int32",
+                                "maximum": 65535,
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "protocol": {
+                                "description": "protocol of the rule.",
+                                "enum": [
+                                  "tcp",
+                                  "udp",
+                                  "icmp",
+                                  "any"
+                                ],
+                                "type": "string"
+                              },
+                              "toPort": {
+                                "description": "toPort is the last port of the range; defaults to fromPort.",
+                                "format": "int32",
+                                "maximum": 65535,
+                                "minimum": 1,
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "cidrs",
+                              "protocol"
+                            ],
+                            "type": "object"
+                          },
+                          "maxItems": 32,
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "isolation": {
+                      "description": "isolation overrides spec.networking.isolation.",
+                      "enum": [
+                        "none",
+                        "nodeclass",
+                        "run"
+                      ],
+                      "type": "string"
+                    },
+                    "publicIPv4": {
+                      "description": "publicIPv4 overrides spec.networking.publicIPv4.",
+                      "type": "boolean"
+                    },
+                    "publicIPv6": {
+                      "description": "publicIPv6 overrides spec.networking.publicIPv6.",
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
+                "regions": {
+                  "description": "regions is the allow-list of Alibaba Cloud region IDs (ap-southeast-1,\neu-central-1); empty means every region the account can use.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 64,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "resourceGroupId": {
+                  "description": "resourceGroupId is the enterprise resource group of the resources created\nfor the nodes. Empty means the account's default group.",
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                "resources": {
+                  "additionalProperties": false,
+                  "description": "resources says how the Alibaba Cloud resources a node depends on are\nprovided.",
+                  "properties": {
+                    "deploymentSets": {
+                      "additionalProperties": false,
+                      "description": "deploymentSets nodes are launched into (see the placement profiles).",
+                      "properties": {
+                        "create": {
+                          "additionalProperties": false,
+                          "description": "create lets SCarpenter create and own the resource, with a lifecycle.",
+                          "properties": {
+                            "lifecycle": {
+                              "additionalProperties": false,
+                              "description": "lifecycle decides when the resource is deleted. Without it the kind's\ndefault applies (00a section 9.3).",
+                              "properties": {
+                                "policy": {
+                                  "description": "policy is perUse, idleTTL or retain.",
+                                  "enum": [
+                                    "perUse",
+                                    "idleTTL",
+                                    "retain"
+                                  ],
+                                  "type": "string"
+                                },
+                                "ttl": {
+                                  "description": "ttl is how long an unused resource is kept (policy idleTTL). Default\n24h, or the controller's --resource-default-ttl.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "policy"
+                              ],
+                              "type": "object"
+                            },
+                            "timing": {
+                              "additionalProperties": false,
+                              "description": "timing decides when the resource is created. Default: on demand.",
+                              "properties": {
+                                "mode": {
+                                  "default": "onDemand",
+                                  "description": "mode: onDemand creates the resource when the first launch needs it;\npreCreate creates it in the listed regions right away and keeps it.",
+                                  "enum": [
+                                    "onDemand",
+                                    "preCreate"
+                                  ],
+                                  "type": "string"
+                                },
+                                "regions": {
+                                  "description": "regions are the regions to create the resource in (mode preCreate).",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "maxItems": 64,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "forbid": {
+                          "description": "forbid opts the kind out of auto-creation: offerings that need it are\nunavailable unless the vendor's default resource exists.",
+                          "type": "boolean"
+                        },
+                        "use": {
+                          "additionalProperties": false,
+                          "description": "use brings an existing resource: it is validated per region, never\nmodified and never deleted.",
+                          "properties": {
+                            "expression": {
+                              "description": "expression is a query in the vendor's own language, where it has one.",
+                              "maxLength": 4096,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "filters": {
+                              "description": "filters are the vendor's own filters for the kind, passed through: name is\nthe vendor's filter or parameter name, values are ORed.",
+                              "items": {
+                                "additionalProperties": false,
+                                "description": "ResourceFilter is one of the vendor's own filters.",
+                                "properties": {
+                                  "name": {
+                                    "description": "name is the vendor's own filter or parameter name.",
+                                    "maxLength": 255,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "values": {
+                                    "description": "values are ORed.",
+                                    "items": {
+                                      "maxLength": 255,
+                                      "type": "string"
+                                    },
+                                    "maxItems": 32,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "values"
+                                ],
+                                "type": "object"
+                              },
+                              "maxItems": 32,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "ids": {
+                              "additionalProperties": {
+                                "description": "IDList is the IDs of a resource kind in one region.",
+                                "items": {
+                                  "maxLength": 255,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 64,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "description": "ids lists vendor IDs per region (the vendor's region name). The key \"*\"\napplies to every region in scope (a resource that is global at the vendor,\nthe same ID in every region); a region key adds to it. With other fields\nthe IDs are ANDed with them.",
+                              "maxProperties": 64,
+                              "minProperties": 1,
+                              "type": "object"
+                            },
+                            "match": {
+                              "additionalProperties": false,
+                              "description": "match holds the portable attributes, with one spelling on every vendor.",
+                              "properties": {
+                                "architecture": {
+                                  "description": "architecture is the CPU architecture of an image.",
+                                  "items": {
+                                    "enum": [
+                                      "amd64",
+                                      "arm64"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 2,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "cidr": {
+                                  "description": "cidr is a range the resource's range must equal.",
+                                  "maxLength": 255,
+                                  "type": "string"
+                                },
+                                "createdAfter": {
+                                  "description": "createdAfter and createdBefore bound the creation time (RFC 3339), on\nkinds that have one.",
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                "createdBefore": {
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "description": "description is a glob on the description field.",
+                                  "maxLength": 255,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "includeDeprecated": {
+                                  "description": "includeDeprecated includes images the vendor marked deprecated.",
+                                  "type": "boolean"
+                                },
+                                "network": {
+                                  "description": "network lists the network IDs a subnet or security group belongs to.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "owner": {
+                                  "description": "owner is whose resources to look at: self, an account or project ID, or\nthe vendor's public alias.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "state": {
+                                  "description": "state is the vendor's state, normalised. Default [available] for every\nkind that has a state.",
+                                  "items": {
+                                    "enum": [
+                                      "available",
+                                      "pending",
+                                      "failed"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 3,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "within": {
+                                  "description": "within is a range the resource's range must lie inside.",
+                                  "maxLength": 255,
+                                  "type": "string"
+                                },
+                                "zone": {
+                                  "description": "zone lists the vendor's zone IDs of a zonal resource.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "name": {
+                              "description": "name is a glob on the kind's name field: * is any run of characters, ?\none character, \\ escapes them; exact without wildcards.",
+                              "maxLength": 255,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "orderBy": {
+                              "description": "orderBy is what newest and oldest order by: created, name or\nlabel:<key>.",
+                              "maxLength": 255,
+                              "type": "string"
+                            },
+                            "select": {
+                              "description": "select says how many of the matches are used. Without it the kind's\ndefault applies (the driver's capability declaration).",
+                              "enum": [
+                                "exactlyOne",
+                                "all",
+                                "newest",
+                                "oldest"
+                              ],
+                              "type": "string"
+                            },
+                            "tags": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "description": "tags are tags (labels, where the vendor has no tags) that must all be on\nthe resource with the given value; the value \"*\" means the key exists.",
+                              "maxProperties": 32,
+                              "minProperties": 1,
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "images": {
+                      "additionalProperties": false,
+                      "description": "images brings the Flatcar boot images with the one selector of every\nresource kind: explicit image IDs per region, a name pattern, tags or\nnative filters. Optional: without it the driver finds the pinned release\nby the name convention Flatcar-<channel>-<version>-<arch> among the\nimages of imageOwner. Whatever the lookup, the image's name or tags must\nsay the pinned channel and version, or the region's images are not ready.\nImages take use only.",
+                      "properties": {
+                        "create": {
+                          "additionalProperties": false,
+                          "description": "create lets SCarpenter create and own the resource, with a lifecycle.",
+                          "properties": {
+                            "lifecycle": {
+                              "additionalProperties": false,
+                              "description": "lifecycle decides when the resource is deleted. Without it the kind's\ndefault applies (00a section 9.3).",
+                              "properties": {
+                                "policy": {
+                                  "description": "policy is perUse, idleTTL or retain.",
+                                  "enum": [
+                                    "perUse",
+                                    "idleTTL",
+                                    "retain"
+                                  ],
+                                  "type": "string"
+                                },
+                                "ttl": {
+                                  "description": "ttl is how long an unused resource is kept (policy idleTTL). Default\n24h, or the controller's --resource-default-ttl.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "policy"
+                              ],
+                              "type": "object"
+                            },
+                            "timing": {
+                              "additionalProperties": false,
+                              "description": "timing decides when the resource is created. Default: on demand.",
+                              "properties": {
+                                "mode": {
+                                  "default": "onDemand",
+                                  "description": "mode: onDemand creates the resource when the first launch needs it;\npreCreate creates it in the listed regions right away and keeps it.",
+                                  "enum": [
+                                    "onDemand",
+                                    "preCreate"
+                                  ],
+                                  "type": "string"
+                                },
+                                "regions": {
+                                  "description": "regions are the regions to create the resource in (mode preCreate).",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "maxItems": 64,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "forbid": {
+                          "description": "forbid opts the kind out of auto-creation: offerings that need it are\nunavailable unless the vendor's default resource exists.",
+                          "type": "boolean"
+                        },
+                        "use": {
+                          "additionalProperties": false,
+                          "description": "use brings an existing resource: it is validated per region, never\nmodified and never deleted.",
+                          "properties": {
+                            "expression": {
+                              "description": "expression is a query in the vendor's own language, where it has one.",
+                              "maxLength": 4096,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "filters": {
+                              "description": "filters are the vendor's own filters for the kind, passed through: name is\nthe vendor's filter or parameter name, values are ORed.",
+                              "items": {
+                                "additionalProperties": false,
+                                "description": "ResourceFilter is one of the vendor's own filters.",
+                                "properties": {
+                                  "name": {
+                                    "description": "name is the vendor's own filter or parameter name.",
+                                    "maxLength": 255,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "values": {
+                                    "description": "values are ORed.",
+                                    "items": {
+                                      "maxLength": 255,
+                                      "type": "string"
+                                    },
+                                    "maxItems": 32,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "values"
+                                ],
+                                "type": "object"
+                              },
+                              "maxItems": 32,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "ids": {
+                              "additionalProperties": {
+                                "description": "IDList is the IDs of a resource kind in one region.",
+                                "items": {
+                                  "maxLength": 255,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 64,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "description": "ids lists vendor IDs per region (the vendor's region name). The key \"*\"\napplies to every region in scope (a resource that is global at the vendor,\nthe same ID in every region); a region key adds to it. With other fields\nthe IDs are ANDed with them.",
+                              "maxProperties": 64,
+                              "minProperties": 1,
+                              "type": "object"
+                            },
+                            "match": {
+                              "additionalProperties": false,
+                              "description": "match holds the portable attributes, with one spelling on every vendor.",
+                              "properties": {
+                                "architecture": {
+                                  "description": "architecture is the CPU architecture of an image.",
+                                  "items": {
+                                    "enum": [
+                                      "amd64",
+                                      "arm64"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 2,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "cidr": {
+                                  "description": "cidr is a range the resource's range must equal.",
+                                  "maxLength": 255,
+                                  "type": "string"
+                                },
+                                "createdAfter": {
+                                  "description": "createdAfter and createdBefore bound the creation time (RFC 3339), on\nkinds that have one.",
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                "createdBefore": {
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "description": "description is a glob on the description field.",
+                                  "maxLength": 255,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "includeDeprecated": {
+                                  "description": "includeDeprecated includes images the vendor marked deprecated.",
+                                  "type": "boolean"
+                                },
+                                "network": {
+                                  "description": "network lists the network IDs a subnet or security group belongs to.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "owner": {
+                                  "description": "owner is whose resources to look at: self, an account or project ID, or\nthe vendor's public alias.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "state": {
+                                  "description": "state is the vendor's state, normalised. Default [available] for every\nkind that has a state.",
+                                  "items": {
+                                    "enum": [
+                                      "available",
+                                      "pending",
+                                      "failed"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 3,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "within": {
+                                  "description": "within is a range the resource's range must lie inside.",
+                                  "maxLength": 255,
+                                  "type": "string"
+                                },
+                                "zone": {
+                                  "description": "zone lists the vendor's zone IDs of a zonal resource.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "name": {
+                              "description": "name is a glob on the kind's name field: * is any run of characters, ?\none character, \\ escapes them; exact without wildcards.",
+                              "maxLength": 255,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "orderBy": {
+                              "description": "orderBy is what newest and oldest order by: created, name or\nlabel:<key>.",
+                              "maxLength": 255,
+                              "type": "string"
+                            },
+                            "select": {
+                              "description": "select says how many of the matches are used. Without it the kind's\ndefault applies (the driver's capability declaration).",
+                              "enum": [
+                                "exactlyOne",
+                                "all",
+                                "newest",
+                                "oldest"
+                              ],
+                              "type": "string"
+                            },
+                            "tags": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "description": "tags are tags (labels, where the vendor has no tags) that must all be on\nthe resource with the given value; the value \"*\" means the key exists.",
+                              "maxProperties": 32,
+                              "minProperties": 1,
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "securityGroups": {
+                      "additionalProperties": false,
+                      "description": "securityGroups attached to nodes (normal groups in the vSwitches' VPC).",
+                      "properties": {
+                        "create": {
+                          "additionalProperties": false,
+                          "description": "create lets SCarpenter create and own the resource, with a lifecycle.",
+                          "properties": {
+                            "lifecycle": {
+                              "additionalProperties": false,
+                              "description": "lifecycle decides when the resource is deleted. Without it the kind's\ndefault applies (00a section 9.3).",
+                              "properties": {
+                                "policy": {
+                                  "description": "policy is perUse, idleTTL or retain.",
+                                  "enum": [
+                                    "perUse",
+                                    "idleTTL",
+                                    "retain"
+                                  ],
+                                  "type": "string"
+                                },
+                                "ttl": {
+                                  "description": "ttl is how long an unused resource is kept (policy idleTTL). Default\n24h, or the controller's --resource-default-ttl.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "policy"
+                              ],
+                              "type": "object"
+                            },
+                            "timing": {
+                              "additionalProperties": false,
+                              "description": "timing decides when the resource is created. Default: on demand.",
+                              "properties": {
+                                "mode": {
+                                  "default": "onDemand",
+                                  "description": "mode: onDemand creates the resource when the first launch needs it;\npreCreate creates it in the listed regions right away and keeps it.",
+                                  "enum": [
+                                    "onDemand",
+                                    "preCreate"
+                                  ],
+                                  "type": "string"
+                                },
+                                "regions": {
+                                  "description": "regions are the regions to create the resource in (mode preCreate).",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "maxItems": 64,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "forbid": {
+                          "description": "forbid opts the kind out of auto-creation: offerings that need it are\nunavailable unless the vendor's default resource exists.",
+                          "type": "boolean"
+                        },
+                        "use": {
+                          "additionalProperties": false,
+                          "description": "use brings an existing resource: it is validated per region, never\nmodified and never deleted.",
+                          "properties": {
+                            "expression": {
+                              "description": "expression is a query in the vendor's own language, where it has one.",
+                              "maxLength": 4096,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "filters": {
+                              "description": "filters are the vendor's own filters for the kind, passed through: name is\nthe vendor's filter or parameter name, values are ORed.",
+                              "items": {
+                                "additionalProperties": false,
+                                "description": "ResourceFilter is one of the vendor's own filters.",
+                                "properties": {
+                                  "name": {
+                                    "description": "name is the vendor's own filter or parameter name.",
+                                    "maxLength": 255,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "values": {
+                                    "description": "values are ORed.",
+                                    "items": {
+                                      "maxLength": 255,
+                                      "type": "string"
+                                    },
+                                    "maxItems": 32,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "values"
+                                ],
+                                "type": "object"
+                              },
+                              "maxItems": 32,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "ids": {
+                              "additionalProperties": {
+                                "description": "IDList is the IDs of a resource kind in one region.",
+                                "items": {
+                                  "maxLength": 255,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 64,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "description": "ids lists vendor IDs per region (the vendor's region name). The key \"*\"\napplies to every region in scope (a resource that is global at the vendor,\nthe same ID in every region); a region key adds to it. With other fields\nthe IDs are ANDed with them.",
+                              "maxProperties": 64,
+                              "minProperties": 1,
+                              "type": "object"
+                            },
+                            "match": {
+                              "additionalProperties": false,
+                              "description": "match holds the portable attributes, with one spelling on every vendor.",
+                              "properties": {
+                                "architecture": {
+                                  "description": "architecture is the CPU architecture of an image.",
+                                  "items": {
+                                    "enum": [
+                                      "amd64",
+                                      "arm64"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 2,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "cidr": {
+                                  "description": "cidr is a range the resource's range must equal.",
+                                  "maxLength": 255,
+                                  "type": "string"
+                                },
+                                "createdAfter": {
+                                  "description": "createdAfter and createdBefore bound the creation time (RFC 3339), on\nkinds that have one.",
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                "createdBefore": {
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "description": "description is a glob on the description field.",
+                                  "maxLength": 255,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "includeDeprecated": {
+                                  "description": "includeDeprecated includes images the vendor marked deprecated.",
+                                  "type": "boolean"
+                                },
+                                "network": {
+                                  "description": "network lists the network IDs a subnet or security group belongs to.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "owner": {
+                                  "description": "owner is whose resources to look at: self, an account or project ID, or\nthe vendor's public alias.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "state": {
+                                  "description": "state is the vendor's state, normalised. Default [available] for every\nkind that has a state.",
+                                  "items": {
+                                    "enum": [
+                                      "available",
+                                      "pending",
+                                      "failed"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 3,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "within": {
+                                  "description": "within is a range the resource's range must lie inside.",
+                                  "maxLength": 255,
+                                  "type": "string"
+                                },
+                                "zone": {
+                                  "description": "zone lists the vendor's zone IDs of a zonal resource.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "name": {
+                              "description": "name is a glob on the kind's name field: * is any run of characters, ?\none character, \\ escapes them; exact without wildcards.",
+                              "maxLength": 255,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "orderBy": {
+                              "description": "orderBy is what newest and oldest order by: created, name or\nlabel:<key>.",
+                              "maxLength": 255,
+                              "type": "string"
+                            },
+                            "select": {
+                              "description": "select says how many of the matches are used. Without it the kind's\ndefault applies (the driver's capability declaration).",
+                              "enum": [
+                                "exactlyOne",
+                                "all",
+                                "newest",
+                                "oldest"
+                              ],
+                              "type": "string"
+                            },
+                            "tags": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "description": "tags are tags (labels, where the vendor has no tags) that must all be on\nthe resource with the given value; the value \"*\" means the key exists.",
+                              "maxProperties": 32,
+                              "minProperties": 1,
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "subnets": {
+                      "additionalProperties": false,
+                      "description": "subnets are the vSwitches nodes are launched into (with their VPC).",
+                      "properties": {
+                        "create": {
+                          "additionalProperties": false,
+                          "description": "create lets SCarpenter create and own the resource, with a lifecycle.",
+                          "properties": {
+                            "lifecycle": {
+                              "additionalProperties": false,
+                              "description": "lifecycle decides when the resource is deleted. Without it the kind's\ndefault applies (00a section 9.3).",
+                              "properties": {
+                                "policy": {
+                                  "description": "policy is perUse, idleTTL or retain.",
+                                  "enum": [
+                                    "perUse",
+                                    "idleTTL",
+                                    "retain"
+                                  ],
+                                  "type": "string"
+                                },
+                                "ttl": {
+                                  "description": "ttl is how long an unused resource is kept (policy idleTTL). Default\n24h, or the controller's --resource-default-ttl.",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "policy"
+                              ],
+                              "type": "object"
+                            },
+                            "timing": {
+                              "additionalProperties": false,
+                              "description": "timing decides when the resource is created. Default: on demand.",
+                              "properties": {
+                                "mode": {
+                                  "default": "onDemand",
+                                  "description": "mode: onDemand creates the resource when the first launch needs it;\npreCreate creates it in the listed regions right away and keeps it.",
+                                  "enum": [
+                                    "onDemand",
+                                    "preCreate"
+                                  ],
+                                  "type": "string"
+                                },
+                                "regions": {
+                                  "description": "regions are the regions to create the resource in (mode preCreate).",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "maxItems": 64,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "forbid": {
+                          "description": "forbid opts the kind out of auto-creation: offerings that need it are\nunavailable unless the vendor's default resource exists.",
+                          "type": "boolean"
+                        },
+                        "use": {
+                          "additionalProperties": false,
+                          "description": "use brings an existing resource: it is validated per region, never\nmodified and never deleted.",
+                          "properties": {
+                            "expression": {
+                              "description": "expression is a query in the vendor's own language, where it has one.",
+                              "maxLength": 4096,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "filters": {
+                              "description": "filters are the vendor's own filters for the kind, passed through: name is\nthe vendor's filter or parameter name, values are ORed.",
+                              "items": {
+                                "additionalProperties": false,
+                                "description": "ResourceFilter is one of the vendor's own filters.",
+                                "properties": {
+                                  "name": {
+                                    "description": "name is the vendor's own filter or parameter name.",
+                                    "maxLength": 255,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  "values": {
+                                    "description": "values are ORed.",
+                                    "items": {
+                                      "maxLength": 255,
+                                      "type": "string"
+                                    },
+                                    "maxItems": 32,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "values"
+                                ],
+                                "type": "object"
+                              },
+                              "maxItems": 32,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "ids": {
+                              "additionalProperties": {
+                                "description": "IDList is the IDs of a resource kind in one region.",
+                                "items": {
+                                  "maxLength": 255,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "maxItems": 64,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              "description": "ids lists vendor IDs per region (the vendor's region name). The key \"*\"\napplies to every region in scope (a resource that is global at the vendor,\nthe same ID in every region); a region key adds to it. With other fields\nthe IDs are ANDed with them.",
+                              "maxProperties": 64,
+                              "minProperties": 1,
+                              "type": "object"
+                            },
+                            "match": {
+                              "additionalProperties": false,
+                              "description": "match holds the portable attributes, with one spelling on every vendor.",
+                              "properties": {
+                                "architecture": {
+                                  "description": "architecture is the CPU architecture of an image.",
+                                  "items": {
+                                    "enum": [
+                                      "amd64",
+                                      "arm64"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 2,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "cidr": {
+                                  "description": "cidr is a range the resource's range must equal.",
+                                  "maxLength": 255,
+                                  "type": "string"
+                                },
+                                "createdAfter": {
+                                  "description": "createdAfter and createdBefore bound the creation time (RFC 3339), on\nkinds that have one.",
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                "createdBefore": {
+                                  "format": "date-time",
+                                  "type": "string"
+                                },
+                                "description": {
+                                  "description": "description is a glob on the description field.",
+                                  "maxLength": 255,
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "includeDeprecated": {
+                                  "description": "includeDeprecated includes images the vendor marked deprecated.",
+                                  "type": "boolean"
+                                },
+                                "network": {
+                                  "description": "network lists the network IDs a subnet or security group belongs to.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "owner": {
+                                  "description": "owner is whose resources to look at: self, an account or project ID, or\nthe vendor's public alias.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "state": {
+                                  "description": "state is the vendor's state, normalised. Default [available] for every\nkind that has a state.",
+                                  "items": {
+                                    "enum": [
+                                      "available",
+                                      "pending",
+                                      "failed"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 3,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "within": {
+                                  "description": "within is a range the resource's range must lie inside.",
+                                  "maxLength": 255,
+                                  "type": "string"
+                                },
+                                "zone": {
+                                  "description": "zone lists the vendor's zone IDs of a zonal resource.",
+                                  "items": {
+                                    "maxLength": 255,
+                                    "type": "string"
+                                  },
+                                  "maxItems": 32,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "name": {
+                              "description": "name is a glob on the kind's name field: * is any run of characters, ?\none character, \\ escapes them; exact without wildcards.",
+                              "maxLength": 255,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "orderBy": {
+                              "description": "orderBy is what newest and oldest order by: created, name or\nlabel:<key>.",
+                              "maxLength": 255,
+                              "type": "string"
+                            },
+                            "select": {
+                              "description": "select says how many of the matches are used. Without it the kind's\ndefault applies (the driver's capability declaration).",
+                              "enum": [
+                                "exactlyOne",
+                                "all",
+                                "newest",
+                                "oldest"
+                              ],
+                              "type": "string"
+                            },
+                            "tags": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "description": "tags are tags (labels, where the vendor has no tags) that must all be on\nthe resource with the given value; the value \"*\" means the key exists.",
+                              "maxProperties": 32,
+                              "minProperties": 1,
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                },
+                "storage": {
+                  "additionalProperties": false,
+                  "description": "storage overrides the built-in storage defaults (a cloud_essd PL0 system\ndisk of 64 GiB, not encrypted; no data disks).",
+                  "properties": {
+                    "data": {
+                      "description": "data lists extra disks created with the instance (all deleted with it).",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "DataDisk is an extra disk: ECS settings plus the guest side (name,\nfilesystem, mount path).",
+                        "properties": {
+                          "burstingEnabled": {
+                            "description": "burstingEnabled turns performance bursting on for a cloud_auto disk.",
+                            "type": "boolean"
+                          },
+                          "category": {
+                            "description": "category is the disk category. Built-in default cloud_essd.",
+                            "enum": [
+                              "cloud_essd",
+                              "cloud_auto",
+                              "cloud_essd_entry",
+                              "cloud_efficiency",
+                              "cloud_ssd"
+                            ],
+                            "type": "string"
+                          },
+                          "encrypted": {
+                            "description": "encrypted encrypts the disk. Built-in default false.",
+                            "type": "boolean"
+                          },
+                          "filesystem": {
+                            "default": "ext4",
+                            "description": "filesystem the first-boot unit creates on the volume.",
+                            "enum": [
+                              "ext4",
+                              "xfs",
+                              "btrfs"
+                            ],
+                            "type": "string"
+                          },
+                          "kmsKeyID": {
+                            "description": "kmsKeyID is the KMS key used for encryption.",
+                            "maxLength": 2048,
+                            "type": "string"
+                          },
+                          "mountPath": {
+                            "description": "mountPath is the absolute path the volume is mounted at.",
+                            "maxLength": 255,
+                            "pattern": "^/[^\\x00]*$",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "name identifies the volume in the profile and in the device hints\nrendered into Ignition.",
+                            "maxLength": 40,
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                            "type": "string"
+                          },
+                          "performanceLevel": {
+                            "description": "performanceLevel of a cloud_essd disk. Built-in default PL0.",
+                            "enum": [
+                              "PL0",
+                              "PL1",
+                              "PL2",
+                              "PL3"
+                            ],
+                            "type": "string"
+                          },
+                          "provisionedIops": {
+                            "description": "provisionedIops of a cloud_auto disk.",
+                            "format": "int64",
+                            "maximum": 50000,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "size": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ],
+                            "description": "size of the disk, e.g. 100Gi.",
+                            "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+                          }
+                        },
+                        "required": [
+                          "mountPath",
+                          "name",
+                          "size"
+                        ],
+                        "type": "object"
+                      },
+                      "maxItems": 16,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "localStorage": {
+                      "additionalProperties": false,
+                      "description": "localStorage is accepted so that a profile written for a vendor with\nlocal disks is not pruned silently, and is not supported on Alibaba Cloud\nyet: a policy other than ignore makes the profile supported by no\ninstance type, and the NodeClass validation refuses it.",
+                      "properties": {
+                        "mountPath": {
+                          "description": "mountPath is the absolute path the local storage is mounted at.",
+                          "maxLength": 255,
+                          "pattern": "^/[^\\x00]*$",
+                          "type": "string"
+                        },
+                        "policy": {
+                          "description": "policy: ignore leaves the disks alone, mount mounts them, raid0 stripes\nthem into one volume and mounts it.",
+                          "enum": [
+                            "ignore",
+                            "mount",
+                            "raid0"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "policy"
+                      ],
+                      "type": "object"
+                    },
+                    "root": {
+                      "additionalProperties": false,
+                      "description": "root configures the system disk.",
+                      "properties": {
+                        "burstingEnabled": {
+                          "description": "burstingEnabled turns performance bursting on for a cloud_auto disk.",
+                          "type": "boolean"
+                        },
+                        "category": {
+                          "description": "category is the disk category. Built-in default cloud_essd.",
+                          "enum": [
+                            "cloud_essd",
+                            "cloud_auto",
+                            "cloud_essd_entry",
+                            "cloud_efficiency",
+                            "cloud_ssd"
+                          ],
+                          "type": "string"
+                        },
+                        "encrypted": {
+                          "description": "encrypted encrypts the disk. Built-in default false: ECS refuses encrypted\nsystem disks in some zones (Singapore zone A, Hong Kong zone D), and true\ntakes those zones out of the offerings.",
+                          "type": "boolean"
+                        },
+                        "kmsKeyID": {
+                          "description": "kmsKeyID is the KMS key used for encryption; the account's default\nservice key when empty.",
+                          "maxLength": 2048,
+                          "type": "string"
+                        },
+                        "performanceLevel": {
+                          "description": "performanceLevel of a cloud_essd disk. Built-in default PL0.",
+                          "enum": [
+                            "PL0",
+                            "PL1",
+                            "PL2",
+                            "PL3"
+                          ],
+                          "type": "string"
+                        },
+                        "provisionedIops": {
+                          "description": "provisionedIops of a cloud_auto disk.",
+                          "format": "int64",
+                          "maximum": 50000,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "size": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "size of the disk, e.g. 64Gi. Built-in default 64Gi for the system disk.",
+                          "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
             "aws": {
               "additionalProperties": false,
               "description": "aws configures AWS nodes.",

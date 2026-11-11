@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package v1alpha1
 
 import (
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/alicloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
@@ -27,6 +28,10 @@ import (
 // defaults".
 // +kubebuilder:validation:MinProperties=1
 type VendorBlocks struct {
+	// alicloud configures Alibaba Cloud (ECS) nodes.
+	// +optional
+	Alicloud *alicloud.Settings `json:"alicloud,omitempty"`
+
 	// aws configures AWS nodes.
 	// +optional
 	AWS *aws.Settings `json:"aws,omitempty"`
@@ -55,11 +60,12 @@ type VendorBlocks struct {
 // Vendor names, as they appear as keys of the vendor and profile blocks and in
 // the scarpenter.sparecores.com/vendor label.
 const (
-	VendorAWS    = "aws"
-	VendorFake   = "fake"
-	VendorHCloud = "hcloud"
-	VendorOVH    = "ovh"
-	VendorQEMU   = "qemu"
+	VendorAlicloud = "alicloud"
+	VendorAWS      = "aws"
+	VendorFake     = "fake"
+	VendorHCloud   = "hcloud"
+	VendorOVH      = "ovh"
+	VendorQEMU     = "qemu"
 )
 
 // VendorVultr is the name of the Vultr vendor block.
@@ -68,6 +74,9 @@ const VendorVultr = "vultr"
 // Names returns the vendors that have a block, in a fixed order.
 func (v VendorBlocks) Names() []string {
 	var names []string
+	if v.Alicloud != nil {
+		names = append(names, VendorAlicloud)
+	}
 	if v.AWS != nil {
 		names = append(names, VendorAWS)
 	}
@@ -94,6 +103,8 @@ func (v VendorBlocks) Names() []string {
 // +kubebuilder:validation:MinProperties=1
 type StorageProfile struct {
 	// +optional
+	Alicloud *alicloud.Storage `json:"alicloud,omitempty"`
+	// +optional
 	AWS *aws.Storage `json:"aws,omitempty"`
 	// +optional
 	Fake *fake.Storage `json:"fake,omitempty"`
@@ -111,6 +122,8 @@ type StorageProfile struct {
 // +kubebuilder:validation:MinProperties=1
 type NetworkProfile struct {
 	// +optional
+	Alicloud *alicloud.Network `json:"alicloud,omitempty"`
+	// +optional
 	AWS *aws.Network `json:"aws,omitempty"`
 	// +optional
 	Fake *fake.Network `json:"fake,omitempty"`
@@ -123,6 +136,8 @@ type NetworkProfile struct {
 // PlacementProfile is a named placement and tenancy setup per vendor.
 // +kubebuilder:validation:MinProperties=1
 type PlacementProfile struct {
+	// +optional
+	Alicloud *alicloud.Placement `json:"alicloud,omitempty"`
 	// +optional
 	AWS *aws.Placement `json:"aws,omitempty"`
 	// +optional
@@ -144,6 +159,8 @@ type PlacementProfile struct {
 // and whether the vendor has one.
 func (v VendorBlocks) Get(vendor string) (any, bool) {
 	switch vendor {
+	case VendorAlicloud:
+		return orNil(v.Alicloud), v.Alicloud != nil
 	case VendorAWS:
 		return orNil(v.AWS), v.AWS != nil
 	case VendorFake:
@@ -164,6 +181,8 @@ func (v VendorBlocks) Get(vendor string) (any, bool) {
 // package's storage type) and whether the profile has one.
 func (p StorageProfile) For(vendor string) (any, bool) {
 	switch vendor {
+	case VendorAlicloud:
+		return orNil(p.Alicloud), p.Alicloud != nil
 	case VendorAWS:
 		return orNil(p.AWS), p.AWS != nil
 	case VendorFake:
@@ -183,6 +202,8 @@ func (p StorageProfile) For(vendor string) (any, bool) {
 // For returns the vendor's block of the profile and whether it has one.
 func (p NetworkProfile) For(vendor string) (any, bool) {
 	switch vendor {
+	case VendorAlicloud:
+		return orNil(p.Alicloud), p.Alicloud != nil
 	case VendorAWS:
 		return orNil(p.AWS), p.AWS != nil
 	case VendorFake:
@@ -198,6 +219,8 @@ func (p NetworkProfile) For(vendor string) (any, bool) {
 // For returns the vendor's block of the profile and whether it has one.
 func (p PlacementProfile) For(vendor string) (any, bool) {
 	switch vendor {
+	case VendorAlicloud:
+		return orNil(p.Alicloud), p.Alicloud != nil
 	case VendorAWS:
 		return orNil(p.AWS), p.AWS != nil
 	case VendorFake:
