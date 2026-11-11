@@ -415,7 +415,7 @@ func TestManagedResourcesLifecycle(t *testing.T) {
 	if err != nil || !created || !strings.HasPrefix(vp.ID, "vpc-") {
 		t.Fatalf("%+v %v %v", vp, created, err)
 	}
-	if e.sleeps == 0 {
+	if e.sleeps.Load() == 0 {
 		t.Error("the driver did not wait for the pending network")
 	}
 	// Both zones have a vSwitch; a third zone appearing later gets the next /20.

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -105,7 +106,7 @@ type denv struct {
 	vpc       map[string]string            // the default VPC of a region
 	vswitches map[string]map[string]string // region -> zone -> default vSwitch
 	groups    map[string]string            // region -> a security group of the default VPC
-	sleeps    int
+	sleeps    *atomic.Int64                // the driver waits from concurrent goroutines
 }
 
 type denvOptions struct {
@@ -149,7 +150,8 @@ func newDenv(t testing.TB, o denvOptions) *denv {
 		acct.AddType(ts)
 	}
 	e := &denv{
-		t: t, acct: acct, clk: clk, cluster: o.cluster, vpc: map[string]string{},
+		sleeps: &atomic.Int64{},
+		t:      t, acct: acct, clk: clk, cluster: o.cluster, vpc: map[string]string{},
 		vswitches: map[string]map[string]string{}, groups: map[string]string{},
 	}
 	if e.cluster == "" {
@@ -207,7 +209,7 @@ func (e *denv) build(o denvOptions) {
 			return Clients{ECS: e.acct.ECS(region), VPC: e.acct.VPC(region)}, nil
 		}),
 		// The waits of the driver move the fake clock instead of sleeping.
-		WithSleep(func(_ context.Context, d time.Duration) error { e.sleeps++; e.clk.Step(d); return nil }),
+		WithSleep(func(_ context.Context, d time.Duration) error { e.sleeps.Add(1); e.clk.Step(d); return nil }),
 		WithPrices(prices),
 	)
 	if err := d.Init(context.Background(), vendors.Config{ClusterName: e.cluster, Clock: e.clk, Log: logr.Discard()}); err != nil {
