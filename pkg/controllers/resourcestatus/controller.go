@@ -204,6 +204,9 @@ func (c *Controller) apply(
 		if r.Managed {
 			m["managed"] = true
 		}
+		if r.Source != "" {
+			m["source"] = string(r.Source)
+		}
 		if r.LastUsed != nil {
 			m["lastUsed"] = r.LastUsed.UTC().Format(time.RFC3339)
 		}
@@ -254,7 +257,7 @@ func sameResources(a, b []v1alpha1.ResourceStatus) bool {
 	for i := range a {
 		x, y := a[i], b[i]
 		if x.Kind != y.Kind || x.Region != y.Region || x.ID != y.ID || x.Name != y.Name || x.Managed != y.Managed ||
-			x.Message != y.Message {
+			x.Source != y.Source || x.Message != y.Message {
 			return false
 		}
 		switch {

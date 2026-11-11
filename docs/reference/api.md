@@ -1891,3 +1891,4 @@ ResourceStatus is a vendor resource referenced (use) or managed (create).
 | `message` | string |  | message explains a resource that is not ready or cannot be deleted. |
 | `name` | string |  | name of the resource, where the vendor has one. |
 | `region` (required) | string |  |  |
+| `source` | string |  | source is the step of the resolution order that produced the resource: use (the NodeClass's explicit use), discovered (tagged with the opt-in tag scarpenter.sparecores.com/use), default (the vendor's own default) or created (managed by SCarpenter). One of `use`, `discovered`, `default`, `created`. |

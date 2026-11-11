@@ -4715,6 +4715,18 @@ spec:
                             type: string
                           region:
                             type: string
+                          source:
+                            description: |-
+                              source is the step of the resolution order that produced the resource:
+                              use (the NodeClass's explicit use), discovered (tagged with the opt-in tag
+                              scarpenter.sparecores.com/use), default (the vendor's own default) or
+                              created (managed by SCarpenter).
+                            enum:
+                            - use
+                            - discovered
+                            - default
+                            - created
+                            type: string
                         required:
                         - id
                         - kind

@@ -69,7 +69,8 @@ func (e *Engine) Check(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor str
 		rep.Errors = append(rep.Errors, err)
 		return rep
 	}
-	c := &checker{e: e, nc: nc, vendor: vendor, mr: mr, kinds: kinds, cfgs: cfgs, rep: &rep, seen: map[string]bool{},
+	drv, _ := e.opts.Registry.Driver(vendor)
+	c := &checker{e: e, nc: nc, vendor: vendor, drv: drv, mr: mr, kinds: kinds, cfgs: cfgs, rep: &rep, seen: map[string]bool{},
 		refs: map[vendors.ResourceKind][]vendors.ResourceRef{}}
 	for _, region := range regions {
 		c.zones = nil
@@ -90,7 +91,7 @@ func (e *Engine) Check(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor str
 	}
 	for _, r := range managed {
 		if r.Managed && strings.HasPrefix(r.Name, NamePrefix(e.opts.ClusterName)) && c.uses(r) {
-			c.add(r.Kind, r.Region, r)
+			c.add(r.Kind, r.Region, r, v1alpha1.ResourceSourceCreated)
 		}
 	}
 
@@ -121,6 +122,7 @@ type checker struct {
 	e      *Engine
 	nc     *v1alpha1.SCNodeClass
 	vendor string
+	drv    vendors.Driver
 	mr     vendors.ManagedResources
 	kinds  map[vendors.ResourceKind]vendors.KindSpec
 	cfgs   map[string]common.Resource
@@ -150,15 +152,16 @@ func (c *checker) uses(r vendors.ResourceRef) bool {
 	return cfg.Use == nil && !cfg.Forbid
 }
 
-// add records a resource of the status once.
-func (c *checker) add(kind vendors.ResourceKind, region string, ref vendors.ResourceRef) {
+// add records a resource of the status once, with the step that produced it.
+func (c *checker) add(kind vendors.ResourceKind, region string, ref vendors.ResourceRef, src v1alpha1.ResourceSource) {
 	k := string(kind) + "/" + region + "/" + ref.ID
 	if c.seen[k] {
 		return
 	}
 	c.seen[k] = true
 	c.refs[kind] = append(c.refs[kind], ref)
-	rs := v1alpha1.ResourceStatus{Kind: string(kind), Region: region, ID: ref.ID, Name: ref.Name, Managed: ref.Managed}
+	rs := v1alpha1.ResourceStatus{Kind: string(kind), Region: region, ID: ref.ID, Name: ref.Name, Managed: ref.Managed,
+		Source: src}
 	if ref.Managed {
 		id := c.vendor + "/" + ref.ID
 		c.e.mu.Lock()
@@ -177,7 +180,8 @@ func (c *checker) add(kind vendors.ResourceKind, region string, ref vendors.Reso
 // unavailable, and whether a transient failure left a kind unchecked.
 func (c *checker) region(ctx context.Context, region string) (problems []string, failed bool) {
 	c.refs = map[vendors.ResourceKind][]vendors.ResourceRef{}
-	for _, ks := range c.mr.Kinds() {
+	// A kind that lives in a network is checked after the kind that provides it.
+	for _, ks := range inNetworkOrder(c.mr.Kinds()) {
 		problem, transient := c.kind(ctx, ks, c.cfgs[string(ks.Kind)], region)
 		if problem != "" {
 			problems = append(problems, problem)
@@ -234,16 +238,21 @@ func (c *checker) zoneGaps(ctx context.Context, region string) []string {
 	return nil
 }
 
-// kind checks one kind in one region.
+// kind checks one kind in one region, following the resolution order of ADR-022
+// (order.go): an explicit use, else the opt-in tag, the vendor's default, and
+// creation, which the check does only for a preCreate (a launch creates the
+// rest on demand).
 func (c *checker) kind(
 	ctx context.Context, ks vendors.KindSpec, cfg common.Resource, region string,
 ) (problem string, transient bool) {
 	e := c.e
-	found := func(refs []vendors.ResourceRef) {
+	networks := c.networks(ks)
+	found := func(src v1alpha1.ResourceSource, refs []vendors.ResourceRef) {
 		for _, r := range refs {
-			c.add(ks.Kind, region, r)
+			c.add(ks.Kind, region, r, src)
 		}
 	}
+	in := orderIn{nc: c.nc, drv: c.drv, mr: c.mr, vendor: c.vendor, spec: ks, region: region, networks: networks}
 	// resolve returns the resources, or none: why the selector selected nothing
 	// (or too much), with the counts after each stage.
 	resolve := func(ref vendors.UseRef) (refs []vendors.ResourceRef, none string, failed bool) {
@@ -255,19 +264,21 @@ func (c *checker) kind(
 			c.rep.Errors = append(c.rep.Errors,
 				fmt.Errorf("resolving the %s of %s in %s: %w", ks.Kind, c.vendor, region, err))
 			return nil, "", true
-		case len(refs) == 0:
-			return nil, "nothing matches " + describe(ref), false
+		}
+		if refs = in.inNetworks(refs); len(refs) == 0 {
+			return nil, "nothing matches " + describe(ref) + networkNote(networks), false
 		}
 		return refs, "", false
 	}
 	switch {
 	case cfg.Use != nil && selector.UsesZone(cfg.Use):
-		return c.perZone(ks, cfg, region, resolve, found)
+		return c.perZone(ks, cfg, region, in, resolve, found)
 	case cfg.Use != nil:
 		ref, err := e.useRefFor(c.nc, c.mr, c.vendor, ks.Kind, cfg.Use, region, "")
 		if err != nil {
 			return fmt.Sprintf("%s: %v", ks.Kind, err), false
 		}
+		in.constrain(&ref, c.mr.Selectors()[ks.Kind])
 		refs, none, failed := resolve(ref)
 		if failed {
 			return "", true
@@ -275,31 +286,42 @@ func (c *checker) kind(
 		if none != "" {
 			return fmt.Sprintf("%s: %s", ks.Kind, none), false
 		}
-		found(refs)
-	case cfg.Forbid:
-		refs, none, failed := resolve(vendors.UseRef{})
-		if failed {
+		found(v1alpha1.ResourceSourceUse, refs)
+	case cfg.Create == nil:
+		// Neither use nor create (or forbid): discovery, then the vendor's
+		// default. Nothing found is fine unless creation is forbidden: the
+		// resource is created on demand.
+		res, err := e.discoverAndDefault(ctx, in, cfg.Forbid)
+		switch {
+		case isSelection(err):
+			return fmt.Sprintf("%s: %v", ks.Kind, err), false
+		case err != nil:
+			c.rep.Errors = append(c.rep.Errors,
+				fmt.Errorf("resolving the %s of %s in %s: %w", ks.Kind, c.vendor, region, err))
 			return "", true
+		case len(res.refs) > 0:
+			found(res.source, res.refs)
+		case cfg.Forbid:
+			return failureMessage(ks.Kind, "", res.tried, "creating it is forbidden"), false
 		}
-		if none != "" {
-			return fmt.Sprintf("%s: creating it is forbidden and the vendor has no default", ks.Kind), false
-		}
-		found(refs)
-	case cfg.Create == nil && ks.Scope == vendors.ScopeRegion:
-		// The vendor's default; none is fine, the resource is created.
-		refs, _, failed := resolve(vendors.UseRef{})
-		if failed {
-			return "", true
-		}
-		found(refs)
 	case ks.Scope == vendors.ScopeRegion && preCreateListed(&cfg, region):
 		ref, err := e.ensure(ctx, c.nc, c.mr, c.vendor, region, c.kinds[ks.Kind], vendors.ResourceRequest{Kind: ks.Kind})
 		if err != nil {
 			return fmt.Sprintf("%s: creating it failed: %v", ks.Kind, err), false
 		}
-		c.add(ks.Kind, region, ref)
+		c.add(ks.Kind, region, ref, v1alpha1.ResourceSourceCreated)
 	}
 	return "", false
+}
+
+// networks are the networks the resources of the provider kind were resolved to
+// in the region, for a kind that lives in a network; none until the provider's
+// resource exists (a managed network is created on demand).
+func (c *checker) networks(ks vendors.KindSpec) []string {
+	if ks.InNetwork == "" {
+		return nil
+	}
+	return networksOf(c.refs[ks.InNetwork])
 }
 
 // perZone checks a use block with {zone}: it is expanded for every zone of the
@@ -307,8 +329,9 @@ func (c *checker) kind(
 // fails only the launches into it (they are rejected with ResourceMissing, the
 // rest of the region is fine).
 func (c *checker) perZone(
-	ks vendors.KindSpec, cfg common.Resource, region string,
-	resolve func(vendors.UseRef) ([]vendors.ResourceRef, string, bool), found func([]vendors.ResourceRef),
+	ks vendors.KindSpec, cfg common.Resource, region string, in orderIn,
+	resolve func(vendors.UseRef) ([]vendors.ResourceRef, string, bool),
+	found func(v1alpha1.ResourceSource, []vendors.ResourceRef),
 ) (problem string, transient bool) {
 	var zones []string
 	if c.e.opts.Zones != nil {
@@ -325,6 +348,7 @@ func (c *checker) perZone(
 		if err != nil {
 			return fmt.Sprintf("%s: %v", ks.Kind, err), false
 		}
+		in.constrain(&ref, c.mr.Selectors()[ks.Kind])
 		refs, none, failed := resolve(ref)
 		if failed {
 			return "", true
@@ -335,7 +359,7 @@ func (c *checker) perZone(
 			continue
 		}
 		matched++
-		found(refs)
+		found(v1alpha1.ResourceSourceUse, refs)
 	}
 	for _, z := range empty {
 		if matched > 0 {

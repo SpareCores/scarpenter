@@ -71,7 +71,8 @@ func (d *Driver) resolveSecurityGroups(ctx context.Context, cl Clients, kind ven
 	}
 	out := make([]vendors.ResourceRef, 0, len(res.Items))
 	for _, g := range res.Items {
-		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: deref(g.GroupId), Name: deref(g.GroupName)})
+		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: deref(g.GroupId), Name: deref(g.GroupName),
+			Network: deref(g.VpcId)})
 	}
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil

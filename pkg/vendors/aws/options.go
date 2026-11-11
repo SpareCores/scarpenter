@@ -206,7 +206,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 	// one resource per region (its VPC) and must not get a name per zone; the
 	// provider expands {zone} of a `use` name pattern with the zone of the
 	// launch.
-	subnetRefs, err := req.Resources.Require(ctx, vendors.ResourceRequest{Kind: KindSubnets})
+	subnetRefs, err := req.Resources.Require(ctx, vendors.ResourceRequest{Kind: KindSubnets, Settings: &req.Settings})
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +287,7 @@ func (d *Driver) requireGroups(
 		return nil, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
 	}
 	refs, err := req.Resources.Require(ctx, vendors.ResourceRequest{
-		Kind: KindSecurityGroups, Key: class + "/" + sn.vpc, Params: raw,
+		Kind: KindSecurityGroups, Key: class + "/" + sn.vpc, Params: raw, Network: sn.vpc, Settings: &req.Settings,
 	})
 	if err != nil {
 		return nil, err

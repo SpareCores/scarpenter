@@ -313,7 +313,7 @@ func TestResourcesAreUsedPersistedAndDeletedByTheirUsers(t *testing.T) {
 	}
 }
 
-func TestResolveByNamePatternIDsTagsAndDefaults(t *testing.T) {
+func TestResolveByNamePatternIDsTagsAndDefault(t *testing.T) {
 	h := newHarness(t, map[string]string{"existingResources": `
 - {kind: subnets, region: us-east-1, id: s-1, name: sc-us-east-1, tags: {use: "true"}}
 - {kind: subnets, region: us-east-1, id: s-2, name: other, tags: {use: "false"}}
@@ -321,7 +321,13 @@ func TestResolveByNamePatternIDsTagsAndDefaults(t *testing.T) {
 - {kind: subnets, region: eu-west-1, id: s-3, name: sc-eu-west-1}
 `})
 	resolve := func(ref vendors.UseRef, region string) []string {
-		refs, err := h.d.Resolve(t.Context(), fakedriver.KindNetwork, region, ref)
+		var refs []vendors.ResourceRef
+		var err error
+		if ref.IsDefault() {
+			refs, err = h.d.Default(t.Context(), fakedriver.KindNetwork, region)
+		} else {
+			refs, err = h.d.Resolve(t.Context(), fakedriver.KindNetwork, region, ref)
+		}
 		if _, none := errors.AsType[*selector.NoMatchError](err); err != nil && !none {
 			t.Fatal(err)
 		}

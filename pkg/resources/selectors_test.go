@@ -211,7 +211,7 @@ func TestAKindThatIsGlobalAtTheVendorIsListedOncePerCheck(t *testing.T) {
 	if bad, why := rep.NotReady(); len(bad) != 0 {
 		t.Fatalf("not ready: %v %v", bad, why)
 	}
-	if n := e.drv.ResolveCalls.Load(); n != 1 {
+	if n := e.drv.ResolveCallsOf(resourcestest.Subnets); n != 1 {
 		t.Errorf("%d listings for two regions, want 1 (the kind is global)", n)
 	}
 	// A kind that is regional is listed per region.
@@ -221,7 +221,7 @@ func TestAKindThatIsGlobalAtTheVendorIsListedOncePerCheck(t *testing.T) {
 		{Kind: resourcestest.Subnets, Region: region2, ID: "b", Tags: map[string]string{"use": "true"}},
 	}
 	e2.engine.Check(t.Context(), nc, "aws", []string{region1, region2})
-	if n := e2.drv.ResolveCalls.Load(); n != 2 {
+	if n := e2.drv.ResolveCallsOf(resourcestest.Subnets); n != 2 {
 		t.Errorf("%d listings for two regions, want 2", n)
 	}
 }

@@ -88,8 +88,11 @@ type existingResource struct {
 	ID     string            `json:"id"`
 	Name   string            `json:"name,omitempty"`
 	Tags   map[string]string `json:"tags,omitempty"`
-	// Default marks the vendor's own default resource of the kind.
+	// Default marks the vendor's own default resource of the kind; NoIPv6 says
+	// that such a default cannot honour publicIPv6 (the default network has no
+	// IPv6 range), so a NodeClass that asks for it skips the default.
 	Default bool `json:"default,omitempty"`
+	NoIPv6  bool `json:"noIPv6,omitempty"`
 	// The attributes the portable match reads; unset ones are unknown, and
 	// State defaults to available.
 	Created     *time.Time `json:"created,omitempty"`
@@ -382,9 +385,12 @@ func tagStrings(in map[vendors.TagKey]string) map[string]string {
 // Resolve implements vendors.ManagedResources: the account's existing
 // resources (steering), never the managed ones, selected as a vendor would:
 // narrowed by the fake (per the selector mode) and finished by the shared
-// matcher.
+// matcher. An empty selector selects nothing (the defaults are Default's).
 func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
+	if ref.IsDefault() {
+		return nil, vendors.Errorf(vendors.Fatal, "an empty selector selects nothing: the vendor's default is Default's")
+	}
 	d.refreshConfig(ctx)
 	var cands []existingResource
 	source := d.current().existing
@@ -393,33 +399,58 @@ func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region 
 	}
 	for _, e := range source {
 		global := kind == KindImages && e.Region == selector.RegionAll
-		if e.Kind != string(kind) || (e.Region != region && !global) {
-			continue
+		if e.Kind == string(kind) && (e.Region == region || global) {
+			cands = append(cands, e)
 		}
-		if ref.IsDefault() {
-			if e.Default {
-				cands = append(cands, e)
-			}
-			continue
-		}
-		cands = append(cands, e)
 	}
-	if !ref.IsDefault() {
-		caps := d.Selectors()[kind]
-		cands = slices.DeleteFunc(cands, func(e existingResource) bool { return !nativeFilters(ref.Filters, e.fields()) })
-		cands = narrow(SelectorMode(d.selMode.Load()), ref, caps, cands)
-		res, err := selector.Apply(ref, caps, cands, existingResource.fields)
-		if err != nil {
-			return nil, err
-		}
-		cands = res.Items
+	caps := d.Selectors()[kind]
+	cands = slices.DeleteFunc(cands, func(e existingResource) bool { return !nativeFilters(ref.Filters, e.fields()) })
+	cands = narrow(SelectorMode(d.selMode.Load()), ref, caps, cands)
+	res, err := selector.Apply(ref, caps, cands, existingResource.fields)
+	if err != nil {
+		return nil, err
 	}
-	out := make([]vendors.ResourceRef, 0, len(cands))
-	for _, e := range cands {
-		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: e.ID, Name: e.Name})
+	return existingRefs(kind, region, res.Items), nil
+}
+
+func existingRefs(kind vendors.ResourceKind, region string, items []existingResource) []vendors.ResourceRef {
+	out := make([]vendors.ResourceRef, 0, len(items))
+	for _, e := range items {
+		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: e.ID, Name: e.Name, Network: e.Network})
 	}
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
-	return out, nil
+	return out
+}
+
+// Default implements vendors.ResourceDefaults: the account's resources the
+// steering marks as the vendor's default of the kind.
+func (d *Driver) Default(ctx context.Context, kind vendors.ResourceKind, region string) ([]vendors.ResourceRef, error) {
+	d.refreshConfig(ctx)
+	var cands []existingResource
+	for _, e := range d.current().existing {
+		if e.Kind == string(kind) && e.Region == region && e.Default {
+			cands = append(cands, e)
+		}
+	}
+	return existingRefs(kind, region, cands), nil
+}
+
+// DefaultSuits implements vendors.DefaultChecker: a default marked noIPv6
+// cannot honour publicIPv6.
+func (d *Driver) DefaultSuits(
+	ctx context.Context, kind vendors.ResourceKind, region string, defaults []vendors.ResourceRef, s vendors.VendorSettings,
+) (bool, string, error) {
+	if s.Networking.PublicIPv6 == nil || !*s.Networking.PublicIPv6 {
+		return true, "", nil
+	}
+	d.refreshConfig(ctx)
+	for _, e := range d.current().existing {
+		if e.Kind == string(kind) && e.Region == region && e.Default && e.NoIPv6 &&
+			slices.ContainsFunc(defaults, func(r vendors.ResourceRef) bool { return r.ID == e.ID }) {
+			return false, fmt.Sprintf("%s has no IPv6 range and publicIPv6 is on", e.ID), nil
+		}
+	}
+	return true, "", nil
 }
 
 // Ensure implements vendors.ManagedResources: find by name and ownership
@@ -595,4 +626,8 @@ func (d *Driver) resourceSnapshot() []resourceRecord {
 	return out
 }
 
-var _ vendors.ManagedResources = (*Driver)(nil)
+var (
+	_ vendors.ManagedResources = (*Driver)(nil)
+	_ vendors.ResourceDefaults = (*Driver)(nil)
+	_ vendors.DefaultChecker   = (*Driver)(nil)
+)

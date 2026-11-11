@@ -67,10 +67,10 @@ func TestKinds(t *testing.T) {
 	}
 }
 
-func TestResolveDefaultsAreTheDefaultVPCsSubnets(t *testing.T) {
+func TestDefaultsAreTheDefaultVPCsSubnets(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	ctx := context.Background()
-	got, err := e.d.Resolve(ctx, aws.KindSubnets, testRegion, vendors.UseRef{})
+	got, err := e.d.Default(ctx, aws.KindSubnets, testRegion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestResolveDefaultsAreTheDefaultVPCsSubnets(t *testing.T) {
 	}
 	// Nothing else has a default: the groups are SCarpenter's own.
 	for _, kind := range []vendors.ResourceKind{aws.KindSecurityGroups, aws.KindPlacementGroups, aws.KindRunSecurityGroups} {
-		if got, err := e.d.Resolve(ctx, kind, testRegion, vendors.UseRef{}); err != nil || len(got) != 0 {
+		if got, err := e.d.Default(ctx, kind, testRegion); err != nil || len(got) != 0 {
 			t.Errorf("%s default = %v, %v", kind, got, err)
 		}
 	}
@@ -93,7 +93,7 @@ func TestResolveDefaultsAreTheDefaultVPCsSubnets(t *testing.T) {
 	regions := []fake.RegionSpec{fake.DefaultRegion(testRegion, "use1")}
 	regions[0].NoDefaultVPC = true
 	e2 := newEnv(t, envOptions{regions: regions})
-	if got, err := e2.d.Resolve(ctx, aws.KindSubnets, testRegion, vendors.UseRef{}); err != nil || len(got) != 0 {
+	if got, err := e2.d.Default(ctx, aws.KindSubnets, testRegion); err != nil || len(got) != 0 {
 		t.Errorf("no default VPC: %v, %v", got, err)
 	}
 }
@@ -184,7 +184,7 @@ func TestResolveByIDsNamePatternAndTags(t *testing.T) {
 	if err != nil || len(byID) != 1 {
 		t.Errorf("placement group by ID: %v, %v", byID, err)
 	}
-	if _, err := e.d.Resolve(ctx, "bogus", testRegion, vendors.UseRef{}); vendors.ClassOf(err) != vendors.Fatal {
+	if _, err := e.d.Resolve(ctx, "bogus", testRegion, vendors.UseRef{Name: "x"}); vendors.ClassOf(err) != vendors.Fatal {
 		t.Errorf("an unknown kind: %v", err)
 	}
 }

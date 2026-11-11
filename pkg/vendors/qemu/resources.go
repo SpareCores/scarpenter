@@ -115,15 +115,9 @@ func bridgeCIDR(name string) string {
 	return "10.88." + strconv.Itoa(int(sum[0])) + ".1/24"
 }
 
-// Resolve implements vendors.ManagedResources: bridges of the machine by name,
-// name pattern, or "key=value" tags in the interface alias; with an empty
-// reference the default bridge (--qemu-bridge), when it exists. Managed bridges
-// are never returned: they are ours, not the user's.
-func (d *Driver) Resolve(_ context.Context, kind vendors.ResourceKind, region string, ref vendors.UseRef,
-) ([]vendors.ResourceRef, error) {
-	if kind != KindNetwork || region != Region {
-		return nil, nil
-	}
+// bridgesOfUser returns the bridges of the machine that are not managed ones:
+// managed bridges are ours, not the user's.
+func (d *Driver) bridgesOfUser() ([]bridgeInfo, error) {
 	bridges, err := d.host.Bridges()
 	if err != nil {
 		return nil, vendors.NewError(vendors.Retryable, "Bridges", err)
@@ -132,20 +126,30 @@ func (d *Driver) Resolve(_ context.Context, kind vendors.ResourceKind, region st
 	for _, n := range d.networks() {
 		managed[n.ID] = true
 	}
-	if ref.IsDefault() {
-		var out []vendors.ResourceRef
-		for _, b := range bridges {
-			if !managed[b.Name] && b.Name == d.opts.Bridge {
-				out = append(out, vendors.ResourceRef{Kind: KindNetwork, Region: region, ID: b.Name, Name: b.Name})
-			}
-		}
-		return out, nil
-	}
 	var mine []bridgeInfo
 	for _, b := range bridges {
 		if !managed[b.Name] {
 			mine = append(mine, b)
 		}
+	}
+	return mine, nil
+}
+
+// Resolve implements vendors.ManagedResources: bridges of the machine by name,
+// name pattern, or "key=value" tags in the interface alias. Managed bridges are
+// never returned. An empty reference selects nothing (the default bridge is
+// Default's).
+func (d *Driver) Resolve(_ context.Context, kind vendors.ResourceKind, region string, ref vendors.UseRef,
+) ([]vendors.ResourceRef, error) {
+	if ref.IsDefault() {
+		return nil, vendors.Errorf(vendors.Fatal, "an empty selector selects nothing: the vendor's default is Default's")
+	}
+	if kind != KindNetwork || region != Region {
+		return nil, nil
+	}
+	mine, err := d.bridgesOfUser()
+	if err != nil {
+		return nil, err
 	}
 	res, err := selector.Apply(ref, d.Selectors()[KindNetwork], mine, bridgeFields)
 	if err != nil {
@@ -158,6 +162,27 @@ func (d *Driver) Resolve(_ context.Context, kind vendors.ResourceKind, region st
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil
 }
+
+// Default implements vendors.ResourceDefaults: the default bridge
+// (--qemu-bridge), when the machine has it and it is not a managed one.
+func (d *Driver) Default(_ context.Context, kind vendors.ResourceKind, region string) ([]vendors.ResourceRef, error) {
+	if kind != KindNetwork || region != Region {
+		return nil, nil
+	}
+	mine, err := d.bridgesOfUser()
+	if err != nil {
+		return nil, err
+	}
+	var out []vendors.ResourceRef
+	for _, b := range mine {
+		if b.Name == d.opts.Bridge {
+			out = append(out, vendors.ResourceRef{Kind: KindNetwork, Region: region, ID: b.Name, Name: b.Name})
+		}
+	}
+	return out, nil
+}
+
+var _ vendors.ResourceDefaults = (*Driver)(nil)
 
 // Selectors implements vendors.ManagedResources: a bridge is found by its name
 // (the ID) and by the key=value pairs of its alias, which stand for tags.

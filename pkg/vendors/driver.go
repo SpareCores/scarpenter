@@ -68,6 +68,16 @@ const (
 // ManagedByValue is the value of the managed-by tag.
 const ManagedByValue = "scarpenter"
 
+// TagUse is the logical key of the opt-in tag of the discovery step (ADR-022):
+// a resource that carries it with the value OptInValue is one the operator
+// offers to SCarpenter. It is reserved, encoded per vendor by Driver.TagKey
+// like the other keys (scarpenter-use where "/" is not allowed), and is not one
+// of TagKeys: instances do not carry it.
+const TagUse TagKey = "use"
+
+// OptInValue is the value of the opt-in tag.
+const OptInValue = "true"
+
 // TagKeys lists the logical tag keys in a fixed order.
 var TagKeys = []TagKey{TagCluster, TagNodeClaim, TagNodePool, TagNodeClass, TagManagedBy, TagIdempotencyKey}
 
@@ -416,6 +426,14 @@ type ResourceRequest struct {
 	// referenced, never created and never deleted (a placement profile that
 	// names an existing group).
 	Use *UseRef
+	// Network is the network the launch is placed in (the ID the driver
+	// chose for the kind's InNetwork provider, such as the VPC of the chosen
+	// subnet): the kind is resolved only within it. Empty without one.
+	Network string
+	// Settings are the resolved settings of the launch; the vendor's default of
+	// the kind is used only if it honours them (DefaultChecker). nil means the
+	// NodeClass's default settings.
+	Settings *VendorSettings
 }
 
 // PrepareRequest asks a driver to make the resources an instance needs first
@@ -530,6 +548,13 @@ type KindSpec struct {
 	// (instances, volumes, placement groups, security groups, subnets,
 	// networks, resource groups).
 	DeleteOrder int
+	// InNetwork names the kind that provides the network this kind lives in
+	// (AWS: security groups live in the network of the subnets). The kind is
+	// resolved after it and only within the networks it resolved to, whichever
+	// step of the resolution order found them (an implicit match.network, set
+	// where the kind's selector supports it). Empty: the kind is not
+	// network-scoped.
+	InNetwork ResourceKind
 }
 
 // UseRef is the selector of the resources to use (ADR-023, A10) for one region
@@ -598,6 +623,11 @@ type ResourceRef struct {
 	Tags map[TagKey]string
 	// CreatedAt is when the resource was created, zero when unknown.
 	CreatedAt time.Time
+	// Network is the ID of the network the resource belongs to, where the
+	// driver knows it (a subnet's VPC, a security group's VPC; for a network
+	// kind that is the network itself): what the kinds that live in a network
+	// are constrained to.
+	Network string
 }
 
 // ManagedResources is the optional capability for vendor resources that are
@@ -607,12 +637,11 @@ type ManagedResources interface {
 	Kinds() []KindSpec
 	// Resolve finds the existing resources of the kind in the region that the
 	// selector selects (the vendor call, then selector.Apply: fields ANDed,
-	// Select applied); with a default UseRef the vendor's own default
-	// resources (AWS default VPC subnets, GCP default network). A selector
-	// that selects nothing, or too many for its Select, returns a
-	// *selector.NoMatchError or *selector.AmbiguousError (the counts after
-	// each stage); a default that does not exist is an empty result. Resolved
-	// resources are never modified.
+	// Select applied). A selector that selects nothing, or too many for its
+	// Select, returns a *selector.NoMatchError or *selector.AmbiguousError (the
+	// counts after each stage). An empty UseRef selects nothing: the vendor's
+	// default resources are Default's (ResourceDefaults). Resolved resources are
+	// never modified.
 	Resolve(ctx context.Context, kind ResourceKind, region string, ref UseRef) ([]ResourceRef, error)
 	// Selectors declares, per kind that accepts `use`, what the driver's
 	// Resolve supports of the selector and on which side (SelectorCaps). A
@@ -632,6 +661,41 @@ type ManagedResources interface {
 	// List returns the resources in the regions that carry all the tags (the
 	// ownership marker), for adoption and garbage collection.
 	List(ctx context.Context, regions []string, tags map[TagKey]string) ([]ResourceRef, error)
+}
+
+// ResourceDefaults is the optional capability of a driver whose vendor has a
+// default resource of a kind (step 3 of the resolution order, ADR-022): the AWS
+// default VPC and its default subnets, GCP's default network. A driver without it
+// has no defaults and the order goes from discovery to creation.
+type ResourceDefaults interface {
+	// Default returns the vendor's own default resources of the kind in the
+	// region, or none (an empty result, not an error). They are never
+	// modified or deleted. A kind without a default returns none.
+	Default(ctx context.Context, kind ResourceKind, region string) ([]ResourceRef, error)
+}
+
+// DefaultChecker is the optional refinement of ResourceDefaults: whether the
+// vendor's default can honour the requested settings (ADR-017: a default firewall
+// that cannot isolate runs or restrict inbound rules, a default network without
+// IPv6, publicIPv4: false). false skips the default, with the reason for the
+// failure message; the order continues with creation and never degrades the
+// request. An error is the vendor's (not a verdict) and stops the order.
+type DefaultChecker interface {
+	DefaultSuits(
+		ctx context.Context, kind ResourceKind, region string, defaults []ResourceRef, s VendorSettings,
+	) (ok bool, reason string, err error)
+}
+
+// ResourceDiscoverer is the optional override of step 2 of the resolution order
+// (ADR-022) for a driver whose opt-in resources cannot be found with the
+// selector `tags: {<opt-in key>: "true"}`. Without it the core runs exactly that
+// selector, with the kind's default select, through the driver's Resolve and
+// the shared matcher; a kind whose capability declaration has no tags skips the
+// step. The result is treated like `use`: a selector that selects nothing returns a
+// *selector.NoMatchError (the order goes on), one that is ambiguous for the
+// kind's select a *selector.AmbiguousError (the order fails).
+type ResourceDiscoverer interface {
+	Discover(ctx context.Context, kind ResourceKind, region string) ([]ResourceRef, error)
 }
 
 // ArchNamer is the optional capability of a driver whose vendor spells the CPU

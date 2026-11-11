@@ -552,18 +552,29 @@ func ipv6Class(res *awsapi.Resources) *v1alpha1.SCNodeClass {
 	return nc
 }
 
-func TestResourceCheckGatesTheZonesWithoutAnIPv6Subnet(t *testing.T) {
+func TestResourceCheckSkipsADefaultWithoutIPv6AndGatesTheZonesOfBroughtSubnets(t *testing.T) {
 	ctx := context.Background()
 	// The default VPC has no IPv6 (a default VPC has none until it is associated):
-	// every zone is a gap, so the region is not ready, with a reason naming the fix.
+	// it cannot honour publicIPv6, so the order skips it (ADR-017, ADR-022) and the
+	// region is ready: a launch creates the managed network, which has IPv6.
 	e := newEngineEnv(t, newEnv(t, envOptions{}))
+	warmTypes(t, e.env)
 	rep := e.engine.Check(ctx, ipv6Class(nil), "aws", []string{testRegion})
-	st := rep.Regions[testRegion]
-	if st.Ready || !strings.Contains(st.Reason, "IPv6 CIDR block") || !strings.Contains(st.Reason, testZone) {
-		t.Errorf("region state %+v, want not ready naming the zones and the IPv6 CIDR block", st)
+	if st := rep.Regions[testRegion]; !st.Ready || len(st.Zones) != 0 {
+		t.Errorf("region state %+v, want ready: the default is skipped, not a gap", st)
 	}
-	if !e.engine.UnavailableFor("class", "aws", "", testRegion, testZone, "on-demand") {
-		t.Error("the offerings of a region without IPv6 subnets are available")
+	for _, r := range rep.Resources {
+		if r.Kind == string(aws.KindSubnets) && r.Source == v1alpha1.ResourceSourceDefault {
+			t.Errorf("the default subnet %s is reported although it cannot honour publicIPv6", r.ID)
+		}
+	}
+	s := resolveSettings(t, e.d, "", common.Networking{PublicIPv6: new(true)}, nil, options.Selection{})
+	managedLaunch, err := e.prepare(t, ipv6Class(nil), testRegion, testZone, testType, s, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub := ids(managedLaunch, aws.KindSubnets)[0]; slices.Contains(mapValues(e.acct.DefaultSubnets(testRegion)), sub) {
+		t.Errorf("the launch used the default subnet %s", sub)
 	}
 	// Without publicIPv6 nothing is a gap.
 	rep = e.engine.Check(ctx, classWith(nil), "aws", []string{testRegion})
@@ -573,6 +584,7 @@ func TestResourceCheckGatesTheZonesWithoutAnIPv6Subnet(t *testing.T) {
 
 	// Own subnets, IPv6 in zone b only: zone a is gated on its own.
 	e = newEngineEnv(t, newEnv(t, envOptions{}))
+	var st resources.RegionState
 	vpc := defaultVPC(t, e.env, testRegion)
 	ec := e.acct.EC2(testRegion)
 	mk := func(zone, cidr string) string {
@@ -606,7 +618,7 @@ func TestResourceCheckGatesTheZonesWithoutAnIPv6Subnet(t *testing.T) {
 	}
 	// A launch in zone b gets the IPv6 subnet (preferred although it is the one with
 	// fewer free addresses), and zone a is refused with the code that skips the zone.
-	s := resolveSettings(t, e.d, "", common.Networking{PublicIPv6: new(true)}, nil, options.Selection{})
+	s = resolveSettings(t, e.d, "", common.Networking{PublicIPv6: new(true)}, nil, options.Selection{})
 	if p, err := e.prepare(t, nc, testRegion, "us-east-1b", testType, s, ""); err != nil || ids(p, aws.KindSubnets)[0] != b {
 		t.Errorf("zone b: %v, %v", p, err)
 	}

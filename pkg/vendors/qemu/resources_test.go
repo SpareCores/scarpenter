@@ -49,14 +49,20 @@ func TestResolveFindsBridgesByIDNamePatternTagsAndDefaultAndNeverManagedOnes(t *
 		"no match":   {vendors.UseRef{Tags: map[string]string{"env": "prod"}}, nil},
 		"managed id": {vendors.UseRef{IDs: []string{managed.ID}}, nil},
 	} {
-		got, err := d.Resolve(t.Context(), KindNetwork, Region, tc.ref)
+		var got []vendors.ResourceRef
+		var err error
+		if tc.ref.IsDefault() {
+			got, err = d.Default(t.Context(), KindNetwork, Region)
+		} else {
+			got, err = d.Resolve(t.Context(), KindNetwork, Region, tc.ref)
+		}
 		_, none := errors.AsType[*selector.NoMatchError](err)
 		_, many := errors.AsType[*selector.AmbiguousError](err)
 		if (err != nil && !none && !many) || (many != (name == "ambiguous")) || (!slices.Equal(ids(got), tc.want) && (len(got) != 0 || len(tc.want) != 0)) {
 			t.Errorf("%s: %v, %v; want %v", name, ids(got), err, tc.want)
 		}
 	}
-	if got, _ := d.Resolve(t.Context(), KindNetwork, "elsewhere", vendors.UseRef{}); len(got) != 0 {
+	if got, _ := d.Default(t.Context(), KindNetwork, "elsewhere"); len(got) != 0 {
 		t.Errorf("another region: %v", got)
 	}
 }

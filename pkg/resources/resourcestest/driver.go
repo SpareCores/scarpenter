@@ -42,6 +42,10 @@ type Existing struct {
 	Name    string
 	Tags    map[string]string
 	Default bool
+	// Network is the network the resource belongs to (a security group's VPC).
+	Network string
+	// NoIPv6 marks a default that cannot honour a request for IPv6.
+	NoIPv6 bool
 }
 
 type record struct {
@@ -60,10 +64,11 @@ type Driver struct {
 	// concurrent callers).
 	EnsureHook func()
 
-	mu      sync.Mutex
-	managed map[string]*record
-	users   map[string]int
-	seq     int
+	mu        sync.Mutex
+	kindCalls map[vendors.ResourceKind]int
+	managed   map[string]*record
+	users     map[string]int
+	seq       int
 	// DeleteErr makes the deletion of a resource ID fail while set.
 	DeleteErr map[string]error
 	// Calls records "ensure:created:<id>", "ensure:found:<id>" and "delete:<id>".
@@ -71,14 +76,22 @@ type Driver struct {
 	// GlobalSubnets makes the subnets kind global at the vendor: Resolve of a
 	// selector finds the resources of any region (they all list the same).
 	GlobalSubnets bool
-	// ResolveCalls counts the Resolve calls of selectors (not defaults).
+	// ResolveCalls counts the Resolve calls of selectors; DefaultCalls those of
+	// Default.
 	ResolveCalls atomic.Int32
+	DefaultCalls atomic.Int32
+	// Fail makes an operation fail with the error: "resolve/<kind>" or
+	// "default/<kind>" (a vendor error, which stops the resolution order).
+	Fail map[string]error
+	// EnsureErr makes the Ensure of a kind fail.
+	EnsureErr map[vendors.ResourceKind]error
 }
 
 // New returns a driver serving the vendor ID.
 func New(vendor string, clk clock.Clock) *Driver {
 	return &Driver{
-		VendorID: vendor, Clock: clk, managed: map[string]*record{}, users: map[string]int{}, DeleteErr: map[string]error{},
+		VendorID: vendor, Clock: clk, kindCalls: map[vendors.ResourceKind]int{}, managed: map[string]*record{}, users: map[string]int{}, DeleteErr: map[string]error{},
+		Fail: map[string]error{}, EnsureErr: map[vendors.ResourceKind]error{},
 	}
 }
 
@@ -105,6 +118,13 @@ func (d *Driver) Seed(
 	}
 	d.managed[ref.ID] = &record{ref: ref, lastUsed: at}
 	return ref
+}
+
+// ResolveCallsOf counts the Resolve calls for the kind.
+func (d *Driver) ResolveCallsOf(kind vendors.ResourceKind) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.kindCalls[kind]
 }
 
 // Managed returns the IDs of the managed resources, sorted.
@@ -157,7 +177,8 @@ func (d *Driver) TagKey(k vendors.TagKey) string { return vendors.DefaultTagKey(
 func (d *Driver) Kinds() []vendors.KindSpec {
 	return []vendors.KindSpec{
 		{Kind: PlacementGroups, Scope: vendors.ScopeRun, DefaultPolicy: common.LifecyclePerUse, DeleteOrder: 20},
-		{Kind: SecurityGroups, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleRetain, DeleteOrder: 25},
+		{Kind: SecurityGroups, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleRetain, DeleteOrder: 25,
+			InNetwork: Subnets},
 		{Kind: Subnets, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleIdleTTL, DeleteOrder: 30},
 	}
 }
@@ -166,42 +187,96 @@ func (d *Driver) Kinds() []vendors.KindSpec {
 func (d *Driver) Resolve(
 	_ context.Context, kind vendors.ResourceKind, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
-	if !ref.IsDefault() {
-		d.ResolveCalls.Add(1)
+	if ref.IsDefault() {
+		return nil, vendors.Errorf(vendors.Fatal, "an empty selector selects nothing: the default is Default's")
+	}
+	d.ResolveCalls.Add(1)
+	d.mu.Lock()
+	d.kindCalls[kind]++
+	d.mu.Unlock()
+	if err := d.fail("resolve", kind); err != nil {
+		return nil, err
 	}
 	var cands []Existing
 	for _, e := range d.Existing {
-		if e.Kind == kind && (e.Region == region || (d.GlobalSubnets && kind == Subnets && !ref.IsDefault())) &&
-			(!ref.IsDefault() || e.Default) {
+		if e.Kind == kind && (e.Region == region || (d.GlobalSubnets && kind == Subnets)) {
 			cands = append(cands, e)
 		}
 	}
-	if !ref.IsDefault() {
-		res, err := selector.Apply(ref, d.Selectors()[kind], cands, func(e Existing) selector.Fields {
-			return selector.Fields{ID: e.ID, Name: e.Name, Tags: e.Tags}
-		})
-		if err != nil {
-			return nil, err
+	res, err := selector.Apply(ref, d.Selectors()[kind], cands, func(e Existing) selector.Fields {
+		attrs := map[string][]string{}
+		if e.Network != "" {
+			attrs[vendors.MatchNetwork] = []string{e.Network}
 		}
-		cands = res.Items
+		return selector.Fields{ID: e.ID, Name: e.Name, Tags: e.Tags, Attrs: attrs}
+	})
+	if err != nil {
+		return nil, err
 	}
+	return refsOf(kind, region, res.Items), nil
+}
+
+func refsOf(kind vendors.ResourceKind, region string, items []Existing) []vendors.ResourceRef {
 	var out []vendors.ResourceRef
-	for _, e := range cands {
-		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: e.ID, Name: e.Name})
+	for _, e := range items {
+		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: e.ID, Name: e.Name, Network: e.Network})
 	}
-	return out, nil
+	return out
+}
+
+// fail returns the error set for the operation on the kind, if any.
+func (d *Driver) fail(op string, kind vendors.ResourceKind) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.Fail[op+"/"+string(kind)]
+}
+
+// Default implements vendors.ResourceDefaults.
+func (d *Driver) Default(_ context.Context, kind vendors.ResourceKind, region string) ([]vendors.ResourceRef, error) {
+	d.DefaultCalls.Add(1)
+	if err := d.fail("default", kind); err != nil {
+		return nil, err
+	}
+	var cands []Existing
+	for _, e := range d.Existing {
+		if e.Kind == kind && e.Region == region && e.Default {
+			cands = append(cands, e)
+		}
+	}
+	return refsOf(kind, region, cands), nil
+}
+
+// DefaultSuits implements vendors.DefaultChecker: a default marked NoIPv6
+// cannot honour publicIPv6.
+func (d *Driver) DefaultSuits(
+	_ context.Context, kind vendors.ResourceKind, region string, defaults []vendors.ResourceRef, s vendors.VendorSettings,
+) (bool, string, error) {
+	if s.Networking.PublicIPv6 == nil || !*s.Networking.PublicIPv6 {
+		return true, "", nil
+	}
+	for _, e := range d.Existing {
+		if e.Kind == kind && e.Region == region && e.Default && e.NoIPv6 &&
+			slices.ContainsFunc(defaults, func(r vendors.ResourceRef) bool { return r.ID == e.ID }) {
+			return false, e.ID + " has no IPv6 range", nil
+		}
+	}
+	return true, "", nil
 }
 
 // Selectors implements vendors.ManagedResources: names and tags, evaluated by
 // the client, on the kinds a NodeClass can bring.
 func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 	caps := vendors.SelectorCaps{
-		Global: d.GlobalSubnets,
-		Tags:   vendors.TagsMap, Name: &vendors.FieldCap{Field: "name", Side: vendors.SideClient},
+		Tags: vendors.TagsMap, Name: &vendors.FieldCap{Field: "name", Side: vendors.SideClient},
 		DefaultSelect: common.SelectAll,
 	}
+	inNetwork := caps
+	inNetwork.DefaultSelect = common.SelectExactlyOne // a group is one: an ambiguous opt-in fails
+	inNetwork.Match = map[string]vendors.FieldCap{vendors.MatchNetwork: {Field: "network", Side: vendors.SideClient}}
+	global := caps
+	global.Global = d.GlobalSubnets
 	return map[vendors.ResourceKind]vendors.SelectorCaps{
-		PlacementGroups: caps, SecurityGroups: caps, Subnets: caps,
+		PlacementGroups: caps, SecurityGroups: inNetwork, Subnets: global,
 	}
 }
 
@@ -213,6 +288,9 @@ func (d *Driver) Ensure(_ context.Context, kind vendors.ResourceKind, region str
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.EnsureErr[kind]; err != nil {
+		return vendors.ResourceRef{}, false, err
+	}
 	for _, r := range d.managed {
 		if r.ref.Kind == kind && r.ref.Region == region && r.ref.Name == spec.Name {
 			d.Calls = append(d.Calls, "ensure:found:"+r.ref.ID)
@@ -283,4 +361,8 @@ func (d *Driver) List(
 	return out, nil
 }
 
-var _ vendors.ManagedResources = (*Driver)(nil)
+var (
+	_ vendors.ManagedResources = (*Driver)(nil)
+	_ vendors.ResourceDefaults = (*Driver)(nil)
+	_ vendors.DefaultChecker   = (*Driver)(nil)
+)

@@ -812,12 +812,14 @@ func zoneChecker(t *testing.T, e *env) {
 	var found map[vendors.ResourceKind][]vendors.ResourceRef
 	if mr, ok := e.d.(vendors.ManagedResources); ok {
 		found = map[vendors.ResourceKind][]vendors.ResourceRef{}
-		for _, k := range mr.Kinds() {
-			refs, err := mr.Resolve(t.Context(), k.Kind, e.region, vendors.UseRef{})
-			if err != nil {
-				t.Fatalf("Resolve(%s): %v", k.Kind, err)
+		if rd, ok := e.d.(vendors.ResourceDefaults); ok {
+			for _, k := range mr.Kinds() {
+				refs, err := rd.Default(t.Context(), k.Kind, e.region)
+				if err != nil {
+					t.Fatalf("Default(%s): %v", k.Kind, err)
+				}
+				found[k.Kind] = refs
 			}
-			found[k.Kind] = refs
 		}
 	}
 	first, err := zc.ZoneGaps(t.Context(), e.region, settings, found)

@@ -210,8 +210,8 @@ func managedResources(t *testing.T, e *env) {
 	if e.fx.PreCreate != nil {
 		checkUseResources(t, mr, e, kind)
 	}
-	if _, err := mr.Resolve(t.Context(), kind, e.region, vendors.UseRef{}); err != nil {
-		t.Errorf("Resolve of the vendor default: %v", err)
+	if _, err := mr.Resolve(t.Context(), kind, e.region, vendors.UseRef{}); err == nil {
+		t.Error("Resolve of an empty selector succeeded: it selects nothing (the vendor's default is Default's)")
 	}
 	if e.fx.Restart != nil {
 		checkAdoption(t, e, kind, spec, first)

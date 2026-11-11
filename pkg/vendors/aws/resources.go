@@ -51,8 +51,10 @@ const (
 func (d *Driver) Kinds() []vendors.KindSpec {
 	return []vendors.KindSpec{
 		{Kind: KindPlacementGroups, Scope: vendors.ScopeRun, DefaultPolicy: common.LifecyclePerUse, DeleteOrder: 20},
-		{Kind: KindRunSecurityGroups, Scope: vendors.ScopeRun, DefaultPolicy: common.LifecyclePerUse, DeleteOrder: 25},
-		{Kind: KindSecurityGroups, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleIdleTTL, DeleteOrder: 30},
+		{Kind: KindRunSecurityGroups, Scope: vendors.ScopeRun, DefaultPolicy: common.LifecyclePerUse, DeleteOrder: 25,
+			InNetwork: KindSubnets},
+		{Kind: KindSecurityGroups, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleIdleTTL, DeleteOrder: 30,
+			InNetwork: KindSubnets},
 		{Kind: KindSubnets, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleIdleTTL, DeleteOrder: 40},
 	}
 }
@@ -108,14 +110,16 @@ func nameOf(tags []ec2types.Tag) string {
 }
 
 // Resolve implements vendors.ManagedResources: existing resources by IDs, name
-// pattern or tags, never modified. With an empty reference the default VPC's
-// default subnets; security groups and placement groups have no default
-// (SCarpenter creates them). Filters are used instead of ID lists so that an ID
-// that does not exist is an empty result, not an error.
+// pattern or tags, never modified. Filters are used instead of ID lists so that an
+// ID that does not exist is an empty result, not an error. An empty reference
+// selects nothing: the default VPC's default subnets are Default's.
 func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
 	if !isKind(kind) {
 		return nil, vendors.Errorf(vendors.Fatal, "the AWS driver has no resource kind %q", kind)
+	}
+	if ref.IsDefault() {
+		return nil, vendors.Errorf(vendors.Fatal, "an empty selector selects nothing: the vendor's default is Default's")
 	}
 	cl, err := d.clients(ctx, region)
 	if err != nil {
@@ -127,63 +131,108 @@ func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region 
 	case KindPlacementGroups:
 		return d.resolvePlacementGroups(ctx, cl, region, ref)
 	}
-	if ref.IsDefault() {
+	return d.resolveSecurityGroups(ctx, cl, kind, region, ref)
+}
+
+// Default implements vendors.ResourceDefaults: the default VPC's default subnets
+// of the region. Security groups and placement groups have no default: the
+// account's default group is shared with everything else in the VPC and cannot
+// isolate runs, so SCarpenter creates its own.
+func (d *Driver) Default(ctx context.Context, kind vendors.ResourceKind, region string) ([]vendors.ResourceRef, error) {
+	if kind != KindSubnets {
 		return nil, nil
 	}
-	return d.resolveSecurityGroups(ctx, cl, kind, region, ref)
+	cl, err := d.clients(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	vpcs, err := cl.EC2.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
+		Filters: []ec2types.Filter{{Name: aws.String("isDefault"), Values: []string{"true"}}},
+	})
+	if err != nil {
+		return nil, classify(err, errContext{})
+	}
+	if len(vpcs.Vpcs) == 0 {
+		return nil, nil
+	}
+	subs, err := d.describeSubnetPages(ctx, cl, &ec2.DescribeSubnetsInput{Filters: []ec2types.Filter{
+		{Name: aws.String(filterVPC), Values: []string{deref(vpcs.Vpcs[0].VpcId)}},
+		{Name: aws.String("default-for-az"), Values: []string{"true"}},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	return d.subnetRefs(region, subs), nil
+}
+
+// DefaultSuits implements vendors.DefaultChecker: the default subnets honour
+// publicIPv6 only if every one of them has an IPv6 CIDR block (a default VPC
+// usually has none: SCarpenter then creates its own network, which has).
+func (d *Driver) DefaultSuits(
+	ctx context.Context, kind vendors.ResourceKind, region string, defaults []vendors.ResourceRef, s vendors.VendorSettings,
+) (bool, string, error) {
+	if kind != KindSubnets || !boolOr(s.Networking.PublicIPv6, false) {
+		return true, "", nil
+	}
+	cl, err := d.clients(ctx, region)
+	if err != nil {
+		return false, "", err
+	}
+	ids := make([]string, 0, len(defaults))
+	for _, r := range defaults {
+		ids = append(ids, r.ID)
+	}
+	known, err := d.subnetsByID(ctx, cl, ids)
+	if err != nil {
+		return false, "", err
+	}
+	var without []string
+	for _, id := range ids {
+		if sn, ok := known[id]; ok && !sn.ipv6 {
+			without = append(without, id)
+		}
+	}
+	if len(without) > 0 {
+		return false, fmt.Sprintf("publicIPv6 needs an IPv6 CIDR block and the default subnets %s have none",
+			strings.Join(without, ", ")), nil
+	}
+	return true, "", nil
+}
+
+// subnetRefs are the references of subnets, sorted by ID, with the VPC they
+// belong to.
+func (d *Driver) subnetRefs(region string, subs []ec2types.Subnet) []vendors.ResourceRef {
+	out := make([]vendors.ResourceRef, 0, len(subs))
+	for _, s := range subs {
+		d.rememberSubnet(s)
+		out = append(out, vendors.ResourceRef{Kind: KindSubnets, Region: region, ID: deref(s.SubnetId),
+			Name: nameOf(s.Tags), Network: deref(s.VpcId)})
+	}
+	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
+	return out
 }
 
 func (d *Driver) resolveSubnets(
 	ctx context.Context, cl Clients, region string, ref vendors.UseRef) ([]vendors.ResourceRef, error,
 ) {
-	var filters []ec2types.Filter
-	if ref.IsDefault() {
-		vpcs, err := cl.EC2.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
-			Filters: []ec2types.Filter{{Name: aws.String("isDefault"), Values: []string{"true"}}},
-		})
-		if err != nil {
-			return nil, classify(err, errContext{})
-		}
-		if len(vpcs.Vpcs) == 0 {
-			return nil, nil
-		}
-		filters = []ec2types.Filter{
-			{Name: aws.String("vpc-id"), Values: []string{deref(vpcs.Vpcs[0].VpcId)}},
-			{Name: aws.String("default-for-az"), Values: []string{"true"}},
-		}
-	} else {
-		var none bool
-		var err error
-		if filters, none, err = useFilters(ref, subnetFilters); err != nil {
-			return nil, err
-		}
-		if none {
-			_, err := selector.Apply(ref, d.Selectors()[KindSubnets], []ec2types.Subnet(nil), subnetFields)
-			return nil, err
-		}
+	filters, none, err := useFilters(ref, subnetFilters)
+	if err != nil {
+		return nil, err
+	}
+	if none {
+		_, err := selector.Apply(ref, d.Selectors()[KindSubnets], []ec2types.Subnet(nil), subnetFields)
+		return nil, err
 	}
 	subs, err := d.describeSubnetPages(ctx, cl, &ec2.DescribeSubnetsInput{Filters: filters})
 	if err != nil {
 		return nil, err
 	}
-	for _, s := range subs {
-		d.rememberSubnet(s)
+	res, err := selector.Apply(ref, d.Selectors()[KindSubnets], subs, subnetFields)
+	d.noteMissing(KindSubnets, region, res.Missing)
+	if err != nil {
+		return nil, err
 	}
-	if !ref.IsDefault() {
-		res, err := selector.Apply(ref, d.Selectors()[KindSubnets], subs, subnetFields)
-		d.noteMissing(KindSubnets, region, res.Missing)
-		if err != nil {
-			return nil, err
-		}
-		subs = res.Items
-	}
-	out := make([]vendors.ResourceRef, 0, len(subs))
-	for _, s := range subs {
-		out = append(out, vendors.ResourceRef{Kind: KindSubnets, Region: region, ID: deref(s.SubnetId),
-			Name: nameOf(s.Tags)})
-	}
-	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
-	return out, nil
+	return d.subnetRefs(region, res.Items), nil
 }
 
 // noteMissing logs the IDs a `use` named that the vendor did not return: a
@@ -210,6 +259,11 @@ func (d *Driver) describeSubnetPages(
 		in.NextToken = res.NextToken
 	}
 }
+
+var (
+	_ vendors.ResourceDefaults = (*Driver)(nil)
+	_ vendors.DefaultChecker   = (*Driver)(nil)
+)
 
 // Ensure implements vendors.ManagedResources: find by name and ownership marker,
 // else create with the marker in the creating call. created is false when an

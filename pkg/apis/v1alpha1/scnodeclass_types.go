@@ -188,6 +188,19 @@ type ImageStatus struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// ResourceSource says which step of the resolution order (ADR-022) produced a
+// resource.
+// +kubebuilder:validation:Enum=use;discovered;default;created
+type ResourceSource string
+
+// The steps that produce a resource.
+const (
+	ResourceSourceUse        ResourceSource = "use"
+	ResourceSourceDiscovered ResourceSource = "discovered"
+	ResourceSourceDefault    ResourceSource = "default"
+	ResourceSourceCreated    ResourceSource = "created"
+)
+
 // ResourceStatus is a vendor resource referenced (use) or managed (create).
 type ResourceStatus struct {
 	// kind of the resource, for example subnets.
@@ -204,6 +217,12 @@ type ResourceStatus struct {
 	// managed is true for resources SCarpenter created.
 	// +optional
 	Managed bool `json:"managed,omitempty"`
+	// source is the step of the resolution order that produced the resource:
+	// use (the NodeClass's explicit use), discovered (tagged with the opt-in tag
+	// scarpenter.sparecores.com/use), default (the vendor's own default) or
+	// created (managed by SCarpenter).
+	// +optional
+	Source ResourceSource `json:"source,omitempty"`
 	// lastUsed is when an instance last used a managed resource.
 	// +optional
 	LastUsed *metav1.Time `json:"lastUsed,omitempty"`

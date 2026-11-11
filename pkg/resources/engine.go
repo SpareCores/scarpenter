@@ -293,6 +293,11 @@ func isSelection(err error) bool {
 	return none || many
 }
 
+func isAmbiguous(err error) bool {
+	_, many := errors.AsType[*selector.AmbiguousError](err)
+	return many
+}
+
 func describe(ref vendors.UseRef) string {
 	var parts []string
 	if len(ref.IDs) > 0 {
@@ -322,10 +327,18 @@ func (e *Engine) resolve(
 ) ([]vendors.ResourceRef, error) {
 	enc, _ := json.Marshal(ref)
 	scope := region
-	if mr.Selectors()[kind].Global && !ref.IsDefault() {
+	if mr.Selectors()[kind].Global {
 		scope = selector.RegionAll // one listing serves every region
 	}
-	key := fmt.Sprintf("%s/%s/%s/%s", vendor, kind, scope, enc)
+	return e.cached(fmt.Sprintf("%s/%s/%s/%s", vendor, kind, scope, enc), func() ([]vendors.ResourceRef, error) {
+		return mr.Resolve(ctx, kind, region, ref)
+	})
+}
+
+// cached returns the answer of fn for the key, trusting one younger than
+// ResolveTTL; a selection error (nothing matched, or too much) is an answer, a
+// failure of the vendor call is not and is not kept.
+func (e *Engine) cached(key string, fn func() ([]vendors.ResourceRef, error)) ([]vendors.ResourceRef, error) {
 	now := e.opts.Clock.Now()
 	e.mu.Lock()
 	if c, ok := e.resolved[key]; ok && now.Before(c.until) {
@@ -333,7 +346,7 @@ func (e *Engine) resolve(
 		return c.refs, c.err
 	}
 	e.mu.Unlock()
-	refs, err := mr.Resolve(ctx, kind, region, ref)
+	refs, err := fn()
 	if err != nil && !isSelection(err) {
 		return nil, err
 	}
@@ -363,15 +376,23 @@ func (e *Engine) require(
 		cfg = c
 	}
 
+	drv, _ := e.opts.Registry.Driver(vendor)
 	// A missing resource makes the region's offerings unavailable until it
 	// shows up (the status controller re-evaluates).
 	fail := func(err error) error {
 		e.setRegion(nc.Name, vendor, region, RegionState{Reason: fmt.Sprintf("%s: %v", req.Kind, err)})
 		return err
 	}
+	var networks []string
+	if req.Network != "" {
+		networks = []string{req.Network}
+	}
+	in := orderIn{nc: nc, drv: drv, mr: mr, vendor: vendor, spec: spec, region: region, settings: req.Settings,
+		networks: networks}
 	// gate says whether a missing reference makes the whole region unavailable:
-	// not a reference of a profile (it concerns that placement only), and not a
-	// per-zone pattern (the other zones of the region are fine).
+	// not a reference of a profile (it concerns that placement only), not a
+	// per-zone pattern (the other zones of the region are fine), and not a
+	// constraint of the launch's network (the launch's zone only).
 	useRef := func(ref vendors.UseRef, gate bool, zone string) ([]vendors.ResourceRef, error) {
 		refs, err := e.resolve(ctx, mr, vendor, req.Kind, region, ref)
 		var none error
@@ -383,14 +404,28 @@ func (e *Engine) require(
 		case len(refs) == 0:
 			none = fmt.Errorf("nothing matches %s", describe(ref))
 		}
+		if none == nil {
+			if refs = in.inNetworks(refs); len(refs) == 0 {
+				none = fmt.Errorf("nothing matches %s%s", describe(ref), networkNote(networks))
+			}
+		}
 		if none != nil {
 			err := missing("no %s in %s: %v", req.Kind, region, none)
-			if gate {
+			if gate && len(networks) == 0 {
 				return nil, fail(err)
+			}
+			if zone == "" && len(networks) > 0 {
+				zone = req.Zone
+				if zone == "" {
+					zone = launchZone
+				}
 			}
 			if zone != "" {
 				// Only this zone lacks the resource.
 				e.setZoneMissing(nc.Name, vendor, region, zone, err.Error())
+				return nil, vendors.NewError(vendors.Unsupported, vendors.CodeResourceMissingInZone, err)
+			}
+			if len(networks) > 0 {
 				return nil, vendors.NewError(vendors.Unsupported, vendors.CodeResourceMissingInZone, err)
 			}
 			return nil, err
@@ -416,28 +451,24 @@ func (e *Engine) require(
 		if err != nil {
 			return nil, fail(missing("%s in %s: %v", req.Kind, region, err))
 		}
+		in.constrain(&ref, mr.Selectors()[req.Kind])
 		if perZone {
 			return useRef(ref, false, zone)
 		}
 		return useRef(ref, true, "")
-	case cfg.Forbid:
-		refs, err := e.resolve(ctx, mr, vendor, req.Kind, region, vendors.UseRef{})
-		if err != nil {
+	case cfg.Create == nil:
+		// Neither use nor create (or forbid): the opt-in tag, then the vendor's
+		// default, as found (ADR-022); creation, unless forbidden, comes last.
+		res, err := e.discoverAndDefault(ctx, in, cfg.Forbid)
+		switch {
+		case isSelection(err): // an ambiguous opt-in is a failure, not a fall-through
+			return nil, fail(missing("%v", err))
+		case err != nil:
 			return nil, err
-		}
-		if len(refs) == 0 {
-			return nil, fail(forbidden("creating %s is forbidden and %s has no default in %s", req.Kind, vendor, region))
-		}
-		return refs, nil
-	case cfg.Create == nil && spec.Scope == vendors.ScopeRegion:
-		// Neither use nor create: the vendor's own default resource, where it
-		// exists, is used as found (00a section 9.2).
-		refs, err := e.resolve(ctx, mr, vendor, req.Kind, region, vendors.UseRef{})
-		if err != nil {
-			return nil, err
-		}
-		if len(refs) > 0 {
-			return refs, nil
+		case len(res.refs) > 0:
+			return res.refs, nil
+		case cfg.Forbid:
+			return nil, fail(forbidden("%s", failureMessage(req.Kind, region, res.tried, "creating it is forbidden")))
 		}
 	}
 	ref, err := e.ensure(ctx, nc, mr, vendor, region, spec, req)

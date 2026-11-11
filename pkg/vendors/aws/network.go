@@ -192,7 +192,7 @@ func (d *Driver) launchSubnet(ctx context.Context, region, zone, hint string) (s
 		refs = []vendors.ResourceRef{{Kind: KindSubnets, Region: region, ID: hint}}
 	} else {
 		var err error
-		if refs, err = d.Resolve(ctx, KindSubnets, region, vendors.UseRef{}); err != nil {
+		if refs, err = d.Default(ctx, KindSubnets, region); err != nil {
 			return "", err
 		}
 	}
@@ -243,7 +243,7 @@ func (d *Driver) ensureNetwork(ctx context.Context, cl Clients, region string, s
 	}
 	ref := vendors.ResourceRef{
 		Kind: KindSubnets, Region: region, ID: deref(vpc.VpcId), Name: spec.Name, Managed: true,
-		Tags: d.markerTags(vpc.Tags),
+		Tags: d.markerTags(vpc.Tags), Network: deref(vpc.VpcId),
 	}
 	if created {
 		ref.Tags = spec.Tags
@@ -454,7 +454,7 @@ func (d *Driver) listNetworks(
 			}
 			out = append(out, vendors.ResourceRef{
 				Kind: KindSubnets, Region: region, ID: deref(v.VpcId), Name: nameOf(v.Tags),
-				Managed: tags[vendors.TagManagedBy] == vendors.ManagedByValue, Tags: tags,
+				Managed: tags[vendors.TagManagedBy] == vendors.ManagedByValue, Tags: tags, Network: deref(v.VpcId),
 			})
 		}
 		if res.NextToken == nil {
