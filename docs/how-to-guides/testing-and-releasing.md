@@ -384,6 +384,9 @@ canary role, the environment secrets, the quotas, and the tailnet tags and ACL.
 None of the following lives here; the operator of the CI account creates it, with whatever
 tool they use, and this repository assumes it (a fork needs the same, in its own account):
 
+- **OVHcloud** (vendor `ovh`): a dedicated Public Cloud project with one active region, low core and instance quotas and a
+  spending alert that has been checked to fire, all set before `ovh` is added to `test/e2e-vendors.txt`, the two OpenStack users and
+  their secrets and variables. Details in [Test and develop](testing.md#the-l5-lane-of-ovhcloud).
 - **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, both set and checked before `hcloud` is added to `test/e2e-vendors.txt`, and the secret
   `HCLOUD_TOKEN` in the environments `e2e` and `e2e-sweeper` (read-write) and `e2e-canary` (read-only); the optional
   variable `E2E_HCLOUD_LOCATIONS`. Details in [Test and develop](testing.md#the-l5-lane-of-hetzner-cloud).

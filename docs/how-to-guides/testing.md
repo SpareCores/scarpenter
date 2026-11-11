@@ -683,7 +683,7 @@ driver; `test/canary` runs the Hetzner canary against it too and checks both rea
 ### The L5 lane of OVHcloud
 
 `test/e2e-ovh/` is the OVH lane (`vendor: ovh` of the same reusable workflow; plan 18), statically
-validated only until its first live run: nodes on OVHcloud Public Cloud (Nova servers on the
+validated only until its first live run, and **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are in place (below), so the workflows do not run it by themselves: nodes on OVHcloud Public Cloud (Nova servers on the
 public `Ext-Net` network) that join over Tailscale, in one region (`OVH_REGION`, a Keystone catalog
 name, default `GRA11`). The scenarios are `amd64` (an exact flavor, on-demand: node labels, server
 metadata and tags, the managed security group and its marker, config drive, `kubectl logs` and `exec`,
@@ -703,8 +703,8 @@ leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific c
 - **Identity**: a dedicated OpenStack user of the lane's own Public Cloud project with the five operator roles
   ([OVH credentials](ovh-credentials.md)): the environment secrets `OVH_OS_USERNAME` and `OVH_OS_PASSWORD` (OVH
   documents no GitHub OIDC trust, so the password is stored), the variables `OVH_PROJECT_ID`, `OVH_REGION` and
-  optionally `OVH_AUTH_URL`. The lane's scripts use the `openstack` CLI (the workflow installs a pinned
-  `python-openstackclient`; check the pin at the first run).
+  optionally `OVH_AUTH_URL`. The lane's scripts use the `openstack` CLI (the workflow installs `python-openstackclient`
+  pinned, with every dependency pinned by the OpenStack upper constraints of its release, 2025.2).
 - **Run tag**: the server tag and metadata `scarpenter-cluster=scarpenter-ci-<run id>`, the managed security group's
   description marker (it records its creation time) and the server groups' name prefix.
 - **Sweeper**: `e2e-ovh-sweeper.yml`, every three hours, environment `e2e-sweeper`: `pkg/vendors/ovh/sweep` deletes the
@@ -723,6 +723,9 @@ leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific c
 - **Without OVH**: `hack/dev.sh make test-e2e-ovh-dryrun` renders every manifest against an envtest API server, runs `selftest.sh`
   (helpers, redaction of OpenStack IDs and tokens, the chart with the lane's values), the sweeper's and the canary's tests
   against the driver's in-memory OpenStack.
+- **Before the lane is listed**: no flavor deny is possible, so the lane's flavors and the project's core and instance quota are the ceiling,
+  and the project's spending alert is unverified. The operator sets the quotas low, creates the alert and checks it fires (plan 18), and
+  then adds `ovh` to `test/e2e-vendors.txt`.
 - **Provisioned outside this repository**: the project (one active region, low quotas, a spending alert), the two users, the
   images of [Upload the Flatcar image to OVH](ovh-images.md) in the lane's region, the environment secrets and variables above.
 

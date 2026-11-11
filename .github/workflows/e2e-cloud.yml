@@ -240,8 +240,10 @@ jobs:
             echo "OS_USERNAME=${OVH_OS_USERNAME}"
             echo "OS_PASSWORD=${OVH_OS_PASSWORD}"
           } >> "${GITHUB_ENV}"
-          # The CLI of the lane's scripts (pinned; check the pin when the lane first runs).
-          pipx install "python-openstackclient==8.2.0"
+          # The CLI of the lane's scripts: the client and every dependency pinned, by the
+          # OpenStack upper constraints of the release the client belongs to (8.2.0 is 2025.2).
+          pipx install "python-openstackclient==8.2.0" \
+            --pip-args="--constraint https://raw.githubusercontent.com/openstack/requirements/stable/2025.2/upper-constraints.txt"
 
       # Vultr has no OIDC for callers: the key of the CI account's dedicated sub-user is a
       # secret of the environment e2e (plan 20, section 9; its IP allowlist must admit

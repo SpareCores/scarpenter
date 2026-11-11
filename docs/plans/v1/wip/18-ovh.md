@@ -534,7 +534,13 @@ for the lane with one active region, low project quotas and a spending alert (OV
 consumption alerts: unverified); the region restriction is "only the lane's region is activated in
 the project"; the instance-type restriction cannot be an IAM deny (IAM has no flavor condition:
 unverified), so the guard is the lane's own types (`defaults.sh`) plus the project's core and
-instance quota as the ceiling. Credentials: an OVH service account for the lane with the IAM
+instance quota as the ceiling.
+**The lane is not in `test/e2e-vendors.txt` yet.** The CI cost-guard policy (`docs/how-to-guides/testing-and-releasing.md`)
+needs a verified budget alert and a bound on the damage of a bug, and neither is met: no flavor deny is possible and the
+spending alert is unverified. Before the line `ovh` is added, the operator creates the dedicated project, sets its core and
+instance quotas low, creates the spending alert to a person and checks it fires, sets the secrets and variables of the lane, and
+runs the spikes. Until then the reusable workflow refuses the vendor (a live run) and `make test-e2e-ovh-dryrun` works.
+Credentials: an OVH service account for the lane with the IAM
 policy of S6 on that project only; **no GitHub OIDC trust to OVH is documented**, so
 the client ID and secret are secrets of the `e2e` environment (`OVH_CLIENT_ID`,
 `OVH_CLIENT_SECRET`, variables `OVH_PROJECT_ID`, `OVH_REGION`), unlike AWS's keyless role:
@@ -620,7 +626,7 @@ conservative option where the plan gave none):
   `docs/reference/ovh-iam-policy.json` is its policy, for later.
 - **4** the lane's identity is therefore an OpenStack user (`OVH_OS_USERNAME`, `OVH_OS_PASSWORD` of the `e2e` environment, a
   second read-only user for the canary), not a service account; the same project-only, one-region, quota-limited rule applies. The
-  lane installs `python-openstackclient` with a pinned version that nobody has run yet.
+  lane installs `python-openstackclient` pinned, with its dependencies pinned by the upper constraints of the release (2025.2).
 - **5** later: no vRack network, gateway or private-only node.
 - **6** yes: `CreateAndWait`, 45 s, `SCARPENTER_OVH_SCHEDULE_WAIT`.
 - **7** Metal and GPU flavors are excluded.

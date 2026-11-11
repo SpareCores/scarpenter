@@ -270,6 +270,10 @@ check "every scenario has a function and is named by the workflow" t_scenarios_d
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
 check "e2e.yml and release.yml pass what e2e-cloud.yml takes; no labeled trigger; the sweeper's environment; nothing names the old e2e-aws.yml" t_workflows_agree
+t_not_in_the_vendor_list() { # the cost guards (a flavor deny, a verified budget alert) are not in place yet
+  ! grep -qx 'ovh' "${root}/test/e2e-vendors.txt"
+}
+check "ovh is not in test/e2e-vendors.txt until its cost guards are in place" t_not_in_the_vendor_list
 check "no account ID, key or local path in the lane's files" t_no_secrets_in_scripts
 
 # ---- the lane's identity -----------------------------------------------------

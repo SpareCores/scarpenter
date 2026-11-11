@@ -44,25 +44,28 @@ type config struct {
 // vendorEnv maps a vendor to the environment variable of its region.
 // For hcloud it is the comma-separated list of the lane's locations.
 var vendorEnv = map[string]string{
-	vendorAWS: "AWS_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOVH: "OS_REGION_NAME", vendorVultr: "VULTR_REGION",
+	vendorAWS: "AWS_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS",
+	vendorOVH: "OS_REGION_NAME", vendorVultr: "VULTR_REGION",
 }
 
 // The vendors of the canary and the architecture its checks name.
 const (
 	vendorAWS    = "aws"
 	vendorHCloud = "hcloud"
-	vendorOVH    = "ovh"
 	archAMD64    = "amd64"
 	archARM64    = "arm64"
 )
+
+// typeAMD64 is the variable of the amd64 type every lane pins.
+const typeAMD64 = "E2E_TYPE_AMD64"
 
 // typeVars are the variables of the instance types a lane pins, where a vendor's differ from
 // AWS's (Vultr has no Arm instances and no database type, OVH no Arm); noQuota are the vendors without a
 // readable quota (the vCPU pins are then not needed; Hetzner's limits cannot be read).
 var (
 	typeVars = map[string][]string{
-		vendorOVH:   {"E2E_TYPE_AMD64", "E2E_TYPE_DB"},
-		vendorVultr: {"E2E_TYPE_AMD64", "E2E_TYPE_SECOND"},
+		vendorOVH:   {typeAMD64, "E2E_TYPE_DB"},
+		vendorVultr: {typeAMD64, "E2E_TYPE_SECOND"},
 	}
 	noQuota = map[string]bool{vendorHCloud: true, vendorVultr: true}
 )
@@ -87,7 +90,7 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	c.k3sVersion = need("E2E_K3S_VERSION")
 	names, ok := typeVars[vendor]
 	if !ok {
-		names = []string{"E2E_TYPE_AMD64", "E2E_TYPE_ARM64", "E2E_TYPE_DB"}
+		names = []string{typeAMD64, "E2E_TYPE_ARM64", "E2E_TYPE_DB"}
 	}
 	for _, name := range names {
 		c.types = append(c.types, need(name))
