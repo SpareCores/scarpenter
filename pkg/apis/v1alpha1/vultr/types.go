@@ -54,8 +54,10 @@ type Resources struct {
 	// +optional
 	FirewallGroups *common.Resource `json:"firewallGroups,omitempty"`
 
-	// networks (VPCs) nodes are attached to, per region. Without one nodes use
-	// the public network only. isolation: nodeclass needs a VPC.
+	// networks (VPCs) nodes are attached to, per region. isolation nodeclass or
+	// run (the default) puts every node in the region's VPC: the one brought with
+	// use, else one SCarpenter creates and owns. isolation none attaches no VPC
+	// (the nodes use the public network only) and then refuses use and create.
 	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.tags)",message="tags are not supported: Vultr VPCs have a description and no tags"
 	// +optional
 	Networks *common.Resource `json:"networks,omitempty"`

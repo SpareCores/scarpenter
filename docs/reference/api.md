@@ -1835,7 +1835,7 @@ resources says how the Vultr resources a node depends on are provided.
 |---|---|---|---|
 | `firewallGroups` | [object](#specvendorsvultrresourcesfirewallgroups) |  | firewallGroups attached to nodes. Inbound is open without a group, so without one SCarpenter creates a group per NodeClass and region with the rules of spec.networking.inbound (none: deny all). A group is global in the account; the same ID serves every region. |
 | `images` | [object](#specvendorsvultrresourcesimages) |  | images brings the Flatcar snapshot with the one selector of every resource kind: snapshot IDs (global in the account: the key "*" is every region), or a pattern for the description. Optional: without it the driver finds the snapshot described flatcar-&lt;channel&gt;-&lt;version&gt;-&lt;arch&gt;. Snapshots cannot be shared between accounts, so SCarpenter never creates them: images take use only, and the snapshot must say which Flatcar release it is (by its description) or the region's images are not ready. |
-| `networks` | [object](#specvendorsvultrresourcesnetworks) |  | networks (VPCs) nodes are attached to, per region. Without one nodes use the public network only. isolation: nodeclass needs a VPC. |
+| `networks` | [object](#specvendorsvultrresourcesnetworks) |  | networks (VPCs) nodes are attached to, per region. isolation nodeclass or run (the default) puts every node in the region's VPC: the one brought with use, else one SCarpenter creates and owns. isolation none attaches no VPC (the nodes use the public network only) and then refuses use and create. |
 
 ### `spec.vendors.vultr.resources.firewallGroups`
 
@@ -2029,7 +2029,7 @@ Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner
 
 ### `spec.vendors.vultr.resources.networks`
 
-networks (VPCs) nodes are attached to, per region. Without one nodes use the public network only. isolation: nodeclass needs a VPC.
+networks (VPCs) nodes are attached to, per region. isolation nodeclass or run (the default) puts every node in the region's VPC: the one brought with use, else one SCarpenter creates and owns. isolation none attaches no VPC (the nodes use the public network only) and then refuses use and create.
 
 Validation: tags are not supported: Vultr VPCs have a description and no tags (`!has(self.use) \|\| !has(self.use.tags)`).
 

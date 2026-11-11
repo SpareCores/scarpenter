@@ -5170,8 +5170,10 @@ spec:
                                 0) <= 1'
                           networks:
                             description: |-
-                              networks (VPCs) nodes are attached to, per region. Without one nodes use
-                              the public network only. isolation: nodeclass needs a VPC.
+                              networks (VPCs) nodes are attached to, per region. isolation nodeclass or
+                              run (the default) puts every node in the region's VPC: the one brought with
+                              use, else one SCarpenter creates and owns. isolation none attaches no VPC
+                              (the nodes use the public network only) and then refuses use and create.
                             properties:
                               create:
                                 description: create lets SCarpenter create and own
