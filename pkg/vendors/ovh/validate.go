@@ -110,6 +110,9 @@ func validateResource(kind vendors.ResourceKind, caps vendors.SelectorCaps, r *c
 	}
 	path := "vendors.ovh.resources." + string(kind) + ".use"
 	errs := selector.Validate(Name, kind, path, r.Use, caps)
+	if kind == KindImages {
+		errs = append(errs, validateImageOwner(path, r.Use)...)
+	}
 	for region, ids := range r.Use.IDs {
 		if region != selector.RegionAll && !regionPattern.MatchString(region) {
 			errs = append(errs, fmt.Errorf("%s.ids: %q is not a region (an OVH region name of the Keystone "+
@@ -122,6 +125,29 @@ func validateResource(kind vendors.ResourceKind, caps vendors.SelectorCaps, r *c
 		}
 	}
 	return errs
+}
+
+// validateImageOwner refuses what Glance's one owner filter cannot express
+// rather than ignore it: several owners, and "self" next to a visibility filter
+// other than private ("self" is applied as the visibility private: the project
+// ID is not known to the selector).
+func validateImageOwner(path string, use *common.ResourceUse) []error {
+	if use.Match == nil {
+		return nil
+	}
+	owners := use.Match.Owner
+	if len(owners) > 1 {
+		return []error{fmt.Errorf("%s.match.owner: OVH's Glance filters on one owner, not %v", path, owners)}
+	}
+	if len(owners) == 1 && owners[0] == "self" {
+		for _, f := range use.Filters {
+			if f.Name == filterVisibility && !slices.Equal(f.Values, []string{"private"}) {
+				return []error{fmt.Errorf("%s.match.owner: self is the visibility private and cannot be combined "+
+					"with the visibility filter %v; name the project ID as the owner instead", path, f.Values)}
+			}
+		}
+	}
+	return nil
 }
 
 func validateInbound(path string, in *common.Inbound) []error {

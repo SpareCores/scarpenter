@@ -63,6 +63,20 @@ func TestValidateNodeClass(t *testing.T) {
 		"profile policy": {func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Profiles.Placement = map[string]v1alpha1.PlacementProfile{"p": {OVH: &ovhapi.Placement{ServerGroup: &ovhapi.ServerGroup{Policy: "soft"}}}}
 		}, "not affinity or anti-affinity"},
+		"two image owners": {func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Vendors.OVH.Resources = &ovhapi.Resources{Images: use(common.ResourceUse{Name: "x",
+				Match: &common.ResourceMatch{Owner: []string{"self", "0a1b2c3d4e5f60718293a4b5c6d7e8f9"}}})}
+		}, "one owner"},
+		"self with a visibility": {func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Vendors.OVH.Resources = &ovhapi.Resources{Images: use(common.ResourceUse{Name: "x",
+				Match:   &common.ResourceMatch{Owner: []string{"self"}},
+				Filters: []common.ResourceFilter{{Name: "visibility", Values: []string{"shared"}}}})}
+		}, "self is the visibility private"},
+		"self with private": {func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Vendors.OVH.Resources = &ovhapi.Resources{Images: use(common.ResourceUse{Name: "x",
+				Match:   &common.ResourceMatch{Owner: []string{"self"}},
+				Filters: []common.ResourceFilter{{Name: "visibility", Values: []string{"private"}}}})}
+		}, ""},
 		"image id": {func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Vendors.OVH.Resources = &ovhapi.Resources{Images: use(common.ResourceUse{IDs: ids("GRA11", "ami-123")})}
 		}, "not a valid ID"},

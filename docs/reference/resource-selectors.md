@@ -587,7 +587,7 @@ Nova `https://docs.openstack.org/api-ref/compute/`.
 | `name` | `name` (exact; a glob is client side) | server (glob: client) |
 | `tags` | `tag`: the Glance tag string `k=v` (repeatable, AND); `"*"` means a tag that starts with `k=` | server (`"*"`: client) |
 | `match.architecture` | the image property `architecture` (`x86_64`, `aarch64`); an image without the property never matches | client |
-| `match.owner` | `owner` (a project ID); `self` is the credentials' own private images | server |
+| `match.owner` | `owner` (a project ID); `self` is the credentials' own private images; one value only, and `self` not with a `visibility` filter other than `private` (refused) | server |
 | `match.state` | `status` (`active` is available; `queued`, `saving`, `uploading`, `importing` are pending; the rest failed); the default is available | server (the default), client |
 | `match.createdAfter`, `match.createdBefore` | `created_at` | client |
 
