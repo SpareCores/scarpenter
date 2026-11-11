@@ -30,6 +30,9 @@ Available:
 - [**Set up AWS credentials**](aws-credentials.md) (plan 09) — the IAM policy, web
   identity federation from the cluster's ServiceAccount issuer, EKS Pod Identity,
   static keys, the account's Spot service-linked role.
+- [**Flatcar snapshots on Hetzner Cloud**](hcloud-images.md) (plan 15) — make the
+  snapshots the `hcloud` driver boots, the label convention, and how the driver finds
+  and checks them.
 
 - [**Set up Vultr credentials**](vultr-credentials.md) (plan 20) — the API key and
   its IP allowlist, the Secret and the chart values, and the snapshot of the pinned

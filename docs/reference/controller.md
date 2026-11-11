@@ -55,6 +55,8 @@ The last column names the plan that introduced the flag.
 | `--resource-full-sweep-every` | `SCARPENTER_RESOURCE_FULL_SWEEP_EVERY` | `10` | Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed resources of every region of the driver are swept, not only of the regions in use. **Cost:** a full sweep asks the vendor, for every region the account can use, which managed resources exist (for AWS: a few `Describe*` calls per resource kind and region): read-only and free, but rate limited, and it runs on the leader only. At the default `--gc-interval` of 2m it happens every 20 minutes; raise the value to make it rarer, `1` makes every sweep a full one. | plan 06 |
 | `--resource-check-interval` | `SCARPENTER_RESOURCE_CHECK_INTERVAL` | `30s` | How often the vendor resources of each SCNodeClass are checked (`status.vendors.<vendor>.resources`, `ResourcesReady`, preCreate). | plan 06 |
 | (AWS only) | `SCARPENTER_AWS_IPV4_PRICE` | `0.005` | Price of a public IPv4 address per hour in USD, used in the price delta of AWS offerings. **An approximation, not a Keeper price** (Keeper has no IPv4 price): AWS charges 0.005 in every commercial region since 2024-02-01. `0` means free; negative, NaN and infinite values are refused at startup. The driver logs the value it uses. Environment only. | plan 08 |
+| `--hcloud-server-limit` | `SCARPENTER_HCLOUD_SERVER_LIMIT` | `0` (unknown) | The server limit of the Hetzner Cloud project, as the Console shows it (the API does not report it). With it the driver reports one global quota bucket and headroom is known before a launch; without it only the API's own refusal ends a launch. Negative values are refused. | plan 15 |
+| (hcloud only) | `SCARPENTER_HCLOUD_IPV4_PRICE` | `0.0007` | Price of a Primary IPv4 address per hour in USD, used in the price delta of Hetzner offerings. **An approximation, not a Keeper price** (Keeper has none): 0.50 EUR a month over 730 hours. `0` means free; negative, NaN and infinite values are refused at startup. Environment only. | plan 15 |
 | (Vultr only) | `VULTR_API_KEY` | (none) | The API key of the Vultr account. Required when `--vendors` has `vultr`: the controller refuses to start without it. Environment only; the chart wires it from a Secret. [Vultr credentials](../how-to-guides/vultr-credentials.md). | plan 20 |
 | (Vultr only) | `SCARPENTER_VULTR_AVAILABILITY_TTL` | `5m` | How long the stock of a Vultr region (`GET /v2/regions/{id}/availability`) is cached by the driver. Environment only. | plan 20 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region the account's region list (`DescribeRegions`) is read from; the AWS driver's other calls go to the region they concern ([AWS driver](aws-driver.md)). | plan 08 |
@@ -73,6 +75,7 @@ must be positive.
 | `MEMORY_LIMIT`, `CPU_REQUESTS` | Core's: the container's memory limit in bytes (the garbage collector's soft limit is 90 % of it) and CPU request in millicores (sizes core's concurrency). The chart derives both from the container's resources. |
 | `DISABLE_LEADER_ELECTION` | Core's: `true` runs without leader election; the chart sets it with `leaderElection.enabled=false`. |
 | `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ACCESS_KEY_ID`, ... | The AWS SDK's own: the [credential modes](../how-to-guides/aws-credentials.md) of the chart set them. Without `AWS_REGION` the driver uses `--aws-home-region` as the SDK's default region. |
+| `HCLOUD_TOKEN`, `HCLOUD_ENDPOINT` | The Hetzner Cloud driver's: the API token of the project (a Secret; the chart's `vendors.hcloud.tokenSecretRef`) and, for tests, the API URL. Required when `hcloud` is in `--vendors`. See the [Hetzner Cloud driver](hcloud-driver.md). |
 
 Core's other flags and environment variables (`--log-level`/`LOG_LEVEL`,
 `--metrics-port`/`METRICS_PORT` (8080), `--health-probe-port`/`HEALTH_PROBE_PORT`
@@ -98,12 +101,15 @@ and that the controller's own parser accepts what the chart renders.
 | `cluster.dns` | `--cluster-dns` | A list of IPs, passed as it is. **Empty (the default): the controller finds the DNS Service itself** (the chart looks nothing up); `[none]` gives the nodes no `clusterDNS`. |
 | `cluster.domain` | `--cluster-domain` | |
 | `kubeletClientCA.source`, `inline`, `configMap.*`, `secret.*` | `--kubelet-client-ca-file` | `none`, `inline`, an existing `configMap` or `secret`, or `extensionApiserverAuthentication` (copies key `client-ca-file` of `kube-system/extension-apiserver-authentication` into a ConfigMap of the release with Helm's `lookup`; the API server's client CA: the k3s client CA, the cluster CA on kubeadm and EKS). kubeadm and EKS need none; on k3s without it `kubectl logs` and `exec` fail with 401. |
-| `vendors.aws.enabled`, `vendors.extra` | `--vendors` | `aws` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
+| `vendors.aws.enabled`, `vendors.hcloud.enabled`, `vendors.extra` | `--vendors` | `aws` and `hcloud` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
 | `vendors.aws.homeRegion` | `--aws-home-region` | |
 | `vendors.aws.region` | `AWS_REGION` | Default: the home region, else `us-east-1`. |
 | `vendors.aws.ipv4Price` | `SCARPENTER_AWS_IPV4_PRICE` | An approximation, see the table above. |
 | `vendors.aws.credentials.mode`, `webIdentity.*`, `secret.*` | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, a projected ServiceAccount token, `AWS_ACCESS_KEY_ID`, ... | [AWS credentials](../how-to-guides/aws-credentials.md). `webIdentity` needs `roleArn`, `secret` an `existingSecret`. |
-| `vendors.vultr.enabled` | `--vendors` | Adds `vultr` after `aws`. Requires `credentials.secret.existingSecret`. |
+| `vendors.hcloud.tokenSecretRef.name`, `key` | `HCLOUD_TOKEN` | The Secret that holds the project's API token ([Hetzner Cloud driver](hcloud-driver.md)); the name is required when the driver is enabled. |
+| `vendors.hcloud.serverLimit` | `--hcloud-server-limit` | `0`: unknown (flag left out). |
+| `vendors.hcloud.ipv4Price` | `SCARPENTER_HCLOUD_IPV4_PRICE` | An approximation, see the table above. |
+| `vendors.vultr.enabled` | `--vendors` | Adds `vultr` after `aws` and `hcloud`. Requires `credentials.secret.existingSecret`. |
 | `vendors.vultr.credentials.secret.existingSecret`, `key` | `VULTR_API_KEY` | The API key from the Secret (key default `apiKey`); the only credential mode. [Vultr credentials](../how-to-guides/vultr-credentials.md). |
 | `vendors.vultr.availabilityTTL` | `SCARPENTER_VULTR_AVAILABILITY_TTL` | |
 | `keeper.url` | `--keeper-url` | |
