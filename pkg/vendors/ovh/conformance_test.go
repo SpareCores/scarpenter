@@ -258,12 +258,24 @@ func TestMarkerRoundTrip(t *testing.T) {
 	tags := map[vendors.TagKey]string{
 		vendors.TagCluster: "c", vendors.TagNodeClass: "n", vendors.TagManagedBy: "scarpenter", vendors.TagResource: "securityGroups",
 	}
-	desc, err := encodeMarker(tags)
+	desc, err := encodeMarker(tags, time.Unix(1700000000, 0))
 	if err != nil || !strings.HasPrefix(desc, markerPrefix) {
 		t.Fatal(desc, err)
 	}
 	if got := decodeMarker(desc); !maps.Equal(got, tags) {
 		t.Errorf("round trip: %v", got)
+	}
+	if at, ok := MarkerCreated(desc); !ok || at.Unix() != 1700000000 {
+		t.Errorf("the creation time of the marker: %v %v", at, ok)
+	}
+	if _, ok := MarkerCreated("user group"); ok {
+		t.Error("a user's description has no creation time")
+	}
+	if _, ok := MarkerCreated(markerPrefix + `{"created":"soon"}`); ok {
+		t.Error("a creation time that is not a number")
+	}
+	if got := MarkerTags(desc); !maps.Equal(got, tags) {
+		t.Errorf("MarkerTags: %v", got)
 	}
 	for _, bad := range []string{"", "user group", markerPrefix + "{", markerPrefix + "[]"} {
 		if got := decodeMarker(bad); len(got) != 0 {
@@ -271,7 +283,7 @@ func TestMarkerRoundTrip(t *testing.T) {
 		}
 	}
 	tags[vendors.TagNodeClass] = strings.Repeat("n", 300)
-	if _, err := encodeMarker(tags); vendors.CodeOf(err) != CodeMarkerTooLong {
+	if _, err := encodeMarker(tags, time.Unix(1700000000, 0)); vendors.CodeOf(err) != CodeMarkerTooLong {
 		t.Errorf("an oversized marker: %v", err)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,13 +83,18 @@ func isGroupKind(k vendors.ResourceKind) bool {
 	return k == KindSecurityGroups || k == KindRunSecurityGroups
 }
 
-func encodeMarker(tags map[vendors.TagKey]string) (string, error) {
+// markerCreated is the key of the creation time (Unix seconds) in a marker: Neutron has
+// none for a security group, and the sweeper of the L5 lane needs an age.
+const markerCreated = "created"
+
+func encodeMarker(tags map[vendors.TagKey]string, now time.Time) (string, error) {
 	m := map[string]string{}
 	for _, k := range vendors.ResourceTagKeys {
 		if v, ok := tags[k]; ok {
 			m[string(k)] = v
 		}
 	}
+	m[markerCreated] = strconv.FormatInt(now.Unix(), 10)
 	b, err := json.Marshal(m)
 	if err != nil {
 		return "", err
@@ -101,6 +107,28 @@ func encodeMarker(tags map[vendors.TagKey]string) (string, error) {
 	}
 	return s, nil
 }
+
+// MarkerCreated reads the creation time a managed security group's description
+// records; false when the description is not a marker or has none.
+func MarkerCreated(desc string) (time.Time, bool) {
+	rest, ok := strings.CutPrefix(desc, markerPrefix)
+	if !ok {
+		return time.Time{}, false
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(rest), &m); err != nil {
+		return time.Time{}, false
+	}
+	n, err := strconv.ParseInt(m[markerCreated], 10, 64)
+	if err != nil || n <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(n, 0).UTC(), true
+}
+
+// MarkerTags reads the ownership tags back from a security group's description (nil
+// when it is not a marker): what the sweeper of the L5 lane selects by.
+func MarkerTags(desc string) map[vendors.TagKey]string { return decodeMarker(desc) }
 
 // decodeMarker reads the tags back from a security group's description; nil when
 // the description is not a marker.
@@ -309,7 +337,7 @@ func (d *Driver) ensureSecurityGroup(
 				fmt.Errorf("the security group parameters: %w", err))
 		}
 	}
-	desc, err := encodeMarker(spec.Tags)
+	desc, err := encodeMarker(spec.Tags, d.clock.Now())
 	if err != nil {
 		return vendors.ResourceRef{}, false, err
 	}
