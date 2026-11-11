@@ -297,6 +297,38 @@ func TestKindsThatLiveInANetworkAreResolvedWithinIt(t *testing.T) {
 	}
 }
 
+func TestTheCheckConstrainsToAnExistingManagedNetworkAsALaunchDoes(t *testing.T) {
+	// Nothing is tagged or default for the subnets: a launch creates the managed
+	// network and resolves the groups inside it. Once that network exists the check
+	// must constrain the groups the same way, not list a tagged group of another one.
+	nc := class("c", nil)
+	e := newEnv(t, envOpts{classes: []*v1alpha1.SCNodeClass{nc}})
+	net, err := e.require(nc, region1, subnets())
+	if err != nil || len(net) != 1 || !net[0].Managed {
+		t.Fatalf("the managed network: %+v, %v", net, err)
+	}
+	e.drv.Existing = []resourcestest.Existing{
+		{Kind: resourcestest.SecurityGroups, Region: region1, ID: "sg-other", Network: "vpc-other", Tags: optIn},
+		{Kind: resourcestest.SecurityGroups, Region: region1, ID: "sg-in", Network: net[0].ID, Tags: optIn}}
+	refs, err := e.require(nc, region1, vendors.ResourceRequest{Kind: resourcestest.SecurityGroups, Network: net[0].ID})
+	if err != nil || len(refs) != 1 || refs[0].ID != "sg-in" {
+		t.Fatalf("a launch into the managed network: %+v, %v", refs, err)
+	}
+	rep := e.engine.Check(t.Context(), nc, "aws", []string{region1})
+	if bad, why := rep.NotReady(); len(bad) != 0 {
+		t.Fatalf("not ready: %v", why)
+	}
+	var groups []string
+	for _, r := range rep.Resources {
+		if r.Kind == string(resourcestest.SecurityGroups) {
+			groups = append(groups, r.ID)
+		}
+	}
+	if !slices.Equal(groups, []string{"sg-in"}) {
+		t.Errorf("the groups of the check: %v, want [sg-in] as at a launch", groups)
+	}
+}
+
 func TestAGroupOutsideTheNetworkOfTheLaunchSkipsOnlyItsZone(t *testing.T) {
 	nc := class("c", &aws.Resources{SecurityGroups: &common.Resource{Use: &common.ResourceUse{Name: "sg"}}})
 	e := newEnv(t, envOpts{classes: []*v1alpha1.SCNodeClass{nc}})

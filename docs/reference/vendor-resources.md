@@ -141,8 +141,9 @@ found them: the core adds `match.network` to the selector of steps 1 and 2 where
 it (an explicit `match.network` of the NodeClass is kept) and filters a default by the network the
 driver reports on each resource. At a launch the driver names the network it chose
 (`ResourceRequest.Network`: the VPC of the subnet), and a resource outside it skips that zone
-only. While the network does not exist yet (a managed one is created on demand) nothing constrains
-the dependent kind.
+only. Where the network is the managed one, the status check constrains the dependent kind to it
+once it exists, as a launch does; while it does not exist yet (it is created on demand) nothing
+constrains the dependent kind.
 
 The failure of step 5 names the kind and what was tried, for a launch and the status condition
 alike: `subnets: no resource found; tried the opt-in tag scarpenter.sparecores.com/use=true: nothing

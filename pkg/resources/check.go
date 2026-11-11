@@ -73,6 +73,15 @@ func (e *Engine) Check(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor str
 	c := &checker{e: e, nc: nc, vendor: vendor, drv: drv, mr: mr, kinds: kinds, cfgs: cfgs, rep: &rep,
 		seen: map[string]bool{},
 		refs: map[vendors.ResourceKind][]vendors.ResourceRef{}}
+	// The managed resources are listed first: a kind that lives in a network is
+	// constrained to the managed network that already exists, as at a launch.
+	managed, err := mr.List(ctx, regions, map[vendors.TagKey]string{
+		vendors.TagCluster: e.opts.ClusterName, vendors.TagManagedBy: vendors.ManagedByValue,
+	})
+	if err != nil {
+		rep.Errors = append(rep.Errors, fmt.Errorf("listing the managed %s resources: %w", vendor, err))
+	}
+	c.managed = managed
 	for _, region := range regions {
 		c.zones = nil
 		problems, failed := c.region(ctx, region)
@@ -84,12 +93,6 @@ func (e *Engine) Check(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor str
 		}
 	}
 
-	managed, err := mr.List(ctx, regions, map[vendors.TagKey]string{
-		vendors.TagCluster: e.opts.ClusterName, vendors.TagManagedBy: vendors.ManagedByValue,
-	})
-	if err != nil {
-		rep.Errors = append(rep.Errors, fmt.Errorf("listing the managed %s resources: %w", vendor, err))
-	}
 	for _, r := range managed {
 		if r.Managed && strings.HasPrefix(r.Name, NamePrefix(e.opts.ClusterName)) && c.uses(r) {
 			c.add(r.Kind, r.Region, r, v1alpha1.ResourceSourceCreated)
@@ -133,6 +136,8 @@ type checker struct {
 	zones map[string]string
 	// refs are the resources found in the region being checked, by kind.
 	refs map[vendors.ResourceKind][]vendors.ResourceRef
+	// managed are the managed resources of the cluster in the regions checked.
+	managed []vendors.ResourceRef
 }
 
 // uses says whether the NodeClass has anything to do with a managed resource:
@@ -247,7 +252,7 @@ func (c *checker) kind(
 	ctx context.Context, ks vendors.KindSpec, cfg common.Resource, region string,
 ) (problem string, transient bool) {
 	e := c.e
-	networks := c.networks(ks)
+	networks := c.networks(ks, region)
 	found := func(src v1alpha1.ResourceSource, refs []vendors.ResourceRef) {
 		for _, r := range refs {
 			c.add(ks.Kind, region, r, src)
@@ -316,13 +321,32 @@ func (c *checker) kind(
 }
 
 // networks are the networks the resources of the provider kind were resolved to
-// in the region, for a kind that lives in a network; none until the provider's
-// resource exists (a managed network is created on demand).
-func (c *checker) networks(ks vendors.KindSpec) []string {
+// in the region, for a kind that lives in a network. Where the provider kind
+// resolved to nothing a launch creates (or adopts) the managed network of the
+// region, so the dependent kind is constrained to it once it exists, as at a
+// launch; none while it does not exist (it is created on demand).
+func (c *checker) networks(ks vendors.KindSpec, region string) []string {
 	if ks.InNetwork == "" {
 		return nil
 	}
-	return networksOf(c.refs[ks.InNetwork])
+	if found := networksOf(c.refs[ks.InNetwork]); len(found) > 0 {
+		return found
+	}
+	cfg := c.cfgs[string(ks.InNetwork)]
+	if cfg.Use != nil || cfg.Forbid {
+		return nil
+	}
+	// The name a launch's Ensure of the provider kind gives it (no zone, no key).
+	name := ResourceName(c.e.opts.ClusterName, ks.InNetwork, region, "", "")
+	for _, r := range c.managed {
+		if r.Kind == ks.InNetwork && r.Region == region && r.Managed && r.Name == name {
+			if r.Network != "" {
+				return []string{r.Network}
+			}
+			return []string{r.ID}
+		}
+	}
+	return nil
 }
 
 // perZone checks a use block with {zone}: it is expanded for every zone of the
