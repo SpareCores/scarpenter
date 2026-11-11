@@ -29,7 +29,7 @@ func TestCreateServerGolden(t *testing.T) {
 		Tags:           map[vendors.TagKey]string{vendors.TagCluster: "c", vendors.TagManagedBy: "scarpenter"},
 		ExtraTags:      map[string]string{"team": "infra"},
 		IdempotencyKey: "uid-1", PublicIPv4: true, PublicIPv6: false,
-		NetworkID: 11, FirewallID: 12, PlacementGroupID: 13, VolumeIDs: []int64{21, 22}, SSHKeyID: 5,
+		NetworkID: 11, FirewallIDs: []int64{12}, PlacementGroupID: 13, VolumeIDs: []int64{21, 22}, SSHKeyID: 5,
 	}
 	opts, err := hcloud.BuildCreateOpts(spec)
 	require.NoError(t, err)

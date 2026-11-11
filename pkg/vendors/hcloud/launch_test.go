@@ -58,7 +58,7 @@ func TestBuildCreateOptsMinimal(t *testing.T) {
 
 func TestBuildCreateOptsFull(t *testing.T) {
 	s := baseSpec()
-	s.PublicIPv6, s.NetworkID, s.FirewallID, s.PlacementGroupID, s.VolumeIDs, s.SSHKeyID = true, 11, 12, 13, []int64{21, 22}, 5
+	s.PublicIPv6, s.NetworkID, s.FirewallIDs, s.PlacementGroupID, s.VolumeIDs, s.SSHKeyID = true, 11, []int64{12}, 13, []int64{21, 22}, 5
 	o, err := BuildCreateOpts(s)
 	if err != nil {
 		t.Fatal(err)

@@ -47,7 +47,9 @@ type LaunchSpec struct {
 	// PublicIPv4 and PublicIPv6 map to public_net; at least one is required.
 	PublicIPv4, PublicIPv6 bool
 	// The IDs of the resolved or created resources; zero means none.
-	NetworkID, FirewallID, PlacementGroupID int64
+	NetworkID, PlacementGroupID int64
+	// FirewallIDs are applied to the server's public interface at create.
+	FirewallIDs []int64
 	// VolumeIDs are the pre-created volumes (attached at create, not mounted by
 	// Hetzner: automount is false).
 	VolumeIDs []int64
@@ -90,8 +92,8 @@ func BuildCreateOpts(s LaunchSpec) (hc.ServerCreateOpts, error) {
 	if s.NetworkID != 0 {
 		o.Networks = []*hc.Network{{ID: s.NetworkID}}
 	}
-	if s.FirewallID != 0 {
-		o.Firewalls = []*hc.ServerCreateFirewall{{Firewall: hc.Firewall{ID: s.FirewallID}}}
+	for _, id := range s.FirewallIDs {
+		o.Firewalls = append(o.Firewalls, &hc.ServerCreateFirewall{Firewall: hc.Firewall{ID: id}})
 	}
 	if s.PlacementGroupID != 0 {
 		o.PlacementGroup = &hc.PlacementGroup{ID: s.PlacementGroupID}

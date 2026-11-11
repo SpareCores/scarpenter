@@ -197,6 +197,23 @@ func (p *Project) RootDiskForType(ctx context.Context, apiReference string) (int
 	return 0, false, nil
 }
 
+// cachedRootDisk is the root disk of a server type in bytes from the cached
+// table, without a call: ok is false before the table is loaded and for an
+// unknown type.
+func (p *Project) cachedRootDisk(apiReference string) (int64, bool) {
+	p.typesMu.Lock()
+	defer p.typesMu.Unlock()
+	if !p.types.ok {
+		return 0, false
+	}
+	for _, st := range p.types.v {
+		if st.Name == apiReference && st.Disk > 0 {
+			return int64(st.Disk) * 1_000_000_000, true
+		}
+	}
+	return 0, false
+}
+
 // FindImage resolves the Flatcar snapshot of a pinned release by the label
 // convention (os=flatcar, flatcar-channel, flatcar-version) and the
 // architecture: exactly one. None is NotFound (code ImageNotFound), several are
@@ -543,8 +560,9 @@ func (p *Project) GlobalQuotas(ctx context.Context) (*vendors.QuotaSnapshot, err
 
 // Consumption implements vendors.QuotaReporter: every type consumes one server
 // of the bucket; false (unknown, reactive) without a configured limit.
-func (p *Project) Consumption(string, string) ([]vendors.Consumption, bool) {
-	if p.serverLimit <= 0 {
+func (p *Project) Consumption(_, capacityType string) ([]vendors.Consumption, bool) {
+	// Hetzner has no spot capacity: only on-demand consumes the bucket.
+	if p.serverLimit <= 0 || capacityType != vendors.CapacityOnDemand {
 		return nil, false
 	}
 	return []vendors.Consumption{{Bucket: ServerLimitBucket, Amount: 1}}, true

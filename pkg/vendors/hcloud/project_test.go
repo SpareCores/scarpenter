@@ -328,7 +328,7 @@ func TestCreateWithResources(t *testing.T) {
 	}
 	k := e.f.AddSSHKey("ops")
 	s := e.spec("nc-1")
-	s.NetworkID, s.FirewallID, s.PlacementGroupID, s.VolumeIDs, s.SSHKeyID, s.PublicIPv6 = nw.ID, fw.ID, pg.ID, []int64{vol.ID}, k.ID, true
+	s.NetworkID, s.FirewallIDs, s.PlacementGroupID, s.VolumeIDs, s.SSHKeyID, s.PublicIPv6 = nw.ID, []int64{fw.ID}, pg.ID, []int64{vol.ID}, k.ID, true
 	inst, err := e.p.Create(ctx, s)
 	if err != nil {
 		t.Fatal(err)

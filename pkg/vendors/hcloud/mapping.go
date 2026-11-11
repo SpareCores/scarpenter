@@ -241,6 +241,9 @@ func ToInstance(s *hc.Server, fallbackLocation string) *vendors.Instance {
 		CapacityType: vendors.CapacityOnDemand,
 		State:        State(s.Status),
 		CreatedAt:    s.Created,
+		// Hetzner bills from the completed creation, a little after created: a
+		// boundary computed from it falls early, the safe side (plan 15, billing).
+		BillingStart: s.Created,
 		Tags:         TagsOf(s.Labels),
 		Addresses:    Addresses(s),
 	}
