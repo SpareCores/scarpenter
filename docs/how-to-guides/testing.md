@@ -880,7 +880,8 @@ and a canary (`test/canary/azure.go`, read-only through a guard that refuses eve
 in-memory ARM, the selftest. The identity is GitHub's OIDC straight to Azure, with the federated token refreshed in
 the background for the controller. **The lane is not in `test/e2e-vendors.txt`**: a line may be added only when every
 cost guard (an Allowed-SKU and an Allowed-locations policy on the lane's resource group, the tags, the sweeper, the
-quota ceiling, the read-only canary role) is true on a live account, and nobody has verified that yet.
+quota ceiling and a budget alert, the read-only canary role) is true on a live account, and nobody has verified that yet
+(see [Azure](testing-and-releasing.md#azure)); the lane's selftest checks that the line is absent.
 Nothing in the lane has run against Azure.
 
 ### Artifact fixtures

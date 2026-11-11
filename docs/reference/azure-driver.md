@@ -116,7 +116,9 @@ values; `TestConformance` runs the shared suite over every active Azure type of 
 kind. The suite's resolution-order cases assume a vendor default resource; Azure has none, so `resolution_test.go` runs
 ADR-022's order through the engine instead. The L5 lane is `test/e2e-azure/`, the sweeper `pkg/vendors/azure/sweep`
 and the canary `test/canary/azure.go`; see [Test and develop](../how-to-guides/testing.md#the-l5-lane). They are validated
-statically only.
+statically only, and the lane is not in `test/e2e-vendors.txt` until its cost guards (the size and location policies on
+the lane's resource group, the quotas and a budget alert, the sweeper with the real role, the read-only canary role) are
+verified on a live account: [Per-vendor cost guards](../how-to-guides/testing-and-releasing.md#per-vendor-cost-guards).
 
 ## What is not verified against Azure yet
 

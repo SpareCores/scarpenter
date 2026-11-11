@@ -373,6 +373,18 @@ is the sweeper (environment `e2e-sweeper`; never the templates labelled `scarpen
 and the failing teardown are AWS's, the canary's read-only guard is `test/canary/upcloud_guard.go` (an UpCloud
 token cannot be read-only), and the environment `e2e`'s required reviewers approve every run.
 
+**The Azure lane's guards** (plan 17; statically validated, not yet run live; **not yet a line of
+`test/e2e-vendors.txt`**: none of them has been shown on a live account, see [Azure](#azure)): the Azure Policy
+"Allowed virtual machine size SKUs" (deny) on the lane's resource group, from the sizes of
+`test/e2e-azure/defaults.sh` (`ci-policy.sh` prints it), is the type deny; "Allowed locations" and the CI
+identity's scope (that resource group only) keep the lane in its region; the run tag is
+`scarpenter-cluster=scarpenter-ci-<run id>` with `scarpenter-ci-created-at` (inline disks by their name prefix);
+`e2e-azure-sweeper.yml` is the sweeper (environment `e2e-sweeper`); the run time limits and the failing teardown
+are AWS's; the vCPU quotas (regional and the lane's families 16, Spot 4, Standard public IPs) are the ceiling,
+with a budget alert on the subscription; the canary's identity has a read-only custom role
+(`canary-policy.sh`) and a guard that refuses every write (`test/canary/azure_guard.go`); the identities are
+federated (GitHub OIDC, no secret), and the environment `e2e`'s required reviewers approve every run.
+
 ## Adding a vendor lane
 
 Eight or more vendors will follow AWS (OCI is next); the mechanics are one directory, one
@@ -419,6 +431,10 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
 - **UpCloud** (vendor `upcloud`): the `scarpenter-ci` sub-account with low resource limits and a
   spending alert, both set and checked before `upcloud` is added to `test/e2e-vendors.txt`, the secret
   `UPCLOUD_TOKEN` and the Flatcar templates. Details in [UpCloud](#upcloud).
+- **Azure** (vendor `azure`): a dedicated resource group in one region with the size and location
+  policies, the quotas and a budget alert, the two user-assigned managed identities with their
+  federated credentials, all set and checked before `azure` is added to `test/e2e-vendors.txt`.
+  Details in [Azure](#azure).
 - **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, both set and checked before `hcloud` is added to `test/e2e-vendors.txt`, and the secret
   `HCLOUD_TOKEN` in the environments `e2e` and `e2e-sweeper` (read-write) and `e2e-canary` (read-only); the optional
   variable `E2E_HCLOUD_LOCATIONS`. Details in [Test and develop](testing.md#the-l5-lane-of-hetzner-cloud).
@@ -461,6 +477,33 @@ The sweeper (`e2e-aws-sweeper.yml`) runs in the environment `e2e-sweeper`, not `
 reviewers of `e2e` would make every scheduled sweep wait for an approval. What keeps that
 environment safe without reviewers is its limit to `main`: the only code that reaches the role
 through it is the reviewed sweeper of `main`.
+
+### Azure
+
+The Azure lane ([The L5 lane of Azure](testing.md#the-l5-lane-of-azure)) uses GitHub's OIDC
+straight to Azure (no secret), and it is **not yet a line of `test/e2e-vendors.txt`**: its
+guards are Azure Policy assignments, a role scope and quotas that only a live subscription can
+show. In the subscription of the CI infrastructure, the operator provides:
+
+- **A dedicated resource group** in the lane's region (its own VNet, subnet and network security
+  group), with the Azure Policy assignments "Allowed virtual machine size SKUs" (deny, the sizes of
+  `test/e2e-azure/defaults.sh`, printed by `ci-policy.sh`) and "Allowed locations"; the resource
+  providers `Microsoft.Compute` and `Microsoft.Network` registered; the vCPU quotas (Standard
+  regional and the lane's families 16, Spot 4) and Standard public IPs; a budget alert on the
+  subscription to a person; the marketplace terms of the Flatcar offer, if it has any.
+- **Two user-assigned managed identities**: the CI identity (the role of `ci-policy.sh`, scoped to the
+  resource group) with federated credentials for the subjects of `e2e` and `e2e-sweeper`, and the
+  read-only canary identity (the custom role of `canary-policy.sh`) for `e2e-canary`; the audience
+  `api://AzureADTokenExchange`.
+- **The variables** `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`
+  and `AZURE_REGION` in the environments (IDs, not secrets); `e2e-sweeper` and `e2e-canary` limited to
+  `main`; the tailnet items as for AWS.
+- **Before `azure` is added to `test/e2e-vendors.txt`**, the operator checks: a VM of a size outside the
+  pins is refused by the policy in the lane's resource group; a resource outside the region or the
+  resource group is refused; the quotas are no higher than the lane needs and the budget alert fires; the
+  sweeper, run with the real CI identity, deletes a planted tagged VM, NIC, public IP and disk; the canary
+  identity can read everything the canary reads and write nothing. Then the line is added, with the note
+  in `defaults.sh` and the selftest's check changed; until then the selftest checks that it is absent.
 
 ### UpCloud
 

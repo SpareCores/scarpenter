@@ -372,12 +372,10 @@ t_workflows_azure() { # the Azure steps: OIDC login with the variables, the toke
   grep -q 'Log in to Azure again for the teardown (azure)' "${w}/e2e-cloud.yml" &&
     grep -q 'AZURE_TOKEN_SECRET: scarpenter-system/azure-federated-token' "${w}/e2e-cloud.yml"
 }
-t_vendor_list() { # azure joins test/e2e-vendors.txt only when its cost guards are verified live; defaults.sh says so until then
-  if grep -qxF azure "${root}/test/e2e-vendors.txt"; then
-    ! grep -q 'THIS LANE IS NOT IN test/e2e-vendors.txt' "${here}/defaults.sh" || { echo "azure is in the list: remove the note in defaults.sh"; return 1; }
-  else
-    grep -q 'THIS LANE IS NOT IN test/e2e-vendors.txt' "${here}/defaults.sh" || { echo "azure is not in the list and defaults.sh does not say why"; return 1; }
-  fi
+t_vendor_list() { # the cost guards are not verified on a live account: the CI cost-guard policy is unmet, so azure stays out of the list
+  # Whoever verifies them adds the line, removes the note in defaults.sh and changes this check (plan 17, section 9).
+  ! grep -qxF azure "${root}/test/e2e-vendors.txt" || { echo "azure is in test/e2e-vendors.txt, but its cost guards are not verified"; return 1; }
+  grep -q 'THIS LANE IS NOT IN test/e2e-vendors.txt' "${here}/defaults.sh" || { echo "defaults.sh does not say why azure is not in the list"; return 1; }
 }
 t_no_secrets_in_scripts() { # nothing that looks like a real subscription ID, a key or a local path
   ! grep -rnE '(tskey-(auth|client)-[A-Za-z0-9]{6,}|/home/[a-z]+|/tmp/|(^|[^0-9a-fA-F-])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}([^0-9a-fA-F-]|$))' \
@@ -388,7 +386,7 @@ check "every scenario has a function and is named by the workflow" t_scenarios_d
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
 check "the workflows have the Azure steps: federated login, variables, token renewal, teardown login" t_workflows_azure
-check "azure is not in test/e2e-vendors.txt, and defaults.sh lists the guards still to verify" t_vendor_list
+check "azure is not in test/e2e-vendors.txt until its cost guards are verified, and defaults.sh lists them" t_vendor_list
 check "no real ID, key or local path in the lane's files" t_no_secrets_in_scripts
 
 # ---- the CI identity's policies ----------------------------------------------

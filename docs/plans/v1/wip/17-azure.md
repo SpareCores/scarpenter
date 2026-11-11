@@ -473,6 +473,20 @@ and `e2e-canary.yml`, `test/canary/azure.go` and a write-refusing client guard (
 `aws_guard.go`), one line in `test/e2e-vendors.txt` **only when every cost guard is
 true**. Not run in this plan.
 
+**The lane is not in `test/e2e-vendors.txt` yet.** The CI cost-guard policy
+(`docs/how-to-guides/testing-and-releasing.md`, "Per-vendor cost guards") is unmet until the
+guards below are shown on a live account. Before the line `azure` is added, the operator
+verifies that the "Allowed virtual machine size SKUs" policy (deny) on the lane's resource group
+refuses a size outside `defaults.sh` (the negative scenario provokes it); that "Allowed
+locations" and the CI identity's scope (that resource group only) keep the lane in its region;
+that the vCPU quotas (regional and the lane's families 16, Spot 4, Standard public IPs) are set
+no higher and a subscription budget alert reaches a person; that the sweeper deletes a dead
+run's VMs, NICs, public IPs and disks with the lane's real role; that the read-only canary role
+reads what the canary reads; and that `e2e-sweeper` and `e2e-canary` are limited to `main`, with
+the federated credentials' subjects as above. Until then the workflows do not run the lane by
+themselves, `make test-e2e-azure-dryrun` works, and the lane's selftest checks that the line is
+absent (the list in `test/e2e-azure/defaults.sh` is the same).
+
 **Identity.** GitHub OIDC straight to Azure: a federated credential (audience
 `api://AzureADTokenExchange`) on a user-assigned managed identity per environment, with
 the immutable subjects of `e2e`, `e2e-sweeper` (CI identity) and `e2e-canary` (read-only
