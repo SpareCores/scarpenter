@@ -189,7 +189,8 @@ func (r Rule) Assess(keeperRow bool, s Settings) Status {
 	case !keeperRow || r.Increment <= 0:
 		return no(ReasonNoKeeperData, "Keeper's vendor table has no billing increment for the vendor")
 	case r.Unsupported:
-		return no(ReasonUnsupportedShape, "a minimum of %s differs from the %s increment; only equal or minimum-only rules are supported",
+		return no(ReasonUnsupportedShape,
+			"a minimum of %s differs from the %s increment; only equal or minimum-only rules are supported",
 			r.Minimum, r.Increment)
 	case !r.Verified:
 		return no(ReasonUnverified, "the vendor's billing rule has not been verified on a live account")
@@ -208,7 +209,8 @@ func (r Rule) Assess(keeperRow bool, s Settings) Status {
 	case r.Minimum <= 0:
 		return no(ReasonPerSecondBilling, "billed per %s with no minimum", r.Increment)
 	case r.Minimum-margin < HoldFloor:
-		return no(ReasonMinimumTooShort, "a minimum of %s less the margin %s leaves under %s to hold", r.Minimum, margin, HoldFloor)
+		return no(ReasonMinimumTooShort,
+			"a minimum of %s less the margin %s leaves under %s to hold", r.Minimum, margin, HoldFloor)
 	}
 	return Status{Active: true, Reason: ReasonActive, Message: string(ShapeMinimumOnly), Shape: ShapeMinimumOnly,
 		Period: r.Minimum, Margin: margin}

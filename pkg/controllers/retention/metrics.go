@@ -13,6 +13,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const (
+	labelVendor = "vendor"
+	labelReason = "reason"
+)
+
 type metrics struct {
 	retainedNodes   *prometheus.GaugeVec
 	retainedSeconds *prometheus.CounterVec
@@ -28,12 +33,12 @@ type metrics struct {
 }
 
 func newMetrics(reg prometheus.Registerer) *metrics {
-	vendor := []string{"vendor"}
+	vendor := []string{labelVendor}
 	m := &metrics{
 		retainedNodes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "scarpenter_billing_retained_nodes",
 			Help: "Nodes held until the end of their billing period.",
-		}, []string{"vendor", "nodeclass"}),
+		}, []string{labelVendor, "nodeclass"}),
 		retainedSeconds: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_billing_retained_seconds_total",
 			Help: "Node seconds spent held until the end of the billing period.",
@@ -56,12 +61,13 @@ func newMetrics(reg prometheus.Registerer) *metrics {
 		}, vendor),
 		releasedPress: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_billing_released_under_pressure_total",
-			Help: "Held empty nodes released early for a launch blocked by a NodePool limit or a vendor quota, or by maxRetainedNodes.",
-		}, []string{"vendor", "scope"}),
+			Help: "Held empty nodes released early for a launch blocked by a NodePool limit or a vendor quota, " +
+				"or by maxRetainedNodes.",
+		}, []string{labelVendor, "scope"}),
 		skippedNodes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "scarpenter_billing_skipped_nodes",
 			Help: "Nodes billing retention leaves alone, by reason.",
-		}, []string{"vendor", "nodeclass", "reason"}),
+		}, []string{labelVendor, "nodeclass", labelReason}),
 		boundaryMissed: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_billing_boundary_missed_total",
 			Help: "Empty nodes still alive 30 s past their period boundary: the margin is too small.",

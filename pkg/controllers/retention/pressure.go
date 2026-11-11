@@ -9,6 +9,7 @@ package retention
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -193,7 +194,9 @@ func mayUsePool(pod *corev1.Pod, pool *karpv1.NodePool) bool {
 
 // releaseForLimits releases held empty nodes of every NodePool whose limits
 // leave no room for the pending pods.
-func (c *Controller) releaseForLimits(ctx context.Context, cands []*candidate, pending []*corev1.Pod, done map[string]bool) error {
+func (c *Controller) releaseForLimits(
+	ctx context.Context, cands []*candidate, pending []*corev1.Pod, done map[string]bool,
+) error {
 	byPool := map[string][]*candidate{}
 	for _, cand := range cands {
 		if cand.in.pool != nil && len(cand.in.pool.Spec.Limits) > 0 {
@@ -257,9 +260,7 @@ func (c *Controller) releaseForLimits(ctx context.Context, cands []*candidate, p
 func (c *Controller) releaseForQuota(ctx context.Context, cands []*candidate, pending []*corev1.Pod,
 	refusals map[QuotaScope]int64, done map[string]bool) error {
 	want := map[QuotaScope]int64{}
-	for s, cpu := range refusals {
-		want[s] = cpu
-	}
+	maps.Copy(want, refusals)
 	if c.opts.Quota != nil {
 		scopes, err := c.opts.Quota.BlockedScopes(ctx)
 		if err != nil {
@@ -315,7 +316,8 @@ func (c *Controller) releasing(ctx context.Context, s QuotaScope) int64 {
 		if t == nil || t.Value != ScopeQuota {
 			continue
 		}
-		if vendor, region, _, err := scope.ParseProviderID(n.Spec.ProviderID); err == nil && vendor == s.Vendor && region == s.Region {
+		vendor, region, _, err := scope.ParseProviderID(n.Spec.ProviderID)
+		if err == nil && vendor == s.Vendor && region == s.Region {
 			q := n.Status.Capacity[corev1.ResourceCPU]
 			cpu += q.Value()
 		}

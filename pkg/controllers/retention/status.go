@@ -101,7 +101,7 @@ func (s *StatusController) tally(ctx context.Context, nc *v1alpha1.SCNodeClass) 
 	}
 	for i := range claims.Items {
 		cl := &claims.Items[i]
-		if ref := cl.Spec.NodeClassRef; ref == nil || ref.Group != v1alpha1.Group || ref.Kind != "SCNodeClass" ||
+		if ref := cl.Spec.NodeClassRef; ref == nil || ref.Group != v1alpha1.Group || ref.Kind != nodeClassKind ||
 			ref.Name != nc.Name || cl.Status.NodeName == "" {
 			continue
 		}
@@ -139,10 +139,13 @@ func (s *StatusController) tally(ctx context.Context, nc *v1alpha1.SCNodeClass) 
 }
 
 // statuses is the per-vendor status of the NodeClass.
-func (s *StatusController) statuses(ctx context.Context, nc *v1alpha1.SCNodeClass, tallies map[string]*nodeTally) []v1alpha1.BillingStatus {
+func (s *StatusController) statuses(
+	ctx context.Context, nc *v1alpha1.SCNodeClass, tallies map[string]*nodeTally,
+) []v1alpha1.BillingStatus {
 	settings := settingsOf(nc)
-	var out []v1alpha1.BillingStatus
-	for _, vendor := range nc.Spec.Vendors.Names() {
+	names := nc.Spec.Vendors.Names()
+	out := make([]v1alpha1.BillingStatus, 0, len(names))
+	for _, vendor := range names {
 		// The vendor-wide rule (empty region and family); the rule of a node is
 		// the one of its own region and family.
 		rule, row := s.c.opts.Rules.Rule(vendor, "", "")
@@ -205,9 +208,11 @@ func (s *StatusController) metrics(nc *v1alpha1.SCNodeClass, tallies map[string]
 
 // condition builds the BillingRetention condition from the vendor statuses and
 // the nodes left alone.
-func condition(statuses []v1alpha1.BillingStatus, tallies map[string]*nodeTally) (metav1.ConditionStatus, string, string) {
+func condition(
+	statuses []v1alpha1.BillingStatus, tallies map[string]*nodeTally,
+) (metav1.ConditionStatus, string, string) {
 	active := false
-	var parts []string
+	parts := make([]string, 0, len(statuses))
 	for _, st := range statuses {
 		active = active || st.Active
 		parts = append(parts, st.Vendor+": "+st.Reason)
@@ -220,7 +225,7 @@ func condition(statuses []v1alpha1.BillingStatus, tallies map[string]*nodeTally)
 	}
 	msg := strings.Join(parts, "; ")
 	if len(left) > 0 {
-		var counts []string
+		counts := make([]string, 0, len(left))
 		for _, reason := range slices.Sorted(maps.Keys(left)) {
 			counts = append(counts, fmt.Sprintf("%s=%d", reason, left[reason]))
 		}
@@ -273,7 +278,7 @@ func (s *StatusController) apply(ctx context.Context, nc *v1alpha1.SCNodeClass, 
 	}
 	u := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": v1alpha1.GroupVersion.String(),
-		"kind":       "SCNodeClass",
+		"kind":       nodeClassKind,
 		"metadata":   map[string]any{"name": nc.Name},
 		"status": map[string]any{
 			"billing": list,

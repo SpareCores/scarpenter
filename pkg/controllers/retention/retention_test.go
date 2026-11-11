@@ -165,17 +165,15 @@ func (e *eventLog) count(reason, node string) int {
 }
 
 type poolOpts struct {
-	never    bool
-	static   bool
-	budgets  []karpv1.Budget
-	limits   corev1.ResourceList
-	taints   []corev1.Taint
-	classRef string
+	never   bool
+	static  bool
+	budgets []karpv1.Budget
+	limits  corev1.ResourceList
+	taints  []corev1.Taint
 }
 
 type classOpts struct {
 	billing *v1alpha1.BillingSpec
-	vendors v1alpha1.VendorBlocks
 }
 
 func newHarness(t *testing.T, billingSpec *v1alpha1.BillingSpec) *harness {
@@ -482,15 +480,6 @@ func (w *world) addPod(daemonSet bool) *corev1.Pod {
 	w.h.must(w.h.c.Create(w.h.t.Context(), pod))
 	w.h.t.Cleanup(func() { _ = w.h.c.Delete(context.Background(), pod, client.GracePeriodSeconds(0)) })
 	return pod
-}
-
-func (w *world) removePods() {
-	w.h.t.Helper()
-	var pods corev1.PodList
-	w.h.must(w.h.c.List(w.h.t.Context(), &pods, client.MatchingFields{"spec.nodeName": w.name}))
-	for i := range pods.Items {
-		w.h.must(w.h.c.Delete(w.h.t.Context(), &pods.Items[i], client.GracePeriodSeconds(0)))
-	}
 }
 
 // metric reads a counter or gauge of the test's registry by name and labels.

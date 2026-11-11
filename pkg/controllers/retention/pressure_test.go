@@ -234,7 +234,7 @@ func TestPressureReleaseBlockedByABudgetTakesTheNextCandidate(t *testing.T) {
 func TestMaxRetainedNodes(t *testing.T) {
 	t.Run("unset means no cap", func(t *testing.T) {
 		h := newHarness(t, enabled())
-		var ws []*world
+		ws := make([]*world, 0, 4)
 		for i := range 4 {
 			ws = append(ws, h.heldEmpty(nodeOpts{start: -time.Duration(i) * 10 * time.Minute}))
 		}

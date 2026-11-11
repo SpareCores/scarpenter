@@ -155,7 +155,8 @@ func (c *Controller) continueRelease(ctx context.Context, in *nodeInfo) (reconci
 		return reconcile.Result{}, err
 	}
 	if len(pods) > 0 || c.opts.Cluster.IsNodeNominated(in.providerID()) {
-		log.FromContext(ctx).Info("a pod arrived during the release, keeping the node", "node", in.node.Name, "pods", len(pods))
+		log.FromContext(ctx).Info("a pod arrived during the release, keeping the node",
+			"node", in.node.Name, "pods", len(pods))
 		if err := c.undoRelease(ctx, in); err != nil {
 			return reconcile.Result{}, err
 		}
@@ -174,7 +175,8 @@ func (c *Controller) released(in *nodeInfo, why string) {
 	case releasePeriodEnd:
 		c.metrics.deletesDeadline.WithLabelValues(in.vendor).Inc()
 		c.publish(in.node, corev1.EventTypeNormal, EventReleasedAtPeriodEnd,
-			"the node was empty at the end of its paid period less the margin and is deleted before the next period starts", "released")
+			"the node was empty at the end of its paid period less the margin and is deleted before the next period starts",
+			"released")
 	default:
 		c.metrics.releasedPress.WithLabelValues(in.vendor, why).Inc()
 		c.publish(in.node, corev1.EventTypeNormal, EventReleasedUnderPressure,

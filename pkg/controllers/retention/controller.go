@@ -9,6 +9,7 @@ package retention
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -106,18 +107,20 @@ func (c *Controller) Register(mgr ctrl.Manager) error {
 		// keeps the names process-wide.
 		WithOptions(controller.Options{SkipNameValidation: new(true), MaxConcurrentReconciles: 1}).
 		For(&corev1.Node{}).
-		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {
-			if name := o.(*corev1.Pod).Spec.NodeName; name != "" {
-				return nodeOf(name)
-			}
-			return nil
-		}), builder.WithPredicates()).
-		Watches(&karpv1.NodeClaim{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, o client.Object) []reconcile.Request {
-			if name := o.(*karpv1.NodeClaim).Status.NodeName; name != "" {
-				return nodeOf(name)
-			}
-			return nil
-		})).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(
+			func(_ context.Context, o client.Object) []reconcile.Request {
+				if name := o.(*corev1.Pod).Spec.NodeName; name != "" {
+					return nodeOf(name)
+				}
+				return nil
+			}), builder.WithPredicates()).
+		Watches(&karpv1.NodeClaim{}, handler.EnqueueRequestsFromMapFunc(
+			func(_ context.Context, o client.Object) []reconcile.Request {
+				if name := o.(*karpv1.NodeClaim).Status.NodeName; name != "" {
+					return nodeOf(name)
+				}
+				return nil
+			})).
 		Watches(&v1alpha1.SCNodeClass{}, handler.EnqueueRequestsFromMapFunc(c.nodesOfClass)).
 		Watches(&karpv1.NodePool{}, handler.EnqueueRequestsFromMapFunc(c.nodesOfPool)).
 		Complete(c)
@@ -232,7 +235,7 @@ func (c *Controller) inspect(ctx context.Context, node *corev1.Node) (*nodeInfo,
 	if err := c.opts.Client.Get(ctx, types.NamespacedName{Name: claimName}, claim); err != nil {
 		return nil, client.IgnoreNotFound(err)
 	}
-	if ref := claim.Spec.NodeClassRef; ref == nil || ref.Group != v1alpha1.Group || ref.Kind != "SCNodeClass" {
+	if ref := claim.Spec.NodeClassRef; ref == nil || ref.Group != v1alpha1.Group || ref.Kind != nodeClassKind {
 		return nil, nil
 	}
 	in := &nodeInfo{node: node, claim: claim, vendor: vendor, region: region}
@@ -249,8 +252,8 @@ func (c *Controller) inspect(ctx context.Context, node *corev1.Node) (*nodeInfo,
 	cond := func(typ string) bool { return claim.StatusConditions().Get(typ).IsTrue() }
 	// The labels are what Karpenter's cluster state reads, the conditions what
 	// the NodeClaim says; either is enough.
-	in.initialized = node.Labels[karpv1.NodeInitializedLabelKey] == "true" || cond(karpv1.ConditionTypeInitialized)
-	registered := node.Labels[karpv1.NodeRegisteredLabelKey] == "true" || cond(karpv1.ConditionTypeRegistered)
+	in.initialized = node.Labels[karpv1.NodeInitializedLabelKey] == valueTrue || cond(karpv1.ConditionTypeInitialized)
+	registered := node.Labels[karpv1.NodeRegisteredLabelKey] == valueTrue || cond(karpv1.ConditionTypeRegistered)
 
 	pool := &karpv1.NodePool{}
 	if name := claim.Labels[karpv1.NodePoolLabelKey]; name != "" {
@@ -261,28 +264,7 @@ func (c *Controller) inspect(ctx context.Context, node *corev1.Node) (*nodeInfo,
 		}
 	}
 
-	switch {
-	case !in.settings.Enabled || !in.assess.Active:
-		in.skip = skipInactive
-	case !claim.DeletionTimestamp.IsZero() || !node.DeletionTimestamp.IsZero():
-		in.skip = skipDeleting
-	case !registered:
-		in.skip = skipInactive
-	case in.pool == nil:
-		in.skip = skipNoNodePool
-	case node.Labels[karpv1.CapacityTypeLabelKey] == karpv1.CapacityTypeSpot ||
-		claim.Labels[karpv1.CapacityTypeLabelKey] == karpv1.CapacityTypeSpot:
-		in.skip, in.message = SkipSpot, "spot nodes are never held"
-	case in.pool.Spec.Replicas != nil:
-		in.skip, in.message = SkipStaticPool, "the NodePool is static"
-	case in.pool.Spec.Disruption.ConsolidateAfter.Duration == nil:
-		in.skip, in.message = SkipConsolidationNever, "the NodePool has consolidateAfter: Never"
-	case cond(karpv1.ConditionTypeDrifted):
-		in.skip, in.message = SkipDrifted, "the NodeClaim is drifted and will be replaced"
-	case claim.Annotations[karpv1.DoNotDisruptAnnotationKey] != "" ||
-		(node.Annotations[karpv1.DoNotDisruptAnnotationKey] != "" && !in.held()):
-		in.skip, in.message = SkipUserDoNotDisrupt, "the node has a karpenter.sh/do-not-disrupt annotation that SCarpenter did not set"
-	}
+	in.skip, in.message = skipReason(in, registered)
 	if in.skip != "" {
 		return in, nil
 	}
@@ -354,9 +336,7 @@ func (c *Controller) annotate(ctx context.Context, obj client.Object, set map[st
 	if a == nil {
 		a = map[string]string{}
 	}
-	for k, v := range set {
-		a[k] = v
-	}
+	maps.Copy(a, set)
 	obj.SetAnnotations(a)
 	if err := c.opts.Client.Patch(ctx, obj, client.MergeFrom(orig)); err != nil {
 		return client.IgnoreNotFound(err)
@@ -496,11 +476,11 @@ func (c *Controller) hold(ctx context.Context, in *nodeInfo) (reconcile.Result, 
 func (c *Controller) ensureHold(ctx context.Context, in *nodeInfo, deadline time.Time) error {
 	want := deadline.UTC().Format(time.RFC3339)
 	a := in.node.Annotations
-	if a[karpv1.DoNotDisruptAnnotationKey] == "true" && a[v1alpha1.AnnotationRetainUntil] == want {
+	if a[karpv1.DoNotDisruptAnnotationKey] == valueTrue && a[v1alpha1.AnnotationRetainUntil] == want {
 		return nil
 	}
 	if err := c.annotate(ctx, in.node, map[string]string{
-		karpv1.DoNotDisruptAnnotationKey: "true", v1alpha1.AnnotationRetainUntil: want,
+		karpv1.DoNotDisruptAnnotationKey: valueTrue, v1alpha1.AnnotationRetainUntil: want,
 	}); err != nil {
 		return err
 	}
@@ -530,8 +510,9 @@ func (c *Controller) blockedByBudget(in *nodeInfo, boundary time.Time) {
 	c.blocked[in.node.Name] = true
 	c.seenMu.Unlock()
 	c.publish(in.node, corev1.EventTypeWarning, EventReleaseBlockedByBudget,
-		fmt.Sprintf("the disruption budget of NodePool %s allows no deletion of an empty node; the node stays until the next deadline after %s",
-			in.pool.Name, boundary.UTC().Format(time.RFC3339)), boundary.Format(time.RFC3339))
+		fmt.Sprintf("the disruption budget of NodePool %s allows no deletion of an empty node; "+
+			"the node stays until the next deadline after %s", in.pool.Name, boundary.UTC().Format(time.RFC3339)),
+		boundary.Format(time.RFC3339))
 }
 
 // observe keeps the reuse metric: a held node that was seen empty and now has a
@@ -577,4 +558,35 @@ func (c *Controller) missedBoundary(in *nodeInfo, empty bool, now time.Time) {
 	if now.Sub(boundary) >= boundaryMissedAfter {
 		c.metrics.boundaryMissed.WithLabelValues(in.vendor).Inc()
 	}
+}
+
+// skipReason says why a node is left alone, "" when it qualifies, with the text
+// of the Event for the reasons that have one.
+func skipReason(in *nodeInfo, registered bool) (reason, message string) {
+	node, claim := in.node, in.claim
+	cond := func(typ string) bool { return claim.StatusConditions().Get(typ).IsTrue() }
+	switch {
+	case !in.settings.Enabled || !in.assess.Active:
+		return skipInactive, ""
+	case !claim.DeletionTimestamp.IsZero() || !node.DeletionTimestamp.IsZero():
+		return skipDeleting, ""
+	case !registered:
+		return skipInactive, ""
+	case in.pool == nil:
+		return skipNoNodePool, ""
+	case node.Labels[karpv1.CapacityTypeLabelKey] == karpv1.CapacityTypeSpot ||
+		claim.Labels[karpv1.CapacityTypeLabelKey] == karpv1.CapacityTypeSpot:
+		return SkipSpot, "spot nodes are never held"
+	case in.pool.Spec.Replicas != nil:
+		return SkipStaticPool, "the NodePool is static"
+	case in.pool.Spec.Disruption.ConsolidateAfter.Duration == nil:
+		return SkipConsolidationNever, "the NodePool has consolidateAfter: Never"
+	case cond(karpv1.ConditionTypeDrifted):
+		return SkipDrifted, "the NodeClaim is drifted and will be replaced"
+	case claim.Annotations[karpv1.DoNotDisruptAnnotationKey] != "" ||
+		(node.Annotations[karpv1.DoNotDisruptAnnotationKey] != "" && !in.held()):
+		return SkipUserDoNotDisrupt,
+			"the node has a karpenter.sh/do-not-disrupt annotation that SCarpenter did not set"
+	}
+	return "", ""
 }

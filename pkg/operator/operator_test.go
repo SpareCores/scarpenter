@@ -74,6 +74,19 @@ func object(t *testing.T, doc string) *unstructured.Unstructured {
 	return obj
 }
 
+// startCore registers core's controllers and the billing retention controllers
+// and runs the manager, as main does.
+func startCore(ctx context.Context, t *testing.T, op *operator.Operator, c *operator.Components) {
+	t.Helper()
+	cp := op.NewCloudProvider(c)
+	op.WithCoreControllers(ctx, cp)
+	if err := op.WithRetentionControllers(ctx, c, cp); err != nil {
+		t.Error(err)
+		return
+	}
+	op.Start(ctx)
+}
+
 // TestManagerStartsWithTheProductionWiring runs the production wiring (core's
 // operator, the components, core's controllers, the CloudProvider) against envtest and
 // checks that the manager becomes ready and that core resolves the SCNodeClass
@@ -129,13 +142,7 @@ func TestManagerStartsWithTheProductionWiring(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		cp := op.NewCloudProvider(components)
-		op.WithCoreControllers(runCtx, cp)
-		if err := op.WithRetentionControllers(runCtx, components, cp); err != nil {
-			t.Error(err)
-			return
-		}
-		op.Start(runCtx)
+		startCore(runCtx, t, op, components)
 	}()
 	t.Cleanup(func() {
 		cancelRun()

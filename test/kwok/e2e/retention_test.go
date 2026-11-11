@@ -592,10 +592,9 @@ func TestR09PodJustBeforeTheDeadline(t *testing.T) {
 	deadline := waitHeld(t, node)
 
 	sleepUntil(deadline.Add(-time.Second))
-	p := createPod(t, "r09-b", sel, "100m")
+	createPod(t, "r09-b", sel, "100m")
 	where := waitPodRunning(t, "r09-b", long)
 	t.Logf("the pod ran on %s (held node %s)", where, node)
-	_ = p
 	consistently(t, 45*time.Second, time.Second, "the pod must stay on a node that is not being deleted", func() (bool, string) {
 		got := &corev1.Pod{}
 		if err := k8s.Get(ctx(), client.ObjectKey{Namespace: "default", Name: "r09-b"}, got); err != nil {
@@ -614,7 +613,6 @@ func TestR09PodJustBeforeTheDeadline(t *testing.T) {
 		if !n.DeletionTimestamp.IsZero() || claimGone(n.Name) {
 			return true, "the node is being deleted"
 		}
-		_ = uid
 		return false, ""
 	})
 	if got := metricValue(t, mMissed); got != 0 {

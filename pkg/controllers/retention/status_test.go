@@ -33,7 +33,7 @@ func (h *harness) status() ([]v1alpha1.BillingStatus, *metav1.Condition) {
 	for i := range nc.Status.Conditions {
 		c := nc.Status.Conditions[i]
 		if c.Type == v1alpha1.ConditionTypeBillingRetention {
-			return nc.Status.Billing, &metav1.Condition{Type: c.Type, Status: metav1.ConditionStatus(c.Status), Reason: c.Reason, Message: c.Message}
+			return nc.Status.Billing, &metav1.Condition{Type: c.Type, Status: c.Status, Reason: c.Reason, Message: c.Message}
 		}
 	}
 	return nc.Status.Billing, nil

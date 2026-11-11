@@ -37,15 +37,13 @@ type plain struct {
 
 func (p plain) Vendor() string { return p.vendor }
 
-func intp(v int) *int { return &v }
-
 // The rule of a vendor is Keeper's row with the driver's override on top; a
 // driver without the capability is unverified, and a vendor without a row has no
 // Keeper data.
 func TestCatalogRules(t *testing.T) {
 	url := catalogtest.ServerWithVendors(t,
-		catalogtest.VendorRow{VendorID: "hcloud", Status: "active", BillingIncrementSeconds: intp(3600), MinimumBillingSeconds: intp(3600)},
-		catalogtest.VendorRow{VendorID: "aws", Status: "active", BillingIncrementSeconds: intp(1), MinimumBillingSeconds: intp(60)},
+		catalogtest.VendorRow{VendorID: "hcloud", Status: "active", BillingIncrementSeconds: new(3600), MinimumBillingSeconds: new(3600)},
+		catalogtest.VendorRow{VendorID: "aws", Status: "active", BillingIncrementSeconds: new(1), MinimumBillingSeconds: new(60)},
 	).URL
 	cat := catalog.New(catalog.Options{Source: catalogtest.SourceAt(url), Facts: catalogtest.Facts(t, "aws")})
 	cat.SetClasses([]catalog.Class{catalog.NewClass("c", catalog.Scope{"aws": {"us-east-1"}})})

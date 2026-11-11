@@ -95,6 +95,12 @@ const (
 	bootObserveWindow = 2 * time.Minute
 )
 
+const (
+	// nodeClassKind is the kind of the NodeClass of a NodeClaim of SCarpenter.
+	nodeClassKind = "SCNodeClass"
+	valueTrue     = "true"
+)
+
 // Defaults of the NodeClass settings, as the API defaults them.
 const (
 	DefaultMargin    = 3 * time.Minute

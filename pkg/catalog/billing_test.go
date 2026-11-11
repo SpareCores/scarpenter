@@ -18,12 +18,10 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 )
 
-func intp(v int) *int { return &v }
-
 func TestBillingFactsFromTheVendorTable(t *testing.T) {
 	c := catalog.New(catalog.Options{Source: catalogtest.SourceAt(catalogtest.ServerWithVendors(t,
-		catalogtest.VendorRow{VendorID: "aws", Status: "active", BillingIncrementSeconds: intp(1), MinimumBillingSeconds: intp(60)},
-		catalogtest.VendorRow{VendorID: "alicloud", Status: "active", MinimumBillingSeconds: intp(600)},
+		catalogtest.VendorRow{VendorID: "aws", Status: "active", BillingIncrementSeconds: new(1), MinimumBillingSeconds: new(60)},
+		catalogtest.VendorRow{VendorID: "alicloud", Status: "active", MinimumBillingSeconds: new(600)},
 		catalogtest.VendorRow{VendorID: "azure", Status: "active"},
 	).URL), Facts: catalogtest.Facts(t, "aws")})
 	c.SetClasses([]catalog.Class{catalog.NewClass("c", catalog.Scope{"aws": {"us-east-1"}})})
