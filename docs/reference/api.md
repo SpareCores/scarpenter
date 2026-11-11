@@ -317,6 +317,7 @@ PlacementProfile is a named placement and tenancy setup per vendor.
 |---|---|---|---|
 | `aws` | [object](#specprofilesplacementaws) |  | Placement is the AWS block of a placement profile: a placement group and the tenancy. |
 | `fake` | [object](#specprofilesplacementfake) |  | Placement is the fake block of a placement profile. |
+| `hcloud` | [object](#specprofilesplacementhcloud) |  | Placement is the Hetzner block of a placement profile: a placement group. |
 | `qemu` | [object](#specprofilesplacementqemu) |  | Placement is the qemu block of a placement profile. |
 | `vultr` | object (free-form) |  | Placement is the Vultr block of a placement profile. Empty in v1: Vultr has no placement groups or tenancy choice. |
 
@@ -367,6 +368,33 @@ group is the fake placement construct nodes join; it needs a run key.
 |---|---|---|---|
 | `strategy` (required) | string |  | strategy of the group. One of `cluster`, `spread`. |
 
+### `spec.profiles.placement.*.hcloud`
+
+Placement is the Hetzner block of a placement profile: a placement group.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `placementGroup` | [object](#specprofilesplacementhcloudplacementgroup) |  | placementGroup is the placement construct nodes join; a group SCarpenter creates needs a run key (label placement-group). A spread group holds at most 10 servers. |
+
+### `spec.profiles.placement.*.hcloud.placementGroup`
+
+placementGroup is the placement construct nodes join; a group SCarpenter creates needs a run key (label placement-group). A spread group holds at most 10 servers.
+
+Validation: set exactly one of type and use (`has(self.type) != has(self.use)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `type` | string |  | type of the placement groups SCarpenter creates. One of `spread`. |
+| `use` | [object](#specprofilesplacementhcloudplacementgroupuse) |  | use references an existing placement group, which is never modified or deleted; the run key then only separates NodeClaims. |
+
+### `spec.profiles.placement.*.hcloud.placementGroup.use`
+
+use references an existing placement group, which is never modified or deleted; the run key then only separates NodeClaims.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name of the placement group. At most 255 characters. |
+
 ### `spec.profiles.placement.*.qemu`
 
 Placement is the qemu block of a placement profile.
@@ -383,6 +411,7 @@ StorageProfile is a named storage setup, in the vendor's own terms, for each ven
 |---|---|---|---|
 | `aws` | [object](#specprofilesstorageaws) |  | Storage is the AWS storage block: the settings of the root volume, the extra EBS volumes and the instance-local disks. It is the vendor block's storage (layer 2) and the AWS block of a storage profile (layer 3). |
 | `fake` | [object](#specprofilesstoragefake) |  | Storage is the fake storage block (vendor block and storage profile). |
+| `hcloud` | [object](#specprofilesstoragehcloud) |  | Storage is the Hetzner storage block: data volumes. It is the vendor block's storage (layer 2) and the hcloud block of a storage profile (layer 3). There is no root and no local storage: the root disk is the server type's, and Hetzner servers have no local disks. |
 | `qemu` | [object](#specprofilesstorageqemu) |  | Storage is the qemu storage block (vendor block and storage profile). |
 | `vultr` | object (free-form) |  | Storage is the Vultr block of a storage profile. It is empty in v1: the plan's disk is the root disk and extra block storage volumes are deferred, so a storage profile with a vultr block makes every Vultr offering unavailable with a reason. |
 
@@ -477,6 +506,25 @@ root configures the root disk.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | integer or string |  | size of the root disk. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.profiles.storage.*.hcloud`
+
+Storage is the Hetzner storage block: data volumes. It is the vendor block's storage (layer 2) and the hcloud block of a storage profile (layer 3). There is no root and no local storage: the root disk is the server type's, and Hetzner servers have no local disks.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `data` | array of [object](#specprofilesstoragehclouddata) |  | data lists data volumes: each is created in the location before the server and attached to it. Volumes outlive servers, so SCarpenter deletes them once no server uses them. At most 16 items. |
+
+### `spec.profiles.storage.*.hcloud.data[]`
+
+DataVolume is a data volume: its size plus the guest side (name, filesystem, mount path). The first-boot unit formats and mounts it by its stable /dev/disk/by-id link.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `filesystem` | string | `"ext4"` | filesystem the first-boot unit creates on the volume. One of `ext4`, `xfs`, `btrfs`. |
+| `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
+| `size` (required) | integer or string |  | size of the volume, e.g. 100Gi. Hetzner counts GB: the size is rounded up to whole GB and is 10 GB to 10 TB. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
 
 ### `spec.profiles.storage.*.qemu`
 
@@ -811,6 +859,7 @@ vendors has one block per vendor; a vendor is enabled for this SCNodeClass by ha
 |---|---|---|---|
 | `aws` | [object](#specvendorsaws) |  | aws configures AWS nodes. |
 | `fake` | [object](#specvendorsfake) |  | fake configures the fake (KWOK) development vendor. |
+| `hcloud` | [object](#specvendorshcloud) |  | hcloud configures Hetzner Cloud nodes. |
 | `qemu` | [object](#specvendorsqemu) |  | qemu configures the qemu development vendor. |
 | `vultr` | [object](#specvendorsvultr) |  | vultr configures Vultr nodes. |
 
@@ -1589,6 +1638,456 @@ root configures the root disk.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | integer or string |  | size of the root disk. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.vendors.hcloud`
+
+hcloud configures Hetzner Cloud nodes.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `networking` | [object](#specvendorshcloudnetworking) |  | networking overrides the generic spec.networking for Hetzner. A server needs a public IPv4 or IPv6 address (publicIPv4 defaults to true, publicIPv6 to false); inbound rules become the rules of the firewall SCarpenter creates. |
+| `regions` | array of string |  | regions is the allow-list of Hetzner locations (fsn1, nbg1, hel1, ash, hil, sin); empty means every location of the project. At most 16 items. |
+| `resources` | [object](#specvendorshcloudresources) |  | resources says how the Hetzner resources a node depends on are provided. |
+| `sshKey` | string |  | sshKey is the name or ID of an SSH key of the project that is injected into the nodes. Optional, default none: nodes are configured by Ignition and need no key. At most 255 characters. |
+| `storage` | [object](#specvendorshcloudstorage) |  | storage adds data volumes. The root disk belongs to the server type and cannot be configured. |
+
+### `spec.vendors.hcloud.networking`
+
+networking overrides the generic spec.networking for Hetzner. A server needs a public IPv4 or IPv6 address (publicIPv4 defaults to true, publicIPv6 to false); inbound rules become the rules of the firewall SCarpenter creates.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `inbound` | [object](#specvendorshcloudnetworkinginbound) |  | inbound replaces spec.networking.inbound. |
+| `isolation` | string |  | isolation overrides spec.networking.isolation. One of `none`, `nodeclass`, `run`. |
+| `publicIPv4` | boolean |  | publicIPv4 overrides spec.networking.publicIPv4. |
+| `publicIPv6` | boolean |  | publicIPv6 overrides spec.networking.publicIPv6. |
+
+### `spec.vendors.hcloud.networking.inbound`
+
+inbound replaces spec.networking.inbound.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `rules` | array of [object](#specvendorshcloudnetworkinginboundrules) |  | rules allow traffic from CIDRs; everything else is denied. At most 32 items. |
+
+### `spec.vendors.hcloud.networking.inbound.rules[]`
+
+InboundRule allows inbound traffic from CIDRs.
+
+Validation: ports are only valid for tcp and udp (`!has(self.fromPort) \|\| self.protocol == 'tcp' \|\| self.protocol == 'udp'`).
+
+Validation: toPort needs fromPort (`!has(self.toPort) \|\| has(self.fromPort)`).
+
+Validation: toPort must not be smaller than fromPort (`!has(self.toPort) \|\| self.toPort >= self.fromPort`).
+
+Validation: cidrs must be valid CIDR notation (`self.cidrs.all(c, isCIDR(c))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `cidrs` (required) | array of string |  | cidrs are the allowed source networks. At least 1 items. At most 32 items. At most 43 characters. |
+| `fromPort` | integer (int32) |  | fromPort is the first port of the range (tcp and udp); without ports the rule covers every port. Minimum 1. Maximum 65535. |
+| `protocol` (required) | string |  | protocol of the rule. One of `tcp`, `udp`, `icmp`, `any`. |
+| `toPort` | integer (int32) |  | toPort is the last port of the range; defaults to fromPort. Minimum 1. Maximum 65535. |
+
+### `spec.vendors.hcloud.resources`
+
+resources says how the Hetzner resources a node depends on are provided.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `firewalls` | [object](#specvendorshcloudresourcesfirewalls) |  | firewalls applied to the nodes. Without use, SCarpenter creates one deny-inbound firewall per location (plus the networking.inbound rules) and deletes it when it has been idle for its TTL. |
+| `images` | [object](#specvendorshcloudresourcesimages) |  | images brings the Flatcar snapshots with the one selector of every resource kind (plan 14 A1). Optional: without it the driver finds the snapshots of the pinned release by their labels (os=flatcar, flatcar-channel and flatcar-version). Snapshots are global in the project, so IDs go under the key "*". Images take use only. |
+| `networks` | [object](#specvendorshcloudresourcesnetworks) |  | networks brings a private network per location (by ID, name, labels or range). SCarpenter does not create networks in v1: use only. |
+| `placementGroups` | [object](#specvendorshcloudresourcesplacementgroups) |  | placementGroups nodes are launched into (see the placement profiles). |
+
+### `spec.vendors.hcloud.resources.firewalls`
+
+firewalls applied to the nodes. Without use, SCarpenter creates one deny-inbound firewall per location (plus the networking.inbound rules) and deletes it when it has been idle for its TTL.
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorshcloudresourcesfirewallscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorshcloudresourcesfirewallsuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.hcloud.resources.firewalls.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorshcloudresourcesfirewallscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorshcloudresourcesfirewallscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.hcloud.resources.firewalls.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.hcloud.resources.firewalls.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.hcloud.resources.firewalls.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorshcloudresourcesfirewallsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorshcloudresourcesfirewallsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.hcloud.resources.firewalls.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.hcloud.resources.firewalls.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.hcloud.resources.images`
+
+images brings the Flatcar snapshots with the one selector of every resource kind (plan 14 A1). Optional: without it the driver finds the snapshots of the pinned release by their labels (os=flatcar, flatcar-channel and flatcar-version). Snapshots are global in the project, so IDs go under the key "*". Images take use only.
+
+Validation: images accepts use only: it has no create and no forbid (`has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)`).
+
+Validation: images cannot use select all: a launch needs one image (`!has(self.use) \|\| !has(self.use.select) \|\| self.use.select != 'all'`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorshcloudresourcesimagescreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorshcloudresourcesimagesuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.hcloud.resources.images.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorshcloudresourcesimagescreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorshcloudresourcesimagescreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.hcloud.resources.images.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.hcloud.resources.images.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.hcloud.resources.images.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorshcloudresourcesimagesusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorshcloudresourcesimagesusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.hcloud.resources.images.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.hcloud.resources.images.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.hcloud.resources.networks`
+
+networks brings a private network per location (by ID, name, labels or range). SCarpenter does not create networks in v1: use only.
+
+Validation: networks.create is not supported in v1: bring the network with use (`!has(self.create)`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorshcloudresourcesnetworkscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorshcloudresourcesnetworksuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.hcloud.resources.networks.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorshcloudresourcesnetworkscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorshcloudresourcesnetworkscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.hcloud.resources.networks.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.hcloud.resources.networks.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.hcloud.resources.networks.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorshcloudresourcesnetworksusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorshcloudresourcesnetworksusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.hcloud.resources.networks.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.hcloud.resources.networks.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.hcloud.resources.placementGroups`
+
+placementGroups nodes are launched into (see the placement profiles).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorshcloudresourcesplacementgroupscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorshcloudresourcesplacementgroupsuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.hcloud.resources.placementGroups.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorshcloudresourcesplacementgroupscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorshcloudresourcesplacementgroupscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.hcloud.resources.placementGroups.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.hcloud.resources.placementGroups.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.hcloud.resources.placementGroups.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorshcloudresourcesplacementgroupsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorshcloudresourcesplacementgroupsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.hcloud.resources.placementGroups.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.hcloud.resources.placementGroups.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.hcloud.storage`
+
+storage adds data volumes. The root disk belongs to the server type and cannot be configured.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `data` | array of [object](#specvendorshcloudstoragedata) |  | data lists data volumes: each is created in the location before the server and attached to it. Volumes outlive servers, so SCarpenter deletes them once no server uses them. At most 16 items. |
+
+### `spec.vendors.hcloud.storage.data[]`
+
+DataVolume is a data volume: its size plus the guest side (name, filesystem, mount path). The first-boot unit formats and mounts it by its stable /dev/disk/by-id link.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `filesystem` | string | `"ext4"` | filesystem the first-boot unit creates on the volume. One of `ext4`, `xfs`, `btrfs`. |
+| `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
+| `size` (required) | integer or string |  | size of the volume, e.g. 100Gi. Hetzner counts GB: the size is rounded up to whole GB and is 10 GB to 10 TB. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
 
 ### `spec.vendors.qemu`
 

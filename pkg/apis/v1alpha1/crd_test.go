@@ -408,7 +408,7 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		{"network profile name not a slug", `profiles: {network: {Fast_NIC: {aws: {enaExpress: {enabled: true}}}}}`, "profile names are lower-case label-safe slugs"},
 		{"placement profile name not a slug", `profiles: {placement: {Colo_1: {aws: {tenancy: dedicated}}}}`, "profile names are lower-case label-safe slugs"},
 		{"profile without vendor blocks", `profiles: {storage: {empty: {}}}`, "should have at least 1 properties"},
-		{"profile with unknown vendor block", `profiles: {storage: {s: {hcloud: {}}}}`, "unknown field"},
+		{"profile with unknown vendor block", `profiles: {storage: {s: {nosuchvendor: {}}}}`, "unknown field"},
 		// vendor resources (use | create | forbid)
 		{"resource with use and create", `vendors: {aws: {resources: {subnets: {use: {name: nm}, create: {}}}}}`, "at most one of use, create and forbid may be set"},
 		{"resource with use and forbid", `vendors: {aws: {resources: {subnets: {use: {name: nm}, forbid: true}}}}`, "at most one of use, create and forbid may be set"},
