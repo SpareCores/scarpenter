@@ -1,0 +1,23 @@
+# An AWS NodeClass for tooling that can only create and tag resources: it says nothing
+# about the resources. Tag the subnets (and, if you bring them, the security groups) with
+# scarpenter.sparecores.com/use=true; SCarpenter discovers them in every region, and
+# falls back to the account's default VPC or its own resources where nothing is tagged.
+# The same selector written out for one kind: use: {tags: {scarpenter.sparecores.com/use: "true"}}.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: aws-opt-in-tags
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    aws:
+      regions: [us-east-1]
+      resources:
+        # Nothing is created for the security groups of this NodeClass if a tagged group
+        # exists in the network of the subnets; forbid keeps SCarpenter from creating one.
+        securityGroups: {forbid: true}

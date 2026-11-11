@@ -1,0 +1,22 @@
+# A NodeClass for the qemu development vendor (Flatcar VMs on a Linux machine): the bridge
+# the VMs attach to is the machine's own, found by the opt-in tag in its interface alias
+# (the alias "scarpenter.sparecores.com/use=true"), else the default bridge, else a
+# bridge SCarpenter creates.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: qemu
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    qemu:
+      accelerator: auto
+      resources:
+        networks:
+          use:
+            tags: {scarpenter.sparecores.com/use: "true"}

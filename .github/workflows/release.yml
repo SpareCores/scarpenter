@@ -10,7 +10,9 @@ name: Release
 #     with the chart version and appVersion set to <semver>,
 #   - cosign keyless signatures of the image and chart digests, a BuildKit SBOM
 #     and SLSA provenance attached to each image (the SBOMs also as release
-#     assets), and a GitHub release with notes and the chart package.
+#     assets), and a GitHub release with notes, the chart package and the files an
+#     infrastructure tool renders against: the CRD, the JSON Schema of the SCNodeClass
+#     and the example NodeClasses.
 # Before the first image is built the real-cloud lane (L5, e2e-cloud.yml) runs in FULL for
 # every vendor of test/e2e-vendors.txt against the tagged commit: the publishing jobs need
 # it, so a tag whose commit does not pass on a real cloud publishes nothing. It waits for the
@@ -315,8 +317,31 @@ jobs:
           path: dist/*.tgz
           if-no-files-found: error
 
+  # The CRD, the JSON Schema and the examples: files only, nothing is published here.
+  schema:
+    needs: [verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Package the CRD, the JSON Schema and the examples
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: hack/release.sh package-schema "${VERSION}" dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: schema
+          path: dist/
+          if-no-files-found: error
+
   release:
-    needs: [verify, images, chart]
+    needs: [verify, images, chart, schema]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -367,12 +392,15 @@ jobs:
           #   --certificate-identity-regexp "^https://github\\.com/${repo_re}/\\.github/workflows/release\\.yml@refs/tags/v"
           \`\`\`
 
-          The SBOMs are attached to this release.
+          The SBOMs are attached to this release, with the files that an infrastructure
+          tool renders a NodeClass against: \`scnodeclass-crd.yaml\` (the CRD),
+          \`scnodeclass.schema.json\` (the JSON Schema of the SCNodeClass) and
+          \`scarpenter-examples-${VERSION}.tgz\` (one example per use).
 
           NOTES
           flags=()
           if [[ "${PRERELEASE}" == "true" ]]; then
             flags+=(--prerelease)
           fi
-          gh release create "${TAG}" dist/*.tgz dist/sbom-*.spdx.json \
+          gh release create "${TAG}" dist/*.tgz dist/sbom-*.spdx.json dist/scnodeclass-crd.yaml dist/scnodeclass.schema.json \
             --title "${TAG}" --verify-tag --notes-file notes.md --generate-notes "${flags[@]}"

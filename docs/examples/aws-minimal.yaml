@@ -1,0 +1,19 @@
+# The smallest AWS NodeClass: no vendor resources are named, so SCarpenter resolves them
+# itself in each region, in this order (ADR-022): resources you tagged
+# scarpenter.sparecores.com/use=true, the account's default VPC and its subnets (when
+# they can honour the request), then a network and security group it creates and owns,
+# else ResourcesReady=False naming what it tried.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: aws-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    aws:
+      regions: [us-east-1, eu-central-1]

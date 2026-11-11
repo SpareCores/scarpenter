@@ -1,0 +1,41 @@
+# An AWS NodeClass whose network was created by the operator's own tooling (any tool: the
+# contract is the NodeClass, see docs/reference/infrastructure-handoff.md). Each kind has
+# `use`: one selector, the same on every vendor. All the fields a selector has are shown
+# here; combine as few as identify your resources.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: aws-bring-your-own
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: tailscale
+    tailscale:
+      version: "v1.98.10"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter, key: authkey}
+      tags: ["tag:k8s-node"]
+  vendors:
+    aws:
+      regions: [us-east-1, eu-central-1]
+      resources:
+        # By the portable range: the subnets that lie inside 10.8.0.0/16 and are
+        # available, for a tool that knows the plan of addresses and not the IDs.
+        subnets:
+          use:
+            match: {within: 10.8.0.0/16}
+            select: all
+        # By ID, per region (the key "*" would apply to every region).
+        securityGroups:
+          use:
+            ids:
+              us-east-1: [sg-0123456789abcdef0]
+              eu-central-1: [sg-0fedcba9876543210]
+        # By a name pattern and a tag: both must hold. {region} is replaced per region.
+        placementGroups:
+          use:
+            name: "sc-{region}-*"
+            tags: {team: platform}
+            select: exactlyOne

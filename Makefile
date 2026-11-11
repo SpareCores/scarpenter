@@ -87,8 +87,9 @@ test-chart: ## Helm chart: lint, schema, golden `helm template` output, CRD, RBA
 	test/chart/run.sh
 
 .PHONY: docs-api
-docs-api: manifests ## Generate docs/reference/api.md from the CRD.
+docs-api: manifests ## Generate docs/reference/api.md and the JSON Schema docs/reference/schema/scnodeclass.schema.json from the CRD.
 	go run ./hack/apidocs config/crd/bases/scarpenter.sparecores.com_scnodeclasses.yaml > docs/reference/api.md
+	go run ./hack/crdschema config/crd/bases/scarpenter.sparecores.com_scnodeclasses.yaml > docs/reference/schema/scnodeclass.schema.json
 
 .PHONY: test-docs
 test-docs: ## Check that the relative links and anchors of the Markdown files resolve.

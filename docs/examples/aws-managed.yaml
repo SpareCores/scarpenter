@@ -1,0 +1,27 @@
+# An AWS NodeClass whose resources SCarpenter creates and owns, with the lifecycle of each:
+# an explicit `create` skips discovery and the vendor's defaults (ADR-022).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: aws-managed
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    aws:
+      regions: [us-east-1, us-east-2]
+      resources:
+        subnets:
+          create:
+            lifecycle: {policy: idleTTL, ttl: 24h}
+            timing: {mode: preCreate, regions: [us-east-1]}
+        securityGroups:
+          create:
+            lifecycle: {policy: retain}
+        placementGroups:
+          create:
+            lifecycle: {policy: perUse}

@@ -12,6 +12,10 @@
 #                                       move the 0.1 tag), so that no tag ever moves backwards
 #   package-chart <version> <dir>       packages the chart with that version and appVersion
 #                                       into <dir> and checks the package
+#   package-schema <version> <dir>      copies the CRD (scnodeclass-crd.yaml) and the JSON Schema of the
+#                                       SCNodeClass (scnodeclass.schema.json) into <dir> and packs
+#                                       docs/examples as scarpenter-examples-<version>.tgz: the files an
+#                                       infrastructure tool renders and validates against
 #   check-image <image> <dev|prod> <version>
 #                                       checks a built image: the version it reports and the
 #                                       drivers (flags) it contains
@@ -86,6 +90,23 @@ cmd_package_chart() {
   echo "chart package ${pkg}"
 }
 
+cmd_package_schema() {
+  [[ $# -eq 2 ]] || die "usage: package-schema <version> <dir>"
+  local version="$1" dir="$2" crd schema
+  crd=config/crd/bases/scarpenter.sparecores.com_scnodeclasses.yaml
+  schema=docs/reference/schema/scnodeclass.schema.json
+  mkdir -p "${dir}"
+  [[ -s "${crd}" ]] || die "${crd} is missing: run make manifests"
+  [[ -s "${schema}" ]] || die "${schema} is missing: run make docs-api"
+  ls docs/examples/*.yaml >/dev/null 2>&1 || die "docs/examples has no examples"
+  cp "${crd}" "${dir}/scnodeclass-crd.yaml"
+  cp "${schema}" "${dir}/scnodeclass.schema.json"
+  tar -czf "${dir}/scarpenter-examples-${version}.tgz" -C docs/examples .
+  tar -tzf "${dir}/scarpenter-examples-${version}.tgz" | grep -q 'aws-minimal.yaml$' ||
+    die "the examples package lacks aws-minimal.yaml"
+  echo "schema files in ${dir}"
+}
+
 cmd_check_image() {
   [[ $# -eq 3 ]] || die "usage: check-image <image> <dev|prod> <version>"
   local image="$1" kind="$2" version="$3" reported help
@@ -136,6 +157,8 @@ cmd_dry_run() {
 
   echo "==> packaging the chart"
   cmd_package_chart "${version}" "${work}/chart"
+  echo "==> packaging the CRD, the JSON Schema and the examples"
+  cmd_package_schema "${version}" "${work}/schema"
   echo "dry run of ${1} passed"
 }
 
@@ -143,7 +166,8 @@ case "${1:-}" in
   version) shift; cmd_version "$@" ;;
   latest) shift; cmd_latest "$@" ;;
   package-chart) shift; cmd_package_chart "$@" ;;
+  package-schema) shift; cmd_package_schema "$@" ;;
   check-image) shift; cmd_check_image "$@" ;;
   dry-run) shift; cmd_dry_run "$@" ;;
-  *) die "usage: $0 version|package-chart|check-image|dry-run (see the header of this file)" ;;
+  *) die "usage: $0 version|package-chart|package-schema|check-image|dry-run (see the header of this file)" ;;
 esac
