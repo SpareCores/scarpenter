@@ -61,6 +61,7 @@ The last column names the plan that introduced the flag.
 | (OVH only) | `SCARPENTER_OVH_REGION_ALIASES` | (none) | Rows of the OVH region table: comma-separated `KEEPER=API` pairs (`GRA13=GRA13` adds a region Keeper knows and the table lacks); an empty API name leaves the Keeper region unused. A row whose API name differs from the Keeper name is refused at start: it needs the Keeper name in `vendors.Region` (plan 14, A8: a core change not made yet), without which it would hide the region's offerings. Environment only. | plan 18 |
 | (Vultr only) | `VULTR_API_KEY` | (none) | The API key of the Vultr account. Required when `--vendors` has `vultr`: the controller refuses to start without it. Environment only; the chart wires it from a Secret. [Vultr credentials](../how-to-guides/vultr-credentials.md). | plan 20 |
 | (Vultr only) | `SCARPENTER_VULTR_AVAILABILITY_TTL` | `5m` | How long the stock of a Vultr region (`GET /v2/regions/{id}/availability`) is cached by the driver. Environment only. | plan 20 |
+| (UpCloud only) | `SCARPENTER_UPCLOUD_NETWORK_RANGE` | `10.241.0.0/16` | The IPv4 /16 inside which the UpCloud driver's managed private networks take a /24 each (hash of the name, the next free one when it overlaps a network of the account). It must stay clear of the networks you bring: the networks of an UpCloud account must not overlap. A value that is not an IPv4 /16 is refused at startup. Environment only. | plan 19 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region the account's region list (`DescribeRegions`) is read from; the AWS driver's other calls go to the region they concern ([AWS driver](aws-driver.md)). | plan 08 |
 
 All problems of the command line are reported together, and the controller
@@ -79,6 +80,7 @@ must be positive.
 | `SCARPENTER_ALICLOUD_HOME_REGION` | The region the Alibaba Cloud account's region list (`DescribeRegions`) is read from; default `ap-southeast-1`. An environment variable of the driver, not a flag ([Alibaba Cloud driver](alicloud-driver.md)). |
 | `ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_OIDC_TOKEN_FILE`, `ALIBABA_CLOUD_ACCESS_KEY_ID`, ... | The Alibaba Cloud SDK's own: the [credential modes](../how-to-guides/alicloud-credentials.md) of the chart set them. |
 | `OS_AUTH_URL`, `OS_USERNAME`, `OS_PASSWORD`, `OS_PROJECT_ID`, `OS_USER_DOMAIN_NAME` | The OpenStack environment of the OVH driver (gophercloud's own): one dedicated user of one Public Cloud project; the chart sets them from a Secret ([OVH credentials](../how-to-guides/ovh-credentials.md)). `Init` checks them and makes no call. |
+| `UPCLOUD_TOKEN` | The UpCloud API token (a bearer token) of the [UpCloud driver](upcloud-driver.md#credentials); the chart's `vendors.upcloud.credentials.mode: secret` sets it from a Secret. The driver does not start without it. |
 | `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ACCESS_KEY_ID`, ... | The AWS SDK's own: the [credential modes](../how-to-guides/aws-credentials.md) of the chart set them. Without `AWS_REGION` the driver uses `--aws-home-region` as the SDK's default region. |
 | `HCLOUD_TOKEN`, `HCLOUD_ENDPOINT` | The Hetzner Cloud driver's: the API token of the project (a Secret; the chart's `vendors.hcloud.credentials.secret.existingSecret`) and, for tests, the API URL. Required when `hcloud` is in `--vendors`. See the [Hetzner Cloud driver](hcloud-driver.md). |
 
@@ -106,7 +108,7 @@ and that the controller's own parser accepts what the chart renders.
 | `cluster.dns` | `--cluster-dns` | A list of IPs, passed as it is. **Empty (the default): the controller finds the DNS Service itself** (the chart looks nothing up); `[none]` gives the nodes no `clusterDNS`. |
 | `cluster.domain` | `--cluster-domain` | |
 | `kubeletClientCA.source`, `inline`, `configMap.*`, `secret.*` | `--kubelet-client-ca-file` | `none`, `inline`, an existing `configMap` or `secret`, or `extensionApiserverAuthentication` (copies key `client-ca-file` of `kube-system/extension-apiserver-authentication` into a ConfigMap of the release with Helm's `lookup`; the API server's client CA: the k3s client CA, the cluster CA on kubeadm and EKS). kubeadm and EKS need none; on k3s without it `kubectl logs` and `exec` fail with 401. |
-| `vendors.aws.enabled`, `vendors.hcloud.enabled`, `vendors.extra` | `--vendors` | `alicloud`, `aws` and `hcloud` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
+| `vendors.aws.enabled`, `vendors.hcloud.enabled`, `vendors.extra` | `--vendors` | `alicloud`, `aws`, `hcloud`, `ovh`, `upcloud` and `vultr` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
 | `vendors.alicloud.enabled`, `homeRegion` | `--vendors`, `SCARPENTER_ALICLOUD_HOME_REGION` | |
 | `vendors.aws.homeRegion` | `--aws-home-region` | |
 | `vendors.aws.region` | `AWS_REGION` | Default: the home region, else `us-east-1`. |
@@ -115,6 +117,9 @@ and that the controller's own parser accepts what the chart renders.
 | `vendors.ovh.scheduleWait`, `regionAliases` | `SCARPENTER_OVH_SCHEDULE_WAIT`, `SCARPENTER_OVH_REGION_ALIASES` | A map of aliases is rendered as `KEEPER=API` pairs, sorted. |
 | `vendors.ovh.credentials.mode`, `secret.*` | `OS_AUTH_URL`, `OS_USERNAME`, `OS_PASSWORD`, `OS_PROJECT_ID`, `OS_USER_DOMAIN_NAME` | [OVH credentials](../how-to-guides/ovh-credentials.md). `secret` needs an `existingSecret`; the `*Key` values name its keys; `none` wires nothing. |
 | `vendors.alicloud.credentials.mode`, `oidc.*`, `secret.*` | `ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_OIDC_TOKEN_FILE`, a projected ServiceAccount token, `ALIBABA_CLOUD_ACCESS_KEY_ID`, ... | [Alibaba Cloud credentials](../how-to-guides/alicloud-credentials.md). `oidc` needs `roleArn` and `providerArn`, `secret` an `existingSecret`. |
+| `vendors.upcloud.enabled` | `--vendors` | Adds `upcloud` after `aws`, `hcloud` and `ovh`. |
+| `vendors.upcloud.credentials.mode`, `secret.existingSecret`, `secret.tokenKey` | `UPCLOUD_TOKEN` | `secret` (the default) needs an `existingSecret`; `none` wires nothing (supply the variable through `extraEnv`). |
+| `vendors.upcloud.networkRange` | `SCARPENTER_UPCLOUD_NETWORK_RANGE` | An IPv4 /16; empty: `10.241.0.0/16`. |
 | `vendors.aws.credentials.mode`, `webIdentity.*`, `secret.*` | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, a projected ServiceAccount token, `AWS_ACCESS_KEY_ID`, ... | [AWS credentials](../how-to-guides/aws-credentials.md). `webIdentity` needs `roleArn`, `secret` an `existingSecret`. |
 | `vendors.hcloud.credentials.secret.existingSecret`, `key` | `HCLOUD_TOKEN` | The Secret that holds the project's API token ([Hetzner Cloud driver](hcloud-driver.md)); the name is required when the driver is enabled. |
 | `vendors.hcloud.serverLimit` | `--hcloud-server-limit` | `0`: unknown (flag left out). |

@@ -153,8 +153,14 @@ func TestIsolationNodeClassNeedsTheNetworkAndARulesetOfItsRange(t *testing.T) {
 	if !fromRange || !inbound || !drop {
 		t.Errorf("rules %+v", full.Rules)
 	}
-	// A node launched with them has a private interface, the ruleset attached and
-	// the private firewall on.
+	nodeWithTheRuleset(t, e, p, rs[0])
+}
+
+// nodeWithTheRuleset launches a node with the prepared resources: it has a private interface, the ruleset attached and
+// the private firewall on; the ruleset is in use while it runs, refused for deletion, and goes after the node.
+func nodeWithTheRuleset(t *testing.T, e *engineEnv, p *vendors.Prepared, ruleset string) {
+	t.Helper()
+	rs := []string{ruleset}
 	req := e.request("n1", testType)
 	req.Prepared = p
 	inst, err := e.d.CreateInstance(e.ctx(), req)

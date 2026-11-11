@@ -1,0 +1,19 @@
+# The smallest UpCloud NodeClass: the Flatcar templates are found by their labels
+# (scarpenter-image=flatcar, the pinned channel and version, flatcar-arch=amd64) in each
+# zone, and the nodes get the public and utility interfaces only (no private network).
+# The templates are yours to import: docs/how-to-guides/import-flatcar-templates-into-upcloud.md.
+# UpCloud's regions are its zones.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: upcloud-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    upcloud:
+      regions: [fi-hel1, de-fra1]

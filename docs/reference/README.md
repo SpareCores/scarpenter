@@ -43,7 +43,9 @@ Available:
 - [**Vultr driver**](vultr-driver.md) — the Vultr Cloud Compute driver: snapshots as images, firewall groups and VPCs, the plan list, error mapping and what is not verified live yet (plan 20).
 - [**Azure driver**](azure-driver.md) — the `azure` driver foundation (plan 17).
 - [**GCP driver**](gcp-driver.md) — the Google Compute Engine driver, lower layers (plan 16).
-- [**UpCloud driver**](upcloud-driver.md) — the `upcloud` driver foundation (plan 19).
+- [**UpCloud driver**](upcloud-driver.md) — regions that are zones, the Flatcar template
+  convention, the two firewalls, launch, node settings, resources, quotas, errors, credentials
+  and what is not verified live yet (plan 19).
 - [**Alibaba Cloud driver**](alicloud-driver.md) — regions, zones, images (your own, rung 3), launch, node settings, resources and network, the metadata service, quotas, billing, RAM ([policy](alicloud-ram-policy.json)) and what is not verified live yet (plan 21).
 - [**OVHcloud driver**](ovh-driver.md) — the OVHcloud Public Cloud driver: regions and zones,
   images, launch, node settings, resources, quotas, error mapping, rights

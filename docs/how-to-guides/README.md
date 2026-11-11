@@ -47,6 +47,10 @@ Available:
   region from Flatcar's OpenStack release, the naming convention, the properties and the
   tags the driver reads.
 
+- [**Import Flatcar templates into UpCloud**](import-flatcar-templates-into-upcloud.md)
+  (plan 19) — the per-zone, per-tier template and its labels, from the images
+  repository's release asset; what SCarpenter reports.
+
 Planned for v1:
 
 - **Select instances** (plan 11) — exact choices, attribute ranges, benchmark

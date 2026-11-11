@@ -627,31 +627,34 @@ are case-insensitive**, values exact. Keys of 2 to 32 printable characters; the 
 `&`, `#`, `+` or `=` is rejected for `tags`. Unknown parameters are probably ignored (unverified): only fields with a response
 field are offered. No paging in the v8 SDK (everything in one response). No `expression`. Reference: `https://developers.upcloud.com/1.3/`.
 
-**images** (storage templates, `GET /storage/private/template`; zonal; the path is the owner scope):
+**images** (private storage templates, `GET /storage/private/template`; zonal; templates are private to the account, so there is no `match.owner`):
 
 | Field | Maps to | Where |
 |---|---|---|
-| `ids` | `GET /storage/{uuid}` | by id |
-| `name` | `title` | client (a v9 `search` substring is *unverified* on 1.3) |
-| `tags` | `label` (`key`, `key=value`) | server |
-| `match.owner` | the path: `self` is `private`, `public` is UpCloud's own templates | server |
-| `match.zone` | `zone` (the list is account-wide: a template belongs to its zone) | client |
+| `ids` | `uuid` | client (the list is account-wide and filtered to the zone) |
+| `name` | `title` | client |
+| `tags` | the template's labels | client |
+| `match.zone` | `zone` (a template belongs to its zone) | client |
 | `match.state` | `state` (`online` available; `maintenance`, `cloning`, `backuping`, `syncing` pending; `error` failed) | client |
+| `match.architecture` | the label `flatcar-arch` (templates have no architecture field; a template without the label is not excluded) | client |
+| `match.createdAfter`, `createdBefore`, `orderBy: created` | the storage's `created`, which the API documents for backups; whether a template carries it is **unverified**, and without it these find nothing | client |
 
-No architecture field (amd64 only: `match.architecture` accepts `amd64` and rejects `arm64`; carry it in a label such as
-`flatcar-arch` and select with `tags`), **no creation time on templates**, so `newest` needs `orderBy: label:<key>` (the label
-`flatcar-version`) or `name`. Filters (all client-side from the response): `tier` (`maxiops`, `standard`, `hdd`: the template deploys
-only on its own tier), `template_type`, `encrypted`, `size`, `license`. The label may be missing for a short time after templatise (set by a second call):
-a template without labels is not a match, and a template not `online` is not ready.
+amd64 only: without a `use`, an `arm64` request is `Unsupported`. **No creation time on templates in practice**, so `newest`
+needs `orderBy: label:flatcar-version` (the label `flatcar-version`) or `name`. Filters (client-side): `tier` (`maxiops`,
+`standard`, `hdd`: a template deploys only on its own tier) and `template_type`. The default selector is the label convention
+(`scarpenter-image=flatcar`, the pinned `flatcar-channel` and `flatcar-version`, `flatcar-arch=amd64`). A selector that matches one template
+per tier is not ambiguous (the MaxIOPS one is returned and the other tier is chosen at launch); two of one tier are. A template
+that does not carry the pinned release in its labels is never booted.
 
-**networks** (`GET /network/`; SDN `private`, plus public and utility entries): `ids`; `name` client; `tags` label server;
-`match.zone` `zone` (server: `?zone=`, one value); `match.cidr`, `within` `ip_networks[].address` client; `match.state` none. Default
-`filters: type: [private]` (client: `public`, `utility`, `private`). No creation time. **firewalls** (SDN rulesets; the public
-interface's rules are per server and cannot be selected): the list has **no label, name or zone filter** (v9 only; path
-unverified), so `name`, `tags` (if the items carry labels: unverified) and `match.createdAfter` (`created_at`) are client-side and
-cost one get per item when the list omits labels; `sort=created_at` is unverified. **serverGroups**: `tags` label server (the format
-`key=value` versus `key:value` is *unverified*), `name` (`title`) client. Other kinds: **IP addresses** (no filter, no labels: `address`,
-`family`, `floating`, `zone`, `server` client-side), **servers** (`label`, `tag`, `state`, `uuid`, `search`, `sort_by`; not a `use` kind).
+**networks** (`GET /network/`; SDN `private`, plus public and utility entries): `ids`; `name` client; `tags` the label filter on the
+server (the matcher re-applies it); `match.zone` (`zone`) client, and the networks of a zone's resolution are those of that zone only;
+`match.cidr`, `within` `ip_networks[].address` client; `match.state` none. Default `filters: type: [private]` (client: `public`,
+`utility`, `private`). No creation time. **firewalls** (SDN rulesets; account-wide, one list for every zone; the public
+interface's rules are per server and cannot be selected): the list has **no label, name or zone filter** (the ruleset calls are
+those of the v9 API, path unverified), so `name` and `tags` (if the list carries labels: unverified) are client-side; no creation time.
+**serverGroups** (account-wide): `tags` the label filter on the server (the format `key=value` versus `key:value` is *unverified*),
+`name` (`title`) client. Other kinds: **IP addresses** (no filter, no labels: `address`, `family`, `floating`, `zone`, `server`
+client-side), **servers** (`label`, `tag`, `state`, `uuid`, `search`, `sort_by`; not a `use` kind).
 
 ### vultr
 

@@ -84,8 +84,7 @@ type Driver struct {
 	// matched (all tiers), for the tier choice of CreateInstance and Supported.
 	templates map[string][]Template
 	// limits are the account limits of the quota reader, reused for 15 minutes.
-	limits   cached[limitsSnapshot]
-	userSeen map[string]bool
+	limits cached[limitsSnapshot]
 }
 
 // cached is a value with an expiry.
@@ -107,7 +106,7 @@ func (c *cached[T]) set(v T, until time.Time) { c.v, c.until, c.ok = v, until, t
 
 // New returns an uninitialised driver.
 func New(opts ...Option) *Driver {
-	d := &Driver{templates: map[string][]Template{}, userSeen: map[string]bool{}}
+	d := &Driver{templates: map[string][]Template{}}
 	for _, o := range opts {
 		o(d)
 	}
@@ -266,17 +265,6 @@ func (d *Driver) LoadPrices(ctx context.Context) error {
 		return nil
 	}
 	return d.keeper.load(ctx)
-}
-
-// warnOnce logs a message once per key.
-func (d *Driver) warnOnce(key, msg string, kv ...any) {
-	d.mu.Lock()
-	seen := d.userSeen[key]
-	d.userSeen[key] = true
-	d.mu.Unlock()
-	if !seen {
-		d.log.Info(msg, kv...)
-	}
 }
 
 var (

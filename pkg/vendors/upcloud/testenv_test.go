@@ -87,8 +87,9 @@ func upcloudServers(t testing.TB) []snapshotRow {
 // and GPU plans.
 func snapshotPlans(t testing.TB) []fake.PlanSpec {
 	t.Helper()
-	var out []fake.PlanSpec
-	for _, r := range upcloudServers(t) {
+	rows := upcloudServers(t)
+	out := make([]fake.PlanSpec, 0, len(rows))
+	for _, r := range rows {
 		p := upcloud.Plan{Name: r.APIReference, CoreNumber: r.VCPUs, MemoryAmount: r.Memory}
 		if r.StorageSize > 0 {
 			p.StorageSize = int(r.StorageSize)

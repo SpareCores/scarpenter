@@ -60,17 +60,23 @@ func (g *roUpCloud) GetAccount(ctx context.Context) (*upcloud.Account, error) {
 	return g.inner.GetAccount(ctx)
 }
 
-func (g *roUpCloud) GetServersWithFilters(ctx context.Context, r *request.GetServersWithFiltersRequest) (*upcloud.Servers, error) {
+func (g *roUpCloud) GetServersWithFilters(
+	ctx context.Context, r *request.GetServersWithFiltersRequest,
+) (*upcloud.Servers, error) {
 	g.pass("GetServersWithFilters")
 	return g.inner.GetServersWithFilters(ctx, r)
 }
 
-func (g *roUpCloud) GetServerDetails(ctx context.Context, r *request.GetServerDetailsRequest) (*upcloud.ServerDetails, error) {
+func (g *roUpCloud) GetServerDetails(
+	ctx context.Context, r *request.GetServerDetailsRequest,
+) (*upcloud.ServerDetails, error) {
 	g.pass("GetServerDetails")
 	return g.inner.GetServerDetails(ctx, r)
 }
 
-func (g *roUpCloud) CreateServer(context.Context, *request.CreateServerRequest, ...upcloud.Label) (*upcloud.ServerDetails, error) {
+func (g *roUpCloud) CreateServer(
+	context.Context, *request.CreateServerRequest, ...upcloud.Label,
+) (*upcloud.ServerDetails, error) {
 	return nil, g.deny("CreateServer")
 }
 
@@ -86,7 +92,9 @@ func (g *roUpCloud) DeleteServerAndStorages(context.Context, *request.DeleteServ
 	return g.deny("DeleteServerAndStorages")
 }
 
-func (g *roUpCloud) WaitForServerState(context.Context, *request.WaitForServerStateRequest) (*upcloud.ServerDetails, error) {
+func (g *roUpCloud) WaitForServerState(
+	context.Context, *request.WaitForServerStateRequest,
+) (*upcloud.ServerDetails, error) {
 	return nil, g.deny("WaitForServerState")
 }
 
@@ -95,7 +103,9 @@ func (g *roUpCloud) GetStorages(ctx context.Context, r *request.GetStoragesReque
 	return g.inner.GetStorages(ctx, r)
 }
 
-func (g *roUpCloud) GetStorageDetails(ctx context.Context, r *request.GetStorageDetailsRequest) (*upcloud.StorageDetails, error) {
+func (g *roUpCloud) GetStorageDetails(
+	ctx context.Context, r *request.GetStorageDetailsRequest,
+) (*upcloud.StorageDetails, error) {
 	g.pass("GetStorageDetails")
 	return g.inner.GetStorageDetails(ctx, r)
 }
@@ -109,7 +119,9 @@ func (g *roUpCloud) GetNetworks(ctx context.Context, f ...request.QueryFilter) (
 	return g.inner.GetNetworks(ctx, f...)
 }
 
-func (g *roUpCloud) GetNetworkDetails(ctx context.Context, r *request.GetNetworkDetailsRequest) (*upcloud.Network, error) {
+func (g *roUpCloud) GetNetworkDetails(
+	ctx context.Context, r *request.GetNetworkDetailsRequest,
+) (*upcloud.Network, error) {
 	g.pass("GetNetworkDetails")
 	return g.inner.GetNetworkDetails(ctx, r)
 }
@@ -122,7 +134,9 @@ func (g *roUpCloud) DeleteNetwork(context.Context, *request.DeleteNetworkRequest
 	return g.deny("DeleteNetwork")
 }
 
-func (g *roUpCloud) GetFirewallRules(ctx context.Context, r *request.GetFirewallRulesRequest) (*upcloud.FirewallRules, error) {
+func (g *roUpCloud) GetFirewallRules(
+	ctx context.Context, r *request.GetFirewallRulesRequest,
+) (*upcloud.FirewallRules, error) {
 	g.pass("GetFirewallRules")
 	return g.inner.GetFirewallRules(ctx, r)
 }
@@ -131,17 +145,23 @@ func (g *roUpCloud) CreateFirewallRules(context.Context, *request.CreateFirewall
 	return g.deny("CreateFirewallRules")
 }
 
-func (g *roUpCloud) GetServerGroups(ctx context.Context, r *request.GetServerGroupsRequest) (upcloud.ServerGroups, error) {
+func (g *roUpCloud) GetServerGroups(
+	ctx context.Context, r *request.GetServerGroupsRequest,
+) (upcloud.ServerGroups, error) {
 	g.pass("GetServerGroups")
 	return g.inner.GetServerGroups(ctx, r)
 }
 
-func (g *roUpCloud) GetServerGroup(ctx context.Context, r *request.GetServerGroupRequest) (*upcloud.ServerGroup, error) {
+func (g *roUpCloud) GetServerGroup(
+	ctx context.Context, r *request.GetServerGroupRequest,
+) (*upcloud.ServerGroup, error) {
 	g.pass("GetServerGroup")
 	return g.inner.GetServerGroup(ctx, r)
 }
 
-func (g *roUpCloud) CreateServerGroup(context.Context, *request.CreateServerGroupRequest) (*upcloud.ServerGroup, error) {
+func (g *roUpCloud) CreateServerGroup(
+	context.Context, *request.CreateServerGroupRequest,
+) (*upcloud.ServerGroup, error) {
 	return nil, g.deny("CreateServerGroup")
 }
 

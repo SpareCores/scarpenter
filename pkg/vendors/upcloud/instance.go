@@ -184,8 +184,12 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 // replay returns the server a replayed key created, rewriting its firewall when it
 // is missing: the first attempt may have been interrupted between the create call
 // and the firewall write, and a node must never run on the account's default rules.
-func (d *Driver) replay(ctx context.Context, req vendors.CreateRequest, found *upcloud.ServerDetails) (*vendors.Instance, error) {
-	rules, err := PublicFirewallRules(FirewallOptions{Inbound: inboundOf(req.Settings.Networking.Inbound), Tailscale: true})
+func (d *Driver) replay(
+	ctx context.Context, req vendors.CreateRequest, found *upcloud.ServerDetails,
+) (*vendors.Instance, error) {
+	rules, err := PublicFirewallRules(FirewallOptions{
+		Inbound: inboundOf(req.Settings.Networking.Inbound), Tailscale: true,
+	})
 	if err != nil {
 		return nil, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
 	}

@@ -1,0 +1,51 @@
+# An UpCloud NodeClass whose templates, network and ruleset were created by the operator's
+# own tooling (any tool: the contract is the NodeClass, see
+# docs/reference/infrastructure-handoff.md). Each kind has `use`: one selector, the same on
+# every vendor. The brought network gives every node a private interface, and the ruleset is
+# attached to it; the Public & Utility firewall of each server is written by the driver.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: upcloud-bring-your-own
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: tailscale
+    tailscale:
+      version: "v1.98.10"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter, key: authkey}
+      tags: ["tag:k8s-node"]
+  profiles:
+    storage:
+      db:
+        upcloud:
+          root: {tier: maxiops, size: 50Gi}
+          data:
+            - {name: pgdata, tier: maxiops, size: 200Gi, filesystem: xfs, mountPath: /var/lib/pgdata}
+    placement:
+      spread:
+        upcloud:
+          serverGroup: {antiAffinity: strict}
+  vendors:
+    upcloud:
+      regions: [fi-hel1]
+      storage:
+        root: {tier: maxiops, size: 25Gi, encrypted: true}
+      resources:
+        # Both tiers in one list: one template per tier is not ambiguous.
+        images:
+          use:
+            ids:
+              fi-hel1: [00000000-0000-4000-8000-000000000001, 00000000-0000-4000-8000-000000000002]
+        # By label, in the zone of each launch.
+        networks:
+          use:
+            tags: {scarpenter-use: "true"}
+            match: {within: 10.8.0.0/16}
+        # By a name pattern: rulesets are account-wide, the same in every zone.
+        firewalls:
+          use:
+            name: "scarpenter-*"

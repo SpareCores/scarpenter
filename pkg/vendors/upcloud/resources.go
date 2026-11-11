@@ -27,6 +27,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors/upcloud/api"
 )
 
+// ruleAccept is the action of an accepting ruleset rule.
+const ruleAccept = "accept"
+
 // LabelRegion records the zone of a managed resource that is account-wide at
 // UpCloud (rulesets and server groups): List and the sweeper attribute them to it.
 const LabelRegion = "scarpenter-region"
@@ -81,7 +84,9 @@ func owned(tags map[vendors.TagKey]string, cluster string) bool {
 	return tags[vendors.TagManagedBy] == vendors.ManagedByValue && tags[vendors.TagCluster] == cluster && cluster != ""
 }
 
-func (d *Driver) ref(kind vendors.ResourceKind, region, id, name string, labels []upcloud.Label, managed bool) vendors.ResourceRef {
+func (d *Driver) ref(
+	kind vendors.ResourceKind, region, id, name string, labels []upcloud.Label, managed bool,
+) vendors.ResourceRef {
 	r := vendors.ResourceRef{Kind: kind, Region: region, ID: id, Name: name, Managed: managed}
 	if managed {
 		r.Tags = markerTags(labels)
@@ -341,7 +346,7 @@ func rulesetRules(p FirewallParams) ([]api.RulesetRule, error) {
 			return nil, fmt.Errorf("the network range %q: %w", p.CIDR, err)
 		}
 		rules = append(rules, api.RulesetRule{
-			Action: "accept", Direction: "in", Family: upcloud.IPAddressFamilyIPv4, CIDR: p.CIDR, Comment: "nodeclass",
+			Action: ruleAccept, Direction: "in", Family: upcloud.IPAddressFamilyIPv4, CIDR: p.CIDR, Comment: "nodeclass",
 		})
 	}
 	for _, in := range inboundOf(&common.Inbound{Rules: p.Inbound}) {
@@ -356,13 +361,13 @@ func rulesetRules(p FirewallParams) ([]api.RulesetRule, error) {
 			}
 		}
 		rules = append(rules, api.RulesetRule{
-			Action: "accept", Direction: "in", Family: fam, Protocol: in.Protocol, CIDR: in.CIDR,
+			Action: ruleAccept, Direction: "in", Family: fam, Protocol: in.Protocol, CIDR: in.CIDR,
 			PortStart: in.PortStart, PortEnd: in.PortEnd, Comment: "inbound",
 		})
 	}
 	rules = append(rules,
 		api.RulesetRule{Action: "drop", Direction: "in", Comment: "default"},
-		api.RulesetRule{Action: "accept", Direction: "out", Comment: "outbound"},
+		api.RulesetRule{Action: ruleAccept, Direction: "out", Comment: "outbound"},
 	)
 	return rules, nil
 }

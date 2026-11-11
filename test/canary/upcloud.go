@@ -21,6 +21,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors/upcloud/api"
 )
 
+// vendorUpCloud is the vendor ID of the UpCloud lane.
 const vendorUpCloud = "upcloud"
 
 // checkUpCloud is the UpCloud part: the real driver, over the real API with the token in
@@ -80,7 +81,8 @@ func runUpCloud(ctx context.Context, cfg *config, rep *report, a api.API, au *au
 		img, err := drv.ResolveImage(ctx, vendors.ImageRequest{
 			Region: cfg.region, Arch: "amd64", Channel: cfg.flatcarChannel, Version: cfg.flatcarVersion})
 		if err != nil {
-			return "", fmt.Errorf("%w (import the template of the images repository, test/e2e-upcloud/defaults.sh lists its labels)", err)
+			return "", fmt.Errorf("%w (import the template of the images repository, "+
+				"test/e2e-upcloud/defaults.sh lists its labels)", err)
 		}
 		return fmt.Sprintf("%s, root disk %d GiB", img.Ref, img.RootDiskBytes>>30), nil
 	})
@@ -99,17 +101,20 @@ func runUpCloud(ctx context.Context, cfg *config, rep *report, a api.API, au *au
 		cores, okC := limit[upcloud.BucketCores]
 		mem, okM := limit[upcloud.BucketMemory]
 		if !okC || !okM {
-			return "", fmt.Errorf("the account reports no positive limit for cores (%t) or memory (%t): a limit of 0 is unknown, "+
+			return "", fmt.Errorf("the account reports no positive limit for cores (%t) or memory (%t): "+
+				"a limit of 0 is unknown, "+
 				"and the lane's sub-account needs both set (the cost guard)", okC, okM)
 		}
 		detail := fmt.Sprintf("cores %d of which %d used (need %d), memory %d MB of which %d used (need %d), %d buckets",
 			cores.Limit, cores.Used, cfg.minCores, mem.Limit, mem.Used, cfg.minMemoryMB, len(snap.Buckets))
 		var problems []string
 		if cores.Limit < cfg.minCores {
-			problems = append(problems, fmt.Sprintf("the cores limit %d is below the %d the suite needs", cores.Limit, cfg.minCores))
+			problems = append(problems, fmt.Sprintf("the cores limit %d is below the %d the suite needs",
+				cores.Limit, cfg.minCores))
 		}
 		if mem.Limit < cfg.minMemoryMB {
-			problems = append(problems, fmt.Sprintf("the memory limit %d MB is below the %d MB the suite needs", mem.Limit, cfg.minMemoryMB))
+			problems = append(problems, fmt.Sprintf("the memory limit %d MB is below the %d MB the suite needs",
+				mem.Limit, cfg.minMemoryMB))
 		}
 		if len(problems) > 0 {
 			return detail, errors.New(strings.Join(problems, "; "))

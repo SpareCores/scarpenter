@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,14 +71,7 @@ func TestInitNeedsATokenAndAValidRange(t *testing.T) {
 	}
 }
 
-func contains(l []string, s string) bool {
-	for _, x := range l {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
+func contains(l []string, s string) bool { return slices.Contains(l, s) }
 
 func TestRegionsAreZonesAndCached(t *testing.T) {
 	e := newEnv(t, envOptions{})
@@ -157,32 +152,7 @@ func TestCreateInstanceWritesTheRequestTheDriverPromises(t *testing.T) {
 	if labels[uc.LabelCreated] == "" {
 		t.Error("no creation label")
 	}
-	var root, data *upcloud.ServerStorageDevice
-	for i, dev := range srv.StorageDevices {
-		if i == 0 {
-			root = &srv.StorageDevices[i]
-		} else {
-			data = &srv.StorageDevices[i]
-		}
-		_ = dev
-	}
-	if root == nil || root.Tier != upcloud.StorageTierMaxIOPS || root.Size != 50 || data == nil || data.Size != 20 {
-		t.Errorf("devices %+v", srv.StorageDevices)
-	}
-	for _, st := range e.f.Storages() {
-		if st.Type == upcloud.StorageTypeTemplate {
-			continue
-		}
-		var cluster string
-		for _, l := range st.Labels {
-			if l.Key == "scarpenter-cluster" {
-				cluster = l.Value
-			}
-		}
-		if cluster != testCluster {
-			t.Errorf("the storage %s is not labelled with the cluster: %+v", st.Title, st.Labels)
-		}
-	}
+	checkStorages(t, e, srv)
 	want, err := uc.PublicFirewallRules(uc.FirewallOptions{
 		Inbound: []uc.Inbound{{CIDR: "192.0.2.0/24", Protocol: "tcp", PortStart: 8080, PortEnd: 8080}}, Tailscale: true,
 	})
@@ -293,10 +263,7 @@ func TestALostCreateResponseIsFoundByItsLabel(t *testing.T) {
 	}
 	e.f.Inject("CreateServer", context.DeadlineExceeded, 1)
 	other := req
-	other.Tags = map[vendors.TagKey]string{}
-	for k, v := range req.Tags {
-		other.Tags[k] = v
-	}
+	other.Tags = maps.Clone(req.Tags)
 	again, err := e.d.CreateInstance(e.ctx(), other)
 	if err != nil || again.Ref != first.Ref {
 		t.Errorf("the replay found %v, %v; want %s", again, err, first.Ref)
@@ -461,5 +428,29 @@ func TestGlobalQuotasCacheTheLimitsAndConsumptionNeedsThePlanTable(t *testing.T)
 	types, err := e.d.LaunchableTypes(e.ctx(), testZone)
 	if err != nil || len(types["GPU-8xCPU-64GB-1xL40S"]) != 0 || len(types["PREMIUM-1xCPU-1GB"]) != 1 {
 		t.Errorf("LaunchableTypes: %v, %v", types, err)
+	}
+}
+
+// checkStorages checks the devices of a launch (the plan's 50 GB MaxIOPS root and the data disk) and the cluster label of
+// every storage the call made.
+func checkStorages(t *testing.T, e *env, srv *upcloud.ServerDetails) {
+	t.Helper()
+	devs := srv.StorageDevices
+	if len(devs) != 2 || devs[0].Tier != upcloud.StorageTierMaxIOPS || devs[0].Size != 50 || devs[1].Size != 20 {
+		t.Errorf("devices %+v", devs)
+	}
+	for _, st := range e.f.Storages() {
+		if st.Type == upcloud.StorageTypeTemplate {
+			continue
+		}
+		var cluster string
+		for _, l := range st.Labels {
+			if l.Key == "scarpenter-cluster" {
+				cluster = l.Value
+			}
+		}
+		if cluster != testCluster {
+			t.Errorf("the storage %s is not labelled with the cluster: %+v", st.Title, st.Labels)
+		}
 	}
 }

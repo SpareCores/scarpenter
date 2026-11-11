@@ -64,7 +64,8 @@ func templateOf(s upcloud.Storage) Template {
 		tier = l[LabelFlatcarTier]
 	}
 	return Template{
-		UUID: s.UUID, Zone: s.Zone, Tier: tier, SizeGB: s.Size, Channel: l[LabelFlatcarChannel], Version: l[LabelFlatcarVersion],
+		UUID: s.UUID, Zone: s.Zone, Tier: tier, SizeGB: s.Size,
+		Channel: l[LabelFlatcarChannel], Version: l[LabelFlatcarVersion],
 	}
 }
 
@@ -181,7 +182,9 @@ func imageUse(req vendors.ImageRequest) (vendors.UseRef, error) {
 // returned image is the MaxIOPS one when both exist. All the templates that
 // match and say they are the pinned release are returned, for the tier choice of
 // CreateInstance.
-func (d *Driver) resolveTemplates(list []upcloud.Storage, req vendors.ImageRequest) (*vendors.Image, []Template, error) {
+func (d *Driver) resolveTemplates(
+	list []upcloud.Storage, req vendors.ImageRequest,
+) (*vendors.Image, []Template, error) {
 	use, err := imageUse(req)
 	if err != nil {
 		return nil, nil, err

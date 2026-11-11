@@ -585,6 +585,31 @@ tests. Their results go into the "not verified" section of the reference doc.
     rows if Keeper has them for UpCloud. Recommendation: check Keeper's currencies
     at implementation; no per-vendor conversion in the driver.
 
+Decided by default, maintainer to confirm (the driver as built; numbers follow the questions above):
+
+2. **Hosting**: `direct_upload` first; the how-to documents both, and the driver does not care.
+3. **SDK**: `upcloud-go-api/v8` plus the thin ruleset client (three endpoints, never called live).
+4. **Root size default**: the plan's included storage, at least 25 GB; the tier is the plan's included tier where a template of
+   it exists, else the template's tier (the plan list's `storage_tier` is read at runtime, not guessed by family).
+5. **Public interface firewall**: the driver's rules, written after the create call, and rewritten on an idempotent replay. UDP 41641
+   (Tailscale's direct paths) is opened for every node, because the driver does not see the network template.
+6. **`isolation: run`**: unsupported with a run key (`Unsupported`, `IsolationRunUnsupported`), which includes every placement
+   profile under the API default `run`: a NodeClass that uses run keys sets `none` or `nodeclass`. Without a run key `run` behaves as
+   `none` (no private network).
+7. **Managed network CIDR**: a /24 derived from the name inside `10.241.0.0/16`, the next free one on overlap; the /16 is
+   `SCARPENTER_UPCLOUD_NETWORK_RANGE` (chart `vendors.upcloud.networkRange`).
+8. **GPU plans**: dropped (`LaunchableTypes` omits them, a launch is `Unsupported`); the new families of Keeper's snapshot, Starter
+   and Premium, are classified.
+9. **Credentials**: a dedicated sub-account's token from a Secret (chart mode `secret`, or `none`); no code depends on the choice.
+10. **Currency**: Keeper is asked for USD (as the catalog does) for the storage and IPv4 prices; nothing is converted in the driver.
+
+Other choices made while building, same status: a node gets a private interface only where `resources.networks` is configured or
+`isolation` is `nodeclass` (the driver reads the NodeClass named by the launch's tags to know); one template per tier is not an
+ambiguous `images` selector (the MaxIOPS one resolves, the launch picks the sibling tier); `images` declares `HasCreated` so that the
+shared suite's `orderBy: created` works if the API reports it, otherwise `label:flatcar-version`; a managed ruleset whose list answer
+has no labels is adopted by its name; the billing rule is reported unverified (retention stays off) with the stop deadline (two minutes)
+as `DeleteLatency`; the lane's plan is `STARTER-1xCPU-1GB` because the plain `1xCPU-1GB` is no longer active in Keeper's snapshot.
+
 ## Verified and unverified
 
 Verified from documentation or source on 2026-11-10 (no UpCloud call):

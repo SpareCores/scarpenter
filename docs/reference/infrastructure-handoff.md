@@ -298,18 +298,22 @@ default; a managed group (ownership marker in its description), else a stated fa
 Images: rung 3. Provide one template per zone and storage tier from the images
 repository's `flatcar-upcloud-<channel>-<version>-amd64.img.gz` (import into a
 storage, then a template; delete the source storage), labelled as in
-[Flatcar images](../explanation/flatcar-images.md#upcloud). Credentials: none in the
-block; an API token (Secret) of the account or a sub-account; tokens expire and have
-no scopes; the controller's token must see what your IaC created.
+[Flatcar images](../explanation/flatcar-images.md#upcloud) and
+[Import Flatcar templates into UpCloud](../how-to-guides/import-flatcar-templates-into-upcloud.md).
+Credentials: none in the block; an API token (a Secret) of the account or a sub-account;
+tokens expire and have no scopes; the controller's token must see what your IaC created.
 
 | Kind | Provide | `use` fields |
 |---|---|---|
-| `images` | the templates per zone, both tiers | `ids`, `tags` (labels; the default), `match.zone`, `orderBy: label:flatcar-version` |
-| `networks` | optional: an SDN network per zone (without one the node has the public and utility interfaces only); a managed network needs a range that does not overlap yours | `ids`, `name`, `tags` (labels), `match` (`zone`, `cidr`, `within`) |
-| `firewalls` | optional: an SDN ruleset; covers only the private interface (the public interface's firewall is written per server by the driver) | `ids`, `name`, `tags` (client-side), `match.createdAfter` |
+| `images` | the templates per zone, both tiers (the label convention finds them without a `use`) | `ids`, `tags` (labels; the default), `name`, `match` (`zone`, `state`, `architecture`), `filters` (`tier`, `template_type`), `orderBy: label:flatcar-version` |
+| `networks` | optional: an SDN network per zone (without one the node has the public and utility interfaces only); a managed network needs a range that does not overlap yours (`SCARPENTER_UPCLOUD_NETWORK_RANGE`) | `ids`, `name`, `tags` (labels), `match` (`zone`, `cidr`, `within`), `filters.type` |
+| `firewalls` | optional: an SDN ruleset; covers only the private interface (the public interface's firewall is written per server by the driver) | `ids`, `name`, `tags` (client-side) |
+| `serverGroups` | nothing (created per run by the placement profile) or an existing group by title | `ids`, `name`, `tags` |
 
-Without `use`: labelled networks and rulesets (*planned*), no vendor default; managed
-ones, else a stated failure.
+A node gets a private interface only where `resources.networks` is configured (a `use`, a
+`create`, or an empty block) or `networking.isolation` is `nodeclass`; it has none otherwise.
+Discovery by the opt-in label `scarpenter-use: "true"` runs for the kinds a NodeClass
+configures; there is no vendor default for any kind. Without `use`: managed ones, else a stated failure.
 
 ## vultr
 
