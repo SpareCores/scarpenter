@@ -10,6 +10,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/vultr"
 )
 
 // This file is the only place of the shared API that names vendors. The
@@ -35,6 +36,10 @@ type VendorBlocks struct {
 	// qemu configures the qemu development vendor.
 	// +optional
 	QEMU *qemu.Settings `json:"qemu,omitempty"`
+
+	// vultr configures Vultr nodes.
+	// +optional
+	Vultr *vultr.Settings `json:"vultr,omitempty"`
 }
 
 // Vendor names, as they appear as keys of the vendor and profile blocks and in
@@ -44,6 +49,9 @@ const (
 	VendorFake = "fake"
 	VendorQEMU = "qemu"
 )
+
+// VendorVultr is the name of the Vultr vendor block.
+const VendorVultr = "vultr"
 
 // Names returns the vendors that have a block, in a fixed order.
 func (v VendorBlocks) Names() []string {
@@ -56,6 +64,9 @@ func (v VendorBlocks) Names() []string {
 	}
 	if v.QEMU != nil {
 		names = append(names, VendorQEMU)
+	}
+	if v.Vultr != nil {
+		names = append(names, VendorVultr)
 	}
 	return names
 }
@@ -70,6 +81,8 @@ type StorageProfile struct {
 	Fake *fake.Storage `json:"fake,omitempty"`
 	// +optional
 	QEMU *qemu.Storage `json:"qemu,omitempty"`
+	// +optional
+	Vultr *vultr.Storage `json:"vultr,omitempty"`
 }
 
 // NetworkProfile is a named network setup (NIC features) per vendor.
@@ -81,6 +94,8 @@ type NetworkProfile struct {
 	Fake *fake.Network `json:"fake,omitempty"`
 	// +optional
 	QEMU *qemu.Network `json:"qemu,omitempty"`
+	// +optional
+	Vultr *vultr.Network `json:"vultr,omitempty"`
 }
 
 // PlacementProfile is a named placement and tenancy setup per vendor.
@@ -92,6 +107,8 @@ type PlacementProfile struct {
 	Fake *fake.Placement `json:"fake,omitempty"`
 	// +optional
 	QEMU *qemu.Placement `json:"qemu,omitempty"`
+	// +optional
+	Vultr *vultr.Placement `json:"vultr,omitempty"`
 }
 
 // The accessors below give the rest of the code generic access to a vendor's
@@ -107,6 +124,8 @@ func (v VendorBlocks) Get(vendor string) (any, bool) {
 		return orNil(v.Fake), v.Fake != nil
 	case VendorQEMU:
 		return orNil(v.QEMU), v.QEMU != nil
+	case VendorVultr:
+		return orNil(v.Vultr), v.Vultr != nil
 	}
 	return nil, false
 }
@@ -121,6 +140,8 @@ func (p StorageProfile) For(vendor string) (any, bool) {
 		return orNil(p.Fake), p.Fake != nil
 	case VendorQEMU:
 		return orNil(p.QEMU), p.QEMU != nil
+	case VendorVultr:
+		return orNil(p.Vultr), p.Vultr != nil
 	}
 	return nil, false
 }
@@ -134,6 +155,8 @@ func (p NetworkProfile) For(vendor string) (any, bool) {
 		return orNil(p.Fake), p.Fake != nil
 	case VendorQEMU:
 		return orNil(p.QEMU), p.QEMU != nil
+	case VendorVultr:
+		return orNil(p.Vultr), p.Vultr != nil
 	}
 	return nil, false
 }
@@ -147,6 +170,8 @@ func (p PlacementProfile) For(vendor string) (any, bool) {
 		return orNil(p.Fake), p.Fake != nil
 	case VendorQEMU:
 		return orNil(p.QEMU), p.QEMU != nil
+	case VendorVultr:
+		return orNil(p.Vultr), p.Vultr != nil
 	}
 	return nil, false
 }
