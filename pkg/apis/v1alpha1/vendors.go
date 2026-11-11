@@ -9,6 +9,7 @@ package v1alpha1
 import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/alicloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/azure"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
@@ -36,6 +37,10 @@ type VendorBlocks struct {
 	// aws configures AWS nodes.
 	// +optional
 	AWS *aws.Settings `json:"aws,omitempty"`
+
+	// azure configures Azure nodes.
+	// +optional
+	Azure *azure.Settings `json:"azure,omitempty"`
 
 	// fake configures the fake (KWOK) development vendor.
 	// +optional
@@ -67,6 +72,7 @@ type VendorBlocks struct {
 const (
 	VendorAlicloud = "alicloud"
 	VendorAWS      = "aws"
+	VendorAzure    = "azure"
 	VendorFake     = "fake"
 	VendorHCloud   = "hcloud"
 	VendorOVH      = "ovh"
@@ -85,6 +91,9 @@ func (v VendorBlocks) Names() []string {
 	}
 	if v.AWS != nil {
 		names = append(names, VendorAWS)
+	}
+	if v.Azure != nil {
+		names = append(names, VendorAzure)
 	}
 	if v.Fake != nil {
 		names = append(names, VendorFake)
@@ -116,6 +125,8 @@ type StorageProfile struct {
 	// +optional
 	AWS *aws.Storage `json:"aws,omitempty"`
 	// +optional
+	Azure *azure.Storage `json:"azure,omitempty"`
+	// +optional
 	Fake *fake.Storage `json:"fake,omitempty"`
 	// +optional
 	HCloud *hcloud.Storage `json:"hcloud,omitempty"`
@@ -137,6 +148,8 @@ type NetworkProfile struct {
 	// +optional
 	AWS *aws.Network `json:"aws,omitempty"`
 	// +optional
+	Azure *azure.Network `json:"azure,omitempty"`
+	// +optional
 	Fake *fake.Network `json:"fake,omitempty"`
 	// +optional
 	QEMU *qemu.Network `json:"qemu,omitempty"`
@@ -151,6 +164,8 @@ type PlacementProfile struct {
 	Alicloud *alicloud.Placement `json:"alicloud,omitempty"`
 	// +optional
 	AWS *aws.Placement `json:"aws,omitempty"`
+	// +optional
+	Azure *azure.Placement `json:"azure,omitempty"`
 	// +optional
 	Fake *fake.Placement `json:"fake,omitempty"`
 	// +optional
@@ -176,6 +191,8 @@ func (v VendorBlocks) Get(vendor string) (any, bool) {
 		return orNil(v.Alicloud), v.Alicloud != nil
 	case VendorAWS:
 		return orNil(v.AWS), v.AWS != nil
+	case VendorAzure:
+		return orNil(v.Azure), v.Azure != nil
 	case VendorFake:
 		return orNil(v.Fake), v.Fake != nil
 	case VendorHCloud:
@@ -200,6 +217,8 @@ func (p StorageProfile) For(vendor string) (any, bool) {
 		return orNil(p.Alicloud), p.Alicloud != nil
 	case VendorAWS:
 		return orNil(p.AWS), p.AWS != nil
+	case VendorAzure:
+		return orNil(p.Azure), p.Azure != nil
 	case VendorFake:
 		return orNil(p.Fake), p.Fake != nil
 	case VendorHCloud:
@@ -223,6 +242,8 @@ func (p NetworkProfile) For(vendor string) (any, bool) {
 		return orNil(p.Alicloud), p.Alicloud != nil
 	case VendorAWS:
 		return orNil(p.AWS), p.AWS != nil
+	case VendorAzure:
+		return orNil(p.Azure), p.Azure != nil
 	case VendorFake:
 		return orNil(p.Fake), p.Fake != nil
 	case VendorQEMU:
@@ -240,6 +261,8 @@ func (p PlacementProfile) For(vendor string) (any, bool) {
 		return orNil(p.Alicloud), p.Alicloud != nil
 	case VendorAWS:
 		return orNil(p.AWS), p.AWS != nil
+	case VendorAzure:
+		return orNil(p.Azure), p.Azure != nil
 	case VendorFake:
 		return orNil(p.Fake), p.Fake != nil
 	case VendorHCloud:

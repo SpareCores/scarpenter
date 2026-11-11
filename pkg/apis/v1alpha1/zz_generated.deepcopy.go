@@ -14,6 +14,7 @@ import (
 	"github.com/SpareCores/sc-keeper-go/selection/api"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/alicloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/azure"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
@@ -301,6 +302,11 @@ func (in *NetworkProfile) DeepCopyInto(out *NetworkProfile) {
 		*out = new(aws.Network)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Azure != nil {
+		in, out := &in.Azure, &out.Azure
+		*out = new(azure.Network)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Fake != nil {
 		in, out := &in.Fake, &out.Fake
 		*out = new(fake.Network)
@@ -364,6 +370,11 @@ func (in *PlacementProfile) DeepCopyInto(out *PlacementProfile) {
 	if in.AWS != nil {
 		in, out := &in.AWS, &out.AWS
 		*out = new(aws.Placement)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.Azure != nil {
+		in, out := &in.Azure, &out.Azure
+		*out = new(azure.Placement)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Fake != nil {
@@ -772,6 +783,11 @@ func (in *StorageProfile) DeepCopyInto(out *StorageProfile) {
 		*out = new(aws.Storage)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Azure != nil {
+		in, out := &in.Azure, &out.Azure
+		*out = new(azure.Storage)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Fake != nil {
 		in, out := &in.Fake, &out.Fake
 		*out = new(fake.Storage)
@@ -861,6 +877,11 @@ func (in *VendorBlocks) DeepCopyInto(out *VendorBlocks) {
 	if in.AWS != nil {
 		in, out := &in.AWS, &out.AWS
 		*out = new(aws.Settings)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.Azure != nil {
+		in, out := &in.Azure, &out.Azure
+		*out = new(azure.Settings)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Fake != nil {
