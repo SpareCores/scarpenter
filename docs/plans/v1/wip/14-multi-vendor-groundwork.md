@@ -244,8 +244,7 @@ Butane fragments that the core merges into the base config. The first fragment i
 `block-metadata-from-pods`: drop forwarded traffic to the vendor's metadata address
 (`169.254.169.254` on GCP, `100.100.100.200` on Alibaba), which is reachable from Pods
 because there is nothing like AWS's hop limit. Off by default, enabled per NodeClass
-(the field name is decided in the implementing change; proposed
-`spec.bootstrap.hardening: [metadata-from-pods]`), documented with the trade-off. *Why:*
+with `spec.bootstrap.hardening: [metadata-from-pods]` (decided by the maintainer, 2026-11-11), documented with the trade-off. *Why:*
 the core must not branch on a vendor, and the user-data (a one-hour bootstrap token and
 the Tailscale key) is readable from Pods on these vendors. Off by default because it
 changes what Pods on the node can reach.
@@ -495,14 +494,14 @@ attributes, the published schema and examples). Docs in the same change.
 
 ## Open questions for the maintainers
 
-1. **A7 field name and default.** `spec.bootstrap.hardening` is a proposal; the other
-   candidate is a vendor-block field. Off by default is a decision, but a safer default
-   for GCP and Alibaba (on) is possible once the L5 lane shows nothing breaks.
+1. **A7 field name and default.** Decided (maintainer, 2026-11-11): `spec.bootstrap.hardening`,
+   off by default. The rejected candidate was a vendor-block field; a safer default
+   for GCP and Alibaba (on) can be revisited once the L5 lane shows nothing breaks.
 2. **A4 grace.** 10 minutes of `terminating` before a second delete. Shorter costs
    delete calls on slow vendor deletes; longer leaves a powered-off node billed.
-3. **A1 strictness.** An explicit image ID whose version cannot be read back is not
-   ready. A softer rule (a Warning) would allow images without labels; it would break
-   ADR-017 for benchmarks.
+3. **A1 strictness.** Decided (maintainer, 2026-11-11): an explicit image ID whose version
+   cannot be read back is not ready and never booted. The rejected softer rule (a Warning)
+   would have allowed images without labels and broken ADR-017 for benchmarks.
 4. **A10 `ids` for global kinds.** The research found that a flat list cannot share a field with a
    per-region map in a structural CRD schema; the plan uses the key `*` (`ids: {"*": [id]}`). The
    alternative is a second field (`globalIds`).
