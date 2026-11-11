@@ -104,14 +104,15 @@ func (d *Driver) GlobalQuotas(ctx context.Context) (*vendors.QuotaSnapshot, erro
 // droppedSeries are the series the driver removes from the catalog: GPU machine
 // types launch like any type but have no driver (NVIDIA) support in v1 (like AWS's
 // mac types). UNVERIFIED list.
-var droppedSeries = []string{"a2", "a3", "a4", "a4x", "g2", "g4", "ct3", "ct3p", "ct5l", "ct5lp", "ct5p", "ct6e", "tpu7",
-	"tpu7x"}
+var droppedSeries = []string{"a2", "a3", "a4", seriesA4X, "g2", "g4", "ct3", "ct3p", "ct5l", "ct5lp", "ct5p", "ct6e",
+	"tpu7", "tpu7x"}
 
 // launchable says whether the machine type is offered by the driver: no custom
 // machine types, no bare metal, no GPU series.
 func launchable(name string) bool {
 	return !strings.Contains(name, "-custom-") && !strings.HasPrefix(name, "custom-") &&
-		!strings.HasSuffix(name, "-metal") && !strings.Contains(name, "-metal-") && !slices.Contains(droppedSeries, Family(name))
+		!strings.HasSuffix(name, "-metal") && !strings.Contains(name, "-metal-") &&
+		!slices.Contains(droppedSeries, Family(name))
 }
 
 // LaunchableTypes implements vendors.OfferingLister: machineTypes.list per zone of

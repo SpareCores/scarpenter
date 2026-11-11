@@ -123,7 +123,7 @@ func SeriesMetrics(series string) []string {
 	switch series {
 	case "e2", "n1":
 		return []string{MetricCPUs}
-	case "c4", "c4a", "c4d", "n4", "n4a", "n4d", "a3", "a4", "a4x", "x4", "h4d", "z3", "m4", "g4":
+	case "c4", "c4a", "c4d", "n4", "n4a", "n4d", "a3", "a4", seriesA4X, "x4", seriesH4D, "z3", "m4", "g4":
 		return nil
 	case "":
 		return nil

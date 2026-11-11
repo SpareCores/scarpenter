@@ -23,6 +23,16 @@ import (
 // one request).
 const ExpressionLanguage = "gcp-filter"
 
+// Strings of the Compute API and of the portable states that several places use.
+const (
+	statusReady      = "READY"
+	stateAvailable   = "available"
+	stateFailed      = "failed"
+	fieldDescription = "description"
+	fieldCreated     = "creationTimestamp"
+	defaultNetwork   = "default"
+)
+
 func serverFilters(names ...string) []vendors.FilterCap {
 	out := make([]vendors.FilterCap, len(names))
 	for i, n := range names {
@@ -49,11 +59,11 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 				vendors.MatchCIDR:        {Field: "ipCidrRange", Side: vendors.SideClient},
 				vendors.MatchWithin:      {Field: "ipCidrRange", Side: vendors.SideClient},
 				vendors.MatchState:       {Field: "state", Side: vendors.SideClient},
-				vendors.MatchDescription: {Field: "description", Side: vendors.SideClient},
+				vendors.MatchDescription: {Field: fieldDescription, Side: vendors.SideClient},
 				vendors.MatchCreatedAfter: {
-					Field: "creationTimestamp", Side: vendors.SideClient,
+					Field: fieldCreated, Side: vendors.SideClient,
 				},
-				vendors.MatchCreatedBefore: {Field: "creationTimestamp", Side: vendors.SideClient},
+				vendors.MatchCreatedBefore: {Field: fieldCreated, Side: vendors.SideClient},
 			},
 			Filters: serverFilters("purpose", "role", "stackType", "ipv6AccessType", "ipv6CidrRange",
 				"privateIpGoogleAccess", "enableFlowLogs"),
@@ -75,7 +85,7 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 			Name:       name,
 			Match: map[string]vendors.FieldCap{
 				vendors.MatchState:       {Field: "status", Side: vendors.SideClient},
-				vendors.MatchDescription: {Field: "description", Side: vendors.SideClient},
+				vendors.MatchDescription: {Field: fieldDescription, Side: vendors.SideClient},
 			},
 			Filters: serverFilters("groupPlacementPolicy.collocation", "groupPlacementPolicy.vmCount",
 				"groupPlacementPolicy.availabilityDomainCount", "groupPlacementPolicy.gpuTopology"),
@@ -92,9 +102,9 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 				vendors.MatchOwner:             {Field: "project", Side: vendors.SideServer},
 				vendors.MatchState:             {Field: "status", Side: vendors.SideClient},
 				vendors.MatchIncludeDeprecated: {Field: "deprecated.state", Side: vendors.SideClient},
-				vendors.MatchDescription:       {Field: "description", Side: vendors.SideClient},
-				vendors.MatchCreatedAfter:      {Field: "creationTimestamp", Side: vendors.SideClient},
-				vendors.MatchCreatedBefore:     {Field: "creationTimestamp", Side: vendors.SideClient},
+				vendors.MatchDescription:       {Field: fieldDescription, Side: vendors.SideClient},
+				vendors.MatchCreatedAfter:      {Field: fieldCreated, Side: vendors.SideClient},
+				vendors.MatchCreatedBefore:     {Field: fieldCreated, Side: vendors.SideClient},
 			},
 			Filters: append(serverFilters("family", "deprecated.state", "sourceType", "diskSizeGb", "id", "licenses",
 				"storageLocations", "guestOsFeatures"), vendors.FilterCap{Name: "labels.*", Side: vendors.SideServer}),
@@ -128,7 +138,7 @@ func listFilter(use vendors.UseRef) string {
 			parts = append(parts, "("+strings.Join(alts, " OR ")+")")
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, " AND ")
 }
 
 func parseTime(s string) time.Time {
@@ -150,11 +160,11 @@ func networkAttrs(url string) []string {
 }
 
 func subnetFields(s *computepb.Subnetwork, project, region string) selector.Fields {
-	state := "available"
+	state := stateAvailable
 	switch s.GetState() {
-	case "READY", "":
+	case statusReady, "":
 	default:
-		state = "failed"
+		state = stateFailed
 	}
 	cidrs := []string{s.GetIpCidrRange()}
 	if s.GetIpv6CidrRange() != "" {
@@ -188,13 +198,13 @@ func policyID(p *computepb.ResourcePolicy, project, region string) string {
 }
 
 func policyFields(p *computepb.ResourcePolicy, project, region string) selector.Fields {
-	state := "available"
+	state := stateAvailable
 	switch p.GetStatus() {
-	case "READY", "":
+	case statusReady, "":
 	case "CREATING":
 		state = "pending"
 	default:
-		state = "failed"
+		state = stateFailed
 	}
 	return selector.Fields{
 		ID: policyID(p, project, region), Name: p.GetName(), Created: parseTime(p.GetCreationTimestamp()),
@@ -218,15 +228,13 @@ func (t fwTag) enabled() bool {
 }
 
 func firewallFields(t fwTag) selector.Fields {
-	state := "available"
+	state := stateAvailable
 	if !t.enabled() {
-		state = "failed"
+		state = stateFailed
 	}
-	var nets []string
+	nets := make([]string, 0, len(t.rules))
 	for _, r := range t.rules {
-		for _, n := range networkAttrs(r.GetNetwork()) {
-			nets = append(nets, n)
-		}
+		nets = append(nets, networkAttrs(r.GetNetwork())...)
 	}
 	return selector.Fields{ID: t.tag, Name: t.tag,
 		Attrs: map[string][]string{vendors.MatchNetwork: nets, vendors.MatchState: {state}}}

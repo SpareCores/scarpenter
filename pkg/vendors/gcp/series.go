@@ -8,6 +8,12 @@ package gcp
 
 import "slices"
 
+// Series names that several tables list.
+const (
+	seriesA4X = "a4x"
+	seriesH4D = "h4d"
+)
+
 // The machine series facts the driver acts on. They come from Google's machine
 // family documentation as the plan recorded them and are UNVERIFIED until the
 // spike or the lane's runs confirm them; every table is kept honest by a test
@@ -16,8 +22,8 @@ import "slices"
 // substitute.
 
 // nvmeOnlySeries attach persistent disks only over NVMe.
-var nvmeOnlySeries = []string{"c3", "c3d", "c4", "c4a", "c4d", "n4", "n4a", "n4d", "a3", "a4", "a4x", "h3", "z3",
-	"m3", "m4", "x4", "c4n", "m4n", "h4d", "z4d", "z4m", "x5"}
+var nvmeOnlySeries = []string{"c3", "c3d", "c4", "c4a", "c4d", "n4", "n4a", "n4d", "a3", "a4", seriesA4X, "h3", "z3",
+	"m3", "m4", "x4", "c4n", "m4n", seriesH4D, "z4d", "z4m", "x5"}
 
 // noHyperdiskSeries cannot attach Hyperdisk.
 var noHyperdiskSeries = []string{"e2", "n1", "f1", "g1", "t2a", "t2d"}
@@ -25,7 +31,7 @@ var noHyperdiskSeries = []string{"e2", "n1", "f1", "g1", "t2a", "t2d"}
 // noMigrateSeries cannot live migrate: their on-demand instances use
 // onHostMaintenance TERMINATE (GPU series and the others that run on hardware
 // that cannot migrate).
-var noMigrateSeries = []string{"a2", "a3", "a4", "a4x", "g2", "g4", "h3", "c4a", "n4a", "t2a"}
+var noMigrateSeries = []string{"a2", "a3", "a4", seriesA4X, "g2", "g4", "h3", "c4a", "n4a", "t2a"}
 
 // compactSeries support compact placement (a resource policy with
 // collocation COLLOCATED); such instances also use onHostMaintenance TERMINATE.

@@ -62,11 +62,3 @@ func (d *Driver) finish(ctx context.Context, api ComputeAPI, op *computepb.Opera
 	}
 	return classifyOperation(op, ec)
 }
-
-// mutate runs a mutating call and waits for its operation.
-func (d *Driver) mutate(ctx context.Context, api ComputeAPI, op *computepb.Operation, err error) error {
-	if err != nil {
-		return classify(err, errContext{})
-	}
-	return d.finish(ctx, api, op, errContext{})
-}

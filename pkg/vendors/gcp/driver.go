@@ -118,7 +118,6 @@ type Driver struct {
 	machines map[string]machineInfo
 	images   map[imageKey]cachedImage
 	attempts map[string]int
-	userSeen map[string]bool
 	// confirmed overrides ConfirmedSeries, for the tests.
 	confirmed map[string][]string
 }
@@ -152,7 +151,7 @@ func New(opts ...Option) *Driver {
 	d := &Driver{
 		callTimeout: DefaultCallTimeout, waitTimeout: DefaultWaitTimeout, launchWait: DefaultLaunchWait,
 		machines: map[string]machineInfo{}, images: map[imageKey]cachedImage{},
-		attempts: map[string]int{}, userSeen: map[string]bool{},
+		attempts: map[string]int{},
 	}
 	var b [6]byte
 	_, _ = rand.Read(b[:])
@@ -350,27 +349,6 @@ func (d *Driver) LoadPrices(ctx context.Context) error {
 		return nil
 	}
 	return d.keeper.load(ctx)
-}
-
-// warnOnce logs a message once per key.
-func (d *Driver) warnOnce(key, msg string, kv ...any) {
-	d.mu.Lock()
-	seen := d.userSeen[key]
-	d.userSeen[key] = true
-	d.mu.Unlock()
-	if !seen {
-		d.log.Info(msg, kv...)
-	}
-}
-
-// knownRegion says whether the region is one the project can use; a failure to
-// list is taken as known, so that a transient error surfaces from the call.
-func (d *Driver) knownRegion(ctx context.Context, region string) bool {
-	regions, err := d.Regions(ctx)
-	if err != nil {
-		return strings.TrimSpace(region) != ""
-	}
-	return slices.ContainsFunc(regions, func(r vendors.Region) bool { return r.Name == region })
 }
 
 var (

@@ -375,21 +375,22 @@ func (d *Driver) Default(ctx context.Context, kind vendors.ResourceKind, region 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := api.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: d.project, Network: "default"}); err != nil {
-		if IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, classify(err, errContext{})
-	}
-	s, err := api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{
-		Project: d.project, Region: region, Subnetwork: "default"})
+	_, err = api.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: d.project, Network: defaultNetwork})
 	if err != nil {
 		if IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, classify(err, errContext{})
 	}
-	if lastSegment(s.GetNetwork()) != "default" {
+	s, err := api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{
+		Project: d.project, Region: region, Subnetwork: defaultNetwork})
+	if err != nil {
+		if IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, classify(err, errContext{})
+	}
+	if lastSegment(s.GetNetwork()) != defaultNetwork {
 		return nil, nil
 	}
 	return []vendors.ResourceRef{d.subnetRef(region, s)}, nil
@@ -427,7 +428,7 @@ func (d *Driver) DefaultSuits(
 	}
 	var open []string
 	for _, r := range rules {
-		if r.GetDisabled() || r.GetDirection() == "EGRESS" || lastSegment(r.GetNetwork()) != "default" {
+		if r.GetDisabled() || r.GetDirection() == "EGRESS" || lastSegment(r.GetNetwork()) != defaultNetwork {
 			continue
 		}
 		if len(r.GetTargetTags()) == 0 && len(r.GetTargetServiceAccounts()) == 0 {
@@ -530,7 +531,8 @@ func (d *Driver) ensureSubnet(ctx context.Context, api ComputeAPI, region string
 	default:
 		return vendors.ResourceRef{}, false, classify(err, errContext{})
 	}
-	sub, err := api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{Project: d.project, Region: region, Subnetwork: name})
+	sub, err := api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{
+		Project: d.project, Region: region, Subnetwork: name})
 	switch {
 	case err == nil:
 		if _, _, ok := ownedBy(d.cfg.ClusterName, name, sub.GetDescription()); !ok {
@@ -652,6 +654,16 @@ func rulesFor(kind vendors.ResourceKind, tag, network, desc string, p FirewallPa
 	if kind == KindRunFirewalls {
 		return out
 	}
+	// The deny rule says what the implied one does (ingress is denied unless a rule
+	// allows it): the NodeClass's firewall is never an empty object, so it can be
+	// found, held and deleted, and the intent shows in the console. The lowest
+	// priority lets every allow rule win.
+	deny := ruleName(tag, "deny")
+	dr := base(deny)
+	dr.Priority = new(int32(65534))
+	dr.SourceRanges = []string{"0.0.0.0/0", "::/0"}
+	dr.Denied = []*computepb.Denied{{IPProtocol: new("all")}}
+	out = append(out, firewallRule{deny, dr})
 	for i, in := range p.Inbound {
 		n := ruleName(tag, "in"+strconv.Itoa(i))
 		r := base(n)
@@ -696,7 +708,8 @@ func (d *Driver) ownedRulesOf(ctx context.Context, api ComputeAPI, tag string) (
 	}
 	var out []*computepb.Firewall
 	for _, r := range rules {
-		if _, _, ok := ownedBy(d.cfg.ClusterName, r.GetName(), r.GetDescription()); ok && slices.Contains(r.GetTargetTags(), tag) {
+		_, _, ok := ownedBy(d.cfg.ClusterName, r.GetName(), r.GetDescription())
+		if ok && slices.Contains(r.GetTargetTags(), tag) {
 			out = append(out, r)
 		}
 	}
@@ -818,7 +831,7 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 			return nil, fmt.Errorf("listing the managed resources of %s: %w", region, err)
 		}
 		for _, s := range subs {
-			nc, kind, ok := ownedBy(d.cfg.ClusterName, s.GetName(), s.GetDescription())
+			nc, _, ok := ownedBy(d.cfg.ClusterName, s.GetName(), s.GetDescription())
 			if !ok {
 				continue
 			}
@@ -826,7 +839,6 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 			if !d.markerMatches(nc, string(KindSubnets), tags) {
 				continue
 			}
-			_ = kind
 			ref := d.subnetRef(region, s)
 			ref.Managed, ref.Tags = true, d.markerTags(nc, string(KindSubnets))
 			out = append(out, ref)
@@ -845,20 +857,50 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 			out = append(out, ref)
 		}
 	}
+	orphans, err := d.listOrphanNetworks(ctx, api, usable, subnetNets, tags)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, orphans...)
+	rules, err := d.listManagedFirewalls(ctx, api, usable, tags)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, rules...)
+	slices.SortFunc(out, func(a, b vendors.ResourceRef) int {
+		return strings.Compare(string(a.Kind)+a.ID, string(b.Kind)+b.ID)
+	})
+	return out, nil
+}
+
+// listOrphanNetworks lists the managed networks that have no subnetwork (an
+// interrupted creation, or a subnetwork deleted first) as subnets resources, so
+// that they are held and deleted and not leaked.
+func (d *Driver) listOrphanNetworks(ctx context.Context, api ComputeAPI, usable []string, withSubnets map[string]bool,
+	tags map[vendors.TagKey]string) ([]vendors.ResourceRef, error) {
 	nets, err := d.listNetworks(ctx, api)
 	if err != nil {
 		return nil, err
 	}
+	var out []vendors.ResourceRef
 	for _, n := range nets {
 		nc, _, ok := ownedBy(d.cfg.ClusterName, n.GetName(), n.GetDescription())
 		region := markerRegion(n.GetDescription())
-		if !ok || subnetNets[n.GetName()] || !slices.Contains(usable, region) || !d.markerMatches(nc, string(KindSubnets), tags) {
+		if !ok || withSubnets[n.GetName()] || !slices.Contains(usable, region) ||
+			!d.markerMatches(nc, string(KindSubnets), tags) {
 			continue
 		}
 		out = append(out, vendors.ResourceRef{Kind: KindSubnets, Region: region, ID: networkID(d.project, n.GetName()),
 			Name: n.GetName(), Network: n.GetName(), Managed: true, CreatedAt: parseTime(n.GetCreationTimestamp()),
 			Tags: d.markerTags(nc, string(KindSubnets))})
 	}
+	return out, nil
+}
+
+// listManagedFirewalls groups the managed rules by their network tag: a tag with
+// its rules is one firewall resource.
+func (d *Driver) listManagedFirewalls(ctx context.Context, api ComputeAPI, usable []string,
+	tags map[vendors.TagKey]string) ([]vendors.ResourceRef, error) {
 	rules, err := d.listFirewalls(ctx, api, "")
 	if err != nil {
 		return nil, err
@@ -884,10 +926,10 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 			ref.CreatedAt = t
 		}
 	}
+	out := make([]vendors.ResourceRef, 0, len(byTag))
 	for _, k := range sortedKeys(byTag) {
 		out = append(out, *byTag[k])
 	}
-	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(string(a.Kind)+a.ID, string(b.Kind)+b.ID) })
 	return out, nil
 }
 

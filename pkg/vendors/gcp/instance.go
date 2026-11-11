@@ -201,7 +201,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		}
 		// An operation still running at the limit, or a transport failure while
 		// waiting, is unknown and keeps the request ID; a finished failure does not.
-		if !(vendors.IsClass(err, vendors.Retryable) && vendors.CodeOf(err) == codeTimeout) {
+		if !vendors.IsClass(err, vendors.Retryable) || vendors.CodeOf(err) != codeTimeout {
 			d.bumpAttempt(key)
 		}
 		return nil, err
@@ -319,7 +319,8 @@ func (d *Driver) GetInstance(ctx context.Context, ref vendors.InstanceRef) (*ven
 	if err != nil {
 		cerr := classify(err, errContext{})
 		if IsNotFound(cerr) || IsNotFound(err) {
-			return nil, vendors.NewError(vendors.NotFound, vendors.CodeOf(cerr), fmt.Errorf("instance %s does not exist: %w", ref, err))
+			return nil, vendors.NewError(vendors.NotFound, vendors.CodeOf(cerr),
+				fmt.Errorf("instance %s does not exist: %w", ref, err))
 		}
 		return nil, cerr
 	}

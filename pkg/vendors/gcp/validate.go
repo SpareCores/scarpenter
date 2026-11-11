@@ -30,11 +30,14 @@ var (
 	projectPattern  = regexp.MustCompile(`^[a-z][-a-z0-9.:]{4,61}[a-z0-9]$`)
 	serviceAcctRe   = regexp.MustCompile(`^[a-z][-a-z0-9]{4,28}[a-z0-9]@[a-z][-a-z0-9.]*\.(iam\.)?gserviceaccount\.com$`)
 	resourceNameRe  = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
-	subnetIDPattern = regexp.MustCompile(`^(projects/[^/]+/regions/[a-z0-9-]+/subnetworks/)?[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
+	subnetIDPattern = regexp.MustCompile(
+		`^(projects/[^/]+/regions/[a-z0-9-]+/subnetworks/)?[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
 	imageIDPattern  = regexp.MustCompile(`^(projects/[^/]+/global/images/)?[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
-	policyIDPattern = regexp.MustCompile(`^(projects/[^/]+/regions/[a-z0-9-]+/resourcePolicies/)?[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
-	tagIDPattern    = resourceNameRe
-	kmsKeyPattern   = regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+(/cryptoKeyVersions/[^/]+)?$`)
+	policyIDPattern = regexp.MustCompile(
+		`^(projects/[^/]+/regions/[a-z0-9-]+/resourcePolicies/)?[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
+	tagIDPattern  = resourceNameRe
+	kmsKeyPattern = regexp.MustCompile(
+		`^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+(/cryptoKeyVersions/[^/]+)?$`)
 )
 
 // maxUserTags leaves room for the labels SCarpenter adds (the six logical labels)
@@ -82,7 +85,8 @@ func validateDisk(path string, dk Disk, root bool) []error {
 		if lim.maxIOPS == 0 {
 			errs = append(errs, fmt.Errorf("%s: provisionedIops is not valid for %s disks", path, dk.Type))
 		} else if dk.ProvisionedIops > lim.maxIOPS {
-			errs = append(errs, fmt.Errorf("%s: %s takes at most %d IOPS, not %d", path, dk.Type, lim.maxIOPS, dk.ProvisionedIops))
+			errs = append(errs, fmt.Errorf("%s: %s takes at most %d IOPS, not %d", path, dk.Type, lim.maxIOPS,
+				dk.ProvisionedIops))
 		}
 	}
 	if lim.needsIOPS && dk.ProvisionedIops == 0 {

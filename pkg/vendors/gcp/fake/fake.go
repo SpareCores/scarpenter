@@ -97,7 +97,8 @@ func New(project string) *Compute {
 	return &Compute{
 		project: project, now: time.Now,
 		regions: map[string]*computepb.Region{}, zones: map[string]*computepb.Zone{},
-		types: map[string]map[string]*computepb.MachineType{}, images: map[string]*computepb.Image{}, public: map[string]bool{},
+		types:  map[string]map[string]*computepb.MachineType{},
+		images: map[string]*computepb.Image{}, public: map[string]bool{},
 		families: map[string]string{}, instances: map[string]*computepb.Instance{},
 		networks: map[string]*computepb.Network{}, subnets: map[string]*computepb.Subnetwork{},
 		firewalls: map[string]*computepb.Firewall{}, policies: map[string]*computepb.ResourcePolicy{},
@@ -552,6 +553,7 @@ func pageBounds(n int, max *uint32, token *string) (lo, hi int, next *string, er
 
 var (
 	clauseRe = regexp.MustCompile(`^([A-Za-z0-9_.\-]+)\s*(=|!=|eq|ne)\s*(.+)$`)
+	existsRe = regexp.MustCompile(`^([A-Za-z0-9_.\-]+):\*$`)
 	andRe    = regexp.MustCompile(`(?i)\s+AND\s+`)
 	orRe     = regexp.MustCompile(`(?i)\s+OR\s+`)
 	quotedRe = regexp.MustCompile(`"[^"]*"|'[^']*'`)
@@ -573,6 +575,16 @@ func matchFilter(filter *string, values func(field string) ([]string, bool)) (bo
 		clause = strings.TrimSpace(clause)
 		for strings.HasPrefix(clause, "(") && strings.HasSuffix(clause, ")") {
 			clause = strings.TrimSpace(clause[1 : len(clause)-1])
+		}
+		if ex := existsRe.FindStringSubmatch(clause); ex != nil {
+			vals, known := values(ex[1])
+			if !known {
+				return false, invalid("Invalid value for field 'filter': '%s'. Unknown field %q.", clause, ex[1])
+			}
+			if len(vals) == 0 {
+				return false, nil
+			}
+			continue
 		}
 		m := clauseRe.FindStringSubmatch(clause)
 		if m == nil {

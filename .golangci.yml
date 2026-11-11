@@ -77,6 +77,11 @@ linters:
       - linters:
           - dupl
         path: pkg/vendors/aws/errors(_test)?\.go
+      # The GCP driver's machine series tables list the same series names in several
+      # tables (Hyperdisk-only, NVMe-only, quota), which is their content.
+      - linters:
+          - goconst
+        path: pkg/vendors/gcp/(series|launch|quota|quotas)\.go
       # API types carry long kubebuilder markers and CEL rules.
       - linters:
           - lll

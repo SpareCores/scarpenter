@@ -94,6 +94,9 @@ func ToInstance(region string, in *computepb.Instance) *vendors.Instance {
 	}
 	if t, err := time.Parse(time.RFC3339, in.GetCreationTimestamp()); err == nil {
 		inst.CreatedAt = t
+		// Per second billing with a one minute minimum: retention never applies
+		// (BillingRule), the stamp is the creation time for the record.
+		inst.BillingStart = t
 	}
 	return inst
 }

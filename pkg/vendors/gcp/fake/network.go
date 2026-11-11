@@ -539,3 +539,14 @@ func (c *Compute) seedNetwork() {
 		SelfLink: new(c.url("regions/" + SeedRegion + "/subnetworks/" + SeedSubnet)),
 	}
 }
+
+// Firewalls returns a snapshot of every firewall rule, sorted by name.
+func (c *Compute) Firewalls() []*computepb.Firewall {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]*computepb.Firewall, 0, len(c.firewalls))
+	for _, k := range sortedKeys(c.firewalls) {
+		out = append(out, proto.Clone(c.firewalls[k]).(*computepb.Firewall))
+	}
+	return out
+}

@@ -260,7 +260,7 @@ func (d *Driver) defaultImage(ctx context.Context, api ComputeAPI, req vendors.I
 	if err := checkImageArch(im, id, req.Arch); err != nil {
 		return nil, "", err
 	}
-	if st := im.GetStatus(); st != "" && st != "READY" {
+	if st := im.GetStatus(); st != "" && st != statusReady {
 		return nil, "", vendors.NewError(vendors.NotFound, codeImageNotFound, fmt.Errorf("the image %s is %s", id, st))
 	}
 	if st := im.GetDeprecated().GetState(); st == "DELETED" || st == "OBSOLETE" {
@@ -340,7 +340,25 @@ func (d *Driver) imagesOf(ctx context.Context, api ComputeAPI, use vendors.UseRe
 		!matchSet(use.Match) {
 		return out, nil
 	}
-	filter := imageFilter(use, native)
+	listed, err := d.listImages(ctx, api, owners, imageFilter(use, native))
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range listed {
+		add(l.project, l.image)
+	}
+	return out, nil
+}
+
+type listedImage struct {
+	project string
+	image   *computepb.Image
+}
+
+// listImages lists the images of the owner projects with the filter, every page.
+func (d *Driver) listImages(ctx context.Context, api ComputeAPI, owners []string, filter string,
+) ([]listedImage, error) {
+	var out []listedImage
 	for _, p := range owners {
 		req := &computepb.ListImagesRequest{Project: p}
 		if filter != "" {
@@ -352,7 +370,7 @@ func (d *Driver) imagesOf(ctx context.Context, api ComputeAPI, use vendors.UseRe
 				return nil, classify(err, errContext{})
 			}
 			for _, im := range res.GetItems() {
-				add(p, im)
+				out = append(out, listedImage{p, im})
 			}
 			if res.GetNextPageToken() == "" {
 				break
@@ -400,7 +418,7 @@ func imageFilter(use vendors.UseRef, native []common.ResourceFilter) string {
 			parts = append(parts, "("+strings.Join(alts, " OR ")+")")
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, " AND ")
 }
 
 // selectedImage resolves the images selector of a NodeClass.
@@ -446,14 +464,14 @@ func (d *Driver) noteMissing(kind vendors.ResourceKind, region string, ids []str
 
 // imageFields reads what the matcher re-applies of an image.
 func imageFields(im *computepb.Image, project string) selector.Fields {
-	state := string(im.GetStatus())
+	state := im.GetStatus()
 	switch state {
-	case "READY", "":
-		state = "available"
+	case statusReady, "":
+		state = stateAvailable
 	case "PENDING":
 		state = "pending"
 	case "FAILED", "DELETING":
-		state = "failed"
+		state = stateFailed
 	}
 	attrs := map[string][]string{vendors.MatchState: {state}, vendors.MatchDescription: {im.GetDescription()}}
 	for k, v := range imageArches {

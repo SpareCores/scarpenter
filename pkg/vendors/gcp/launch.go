@@ -272,7 +272,8 @@ func initParams(
 // hyperdiskOnlySeries boot only from Hyperdisk. UNVERIFIED: the list comes from
 // the plan (vendor-capabilities); the spike and a test against Keeper's types
 // keep it honest.
-var hyperdiskOnlySeries = []string{"c4", "n4", "c4a", "n4a", "c4d", "n4d", "c4n", "a3", "a4", "a4x", "h4d", "z4d", "z4m"}
+var hyperdiskOnlySeries = []string{"c4", "n4", "c4a", "n4a", "c4d", "n4d", "c4n", "a3", "a4", seriesA4X, seriesH4D,
+	"z4d", "z4m"}
 
 // DefaultRootDiskType is the one type-dependent default of the root disk
 // (plan 16, section 6): hyperdisk-balanced for the series that boot only from
