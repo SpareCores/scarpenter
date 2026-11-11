@@ -63,6 +63,8 @@ type launchState struct {
 	lastErr  error
 	// keepToken is set when the failure may hide a launched instance.
 	keepToken bool
+	// prepared are the resources the last attempt launched with.
+	prepared *vendors.Prepared
 }
 
 // Create launches the NodeClaim (overview section 4.1): the candidate offerings
@@ -166,7 +168,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		inst, err := c.launch(ctx, st, cand)
 		if err == nil {
 			c.reconcileQuota(res, cand, inst, nodeClaim.Name)
-			return c.created(ctx, nc, nodeClaim, cands, cand, inst, st.runKey), nil
+			return c.created(ctx, nc, nodeClaim, cands, cand, inst, st.runKey, st.prepared), nil
 		}
 		if _, isImage := errors.AsType[*imageError](err); isImage {
 			c.release(res)
@@ -300,6 +302,7 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 			return nil, fmt.Errorf("preparing the launch: %w", err)
 		}
 	}
+	st.prepared = prepared
 	providerID := scope.ProviderID(cand.vendor, cand.region, nodeClaim.Name)
 	rr := RenderRequest{
 		NodeClass: nc, NodeClaim: nodeClaim, Vendor: cand.vendor, Region: cand.region, Zone: cand.zone,
@@ -433,7 +436,7 @@ func (c *CloudProvider) launchTags(nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.N
 // section 4.1 step 6).
 func (c *CloudProvider) created(
 	ctx context.Context, nc *v1alpha1.SCNodeClass, nodeClaim *karpv1.NodeClaim, cands []candidate, attempted *candidate,
-	inst *vendors.Instance, runKey string,
+	inst *vendors.Instance, runKey string, prepared *vendors.Prepared,
 ) *karpv1.NodeClaim {
 	// The instance is the truth: a replayed idempotency key returns the first
 	// instance, which may be another offering than the one attempted now.
@@ -471,6 +474,17 @@ func (c *CloudProvider) created(
 	if hash := nc.Status.Vendors[cand.vendor].Hash; hash != "" {
 		out.Annotations[v1alpha1.AnnotationNodeClassHash] = hash
 		out.Annotations[v1alpha1.AnnotationNodeClassHashVersion] = nodeclass.HashVersion
+	}
+	// The resources of the launch, for the instance the attempt created (a
+	// replayed key may return an older instance whose resources are not known).
+	if prepared != nil && len(prepared.Resources) > 0 && inst.Type == attempted.apiReference &&
+		inst.Zone == attempted.zone && inst.Region == attempted.region {
+		byKind := map[string][]string{}
+		for _, r := range prepared.Resources {
+			byKind[string(r.Kind)] = append(byKind[string(r.Kind)], r.ID)
+		}
+		raw, _ := json.Marshal(byKind)
+		out.Annotations[v1alpha1.AnnotationResources] = string(raw)
 	}
 	if in, ok, err := options.InputFromNodeClass(nc, cand.vendor); err == nil && ok {
 		if hashes := in.AppliedHashes(cand.sel); len(hashes) > 0 {

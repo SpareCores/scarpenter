@@ -153,6 +153,12 @@ func TestCreateAppliesTheSelectedProfile(t *testing.T) {
 	if _, set := created.Annotations[v1alpha1.AnnotationPriceIncomplete]; set {
 		t.Error("a complete price was flagged incomplete")
 	}
+	var used map[string][]string
+	if err := json.Unmarshal([]byte(created.Annotations[v1alpha1.AnnotationResources]), &used); err != nil ||
+		len(used["subnets"]) != 1 || len(used["volumes"]) != 1 {
+		t.Errorf("resources annotation %q: want the IDs of the network and the volume the node launched with",
+			created.Annotations[v1alpha1.AnnotationResources])
+	}
 	var hashes map[string]string
 	if err := json.Unmarshal([]byte(created.Annotations[v1alpha1.AnnotationProfileHashes]), &hashes); err != nil || hashes["storage/db"] == "" {
 		t.Errorf("profile hashes annotation %q", created.Annotations[v1alpha1.AnnotationProfileHashes])
@@ -304,7 +310,7 @@ func TestAPlacementProfileWithAGroupNeedsARunKey(t *testing.T) {
 func TestMissingUseResourceSkipsTheRegionWithoutMarkingTypes(t *testing.T) {
 	e := newEnv(t, envOptions{transform: func(nc *v1alpha1.SCNodeClass) {
 		nc.Spec.Vendors.AWS.Resources = &aws.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{
-			Selector: &common.TagSelector{Tags: map[string]string{"use": "true"}}}}}
+			Tags: map[string]string{"use": "true"}}}}
 	}})
 	e.setConfig("existingResources", "- {kind: subnets, region: "+region1+", id: subnet-a, tags: {use: \"true\"}}")
 	// Nothing is wrong with the type or the zone: only region2 lacks the subnet.

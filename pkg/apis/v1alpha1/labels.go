@@ -85,6 +85,11 @@ const (
 	// launched with, as JSON {"storage/<name>": "<hash>"}: changing one
 	// profile drifts only the nodes that use it.
 	AnnotationProfileHashes = Group + "/profile-hashes"
+	// AnnotationResources records the vendor resources the node was launched
+	// with (the IDs its `use` selectors resolved to, and the managed ones), as
+	// JSON {"subnets": ["subnet-0abc"]}: a later re-resolution that finds other
+	// resources changes new launches only, never a running node.
+	AnnotationResources = Group + "/resources"
 	// AnnotationPriceIncomplete is "true" when the price misses components the
 	// data does not have.
 	AnnotationPriceIncomplete = Group + "/price-incomplete"
