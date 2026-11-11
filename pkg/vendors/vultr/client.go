@@ -85,7 +85,7 @@ func NewClient(cfg ClientConfig) (API, error) {
 		c.RetryWait = 500 * time.Millisecond
 	}
 	httpClient := &http.Client{Transport: &transport{
-		base: c.Transport, key: c.APIKey, limiter: rate.NewLimiter(rate.Limit(c.RatePerSecond), int(c.RatePerSecond)),
+		base: c.Transport, key: c.APIKey, limiter: rate.NewLimiter(rate.Limit(c.RatePerSecond), max(1, int(c.RatePerSecond))),
 	}}
 	g := govultr.NewClient(httpClient)
 	if c.BaseURL != "" {
@@ -189,7 +189,9 @@ func (c *sdkClient) run(ctx context.Context, f func(ctx context.Context) error) 
 	return err
 }
 
-func (c *sdkClient) ListRegions(ctx context.Context, opts *govultr.ListOptions) ([]govultr.Region, *govultr.Meta, error) {
+func (c *sdkClient) ListRegions(
+	ctx context.Context, opts *govultr.ListOptions,
+) ([]govultr.Region, *govultr.Meta, error) {
 	type r struct {
 		v []govultr.Region
 		m *govultr.Meta
@@ -201,14 +203,18 @@ func (c *sdkClient) ListRegions(ctx context.Context, opts *govultr.ListOptions) 
 	return out.v, out.m, err
 }
 
-func (c *sdkClient) RegionAvailability(ctx context.Context, regionID, planType string) (*govultr.PlanAvailability, error) {
+func (c *sdkClient) RegionAvailability(
+	ctx context.Context, regionID, planType string,
+) (*govultr.PlanAvailability, error) {
 	return do(ctx, c.call, func(ctx context.Context) (*govultr.PlanAvailability, error) {
 		v, _, err := c.g.Region.Availability(ctx, regionID, planType)
 		return v, err
 	})
 }
 
-func (c *sdkClient) ListPlans(ctx context.Context, planType string, opts *govultr.ListOptions) ([]govultr.Plan, *govultr.Meta, error) {
+func (c *sdkClient) ListPlans(
+	ctx context.Context, planType string, opts *govultr.ListOptions,
+) ([]govultr.Plan, *govultr.Meta, error) {
 	type r struct {
 		v []govultr.Plan
 		m *govultr.Meta
@@ -220,7 +226,9 @@ func (c *sdkClient) ListPlans(ctx context.Context, planType string, opts *govult
 	return out.v, out.m, err
 }
 
-func (c *sdkClient) ListSnapshots(ctx context.Context, opts *govultr.ListOptions) ([]govultr.Snapshot, *govultr.Meta, error) {
+func (c *sdkClient) ListSnapshots(
+	ctx context.Context, opts *govultr.ListOptions,
+) ([]govultr.Snapshot, *govultr.Meta, error) {
 	type r struct {
 		v []govultr.Snapshot
 		m *govultr.Meta
@@ -257,7 +265,9 @@ func (c *sdkClient) DeleteInstance(ctx context.Context, id string) error {
 	return c.run(ctx, func(ctx context.Context) error { return c.g.Instance.Delete(ctx, id) })
 }
 
-func (c *sdkClient) ListInstances(ctx context.Context, opts *govultr.ListOptions) ([]govultr.Instance, *govultr.Meta, error) {
+func (c *sdkClient) ListInstances(
+	ctx context.Context, opts *govultr.ListOptions,
+) ([]govultr.Instance, *govultr.Meta, error) {
 	type r struct {
 		v []govultr.Instance
 		m *govultr.Meta
@@ -269,7 +279,9 @@ func (c *sdkClient) ListInstances(ctx context.Context, opts *govultr.ListOptions
 	return out.v, out.m, err
 }
 
-func (c *sdkClient) CreateFirewallGroup(ctx context.Context, req *govultr.FirewallGroupReq) (*govultr.FirewallGroup, error) {
+func (c *sdkClient) CreateFirewallGroup(
+	ctx context.Context, req *govultr.FirewallGroupReq,
+) (*govultr.FirewallGroup, error) {
 	return do(ctx, c.call, func(ctx context.Context) (*govultr.FirewallGroup, error) {
 		v, _, err := c.g.FirewallGroup.Create(ctx, req)
 		return v, err
@@ -287,7 +299,9 @@ func (c *sdkClient) DeleteFirewallGroup(ctx context.Context, id string) error {
 	return c.run(ctx, func(ctx context.Context) error { return c.g.FirewallGroup.Delete(ctx, id) })
 }
 
-func (c *sdkClient) ListFirewallGroups(ctx context.Context, opts *govultr.ListOptions) ([]govultr.FirewallGroup, *govultr.Meta, error) {
+func (c *sdkClient) ListFirewallGroups(
+	ctx context.Context, opts *govultr.ListOptions,
+) ([]govultr.FirewallGroup, *govultr.Meta, error) {
 	type r struct {
 		v []govultr.FirewallGroup
 		m *govultr.Meta
@@ -299,14 +313,18 @@ func (c *sdkClient) ListFirewallGroups(ctx context.Context, opts *govultr.ListOp
 	return out.v, out.m, err
 }
 
-func (c *sdkClient) CreateFirewallRule(ctx context.Context, groupID string, req *govultr.FirewallRuleReq) (*govultr.FirewallRule, error) {
+func (c *sdkClient) CreateFirewallRule(
+	ctx context.Context, groupID string, req *govultr.FirewallRuleReq,
+) (*govultr.FirewallRule, error) {
 	return do(ctx, c.call, func(ctx context.Context) (*govultr.FirewallRule, error) {
 		v, _, err := c.g.FirewallRule.Create(ctx, groupID, req)
 		return v, err
 	})
 }
 
-func (c *sdkClient) ListFirewallRules(ctx context.Context, groupID string, opts *govultr.ListOptions) ([]govultr.FirewallRule, *govultr.Meta, error) {
+func (c *sdkClient) ListFirewallRules(
+	ctx context.Context, groupID string, opts *govultr.ListOptions,
+) ([]govultr.FirewallRule, *govultr.Meta, error) {
 	type r struct {
 		v []govultr.FirewallRule
 		m *govultr.Meta
@@ -352,7 +370,9 @@ func (c *sdkClient) ListVPCs(ctx context.Context, opts *govultr.ListOptions) ([]
 	return out.v, out.m, err
 }
 
-func (c *sdkClient) ListVPCAttachments(ctx context.Context, vpcID string, opts *govultr.ListOptions) ([]govultr.VPCAttachment, *govultr.Meta, error) {
+func (c *sdkClient) ListVPCAttachments(
+	ctx context.Context, vpcID string, opts *govultr.ListOptions,
+) ([]govultr.VPCAttachment, *govultr.Meta, error) {
 	type r struct {
 		v []govultr.VPCAttachment
 		m *govultr.Meta

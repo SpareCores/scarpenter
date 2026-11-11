@@ -148,7 +148,8 @@ func (a *Account) id(prefix string) string {
 func (a *Account) AddRegion(id string, availablePlans ...string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.regions = append(a.regions, govultr.Region{ID: id, City: id, Country: "XX", Options: []string{}, Connectivity: []string{}})
+	a.regions = append(a.regions,
+		govultr.Region{ID: id, City: id, Country: "XX", Options: []string{}, Connectivity: []string{}})
 	a.avail[id] = slices.Clone(availablePlans)
 }
 
@@ -371,7 +372,9 @@ func (a *Account) RegionAvailability(_ context.Context, regionID, _ string) (*go
 }
 
 // ListPlans implements vultr.API.
-func (a *Account) ListPlans(_ context.Context, _ string, opts *govultr.ListOptions) ([]govultr.Plan, *govultr.Meta, error) {
+func (a *Account) ListPlans(
+	_ context.Context, _ string, opts *govultr.ListOptions,
+) ([]govultr.Plan, *govultr.Meta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("ListPlans", nil); err != nil {
@@ -383,7 +386,9 @@ func (a *Account) ListPlans(_ context.Context, _ string, opts *govultr.ListOptio
 // ---- snapshots ----
 
 // ListSnapshots implements vultr.API.
-func (a *Account) ListSnapshots(_ context.Context, opts *govultr.ListOptions) ([]govultr.Snapshot, *govultr.Meta, error) {
+func (a *Account) ListSnapshots(
+	_ context.Context, opts *govultr.ListOptions,
+) ([]govultr.Snapshot, *govultr.Meta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("ListSnapshots", nil); err != nil {
@@ -558,7 +563,9 @@ func (a *Account) DeleteInstance(_ context.Context, id string) error {
 
 // ListInstances implements vultr.API: tag takes one value and matches a whole tag
 // string; region, label and main_ip filter too.
-func (a *Account) ListInstances(_ context.Context, opts *govultr.ListOptions) ([]govultr.Instance, *govultr.Meta, error) {
+func (a *Account) ListInstances(
+	_ context.Context, opts *govultr.ListOptions,
+) ([]govultr.Instance, *govultr.Meta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("ListInstances", nil); err != nil {
@@ -597,7 +604,9 @@ func (a *Account) group(id string) *group {
 }
 
 // CreateFirewallGroup implements vultr.API.
-func (a *Account) CreateFirewallGroup(_ context.Context, req *govultr.FirewallGroupReq) (*govultr.FirewallGroup, error) {
+func (a *Account) CreateFirewallGroup(
+	_ context.Context, req *govultr.FirewallGroupReq,
+) (*govultr.FirewallGroup, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("CreateFirewallGroup", *req); err != nil {
@@ -605,7 +614,8 @@ func (a *Account) CreateFirewallGroup(_ context.Context, req *govultr.FirewallGr
 	}
 	now := a.now().UTC().Format(time.RFC3339)
 	g := &group{FirewallGroup: govultr.FirewallGroup{
-		ID: a.id("fa000000"), Description: req.Description, DateCreated: now, DateModified: now, MaxRuleCount: MaxRulesPerGroup,
+		ID: a.id("fa000000"), Description: req.Description, DateCreated: now, DateModified: now,
+		MaxRuleCount: MaxRulesPerGroup,
 	}, nextID: 1}
 	a.groups = append(a.groups, g)
 	out := g.FirewallGroup
@@ -646,7 +656,9 @@ func (a *Account) DeleteFirewallGroup(_ context.Context, id string) error {
 }
 
 // ListFirewallGroups implements vultr.API.
-func (a *Account) ListFirewallGroups(_ context.Context, opts *govultr.ListOptions) ([]govultr.FirewallGroup, *govultr.Meta, error) {
+func (a *Account) ListFirewallGroups(
+	_ context.Context, opts *govultr.ListOptions,
+) ([]govultr.FirewallGroup, *govultr.Meta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("ListFirewallGroups", nil); err != nil {
@@ -662,7 +674,9 @@ func (a *Account) ListFirewallGroups(_ context.Context, opts *govultr.ListOption
 var ruleProtocols = []string{"tcp", "udp", "icmp", "gre", "esp", "ah"}
 
 // CreateFirewallRule implements vultr.API: at most 50 rules per group.
-func (a *Account) CreateFirewallRule(_ context.Context, groupID string, req *govultr.FirewallRuleReq) (*govultr.FirewallRule, error) {
+func (a *Account) CreateFirewallRule(
+	_ context.Context, groupID string, req *govultr.FirewallRuleReq,
+) (*govultr.FirewallRule, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("CreateFirewallRule", *req); err != nil {
@@ -687,7 +701,9 @@ func (a *Account) CreateFirewallRule(_ context.Context, groupID string, req *gov
 }
 
 // ListFirewallRules implements vultr.API.
-func (a *Account) ListFirewallRules(_ context.Context, groupID string, opts *govultr.ListOptions) ([]govultr.FirewallRule, *govultr.Meta, error) {
+func (a *Account) ListFirewallRules(
+	_ context.Context, groupID string, opts *govultr.ListOptions,
+) ([]govultr.FirewallRule, *govultr.Meta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("ListFirewallRules", nil); err != nil {
@@ -810,7 +826,9 @@ func (a *Account) ListVPCs(_ context.Context, opts *govultr.ListOptions) ([]govu
 }
 
 // ListVPCAttachments implements vultr.API.
-func (a *Account) ListVPCAttachments(_ context.Context, vpcID string, opts *govultr.ListOptions) ([]govultr.VPCAttachment, *govultr.Meta, error) {
+func (a *Account) ListVPCAttachments(
+	_ context.Context, vpcID string, opts *govultr.ListOptions,
+) ([]govultr.VPCAttachment, *govultr.Meta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("ListVPCAttachments", nil); err != nil {

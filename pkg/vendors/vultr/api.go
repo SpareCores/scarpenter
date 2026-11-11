@@ -47,14 +47,18 @@ type API interface {
 	DeleteFirewallGroup(ctx context.Context, id string) error
 	ListFirewallGroups(ctx context.Context, opts *govultr.ListOptions) ([]govultr.FirewallGroup, *govultr.Meta, error)
 	CreateFirewallRule(ctx context.Context, groupID string, req *govultr.FirewallRuleReq) (*govultr.FirewallRule, error)
-	ListFirewallRules(ctx context.Context, groupID string, opts *govultr.ListOptions) ([]govultr.FirewallRule, *govultr.Meta, error)
+	ListFirewallRules(
+		ctx context.Context, groupID string, opts *govultr.ListOptions,
+	) ([]govultr.FirewallRule, *govultr.Meta, error)
 	DeleteFirewallRule(ctx context.Context, groupID string, ruleID int) error
 
 	CreateVPC(ctx context.Context, req *govultr.VPCReq) (*govultr.VPC, error)
 	GetVPC(ctx context.Context, id string) (*govultr.VPC, error)
 	DeleteVPC(ctx context.Context, id string) error
 	ListVPCs(ctx context.Context, opts *govultr.ListOptions) ([]govultr.VPC, *govultr.Meta, error)
-	ListVPCAttachments(ctx context.Context, vpcID string, opts *govultr.ListOptions) ([]govultr.VPCAttachment, *govultr.Meta, error)
+	ListVPCAttachments(
+		ctx context.Context, vpcID string, opts *govultr.ListOptions,
+	) ([]govultr.VPCAttachment, *govultr.Meta, error)
 }
 
 // Plan types of the list calls.
