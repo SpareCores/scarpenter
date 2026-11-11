@@ -2,8 +2,9 @@
 # by a NodePool, so nothing is launched.
 #   e2e-noipv4  publicIPv4: false: refused on the default VPC (the nodes would have no
 #               egress), unless the NodeClass brings its own subnets.
-#   e2e-ipv6    publicIPv6: true: the account's default VPC has no IPv6 block, so the
-#               zones are gated with the reason and the region is not ready.
+#   e2e-ipv6    publicIPv6: true: the account's default VPC has no IPv6 block, so its
+#               subnets are skipped (ADR-022): the status shows no default subnet and
+#               the managed network would be created at the first launch.
 apiVersion: scarpenter.sparecores.com/v1alpha1
 kind: SCNodeClass
 metadata:

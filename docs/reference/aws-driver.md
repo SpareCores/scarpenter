@@ -492,7 +492,7 @@ account ID.
 | `CreateSecurityGroups`, `CreateSecurityGroupsInAVpc` | `ec2:CreateSecurityGroup` with the cluster tag, in any VPC |
 | `ChangeSecurityGroups` | authorize and revoke ingress and delete, on groups with the cluster tag |
 | `CreatePlacementGroups`, `DeletePlacementGroups` | create with the cluster tag, delete groups with it |
-| `OptionalManagedNetwork*` | **optional**: VPC, subnet, internet gateway and route table creation, `ReplaceRoute` for a stale default route, `AssociateVpcCidrBlock` and `AssociateSubnetCidrBlock` for IPv6, and deletion, only with the cluster tag; needed only where a NodeClass uses (or defaults to) `create` for `subnets`, that is in regions without a default VPC |
+| `OptionalManagedNetwork*` | **optional**: VPC, subnet, internet gateway and route table creation, `ReplaceRoute` for a stale default route, `AssociateVpcCidrBlock` and `AssociateSubnetCidrBlock` for IPv6, and deletion, only with the cluster tag; needed only where a NodeClass uses (or defaults to) `create` for `subnets`, that is in regions without a default VPC, or for `publicIPv6` where the default VPC has no IPv6 |
 | `OptionalCustomerKmsKey`, `OptionalCustomerKmsKeyGrant` | **optional**: `kms:Decrypt`, `DescribeKey`, `GenerateDataKeyWithoutPlaintext` and, for AWS resources only (`kms:GrantIsForAWSResource`), `kms:CreateGrant` on the customer key of `kmsKeyID`, only through EC2 (`kms:ViaService`). The resource is the key's ARN even when `kmsKeyID` is an alias; the default `aws/ebs` key needs none |
 | `OptionalPassInstanceProfileRole` | **optional**: `iam:PassRole` for the role of `aws.instanceProfile`, only to `ec2.amazonaws.com`; remove when no instance profile is used |
 

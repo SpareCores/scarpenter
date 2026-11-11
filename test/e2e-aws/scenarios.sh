@@ -484,8 +484,8 @@ scn_local() {
   kubectl delete deployment e2e-local --wait=false
 }
 
-# negative: NodeClasses that ask for what the default network cannot give are refused
-# or gated with a reason, and nothing is launched (plan 08 review items 17 and 18).
+# negative: NodeClasses that ask for what the default network cannot give are refused,
+# or do not use it, and nothing is launched (plan 08 review items 17 and 18, ADR-022).
 scn_negative() {
   render "${here}/manifests/nodeclass-negative.yaml" | kubectl apply -f -
   wait_until "publicIPv4: false is refused on the default VPC" 180 is_value False \
@@ -494,10 +494,13 @@ scn_negative() {
     "$(kubectl get scnodeclass e2e-noipv4 -o jsonpath='{.status.vendors.aws.conditions[?(@.type=="VendorReady")].reason}')"
   assert_match "the message names the fix" "(use|subnets)" \
     "$(kubectl get scnodeclass e2e-noipv4 -o jsonpath='{.status.vendors.aws.conditions[?(@.type=="VendorReady")].message}')"
-  wait_until "publicIPv6 gates the zones of a default VPC without IPv6" 240 is_value False \
+  # ADR-022: a default that cannot honour the request is skipped, not degraded. The
+  # default VPC has no IPv6, so its subnets are not used and the managed network (with
+  # IPv6) would be created at the first launch; the region stays ready.
+  wait_until "publicIPv6 skips the default VPC without IPv6 (the region is ready)" 240 is_value True \
     kubectl get scnodeclass e2e-ipv6 -o jsonpath='{.status.vendors.aws.conditions[?(@.type=="ResourcesReady")].status}'
-  assert_match "the message names IPv6" "[Ii][Pp][Vv]6" \
-    "$(kubectl get scnodeclass e2e-ipv6 -o jsonpath='{.status.vendors.aws.conditions[?(@.type=="ResourcesReady")].message}')"
+  assert_eq "the default subnets in the status of e2e-ipv6" "" \
+    "$(kubectl get scnodeclass e2e-ipv6 -o jsonpath='{.status.vendors.aws.resources[?(@.source=="default")].id}')"
   kubectl delete scnodeclass e2e-noipv4 e2e-ipv6 --wait=true --timeout=120s
 }
 
