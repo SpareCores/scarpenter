@@ -23,6 +23,10 @@ const MaxUserData = 32 * 1024
 // MaxFirewallRules is the API's limit of rules per firewall.
 const MaxFirewallRules = 500
 
+// allPorts is the port range of a tcp or udp rule without ports (the API
+// requires a port for both protocols).
+const allPorts = "1-65535"
+
 // LaunchSpec is one POST /servers, resolved: everything is a name or an ID
 // already (Prepare resolved the resources, the image lookup the snapshot).
 // TODO(plan 14): the Driver builds it from vendors.CreateRequest and its
@@ -151,7 +155,8 @@ func BuildVolumeOpts(v VolumeSpec) (hc.VolumeCreateOpts, error) {
 
 // FirewallRules turns the generic inbound rules into firewall rules: inbound
 // only (outbound stays open), one rule per rule and protocol; the generic
-// protocol "any" becomes one rule per protocol of tcp, udp and icmp. No rules
+// protocol "any" becomes one rule per protocol of tcp, udp and icmp; a tcp or
+// udp rule without ports covers 1-65535. No rules
 // give none: an attached firewall then denies all inbound traffic.
 func FirewallRules(rules []common.InboundRule) ([]hc.FirewallRule, error) {
 	var out []hc.FirewallRule
@@ -172,10 +177,15 @@ func FirewallRules(rules []common.InboundRule) ([]hc.FirewallRule, error) {
 		}
 		for _, p := range protos {
 			fr := hc.FirewallRule{Direction: hc.FirewallRuleDirectionIn, SourceIPs: sources, Protocol: p}
-			if r.FromPort != nil && (p == hc.FirewallRuleProtocolTCP || p == hc.FirewallRuleProtocolUDP) {
-				port := strconv.Itoa(int(*r.FromPort))
-				if r.ToPort != nil && *r.ToPort != *r.FromPort {
-					port += "-" + strconv.Itoa(int(*r.ToPort))
+			if p == hc.FirewallRuleProtocolTCP || p == hc.FirewallRuleProtocolUDP {
+				// The API requires a port for tcp and udp: a rule without
+				// ports covers all of them.
+				port := allPorts
+				if r.FromPort != nil {
+					port = strconv.Itoa(int(*r.FromPort))
+					if r.ToPort != nil && *r.ToPort != *r.FromPort {
+						port += "-" + strconv.Itoa(int(*r.ToPort))
+					}
 				}
 				fr.Port = &port
 			}

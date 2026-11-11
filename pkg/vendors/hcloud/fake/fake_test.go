@@ -8,6 +8,7 @@ package fake_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -505,3 +506,23 @@ func TestSSHKeyLookup(t *testing.T) {
 }
 
 var _ clock.Clock = clocktesting.NewFakeClock(time.Now())
+
+func TestFirewallRuleValidation(t *testing.T) {
+	f := fake.New()
+	src := []net.IPNet{{IP: net.IPv4zero, Mask: net.CIDRMask(0, 32)}}
+	port := "22"
+	for name, r := range map[string]hc.FirewallRule{
+		"tcp without port":  {Direction: hc.FirewallRuleDirectionIn, Protocol: hc.FirewallRuleProtocolTCP, SourceIPs: src},
+		"icmp with port":    {Direction: hc.FirewallRuleDirectionIn, Protocol: hc.FirewallRuleProtocolICMP, SourceIPs: src, Port: &port},
+		"in without source": {Direction: hc.FirewallRuleDirectionIn, Protocol: hc.FirewallRuleProtocolTCP, Port: &port},
+	} {
+		_, err := f.CreateFirewall(ctx, hc.FirewallCreateOpts{Name: name, Rules: []hc.FirewallRule{r}})
+		if code(err) != hc.ErrorCodeInvalidInput {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	ok := hc.FirewallRule{Direction: hc.FirewallRuleDirectionIn, Protocol: hc.FirewallRuleProtocolTCP, SourceIPs: src, Port: &port}
+	if _, err := f.CreateFirewall(ctx, hc.FirewallCreateOpts{Name: "ok", Rules: []hc.FirewallRule{ok}}); err != nil {
+		t.Error(err)
+	}
+}

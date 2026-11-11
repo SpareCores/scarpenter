@@ -172,6 +172,9 @@ func TestFirewallRules(t *testing.T) {
 	if rules[3].Protocol != hc.FirewallRuleProtocolTCP || rules[4].Protocol != hc.FirewallRuleProtocolUDP || rules[5].Protocol != hc.FirewallRuleProtocolICMP {
 		t.Error("any must become tcp, udp, icmp")
 	}
+	if rules[3].Port == nil || *rules[3].Port != "1-65535" || rules[4].Port == nil || *rules[4].Port != "1-65535" || rules[5].Port != nil {
+		t.Errorf("tcp and udp without ports need the full range: %v %v %v", rules[3].Port, rules[4].Port, rules[5].Port)
+	}
 	if got, err := FirewallRules(nil); err != nil || got != nil {
 		t.Errorf("no rules: %v %v", got, err)
 	}

@@ -103,7 +103,9 @@ func (f *Fake) Firewalls(_ context.Context, o hc.FirewallListOpts) ([]*hc.Firewa
 		func(x *hc.Firewall) int64 { return x.ID }, copyFirewall)
 }
 
-// CreateFirewall implements hcloud.API: names are unique, the count is limited.
+// CreateFirewall implements hcloud.API: names are unique, the count is limited,
+// tcp and udp rules need a port (and only they may have one), inbound rules
+// need source IPs.
 func (f *Fake) CreateFirewall(_ context.Context, o hc.FirewallCreateOpts) (*hc.Firewall, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -112,6 +114,17 @@ func (f *Fake) CreateFirewall(_ context.Context, o hc.FirewallCreateOpts) (*hc.F
 	}
 	if len(o.Rules) > 500 {
 		return nil, APIError(hc.ErrorCodeInvalidInput, "too many rules", "rules")
+	}
+	for _, r := range o.Rules {
+		tcpUDP := r.Protocol == hc.FirewallRuleProtocolTCP || r.Protocol == hc.FirewallRuleProtocolUDP
+		switch {
+		case tcpUDP && (r.Port == nil || *r.Port == ""):
+			return nil, APIError(hc.ErrorCodeInvalidInput, "port is required for tcp and udp", "rules")
+		case !tcpUDP && r.Port != nil:
+			return nil, APIError(hc.ErrorCodeInvalidInput, "port is only allowed for tcp and udp", "rules")
+		case r.Direction == hc.FirewallRuleDirectionIn && len(r.SourceIPs) == 0:
+			return nil, APIError(hc.ErrorCodeInvalidInput, "source_ips is required for inbound rules", "rules")
+		}
 	}
 	for _, x := range f.firewalls {
 		if x.Name == o.Name {
