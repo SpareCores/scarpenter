@@ -109,6 +109,15 @@ func TestClassifyTransportAndStatus(t *testing.T) {
 	} {
 		require.Equal(t, want, vendors.ClassOf(classify(fake.Error(status, "", "x"), errContext{})), "status %d", status)
 	}
+	// A 429 is throttling whatever the code: the compute provider's is
+	// OperationNotAllowed, ARM's SubscriptionRequestsThrottled.
+	for _, code := range []string{"OperationNotAllowed", "SubscriptionRequestsThrottled", "InvalidParameter", "SkuNotAvailable"} {
+		got := classify(fake.Error(http.StatusTooManyRequests, code,
+			"The server rejected the request because too many requests have been received for this subscription."),
+			errContext{size: "Standard_D2s_v5"})
+		require.Equal(t, vendors.Retryable, vendors.ClassOf(got), code)
+		require.Equal(t, code, vendors.CodeOf(got))
+	}
 	require.Equal(t, vendors.Retryable, vendors.ClassOf(classify(context.DeadlineExceeded, errContext{})))
 	require.Equal(t, codeTimeout, vendors.CodeOf(classify(fmt.Errorf("wrapped: %w", context.DeadlineExceeded), errContext{})))
 	require.Equal(t, codeCanceled, vendors.CodeOf(classify(context.Canceled, errContext{})))

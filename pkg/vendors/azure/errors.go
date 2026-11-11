@@ -120,6 +120,12 @@ func classify(err error, ec errContext) error {
 	if re, ok := responseError(err); ok {
 		code := re.ErrorCode
 		msg := strings.ToLower(re.Error())
+		if re.StatusCode == http.StatusTooManyRequests {
+			// Throttling, whatever the code: the compute provider answers
+			// 429 with OperationNotAllowed ("too many requests"), ARM with
+			// SubscriptionRequestsThrottled. azcore has already retried.
+			return vendors.NewError(vendors.Retryable, code, err)
+		}
 		switch code {
 		case codeSkuNotAvailable:
 			if ec.spot {
