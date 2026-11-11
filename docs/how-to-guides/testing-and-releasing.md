@@ -320,7 +320,9 @@ cannot publish, and it must stay free.
 
 A vendor lane is not added to `test/e2e-vendors.txt` before every item is true for it
 (the AWS lane's are in the second column, the Alibaba Cloud lane's in the third; that
-lane has not run yet, so its column says what the files do, not what a run showed):
+lane has not run yet, so its column says what the files do, not what a run showed, and it is
+**not yet a line of `test/e2e-vendors.txt`**: whether RAM applies `ecs:InstanceType` to `ecs:RunInstances` is
+unverified, so the operator checks the type deny bites and the budget alert fires first):
 
 | Guard | AWS lane | Alibaba Cloud lane |
 |---|---|---|
@@ -476,6 +478,7 @@ open question 7) are met by the account's own limits, which the operator sets fi
 - **Before the first run**: the maintainer runs the spikes of plan 20, section 11 (S1 the image
   import, S4 the error texts, S5 the minimal ACLs), sets the account limit, and then adds `vultr`
   to `test/e2e-vendors.txt`.
+
 ## Alibaba Cloud provisioning
 
 The Alibaba Cloud lane (`test/e2e-alicloud/`) is written and validated statically; **it has not run**,
@@ -496,7 +499,7 @@ the tailnet and the environments are the AWS lane's; what differs is the account
   are printed by `test/e2e-alicloud/ci-policy.sh <account UID> [region]` and `canary-policy.sh`;
   neither calls Alibaba Cloud, and the condition keys of the CI policy (`acs:RequestTag/...`,
   `acs:ResourceTag/...`, `ecs:InstanceType` on `ecs:RunInstances`) are unverified: if the type deny
-  does not bite, the vCPU quota below is the ceiling.
+  does not bite, the vCPU quota below is the ceiling, and the lane stays out of `test/e2e-vendors.txt` until it has been shown to.
 - **The account.** Alibaba Cloud accounts need **real-name verification** before they can buy ECS in some
   regions and a **balance** for pay-as-you-go resources (a minimum: unverified). **Spot may be refused by
   account rules** (`InvalidAccount.NotSupportSpot`): then the `arm64` and `spot` scenarios fail with

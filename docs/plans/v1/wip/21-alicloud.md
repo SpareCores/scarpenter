@@ -574,10 +574,18 @@ Policy: `docs/how-to-guides/testing-and-releasing.md` (tiers, per-vendor cost gu
 a vendor lane"). Nothing here runs in this plan's gates; the coordinator triggers the first
 runs, as for AWS.
 
+**The lane is not in `test/e2e-vendors.txt` yet.** The CI cost-guard policy
+(`docs/how-to-guides/testing-and-releasing.md`) needs a bound on the damage of a bug, and Alibaba's guards
+are an instance-type deny plus the vCPU quotas: whether RAM applies the `ecs:InstanceType` condition key to
+`ecs:RunInstances` is unverified. Before the line `alicloud` is added, the operator verifies that the deny
+bites (a `RunInstances` of another type with the CI role is refused), that the vCPU quotas are the ones the
+lane needs and no higher, and that the account's budget alert to a person fires; the first run settles the
+rest. Until then the workflows do not run the lane by themselves and `make test-e2e-alicloud-dryrun` works;
+the lane's selftest checks that the line is absent.
+
 - **Lane**: `test/e2e-alicloud/` (the scripts and `defaults.sh` the reusable workflow calls:
   `bootstrap.sh`, `mint-authkey.sh`, `install.sh`, `scenarios.sh`, `diagnostics.sh`,
-  `teardown.sh`, `lib.sh`, `selftest.sh`, manifests), a line `alicloud` in
-  `test/e2e-vendors.txt`, a credentials step for `inputs.vendor == 'alicloud'` in `e2e-cloud.yml`
+  `teardown.sh`, `lib.sh`, `selftest.sh`, manifests), a credentials step for `inputs.vendor == 'alicloud'` in `e2e-cloud.yml`
   and `e2e-canary.yml`, `.github/workflows/e2e-alicloud-sweeper.yml`, `test/canary/alicloud.go`
   behind a read-only guard. Control plane (k3s on the runner), tailnet join, key minting and
   the chart install are the AWS lane's. The cloud calls use the Alibaba Cloud CLI (`aliyun`)

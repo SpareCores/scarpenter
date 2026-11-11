@@ -566,7 +566,7 @@ listed explicitly that cannot be reached is a failure (exit status 1).
 
 #### The Alibaba Cloud lane
 
-`test/e2e-alicloud/` is the lane of the vendor `alicloud` (`gh workflow run e2e.yml -f vendor=alicloud`),
+`test/e2e-alicloud/` is the lane of the vendor `alicloud`, **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified (below), so the workflows do not run it by themselves,
 a copy of the AWS lane's shape with Alibaba Cloud's calls: the control plane on the runner, the tailnet, the
 chart install and the scenarios' structure are the same; the cloud calls go through the Alibaba Cloud
 CLI `aliyun` (the byo scenario's VPC, vSwitch and security group, the instance, disk and network checks, the
@@ -580,6 +580,10 @@ scenario), `ecs.e-c1m4.large` for the described scenario, the Flatcar release, a
 
 How it differs from the AWS lane:
 
+- **Before the lane is listed**: the guards are an instance-type deny plus the account's vCPU quotas, and
+  whether RAM applies the `ecs:InstanceType` condition to `ecs:RunInstances` is unverified. The operator checks that
+  a launch of another type with the CI role is refused, sets the quotas no higher than the lane needs, creates
+  the budget alert and checks it fires, and then adds `alicloud` to `test/e2e-vendors.txt`.
 - **Credentials.** The workflow writes a GitHub OIDC token to a file and exports the role and provider ARNs from
   the environment's secrets (`test/e2e-alicloud/oidc-token.sh`, no third-party action: `ALIBABA_CLOUD_ROLE_ARN`,
   `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_OIDC_TOKEN_FILE`). The scripts exchange it once for a RAM role

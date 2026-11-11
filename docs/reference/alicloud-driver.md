@@ -368,7 +368,7 @@ Found on the SDK and its types, recorded here for the plan:
 type list of the committed Keeper snapshot (1998 types), the golden of the `RunInstances` request, every error code of the table
 above, the family classification of the snapshot, the adapters against a local HTTP server, the sweeper against the fake, and the
 published examples, selector reference and RAM policy against the declarations. Statement coverage of `pkg/vendors/alicloud` is
-above 80 %. The opt-in L5 lane is `test/e2e-alicloud/` (`make test-e2e-alicloud-dryrun` validates it without a cloud), the nightly canary
+above 80 %. The opt-in L5 lane is `test/e2e-alicloud/` (not in `test/e2e-vendors.txt` until the type deny is verified to bite, see [Per-vendor cost guards](../how-to-guides/testing-and-releasing.md#per-vendor-cost-guards); `make test-e2e-alicloud-dryrun` validates it without a cloud), the nightly canary
 is `test/canary/alicloud.go`, the sweeper is `pkg/vendors/alicloud/sweep` and `test/e2e-alicloud/sweeper`
 ([testing](../how-to-guides/testing.md#the-l5-lane)).
 

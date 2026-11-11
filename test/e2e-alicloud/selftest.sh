@@ -354,9 +354,8 @@ t_smoke_scenarios() { # the smoke set names known scenarios, and not the implici
     }
   done
 }
-t_vendor_wired() { # the vendor is in the list, and the workflows have its credentials, region and sweeper
+t_vendor_wired() { # the workflows have its credentials, region and sweeper
   local w="${root}/.github/workflows"
-  grep -qxF alicloud "${root}/test/e2e-vendors.txt" || { echo "alicloud is not in test/e2e-vendors.txt"; return 1; }
   grep -q "inputs.vendor == 'alicloud'" "${w}/e2e-cloud.yml" || { echo "e2e-cloud.yml has no credentials step for alicloud"; return 1; }
   grep -q "matrix.vendor == 'alicloud'" "${w}/e2e-canary.yml" || { echo "e2e-canary.yml has no credentials step for alicloud"; return 1; }
   grep -q 'alicloud) echo "ALICLOUD_REGION=' "${w}/e2e-cloud.yml" || { echo "e2e-cloud.yml does not set the region of alicloud"; return 1; }
@@ -372,7 +371,11 @@ t_no_secrets_in_scripts() { # nothing that looks like an account ID, a key or a 
 check "every scenario has a function and the docs describe it" t_scenarios_defined
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
-check "the vendor list, the credentials steps, the region, the sweeper and the dry run in CI are wired" t_vendor_wired
+t_not_in_the_vendor_list() { # whether RAM applies ecs:InstanceType on RunInstances is unverified, so the type deny may not bite
+  ! grep -qx 'alicloud' "${root}/test/e2e-vendors.txt"
+}
+check "alicloud is not in test/e2e-vendors.txt until its cost guards are verified" t_not_in_the_vendor_list
+check "the credentials steps, the region, the sweeper and the dry run in CI are wired" t_vendor_wired
 check "no account ID, key or local path in the lane's files" t_no_secrets_in_scripts
 
 # ---- the CI role's policy ----------------------------------------------------
