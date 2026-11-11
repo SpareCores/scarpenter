@@ -38,6 +38,13 @@ Available:
   its IP allowlist, the Secret and the chart values, and the snapshot of the pinned
   Flatcar version each account creates itself.
 
+- [**Set up OVHcloud credentials**](ovh-credentials.md) (plan 18) — a dedicated
+  OpenStack user of the Public Cloud project with the five operator roles, the
+  Secret and the chart values, and the IAM policy of the later service-account mode.
+- [**Upload the Flatcar image to OVH**](ovh-images.md) (plan 18) — one Glance image per
+  region from Flatcar's OpenStack release, the naming convention, the properties and the
+  tags the driver reads.
+
 Planned for v1:
 
 - **Select instances** (plan 11) — exact choices, attribute ranges, benchmark

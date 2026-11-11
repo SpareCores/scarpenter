@@ -1,0 +1,29 @@
+{
+  "name": "scarpenter-controller",
+  "description": "The rights of the SCarpenter controller's service account on one OVHcloud Public Cloud project: the OpenStack roles of the driver (Nova, Neutron, Glance, Cinder). For the service-account credentials mode, which is not built yet; an OpenStack user needs the same five roles in the project (docs/how-to-guides/ovh-credentials.md). Replace SERVICE_ACCOUNT_URN and PROJECT_ID. The least-privilege set is not verified (plan 18, spike S6).",
+  "identities": [
+    "SERVICE_ACCOUNT_URN"
+  ],
+  "resources": [
+    {
+      "urn": "urn:v1:eu:resource:publicCloudProject:PROJECT_ID"
+    }
+  ],
+  "allow": [
+    {
+      "action": "publicCloudProject:openstack:computeOperator"
+    },
+    {
+      "action": "publicCloudProject:openstack:networkOperator"
+    },
+    {
+      "action": "publicCloudProject:openstack:networkSecurityOperator"
+    },
+    {
+      "action": "publicCloudProject:openstack:imageOperator"
+    },
+    {
+      "action": "publicCloudProject:openstack:volumeOperator"
+    }
+  ]
+}

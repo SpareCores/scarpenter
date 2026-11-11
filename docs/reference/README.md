@@ -45,7 +45,9 @@ Available:
 - [**GCP driver**](gcp-driver.md) — the Google Compute Engine driver, lower layers (plan 16).
 - [**UpCloud driver**](upcloud-driver.md) — the `upcloud` driver foundation (plan 19).
 - [**Alibaba Cloud driver**](alicloud-driver.md) — the `alicloud` driver, lower layers (plan 21).
-- [**OVHcloud driver**](ovh-driver.md) — the OVHcloud Public Cloud driver foundation (plan 18).
+- [**OVHcloud driver**](ovh-driver.md) — the OVHcloud Public Cloud driver: regions and zones,
+  images, launch, node settings, resources, quotas, error mapping, rights
+  ([policy](ovh-iam-policy.json)) and what is not verified live yet (plan 18).
 
 - [**Infrastructure hand-off**](infrastructure-handoff.md) — the IaC-neutral
   contract: what you provide per vendor, by the [selector](resource-selectors.md) (resource

@@ -57,6 +57,8 @@ The last column names the plan that introduced the flag.
 | (AWS only) | `SCARPENTER_AWS_IPV4_PRICE` | `0.005` | Price of a public IPv4 address per hour in USD, used in the price delta of AWS offerings. **An approximation, not a Keeper price** (Keeper has no IPv4 price): AWS charges 0.005 in every commercial region since 2024-02-01. `0` means free; negative, NaN and infinite values are refused at startup. The driver logs the value it uses. Environment only. | plan 08 |
 | `--hcloud-server-limit` | `SCARPENTER_HCLOUD_SERVER_LIMIT` | `0` (unknown) | The server limit of the Hetzner Cloud project, as the Console shows it (the API does not report it). With it the driver reports one global quota bucket and headroom is known before a launch; without it only the API's own refusal ends a launch. Negative values are refused. | plan 15 |
 | (hcloud only) | `SCARPENTER_HCLOUD_IPV4_PRICE` | `0.0007` | Price of a Primary IPv4 address per hour in USD, used in the price delta of Hetzner offerings. **An approximation, not a Keeper price** (Keeper has none): 0.50 EUR a month over 730 hours. `0` means free; negative, NaN and infinite values are refused at startup. Environment only. | plan 15 |
+| (OVH only) | `SCARPENTER_OVH_SCHEDULE_WAIT` | `45s` | How long a server create waits for Nova's scheduler (a Go duration), so that a capacity failure shows as the create's error and the attempt loop tries the next candidate; a server still scheduling after it is returned as pending. Environment only ([OVHcloud driver](ovh-driver.md)). | plan 18 |
+| (OVH only) | `SCARPENTER_OVH_REGION_ALIASES` | (none) | Rows of the OVH region table: comma-separated `KEEPER=API` pairs where the Keystone catalog's name of a region differs from Keeper's (`GRA11=GRA11-NEW`); an empty API name leaves the Keeper region unused. A row that differs from the Keeper name needs the Keeper name in `vendors.Region` (plan 14, A8: a core change not made yet). Environment only. | plan 18 |
 | (Vultr only) | `VULTR_API_KEY` | (none) | The API key of the Vultr account. Required when `--vendors` has `vultr`: the controller refuses to start without it. Environment only; the chart wires it from a Secret. [Vultr credentials](../how-to-guides/vultr-credentials.md). | plan 20 |
 | (Vultr only) | `SCARPENTER_VULTR_AVAILABILITY_TTL` | `5m` | How long the stock of a Vultr region (`GET /v2/regions/{id}/availability`) is cached by the driver. Environment only. | plan 20 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region the account's region list (`DescribeRegions`) is read from; the AWS driver's other calls go to the region they concern ([AWS driver](aws-driver.md)). | plan 08 |
@@ -74,6 +76,7 @@ must be positive.
 | `LEADER_ELECTION_NAMESPACE`, `LEADER_ELECTION_NAME` | Namespace and name of core's leader election lease (default name `karpenter-leader-election`). The chart sets the namespace from the Pod's namespace, the name to `<release>-leader-election` (so that another Karpenter in the same namespace does not share the lease) and gives the controller a Role for it. |
 | `MEMORY_LIMIT`, `CPU_REQUESTS` | Core's: the container's memory limit in bytes (the garbage collector's soft limit is 90 % of it) and CPU request in millicores (sizes core's concurrency). The chart derives both from the container's resources. |
 | `DISABLE_LEADER_ELECTION` | Core's: `true` runs without leader election; the chart sets it with `leaderElection.enabled=false`. |
+| `OS_AUTH_URL`, `OS_USERNAME`, `OS_PASSWORD`, `OS_PROJECT_ID`, `OS_USER_DOMAIN_NAME` | The OpenStack environment of the OVH driver (gophercloud's own): one dedicated user of one Public Cloud project; the chart sets them from a Secret ([OVH credentials](../how-to-guides/ovh-credentials.md)). `Init` checks them and makes no call. |
 | `AWS_REGION`, `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, `AWS_ACCESS_KEY_ID`, ... | The AWS SDK's own: the [credential modes](../how-to-guides/aws-credentials.md) of the chart set them. Without `AWS_REGION` the driver uses `--aws-home-region` as the SDK's default region. |
 | `HCLOUD_TOKEN`, `HCLOUD_ENDPOINT` | The Hetzner Cloud driver's: the API token of the project (a Secret; the chart's `vendors.hcloud.credentials.secret.existingSecret`) and, for tests, the API URL. Required when `hcloud` is in `--vendors`. See the [Hetzner Cloud driver](hcloud-driver.md). |
 
@@ -105,11 +108,14 @@ and that the controller's own parser accepts what the chart renders.
 | `vendors.aws.homeRegion` | `--aws-home-region` | |
 | `vendors.aws.region` | `AWS_REGION` | Default: the home region, else `us-east-1`. |
 | `vendors.aws.ipv4Price` | `SCARPENTER_AWS_IPV4_PRICE` | An approximation, see the table above. |
+| `vendors.ovh.enabled` | `--vendors` | Adds `ovh` after `aws` and `hcloud`. |
+| `vendors.ovh.scheduleWait`, `regionAliases` | `SCARPENTER_OVH_SCHEDULE_WAIT`, `SCARPENTER_OVH_REGION_ALIASES` | A map of aliases is rendered as `KEEPER=API` pairs, sorted. |
+| `vendors.ovh.credentials.mode`, `secret.*` | `OS_AUTH_URL`, `OS_USERNAME`, `OS_PASSWORD`, `OS_PROJECT_ID`, `OS_USER_DOMAIN_NAME` | [OVH credentials](../how-to-guides/ovh-credentials.md). `secret` needs an `existingSecret`; the `*Key` values name its keys; `none` wires nothing. |
 | `vendors.aws.credentials.mode`, `webIdentity.*`, `secret.*` | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, a projected ServiceAccount token, `AWS_ACCESS_KEY_ID`, ... | [AWS credentials](../how-to-guides/aws-credentials.md). `webIdentity` needs `roleArn`, `secret` an `existingSecret`. |
 | `vendors.hcloud.credentials.secret.existingSecret`, `key` | `HCLOUD_TOKEN` | The Secret that holds the project's API token ([Hetzner Cloud driver](hcloud-driver.md)); the name is required when the driver is enabled. |
 | `vendors.hcloud.serverLimit` | `--hcloud-server-limit` | `0`: unknown (flag left out). |
 | `vendors.hcloud.ipv4Price` | `SCARPENTER_HCLOUD_IPV4_PRICE` | An approximation, see the table above. |
-| `vendors.vultr.enabled` | `--vendors` | Adds `vultr` after `aws` and `hcloud`. Requires `credentials.secret.existingSecret`. |
+| `vendors.vultr.enabled` | `--vendors` | Adds `vultr` after `aws`, `hcloud` and `ovh`. Requires `credentials.secret.existingSecret`. |
 | `vendors.vultr.credentials.secret.existingSecret`, `key` | `VULTR_API_KEY` | The API key from the Secret (key default `apiKey`); the only credential mode. [Vultr credentials](../how-to-guides/vultr-credentials.md). |
 | `vendors.vultr.availabilityTTL` | `SCARPENTER_VULTR_AVAILABILITY_TTL` | |
 | `keeper.url` | `--keeper-url` | |

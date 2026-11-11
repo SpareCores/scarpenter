@@ -606,6 +606,45 @@ non-OVH parts run in the dry run (`make test-e2e-ovh-dryrun`); report the expect
 | 9 | Should the image step live with the operator's main IaC (per Flatcar pin) or in a separate job with its own OpenStack user? | Operator's choice; document both. Either way the pin is the same as the cluster's NodeClass pin. |
 | 10 | Generic OpenStack driver later (other OpenStack clouds, same gophercloud code)? | Keep the package layout (`auth`, `nova`, `neutron`, `glance`) so OVH is a thin layer; decide after a second OpenStack vendor appears. |
 
+Decided by default, maintainer to confirm (the executing change took the recommendation, or the
+conservative option where the plan gave none):
+
+- **1** rung 3 stays (ADR-021). `includeCommunityImages` is not a block field: the lookup's
+  `visibility` filter (`filters: [{name: visibility, values: [community]}]`) is the same switch, so a later rung 2 needs no API change.
+- **2** the alias table is in the driver (`regions.go`, `SCARPENTER_OVH_REGION_ALIASES`, the chart's
+  `vendors.ovh.regionAliases`); `Regions` returns API names. A row that differs from Keeper's name needs the Keeper name in
+  `vendors.Region`, the core change of A8, which this change does not make (core files are out of scope for a driver):
+  while every row is an identity (today it is) nothing is missing.
+- **3** `openstackUser` only (the standard `OS_*` environment, from a Secret). The `serviceAccount` OIDC flow is not built;
+  `docs/reference/ovh-iam-policy.json` is its policy, for later.
+- **4** the lane's identity is therefore an OpenStack user (`OVH_OS_USERNAME`, `OVH_OS_PASSWORD` of the `e2e` environment, a
+  second read-only user for the canary), not a service account; the same project-only, one-region, quota-limited rule applies. The
+  lane installs `python-openstackclient` with a pinned version that nobody has run yet.
+- **5** later: no vRack network, gateway or private-only node.
+- **6** yes: `CreateAndWait`, 45 s, `SCARPENTER_OVH_SCHEDULE_WAIT`.
+- **7** Metal and GPU flavors are excluded.
+- **8** no flavor stock from the OVH API.
+- **9** operator's choice; both are documented in `ovh-images.md` (any tool).
+- **10** `osapi` (interfaces and types), `osapi/sdk` (gophercloud) and `fake` are the layers; they are not split further until a second OpenStack vendor exists.
+
+Not in the table, also taken by default:
+
+- Configuration is read from the environment (`SCARPENTER_OVH_SCHEDULE_WAIT`, `SCARPENTER_OVH_REGION_ALIASES`, the `OS_*`
+  variables), not from `--ovh-*` flags: `pkg/operator/options` is core and a vendor does not extend it. The flags the plan names
+  for the service-account mode (`--ovh-auth-url`, `--ovh-idp`, ...) go with that mode.
+- Neutron security groups and Nova server groups have no tags the driver relies on, so a managed security group's description holds
+  the ownership marker (with its creation time) and a managed server group is recognised by its name prefix; `tags` are not offered in the
+  selector for either kind, the NodeClass's `spec.tags` are not put on them, and the NodeClass of a managed server group is not recoverable
+  (it is `perUse`, which does not need it, and the conformance suite's managed-resource checks therefore run for the security group kinds only).
+- The project's `default` security group is not used as a default: nodes always get a managed group, or the one you `use`.
+- `ReportImages` reports amd64 only (v1 has no arm64 type); `ResolveImage` resolves both.
+- `ListInstances` and `FindInstance` leave out servers being deleted (task state `deleting`); a `SHUTOFF` server stays.
+- The driver offers the `metadata-from-pods` hardening (plan 14 said no vendor needed it from OVH, but OpenStack's metadata service
+  has no hop limit and holds the user data).
+- The sweeper does not sweep volumes (the driver's volumes go with their server and carry no marker); the teardown fails the job on an
+  available volume in the lane's own project instead.
+- Every billing rule is reported unverified, so retention stays off for OVH.
+
 ## Sources
 
 - Flatcar on OVHcloud: https://www.flatcar.org/docs/latest/deploy/cloud/ovhcloud/

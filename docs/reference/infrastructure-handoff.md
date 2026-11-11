@@ -276,19 +276,22 @@ stated failure. Public-only nodes need nothing.
 ## ovh
 
 Images: rung 3. Provide one Glance image per region and architecture (amd64 only in v1)
-from Flatcar's OpenStack image, named `flatcar-<channel>-<version>-<arch>` with the
+from Flatcar's OpenStack image ([upload it](../how-to-guides/ovh-images.md)), named
+`flatcar-<channel>-<version>-<arch>` with the property `architecture` (`x86_64`) and the
 tags `flatcar` and `flatcar-<channel>-<version>`. Credentials: one Public Cloud project
-per controller; a service account (OAuth2) or an OpenStack user (an IAM policy on the
-project for the OpenStack rights the driver uses, see the OVH plan).
+per controller; an OpenStack user of the project with the five operator roles
+([OVH credentials](../how-to-guides/ovh-credentials.md)); the OVH IAM service account
+(OAuth2) is a later mode.
 
 | Kind | Provide | `use` fields |
 |---|---|---|
 | regions | the Keystone catalog's names, upper case (`EU-WEST-PAR`, `GRA11`); the driver maps Keeper's names to them | `regions` |
-| `images` | the Glance images per region | `ids`, `name` (exact on the server, glob on the client), `tags` (Glance tag strings), `match` (`architecture`, `owner`, `state`, `createdAfter`), `filters` |
-| `securityGroups` | Neutron group UUIDs per region; a group that admits only private ranges leaves `Ext-Net` nodes reachable through the `tailscale` template only | `ids`, `name`, `tags` (Neutron tags, if the extension exists), `filters` |
+| `images` | the Glance images per region | `ids`, `name` (exact on the server, glob on the client), `tags` (Glance tag strings `k=v`), `match` (`architecture`, `owner`, `state`, `createdAfter`, `createdBefore`), `filters` (`visibility`, `property:<k>`) |
+| `securityGroups` | optional: Neutron group UUIDs per region (not the OVH-side resource ID); a group that admits only private ranges leaves `Ext-Net` nodes reachable through the `tailscale` template only | `ids`, `name`, `match.description` (no tags: the Neutron tag extension is unverified) |
+| `serverGroups` | optional: Nova server group UUIDs, for a placement profile that uses one | `ids`, `name` |
 
-No networks in v1 (public `Ext-Net` only). Without `use`: tagged groups (*planned*), no
-vendor default; a managed group, else a stated failure.
+No networks in v1 (public `Ext-Net` only). Without `use`: no discovery (no tags), no vendor
+default; a managed group (ownership marker in its description), else a stated failure.
 
 ## upcloud
 
