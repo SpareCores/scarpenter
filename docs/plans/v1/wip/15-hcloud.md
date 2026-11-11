@@ -625,7 +625,7 @@ IPs, load balancers, snapshots as node roots, an `ImageImporter`.
 11. *Private-only nodes*: refused by `ValidateNodeClass` (a server needs a public IPv4 or IPv6); IPv6-only is accepted with a log line.
 12. *Label values*: the hash scheme of the plan, tested for collisions.
 13. *Billing retention*: `BillingRule` is reported with `Verified: false` (hourly increment, stopped server charged, start `created`); retention stays off until the live check of the billing section passes and `billingVerified` is flipped.
-14. *Default image lookup*: exactly one snapshot with the three labels per architecture; several are `ImageAmbiguous` (Fatal), never the newest.
+14. *Default image lookup* (decided by the maintainer 2026-11-11: several matching snapshots are a clear failure, never "newest"): exactly one snapshot with the three labels per architecture; several are `ImageAmbiguous` (Fatal), never the newest.
 15. *`RootDiskForType`*: answers from the cached server type table (GB, decimal), and says "unknown" before the table is loaded so that the catalog's storage size answers.
 
 ## Unverified facts (settle in the first implementation steps or in L5)
@@ -650,3 +650,9 @@ IPs, load balancers, snapshots as node roots, an `ImageImporter`.
 - Creating a server without `ssh_keys`: account notification side effects.
 - Server and project limits of a new project, and whether dedicated-vCPU types (`ccx`) have
   a separate limit.
+
+## Outcome (in progress, 2026-11-11)
+
+Implemented and reviewed on main (commits `bffff38..22dccd3` over `pkg/vendors/hcloud`, the API block, the chart wiring, the L5 lane `test/e2e-hcloud` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `hcloud` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+
+What L5 must still verify, from the `## Unverified facts` list and `docs/reference/hcloud-driver.md`: snapshot price and the upload server cost, whether Primary IPs created with a server auto-delete, the `placement_error`/`resource_unavailable`/`resource_limit_exceeded`/`no_subnet_available` shapes, the empty-firewall inbound drop, and the billing check that gates retention (`billingVerified`). The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.

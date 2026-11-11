@@ -704,3 +704,9 @@ statements (report the number); `actionlint` and `shellcheck` clean on the lane'
 workflows and scripts; the lane's non-UpCloud parts run in `make
 test-e2e-upcloud-dryrun`. The coordinator runs the spikes before the driver starts
 and the first live L5 run after it; report the expected cost per run.
+
+## Outcome (in progress, 2026-11-11)
+
+Implemented and reviewed on main (commits `41c20d6..57ae007` over `pkg/vendors/upcloud`, the API block, the chart wiring, the L5 lane `test/e2e-upcloud` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `upcloud` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+
+What L5 must still verify, from the `## Spikes` and `## Verified and unverified` and `docs/reference/upcloud-driver.md`: the spikes (template upload, ruleset rollout time, server-group behaviour, SDN network limits, error codes), the `created` ordering of images, and the billing check. The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.

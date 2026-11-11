@@ -40,13 +40,13 @@ Execution protocol:
 | 12 | `wip/12-aws-gpu.md` | optional | NVIDIA sysext on AWS GPU types | 10 + GPU spike |
 | 13 | `wip/13-keeper-catalog-snapshot.md` | blocked | catalog from Keeper snapshots pinned per data version, with local selection; waits for Keeper's snapshot routes | 03 + Keeper snapshots |
 | 14 | `done/14-multi-vendor-groundwork.md` | done | shared core and API changes the vendor plans need (the `images` kind and `ImageRequest`, per-type root disk, idempotency label, stopped-node rule, account-wide quota errors, message-based classification, Butane hook, region aliases, malformed references, the one `use` selector of ADR-023), the published hand-off contract (IaC-neutral), CRD schema and examples, and the resource resolution order of ADR-022 | 10 |
-| 15 | `wip/15-hcloud.md` | todo | Hetzner Cloud driver, fake, conformance, L5 lane; images on rung 3 | 14 |
-| 16 | `wip/16-gcp.md` | todo | GCP driver, fake, conformance, L5 lane; amd64 on rung 1, arm64 on rung 2 | 14, 22 (arm64) |
-| 17 | `wip/17-azure.md` | todo | Azure driver, fake, conformance, L5 lane; images on rung 1 | 14 |
-| 18 | `wip/18-ovh.md` | todo | OVHcloud Public Cloud driver (OpenStack), fake, conformance, L5 lane; images on rung 3 | 14 |
-| 19 | `wip/19-upcloud.md` | todo | UpCloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
-| 20 | `wip/20-vultr.md` | todo | Vultr driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
-| 21 | `wip/21-alicloud.md` | review | Alibaba Cloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
+| 15 | `wip/15-hcloud.md` | review; live verification pending | Hetzner Cloud driver, fake, conformance, L5 lane; images on rung 3 | 14 |
+| 16 | `wip/16-gcp.md` | review; live verification pending | GCP driver, fake, conformance, L5 lane; amd64 on rung 1, arm64 on rung 2 | 14, 22 (arm64) |
+| 17 | `wip/17-azure.md` | review; live verification pending | Azure driver, fake, conformance, L5 lane; images on rung 1 | 14 |
+| 18 | `wip/18-ovh.md` | review; live verification pending | OVHcloud Public Cloud driver (OpenStack), fake, conformance, L5 lane; images on rung 3 | 14 |
+| 19 | `wip/19-upcloud.md` | review; live verification pending | UpCloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
+| 20 | `wip/20-vultr.md` | review; live verification pending | Vultr driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
+| 21 | `wip/21-alicloud.md` | review; live verification pending | Alibaba Cloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
 | 22 | `wip/22-flatcar-images.md` | todo | the Flatcar images repository (proposed `SpareCores/flatcar-images`): OEM-patched images for vultr, upcloud and aliyun, the GCP arm64 image, signatures, release tracking, upstream proposals | — |
 | 23 | `done/23-billing-retention.md` | done | opt-in `spec.billing`: keep period-billed nodes (hcloud first, then UpCloud, Vultr; OVH US if hourly; Alibaba until the end of its minimum) until the end of their paid period and reuse them; Keeper vendor billing facts, `BillingStart`, the retention controller, metrics, fake-clock tests | 14 and the Keeper vendor table (live; plan 13 is not needed) |
 
@@ -82,3 +82,23 @@ rule, and AWS, GCP and Azure (per second or minute, no worthwhile minimum) never
 (OVH and Hetzner use Flatcar's own images and do not wait for it). It is a separate
 repository with its own milestones, so it can start as soon as the maintainer confirms
 its name.
+
+## Status of the vendor plans 15 to 21
+
+CONVENTIONS ends a plan at `review` and the README moves it to `done/` when it is finished. These seven are
+implemented and reviewed on main, but each plan's own scope includes a live run (its spikes and the L5 lane) that
+has not happened: the lanes are statically validated only, and no vendor is in `test/e2e-vendors.txt` yet. They
+therefore stay in `wip/` with the status `review; live verification pending` and an in-progress outcome that lists
+the main commits and what L5 must still verify. (Plan 08 went to `done/` because its live run was a separate plan, 10.)
+
+## Follow-ups found in the vendor reviews
+
+Not part of any open plan; each needs an owner before the first release.
+
+- (a) The shared conformance suite should run the resolution-order and selector cases that need no tags for kinds
+  without tags (GCP, UpCloud and Hetzner skip them today).
+- (b) The `direct` bootstrap template does not pass `--node-ip` for a private network (any vendor).
+- (c) Alibaba: `InsufficientCapacity` after ECS releases an accepted instance never marks the offering unavailable
+  (the core does not consume it from `GetInstance`).
+- (d) The core half of A8 is still needed: a `vendors.Region` field for Keeper's region name, once OVH's catalog
+  names differ from Keeper's.

@@ -670,3 +670,9 @@ Not in the table, also taken by default:
 - OVH API schema: https://eu.api.ovh.com/v1/cloud.json
 - gophercloud v2.15.0: https://github.com/gophercloud/gophercloud/releases/tag/v2.15.0
 - Keeper (regions, zones, servers, prices): https://keeper.sparecores.net
+
+## Outcome (in progress, 2026-11-11)
+
+Implemented and reviewed on main (commits `9fe66a3..6243d64` over `pkg/vendors/ovh`, the API block, the chart wiring, the L5 lane `test/e2e-ovh` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `ovh` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+
+What L5 must still verify, from the `## Verified on paper, to be proven live (spikes)` and `docs/reference/ovh-driver.md`: every spike item of that section: OpenStack error and quota shapes, the region alias table against the live catalog, image creation on rung 3, networking, and billing. The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.

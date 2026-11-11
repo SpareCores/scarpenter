@@ -708,3 +708,9 @@ rule, so it exists as an object the garbage collector can find; GPU (`a2`, `a3`,
 TPU series, custom machine types and bare metal are dropped from the offerings; the role does not hold
 `compute.firewalls.get` or `compute.diskTypes.list`, which no call uses; `gcp` is **not** in
 `test/e2e-vendors.txt` (its cost guards are provisioned outside this repository), one line adds it.
+
+## Outcome (in progress, 2026-11-11)
+
+Implemented and reviewed on main (commits `c7d741f..3519ac7` over `pkg/vendors/gcp`, the API block, the chart wiring, the L5 lane `test/e2e-gcp` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `gcp` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+
+What L5 must still verify, from the plan spike section and `docs/reference/gcp-driver.md`: the Compute error and operation shapes (stock-out, quota, zone-resource-pool), that a failed insert leaves no disk, the managed VPC create/delete paths, the arm64 image rung, the metadata hardening hook and the deny-rule cost guards. The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.

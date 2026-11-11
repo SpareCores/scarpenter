@@ -522,6 +522,8 @@ The L5 run is the coordinator's, after the spikes and the operator's setup (sect
 
 ### Decided by default, maintainer to confirm
 
+Decided by the maintainer 2026-11-11 (overrides the default below where they differ): **a NodeClass that says nothing about networks gets a managed VPC per region under the default `isolation: run`; `isolation: none` turns it off** (the Q8 line below, kept as the driver's built behaviour, now confirmed).
+
 Taken while building the driver end to end (the recommendation where the plan gave one, the conservative
 option otherwise):
 
@@ -533,7 +535,7 @@ option otherwise):
 - **Q7 Weaker lane guards**: accepted as the plan recommends (dedicated account, low account limits, a restricted
   sub-user, the sweeper). The lane is **not** in `test/e2e-vendors.txt` until the account limit is set, so the
   reusable workflow refuses the vendor; adding the line is the step that switches the lane on.
-- **Q8 `isolation` and the VPC**: sections 3.2 and 3.4 disagree (unavailable versus a managed VPC). The driver
+- **Q8 `isolation` and the VPC** (decided by the maintainer 2026-11-11, see above): sections 3.2 and 3.4 disagree (unavailable versus a managed VPC). The driver
   takes the second: `nodeclass` and `run` (the CRD default) put every node in the region's VPC, brought with
   `use` or created and owned; Vultr has no placement profiles, so a run is the whole NodeClass. `none` attaches
   none. A `networks` that is brought or created with `isolation: none`, and `forbid` with another isolation,
@@ -559,3 +561,8 @@ option otherwise):
 - **Not built**: the quota rows (no `QuotaReporter`), `ImageImporter`, block storage `data` profiles, the
   per-run VPC.
 
+## Outcome (in progress, 2026-11-11)
+
+Implemented and reviewed on main (commits `642dbcd..be213d0` over `pkg/vendors/vultr`, the API block, the chart wiring, the L5 lane `test/e2e-vultr` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `vultr` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+
+What L5 must still verify, from the `## 11. Spikes` and `docs/reference/vultr-driver.md`: the spikes S0 to S7: snapshot import from the raw URL, availability and error text classes, VPC limits, firewall group behaviour, `date_created` as billing start, the billing rule, and the account limit that must be set before the lane is added to `test/e2e-vendors.txt`. The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.

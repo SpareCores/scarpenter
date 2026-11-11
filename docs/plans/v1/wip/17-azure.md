@@ -635,3 +635,9 @@ read-only guard.
     nodes of one run and of two runs; the `direct` template inside the VNet.
 13. Per-second billing and the cost of one full lane run.
 14. Trusted Launch / security type defaults for the Flatcar image under the API version used.
+
+## Outcome (in progress, 2026-11-11)
+
+Implemented and reviewed on main (commits `d4c8d7e..cf8eab4` over `pkg/vendors/azure`, the API block, the chart wiring, the L5 lane `test/e2e-azure` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `azure` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+
+What L5 must still verify, from the `## Live verification list` and `docs/reference/azure-driver.md`: the whole live verification list: the `corevm` offers and SKUs per release, terms, LRO failure leftovers, custom-data-only VMs, boot diagnostics, Trusted Launch, and the OIDC and deny-policy cost guards. The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.
