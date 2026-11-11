@@ -152,8 +152,8 @@ node's role; the account is the one of the credentials. Defaults: the default VP
 
 | Kind | Provide | `use` fields |
 |---|---|---|
-| `subnets` | subnet IDs per region, one per zone (the zone name is the account's) | `ids`, `name` (`{zone}`), `tags`, `match` (`zone`, `network`, `cidr`, `within`, `owner`), `filters` |
-| `securityGroups` | one security group ID per region for nodes | `ids`, `name`, `tags`, `match.network` (the subnets' VPC), `filters`; with it `networking.inbound` and `isolation: nodeclass` rules do not apply (the run-isolation group is still added) |
+| `subnets` | subnet IDs per region, one per zone (the zone name is the account's) | `ids`, `name` (`{zone}`), `tags`, `match` (`zone`, `network`, `cidr`, `within`, `state`), `filters`, `select` (default `all`) |
+| `securityGroups` | one security group ID per region for nodes | `ids`, `name`, `tags`, `match` (`network`: the subnets' VPC, `description`), `filters`; with it `networking.inbound` and `isolation: nodeclass` rules do not apply (the run-isolation group is still added) |
 | `placementGroups` | nothing; referenced from placement profiles | `name` in the profile |
 
 Without `use`: tagged subnets (*planned*), then the default VPC's default subnets
