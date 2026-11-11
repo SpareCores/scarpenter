@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 
@@ -45,7 +46,28 @@ const (
 	// keyRootDisks lists instance types whose root disk the type defines
 	// (RootDiskForType), as a vendor with fixed plan disks does.
 	keyRootDisks = "rootDisks"
+	// keyBilling sets the vendor's billing rule (BillingDescriber) and the
+	// billing-start stamp new instances get (billingConfig).
+	keyBilling = "billing"
 )
+
+// billingConfig is the fake vendor's billing rule, so that the L2 and L3 lanes
+// can impersonate an hourly vendor (or one with a minimum) with periods of
+// minutes. Instances launched before a change keep the stamp they got.
+type billingConfig struct {
+	Increment      *metav1.Duration `json:"increment,omitempty"`
+	Minimum        *metav1.Duration `json:"minimum,omitempty"`
+	StoppedCharged *bool            `json:"stoppedCharged,omitempty"`
+	DeleteLatency  *metav1.Duration `json:"deleteLatency,omitempty"`
+	// Verified makes the rule count (an unverified one keeps retention off).
+	Verified bool   `json:"verified,omitempty"`
+	Source   string `json:"source,omitempty"`
+	// StampOffset moves the billing start from the creation time: negative is
+	// the early stamp of a vendor that stamps before the billed state.
+	StampOffset *metav1.Duration `json:"stampOffset,omitempty"`
+	// NoStamp makes the driver record no billing start (it stays zero).
+	NoStamp bool `json:"noStamp,omitempty"`
+}
 
 // rootDiskRule gives the matching types a fixed root disk; empty lists match
 // everything.
@@ -129,6 +151,7 @@ type orphanConfig struct {
 // steeringKeys are the keys of the steering ConfigMap.
 var steeringKeys = []string{
 	keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting, keyRootDisks, keyImages,
+	keyBilling,
 }
 
 // orEmpty is c, or an empty configuration when there is none yet.
@@ -152,6 +175,7 @@ type config struct {
 	rootDisks   []rootDiskRule
 	existing    []existingResource
 	images      []existingResource
+	billing     *billingConfig
 	raw         map[string]string
 }
 
@@ -309,6 +333,7 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	parse(keyPowerOff, func(raw string) error { return yaml.UnmarshalStrict([]byte(raw), &next.powerOff) },
 		func() { next.powerOff = orEmpty(prev).powerOff })
 	d.parseProfileRules(parse, next, prev)
+	parseBilling(parse, next, prev)
 	parse(keyExisting, func(raw string) error {
 		var list []existingResource
 		if err := yaml.UnmarshalStrict([]byte(raw), &list); err != nil {
@@ -444,4 +469,24 @@ func (c *config) bucket(id, region string) (b vendors.Bucket, ok bool) {
 		return b, true
 	}
 	return b, false
+}
+
+// parseBilling parses the billing key.
+func parseBilling(parse func(key string, apply func(string) error, keep func()), next, prev *config) {
+	parse(keyBilling, func(raw string) error {
+		if strings.TrimSpace(raw) == "" {
+			next.billing = nil
+			return nil
+		}
+		b := &billingConfig{}
+		if err := yaml.UnmarshalStrict([]byte(raw), b); err != nil {
+			return err
+		}
+		next.billing = b
+		return nil
+	}, func() {
+		if prev != nil {
+			next.billing = prev.billing
+		}
+	})
 }

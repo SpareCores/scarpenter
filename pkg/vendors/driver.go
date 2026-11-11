@@ -246,6 +246,15 @@ type Instance struct {
 	CapacityType string
 	State        string
 	CreatedAt    time.Time
+	// BillingStart is the vendor's own creation or billing-start stamp, which
+	// the billing periods of the instance count from (ADR-024). Zero when the
+	// vendor has none and the driver could not record one (billing retention
+	// then does not hold the node, with an Event). It is not CreatedAt, which
+	// is not always the billing start. The driver sets the earliest plausible
+	// stamp: an early stamp only makes the computed period boundaries early,
+	// the safe side. It is never after the instance's first GetInstance, is
+	// stable across calls, and survives FindInstance and ListInstances.
+	BillingStart time.Time
 	Tags         map[TagKey]string
 	// Addresses are the instance's IP addresses, if known.
 	Addresses []string
@@ -766,6 +775,41 @@ type QuotaReporter interface {
 	// Consumption returns the buckets an instance of the type consumes; false
 	// means the driver cannot map the type, whose quota is unknown (reactive).
 	Consumption(instanceType, capacityType string) ([]Consumption, bool)
+}
+
+// BillingRule is a driver's own billing rule for a region and instance family,
+// where it is finer than Keeper's vendor row or Keeper has none (OVH US versus
+// EU, Alibaba's minimum by vCPU). Every field but Verified is optional; a set
+// field overrides Keeper's value of the same name. A rule that is not Verified
+// is a fact no live check has confirmed: billing retention stays off for it and
+// the NodeClass status says so (ADR-017, ADR-024). A value lower than Keeper's
+// row needs a code comment that links the vendor's own documentation.
+type BillingRule struct {
+	// Increment is the granularity compute is billed in (one hour: 3600 s).
+	Increment *time.Duration
+	// Minimum is the minimum billed duration of a run; zero or nil means none.
+	Minimum *time.Duration
+	// StoppedCharged says whether a stopped server is still charged.
+	StoppedCharged *bool
+	// DeleteLatency is how long a delete of this vendor takes to stop the
+	// charge after DeleteInstance is called (UpCloud stops, then deletes). The
+	// retention margin is at least DeleteLatency plus 90 s.
+	DeleteLatency time.Duration
+	// Verified says that the rule was checked against a live account.
+	Verified bool
+	// Source says where the rule comes from, for the NodeClass status (a
+	// documentation page, "live check 2026-11-10").
+	Source string
+}
+
+// BillingDescriber is the optional capability to describe the vendor's billing
+// rule for a region and instance family (ADR-024). A driver without it uses
+// Keeper's vendor row and is unverified: billing retention is off for it. The
+// core never branches on a vendor name; everything vendor-specific is here.
+type BillingDescriber interface {
+	// BillingRule returns the rule for the region and family; false means the
+	// driver has nothing to add to Keeper's row for them.
+	BillingRule(region, family string) (BillingRule, bool)
 }
 
 // OfferingLister is the optional capability to report which instance types the

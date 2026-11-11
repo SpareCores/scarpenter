@@ -128,6 +128,7 @@ var (
 	_ vendors.QuotaReporter      = (*Driver)(nil)
 	_ vendors.OfferingLister     = (*Driver)(nil)
 	_ vendors.NodeClassValidator = (*Driver)(nil)
+	_ vendors.BillingDescriber   = (*Driver)(nil)
 )
 
 // New returns a driver with the given options (for tests; the registry's
@@ -485,8 +486,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		Instance: vendors.Instance{
 			Ref: vendors.NewInstanceRef(req.Region, id), Region: req.Region, Zone: req.Zone, Type: req.InstanceType,
 			CapacityType: req.CapacityType, State: vendors.StateRunning, CreatedAt: d.clock.Now(),
-			Tags:      vendors.IdempotencyTag(req.Tags, req.IdempotencyKey),
-			Addresses: []string{fmt.Sprintf("10.%d.%d.%d", d.seq/65536%256, d.seq/256%256, d.seq%256)},
+			BillingStart: billingStamp(conf, d.clock.Now()),
+			Tags:         vendors.IdempotencyTag(req.Tags, req.IdempotencyKey),
+			Addresses:    []string{fmt.Sprintf("10.%d.%d.%d", d.seq/65536%256, d.seq/256%256, d.seq%256)},
 		},
 		claim: claim, nodeName: req.Node.Name, vcpus: srv.vcpus, key: req.IdempotencyKey,
 		userData: len(req.UserData), settings: string(req.Settings.Raw), profiles: maps.Clone(req.Settings.Profiles),
@@ -512,6 +514,47 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	defer d.mu.Unlock()
 	d.record("create", req.Region, req.Zone, req.InstanceType, req.CapacityType, claim, "ok")
 	return copyInstance(inst), nil
+}
+
+// billingStamp is the billing start a new instance gets: the fake clock moved by
+// the configured offset, none when the configuration says the vendor has no
+// stamp. Without a billing configuration the stamp is the creation time, like a
+// vendor that stamps when it creates.
+func billingStamp(conf *config, now time.Time) time.Time {
+	if conf.billing == nil {
+		return now
+	}
+	if conf.billing.NoStamp {
+		return time.Time{}
+	}
+	if conf.billing.StampOffset != nil {
+		return now.Add(conf.billing.StampOffset.Duration)
+	}
+	return now
+}
+
+// BillingRule implements vendors.BillingDescriber from the steering
+// ConfigMap's billing key; without it the fake adds nothing to Keeper's row.
+func (d *Driver) BillingRule(string, string) (vendors.BillingRule, bool) {
+	d.refreshConfig(context.Background())
+	b := d.current().billing
+	if b == nil {
+		return vendors.BillingRule{}, false
+	}
+	rule := vendors.BillingRule{StoppedCharged: b.StoppedCharged, Verified: b.Verified, Source: b.Source}
+	if rule.Source == "" {
+		rule.Source = "fake driver steering"
+	}
+	if b.Increment != nil {
+		rule.Increment = &b.Increment.Duration
+	}
+	if b.Minimum != nil {
+		rule.Minimum = &b.Minimum.Duration
+	}
+	if b.DeleteLatency != nil {
+		rule.DeleteLatency = b.DeleteLatency.Duration
+	}
+	return rule, true
 }
 
 // exceedsQuotaLocked reports a consumed bucket that cannot take the instance.
@@ -715,7 +758,8 @@ func (d *Driver) createOrphans(ctx context.Context, orphans []orphanConfig) {
 			Instance: vendors.Instance{
 				Ref: vendors.NewInstanceRef(o.Region, id), Region: o.Region, Zone: o.Zone, Type: o.InstanceType,
 				CapacityType: o.CapacityType, State: state,
-				CreatedAt: d.clock.Now().Add(-time.Duration(o.AgeSeconds) * time.Second),
+				CreatedAt:    d.clock.Now().Add(-time.Duration(o.AgeSeconds) * time.Second),
+				BillingStart: d.clock.Now().Add(-time.Duration(o.AgeSeconds) * time.Second),
 				Tags: map[vendors.TagKey]string{
 					vendors.TagCluster: d.cfg.ClusterName, vendors.TagNodeClaim: o.Name, vendors.TagManagedBy: vendors.ManagedByValue,
 				},

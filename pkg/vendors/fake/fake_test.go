@@ -828,3 +828,45 @@ func TestReportImagesFollowsTheImagesSelectorAndTheVersionCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestBillingSteering(t *testing.T) {
+	h := newHarness(t, nil)
+	if _, ok := h.d.BillingRule(testRegion, "m7i"); ok {
+		t.Error("without steering the fake adds nothing to Keeper's row")
+	}
+	h.setConfig(t, "billing", `
+increment: 5m
+minimum: 5m
+deleteLatency: 30s
+verified: true
+stampOffset: -10s
+`)
+	rule, ok := h.d.BillingRule(testRegion, "m7i")
+	if !ok || !rule.Verified || rule.Increment == nil || *rule.Increment != 5*time.Minute ||
+		*rule.Minimum != 5*time.Minute || rule.DeleteLatency != 30*time.Second || rule.Source == "" {
+		t.Fatalf("rule %+v %v", rule, ok)
+	}
+	before := time.Now()
+	inst, err := h.d.CreateInstance(t.Context(), h.req("a", testType, h.zone(t), vendors.CapacityOnDemand))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.BillingStart.IsZero() || inst.BillingStart.After(before) || !inst.BillingStart.Before(inst.CreatedAt) {
+		t.Errorf("the stamp must be earlier than the creation by the offset: start %s, created %s", inst.BillingStart, inst.CreatedAt)
+	}
+	// A later change of the rule leaves the stamp of the running instance.
+	h.setConfig(t, "billing", "noStamp: true\n")
+	got, err := h.d.GetInstance(t.Context(), inst.Ref)
+	if err != nil || !got.BillingStart.Equal(inst.BillingStart) {
+		t.Errorf("the stamp is stable: %v %v", got, err)
+	}
+	none, err := h.d.CreateInstance(t.Context(), h.req("b", testType, h.zone(t), vendors.CapacityOnDemand))
+	if err != nil || !none.BillingStart.IsZero() {
+		t.Errorf("noStamp: %+v %v", none, err)
+	}
+	// A key that does not parse keeps the last good value.
+	h.setConfig(t, "billing", "increment: nonsense\n")
+	if r, ok := h.d.BillingRule(testRegion, "m7i"); !ok || r.Increment != nil {
+		t.Errorf("a broken key keeps the last good rule (noStamp, no increment): %+v %v", r, ok)
+	}
+}

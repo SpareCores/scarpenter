@@ -320,6 +320,9 @@ func toInstance(region string, in ec2types.Instance) *vendors.Instance {
 	}
 	if in.LaunchTime != nil {
 		inst.CreatedAt = *in.LaunchTime
+		// EC2 bills per second (with a 60 s minimum), so retention never
+		// applies; the stamp is still reported correctly.
+		inst.BillingStart = *in.LaunchTime
 	}
 	byName := map[string]string{}
 	for _, t := range in.Tags {

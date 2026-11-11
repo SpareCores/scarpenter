@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -64,6 +65,10 @@ type Fixture struct {
 	// FindInstance. Drivers with a create token or a deterministic name leave it
 	// false.
 	StoresIdempotencyKey bool
+
+	// Now is the clock the driver stamps instances with (default time.Now): the
+	// billing-start subtest checks that no stamp lies in its future.
+	Now func() time.Time
 
 	// PowerOff stops the instance the way a guest poweroff, or a stop call
 	// outside SCarpenter, would on the vendor's fixture; the subtest of the
@@ -275,6 +280,7 @@ func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 	sub("list by tags", listByTags)
 	sub("delete is idempotent", deleteIdempotent)
 	sub("powered-off instance", poweredOff)
+	sub("billing start", billingStart)
 	sub("tag round trip", tagRoundTrip)
 	sub("user-data limit", userDataLimit)
 	sub("error classification", errorClassification)
@@ -591,6 +597,49 @@ func poweredOff(t *testing.T, e *env) {
 		if i.State == vendors.StateTerminated {
 			t.Errorf("the listing contains the terminated instance %s", i.Ref)
 		}
+	}
+}
+
+// billingStartSkew is how far a vendor's stamp may lie ahead of the clock the
+// suite reads (clock skew between the host and the vendor).
+const billingStartSkew = time.Minute
+
+// billingStart pins the BillingStart rules of the driver contract: it is never
+// in the future of the first GetInstance, is stable across calls and survives
+// FindInstance and ListInstances. Zero is allowed (the vendor has no stamp and
+// the driver could not record one); the checks then only demand that it stays
+// zero.
+func billingStart(t *testing.T, e *env) {
+	now := time.Now
+	if e.fx.Now != nil {
+		now = e.fx.Now
+	}
+	req := e.request(t)
+	created := e.create(t, req)
+	got, err := e.d.GetInstance(t.Context(), created.Ref)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if got.BillingStart.IsZero() && !created.BillingStart.IsZero() {
+		t.Errorf("Create reported the billing start %s, the first GetInstance none", created.BillingStart)
+	}
+	if !got.BillingStart.IsZero() && got.BillingStart.After(now().Add(billingStartSkew)) {
+		t.Errorf("the billing start %s is after the first GetInstance (%s)", got.BillingStart, now())
+	}
+	if !created.BillingStart.IsZero() && !created.BillingStart.Equal(got.BillingStart) {
+		t.Errorf("the billing start changed from %s (Create) to %s (GetInstance)", created.BillingStart, got.BillingStart)
+	}
+	again, err := e.d.GetInstance(t.Context(), created.Ref)
+	if err != nil || !again.BillingStart.Equal(got.BillingStart) {
+		t.Errorf("a second GetInstance: %v, %v; want the stable billing start %s", again, err, got.BillingStart)
+	}
+	found, err := e.d.FindInstance(t.Context(), e.region, claimTag(req.Tags[vendors.TagNodeClaim]))
+	if err != nil || !found.BillingStart.Equal(got.BillingStart) {
+		t.Errorf("FindInstance: %v, %v; want the billing start %s", found, err, got.BillingStart)
+	}
+	list, err := e.d.ListInstances(t.Context(), []string{e.region}, claimTag(req.Tags[vendors.TagNodeClaim]))
+	if err != nil || len(list) != 1 || !list[0].BillingStart.Equal(got.BillingStart) {
+		t.Errorf("ListInstances: %v, %v; want one instance with the billing start %s", list, err, got.BillingStart)
 	}
 }
 
