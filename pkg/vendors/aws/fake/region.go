@@ -372,3 +372,40 @@ func (a *Account) TagDefaultResources(regionName string, tags map[string]string)
 		}
 	}
 }
+
+// RemoveDefaultVPC deletes the region's default VPC with everything that comes
+// with it (subnets, internet gateway, main route table, default security group):
+// a region as an account that deleted its default VPC has it, which no API call
+// of the fake can do (the dependencies of a default VPC are not deletable one by one).
+func (a *Account) RemoveDefaultVPC(regionName string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.regions[regionName]
+	for id, v := range r.vpcs {
+		if !v.isDefault {
+			continue
+		}
+		for sid, s := range r.subnets {
+			if s.vpc == id {
+				delete(r.subnets, sid)
+			}
+		}
+		for gid, vid := range r.attached {
+			if vid == id {
+				delete(r.attached, gid)
+				delete(r.igws, gid)
+			}
+		}
+		for tid, t := range r.rts {
+			if t.vpc == id {
+				delete(r.rts, tid)
+			}
+		}
+		for gid, g := range r.sgs {
+			if g.vpc == id {
+				delete(r.sgs, gid)
+			}
+		}
+		delete(r.vpcs, id)
+	}
+}

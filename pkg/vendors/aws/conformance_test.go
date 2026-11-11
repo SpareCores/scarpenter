@@ -19,6 +19,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	awsapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws/fake"
@@ -104,6 +107,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func(*te
 	if kind != aws.KindSubnets {
 		fx.Seed = nil // the selector cases cover every kind once, in the subnets run
 		fx.SeedImage = nil
+		fx.OrderClass, fx.SetDefault, fx.FailCreate = nil, nil, nil
 	}
 	return fx
 }
@@ -169,6 +173,29 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 		PreCreate: func(t *testing.T, d vendors.Driver, k vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
 			t.Helper()
 			return preCreate(t, envOf(t, d), k, region, tags)
+		},
+		OrderClass: func(t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*common.Resource, ipv6 bool) *v1alpha1.SCNodeClass {
+			t.Helper()
+			nc := classWith(&awsapi.Resources{
+				Subnets: res[aws.KindSubnets], SecurityGroups: res[aws.KindSecurityGroups], PlacementGroups: res[aws.KindPlacementGroups],
+			})
+			nc.Spec.Networking.PublicIPv6 = &ipv6
+			return nc
+		},
+		SetDefault: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, state conformance.DefaultState) {
+			t.Helper()
+			// The default VPC of the fake account has no IPv6 range, like a real one:
+			// only its absence is arranged.
+			if state == conformance.DefaultAbsent && kind == aws.KindSubnets {
+				envOf(t, d).acct.RemoveDefaultVPC(region)
+			}
+		},
+		FailCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind) {
+			t.Helper()
+			if kind == aws.KindSubnets {
+				// The VPC and its subnets exist when the internet gateway fails.
+				envOf(t, d).acct.Fail(fake.Failure{Op: "CreateInternetGateway", Code: "InternalError"})
+			}
 		},
 		Restart: func(t *testing.T, d vendors.Driver) vendors.Driver {
 			t.Helper()

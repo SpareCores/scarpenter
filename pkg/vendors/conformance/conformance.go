@@ -130,6 +130,16 @@ type Fixture struct {
 	// ManagedResources.Selectors declares it, with SeedImage: it makes an image
 	// the way a user would (see ImageSpec).
 	SeedImage SeedImageFunc
+	// The resolution-order subtests (ADR-022) run for drivers that implement
+	// vendors.ManagedResources, with Seed and: OrderClass, which builds the
+	// SCNodeClass of the vendor; SetDefault, which arranges the vendor's default of
+	// ResourceKind in the region; and, optionally, FailCreate, which makes the next
+	// creation of the kind fail after its first call, so that a creation is
+	// interrupted midway (a vendor whose creation is one call has none). The
+	// subtests use ResourceKind as the order kind: a regional kind with tags.
+	OrderClass OrderClassFunc
+	SetDefault SetDefaultFunc
+	FailCreate func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind)
 }
 
 // The architectures and the creation-time order the suite names.
@@ -250,7 +260,7 @@ func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 		if e.d.Vendor() == "" {
 			t.Error("Vendor is empty")
 		}
-		for _, k := range vendors.TagKeys {
+		for _, k := range append(slices.Clone(vendors.TagKeys), vendors.TagUse) {
 			if e.d.TagKey(k) == "" {
 				t.Errorf("TagKey(%s) is empty", k)
 			}
@@ -274,6 +284,7 @@ func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 	sub("managed resources", managedResources)
 	sub("selectors", selectors)
 	sub("images", images)
+	sub("resolution order", resolutionOrder)
 	sub("zone checker", zoneChecker)
 }
 

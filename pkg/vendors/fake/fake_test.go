@@ -160,10 +160,53 @@ func seedFake(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region 
 		r["cidr"] = spec.CIDR
 	}
 	seeded[fd] = append(seeded[fd], r)
+	writeSeeded(t, fd)
+	return vendors.ResourceRef{Kind: kind, Region: region, ID: id, Name: spec.Name}
+}
+
+// writeSeeded publishes the seeded resources (with seededMu held).
+func writeSeeded(t *testing.T, fd *fakedriver.Driver) {
+	t.Helper()
 	raw, _ := json.Marshal(seeded[fd])
 	h := &harness{d: fd, c: clientOf(t, fd)}
 	h.setConfig(t, "existingResources", string(raw))
-	return vendors.ResourceRef{Kind: kind, Region: region, ID: id, Name: spec.Name}
+}
+
+// setFakeDefault arranges the vendor's default of the kind in the region: absent,
+// present, or present without IPv6.
+func setFakeDefault(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, state conformance.DefaultState) {
+	t.Helper()
+	fd := d.(*fakedriver.Driver)
+	seededMu.Lock()
+	defer seededMu.Unlock()
+	var kept []map[string]any
+	for _, r := range seeded[fd] {
+		if r["default"] != true || r["kind"] != string(kind) || r["region"] != region {
+			kept = append(kept, r)
+		}
+	}
+	if state != conformance.DefaultAbsent {
+		kept = append(kept, map[string]any{
+			"kind": string(kind), "region": region, "id": "default-" + string(kind), "default": true,
+			"noIPv6": state == conformance.DefaultWithoutIPv6,
+		})
+	}
+	seeded[fd] = kept
+	writeSeeded(t, fd)
+}
+
+// orderClass is the NodeClass of the fake, which serves the aws vendor ID.
+func orderClass(t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*common.Resource, ipv6 bool) *v1alpha1.SCNodeClass {
+	t.Helper()
+	return &v1alpha1.SCNodeClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "class"},
+		Spec: v1alpha1.SCNodeClassSpec{
+			Networking: common.Networking{PublicIPv6: &ipv6},
+			Vendors: v1alpha1.VendorBlocks{AWS: &awsapi.Settings{Resources: &awsapi.Resources{
+				Subnets: res[fakedriver.KindNetwork], PlacementGroups: res[fakedriver.KindGroup],
+			}}},
+		},
+	}
 }
 
 // seedFakeImage adds an image to the steering ConfigMap's images list, saying its
@@ -266,6 +309,7 @@ func TestConformance(t *testing.T) {
 		SeedAttrs: []string{"created", "description", "cidr", "specialNames"},
 		SeedCIDRs: [2]string{"10.201.1.0/24", "10.201.2.0/24"}, SeedWithin: "10.201.0.0/16",
 		SeedImage: seedFakeImage,
+		OrderClass: orderClass, SetDefault: setFakeDefault,
 		PreCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
 			t.Helper()
 			h := &harness{d: d.(*fakedriver.Driver)}

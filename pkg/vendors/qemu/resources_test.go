@@ -67,6 +67,22 @@ func TestResolveFindsBridgesByIDNamePatternTagsAndDefaultAndNeverManagedOnes(t *
 	}
 }
 
+func TestTheOptInAliasIsDiscoveredAndTheDefaultBridgeIsTheDefault(t *testing.T) {
+	d, h := newTestDriver(t)
+	h.bridges["lab-a"] = d.TagKey(vendors.TagUse) + "=" + vendors.OptInValue
+	h.bridges["lab-b"] = d.TagKey(vendors.TagUse) + "=false"
+	// Discovery is the selector the core builds: the opt-in tag with the kind's default select.
+	got, err := d.Resolve(t.Context(), KindNetwork, Region, vendors.UseRef{
+		Tags: map[string]string{d.TagKey(vendors.TagUse): vendors.OptInValue}, Select: d.Selectors()[KindNetwork].DefaultSelect})
+	if err != nil || len(got) != 1 || got[0].ID != "lab-a" {
+		t.Errorf("discovery = %v, %v; want lab-a", ids(got), err)
+	}
+	def, err := d.Default(t.Context(), KindNetwork, Region)
+	if err != nil || len(def) != 1 || def[0].ID != DefaultBridge {
+		t.Errorf("default = %v, %v; want %s", ids(def), err, DefaultBridge)
+	}
+}
+
 func TestEnsureRecreatesAManagedBridgeThatTheMachineLost(t *testing.T) {
 	d, h := newTestDriver(t)
 	spec := vendors.CreateSpec{Name: "scarpenter-x-networks-local", Tags: map[vendors.TagKey]string{vendors.TagCluster: "x"}}
