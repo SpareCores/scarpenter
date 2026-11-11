@@ -105,8 +105,8 @@ the user's own Butane and merged after the base and volume configs, before the n
 user's Butane, which can override them ([node bootstrap](node-bootstrap.md#vendor-fragments)). They
 count in the size budget, and the trial rendering of the NodeClass controller includes them, so a fragment
 that does not translate or does not fit makes `ValidationSucceeded` false. `vendors.BlockMetadataFromPods(address)` is the fragment of
-`metadata-from-pods` for a vendor's metadata address. The enabled hardenings are part of the
-drift hash. The fake driver offers `metadata-from-pods` so that the hook is tested without a cloud; no
+`metadata-from-pods` for a vendor's metadata address. The enabled hardenings the vendor's driver
+offers are part of that vendor's drift hash. The fake driver offers `metadata-from-pods` so that the hook is tested without a cloud; no
 real vendor uses it yet.
 
 ## The idempotency label

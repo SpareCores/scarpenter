@@ -55,24 +55,25 @@ func TestHardeningAndTheDriversFragments(t *testing.T) {
 		}
 	})
 	t.Run("hash", func(t *testing.T) {
-		base := &v1alpha1.SCNodeClass{Spec: v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{AWS: &aws.Settings{}}}}
-		hash := func(mutate func(*v1alpha1.SCNodeClass)) string {
-			nc := base.DeepCopy()
-			if mutate != nil {
-				mutate(nc)
-			}
-			h, err := nodeclass.Hash(nc, "aws", nodeclass.Inputs{})
+		nc := &v1alpha1.SCNodeClass{Spec: v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{AWS: &aws.Settings{}}}}
+		hash := func(applied ...string) string {
+			h, err := nodeclass.Hash(nc, "aws", nodeclass.Inputs{Hardening: applied})
 			if err != nil {
 				t.Fatal(err)
 			}
 			return h
 		}
-		plain := hash(nil)
-		if hash(func(nc *v1alpha1.SCNodeClass) { nc.Spec.Bootstrap = &v1alpha1.BootstrapSpec{} }) != plain {
-			t.Error("an empty bootstrap block changes the hash")
+		plain := hash()
+		// A hardening the vendor does not offer (AWS) is not applied: no drift.
+		harden(nc)
+		if hash() != plain {
+			t.Error("a hardening the vendor does not apply changes the hash")
 		}
-		if hash(harden) == plain {
-			t.Error("enabling a hardening does not change the hash")
+		if hash("metadata-from-pods") == plain {
+			t.Error("applying a hardening does not change the hash")
+		}
+		if hash("a", "b") != hash("b", "a") {
+			t.Error("the order of the hardenings changes the hash")
 		}
 	})
 }

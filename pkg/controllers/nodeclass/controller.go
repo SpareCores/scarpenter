@@ -468,7 +468,7 @@ func (c *Controller) vendor(
 	} else {
 		hash, err := Hash(desired, vendor, Inputs{
 			Resolved: desired.Status.Resolved, CustomTemplate: inputs.CustomTemplate, UserButane: inputs.UserButane,
-			AuthKeyVersion: inputs.AuthKeyVersion,
+			AuthKeyVersion: inputs.AuthKeyVersion, Hardening: c.appliedHardening(desired, vendor),
 		})
 		if err != nil {
 			// The hash of a NodeClass that cannot be encoded is a programming
@@ -748,9 +748,6 @@ func trim(s string) string {
 	return s
 }
 
-// warnIPv6Only warns about nodes with IPv6 only (publicIPv4 false, publicIPv6 true)
-// while the sysexts come from the default source, which the nodes cannot reach: the
-// release host of the sysext-bakery has no IPv6. A sysext mirror with IPv6 fixes it.
 // warnHardening says that the NodeClass enables a hardening the vendor's driver
 // does not offer (AWS offers none: its metadata hop limit already keeps Pods off
 // the metadata service), so that an opt-in is never silently ignored.
@@ -769,6 +766,24 @@ func (c *Controller) warnHardening(nc *v1alpha1.SCNodeClass, vendor string) {
 	}
 }
 
+// appliedHardening returns the hardenings of the NodeClass that the vendor's
+// driver offers: those that reach its nodes.
+func (c *Controller) appliedHardening(nc *v1alpha1.SCNodeClass, vendor string) []string {
+	enabled := nc.Spec.HardeningNames()
+	if len(enabled) == 0 {
+		return nil
+	}
+	drv, ok := c.opts.Registry.Driver(vendor)
+	if !ok {
+		return nil
+	}
+	offered, _ := vendors.OfferedHardenings(drv, enabled)
+	return offered
+}
+
+// warnIPv6Only warns about nodes with IPv6 only (publicIPv4 false, publicIPv6 true)
+// while the sysexts come from the default source, which the nodes cannot reach: the
+// release host of the sysext-bakery has no IPv6. A sysext mirror with IPv6 fixes it.
 func (c *Controller) warnIPv6Only(nc *v1alpha1.SCNodeClass, vendor string) {
 	if c.opts.SysextMirror {
 		return

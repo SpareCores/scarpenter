@@ -276,7 +276,8 @@ There are two kinds:
 A vendor whose driver offers no hardening ignores the list; the NodeClass controller records an Event
 (`HardeningNotOffered`) so that an opt-in is never silently dropped (AWS offers none). The fragments count in the
 [size budget](#size-budget) and in the trial rendering of the NodeClass controller, and the enabled hardenings
-are part of the [drift hash](#the-nodeclass-controller): changing the list replaces the nodes. No vendor
+a vendor offers are part of its [drift hash](#the-nodeclass-controller): changing them replaces that vendor's
+nodes, while a hardening a vendor ignores does not drift its nodes. No vendor
 driver uses the hook yet; the fake driver offers `metadata-from-pods` so that it is exercised without a cloud.
 
 ## Custom templates and extra Butane
@@ -343,8 +344,8 @@ makes its own offerings unavailable, and a `Create` fails with
 
 The **drift hash** of a vendor is the SHA-256 over the canonical JSON of the
 shared fields that change what a node is (`flatcar`, `kubernetes`, `network`,
-`networking`, `kubelet`, `butane`, `sysexts`, `poweroffAfter`, `tags`, and `bootstrap` when it enables a
-hardening), that vendor's block without `regions` and `resources`, the contents the spec points at
+`networking`, `kubelet`, `butane`, `sysexts`, `poweroffAfter`, `tags`), the hardenings of `spec.bootstrap.hardening` that the
+vendor's driver offers (in any order; none leaves the hash as it was), that vendor's block without `regions` and `resources`, the contents the spec points at
 (custom template, Butane, the auth key Secret's resourceVersion), the resolved
 artifact digests (not their URLs: switching to a mirror of the same release does
 not drift nodes), and `HashVersion`. When an input cannot be loaded (a reference

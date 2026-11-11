@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 )
@@ -33,12 +34,17 @@ type Inputs struct {
 	UserButane     string
 	// AuthKeyVersion is the resourceVersion of the tailscale auth key Secret.
 	AuthKeyVersion string
+	// Hardening are the hardenings of spec.bootstrap.hardening that the vendor's
+	// driver offers (vendors.OfferedHardenings): only those change its nodes'
+	// user-data, so a hardening a vendor ignores does not drift its nodes.
+	Hardening []string
 }
 
 // Hash is the drift hash of the NodeClass for one vendor: SHA-256 over the
 // canonical JSON of the shared fields that change what a node is (flatcar,
 // kubernetes, network, networking, kubelet, butane, sysexts, poweroffAfter,
-// tags, bootstrap), that vendor's block without regions and resources, and HashVersion.
+// tags), the hardenings the vendor applies, that vendor's block without regions
+// and resources, and HashVersion.
 // Changing another vendor's block never changes it; neither do regions,
 // resource references, metrics or selections. Besides the spec it covers what
 // the spec points at (Inputs): the contents of the custom template and the
@@ -58,11 +64,13 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 	delete(generic, "resources")
 
 	s := &nc.Spec
-	// The bootstrap hardening changes the user-data, so it drifts nodes; it is
-	// left out when unset so that a NodeClass without it keeps its hash.
-	var bootstrap any
-	if s.Bootstrap != nil && len(s.Bootstrap.Hardening) > 0 {
-		bootstrap = s.Bootstrap
+	// The hardenings the vendor applies change the user-data, so they drift its
+	// nodes; they are left out when none applies, so that a NodeClass without
+	// them (or a vendor that offers none of them) keeps its hash. The list is a
+	// set: its order does not matter.
+	var hardening []string
+	if len(in.Hardening) > 0 {
+		hardening = slices.Sorted(slices.Values(in.Hardening))
 	}
 	raw, err := json.Marshal(struct {
 		Version       string
@@ -76,11 +84,11 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 		Sysexts       any
 		PoweroffAfter any
 		Tags          any
-		Bootstrap     any `json:",omitempty"`
+		Hardening     []string `json:",omitempty"`
 		Block         map[string]any
 		Inputs        hashInputs
 	}{HashVersion, vendor, s.Flatcar, s.Kubernetes, s.Network, s.Networking, s.Kubelet, s.Butane, s.Sysexts,
-		s.PoweroffAfter, s.Tags, bootstrap, generic, newHashInputs(in)})
+		s.PoweroffAfter, s.Tags, hardening, generic, newHashInputs(in)})
 	if err != nil {
 		return "", fmt.Errorf("hashing the NodeClass: %w", err)
 	}
