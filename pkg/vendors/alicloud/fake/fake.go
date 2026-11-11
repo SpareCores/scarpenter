@@ -97,6 +97,9 @@ type Cloud struct {
 	// ClientToken (whether ECS does is unverified, plan 21 step 0); the default
 	// is a failed call leaves the token unused.
 	ConsumeTokenOnFailure bool
+	// NetworkPendingFor is how long a new VPC or vSwitch is Pending before it is
+	// Available (VPC resources are created asynchronously).
+	NetworkPendingFor time.Duration
 	// DescribeCalls counts the calls per method, for tests that bound them.
 	DescribeCalls map[string]int
 

@@ -1,0 +1,72 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeRegions",
+        "ecs:DescribeZones",
+        "ecs:DescribeInstanceTypes",
+        "ecs:DescribeAvailableResource",
+        "ecs:DescribeAccountAttributes",
+        "ecs:DescribeImages",
+        "ecs:DescribeInstances",
+        "ecs:DescribeSecurityGroups",
+        "ecs:DescribeSecurityGroupAttribute",
+        "ecs:DescribeDeploymentSets",
+        "ecs:ListTagResources",
+        "vpc:DescribeVpcs",
+        "vpc:DescribeVSwitches"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RunInstances",
+        "ecs:CreateSecurityGroup",
+        "ecs:CreateDeploymentSet",
+        "ecs:TagResources",
+        "vpc:CreateVpc",
+        "vpc:CreateVSwitch"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "acs:RequestTag/scarpenter.sparecores.com/cluster": "my-cluster"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DeleteInstance",
+        "ecs:DeleteSecurityGroup",
+        "ecs:AuthorizeSecurityGroup",
+        "ecs:RevokeSecurityGroup",
+        "ecs:DeleteDeploymentSet",
+        "vpc:DeleteVpc",
+        "vpc:DeleteVSwitch"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "acs:ResourceTag/scarpenter.sparecores.com/cluster": "my-cluster"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RunInstances",
+        "ecs:DeleteInstance"
+      ],
+      "Resource": [
+        "acs:ecs:*:*:image/*",
+        "acs:ecs:*:*:securitygroup/*",
+        "acs:ecs:*:*:deploymentset/*",
+        "acs:vpc:*:*:vswitch/*"
+      ]
+    }
+  ]
+}

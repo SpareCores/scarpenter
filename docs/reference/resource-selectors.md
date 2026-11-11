@@ -10,7 +10,7 @@ What the kinds are, `create` and the lifecycles: [Vendor resources](vendor-resou
 What to hand over per vendor: the [hand-off contract](infrastructure-handoff.md).
 A walk-through: [Bring your own vendor resources](../how-to-guides/bring-your-own-resources.md).
 
-Status: only the `aws` driver (and the development drivers) exist; `images` is implemented for `aws` and the fake driver; the selector
+Status: the `aws` and `alicloud` drivers (and the development drivers) exist; `images` is implemented for `aws`, `alicloud` and the fake driver; the selector
 replaced the `ids` / `name` / `selector` forms of the first AWS driver in
 [plan 14](../plans/v1/done/14-multi-vendor-groundwork.md) (A10): `use.selector.tags` is now
 `use.tags`, with no alias. The AWS tables are what the driver declares
@@ -707,6 +707,8 @@ Reference: `https://www.alibabacloud.com/help/en/ecs/developer-reference/api-ecs
 | `match.includeDeprecated` | `Status` including `Deprecated` | server |
 | `match.createdAfter`, `createdBefore` | `Filter.N` `CreationStartTime` / `CreationEndTime` (UTC, minute precision) | server+client |
 
+The driver implements the filters `ImageFamily`, `OSType`, `Usage`, `ActionType`, `InstanceType`, `SnapshotId`, `ResourceGroupId`, `IsPublic`, `Usable`,
+`IsSupportCloudinit`, `IsSupportIoOptimized` and `ShowExpired` (one call per value, at most 64 calls per selector); the `Filter.*` keys below are not offered.
 Omitting the owner alias never returns marketplace images; community images are `others` with `IsPublic=true`. Order: `CreationTime`
 client-side (no sort parameter). Filters: `ImageFamily`, `OSType` (`linux`, `windows`), `Usage`, `ActionType`, `InstanceType`, `SnapshotId`,
 `ResourceGroupId`, `IsPublic`, `Usable`, `IsSupportCloudinit`, `IsSupportIoOptimized`, `ShowExpired`, `Filter.NetworkType`,
@@ -723,7 +725,6 @@ response (not filterable): `Platform`, `BootMode`, `OSName`, `ImageVersion`, `Fe
 | `tags` | `Tag.N` | server |
 | `match.zone` | `ZoneId` (the zone name) | server |
 | `match.network` | `VpcId` | server |
-| `match.owner` | `VSwitchOwnerId` (shared vSwitches) | server |
 | `match.cidr`, `within` | `CidrBlock` | client |
 | `match.state` | `Status` (`Available`, `Pending`) | client |
 | `match.createdAfter`, `createdBefore` | `CreationTime` | client |
@@ -731,11 +732,11 @@ response (not filterable): `Platform`, `BootMode`, `OSName`, `ImageVersion`, `Fe
 Filters: `IsDefault`, `EnableIpv6`, `RouteTableId`, `ResourceGroupId`. Order: `CreationTime`. Free addresses (`AvailableIpAddressCount`) are client-side.
 
 **securityGroups** (`DescribeSecurityGroups`, `MaxResults` up to 100): `ids` `SecurityGroupIds` (JSON array, up to 100); `name`
-`SecurityGroupName` (unverified exactness: server+client); `tags` `Tag.N`; `match.network` `VpcId`; `createdAfter` `CreationTime` client;
+`SecurityGroupName` (`FuzzyQuery`, unverified exactness: server+client); `tags` `Tag.N`; `match.network` `VpcId`; `match.createdAfter` and `match.createdBefore` `CreationTime` client;
 `match.description` client. Filters: `NetworkType`, `SecurityGroupType` (`normal`, `enterprise`), `ServiceManaged`, `ResourceGroupId`. A
 group must be in the vSwitches' VPC (`match.network`). **deploymentSets** (placement, `DescribeDeploymentSets`): `ids` `DeploymentSetIds`; `name`
 `DeploymentSetName`; **no tags** (rejected); filters `Strategy` (`Availability`, `AvailabilityGroup`, `LowLatency`), `Type` (`host`, `sw`, `rack`);
-`CreationTime` client.
+`match.createdAfter` and `match.createdBefore` on `CreationTime` client.
 Other kinds: **networks** (`DescribeVpcs`: `VpcId` list, `VpcName`, `IsDefault`, `EnableIpv6`, `VpcOwnerId`, `Tag.N`; `CidrBlock` client; the default VPC
 is `IsDefault=true`); **key pairs** (`KeyPairName` with `*` wildcards server-side, `KeyPairFingerPrint`; the name is the identity); **resource
 groups** (Resource Manager `ListResourceGroups`, global: `Name` and `DisplayName` fuzzy, `Status`, `Tag.N`); **disks** (`DescribeDisks`: `ZoneId`,

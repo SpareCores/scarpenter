@@ -88,6 +88,9 @@ func (c *Cloud) Zones(ctx context.Context, region string) ([]vendors.Zone, error
 // be bought (the other is SoldOut).
 const StatusAvailable = "Available"
 
+// statusAvailable is the Status of an image, a VPC and a vSwitch that can be used.
+const statusAvailable = StatusAvailable
+
 // LaunchableTypes maps the API reference of each launchable type to the zone
 // IDs where it can be launched with the capacity type: DescribeAvailableResource
 // per region (DestinationResource=InstanceType, ResourceType=instance,

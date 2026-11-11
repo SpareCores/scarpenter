@@ -12,15 +12,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	api "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/alicloud"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
-
-// The settings types below mirror the `alicloud` block of spec.vendors and of
-// the storage and network profiles (plan 21 section 2). They are local until
-// the block's API types land in pkg/apis/v1alpha1/alicloud (plan 14).
-//
-// TODO(plan 14): replace these with the API types and decode the placement
-// profile ({deploymentSet: {strategy | use}}) into the launch resources.
 
 // Disk categories of ECS.
 const (
@@ -46,46 +40,18 @@ const (
 	maxInternetBandwidth = 100
 )
 
-// Disk is a root or data disk.
-type Disk struct {
-	Category         string             `json:"category,omitempty"`
-	PerformanceLevel string             `json:"performanceLevel,omitempty"`
-	Size             *resource.Quantity `json:"size,omitempty"`
-	Encrypted        *bool              `json:"encrypted,omitempty"`
-	KMSKeyID         string             `json:"kmsKeyID,omitempty"`
-	ProvisionedIops  *int64             `json:"provisionedIops,omitempty"`
-	BurstingEnabled  *bool              `json:"burstingEnabled,omitempty"`
-}
-
-// DataDisk is an extra disk: a Disk with the name, file system and mount
-// point of the first-boot unit.
-type DataDisk struct {
-	Disk       `json:",inline"`
-	Name       string `json:"name,omitempty"`
-	Filesystem string `json:"filesystem,omitempty"`
-	MountPath  string `json:"mountPath,omitempty"`
-}
-
-// Storage is the storage block.
-type Storage struct {
-	Root *Disk      `json:"root,omitempty"`
-	Data []DataDisk `json:"data,omitempty"`
-}
-
-// MetadataOptions are the instance metadata options.
-type MetadataOptions struct {
-	HTTPTokens string `json:"httpTokens,omitempty"`
-}
-
-// Settings is the merged `alicloud` block.
-type Settings struct {
-	Storage                 *Storage         `json:"storage,omitempty"`
-	InternetMaxBandwidthOut *int32           `json:"internetMaxBandwidthOut,omitempty"`
-	InternetChargeType      string           `json:"internetChargeType,omitempty"`
-	MetadataOptions         *MetadataOptions `json:"metadataOptions,omitempty"`
-	ResourceGroupID         string           `json:"resourceGroupId,omitempty"`
-	ImageOwner              string           `json:"imageOwner,omitempty"`
-}
+// The settings types are the API's (pkg/apis/v1alpha1/alicloud); the merged
+// block and the profiles reach the driver as JSON in vendors.VendorSettings.
+type (
+	// Settings is the merged `alicloud` block.
+	Settings = api.Settings
+	// Storage is the storage block.
+	Storage = api.Storage
+	// Disk is the system disk.
+	Disk = api.Disk
+	// DataDisk is an extra disk.
+	DataDisk = api.DataDisk
+)
 
 // decodeSettings decodes the merged vendor block (defaults, NodeClass block and
 // the selected storage profile) and lays the selected network profile over it.
@@ -134,23 +100,31 @@ func rootDisk(st Settings) resolvedDisk {
 }
 
 func overlayDisk(d resolvedDisk, r Disk) resolvedDisk {
-	if r.Category != "" {
-		d.Category = r.Category
-		if r.PerformanceLevel == "" && r.Category != CategoryESSD {
+	return overlay(d, string(r.Category), string(r.PerformanceLevel), r.Size, r.Encrypted, r.KMSKeyID,
+		r.ProvisionedIops, r.BurstingEnabled)
+}
+
+func overlay(
+	d resolvedDisk, category, level string, size *resource.Quantity, encrypted *bool, kms string,
+	iops *int64, bursting *bool,
+) resolvedDisk {
+	if category != "" {
+		d.Category = category
+		if level == "" && category != CategoryESSD {
 			d.Level = ""
 		}
 	}
-	if r.PerformanceLevel != "" {
-		d.Level = r.PerformanceLevel
+	if level != "" {
+		d.Level = level
 	}
-	if g := gibOf(r.Size); g > 0 {
+	if g := gibOf(size); g > 0 {
 		d.GiB = g
 	}
-	if r.Encrypted != nil {
-		d.Encrypted = *r.Encrypted
+	if encrypted != nil {
+		d.Encrypted = *encrypted
 	}
-	d.KMSKeyID = r.KMSKeyID
-	d.Iops, d.Bursting = r.ProvisionedIops, r.BurstingEnabled
+	d.KMSKeyID = kms
+	d.Iops, d.Bursting = iops, bursting
 	return d
 }
 
@@ -161,7 +135,9 @@ func dataDisks(st Settings) []resolvedDisk {
 	}
 	out := make([]resolvedDisk, 0, len(st.Storage.Data))
 	for _, dd := range st.Storage.Data {
-		d := overlayDisk(resolvedDisk{Category: CategoryESSD, Level: DefaultRootLevel}, dd.Disk)
+		size := dd.Size
+		d := overlay(resolvedDisk{Category: CategoryESSD, Level: DefaultRootLevel}, string(dd.Category),
+			string(dd.PerformanceLevel), &size, dd.Encrypted, dd.KMSKeyID, dd.ProvisionedIops, dd.BurstingEnabled)
 		d.Name = dd.Name
 		out = append(out, d)
 	}
@@ -187,7 +163,7 @@ func bandwidth(st Settings, networking *bool) (mbit int32, charge string) {
 		mbit = *st.InternetMaxBandwidthOut
 	}
 	if st.InternetChargeType != "" {
-		charge = st.InternetChargeType
+		charge = string(st.InternetChargeType)
 	}
 	if networking != nil && !*networking {
 		mbit = 0
@@ -197,7 +173,7 @@ func bandwidth(st Settings, networking *bool) (mbit int32, charge string) {
 
 func httpTokens(st Settings) string {
 	if st.MetadataOptions != nil && st.MetadataOptions.HTTPTokens != "" {
-		return st.MetadataOptions.HTTPTokens
+		return string(st.MetadataOptions.HTTPTokens)
 	}
 	return DefaultHTTPTokens
 }

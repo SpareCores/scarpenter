@@ -10,6 +10,7 @@ package fake
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,6 +83,13 @@ type ImageSpec struct {
 	Created time.Time
 	// Status defaults to Available.
 	Status string
+	// OwnerID is the account UID of the owner of an "others" image
+	// (ImageOwnerId), and Description its description.
+	OwnerID     int64
+	Description string
+	// NVMe is Features.NvmeSupport=supported; Deprecated makes the status
+	// Deprecated.
+	NVMe bool
 }
 
 type image struct {
@@ -132,9 +140,22 @@ func (e *ECS) DescribeImages(ctx context.Context, in *ecs.DescribeImagesRequest)
 	for _, t := range in.Tag {
 		filter[dara.StringValue(t.Key)] = dara.StringValue(t.Value)
 	}
-	status := statusAvailable
-	if in.Status != nil {
-		status = *in.Status
+	statuses := []string{statusAvailable}
+	if in.Status != nil && *in.Status != "" {
+		statuses = strings.Split(*in.Status, ",")
+	}
+	var createdAfter, createdBefore time.Time
+	for _, fl := range in.Filter {
+		t, err := time.Parse("2006-01-02T15:04Z", dara.StringValue(fl.Value))
+		if err != nil {
+			return nil, badRequest("InvalidParameter", "the filter value %q is not a time", dara.StringValue(fl.Value))
+		}
+		switch dara.StringValue(fl.Key) {
+		case "CreationStartTime":
+			createdAfter = t
+		case "CreationEndTime":
+			createdBefore = t
+		}
 	}
 	ids := parseIDs(in.ImageId)
 	var all []*image
@@ -143,10 +164,13 @@ func (e *ECS) DescribeImages(ctx context.Context, in *ecs.DescribeImagesRequest)
 		case !idFilter(ids, im.ID):
 		case in.ImageName != nil && !strings.Contains(im.Name, *in.ImageName):
 		case in.ImageOwnerAlias != nil && *in.ImageOwnerAlias != im.Owner:
+		case in.ImageOwnerId != nil && *in.ImageOwnerId != im.OwnerID:
 		case in.Architecture != nil && *in.Architecture != im.Arch:
 		case in.IsPublic != nil && *in.IsPublic != im.Public:
 		case !tagSet(im.Tags).matches(filter):
-		case !strings.EqualFold(status, im.status) && status != "":
+		case !slices.ContainsFunc(statuses, func(st string) bool { return strings.EqualFold(st, im.status) }):
+		case !createdAfter.IsZero() && im.Created.UTC().Truncate(time.Minute).Before(createdAfter):
+		case !createdBefore.IsZero() && im.Created.UTC().Truncate(time.Minute).After(createdBefore):
 		default:
 			all = append(all, im)
 		}
@@ -162,7 +186,17 @@ func (e *ECS) DescribeImages(ctx context.Context, in *ecs.DescribeImagesRequest)
 			ImageId: new(im.ID), ImageName: new(im.Name), ImageOwnerAlias: new(im.Owner),
 			Architecture: new(im.Arch), IsPublic: new(im.Public), Size: new(im.SizeGiB),
 			Status: new(im.status), CreationTime: new(im.Created.UTC().Format("2006-01-02T15:04:05Z")),
-			Tags: &ecs.DescribeImagesResponseBodyImagesImageTags{},
+			Tags: &ecs.DescribeImagesResponseBodyImagesImageTags{}, ImageOwnerId: new(im.OwnerID),
+			Description: new(im.Description),
+			DiskDeviceMappings: &ecs.DescribeImagesResponseBodyImagesImageDiskDeviceMappings{
+				DiskDeviceMapping: []*ecs.DescribeImagesResponseBodyImagesImageDiskDeviceMappingsDiskDeviceMapping{
+					{Type: new("system"), Size: new(strconv.Itoa(int(im.SizeGiB)))},
+				},
+			},
+			Features: &ecs.DescribeImagesResponseBodyImagesImageFeatures{NvmeSupport: new("unsupported")},
+		}
+		if im.NVMe {
+			si.Features.NvmeSupport = new("supported")
 		}
 		for _, k := range sortedKeys(im.Tags) {
 			si.Tags.Tag = append(si.Tags.Tag, &ecs.DescribeImagesResponseBodyImagesImageTagsTag{
@@ -300,10 +334,10 @@ type rule struct {
 }
 
 type groupRec struct {
-	id, name, vpc, kind string
-	tags                tagSet
-	rules               []rule
-	created             time.Time
+	id, name, vpc, kind, desc string
+	tags                      tagSet
+	rules                     []rule
+	created                   time.Time
 	// limit is how many instances the group takes (0 = unlimited).
 	limit int
 }
@@ -344,7 +378,10 @@ func (e *ECS) CreateSecurityGroup(ctx context.Context, in *ecs.CreateSecurityGro
 		kind = "normal"
 	}
 	id := f.nextID("sg")
-	r.groups[id] = &groupRec{id: id, name: dara.StringValue(in.SecurityGroupName), vpc: vpcID, kind: kind, tags: tags, created: f.clock.Now()}
+	r.groups[id] = &groupRec{
+		id: id, name: dara.StringValue(in.SecurityGroupName), vpc: vpcID, kind: kind, tags: tags, created: f.clock.Now(),
+		desc: dara.StringValue(in.Description),
+	}
 	return &ecs.CreateSecurityGroupResponseBody{RequestId: new("req"), SecurityGroupId: new(id)}, nil
 }
 
@@ -397,6 +434,7 @@ func (e *ECS) DescribeSecurityGroups(ctx context.Context, in *ecs.DescribeSecuri
 		sg := &ecs.DescribeSecurityGroupsResponseBodySecurityGroupsSecurityGroup{
 			SecurityGroupId: new(g.id), SecurityGroupName: new(g.name), VpcId: new(g.vpc),
 			SecurityGroupType: new(g.kind), EcsCount: new(int32(n)), RuleCount: new(int32(len(g.rules))),
+			Description:  new(g.desc),
 			CreationTime: new(g.created.UTC().Format("2006-01-02T15:04:05Z")),
 			Tags:         &ecs.DescribeSecurityGroupsResponseBodySecurityGroupsSecurityGroupTags{},
 		}
@@ -530,9 +568,9 @@ func (e *ECS) DeleteSecurityGroup(ctx context.Context, in *ecs.DeleteSecurityGro
 // ---- deployment sets --------------------------------------------------------------
 
 type setRec struct {
-	id, name, strategy string
-	created            time.Time
-	limit              int
+	id, name, strategy, desc string
+	created                  time.Time
+	limit                    int
 }
 
 // DefaultDeploymentSetLimit is how many instances a deployment set takes in
@@ -570,7 +608,10 @@ func (e *ECS) CreateDeploymentSet(ctx context.Context, in *ecs.CreateDeploymentS
 		}
 	}
 	id := f.nextID("ds")
-	r.sets[id] = &setRec{id: id, name: name, strategy: strategy, created: f.clock.Now(), limit: DefaultDeploymentSetLimit}
+	r.sets[id] = &setRec{
+		id: id, name: name, strategy: strategy, desc: dara.StringValue(in.Description), created: f.clock.Now(),
+		limit: DefaultDeploymentSetLimit,
+	}
 	return &ecs.CreateDeploymentSetResponseBody{RequestId: new("req"), DeploymentSetId: new(id)}, nil
 }
 
@@ -604,7 +645,8 @@ func (e *ECS) DescribeDeploymentSets(ctx context.Context, in *ecs.DescribeDeploy
 		n := r.countIn(func(i *instance) bool { return i.deploymentSet == s.id })
 		out.DeploymentSets.DeploymentSet = append(out.DeploymentSets.DeploymentSet, &ecs.DescribeDeploymentSetsResponseBodyDeploymentSetsDeploymentSet{
 			DeploymentSetId: new(s.id), DeploymentSetName: new(s.name), Strategy: new(s.strategy),
-			InstanceAmount: new(int32(n)), CreationTime: new(s.created.UTC().Format("2006-01-02T15:04:05Z")),
+			DeploymentSetDescription: new(s.desc),
+			InstanceAmount:           new(int32(n)), CreationTime: new(s.created.UTC().Format("2006-01-02T15:04:05Z")),
 		})
 	}
 	return out, nil

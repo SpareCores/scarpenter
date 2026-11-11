@@ -105,8 +105,16 @@ func toInstance(region string, in *ecs.DescribeInstancesResponseBodyInstancesIns
 		Ref: vendors.NewInstanceRef(region, deref(in.InstanceId)), Region: region, Zone: deref(in.ZoneId),
 		Type: deref(in.InstanceType), CapacityType: capacity, State: StateOf(deref(in.Status)),
 		CreatedAt: parseTime(deref(in.CreationTime)), Tags: logicalTags(in), Addresses: addressesOf(in),
+		BillingStart: billingStart(deref(in.CreationTime)),
 	}
 }
+
+// billingStart is the billing start of an instance: its CreationTime, which has
+// minute precision, so it is never later than the billed start (the safe side of
+// ADR-024: an early stamp only makes the period boundaries early). Whether it is
+// the instant the billing starts is unverified (plan 21), which keeps billing
+// retention off for Alibaba Cloud.
+func billingStart(creationTime string) time.Time { return parseTime(creationTime) }
 
 func notFound(ref string) error {
 	return vendors.NewError(vendors.NotFound, "InvalidInstanceId.NotFound", fmt.Errorf("instance %s not found", ref))
@@ -220,8 +228,7 @@ func (c *Cloud) ListInstances(
 // and when nothing is found the launch is repeated once with a salted token (a
 // failed create leaves the key unused).
 //
-// TODO(plan 14): the Driver's CreateInstance wraps this with the image and
-// resource resolution (Prepare) and the settings merge.
+// The Driver's CreateInstance wraps this with the resources Prepare resolved.
 func (c *Cloud) CreateInstance(
 	ctx context.Context, req vendors.CreateRequest, lr LaunchResources,
 ) (*vendors.Instance, error) {
@@ -295,9 +302,9 @@ func (c *Cloud) launched(
 // is InsufficientCapacity (code InstanceVanished); one that is gone later is a
 // plain NotFound. It returns nil when the instance exists.
 //
-// TODO(plan 14): the Driver's GetInstance calls this for instances younger than
-// the launch timeout; how fast ECS releases the instance and whether
-// DescribeInstances shows it first is unverified (step 0).
+// The Driver's GetInstance calls this for instances it launched; how fast ECS
+// releases the instance and whether DescribeInstances shows it first is
+// unverified (plan 21 step 0).
 func (c *Cloud) CheckLaunched(
 	ctx context.Context, ref vendors.InstanceRef, createdAt time.Time, launchTimeout time.Duration,
 ) error {
@@ -342,4 +349,33 @@ func (c *Cloud) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) err
 		return err
 	}
 	return nil
+}
+
+// describeFirst says whether the region has an instance matching the filters
+// (any state ECS still lists). A filtered DescribeInstances can return a short or
+// empty page with a NextToken: it follows the token until an instance is found or
+// the token ends.
+func (c *Cloud) describeFirst(ctx context.Context, region string, in *ecs.DescribeInstancesRequest) (bool, error) {
+	cl, err := c.Clients(ctx, region)
+	if err != nil {
+		return false, err
+	}
+	in.RegionId = new(region)
+	in.MaxResults = dara.Int32(10)
+	for {
+		page, err := call(ctx, c, callTimeout, errContext{},
+			func(ctx context.Context) (*ecs.DescribeInstancesResponseBody, error) {
+				return cl.ECS.DescribeInstances(ctx, in)
+			})
+		if err != nil {
+			return false, err
+		}
+		if page.Instances != nil && len(page.Instances.Instance) > 0 {
+			return true, nil
+		}
+		if deref(page.NextToken) == "" {
+			return false, nil
+		}
+		in.NextToken = page.NextToken
+	}
 }

@@ -1,0 +1,20 @@
+# The smallest Alibaba Cloud NodeClass: no vendor resources are named, so SCarpenter resolves
+# them itself in each region (ADR-022): vSwitches and groups you tagged
+# scarpenter.sparecores.com/use=true, the account's default VPC and its default vSwitches,
+# then a network and security group it creates and owns. The Flatcar images are yours (rung 3):
+# one image per region and architecture named Flatcar-<channel>-<version>-<arch> in your account
+# (docs/reference/alicloud-driver.md#images).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: alicloud-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    alicloud:
+      regions: [ap-southeast-1, eu-central-1]

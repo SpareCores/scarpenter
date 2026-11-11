@@ -30,6 +30,8 @@ type ClientOptions struct {
 	// the China site uses the same pattern is unverified, plan 21 section 3).
 	ECSEndpoint func(region string) string
 	VPCEndpoint func(region string) string
+	// Protocol is "HTTPS" (the default) or "HTTP", for a test server.
+	Protocol string
 }
 
 // DefaultEndpoint is the endpoint pattern of an Alibaba Cloud service in a
@@ -62,6 +64,9 @@ func NewClientFactory(o ClientOptions) ClientFactory {
 			}
 			cfg := &openapimodels.Config{}
 			cfg.SetCredential(cred).SetRegionId(region).SetEndpoint(endpoint)
+			if o.Protocol != "" {
+				cfg.SetProtocol(o.Protocol)
+			}
 			if o.UserAgent != "" {
 				cfg.SetUserAgent(o.UserAgent)
 			}

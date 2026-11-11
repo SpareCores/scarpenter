@@ -1,0 +1,45 @@
+# An Alibaba Cloud NodeClass whose images and network were created by the operator's own tooling
+# (any tool: the contract is the NodeClass, see docs/reference/infrastructure-handoff.md). The
+# images are named by ID per region, the vSwitches by a name pattern ({zone} is the zone name) and
+# the group by tag. A deployment-set profile and a data-disk profile show the profiles of the vendor.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: alicloud-bring-your-own
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  profiles:
+    storage:
+      db:
+        alicloud:
+          data:
+            - {name: pgdata, category: cloud_essd, performanceLevel: PL1, size: 100Gi, filesystem: xfs, mountPath: /var/lib/pgdata}
+    placement:
+      colocated:
+        alicloud:
+          deploymentSet: {strategy: LowLatency}
+  vendors:
+    alicloud:
+      regions: [ap-southeast-1]
+      storage:
+        root: {category: cloud_essd, performanceLevel: PL0, size: 64Gi}
+      internetMaxBandwidthOut: 100
+      resources:
+        images:
+          use:
+            ids:
+              ap-southeast-1: [m-example0amd64, m-example0arm64]
+        subnets:
+          use:
+            name: "nodes-{zone}"
+            match: {network: [vpc-example0000]}
+            select: all
+        securityGroups:
+          use:
+            tags: {team: platform}
+            select: exactlyOne

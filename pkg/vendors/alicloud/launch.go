@@ -39,10 +39,8 @@ type LaunchResources struct {
 }
 
 // resourcesOf extracts the vSwitch, the security groups and the deployment set
-// from the prepared resources.
-//
-// TODO(plan 14): the resource engine (Require/Prepare) fills Prepared once the
-// driver implements ManagedResources; the zone of a vSwitch is checked there.
+// from the prepared resources (Prepare resolved them and checked the zone of the
+// vSwitch).
 func resourcesOf(p *vendors.Prepared) LaunchResources {
 	var lr LaunchResources
 	if p == nil {
