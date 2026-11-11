@@ -487,10 +487,12 @@ StorageProfile is a named storage setup, in the vendor's own terms, for each ven
 
 Storage is the Alibaba Cloud storage block: the system disk and the extra data disks created with the instance. It is the vendor block's storage (layer 2) and the alicloud block of a storage profile (layer 3).
 
+Validation: localStorage policy must be ignore: local disks are not supported on Alibaba Cloud yet (`!has(self.localStorage) \|\| self.localStorage.policy == 'ignore'`).
+
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `data` | array of [object](#specprofilesstoragealiclouddata) |  | data lists extra disks created with the instance (all deleted with it). At most 16 items. |
-| `localStorage` | [object](#specprofilesstoragealicloudlocalstorage) |  | localStorage is accepted so that a profile written for a vendor with local disks is not pruned silently, and is not supported on Alibaba Cloud yet: a policy other than ignore makes the profile supported by no instance type, and the NodeClass validation refuses it. |
+| `localStorage` | [object](#specprofilesstoragealicloudlocalstorage) |  | localStorage is accepted so that a profile written for a vendor with local disks is not pruned silently, but local disks are not supported on Alibaba Cloud yet (the i and d families are deferred): only the policy ignore is accepted, any other is refused when the object is applied. |
 | `root` | [object](#specprofilesstoragealicloudroot) |  | root configures the system disk. |
 
 ### `spec.profiles.storage.*.alicloud.data[]`
@@ -518,7 +520,7 @@ Validation: kmsKeyID needs encrypted (`!has(self.kmsKeyID) \|\| !has(self.encryp
 
 ### `spec.profiles.storage.*.alicloud.localStorage`
 
-localStorage is accepted so that a profile written for a vendor with local disks is not pruned silently, and is not supported on Alibaba Cloud yet: a policy other than ignore makes the profile supported by no instance type, and the NodeClass validation refuses it.
+localStorage is accepted so that a profile written for a vendor with local disks is not pruned silently, but local disks are not supported on Alibaba Cloud yet (the i and d families are deferred): only the policy ignore is accepted, any other is refused when the object is applied.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -1065,7 +1067,7 @@ metadataOptions configures the instance metadata service. Built-in default: http
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `httpTokens` | string |  | httpTokens: required allows the hardened mode (IMDSv2) only, which Ignition's aliyun provider cannot read at boot: nodes do not boot with it. Built-in default optional. One of `optional`, `required`. |
+| `httpTokens` | string |  | httpTokens is the token requirement of the metadata service. Only optional is accepted: required (the hardened mode, IMDSv2 only) makes ECS answer 403 to Ignition's aliyun provider, which reads the user data without a token, so the nodes would not boot. Built-in default optional. One of `optional`. |
 
 ### `spec.vendors.alicloud.networking`
 
@@ -1488,10 +1490,12 @@ Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner
 
 storage overrides the built-in storage defaults (a cloud_essd PL0 system disk of 64 GiB, not encrypted; no data disks).
 
+Validation: localStorage policy must be ignore: local disks are not supported on Alibaba Cloud yet (`!has(self.localStorage) \|\| self.localStorage.policy == 'ignore'`).
+
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `data` | array of [object](#specvendorsalicloudstoragedata) |  | data lists extra disks created with the instance (all deleted with it). At most 16 items. |
-| `localStorage` | [object](#specvendorsalicloudstoragelocalstorage) |  | localStorage is accepted so that a profile written for a vendor with local disks is not pruned silently, and is not supported on Alibaba Cloud yet: a policy other than ignore makes the profile supported by no instance type, and the NodeClass validation refuses it. |
+| `localStorage` | [object](#specvendorsalicloudstoragelocalstorage) |  | localStorage is accepted so that a profile written for a vendor with local disks is not pruned silently, but local disks are not supported on Alibaba Cloud yet (the i and d families are deferred): only the policy ignore is accepted, any other is refused when the object is applied. |
 | `root` | [object](#specvendorsalicloudstorageroot) |  | root configures the system disk. |
 
 ### `spec.vendors.alicloud.storage.data[]`
@@ -1519,7 +1523,7 @@ Validation: kmsKeyID needs encrypted (`!has(self.kmsKeyID) \|\| !has(self.encryp
 
 ### `spec.vendors.alicloud.storage.localStorage`
 
-localStorage is accepted so that a profile written for a vendor with local disks is not pruned silently, and is not supported on Alibaba Cloud yet: a policy other than ignore makes the profile supported by no instance type, and the NodeClass validation refuses it.
+localStorage is accepted so that a profile written for a vendor with local disks is not pruned silently, but local disks are not supported on Alibaba Cloud yet (the i and d families are deferred): only the policy ignore is accepted, any other is refused when the object is applied.
 
 | Field | Type | Default | Description |
 |---|---|---|---|

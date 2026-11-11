@@ -114,10 +114,6 @@ func validateStorage(path string, st *api.Storage) []error {
 		names[dd.Name] = true
 		errs = append(errs, validateDisk(p, dd, false)...)
 	}
-	if ls := st.LocalStorage; ls != nil && ls.Policy != common.LocalStorageIgnore {
-		errs = append(errs, fmt.Errorf("%s.localStorage: policy %s is not supported on Alibaba Cloud yet: the types with "+
-			"local disks (the i and d families) are deferred", path, ls.Policy))
-	}
 	return errs
 }
 
@@ -279,11 +275,6 @@ func validateBlock(b *api.Settings) []error {
 		if !regionPattern.MatchString(r) {
 			errs = append(errs, fmt.Errorf("vendors.alicloud.regions: %q is not an Alibaba Cloud region ID", r))
 		}
-	}
-	if m := b.MetadataOptions; m != nil && m.HTTPTokens == "required" {
-		errs = append(errs, errors.New("vendors.alicloud.metadataOptions.httpTokens: required is refused: ECS's hardened "+
-			"mode stops Ignition's aliyun provider from reading the user data (403), so the nodes would not boot; "+
-			"keep optional and enable the metadata-from-pods hardening (spec.bootstrap.hardening)"))
 	}
 	if v := b.InternetMaxBandwidthOut; v != nil && (*v < 0 || *v > maxInternetBandwidth) {
 		errs = append(errs, fmt.Errorf("vendors.alicloud.internetMaxBandwidthOut is 0 to %d Mbit/s, not %d",

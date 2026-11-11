@@ -125,7 +125,7 @@ The `alicloud` block of `spec.vendors` and of the storage, network and placement
 | `storage.root` | system disk: `category` (`cloud_essd`, `cloud_auto`, `cloud_essd_entry`, `cloud_efficiency`, `cloud_ssd`), `size`, `performanceLevel` (ESSD, PL0 to PL3), `provisionedIops` and `burstingEnabled` (`cloud_auto`), `encrypted`, `kmsKeyID` |
 | `storage.data[]` | extra disks created with the instance (all deleted with it), plus `name`, `filesystem`, `mountPath` for the first-boot unit; at most 16 |
 | `internetMaxBandwidthOut`, `internetChargeType` | the public IPv4 is a bandwidth: 0 means none, the same as `networking.publicIPv4: false`; 100 Mbit/s is the ceiling of pay-by-traffic |
-| `metadataOptions.httpTokens` | `optional` only: `required` is refused |
+| `metadataOptions.httpTokens` | `optional` only: the CRD refuses `required` when the object is applied |
 | `resourceGroupId` | the enterprise resource group of created resources |
 | placement profile | `deploymentSet: {strategy: LowLatency \| Availability}` creates a set per run key, or `{use: {name}}` joins an existing one |
 
@@ -138,8 +138,7 @@ Decisions that differ from AWS (each an open question of the plan, decided by de
 - **Bandwidth 100 Mbit/s pay by traffic**: sc-runner's 5 Mbit/s caps benchmarks.
 - **`Supported`** drops a storage profile for a type when `cloud_essd_entry` is asked for a family other than
   `ecs.u1` and `ecs.e`, when the disks exceed the type's `DiskQuantity` (the system disk counts: the conservative
-  reading, *unverified*), when an encrypted system disk meets a zone that refuses it, and for every
-  `localStorage` policy other than `ignore` (types with local disks are deferred). Which disk categories each zone
+  reading, *unverified*), when an encrypted system disk meets a zone that refuses it (`localStorage` policies other than `ignore` never get that far: the CRD refuses them). Which disk categories each zone
   sells, and which deployment strategies each family takes, are *unverified* and left to the launch errors
   (`CategoryNotSupported`, `InvalidDiskCategory.NotSupported` are `Unsupported`, 24 h).
 - **`PriceDelta`** is the disks at Keeper's GB-month price divided by 730, per region and category (and level for
@@ -186,7 +185,7 @@ Details that matter:
 
 Ignition's `aliyun` provider reads the user data from `100.100.100.200` with a plain GET. ECS's hardened mode
 (`HttpTokens=required`) stops that with a 403, so `HttpTokens` stays `optional` at boot and the image's
-`ImdsSupport` stays `v1`; `required` is refused by the validation. AWS's hop limit of 1 has no equivalent
+`ImdsSupport` stays `v1`; `required` is refused by the CRD at apply time. AWS's hop limit of 1 has no equivalent
 (`HttpPutResponseHopLimit` is documented as unavailable on the RunInstances page: *unverified*). A Pod without host
 networking could therefore read the user data (the one-hour bootstrap token, the Tailscale key with the `tailscale`
 template) and the metadata (no RAM role is attached, so no credentials).
@@ -358,8 +357,9 @@ Found on the SDK and its types, recorded here for the plan:
 - `BillingRule` carries no minimum: the interface is per region and family and the minimum depends on the vCPU count.
 - A deployment set is marked by its description (it takes no tags); `DescribeInstances` has no `DeploymentSetId` filter, so `InUse`
   of a set reads the set's instance count.
-- The storage block has a `localStorage` field that no type supports, so that a profile written for another vendor is refused
-  instead of pruned silently.
+- The storage block has a `localStorage` field that no type supports (the i and d families are deferred), so that a profile
+  written for another vendor is not pruned silently: the CRD accepts the field with the policy `ignore` only and refuses the
+  others when the object is applied.
 
 
 ## Testing

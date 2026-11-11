@@ -148,7 +148,6 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 				"auto":  json.RawMessage(`{"root":{"category":"cloud_auto","size":"100Gi","provisionedIops":3000}}`),
 				"entry": json.RawMessage(`{"root":{"category":"cloud_essd_entry","size":"40Gi"}}`),
 				"enc":   json.RawMessage(`{"root":{"encrypted":true}}`),
-				"local": json.RawMessage(`{"localStorage":{"policy":"mount","mountPath":"/mnt/local"}}`),
 			},
 			vendors.ProfilePlacement: {
 				"colocated": json.RawMessage(`{"deploymentSet":{"strategy":"LowLatency"}}`),

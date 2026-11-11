@@ -32,10 +32,8 @@ func TestValidateNodeClass(t *testing.T) {
 		nc   *v1alpha1.SCNodeClass
 		want string // "" valid
 	}{
-		"empty block": {ncWith(&api.Settings{}), ""},
-		"bad region":  {ncWith(&api.Settings{Regions: []string{"Mars"}}), "not an Alibaba Cloud region"},
-		"tokens required": {ncWith(&api.Settings{MetadataOptions: &api.MetadataOptions{HTTPTokens: "required"}}),
-			"hardened mode"},
+		"empty block":     {ncWith(&api.Settings{}), ""},
+		"bad region":      {ncWith(&api.Settings{Regions: []string{"Mars"}}), "not an Alibaba Cloud region"},
 		"tokens optional": {ncWith(&api.Settings{MetadataOptions: &api.MetadataOptions{HTTPTokens: "optional"}}), ""},
 		"bandwidth":       {ncWith(&api.Settings{InternetMaxBandwidthOut: new(int32(500))}), "0 to 100"},
 		"small root":      {ncWith(&api.Settings{Storage: &api.Storage{Root: &api.Disk{Size: q("10Gi")}}}), "20 to 2048"},
@@ -54,8 +52,6 @@ func TestValidateNodeClass(t *testing.T) {
 		"duplicate names": {ncWith(&api.Settings{Storage: &api.Storage{Data: []api.DataDisk{
 			{GuestVolume: common.GuestVolume{Name: "a", MountPath: "/a"}, Size: *q("20Gi")},
 			{GuestVolume: common.GuestVolume{Name: "a", MountPath: "/b"}, Size: *q("20Gi")}}}}), "used twice"},
-		"local storage": {ncWith(&api.Settings{Storage: &api.Storage{LocalStorage: &common.LocalStorage{Policy: "mount", MountPath: "/m"}}}),
-			"not supported on Alibaba Cloud yet"},
 		"ipv6 inbound": {ncWith(&api.Settings{Networking: &common.NetworkingOverride{Inbound: &common.Inbound{Rules: []common.InboundRule{
 			{Protocol: "tcp", CIDRs: []string{"2001:db8::/32", "bogus"}}}}}}), "IPv6"},
 		"images ids": {ncWith(&api.Settings{Resources: &api.Resources{Images: use(common.ResourceUse{

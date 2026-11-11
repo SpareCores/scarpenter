@@ -130,6 +130,7 @@ type PerformanceLevel string
 // Storage is the Alibaba Cloud storage block: the system disk and the extra data
 // disks created with the instance. It is the vendor block's storage (layer 2)
 // and the alicloud block of a storage profile (layer 3).
+// +kubebuilder:validation:XValidation:rule="!has(self.localStorage) || self.localStorage.policy == 'ignore'",message="localStorage policy must be ignore: local disks are not supported on Alibaba Cloud yet"
 type Storage struct {
 	// root configures the system disk.
 	// +optional
@@ -143,9 +144,9 @@ type Storage struct {
 	Data []DataDisk `json:"data,omitempty"`
 
 	// localStorage is accepted so that a profile written for a vendor with
-	// local disks is not pruned silently, and is not supported on Alibaba Cloud
-	// yet: a policy other than ignore makes the profile supported by no
-	// instance type, and the NodeClass validation refuses it.
+	// local disks is not pruned silently, but local disks are not supported on
+	// Alibaba Cloud yet (the i and d families are deferred): only the policy
+	// ignore is accepted, any other is refused when the object is applied.
 	// +optional
 	LocalStorage *common.LocalStorage `json:"localStorage,omitempty"`
 }
@@ -230,15 +231,17 @@ type DataDisk struct {
 	KMSKeyID string `json:"kmsKeyID,omitempty"`
 }
 
-// HTTPTokens is the IMDS token requirement.
-// +kubebuilder:validation:Enum=optional;required
+// HTTPTokens is the IMDS token requirement. Only optional is accepted: see
+// MetadataOptions.
+// +kubebuilder:validation:Enum=optional
 type HTTPTokens string
 
 // MetadataOptions configures the ECS instance metadata service.
 type MetadataOptions struct {
-	// httpTokens: required allows the hardened mode (IMDSv2) only, which
-	// Ignition's aliyun provider cannot read at boot: nodes do not boot with it.
-	// Built-in default optional.
+	// httpTokens is the token requirement of the metadata service. Only
+	// optional is accepted: required (the hardened mode, IMDSv2 only) makes ECS
+	// answer 403 to Ignition's aliyun provider, which reads the user data
+	// without a token, so the nodes would not boot. Built-in default optional.
 	// +optional
 	HTTPTokens HTTPTokens `json:"httpTokens,omitempty"`
 }

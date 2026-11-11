@@ -967,9 +967,9 @@ spec:
                             localStorage:
                               description: |-
                                 localStorage is accepted so that a profile written for a vendor with
-                                local disks is not pruned silently, and is not supported on Alibaba Cloud
-                                yet: a policy other than ignore makes the profile supported by no
-                                instance type, and the NodeClass validation refuses it.
+                                local disks is not pruned silently, but local disks are not supported on
+                                Alibaba Cloud yet (the i and d families are deferred): only the policy
+                                ignore is accepted, any other is refused when the object is applied.
                               properties:
                                 mountPath:
                                   description: mountPath is the absolute path the
@@ -1054,6 +1054,11 @@ spec:
                                 rule: '!has(self.kmsKeyID) || !has(self.encrypted)
                                   || self.encrypted'
                           type: object
+                          x-kubernetes-validations:
+                          - message: 'localStorage policy must be ignore: local disks
+                              are not supported on Alibaba Cloud yet'
+                            rule: '!has(self.localStorage) || self.localStorage.policy
+                              == ''ignore'''
                         aws:
                           description: |-
                             Storage is the AWS storage block: the settings of the root volume, the extra
@@ -2222,12 +2227,12 @@ spec:
                         properties:
                           httpTokens:
                             description: |-
-                              httpTokens: required allows the hardened mode (IMDSv2) only, which
-                              Ignition's aliyun provider cannot read at boot: nodes do not boot with it.
-                              Built-in default optional.
+                              httpTokens is the token requirement of the metadata service. Only
+                              optional is accepted: required (the hardened mode, IMDSv2 only) makes ECS
+                              answer 403 to Ignition's aliyun provider, which reads the user data
+                              without a token, so the nodes would not boot. Built-in default optional.
                             enum:
                             - optional
-                            - required
                             type: string
                         type: object
                       networking:
@@ -3630,9 +3635,9 @@ spec:
                           localStorage:
                             description: |-
                               localStorage is accepted so that a profile written for a vendor with
-                              local disks is not pruned silently, and is not supported on Alibaba Cloud
-                              yet: a policy other than ignore makes the profile supported by no
-                              instance type, and the NodeClass validation refuses it.
+                              local disks is not pruned silently, but local disks are not supported on
+                              Alibaba Cloud yet (the i and d families are deferred): only the policy
+                              ignore is accepted, any other is refused when the object is applied.
                             properties:
                               mountPath:
                                 description: mountPath is the absolute path the local
@@ -3717,6 +3722,11 @@ spec:
                               rule: '!has(self.kmsKeyID) || !has(self.encrypted) ||
                                 self.encrypted'
                         type: object
+                        x-kubernetes-validations:
+                        - message: 'localStorage policy must be ignore: local disks
+                            are not supported on Alibaba Cloud yet'
+                          rule: '!has(self.localStorage) || self.localStorage.policy
+                            == ''ignore'''
                     type: object
                   aws:
                     description: aws configures AWS nodes.

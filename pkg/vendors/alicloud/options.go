@@ -147,9 +147,6 @@ func supportsStorage(block json.RawMessage, instanceType, zone string, ti TypeIn
 	if err != nil {
 		return false
 	}
-	if ls := st.LocalStorage; ls != nil && ls.Policy != common.LocalStorageIgnore {
-		return false
-	}
 	disks := make([]resolvedDisk, 0, 1+len(st.Data))
 	if st.Root != nil {
 		root := rootDisk(Settings{Storage: &st})

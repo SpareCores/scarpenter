@@ -962,7 +962,7 @@
                       },
                       "localStorage": {
                         "additionalProperties": false,
-                        "description": "localStorage is accepted so that a profile written for a vendor with\nlocal disks is not pruned silently, and is not supported on Alibaba Cloud\nyet: a policy other than ignore makes the profile supported by no\ninstance type, and the NodeClass validation refuses it.",
+                        "description": "localStorage is accepted so that a profile written for a vendor with\nlocal disks is not pruned silently, but local disks are not supported on\nAlibaba Cloud yet (the i and d families are deferred): only the policy\nignore is accepted, any other is refused when the object is applied.",
                         "properties": {
                           "mountPath": {
                             "description": "mountPath is the absolute path the local storage is mounted at.",
@@ -2286,10 +2286,9 @@
                   "description": "metadataOptions configures the instance metadata service. Built-in\ndefault: httpTokens optional, because Ignition's aliyun provider reads\nthe user data without a token (see the reference for the consequence and\nthe hardening that closes it).",
                   "properties": {
                     "httpTokens": {
-                      "description": "httpTokens: required allows the hardened mode (IMDSv2) only, which\nIgnition's aliyun provider cannot read at boot: nodes do not boot with it.\nBuilt-in default optional.",
+                      "description": "httpTokens is the token requirement of the metadata service. Only\noptional is accepted: required (the hardened mode, IMDSv2 only) makes ECS\nanswer 403 to Ignition's aliyun provider, which reads the user data\nwithout a token, so the nodes would not boot. Built-in default optional.",
                       "enum": [
-                        "optional",
-                        "required"
+                        "optional"
                       ],
                       "type": "string"
                     }
@@ -3530,7 +3529,7 @@
                     },
                     "localStorage": {
                       "additionalProperties": false,
-                      "description": "localStorage is accepted so that a profile written for a vendor with\nlocal disks is not pruned silently, and is not supported on Alibaba Cloud\nyet: a policy other than ignore makes the profile supported by no\ninstance type, and the NodeClass validation refuses it.",
+                      "description": "localStorage is accepted so that a profile written for a vendor with\nlocal disks is not pruned silently, but local disks are not supported on\nAlibaba Cloud yet (the i and d families are deferred): only the policy\nignore is accepted, any other is refused when the object is applied.",
                       "properties": {
                         "mountPath": {
                           "description": "mountPath is the absolute path the local storage is mounted at.",

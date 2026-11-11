@@ -154,8 +154,9 @@ func TestSamplesAreAccepted(t *testing.T) {
 
 func TestValidSpecsAreAccepted(t *testing.T) {
 	tests := map[string]string{
-		"minimal":                           ``,
-		"every vendor":                      `vendors: {aws: {}, fake: {}, qemu: {}}`,
+		"minimal":      ``,
+		"every vendor": `vendors: {aws: {}, fake: {}, qemu: {}}`,
+		"alicloud optional tokens and ignored local storage": `vendors: {alicloud: {metadataOptions: {httpTokens: optional}, storage: {localStorage: {policy: ignore}}}}`,
 		"template tailscale":                `network: {template: tailscale, tailscale: {version: v1.98.10, authKeySecretRef: {name: nm, namespace: ns, key: k}}}`,
 		"template custom":                   `network: {template: custom, custom: {configMapRef: {name: nm, namespace: ns, key: k}}}`,
 		"headscale login server":            `network: {template: tailscale, tailscale: {version: v1.98.10, loginServer: "https://hs.example.com", authKeySecretRef: {name: nm, namespace: ns, key: k}}}`,
@@ -475,6 +476,10 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		{"aws data unknown filesystem", `vendors: {aws: {storage: {data: [{name: d, volumeType: gp3, volumeSize: 10Gi, mountPath: /d, filesystem: ntfs}]}}}`, "Unsupported value"},
 		{"aws data duplicate names", `vendors: {aws: {storage: {data: [{name: d, volumeType: gp3, volumeSize: 10Gi, mountPath: /d}, {name: d, volumeType: gp3, volumeSize: 10Gi, mountPath: /e}]}}}`, "Duplicate value"},
 		{"aws data name not a slug", `vendors: {aws: {storage: {data: [{name: Data_1, volumeType: gp3, volumeSize: 10Gi, mountPath: /d}]}}}`, "should match"},
+		// alicloud
+		{"alicloud metadata tokens required", `vendors: {alicloud: {metadataOptions: {httpTokens: required}}}`, "Unsupported value"},
+		{"alicloud local storage mount", `vendors: {alicloud: {storage: {localStorage: {policy: mount, mountPath: /m}}}}`, "localStorage policy must be ignore"},
+		{"alicloud local storage raid0 in a profile", `profiles: {storage: {s: {alicloud: {localStorage: {policy: raid0}}}}}`, "localStorage policy must be ignore"},
 		{"aws local storage unknown policy", `vendors: {aws: {storage: {localStorage: {policy: raid5}}}}`, "Unsupported value"},
 		{"aws profile iops on gp2", `profiles: {storage: {s: {aws: {root: {volumeType: gp2, iops: 3000}}}}}`, "iops is only valid for gp3, io1 and io2"},
 		{"placement group with strategy and use", `profiles: {placement: {p: {aws: {placementGroup: {strategy: cluster, use: {name: pg}}}}}}`, "set exactly one of strategy and use"},

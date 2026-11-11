@@ -586,12 +586,11 @@ func TestSupportedProfiles(t *testing.T) {
 	e := newDenv(t, denvOptions{})
 	e.warm(testRegion)
 	p := vendors.Profiles{vendors.ProfileStorage: {
-		"data2":   json.RawMessage(`{"data":[{"name":"a","size":"10Gi","mountPath":"/a"},{"name":"b","size":"10Gi","mountPath":"/b"}]}`),
-		"entry":   json.RawMessage(`{"root":{"category":"cloud_essd_entry","size":"20Gi"}}`),
-		"enc":     json.RawMessage(`{"root":{"encrypted":true}}`),
-		"bad":     json.RawMessage(`{"root":3}`),
-		"ignore":  json.RawMessage(`{"localStorage":{"policy":"ignore"}}`),
-		"mounted": json.RawMessage(`{"localStorage":{"policy":"mount","mountPath":"/m"}}`),
+		"data2":  json.RawMessage(`{"data":[{"name":"a","size":"10Gi","mountPath":"/a"},{"name":"b","size":"10Gi","mountPath":"/b"}]}`),
+		"entry":  json.RawMessage(`{"root":{"category":"cloud_essd_entry","size":"20Gi"}}`),
+		"enc":    json.RawMessage(`{"root":{"encrypted":true}}`),
+		"bad":    json.RawMessage(`{"root":3}`),
+		"ignore": json.RawMessage(`{"localStorage":{"policy":"ignore"}}`),
 	}, vendors.ProfileNetwork: {"bad": json.RawMessage(`[]`), "ok": json.RawMessage(`{}`)},
 		vendors.ProfilePlacement: {"bad": json.RawMessage(`[]`), "ok": json.RawMessage(`{}`)}}
 	// ecs.e-c1m2.large takes 5 disks in the fake: 1 system + 2 data fit.
