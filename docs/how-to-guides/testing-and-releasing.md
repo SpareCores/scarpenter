@@ -16,6 +16,7 @@ around them.
 - [Per-vendor cost guards](#per-vendor-cost-guards)
 - [Adding a vendor lane](#adding-a-vendor-lane)
 - [What the CI account's infrastructure provides](#what-the-ci-accounts-infrastructure-provides)
+- [Alibaba Cloud provisioning](#alibaba-cloud-provisioning)
 
 ## Policy
 
@@ -200,6 +201,21 @@ the real code and prints a table, with the same pins as the lane (the vendor's
 The Keeper catalog (prices, benchmark scores) is a public service the lanes do not depend
 on for launching, and is not part of the canary.
 
+**Alibaba Cloud.** The same shape with the vendor's calls (`test/canary/alicloud.go`): the
+region and its zones (`DescribeRegions`, `DescribeZones`), the Flatcar images by owner (the
+account itself) and name for both architectures (`Driver.ResolveImage`: `DescribeImages`), every
+type of the lane offered with stock in a zone and mapped to both quota buckets
+(`Driver.LaunchableTypes`: `DescribeAvailableResource`, `DescribeInstanceTypes`; `Driver.Consumption`),
+and the vCPU limits and usage of pay-as-you-go and spot (`Driver.Quotas`: `DescribeAccountAttributes`,
+`DescribeInstances`) against `E2E_MIN_VCPU_OD` and `E2E_MIN_VCPU_SPOT`. The guard is
+`test/canary/alicloud_guard.go` (it refuses every write method of the driver's ECS and VPC
+interfaces; `guard_test.go` proves it by reflection) and the role's policy
+(`test/e2e-alicloud/canary-policy.sh`) is the seven `ecs:Describe*` actions the canary calls, which
+`canary_test.go` compares with the run. RAM cannot limit those reads to a region (unverified:
+the Describe actions take `*` only), so the lane's region is a parameter of the canary, not a limit of
+the role. The credentials are the job's OIDC token written to a file (`oidc-token.sh`), which
+the SDK's credentials library exchanges for the read-only RAM role.
+
 **It cannot write.** Two walls: the role's policy allows only `Describe*`, `Get*` and
 `List*` actions of EC2 and Service Quotas, in the lane's region, with no resource scoping to
 loosen (`test/e2e-aws/canary-policy.sh <account> <region>` prints it; its
@@ -303,21 +319,22 @@ cannot publish, and it must stay free.
 ## Per-vendor cost guards
 
 A vendor lane is not added to `test/e2e-vendors.txt` before every item is true for it
-(the AWS lane's are in the second column):
+(the AWS lane's are in the second column, the Alibaba Cloud lane's in the third; that
+lane has not run yet, so its column says what the files do, not what a run showed):
 
-| Guard | AWS lane |
-|---|---|
-| A budget alert on the account that hosts the lane, to a person | account-level, in the CI account's infrastructure |
-| The CI role denies instance types the lane does not use | `DenyOtherInstanceTypes` in `test/e2e-aws/ci-policy.sh` (from `defaults.sh`) |
-| The CI role cannot act outside the lane's region | `DenyOutsideRegion` |
-| Every resource carries a run tag, so cost and leftovers are attributable | `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` |
-| A sweeper that deletes what a dead run left behind, by tag and age | `e2e-aws-sweeper.yml`, every three hours, environment `e2e-sweeper` |
-| A run time limit | 90 minutes for the job (60 for a smoke), 55 (25) for the scenarios step; the teardown always runs |
-| Small, cheap types; spot where the vendor has it | `t3a.small`, `t4g.small` (spot), `r6a.large` for the placement-group scenario |
-| A teardown that fails the job when anything tagged remains | `teardown.sh` |
-| A quota that bounds the damage of a bug | the vCPU quotas of the account (16 on-demand, 4 spot needed) are the ceiling |
-| A read-only role for the canary | `canary-policy.sh`, a role of its own, environment `e2e-canary` |
-| Approval for every run of pull request or release code that reaches the account | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) |
+| Guard | AWS lane | Alibaba Cloud lane |
+|---|---|---|
+| A budget alert on the account that hosts the lane, to a person | account-level, in the CI account's infrastructure | account-level, in the CI account's infrastructure |
+| The CI role denies instance types the lane does not use | `DenyOtherInstanceTypes` in `test/e2e-aws/ci-policy.sh` (from `defaults.sh`) | `Deny` of `ecs:RunInstances` outside the types of `defaults.sh` in `test/e2e-alicloud/ci-policy.sh` (the RAM condition key is unverified) |
+| The CI role cannot act outside the lane's region | `DenyOutsideRegion` | every write `Allow` names the region in its ARNs (no explicit region deny) |
+| Every resource carries a run tag, so cost and leftovers are attributable | `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` | the same tag and `ci-created-at`; a deployment set takes no tags, so its description carries the cluster |
+| A sweeper that deletes what a dead run left behind, by tag and age | `e2e-aws-sweeper.yml`, every three hours, environment `e2e-sweeper` | `e2e-alicloud-sweeper.yml`, every three hours, environment `e2e-sweeper` |
+| A run time limit | 90 minutes for the job (60 for a smoke), 55 (25) for the scenarios step; the teardown always runs | the same limits |
+| Small, cheap types; spot where the vendor has it | `t3a.small`, `t4g.small` (spot), `r6a.large` for the placement-group scenario | `ecs.e-c1m2.large`, `ecs.c8y.large` (spot), `ecs.g7.large` for the deployment-set scenario |
+| A teardown that fails the job when anything tagged remains | `teardown.sh` | `teardown.sh` (instances, disks, network interfaces, groups, deployment sets, vSwitches, VPCs) |
+| A quota that bounds the damage of a bug | the vCPU quotas of the account (16 on-demand, 4 spot needed) are the ceiling | the vCPU quotas of the account (16 pay-as-you-go, 4 spot needed) are the ceiling |
+| A read-only role for the canary | `canary-policy.sh`, a role of its own, environment `e2e-canary` | `canary-policy.sh`, a role of its own, environment `e2e-canary` |
+| Approval for every run of pull request or release code that reaches the account | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) | the environment `e2e`'s required reviewers, the same |
 
 **The Hetzner lane's guards** (plan 15), against the table above. The lane is **not yet a line
 of `test/e2e-vendors.txt`**: a token cannot deny types, so the project's server limit and usage alert
@@ -459,3 +476,54 @@ open question 7) are met by the account's own limits, which the operator sets fi
 - **Before the first run**: the maintainer runs the spikes of plan 20, section 11 (S1 the image
   import, S4 the error texts, S5 the minimal ACLs), sets the account limit, and then adds `vultr`
   to `test/e2e-vendors.txt`.
+## Alibaba Cloud provisioning
+
+The Alibaba Cloud lane (`test/e2e-alicloud/`) is written and validated statically; **it has not run**,
+and everything below that says "unverified" is settled by the first run. The control plane,
+the tailnet and the environments are the AWS lane's; what differs is the account and the images.
+
+- **Environments.** `e2e`, `e2e-canary` and `e2e-sweeper` as above, each with the secrets
+  `ALICLOUD_ROLE_ARN` and `ALICLOUD_OIDC_PROVIDER_ARN` (the role of that environment: the CI role in
+  `e2e` and `e2e-sweeper`, a read-only one in `e2e-canary`), and the variables `ALICLOUD_REGION`
+  (default `ap-southeast-1`) and `ALICLOUD_OIDC_AUDIENCE` (the client ID the RAM OIDC provider lists;
+  default `sts.aliyuncs.com`, unverified). The ARNs are secrets and never in the repository.
+- **RAM.** An OIDC identity provider for `token.actions.githubusercontent.com` whose client ID is that
+  audience, a CI role whose trust policy names that provider and the subjects of the `e2e` and
+  `e2e-sweeper` environments (the immutable subject form of the AWS notes in
+  [Test and develop](testing.md#provisioning-outside-this-repository); the claims are `oidc:iss`,
+  `oidc:aud` and `oidc:sub`), and a canary role for the subject of `e2e-canary`. The maximum session
+  duration must allow two hours (the controller keeps the session the scripts exchanged). The policies
+  are printed by `test/e2e-alicloud/ci-policy.sh <account UID> [region]` and `canary-policy.sh`;
+  neither calls Alibaba Cloud, and the condition keys of the CI policy (`acs:RequestTag/...`,
+  `acs:ResourceTag/...`, `ecs:InstanceType` on `ecs:RunInstances`) are unverified: if the type deny
+  does not bite, the vCPU quota below is the ceiling.
+- **The account.** Alibaba Cloud accounts need **real-name verification** before they can buy ECS in some
+  regions and a **balance** for pay-as-you-go resources (a minimum: unverified). **Spot may be refused by
+  account rules** (`InvalidAccount.NotSupportSpot`): then the `arm64` and `spot` scenarios fail with
+  `never launched`, and the spot type of the lane has to be on-demand until the account is allowed it.
+  The lane needs a **vCPU quota** of **16 pay-as-you-go and 4 spot** in the region, which the preflight
+  and the canary check (`DescribeAccountAttributes`); the defaults of a new account are unknown, and a
+  raise is a request in Quota Center. The Alibaba Cloud CLI `aliyun` must be on the runner for the
+  scenarios, the diagnostics and the teardown (whether `ubuntu-latest` has it, and how the workflow
+  installs it: unverified).
+- **The images** (rung 3 of the image ladder: the images are the operator's own; the lane's
+  preflight only checks that they resolve, it imports nothing). Per region the lane runs in, and for both
+  architectures:
+  1. Take the Flatcar disk image of the release from the artifact of the Spare Cores images repository
+     (the release is `E2E_FLATCAR_CHANNEL` and `E2E_FLATCAR_VERSION` of `defaults.sh`; the file name and the
+     format are that repository's, unverified here; `ImportImage` takes RAW, VHD, QCOW2 and VMDK).
+  2. Upload it to an **OSS bucket in the region** (a bucket per region; `ImportImage` reads it from there).
+  3. The RAM role **`AliyunECSImageImportDefaultRole`** must exist and be allowed to read that bucket
+     (its managed policy name: unverified).
+  4. `ImportImage` with the architecture (`x86_64` or `arm64`), the platform `Others Linux`, and the name
+     `Flatcar-<channel>-<version>-<arch>` with `<arch>` `amd64` or `arm64`; **the name is what the
+     driver looks up**, with the owner `self` (the account of the credentials), and exactly one available
+     image of that name may exist per region and architecture.
+  5. Tag the image `flatcar-channel=<channel>` and `flatcar-version=<version>` (the driver requires the
+     name or the tags to say the pinned release, and refuses the image if they disagree).
+  6. `CopyImage` to every other region of the lane (it keeps the name as given in
+     `DestinationImageName`; whether it copies the tags: unverified, so tag the copy too).
+  7. The image must read its user-data without a token: `ImdsSupport=v1` (Ignition's aliyun provider
+     does a plain GET; the hardened mode makes it fail with 403), and for an eighth-generation or later
+     type such as `ecs.c8y.large` it must advertise NVMe support (otherwise the launch is refused as
+     `ImageNotSupportInstanceType`). How the import sets these features: unverified.

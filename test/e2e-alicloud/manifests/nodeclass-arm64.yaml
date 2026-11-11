@@ -1,0 +1,26 @@
+# The NodeClass of the arm64 spot scenario: the same template and pins, no profiles.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-arm64
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every resource of the run, which the sweeper needs where the API
+  # gives none (a security group, a vSwitch or a VPC created without it).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    alicloud:
+      regions: [${ALICLOUD_REGION}]
+      storage:
+        root: {category: cloud_essd, performanceLevel: PL0, size: 40Gi}
+      resources:
+        securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

@@ -44,6 +44,9 @@ jobs:
       - name: L5 without a cloud (manifests, sweeper, canary, planner, helpers; the lane itself runs in e2e.yml)
         run: hack/dev.sh make test-e2e-aws-dryrun
 
+      - name: L5 of Alibaba Cloud without a cloud (manifests, sweeper, canary, helpers, policies)
+        run: hack/dev.sh make test-e2e-alicloud-dryrun
+
       - name: Build the controller binary
         run: hack/dev.sh make build
 

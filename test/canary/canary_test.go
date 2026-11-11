@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SpareCores/scarpenter/pkg/vendors/alicloud"
+	alifake "github.com/SpareCores/scarpenter/pkg/vendors/alicloud/fake"
 	awsdriver "github.com/SpareCores/scarpenter/pkg/vendors/aws"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws/fake"
 )
@@ -258,6 +260,199 @@ func TestPolicyIsExactlyWhatTheCanaryCalls(t *testing.T) {
 	}
 	for _, act := range allowed {
 		if !slices.Contains(a.actions(), act) && act != "servicequotas:ListServiceQuotas" {
+			t.Errorf("the policy allows %s, which the canary never calls", act)
+		}
+	}
+}
+
+// ---- Alibaba Cloud: the same canary against the in-memory ECS and VPC ------------------------
+
+func alicloudConfig(srv *httptest.Server) *config {
+	return &config{
+		vendor: "alicloud", region: "ap-southeast-1", flatcarChannel: "stable", flatcarVersion: "4757.2.3",
+		kubernetesVersion: "v1.37.1", tailscaleVersion: "v1.98.10", k3sVersion: "v1.37.2+k3s1",
+		types:       []string{"alicloud.ecs.e-c1m2.large", "alicloud.ecs.c8y.large", "alicloud.ecs.g7.large"},
+		minOnDemand: 16, minSpot: 4, sysextBase: srv.URL, k3sBase: srv.URL,
+	}
+}
+
+// alicloudAccount is a fake account that satisfies the lane: the region, its zones, types,
+// stock, images and quota.
+func alicloudAccount() *alifake.Cloud {
+	acct := alifake.New(nil)
+	acct.AddRegion("ap-southeast-1", "ap-southeast-1a", "ap-southeast-1b")
+	acct.AddRegion("eu-central-1", "eu-central-1a")
+	acct.AddType(alifake.TypeSpec{Name: "ecs.e-c1m2.large", VCPUs: 2, MemoryGiB: 4, Disks: 17})
+	acct.AddType(alifake.TypeSpec{Name: "ecs.c8y.large", VCPUs: 2, MemoryGiB: 4, Arch: "arm64", Disks: 17})
+	acct.AddType(alifake.TypeSpec{Name: "ecs.g7.large", VCPUs: 2, MemoryGiB: 8, Disks: 17})
+	for _, r := range []string{"ap-southeast-1", "eu-central-1"} {
+		acct.OfferEverywhere(r)
+		acct.SetQuota(r, 64, 32)
+		acct.AddImage(r, alifake.ImageSpec{ID: "m-amd64", Name: "Flatcar-stable-4757.2.3-amd64", Arch: "x86_64"})
+		acct.AddImage(r, alifake.ImageSpec{ID: "m-arm64", Name: "Flatcar-stable-4757.2.3-arm64", Arch: "arm64"})
+	}
+	return acct
+}
+
+func alicloudFactory(acct *alifake.Cloud) alicloud.ClientFactory {
+	return func(_ context.Context, region string) (alicloud.Clients, error) {
+		return alicloud.Clients{ECS: acct.ECS(region), VPC: acct.VPC(region)}, nil
+	}
+}
+
+func runAlicloudCanary(t *testing.T, acct *alifake.Cloud, cfg *config) (*report, *audit) {
+	t.Helper()
+	rep := &report{}
+	a := newAudit()
+	checkArtifacts(context.Background(), cfg, rep)
+	runAlicloud(context.Background(), cfg, rep, readOnlyAlicloud(alicloudFactory(acct), a), a)
+	return rep, a
+}
+
+func TestAlicloudCanaryPassesOnAHealthyWorld(t *testing.T) {
+	cfg := alicloudConfig(releases(t))
+	rep, a := runAlicloudCanary(t, alicloudAccount(), cfg)
+	var b bytes.Buffer
+	rep.write(&b)
+	if f := failed(rep); len(f) > 0 {
+		t.Fatalf("failed checks %v:\n%s", f, b.String())
+	}
+	for _, want := range []string{"regions and zones ap-southeast-1", "Flatcar stable 4757.2.3 amd64", "Flatcar stable 4757.2.3 arm64",
+		"instance types offered in ap-southeast-1", "quota vCPUs ap-southeast-1", "read-only guard"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("the table has no row %q:\n%s", want, b.String())
+		}
+	}
+	if r := a.refusals(); len(r) > 0 {
+		t.Errorf("the canary tried writes: %v", r)
+	}
+}
+
+func TestAlicloudCanaryReportsWhatMoved(t *testing.T) {
+	soldOut := func(a *alifake.Cloud, typ string) {
+		for _, z := range []string{"ap-southeast-1a", "ap-southeast-1b"} {
+			a.Offer("ap-southeast-1", z, alifake.OnDemand, alifake.StatusSoldOut, typ)
+			a.Offer("ap-southeast-1", z, alifake.Spot, alifake.StatusSoldOut, typ)
+		}
+	}
+	for name, tc := range map[string]struct {
+		mutate func(*alifake.Cloud, *config)
+		want   string
+	}{
+		"the Flatcar version is not imported": {mutate: func(_ *alifake.Cloud, c *config) { c.flatcarVersion = "9999.0.0" }, want: "Flatcar stable 9999.0.0 amd64"},
+		"the pay-as-you-go quota shrank":      {mutate: func(a *alifake.Cloud, _ *config) { a.SetQuota("ap-southeast-1", 8, 32) }, want: "quota vCPUs ap-southeast-1"},
+		"the spot quota shrank":               {mutate: func(a *alifake.Cloud, _ *config) { a.SetQuota("ap-southeast-1", 64, 2) }, want: "quota vCPUs ap-southeast-1"},
+		"a type is sold out everywhere":       {mutate: func(a *alifake.Cloud, _ *config) { soldOut(a, "ecs.g7.large") }, want: "instance types offered in ap-southeast-1"},
+		"a type is unknown":                   {mutate: func(_ *alifake.Cloud, c *config) { c.types = append(c.types, "alicloud.ecs.nonexistent.large") }, want: "instance types offered in ap-southeast-1"},
+		"the region is not enabled":           {mutate: func(_ *alifake.Cloud, c *config) { c.region = "ap-south-9" }, want: "regions and zones ap-south-9"},
+		"the account is refused the region":   {mutate: func(a *alifake.Cloud, _ *config) { a.Deny("ap-southeast-1") }, want: "regions and zones ap-southeast-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			acct := alicloudAccount()
+			cfg := alicloudConfig(releases(t))
+			tc.mutate(acct, cfg)
+			rep, _ := runAlicloudCanary(t, acct, cfg)
+			if f := failed(rep); !slices.Contains(f, tc.want) {
+				var b bytes.Buffer
+				rep.write(&b)
+				t.Fatalf("want %q among the failed checks, got %v:\n%s", tc.want, f, b.String())
+			}
+		})
+	}
+}
+
+func TestAlicloudMissingImageFailsOnlyItsArchitecture(t *testing.T) {
+	acct := alifake.New(nil)
+	acct.AddRegion("ap-southeast-1", "ap-southeast-1a")
+	acct.AddType(alifake.TypeSpec{Name: "ecs.e-c1m2.large", VCPUs: 2, Disks: 17})
+	acct.AddType(alifake.TypeSpec{Name: "ecs.c8y.large", VCPUs: 2, Arch: "arm64", Disks: 17})
+	acct.AddType(alifake.TypeSpec{Name: "ecs.g7.large", VCPUs: 2, Disks: 17})
+	acct.OfferEverywhere("ap-southeast-1")
+	acct.SetQuota("ap-southeast-1", 64, 32)
+	acct.AddImage("ap-southeast-1", alifake.ImageSpec{ID: "m-amd64", Name: "Flatcar-stable-4757.2.3-amd64", Arch: "x86_64"})
+	rep, _ := runAlicloudCanary(t, acct, alicloudConfig(releases(t)))
+	if f := failed(rep); !slices.Equal(f, []string{"Flatcar stable 4757.2.3 arm64"}) {
+		t.Fatalf("failed: %v", f)
+	}
+}
+
+// An image of another account (a stranger's image of the same name) is not the lane's: the
+// default lookup is by owner and name, owner self.
+func TestAlicloudImageOfAnotherOwnerDoesNotCount(t *testing.T) {
+	// The arm64 image of the account is a community image of the same name, owned by another account.
+	acct2 := alifake.New(nil)
+	acct2.AddRegion("ap-southeast-1", "ap-southeast-1a")
+	acct2.AddType(alifake.TypeSpec{Name: "ecs.e-c1m2.large", VCPUs: 2, Disks: 17})
+	acct2.AddType(alifake.TypeSpec{Name: "ecs.c8y.large", VCPUs: 2, Arch: "arm64", Disks: 17})
+	acct2.AddType(alifake.TypeSpec{Name: "ecs.g7.large", VCPUs: 2, Disks: 17})
+	acct2.OfferEverywhere("ap-southeast-1")
+	acct2.SetQuota("ap-southeast-1", 64, 32)
+	acct2.AddImage("ap-southeast-1", alifake.ImageSpec{ID: "m-amd64", Name: "Flatcar-stable-4757.2.3-amd64", Arch: "x86_64"})
+	acct2.AddImage("ap-southeast-1", alifake.ImageSpec{ID: "m-other", Name: "Flatcar-stable-4757.2.3-arm64", Arch: "arm64", Owner: "others", OwnerID: 1234567890123456})
+	rep, _ := runAlicloudCanary(t, acct2, alicloudConfig(releases(t)))
+	if f := failed(rep); !slices.Equal(f, []string{"Flatcar stable 4757.2.3 arm64"}) {
+		t.Fatalf("failed: %v", f)
+	}
+}
+
+func TestLoadConfigAlicloud(t *testing.T) {
+	env := map[string]string{
+		"ALICLOUD_REGION": "ap-southeast-1", "E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
+		"E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10", "E2E_K3S_VERSION": "v1.37.2+k3s1",
+		"E2E_TYPE_AMD64": "alicloud.ecs.e-c1m2.large", "E2E_TYPE_ARM64": "alicloud.ecs.c8y.large", "E2E_TYPE_DB": "alicloud.ecs.g7.large",
+		"E2E_TYPES_DESCRIBED": "alicloud.ecs.e-c1m2.large, alicloud.ecs.e-c1m4.large",
+		"E2E_MIN_VCPU_OD":     "16", "E2E_MIN_VCPU_SPOT": "4",
+	}
+	c, err := loadConfig("alicloud", func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.region != "ap-southeast-1" || len(c.types) != 5 {
+		t.Errorf("config %+v", c)
+	}
+	delete(env, "ALICLOUD_REGION")
+	if _, err := loadConfig("alicloud", func(k string) string { return env[k] }); err == nil || !strings.Contains(err.Error(), "ALICLOUD_REGION") {
+		t.Errorf("a missing region: %v", err)
+	}
+}
+
+// The role's policy (test/e2e-alicloud/canary-policy.sh) is exactly what the canary calls: every
+// action the run made is allowed, every allowed action is a plain read, and the policy allows
+// nothing the canary does not call.
+func TestAlicloudPolicyIsExactlyWhatTheCanaryCalls(t *testing.T) {
+	out, err := exec.Command("bash", "../e2e-alicloud/canary-policy.sh", "123456789012", "ap-southeast-1").Output()
+	if err != nil {
+		t.Skipf("the policy script cannot run here (bash and jq are needed): %v", err)
+	}
+	var p struct {
+		Version   string
+		Statement []struct {
+			Effect   string
+			Action   []string
+			Resource string
+		}
+	}
+	if err := json.Unmarshal(out, &p); err != nil {
+		t.Fatalf("the policy is not JSON: %v\n%s", err, out)
+	}
+	if len(p.Statement) != 1 || p.Statement[0].Effect != "Allow" {
+		t.Fatalf("want one Allow statement: %s", out)
+	}
+	allowed := p.Statement[0].Action
+	for _, act := range allowed {
+		_, op, _ := strings.Cut(act, ":")
+		if !isRead(op) || strings.ContainsAny(act, "*?") {
+			t.Errorf("the policy allows %q, which is not a plain read", act)
+		}
+	}
+	_, a := runAlicloudCanary(t, alicloudAccount(), alicloudConfig(releases(t)))
+	for _, act := range a.actions() {
+		if !slices.Contains(allowed, act) {
+			t.Errorf("the canary calls %s, which the policy does not allow", act)
+		}
+	}
+	for _, act := range allowed {
+		if !slices.Contains(a.actions(), act) {
 			t.Errorf("the policy allows %s, which the canary never calls", act)
 		}
 	}

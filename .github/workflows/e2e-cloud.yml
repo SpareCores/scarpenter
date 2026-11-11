@@ -19,11 +19,14 @@ name: L5 (cloud e2e)
 # Cloud project (one active region, low quotas); OVH documents no GitHub OIDC trust, so the
 # password is a stored secret. The sweeper (e2e-<vendor>-sweeper.yml) deletes what a run that
 # died left behind.
+# Alibaba Cloud (alicloud): the variables ALICLOUD_REGION and ALICLOUD_OIDC_AUDIENCE and the
+# environment secrets ALICLOUD_ROLE_ARN and ALICLOUD_OIDC_PROVIDER_ARN (a RAM role assumed
+# through a RAM OIDC identity provider; the lane has not run yet).
 on:
   workflow_call:
     inputs:
       vendor:
-        description: "The vendor of the lane: a line of test/e2e-vendors.txt (aws)"
+        description: "The vendor of the lane: a line of test/e2e-vendors.txt (aws, alicloud)"
         required: true
         type: string
       mode:
@@ -96,6 +99,7 @@ jobs:
       VAR_OVH_PROJECT_ID: ${{ vars.OVH_PROJECT_ID }}
       VAR_OVH_AUTH_URL: ${{ vars.OVH_AUTH_URL }}
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
+      VAR_ALICLOUD_REGION: ${{ vars.ALICLOUD_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -163,6 +167,7 @@ jobs:
               } >> "${GITHUB_ENV}"
               ;;
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
+            alicloud) echo "ALICLOUD_REGION=${VAR_ALICLOUD_REGION:-ap-southeast-1}" >> "${GITHUB_ENV}" ;;
           esac
           mkdir -p "${RUNNER_TEMP}/e2e"
           # Everything validated: from here the steps that always run may use the vendor in a path.
@@ -256,6 +261,18 @@ jobs:
         run: |
           [ -n "${VULTR_API_KEY}" ] || { echo "::error::the environment secret VULTR_API_KEY is not set" >&2; exit 1; }
           echo "VULTR_API_KEY=${VULTR_API_KEY}" >> "${GITHUB_ENV}"
+      # The same for Alibaba Cloud, without a third-party action: the job's OIDC token goes to a
+      # file and the role is named in the environment (test/e2e-alicloud/oidc-token.sh); the
+      # scripts exchange the token for a role session of two hours themselves (ali_login of lib.sh)
+      # and put it in a Secret for SCarpenter.
+      - name: Write the OIDC token for the CI role (alicloud)
+        if: inputs.vendor == 'alicloud'
+        env:
+          ALICLOUD_ROLE_ARN: ${{ secrets.ALICLOUD_ROLE_ARN }}
+          ALICLOUD_OIDC_PROVIDER_ARN: ${{ secrets.ALICLOUD_OIDC_PROVIDER_ARN }}
+          ALICLOUD_OIDC_AUDIENCE: ${{ vars.ALICLOUD_OIDC_AUDIENCE || 'sts.aliyuncs.com' }}
+          ALICLOUD_SESSION_NAME: scarpenter-ci-${{ github.run_id }}
+        run: test/e2e-alicloud/oidc-token.sh
 
       # Step 4: image and chart.
       - name: Build the image, install the chart
@@ -312,6 +329,15 @@ jobs:
           mask-aws-account-id: true
           role-session-name: scarpenter-ci-${{ github.run_id }}-teardown
           unset-current-credentials: true
+
+      - name: Write a fresh OIDC token for the teardown (alicloud)
+        if: always() && env.E2E_PREPARED == 'true' && inputs.vendor == 'alicloud'
+        env:
+          ALICLOUD_ROLE_ARN: ${{ secrets.ALICLOUD_ROLE_ARN }}
+          ALICLOUD_OIDC_PROVIDER_ARN: ${{ secrets.ALICLOUD_OIDC_PROVIDER_ARN }}
+          ALICLOUD_OIDC_AUDIENCE: ${{ vars.ALICLOUD_OIDC_AUDIENCE || 'sts.aliyuncs.com' }}
+          ALICLOUD_SESSION_NAME: scarpenter-ci-${{ github.run_id }}-teardown
+        run: test/e2e-alicloud/oidc-token.sh
 
       - name: Teardown
         if: always() && env.E2E_PREPARED == 'true'

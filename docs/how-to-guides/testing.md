@@ -305,7 +305,8 @@ from a developer machine. A full run takes about 22 minutes (the job's limit is 
 limit of 55 minutes, so that at least 20 minutes stay for the diagnostics and the
 teardown, which always run) and costs well
 under $0.20: a handful of small instances for minutes, a few GiB of EBS, no NAT
-gateway.
+gateway. Alibaba Cloud has a lane of the same shape, described [below](#the-alibaba-cloud-lane);
+it has not run yet.
 
 ```bash
 gh workflow run e2e.yml -f vendor=aws -f mode=full                     # everything
@@ -563,9 +564,80 @@ account, and only then is a region that cannot be reached at all (dial or I/O ti
 resolved, connection refused on the first listing) reported as `skipped: unreachable`; a region
 listed explicitly that cannot be reached is a failure (exit status 1).
 
+#### The Alibaba Cloud lane
+
+`test/e2e-alicloud/` is the lane of the vendor `alicloud` (`gh workflow run e2e.yml -f vendor=alicloud`),
+a copy of the AWS lane's shape with Alibaba Cloud's calls: the control plane on the runner, the tailnet, the
+chart install and the scenarios' structure are the same; the cloud calls go through the Alibaba Cloud
+CLI `aliyun` (the byo scenario's VPC, vSwitch and security group, the instance, disk and network checks, the
+diagnostics, the no-leftover check). **It was written and validated statically and has not run against an
+account**: the pins, the cloud facts and the assertions marked "unverified" in the scripts are settled by the
+first run, which the coordinator triggers. The pins are in `test/e2e-alicloud/defaults.sh`: the region
+`ALICLOUD_REGION` (`ap-southeast-1`; the zone IDs equal the zone names, `ap-southeast-1a`), the types
+`ecs.e-c1m2.large` (amd64, on-demand), `ecs.c8y.large` (arm64, spot) and `ecs.g7.large` (the deployment-set
+scenario), `ecs.e-c1m4.large` for the described scenario, the Flatcar release, and `E2E_SMOKE_SCENARIOS`
+(`amd64,scalezero`).
+
+How it differs from the AWS lane:
+
+- **Credentials.** The workflow writes a GitHub OIDC token to a file and exports the role and provider ARNs from
+  the environment's secrets (`test/e2e-alicloud/oidc-token.sh`, no third-party action: `ALIBABA_CLOUD_ROLE_ARN`,
+  `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_OIDC_TOKEN_FILE`). The scripts exchange it once for a RAM role
+  session of two hours (`ali_login` in `lib.sh`, an unsigned `AssumeRoleWithOIDC` call whose body carries the
+  token) and `install.sh` puts the session in a Secret (`vendors.alicloud.credentials.mode: secret`; the chart's
+  `oidc` mode reads the cluster's own service account token, whose issuer is not public, so it stays a manual walk
+  of the credentials guide). The teardown writes a fresh token and logs in again.
+- **Images.** They are the operator's own (rung 3): the preflight checks that exactly one available image named
+  `Flatcar-<channel>-<version>-<arch>` with the tags `flatcar-channel` and `flatcar-version` exists in the region,
+  and imports nothing. The import contract is in
+  [Alibaba Cloud provisioning](testing-and-releasing.md#alibaba-cloud-provisioning).
+- **Quotas** are the two vCPU buckets of the region, `postpaid-vcpu` and `spot-vcpu`
+  (`DescribeAccountAttributes`); the lane needs 16 and 4.
+- **No terminated state.** A released instance leaves `DescribeInstances`, so "gone" and "not listed" are the same
+  and there is no client-token lookup of a terminated instance.
+- **Deployment sets take no tags**: the driver writes the cluster into the description, and the checks and the
+  sweeper read it from there.
+- **Sweeper** `go run ./test/e2e-alicloud/sweeper` (flags as the AWS one; `-home-region` defaults to
+  `ALIBABA_CLOUD_REGION_ID` or `ap-southeast-1`) and `.github/workflows/e2e-alicloud-sweeper.yml`: instances,
+  deployment sets, security groups, vSwitches and VPCs of `scarpenter-ci-*` clusters older than two hours, by the
+  tag (`ci-created-at` where the API gives no creation time), never a default VPC or an unmarked resource; the
+  selection is `pkg/vendors/alicloud/sweep`, tested against the driver's in-memory ECS and VPC.
+- **Canary** `test/canary/alicloud.go` behind `alicloud_guard.go` (see
+  [the canary](testing-and-releasing.md#the-canary)).
+
+The RAM policy of the CI role is printed by `test/e2e-alicloud/ci-policy.sh <account UID> [region]` and the
+canary's by `canary-policy.sh`. `RunInstances` is allowed in the lane's region with the cluster tag
+(`scarpenter-ci-*`) on the request and denied for every instance type but the ones of `defaults.sh`
+(`ecs.e-c1m2.large`, `ecs.e-c1m4.large`, `ecs.c8y.large`, `ecs.g7.large`, and `E2E_LOCAL_STORAGE_TYPE` if set; the pools of
+`test/e2e-alicloud/manifests/nodepools.yaml` name the same types, and a test keeps this page and them together);
+deleting or changing instances, security groups, vSwitches and VPCs needs the cluster tag on the resource; the
+reads are `Describe*`, `ListTagResources`, `ecs:DescribeAccountAttributes`, `vpc:Describe*` and the Quota Center
+reads. The condition keys' exact use with `RunInstances` is unverified.
+
+| Scenario | Proves |
+|---|---|
+| preflight | the Flatcar images exist by name and tags (exactly one per architecture, `ImdsSupport` v1 when reported); the vCPU quotas suffice (16, 4); the four NodeClasses are `Ready`, `VendorReady` and `ImagesReady` |
+| `amd64` | on-demand `ecs.e-c1m2.large`: Node Ready, Pod, `kubectl logs` and `exec`, the labels (the zone ID equals the zone name); the instance's tags and name (`DescribeInstances`), the metadata options (`DescribeInstanceAttribute`: `HttpTokens` stays `optional`, because Ignition's aliyun provider reads the user-data without a token), the system disk (cloud_essd PL0, 40 GiB, deleted with the instance); the bootstrap token is gone, the serving CSR approved, the L4 unit checks on the node; **the Ignition check**: `PLATFORM_ID=aliyun` and Ignition's aliyun provider fetched the user-data (the node's journal) |
+| `arm64` | spot `ecs.c8y.large`: the same on arm64, the instance's image is an arm64 image |
+| `spot` | `SpotStrategy=SpotAsPriceGo`, still running, a price annotation, the spot vCPUs counted |
+| `imds` | the gap of plan 21 section 5, recorded: what a Pod reads at `100.100.100.200` on the plain NodeClass (the instance ID and the size of the user-data, never its content); with `bootstrap.hardening: [metadata-from-pods]` on a second NodeClass a Pod reads nothing, while the node itself still does |
+| `db` | a LowLatency deployment set (`scarpenter-` name, the cluster in its description) holds a database and its client in one zone; the data disk is cloud_essd PL1, 20 GiB, mounted as xfs at `/var/lib/pgdata`; the managed security group allows its members; after the workloads go the instances, the set and the disk are gone |
+| `described` | a Deployment that selects by `vcpus`, `memory-mib` and `metric-single-core-pct` gets a type that satisfies all of them (checked against `DescribeInstanceTypes`) |
+| `byo` | the workflow creates a VPC, a vSwitch and a security group tagged with the run and `use`s them by tag; the node launches into them, and afterwards SCarpenter has touched none of them |
+| `negative` | `publicIPv4: false` and `publicIPv6: true` are refused (`VendorReady=False`, `ValidationFailed`); nothing is launched |
+| `image` | the instances booted the images found by name (ids and names, from `DescribeImages`) and the NodeClass status lists them |
+| `quota` | `scarpenter_quota_limit` equals `max-postpaid-` and `max-spot-instance-vcpu-count` of `DescribeAccountAttributes`; `scarpenter_quota_used` equals the used attributes and follows launch and release; the launched types are in `DescribeAvailableResource` of their zones |
+| `drift` | a change to a profile no node uses drifts nothing; a change to `vendors.alicloud.storage.root.size` replaces the node (new disk size, old instance released, the Pod moves), the controller is killed while the replacement is created (the replay is opportunistic, as on AWS) |
+| `scalezero` | every instance of the cluster is released within 2 minutes of the Pods' deletion (`E2E_SCALE_DOWN_DEADLINE`); no node, NodeClaim or token left; the quota usage falls |
+| `uninstall` | the procedure of [Uninstall](install.md#uninstall) on the live account: the NodePools, the NodeClasses (the managed groups and deployment sets go), `helm uninstall` |
+
+The final no-leftover check is step 3 of `teardown.sh`, which fails the job when an instance, a disk, a network
+interface, a security group, a deployment set, a vSwitch or a VPC of the run remains after the sweeper ran. There
+is no `local` scenario: the driver supports no local-disk policy yet.
+
 #### Without AWS
 
-`hack/dev.sh make test-e2e-aws-dryrun` (CI runs it) is what can be checked without an account:
+`hack/dev.sh make test-e2e-aws-dryrun` (CI runs it) is what can be checked without an account (the Alibaba Cloud lane's is `make test-e2e-alicloud-dryrun`: the same checks against the in-memory ECS and VPC, with the RAM policies' properties instead of the IAM ones):
 `manifests_test.go` renders every manifest of `test/e2e-aws/manifests` with sample values and
 sends it to an envtest API server as a server-side dry run with strict validation, with the CRDs
 of SCarpenter and Karpenter core (the CEL rules, the schema); `selftest.sh` runs the helpers of

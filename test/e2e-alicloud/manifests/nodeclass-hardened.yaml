@@ -1,0 +1,31 @@
+# The NodeClass of the instance metadata scenario with the hardening: Pod traffic to
+# 100.100.100.200 is dropped on its nodes (spec.bootstrap.hardening). The scenario
+# `imds` records what a Pod reaches on the plain NodeClass (e2e-amd64: the gap of plan 21
+# section 5) and asserts that it reaches nothing here. Used by its own NodePool.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-hardened
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every resource of the run, which the sweeper needs where the API
+  # gives none (a security group, a vSwitch or a VPC created without it).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  bootstrap:
+    hardening: [metadata-from-pods]
+  vendors:
+    alicloud:
+      regions: [${ALICLOUD_REGION}]
+      storage:
+        root: {category: cloud_essd, performanceLevel: PL0, size: 40Gi}
+      resources:
+        securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

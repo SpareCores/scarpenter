@@ -1,0 +1,50 @@
+# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/21-alicloud.md section 9): the
+# tailscale template with pinned versions, a small cloud_essd PL0 system disk, a storage
+# profile with a small cloud_essd PL1 data disk, the placement profile that puts a database
+# and its client into one LowLatency deployment set, and a benchmark metric for the
+# described-not-named scenario (whether Keeper has the benchmark for these types: unverified).
+#
+# The images are the operator's own (rung 3): found by the name convention
+# Flatcar-<channel>-<version>-<arch> among the images of the controller's account.
+#
+# It must exist before the controller starts: the label keys of a NodeClass's
+# metrics are registered with Karpenter core at start-up (install.sh applies it
+# before the chart).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-amd64
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every resource of the run, which the sweeper needs where the API
+  # gives none (a security group, a vSwitch or a VPC created without it).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  metrics:
+    single-core:
+      benchmark: {id: "geekbench:score", config: {cores: single}}
+  profiles:
+    storage:
+      db-essd:
+        alicloud:
+          data:
+            - {name: pgdata, category: cloud_essd, performanceLevel: PL1, size: 20Gi, filesystem: xfs, mountPath: /var/lib/pgdata}
+    placement:
+      colocated: {alicloud: {deploymentSet: {strategy: LowLatency}}}
+  vendors:
+    alicloud:
+      regions: [${ALICLOUD_REGION}]
+      storage:
+        root: {category: cloud_essd, performanceLevel: PL0, size: 40Gi}
+      # A short idle lifetime, so that the uninstall scenario sees the NodeClass's
+      # security group go (the default is 24 hours).
+      resources:
+        securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

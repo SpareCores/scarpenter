@@ -44,16 +44,18 @@ type config struct {
 // vendorEnv maps a vendor to the environment variable of its region.
 // For hcloud it is the comma-separated list of the lane's locations.
 var vendorEnv = map[string]string{
-	vendorAWS: "AWS_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS",
-	vendorOVH: "OS_REGION_NAME", vendorVultr: "VULTR_REGION",
+	vendorAlicloud: "ALICLOUD_REGION", vendorAWS: "AWS_REGION",
+	vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOVH: "OS_REGION_NAME",
+	vendorVultr: "VULTR_REGION",
 }
 
 // The vendors of the canary and the architecture its checks name.
 const (
-	vendorAWS    = "aws"
-	vendorHCloud = "hcloud"
-	archAMD64    = "amd64"
-	archARM64    = "arm64"
+	vendorAlicloud = "alicloud"
+	vendorAWS      = "aws"
+	vendorHCloud   = "hcloud"
+	archAMD64      = "amd64"
+	archARM64      = "arm64"
 )
 
 // typeAMD64 is the variable of the amd64 type every lane pins.
