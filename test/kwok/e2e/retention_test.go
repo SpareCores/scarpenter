@@ -567,12 +567,14 @@ func TestR08LimitReleasesAHeldNode(t *testing.T) {
 	if time.Now().After(start.Add(rDeadline)) {
 		t.Errorf("the job was served after the deadline %s: the node was not released under pressure", start.Add(rDeadline))
 	}
+	// The release taints the node at once (the pending pod's new node can come up
+	// then), and deletes the NodeClaim after the drain wait: wait for it.
 	if !claimGone(claim) {
-		t.Error("the held node is still there")
+		waitClaimGone(t, claim, time.Minute)
 	}
-	if len(nodeEvents(t, node, "ReleasedUnderPressure")) == 0 {
-		t.Error("no ReleasedUnderPressure Event on the node")
-	}
+	eventually(t, 30*time.Second, 500*time.Millisecond, "a ReleasedUnderPressure Event on the node", func() (bool, string) {
+		return len(nodeEvents(t, node, "ReleasedUnderPressure")) > 0, ""
+	})
 	if got := metricValue(t, mPressure) - pressure; got < 1 {
 		t.Errorf("released_under_pressure_total{scope=limit} moved by %v", got)
 	}
