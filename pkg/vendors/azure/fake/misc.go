@@ -181,6 +181,32 @@ func (a *Images) Get(ctx context.Context, loc, publisher, offer, sku, version st
 			Plan:        im.plan,
 		},
 	}
+	if im.arch != "" {
+		out.Properties.Architecture = new(armcompute.ArchitectureTypes(im.arch))
+	}
+	return out, nil
+}
+
+// ListVersions lists the versions of a SKU in the location; a SKU without
+// images is NotFound.
+func (a *Images) ListVersions(ctx context.Context, loc, publisher, offer, sku string) ([]string, error) {
+	s := a.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.begin(ctx, "image.versions"); err != nil {
+		return nil, err
+	}
+	prefix := strings.ToLower(publisher + ":" + offer + ":" + sku + ":")
+	var out []string
+	for k, im := range s.images {
+		if v, ok := strings.CutPrefix(k, prefix); ok && !im.missingIn[strings.ToLower(loc)] {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil, notFound("NotFound", "SKU "+sku)
+	}
+	slices.Sort(out)
 	return out, nil
 }
 

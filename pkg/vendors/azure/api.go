@@ -8,7 +8,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // API interfaces over the track-2 SDK, the pure mapping code (names, tags,
 // states, the VM request), the error classification, the quota reader and the
 // instance operations. The vendors.Driver itself, its registration and the
-// resource kinds plug in later (TODO(plan 14)).
+// resource kinds sit on the same interfaces.
 package azure
 
 import (
@@ -52,6 +52,9 @@ type NICAPI interface {
 		ctx context.Context, resourceGroup, name string, nic armnetwork.Interface,
 	) (armnetwork.Interface, error)
 	Delete(ctx context.Context, resourceGroup, name string) error
+	// ListInGroup lists the NICs of a resource group (the in-use check of an
+	// application security group, which Azure does not report back).
+	ListInGroup(ctx context.Context, resourceGroup string) ([]armnetwork.Interface, error)
 }
 
 // PIPAPI is the public IP address API.
@@ -61,6 +64,59 @@ type PIPAPI interface {
 		ctx context.Context, resourceGroup, name string, pip armnetwork.PublicIPAddress,
 	) (armnetwork.PublicIPAddress, error)
 	Delete(ctx context.Context, resourceGroup, name string) error
+}
+
+// GroupsAPI is the resource group API.
+type GroupsAPI interface {
+	Get(ctx context.Context, name string) (armresources.ResourceGroup, error)
+	CreateOrUpdate(ctx context.Context, name string, rg armresources.ResourceGroup) (armresources.ResourceGroup, error)
+	// Delete removes the group with everything in it and waits.
+	Delete(ctx context.Context, name string) error
+	// List lists every group of the subscription, with its tags.
+	List(ctx context.Context) ([]armresources.ResourceGroup, error)
+	// Resources lists what a group holds, with tags.
+	Resources(ctx context.Context, name string) ([]*armresources.GenericResourceExpanded, error)
+}
+
+// VNetAPI is the virtual network API (the subnets are part of the network).
+type VNetAPI interface {
+	Get(ctx context.Context, resourceGroup, name string) (armnetwork.VirtualNetwork, error)
+	CreateOrUpdate(
+		ctx context.Context, resourceGroup, name string, vnet armnetwork.VirtualNetwork,
+	) (armnetwork.VirtualNetwork, error)
+	Delete(ctx context.Context, resourceGroup, name string) error
+	// ListAll lists the virtual networks of the subscription, with their tags.
+	ListAll(ctx context.Context) ([]armnetwork.VirtualNetwork, error)
+}
+
+// NSGAPI is the network security group API.
+type NSGAPI interface {
+	Get(ctx context.Context, resourceGroup, name string) (armnetwork.SecurityGroup, error)
+	CreateOrUpdate(
+		ctx context.Context, resourceGroup, name string, nsg armnetwork.SecurityGroup,
+	) (armnetwork.SecurityGroup, error)
+	Delete(ctx context.Context, resourceGroup, name string) error
+	ListAll(ctx context.Context) ([]armnetwork.SecurityGroup, error)
+}
+
+// ASGAPI is the application security group API.
+type ASGAPI interface {
+	Get(ctx context.Context, resourceGroup, name string) (armnetwork.ApplicationSecurityGroup, error)
+	CreateOrUpdate(
+		ctx context.Context, resourceGroup, name string, asg armnetwork.ApplicationSecurityGroup,
+	) (armnetwork.ApplicationSecurityGroup, error)
+	Delete(ctx context.Context, resourceGroup, name string) error
+	ListAll(ctx context.Context) ([]armnetwork.ApplicationSecurityGroup, error)
+}
+
+// PPGAPI is the proximity placement group API.
+type PPGAPI interface {
+	Get(ctx context.Context, resourceGroup, name string) (armcompute.ProximityPlacementGroup, error)
+	CreateOrUpdate(
+		ctx context.Context, resourceGroup, name string, ppg armcompute.ProximityPlacementGroup,
+	) (armcompute.ProximityPlacementGroup, error)
+	Delete(ctx context.Context, resourceGroup, name string) error
+	ListAll(ctx context.Context) ([]armcompute.ProximityPlacementGroup, error)
 }
 
 // ResourcesAPI lists resources of the subscription by tag. A tag filter returns
@@ -85,6 +141,9 @@ type UsageAPI interface {
 type ImageAPI interface {
 	Get(ctx context.Context, location, publisher, offer, sku, version string) (armcompute.VirtualMachineImage, error)
 	ListSKUs(ctx context.Context, location, publisher, offer string) ([]string, error)
+	// ListVersions lists the versions of a SKU (the name pattern of the images
+	// selector).
+	ListVersions(ctx context.Context, location, publisher, offer, sku string) ([]string, error)
 }
 
 // AgreementAPI reads the marketplace terms state of a plan.
@@ -104,6 +163,11 @@ type Clients struct {
 	VMs        VMAPI
 	NICs       NICAPI
 	PIPs       PIPAPI
+	Groups     GroupsAPI
+	VNets      VNetAPI
+	NSGs       NSGAPI
+	ASGs       ASGAPI
+	PPGs       PPGAPI
 	Resources  ResourcesAPI
 	SKUs       SKUAPI
 	Usages     UsageAPI

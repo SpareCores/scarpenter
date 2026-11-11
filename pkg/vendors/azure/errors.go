@@ -74,6 +74,8 @@ var errorClasses = map[string]vendors.Class{
 	"PublicIPAddressCannotBeDeleted":           vendors.Retryable,
 	"InUseNetworkSecurityGroupCannotBeDeleted": vendors.Retryable,
 	"ScopeLocked":                              vendors.Retryable,
+	"ApplicationSecurityGroupInUse":            vendors.Retryable,
+	"ProximityPlacementGroupInUse":             vendors.Retryable,
 	// Things that do not exist.
 	"ResourceNotFound":       vendors.NotFound,
 	"ResourceGroupNotFound":  vendors.NotFound,

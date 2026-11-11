@@ -212,12 +212,21 @@ func zoneName(zones []*string) string {
 	return *zones[0]
 }
 
-// Resource kinds of the managed-resources machinery (plan 17 section 2),
-// named here so that the launch code reads Prepared by kind.
+// Resource kinds of the managed-resources machinery (plan 17 section 2). The
+// application security groups of the isolation rules are not kinds of their own:
+// each belongs to a network security group of the driver (its name plus the
+// suffix asgSuffix), is created and deleted with it, and never listed.
 const (
 	KindResourceGroups = vendors.ResourceKind("resourceGroups")
 	KindSubnets        = vendors.ResourceKind("subnets")
 	KindSecurityGroups = vendors.ResourceKind("securityGroups")
-	KindAppSecGroups   = vendors.ResourceKind("applicationSecurityGroups")
 	KindPlacement      = vendors.ResourceKind("proximityPlacementGroups")
+	// KindAppSecGroups only names the application security group a managed
+	// network security group brings, in Prepared (the NIC joins it); it is not a
+	// kind of Kinds.
+	KindAppSecGroups = vendors.ResourceKind("applicationSecurityGroups")
+	// KindRunSecurityGroups is the network security group of a run key (isolation
+	// run): a NIC takes one group, so the run has its own, with its own
+	// application security group for the nodes of the run.
+	KindRunSecurityGroups = vendors.ResourceKind("runSecurityGroups")
 )

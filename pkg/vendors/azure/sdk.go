@@ -78,10 +78,19 @@ func NewSDKClients(cred azcore.TokenCredential, subscriptionID string, opts SDKO
 	if err != nil {
 		return Clients{}, fmt.Errorf("marketplace ordering client: %w", err)
 	}
+	groups, err := armresources.NewResourceGroupsClient(subscriptionID, cred, armOpts)
+	if err != nil {
+		return Clients{}, fmt.Errorf("resource groups client: %w", err)
+	}
 	return Clients{
 		VMs:        &sdkVMs{c: compute.NewVirtualMachinesClient(), freq: freq},
 		NICs:       &sdkNICs{c: network.NewInterfacesClient(), freq: freq},
 		PIPs:       &sdkPIPs{c: network.NewPublicIPAddressesClient(), freq: freq},
+		Groups:     &sdkGroups{c: groups, res: res, freq: freq},
+		VNets:      &sdkVNets{c: network.NewVirtualNetworksClient(), freq: freq},
+		NSGs:       &sdkNSGs{c: network.NewSecurityGroupsClient(), freq: freq},
+		ASGs:       &sdkASGs{c: network.NewApplicationSecurityGroupsClient(), freq: freq},
+		PPGs:       &sdkPPGs{c: compute.NewProximityPlacementGroupsClient()},
 		Resources:  &sdkResources{c: res},
 		SKUs:       &sdkSKUs{c: compute.NewResourceSKUsClient()},
 		Usages:     &sdkUsages{compute: compute.NewUsageClient(), network: network.NewUsagesClient()},
@@ -179,6 +188,12 @@ func (s *sdkNICs) Delete(ctx context.Context, rg, name string) error {
 	return err
 }
 
+func (s *sdkNICs) ListInGroup(ctx context.Context, rg string) ([]armnetwork.Interface, error) {
+	nics, err := drain(ctx, s.c.NewListPager(rg, nil),
+		func(p armnetwork.InterfacesClientListResponse) []*armnetwork.Interface { return p.Value })
+	return derefAll(nics), err
+}
+
 type sdkPIPs struct {
 	c    *armnetwork.PublicIPAddressesClient
 	freq time.Duration
@@ -205,6 +220,175 @@ func (s *sdkPIPs) Delete(ctx context.Context, rg, name string) error {
 	}
 	_, err = p.PollUntilDone(ctx, pollOpts(s.freq))
 	return err
+}
+
+type sdkGroups struct {
+	c    *armresources.ResourceGroupsClient
+	res  *armresources.Client
+	freq time.Duration
+}
+
+func (s *sdkGroups) Get(ctx context.Context, name string) (armresources.ResourceGroup, error) {
+	r, err := s.c.Get(ctx, name, nil)
+	return r.ResourceGroup, err
+}
+
+func (s *sdkGroups) CreateOrUpdate(ctx context.Context, name string, rg armresources.ResourceGroup) (armresources.ResourceGroup, error) {
+	r, err := s.c.CreateOrUpdate(ctx, name, rg, nil)
+	return r.ResourceGroup, err
+}
+
+func (s *sdkGroups) Delete(ctx context.Context, name string) error {
+	p, err := s.c.BeginDelete(ctx, name, nil)
+	if err != nil {
+		return err
+	}
+	_, err = p.PollUntilDone(ctx, pollOpts(s.freq))
+	return err
+}
+
+func (s *sdkGroups) List(ctx context.Context) ([]armresources.ResourceGroup, error) {
+	gs, err := drain(ctx, s.c.NewListPager(nil),
+		func(p armresources.ResourceGroupsClientListResponse) []*armresources.ResourceGroup { return p.Value })
+	return derefAll(gs), err
+}
+
+func (s *sdkGroups) Resources(ctx context.Context, name string) ([]*armresources.GenericResourceExpanded, error) {
+	return drain(ctx, s.res.NewListByResourceGroupPager(name, nil),
+		func(p armresources.ClientListByResourceGroupResponse) []*armresources.GenericResourceExpanded {
+			return p.Value
+		})
+}
+
+type sdkVNets struct {
+	c    *armnetwork.VirtualNetworksClient
+	freq time.Duration
+}
+
+func (s *sdkVNets) Get(ctx context.Context, rg, name string) (armnetwork.VirtualNetwork, error) {
+	r, err := s.c.Get(ctx, rg, name, nil)
+	return r.VirtualNetwork, err
+}
+
+func (s *sdkVNets) CreateOrUpdate(ctx context.Context, rg, name string, v armnetwork.VirtualNetwork) (armnetwork.VirtualNetwork, error) {
+	p, err := s.c.BeginCreateOrUpdate(ctx, rg, name, v, nil)
+	if err != nil {
+		return armnetwork.VirtualNetwork{}, err
+	}
+	r, err := p.PollUntilDone(ctx, pollOpts(s.freq))
+	return r.VirtualNetwork, err
+}
+
+func (s *sdkVNets) Delete(ctx context.Context, rg, name string) error {
+	p, err := s.c.BeginDelete(ctx, rg, name, nil)
+	if err != nil {
+		return err
+	}
+	_, err = p.PollUntilDone(ctx, pollOpts(s.freq))
+	return err
+}
+
+func (s *sdkVNets) ListAll(ctx context.Context) ([]armnetwork.VirtualNetwork, error) {
+	vs, err := drain(ctx, s.c.NewListAllPager(nil),
+		func(p armnetwork.VirtualNetworksClientListAllResponse) []*armnetwork.VirtualNetwork { return p.Value })
+	return derefAll(vs), err
+}
+
+type sdkNSGs struct {
+	c    *armnetwork.SecurityGroupsClient
+	freq time.Duration
+}
+
+func (s *sdkNSGs) Get(ctx context.Context, rg, name string) (armnetwork.SecurityGroup, error) {
+	r, err := s.c.Get(ctx, rg, name, nil)
+	return r.SecurityGroup, err
+}
+
+func (s *sdkNSGs) CreateOrUpdate(ctx context.Context, rg, name string, n armnetwork.SecurityGroup) (armnetwork.SecurityGroup, error) {
+	p, err := s.c.BeginCreateOrUpdate(ctx, rg, name, n, nil)
+	if err != nil {
+		return armnetwork.SecurityGroup{}, err
+	}
+	r, err := p.PollUntilDone(ctx, pollOpts(s.freq))
+	return r.SecurityGroup, err
+}
+
+func (s *sdkNSGs) Delete(ctx context.Context, rg, name string) error {
+	p, err := s.c.BeginDelete(ctx, rg, name, nil)
+	if err != nil {
+		return err
+	}
+	_, err = p.PollUntilDone(ctx, pollOpts(s.freq))
+	return err
+}
+
+func (s *sdkNSGs) ListAll(ctx context.Context) ([]armnetwork.SecurityGroup, error) {
+	ns, err := drain(ctx, s.c.NewListAllPager(nil),
+		func(p armnetwork.SecurityGroupsClientListAllResponse) []*armnetwork.SecurityGroup { return p.Value })
+	return derefAll(ns), err
+}
+
+type sdkASGs struct {
+	c    *armnetwork.ApplicationSecurityGroupsClient
+	freq time.Duration
+}
+
+func (s *sdkASGs) Get(ctx context.Context, rg, name string) (armnetwork.ApplicationSecurityGroup, error) {
+	r, err := s.c.Get(ctx, rg, name, nil)
+	return r.ApplicationSecurityGroup, err
+}
+
+func (s *sdkASGs) CreateOrUpdate(ctx context.Context, rg, name string, a armnetwork.ApplicationSecurityGroup) (armnetwork.ApplicationSecurityGroup, error) {
+	p, err := s.c.BeginCreateOrUpdate(ctx, rg, name, a, nil)
+	if err != nil {
+		return armnetwork.ApplicationSecurityGroup{}, err
+	}
+	r, err := p.PollUntilDone(ctx, pollOpts(s.freq))
+	return r.ApplicationSecurityGroup, err
+}
+
+func (s *sdkASGs) Delete(ctx context.Context, rg, name string) error {
+	p, err := s.c.BeginDelete(ctx, rg, name, nil)
+	if err != nil {
+		return err
+	}
+	_, err = p.PollUntilDone(ctx, pollOpts(s.freq))
+	return err
+}
+
+func (s *sdkASGs) ListAll(ctx context.Context) ([]armnetwork.ApplicationSecurityGroup, error) {
+	as, err := drain(ctx, s.c.NewListAllPager(nil),
+		func(p armnetwork.ApplicationSecurityGroupsClientListAllResponse) []*armnetwork.ApplicationSecurityGroup {
+			return p.Value
+		})
+	return derefAll(as), err
+}
+
+type sdkPPGs struct {
+	c *armcompute.ProximityPlacementGroupsClient
+}
+
+func (s *sdkPPGs) Get(ctx context.Context, rg, name string) (armcompute.ProximityPlacementGroup, error) {
+	r, err := s.c.Get(ctx, rg, name, nil)
+	return r.ProximityPlacementGroup, err
+}
+
+func (s *sdkPPGs) CreateOrUpdate(ctx context.Context, rg, name string, p armcompute.ProximityPlacementGroup) (armcompute.ProximityPlacementGroup, error) {
+	r, err := s.c.CreateOrUpdate(ctx, rg, name, p, nil)
+	return r.ProximityPlacementGroup, err
+}
+
+func (s *sdkPPGs) Delete(ctx context.Context, rg, name string) error {
+	_, err := s.c.Delete(ctx, rg, name, nil)
+	return err
+}
+
+func (s *sdkPPGs) ListAll(ctx context.Context) ([]armcompute.ProximityPlacementGroup, error) {
+	ps, err := drain(ctx, s.c.NewListBySubscriptionPager(nil),
+		func(p armcompute.ProximityPlacementGroupsClientListBySubscriptionResponse) []*armcompute.ProximityPlacementGroup {
+			return p.Value
+		})
+	return derefAll(ps), err
 }
 
 type sdkResources struct{ c *armresources.Client }
@@ -261,6 +445,18 @@ func (s *sdkImages) ListSKUs(ctx context.Context, location, publisher, offer str
 	return out, nil
 }
 
+func (s *sdkImages) ListVersions(ctx context.Context, location, publisher, offer, sku string) ([]string, error) {
+	r, err := s.c.List(ctx, location, publisher, offer, sku, nil)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(r.VirtualMachineImageResourceArray))
+	for _, i := range r.VirtualMachineImageResourceArray {
+		out = append(out, deref(i.Name))
+	}
+	return out, nil
+}
+
 type sdkAgreements struct {
 	c *armmarketplaceordering.MarketplaceAgreementsClient
 }
@@ -295,6 +491,11 @@ var (
 	_ VMAPI        = (*sdkVMs)(nil)
 	_ NICAPI       = (*sdkNICs)(nil)
 	_ PIPAPI       = (*sdkPIPs)(nil)
+	_ GroupsAPI    = (*sdkGroups)(nil)
+	_ VNetAPI      = (*sdkVNets)(nil)
+	_ NSGAPI       = (*sdkNSGs)(nil)
+	_ ASGAPI       = (*sdkASGs)(nil)
+	_ PPGAPI       = (*sdkPPGs)(nil)
 	_ ResourcesAPI = (*sdkResources)(nil)
 	_ SKUAPI       = (*sdkSKUs)(nil)
 	_ UsageAPI     = (*sdkUsages)(nil)

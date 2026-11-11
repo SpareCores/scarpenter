@@ -18,6 +18,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 )
 
@@ -31,6 +32,11 @@ type Subscription struct {
 
 	locations map[string]*location
 	groups    map[string]bool // lower-cased names
+	rgs       map[string]*armresources.ResourceGroup
+	vnets     map[string]*armnetwork.VirtualNetwork
+	nsgs      map[string]*armnetwork.SecurityGroup
+	asgs      map[string]*armnetwork.ApplicationSecurityGroup
+	ppgs      map[string]*armcompute.ProximityPlacementGroup
 	images    map[string]*image
 	agreement map[string]bool
 	vms       map[string]*vmState
@@ -69,6 +75,9 @@ type location struct {
 
 type image struct {
 	plan *armcompute.PurchasePlan
+	// arch is the architecture the image reports ("x64", "Arm64"); empty
+	// reports none.
+	arch string
 	// missingIn lists the locations that do not have this version.
 	missingIn map[string]bool
 }
@@ -96,6 +105,9 @@ func New(id string) *Subscription {
 	return &Subscription{
 		ID: id, Now: time.Now,
 		locations: map[string]*location{}, groups: map[string]bool{}, images: map[string]*image{},
+		rgs: map[string]*armresources.ResourceGroup{}, vnets: map[string]*armnetwork.VirtualNetwork{},
+		nsgs: map[string]*armnetwork.SecurityGroup{}, asgs: map[string]*armnetwork.ApplicationSecurityGroup{},
+		ppgs:      map[string]*armcompute.ProximityPlacementGroup{},
 		agreement: map[string]bool{}, vms: map[string]*vmState{}, nics: map[string]*armnetwork.Interface{},
 		pips: map[string]*armnetwork.PublicIPAddress{}, disks: map[string]string{}, calls: map[string]int{},
 		nextIP: 4, nextPub: 10,
@@ -247,7 +259,20 @@ func (s *Subscription) AddLocation(name string, zonal bool) {
 func (s *Subscription) AddResourceGroup(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.groups[strings.ToLower(name)] = true
+	s.putGroup(name, "", nil)
+}
+
+// putGroup creates or updates a group. The caller holds the lock.
+func (s *Subscription) putGroup(name, loc string, tags map[string]*string) *armresources.ResourceGroup {
+	k := strings.ToLower(name)
+	s.groups[k] = true
+	g := &armresources.ResourceGroup{
+		ID: new("/subscriptions/" + s.ID + "/resourceGroups/" + name), Name: new(name), Location: new(loc), Tags: tags,
+		Type:       new("Microsoft.Resources/resourceGroups"),
+		Properties: &armresources.ResourceGroupProperties{ProvisioningState: new("Succeeded")},
+	}
+	s.rgs[k] = g
+	return g
 }
 
 // SKU describes a virtual machine size of a location for AddSKU.
@@ -366,6 +391,16 @@ func (s *Subscription) AddImage(publisher, offer, sku, version string, plan *arm
 	s.images[strings.ToLower(strings.Join([]string{publisher, offer, sku, version}, ":"))] = &image{plan: plan, missingIn: map[string]bool{}}
 }
 
+// SetImageArch makes a published version report an architecture ("x64" or
+// "Arm64").
+func (s *Subscription) SetImageArch(publisher, offer, sku, version, arch string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if im, ok := s.images[strings.ToLower(strings.Join([]string{publisher, offer, sku, version}, ":"))]; ok {
+		im.arch = arch
+	}
+}
+
 // RemoveImageFrom makes a published version missing in a location.
 func (s *Subscription) RemoveImageFrom(loc, publisher, offer, sku, version string) {
 	s.mu.Lock()
@@ -461,10 +496,18 @@ func (l *Locations) List(ctx context.Context) ([]*armsubscriptions.Location, err
 	}
 	var out []*armsubscriptions.Location
 	for _, loc := range l.s.locations {
-		out = append(out, &armsubscriptions.Location{
+		al := &armsubscriptions.Location{
 			Name: new(loc.name), DisplayName: new(loc.name),
 			Metadata: &armsubscriptions.LocationMetadata{RegionType: new(armsubscriptions.RegionTypePhysical)},
-		})
+		}
+		if loc.zonal {
+			for _, z := range []string{"1", "2", "3"} {
+				al.AvailabilityZoneMappings = append(al.AvailabilityZoneMappings, &armsubscriptions.AvailabilityZoneMappings{
+					LogicalZone: new(z), PhysicalZone: new(fmt.Sprintf("%s-az%s", loc.name, z)),
+				})
+			}
+		}
+		out = append(out, al)
 	}
 	slices.SortFunc(out, func(a, b *armsubscriptions.Location) int { return strings.Compare(*a.Name, *b.Name) })
 	return out, nil

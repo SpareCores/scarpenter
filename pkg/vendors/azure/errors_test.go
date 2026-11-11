@@ -42,6 +42,8 @@ var expected = map[string]vendors.Class{
 	"PublicIPAddressCannotBeDeleted":           vendors.Retryable,
 	"InUseNetworkSecurityGroupCannotBeDeleted": vendors.Retryable,
 	"ScopeLocked":                              vendors.Retryable,
+	"ApplicationSecurityGroupInUse":            vendors.Retryable,
+	"ProximityPlacementGroupInUse":             vendors.Retryable,
 	"ResourceNotFound":                         vendors.NotFound,
 	"ResourceGroupNotFound":                    vendors.NotFound,
 	"VMNotFound":                               vendors.NotFound,

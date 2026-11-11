@@ -29,7 +29,8 @@ type Network struct {
 	// SubnetID and NSGID are ARM IDs; the NIC takes one NSG.
 	SubnetID string
 	NSGID    string
-	// ASGIDs are the application security groups the NIC joins (isolation).
+	// ASGIDs are the application security groups the NIC joins (isolation):
+	// the one of a managed network security group.
 	ASGIDs []string
 	// PPGID is the proximity placement group of a placement profile.
 	PPGID string
@@ -49,7 +50,7 @@ func NetworkOf(p *vendors.Prepared) Network {
 			n.ResourceGroup = r.ID
 		case KindSubnets:
 			n.SubnetID = r.ID
-		case KindSecurityGroups:
+		case KindSecurityGroups, KindRunSecurityGroups:
 			n.NSGID = r.ID
 		case KindAppSecGroups:
 			n.ASGIDs = append(n.ASGIDs, r.ID)
@@ -257,12 +258,19 @@ func (l LaunchSpec) NIC(pipID string) armnetwork.Interface {
 // DeviceHints returns the guest device path of every data disk: the LUN is the
 // disk's index, so the user-data can be rendered before the VM exists
 // (/dev/disk/azure/scsi1/lun<N>; the udev rules on Flatcar are a spike item).
-func (l LaunchSpec) DeviceHints() []vendors.DeviceHint {
-	disks := l.Settings.DataDisks()
+func (l LaunchSpec) DeviceHints() []vendors.DeviceHint { return deviceHints(l.Settings) }
+
+// deviceHints are the hints of the data disks of the settings.
+func deviceHints(st Settings) []vendors.DeviceHint {
+	disks := st.DataDisks()
 	out := make([]vendors.DeviceHint, 0, len(disks))
 	for i, d := range disks {
+		fs := d.Filesystem
+		if fs == "" {
+			fs = "ext4"
+		}
 		out = append(out, vendors.DeviceHint{
-			Name: d.Name, Filesystem: d.Filesystem, MountPath: d.MountPath,
+			Name: d.Name, Filesystem: fs, MountPath: d.MountPath,
 			ByID: fmt.Sprintf("/dev/disk/azure/scsi1/lun%d", i), SizeBytes: int64(d.DiskSizeGB) << 30,
 		})
 	}

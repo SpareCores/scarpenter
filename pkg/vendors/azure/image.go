@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
 	"k8s.io/utils/clock"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -26,13 +27,13 @@ const imageCacheTTL = time.Hour
 type Resolved struct {
 	Image ImageRef
 	// Plan is the purchase plan, nil when the image has none.
-	Plan *ImagePlan
+	Plan  *ImagePlan
+	image armcompute.VirtualMachineImage
 }
 
 // Images resolves the official Flatcar marketplace images (rung 1 of the image
-// ladder, ADR-021) and checks their terms. The images kind of plan 14 (A1)
-// plugs in before the marketplace lookup (TODO(plan 14)): its URNs are checked
-// the same way, through Get.
+// ladder, ADR-021) and checks their terms. The URNs the images kind (plan 14, A1)
+// selects are read the same way, through Lookup.
 type Images struct {
 	API    ImageAPI
 	Terms  AgreementAPI
@@ -114,24 +115,93 @@ func (i *Images) resolve(ctx context.Context, req vendors.ImageRequest) (*Resolv
 		return nil, err
 	}
 	for _, sku := range candidates {
-		img, err := i.API.Get(ctx, req.Region, publisher, offer, sku, req.Version)
+		ref := ImageRef{Publisher: publisher, Offer: offer, SKU: sku, Version: req.Version}
+		out, img, err := i.fetch(ctx, req.Region, ref)
 		if err != nil {
-			if isNotFound(err) {
+			if vendors.IsClass(err, vendors.NotFound) {
 				continue
 			}
-			return nil, classify(err, errContext{})
+			return nil, err
 		}
-		ref := ImageRef{Publisher: publisher, Offer: offer, SKU: sku, Version: req.Version}
-		out := &Resolved{Image: ref}
-		if img.Properties != nil && img.Properties.Plan != nil && deref(img.Properties.Plan.Name) != "" {
-			p := img.Properties.Plan
-			out.Plan = &ImagePlan{Name: deref(p.Name), Product: deref(p.Product), Publisher: deref(p.Publisher)}
+		if a := ArchOfImage(img); a != "" && a != req.Arch {
+			continue // the offer holds images of the other architecture
 		}
 		return out, nil
 	}
 	return nil, vendors.NewError(vendors.NotFound, codeImageNotFound,
 		fmt.Errorf("no %s image of %s %s version %s in %s (tried %s)",
 			req.Arch, offer, req.Channel, req.Version, req.Region, strings.Join(candidates, ", ")))
+}
+
+// fetch reads one image version: NotFound (ImageNotFound) when the platform has
+// no such image in the region. The image is returned too, for its architecture.
+func (i *Images) fetch(
+	ctx context.Context, region string, ref ImageRef,
+) (*Resolved, armcompute.VirtualMachineImage, error) {
+	img, err := i.API.Get(ctx, region, ref.Publisher, ref.Offer, ref.SKU, ref.Version)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, img, vendors.NewError(vendors.NotFound, codeImageNotFound,
+				fmt.Errorf("the image %s does not exist in %s: %w", ref.URN(), region, err))
+		}
+		return nil, img, classify(err, errContext{})
+	}
+	out := &Resolved{Image: ref}
+	if img.Properties != nil && img.Properties.Plan != nil && deref(img.Properties.Plan.Name) != "" {
+		p := img.Properties.Plan
+		out.Plan = &ImagePlan{Name: deref(p.Name), Product: deref(p.Product), Publisher: deref(p.Publisher)}
+	}
+	return out, img, nil
+}
+
+// Lookup reads the image of a URN in the region (cached for an hour, with the
+// misses): the image a launch needs the plan of, and the images the `images`
+// kind names.
+func (i *Images) Lookup(ctx context.Context, region string, ref ImageRef) (*Resolved, armcompute.VirtualMachineImage, error) {
+	key := "urn|" + region + "|" + strings.ToLower(ref.URN())
+	if r, err, ok := i.cacheGet(key); ok {
+		var img armcompute.VirtualMachineImage
+		if r != nil {
+			img = r.image
+		}
+		return r, img, err
+	}
+	r, img, err := i.fetch(ctx, region, ref)
+	if err == nil {
+		r.image = img
+	}
+	if err == nil || vendors.IsClass(err, vendors.NotFound) {
+		i.cachePut(key, r, err)
+	}
+	return r, img, err
+}
+
+// ArchOfImage is the architecture an image reports (amd64 or arm64), "" when it
+// reports none.
+func ArchOfImage(img armcompute.VirtualMachineImage) string {
+	if img.Properties == nil || img.Properties.Architecture == nil {
+		return ""
+	}
+	switch strings.ToLower(string(*img.Properties.Architecture)) {
+	case "x64":
+		return archAMD64
+	case "arm64":
+		return archARM64
+	}
+	return ""
+}
+
+// ChannelOfSKU reads the Flatcar channel from the SKU name of the official
+// offers (stable-gen2, beta, lts2024-gen2); "" for a name that does not say.
+func ChannelOfSKU(sku string) string {
+	name := strings.TrimSuffix(strings.ToLower(sku), "-gen2")
+	switch {
+	case name == "stable" || name == "beta" || name == "alpha":
+		return name
+	case strings.HasPrefix(name, "lts"):
+		return "lts"
+	}
+	return ""
 }
 
 // skuCandidates lists the SKU names that can hold the release: the channel's

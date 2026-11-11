@@ -33,7 +33,7 @@ const (
 
 // Compute is the instance layer of the driver over the API interfaces: launch,
 // lookup, list and delete of the VMs of one cluster in one subscription. The
-// vendors.Driver methods are thin wrappers over it (TODO(plan 14)).
+// vendors.Driver methods are thin wrappers over it.
 type Compute struct {
 	Clients Clients
 	// Cluster is the controller's cluster name: the value of the cluster tag
@@ -64,9 +64,8 @@ func (c *Compute) owned(vm armcompute.VirtualMachine) bool {
 }
 
 // Launch is one launch attempt: the replay lookup by the deterministic name,
-// the public IP and NIC (what Prepare makes per NodeClaim, TODO(plan 14)), the
-// VM, the wait, and the cleanup of a failed attempt so that the key stays
-// unused.
+// the public IP and NIC of the NodeClaim, the VM, the wait, and the cleanup of a
+// failed attempt so that the key stays unused.
 func (c *Compute) Launch(ctx context.Context, l LaunchSpec) (*vendors.Instance, error) {
 	name, rg := l.VMName(), l.Network.ResourceGroup
 	ec := errContext{size: l.Size, spot: l.Spot}
@@ -121,7 +120,7 @@ func (c *Compute) Launch(ctx context.Context, l LaunchSpec) (*vendors.Instance, 
 				return c.instance(ctx, vm)
 			}
 		}
-		return nil, c.launchFailed(ctx, rg, name, err, ec)
+		return nil, c.launchFailed(ctx, rg, name, l, err, ec)
 	}
 	cctx, cancel = context.WithTimeout(ctx, callTimeout)
 	vm, err := c.Clients.VMs.Get(cctx, rg, name, true)
@@ -147,10 +146,13 @@ func isLeftover(vm armcompute.VirtualMachine, l LaunchSpec) bool {
 
 // launchFailed handles the error of the create: it is classified, and for a
 // class that is not transient the VM of the attempt is deleted (waiting),
-// because a failed create leaves the key unused. A transient error leaves the
-// VM, which the replay finds or the next PUT completes. A delete that fails is
-// Retryable.
-func (c *Compute) launchFailed(ctx context.Context, rg, name string, err error, ec errContext) error {
+// because a failed create leaves the key unused, and so are its NIC and public
+// IP, which nothing else would collect (their names do not carry the engine's
+// prefix). A transient error leaves them all, which the replay finds or the next
+// PUT completes. A delete that fails is Retryable.
+func (c *Compute) launchFailed(
+	ctx context.Context, rg, name string, l LaunchSpec, err error, ec errContext,
+) error {
 	cerr := classify(err, ec)
 	if ctx.Err() != nil {
 		return cerr
@@ -162,7 +164,23 @@ func (c *Compute) launchFailed(ctx context.Context, rg, name string, err error, 
 		return vendors.NewError(vendors.Retryable, vendors.CodeOf(derr),
 			fmt.Errorf("launch failed (%w) and the VM could not be deleted: %w", cerr, derr))
 	}
+	c.dropNetwork(ctx, rg, l)
 	return cerr
+}
+
+// dropNetwork deletes the NIC and the public IP of a launch that failed, best
+// effort: what it cannot delete is left to the sweeper, and the next attempt
+// creates them again under the same names.
+func (c *Compute) dropNetwork(ctx context.Context, rg string, l LaunchSpec) {
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	_ = c.Clients.NICs.Delete(cctx, rg, l.NICName())
+	cancel()
+	if !l.PublicIPv4 {
+		return
+	}
+	cctx, cancel = context.WithTimeout(ctx, callTimeout)
+	_ = c.Clients.PIPs.Delete(cctx, rg, l.PIPName())
+	cancel()
 }
 
 // deleteVM force-deletes a VM and waits; a VM that is gone is success.
