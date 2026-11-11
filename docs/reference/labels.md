@@ -83,5 +83,6 @@ with `spec.billing.retainUntilPeriodEnd: true`:
 | Key | Meaning |
 |---|---|
 | `scarpenter.sparecores.com/retain-until` (annotation) | The deadline (RFC 3339) until which the node is held. It is also the marker that SCarpenter set `karpenter.sh/do-not-disrupt` on the node: only then does the controller remove that annotation, a `do-not-disrupt` without the marker is the user's and is never touched. |
+| `scarpenter.sparecores.com/hold-released-until` (annotation) | A release under pressure was blocked by the NodePool's disruption budget, so the node lost its hold until this time (the end of its current period, RFC 3339): it is an ordinary empty node for Karpenter's emptiness meanwhile. Removed with the next hold, or when the node stops qualifying. |
 | `scarpenter.sparecores.com/billing-start` (annotation) | Copied from the NodeClaim at registration (see above). |
 | `scarpenter.sparecores.com/releasing` (taint, `NoSchedule`) | The node is being released at the end of its paid period (or under pressure: the taint's value is `period-end`, `limit`, `quota` or `max-retained`). Put on for the 5 seconds before the final check and left until the node is gone. |

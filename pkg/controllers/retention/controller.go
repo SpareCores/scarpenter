@@ -380,6 +380,9 @@ func (c *Controller) leaveAlone(ctx context.Context, in *nodeInfo) (reconcile.Re
 	if err := c.dropHold(ctx, in.node); err != nil {
 		return reconcile.Result{}, err
 	}
+	if err := c.clearHoldReleased(ctx, in.node); err != nil {
+		return reconcile.Result{}, err
+	}
 	switch in.skip {
 	case SkipSpot, SkipStaticPool, SkipConsolidationNever, SkipDrifted, SkipUserDoNotDisrupt:
 		c.publish(in.node, corev1.EventTypeNormal, EventRetentionSkipped, in.skip+": "+in.message, in.skip)
@@ -430,7 +433,11 @@ func (c *Controller) hold(ctx context.Context, in *nodeInfo) (reconcile.Result, 
 			return reconcile.Result{}, err
 		}
 		logger.V(1).Info("held", "billingStart", in.start, "boundary", boundary, "deadline", deadline)
-		return reconcile.Result{RequeueAfter: deadline.Sub(now) + requeueSlack}, nil
+		next := deadline
+		if until, ok := holdReleasedUntil(in.node); ok && now.Before(until) && until.Before(next) {
+			next = until
+		}
+		return reconcile.Result{RequeueAfter: next.Sub(now) + requeueSlack}, nil
 	}
 	if !empty {
 		// Busy (or not Initialized, which is never deleted by SCarpenter): let
@@ -476,20 +483,75 @@ func (c *Controller) hold(ctx context.Context, in *nodeInfo) (reconcile.Result, 
 }
 
 // ensureHold puts the hold on the node: Karpenter's do-not-disrupt, and the
-// marker that says SCarpenter set it, with the deadline.
+// marker that says SCarpenter set it, with the deadline. A node whose hold a
+// blocked release under pressure took (AnnotationHoldReleasedUntil) stays
+// without one until that time; the expired annotation goes with the new hold.
 func (c *Controller) ensureHold(ctx context.Context, in *nodeInfo, deadline time.Time) error {
+	if until, ok := holdReleasedUntil(in.node); ok && c.opts.Clock.Now().Before(until) {
+		return c.dropHold(ctx, in.node)
+	}
 	want := deadline.UTC().Format(time.RFC3339)
 	a := in.node.Annotations
-	if a[karpv1.DoNotDisruptAnnotationKey] == valueTrue && a[v1alpha1.AnnotationRetainUntil] == want {
+	_, released := a[v1alpha1.AnnotationHoldReleasedUntil]
+	if a[karpv1.DoNotDisruptAnnotationKey] == valueTrue && a[v1alpha1.AnnotationRetainUntil] == want && !released {
 		return nil
 	}
-	if err := c.annotate(ctx, in.node, map[string]string{
-		karpv1.DoNotDisruptAnnotationKey: valueTrue, v1alpha1.AnnotationRetainUntil: want,
-	}); err != nil {
+	orig := in.node.DeepCopy()
+	if in.node.Annotations == nil {
+		in.node.Annotations = map[string]string{}
+	}
+	in.node.Annotations[karpv1.DoNotDisruptAnnotationKey] = valueTrue
+	in.node.Annotations[v1alpha1.AnnotationRetainUntil] = want
+	delete(in.node.Annotations, v1alpha1.AnnotationHoldReleasedUntil)
+	if err := c.opts.Client.Patch(ctx, in.node, client.MergeFrom(orig)); client.IgnoreNotFound(err) != nil {
 		return err
 	}
 	c.publish(in.node, corev1.EventTypeNormal, EventRetainedUntil,
 		fmt.Sprintf("held until %s, the end of the billing period less the margin", want), want)
+	return nil
+}
+
+// holdReleasedUntil reads AnnotationHoldReleasedUntil; an unreadable value
+// counts as none.
+func holdReleasedUntil(node *corev1.Node) (time.Time, bool) {
+	raw, ok := node.Annotations[v1alpha1.AnnotationHoldReleasedUntil]
+	if !ok {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	return t, err == nil
+}
+
+// releaseHoldUntil takes the hold off a node until a time (a release under
+// pressure that its budget blocked), in one patch, so that a reconcile of the
+// node does not put it back before then.
+func (c *Controller) releaseHoldUntil(ctx context.Context, node *corev1.Node, until time.Time) error {
+	orig := node.DeepCopy()
+	if node.Annotations == nil {
+		node.Annotations = map[string]string{}
+	}
+	if node.Annotations[v1alpha1.AnnotationRetainUntil] != "" {
+		delete(node.Annotations, v1alpha1.AnnotationRetainUntil)
+		delete(node.Annotations, karpv1.DoNotDisruptAnnotationKey)
+	}
+	node.Annotations[v1alpha1.AnnotationHoldReleasedUntil] = until.UTC().Format(time.RFC3339)
+	if err := c.opts.Client.Patch(ctx, node, client.MergeFrom(orig)); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	return nil
+}
+
+// clearHoldReleased removes AnnotationHoldReleasedUntil (a node that stopped
+// qualifying).
+func (c *Controller) clearHoldReleased(ctx context.Context, node *corev1.Node) error {
+	if _, ok := node.Annotations[v1alpha1.AnnotationHoldReleasedUntil]; !ok {
+		return nil
+	}
+	orig := node.DeepCopy()
+	delete(node.Annotations, v1alpha1.AnnotationHoldReleasedUntil)
+	if err := c.opts.Client.Patch(ctx, node, client.MergeFrom(orig)); err != nil {
+		return client.IgnoreNotFound(err)
+	}
 	return nil
 }
 

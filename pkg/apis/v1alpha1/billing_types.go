@@ -24,6 +24,12 @@ const (
 	// controller put karpenter.sh/do-not-disrupt there: only then is that
 	// annotation removed by it.
 	AnnotationRetainUntil = Group + "/retain-until"
+	// AnnotationHoldReleasedUntil is set by the retention controller on an
+	// empty node whose release under pressure a disruption budget blocked: the
+	// node loses its hold until this time (its period boundary, RFC 3339), so
+	// that it is an ordinary empty node for Karpenter's emptiness. The
+	// controller removes it after that time, or when the node stops qualifying.
+	AnnotationHoldReleasedUntil = Group + "/hold-released-until"
 	// TaintReleasing is the NoSchedule taint of the release sequence: the node
 	// is about to be deleted at the end of its paid period.
 	TaintReleasing = Group + "/releasing"

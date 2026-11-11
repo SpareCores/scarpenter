@@ -24,6 +24,7 @@ import (
 	karpresources "sigs.k8s.io/karpenter/pkg/utils/resources"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/billing"
 	"github.com/SpareCores/scarpenter/pkg/scope"
 )
 
@@ -31,6 +32,9 @@ import (
 type candidate struct {
 	in       *nodeInfo
 	deadline time.Time
+	// boundary is the end of the node's current period: a candidate that its
+	// budget blocks stays without a hold until then.
+	boundary time.Time
 	capacity corev1.ResourceList
 }
 
@@ -95,7 +99,8 @@ func (c *Controller) candidates(ctx context.Context) ([]*candidate, error) {
 		if err != nil {
 			deadline = in.start
 		}
-		out = append(out, &candidate{in: in, deadline: deadline, capacity: node.Status.Capacity})
+		boundary, _, _, _ := billing.Window(in.start, in.rule, in.settings.MinPeriod, in.settings.Margin, c.opts.Clock.Now())
+		out = append(out, &candidate{in: in, deadline: deadline, boundary: boundary, capacity: node.Status.Capacity})
 	}
 	slices.SortFunc(out, func(a, b *candidate) int {
 		if d := a.deadline.Compare(b.deadline); d != 0 {
@@ -131,7 +136,9 @@ func (c *Controller) release(ctx context.Context, cand *candidate, why string, d
 			fmt.Sprintf("the node would be released (%s) but the disruption budget of NodePool %s allows no deletion; "+
 				"it loses its hold and Karpenter deletes it when the budget allows", scopeText(why), in.pool.Name),
 			"pressure", why)
-		if err := c.dropHold(ctx, in.node); err != nil {
+		// The hold stays off until the period's boundary (an annotation, so a
+		// reconcile or a restart does not put it back before then).
+		if err := c.releaseHoldUntil(ctx, in.node, cand.boundary); err != nil {
 			log.FromContext(ctx).Error(err, "dropping the hold of a node blocked by a budget", "node", in.node.Name)
 		}
 	}

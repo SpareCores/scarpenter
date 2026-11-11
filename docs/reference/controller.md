@@ -223,14 +223,15 @@ non-static NodePool whose `consolidateAfter` is not `Never`, not drifted, withou
 3. **Pressure.** A pending pod that Karpenter has not mapped to a NodeClaim and that a NodePool's `spec.limits` leave no room for, a vendor
    quota refused by the cloud provider (`OnQuotaRefusal`) or blocked in the quota tracker for every offering of a NodeClass, or more held empty
    nodes than `spec.billing.maxRetainedNodes`, releases held empty nodes (nearest deadline first, ties by oldest billing start), as many as cover the request,
-   with the same budget check and sequence. A candidate that a budget blocks loses its hold and the next is tried. The signals are read every 10 s.
+   with the same budget check and sequence. A candidate that a budget blocks loses its hold until the end of its period (annotation
+   `scarpenter.sparecores.com/hold-released-until`, so neither a reconcile nor a restart puts it back) and the next is tried. The signals are read every 10 s.
 
 A restart changes nothing: the state is on the Node (annotations and taint), the NodeClaim and the clock. The budget check and the mark are
 serialised; a race with Karpenter's own disruption (its 15 s re-validation) can exceed a budget by one node, which
 `scarpenter_billing_budget_overshoot_total` counts.
 
 **Annotations and taint** (see [labels](labels.md)): `scarpenter.sparecores.com/billing-start` (NodeClaim, Node),
-`scarpenter.sparecores.com/retain-until` (Node), taint `scarpenter.sparecores.com/releasing:NoSchedule` (Node).
+`scarpenter.sparecores.com/retain-until` and `scarpenter.sparecores.com/hold-released-until` (Node), taint `scarpenter.sparecores.com/releasing:NoSchedule` (Node).
 
 **Status**: `status.billing` lists per vendor of the NodeClass `{vendor, active, reason, message, period, source}` and the condition
 `BillingRetention` summarises it, under the field manager `scarpenter-billing`. Reasons: `Active` (the message says `increments` or

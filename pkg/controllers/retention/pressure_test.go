@@ -227,6 +227,27 @@ func TestPressureReleaseBlockedByABudgetTakesTheNextCandidate(t *testing.T) {
 	if !free.tainted() {
 		t.Error("the next candidate is released")
 	}
+	// A reconcile of the blocked node (its annotations changed) or a restart
+	// does not put the hold back before the period's boundary.
+	blocked.reconcile()
+	h.newController()
+	blocked.reconcile()
+	if blocked.held() {
+		t.Error("the hold came back before the boundary")
+	}
+	h.pressure()
+	if h.events.count(retention.EventReleaseBlockedByBudget, blocked.name) != 1 || blocked.tainted() {
+		t.Error("a node without its hold is no candidate for the next tick")
+	}
+	// After the boundary (start -30m, 60m period) the node is held again.
+	h.clk.Step(31 * time.Minute)
+	blocked.reconcile()
+	if !blocked.held() {
+		t.Error("the node is held again in its next period")
+	}
+	if _, ok := blocked.node().Annotations[v1alpha1.AnnotationHoldReleasedUntil]; ok {
+		t.Error("the expired hold-released-until annotation stays")
+	}
 }
 
 // maxRetainedNodes is a safety valve, unset by default: with it set, the held
