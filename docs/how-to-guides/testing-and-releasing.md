@@ -227,6 +227,24 @@ Read a failure by its row: a Flatcar image gone means moving the pin in `default
 provider; a type means changing the types of `defaults.sh` and the CI policy's deny list
 (`ci-policy.sh` takes the allowed types from the same file).
 
+**Hetzner Cloud.** The canary of vendor `hcloud` (`test/canary/hcloud.go`) uses a **read-only token** of the
+CI project (the secret `HCLOUD_TOKEN` of the environment `e2e-canary`; the optional variable
+`E2E_HCLOUD_LOCATIONS` names the locations). Besides the shared sysext and k3s checks it checks:
+
+| Check | What it calls | What it catches |
+|---|---|---|
+| locations | `Driver.Regions` (`GET /locations`) | a lane location gone |
+| Flatcar snapshot, amd64 and arm64 | `Driver.ResolveImage` (exactly one labelled snapshot of the pinned release, the path the NodeClass condition `ImagesReady` uses) | a snapshot deleted or doubled in the project |
+| Flatcar release, amd64 and arm64 | HEAD of `flatcar_production_hetzner_image.bin.bz2` and GET of its `.DIGESTS` on the release server (shared artifact checks) | the image `hcloud-upload-image` makes snapshots from moved or removed |
+| server types | `GET /server_types`: every type of the lane exists in a lane location and is not past `deprecation.unavailable_after`; a temporarily unavailable entry is noted, not a failure | a type retired or no longer offered |
+| API rate limit | the `RateLimit-*` headers of the last response, at least 1000 of 3600 left | another run using the project |
+| read-only guard | the audit | a check that tried a write |
+
+It cannot write: the token is read-only, the HTTP transport of the real client refuses every method but `GET`
+before the network (`test/canary/hcloud_guard.go`), and the driver is given an API that refuses every `Create*`
+and `Delete*` call; `hcloud_test.go` checks both walls (every method of `hcloud.API` is a passed-through read or a
+refused write). There is no policy to print: Hetzner tokens are read or read-write for the whole project.
+
 ## Releasing
 
 There is no version bump commit: the version comes from the tag alone (the Dockerfile
@@ -301,6 +319,20 @@ A vendor lane is not added to `test/e2e-vendors.txt` before every item is true f
 | A read-only role for the canary | `canary-policy.sh`, a role of its own, environment `e2e-canary` |
 | Approval for every run of pull request or release code that reaches the account | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) |
 
+**The Hetzner lane's guards** (plan 15), against the table above:
+
+| Guard | hcloud lane |
+|---|---|
+| Budget alert to a person | the project's usage alert (Console) |
+| Type deny | **none possible** in the token: the lane's NodePools list the types (`cx23`, `cax11`, `cpx22`), and the project's server limit (at least 10, requested low) bounds a bug |
+| Region restriction | `E2E_HCLOUD_LOCATIONS` (default `fsn1,nbg1,hel1`); not enforceable by the token |
+| Run tag | label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` on every resource |
+| Sweeper | `e2e-hcloud-sweeper.yml` every three hours, environment `e2e-sweeper`: servers, volumes, placement groups, firewalls and unassigned Primary IPs older than two hours; never the Flatcar snapshots |
+| Run time limit, teardown | as AWS (90 minutes, 55 for the scenarios, `if: always()`) |
+| Teardown that fails on leftovers | `teardown.sh` |
+| Read-only canary | a read-only token, a transport guard that refuses every method but GET, with a test |
+| Approval | the environment `e2e`'s required reviewers |
+
 ## Adding a vendor lane
 
 Eight or more vendors will follow AWS (OCI is next); the mechanics are one directory, one
@@ -341,6 +373,9 @@ canary role, the environment secrets, the quotas, and the tailnet tags and ACL.
 None of the following lives here; the operator of the CI account creates it, with whatever
 tool they use, and this repository assumes it (a fork needs the same, in its own account):
 
+- **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, and the secret
+  `HCLOUD_TOKEN` in the environments `e2e` and `e2e-sweeper` (read-write) and `e2e-canary` (read-only); the optional
+  variable `E2E_HCLOUD_LOCATIONS`. Details in [Test and develop](testing.md#the-l5-lane-of-hetzner-cloud).
 - **Environment `e2e`**: the secret `AWS_ROLE_ARN` (the CI role) and the variables
   `AWS_REGION`, `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`, **required reviewers** (the
   maintainers who approve runs) with "Prevent self-review" on and administrators not allowed

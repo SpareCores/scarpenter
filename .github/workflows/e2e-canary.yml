@@ -10,11 +10,12 @@ name: L5 canary
 #
 # Provisioned outside this repository: the environment e2e-canary with the secret
 # AWS_ROLE_ARN (the read-only role, trusted for this repository's OIDC subject of the
-# environment) and the variable AWS_REGION (optional, default us-east-2). The Vultr canary
-# (once vultr is a line of test/e2e-vendors.txt) needs the environment secret VULTR_API_KEY, the
-# key of a second sub-user with read access only (its IP allowlist must admit the runners), and
-# the variable VULTR_REGION (optional, default ewr). The pinned Flatcar version and the plans
-# are the lane's (test/e2e-vultr/defaults.sh).
+# environment) and the variable AWS_REGION (optional, default us-east-2); for hcloud the secret
+# HCLOUD_TOKEN (a read-only token of the CI project) and the optional variable E2E_HCLOUD_LOCATIONS.
+# The Vultr canary (once vultr is a line of test/e2e-vendors.txt) needs the environment secret
+# VULTR_API_KEY, the key of a second sub-user with read access only (its IP allowlist must admit
+# the runners), and the variable VULTR_REGION (optional, default ewr). The pinned Flatcar version
+# and the plans are the lane's (test/e2e-vultr/defaults.sh).
 on:
   schedule:
     - cron: "41 3 * * *"
@@ -65,6 +66,7 @@ jobs:
     env:
       E2E_VENDOR: ${{ matrix.vendor }}
       VAR_AWS_REGION: ${{ vars.AWS_REGION }}
+      VAR_HCLOUD_LOCATIONS: ${{ vars.E2E_HCLOUD_LOCATIONS }}
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -80,6 +82,7 @@ jobs:
         run: |
           case "${E2E_VENDOR}" in
             aws) echo "AWS_REGION=${VAR_AWS_REGION:-us-east-2}" >> "${GITHUB_ENV}" ;;
+            hcloud) echo "E2E_HCLOUD_LOCATIONS=${VAR_HCLOUD_LOCATIONS:-fsn1,nbg1,hel1}" >> "${GITHUB_ENV}" ;;
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
           esac
 
@@ -91,6 +94,17 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
           role-session-name: scarpenter-canary-${{ github.run_id }}
+
+      # A READ-ONLY token of the CI project (created as such in the Console), the secret
+      # HCLOUD_TOKEN of the environment e2e-canary; the canary's transport refuses every method but GET too.
+      - name: The read-only token (hcloud)
+        if: matrix.vendor == 'hcloud'
+        env:
+          HCLOUD_TOKEN_SECRET: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          [ -n "${HCLOUD_TOKEN_SECRET}" ] || { echo "::error::the environment secret HCLOUD_TOKEN is not set"; exit 1; }
+          echo "::add-mask::${HCLOUD_TOKEN_SECRET}"
+          echo "HCLOUD_TOKEN=${HCLOUD_TOKEN_SECRET}" >> "${GITHUB_ENV}"
 
       # Vultr has no OIDC for callers: a read-only sub-user's key (the canary's guard refuses
       # every non-read call as well).

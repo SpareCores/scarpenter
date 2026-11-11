@@ -34,8 +34,9 @@ import (
 
 // vendorChecks maps a vendor of test/e2e-vendors.txt to its checks.
 var vendorChecks = map[string]func(ctx context.Context, cfg *config, rep *report){
-	"aws":       checkAWS,
-	vendorVultr: checkVultr,
+	vendorAWS:    checkAWS,
+	vendorHCloud: checkHCloud,
+	vendorVultr:  checkVultr,
 }
 
 func main() {

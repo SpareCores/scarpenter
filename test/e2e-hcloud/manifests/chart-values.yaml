@@ -1,0 +1,37 @@
+# The values the L5 lane installs the chart with (install.sh adds the image of the
+# build under test). What is left unset is the chart's own default on purpose: the
+# cluster DNS is found by the controller (kube-dns Service of the k3s cluster), the
+# Keeper is the public one, the sysexts come from the upstream releases, and the
+# kubelet client CA is copied from kube-system/extension-apiserver-authentication
+# (the client CA of k3s, which `kubectl logs` and `exec` need).
+#
+# Credentials: the CI project's token, from the Secret of install.sh (Hetzner has no workload
+# identity; the token is the whole credential).
+cluster:
+  name: ${E2E_CLUSTER}
+  # The API server's tailnet address: the nodes reach it over Tailscale.
+  apiServerEndpoint: https://${E2E_API_HOST}:6443
+kubeletClientCA:
+  source: extensionApiserverAuthentication
+vendors:
+  aws:
+    enabled: false
+  hcloud:
+    enabled: true
+    tokenSecretRef: {name: hcloud-credentials, key: HCLOUD_TOKEN}
+    # The project's server limit, so that the controller knows its headroom.
+    serverLimit: ${E2E_HCLOUD_SERVER_LIMIT}
+gc: {interval: 1m}
+# Once its NodeClass is deleted, a managed firewall (an idleTTL kind) is governed by this
+# default, not by the NodeClass's own 5-minute lifetime: without it the final scenario would
+# wait for a 24-hour TTL.
+managedResources: {defaultTTL: 5m}
+karpenter:
+  logLevel: debug
+# The control plane's node carries the CriticalAddonsOnly taint (bootstrap.sh), so
+# that test workloads land on SCarpenter's nodes only.
+tolerations:
+  - {key: CriticalAddonsOnly, operator: Exists}
+resources:
+  requests: {cpu: 200m, memory: 640Mi}
+  limits: {memory: 1536Mi}

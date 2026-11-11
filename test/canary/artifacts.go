@@ -44,6 +44,54 @@ func checkArtifacts(ctx context.Context, cfg *config, rep *report) {
 		})
 	}
 	rep.check("k3s "+cfg.k3sVersion, func() (string, error) { return k3sRelease(ctx, cfg) })
+	if cfg.flatcarImageFile != "" {
+		for _, arch := range []string{archAMD64, archARM64} {
+			rep.check(fmt.Sprintf("Flatcar release %s %s %s", cfg.flatcarChannel, cfg.flatcarVersion, arch),
+				func() (string, error) { return flatcarImage(ctx, cfg, arch) })
+		}
+	}
+}
+
+// defaultFlatcarBase is the Flatcar release server (per channel).
+const defaultFlatcarBase = "https://{channel}.release.flatcar-linux.net"
+
+// flatcarImage checks that the release server still serves the image the vendor's snapshots are
+// made from (a HEAD: the file is hundreds of megabytes) and its .DIGESTS, for the pinned version.
+func flatcarImage(ctx context.Context, cfg *config, arch string) (string, error) {
+	base := cfg.flatcarBase
+	if base == "" {
+		base = defaultFlatcarBase
+	}
+	base = strings.TrimRight(strings.ReplaceAll(base, "{channel}", cfg.flatcarChannel), "/")
+	url := fmt.Sprintf("%s/%s-usr/%s/%s", base, arch, cfg.flatcarVersion, cfg.flatcarImageFile)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	size, err := httpStatus(ctx, http.MethodHead, url)
+	if err != nil {
+		return "", err
+	}
+	if _, err := httpStatus(ctx, http.MethodGet, url+".DIGESTS"); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s, %d MB, with .DIGESTS", cfg.flatcarImageFile, size>>20), nil
+}
+
+// httpStatus requests the URL and reports the content length of a 200 answer.
+func httpStatus(ctx context.Context, method, url string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("%s %s: %w", method, url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("%s %s: %s", method, url, resp.Status)
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	return resp.ContentLength, nil
 }
 
 // k3sRelease reads the checksum file of the k3s release the lane installs and finds the

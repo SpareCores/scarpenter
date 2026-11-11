@@ -1,0 +1,45 @@
+# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/15-hcloud.md): the tailscale template
+# with pinned versions, a storage profile with a small data volume (`db`), the placement profile
+# that puts a database and its client into one spread placement group (`spread`), a firewall
+# that SCarpenter creates with a short idle lifetime, and a benchmark metric for the
+# described-not-named scenario. The root disk is the server type's: there is nothing to set.
+#
+# It must exist before the controller starts: the label keys of a NodeClass's
+# metrics are registered with Karpenter core at start-up (install.sh applies it
+# before the chart).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-amd64
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every resource of the run, which the sweeper needs: a firewall or a
+  # volume has labels, and the sweeper filters by this one (ci-created-at, Unix seconds).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  metrics:
+    single-core:
+      benchmark: {id: "geekbench:score", config: {cores: single}}
+  profiles:
+    storage:
+      db:
+        hcloud:
+          data:
+            - {name: pgdata, size: 10G, filesystem: xfs, mountPath: /var/lib/pgdata}
+    placement:
+      spread: {hcloud: {placementGroup: {type: spread}}}
+  vendors:
+    hcloud:
+      regions: [${E2E_HCLOUD_LOCATIONS_YAML}]
+      # A short idle lifetime, so that the final scenario sees the NodeClass's firewall go
+      # (the default is 24 hours).
+      resources:
+        firewalls: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

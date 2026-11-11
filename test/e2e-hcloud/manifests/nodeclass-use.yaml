@@ -1,0 +1,30 @@
+# The NodeClass of the bring-your-own-resources scenario: the network (with a cloud subnet) and
+# the firewall the workflow created with the hcloud CLI (labelled scarpenter-e2e-byo=<cluster>)
+# are used, not created. Applied by the scenario, after the resources exist. A brought network
+# needs an explicit isolation (Hetzner firewalls filter only the public interface): the
+# network is dedicated to this NodeClass.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-use
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every resource of the run, which the sweeper needs: a firewall or a
+  # volume has labels, and the sweeper filters by this one (ci-created-at, Unix seconds).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    hcloud:
+      regions: [${E2E_BYO_LOCATION}]
+      networking: {isolation: nodeclass}
+      resources:
+        networks: {use: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}
+        firewalls: {use: {tags: {scarpenter-e2e-byo: "${E2E_CLUSTER}"}}}

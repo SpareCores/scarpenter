@@ -1,0 +1,67 @@
+name: L5 sweeper (Hetzner Cloud e2e)
+
+# Deletes what the L5 lane (e2e-cloud.yml, vendor hcloud) left behind in the CI project when a run
+# died or was cancelled before its teardown: servers, volumes, placement groups, firewalls and
+# unassigned Primary IPs of every cluster named scarpenter-ci-* that is older than two hours (the
+# label scarpenter.sparecores.com/cluster; the Flatcar snapshots are never touched). The selection
+# logic is test/e2e-hcloud/sweeper/sweep (tested against the Hetzner driver's in-memory API). The
+# token is the dedicated CI project's (a Hetzner token cannot be narrowed); the environment
+# e2e-sweeper is limited to main and has no reviewers, so that a scheduled sweep never waits for
+# an approval, and a manual run from another branch (whose code would hold the token without a
+# review) is refused.
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only report what would be deleted"
+        default: false
+        type: boolean
+      max_age:
+        description: "Minimum age of what is deleted (a Go duration)"
+        default: 2h
+        type: string
+
+# One sweep at a time, and not while a lane run is tearing down (the age limit keeps it
+# away from a running one anyway).
+concurrency:
+  group: e2e-hcloud-sweeper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    if: github.repository == 'SpareCores/scarpenter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: e2e-sweeper
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false # a privileged job restores no cache
+
+      - name: Sweep
+        env:
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_MAX_AGE: ${{ inputs.max_age }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          # Not below two hours: a lane run may take 90 minutes, and its resources must never
+          # look old enough to sweep while it runs.
+          age="${INPUT_MAX_AGE:-2h}"
+          if ! [[ "${age}" =~ ^(([2-9]|[1-9][0-9]+)h|(1[2-9][0-9]|[2-9][0-9]{2}|[1-9][0-9]{3,})m)$ ]]; then
+            echo "::error::max_age must be at least 2h (a Go duration in whole hours or minutes)"; exit 1
+          fi
+          args=(-max-age "${age}")
+          if [ "${INPUT_DRY_RUN}" = "true" ]; then args+=(-dry-run); fi
+          go run ./test/e2e-hcloud/sweeper "${args[@]}"

@@ -87,6 +87,7 @@ jobs:
       E2E_RUN_ID: ${{ github.run_id }}
       # The vendor's region variable is read in the Prepare step.
       VAR_AWS_REGION: ${{ vars.AWS_REGION }}
+      VAR_HCLOUD_LOCATIONS: ${{ vars.E2E_HCLOUD_LOCATIONS }}
       VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -139,6 +140,10 @@ jobs:
           # The vendor's own environment: the region of its lane.
           case "${E2E_VENDOR}" in
             aws) echo "AWS_REGION=${VAR_AWS_REGION:-us-east-2}" >> "${GITHUB_ENV}" ;;
+            hcloud)
+              valid E2E_HCLOUD_LOCATIONS "${VAR_HCLOUD_LOCATIONS}" '^[a-z0-9]+(,[a-z0-9]+)*$'
+              echo "E2E_HCLOUD_LOCATIONS=${VAR_HCLOUD_LOCATIONS:-fsn1,nbg1,hel1}" >> "${GITHUB_ENV}"
+              ;;
             vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
           esac
           mkdir -p "${RUNNER_TEMP}/e2e"
@@ -162,6 +167,18 @@ jobs:
           sha256sum: 52490ce0832b245857e2afef7426d6ae5a4b49fb391412833cc95729bd23f7de
           hostname: scarpenter-ci-${{ github.run_id }}-${{ inputs.vendor }}
           use-cache: false
+
+      # Hetzner has no federation: the token of the dedicated CI project is a secret of the
+      # environment e2e (required reviewers approve every run). It is needed from the first
+      # step on (bootstrap.sh makes the Flatcar snapshots), so this step comes before it.
+      - name: The CI project's token (hcloud)
+        if: inputs.vendor == 'hcloud'
+        env:
+          HCLOUD_TOKEN_SECRET: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          [ -n "${HCLOUD_TOKEN_SECRET}" ] || { echo "::error::the environment secret HCLOUD_TOKEN is not set"; exit 1; }
+          echo "::add-mask::${HCLOUD_TOKEN_SECRET}"
+          echo "HCLOUD_TOKEN=${HCLOUD_TOKEN_SECRET}" >> "${GITHUB_ENV}"
 
       - name: k3s, flannel and kube-proxy
         run: |

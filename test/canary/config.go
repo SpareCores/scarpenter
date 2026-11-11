@@ -28,19 +28,36 @@ type config struct {
 	// minOnDemand and minSpot are the vCPUs of quota the suite needs.
 	minOnDemand, minSpot int64
 
+	// flatcarImageFile is the file the vendor's images are made from, which the canary checks on
+	// the Flatcar release server (hcloud: the Hetzner raw image); empty: nothing to check.
+	flatcarImageFile string
+
 	sysextBase string
 	k3sBase    string
+	// flatcarBase is the Flatcar release server, with {channel}; tests replace it.
+	flatcarBase string
 }
 
 // vendorEnv maps a vendor to the environment variable of its region.
-var vendorEnv = map[string]string{"aws": "AWS_REGION", vendorVultr: "VULTR_REGION"}
+// For hcloud it is the comma-separated list of the lane's locations.
+var vendorEnv = map[string]string{
+	vendorAWS: "AWS_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorVultr: "VULTR_REGION",
+}
+
+// The vendors of the canary and the architecture its checks name.
+const (
+	vendorAWS    = "aws"
+	vendorHCloud = "hcloud"
+	archAMD64    = "amd64"
+	archARM64    = "arm64"
+)
 
 // typeVars are the variables of the instance types a lane pins, where a vendor's differ from
 // AWS's (Vultr has no Arm instances and no database type); noQuota are the vendors without a
-// readable quota (the vCPU pins are then not needed).
+// readable quota (the vCPU pins are then not needed; Hetzner's limits cannot be read).
 var (
 	typeVars = map[string][]string{vendorVultr: {"E2E_TYPE_AMD64", "E2E_TYPE_SECOND"}}
-	noQuota  = map[string]bool{vendorVultr: true}
+	noQuota  = map[string]bool{vendorHCloud: true, vendorVultr: true}
 )
 
 func loadConfig(vendor string, getenv func(string) string) (*config, error) {
@@ -84,6 +101,9 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 		if c.minSpot, err = intEnv(getenv, "E2E_MIN_VCPU_SPOT", &missing); err != nil {
 			return nil, err
 		}
+	}
+	if vendor == vendorHCloud {
+		c.flatcarImageFile = "flatcar_production_hetzner_image.bin.bz2"
 	}
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("missing %s: the pins come from test/e2e-%s/defaults.sh, run test/canary/run.sh %s",

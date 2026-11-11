@@ -1,0 +1,36 @@
+# Scenario 4c: described, not named. The pool allows the lane's described types; the
+# workload asks for 2 vCPUs (more than 1, fewer than 3), more than 3000 MiB of memory
+# and a single-core benchmark percentile above 0 (the
+# metric exists for the type). Node affinity, because Gt and Lt are not available to
+# a nodeSelector.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-described
+  labels: {app: e2e-described, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-described}
+  template:
+    metadata:
+      labels: {app: e2e-described, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-described
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: scarpenter.sparecores.com/vcpus, operator: Gt, values: ["1"]}
+                  - {key: scarpenter.sparecores.com/vcpus, operator: Lt, values: ["3"]}
+                  - {key: scarpenter.sparecores.com/memory-mib, operator: Gt, values: ["3000"]}
+                  - {key: scarpenter.sparecores.com/metric-single-core-pct, operator: Gt, values: ["0"]}
+      containers:
+        - name: probe
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
