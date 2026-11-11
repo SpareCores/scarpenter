@@ -66,7 +66,7 @@ func runAlicloud(ctx context.Context, cfg *config, rep *report, factory alicloud
 
 	// The Flatcar images the NodeClasses resolve (ImagesReady): the account's own images (rung 3,
 	// owner self), found by the name Flatcar-<channel>-<version>-<arch>, one per architecture.
-	for _, arch := range []string{"amd64", "arm64"} {
+	for _, arch := range []string{archAMD64, archARM64} {
 		rep.check(fmt.Sprintf("Flatcar %s %s %s", cfg.flatcarChannel, cfg.flatcarVersion, arch), func() (string, error) {
 			img, err := drv.ResolveImage(ctx, vendors.ImageRequest{
 				Region: cfg.region, Arch: arch, Channel: cfg.flatcarChannel, Version: cfg.flatcarVersion})

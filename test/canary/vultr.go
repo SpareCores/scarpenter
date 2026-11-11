@@ -69,7 +69,7 @@ func runVultr(ctx context.Context, cfg *config, rep *report, api vultr.API, a *a
 	// The Flatcar snapshot the NodeClasses resolve (ImagesReady): exactly one, complete.
 	rep.check(fmt.Sprintf("Flatcar snapshot %s %s amd64", cfg.flatcarChannel, cfg.flatcarVersion), func() (string, error) {
 		img, err := drv.ResolveImage(ctx, vendors.ImageRequest{
-			Region: cfg.region, Arch: "amd64", Channel: cfg.flatcarChannel, Version: cfg.flatcarVersion})
+			Region: cfg.region, Arch: archAMD64, Channel: cfg.flatcarChannel, Version: cfg.flatcarVersion})
 		if err != nil {
 			return "", fmt.Errorf("%w (create it from the images repository's URL, docs/how-to-guides/vultr-credentials.md)",
 				err)

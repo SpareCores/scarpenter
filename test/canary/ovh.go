@@ -92,7 +92,7 @@ func runOVH(ctx context.Context, cfg *config, rep *report, provider osapi.Provid
 	// The Flatcar image the NodeClasses resolve (ImagesReady): exactly one match.
 	rep.check(fmt.Sprintf("Flatcar %s %s amd64", cfg.flatcarChannel, cfg.flatcarVersion), func() (string, error) {
 		img, err := drv.ResolveImage(ctx, vendors.ImageRequest{
-			Region: cfg.region, Arch: "amd64", Channel: cfg.flatcarChannel, Version: cfg.flatcarVersion})
+			Region: cfg.region, Arch: archAMD64, Channel: cfg.flatcarChannel, Version: cfg.flatcarVersion})
 		if err != nil {
 			return "", err
 		}
