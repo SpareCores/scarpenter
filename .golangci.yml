@@ -73,6 +73,18 @@ linters:
           - goconst
           - dupl
         path: pkg/vendors/aws/fake/
+      # The Vultr driver's API interface, its real client and its fake repeat
+      # govultr's method signatures.
+      - linters:
+          - lll
+          - goconst
+          - dupl
+        path: pkg/vendors/vultr/(api|client)\.go
+      - linters:
+          - lll
+          - goconst
+          - dupl
+        path: pkg/vendors/vultr/fake/
       # The error table of the AWS driver and the test's independent copy of it.
       - linters:
           - dupl
