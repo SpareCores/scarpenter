@@ -82,6 +82,9 @@ type Options struct {
 	// LooseTemplateTier lets a clone have another tier than its template; by
 	// default it is refused (the plan marks this unverified, S1).
 	LooseTemplateTier bool
+	// ShortLabelKeys accepts one-character label keys, which UpCloud refuses (2 to
+	// 32 characters): the shared conformance suite seeds resources with them.
+	ShortLabelKeys bool
 	// AutoSettle completes every transition at once, so that no server is ever
 	// seen in maintenance.
 	AutoSettle bool

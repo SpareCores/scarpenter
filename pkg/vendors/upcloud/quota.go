@@ -121,20 +121,33 @@ func Snapshot(l upcloud.ResourceLimits, u Usage) *vendors.QuotaSnapshot {
 }
 
 // ReadQuota reads the limits and the usage and returns the account-wide
-// snapshot (GlobalQuotas of the future driver).
-// TODO(plan 14): the driver's QuotaReporter wraps it, caching the limits.
+// snapshot (the driver's QuotaReporter caches the limits, GlobalQuotas).
 func ReadQuota(ctx context.Context, a api.API) (*vendors.QuotaSnapshot, error) {
-	cctx, cancel := CallContext(ctx, CallTimeout)
-	acct, err := a.GetAccount(cctx)
-	cancel()
+	limits, err := ReadLimits(ctx, a)
 	if err != nil {
-		return nil, Classify(err)
+		return nil, err
 	}
+	return SnapshotOf(ctx, a, limits)
+}
+
+// ReadLimits reads the account's resource limits.
+func ReadLimits(ctx context.Context, a api.API) (upcloud.ResourceLimits, error) {
+	cctx, cancel := CallContext(ctx, CallTimeout)
+	defer cancel()
+	acct, err := a.GetAccount(cctx)
+	if err != nil {
+		return upcloud.ResourceLimits{}, Classify(err)
+	}
+	return acct.ResourceLimits, nil
+}
+
+// SnapshotOf reads the usage and builds the snapshot against the limits.
+func SnapshotOf(ctx context.Context, a api.API, l upcloud.ResourceLimits) (*vendors.QuotaSnapshot, error) {
 	u, err := CollectUsage(ctx, a)
 	if err != nil {
 		return nil, err
 	}
-	return Snapshot(acct.ResourceLimits, *u), nil
+	return Snapshot(l, *u), nil
 }
 
 // Consumption is what a launch of the plan takes: its cores, its memory in MB,

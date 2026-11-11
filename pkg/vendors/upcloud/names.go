@@ -4,17 +4,17 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
-// Package upcloud is the foundation of the UpCloud driver (plan 19): the
-// narrow API and its in-memory fake (subpackages api and fake), error
+// Package upcloud is the UpCloud driver (plan 19): servers created from a
+// custom Flatcar template with a plan name, regions that are zones, the
+// Public & Utility firewall written per server, SDN networks, rulesets and
+// server groups as managed resources, and the account-wide quota reader. The
+// narrow API and its in-memory fake are the subpackages api and fake; this
+// package holds the driver (vendors.Driver and its capabilities), error
 // classification, the mapping of catalog names to UpCloud's (zones, plans,
-// labels, provider and instance references, server states), the launch
-// request builder, the Public & Utility firewall rules, the lifecycle helpers
-// (idempotent lookup by label, stop-then-delete) and the account quota reader.
-//
-// It does not implement vendors.Driver yet: the seams for the rest are marked
-// TODO(plan 14) and sit where the shared groundwork (the images kind, the unified
-// use selector, RootDiskForType) plugs in. UpCloud's regions are its zones: a
-// region and a dummy zone carry the same ID.
+// labels, provider and instance references, server states), the launch request
+// builder, the firewall rules and the lifecycle helpers (idempotent lookup by
+// label, stop-then-delete). UpCloud's regions are its zones: a region and a
+// dummy zone carry the same ID.
 package upcloud
 
 import (
@@ -238,7 +238,7 @@ func ToInstance(d *upcloud.ServerDetails) *vendors.Instance {
 	created, _ := Created(d.Labels)
 	return &vendors.Instance{
 		Ref: NewRef(d.Zone, d.UUID), Region: d.Zone, Zone: d.Zone, Type: d.Plan,
-		CapacityType: vendors.CapacityOnDemand, State: InstanceState(d.State), CreatedAt: created,
+		CapacityType: vendors.CapacityOnDemand, State: InstanceState(d.State), CreatedAt: created, BillingStart: created,
 		Tags: TagsOf(d.Labels), Addresses: Addresses(d.IPAddresses),
 	}
 }

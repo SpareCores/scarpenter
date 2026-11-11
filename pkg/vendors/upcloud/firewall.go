@@ -18,12 +18,12 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors/upcloud/api"
 )
 
-// Inbound is one allowed inbound flow of the NodeClass (spec.networking.inbound).
-// TODO(plan 14): converted from the API type when the NodeClass block exists.
+// Inbound is one allowed inbound flow of the NodeClass (spec.networking.inbound),
+// one per rule and CIDR.
 type Inbound struct {
 	// CIDR is the source; an empty one means anywhere (both families).
 	CIDR string
-	// Protocol is tcp, udp or icmp.
+	// Protocol is tcp, udp or icmp; empty means any.
 	Protocol string
 	// PortStart and PortEnd are the destination ports (0 for icmp).
 	PortStart, PortEnd int
@@ -117,9 +117,10 @@ func PublicFirewallRules(o FirewallOptions) ([]upcloud.FirewallRule, error) {
 			if in.PortStart < 1 || in.PortEnd < in.PortStart || in.PortEnd > 65535 {
 				return nil, fmt.Errorf("inbound ports %d-%d are not a range", in.PortStart, in.PortEnd)
 			}
-		case upcloud.FirewallRuleProtocolICMP:
+		case upcloud.FirewallRuleProtocolICMP, "":
+			// icmp and any have no ports.
 		default:
-			return nil, fmt.Errorf("inbound protocol %q is not tcp, udp or icmp", in.Protocol)
+			return nil, fmt.Errorf("inbound protocol %q is not tcp, udp, icmp or any", in.Protocol)
 		}
 		b.accept("inbound", in.Protocol, [2]int{in.PortStart, in.PortEnd}, in.CIDR, fams...)
 	}

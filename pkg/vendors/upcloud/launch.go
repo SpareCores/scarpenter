@@ -15,18 +15,6 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
-// Template is the resolved boot image of a zone: a private custom template made
-// by the operator (rung 3 of ADR-021), found by labels or ID.
-// TODO(plan 14): filled from the images kind (ImageRequest.Use) and
-// ReportImages; the driver's own resolution lists the zone's private templates by
-// the scarpenter-image=flatcar label convention and requires exactly one match
-// that is online.
-type Template struct {
-	UUID   string
-	Tier   string
-	SizeGB int
-}
-
 // Root is the root disk of a node.
 type Root struct {
 	Tier      string
@@ -53,8 +41,7 @@ type Networking struct {
 
 // LaunchSpec is everything the create request needs, already resolved: the
 // part of the driver that turns a vendors.CreateRequest and the NodeClass's
-// settings into it is TODO(plan 14) (the unified use selector, RootDiskForType,
-// the images kind); this layer is pure.
+// settings into it is Driver.launchSpec; this layer is pure.
 type LaunchSpec struct {
 	Zone string
 	Plan Plan

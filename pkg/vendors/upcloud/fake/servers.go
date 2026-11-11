@@ -87,7 +87,11 @@ func (f *Fake) checkLabels(ls []upcloud.Label) error {
 	}
 	seen := map[string]bool{}
 	for _, l := range ls {
-		if len(l.Key) < 2 || len(l.Key) > 32 || strings.HasPrefix(l.Key, "_") {
+		min := 2
+		if f.opts.ShortLabelKeys {
+			min = 1
+		}
+		if len(l.Key) < min || len(l.Key) > 32 || strings.HasPrefix(l.Key, "_") {
 			return invalid("INVALID_LABEL_KEY")
 		}
 		if len(l.Value) > 255 {

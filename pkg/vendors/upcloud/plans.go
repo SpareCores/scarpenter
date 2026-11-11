@@ -21,7 +21,9 @@ type Family string
 // driver does not launch until it is classified here (a test fails for a new
 // family in the committed Keeper snapshot).
 const (
-	FamilyGeneral     Family = "general"     // 2xCPU-4GB
+	FamilyGeneral     Family = "general"     // 2xCPU-4GB (retired in Keeper's data, still launchable where offered)
+	FamilyStarter     Family = "starter"     // STARTER-1xCPU-1GB
+	FamilyPremium     Family = "premium"     // PREMIUM-2xCPU-4GB
 	FamilyDeveloper   Family = "developer"   // DEV-1xCPU-1GB-10GB
 	FamilyHiCPU       Family = "hicpu"       // HICPU-8xCPU-16GB
 	FamilyHiMem       Family = "himem"       // HIMEM-2xCPU-16GB
@@ -37,6 +39,10 @@ func FamilyOf(name string) Family {
 	switch {
 	case generalRE.MatchString(name):
 		return FamilyGeneral
+	case strings.HasPrefix(name, "STARTER-"):
+		return FamilyStarter
+	case strings.HasPrefix(name, "PREMIUM-"):
+		return FamilyPremium
 	case strings.HasPrefix(name, "DEV-"):
 		return FamilyDeveloper
 	case strings.HasPrefix(name, "HICPU-"):
@@ -129,8 +135,8 @@ func (p Plan) DefaultRootGB() int { return max(p.StorageGB, MinRootGB) }
 // RootDiskBytes is the root disk size the scheduler sees as ephemeral storage
 // when the NodeClass sets none (RootDiskForType of plan 14, A2): the default
 // size, with GB read as GiB (UpCloud's storage unit; unverified, S4).
-// TODO(plan 14): RootDiskForType answers with it, and with the NodeClass's size
-// when storage.root sets one.
+// RootDiskForType answers with it, and with the NodeClass's size when
+// storage.root sets one (Driver.RootDiskForType).
 func (p Plan) RootDiskBytes() int64 { return int64(p.DefaultRootGB()) << 30 }
 
 // ValidatePlan checks that a name is a plan the driver launches and returns it.
