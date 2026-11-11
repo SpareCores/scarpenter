@@ -55,6 +55,8 @@ The last column names the plan that introduced the flag.
 | `--resource-full-sweep-every` | `SCARPENTER_RESOURCE_FULL_SWEEP_EVERY` | `10` | Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed resources of every region of the driver are swept, not only of the regions in use. **Cost:** a full sweep asks the vendor, for every region the account can use, which managed resources exist (for AWS: a few `Describe*` calls per resource kind and region): read-only and free, but rate limited, and it runs on the leader only. At the default `--gc-interval` of 2m it happens every 20 minutes; raise the value to make it rarer, `1` makes every sweep a full one. | plan 06 |
 | `--resource-check-interval` | `SCARPENTER_RESOURCE_CHECK_INTERVAL` | `30s` | How often the vendor resources of each SCNodeClass are checked (`status.vendors.<vendor>.resources`, `ResourcesReady`, preCreate). | plan 06 |
 | (AWS only) | `SCARPENTER_AWS_IPV4_PRICE` | `0.005` | Price of a public IPv4 address per hour in USD, used in the price delta of AWS offerings. **An approximation, not a Keeper price** (Keeper has no IPv4 price): AWS charges 0.005 in every commercial region since 2024-02-01. `0` means free; negative, NaN and infinite values are refused at startup. The driver logs the value it uses. Environment only. | plan 08 |
+| (Vultr only) | `VULTR_API_KEY` | (none) | The API key of the Vultr account. Required when `--vendors` has `vultr`: the controller refuses to start without it. Environment only; the chart wires it from a Secret. [Vultr credentials](../how-to-guides/vultr-credentials.md). | plan 20 |
+| (Vultr only) | `SCARPENTER_VULTR_AVAILABILITY_TTL` | `5m` | How long the stock of a Vultr region (`GET /v2/regions/{id}/availability`) is cached by the driver. Environment only. | plan 20 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region the account's region list (`DescribeRegions`) is read from; the AWS driver's other calls go to the region they concern ([AWS driver](aws-driver.md)). | plan 08 |
 
 All problems of the command line are reported together, and the controller
@@ -101,6 +103,9 @@ and that the controller's own parser accepts what the chart renders.
 | `vendors.aws.region` | `AWS_REGION` | Default: the home region, else `us-east-1`. |
 | `vendors.aws.ipv4Price` | `SCARPENTER_AWS_IPV4_PRICE` | An approximation, see the table above. |
 | `vendors.aws.credentials.mode`, `webIdentity.*`, `secret.*` | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, a projected ServiceAccount token, `AWS_ACCESS_KEY_ID`, ... | [AWS credentials](../how-to-guides/aws-credentials.md). `webIdentity` needs `roleArn`, `secret` an `existingSecret`. |
+| `vendors.vultr.enabled` | `--vendors` | Adds `vultr` after `aws`. Requires `credentials.secret.existingSecret`. |
+| `vendors.vultr.credentials.secret.existingSecret`, `key` | `VULTR_API_KEY` | The API key from the Secret (key default `apiKey`); the only credential mode. [Vultr credentials](../how-to-guides/vultr-credentials.md). |
+| `vendors.vultr.availabilityTTL` | `SCARPENTER_VULTR_AVAILABILITY_TTL` | |
 | `keeper.url` | `--keeper-url` | |
 | `keeper.apiKey.existingSecret`, `key` | `--keeper-api-key-file` | The Secret's key is mounted as a file. |
 | `keeper.pricesRegionsPerRequest` | `--keeper-prices-regions-per-request` | |

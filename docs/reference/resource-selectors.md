@@ -660,7 +660,7 @@ No `expression`. Reference: `https://www.vultr.com/api/`.
 
 | Field | Maps to | Where |
 |---|---|---|
-| `ids` | `Snapshot.Get` | by id |
+| `ids` | `id` (the key `"*"` is every region: the snapshot is global) | client (one list call) |
 | `name` | `description` | server+client (the `description` parameter, semantics unverified) |
 | `match.state` | `status` (`complete` available, `pending`) | client |
 | `match.createdAfter`, `createdBefore` | `date_created` | client |
@@ -668,8 +668,8 @@ No `expression`. Reference: `https://www.vultr.com/api/`.
 
 Order: `date_created` client-side. The description is mutable. Filters (client): `os_id`, `app_id`, `size`, `compressed_size`. The
 public OS catalogue (`GET /v2/os`, rung 1, `ids` are integers as strings): `name`, `family` and `arch` (`filters: arch`) client-side, no
-creation time (`orderBy: name`). **firewallGroups** (account-wide): `ids`, `name` (`description`), `created` and
-`date_modified` client; filters `instance_count`, `rule_count`. **networks** (VPC, regional): `ids`, `name` (`description`), `match.cidr`
+creation time (`orderBy: name`). **firewallGroups** (account-wide, listed once per check): `ids`, `name` (`description`), `createdAfter`,
+`createdBefore` and `orderBy: created` (`date_created`) client; filters `instance_count`, `rule_count`. **networks** (VPC, regional): `ids`, `name` (`description`), `match.cidr`
 (`v4_subnet` and `v4_subnet_mask` joined), `within`, `createdAfter` (`date_created`) client; the region is the `region` field (matched
 to the region in scope). Other kinds: **block storage** (`label`, `region`, `status`, `block_type`, `size_gb` client), **reserved IPs**
 (`label`, `region`, `ip_type`, `instance_id` client), **SSH keys** (`name`), **startup scripts**; instances are the only kind with

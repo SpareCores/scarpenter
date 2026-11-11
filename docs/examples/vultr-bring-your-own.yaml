@@ -1,0 +1,44 @@
+# A Vultr NodeClass whose snapshot, firewall group and VPCs were made by the operator's
+# own tooling (any tool: the contract is the NodeClass, see
+# docs/reference/infrastructure-handoff.md). Vultr snapshots, firewall groups and VPCs have
+# a description and no tags, so `use.tags` does not exist here: select by ID, by a pattern
+# on the description (`name`), or by the portable attributes.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: vultr-bring-your-own
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: tailscale
+    tailscale:
+      version: "v1.98.10"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter, key: authkey}
+      tags: ["tag:k8s-node"]
+  networking:
+    isolation: nodeclass
+  vendors:
+    vultr:
+      regions: [ewr, fra]
+      resources:
+        # The snapshot is global in the account: the key "*" is every region. A description
+        # pattern works too ({channel}, {version} and {arch} are the pinned release).
+        images:
+          use:
+            ids:
+              "*": [5a000000-0000-4000-8000-000000000001]
+        # One group serves every region (a firewall group is global in the account). Hand
+        # over only a group nodes may use: its rules are yours.
+        firewallGroups:
+          use:
+            name: "nodes-*"
+            select: newest
+        # A VPC per region, by ID or by the range it was made with.
+        networks:
+          use:
+            ids:
+              ewr: [0c000000-0000-4000-8000-000000000002]
+              fra: [0c000000-0000-4000-8000-000000000003]

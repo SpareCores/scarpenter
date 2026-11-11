@@ -31,7 +31,7 @@ func vultrClass(mut func(nc *v1alpha1.SCNodeClass, b *vultrapi.Settings)) *v1alp
 	return nc
 }
 
-func resources(r vultrapi.Resources) func(*v1alpha1.SCNodeClass, *vultrapi.Settings) {
+func withResources(r vultrapi.Resources) func(*v1alpha1.SCNodeClass, *vultrapi.Settings) {
 	return func(_ *v1alpha1.SCNodeClass, b *vultrapi.Settings) { b.Resources = &r }
 }
 
@@ -69,34 +69,34 @@ func TestValidateNodeClass(t *testing.T) {
 		}, "not a CIDR"},
 		{"isolation none with a VPC", func(nc *v1alpha1.SCNodeClass, b *vultrapi.Settings) {
 			isolation(common.IsolationNone)(nc, b)
-			resources(vultrapi.Resources{Networks: ids("ewr", uuid1)})(nc, b)
+			withResources(vultrapi.Resources{Networks: ids("ewr", uuid1)})(nc, b)
 		}, "isolation none attaches no VPC"},
 		{"isolation none, a created VPC", func(nc *v1alpha1.SCNodeClass, b *vultrapi.Settings) {
 			isolation(common.IsolationNone)(nc, b)
-			resources(vultrapi.Resources{Networks: &common.Resource{Create: &common.ResourceCreate{}}})(nc, b)
+			withResources(vultrapi.Resources{Networks: &common.Resource{Create: &common.ResourceCreate{}}})(nc, b)
 		}, "isolation none attaches no VPC"},
 		{"isolation nodeclass with a VPC", func(nc *v1alpha1.SCNodeClass, b *vultrapi.Settings) {
 			isolation(common.IsolationNodeClass)(nc, b)
-			resources(vultrapi.Resources{Networks: ids("ewr", uuid1)})(nc, b)
+			withResources(vultrapi.Resources{Networks: ids("ewr", uuid1)})(nc, b)
 		}, ""},
-		{"the default isolation forbids the VPC", resources(vultrapi.Resources{Networks: &common.Resource{Forbid: true}}), "forbid contradicts"},
+		{"the default isolation forbids the VPC", withResources(vultrapi.Resources{Networks: &common.Resource{Forbid: true}}), "forbid contradicts"},
 		{"isolation none forbids the VPC", func(nc *v1alpha1.SCNodeClass, b *vultrapi.Settings) {
 			isolation(common.IsolationNone)(nc, b)
-			resources(vultrapi.Resources{Networks: &common.Resource{Forbid: true}})(nc, b)
+			withResources(vultrapi.Resources{Networks: &common.Resource{Forbid: true}})(nc, b)
 		}, ""},
-		{"snapshot and group IDs", resources(vultrapi.Resources{Images: ids("*", uuid1), FirewallGroups: ids("*", uuid1)}), ""},
-		{"a bad snapshot ID", resources(vultrapi.Resources{Images: ids("*", "snap-1")}), "not a valid ID"},
-		{"a bad ID key", resources(vultrapi.Resources{Images: ids("us-east-1", uuid1)}), "not a region"},
-		{"a placeholder ID", resources(vultrapi.Resources{Images: ids("*", "{channel}")}), ""},
-		{"tags are rejected", resources(vultrapi.Resources{FirewallGroups: &common.Resource{Use: &common.ResourceUse{
+		{"snapshot and group IDs", withResources(vultrapi.Resources{Images: ids("*", uuid1), FirewallGroups: ids("*", uuid1)}), ""},
+		{"a bad snapshot ID", withResources(vultrapi.Resources{Images: ids("*", "snap-1")}), "not a valid ID"},
+		{"a bad ID key", withResources(vultrapi.Resources{Images: ids("us-east-1", uuid1)}), "not a region"},
+		{"a placeholder ID", withResources(vultrapi.Resources{Images: ids("*", "{channel}")}), ""},
+		{"tags are rejected", withResources(vultrapi.Resources{FirewallGroups: &common.Resource{Use: &common.ResourceUse{
 			Tags: map[string]string{"a": "b"}}}}), "tags are not supported"},
-		{"an unknown filter", resources(vultrapi.Resources{Images: &common.Resource{Use: &common.ResourceUse{
+		{"an unknown filter", withResources(vultrapi.Resources{Images: &common.Resource{Use: &common.ResourceUse{
 			Filters: []common.ResourceFilter{{Name: "tag", Values: []string{"x"}}}}}}), "not a images filter"},
-		{"arm64 images", resources(vultrapi.Resources{Images: &common.Resource{Use: &common.ResourceUse{Name: "x",
+		{"arm64 images", withResources(vultrapi.Resources{Images: &common.Resource{Use: &common.ResourceUse{Name: "x",
 			Match: &common.ResourceMatch{Architecture: []string{"arm64"}}}}}), "no Arm instances"},
-		{"the owner is not a field", resources(vultrapi.Resources{Images: &common.Resource{Use: &common.ResourceUse{
+		{"the owner is not a field", withResources(vultrapi.Resources{Images: &common.Resource{Use: &common.ResourceUse{
 			Match: &common.ResourceMatch{Owner: []string{"self"}}}}}), "match.owner is not supported"},
-		{"a name for the VPC", resources(vultrapi.Resources{Networks: &common.Resource{Use: &common.ResourceUse{Name: "private-*"}}}), ""},
+		{"a name for the VPC", withResources(vultrapi.Resources{Networks: &common.Resource{Use: &common.ResourceUse{Name: "private-*"}}}), ""},
 		{"tags with an equals sign", func(nc *v1alpha1.SCNodeClass, _ *vultrapi.Settings) {
 			nc.Spec.Tags = map[string]string{"a=b": "c"}
 		}, "not a valid key"},

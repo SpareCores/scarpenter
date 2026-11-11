@@ -519,3 +519,43 @@ The L5 run is the coordinator's, after the spikes and the operator's setup (sect
    `run` until VPC limits are known (S6).
 9. **Zone naming**: the label `topology.kubernetes.io/zone=<region>` for a vendor without
    zones (hcloud, UpCloud, Vultr). *Recommendation:* yes, as Keeper's dummy zone.
+
+### Decided by default, maintainer to confirm
+
+Taken while building the driver end to end (the recommendation where the plan gave one, the conservative
+option otherwise):
+
+- **Q1 Marketplace**: not built on; rung 3 only. Nothing in the driver waits for an answer from Vultr.
+- **Q2 Rung 1**: not implemented. Vultr's own `Flatcar ... x64` OS entries are never used; there is no
+  `vendorImage` field and no `VersionNotPinned` condition.
+- **Q3 Raw image URL**: no driver code depends on it; the how-to tells each account to import the pipeline's
+  public URL as a snapshot described `flatcar-<channel>-<version>-amd64`.
+- **Q7 Weaker lane guards**: accepted as the plan recommends (dedicated account, low account limits, a restricted
+  sub-user, the sweeper). The lane is **not** in `test/e2e-vendors.txt` until the account limit is set, so the
+  reusable workflow refuses the vendor; adding the line is the step that switches the lane on.
+- **Q8 `isolation` and the VPC**: sections 3.2 and 3.4 disagree (unavailable versus a managed VPC). The driver
+  takes the second: `nodeclass` and `run` (the CRD default) put every node in the region's VPC, brought with
+  `use` or created and owned; Vultr has no placement profiles, so a run is the whole NodeClass. `none` attaches
+  none. A `networks` that is brought or created with `isolation: none`, and `forbid` with another isolation,
+  make the NodeClass invalid. The driver cannot tell whether the NodeClass configured `networks`, so the
+  isolation alone decides whether the VPC is required.
+- **Q9 Zone naming**: yes, the zone label of a node is its region.
+- **`publicIPv4: false`**: the NodeClass is invalid (`VendorReady=False` with the reason), which makes every
+  Vultr offering of that NodeClass unavailable, instead of a per-offering reason; the check is NodeClass-wide.
+- **`ZoneUnusable`**: a create text such as "invalid region" is `ZoneUnusable` (the region is the zone). The plan
+  said never; the shared conformance suite exercises the class for every vendor.
+- **Marker**: the region is a fifth, optional field of the description marker (a firewall group has no region).
+- **Image release**: a snapshot says its release by its description, with an optional note after a space
+  (`flatcar-stable-4757.2.3-amd64 rebuilt`); the default lookup stays the exact description.
+- **Availability refresh interval**: an environment variable and chart value of the driver
+  (`SCARPENTER_VULTR_AVAILABILITY_TTL`, default 5 minutes), not a core flag: the core is not changed by this plan.
+- **Key check**: `ValidateNodeClass` calls `GET /v2/instances?per_page=1` (cached) so a refused key is
+  `VendorReady=False`; throttling is no verdict.
+- **Billing**: `BillingStart` is `date_created`, and the rule is reported unverified (hourly, one hour minimum,
+  stopped charged), so retention stays off until S7.
+- **Hardening**: `metadata-from-pods` is offered for `169.254.169.254`, which serves the node's user-data.
+- **Conformance**: the shared suite got `Fixture.NoArm64` and skips its tag-based image cases for a kind without
+  tags (a separate commit); the driver's own tests cover those cases with description selectors.
+- **Not built**: the quota rows (no `QuotaReporter`), `ImageImporter`, block storage `data` profiles, the
+  per-run VPC.
+

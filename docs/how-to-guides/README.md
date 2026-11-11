@@ -31,6 +31,10 @@ Available:
   identity federation from the cluster's ServiceAccount issuer, EKS Pod Identity,
   static keys, the account's Spot service-linked role.
 
+- [**Set up Vultr credentials**](vultr-credentials.md) (plan 20) — the API key and
+  its IP allowlist, the Secret and the chart values, and the snapshot of the pinned
+  Flatcar version each account creates itself.
+
 Planned for v1:
 
 - **Select instances** (plan 11) — exact choices, attribute ranges, benchmark

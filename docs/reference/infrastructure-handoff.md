@@ -318,9 +318,9 @@ must contain the controller's egress address.
 
 | Kind | Provide | `use` fields |
 |---|---|---|
-| `images` | the snapshot per region (the same one repeated) | `ids`, description `name` pattern, `match.createdAfter`, `orderBy` |
-| `firewallGroups` | optional: a group per region (inbound is open without one) | `ids`, description `name`; no `tags` (none exist) |
-| `networks` (VPC) | optional; needed for `isolation: nodeclass` | `ids`, description `name`, `match` (`cidr`, `within`) |
+| `images` | the snapshot (global in the account: the key `"*"` is every region) | `ids`, description `name` pattern, `match` (`state`, `createdAfter`, `createdBefore`), `filters`, `orderBy` |
+| `firewallGroups` | optional: one group (global in the account; the same ID serves every region; inbound is open without one) | `ids` (`"*"`), description `name`, `match.createdAfter`, `filters` (`instance_count`, `rule_count`); no `tags` (none exist) |
+| `networks` (VPC) | optional; used with `isolation: nodeclass` or `run` (the default), which put nodes in the VPC of the region | `ids` per region, description `name`, `match` (`cidr`, `within`, `createdAfter`) |
 
 Without `use`: no discovery (no tags), no vendor default; managed groups, else a stated
 failure.

@@ -1,0 +1,30 @@
+# A Vultr NodeClass that lets SCarpenter create and own the firewall group and the VPC of
+# each region, with explicit lifecycles. The firewall group carries the rules of
+# networking.inbound (here: SSH from one range); Vultr's inbound is open without a group,
+# so a group is always attached. isolation: none attaches no VPC.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: vultr-managed
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  networking:
+    isolation: nodeclass
+    inbound:
+      rules:
+        - {protocol: tcp, fromPort: 22, toPort: 22, cidrs: ["192.0.2.0/24"]}
+  vendors:
+    vultr:
+      regions: [ewr]
+      resources:
+        firewallGroups:
+          create:
+            lifecycle: {policy: idleTTL, ttl: 24h}
+        networks:
+          create:
+            lifecycle: {policy: perUse}

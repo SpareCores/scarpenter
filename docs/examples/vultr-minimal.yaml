@@ -1,0 +1,19 @@
+# The smallest Vultr NodeClass: the Flatcar snapshot is found by its description
+# flatcar-<channel>-<version>-amd64 (Vultr snapshots cannot be shared between accounts,
+# so you create it once per pinned version, see docs/reference/vultr-driver.md#images),
+# and SCarpenter creates the firewall group and, because the default isolation puts
+# nodes in a VPC, a VPC per region, and owns them. Vultr has no Arm instances.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: vultr-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    vultr:
+      regions: [ewr, fra]
