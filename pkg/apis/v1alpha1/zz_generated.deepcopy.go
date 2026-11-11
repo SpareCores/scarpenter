@@ -16,6 +16,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/azure"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/gcp"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
@@ -312,6 +313,11 @@ func (in *NetworkProfile) DeepCopyInto(out *NetworkProfile) {
 		*out = new(fake.Network)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.GCP != nil {
+		in, out := &in.GCP, &out.GCP
+		*out = new(gcp.Network)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.QEMU != nil {
 		in, out := &in.QEMU, &out.QEMU
 		*out = new(qemu.Network)
@@ -380,6 +386,11 @@ func (in *PlacementProfile) DeepCopyInto(out *PlacementProfile) {
 	if in.Fake != nil {
 		in, out := &in.Fake, &out.Fake
 		*out = new(fake.Placement)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.GCP != nil {
+		in, out := &in.GCP, &out.GCP
+		*out = new(gcp.Placement)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.HCloud != nil {
@@ -793,6 +804,11 @@ func (in *StorageProfile) DeepCopyInto(out *StorageProfile) {
 		*out = new(fake.Storage)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.GCP != nil {
+		in, out := &in.GCP, &out.GCP
+		*out = new(gcp.Storage)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.HCloud != nil {
 		in, out := &in.HCloud, &out.HCloud
 		*out = new(hcloud.Storage)
@@ -887,6 +903,11 @@ func (in *VendorBlocks) DeepCopyInto(out *VendorBlocks) {
 	if in.Fake != nil {
 		in, out := &in.Fake, &out.Fake
 		*out = new(fake.Settings)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.GCP != nil {
+		in, out := &in.GCP, &out.GCP
+		*out = new(gcp.Settings)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.HCloud != nil {

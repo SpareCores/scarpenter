@@ -11,6 +11,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/azure"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/gcp"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
@@ -46,6 +47,10 @@ type VendorBlocks struct {
 	// +optional
 	Fake *fake.Settings `json:"fake,omitempty"`
 
+	// gcp configures GCP (Compute Engine) nodes.
+	// +optional
+	GCP *gcp.Settings `json:"gcp,omitempty"`
+
 	// hcloud configures Hetzner Cloud nodes.
 	// +optional
 	HCloud *hcloud.Settings `json:"hcloud,omitempty"`
@@ -74,6 +79,7 @@ const (
 	VendorAWS      = "aws"
 	VendorAzure    = "azure"
 	VendorFake     = "fake"
+	VendorGCP      = "gcp"
 	VendorHCloud   = "hcloud"
 	VendorOVH      = "ovh"
 	VendorQEMU     = "qemu"
@@ -97,6 +103,9 @@ func (v VendorBlocks) Names() []string {
 	}
 	if v.Fake != nil {
 		names = append(names, VendorFake)
+	}
+	if v.GCP != nil {
+		names = append(names, VendorGCP)
 	}
 	if v.HCloud != nil {
 		names = append(names, VendorHCloud)
@@ -129,6 +138,8 @@ type StorageProfile struct {
 	// +optional
 	Fake *fake.Storage `json:"fake,omitempty"`
 	// +optional
+	GCP *gcp.Storage `json:"gcp,omitempty"`
+	// +optional
 	HCloud *hcloud.Storage `json:"hcloud,omitempty"`
 	// +optional
 	OVH *ovh.Storage `json:"ovh,omitempty"`
@@ -152,6 +163,8 @@ type NetworkProfile struct {
 	// +optional
 	Fake *fake.Network `json:"fake,omitempty"`
 	// +optional
+	GCP *gcp.Network `json:"gcp,omitempty"`
+	// +optional
 	QEMU *qemu.Network `json:"qemu,omitempty"`
 	// +optional
 	Vultr *vultr.Network `json:"vultr,omitempty"`
@@ -168,6 +181,8 @@ type PlacementProfile struct {
 	Azure *azure.Placement `json:"azure,omitempty"`
 	// +optional
 	Fake *fake.Placement `json:"fake,omitempty"`
+	// +optional
+	GCP *gcp.Placement `json:"gcp,omitempty"`
 	// +optional
 	HCloud *hcloud.Placement `json:"hcloud,omitempty"`
 	// +optional
@@ -195,6 +210,8 @@ func (v VendorBlocks) Get(vendor string) (any, bool) {
 		return orNil(v.Azure), v.Azure != nil
 	case VendorFake:
 		return orNil(v.Fake), v.Fake != nil
+	case VendorGCP:
+		return orNil(v.GCP), v.GCP != nil
 	case VendorHCloud:
 		return orNil(v.HCloud), v.HCloud != nil
 	case VendorOVH:
@@ -221,6 +238,8 @@ func (p StorageProfile) For(vendor string) (any, bool) {
 		return orNil(p.Azure), p.Azure != nil
 	case VendorFake:
 		return orNil(p.Fake), p.Fake != nil
+	case VendorGCP:
+		return orNil(p.GCP), p.GCP != nil
 	case VendorHCloud:
 		return orNil(p.HCloud), p.HCloud != nil
 	case VendorOVH:
@@ -246,6 +265,8 @@ func (p NetworkProfile) For(vendor string) (any, bool) {
 		return orNil(p.Azure), p.Azure != nil
 	case VendorFake:
 		return orNil(p.Fake), p.Fake != nil
+	case VendorGCP:
+		return orNil(p.GCP), p.GCP != nil
 	case VendorQEMU:
 		return orNil(p.QEMU), p.QEMU != nil
 	case VendorVultr:
@@ -265,6 +286,8 @@ func (p PlacementProfile) For(vendor string) (any, bool) {
 		return orNil(p.Azure), p.Azure != nil
 	case VendorFake:
 		return orNil(p.Fake), p.Fake != nil
+	case VendorGCP:
+		return orNil(p.GCP), p.GCP != nil
 	case VendorHCloud:
 		return orNil(p.HCloud), p.HCloud != nil
 	case VendorOVH:

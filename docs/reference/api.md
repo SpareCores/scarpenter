@@ -275,6 +275,7 @@ NetworkProfile is a named network setup (NIC features) per vendor.
 | `aws` | [object](#specprofilesnetworkaws) |  | Network is the AWS block of a network profile. |
 | `azure` | [object](#specprofilesnetworkazure) |  | Network is the Azure block of a network profile. |
 | `fake` | [object](#specprofilesnetworkfake) |  | Network is the fake block of a network profile. |
+| `gcp` | [object](#specprofilesnetworkgcp) |  | Network is the GCP block of a network profile. |
 | `qemu` | [object](#specprofilesnetworkqemu) |  | Network is the qemu block of a network profile. |
 | `vultr` | object (free-form) |  | Network is the Vultr block of a network profile. Empty in v1: Vultr's create call has no NIC features. |
 
@@ -328,6 +329,15 @@ Network is the fake block of a network profile.
 |---|---|---|---|
 | `accelerated` | boolean |  | accelerated marks the fake nodes as having accelerated networking. |
 
+### `spec.profiles.network.*.gcp`
+
+Network is the GCP block of a network profile.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `nicType` | string |  | nicType selects the virtual NIC; unset leaves the series' default. One of `GVNIC`, `VIRTIO_NET`. |
+| `tier1` | boolean |  | tier1 turns on Tier 1 networking (higher egress bandwidth) on the series that support it. |
+
 ### `spec.profiles.network.*.qemu`
 
 Network is the qemu block of a network profile.
@@ -346,6 +356,7 @@ PlacementProfile is a named placement and tenancy setup per vendor.
 | `aws` | [object](#specprofilesplacementaws) |  | Placement is the AWS block of a placement profile: a placement group and the tenancy. |
 | `azure` | [object](#specprofilesplacementazure) |  | Placement is the Azure block of a placement profile. |
 | `fake` | [object](#specprofilesplacementfake) |  | Placement is the fake block of a placement profile. |
+| `gcp` | [object](#specprofilesplacementgcp) |  | Placement is the GCP block of a placement profile: a resource policy. |
 | `hcloud` | [object](#specprofilesplacementhcloud) |  | Placement is the Hetzner block of a placement profile: a placement group. |
 | `ovh` | [object](#specprofilesplacementovh) |  | Placement is the OVH block of a placement profile. |
 | `qemu` | [object](#specprofilesplacementqemu) |  | Placement is the qemu block of a placement profile. |
@@ -453,6 +464,50 @@ group is the fake placement construct nodes join; it needs a run key.
 |---|---|---|---|
 | `strategy` (required) | string |  | strategy of the group. One of `cluster`, `spread`. |
 
+### `spec.profiles.placement.*.gcp`
+
+Placement is the GCP block of a placement profile: a resource policy.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `resourcePolicy` | [object](#specprofilesplacementgcpresourcepolicy) |  | resourcePolicy is the placement policy nodes join. A policy SCarpenter creates needs a run key (label placement-group): one policy per run. |
+
+### `spec.profiles.placement.*.gcp.resourcePolicy`
+
+resourcePolicy is the placement policy nodes join. A policy SCarpenter creates needs a run key (label placement-group): one policy per run.
+
+Validation: set exactly one of groupPlacement, spread and use (`(has(self.groupPlacement) ? 1 : 0) + (has(self.spread) ? 1 : 0) + (has(self.use) ? 1 : 0) == 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `groupPlacement` | [object](#specprofilesplacementgcpresourcepolicygroupplacement) |  | groupPlacement places the instances close together (compact placement). |
+| `spread` | [object](#specprofilesplacementgcpresourcepolicyspread) |  | spread spreads the instances over availability domains. |
+| `use` | [object](#specprofilesplacementgcpresourcepolicyuse) |  | use references an existing policy, which is never modified or deleted. |
+
+### `spec.profiles.placement.*.gcp.resourcePolicy.groupPlacement`
+
+groupPlacement places the instances close together (compact placement).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `collocation` | string | `"COLLOCATED"` | collocation of the instances. One of `COLLOCATED`. |
+
+### `spec.profiles.placement.*.gcp.resourcePolicy.spread`
+
+spread spreads the instances over availability domains.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `availabilityDomainCount` (required) | integer (int32) |  | availabilityDomainCount is the number of availability domains. Minimum 1. Maximum 8. |
+
+### `spec.profiles.placement.*.gcp.resourcePolicy.use`
+
+use references an existing policy, which is never modified or deleted.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name of the resource policy. At most 63 characters. |
+
 ### `spec.profiles.placement.*.hcloud`
 
 Placement is the Hetzner block of a placement profile: a placement group.
@@ -552,6 +607,7 @@ StorageProfile is a named storage setup, in the vendor's own terms, for each ven
 | `aws` | [object](#specprofilesstorageaws) |  | Storage is the AWS storage block: the settings of the root volume, the extra EBS volumes and the instance-local disks. It is the vendor block's storage (layer 2) and the AWS block of a storage profile (layer 3). |
 | `azure` | [object](#specprofilesstorageazure) |  | Storage is the Azure storage block: the root disk, the extra managed disks and the local disks. It is the vendor block's storage (layer 2) and the Azure block of a storage profile (layer 3). |
 | `fake` | [object](#specprofilesstoragefake) |  | Storage is the fake storage block (vendor block and storage profile). |
+| `gcp` | [object](#specprofilesstoragegcp) |  | Storage is the GCP storage block: the root disk, the extra disks and the instance-local SSDs. It is the vendor block's storage (layer 2) and the GCP block of a storage profile (layer 3). |
 | `hcloud` | [object](#specprofilesstoragehcloud) |  | Storage is the Hetzner storage block: data volumes. It is the vendor block's storage (layer 2) and the hcloud block of a storage profile (layer 3). There is no root and no local storage: the root disk is the server type's, and Hetzner servers have no local disks. |
 | `ovh` | [object](#specprofilesstorageovh) |  | Storage is the OVH storage block: the root disk and the extra Cinder volumes. It is the vendor block's storage (layer 2) and the OVH block of a storage profile (layer 3). |
 | `qemu` | [object](#specprofilesstorageqemu) |  | Storage is the qemu storage block (vendor block and storage profile). |
@@ -768,6 +824,60 @@ root configures the root disk.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | integer or string |  | size of the root disk. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.profiles.storage.*.gcp`
+
+Storage is the GCP storage block: the root disk, the extra disks and the instance-local SSDs. It is the vendor block's storage (layer 2) and the GCP block of a storage profile (layer 3).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `data` | array of [object](#specprofilesstoragegcpdata) |  | data lists extra disks created with the instance. At most 8 items. |
+| `localStorage` | [object](#specprofilesstoragegcplocalstorage) |  | localStorage configures the local SSDs of types that include them. |
+| `root` | [object](#specprofilesstoragegcproot) |  | root configures the boot disk. |
+
+### `spec.profiles.storage.*.gcp.data[]`
+
+DataDisk is an extra disk: Compute Engine settings plus the guest side (name, filesystem, mount path). The name is the disk's device name, so the guest path /dev/disk/by-id/google-&lt;name&gt; is known before the launch.
+
+Validation: provisionedIops is only valid for Hyperdisk (`!has(self.provisionedIops) \|\| self.diskType.startsWith('hyperdisk-')`).
+
+Validation: provisionedThroughput is only valid for Hyperdisk (`!has(self.provisionedThroughput) \|\| self.diskType.startsWith('hyperdisk-')`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `diskType` (required) | string |  | diskType of the disk. One of `pd-standard`, `pd-balanced`, `pd-ssd`, `hyperdisk-balanced`, `hyperdisk-extreme`, `hyperdisk-throughput`, `hyperdisk-ml`. |
+| `filesystem` | string | `"ext4"` | filesystem the first-boot unit creates on the volume. One of `ext4`, `xfs`, `btrfs`. |
+| `kmsKeyName` | string |  | kmsKeyName is the customer-managed encryption key. At most 2048 characters. |
+| `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
+| `provisionedIops` | integer (int64) |  | provisionedIops for Hyperdisk. Minimum 100. Maximum 350000. |
+| `provisionedThroughput` | integer (int64) |  | provisionedThroughput in MiB/s for Hyperdisk. Minimum 1. Maximum 10000. |
+| `sizeGb` (required) | integer (int64) |  | sizeGb of the disk in GiB. Minimum 1. Maximum 65536. |
+
+### `spec.profiles.storage.*.gcp.localStorage`
+
+localStorage configures the local SSDs of types that include them.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mountPath` | string |  | mountPath is the absolute path the local storage is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `policy` (required) | string |  | policy: ignore leaves the disks alone, mount mounts them, raid0 stripes them into one volume and mounts it. One of `ignore`, `mount`, `raid0`. |
+
+### `spec.profiles.storage.*.gcp.root`
+
+root configures the boot disk.
+
+Validation: provisionedIops is only valid for Hyperdisk (`!has(self.provisionedIops) \|\| !has(self.diskType) \|\| self.diskType.startsWith('hyperdisk-')`).
+
+Validation: provisionedThroughput is only valid for Hyperdisk (`!has(self.provisionedThroughput) \|\| !has(self.diskType) \|\| self.diskType.startsWith('hyperdisk-')`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `diskType` | string |  | diskType of the boot disk. Built-in default pd-balanced, hyperdisk-balanced for the series that boot only from Hyperdisk. One of `pd-standard`, `pd-balanced`, `pd-ssd`, `hyperdisk-balanced`, `hyperdisk-extreme`, `hyperdisk-throughput`, `hyperdisk-ml`. |
+| `kmsKeyName` | string |  | kmsKeyName is the customer-managed encryption key (projects/.../cryptoKeys/...); Google's own key when empty. At most 2048 characters. |
+| `provisionedIops` | integer (int64) |  | provisionedIops for Hyperdisk. Minimum 100. Maximum 350000. |
+| `provisionedThroughput` | integer (int64) |  | provisionedThroughput in MiB/s for Hyperdisk. Minimum 1. Maximum 10000. |
+| `sizeGb` | integer (int64) |  | sizeGb of the boot disk in GiB (GCP's "GB"). Built-in default 64. Minimum 10. Maximum 65536. |
 
 ### `spec.profiles.storage.*.hcloud`
 
@@ -1203,6 +1313,7 @@ vendors has one block per vendor; a vendor is enabled for this SCNodeClass by ha
 | `aws` | [object](#specvendorsaws) |  | aws configures AWS nodes. |
 | `azure` | [object](#specvendorsazure) |  | azure configures Azure nodes. |
 | `fake` | [object](#specvendorsfake) |  | fake configures the fake (KWOK) development vendor. |
+| `gcp` | [object](#specvendorsgcp) |  | gcp configures GCP (Compute Engine) nodes. |
 | `hcloud` | [object](#specvendorshcloud) |  | hcloud configures Hetzner Cloud nodes. |
 | `ovh` | [object](#specvendorsovh) |  | ovh configures OVHcloud Public Cloud nodes. |
 | `qemu` | [object](#specvendorsqemu) |  | qemu configures the qemu development vendor. |
@@ -3068,6 +3179,492 @@ root configures the root disk.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `size` | integer or string |  | size of the root disk. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.vendors.gcp`
+
+gcp configures GCP (Compute Engine) nodes.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `imageProject` | string |  | imageProject is the project that owns the Flatcar images. Empty means the public Flatcar project (amd64) and the Spare Cores project (arm64). Pattern `^([a-z][-a-z0-9.:]{4,61}[a-z0-9])?$`. |
+| `metadata` | map of string values |  | metadata is extra instance metadata. user-data, ssh-keys, enable-oslogin and block-project-ssh-keys are reserved. |
+| `networking` | [object](#specvendorsgcpnetworking) |  | networking overrides the generic spec.networking for GCP. |
+| `project` | string |  | project is the project of the nodes. The controller targets one project (--gcp-project); when set here it must equal it, so that a mismatch is a visible condition and not a launch error. Pattern `^([a-z][-a-z0-9.:]{4,61}[a-z0-9])?$`. |
+| `regions` | array of string |  | regions is the allow-list of GCP regions; empty means every region the driver can read. At most 64 items. |
+| `resources` | [object](#specvendorsgcpresources) |  | resources says how the GCP resources a node depends on are provided. |
+| `serviceAccount` | string |  | serviceAccount is the e-mail of a service account attached to the nodes (needs iam.serviceAccounts.actAs). Empty by default: nodes hold no cloud credentials. At most 254 characters. |
+| `storage` | [object](#specvendorsgcpstorage) |  | storage overrides the built-in storage defaults (pd-balanced, 64 GiB root disk; Hyperdisk for the series that boot only from it; no extra disks). |
+
+### `spec.vendors.gcp.networking`
+
+networking overrides the generic spec.networking for GCP.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `inbound` | [object](#specvendorsgcpnetworkinginbound) |  | inbound replaces spec.networking.inbound. |
+| `isolation` | string |  | isolation overrides spec.networking.isolation. One of `none`, `nodeclass`, `run`. |
+| `publicIPv4` | boolean |  | publicIPv4 overrides spec.networking.publicIPv4. |
+| `publicIPv6` | boolean |  | publicIPv6 overrides spec.networking.publicIPv6. |
+
+### `spec.vendors.gcp.networking.inbound`
+
+inbound replaces spec.networking.inbound.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `rules` | array of [object](#specvendorsgcpnetworkinginboundrules) |  | rules allow traffic from CIDRs; everything else is denied. At most 32 items. |
+
+### `spec.vendors.gcp.networking.inbound.rules[]`
+
+InboundRule allows inbound traffic from CIDRs.
+
+Validation: ports are only valid for tcp and udp (`!has(self.fromPort) \|\| self.protocol == 'tcp' \|\| self.protocol == 'udp'`).
+
+Validation: toPort needs fromPort (`!has(self.toPort) \|\| has(self.fromPort)`).
+
+Validation: toPort must not be smaller than fromPort (`!has(self.toPort) \|\| self.toPort >= self.fromPort`).
+
+Validation: cidrs must be valid CIDR notation (`self.cidrs.all(c, isCIDR(c))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `cidrs` (required) | array of string |  | cidrs are the allowed source networks. At least 1 items. At most 32 items. At most 43 characters. |
+| `fromPort` | integer (int32) |  | fromPort is the first port of the range (tcp and udp); without ports the rule covers every port. Minimum 1. Maximum 65535. |
+| `protocol` (required) | string |  | protocol of the rule. One of `tcp`, `udp`, `icmp`, `any`. |
+| `toPort` | integer (int32) |  | toPort is the last port of the range; defaults to fromPort. Minimum 1. Maximum 65535. |
+
+### `spec.vendors.gcp.resources`
+
+resources says how the GCP resources a node depends on are provided.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `firewalls` | [object](#specvendorsgcpresourcesfirewalls) |  | firewalls are network tags: the tag of the rules that allow the nodes' traffic. ids are tag names. |
+| `images` | [object](#specvendorsgcpresourcesimages) |  | images brings the Flatcar boot images with the one selector of every resource kind (plan 14 A1): image IDs under "*" (images are global), a name, a family or native filters. Optional: without it the driver finds the pinned release by name in the image project. Whatever the lookup, the image's name, family or labels must say the pinned channel and version, or the images are not ready. Images take use only. |
+| `resourcePolicies` | [object](#specvendorsgcpresourcesresourcepolicies) |  | resourcePolicies are the placement policies nodes are launched into (see the placement profiles). |
+| `subnets` | [object](#specvendorsgcpresourcessubnets) |  | subnets nodes are launched into (the network is implied by the subnet). |
+
+### `spec.vendors.gcp.resources.firewalls`
+
+firewalls are network tags: the tag of the rules that allow the nodes' traffic. ids are tag names.
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsgcpresourcesfirewallscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsgcpresourcesfirewallsuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.gcp.resources.firewalls.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsgcpresourcesfirewallscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsgcpresourcesfirewallscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.gcp.resources.firewalls.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.gcp.resources.firewalls.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.gcp.resources.firewalls.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsgcpresourcesfirewallsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsgcpresourcesfirewallsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.gcp.resources.firewalls.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.gcp.resources.firewalls.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.gcp.resources.images`
+
+images brings the Flatcar boot images with the one selector of every resource kind (plan 14 A1): image IDs under "*" (images are global), a name, a family or native filters. Optional: without it the driver finds the pinned release by name in the image project. Whatever the lookup, the image's name, family or labels must say the pinned channel and version, or the images are not ready. Images take use only.
+
+Validation: images accepts use only: it has no create and no forbid (`has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)`).
+
+Validation: images cannot use select all: a launch needs one image (`!has(self.use) \|\| !has(self.use.select) \|\| self.use.select != 'all'`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsgcpresourcesimagescreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsgcpresourcesimagesuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.gcp.resources.images.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsgcpresourcesimagescreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsgcpresourcesimagescreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.gcp.resources.images.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.gcp.resources.images.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.gcp.resources.images.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsgcpresourcesimagesusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsgcpresourcesimagesusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.gcp.resources.images.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.gcp.resources.images.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.gcp.resources.resourcePolicies`
+
+resourcePolicies are the placement policies nodes are launched into (see the placement profiles).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsgcpresourcesresourcepoliciescreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsgcpresourcesresourcepoliciesuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.gcp.resources.resourcePolicies.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsgcpresourcesresourcepoliciescreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsgcpresourcesresourcepoliciescreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.gcp.resources.resourcePolicies.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.gcp.resources.resourcePolicies.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.gcp.resources.resourcePolicies.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsgcpresourcesresourcepoliciesusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsgcpresourcesresourcepoliciesusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.gcp.resources.resourcePolicies.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.gcp.resources.resourcePolicies.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.gcp.resources.subnets`
+
+subnets nodes are launched into (the network is implied by the subnet).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsgcpresourcessubnetscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsgcpresourcessubnetsuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.gcp.resources.subnets.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsgcpresourcessubnetscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsgcpresourcessubnetscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.gcp.resources.subnets.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.gcp.resources.subnets.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.gcp.resources.subnets.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsgcpresourcessubnetsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsgcpresourcessubnetsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.gcp.resources.subnets.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.gcp.resources.subnets.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.gcp.storage`
+
+storage overrides the built-in storage defaults (pd-balanced, 64 GiB root disk; Hyperdisk for the series that boot only from it; no extra disks).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `data` | array of [object](#specvendorsgcpstoragedata) |  | data lists extra disks created with the instance. At most 8 items. |
+| `localStorage` | [object](#specvendorsgcpstoragelocalstorage) |  | localStorage configures the local SSDs of types that include them. |
+| `root` | [object](#specvendorsgcpstorageroot) |  | root configures the boot disk. |
+
+### `spec.vendors.gcp.storage.data[]`
+
+DataDisk is an extra disk: Compute Engine settings plus the guest side (name, filesystem, mount path). The name is the disk's device name, so the guest path /dev/disk/by-id/google-&lt;name&gt; is known before the launch.
+
+Validation: provisionedIops is only valid for Hyperdisk (`!has(self.provisionedIops) \|\| self.diskType.startsWith('hyperdisk-')`).
+
+Validation: provisionedThroughput is only valid for Hyperdisk (`!has(self.provisionedThroughput) \|\| self.diskType.startsWith('hyperdisk-')`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `diskType` (required) | string |  | diskType of the disk. One of `pd-standard`, `pd-balanced`, `pd-ssd`, `hyperdisk-balanced`, `hyperdisk-extreme`, `hyperdisk-throughput`, `hyperdisk-ml`. |
+| `filesystem` | string | `"ext4"` | filesystem the first-boot unit creates on the volume. One of `ext4`, `xfs`, `btrfs`. |
+| `kmsKeyName` | string |  | kmsKeyName is the customer-managed encryption key. At most 2048 characters. |
+| `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
+| `provisionedIops` | integer (int64) |  | provisionedIops for Hyperdisk. Minimum 100. Maximum 350000. |
+| `provisionedThroughput` | integer (int64) |  | provisionedThroughput in MiB/s for Hyperdisk. Minimum 1. Maximum 10000. |
+| `sizeGb` (required) | integer (int64) |  | sizeGb of the disk in GiB. Minimum 1. Maximum 65536. |
+
+### `spec.vendors.gcp.storage.localStorage`
+
+localStorage configures the local SSDs of types that include them.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mountPath` | string |  | mountPath is the absolute path the local storage is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
+| `policy` (required) | string |  | policy: ignore leaves the disks alone, mount mounts them, raid0 stripes them into one volume and mounts it. One of `ignore`, `mount`, `raid0`. |
+
+### `spec.vendors.gcp.storage.root`
+
+root configures the boot disk.
+
+Validation: provisionedIops is only valid for Hyperdisk (`!has(self.provisionedIops) \|\| !has(self.diskType) \|\| self.diskType.startsWith('hyperdisk-')`).
+
+Validation: provisionedThroughput is only valid for Hyperdisk (`!has(self.provisionedThroughput) \|\| !has(self.diskType) \|\| self.diskType.startsWith('hyperdisk-')`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `diskType` | string |  | diskType of the boot disk. Built-in default pd-balanced, hyperdisk-balanced for the series that boot only from Hyperdisk. One of `pd-standard`, `pd-balanced`, `pd-ssd`, `hyperdisk-balanced`, `hyperdisk-extreme`, `hyperdisk-throughput`, `hyperdisk-ml`. |
+| `kmsKeyName` | string |  | kmsKeyName is the customer-managed encryption key (projects/.../cryptoKeys/...); Google's own key when empty. At most 2048 characters. |
+| `provisionedIops` | integer (int64) |  | provisionedIops for Hyperdisk. Minimum 100. Maximum 350000. |
+| `provisionedThroughput` | integer (int64) |  | provisionedThroughput in MiB/s for Hyperdisk. Minimum 1. Maximum 10000. |
+| `sizeGb` | integer (int64) |  | sizeGb of the boot disk in GiB (GCP's "GB"). Built-in default 64. Minimum 10. Maximum 65536. |
 
 ### `spec.vendors.hcloud`
 
