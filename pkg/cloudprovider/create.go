@@ -313,6 +313,15 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	if prepared != nil {
 		rr.Volumes, rr.Local = volumeHints(prepared)
 	}
+	frags, err := vendors.BootFragmentsFor(drv, nc.Spec.HardeningNames(), vendors.BootFragmentRequest{
+		Region: cand.region, Zone: cand.zone, InstanceType: cand.apiReference, Arch: arch,
+	})
+	if err != nil {
+		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
+	}
+	for _, f := range frags {
+		rr.VendorFragments = append(rr.VendorFragments, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
+	}
 	userData, err := c.opts.UserData.Render(ctx, rr)
 	if err != nil {
 		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", fmt.Errorf("rendering the user-data: %w", err))

@@ -133,7 +133,7 @@ or is not published (`ReleaseNotFound`), makes `ArtifactsReady` `False`.
 ## The user-data
 
 The user-data is a small Ignition config (version 3.4.0) whose
-`ignition.config.merge` list holds up to three configs, each a gzip-compressed,
+`ignition.config.merge` list holds the configs below, each a gzip-compressed,
 base64-encoded `data:` URL (`compression: gzip`), in this order (later parts
 override earlier ones):
 
@@ -146,8 +146,13 @@ override earlier ones):
    for the node's architecture, the kubelet drop-in, masked `update-engine` and
    `locksmithd`, and with `spec.poweroffAfter` a timer
    (`OnBootSec=<seconds>`) that runs `systemctl poweroff --force`.
-2. **network**: [`tailscale`, `direct` or `custom`](#network-templates).
-3. **user**, when `spec.butane` is set.
+2. **volumes**, for nodes with extra volumes or local storage (the
+   [first-boot volume unit](node-settings.md#extra-volumes-and-local-storage)).
+3. **vendor fragments**, one part per fragment the vendor's driver contributes
+   ([below](#vendor-fragments)); none unless a driver has an always-on fragment or the NodeClass
+   enables a hardening.
+4. **network**: [`tailscale`, `direct` or `custom`](#network-templates).
+5. **user**, when `spec.butane` is set.
 
 Each part is a Butane config (`variant: flatcar`, version `1.1.0`; `1.0.0` is
 accepted in custom and user configs, the experimental version is not), rendered
@@ -238,6 +243,42 @@ compares them. What each renders:
   address (no `--node-ip`).
 - **`custom`**: your Butane template (below).
 
+## Vendor fragments
+
+A vendor's driver can contribute Butane to the node through the optional
+[`NodeHardener`](driver-contract.md#boot-fragments) capability. Each fragment is a
+Butane config like the user's own (`variant: flatcar`, `1.0.0` or `1.1.0`, the template variables above,
+strict mode), merged as its own part named `vendor-<name>` after the base and volume
+configs and **before** the network template and the user's Butane, which can therefore override it.
+There are two kinds:
+
+- **Always on**: what the vendor's image needs to boot as the other vendors' do (for example the udev rules
+  of `/dev/disk/by-id/google-<name>` that the GCP arm64 image lacks). The NodeClass does not ask for them.
+- **Hardenings**, enabled per NodeClass with `spec.bootstrap.hardening`, off by default:
+
+  ```yaml
+  spec:
+    bootstrap:
+      hardening: [metadata-from-pods]
+  ```
+
+  `metadata-from-pods` drops Pod traffic that is forwarded to the vendor's metadata address
+  (`169.254.169.254` on GCP, `100.100.100.200` on Alibaba Cloud), where, unlike on AWS (the metadata hop
+  limit keeps Pods away), nothing else stops a Pod reading the user-data, which holds the one-hour bootstrap
+  token and, with the `tailscale` template, the Tailscale auth key. It is a systemd unit
+  (`scarpenter-block-metadata.service`) that inserts `iptables -I FORWARD 1 -d <address> -j DROP` before the
+  network and the kubelet start. The trade-off is why it is opt-in: it changes what Pods can reach, so a
+  workload that uses the vendor's metadata service from a Pod (workload identity through the metadata server)
+  stops working. Only the forward path is dropped: the node's own units (Ignition, the kubelet, time sync) use the
+  output path and are unaffected, and Pods in the host network are not forwarded and can still reach it. A CNI that
+  bypasses netfilter for Pod traffic is not covered.
+
+A vendor whose driver offers no hardening ignores the list; the NodeClass controller records an Event
+(`HardeningNotOffered`) so that an opt-in is never silently dropped (AWS offers none). The fragments count in the
+[size budget](#size-budget) and in the trial rendering of the NodeClass controller, and the enabled hardenings
+are part of the [drift hash](#the-nodeclass-controller): changing the list replaces the nodes. No vendor
+driver uses the hook yet; the fake driver offers `metadata-from-pods` so that it is exercised without a cloud.
+
 ## Custom templates and extra Butane
 
 `spec.network.custom.configMapRef` (template `custom`) and `spec.butane` each name
@@ -302,8 +343,8 @@ makes its own offerings unavailable, and a `Create` fails with
 
 The **drift hash** of a vendor is the SHA-256 over the canonical JSON of the
 shared fields that change what a node is (`flatcar`, `kubernetes`, `network`,
-`networking`, `kubelet`, `butane`, `sysexts`, `poweroffAfter`, `tags`), that
-vendor's block without `regions` and `resources`, the contents the spec points at
+`networking`, `kubelet`, `butane`, `sysexts`, `poweroffAfter`, `tags`, and `bootstrap` when it enables a
+hardening), that vendor's block without `regions` and `resources`, the contents the spec points at
 (custom template, Butane, the auth key Secret's resourceVersion), the resolved
 artifact digests (not their URLs: switching to a mirror of the same release does
 not drift nodes), and `HashVersion`. When an input cannot be loaded (a reference
@@ -315,7 +356,8 @@ references, metrics and selections do not change it.
 
 Events (on the SCNodeClass, Warning, deduplicated for 10 minutes):
 `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `RestartRequired`,
-`MetricInvalid`.
+`MetricInvalid`, `HardeningNotOffered` (a hardening in `spec.bootstrap.hardening` that a vendor's driver does
+not offer).
 
 ## The serving certificate approver
 

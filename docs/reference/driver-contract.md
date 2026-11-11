@@ -37,7 +37,8 @@ returns the boot images of the NodeClass's release per region and architecture
 for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
 resolves images at launch with `ResolveImage` and counts as ready; the [AWS
 driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (below),
-`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker` (below), `ImageImporter` (reserved) and
+`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker` (below), `NodeHardener` ([Boot
+fragments](#boot-fragments)), `ImageImporter` (reserved) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
 
@@ -84,6 +85,29 @@ The conformance suite (`images` subtests, fixture hook `SeedImage`) runs for a d
 kind: an explicit ID, both architectures in one list, an excluded architecture, a missing ID, another
 version, another channel, no version, `exactlyOne`, `newest` and `oldest`, placeholders, and the default
 image.
+
+## Boot fragments
+
+A driver may add Butane to the node's configuration through the optional `NodeHardener`
+capability (plan 14 A7): the core must not branch on a vendor, and the user-data (a one-hour bootstrap
+token and the Tailscale key) is readable from Pods on vendors without something like AWS's metadata hop
+limit.
+
+| Method | Meaning |
+|---|---|
+| `Hardenings()` | The names of the opt-in hardenings the driver offers (`metadata-from-pods`). |
+| `BootFragments(req)` | The `vendors.BootFragment{Name, Butane}` list for the node: the fragments that are always on (the vendor's image needs them: the udev rules of `/dev/disk/by-id/google-<name>` on GCP arm64) and those of the hardenings in `req.Hardening`, in a fixed order, depending only on the request (`Region`, `Zone`, `InstanceType`, `Arch`). |
+
+`spec.bootstrap.hardening` lists the hardenings a NodeClass enables; off by default. The core passes a
+driver only the names it offers (`vendors.BootFragmentsFor`); a vendor that offers none of them ignores the
+list and the NodeClass controller says so in the Event `HardeningNotOffered`. The fragments are rendered like
+the user's own Butane and merged after the base and volume configs, before the network template and the
+user's Butane, which can override them ([node bootstrap](node-bootstrap.md#vendor-fragments)). They
+count in the size budget, and the trial rendering of the NodeClass controller includes them, so a fragment
+that does not translate or does not fit makes `ValidationSucceeded` false. `vendors.BlockMetadataFromPods(address)` is the fragment of
+`metadata-from-pods` for a vendor's metadata address. The enabled hardenings are part of the
+drift hash. The fake driver offers `metadata-from-pods` so that the hook is tested without a cloud; no
+real vendor uses it yet.
 
 ## The idempotency label
 
@@ -382,7 +406,7 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   version check resolve against. An image says its release in `channel` and `version` or in the
   tags `flatcar-channel` and `flatcar-version`; without either it says none (`ImageVersionUnknown`).
   Without an `images` selector in the NodeClass every release has a synthesised image. The fake
-  also implements `ImageReporter`.
+  also implements `ImageReporter` and `NodeHardener`.
 - `existingResources`: the account's own resources, `{kind, region, id, name,
   tags, default, created, description, zone, network, cidr, state}`: what `use` selectors and the
   vendor's default resource (`default: true`) resolve to; the attributes feed `match` (state

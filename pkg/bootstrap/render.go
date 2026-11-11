@@ -54,6 +54,13 @@ type Part struct {
 	Ignition []byte
 }
 
+// Fragment is a Butane config a vendor's driver contributes (vendors.BootFragment):
+// always-on fragments and the ones of the enabled hardenings.
+type Fragment struct {
+	Name   string
+	Butane string
+}
+
 // Rendered is the user-data and the configs it merges.
 type Rendered struct {
 	UserData []byte
@@ -196,6 +203,11 @@ type Params struct {
 	// Volumes and Local are the device hints of the launch (00a section 11).
 	Volumes []VolumeHint
 	Local   *LocalHint
+	// VendorFragments are the fragments the vendor's driver contributes (plan 14
+	// A7). They merge after the base and volume configs and before the network
+	// and the user's, so those override them; they are rendered with the same
+	// variables as the user's Butane and count in the budget.
+	VendorFragments []Fragment
 
 	// Budget is the size above which Render fails; 0 means MaxUserDataSize.
 	Budget int
@@ -222,6 +234,17 @@ func Render(p Params) (*Rendered, error) {
 			return nil, err
 		}
 		parts = append(parts, Part{Name: "volumes", Ignition: volumes})
+	}
+
+	for _, f := range p.VendorFragments {
+		if strings.TrimSpace(f.Name) == "" {
+			return nil, errors.New("a vendor fragment has no name")
+		}
+		frag, err := renderText("vendor fragment "+f.Name, f.Butane, data)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, Part{Name: "vendor-" + f.Name, Ignition: frag})
 	}
 
 	var network []byte

@@ -38,7 +38,7 @@ type Inputs struct {
 // Hash is the drift hash of the NodeClass for one vendor: SHA-256 over the
 // canonical JSON of the shared fields that change what a node is (flatcar,
 // kubernetes, network, networking, kubelet, butane, sysexts, poweroffAfter,
-// tags), that vendor's block without regions and resources, and HashVersion.
+// tags, bootstrap), that vendor's block without regions and resources, and HashVersion.
 // Changing another vendor's block never changes it; neither do regions,
 // resource references, metrics or selections. Besides the spec it covers what
 // the spec points at (Inputs): the contents of the custom template and the
@@ -58,6 +58,12 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 	delete(generic, "resources")
 
 	s := &nc.Spec
+	// The bootstrap hardening changes the user-data, so it drifts nodes; it is
+	// left out when unset so that a NodeClass without it keeps its hash.
+	var bootstrap any
+	if s.Bootstrap != nil && len(s.Bootstrap.Hardening) > 0 {
+		bootstrap = s.Bootstrap
+	}
 	raw, err := json.Marshal(struct {
 		Version       string
 		Vendor        string
@@ -70,10 +76,11 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 		Sysexts       any
 		PoweroffAfter any
 		Tags          any
+		Bootstrap     any `json:",omitempty"`
 		Block         map[string]any
 		Inputs        hashInputs
 	}{HashVersion, vendor, s.Flatcar, s.Kubernetes, s.Network, s.Networking, s.Kubelet, s.Butane, s.Sysexts,
-		s.PoweroffAfter, s.Tags, generic, newHashInputs(in)})
+		s.PoweroffAfter, s.Tags, bootstrap, generic, newHashInputs(in)})
 	if err != nil {
 		return "", fmt.Errorf("hashing the NodeClass: %w", err)
 	}

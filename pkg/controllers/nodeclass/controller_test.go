@@ -49,6 +49,15 @@ type driver struct {
 	validateErr error
 	images      []v1alpha1.ImageStatus
 	imagesErr   error
+	// hardenings are the hardenings the driver offers, fragments what it
+	// contributes for them.
+	hardenings []string
+	fragments  []vendors.BootFragment
+}
+
+func (d *driver) Hardenings() []string { return d.hardenings }
+func (d *driver) BootFragments(vendors.BootFragmentRequest) ([]vendors.BootFragment, error) {
+	return d.fragments, nil
 }
 
 func (d *driver) Vendor() string                                    { return "aws" }

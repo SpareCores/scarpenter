@@ -386,6 +386,7 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 | `LaunchFailed` | Warning | SCNodeClass | A `Fatal` vendor error ended a launch. |
 | `ImageResolutionFailed` | Warning | SCNodeClass | A boot image could not be resolved. |
 | `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `MetricInvalid`, `RestartRequired` | Warning / Normal | SCNodeClass | The NodeClass controller's findings ([conditions](#scnodeclass-status-conditions)). |
+| `HardeningNotOffered` | Warning | SCNodeClass | `spec.bootstrap.hardening` enables a hardening that a vendor's driver does not offer; it is not applied to that vendor's nodes ([node bootstrap](node-bootstrap.md#vendor-fragments)). |
 | `IPv6OnlyNeedsMirror` | Warning | SCNodeClass | IPv6-only nodes and the default sysext source, which has no IPv6: set `--sysext-base-url`. |
 | `QuotaExhausted`, `QuotaZero` | Warning | SCNodeClass | No headroom in a quota bucket (deduplicated for 10 minutes). |
 | `BootstrapTokenDeleted` | Normal | NodeClaim | The node registered; its token was deleted. |

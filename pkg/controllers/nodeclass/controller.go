@@ -80,6 +80,9 @@ const (
 	// source (GitHub releases have no IPv6).
 	EventIPv6OnlyNeedsMirror = "IPv6OnlyNeedsMirror"
 	EventRestartRequired     = "RestartRequired"
+	// EventHardeningNotOffered: the NodeClass enables a hardening the vendor's
+	// driver does not offer; it applies to the vendors that do.
+	EventHardeningNotOffered = "HardeningNotOffered"
 	EventMetricInvalid       = "MetricInvalid"
 	eventDedupe              = 10 * time.Minute
 )
@@ -335,7 +338,7 @@ func (c *Controller) validate(
 	// what is wrong.
 	if artifactsOK {
 		for _, arch := range architectures {
-			if err := c.opts.Renderer.Validate(ctx, desired, arch, inputs); err != nil {
+			if err := c.opts.Renderer.ValidateWith(ctx, desired, arch, inputs, c.bootFragments(desired)); err != nil {
 				reason := ReasonTemplateInvalid
 				if _, ok := errors.AsType[*bootstrap.ClusterDNSError](err); ok {
 					reason = ReasonClusterDNSUnknown
@@ -423,6 +426,28 @@ func (c *Controller) restartRequired(nc *v1alpha1.SCNodeClass, cs status.Conditi
 	}
 }
 
+// trialName stands for the region, zone and instance type of a trial rendering.
+const trialName = "validation"
+
+// bootFragments returns the fragments the drivers of the NodeClass's vendors
+// contribute, with every hardening the NodeClass enables, for the trial rendering.
+func (c *Controller) bootFragments(nc *v1alpha1.SCNodeClass) bootstrap.FragmentsFunc {
+	return func(vendor, arch string) ([]bootstrap.Fragment, error) {
+		drv, ok := c.opts.Registry.Driver(vendor)
+		if !ok {
+			return nil, nil
+		}
+		frags, err := vendors.BootFragmentsFor(drv, nc.Spec.HardeningNames(), vendors.BootFragmentRequest{
+			Region: trialName, Zone: trialName, InstanceType: trialName, Arch: arch,
+		})
+		out := make([]bootstrap.Fragment, 0, len(frags))
+		for _, f := range frags {
+			out = append(out, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
+		}
+		return out, err
+	}
+}
+
 // vendor computes the status of one vendor: readiness, the images and the
 // drift hash. current is the NodeClass as read (for transition times).
 func (c *Controller) vendor(
@@ -461,6 +486,7 @@ func (c *Controller) vendor(
 
 	if ready {
 		c.warnIPv6Only(desired, vendor)
+		c.warnHardening(desired, vendor)
 	}
 	images, ok, reason, msg := c.images(ctx, desired, vendor, ready)
 	kept := false
@@ -725,6 +751,24 @@ func trim(s string) string {
 // warnIPv6Only warns about nodes with IPv6 only (publicIPv4 false, publicIPv6 true)
 // while the sysexts come from the default source, which the nodes cannot reach: the
 // release host of the sysext-bakery has no IPv6. A sysext mirror with IPv6 fixes it.
+// warnHardening says that the NodeClass enables a hardening the vendor's driver
+// does not offer (AWS offers none: its metadata hop limit already keeps Pods off
+// the metadata service), so that an opt-in is never silently ignored.
+func (c *Controller) warnHardening(nc *v1alpha1.SCNodeClass, vendor string) {
+	enabled := nc.Spec.HardeningNames()
+	if len(enabled) == 0 {
+		return
+	}
+	drv, ok := c.opts.Registry.Driver(vendor)
+	if !ok {
+		return
+	}
+	if _, unoffered := vendors.OfferedHardenings(drv, enabled); len(unoffered) > 0 {
+		c.warn(nc, EventHardeningNotOffered, fmt.Sprintf("vendor %s offers no hardening %s: it is not applied to its nodes",
+			vendor, strings.Join(unoffered, ", ")), vendor)
+	}
+}
+
 func (c *Controller) warnIPv6Only(nc *v1alpha1.SCNodeClass, vendor string) {
 	if c.opts.SysextMirror {
 		return

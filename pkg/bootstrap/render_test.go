@@ -154,7 +154,8 @@ func readable(t *testing.T, b []byte) string {
 	if err := json.Unmarshal(b, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	files, _ := cfg["storage"].(map[string]any)["files"].([]any)
+	storage, _ := cfg["storage"].(map[string]any) // a config of units only has none
+	files, _ := storage["files"].([]any)
 	for _, f := range files {
 		contents, ok := f.(map[string]any)["contents"].(map[string]any)
 		if !ok {
