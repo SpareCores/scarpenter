@@ -604,6 +604,21 @@ IPs, load balancers, snapshots as node roots, an `ImageImporter`.
     names can be longer). Recommendation: the hash scheme above, with the full NodeClaim name
     also in the server name when it fits; a collision test in the plan.
 
+**Decided by default, maintainer to confirm** (the executing run took the recommendation, or the conservative option, and did not block):
+
+3. *Isolation with a brought network*: a NodeClass with `resources.networks.use` must resolve `networking.isolation` (generic or the `hcloud` override) to `nodeclass` or `none`; `run` and an unset level (which resolves to `run`) are rejected by `ValidateNodeClass`, and a network found by the opt-in label is refused at the launch under `run`. `none` is accepted next to `nodeclass` because it is the user's explicit choice of less isolation. With no network every level is satisfied.
+4. *`networks.create`*: not in v1, rejected by the CRD's CEL rule and by the validator; `networks` is an optional kind (`KindSpec.Optional`, a core addition): every launch asks for it, a `use` or the opt-in label provides it, and nothing found means no network (never a creation). A network selector selects one network (`exactlyOne`), after keeping the networks that have a cloud subnet in the network zone of the location.
+5. *Firewall default*: one managed deny-inbound firewall per location (`idleTTL` 24 h) with the `networking.inbound` rules, found first by the opt-in tag; there is no vendor default for any kind, so the conformance suite runs the resolution order on the firewalls without `SetDefault` (the two cases about a default are skipped). That an empty firewall drops inbound traffic is the plan's reading and is asserted by the L5 lane.
+6. *Primary IPs*: created by Hetzner with the server, cleaned up after the delete when still unassigned and without `auto_delete`; the lane asserts none is left. If `auto_delete` turns out false, `primaryIPs` becomes a managed per-node kind.
+7. *SSH key*: optional `sshKey`, default none.
+8. *Server limit flag*: `--hcloud-server-limit` (env `SCARPENTER_HCLOUD_SERVER_LIMIT`, chart `vendors.hcloud.serverLimit`), default 0 (unknown); the global bucket counts every server of the project and is consumed by on-demand only.
+9, 10. *Credentials and CI project*: one read-write token per project in a Secret; a dedicated CI project with a usage alert and the sweeper as the primary leak guard. The lane's server limit default is 10 (the prelude starts up to 9 servers at once), not about 6.
+11. *Private-only nodes*: refused by `ValidateNodeClass` (a server needs a public IPv4 or IPv6); IPv6-only is accepted with a log line.
+12. *Label values*: the hash scheme of the plan, tested for collisions.
+13. *Billing retention*: `BillingRule` is reported with `Verified: false` (hourly increment, stopped server charged, start `created`); retention stays off until the live check of the billing section passes and `billingVerified` is flipped.
+14. *Default image lookup*: exactly one snapshot with the three labels per architecture; several are `ImageAmbiguous` (Fatal), never the newest.
+15. *`RootDiskForType`*: answers from the cached server type table (GB, decimal), and says "unknown" before the table is loaded so that the catalog's storage size answers.
+
 ## Unverified facts (settle in the first implementation steps or in L5)
 
 - Snapshot price per GB-month (sources disagree: 0.0110 to 0.0143 EUR) and the temporary

@@ -212,6 +212,7 @@ func TestBroughtFirewallAndNetwork(t *testing.T) {
 			Firewalls: &common.Resource{Use: &common.ResourceUse{Tags: map[string]string{"team": "a"}}},
 			Networks:  &common.Resource{Use: &common.ResourceUse{Name: "net-{zone}"}},
 		}
+		b.Networking = &common.NetworkingOverride{Isolation: common.IsolationNodeClass}
 	})
 	s := settingsOf(t, e.d, nc, options.Selection{})
 	p, err := e.prepare(t, nc, s, "fsn1", "")
@@ -244,10 +245,40 @@ func TestBroughtFirewallAndNetwork(t *testing.T) {
 		nc.Name = "by-id"
 		b.Resources = &hcapi.Resources{Networks: &common.Resource{Use: &common.ResourceUse{
 			IDs: map[string]common.IDList{"*": {fmt.Sprint(nw.ID)}}}}}
+		b.Networking = &common.NetworkingOverride{Isolation: common.IsolationNodeClass}
 	})
 	_, err = e.prepare(t, byID, settingsOf(t, e.d, byID, options.Selection{}), "ash", "")
 	if vendors.CodeOf(err) != vendors.CodeResourceMissing || !strings.Contains(err.Error(), "subnet") {
 		t.Errorf("a network without a subnet in the location: %v, want ResourceMissing naming the subnet stage", err)
+	}
+}
+
+func TestANetworkWithTheOptInLabelIsAttached(t *testing.T) {
+	e := newEngEnv(t)
+	nw := e.f.AddNetwork("tagged", "10.8.0.0/21", map[string]string{hcloud.TagKey(vendors.TagUse): vendors.OptInValue},
+		hc.NetworkZoneEUCentral)
+	// The default isolation (run) cannot hold with a shared private network: refused at the launch.
+	run := e.nodeClass(t, func(nc *v1alpha1.SCNodeClass, _ *hcapi.Settings) { nc.Name = "run" })
+	_, err := e.prepare(t, run, settingsOf(t, e.d, run, options.Selection{}), "fsn1", "")
+	if !vendors.IsClass(err, vendors.Fatal) || !strings.Contains(err.Error(), "isolation") {
+		t.Errorf("a discovered network with isolation run: %v, want Fatal naming the isolation", err)
+	}
+	// The generic networking.isolation is as good as the vendor block's.
+	nc := e.nodeClass(t, func(nc *v1alpha1.SCNodeClass, _ *hcapi.Settings) {
+		nc.Name = "nodeclass"
+		nc.Spec.Networking.Isolation = common.IsolationNodeClass
+	})
+	p, err := e.prepare(t, nc, settingsOf(t, e.d, nc, options.Selection{}), "fsn1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kindIDs(p, hcloud.KindNetworks); len(got) != 1 || got[0] != fmt.Sprint(nw.ID) {
+		t.Errorf("the network with the opt-in label: %v", got)
+	}
+	// ash is in another network zone: no network there, and no error.
+	p, err = e.prepare(t, nc, settingsOf(t, e.d, nc, options.Selection{}), "ash", "")
+	if err != nil || len(kindIDs(p, hcloud.KindNetworks)) != 0 {
+		t.Errorf("ash: %v, %v; want no network and no error", kindIDs(p, hcloud.KindNetworks), err)
 	}
 }
 

@@ -169,11 +169,17 @@ func (d *Driver) listImages(ctx context.Context, use vendors.UseRef, ha hc.Archi
 				opts.Status = append(opts.Status, hc.ImageStatus(v))
 			}
 		case filterBound:
-			if len(f.Values) > 0 {
-				if id, err := strconv.ParseInt(f.Values[0], 10, 64); err == nil {
-					opts.BoundTo = &hc.Server{ID: id}
-				}
+			// The API takes one server ID; anything else would be dropped silently and
+			// widen the listing, so it is refused.
+			id, err := int64(0), error(nil)
+			if len(f.Values) == 1 {
+				id, err = strconv.ParseInt(f.Values[0], 10, 64)
 			}
+			if len(f.Values) != 1 || err != nil {
+				return nil, vendors.NewError(vendors.Fatal, CodeInvalidSettings, fmt.Errorf(
+					"the images filter %s takes one server ID, not %q", filterBound, f.Values))
+			}
+			opts.BoundTo = &hc.Server{ID: id}
 		}
 	}
 	out, err := d.api.Images(ctx, opts)
@@ -215,9 +221,7 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 	)
 	for _, region := range regions {
 		for _, arch := range []string{ArchAMD64, ArchARM64} {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				st := v1alpha1.ImageStatus{Region: region, Arch: arch}
 				use, _, err := selector.ImageUse(nc, d, region, arch)
 				var img *vendors.Image
@@ -241,7 +245,7 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 					return
 				}
 				out = append(out, st)
-			}()
+			})
 		}
 	}
 	wg.Wait()

@@ -165,7 +165,8 @@ func (d *Driver) registerRateLimitGauges() {
 			}
 		}
 	}
-	gauge("scarpenter_hcloud_api_remaining", "Requests left in the Hetzner Cloud project's rate limit bucket (RateLimit-Remaining).",
+	gauge("scarpenter_hcloud_api_remaining",
+		"Requests left in the Hetzner Cloud project's rate limit bucket (RateLimit-Remaining).",
 		func(r RateLimit) float64 { return float64(r.Remaining) })
 	gauge("scarpenter_hcloud_api_limit", "The Hetzner Cloud project's rate limit per hour (RateLimit-Limit).",
 		func(r RateLimit) float64 { return float64(r.Limit) })

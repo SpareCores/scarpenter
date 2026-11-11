@@ -67,10 +67,11 @@ func (d *Driver) validateBlock(nc *v1alpha1.SCNodeClass, b *hcapi.Settings) []er
 	var errs []error
 	for _, r := range b.Regions {
 		if !locationPattern.MatchString(r) {
-			errs = append(errs, fmt.Errorf("vendors.hcloud.regions: %q is not a Hetzner location (fsn1, nbg1, hel1, ash, hil, sin)", r))
+			errs = append(errs, fmt.Errorf("vendors.hcloud.regions: %q is not a Hetzner location "+
+				"(fsn1, nbg1, hel1, ash, hil, sin)", r))
 		}
 	}
-	if k := b.SSHKey; k != "" && (strings.TrimSpace(k) != k || strings.ContainsFunc(k, func(r rune) bool { return r < 0x20 })) {
+	if k := b.SSHKey; k != "" && !validSSHKeyName(k) {
 		errs = append(errs, fmt.Errorf("vendors.hcloud.sshKey: %q is not a key name or ID (no leading or trailing "+
 			"whitespace, no control characters)", k))
 	}
@@ -101,15 +102,10 @@ func (d *Driver) validateBlock(nc *v1alpha1.SCNodeClass, b *hcapi.Settings) []er
 			}
 			// Hetzner firewalls filter only the public interface, so a shared private network
 			// lets every attached node reach every other whatever the level: the NodeClass must
-			// say it knows (open question 3 of plan 15).
-			if n.Use != nil {
-				iso := common.Isolation("")
-				if b.Networking != nil {
-					iso = b.Networking.Isolation
-				}
-				if iso != common.IsolationNodeClass && iso != common.IsolationNone {
-					errs = append(errs, isolationError(iso))
-				}
+			// say it knows (open question 3 of plan 15). A network found by the opt-in label
+			// is checked at the launch.
+			if n.Use != nil && net.Isolation != common.IsolationNodeClass && net.Isolation != common.IsolationNone {
+				errs = append(errs, isolationError(net.Isolation))
 			}
 		}
 	}
@@ -118,12 +114,13 @@ func (d *Driver) validateBlock(nc *v1alpha1.SCNodeClass, b *hcapi.Settings) []er
 
 func isolationError(have common.Isolation) error {
 	if have == "" {
-		have = "unset (run)"
+		have = common.IsolationRun
 	}
-	return fmt.Errorf("vendors.hcloud.networking.isolation is %s: Hetzner firewalls filter only the public interface, so "+
-		"nodes attached to a private network (vendors.hcloud.resources.networks.use) can reach each other at every "+
-		"level. Set vendors.hcloud.networking.isolation to nodeclass (and bring a network dedicated to the "+
-		"NodeClass) or none; run is not possible until SCarpenter creates per-run networks", have)
+	return fmt.Errorf("networking.isolation is %s: Hetzner firewalls filter only the public interface, so nodes "+
+		"attached to a private network (vendors.hcloud.resources.networks.use, or a network with the opt-in label) "+
+		"can reach each other at every level. Set networking.isolation (or vendors.hcloud.networking.isolation) to "+
+		"nodeclass (and bring a network dedicated to the NodeClass) or none; run is not possible until SCarpenter "+
+		"creates per-run networks", have)
 }
 
 func validateResource(kind vendors.ResourceKind, caps vendors.SelectorCaps, r *common.Resource) []error {
@@ -219,4 +216,10 @@ func validatePlacement(path string, p *hcapi.Placement) []error {
 		return []error{fmt.Errorf("%s.placementGroup: set exactly one of type and use", path)}
 	}
 	return nil
+}
+
+// validSSHKeyName: a name or ID without leading or trailing whitespace and
+// without control characters.
+func validSSHKeyName(k string) bool {
+	return strings.TrimSpace(k) == k && !strings.ContainsFunc(k, func(r rune) bool { return r < 0x20 })
 }

@@ -12,13 +12,8 @@ import (
 	"fmt"
 	"slices"
 
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	hcapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
-	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -140,31 +135,6 @@ func (d *Driver) PriceDelta(s vendors.VendorSettings, o vendors.Offering) (float
 	return total, complete
 }
 
-// bringsNetwork says whether the NodeClass has a networks `use`. The resolved
-// settings do not carry the resource configuration (the engine reads it), and an
-// optional kind that nothing configures must not be required (the engine would
-// try to create it), so the NodeClass is read here, from the cache. Without a
-// client (tests of the lower layers) no network is brought.
-func (d *Driver) bringsNetwork(ctx context.Context, nodeClass string) bool {
-	var r client.Reader = d.cfg.Reader
-	if d.cfg.Client != nil {
-		r = d.cfg.Client
-	}
-	if r == nil || nodeClass == "" {
-		return false
-	}
-	nc := &v1alpha1.SCNodeClass{}
-	if err := r.Get(ctx, types.NamespacedName{Name: nodeClass}, nc); err != nil {
-		d.log.Error(err, "reading the NodeClass to see whether it brings a network", "nodeclass", nodeClass)
-		return false
-	}
-	cfgs, err := options.ResourceConfig(nc, Name)
-	if err != nil {
-		return false
-	}
-	return cfgs[string(KindNetworks)].Use != nil
-}
-
 // FirewallParams are the create parameters of a managed firewall: the inbound
 // rules of networking.inbound (outbound is open).
 type FirewallParams struct {
@@ -196,17 +166,23 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 	}
 	prep := &vendors.Prepared{}
 
-	// A network is optional and never created: only a `use` brings one.
-	if d.bringsNetwork(ctx, req.Tags[vendors.TagNodeClass]) {
-		refs, err := req.Resources.Require(ctx, vendors.ResourceRequest{Kind: KindNetworks, Settings: &req.Settings})
-		if err != nil {
-			return nil, err
+	// A network is optional and never created (KindSpec.Optional): a `use` or the
+	// opt-in label brings one, else the server has public addresses only.
+	nets, err := req.Resources.Require(ctx, vendors.ResourceRequest{Kind: KindNetworks, Settings: &req.Settings})
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case len(nets) > 1:
+		return nil, vendors.NewError(vendors.Fatal, CodeInvalidSettings, fmt.Errorf(
+			"the networks selector matches %d networks in %s; a server joins one", len(nets), req.Zone))
+	case len(nets) == 1:
+		// Hetzner firewalls filter only the public interface: a shared private network
+		// cannot keep the runs of a NodeClass apart (open question 3 of plan 15).
+		if iso := req.Settings.Networking.Isolation; iso != common.IsolationNodeClass && iso != common.IsolationNone {
+			return nil, vendors.NewError(vendors.Fatal, CodeInvalidSettings, isolationError(iso))
 		}
-		if len(refs) != 1 {
-			return nil, vendors.NewError(vendors.Fatal, CodeInvalidSettings, fmt.Errorf(
-				"the networks selector matches %d networks in %s; a server joins one", len(refs), req.Zone))
-		}
-		prep.Resources = append(prep.Resources, refs[0])
+		prep.Resources = append(prep.Resources, nets[0])
 	}
 
 	// The firewall: brought by `use`, discovered, or the managed deny-inbound one.

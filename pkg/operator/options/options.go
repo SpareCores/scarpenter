@@ -332,9 +332,6 @@ func (o *Options) Validate() error {
 	if o.AWSHomeRegion == "" {
 		errs = append(errs, errors.New("--aws-home-region must not be empty"))
 	}
-	if o.HCloudServerLimit < 0 {
-		errs = append(errs, fmt.Errorf("--hcloud-server-limit must not be negative, got %d", o.HCloudServerLimit))
-	}
 	return errors.Join(errs...)
 }
 

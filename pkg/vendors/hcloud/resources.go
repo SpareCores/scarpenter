@@ -9,6 +9,7 @@ package hcloud
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -27,13 +28,16 @@ import (
 const LabelLocation = "scarpenter.sparecores.com/location"
 
 // Kinds implements vendors.ManagedResources. The delete order is servers, then
-// volumes, placement groups, firewalls; networks are never deleted (use only).
+// volumes, placement groups, firewalls; networks are never deleted (use or the
+// opt-in label only: an optional kind, a server without one has public
+// addresses only).
 func (d *Driver) Kinds() []vendors.KindSpec {
 	return []vendors.KindSpec{
 		{Kind: KindVolumes, Scope: vendors.ScopeNode, DefaultPolicy: common.LifecyclePerUse, DeleteOrder: 10},
 		{Kind: KindPlacementGroups, Scope: vendors.ScopeRun, DefaultPolicy: common.LifecyclePerUse, DeleteOrder: 20},
 		{Kind: KindFirewalls, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleIdleTTL, DeleteOrder: 30},
-		{Kind: KindNetworks, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleRetain, DeleteOrder: 40},
+		{Kind: KindNetworks, Scope: vendors.ScopeRegion, DefaultPolicy: common.LifecycleRetain, DeleteOrder: 40,
+			Optional: true},
 	}
 }
 
@@ -83,7 +87,7 @@ func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region 
 	if kind == KindVolumes {
 		// Volumes are internal (no use block): this is the lookup of the engine and tests.
 		caps, ok = vendors.SelectorCaps{
-			Tags: vendors.TagsLabels, Name: &vendors.FieldCap{Field: "name", Side: vendors.SideServerClient},
+			Tags: vendors.TagsLabels, Name: &vendors.FieldCap{Field: fieldName, Side: vendors.SideServerClient},
 			DefaultSelect: common.SelectAll,
 		}, true
 	}
@@ -185,7 +189,7 @@ func (d *Driver) resolveNetworks(
 	res, err := selector.Apply(ref, caps, list, networkFields)
 	d.noteMissing(KindNetworks, region, res.Missing)
 	if err != nil {
-		if nm, ok := err.(*selector.NoMatchError); ok && len(list) < listed { //nolint:errorlint // a typed verdict, never wrapped here
+		if nm, ok := errors.AsType[*selector.NoMatchError](err); ok && len(list) < listed {
 			stages := []selector.Stage{
 				{Name: "listed", Count: listed},
 				{Name: "subnet", Detail: fmt.Sprintf("in the network zone %q of %s", zone, region), Count: len(list)},
@@ -216,7 +220,8 @@ func (d *Driver) Ensure(ctx context.Context, kind vendors.ResourceKind, region s
 	}
 	if !isManagedKind(kind) {
 		return vendors.ResourceRef{}, false, vendors.Errorf(vendors.Fatal,
-			"the Hetzner driver does not create %q (networks are brought with use; images are made with hcloud-upload-image)", kind)
+			"the Hetzner driver does not create %q (networks are brought with use; images are made "+
+				"with hcloud-upload-image)", kind)
 	}
 	if spec.Name == "" {
 		return vendors.ResourceRef{}, false, vendors.Errorf(vendors.Fatal, "a managed resource needs a name")

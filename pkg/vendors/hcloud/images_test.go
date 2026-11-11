@@ -125,6 +125,14 @@ func TestResolveImageWithASelector(t *testing.T) {
 		// the pair with a space is matched client-side and finds nothing
 		t.Logf("client-side matching of a value that is no label: %v", err)
 	}
+	// bound_to takes one server ID: anything else is refused, never dropped (it would widen the list).
+	for _, vals := range [][]string{{"abc"}, {"1", "2"}} {
+		use = vendors.UseRef{Tags: map[string]string{"pool": "a"}, Filters: []common.ResourceFilter{{Name: "bound_to", Values: vals}}}
+		if _, err := d.ResolveImage(ctx, imageReq("amd64", use)); vendors.ClassOf(err) != vendors.Fatal ||
+			!strings.Contains(err.Error(), "bound_to") {
+			t.Errorf("bound_to %v: %v, want Fatal", vals, err)
+		}
+	}
 }
 
 func TestReportImages(t *testing.T) {

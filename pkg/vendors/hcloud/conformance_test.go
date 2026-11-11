@@ -116,10 +116,8 @@ var seedNet atomic.Int32
 
 func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func() json.RawMessage) conformance.Fixture {
 	all, unknown := conformanceTypes()
-	var newDriver func(*testing.T) vendors.Driver
-	newDriver = func(t *testing.T) vendors.Driver { return newCEnv().driver(t) }
 	fx := conformance.Fixture{
-		New:    newDriver,
+		New:    func(t *testing.T) vendors.Driver { return newCEnv().driver(t) },
 		Region: "fsn1", Zone: "fsn1", InstanceType: "cx23", MaxUserData: hcloud.MaxUserData,
 		InstanceTypes: all, UnknownQuotaTypes: unknown, StoresIdempotencyKey: true,
 		Inject: func(t *testing.T, d vendors.Driver, class vendors.Class, _ vendors.CreateRequest) {
@@ -185,8 +183,28 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func() j
 	if kind != hcloud.KindFirewalls {
 		// The selector and image cases cover every kind once, in the firewalls run.
 		fx.Seed, fx.SeedImage = nil, nil
+	} else {
+		// The resolution order on the firewalls (regional, with labels). Hetzner has no
+		// default resource of any kind: no SetDefault, the cases about it are skipped.
+		fx.OrderClass = orderClass
 	}
 	return fx
+}
+
+func orderClass(
+	t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*common.Resource, ipv6 bool,
+) *v1alpha1.SCNodeClass {
+	t.Helper()
+	b := &hcapi.Settings{Networking: &common.NetworkingOverride{PublicIPv6: &ipv6}}
+	if len(res) > 0 {
+		b.Resources = &hcapi.Resources{
+			Networks: res[hcloud.KindNetworks], Firewalls: res[hcloud.KindFirewalls],
+			PlacementGroups: res[hcloud.KindPlacementGroups],
+		}
+	}
+	nc := &v1alpha1.SCNodeClass{Spec: v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{HCloud: b}}}
+	nc.Name = "conformance"
+	return nc
 }
 
 func seed(t *testing.T, e *cenv, kind vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
@@ -270,7 +288,3 @@ func TestConformance(t *testing.T) {
 		})
 	}
 }
-
-var _ = v1alpha1.Group
-var _ = hcapi.PlacementGroupSpread
-var _ = common.SelectAll

@@ -35,6 +35,12 @@ const (
 	KindVolumes vendors.ResourceKind = "volumes"
 )
 
+// The names of the fields the selector declarations share.
+const (
+	fieldName    = "name"
+	fieldCreated = "created"
+)
+
 // The image filters of GET /images the use block may name.
 const (
 	filterType   = "type"
@@ -53,14 +59,14 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 			HasCreated: true,
 			Tags:       vendors.TagsLabels,
 			// Snapshots have no name: it matches system images only.
-			Name: &vendors.FieldCap{Field: "name", Side: vendors.SideServerClient},
+			Name: &vendors.FieldCap{Field: fieldName, Side: vendors.SideServerClient},
 			Match: map[string]vendors.FieldCap{
 				vendors.MatchArchitecture:      {Field: "architecture", Side: vendors.SideServer},
 				vendors.MatchState:             {Field: "status", Side: vendors.SideServer},
 				vendors.MatchIncludeDeprecated: {Field: "include_deprecated", Side: vendors.SideServer},
 				vendors.MatchDescription:       {Field: "description", Side: vendors.SideClient},
-				vendors.MatchCreatedAfter:      {Field: "created", Side: vendors.SideClient},
-				vendors.MatchCreatedBefore:     {Field: "created", Side: vendors.SideClient},
+				vendors.MatchCreatedAfter:      {Field: fieldCreated, Side: vendors.SideClient},
+				vendors.MatchCreatedBefore:     {Field: fieldCreated, Side: vendors.SideClient},
 			},
 			Filters: []vendors.FilterCap{
 				{Name: filterType, Side: vendors.SideServer},
@@ -75,13 +81,13 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 			Zonal:      true,
 			HasCreated: true,
 			Tags:       vendors.TagsLabels,
-			Name:       &vendors.FieldCap{Field: "name", Side: vendors.SideServerClient},
+			Name:       &vendors.FieldCap{Field: fieldName, Side: vendors.SideServerClient},
 			Match: map[string]vendors.FieldCap{
 				vendors.MatchZone:          {Field: "subnets.network_zone", Side: vendors.SideClient},
 				vendors.MatchCIDR:          {Field: "ip_range", Side: vendors.SideClient},
 				vendors.MatchWithin:        {Field: "ip_range", Side: vendors.SideClient},
-				vendors.MatchCreatedAfter:  {Field: "created", Side: vendors.SideClient},
-				vendors.MatchCreatedBefore: {Field: "created", Side: vendors.SideClient},
+				vendors.MatchCreatedAfter:  {Field: fieldCreated, Side: vendors.SideClient},
+				vendors.MatchCreatedBefore: {Field: fieldCreated, Side: vendors.SideClient},
 			},
 			Expression: labelSelectorLanguage,
 			// A server joins one network in v1.
@@ -92,10 +98,10 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 			Global:     true,
 			HasCreated: true,
 			Tags:       vendors.TagsLabels,
-			Name:       &vendors.FieldCap{Field: "name", Side: vendors.SideServerClient},
+			Name:       &vendors.FieldCap{Field: fieldName, Side: vendors.SideServerClient},
 			Match: map[string]vendors.FieldCap{
-				vendors.MatchCreatedAfter:  {Field: "created", Side: vendors.SideClient},
-				vendors.MatchCreatedBefore: {Field: "created", Side: vendors.SideClient},
+				vendors.MatchCreatedAfter:  {Field: fieldCreated, Side: vendors.SideClient},
+				vendors.MatchCreatedBefore: {Field: fieldCreated, Side: vendors.SideClient},
 			},
 			Expression: labelSelectorLanguage,
 			// A server can carry several firewalls.
@@ -105,10 +111,10 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 			Global:     true,
 			HasCreated: true,
 			Tags:       vendors.TagsLabels,
-			Name:       &vendors.FieldCap{Field: "name", Side: vendors.SideServerClient},
+			Name:       &vendors.FieldCap{Field: fieldName, Side: vendors.SideServerClient},
 			Match: map[string]vendors.FieldCap{
-				vendors.MatchCreatedAfter:  {Field: "created", Side: vendors.SideClient},
-				vendors.MatchCreatedBefore: {Field: "created", Side: vendors.SideClient},
+				vendors.MatchCreatedAfter:  {Field: fieldCreated, Side: vendors.SideClient},
+				vendors.MatchCreatedBefore: {Field: fieldCreated, Side: vendors.SideClient},
 			},
 			Expression:    labelSelectorLanguage,
 			DefaultSelect: common.SelectExactlyOne,
@@ -182,7 +188,9 @@ func imageFields(im *hc.Image) selector.Fields {
 	if im.Deprecation != nil {
 		attrs[vendors.MatchIncludeDeprecated] = []string{"true"}
 	}
-	return selector.Fields{ID: itoa(im.ID), Name: im.Name, Tags: labelsAsTags(im.Labels), Created: im.Created, Attrs: attrs}
+	return selector.Fields{
+		ID: itoa(im.ID), Name: im.Name, Tags: labelsAsTags(im.Labels), Created: im.Created, Attrs: attrs,
+	}
 }
 
 // imageStatusUnavailable is the API's status for an image that cannot be used
