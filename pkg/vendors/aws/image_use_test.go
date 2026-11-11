@@ -48,7 +48,9 @@ func TestExplicitImageIDsAreResolvedAndSendTheIDFilter(t *testing.T) {
 		map[string]string{"flatcar-channel": "stable", "flatcar-version": "4757.2.3"}))
 	// The list holds both architectures: the request's architecture decides.
 	use := idsOf("ami-0aaaaaaaaaaaa001", "ami-0aaaaaaaaaaaa002")
-	for arch, want := range map[string]string{"amd64": "ami-0aaaaaaaaaaaa001", "arm64": "ami-0aaaaaaaaaaaa002"} {
+	// In order: the filters checked below are those of the last call, arm64.
+	for _, c := range [][2]string{{"amd64", "ami-0aaaaaaaaaaaa001"}, {"arm64", "ami-0aaaaaaaaaaaa002"}} {
+		arch, want := c[0], c[1]
 		img, err := e.d.ResolveImage(ctx, imageReq(arch, use))
 		if err != nil || img.Ref != want || img.Version != "4757.2.3" || img.Channel != "stable" {
 			t.Errorf("%s: %+v, %v; want %s of 4757.2.3", arch, img, err, want)
@@ -106,6 +108,32 @@ func TestAnImageThatDoesNotSayItsVersionIsNotReady(t *testing.T) {
 	_, err = e.d.ResolveImage(ctx, imageReq("amd64", idsOf("ami-0ccccccccccccc02")))
 	if vendors.CodeOf(err) != vendors.CodeImageVersionUnknown {
 		t.Errorf("a channel without a version: %v", err)
+	}
+}
+
+func TestAnImageWhoseNameAndTagsDisagreeIsNotReady(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	ctx := context.Background()
+	// The name says the pinned release, the tags another version: neither wins.
+	e.acct.AddImage(testRegion, userImage("ami-0fffffffffffff01", "Flatcar-stable-4757.2.3-hvm", "x86_64",
+		map[string]string{"flatcar-version": "4500.1.0"}))
+	_, err := e.d.ResolveImage(ctx, imageReq("amd64", idsOf("ami-0fffffffffffff01")))
+	if vendors.CodeOf(err) != vendors.CodeImageVersionUnknown || vendors.ClassOf(err) != vendors.Fatal {
+		t.Errorf("name and version tag disagree: %v", err)
+	}
+	// Another channel in the tags is a disagreement too.
+	e.acct.AddImage(testRegion, userImage("ami-0fffffffffffff02", "Flatcar-stable-4757.2.3-hvm", "x86_64",
+		map[string]string{"flatcar-channel": "beta"}))
+	_, err = e.d.ResolveImage(ctx, imageReq("amd64", idsOf("ami-0fffffffffffff02")))
+	if vendors.CodeOf(err) != vendors.CodeImageVersionUnknown {
+		t.Errorf("name and channel tag disagree: %v", err)
+	}
+	// Tags that agree with the name are fine.
+	e.acct.AddImage(testRegion, userImage("ami-0fffffffffffff03", "Flatcar-stable-4757.2.3-hvm", "x86_64",
+		map[string]string{"flatcar-channel": "stable", "flatcar-version": "4757.2.3"}))
+	if img, err := e.d.ResolveImage(ctx, imageReq("amd64", idsOf("ami-0fffffffffffff03"))); err != nil ||
+		img.Ref != "ami-0fffffffffffff03" {
+		t.Errorf("name and tags agree: %+v, %v", img, err)
 	}
 }
 

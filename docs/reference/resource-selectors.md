@@ -288,8 +288,8 @@ blocks. AMI tags of other
 accounts' images are not visible to a consumer (unverified): tags select your own images. No kind has
 an `expression`. API reference per call: `https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_<Action>.html`.
 
-**images** (`DescribeImages`, paginated; **always `Owners`**: without it the call returns every public
-image, and a name alone would match a stranger's image):
+**images** (`DescribeImages`, paginated; **always `Owners`** unless the selector names `ids`: without it
+the call returns every public image, and a name alone would match a stranger's image):
 
 | Field | Maps to | Where |
 |---|---|---|

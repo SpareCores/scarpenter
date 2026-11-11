@@ -126,7 +126,8 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
 - **Version check.** The chosen AMI must say which Flatcar release it is: by its name when it is the official
   naming (`Flatcar-<channel>-<version>[-arm64]-hvm`), else by the tags `flatcar-channel` and `flatcar-version`
   (for a copy under another name, or your own build). Another release is `Fatal` with the code
-  `ImageVersionMismatch`, an AMI that says none `ImageVersionUnknown`: the region's images are not ready
+  `ImageVersionMismatch`, an AMI that says none, or whose official name and tags name different releases,
+  `ImageVersionUnknown`: the region's images are not ready
   (`ImagesReady=False`, with that reason, naming the region and the AMI), the AMI is never launched.
 - **Published regions** (verified 2026-11-07 from `flatcar_production_ami_all.json`
   of the public release server, both architectures; no AWS call): the lists of the

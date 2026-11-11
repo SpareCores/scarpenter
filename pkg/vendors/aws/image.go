@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,13 +80,16 @@ var imageNamePattern = regexp.MustCompile(`^Flatcar-([a-z]+)-([0-9]+\.[0-9]+\.[0
 // imageRelease reads the Flatcar release an AMI says it is: from its name when
 // that is the official naming, else from the tags flatcar-channel and
 // flatcar-version. Empty when it says neither (the version check then refuses
-// it, ADR-017).
-func imageRelease(im ec2types.Image) (channel, version string) {
-	if m := imageNamePattern.FindStringSubmatch(deref(im.Name)); m != nil {
-		return m[1], m[2]
-	}
+// it, ADR-017). An AMI whose name and tags name two different releases says
+// nothing it can be trusted on: conflict is true and the image is refused.
+func imageRelease(im ec2types.Image) (channel, version string, conflict bool) {
 	tags := tagMap(im.Tags)
-	return tags[tagFlatcarChannel], tags[tagFlatcarVersion]
+	tc, tv := tags[tagFlatcarChannel], tags[tagFlatcarVersion]
+	if m := imageNamePattern.FindStringSubmatch(deref(im.Name)); m != nil {
+		conflict = (tv != "" && tv != m[2]) || (tc != "" && !strings.EqualFold(tc, m[1]))
+		return m[1], m[2], conflict
+	}
+	return tc, tv, false
 }
 
 // imageUse is the selector of a request: the NodeClass's, narrowed to the
@@ -235,7 +239,13 @@ func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*v
 		return nil, err
 	}
 	im := res.Items[0]
-	channel, version := imageRelease(im)
+	channel, version, conflict := imageRelease(im)
+	if conflict {
+		return nil, remember(vendors.NewError(vendors.Fatal, vendors.CodeImageVersionUnknown, fmt.Errorf(
+			"the image %s in %s is named Flatcar %s %s, but its tags %s and %s say otherwise; "+
+				"an image of unknown version is never booted",
+			deref(im.ImageId), req.Region, channel, version, tagFlatcarChannel, tagFlatcarVersion)))
+	}
 	if err := vendors.CheckImageVersion(deref(im.ImageId), channel, version, req); err != nil {
 		return nil, remember(err)
 	}

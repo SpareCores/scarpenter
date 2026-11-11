@@ -189,6 +189,7 @@ var (
 			case stateFailed:
 				return []string{
 					string(ec2types.ImageStateFailed), string(ec2types.ImageStateError), string(ec2types.ImageStateInvalid),
+					string(ec2types.ImageStateDeregistered), string(ec2types.ImageStateDisabled),
 				}
 			case statePending:
 				return []string{string(ec2types.ImageStatePending), string(ec2types.ImageStateTransient)}
@@ -332,11 +333,15 @@ func imageFields(im ec2types.Image) selector.Fields {
 			arch = k
 		}
 	}
-	state := stateAvailable
+	// A state this code does not know is kept as EC2 spells it: never available.
+	state := string(im.State)
 	switch im.State {
+	case ec2types.ImageStateAvailable:
+		state = stateAvailable
 	case ec2types.ImageStatePending, ec2types.ImageStateTransient:
 		state = statePending
-	case ec2types.ImageStateFailed, ec2types.ImageStateError, ec2types.ImageStateInvalid, ec2types.ImageStateDeregistered:
+	case ec2types.ImageStateFailed, ec2types.ImageStateError, ec2types.ImageStateInvalid, ec2types.ImageStateDeregistered,
+		ec2types.ImageStateDisabled:
 		state = stateFailed
 	}
 	attrs := map[string][]string{vendors.MatchState: {state}, vendors.MatchDescription: {deref(im.Description)}}
