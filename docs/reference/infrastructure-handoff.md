@@ -162,7 +162,7 @@ needs, in neutral terms:
 | ovh | a dedicated service account with an IAM policy on the project, and the `nodes` group's rules for `Ext-Net` nodes (or `tailscale` only) |
 | upcloud | a token (sub-account) that sees the templates and networks you created |
 | vultr | the API key with the minimal ACLs and the controller's egress address in its allowlist |
-| alicloud | the RAM OIDC identity provider and role; the vSwitch size (a /25 allows about 120 nodes per zone) |
+| alicloud | the RAM OIDC identity provider and role with its policy ([`alicloud-ram-policy.json`](alicloud-ram-policy.json)); the vSwitch size (a /25 allows about 120 nodes per zone) |
 
 The images of rung 3 are created by your own tooling or a CI job, never by SCarpenter. The real-cloud
 (e2e) lane of a vendor lists what its CI account needs in the same neutral terms, in the vendor's

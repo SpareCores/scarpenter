@@ -30,6 +30,8 @@ Available:
 - [**Set up AWS credentials**](aws-credentials.md) (plan 09) — the IAM policy, web
   identity federation from the cluster's ServiceAccount issuer, EKS Pod Identity,
   static keys, the account's Spot service-linked role.
+- [**Set up Alibaba Cloud credentials**](alicloud-credentials.md) (plan 21) — the RAM policy, an OIDC role or an access
+  key, wired into the chart.
 - [**Flatcar snapshots on Hetzner Cloud**](hcloud-images.md) (plan 15) — make the
   snapshots the `hcloud` driver boots, the label convention, and how the driver finds
   and checks them.

@@ -697,6 +697,23 @@ Settle, and record in `docs/reference/alicloud-driver.md`:
     the default `regions` to international ones. Recommend international only in the docs and
     the lane, no code branch.
 
+## Decided by default (driver end to end)
+
+Decided by default, maintainer to confirm:
+
+- Q5 default root encryption: `false`, as recommended (`encrypted: true` allowed, Singapore zone A and Hong Kong zone D then unavailable).
+- Q6 default bandwidth: 100 Mbit/s `PayByTraffic`, as recommended.
+- Q7 quota source: `DescribeAccountAttributes` first, Quota Center not read, as recommended.
+- Q8 stock: `DescribeAvailableResource` sold-out is not offered (5-minute refresh), as recommended; the L5 run reports the effect.
+- Q10 raw versus compressed QCOW2: not decided by code (the driver does not import images); the images repository and the operator's tooling choose.
+- Q11 deferred set: IPv6, local storage, partition placement, bare-metal families all deferred, as recommended.
+- Q12 China regions: no code branch; international regions in the docs and the lane.
+- Q1 to Q3, Q4, Q9 were decided in the plan (rung 3, `imageOwner`, OEM id baked by plan 22, the `metadata-from-pods` hook, the generic `images` kind).
+- Home region: the environment variable `SCARPENTER_ALICLOUD_HOME_REGION` instead of a controller flag (options are core).
+- `HttpTokens: required` is refused by the NodeClass validation (it makes the nodes unbootable), not merely documented.
+- The billing rule carries no minimum and is unverified (billing retention stays off).
+- `localStorage` is accepted in the storage block and refused by the validator, instead of being pruned silently.
+
 ## Gates
 
 CONVENTIONS gates 1 to 4 (L3 stays green; no core change in this plan, the `images` kind and
@@ -707,3 +724,11 @@ kind over the full launchable type list of the snapshot, the family-classificati
 written and statically validated (`actionlint`, `shellcheck`, the dry-run target), not run.
 Step 0's results are a precondition; the plan's code starts only after items 1 to 5 are
 recorded.
+
+## Outcome
+
+The driver, the `alicloud` API block, the fake, the conformance wiring, the sweeper, the L5 lane and the canary are on
+the branch; the docs are `docs/reference/alicloud-driver.md`, the RAM policy, the credentials how-to and the chart values.
+Core gaps found (not changed): the core does not consume `InsufficientCapacity` from `GetInstance` (an instance ECS releases right after
+accepting the launch is only visible there); `BillingRule(region, family)` cannot express a minimum that depends on the vCPU count; a
+controller flag for the home region would need `pkg/operator/options`. Step 0 and the live L5 run are still to do.
