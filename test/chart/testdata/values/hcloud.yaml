@@ -1,0 +1,14 @@
+# Hetzner Cloud only: the token from an existing Secret, the project's server
+# limit and the IPv4 price override.
+cluster:
+  name: hcloud-prod
+  apiServerEndpoint: https://api.example.com:6443
+  dns: [none]
+vendors:
+  aws:
+    enabled: false
+  hcloud:
+    enabled: true
+    tokenSecretRef: {name: hcloud-token, key: token}
+    serverLimit: 25
+    ipv4Price: "0.0008"

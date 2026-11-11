@@ -9,9 +9,13 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- fail "cluster.apiServerEndpoint must be an https:// URL" }}
 {{- end }}
 {{- $aws := .Values.vendors.aws }}
+{{- $hcloud := .Values.vendors.hcloud }}
 {{- $vultr := .Values.vendors.vultr }}
 {{- if not (include "scarpenter.vendors" .) }}
-{{- fail "enable at least one vendor: vendors.aws.enabled=true, or vendors.extra for the development image" }}
+{{- fail "enable at least one vendor: vendors.aws.enabled=true, vendors.hcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
+{{- end }}
+{{- if and $hcloud.enabled (not $hcloud.tokenSecretRef.name) }}
+{{- fail "vendors.hcloud.tokenSecretRef.name is required: the Secret that holds the API token of the Hetzner Cloud project (HCLOUD_TOKEN)" }}
 {{- end }}
 {{- $mode := $aws.credentials.mode }}
 {{- if and $aws.enabled (eq $mode "webIdentity") (not $aws.credentials.webIdentity.roleArn) }}
@@ -60,6 +64,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "resource-check-interval" .Values.managedResources.checkInterval
   "resource-full-sweep-every" .Values.managedResources.fullSweepEvery
   "aws-home-region" (ternary $aws.homeRegion "" $aws.enabled)
+  "hcloud-server-limit" (ternary $hcloud.serverLimit "" (and $hcloud.enabled (gt (int $hcloud.serverLimit) 0)))
   "log-level" .Values.karpenter.logLevel
   "batch-max-duration" .Values.karpenter.batchMaxDuration
   "batch-idle-duration" .Values.karpenter.batchIdleDuration
@@ -184,6 +189,14 @@ spec:
             - name: AWS_SESSION_TOKEN
               valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.sessionTokenKey | quote }}}}
             {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if $hcloud.enabled }}
+            - name: HCLOUD_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ $hcloud.tokenSecretRef.name | quote }}, key: {{ $hcloud.tokenSecretRef.key | quote }}}}
+            {{- if and (not (kindIs "invalid" $hcloud.ipv4Price)) (ne (toString $hcloud.ipv4Price) "") }}
+            - name: SCARPENTER_HCLOUD_IPV4_PRICE
+              value: {{ toString $hcloud.ipv4Price | quote }}
             {{- end }}
             {{- end }}
             {{- if $vultr.enabled }}
