@@ -54,7 +54,6 @@ var wantClasses = map[string]vendors.Class{
 	"QuotaExceeded.InternetBandwidth":        vendors.QuotaExceeded,
 	"InstanceDiskNumLimitExceed":             vendors.QuotaExceeded,
 	"InstanceDiskLimitExceeded":              vendors.QuotaExceeded,
-	"QuotaExceed.Tags":                       vendors.QuotaExceeded,
 
 	"QuotaExceeded.PrivateIpAddress":   vendors.ZoneUnusable,
 	"OperationDenied.ZoneNotAllowed":   vendors.ZoneUnusable,
@@ -149,7 +148,12 @@ func TestClassifyTransientShapes(t *testing.T) {
 		"canceled":                 {context.Canceled, vendors.Retryable, codeCanceled},
 		"net":                      {&net.DNSError{Err: "no such host", IsTemporary: true}, vendors.Retryable, codeTransport},
 		"tea error":                {tea.NewSDKError(map[string]any{"code": "OperationDenied.NoStock", "message": "x"}), vendors.InsufficientCapacity, "OperationDenied.NoStock"},
-		"wrapped sdk error":        {fmt.Errorf("RunInstances: %w", sdkErr("QuotaExceed.ElasticQuota", 403)), vendors.QuotaExceeded, "QuotaExceed.ElasticQuota"},
+		// The SDK converts its errors to *tea.SDKError unless DisableSDKError is set.
+		"tea throttling":    {tea.NewSDKError(map[string]any{"code": "Throttling.User", "statusCode": 400}), vendors.Retryable, "Throttling.User"},
+		"tea 503":           {tea.NewSDKError(map[string]any{"code": "ServiceUnavailable", "statusCode": 503}), vendors.Retryable, "ServiceUnavailable"},
+		"tea 500 no code":   {tea.NewSDKError(map[string]any{"statusCode": 500}), vendors.Retryable, codeServerError},
+		"tea too many tags": {tea.NewSDKError(map[string]any{"code": "QuotaExceed.Tags", "statusCode": 400}), vendors.Fatal, "QuotaExceed.Tags"},
+		"wrapped sdk error": {fmt.Errorf("RunInstances: %w", sdkErr("QuotaExceed.ElasticQuota", 403)), vendors.QuotaExceeded, "QuotaExceed.ElasticQuota"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

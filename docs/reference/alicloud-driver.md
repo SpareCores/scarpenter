@@ -126,12 +126,12 @@ copy in `errors_test.go`; every code is tested.
 |---|---|
 | `InsufficientCapacity` | `OperationDenied.NoStock`, `Zone.NotOnSale`, `InvalidOperation.PublicIpAddressNoStock`, `QuotaExceed.DeploymentSetInstanceQuotaFull`, `LackResource` |
 | `Unsupported` | `InvalidInstanceType.ZoneNotSupported`, `InstanceType.Offline`, `InvalidInstanceType.ValueNotSupported`, `ImageNotSupportInstanceType`, `InvalidDiskCategory.NotSupported`, `CategoryNotSupported`, `InvalidInstanceType.NotSupportDiskCategory`, `OperationDenied.CloudSSDNotSupported`, `OperationDenied.ZoneSystemCategoryNotMatch`, `InvalidAccount.NotSupportSpot` |
-| `QuotaExceeded` | `QuotaExceed.ElasticQuota`, `QuotaExceed.AfterpayInstance`, `QuotaExceeded`, `QuotaExceed.PostPaidDisk`, `QuotaExceeded.PostpaidDataDiskCapacity`, `QuotaExceeded.InternetBandwidth`, `InstanceDiskNumLimitExceed`, `InstanceDiskLimitExceeded`, `QuotaExceed.Tags` |
+| `QuotaExceeded` | `QuotaExceed.ElasticQuota`, `QuotaExceed.AfterpayInstance`, `QuotaExceeded`, `QuotaExceed.PostPaidDisk`, `QuotaExceeded.PostpaidDataDiskCapacity`, `QuotaExceeded.InternetBandwidth`, `InstanceDiskNumLimitExceed`, `InstanceDiskLimitExceeded` |
 | `ZoneUnusable` | `QuotaExceeded.PrivateIpAddress`, `OperationDenied.ZoneNotAllowed`, `Zone.NotOpen`, `SecurityGroupInstanceLimitExceed` |
 | `RegionUnavailable` (zone reads) | `RegionUnauthorized`, `InvalidRegion.NotSupport`, `RealNameAuthenticationError` |
 | `Retryable` | `Throttling`, `Throttling.*`, HTTP 429, `ServiceUnavailable`, `InternalError`, HTTP 5xx, `IdempotentProcessing`, `IncorrectInstanceStatus`, `DependencyViolation.*` |
 | `NotFound` | `InvalidInstanceId.NotFound` |
-| `Fatal` | everything else, for example `InvalidImageId.NotFound`, `InvalidVSwitchId.NotFound`, `InvalidSecurityGroup.VpcMismatch`, `Account.Arrearage`, `Forbidden.RAM`; `IdempotentParameterMismatch` is resolved by the create path and never classified |
+| `Fatal` | everything else, for example `InvalidImageId.NotFound`, `InvalidVSwitchId.NotFound`, `InvalidSecurityGroup.VpcMismatch`, `Account.Arrearage`, `Forbidden.RAM`, `QuotaExceed.Tags`, `NumberExceed.Tags`; `IdempotentParameterMismatch` is resolved by the create path and never classified |
 
 ## The in-memory fake
 
@@ -167,10 +167,10 @@ Found on the SDK and its types, recorded here for the plan:
 - Type names are not always `ecs.<family>.<size>`: Keeper has `ecs.u0.c1m1.large`
   and `ecs.ebmgn9ge-1.5t.64xlarge`, so the family is the second segment. A prefix
   rule for `c1` would also take `c10a`: the legacy families match exactly.
-- `QuotaExceed.Tags` and `NumberExceed.Tags` are classified `QuotaExceeded` by the
-  plan, which stops the whole offering for a hand-made configuration error;
-  the launch validation refuses more than 20 tags before the call, so the class
-  should never be seen.
+- `QuotaExceed.Tags` and `NumberExceed.Tags` are `QuotaExceeded` in the plan; the
+  driver classifies them `Fatal`: more than 20 tags is a configuration error, and
+  `QuotaExceeded` would stop every offering of the region for it. The launch
+  validation refuses more than 20 tags before the call, so neither should be seen.
 
 ## Not yet
 

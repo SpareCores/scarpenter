@@ -74,7 +74,6 @@ var errorClasses = map[string]vendors.Class{
 	"QuotaExceeded.InternetBandwidth":        vendors.QuotaExceeded,
 	"InstanceDiskNumLimitExceed":             vendors.QuotaExceeded, // U
 	"InstanceDiskLimitExceeded":              vendors.QuotaExceeded,
-	"QuotaExceed.Tags":                       vendors.QuotaExceeded,
 	// The zone cannot host any instance.
 	"QuotaExceeded.PrivateIpAddress":   vendors.ZoneUnusable, // the vSwitch is full
 	"OperationDenied.ZoneNotAllowed":   vendors.ZoneUnusable,
@@ -99,6 +98,11 @@ var fatalCodes = []string{
 	"InvalidImageId.NotFound", "OperationDenied.ImageNotValid", "InvalidVSwitchId.NotFound",
 	"InvalidSecurityGroup.VpcMismatch", "OperationDenied.InconsistentNetwork", "InvalidUserData.Forbidden",
 	"Account.Arrearage", "InsufficientBalance.AgentCredit", "Forbidden.RAM",
+	// More than 20 tags: a configuration error, not a limit that frees up. The
+	// plan lists QuotaExceed.Tags as QuotaExceeded, which would stop every
+	// offering of the region for a hand-made mistake (validation refuses it
+	// before the call anyway).
+	"QuotaExceed.Tags", "NumberExceed.Tags",
 }
 
 // regionDeniedCodes are the codes that say the credentials cannot use a region
@@ -122,7 +126,7 @@ type errContext struct {
 	regionRead bool
 }
 
-// sdkError returns the code, the HTTP status and the message of an SDK error.
+// sdkError returns the code and the HTTP status of an SDK error.
 // The generated SDKs return *dara.SDKError; *tea.SDKError (the earlier
 // generation, still returned by credentials and some utilities) is read too.
 func sdkError(err error) (code string, status int, ok bool) {
