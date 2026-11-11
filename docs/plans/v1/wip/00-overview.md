@@ -887,7 +887,7 @@ and [`docs/explanation/flatcar-images.md`](../../../explanation/flatcar-images.m
 the image-import plan. No plan imports images; each vendor takes the first rung of the
 image ladder that works (the vendor's public Flatcar image, Spare Cores' published image,
 or an image created in the user's account by IaC, with an `images` resource kind to bring
-the IDs; [plan 14](14-multi-vendor-groundwork.md), [plan 22](22-flatcar-images.md)).
+the IDs; [plan 14](../done/14-multi-vendor-groundwork.md), [plan 22](22-flatcar-images.md)).
 `SCImage` and `ImageImporter` stay reserved and unbuilt in v1.
 
 ## 10. Garbage collection

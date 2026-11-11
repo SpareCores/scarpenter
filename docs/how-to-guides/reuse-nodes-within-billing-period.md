@@ -8,7 +8,7 @@ period (or the minimum) it has already paid for is about to end, lets Karpenter 
 deletes it before the next charge starts.
 
 Status: designed in [ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10),
-built by [plan 23](../plans/v1/wip/23-billing-retention.md) (in review; not released yet), tested with the fake driver impersonating a vendor with a short
+built by [plan 23](../plans/v1/done/23-billing-retention.md) (not released yet), tested with the fake driver impersonating a vendor with a short
 period. **No real vendor has it switched on yet:** each vendor is enabled only after its billing rule has been checked on a live account (its
 driver then reports the rule as verified); Hetzner is the first. Until then the NodeClass status says `Unverified` for the vendor and nothing is held.
 Periods always count from the server's start (no vendor documents clock-hour billing); each hourly vendor's live check confirms it

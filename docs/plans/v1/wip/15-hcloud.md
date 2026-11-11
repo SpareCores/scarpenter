@@ -406,7 +406,7 @@ are **unverified** and a table-driven test pins every code; L5 provokes the chea
 - **First-hour minimum**: a server is billed for the whole started hour; the docs say so
   in the consolidation guidance (`consolidateAfter` of a few minutes does not save money
   for nodes younger than one hour). Keeping and reusing such nodes until the hour ends is
-  the opt-in `spec.billing` of [plan 23](23-billing-retention.md) (ADR-024); this plan
+  the opt-in `spec.billing` of [plan 23](../done/23-billing-retention.md) (ADR-024); this plan
   adds nothing for it beyond the billing period section below.
 - **`NodeClassValidator`**: syntax of the block and the profile blocks (volume sizes 10 to
   10240 GB, filesystem, `sshKey` format, ID forms, regions are known locations, `networks.create`

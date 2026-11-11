@@ -495,7 +495,7 @@ known cases, and one is proposed only when a real case needs it.
 
 Today: the AWS driver does steps 1, 3, 4 and 5 (the e2e lane launches into the
 default VPC); step 2 is new and so is the same order in the other drivers, added by
-[plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) in the core and in
+[plan 14](../plans/v1/done/14-multi-vendor-groundwork.md) in the core and in
 per-driver hooks, with conformance cases.
 
 Why: the maintainer's rule is that every user can pre-provision with their own
@@ -598,7 +598,7 @@ Consequences: amends ADR-018's `use` forms and the wording of ADR-021 and ADR-02
 (`selector.tags` is `tags`; the opt-in discovery of ADR-022 step 2 is a built-in `tags`
 selector). The `ResourceUse` API type, its CEL rules, the driver capability declaration, the
 shared matcher and the AWS driver's migration are
-[plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) (A10); the AWS driver's today
+[plan 14](../plans/v1/done/14-multi-vendor-groundwork.md) (A10); the AWS driver's today
 forms keep their meaning and the one renamed field, `selector.tags`, becomes `tags` with **no deprecated alias**
 (decided by the maintainer, 2026-11-10): the API is `v1alpha1`, nothing is released, and a second spelling would
 live in the CRD, the docs and the code for ever. The old field is pruned or rejected, and a `use` that is
@@ -753,7 +753,7 @@ and that latency plus the 90-second floor (the drain and skew are on top of the 
   creation, which is before the billing start, so an `expireAfter` of a multiple of the period minus the margin
   (`23h55m` for an hour and a 5-minute margin) ends a node before a boundary; any other value wastes part of
   its last period, or crosses into a new one. The docs say so.
-- *The stopped-node rule* ([plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md), A4): a stopped node
+- *The stopped-node rule* ([plan 14](../plans/v1/done/14-multi-vendor-groundwork.md), A4): a stopped node
   cannot take pods and no hourly vendor pauses billing by stopping, so it is still reported `terminating`
   and deleted, and it is never held. What that saves is not the current period, which is paid whether the
   node is deleted now or at its end; it saves the following periods, the disks and the addresses. The
@@ -819,5 +819,5 @@ CEL; `Instance.BillingStart` and `BillingRule` in the driver contract; the vendo
 Keeper client method and, with plan 13, the snapshot; one conformance scenario set. **First vendor: Hetzner** (decided 2026-11-10), switched on when
 [plan 15](../plans/v1/wip/15-hcloud.md)'s live lane has verified its billing start and that its periods count from it; Alibaba becomes a
 minimum-only candidate, still gated on verified data; Azure bills per full minute with no documented minimum and is not one. Implemented by
-[plan 23](../plans/v1/wip/23-billing-retention.md); the user-facing description is
+[plan 23](../plans/v1/done/23-billing-retention.md); the user-facing description is
 [Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md).

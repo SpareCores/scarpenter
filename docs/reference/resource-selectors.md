@@ -12,7 +12,7 @@ A walk-through: [Bring your own vendor resources](../how-to-guides/bring-your-ow
 
 Status: only the `aws` driver (and the development drivers) exist; `images` is implemented for `aws` and the fake driver; the selector
 replaced the `ids` / `name` / `selector` forms of the first AWS driver in
-[plan 14](../plans/v1/wip/14-multi-vendor-groundwork.md) (A10): `use.selector.tags` is now
+[plan 14](../plans/v1/done/14-multi-vendor-groundwork.md) (A10): `use.selector.tags` is now
 `use.tags`, with no alias. The AWS tables are what the driver declares
 (`ManagedResources.Selectors`, checked by a test against this page); `match.owner` is not offered
 on AWS subnets and security groups yet (it needs the account ID of the caller).

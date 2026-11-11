@@ -291,3 +291,18 @@ CONVENTIONS gates 1 to 4 (the L3 scenarios of section 6 pass), `hack/check-docs.
 regenerated, the reference docs of section 7 updated in the same change, `docs/plans/v1/README.md` status `review`. Report: the
 resolved rule per vendor, the margin components measured on the fake, and any Karpenter behaviour that differed from ADR-024
 (the hold at registration, the reuse of a held empty node).
+
+## Outcome
+
+Landed on main in the commits d9bf98a..0d3cc88: the Keeper vendor billing facts,
+`BillingStart` and `BillingDescriber` in the driver contract, the rule resolution
+and period window arithmetic, `spec.billing` and `status.billing`, the retention
+controller with its chart flag and RBAC, and the L3 scenarios.
+
+- A release under pressure that the NodePool's disruption budget blocks sets the
+  `scarpenter.sparecores.com/hold-released-until` annotation; the node is an ordinary
+  empty node until the end of its period.
+- The shape decision (a minimum over a shorter increment is minimum-only) moved to
+  Assess, because it depends on `minPeriod`.
+- Known residual: approximate pressure signals can release held nodes early. That
+  costs savings; it does not break any invariant.

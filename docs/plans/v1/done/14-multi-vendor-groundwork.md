@@ -519,3 +519,21 @@ attributes, the published schema and examples). Docs in the same change.
 CONVENTIONS gates 1 to 4 and gate 5 when A7 changes the base config; conformance
 additions green for the fake driver and the AWS driver; `hack/check-docs.py` clean;
 `docs/plans/v1/README.md` status `review`.
+
+## Outcome
+
+Landed on main in the commits from fb7c817 through 194dd76.
+
+- Core and API: the `images` resource kind and `ImageRequest`, per-type root disk,
+  the idempotency-key tag, the stopped-node rule (A4), account-wide quota errors,
+  message-based classification, the Butane hardening hook, malformed references
+  answered as NotFound, the one `use` selector of ADR-023, the resource resolution
+  order of ADR-022, the published JSON Schema with one example per use.
+- A8 (region aliases) moved into the OVH plan: the alias table is part of the OVH
+  driver foundation, not of this plan.
+- The seven driver foundations (hcloud, Vultr, Azure, GCP, UpCloud, Alibaba Cloud,
+  OVH) live under `pkg/vendors/<vendor>/`. They are foundations (API layer, fake,
+  mapping, error classes, launch request, quota), not yet full `vendors.Driver`
+  implementations; the vendor plans complete them.
+- The L5 fix (a `publicIPv6` scenario skips the default VPC instead of gating its
+  zones) is untested without a live AWS run.

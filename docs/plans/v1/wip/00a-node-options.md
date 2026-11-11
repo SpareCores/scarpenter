@@ -587,7 +587,7 @@ vendors:
   tried; no launch, nothing half-created). An explicit `create` skips discovery and
   defaults. `forbid: true` opts a kind out of auto-creation: offerings needing it are
   then unavailable. Implemented today for AWS: explicit, default, create, failure;
-  discovery and the other vendors are [plan 14](14-multi-vendor-groundwork.md).
+  discovery and the other vendors are [plan 14](../done/14-multi-vendor-groundwork.md).
 
 ### 9.3 Lifecycle of managed resources
 

@@ -155,7 +155,7 @@ membership may change only where step 4 documents why.
 [ADR-024](../../../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10)
 needs each vendor's billing rule. `GET /table/vendor` is live today (checked 2026-11-10) and has
 `billing_increment_seconds`, `minimum_billing_seconds`, `stopped_server_charged` and `billing_comment`;
-there is no `/vendors` route. Plan 13 does not gate it: [plan 23](23-billing-retention.md) reads it from
+there is no `/vendors` route. Plan 13 does not gate it: [plan 23](../done/23-billing-retention.md) reads it from
 the live route as soon as plan 14 is done. This plan makes it part of the snapshot.
 
 What this plan adds:
