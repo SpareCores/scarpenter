@@ -23,6 +23,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors/ovh/osapi/sdk"
 )
 
+// vendorOVH is the vendor's ID in test/e2e-vendors.txt.
+const vendorOVH = "ovh"
+
 // defaultMinInstances is the number of servers the suite needs at once (the database, the
 // client, the amd64 probe, the described, brought-resources, drift and poweroff workloads,
 // with some margin) when the lane's pin E2E_MIN_INSTANCES is not in the environment.
@@ -56,8 +59,8 @@ func runOVH(ctx context.Context, cfg *config, rep *report, provider osapi.Provid
 		zones, _ := f.Zones(ovhdriver.Name)
 		z := zones[cfg.region]
 		if !slices.Contains(f.Regions(ovhdriver.Name), cfg.region) || len(z) == 0 {
-			return "", fmt.Errorf("the region %s is not in the project's catalog or has no readable zones (%d regions loaded): %w",
-				cfg.region, len(f.Regions(ovhdriver.Name)), loadErr)
+			return "", fmt.Errorf("the region %s is not in the project's catalog or has no readable zones "+
+				"(%d regions loaded): %w", cfg.region, len(f.Regions(ovhdriver.Name)), loadErr)
 		}
 		names := make([]string, 0, len(z))
 		for _, x := range z {
@@ -114,16 +117,19 @@ func runOVH(ctx context.Context, cfg *config, rep *report, provider osapi.Provid
 		cores, okC := limit[ovhdriver.BucketCores]
 		inst, okI := limit[ovhdriver.BucketInstances]
 		if !okC || !okI {
-			return "", fmt.Errorf("Nova reports no limit of cores (%t) or instances (%t): an unlimited limit has no bucket", okC, okI)
+			return "", fmt.Errorf("the project reports no Nova limit of cores (%t) or instances (%t): "+
+				"an unlimited limit has no bucket", okC, okI)
 		}
 		detail := fmt.Sprintf("cores %d of which %d used (need %d), instances %d of which %d used (need %d), %d buckets",
 			cores.Limit, cores.Used, cfg.minOnDemand, inst.Limit, inst.Used, minInstances, len(snap.Buckets))
 		var problems []string
 		if cores.Limit-cores.Used < cfg.minOnDemand {
-			problems = append(problems, fmt.Sprintf("%d cores are free, the suite needs %d", cores.Limit-cores.Used, cfg.minOnDemand))
+			problems = append(problems,
+				fmt.Sprintf("%d cores are free, the suite needs %d", cores.Limit-cores.Used, cfg.minOnDemand))
 		}
 		if inst.Limit-inst.Used < minInstances {
-			problems = append(problems, fmt.Sprintf("%d instances are free, the suite needs %d", inst.Limit-inst.Used, minInstances))
+			problems = append(problems,
+				fmt.Sprintf("%d instances are free, the suite needs %d", inst.Limit-inst.Used, minInstances))
 		}
 		if len(problems) > 0 {
 			return detail, errors.New(strings.Join(problems, "; "))

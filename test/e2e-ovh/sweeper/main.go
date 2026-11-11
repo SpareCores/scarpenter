@@ -41,7 +41,7 @@ func run() int {
 		prefix  = flag.String("cluster-prefix", sweep.DefaultClusterPrefix, "sweep the clusters whose name starts with this")
 		maxAge  = flag.Duration("max-age", 2*time.Hour, "only resources at least this old; 0: any age")
 		dryRun  = flag.Bool("dry-run", false, "report what would be deleted, delete nothing")
-		regions = flag.String("regions", "", "regions (catalog names), comma-separated; empty or all: every region of the catalog")
+		regions = flag.String("regions", "", "catalog region names, comma-separated; empty or all: every one")
 		wait    = flag.Duration("wait", 5*time.Minute, "per region, how long to wait for deleted servers to be gone")
 	)
 	flag.Parse()

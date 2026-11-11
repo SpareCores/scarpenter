@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -149,14 +150,7 @@ func TestSweepsOldClustersOnly(t *testing.T) {
 	}
 }
 
-func contains(l []string, s string) bool {
-	for _, x := range l {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
+func contains(l []string, s string) bool { return slices.Contains(l, s) }
 
 func TestDryRunAndOneCluster(t *testing.T) {
 	w := newWorld(t)
