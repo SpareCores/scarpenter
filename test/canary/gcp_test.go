@@ -43,7 +43,7 @@ func runGCPCanary(t *testing.T, c *fake.Compute, cfg *config) (*report, *audit) 
 	t.Helper()
 	rep := &report{}
 	a := newAudit()
-	runGCP(context.Background(), cfg, rep, readOnlyCompute(c, a), a)
+	runGCP(context.Background(), cfg, rep, gcpReadOnlyCompute(c, a), a)
 	return rep, a
 }
 
@@ -189,11 +189,11 @@ func TestLoadConfigGCP(t *testing.T) {
 
 func TestGCPLaneTypes(t *testing.T) {
 	cfg := gcpTestConfig()
-	if got := laneTypes(cfg); !slices.Equal(got, []string{"gcp.e2-small", "gcp.c3-standard-4", "gcp.e2-medium"}) {
-		t.Errorf("laneTypes = %v", got)
+	if got := gcpLaneTypes(cfg); !slices.Equal(got, []string{"gcp.e2-small", "gcp.c3-standard-4", "gcp.e2-medium"}) {
+		t.Errorf("gcpLaneTypes = %v", got)
 	}
 	cfg.arm64 = true
-	if got := laneTypes(cfg); !slices.Contains(got, "gcp.t2a-standard-1") {
+	if got := gcpLaneTypes(cfg); !slices.Contains(got, "gcp.t2a-standard-1") {
 		t.Errorf("the arm64 type is missing when arm64 runs: %v", got)
 	}
 }

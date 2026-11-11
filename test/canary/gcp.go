@@ -28,9 +28,6 @@ import (
 const (
 	// vendorGCP is the vendor of this file in vendorChecks and the lane's variables.
 	vendorGCP = "gcp"
-	// archAMD64 and archARM64 are the architectures of an image request.
-	archAMD64 = "amd64"
-	archARM64 = "arm64"
 
 	gcpOnDemandMetric = "CPUS"
 	gcpSpotMetric     = "PREEMPTIBLE_CPUS"
@@ -40,18 +37,18 @@ const (
 	gcpCheckTimeout = 3 * time.Minute
 )
 
-// gvnicSeries are the machine series that cannot boot from an image without the GVNIC guest
+// gcpGVNICSeries are the machine series that cannot boot from an image without the GVNIC guest
 // OS feature (plan 16 section 1: C3, C4, C4A, N4, A3 and later). The lane's db type is a c3.
-var gvnicSeries = []string{
+var gcpGVNICSeries = []string{
 	"c3", "c3d", "c4", "c4a", "c4d", "n4", "n4a", "n4d", "a3", "a4", "a4x", "h3", "h4d", "m4", "x4", "z3",
 }
 
-// below is the problem of a limit under what the suite needs.
-func below(metric string, limit, need int64) string {
+// gcpBelow is the problem of a limit under what the suite needs.
+func gcpBelow(metric string, limit, need int64) string {
 	return fmt.Sprintf("the %s limit %d is below the %d the suite needs", metric, limit, need)
 }
 
-var imageRefRe = regexp.MustCompile(`projects/([^/]+)/global/images/([^/]+)$`)
+var gcpImageRefRe = regexp.MustCompile(`projects/([^/]+)/global/images/([^/]+)$`)
 
 // checkGCP is the GCP part: the real driver, over the real SDK with a deadline on every call,
 // behind the read-only guard.
@@ -63,7 +60,7 @@ func checkGCP(ctx context.Context, cfg *config, rep *report) {
 		return
 	}
 	defer func() { _ = sdk.Close() }()
-	runGCP(ctx, cfg, rep, readOnlyCompute(gcp.WithTimeouts(sdk, 0, 0), a), a)
+	runGCP(ctx, cfg, rep, gcpReadOnlyCompute(gcp.WithTimeouts(sdk, 0, 0), a), a)
 }
 
 // gcpCheck is one run of the checks over a driver: what the checks share.
@@ -89,7 +86,7 @@ func runGCP(ctx context.Context, cfg *config, rep *report, api gcp.ComputeAPI, a
 		rep.check("GCP driver", func() (string, error) { return "", err })
 		return
 	}
-	c := &gcpCheck{ctx: ctx, cfg: cfg, rep: rep, api: api, drv: drv, a: a, types: laneTypes(cfg)}
+	c := &gcpCheck{ctx: ctx, cfg: cfg, rep: rep, api: api, drv: drv, a: a, types: gcpLaneTypes(cfg)}
 	c.facts()
 	c.images()
 	c.quotas()
@@ -155,7 +152,7 @@ func (c *gcpCheck) images() {
 		// What the image must have for the lane's machine types (the biggest image risk of
 		// plan 16 section 1): ready, the architecture, and the guest OS features.
 		c.check(name+" guest OS features", func(ctx context.Context) (string, error) {
-			return imageFeatures(ctx, c.api, ref, arch, c.types)
+			return gcpImageFeatures(ctx, c.api, ref, arch, c.types)
 		})
 	}
 	if !cfg.arm64 {
@@ -194,13 +191,13 @@ func (c *gcpCheck) quotas() {
 		if !hasPre || pre.Limit == 0 {
 			needOD += cfg.minSpot
 		} else if pre.Limit < cfg.minSpot {
-			problems = append(problems, below(gcpSpotMetric, pre.Limit, cfg.minSpot))
+			problems = append(problems, gcpBelow(gcpSpotMetric, pre.Limit, cfg.minSpot))
 		}
 		var detail strings.Builder
 		fmt.Fprintf(&detail, "%s %d of which %d used (need %d), %s (need %d), %d quota buckets",
 			gcpOnDemandMetric, od.Limit, od.Used, needOD, spotNote, cfg.minSpot, len(c.buckets))
 		if od.Limit < needOD {
-			problems = append(problems, below(gcpOnDemandMetric, od.Limit, needOD))
+			problems = append(problems, gcpBelow(gcpOnDemandMetric, od.Limit, needOD))
 		}
 		// The project-wide limit, when the project has one.
 		g, gerr := c.drv.GlobalQuotas(ctx)
@@ -214,7 +211,7 @@ func (c *gcpCheck) quotas() {
 				}
 				fmt.Fprintf(&detail, "; %s %d of which %d used", gcpAllRegions, b.Limit, b.Used)
 				if b.Limit < needOD {
-					problems = append(problems, below(gcpAllRegions, b.Limit, needOD))
+					problems = append(problems, gcpBelow(gcpAllRegions, b.Limit, needOD))
 				}
 			}
 		}
@@ -298,9 +295,9 @@ func (c *gcpCheck) guard() {
 	})
 }
 
-// laneTypes are the machine types the lane launches, with the vendor prefix: the pins of
+// gcpLaneTypes are the machine types the lane launches, with the vendor prefix: the pins of
 // defaults.sh, without the arm64 type when the lane does not run arm64.
-func laneTypes(cfg *config) []string {
+func gcpLaneTypes(cfg *config) []string {
 	out := make([]string, 0, len(cfg.types))
 	for _, t := range cfg.types {
 		if (!cfg.arm64 && t == cfg.armType) || slices.Contains(out, t) {
@@ -311,10 +308,10 @@ func laneTypes(cfg *config) []string {
 	return out
 }
 
-// imageFeatures reads the image the driver resolved (images.get, by the reference it returned)
+// gcpImageFeatures reads the image the driver resolved (images.get, by the reference it returned)
 // and checks what the lane's types need of it.
-func imageFeatures(ctx context.Context, api gcp.ComputeAPI, ref, arch string, types []string) (string, error) {
-	m := imageRefRe.FindStringSubmatch(ref)
+func gcpImageFeatures(ctx context.Context, api gcp.ComputeAPI, ref, arch string, types []string) (string, error) {
+	m := gcpImageRefRe.FindStringSubmatch(ref)
 	if m == nil {
 		return "", fmt.Errorf("no image was resolved (reference %q)", ref)
 	}
@@ -328,19 +325,19 @@ func imageFeatures(ctx context.Context, api gcp.ComputeAPI, ref, arch string, ty
 	}
 	slices.Sort(features)
 	detail := fmt.Sprintf("%s, %s, %s, %d GiB, features %s",
-		m[2], img.GetStatus(), archOf(img), img.GetDiskSizeGb(), strings.Join(features, ","))
+		m[2], img.GetStatus(), gcpArchOf(img), img.GetDiskSizeGb(), strings.Join(features, ","))
 	var problems []string
 	if img.GetStatus() != "READY" {
 		problems = append(problems, "the image is "+img.GetStatus()+", not READY")
 	}
-	if got := archOf(img); got != arch {
+	if got := gcpArchOf(img); got != arch {
 		problems = append(problems, fmt.Sprintf("the image is %s, the lane needs %s", got, arch))
 	}
 	if arch == archAMD64 && !slices.Contains(features, "GVNIC") {
 		var need []string
 		for _, t := range types {
 			ref := gcp.APIReference(t)
-			if slices.Contains(gvnicSeries, gcp.Family(ref)) && !slices.Contains(need, ref) {
+			if slices.Contains(gcpGVNICSeries, gcp.Family(ref)) && !slices.Contains(need, ref) {
 				need = append(need, ref)
 			}
 		}
@@ -355,8 +352,8 @@ func imageFeatures(ctx context.Context, api gcp.ComputeAPI, ref, arch string, ty
 	return detail, nil
 }
 
-// archOf is the architecture of an image as the lane names it (an image without one is x86_64).
-func archOf(img *computepb.Image) string {
+// gcpArchOf is the architecture of an image as the lane names it (an image without one is x86_64).
+func gcpArchOf(img *computepb.Image) string {
 	if img.GetArchitecture() == "ARM64" {
 		return archARM64
 	}

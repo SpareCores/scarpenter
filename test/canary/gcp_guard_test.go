@@ -20,7 +20,7 @@ import (
 
 // callGCP calls the method of the guard with an empty request; a panic of the fake on the
 // empty request is not what is tested.
-func callGCP(t *testing.T, g *roCompute, name string) (err error) {
+func callGCP(t *testing.T, g *gcpROCompute, name string) (err error) {
 	t.Helper()
 	m := reflect.ValueOf(g).MethodByName(name)
 	if !m.IsValid() {
@@ -50,13 +50,13 @@ func TestGCPGuardRefusesEveryWriteAndPassesEveryRead(t *testing.T) {
 	for method := range typ.Methods() {
 		name := method.Name
 		t.Run(name, func(t *testing.T) {
-			perm, ok := permissions[name]
+			perm, ok := gcpPermissions[name]
 			if !ok {
 				t.Fatalf("%s has no IAM permission in the table of gcp_guard.go", name)
 			}
 			inner := fake.NewSeeded("my-project")
 			a := newAudit()
-			g := &roCompute{inner: inner, audit: a}
+			g := &gcpROCompute{inner: inner, audit: a}
 			err := callGCP(t, g, name)
 			if isGCPRead(name) {
 				if errors.Is(err, errReadOnly) {
@@ -96,18 +96,18 @@ func TestGCPPermissionTableMatchesTheInterface(t *testing.T) {
 	for m := range reflect.TypeFor[gcp.ComputeAPI]().Methods() {
 		methods = append(methods, m.Name)
 	}
-	for name := range permissions {
+	for name := range gcpPermissions {
 		if !slices.Contains(methods, name) {
 			t.Errorf("the table maps %s, which is not a method of gcp.ComputeAPI", name)
 		}
 	}
-	if len(permissions) != len(methods) {
-		t.Errorf("the table has %d entries for %d methods", len(permissions), len(methods))
+	if len(gcpPermissions) != len(methods) {
+		t.Errorf("the table has %d entries for %d methods", len(gcpPermissions), len(methods))
 	}
 }
 
 func TestGCPWritesAreWritePermissionsAndReadsAreNot(t *testing.T) {
-	for name, perm := range permissions {
+	for name, perm := range gcpPermissions {
 		write := strings.HasSuffix(perm, ".create") || strings.HasSuffix(perm, ".delete")
 		if write == isGCPRead(name) {
 			t.Errorf("%s (%s): the verb and the permission disagree about whether it writes", name, perm)
@@ -127,15 +127,15 @@ func TestIsGCPRead(t *testing.T) {
 	}
 }
 
-func TestGuardedComputeIsTheGuard(t *testing.T) {
+func TestGCPGuardedComputeIsTheGuard(t *testing.T) {
 	a := newAudit()
-	api := readOnlyCompute(fake.NewSeeded("my-project"), a)
-	if _, ok := api.(*roCompute); !ok {
+	api := gcpReadOnlyCompute(fake.NewSeeded("my-project"), a)
+	if _, ok := api.(*gcpROCompute); !ok {
 		t.Fatalf("the guarded client is %T", api)
 	}
 	// The wrapper that gives every call a deadline sits inside the guard in the command: a
 	// refused call never reaches it, and what is passed on does.
-	wrapped := readOnlyCompute(gcp.WithTimeouts(fake.NewSeeded("my-project"), 0, 0), a)
+	wrapped := gcpReadOnlyCompute(gcp.WithTimeouts(fake.NewSeeded("my-project"), 0, 0), a)
 	if _, err := wrapped.InsertInstance(context.Background(), nil); !errors.Is(err, errReadOnly) {
 		t.Fatalf("a write through the full stack: %v", err)
 	}
