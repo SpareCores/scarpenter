@@ -293,7 +293,8 @@ func (c *Controller) assess(vendor, region, family string, s billing.Settings) (
 
 // billingStart reads the billing start of the node: its annotation, else the
 // NodeClaim's, else once from the cloud provider (a node launched before the
-// annotation existed), which is then written to both objects.
+// annotation existed), which is then written to the Node (the controller does
+// not patch NodeClaims: its RBAC is delete only).
 func (c *Controller) billingStart(ctx context.Context, in *nodeInfo) (time.Time, bool, error) {
 	raw := in.node.Annotations[v1alpha1.AnnotationBillingStart]
 	if raw == "" {
@@ -309,13 +310,8 @@ func (c *Controller) billingStart(ctx context.Context, in *nodeInfo) (time.Time,
 			return time.Time{}, false, nil
 		}
 		raw = got
-		if err := c.annotate(ctx, in.claim, map[string]string{v1alpha1.AnnotationBillingStart: raw}); err != nil {
+		if err := c.annotate(ctx, in.node, map[string]string{v1alpha1.AnnotationBillingStart: raw}); err != nil {
 			return time.Time{}, false, err
-		}
-		if in.node.Annotations[v1alpha1.AnnotationBillingStart] == "" {
-			if err := c.annotate(ctx, in.node, map[string]string{v1alpha1.AnnotationBillingStart: raw}); err != nil {
-				return time.Time{}, false, err
-			}
 		}
 	}
 	if raw == "" {

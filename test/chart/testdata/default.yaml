@@ -55,7 +55,6 @@ rules:
     - get
     - list
     - watch
-    - patch
     - delete
   - apiGroups:
     - karpenter.sh
