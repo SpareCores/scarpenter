@@ -27,6 +27,8 @@ A driver declares its resource kinds (`ManagedResources.Kinds`); the kinds are
 the keys of `spec.vendors.<vendor>.resources` (for AWS `subnets`,
 `securityGroups`, `placementGroups`; the AWS driver also has the internal kind
 `runSecurityGroups`, see the [AWS driver](aws-driver.md#resources-and-network)).
+For UpCloud they are `networks`, `firewalls` and `serverGroups`, plus the use-only
+`images` ([UpCloud driver](upcloud-driver.md#resources-and-network)).
 Each kind has:
 
 | Property | Meaning |

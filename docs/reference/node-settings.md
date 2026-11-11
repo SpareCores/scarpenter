@@ -60,7 +60,9 @@ The same function resolves the NodeClass defaults for the catalog (the root disk
 the scheduler assumes as ephemeral storage, the price of the defaults). The
 ephemeral storage is computed per instance type: a vendor whose root disk is fixed by
 the type (hcloud, Vultr and UpCloud plans, OVH flavors with a local root disk) answers
-for the type, and a storage profile cannot change it (ADR-017); otherwise it is the
+for the type, and a storage profile cannot change it (ADR-017; UpCloud is the one exception: the
+`storage.root.size` of the NodeClass's vendor block overrides the plan's included storage, and a
+profile's size is honoured at launch but not in the scheduler's estimate); otherwise it is the
 resolved settings' root disk, and when the driver says nothing, the catalog's storage
 size of the type (Keeper `storage_size`, read as GB of 10^9 bytes, unverified until
 plan 15 checks the unit against a real vendor).
