@@ -54,6 +54,9 @@ const (
 const (
 	KindInstance = "instance"
 	KindToken    = "bootstrap-token"
+	// KindLeftover counts what a vendors.LeftoverCollector deleted (the
+	// resources a failed or interrupted launch left besides the instance).
+	KindLeftover = "launch-leftover"
 
 	ResultDeleted = "deleted"
 	ResultDryRun  = "dry-run"
@@ -293,16 +296,42 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 		}
 		c.terminating.Retain(vendor, region, stillTerminating)
 		if lc, ok := drv.(vendors.LeftoverCollector); ok && !c.opts.DryRun {
-			n, err := lc.CollectLeftovers(ctx, region, claims.Has)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("collecting %s launch leftovers in %s: %w", vendor, region, err))
-			}
-			if n > 0 {
-				logger.Info("deleted launch leftovers", "vendor", vendor, "region", region, "count", n)
+			if err := c.collectLeftovers(ctx, logger, lc, vendor, region, claims); err != nil {
+				errs = append(errs, err)
 			}
 		}
 	}
 	return deleted, errors.Join(errs...)
+}
+
+// collectLeftovers asks a LeftoverCollector driver for one region. The NodeClaim
+// check is live, not the sweep's snapshot: a NodeClaim created after the
+// snapshot may already have a launch in flight whose resources the driver lists,
+// and its launch starts only once this manager's cache holds the NodeClaim, so a
+// cache read made after the driver's listing sees it. A read that fails keeps
+// the resource.
+func (c *Collector) collectLeftovers(ctx context.Context, logger logr.Logger, lc vendors.LeftoverCollector,
+	vendor, region string, claims sets.Set[string]) error {
+	exists := func(name string) bool {
+		if claims.Has(name) {
+			return true
+		}
+		err := c.opts.Client.Get(ctx, types.NamespacedName{Name: name}, &karpv1.NodeClaim{})
+		return !apierrors.IsNotFound(err)
+	}
+	n, err := lc.CollectLeftovers(ctx, region, exists)
+	if n > 0 {
+		logger.Info("deleted launch leftovers", "vendor", vendor, "region", region, "count", n)
+		c.deletions.WithLabelValues(vendor, KindLeftover, ReasonNoNodeClaim, ResultDeleted).Add(float64(n))
+		if c.opts.OnDeleted != nil {
+			c.opts.OnDeleted(vendor, region)
+		}
+	}
+	if err != nil {
+		c.deletions.WithLabelValues(vendor, KindLeftover, ReasonNoNodeClaim, ResultError).Inc()
+		return fmt.Errorf("collecting %s launch leftovers in %s: %w", vendor, region, err)
+	}
+	return nil
 }
 
 // deleteInstance deletes (or, in dry-run, only reports) one orphan; it returns

@@ -17,6 +17,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -548,9 +549,15 @@ type leftoverDriver struct {
 	stubDriver
 	calls []string // region, then whether each asked NodeClaim exists
 	err   error
+	// listed runs after the driver's listing and before it asks (a NodeClaim
+	// created in between).
+	listed func()
 }
 
 func (d *leftoverDriver) CollectLeftovers(_ context.Context, region string, exists func(string) bool) (int, error) {
+	if d.listed != nil {
+		d.listed()
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.calls = append(d.calls, fmt.Sprintf("%s live=%t gone=%t", region, exists("live"), exists("gone")))
@@ -587,5 +594,36 @@ func TestLeftoverCollectorIsCalledPerRegion(t *testing.T) {
 	}
 	if len(drv.calls) != 0 {
 		t.Fatalf("dry-run collected leftovers: %v", drv.calls)
+	}
+}
+
+// A NodeClaim created after the sweep's snapshot (its launch may be making the
+// resources the driver just listed) exists for the collector: the check is live.
+func TestLeftoverCollectorSeesANodeClaimCreatedDuringTheSweep(t *testing.T) {
+	cl := fake.NewClientBuilder().WithScheme(scheme(t)).Build()
+	drv := &leftoverDriver{stubDriver: stubDriver{vendor: "azure", instances: map[string][]*vendors.Instance{}}}
+	drv.listed = func() {
+		if err := cl.Create(context.Background(), claim("gone")); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Error(err)
+		}
+	}
+	reg := prometheus.NewRegistry()
+	notified := 0
+	e := gc.New(gc.Options{
+		Client: cl, Registry: vendors.NewRegistryFrom(drv), Clock: clocktesting.NewFakeClock(now), ClusterName: "c1",
+		Recorder: &recorder{}, Registerer: reg, Regions: func(string) []string { return []string{"r1"} },
+		OnDeleted: func(string, string) { notified++ },
+	})
+	if _, err := e.Sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"r1 live=false gone=true"}; !slices.Equal(drv.calls, want) {
+		t.Fatalf("calls %v, want %v", drv.calls, want)
+	}
+	if got := (&env{reg: reg}).count(t, "azure", gc.KindLeftover, gc.ReasonNoNodeClaim, gc.ResultDeleted); got != 1 {
+		t.Errorf("leftover deletions counted %v, want 1", got)
+	}
+	if notified != 1 {
+		t.Errorf("OnDeleted called %d times, want 1", notified)
 	}
 }

@@ -479,13 +479,18 @@ SCNodeClass of the token's `scarpenter.sparecores.com/nodeclass` label. Managed
 vendor resources are swept after the instances and tokens by their lifecycle
 (`perUse`, `idleTTL`, `retain`) in the driver's dependency order, only when they
 carry both the deterministic name and the ownership marker, never those of `use`;
-the metrics and Events are in [vendor resources](vendor-resources.md#garbage-collection). Every deletion is logged with its reason and published as the Normal Event
+the metrics and Events are in [vendor resources](vendor-resources.md#garbage-collection). A driver whose
+launch makes resources of its own besides the instance (the Azure NIC and public IP,
+`vendors.LeftoverCollector`) is then asked, per region and not in dry-run, to delete those of
+this cluster that name a NodeClaim that does not exist and that nothing uses; the NodeClaim
+check is a live read made after the driver's listing, so a launch in flight keeps its
+resources. These deletions are logged and counted (kind `launch-leftover`), without an Event. Every deletion is logged with its reason and published as the Normal Event
 `GarbageCollected` on the SCNodeClass of the instance's `nodeclass` tag, else on
 the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance` or `bootstrap-token`; `reason`: `NodeClaimNotFound`, `NoNodeClaimTag` or `Terminating`; `result`: `deleted`, `dry-run`, `error`. |
+| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance`, `bootstrap-token` or `launch-leftover`; `reason`: `NodeClaimNotFound`, `NoNodeClaimTag` or `Terminating`; `result`: `deleted`, `dry-run`, `error`. |
 | `scarpenter_gc_sweep_duration_seconds` | histogram | | Duration of a sweep. |
 | `scarpenter_gc_last_sweep_timestamp_seconds` | gauge | | Time of the last sweep. |
 

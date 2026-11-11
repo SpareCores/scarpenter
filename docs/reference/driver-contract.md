@@ -42,7 +42,10 @@ for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
 resolves images at launch with `ResolveImage` and counts as ready; the [AWS
 driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (below),
 `EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker`, `BillingDescriber` (below), `NodeHardener` ([Boot
-fragments](#boot-fragments)), `ImageImporter` (reserved) and
+fragments](#boot-fragments)), `LeftoverCollector` (the garbage collector asks it, per region after the
+instance sweep, to delete what a failed or interrupted launch made besides the instance; it lists first and
+asks `nodeClaimExists` after, so a launch in flight keeps its resources; see
+[garbage collection](controller.md#garbage-collection)), `ImageImporter` (reserved) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
 

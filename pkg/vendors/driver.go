@@ -705,9 +705,15 @@ type ManagedResources interface {
 // public address) that are neither managed resources nor removed with the
 // instance when the launch fails or is interrupted before the instance exists.
 // The garbage collector calls it once per region after its instance sweep (not
-// in dry-run); nodeClaimExists says whether a NodeClaim of the name exists. The
+// in dry-run, which deletes nothing). nodeClaimExists says whether a NodeClaim
+// of the name exists when it is called (a live read, true when the read fails):
+// the driver lists its candidates first and asks for each after that listing,
+// never from an answer cached across calls, so that the resources of a launch
+// still in flight (its NodeClaim exists before the launch starts) are kept. The
 // driver deletes only what carries this cluster's tag, names a NodeClaim that
-// does not exist and nothing uses, and returns how many it deleted.
+// does not exist and nothing uses, puts a deadline on every vendor call, and
+// returns how many it deleted (also when it returns an error). The collector
+// logs and counts them (scarpenter_gc_deletions_total, kind launch-leftover).
 type LeftoverCollector interface {
 	CollectLeftovers(ctx context.Context, region string, nodeClaimExists func(name string) bool) (int, error)
 }
