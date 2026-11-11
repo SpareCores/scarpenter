@@ -19,8 +19,9 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // is old enough: every kind has a creation time in its API, which decides, and the
 // tag ci-created-at (Unix seconds) stands in where the API gives none. A resource
 // without the marker is never touched, a deployment set carries the marker in its
-// description (it takes no tags), and default VPCs, default vSwitches and the
-// groups of a default VPC are left alone, whatever their tags.
+// description (it takes no tags), and default VPCs and default vSwitches are
+// left alone, whatever their tags (a marked group in a default VPC is the
+// driver's own and is deleted).
 package sweep
 
 import (

@@ -226,6 +226,8 @@ credentials URI. [Set up Alibaba Cloud credentials](../how-to-guides/alicloud-cr
 (`oidc`, `secret`, `none`). [`alicloud-ram-policy.json`](alicloud-ram-policy.json) is the policy: the `ecs:` and `vpc:` actions of the
 two API interfaces, reads for everything, creates under the request tag and mutations under the resource tag
 `scarpenter.sparecores.com/cluster` (a test ties the file to the interfaces; the condition keys' exact use with `RunInstances` is *unverified*).
+Deployment sets take no tags, so their create and delete are limited to the resource type only; the driver deletes only sets whose
+description carries its marker.
 The nodes get no RAM role. The home region is `SCARPENTER_ALICLOUD_HOME_REGION` (an environment variable, not a flag: no controller
 flag was added).
 

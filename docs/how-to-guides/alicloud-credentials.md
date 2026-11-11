@@ -24,7 +24,8 @@ account yet ([what is not verified](../reference/alicloud-driver.md#not-verified
 ## The RAM policy
 
 [`docs/reference/alicloud-ram-policy.json`](../reference/alicloud-ram-policy.json) is the policy: reads for everything, creates
-under the request tag and mutations under the resource tag `scarpenter.sparecores.com/cluster`. Copy it for your release, replace
+under the request tag and mutations under the resource tag `scarpenter.sparecores.com/cluster` (deployment sets take no tags: their
+create and delete are limited to the resource type only). Copy it for your release, replace
 `my-cluster` with the value of `cluster.name`, and create the policy. Whether Alibaba Cloud evaluates `acs:RequestTag` on
 `RunInstances` as the policy assumes is *unverified*; if it does not, widen the first statement for the lane first and tighten it with the
 result.

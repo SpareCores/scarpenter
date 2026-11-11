@@ -69,7 +69,14 @@ func TestRAMPolicyAllowsEveryCallOfTheDriver(t *testing.T) {
 			name := m.Name
 			mutates := strings.HasPrefix(name, "Create") || strings.HasPrefix(name, "Delete") || strings.HasPrefix(name, "Authorize") ||
 				strings.HasPrefix(name, "Revoke") || name == "RunInstances" || name == "TagResources"
-			if mutates && !conditioned[action] {
+			// A deployment set takes no tags (CreateDeploymentSet has no Tag parameter and
+			// TagResources no deployment set type): a tag condition would deny every call, so
+			// its statement is limited by the resource type only.
+			untaggable := name == "CreateDeploymentSet" || name == "DeleteDeploymentSet"
+			if untaggable && conditioned[action] {
+				t.Errorf("%s is allowed under a tag condition, which a deployment set cannot satisfy", action)
+			}
+			if mutates && !untaggable && !conditioned[action] {
 				t.Errorf("%s mutates and no statement allows it under a condition", action)
 			}
 			if !mutates && conditioned[action] && !strings.HasPrefix(name, "Describe") {

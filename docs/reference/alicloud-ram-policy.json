@@ -25,7 +25,6 @@
       "Action": [
         "ecs:RunInstances",
         "ecs:CreateSecurityGroup",
-        "ecs:CreateDeploymentSet",
         "ecs:TagResources",
         "vpc:CreateVpc",
         "vpc:CreateVSwitch"
@@ -44,7 +43,6 @@
         "ecs:DeleteSecurityGroup",
         "ecs:AuthorizeSecurityGroup",
         "ecs:RevokeSecurityGroup",
-        "ecs:DeleteDeploymentSet",
         "vpc:DeleteVpc",
         "vpc:DeleteVSwitch"
       ],
@@ -54,6 +52,14 @@
           "acs:ResourceTag/scarpenter.sparecores.com/cluster": "my-cluster"
         }
       }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateDeploymentSet",
+        "ecs:DeleteDeploymentSet"
+      ],
+      "Resource": "acs:ecs:*:*:deploymentset/*"
     },
     {
       "Effect": "Allow",
