@@ -3472,7 +3472,7 @@ resources says how the UpCloud resources a node depends on are provided.
 |---|---|---|---|
 | `firewalls` | [object](#specvendorsupcloudresourcesfirewalls) |  | firewalls are SDN firewall rulesets attached to the private interface. They never cover the public interface: UpCloud's Public and Utility firewall is per server and written by the driver for every node. |
 | `images` | [object](#specvendorsupcloudresourcesimages) |  | images brings the Flatcar boot templates: private custom templates the operator imported into the account, one per zone and storage tier (rung 3 of the image policy). Optional: without it the driver finds the pinned release by the label convention (scarpenter-image=flatcar, flatcar-channel, flatcar-version, flatcar-arch=amd64, flatcar-tier). Whatever the lookup, the template's labels must say the pinned channel and version, or the zone's images are not ready. Images take use only. |
-| `networks` | [object](#specvendorsupcloudresourcesnetworks) |  | networks are the SDN private networks nodes get a private interface on. Without use or create the node has the public and utility interfaces only. |
+| `networks` | [object](#specvendorsupcloudresourcesnetworks) |  | networks are the SDN private networks nodes get a private interface on. Without use or create the node has the public and utility interfaces only, unless networking.isolation is nodeclass, or run (the default) without a run key: those get a managed network. |
 | `serverGroups` | [object](#specvendorsupcloudresourcesservergroups) |  | serverGroups are the anti-affinity groups of the placement profiles. |
 
 ### `spec.vendors.upcloud.resources.firewalls`
@@ -3663,7 +3663,7 @@ Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner
 
 ### `spec.vendors.upcloud.resources.networks`
 
-networks are the SDN private networks nodes get a private interface on. Without use or create the node has the public and utility interfaces only.
+networks are the SDN private networks nodes get a private interface on. Without use or create the node has the public and utility interfaces only, unless networking.isolation is nodeclass, or run (the default) without a run key: those get a managed network.
 
 Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
 

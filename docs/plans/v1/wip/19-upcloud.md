@@ -592,10 +592,11 @@ Decided by default, maintainer to confirm (the driver as built; numbers follow t
 4. **Root size default**: the plan's included storage, at least 25 GB; the tier is the plan's included tier where a template of
    it exists, else the template's tier (the plan list's `storage_tier` is read at runtime, not guessed by family).
 5. **Public interface firewall**: the driver's rules, written after the create call, and rewritten on an idempotent replay. UDP 41641
-   (Tailscale's direct paths) is opened for every node, because the driver does not see the network template.
+   (Tailscale's direct paths) is opened only for a NodeClass with the `tailscale` template (the driver reads the NodeClass,
+   as it does for the resources; no NodeClass read: no port).
 6. **`isolation: run`**: unsupported with a run key (`Unsupported`, `IsolationRunUnsupported`), which includes every placement
    profile under the API default `run`: a NodeClass that uses run keys sets `none` or `nodeclass`. Without a run key `run` behaves as
-   `none` (no private network).
+   `nodeclass` (the nodes of the NodeClass are one run: SDN network and ruleset), as on the other vendors.
 7. **Managed network CIDR**: a /24 derived from the name inside `10.241.0.0/16`, the next free one on overlap; the /16 is
    `SCARPENTER_UPCLOUD_NETWORK_RANGE` (chart `vendors.upcloud.networkRange`).
 8. **GPU plans**: dropped (`LaunchableTypes` omits them, a launch is `Unsupported`); the new families of Keeper's snapshot, Starter
@@ -604,7 +605,7 @@ Decided by default, maintainer to confirm (the driver as built; numbers follow t
 10. **Currency**: Keeper is asked for USD (as the catalog does) for the storage and IPv4 prices; nothing is converted in the driver.
 
 Other choices made while building, same status: a node gets a private interface only where `resources.networks` is configured or
-`isolation` is `nodeclass` (the driver reads the NodeClass named by the launch's tags to know); one template per tier is not an
+`isolation` is `nodeclass` or `run` without a run key (the driver reads the NodeClass named by the launch's tags to know); one template per tier is not an
 ambiguous `images` selector (the MaxIOPS one resolves, the launch picks the sibling tier); `images` declares `HasCreated` so that the
 shared suite's `orderBy: created` works if the API reports it, otherwise `label:flatcar-version`; a managed ruleset whose list answer
 has no labels is adopted by its name; the billing rule is reported unverified (retention stays off) with the stop deadline (two minutes)

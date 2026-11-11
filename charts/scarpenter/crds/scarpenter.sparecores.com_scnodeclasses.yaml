@@ -9827,7 +9827,9 @@ spec:
                           networks:
                             description: |-
                               networks are the SDN private networks nodes get a private interface on.
-                              Without use or create the node has the public and utility interfaces only.
+                              Without use or create the node has the public and utility interfaces
+                              only, unless networking.isolation is nodeclass, or run (the default)
+                              without a run key: those get a managed network.
                             properties:
                               create:
                                 description: create lets SCarpenter create and own

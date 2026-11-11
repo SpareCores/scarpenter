@@ -306,12 +306,13 @@ tokens expire and have no scopes; the controller's token must see what your IaC 
 | Kind | Provide | `use` fields |
 |---|---|---|
 | `images` | the templates per zone, both tiers (the label convention finds them without a `use`) | `ids`, `tags` (labels; the default), `name`, `match` (`zone`, `state`, `architecture`), `filters` (`tier`, `template_type`), `orderBy: label:flatcar-version` |
-| `networks` | optional: an SDN network per zone (without one the node has the public and utility interfaces only); a managed network needs a range that does not overlap yours (`SCARPENTER_UPCLOUD_NETWORK_RANGE`) | `ids`, `name`, `tags` (labels), `match` (`zone`, `cidr`, `within`), `filters.type` |
+| `networks` | optional: an SDN network per zone (without one the node has the public and utility interfaces only, or a managed network where the isolation needs one); a managed network needs a range that does not overlap yours (`SCARPENTER_UPCLOUD_NETWORK_RANGE`) | `ids`, `name`, `tags` (labels), `match` (`zone`, `cidr`, `within`), `filters.type` |
 | `firewalls` | optional: an SDN ruleset; covers only the private interface (the public interface's firewall is written per server by the driver) | `ids`, `name`, `tags` (client-side) |
 | `serverGroups` | nothing (created per run by the placement profile) or an existing group by title | `ids`, `name`, `tags` |
 
 A node gets a private interface only where `resources.networks` is configured (a `use`, a
-`create`, or an empty block) or `networking.isolation` is `nodeclass`; it has none otherwise.
+`create`, or an empty block) or `networking.isolation` is `nodeclass`, or `run` (the default)
+without a run key; it has none otherwise (`isolation: none`).
 Discovery by the opt-in label `scarpenter-use: "true"` runs for the kinds a NodeClass
 configures; there is no vendor default for any kind. Without `use`: managed ones, else a stated failure.
 

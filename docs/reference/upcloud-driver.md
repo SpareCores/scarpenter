@@ -152,7 +152,8 @@ apply until it does). The first match wins:
 
 1. accept ICMP and ICMPv6, DHCP and DHCPv6 replies;
 2. accept the NodeClass's `networking.inbound` rules (one rule per CIDR);
-3. accept UDP 41641 (Tailscale's direct paths; opened for every node, whatever the network template);
+3. accept UDP 41641 (Tailscale's direct paths), only for a NodeClass with the `tailscale` network template (the driver
+   reads the NodeClass named by the launch's tags);
 4. accept TCP and UDP to the ephemeral range 32768-60999, both families (replies to the node's own connections);
 5. drop everything else inbound; outbound is accepted.
 
@@ -175,7 +176,7 @@ profile: `nicModel` exists and has no use (ADR-017).
 | placement profile | `serverGroup: {antiAffinity: strict \| yes}` or `{use: {name}}`; one group per (zone, profile, run key); `strict` fails at start with no capacity when no other host is free. There is no cluster or co-location construct and no dedicated tenancy: profiles that ask for them have no UpCloud block. A profile that creates groups needs a run key. |
 | `networking.publicIPv4` | default `true`; `false` needs a brought private network with a gateway (the utility network has no internet access, **unverified**), else the NodeClass is refused |
 | `networking.publicIPv6` | an IPv6 address on the public interface (UpCloud has IPv6 on public interfaces only) |
-| `networking.isolation` | `none`: no private network. `nodeclass`: the managed (or brought) SDN network and ruleset. `run` is the API default: it is fine without a run key (the nodes of the NodeClass are one run, with no private network), and `Unsupported` with one, because it would need one SDN network per run key: a NodeClass that uses run keys (placement profiles) sets `none` or `nodeclass`. |
+| `networking.isolation` | `none`: no private network. `nodeclass`: the managed (or brought) SDN network and ruleset. `run` is the API default: without a run key the nodes of the NodeClass are one run and it behaves as `nodeclass` (SDN network and ruleset); with a run key it is `Unsupported`, because it would need one SDN network per run key: a NodeClass that uses run keys (placement profiles with server groups) sets `none` or `nodeclass`. |
 
 `Supported` (per plan and zone): a storage profile whose root tier has no template in the zone is left out once the zone's
 templates are known (until then it is offered, and a launch that finds none is `Unsupported`); sizes within 10 to 1024 GB and at most
@@ -188,14 +189,14 @@ plan's included tier is not known and an explicit tier is set.
 
 Kinds a node needs, per [vendor resources](vendor-resources.md): UpCloud has **no vendor default** for any, and a node has a
 private interface only where `resources.networks` is configured (any form but `forbid`) or `networking.isolation` is
-`nodeclass`. The driver reads the NodeClass named by the launch's tags to know (the settings of a launch do not carry the
+`nodeclass`, or `run` (the default) without a run key. The driver reads the NodeClass named by the launch's tags to know (the settings of a launch do not carry the
 resource configuration).
 
 | Kind | Scope | Notes |
 |---|---|---|
 | `images` | zone and tier | `use` only; see [images](#images) |
 | `networks` | zone | an SDN private network. Managed: IPv4 /24 inside the `SCARPENTER_UPCLOUD_NETWORK_RANGE` /16, derived from the name and moved on while it overlaps a network of the account, DHCP on, no default route, no router. `idleTTL`. The account's network limit applies (`NETWORK_LIMIT_REACHED`). |
-| `firewalls` | zone (the ruleset is account-wide; one managed ruleset per zone by name) | a stateful SDN ruleset: the NodeClass's inbound rules, everything from the network's range with `isolation: nodeclass`, drop inbound, accept outbound. Attached to the private interface only. `idleTTL`. |
+| `firewalls` | zone (the ruleset is account-wide; one managed ruleset per zone by name) | a stateful SDN ruleset: the NodeClass's inbound rules, everything from the network's range with `isolation: nodeclass` (or `run` without a run key), drop inbound, accept outbound. Attached to the private interface only. `idleTTL`. |
 | `serverGroups` | run | anti-affinity, `perUse` per (zone, profile, run key), policy `strict` by default |
 
 Names are `scarpenter-<cluster>-<kind>-<zone>[-hash]`; the marker is the labels `scarpenter-cluster`, `scarpenter-nodeclass`,

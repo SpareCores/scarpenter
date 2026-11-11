@@ -1,6 +1,9 @@
 # The smallest UpCloud NodeClass: the Flatcar templates are found by their labels
 # (scarpenter-image=flatcar, the pinned channel and version, flatcar-arch=amd64) in each
-# zone, and the nodes get the public and utility interfaces only (no private network).
+# zone. Under the default isolation (run, no run key) the nodes of the NodeClass reach each
+# other privately, which the direct template's pod network needs: SCarpenter creates an SDN
+# network and ruleset per zone (set networking.isolation: none for the public and utility
+# interfaces only).
 # The templates are yours to import: docs/how-to-guides/import-flatcar-templates-into-upcloud.md.
 # UpCloud's regions are its zones.
 apiVersion: scarpenter.sparecores.com/v1alpha1

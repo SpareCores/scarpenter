@@ -16,6 +16,8 @@ spec:
       # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
       authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
       tags: ["${E2E_TAG_NODE}"]
+  # isolation none: no SDN network (the nodes talk over Tailscale).
+  networking: {isolation: none}
   tags: {ci-run: "${E2E_RUN_ID}"}
   profiles:
     storage:

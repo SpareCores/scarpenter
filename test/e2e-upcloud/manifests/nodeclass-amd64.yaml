@@ -23,6 +23,9 @@ spec:
       # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
       authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
       tags: ["${E2E_TAG_NODE}"]
+  # isolation none: no SDN network (the nodes talk over Tailscale), and the server-group
+  # scenario's run key is refused under the default isolation run on UpCloud.
+  networking: {isolation: none}
   # The run on every resource that takes a label (spec.tags are server labels; keys are
   # at most 32 characters).
   tags: {ci-run: "${E2E_RUN_ID}"}

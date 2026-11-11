@@ -40,7 +40,8 @@ type Settings struct {
 
 // Resources are the UpCloud resource kinds. Each kind has at most one of use,
 // create and forbid. Without any of them a node has no private interface (there
-// is no default network), and no server group.
+// is no default network) unless its isolation needs one (nodeclass, or run
+// without a run key: a managed network), and no server group.
 type Resources struct {
 	// images brings the Flatcar boot templates: private custom templates the
 	// operator imported into the account, one per zone and storage tier
@@ -55,7 +56,9 @@ type Resources struct {
 	Images *common.Resource `json:"images,omitempty"`
 
 	// networks are the SDN private networks nodes get a private interface on.
-	// Without use or create the node has the public and utility interfaces only.
+	// Without use or create the node has the public and utility interfaces
+	// only, unless networking.isolation is nodeclass, or run (the default)
+	// without a run key: those get a managed network.
 	// +optional
 	Networks *common.Resource `json:"networks,omitempty"`
 
