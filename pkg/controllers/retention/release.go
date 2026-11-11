@@ -117,9 +117,13 @@ func (c *Controller) startRelease(ctx context.Context, in *nodeInfo, why string)
 	// Another path (a deadline, the pressure loop) may have started the release
 	// of this node since it was read.
 	fresh := &corev1.Node{}
-	if err := c.opts.Reader.Get(ctx, client.ObjectKeyFromObject(in.node), fresh); err == nil && hasReleasingTaint(fresh) {
+	if err := c.opts.Reader.Get(ctx, client.ObjectKeyFromObject(in.node), fresh); err != nil {
+		return stepBlocked, fmt.Errorf("reading node %s: %w", in.node.Name, err)
+	}
+	if hasReleasingTaint(fresh) {
 		return stepStarted, nil
 	}
+	in.node = fresh
 	if free, _ := c.remaining(ctx, in.pool); free < 1 {
 		return stepBlocked, nil
 	}
@@ -135,7 +139,11 @@ func (c *Controller) startRelease(ctx context.Context, in *nodeInfo, why string)
 		Key: v1alpha1.TaintReleasing, Value: why, Effect: corev1.TaintEffectNoSchedule,
 		TimeAdded: &metav1.Time{Time: c.opts.Clock.Now()},
 	})
-	if err := c.opts.Client.Patch(ctx, in.node, client.StrategicMergeFrom(orig)); err != nil {
+	// The taints are an atomic list: a patch from a stale copy would drop a
+	// taint added since (Karpenter's own, the node lifecycle's), so it is
+	// guarded by the resource version, as Karpenter's taint patches are.
+	locked := client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{})
+	if err := c.opts.Client.Patch(ctx, in.node, locked); err != nil {
 		c.opts.Cluster.UnmarkForDeletion(in.providerID())
 		return stepBlocked, fmt.Errorf("tainting node %s: %w", in.node.Name, err)
 	}
@@ -168,7 +176,16 @@ func (c *Controller) continueRelease(ctx context.Context, in *nodeInfo) (reconci
 		}
 		return c.hold(ctx, in)
 	}
-	if err := c.opts.Client.Delete(ctx, in.claim); client.IgnoreNotFound(err) != nil {
+	// The cache can lag our own delete of an earlier reconcile: read the claim
+	// from the API server so that one release is deleted and counted once.
+	claim := &karpv1.NodeClaim{}
+	if err := c.opts.Reader.Get(ctx, client.ObjectKeyFromObject(in.claim), claim); err != nil {
+		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+	if !claim.DeletionTimestamp.IsZero() {
+		return reconcile.Result{}, nil
+	}
+	if err := c.opts.Client.Delete(ctx, claim); client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, fmt.Errorf("deleting NodeClaim %s: %w", in.claim.Name, err)
 	}
 	c.released(in, taint.Value)
@@ -209,7 +226,8 @@ func (c *Controller) undoRelease(ctx context.Context, in *nodeInfo) error {
 	node.Spec.Taints = slices.DeleteFunc(slices.Clone(node.Spec.Taints), func(t corev1.Taint) bool {
 		return t.Key == v1alpha1.TaintReleasing
 	})
-	if err := c.opts.Client.Patch(ctx, node, client.StrategicMergeFrom(orig)); err != nil {
+	locked := client.MergeFromWithOptions(orig, client.MergeFromWithOptimisticLock{})
+	if err := c.opts.Client.Patch(ctx, node, locked); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 	return nil
