@@ -138,7 +138,9 @@ func (i *Images) resolve(ctx context.Context, req vendors.ImageRequest) (*Resolv
 func (i *Images) fetch(
 	ctx context.Context, region string, ref ImageRef,
 ) (*Resolved, armcompute.VirtualMachineImage, error) {
-	img, err := i.API.Get(ctx, region, ref.Publisher, ref.Offer, ref.SKU, ref.Version)
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	img, err := i.API.Get(cctx, region, ref.Publisher, ref.Offer, ref.SKU, ref.Version)
+	cancel()
 	if err != nil {
 		if isNotFound(err) {
 			return nil, img, vendors.NewError(vendors.NotFound, codeImageNotFound,
@@ -219,7 +221,9 @@ func (i *Images) skuCandidates(
 	if req.Channel != "lts" {
 		return []string{req.Channel + suffix}, nil
 	}
-	skus, err := i.API.ListSKUs(ctx, req.Region, publisher, offer)
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	skus, err := i.API.ListSKUs(cctx, req.Region, publisher, offer)
+	cancel()
 	if err != nil {
 		if isNotFound(err) {
 			return nil, nil
@@ -246,7 +250,9 @@ func (i *Images) CheckTerms(ctx context.Context, r *Resolved) error {
 	if r == nil || r.Plan == nil {
 		return nil
 	}
-	ok, err := i.Terms.Accepted(ctx, r.Plan.Publisher, r.Plan.Product, r.Plan.Name)
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	ok, err := i.Terms.Accepted(cctx, r.Plan.Publisher, r.Plan.Product, r.Plan.Name)
+	cancel()
 	if err != nil {
 		return classify(err, errContext{})
 	}

@@ -35,6 +35,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors/azure/sweep"
 )
 
+// runTimeout bounds one sweep.
+const runTimeout = 25 * time.Minute
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -114,6 +117,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return 2
 	}
 	s.opts.Logf = func(format string, args ...any) { _, _ = fmt.Fprintf(stdout, format+"\n", args...) }
+	// Every call and long-running operation of the sweep is bounded by this deadline, below the
+	// workflow's 30-minute job limit so that the report is still printed.
+	ctx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
 	rep, err := sweep.Run(ctx, clients, disks, s.opts)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "sweeper:", err)

@@ -60,7 +60,9 @@ func (q *QuotaReader) LoadSKUs(skus map[string]SKU) {
 // so Counted stays empty. Every call reads the usages: they are one call per
 // region (limits and usage together), so there are no cached limits.
 func (q *QuotaReader) Quotas(ctx context.Context, region string) (*vendors.QuotaSnapshot, error) {
-	cu, err := q.usages.ComputeUsages(ctx, region)
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	cu, err := q.usages.ComputeUsages(cctx, region)
+	cancel()
 	if err != nil {
 		return nil, classify(err, errContext{})
 	}
@@ -79,7 +81,9 @@ func (q *QuotaReader) Quotas(ctx context.Context, region string) (*vendors.Quota
 			Limit: deref(u.Limit), Used: int64(deref(u.CurrentValue)),
 		})
 	}
-	nu, err := q.usages.NetworkUsages(ctx, region)
+	cctx, cancel = context.WithTimeout(ctx, callTimeout)
+	nu, err := q.usages.NetworkUsages(cctx, region)
+	cancel()
 	if err != nil {
 		return nil, classify(err, errContext{})
 	}
