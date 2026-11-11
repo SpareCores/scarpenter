@@ -105,9 +105,9 @@ func readRole(t *testing.T, name string) roleFile {
 // permission in the roles, and the roles hold nothing else.
 func TestRoleFilesMatchTheDriver(t *testing.T) {
 	api := reflect.TypeFor[gcp.ComputeAPI]()
-	for i := range api.NumMethod() {
-		if _, ok := methodPermissions[api.Method(i).Name]; !ok {
-			t.Errorf("the API method %s has no permission in the table of this test", api.Method(i).Name)
+	for m := range api.Methods() {
+		if _, ok := methodPermissions[m.Name]; !ok {
+			t.Errorf("the API method %s has no permission in the table of this test", m.Name)
 		}
 	}
 	for m := range methodPermissions {
