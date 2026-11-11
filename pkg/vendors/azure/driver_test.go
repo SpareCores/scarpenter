@@ -326,6 +326,13 @@ func TestKeeperPrices(t *testing.T) {
 	now := time.Now()
 	k2.kick(now, func(error) {})
 	<-done
+	// onLoad runs inside the load, before the background load clears loading: a
+	// kick before that is a no-op.
+	require.Eventually(t, func() bool {
+		k2.mu.RLock()
+		defer k2.mu.RUnlock()
+		return !k2.loading
+	}, 10*time.Second, time.Millisecond)
 	k2.kick(now.Add(time.Second), func(error) {})
 	k2.kick(now.Add(7*time.Hour), func(error) {})
 	<-done
