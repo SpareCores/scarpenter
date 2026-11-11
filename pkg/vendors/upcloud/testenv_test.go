@@ -20,6 +20,7 @@ import (
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 	"github.com/go-logr/logr"
 	clocktesting "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -137,6 +138,7 @@ type envOptions struct {
 	// shortKeys lets the fake take one-character label keys (the conformance seeds use them).
 	shortKeys bool
 	prices    uc.PriceSource
+	reader    client.Reader
 	driver    []uc.Option
 }
 
@@ -146,7 +148,7 @@ func newEnv(t *testing.T, o envOptions) *env {
 		o.cluster = testCluster
 	}
 	if o.fake.Plans == nil {
-		o.fake.Plans = fake.DefaultPlans()
+		o.fake.Plans = snapshotPlans(t)
 	}
 	if o.fake.Limits == (upcloud.ResourceLimits{}) {
 		o.fake.Limits = bigLimits
@@ -179,7 +181,7 @@ func attach(t *testing.T, f *fake.Fake, o envOptions) *env {
 		opts = append(opts, uc.WithPrices(o.prices))
 	}
 	d := uc.New(opts...)
-	if err := d.Init(context.Background(), vendors.Config{ClusterName: o.cluster, Clock: clock, Log: logr.Discard()}); err != nil {
+	if err := d.Init(context.Background(), vendors.Config{ClusterName: o.cluster, Clock: clock, Log: logr.Discard(), Reader: o.reader}); err != nil {
 		t.Fatal(err)
 	}
 	return &env{t: t, d: d, f: f, clock: clock, opts: o}

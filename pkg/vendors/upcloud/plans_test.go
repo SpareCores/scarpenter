@@ -17,11 +17,12 @@ import (
 
 // knownPlans are plan names in UpCloud's naming and the family each belongs
 // to: the test of "a new plan family must be classified". Examples, not a copy
-// of the price list. TODO(plan 14): the same check runs over the UpCloud types of
-// the committed Keeper snapshot once it has UpCloud rows.
+// of the price list. The same check runs over the UpCloud plans of the committed
+// Keeper snapshot (driver_test.go).
 var knownPlans = map[string]Family{
 	"1xCPU-1GB": FamilyGeneral, "1xCPU-2GB": FamilyGeneral, "2xCPU-4GB": FamilyGeneral, "20xCPU-128GB": FamilyGeneral,
 	"DEV-1xCPU-1GB-10GB": FamilyDeveloper, "DEV-2xCPU-4GB-20GB": FamilyDeveloper,
+	"STARTER-1xCPU-1GB": FamilyStarter, "PREMIUM-2xCPU-4GB": FamilyPremium,
 	"HICPU-8xCPU-16GB": FamilyHiCPU, "HICPU-64xCPU-128GB": FamilyHiCPU,
 	"HIMEM-2xCPU-16GB": FamilyHiMem, "HIMEM-32xCPU-256GB": FamilyHiMem,
 	"CLOUDNATIVE-2xCPU-4GB": FamilyCloudNative,
@@ -39,7 +40,7 @@ func TestFamilyOf(t *testing.T) {
 
 func TestFamilySupported(t *testing.T) {
 	for f, want := range map[Family]bool{
-		FamilyGeneral: true, FamilyDeveloper: true, FamilyHiCPU: true, FamilyHiMem: true, FamilyCloudNative: true,
+		FamilyGeneral: true, FamilyStarter: true, FamilyPremium: true, FamilyDeveloper: true, FamilyHiCPU: true, FamilyHiMem: true, FamilyCloudNative: true,
 		FamilyGPU: false, FamilyUnknown: false,
 	} {
 		if f.Supported() != want {
