@@ -189,3 +189,36 @@ func TestAPITypesMatchTheSettings(t *testing.T) {
 	require.Empty(t, (*azapi.Settings)(nil).GetImageOwner())
 	require.Empty(t, (*azapi.Settings)(nil).GetRegions())
 }
+
+func TestNodeClassWarnings(t *testing.T) {
+	d := New()
+	nc := func(brought bool, iso common.Isolation, override common.Isolation) *v1alpha1.SCNodeClass {
+		nc := &v1alpha1.SCNodeClass{}
+		nc.Spec.Networking = common.Networking{Isolation: iso}
+		nc.Spec.Vendors.Azure = &azapi.Settings{}
+		if override != "" {
+			nc.Spec.Vendors.Azure.Networking = &common.NetworkingOverride{Isolation: override}
+		}
+		if brought {
+			nc.Spec.Vendors.Azure.Resources = &azapi.Resources{SecurityGroups: &common.Resource{
+				Use: &common.ResourceUse{IDs: map[string]common.IDList{"westeurope": {"/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/n"}}}}}
+		}
+		return nc
+	}
+	for _, c := range []struct {
+		name string
+		nc   *v1alpha1.SCNodeClass
+		warn bool
+	}{
+		{"brought group with isolation run", nc(true, common.IsolationRun, ""), true},
+		{"brought group with the override", nc(true, "", common.IsolationNodeClass), true},
+		{"brought group without isolation", nc(true, "", ""), false},
+		{"brought group with isolation none", nc(true, common.IsolationNone, ""), false},
+		{"managed group with isolation run", nc(false, common.IsolationRun, ""), false},
+	} {
+		got := d.NodeClassWarnings(c.nc)
+		if (len(got) > 0) != c.warn {
+			t.Errorf("%s: warnings = %v, want warning %v", c.name, got, c.warn)
+		}
+	}
+}

@@ -69,6 +69,7 @@ const (
 	// their offerings are unavailable, the condition stays True.
 	ReasonImagesPartial        = "ImagesPartial"
 	ReasonMetricsNotRegistered = "MetricLabelsNotRegistered"
+	ReasonConfigurationWarning = "SettingHasNoEffect"
 )
 
 // Event reasons (on the SCNodeClass); Warning Events are deduplicated.
@@ -78,8 +79,9 @@ const (
 	EventVendorNotReady   = "VendorNotReady"
 	// EventIPv6OnlyNeedsMirror: IPv6-only nodes cannot reach the default sysext
 	// source (GitHub releases have no IPv6).
-	EventIPv6OnlyNeedsMirror = "IPv6OnlyNeedsMirror"
-	EventRestartRequired     = "RestartRequired"
+	EventIPv6OnlyNeedsMirror  = "IPv6OnlyNeedsMirror"
+	EventRestartRequired      = "RestartRequired"
+	EventConfigurationWarning = "ConfigurationWarning"
 	// EventHardeningNotOffered: the NodeClass enables a hardening the vendor's
 	// driver does not offer; it applies to the vendors that do.
 	EventHardeningNotOffered = "HardeningNotOffered"
@@ -487,6 +489,11 @@ func (c *Controller) vendor(
 	if ready {
 		c.warnIPv6Only(desired, vendor)
 		c.warnHardening(desired, vendor)
+		if msg := c.configurationWarnings(desired, vendor); msg != "" {
+			vs.Conditions = append(vs.Conditions, vendorCondition(existing, v1alpha1.VendorConditionConfigurationWarning,
+				true, ReasonConfigurationWarning, msg, current.Generation, now))
+			c.warn(desired, EventConfigurationWarning, fmt.Sprintf("vendor %s: %s", vendor, msg), vendor)
+		}
 	}
 	images, ok, reason, msg := c.images(ctx, desired, vendor, ready)
 	kept := false
@@ -661,7 +668,8 @@ func projection(s *v1alpha1.SCNodeClassStatus) project {
 	for name, vs := range s.Vendors {
 		mine := v1alpha1.VendorStatus{Hash: vs.Hash, Images: vs.Images}
 		for _, cond := range vs.Conditions {
-			if cond.Type == v1alpha1.VendorConditionReady || cond.Type == v1alpha1.VendorConditionImagesReady {
+			if cond.Type == v1alpha1.VendorConditionReady || cond.Type == v1alpha1.VendorConditionImagesReady ||
+				cond.Type == v1alpha1.VendorConditionConfigurationWarning {
 				mine.Conditions = append(mine.Conditions, cond)
 			}
 		}
@@ -772,6 +780,20 @@ func (c *Controller) warnHardening(nc *v1alpha1.SCNodeClass, vendor string) {
 		c.warn(nc, EventHardeningNotOffered, fmt.Sprintf("vendor %s offers no hardening %s: it is not applied to its nodes",
 			vendor, strings.Join(unoffered, ", ")), vendor)
 	}
+}
+
+// configurationWarnings returns what the driver says about settings that have no
+// effect for the vendor, joined; empty when there is none.
+func (c *Controller) configurationWarnings(nc *v1alpha1.SCNodeClass, vendor string) string {
+	drv, ok := c.opts.Registry.Driver(vendor)
+	if !ok {
+		return ""
+	}
+	w, ok := drv.(vendors.NodeClassWarner)
+	if !ok {
+		return ""
+	}
+	return strings.Join(w.NodeClassWarnings(nc), "; ")
 }
 
 // appliedHardening returns the hardenings of the NodeClass that the vendor's

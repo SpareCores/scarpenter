@@ -52,6 +52,26 @@ const (
 	maxDataGiB = 32767
 )
 
+// NodeClassWarnings says what is valid in the NodeClass but has no effect: an
+// explicit networking.isolation next to a network security group brought with
+// use, which decides alone (a NIC takes one group; open question 11 of plan 17).
+func (d *Driver) NodeClassWarnings(nc *v1alpha1.SCNodeClass) []string {
+	b := nc.Spec.Vendors.Azure
+	if b == nil || b.Resources == nil || b.Resources.SecurityGroups == nil || b.Resources.SecurityGroups.Use == nil {
+		return nil
+	}
+	// Explicit: the default of the NodeClass is not a setting that was made.
+	iso := nc.Spec.Networking.Isolation
+	if b.Networking != nil && b.Networking.Isolation != "" {
+		iso = b.Networking.Isolation
+	}
+	if iso == "" || iso == common.IsolationNone {
+		return nil
+	}
+	return []string{fmt.Sprintf("networking.isolation %s has no effect on the brought network security group: it decides "+
+		"alone, and a NIC takes one group", iso)}
+}
+
 // ValidateNodeClass implements vendors.NodeClassValidator: the syntax of the
 // azure block and of the Azure blocks of the profiles (regions, subscription,
 // key, disk SKUs and sizes, resource references, tags) so that a mistake shows in

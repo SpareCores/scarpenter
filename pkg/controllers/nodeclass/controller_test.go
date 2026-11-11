@@ -49,6 +49,7 @@ type driver struct {
 	validateErr error
 	images      []v1alpha1.ImageStatus
 	imagesErr   error
+	warnings    []string
 	// hardenings are the hardenings the driver offers, fragments what it
 	// contributes for them.
 	hardenings []string
@@ -87,6 +88,11 @@ func (d *driver) ValidateNodeClass(context.Context, *v1alpha1.SCNodeClass) error
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.validateErr
+}
+func (d *driver) NodeClassWarnings(*v1alpha1.SCNodeClass) []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.warnings
 }
 func (d *driver) ReportImages(context.Context, *v1alpha1.SCNodeClass) ([]v1alpha1.ImageStatus, error) {
 	d.mu.Lock()
@@ -916,5 +922,26 @@ func TestADriverReasonBecomesTheImagesReason(t *testing.T) {
 	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != "MarketplaceTermsNotAccepted" ||
 		!strings.Contains(c.Message, "terms accept") || !strings.Contains(c.Message, "r1/amd64") {
 		t.Errorf("ImagesReady = %+v, want False with the driver's reason and message", c)
+	}
+}
+
+func TestConfigurationWarningShowsInTheVendorStatus(t *testing.T) {
+	e := newEnv(t)
+	e.drv.warnings = []string{"networking.isolation run has no effect on the brought group"}
+	e.create(e.newNodeClass(nil))
+	nc := e.reconcile(e.name)
+	c := vcond(nc, "aws", v1alpha1.VendorConditionConfigurationWarning)
+	if c == nil || c.Status != metav1.ConditionTrue || !strings.Contains(c.Message, "has no effect") {
+		t.Fatalf("ConfigurationWarning = %+v, want True with the driver's message", c)
+	}
+	if r := vcond(nc, "aws", v1alpha1.VendorConditionReady); r == nil || r.Status != metav1.ConditionTrue {
+		t.Errorf("VendorReady = %+v, a warning must not make the vendor not ready", r)
+	}
+	e.drv.mu.Lock()
+	e.drv.warnings = nil
+	e.drv.mu.Unlock()
+	nc = e.reconcile(e.name)
+	if c := vcond(nc, "aws", v1alpha1.VendorConditionConfigurationWarning); c != nil {
+		t.Errorf("ConfigurationWarning = %+v after the warning is gone, want none", c)
 	}
 }

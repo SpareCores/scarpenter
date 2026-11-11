@@ -27,12 +27,15 @@ const (
 )
 
 // Condition types of a vendor in status.vendors.<vendor>.conditions.
-// QuotaAvailable=False is informational.
+// QuotaAvailable=False and ConfigurationWarning=True are informational.
 const (
 	VendorConditionReady          = "VendorReady"
 	VendorConditionImagesReady    = "ImagesReady"
 	VendorConditionResourcesReady = "ResourcesReady"
 	VendorConditionQuotaAvailable = "QuotaAvailable"
+	// VendorConditionConfigurationWarning is present, True, while the driver
+	// has something to say about a setting that has no effect for the vendor.
+	VendorConditionConfigurationWarning = "ConfigurationWarning"
 )
 
 // SCNodeClass is the node definition SCarpenter launches nodes from: shared
@@ -137,7 +140,7 @@ type Artifact struct {
 // VendorStatus is the observed state of one vendor of the SCNodeClass.
 type VendorStatus struct {
 	// conditions of the vendor: VendorReady, ImagesReady, ResourcesReady,
-	// QuotaAvailable.
+	// QuotaAvailable, and ConfigurationWarning when set.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

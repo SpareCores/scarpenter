@@ -13674,7 +13674,7 @@ spec:
                     conditions:
                       description: |-
                         conditions of the vendor: VendorReady, ImagesReady, ResourcesReady,
-                        QuotaAvailable.
+                        QuotaAvailable, and ConfigurationWarning when set.
                       items:
                         description: Condition aliases the upstream type and adds
                           additional helper methods

@@ -321,6 +321,14 @@ type NodeClassValidator interface {
 	ValidateNodeClass(ctx context.Context, nc *v1alpha1.SCNodeClass) error
 }
 
+// NodeClassWarner is the optional capability to report settings of the NodeClass
+// that are valid but have no effect for the vendor (for example an isolation a
+// brought resource overrides). The NodeClass controller shows them in the
+// vendor condition ConfigurationWarning and as an event.
+type NodeClassWarner interface {
+	NodeClassWarnings(nc *v1alpha1.SCNodeClass) []string
+}
+
 // ImageReporter is the optional capability to report the boot images of the
 // NodeClass's Flatcar release per region and architecture, for the NodeClass
 // controller (status.vendors.<vendor>.images and the condition ImagesReady). It
