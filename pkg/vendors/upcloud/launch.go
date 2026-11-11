@@ -171,7 +171,7 @@ func BuildCreateServer(s LaunchSpec) (*request.CreateServerRequest, error) {
 func (s LaunchSpec) devices() request.CreateServerStorageDeviceSlice {
 	// The root is a clone of the template, in the template's tier, at the
 	// resolved size; the data volumes are created in the same call. The create
-	// device has no labels field in the SDK: LabelStorages sets them after.
+	// device has no labels field in the SDK: api.API.CreateServer adds them.
 	devs := make(request.CreateServerStorageDeviceSlice, 0, 1+len(s.Data))
 	devs = append(devs, request.CreateServerStorageDevice{
 		Action:    request.CreateServerStorageDeviceActionClone,

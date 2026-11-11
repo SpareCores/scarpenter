@@ -20,7 +20,7 @@ import (
 )
 
 // API is the part of the UpCloud API the driver calls. Every method but the
-// ruleset ones is the SDK service method of the same name. GPU stock
+// ruleset ones and CreateServer is the SDK service method of the same name. GPU stock
 // (GetDevicesAvailability) is not part of it: v1 launches no GPU plans.
 type API interface {
 	GetZones(ctx context.Context) (*upcloud.Zones, error)
@@ -29,7 +29,12 @@ type API interface {
 
 	GetServersWithFilters(ctx context.Context, r *request.GetServersWithFiltersRequest) (*upcloud.Servers, error)
 	GetServerDetails(ctx context.Context, r *request.GetServerDetailsRequest) (*upcloud.ServerDetails, error)
-	CreateServer(ctx context.Context, r *request.CreateServerRequest) (*upcloud.ServerDetails, error)
+	// CreateServer is the SDK's call plus storageLabels, set on every storage the
+	// call creates or clones: the API takes labels per storage device, the SDK's
+	// device type has no field for them (Client.CreateServer adds them to the body).
+	CreateServer(
+		ctx context.Context, r *request.CreateServerRequest, storageLabels ...upcloud.Label,
+	) (*upcloud.ServerDetails, error)
 	StopServer(ctx context.Context, r *request.StopServerRequest) (*upcloud.ServerDetails, error)
 	ModifyServer(ctx context.Context, r *request.ModifyServerRequest) (*upcloud.ServerDetails, error)
 	DeleteServerAndStorages(ctx context.Context, r *request.DeleteServerAndStoragesRequest) error

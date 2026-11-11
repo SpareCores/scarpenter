@@ -11,8 +11,9 @@ import (
 	"time"
 )
 
-// Per-call deadlines of the driver (plan 19, "Client layer"): the SDK adds its
-// own retry (3 tries on 5xx), the driver's backoff handles throttling.
+// Per-call deadlines of the driver (plan 19, "Client layer"). The v8 SDK
+// retries 5xx only while polling (WaitForServerState); other calls are tried
+// once: 5xx, 429 and timeouts are Retryable and the caller's backoff retries.
 const (
 	CallTimeout   = 45 * time.Second
 	CreateTimeout = 90 * time.Second

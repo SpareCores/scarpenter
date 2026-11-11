@@ -320,7 +320,7 @@ func TestStrictAntiAffinity(t *testing.T) {
 	if err := f.DeleteServerGroup(ctx, &request.DeleteServerGroupRequest{UUID: g.UUID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.DeleteServerGroup(ctx, &request.DeleteServerGroupRequest{UUID: g.UUID}); code(err) != "SERVER_GROUP_NOT_FOUND" {
+	if err := f.DeleteServerGroup(ctx, &request.DeleteServerGroupRequest{UUID: g.UUID}); code(err) != "GROUP_NOT_FOUND" {
 		t.Errorf("second delete: %v", err)
 	}
 }

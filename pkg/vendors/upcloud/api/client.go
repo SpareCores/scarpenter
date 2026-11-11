@@ -17,6 +17,7 @@ import (
 
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/client"
+	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/request"
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/service"
 )
 
@@ -35,8 +36,10 @@ type Client struct {
 	http *client.Client
 }
 
-// New builds a client with a bearer token. It makes no call. The SDK retries
-// 5xx answers itself (3 tries); per-call deadlines are the caller's.
+// New builds a client with a bearer token. It makes no call. The v8 SDK retries
+// 5xx only inside its WaitFor* pollers (3 tries, 5 s apart); every other call is
+// tried once, so retries are the driver's, by error class. Per-call deadlines
+// are the caller's.
 func New(token, userAgent string, opts ...client.ConfigFn) *Client {
 	opts = append([]client.ConfigFn{client.WithBearerAuth(token), client.WithTimeout(2 * time.Minute)}, opts...)
 	c := client.New("", "", opts...)
@@ -53,6 +56,65 @@ func NewFromEnv(userAgent string, opts ...client.ConfigFn) (*Client, error) {
 		return nil, ErrNoToken
 	}
 	return New(token, userAgent, opts...), nil
+}
+
+// CreateServer is the SDK's create call with storage labels: the SDK request
+// is marshalled as the SDK would, then the labels are added to every device
+// whose action is create or clone ("labels ... Available when the action is
+// create or clone", API reference, Create server), so that no storage exists
+// unlabelled even for a moment. Without labels it is the SDK call unchanged.
+func (c *Client) CreateServer(
+	ctx context.Context, r *request.CreateServerRequest, storageLabels ...upcloud.Label,
+) (*upcloud.ServerDetails, error) {
+	if len(storageLabels) == 0 {
+		return c.Service.CreateServer(ctx, r)
+	}
+	payload, err := createServerBody(r, storageLabels)
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.http.Post(ctx, r.RequestURL(), payload)
+	if err != nil {
+		return nil, ParseError(err)
+	}
+	d := &upcloud.ServerDetails{}
+	if err := json.Unmarshal(body, d); err != nil {
+		return nil, fmt.Errorf("decoding the created server: %w", err)
+	}
+	return d, nil
+}
+
+func createServerBody(r *request.CreateServerRequest, storageLabels []upcloud.Label) ([]byte, error) {
+	raw, err := json.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	var body struct {
+		Server map[string]json.RawMessage `json:"server"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	var devs struct {
+		StorageDevice []map[string]any `json:"storage_device"`
+	}
+	if sd, ok := body.Server["storage_devices"]; ok {
+		if err := json.Unmarshal(sd, &devs); err != nil {
+			return nil, err
+		}
+	}
+	for _, d := range devs.StorageDevice {
+		switch d["action"] {
+		case request.CreateServerStorageDeviceActionCreate, request.CreateServerStorageDeviceActionClone:
+			d["labels"] = storageLabels
+		}
+	}
+	sd, err := json.Marshal(devs)
+	if err != nil {
+		return nil, err
+	}
+	body.Server["storage_devices"] = sd
+	return json.Marshal(body)
 }
 
 type rulesetJSON struct {

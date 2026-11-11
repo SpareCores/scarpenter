@@ -19,11 +19,15 @@ import (
 )
 
 // CreateServer runs the create call with its deadline and classifies the error.
-// The server comes back in the maintenance state while its storage is cloned.
-func CreateServer(ctx context.Context, a api.API, r *request.CreateServerRequest) (*upcloud.ServerDetails, error) {
+// storageLabels (StorageLabels) go on every storage in the same call, so no
+// storage of a node exists unlabelled. The server comes back in the maintenance
+// state while its storage is cloned (and the storages cannot be modified then).
+func CreateServer(
+	ctx context.Context, a api.API, r *request.CreateServerRequest, storageLabels ...upcloud.Label,
+) (*upcloud.ServerDetails, error) {
 	ctx, cancel := CallContext(ctx, CreateTimeout)
 	defer cancel()
-	d, err := a.CreateServer(ctx, r)
+	d, err := a.CreateServer(ctx, r, storageLabels...)
 	return d, Classify(err)
 }
 
@@ -134,7 +138,7 @@ func Terminate(ctx context.Context, a api.API, uuid string) error {
 		UUID: uuid, Backups: request.DeleteStorageBackupsModeDelete,
 	})
 	if err != nil && !isGone(Classify(err)) {
-		return Classify(err)
+		return classifyDelete(err)
 	}
 	return nil
 }
@@ -163,6 +167,7 @@ func stop(ctx context.Context, a api.API, uuid string) error {
 
 // StorageLabels are the labels of a node's storages: the cluster, the NodeClaim
 // and the managed-by marker, which the sweeper and the orphan pass find them by.
+// They are set in the create call (CreateServer).
 func StorageLabels(tags map[vendors.TagKey]string) []upcloud.Label {
 	var out []upcloud.Label
 	for _, k := range []vendors.TagKey{vendors.TagCluster, vendors.TagNodeClaim, vendors.TagManagedBy} {
@@ -173,28 +178,12 @@ func StorageLabels(tags map[vendors.TagKey]string) []upcloud.Label {
 	return out
 }
 
-// LabelStorages sets the labels on every storage of the server after the
-// create call: the SDK's create device has no labels field.
-func LabelStorages(ctx context.Context, a api.API, d *upcloud.ServerDetails, labels []upcloud.Label) error {
-	for _, dev := range d.StorageDevices {
-		ctx2, cancel := CallContext(ctx, CallTimeout)
-		ls := slices.Clone(labels)
-		_, err := a.ModifyStorage(ctx2, &request.ModifyStorageRequest{UUID: dev.UUID, Labels: &ls})
-		cancel()
-		if err != nil {
-			return Classify(err)
-		}
-	}
-	return nil
-}
-
 // PostCreate is what follows the create call, while the server is still in
-// maintenance: label the storages, write the Public & Utility firewall, and,
-// with a private interface and a ruleset, attach the ruleset and switch the
-// private firewall on. The server group is a field of the create call, not here.
+// maintenance: write the Public & Utility firewall, and, with a private
+// interface and a ruleset, attach the ruleset and switch the private firewall
+// on. The server group and the storage labels are part of the create call.
 type PostCreate struct {
-	StorageLabels []upcloud.Label
-	Rules         []upcloud.FirewallRule
+	Rules []upcloud.FirewallRule
 	// PrivateRuleset is the SDN ruleset UUID to attach to the private interface.
 	PrivateRuleset string
 }
@@ -202,9 +191,6 @@ type PostCreate struct {
 // Run applies the steps in order; the first failure is returned classified, and
 // the caller deletes the server (the idempotency lookup then finds nothing).
 func (p PostCreate) Run(ctx context.Context, a api.API, d *upcloud.ServerDetails) error {
-	if err := LabelStorages(ctx, a, d, p.StorageLabels); err != nil {
-		return fmt.Errorf("labelling the storages: %w", err)
-	}
 	if err := WriteFirewall(ctx, a, d.UUID, p.Rules); err != nil {
 		return fmt.Errorf("writing the firewall: %w", err)
 	}

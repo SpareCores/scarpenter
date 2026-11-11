@@ -17,6 +17,7 @@ import (
 
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/client"
+	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/request"
 )
 
 type seen struct {
@@ -162,5 +163,44 @@ func TestParseErrorPassThrough(t *testing.T) {
 	bad := &client.Error{ErrorCode: 502, ResponseBody: []byte("<html>"), Type: client.ErrorTypeError}
 	if ParseError(bad) != error(bad) {
 		t.Error("an unparsable body must pass through")
+	}
+}
+
+func TestCreateServerStorageLabels(t *testing.T) {
+	c, reqs := testClient(t, map[string]func(http.ResponseWriter){
+		"POST /1.3/server": jsonAnswer(202, `{"server":{"uuid":"s1","state":"maintenance"}}`),
+	})
+	r := &request.CreateServerRequest{
+		Zone: "fi-hel1", Plan: "1xCPU-2GB", Hostname: "h", Title: "h",
+		StorageDevices: request.CreateServerStorageDeviceSlice{
+			{Action: request.CreateServerStorageDeviceActionClone, Storage: "tpl", Size: 20},
+			{Action: request.CreateServerStorageDeviceActionCreate, Size: 10, Tier: "maxiops"},
+			{Action: request.CreateServerStorageDeviceActionAttach, Storage: "other"},
+		},
+	}
+	labels := []upcloud.Label{{Key: "scarpenter-cluster", Value: "c1"}}
+	d, err := c.CreateServer(context.Background(), r, labels...)
+	if err != nil || d.UUID != "s1" {
+		t.Fatalf("create: %v %+v", err, d)
+	}
+	server := (*reqs)[0].body["server"].(map[string]any)
+	devs := server["storage_devices"].(map[string]any)["storage_device"].([]any)
+	for i, want := range []bool{true, true, false} {
+		dev := devs[i].(map[string]any)
+		ls, has := dev["labels"].([]any)
+		if has != want || (has && (len(ls) != 1 || ls[0].(map[string]any)["key"] != "scarpenter-cluster")) {
+			t.Errorf("device %d (%v): labels %v", i, dev["action"], dev["labels"])
+		}
+	}
+	if server["zone"] != "fi-hel1" || server["plan"] != "1xCPU-2GB" || devs[0].(map[string]any)["storage"] != "tpl" {
+		t.Errorf("the SDK's fields were lost: %v", server)
+	}
+	// An error answer is the same Problem the SDK returns.
+	c, _ = testClient(t, map[string]func(http.ResponseWriter){
+		"POST /1.3/server": jsonAnswer(409, `{"error":{"error_code":"SERVER_CREATING_LIMIT_REACHED","error_message":"x"}}`),
+	})
+	_, err = c.CreateServer(context.Background(), r, labels...)
+	if p, ok := errors.AsType[*upcloud.Problem](err); !ok || p.ErrorCode() != "SERVER_CREATING_LIMIT_REACHED" {
+		t.Errorf("error = %v", err)
 	}
 }

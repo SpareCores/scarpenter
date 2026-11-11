@@ -13,6 +13,7 @@ import (
 	"net/http"
 
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
+	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/client"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -34,12 +35,12 @@ const (
 	codeFloatingIPLimit     = "DETACHED_FLOATING_IP_LIMIT_REACHED"
 	codeLabelLimit          = "LABEL_LIMIT_REACHED"
 	// The per-tier storage limits: the SDK has MAXIOPS_STORAGE_LIMIT_REACHED only;
-	// the other two names follow its pattern (unverified).
-	codeSSDStorageLimit = "SSD_STORAGE_LIMIT_REACHED"
-	codeHDDStorageLimit = "HDD_STORAGE_LIMIT_REACHED"
-	// Not-found and dependency codes the plan names as unverified.
+	// the API reference (storage chapter) lists the standard and HDD ones too.
+	codeStandardStorageLimit = "STANDARD_STORAGE_LIMIT_REACHED"
+	codeHDDStorageLimit      = "HDD_STORAGE_LIMIT_REACHED"
+	// The ruleset codes are unverified (the ruleset API is not in the v1.3
+	// reference); unknown codes on deletes fall back by status (classifyDelete).
 	codeRulesetNotFound = "FIREWALL_RULESET_NOT_FOUND"
-	codeNetworkInUse    = "NETWORK_IN_USE"
 	codeRulesetInUse    = "FIREWALL_RULESET_IN_USE"
 )
 
@@ -49,7 +50,7 @@ var quotaCodes = []string{
 	upcloud.ErrCodeServerCoresLimitReached,
 	upcloud.ErrCodeServerMemoryLimitReached,
 	upcloud.ErrCodeMaxiOpsStorageLimitReached,
-	codeSSDStorageLimit,
+	codeStandardStorageLimit,
 	codeHDDStorageLimit,
 	upcloud.ErrCodeServerIPLimitReached,
 	codeNetworkLimit,
@@ -84,7 +85,7 @@ var errorClasses = func() map[string]vendors.Class {
 		upcloud.ErrCodeServerStateIllegal:         vendors.Retryable,
 		upcloud.ErrCodeStorageStateIllegal:        vendors.Retryable,
 		upcloud.ErrCodeStorageInUse:               vendors.Retryable,
-		codeNetworkInUse:                          vendors.Retryable,
+		upcloud.ErrCodeNetworkNotEmpty:            vendors.Retryable,
 		codeRulesetInUse:                          vendors.Retryable,
 		// Things that do not exist.
 		upcloud.ErrCodeServerNotFound:  vendors.NotFound,
@@ -133,10 +134,34 @@ func Classify(err error) error {
 		}
 		return vendors.NewError(vendors.Fatal, code, err)
 	}
+	// An error answer the SDK could not parse (a proxy's HTML page on a 502, 503
+	// or 429, say) arrives as the raw client error, wrapped.
+	if ce, ok := errors.AsType[*client.Error](err); ok {
+		switch {
+		case ce.ErrorCode == http.StatusTooManyRequests:
+			return vendors.NewError(vendors.Retryable, CodeThrottled, err)
+		case ce.ErrorCode >= 500:
+			return vendors.NewError(vendors.Retryable, CodeHTTP5xx, err)
+		}
+		return vendors.NewError(vendors.Fatal, "", err)
+	}
 	if _, ok := errors.AsType[net.Error](err); ok {
 		return vendors.NewError(vendors.Retryable, CodeTransport, err)
 	}
 	return vendors.NewError(vendors.Fatal, "", err)
+}
+
+// classifyDelete is Classify for delete calls, where an unlisted code must not
+// strand a resource: a 409 Conflict with an unlisted code is a dependency or a
+// state that clears (a ruleset still attached, a network still in use, under
+// whatever name the API gives it) and is Retryable. 404s are handled by isGone.
+func classifyDelete(err error) error {
+	if p, ok := errors.AsType[*upcloud.Problem](err); ok && p.Status == http.StatusConflict {
+		if _, listed := errorClasses[p.ErrorCode()]; !listed {
+			return vendors.NewError(vendors.Retryable, p.ErrorCode(), err)
+		}
+	}
+	return Classify(err)
 }
 
 // isGone reports whether err says the thing does not exist: the NotFound class
@@ -148,7 +173,8 @@ func isGone(err error) bool {
 		return true
 	}
 	if p, ok := errors.AsType[*upcloud.Problem](err); ok {
-		return p.Status == http.StatusNotFound
+		// LABEL_LIMIT_REACHED is documented with status 404: not a gone thing.
+		return p.Status == http.StatusNotFound && p.ErrorCode() != codeLabelLimit
 	}
 	return false
 }

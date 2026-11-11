@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 
@@ -86,15 +85,12 @@ type Options struct {
 	// AutoSettle completes every transition at once, so that no server is ever
 	// seen in maintenance.
 	AutoSettle bool
-	// Now is the clock; default time.Now.
-	Now func() time.Time
 }
 
 // Fake is the in-memory UpCloud. Methods are safe for concurrent use.
 type Fake struct {
 	mu   sync.Mutex
 	opts Options
-	now  func() time.Time
 	seq  int
 
 	zones    []upcloud.Zone
@@ -138,15 +134,12 @@ func New(o Options) *Fake {
 		o.HostsPerZone = 3
 	}
 	f := &Fake{
-		opts: o, now: o.Now, limits: o.Limits,
+		opts: o, limits: o.Limits,
 		plans:   map[string]PlanSpec{},
 		servers: map[string]*server{}, storages: map[string]*storage{}, networks: map[string]*network{},
 		groups: map[string]*group{}, rulesets: map[string]*ruleset{},
 		outOfStock: map[string]bool{}, noIPs: map[string]bool{},
 		calls: map[string]int{}, injected: map[string][]injected{},
-	}
-	if f.now == nil {
-		f.now = time.Now
 	}
 	for _, z := range o.Zones {
 		f.zones = append(f.zones, upcloud.Zone{ID: z, Description: z, Public: upcloud.True})

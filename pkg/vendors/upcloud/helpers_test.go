@@ -33,7 +33,6 @@ func fakeOpts() fake.Options { return fake.Options{} }
 
 func newEnv(t *testing.T, o fake.Options) *env {
 	t.Helper()
-	o.Now = func() time.Time { return testNow }
 	f := fake.New(o)
 	ps, err := f.GetPlans(context.Background())
 	if err != nil {

@@ -272,14 +272,24 @@ func TestPostCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := CreateServer(e.ctx, e.f, r)
+	d, err := CreateServer(e.ctx, e.f, r, StorageLabels(TagsOf(*r.Labels))...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rules, _ := PublicFirewallRules(FirewallOptions{})
-	pc := PostCreate{
-		StorageLabels: StorageLabels(TagsOf(d.Labels)), Rules: rules, PrivateRuleset: rs.UUID,
+	// The storages are labelled by the create call itself, while the clone
+	// still runs, when the API refuses to modify them.
+	for _, dev := range d.StorageDevices {
+		st, _ := e.f.GetStorageDetails(e.ctx, &request.GetStorageDetailsRequest{UUID: dev.UUID})
+		if st.State != upcloud.StorageStateMaintenance || len(st.Labels) != 3 {
+			t.Errorf("storage %s right after create: state %s labels %v", dev.UUID, st.State, st.Labels)
+		}
+		_, err := e.f.ModifyStorage(e.ctx, &request.ModifyStorageRequest{UUID: dev.UUID, Title: "x"})
+		if !vendors.IsClass(Classify(err), vendors.Retryable) {
+			t.Errorf("modify a storage in maintenance: %v", err)
+		}
 	}
+	rules, _ := PublicFirewallRules(FirewallOptions{})
+	pc := PostCreate{Rules: rules, PrivateRuleset: rs.UUID}
 	if err := pc.Run(e.ctx, e.f, d); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +336,7 @@ func TestPostCreate(t *testing.T) {
 }
 
 func TestPostCreateStepFailures(t *testing.T) {
-	for _, method := range []string{"ModifyStorage", "CreateFirewallRules", "AttachPrivateFirewallRuleset", "ModifyServer"} {
+	for _, method := range []string{"CreateFirewallRules", "AttachPrivateFirewallRuleset", "ModifyServer"} {
 		t.Run(method, func(t *testing.T) {
 			e := newEnv(t, fake.Options{})
 			net, _ := e.f.CreateNetwork(e.ctx, &request.CreateNetworkRequest{
@@ -338,7 +348,7 @@ func TestPostCreateStepFailures(t *testing.T) {
 			r, _ := BuildCreateServer(s)
 			d, _ := CreateServer(e.ctx, e.f, r)
 			e.f.InjectCode(method, "SERVICE_ERROR", 500, 0)
-			err := PostCreate{StorageLabels: StorageLabels(TagsOf(d.Labels)), PrivateRuleset: rs.UUID}.Run(e.ctx, e.f, d)
+			err := PostCreate{PrivateRuleset: rs.UUID}.Run(e.ctx, e.f, d)
 			if !vendors.IsClass(err, vendors.Retryable) {
 				t.Fatalf("err = %v, want Retryable", err)
 			}

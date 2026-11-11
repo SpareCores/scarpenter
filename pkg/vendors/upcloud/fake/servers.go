@@ -104,7 +104,11 @@ func (f *Fake) checkLabels(ls []upcloud.Label) error {
 // CreateServer creates a server in the maintenance state: its storage is cloned
 // and it starts later (Settle, or WaitForServerState). There is no idempotency
 // token: a replayed call creates a second server.
-func (f *Fake) CreateServer(ctx context.Context, r *request.CreateServerRequest) (*upcloud.ServerDetails, error) {
+// storageLabels go on every storage the call creates or clones (the API takes
+// labels per storage device; api.Client puts them in the body).
+func (f *Fake) CreateServer(
+	ctx context.Context, r *request.CreateServerRequest, storageLabels ...upcloud.Label,
+) (*upcloud.ServerDetails, error) {
 	done, err := f.begin(ctx, "CreateServer")
 	if err != nil {
 		return nil, err
@@ -125,6 +129,9 @@ func (f *Fake) CreateServer(ctx context.Context, r *request.CreateServerRequest)
 		labels = *r.Labels
 	}
 	if err := f.checkLabels(labels); err != nil {
+		return nil, err
+	}
+	if err := f.checkLabels(storageLabels); err != nil {
 		return nil, err
 	}
 	if len(r.StorageDevices) > f.opts.MaxStorageDevices {
@@ -149,7 +156,7 @@ func (f *Fake) CreateServer(ctx context.Context, r *request.CreateServerRequest)
 			return nil, err
 		}
 	}
-	return f.commitServer(r, plan, labels, devs, ifaces), nil
+	return f.commitServer(r, plan, labels, storageLabels, devs, ifaces), nil
 }
 
 type deviceSpec struct {
@@ -285,7 +292,7 @@ func (f *Fake) checkCreateLimits(plan PlanSpec, devs []deviceSpec, ipv4 int) err
 		case upcloud.StorageTierMaxIOPS:
 			limit, code = l.StorageMaxIOPS, "MAXIOPS_STORAGE_LIMIT_REACHED"
 		case upcloud.StorageTierStandard:
-			limit, code = l.StorageSSD, "SSD_STORAGE_LIMIT_REACHED"
+			limit, code = l.StorageSSD, "STANDARD_STORAGE_LIMIT_REACHED"
 		case upcloud.StorageTierHDD:
 			limit, code = l.StorageHDD, "HDD_STORAGE_LIMIT_REACHED"
 		}
@@ -306,7 +313,7 @@ func cmpOr(a, b string) string {
 func (f *Fake) checkGroup(id string) error {
 	g, ok := f.groups[id]
 	if !ok {
-		return notFound("SERVER_GROUP_NOT_FOUND")
+		return notFound("GROUP_NOT_FOUND")
 	}
 	if g.g.AntiAffinityPolicy == upcloud.ServerGroupAntiAffinityPolicyStrict && len(g.g.Members) >= f.opts.HostsPerZone {
 		return Problem("SERVER_RESOURCES_UNAVAILABLE_FOR_STRICT_AA", http.StatusServiceUnavailable)
@@ -315,7 +322,8 @@ func (f *Fake) checkGroup(id string) error {
 }
 
 func (f *Fake) commitServer(
-	r *request.CreateServerRequest, plan PlanSpec, labels []upcloud.Label, devs []deviceSpec, ifaces []ifaceSpec,
+	r *request.CreateServerRequest, plan PlanSpec, labels, storageLabels []upcloud.Label, devs []deviceSpec,
+	ifaces []ifaceSpec,
 ) *upcloud.ServerDetails {
 	id := f.uuid('s')
 	s := &server{creating: true}
@@ -335,6 +343,7 @@ func (f *Fake) commitServer(
 	s.d.BootOrder = r.BootOrder
 	for i, d := range devs {
 		st := f.newStorage(d, r.Zone, plan, i == 0, id)
+		st.d.Labels = slices.Clone(storageLabels)
 		s.d.StorageDevices = append(s.d.StorageDevices, upcloud.ServerStorageDevice{
 			Address: fmt.Sprintf("virtio:%d", i), UUID: st.d.UUID, Size: st.d.Size, Tier: st.d.Tier, Title: st.d.Title,
 			Type: upcloud.StorageTypeDisk, Encrypted: st.d.Encrypted, PartOfPlan: st.d.PartOfPlan,
@@ -358,8 +367,9 @@ func (f *Fake) newStorage(d deviceSpec, zone string, plan PlanSpec, root bool, s
 	st := &storage{}
 	st.d.UUID = f.uuid('d')
 	st.d.Zone, st.d.Access, st.d.Type = zone, upcloud.StorageAccessPrivate, upcloud.StorageTypeDisk
-	st.d.State = upcloud.StorageStateOnline
-	st.d.Created = f.now()
+	// In maintenance while the server is created (the clone runs); settle
+	// brings it online. The API fills "created" for backups only.
+	st.d.State = upcloud.StorageStateMaintenance
 	st.d.Title = d.req.Title
 	st.d.Encrypted = d.req.Encrypted
 	st.d.Size, st.d.Tier = d.req.Size, d.req.Tier
@@ -426,6 +436,11 @@ func (f *Fake) settle(s *server) {
 		s.d.State, s.target = s.target, ""
 	}
 	s.creating = false
+	for _, dev := range s.d.StorageDevices {
+		if st, ok := f.storages[dev.UUID]; ok && st.d.State == upcloud.StorageStateMaintenance {
+			st.d.State = upcloud.StorageStateOnline
+		}
+	}
 }
 
 // Settle completes every transition in progress (the clone of a new server, a

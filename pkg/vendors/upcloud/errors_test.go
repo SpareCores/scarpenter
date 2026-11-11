@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
+	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/client"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/upcloud/fake"
@@ -37,7 +38,7 @@ var wantClasses = map[string]vendors.Class{
 	"SERVER_CORE_LIMIT_REACHED":          vendors.QuotaExceeded,
 	"SERVER_MEMORY_LIMIT_REACHED":        vendors.QuotaExceeded,
 	"MAXIOPS_STORAGE_LIMIT_REACHED":      vendors.QuotaExceeded,
-	"SSD_STORAGE_LIMIT_REACHED":          vendors.QuotaExceeded,
+	"STANDARD_STORAGE_LIMIT_REACHED":     vendors.QuotaExceeded,
 	"HDD_STORAGE_LIMIT_REACHED":          vendors.QuotaExceeded,
 	"SERVER_IP_LIMIT_REACHED":            vendors.QuotaExceeded,
 	"NETWORK_LIMIT_REACHED":              vendors.QuotaExceeded,
@@ -50,7 +51,7 @@ var wantClasses = map[string]vendors.Class{
 	"SERVER_STATE_ILLEGAL":          vendors.Retryable,
 	"STORAGE_STATE_ILLEGAL":         vendors.Retryable,
 	"STORAGE_IN_USE":                vendors.Retryable,
-	"NETWORK_IN_USE":                vendors.Retryable,
+	"NETWORK_NOT_EMPTY":             vendors.Retryable,
 	"FIREWALL_RULESET_IN_USE":       vendors.Retryable,
 
 	"SERVER_NOT_FOUND":           vendors.NotFound,
@@ -135,6 +136,13 @@ func TestClassifyTransport(t *testing.T) {
 		"net error":         {net.Error(timeoutErr{}), vendors.Retryable, CodeTransport},
 		"plain":             {errors.New("boom"), vendors.Fatal, ""},
 		"404 unlisted":      {fake.Problem("SOMETHING_NOT_FOUND", 404), vendors.Fatal, "SOMETHING_NOT_FOUND"},
+		// Error bodies the SDK cannot parse (a proxy's page) reach Classify as
+		// the raw client error, wrapped by the SDK's service layer.
+		"429 unparsed": {fmt.Errorf("received malformed client error (x): %w",
+			&client.Error{ErrorCode: 429, ResponseBody: []byte("<html>")}), vendors.Retryable, CodeThrottled},
+		"503 unparsed": {fmt.Errorf("received malformed client error (x): %w",
+			&client.Error{ErrorCode: 503, ResponseBody: []byte("<html>")}), vendors.Retryable, CodeHTTP5xx},
+		"400 unparsed": {&client.Error{ErrorCode: 400, ResponseBody: []byte("?")}, vendors.Fatal, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := Classify(tc.err)
@@ -168,6 +176,7 @@ func TestIsGone(t *testing.T) {
 	}{
 		"listed not found":  {Classify(fake.Problem("SERVER_NOT_FOUND", 404)), true},
 		"unlisted 404":      {fake.Problem("WHATEVER", 404), true},
+		"label limit (404)": {fake.Problem("LABEL_LIMIT_REACHED", 404), false},
 		"conflict":          {Classify(fake.Problem("SERVER_STATE_ILLEGAL", 409)), false},
 		"fatal":             {Classify(fake.Problem("ACTION_FORBIDDEN", 403)), false},
 		"transport":         {errors.New("x"), false},
@@ -176,6 +185,23 @@ func TestIsGone(t *testing.T) {
 	} {
 		if got := isGone(tc.err); got != tc.gone {
 			t.Errorf("%s: isGone = %v, want %v", name, got, tc.gone)
+		}
+	}
+}
+
+func TestClassifyDelete(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err   error
+		class vendors.Class
+	}{
+		"unlisted 409":      {fake.Problem("FIREWALL_RULESET_ATTACHED", 409), vendors.Retryable},
+		"listed 409":        {fake.Problem("SERVER_STATE_ILLEGAL", 409), vendors.Retryable},
+		"unlisted 403":      {fake.Problem("SOMETHING_FORBIDDEN", 403), vendors.Fatal},
+		"listed not found":  {fake.Problem("NETWORK_NOT_FOUND", 404), vendors.NotFound},
+		"network not empty": {fake.LegacyProblem("NETWORK_NOT_EMPTY", 409), vendors.Retryable},
+	} {
+		if got := vendors.ClassOf(classifyDelete(tc.err)); got != tc.class {
+			t.Errorf("%s: class %s, want %s", name, got, tc.class)
 		}
 	}
 }

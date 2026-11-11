@@ -109,6 +109,10 @@ func (f *Fake) ModifyStorage(ctx context.Context, r *request.ModifyStorageReques
 	if !ok {
 		return nil, notFound("STORAGE_NOT_FOUND")
 	}
+	// "The storage state must be online" (API reference, Modify storage).
+	if st.d.State != upcloud.StorageStateOnline {
+		return nil, conflict("STORAGE_STATE_ILLEGAL")
+	}
 	if r.Labels != nil {
 		if err := f.checkLabels(*r.Labels); err != nil {
 			return nil, err
@@ -137,7 +141,6 @@ func (f *Fake) AddTemplate(zone, title, tier string, sizeGB int, labels map[stri
 	st.d.Access, st.d.Type = upcloud.StorageAccessPrivate, upcloud.StorageTypeTemplate
 	st.d.State = upcloud.StorageStateOnline
 	st.d.TemplateType = upcloud.StorageTemplateTypeNative
-	st.d.Created = f.now()
 	for _, k := range sortedKeys(labels) {
 		st.d.Labels = append(st.d.Labels, upcloud.Label{Key: k, Value: labels[k]})
 	}
@@ -338,8 +341,8 @@ func (f *Fake) CreateNetwork(ctx context.Context, r *request.CreateNetworkReques
 	return &c, nil
 }
 
-// DeleteNetwork deletes a network no server has an interface on (NETWORK_IN_USE
-// is this fake's name for the dependency error: the real code is unverified).
+// DeleteNetwork deletes a network no server has an interface on
+// (NETWORK_NOT_EMPTY, 409, as the API reference documents).
 func (f *Fake) DeleteNetwork(ctx context.Context, r *request.DeleteNetworkRequest) error {
 	done, err := f.begin(ctx, "DeleteNetwork")
 	if err != nil {
@@ -351,7 +354,7 @@ func (f *Fake) DeleteNetwork(ctx context.Context, r *request.DeleteNetworkReques
 		return notFound("NETWORK_NOT_FOUND")
 	}
 	if len(f.networkCopy(n).Servers) > 0 {
-		return conflict("NETWORK_IN_USE")
+		return conflict("NETWORK_NOT_EMPTY")
 	}
 	delete(f.networks, r.UUID)
 	return nil
@@ -447,7 +450,7 @@ func (f *Fake) GetServerGroup(ctx context.Context, r *request.GetServerGroupRequ
 	defer done()
 	g, ok := f.groups[r.UUID]
 	if !ok {
-		return nil, notFound("SERVER_GROUP_NOT_FOUND")
+		return nil, notFound("GROUP_NOT_FOUND")
 	}
 	c := g.copy()
 	return &c, nil
@@ -493,7 +496,7 @@ func (f *Fake) DeleteServerGroup(ctx context.Context, r *request.DeleteServerGro
 	}
 	defer done()
 	if _, ok := f.groups[r.UUID]; !ok {
-		return notFound("SERVER_GROUP_NOT_FOUND")
+		return notFound("GROUP_NOT_FOUND")
 	}
 	delete(f.groups, r.UUID)
 	return nil
