@@ -4,6 +4,7 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
+//nolint:prealloc,lll,dupl,gocyclo,goconst // table-heavy tests: small expectations, repeated fixtures, long SDK signatures
 package azure
 
 import (
@@ -276,7 +277,7 @@ func TestPrepareBroughtNetworkAndPlacement(t *testing.T) {
 	e.sub.AddResourceGroup("full-rg")
 	use[KindSubnets] = vendors.UseRef{Name: "user-vnet/a", Select: common.SelectAll}
 	use[KindResourceGroups] = vendors.UseRef{IDs: []string{"full-rg"}}
-	prep, err = prepare("", "")
+	_, err = prepare("", "")
 	require.NoError(t, err, "a single subnet is taken as it is: the platform reports a full one")
 	use[KindSubnets] = vendors.UseRef{Name: "user-vnet/*", Select: common.SelectAll}
 	_, err = d.chooseSubnet(ctx, []vendors.ResourceRef{{ID: *v.Properties.Subnets[0].ID}, {ID: *v.Properties.Subnets[0].ID}})

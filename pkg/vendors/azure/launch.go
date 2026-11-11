@@ -195,7 +195,7 @@ func (l LaunchSpec) AcceleratedNetworking() bool {
 	switch l.Settings.AcceleratedNetwork {
 	case settingTrue:
 		return true
-	case "false":
+	case settingFalse:
 		return false
 	}
 	return l.SKU != nil && l.SKU.AcceleratedNetwork

@@ -27,6 +27,10 @@ const (
 	archAMD64   = "amd64"
 	archARM64   = "arm64"
 	settingTrue = "true"
+	// settingFalse and settingAuto are the other values of acceleratedNetworking.
+	settingFalse = "false"
+	settingAuto  = "auto"
+	fieldName    = "name"
 )
 
 // Publisher and offers of the official Flatcar marketplace images (plan 17

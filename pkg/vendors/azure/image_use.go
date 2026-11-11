@@ -144,7 +144,8 @@ func (d *Driver) resolveSelected(ctx context.Context, req vendors.ImageRequest) 
 	case use.Name != "":
 		cands, err = d.imagesByPattern(ctx, req.Region, use.Name)
 	default:
-		return nil, vendors.Errorf(vendors.Fatal, "images.use needs ids (URNs) or a name (publisher:offer:sku:<version glob>)")
+		return nil, vendors.Errorf(vendors.Fatal,
+			"images.use needs ids (URNs) or a name (publisher:offer:sku:<version glob>)")
 	}
 	if err != nil {
 		return nil, err
@@ -185,7 +186,7 @@ func (d *Driver) imagesByURN(ctx context.Context, region string, ids []string) (
 // ones whose version matches the glob.
 func (d *Driver) imagesByPattern(ctx context.Context, region, pattern string) ([]imageCandidate, error) {
 	parts := strings.SplitN(pattern, ":", 4)
-	if len(parts) != 4 || slices.ContainsFunc(parts[:3], func(p string) bool { return p == "" || selector.HasWildcard(p) }) {
+	if len(parts) != 4 || slices.ContainsFunc(parts[:3], inexactPart) {
 		return nil, vendors.Errorf(vendors.Fatal,
 			"the images name %q is not publisher:offer:sku:<version glob> (the first three parts are exact)", pattern)
 	}
@@ -211,7 +212,8 @@ func (d *Driver) imagesByPattern(ctx context.Context, region, pattern string) ([
 	}
 	var out []imageCandidate
 	for _, v := range matched {
-		res, img, err := d.images.Lookup(ctx, region, ImageRef{Publisher: parts[0], Offer: parts[1], SKU: parts[2], Version: v})
+		ref := ImageRef{Publisher: parts[0], Offer: parts[1], SKU: parts[2], Version: v}
+		res, img, err := d.images.Lookup(ctx, region, ref)
 		if err != nil {
 			if vendors.IsClass(err, vendors.NotFound) {
 				continue
@@ -303,3 +305,7 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 	})
 	return out, nil
 }
+
+// inexactPart says that a part of an images name that must be exact is empty or
+// has a wildcard.
+func inexactPart(p string) bool { return p == "" || selector.HasWildcard(p) }

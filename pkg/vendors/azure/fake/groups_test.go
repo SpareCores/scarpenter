@@ -109,7 +109,7 @@ func TestNetworkResourceRules(t *testing.T) {
 	require.Equal(t, "InUseSubnetCannotBeDeleted", code)
 
 	// A network security group and an application security group a NIC uses.
-	nsg, err := s.NSGs().CreateOrUpdate(ctx, rg, "nsg", armnetwork.SecurityGroup{Location: new("westeurope"), Properties: &armnetwork.SecurityGroupPropertiesFormat{
+	_, err = s.NSGs().CreateOrUpdate(ctx, rg, "nsg", armnetwork.SecurityGroup{Location: new("westeurope"), Properties: &armnetwork.SecurityGroupPropertiesFormat{
 		SecurityRules: []*armnetwork.SecurityRule{
 			{Name: new("a"), Properties: &armnetwork.SecurityRulePropertiesFormat{Direction: new(armnetwork.SecurityRuleDirectionInbound), Priority: new(int32(100))}},
 			{Name: new("b"), Properties: &armnetwork.SecurityRulePropertiesFormat{Direction: new(armnetwork.SecurityRuleDirectionInbound), Priority: new(int32(100))}},
@@ -119,7 +119,7 @@ func TestNetworkResourceRules(t *testing.T) {
 	_, err = s.NSGs().CreateOrUpdate(ctx, rg, "nsg", armnetwork.SecurityGroup{Location: new("westeurope"), Properties: &armnetwork.SecurityGroupPropertiesFormat{
 		SecurityRules: []*armnetwork.SecurityRule{nil}}})
 	require.Error(t, err)
-	nsg, err = s.NSGs().CreateOrUpdate(ctx, rg, "nsg", armnetwork.SecurityGroup{Location: new("westeurope")})
+	nsg, err := s.NSGs().CreateOrUpdate(ctx, rg, "nsg", armnetwork.SecurityGroup{Location: new("westeurope")})
 	require.NoError(t, err)
 	asg, err := s.ASGs().CreateOrUpdate(ctx, rg, "asg", armnetwork.ApplicationSecurityGroup{Location: new("westeurope")})
 	require.NoError(t, err)

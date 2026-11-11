@@ -157,7 +157,9 @@ func (i *Images) fetch(
 // Lookup reads the image of a URN in the region (cached for an hour, with the
 // misses): the image a launch needs the plan of, and the images the `images`
 // kind names.
-func (i *Images) Lookup(ctx context.Context, region string, ref ImageRef) (*Resolved, armcompute.VirtualMachineImage, error) {
+func (i *Images) Lookup(
+	ctx context.Context, region string, ref ImageRef,
+) (*Resolved, armcompute.VirtualMachineImage, error) {
 	key := "urn|" + region + "|" + strings.ToLower(ref.URN())
 	if r, err, ok := i.cacheGet(key); ok {
 		var img armcompute.VirtualMachineImage

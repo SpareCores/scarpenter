@@ -165,7 +165,9 @@ func conflict(kind vendors.ResourceKind, name string) error {
 		fmt.Errorf("a %s named %s exists without SCarpenter's ownership marker: refusing to adopt it", kind, name))
 }
 
-func (d *Driver) ensureGroup(ctx context.Context, region string, spec vendors.CreateSpec) (vendors.ResourceRef, bool, error) {
+func (d *Driver) ensureGroup(
+	ctx context.Context, region string, spec vendors.CreateSpec,
+) (vendors.ResourceRef, bool, error) {
 	ref := func(g armresources.ResourceGroup) vendors.ResourceRef {
 		return vendors.ResourceRef{Kind: KindResourceGroups, Region: region, ID: spec.Name, Name: spec.Name, Managed: true,
 			Tags: markerTags(g.Tags)}
@@ -191,7 +193,9 @@ func (d *Driver) ensureGroup(ctx context.Context, region string, spec vendors.Cr
 	return ref(g), true, nil
 }
 
-func (d *Driver) ensureNetwork(ctx context.Context, region string, spec vendors.CreateSpec) (vendors.ResourceRef, bool, error) {
+func (d *Driver) ensureNetwork(
+	ctx context.Context, region string, spec vendors.CreateSpec,
+) (vendors.ResourceRef, bool, error) {
 	p, err := d.params(spec, true)
 	if err != nil {
 		return vendors.ResourceRef{}, false, err
@@ -376,7 +380,9 @@ func (d *Driver) ensureASG(
 	return g, classify(err, errContext{})
 }
 
-func (d *Driver) ensurePlacementGroup(ctx context.Context, region string, spec vendors.CreateSpec) (vendors.ResourceRef, bool, error) {
+func (d *Driver) ensurePlacementGroup(
+	ctx context.Context, region string, spec vendors.CreateSpec,
+) (vendors.ResourceRef, bool, error) {
 	p, err := d.params(spec, true)
 	if err != nil {
 		return vendors.ResourceRef{}, false, err

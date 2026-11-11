@@ -71,7 +71,7 @@ func (d *Driver) ValidateNodeClass(_ context.Context, nc *v1alpha1.SCNodeClass) 
 	for name, p := range nc.Spec.Profiles.Network {
 		if p.Azure != nil && p.Azure.AcceleratedNetworking != nil {
 			switch string(p.Azure.AcceleratedNetworking.Enabled) {
-			case "auto", settingTrue, "false":
+			case settingAuto, settingTrue, settingFalse:
 			default:
 				errs = append(errs, fmt.Errorf("profiles.network.%s.azure.acceleratedNetworking.enabled is auto, \"true\" or "+
 					"\"false\", not %q", name, p.Azure.AcceleratedNetworking.Enabled))
@@ -106,7 +106,8 @@ func (d *Driver) validateBlock(b *azapi.Settings) []error {
 	var errs []error
 	for _, r := range b.Regions {
 		if !regionPattern.MatchString(r) {
-			errs = append(errs, fmt.Errorf("vendors.azure.regions: %q is not an Azure location name (for example westeurope)", r))
+			errs = append(errs, fmt.Errorf(
+				"vendors.azure.regions: %q is not an Azure location name (for example westeurope)", r))
 		}
 	}
 	if b.SubscriptionID != "" && d.subscription != "" && !strings.EqualFold(b.SubscriptionID, d.subscription) {
@@ -133,7 +134,7 @@ func (d *Driver) validateBlock(b *azapi.Settings) []error {
 		errs = append(errs, validateResource(KindImages, caps[KindImages], r.Images, validImageID)...)
 		if r.Images != nil && r.Images.Use != nil && r.Images.Use.Name != "" && !strings.Contains(r.Images.Use.Name, "{") {
 			parts := strings.SplitN(r.Images.Use.Name, ":", 4)
-			if len(parts) != 4 || slices.ContainsFunc(parts[:3], func(p string) bool { return p == "" || selector.HasWildcard(p) }) {
+			if len(parts) != 4 || slices.ContainsFunc(parts[:3], inexactPart) {
 				errs = append(errs, fmt.Errorf("vendors.azure.resources.images.use.name: %q is not "+
 					"publisher:offer:sku:<version glob> (the first three parts are exact)", r.Images.Use.Name))
 			}

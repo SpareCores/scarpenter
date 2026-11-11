@@ -26,7 +26,8 @@ const giB = int64(1) << 30
 // Premium_LRS root disk of 64 GiB with read and write caching. Platform-managed
 // encryption is always on in Azure; accelerated networking is auto (the network
 // profile); the public IPv4 address is the generic default.
-const defaultSettings = `{"storage":{"root":{"storageAccountType":"Premium_LRS","diskSizeGB":64,"caching":"ReadWrite"}}}`
+const defaultSettings = `{"storage":{"root":{` +
+	`"storageAccountType":"Premium_LRS","diskSizeGB":64,"caching":"ReadWrite"}}}`
 
 // Defaults implements vendors.NodeOptions.
 func (d *Driver) Defaults() vendors.VendorSettings {
@@ -138,7 +139,7 @@ func supportsNetwork(block json.RawMessage, sku SKU, known bool) bool {
 	if mode == settingTrue {
 		return known && sku.AcceleratedNetwork
 	}
-	return mode == "auto" || mode == "false"
+	return mode == settingAuto || mode == settingFalse
 }
 
 // diskTiers are the sizes managed disks are billed at (a 64 GiB disk is a P6,
@@ -295,7 +296,9 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 // own, with its own application security group: the allow of the nodes of one run
 // names that group). The NIC joins the application security group of a managed
 // group, which is what the allow rule matches.
-func (d *Driver) requireGroups(ctx context.Context, req vendors.PrepareRequest, rg string) ([]vendors.ResourceRef, error) {
+func (d *Driver) requireGroups(
+	ctx context.Context, req vendors.PrepareRequest, rg string,
+) ([]vendors.ResourceRef, error) {
 	net := req.Settings.Networking
 	class := req.Tags[vendors.TagNodeClass]
 	var inbound []common.InboundRule

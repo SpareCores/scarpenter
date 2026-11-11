@@ -98,7 +98,7 @@ func DecodeSettings(s vendors.VendorSettings) (Settings, error) {
 			return out, fmt.Errorf("decoding the Azure settings: %w", err)
 		}
 	}
-	out.AcceleratedNetwork = "auto"
+	out.AcceleratedNetwork = settingAuto
 	if len(s.Network) > 0 {
 		var np networkProfile
 		if err := json.Unmarshal(s.Network, &np); err != nil {
@@ -108,7 +108,7 @@ func DecodeSettings(s vendors.VendorSettings) (Settings, error) {
 			out.AcceleratedNetwork = np.AcceleratedNetworking.Enabled
 		}
 	}
-	if !slices.Contains([]string{"auto", settingTrue, "false"}, out.AcceleratedNetwork) {
+	if !slices.Contains([]string{settingAuto, settingTrue, settingFalse}, out.AcceleratedNetwork) {
 		return out, fmt.Errorf("acceleratedNetworking.enabled %q is not auto, true or false", out.AcceleratedNetwork)
 	}
 	return out, nil
@@ -193,7 +193,7 @@ func decodeStorage(raw json.RawMessage) (StorageSettings, error) {
 // decodeNetworkProfile returns the accelerated networking mode of a network
 // profile ("auto" for none).
 func decodeNetworkProfile(raw json.RawMessage) (string, error) {
-	mode := "auto"
+	mode := settingAuto
 	if len(raw) == 0 {
 		return mode, nil
 	}

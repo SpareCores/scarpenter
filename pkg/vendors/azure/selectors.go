@@ -43,7 +43,7 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 	return map[vendors.ResourceKind]vendors.SelectorCaps{
 		KindResourceGroups: {
 			Tags:          vendors.TagsMap,
-			Name:          &vendors.FieldCap{Field: "name", Side: vendors.SideClient},
+			Name:          &vendors.FieldCap{Field: fieldName, Side: vendors.SideClient},
 			DefaultSelect: common.SelectExactlyOne,
 		},
 		KindSubnets: {
@@ -60,13 +60,13 @@ func (d *Driver) Selectors() map[vendors.ResourceKind]vendors.SelectorCaps {
 		},
 		KindSecurityGroups: {
 			Tags:          vendors.TagsMap,
-			Name:          &vendors.FieldCap{Field: "name", Side: vendors.SideClient},
+			Name:          &vendors.FieldCap{Field: fieldName, Side: vendors.SideClient},
 			Filters:       rgFilter,
 			DefaultSelect: common.SelectExactlyOne,
 		},
 		KindPlacement: {
 			Tags:          vendors.TagsMap,
-			Name:          &vendors.FieldCap{Field: "name", Side: vendors.SideClient},
+			Name:          &vendors.FieldCap{Field: fieldName, Side: vendors.SideClient},
 			Filters:       rgFilter,
 			DefaultSelect: common.SelectExactlyOne,
 		},
@@ -239,8 +239,8 @@ func (d *Driver) resolveGroups(
 	}
 	out := make([]vendors.ResourceRef, 0, len(res.Items))
 	for _, g := range res.Items {
-		out = append(out, vendors.ResourceRef{Kind: KindResourceGroups, Region: region, ID: idSpelling(ref.IDs, deref(g.Name)),
-			Name: deref(g.Name)})
+		out = append(out, vendors.ResourceRef{Kind: KindResourceGroups, Region: region,
+			ID: idSpelling(ref.IDs, deref(g.Name)), Name: deref(g.Name)})
 	}
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil
@@ -281,6 +281,7 @@ func (d *Driver) resolveSubnets(
 	return out, nil
 }
 
+//nolint:dupl // the same listing of a regional kind, over another SDK type
 func (d *Driver) resolveNSGs(
 	ctx context.Context, kind vendors.ResourceKind, caps vendors.SelectorCaps, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
@@ -304,12 +305,14 @@ func (d *Driver) resolveNSGs(
 	}
 	out := make([]vendors.ResourceRef, 0, len(res.Items))
 	for _, g := range res.Items {
-		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: idSpelling(ref.IDs, deref(g.ID)), Name: deref(g.Name)})
+		out = append(out, vendors.ResourceRef{Kind: kind, Region: region, ID: idSpelling(ref.IDs, deref(g.ID)),
+			Name: deref(g.Name)})
 	}
 	slices.SortFunc(out, func(a, b vendors.ResourceRef) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil
 }
 
+//nolint:dupl // the same listing of a regional kind, over another SDK type
 func (d *Driver) resolvePPGs(
 	ctx context.Context, caps vendors.SelectorCaps, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {

@@ -4,6 +4,7 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
+//nolint:prealloc,lll,dupl,gocyclo,goconst // table-heavy tests: small expectations, repeated fixtures, long SDK signatures
 package azure
 
 import (
@@ -25,10 +26,6 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors/azure/fake"
 	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
-
-var ownerTags = map[vendors.TagKey]string{
-	vendors.TagCluster: testCluster, vendors.TagNodeClass: "class", vendors.TagManagedBy: vendors.ManagedByValue,
-}
 
 func tp(m map[string]string) map[string]*string { return tagPtrs(m) }
 
@@ -229,9 +226,9 @@ func TestEnsureManagedResources(t *testing.T) {
 
 	// Deletion: never a resource without the marker, never one in use.
 	for _, r := range []vendors.ResourceRef{
-		{Kind: KindResourceGroups, ID: "someone-elses"}, {Kind: KindSubnets, ID: fmt.Sprintf("/subscriptions/sub-1/resourceGroups/user-rg/providers/Microsoft.Network/virtualNetworks/user-vnet/subnets/a")},
-		{Kind: KindSecurityGroups, ID: fmt.Sprintf("/subscriptions/sub-1/resourceGroups/user-rg/providers/Microsoft.Network/networkSecurityGroups/user-nsg")},
-		{Kind: KindPlacement, ID: fmt.Sprintf("/subscriptions/sub-1/resourceGroups/user-rg/providers/Microsoft.Compute/proximityPlacementGroups/user-ppg")},
+		{Kind: KindResourceGroups, ID: "someone-elses"}, {Kind: KindSubnets, ID: "/subscriptions/sub-1/resourceGroups/user-rg/providers/Microsoft.Network/virtualNetworks/user-vnet/subnets/a"},
+		{Kind: KindSecurityGroups, ID: "/subscriptions/sub-1/resourceGroups/user-rg/providers/Microsoft.Network/networkSecurityGroups/user-nsg"},
+		{Kind: KindPlacement, ID: "/subscriptions/sub-1/resourceGroups/user-rg/providers/Microsoft.Compute/proximityPlacementGroups/user-ppg"},
 	} {
 		require.Equal(t, codeNotOwned, vendors.CodeOf(d.Delete(ctx, r)), "%+v", r)
 	}

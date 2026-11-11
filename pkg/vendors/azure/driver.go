@@ -259,7 +259,7 @@ func (d *Driver) locationList(ctx context.Context) ([]*armsubscriptions.Location
 			continue
 		}
 		// Staging and logical regions are not places a VM can go.
-		if l.Metadata != nil && l.Metadata.RegionType != nil && *l.Metadata.RegionType != armsubscriptions.RegionTypePhysical {
+		if m := l.Metadata; m != nil && m.RegionType != nil && *m.RegionType != armsubscriptions.RegionTypePhysical {
 			continue
 		}
 		physical = append(physical, l)

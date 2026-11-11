@@ -194,8 +194,7 @@ func (a *Groups) Resources(ctx context.Context, name string) ([]*armresources.Ge
 		}
 	}
 	for _, k := range sortedKeys(s.disks) {
-		if strings.HasPrefix(k, prefix) {
-			n := strings.TrimPrefix(k, prefix)
+		if n, ok := strings.CutPrefix(k, prefix); ok {
 			add(new(s.id(name, "Microsoft.Compute", "disks", n)), new(n), new("Microsoft.Compute/disks"), nil, nil)
 		}
 	}
