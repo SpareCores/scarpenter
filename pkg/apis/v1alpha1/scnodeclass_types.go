@@ -33,8 +33,11 @@ const (
 	VendorConditionImagesReady    = "ImagesReady"
 	VendorConditionResourcesReady = "ResourcesReady"
 	VendorConditionQuotaAvailable = "QuotaAvailable"
-	// VendorConditionConfigurationWarning is present, True, while the driver
-	// has something to say about a setting that has no effect for the vendor.
+	// VendorConditionConfigurationWarning is abnormal-true, like the NodeClass's
+	// RestartRequired: present and True (reason SettingHasNoEffect) while the
+	// driver reports a setting that is valid but has no effect for the vendor,
+	// absent otherwise. It is informational: VendorReady, ImagesReady and the
+	// NodeClass's Ready do not depend on it.
 	VendorConditionConfigurationWarning = "ConfigurationWarning"
 )
 

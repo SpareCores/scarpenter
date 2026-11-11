@@ -323,8 +323,12 @@ type NodeClassValidator interface {
 
 // NodeClassWarner is the optional capability to report settings of the NodeClass
 // that are valid but have no effect for the vendor (for example an isolation a
-// brought resource overrides). The NodeClass controller shows them in the
-// vendor condition ConfigurationWarning and as an event.
+// brought resource overrides). It looks at the NodeClass only (no vendor call)
+// and is asked on every reconcile of a vendor that is ready; a stable text per
+// setting keeps the status quiet. The NodeClass controller shows the warnings in
+// the informational vendor condition ConfigurationWarning (True while there is
+// one, absent otherwise) and publishes one Warning event when they appear or
+// change.
 type NodeClassWarner interface {
 	NodeClassWarnings(nc *v1alpha1.SCNodeClass) []string
 }

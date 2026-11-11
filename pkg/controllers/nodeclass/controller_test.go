@@ -937,6 +937,20 @@ func TestConfigurationWarningShowsInTheVendorStatus(t *testing.T) {
 	if r := vcond(nc, "aws", v1alpha1.VendorConditionReady); r == nil || r.Status != metav1.ConditionTrue {
 		t.Errorf("VendorReady = %+v, a warning must not make the vendor not ready", r)
 	}
+	if c.Reason != nodeclass.ReasonSettingHasNoEffect {
+		t.Errorf("ConfigurationWarning reason = %s, want %s", c.Reason, nodeclass.ReasonSettingHasNoEffect)
+	}
+	// A second reconcile with the same warning publishes no second event.
+	e.reconcile(e.name)
+	n := 0
+	for _, r := range e.rec.reasons() {
+		if r == nodeclass.EventConfigurationWarning {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d ConfigurationWarning events over two reconciles, want 1", n)
+	}
 	e.drv.mu.Lock()
 	e.drv.warnings = nil
 	e.drv.mu.Unlock()

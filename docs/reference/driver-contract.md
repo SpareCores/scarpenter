@@ -45,7 +45,9 @@ driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (bel
 fragments](#boot-fragments)), `LeftoverCollector` (the garbage collector asks it, per region after the
 instance sweep, to delete what a failed or interrupted launch made besides the instance; it lists first and
 asks `nodeClaimExists` after, so a launch in flight keeps its resources; see
-[garbage collection](controller.md#garbage-collection)), `ImageImporter` (reserved) and
+[garbage collection](controller.md#garbage-collection)), `NodeClassWarner` (settings that are valid but
+have no effect for the vendor, from the NodeClass alone: the vendor condition `ConfigurationWarning`),
+`ImageImporter` (reserved) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
 

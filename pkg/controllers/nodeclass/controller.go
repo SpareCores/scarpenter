@@ -70,7 +70,8 @@ const (
 	// their offerings are unavailable, the condition stays True.
 	ReasonImagesPartial        = "ImagesPartial"
 	ReasonMetricsNotRegistered = "MetricLabelsNotRegistered"
-	ReasonConfigurationWarning = "SettingHasNoEffect"
+	// ReasonSettingHasNoEffect is the reason of ConfigurationWarning=True.
+	ReasonSettingHasNoEffect = "SettingHasNoEffect"
 )
 
 // Event reasons (on the SCNodeClass); Warning Events are deduplicated.
@@ -491,9 +492,16 @@ func (c *Controller) vendor(
 		c.warnIPv6Only(desired, vendor)
 		c.warnHardening(desired, vendor)
 		if msg := c.configurationWarnings(desired, vendor); msg != "" {
-			vs.Conditions = append(vs.Conditions, vendorCondition(existing, v1alpha1.VendorConditionConfigurationWarning,
-				true, ReasonConfigurationWarning, msg, current.Generation, now))
-			c.warn(desired, EventConfigurationWarning, fmt.Sprintf("vendor %s: %s", vendor, msg), vendor)
+			w := vendorCondition(existing, v1alpha1.VendorConditionConfigurationWarning,
+				true, ReasonSettingHasNoEffect, msg, current.Generation, now)
+			vs.Conditions = append(vs.Conditions, w)
+			// One event when the warning appears or changes, not one per reconcile:
+			// the condition carries it from then on.
+			if !slices.ContainsFunc(existing, func(prev status.Condition) bool {
+				return prev.Type == w.Type && prev.Status == w.Status && prev.Message == w.Message
+			}) {
+				c.warn(desired, EventConfigurationWarning, fmt.Sprintf("vendor %s: %s", vendor, msg), vendor)
+			}
 		}
 	}
 	images, ok, reason, msg := c.images(ctx, desired, vendor, ready)
@@ -789,7 +797,8 @@ func (c *Controller) warnHardening(nc *v1alpha1.SCNodeClass, vendor string) {
 }
 
 // configurationWarnings returns what the driver says about settings that have no
-// effect for the vendor, joined; empty when there is none.
+// effect for the vendor, sorted and joined (a stable message); empty when there
+// is none or the driver has no NodeClassWarner.
 func (c *Controller) configurationWarnings(nc *v1alpha1.SCNodeClass, vendor string) string {
 	drv, ok := c.opts.Registry.Driver(vendor)
 	if !ok {
@@ -799,7 +808,9 @@ func (c *Controller) configurationWarnings(nc *v1alpha1.SCNodeClass, vendor stri
 	if !ok {
 		return ""
 	}
-	return strings.Join(w.NodeClassWarnings(nc), "; ")
+	ws := slices.Clone(w.NodeClassWarnings(nc))
+	slices.Sort(ws)
+	return strings.Join(slices.Compact(ws), "; ")
 }
 
 // appliedHardening returns the hardenings of the NodeClass that the vendor's
