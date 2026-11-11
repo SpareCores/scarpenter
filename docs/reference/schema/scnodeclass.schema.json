@@ -12681,7 +12681,7 @@
                       "type": "boolean"
                     },
                     "reason": {
-                      "description": "reason says why an image is not ready when the cause is the image itself:\nImageVersionMismatch (it is another Flatcar release than the pinned one) or\nImageVersionUnknown (it does not say which). It becomes the reason of the\nImagesReady condition.",
+                      "description": "reason says why an image is not ready when the cause is the image itself:\nImageVersionMismatch (it is another Flatcar release than the pinned one),\nImageVersionUnknown (it does not say which) or a driver's own reason (for\nexample MarketplaceTermsNotAccepted). It becomes the reason of the\nImagesReady condition.",
                       "type": "string"
                     },
                     "ref": {

@@ -187,8 +187,9 @@ type ImageStatus struct {
 	// +optional
 	Message string `json:"message,omitempty"`
 	// reason says why an image is not ready when the cause is the image itself:
-	// ImageVersionMismatch (it is another Flatcar release than the pinned one) or
-	// ImageVersionUnknown (it does not say which). It becomes the reason of the
+	// ImageVersionMismatch (it is another Flatcar release than the pinned one),
+	// ImageVersionUnknown (it does not say which) or a driver's own reason (for
+	// example MarketplaceTermsNotAccepted). It becomes the reason of the
 	// ImagesReady condition.
 	// +optional
 	Reason string `json:"reason,omitempty"`

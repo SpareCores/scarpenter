@@ -81,7 +81,9 @@ for garbage collection or deleted).
   (`ImageVersionMismatch` or `ImageVersionUnknown`) and `Message` names the region and the image. The
   NodeClass controller makes that the reason of `ImagesReady=False` (also for a region the NodeClass does not
   name: the image is what the NodeClass chose, not a gap of the vendor), and the region's offerings are
-  unavailable.
+  unavailable. A driver may set a reason of its own for another definitive cause (Azure's
+  `MarketplaceTermsNotAccepted`): it becomes the reason of `ImagesReady=False` when the images are not
+  ready (a region the NodeClass names, or none at all), with that image's message.
 - **Drift.** Image IDs are not part of the drift hash; the pinned version is
   ([ADR-012](../explanation/DECISIONS.md)). A rebuilt image of the same version is the same OS.
 

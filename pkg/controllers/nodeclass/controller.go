@@ -604,10 +604,18 @@ func (c *Controller) images(
 	// A region the NodeClass names must have its images; without a region list
 	// (every region of the vendor) a gap only costs the offerings of that region,
 	// unless no region has an image at all.
+	// The reason is the driver's own when a not-ready image gives one (for
+	// example terms the account has not accepted), with that image's message.
 	named, _ := nc.Spec.Vendors.Regions(vendor)
 	for _, img := range images {
 		if !img.Ready && slices.Contains(named, img.Region) || len(readyIn) == 0 {
-			return images, false, ReasonImagesNotReady, trim("no usable image for " + strings.Join(notReady, ", "))
+			gap := "no usable image for " + strings.Join(notReady, ", ")
+			for _, why := range images {
+				if !why.Ready && why.Reason != "" {
+					return images, false, why.Reason, trim(why.Message + "; " + gap)
+				}
+			}
+			return images, false, ReasonImagesNotReady, trim(gap)
 		}
 	}
 	return images, true, ReasonImagesPartial, trim("no usable image for " + strings.Join(notReady, ", ") +

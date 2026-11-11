@@ -592,8 +592,9 @@ read-only guard.
   because a NIC takes one group.
 - The subscription is read from `AZURE_SUBSCRIPTION_ID` only (no `--azure-subscription-id` flag: it would change the core's options).
 - The shared suite's resolution-order cases assume a vendor default resource; Azure has none, so they are skipped and
-  `resolution_test.go` covers the order. Core gap: the `ImagesReady` reason `MarketplaceTermsNotAccepted` is set on the image
-  status but the NodeClass controller only promotes the version reasons to the condition.
+  `resolution_test.go` covers the order. The `ImagesReady` reason `MarketplaceTermsNotAccepted` is set on the image
+  status, and the NodeClass controller makes any driver reason the condition's when the images are not ready (a small
+  generic core change; the version reasons keep their stronger rule).
 
 ## Live verification list (everything above ran against the fake only)
 

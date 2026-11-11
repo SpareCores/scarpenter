@@ -4999,7 +4999,7 @@ ImageStatus is the boot image of a region and architecture.
 | `arch` (required) | string |  | arch is amd64 or arm64. |
 | `message` | string |  | message explains an image that is not ready. |
 | `ready` (required) | boolean |  | ready says whether the image can be launched in the region. |
-| `reason` | string |  | reason says why an image is not ready when the cause is the image itself: ImageVersionMismatch (it is another Flatcar release than the pinned one) or ImageVersionUnknown (it does not say which). It becomes the reason of the ImagesReady condition. |
+| `reason` | string |  | reason says why an image is not ready when the cause is the image itself: ImageVersionMismatch (it is another Flatcar release than the pinned one), ImageVersionUnknown (it does not say which) or a driver's own reason (for example MarketplaceTermsNotAccepted). It becomes the reason of the ImagesReady condition. |
 | `ref` (required) | string |  | ref is the vendor's image reference (for example an AMI ID). |
 | `region` (required) | string |  |  |
 

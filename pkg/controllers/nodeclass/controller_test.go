@@ -899,3 +899,22 @@ func TestAnImageOfAnotherVersionMakesTheImagesNotReady(t *testing.T) {
 		})
 	}
 }
+
+// A driver's own reason of an image that is not ready (not a version code) is the
+// reason of ImagesReady=False when the images are not ready, with its message; a
+// region gap alone keeps the generic reason.
+func TestADriverReasonBecomesTheImagesReason(t *testing.T) {
+	e := newEnv(t)
+	msg := "the image needs the marketplace terms: az vm image terms accept ..."
+	e.drv.images = []v1alpha1.ImageStatus{
+		{Region: "r1", Arch: "amd64", Message: msg, Reason: "MarketplaceTermsNotAccepted"},
+		{Region: "r1", Arch: "arm64", Message: "no image"},
+	}
+	e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.AWS.Regions = []string{"r1"} }))
+	nc := e.reconcile(e.name)
+	c := vcond(nc, "aws", v1alpha1.VendorConditionImagesReady)
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != "MarketplaceTermsNotAccepted" ||
+		!strings.Contains(c.Message, "terms accept") || !strings.Contains(c.Message, "r1/amd64") {
+		t.Errorf("ImagesReady = %+v, want False with the driver's reason and message", c)
+	}
+}
