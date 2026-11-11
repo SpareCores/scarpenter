@@ -36,7 +36,9 @@ type ComputeAPI interface {
 	DeleteInstance(ctx context.Context, req *computepb.DeleteInstanceRequest) (*computepb.Operation, error)
 	GetInstance(ctx context.Context, req *computepb.GetInstanceRequest) (*computepb.Instance, error)
 	ListInstances(ctx context.Context, req *computepb.ListInstancesRequest) (*computepb.InstanceList, error)
-	AggregatedListInstances(ctx context.Context, req *computepb.AggregatedListInstancesRequest) (*computepb.InstanceAggregatedList, error)
+	AggregatedListInstances(
+		ctx context.Context, req *computepb.AggregatedListInstancesRequest,
+	) (*computepb.InstanceAggregatedList, error)
 
 	ListZones(ctx context.Context, req *computepb.ListZonesRequest) (*computepb.ZoneList, error)
 	GetRegion(ctx context.Context, req *computepb.GetRegionRequest) (*computepb.Region, error)
@@ -62,7 +64,9 @@ type ComputeAPI interface {
 	DeleteFirewall(ctx context.Context, req *computepb.DeleteFirewallRequest) (*computepb.Operation, error)
 
 	GetResourcePolicy(ctx context.Context, req *computepb.GetResourcePolicyRequest) (*computepb.ResourcePolicy, error)
-	ListResourcePolicies(ctx context.Context, req *computepb.ListResourcePoliciesRequest) (*computepb.ResourcePolicyList, error)
+	ListResourcePolicies(
+		ctx context.Context, req *computepb.ListResourcePoliciesRequest,
+	) (*computepb.ResourcePolicyList, error)
 	InsertResourcePolicy(ctx context.Context, req *computepb.InsertResourcePolicyRequest) (*computepb.Operation, error)
 	DeleteResourcePolicy(ctx context.Context, req *computepb.DeleteResourcePolicyRequest) (*computepb.Operation, error)
 

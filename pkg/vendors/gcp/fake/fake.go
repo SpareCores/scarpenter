@@ -295,7 +295,8 @@ func (c *Compute) begin(method string) error {
 
 func (c *Compute) checkProject(p string) error {
 	if p != c.project {
-		return Error(http.StatusForbidden, "forbidden", fmt.Sprintf("Required 'compute.projects.get' permission for 'projects/%s'", p))
+		return Error(http.StatusForbidden, "forbidden",
+			fmt.Sprintf("Required 'compute.projects.get' permission for 'projects/%s'", p))
 	}
 	return nil
 }
@@ -390,7 +391,9 @@ func (c *Compute) get(project, name string) (*computepb.Operation, error) {
 	return proto.Clone(o.op).(*computepb.Operation), nil
 }
 
-func (c *Compute) WaitZoneOperation(_ context.Context, r *computepb.WaitZoneOperationRequest) (*computepb.Operation, error) {
+func (c *Compute) WaitZoneOperation(
+	_ context.Context, r *computepb.WaitZoneOperationRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("WaitZoneOperation"); err != nil {
@@ -399,7 +402,9 @@ func (c *Compute) WaitZoneOperation(_ context.Context, r *computepb.WaitZoneOper
 	return c.wait(r.GetProject(), r.GetOperation())
 }
 
-func (c *Compute) GetZoneOperation(_ context.Context, r *computepb.GetZoneOperationRequest) (*computepb.Operation, error) {
+func (c *Compute) GetZoneOperation(
+	_ context.Context, r *computepb.GetZoneOperationRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("GetZoneOperation"); err != nil {
@@ -408,7 +413,9 @@ func (c *Compute) GetZoneOperation(_ context.Context, r *computepb.GetZoneOperat
 	return c.get(r.GetProject(), r.GetOperation())
 }
 
-func (c *Compute) WaitRegionOperation(_ context.Context, r *computepb.WaitRegionOperationRequest) (*computepb.Operation, error) {
+func (c *Compute) WaitRegionOperation(
+	_ context.Context, r *computepb.WaitRegionOperationRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("WaitRegionOperation"); err != nil {
@@ -417,7 +424,9 @@ func (c *Compute) WaitRegionOperation(_ context.Context, r *computepb.WaitRegion
 	return c.wait(r.GetProject(), r.GetOperation())
 }
 
-func (c *Compute) GetRegionOperation(_ context.Context, r *computepb.GetRegionOperationRequest) (*computepb.Operation, error) {
+func (c *Compute) GetRegionOperation(
+	_ context.Context, r *computepb.GetRegionOperationRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("GetRegionOperation"); err != nil {
@@ -426,7 +435,9 @@ func (c *Compute) GetRegionOperation(_ context.Context, r *computepb.GetRegionOp
 	return c.get(r.GetProject(), r.GetOperation())
 }
 
-func (c *Compute) WaitGlobalOperation(_ context.Context, r *computepb.WaitGlobalOperationRequest) (*computepb.Operation, error) {
+func (c *Compute) WaitGlobalOperation(
+	_ context.Context, r *computepb.WaitGlobalOperationRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("WaitGlobalOperation"); err != nil {
@@ -435,7 +446,9 @@ func (c *Compute) WaitGlobalOperation(_ context.Context, r *computepb.WaitGlobal
 	return c.wait(r.GetProject(), r.GetOperation())
 }
 
-func (c *Compute) GetGlobalOperation(_ context.Context, r *computepb.GetGlobalOperationRequest) (*computepb.Operation, error) {
+func (c *Compute) GetGlobalOperation(
+	_ context.Context, r *computepb.GetGlobalOperationRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("GetGlobalOperation"); err != nil {

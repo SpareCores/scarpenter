@@ -177,7 +177,9 @@ func (s *SDK) GetImage(ctx context.Context, req *computepb.GetImageRequest) (*co
 	return s.images.Get(ctx, req)
 }
 
-func (s *SDK) GetImageFromFamily(ctx context.Context, req *computepb.GetFromFamilyImageRequest) (*computepb.Image, error) {
+func (s *SDK) GetImageFromFamily(
+	ctx context.Context, req *computepb.GetFromFamilyImageRequest,
+) (*computepb.Image, error) {
 	return s.images.GetFromFamily(ctx, req)
 }
 
@@ -189,31 +191,45 @@ func (s *SDK) GetNetwork(ctx context.Context, req *computepb.GetNetworkRequest) 
 	return s.networks.Get(ctx, req)
 }
 
-func (s *SDK) GetResourcePolicy(ctx context.Context, req *computepb.GetResourcePolicyRequest) (*computepb.ResourcePolicy, error) {
+func (s *SDK) GetResourcePolicy(
+	ctx context.Context, req *computepb.GetResourcePolicyRequest,
+) (*computepb.ResourcePolicy, error) {
 	return s.policies.Get(ctx, req)
 }
 
-func (s *SDK) WaitZoneOperation(ctx context.Context, req *computepb.WaitZoneOperationRequest) (*computepb.Operation, error) {
+func (s *SDK) WaitZoneOperation(
+	ctx context.Context, req *computepb.WaitZoneOperationRequest,
+) (*computepb.Operation, error) {
 	return s.zoneOps.Wait(ctx, req)
 }
 
-func (s *SDK) GetZoneOperation(ctx context.Context, req *computepb.GetZoneOperationRequest) (*computepb.Operation, error) {
+func (s *SDK) GetZoneOperation(
+	ctx context.Context, req *computepb.GetZoneOperationRequest,
+) (*computepb.Operation, error) {
 	return s.zoneOps.Get(ctx, req)
 }
 
-func (s *SDK) WaitRegionOperation(ctx context.Context, req *computepb.WaitRegionOperationRequest) (*computepb.Operation, error) {
+func (s *SDK) WaitRegionOperation(
+	ctx context.Context, req *computepb.WaitRegionOperationRequest,
+) (*computepb.Operation, error) {
 	return s.regionOps.Wait(ctx, req)
 }
 
-func (s *SDK) GetRegionOperation(ctx context.Context, req *computepb.GetRegionOperationRequest) (*computepb.Operation, error) {
+func (s *SDK) GetRegionOperation(
+	ctx context.Context, req *computepb.GetRegionOperationRequest,
+) (*computepb.Operation, error) {
 	return s.regionOps.Get(ctx, req)
 }
 
-func (s *SDK) WaitGlobalOperation(ctx context.Context, req *computepb.WaitGlobalOperationRequest) (*computepb.Operation, error) {
+func (s *SDK) WaitGlobalOperation(
+	ctx context.Context, req *computepb.WaitGlobalOperationRequest,
+) (*computepb.Operation, error) {
 	return s.globalOps.Wait(ctx, req)
 }
 
-func (s *SDK) GetGlobalOperation(ctx context.Context, req *computepb.GetGlobalOperationRequest) (*computepb.Operation, error) {
+func (s *SDK) GetGlobalOperation(
+	ctx context.Context, req *computepb.GetGlobalOperationRequest,
+) (*computepb.Operation, error) {
 	return s.globalOps.Get(ctx, req)
 }
 
@@ -233,7 +249,9 @@ func (s *SDK) DeleteInstance(ctx context.Context, req *computepb.DeleteInstanceR
 	return op.Proto(), nil
 }
 
-func (s *SDK) InsertSubnetwork(ctx context.Context, req *computepb.InsertSubnetworkRequest) (*computepb.Operation, error) {
+func (s *SDK) InsertSubnetwork(
+	ctx context.Context, req *computepb.InsertSubnetworkRequest,
+) (*computepb.Operation, error) {
 	op, err := s.subnetworks.Insert(ctx, req)
 	if err != nil {
 		return nil, err
@@ -241,7 +259,9 @@ func (s *SDK) InsertSubnetwork(ctx context.Context, req *computepb.InsertSubnetw
 	return op.Proto(), nil
 }
 
-func (s *SDK) DeleteSubnetwork(ctx context.Context, req *computepb.DeleteSubnetworkRequest) (*computepb.Operation, error) {
+func (s *SDK) DeleteSubnetwork(
+	ctx context.Context, req *computepb.DeleteSubnetworkRequest,
+) (*computepb.Operation, error) {
 	op, err := s.subnetworks.Delete(ctx, req)
 	if err != nil {
 		return nil, err
@@ -281,7 +301,9 @@ func (s *SDK) DeleteFirewall(ctx context.Context, req *computepb.DeleteFirewallR
 	return op.Proto(), nil
 }
 
-func (s *SDK) InsertResourcePolicy(ctx context.Context, req *computepb.InsertResourcePolicyRequest) (*computepb.Operation, error) {
+func (s *SDK) InsertResourcePolicy(
+	ctx context.Context, req *computepb.InsertResourcePolicyRequest,
+) (*computepb.Operation, error) {
 	op, err := s.policies.Insert(ctx, req)
 	if err != nil {
 		return nil, err
@@ -289,7 +311,9 @@ func (s *SDK) InsertResourcePolicy(ctx context.Context, req *computepb.InsertRes
 	return op.Proto(), nil
 }
 
-func (s *SDK) DeleteResourcePolicy(ctx context.Context, req *computepb.DeleteResourcePolicyRequest) (*computepb.Operation, error) {
+func (s *SDK) DeleteResourcePolicy(
+	ctx context.Context, req *computepb.DeleteResourcePolicyRequest,
+) (*computepb.Operation, error) {
 	op, err := s.policies.Delete(ctx, req)
 	if err != nil {
 		return nil, err
@@ -321,7 +345,9 @@ func (s *SDK) ListRegions(ctx context.Context, req *computepb.ListRegionsRequest
 	return &computepb.RegionList{Items: items, NextPageToken: nextOf(next)}, nil
 }
 
-func (s *SDK) ListMachineTypes(ctx context.Context, req *computepb.ListMachineTypesRequest) (*computepb.MachineTypeList, error) {
+func (s *SDK) ListMachineTypes(
+	ctx context.Context, req *computepb.ListMachineTypesRequest,
+) (*computepb.MachineTypeList, error) {
 	items, next, err := page[*computepb.MachineType](s.machineTypes.List(ctx, req), req.MaxResults, req.PageToken)
 	if err != nil {
 		return nil, err
@@ -329,7 +355,9 @@ func (s *SDK) ListMachineTypes(ctx context.Context, req *computepb.ListMachineTy
 	return &computepb.MachineTypeList{Items: items, NextPageToken: nextOf(next)}, nil
 }
 
-func (s *SDK) ListSubnetworks(ctx context.Context, req *computepb.ListSubnetworksRequest) (*computepb.SubnetworkList, error) {
+func (s *SDK) ListSubnetworks(
+	ctx context.Context, req *computepb.ListSubnetworksRequest,
+) (*computepb.SubnetworkList, error) {
 	items, next, err := page[*computepb.Subnetwork](s.subnetworks.List(ctx, req), req.MaxResults, req.PageToken)
 	if err != nil {
 		return nil, err
@@ -353,7 +381,9 @@ func (s *SDK) ListFirewalls(ctx context.Context, req *computepb.ListFirewallsReq
 	return &computepb.FirewallList{Items: items, NextPageToken: nextOf(next)}, nil
 }
 
-func (s *SDK) ListResourcePolicies(ctx context.Context, req *computepb.ListResourcePoliciesRequest) (*computepb.ResourcePolicyList, error) {
+func (s *SDK) ListResourcePolicies(
+	ctx context.Context, req *computepb.ListResourcePoliciesRequest,
+) (*computepb.ResourcePolicyList, error) {
 	items, next, err := page[*computepb.ResourcePolicy](s.policies.List(ctx, req), req.MaxResults, req.PageToken)
 	if err != nil {
 		return nil, err
@@ -361,12 +391,16 @@ func (s *SDK) ListResourcePolicies(ctx context.Context, req *computepb.ListResou
 	return &computepb.ResourcePolicyList{Items: items, NextPageToken: nextOf(next)}, nil
 }
 
-func (s *SDK) AggregatedListInstances(ctx context.Context, req *computepb.AggregatedListInstancesRequest) (*computepb.InstanceAggregatedList, error) {
-	pairs, next, err := page[compute.InstancesScopedListPair](s.instances.AggregatedList(ctx, req), req.MaxResults, req.PageToken)
+func (s *SDK) AggregatedListInstances(
+	ctx context.Context, req *computepb.AggregatedListInstancesRequest,
+) (*computepb.InstanceAggregatedList, error) {
+	pairs, next, err := page[compute.InstancesScopedListPair](s.instances.AggregatedList(ctx, req), req.MaxResults,
+		req.PageToken)
 	if err != nil {
 		return nil, err
 	}
-	out := &computepb.InstanceAggregatedList{Items: map[string]*computepb.InstancesScopedList{}, NextPageToken: nextOf(next)}
+	out := &computepb.InstanceAggregatedList{Items: map[string]*computepb.InstancesScopedList{},
+		NextPageToken: nextOf(next)}
 	for _, p := range pairs {
 		out.Items[p.Key] = p.Value
 	}

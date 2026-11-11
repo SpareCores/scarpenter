@@ -139,6 +139,9 @@ func TestClassifyHTTP(t *testing.T) {
 		{"500 no reason", gerr(500, "down"), vendors.Retryable},
 		{"404 instance", gerr(404, "The resource 'projects/p/zones/z/instances/i' was not found", "notFound"), vendors.NotFound},
 		{"404 machine type", gerr(404, "The resource 'projects/p/zones/us-central1-a/machineTypes/e2-small' was not found", "notFound"), vendors.Unsupported},
+		{"400 machine type", gerr(400, "Invalid value for field 'resource.machineType': 'zones/us-central1-a/machineTypes/e2-small'. "+
+			"Machine type with name 'e2-small' does not exist in zone 'us-central1-a'.", "invalid"), vendors.Unsupported},
+		{"412 org policy", gerr(412, "Constraint constraints/compute.trustedImageProjects violated", "conditionNotMet"), vendors.Fatal},
 		{"409", gerr(409, "already exists", "alreadyExists"), vendors.Fatal},
 		{"400 in use", gerr(400, "in use", "resourceInUseByAnotherResource"), vendors.Retryable},
 		{"403 quota", gerr(403, "Quota 'CPUS' exceeded. Limit: 8.0 in region r.", "quotaExceeded"), vendors.QuotaExceeded},

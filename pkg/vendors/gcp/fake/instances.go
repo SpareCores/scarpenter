@@ -130,7 +130,8 @@ func (c *Compute) validateInsert(r *computepb.InsertInstanceRequest) (
 	in = proto.Clone(r.GetInstanceResource()).(*computepb.Instance)
 	name := in.GetName()
 	if name == "" {
-		return nil, nil, nil, invalid("Invalid value for field 'resource.name': ''. Must be a match of regex '[a-z]([-a-z0-9]{0,61}[a-z0-9])?'")
+		return nil, nil, nil,
+			invalid("Invalid value for field 'resource.name': ''. Must be a match of regex '[a-z]([-a-z0-9]{0,61}[a-z0-9])?'")
 	}
 	mt := last(in.GetMachineType())
 	machine = c.types[zone][mt]
@@ -142,7 +143,8 @@ func (c *Compute) validateInsert(r *computepb.InsertInstanceRequest) (
 			fmt.Sprintf("The resource 'projects/%s/zones/%s/instances/%s' already exists", r.GetProject(), zone, name))
 	}
 	if len(in.GetDisks()) == 0 || in.GetDisks()[0].GetInitializeParams().GetSourceImage() == "" {
-		return nil, nil, nil, invalid("Invalid value for field 'resource.disks[0].initializeParams.sourceImage': ''. Boot disk image is required.")
+		return nil, nil, nil,
+			invalid("Invalid value for field 'resource.disks[0].initializeParams.sourceImage': ''. Boot disk image is required.")
 	}
 	img, ferr := c.findImage(in.GetDisks()[0].GetInitializeParams().GetSourceImage())
 	if ferr != nil {
@@ -209,9 +211,13 @@ func (c *Compute) InsertInstance(_ context.Context, r *computepb.InsertInstanceR
 	case c.takeOpFailure("InsertInstance") != nil:
 		failed = &opFailure{"INTERNAL_ERROR", "injected failure", http.StatusInternalServerError}
 	case c.orgPolicy:
-		failed = &opFailure{"CONDITION_NOT_MET", "Constraint constraints/compute.trustedImageProjects violates the organization policy.", http.StatusPreconditionFailed}
+		failed = &opFailure{"CONDITION_NOT_MET",
+			"Constraint constraints/compute.trustedImageProjects violates the organization policy.",
+			http.StatusPreconditionFailed}
 	case c.stockouts[stockKey(zone, mt, in.GetScheduling().GetProvisioningModel() == modelSpot)]:
-		failed = &opFailure{"ZONE_RESOURCE_POOL_EXHAUSTED", fmt.Sprintf("The zone 'projects/%s/zones/%s' does not have enough resources available to fulfill the request.", r.GetProject(), zone), http.StatusServiceUnavailable}
+		failed = &opFailure{"ZONE_RESOURCE_POOL_EXHAUSTED",
+			fmt.Sprintf("The zone 'projects/%s/zones/%s' does not have enough resources available to fulfill the request.",
+				r.GetProject(), zone), http.StatusServiceUnavailable}
 	default:
 		failed = c.quotaFailure(region, in)
 	}
@@ -222,7 +228,8 @@ func (c *Compute) InsertInstance(_ context.Context, r *computepb.InsertInstanceR
 	}
 	ip, err := c.allocateIP(region, sub)
 	if err != nil {
-		failed = &opFailure{"IP_SPACE_EXHAUSTED", "Instance cannot be created: IP space exhausted in subnetwork " + sub.GetName(), http.StatusBadRequest}
+		failed = &opFailure{"IP_SPACE_EXHAUSTED",
+			"Instance cannot be created: IP space exhausted in subnetwork " + sub.GetName(), http.StatusBadRequest}
 		op := c.newOp("insert", scope, target, failed, nil)
 		c.remember("InsertInstance", scope, r.RequestId, op)
 		return proto.Clone(op).(*computepb.Operation), nil
@@ -412,7 +419,9 @@ func (c *Compute) ListInstances(_ context.Context, r *computepb.ListInstancesReq
 	return out, nil
 }
 
-func (c *Compute) AggregatedListInstances(_ context.Context, r *computepb.AggregatedListInstancesRequest) (*computepb.InstanceAggregatedList, error) {
+func (c *Compute) AggregatedListInstances(
+	_ context.Context, r *computepb.AggregatedListInstancesRequest,
+) (*computepb.InstanceAggregatedList, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("AggregatedListInstances"); err != nil {
@@ -584,7 +593,9 @@ func (c *Compute) ListRegions(_ context.Context, r *computepb.ListRegionsRequest
 	return out, nil
 }
 
-func (c *Compute) ListMachineTypes(_ context.Context, r *computepb.ListMachineTypesRequest) (*computepb.MachineTypeList, error) {
+func (c *Compute) ListMachineTypes(
+	_ context.Context, r *computepb.ListMachineTypesRequest,
+) (*computepb.MachineTypeList, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("ListMachineTypes"); err != nil {
@@ -667,7 +678,9 @@ func (c *Compute) GetImage(_ context.Context, r *computepb.GetImageRequest) (*co
 	return proto.Clone(img).(*computepb.Image), nil
 }
 
-func (c *Compute) GetImageFromFamily(_ context.Context, r *computepb.GetFromFamilyImageRequest) (*computepb.Image, error) {
+func (c *Compute) GetImageFromFamily(
+	_ context.Context, r *computepb.GetFromFamilyImageRequest,
+) (*computepb.Image, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("GetImageFromFamily"); err != nil {

@@ -17,6 +17,7 @@ first live run.
 | In-memory fake | `fake/` | `fake.Compute` implements `ComputeAPI`. `fake.NewSeeded` gives two regions, three zones with numeric IDs, four machine types (one arm64), Flatcar images, quota limits and a custom VPC. |
 | Error classification | `errors.go` | Operation error codes and HTTP reasons to the contract's classes; `QUOTA_EXCEEDED` is account-wide for `*_ALL_REGIONS` metrics. |
 | Quota reader | `quota.go` | `QuotaReader`: region buckets from `regions.get`, project buckets from `projects.get`, and `Consumption` for confirmed series only. |
+| Call deadlines | `timeouts.go` | `WithTimeouts`: every call under its own deadline (45 s; 120 s for an operation wait). The generated clients retry reads on HTTP 503 and 504 until the context ends (600 s without a deadline) and do not retry 429 or mutating calls; a call that runs into its deadline is `Retryable` (`CallTimeout`). |
 | Mapping | `names.go`, `state.go` | Provider ID, instance reference, instance names, labels, ownership marker for resources without labels, request IDs, state mapping. |
 | Launch request | `launch.go` | `BuildInsert`: the `instances.insert` request from a resolved `LaunchSpec`. |
 
@@ -53,7 +54,7 @@ first live run.
   extra metadata.
 - A service account only when one is configured.
 - `requestId`: UUIDv5 of the NodeClaim UID, zone, machine type and capacity type, so only a
-  retry of the same offering shares an ID.
+  retry of the same offering shares an ID; no `requestId` without an idempotency key.
 
 ## Labels
 

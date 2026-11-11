@@ -45,6 +45,7 @@ const (
 	CodeQuotaExceeded  = "QUOTA_EXCEEDED"
 	CodeUnsupportedOp  = "UNSUPPORTED_OPERATION"
 	reasonAlreadyExist = "alreadyExists"
+	reasonConditionNot = "conditionNotMet"
 	reasonInUse        = "resourceInUseByAnotherResource"
 	reasonNotFound     = "notFound"
 	reasonQuota        = "quotaExceeded"
@@ -88,6 +89,7 @@ var errorClasses = map[string]vendors.Class{
 	CodeAlreadyExists:  vendors.Fatal,
 	reasonAlreadyExist: vendors.Fatal,
 	CodeConditionNot:   vendors.Fatal,
+	reasonConditionNot: vendors.Fatal,
 }
 
 // errContext is what the classification of one call knows about it.
@@ -125,15 +127,18 @@ type opErr struct {
 func classifyOpErr(e opErr, ec errContext, cause error) error {
 	code := e.code
 	// A machine type that does not exist in the zone is Unsupported, not a
-	// missing resource.
-	if (code == CodeNotFound || code == reasonNotFound || (code == "" && e.status == http.StatusNotFound)) &&
-		ec.machineType != "" && strings.Contains(e.message, "machineTypes/"+ec.machineType) {
+	// missing resource. The insert's HTTP answer may also be a 400 "invalid"
+	// ("Invalid value for field 'resource.machineType': ... does not exist in
+	// zone"; UNVERIFIED live which of the two forms GCE sends).
+	if ec.machineType != "" && strings.Contains(e.message, "machineTypes/"+ec.machineType) &&
+		(code == CodeNotFound || code == reasonNotFound || (code == "" && e.status == http.StatusNotFound) ||
+			strings.Contains(e.message, "does not exist")) {
 		return vendors.NewError(vendors.Unsupported, CodeNotFound, cause)
 	}
 	switch code {
 	case CodeNotFound:
 		return vendors.NewError(vendors.NotFound, code, cause)
-	case CodeConditionNot:
+	case CodeConditionNot, reasonConditionNot:
 		return vendors.NewError(vendors.Fatal, CodeOrgPolicy, fmt.Errorf(
 			"%w (an organization policy such as constraints/compute.trustedImageProjects may forbid the request)", cause))
 	case CodeQuotaExceeded:

@@ -191,6 +191,9 @@ func TestBuildInsertSpotAndMinimal(t *testing.T) {
 	if _, has := in.Labels[TagKey(vendors.TagIdempotencyKey)]; has {
 		t.Fatal("no idempotency label without a key")
 	}
+	if req.RequestId != nil {
+		t.Fatalf("request id %s without a key: keyless launches of one offering would share it", req.GetRequestId())
+	}
 	// On-demand defaults to MIGRATE, TERMINATE when asked.
 	s.Spot, s.OnHostMaintenance = false, ""
 	req, _ = BuildInsert(s)

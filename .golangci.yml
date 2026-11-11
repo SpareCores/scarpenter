@@ -73,14 +73,6 @@ linters:
           - goconst
           - dupl
         path: pkg/vendors/aws/fake/
-      # The GCP driver's Compute API interface, its SDK adapter and the in-memory fake
-      # repeat the generated client's long method signatures (computepb requests).
-      - linters:
-          - lll
-        path: pkg/vendors/gcp/(api|sdk)\.go
-      - linters:
-          - lll
-        path: pkg/vendors/gcp/fake/
       # The error table of the AWS driver and the test's independent copy of it.
       - linters:
           - dupl

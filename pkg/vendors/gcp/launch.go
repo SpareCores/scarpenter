@@ -131,10 +131,14 @@ func BuildInsert(s LaunchSpec) (*computepb.InsertInstanceRequest, error) {
 			Email: new(s.ServiceAccount), Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
 		}}
 	}
-	return &computepb.InsertInstanceRequest{
-		Project: s.Project, Zone: s.Zone, InstanceResource: inst,
-		RequestId: new(RequestID(s.IdempotencyKey, s.Zone, s.MachineType, s.CapacityType)),
-	}, nil
+	req := &computepb.InsertInstanceRequest{Project: s.Project, Zone: s.Zone, InstanceResource: inst}
+	// Without a key there is no request ID: one derived from the offering alone
+	// would be shared by every keyless launch of the same offering, and the API
+	// would answer the second with the first one's operation.
+	if s.IdempotencyKey != "" {
+		req.RequestId = new(RequestID(s.IdempotencyKey, s.Zone, s.MachineType, s.CapacityType))
+	}
+	return req, nil
 }
 
 func (s LaunchSpec) validate() error {

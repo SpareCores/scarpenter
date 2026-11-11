@@ -115,7 +115,8 @@ func (c *Compute) InsertNetwork(_ context.Context, r *computepb.InsertNetworkReq
 		return nil, invalid("Invalid value for field 'resource.name': ''")
 	}
 	if c.networks[name] != nil {
-		return nil, Error(http.StatusConflict, "alreadyExists", fmt.Sprintf("The resource 'projects/%s/global/networks/%s' already exists", r.GetProject(), name))
+		return nil, Error(http.StatusConflict, "alreadyExists",
+			fmt.Sprintf("The resource 'projects/%s/global/networks/%s' already exists", r.GetProject(), name))
 	}
 	c.seq++
 	in.Id = new(c.seq)
@@ -141,11 +142,13 @@ func (c *Compute) DeleteNetwork(_ context.Context, r *computepb.DeleteNetworkReq
 		return nil, notFound("projects/" + r.GetProject() + "/global/networks/" + name)
 	}
 	if subs := c.subnetsOf(name); len(subs) > 0 {
-		return nil, inUse("The network resource 'projects/%s/global/networks/%s' is already being used by '%s'", r.GetProject(), name, subs[0])
+		return nil, inUse("The network resource 'projects/%s/global/networks/%s' is already being used by '%s'",
+			r.GetProject(), name, subs[0])
 	}
 	for _, k := range sortedKeys(c.firewalls) {
 		if last(c.firewalls[k].GetNetwork()) == name {
-			return nil, inUse("The network resource 'projects/%s/global/networks/%s' is already being used by 'projects/%s/global/firewalls/%s'", r.GetProject(), name, r.GetProject(), k)
+			return nil, inUse("The network resource 'projects/%s/global/networks/%s' is already being used by "+
+				"'projects/%s/global/firewalls/%s'", r.GetProject(), name, r.GetProject(), k)
 		}
 	}
 	delete(c.networks, name)
@@ -170,12 +173,15 @@ func (c *Compute) GetSubnetwork(_ context.Context, r *computepb.GetSubnetworkReq
 	}
 	s := c.subnets[r.GetRegion()+"/"+r.GetSubnetwork()]
 	if s == nil {
-		return nil, notFound(fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", r.GetProject(), r.GetRegion(), r.GetSubnetwork()))
+		return nil, notFound(fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", r.GetProject(), r.GetRegion(),
+			r.GetSubnetwork()))
 	}
 	return proto.Clone(s).(*computepb.Subnetwork), nil
 }
 
-func (c *Compute) ListSubnetworks(_ context.Context, r *computepb.ListSubnetworksRequest) (*computepb.SubnetworkList, error) {
+func (c *Compute) ListSubnetworks(
+	_ context.Context, r *computepb.ListSubnetworksRequest,
+) (*computepb.SubnetworkList, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("ListSubnetworks"); err != nil {
@@ -217,7 +223,9 @@ func (c *Compute) ListSubnetworks(_ context.Context, r *computepb.ListSubnetwork
 	return &computepb.SubnetworkList{Items: all[lo:hi], NextPageToken: next}, nil
 }
 
-func (c *Compute) InsertSubnetwork(_ context.Context, r *computepb.InsertSubnetworkRequest) (*computepb.Operation, error) {
+func (c *Compute) InsertSubnetwork(
+	_ context.Context, r *computepb.InsertSubnetworkRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("InsertSubnetwork"); err != nil {
@@ -240,7 +248,9 @@ func (c *Compute) InsertSubnetwork(_ context.Context, r *computepb.InsertSubnetw
 	}
 	key := r.GetRegion() + "/" + name
 	if c.subnets[key] != nil {
-		return nil, Error(http.StatusConflict, "alreadyExists", fmt.Sprintf("The resource 'projects/%s/regions/%s/subnetworks/%s' already exists", r.GetProject(), r.GetRegion(), name))
+		return nil, Error(http.StatusConflict, "alreadyExists",
+			fmt.Sprintf("The resource 'projects/%s/regions/%s/subnetworks/%s' already exists", r.GetProject(),
+				r.GetRegion(), name))
 	}
 	network := last(in.GetNetwork())
 	if c.networks[network] == nil {
@@ -256,7 +266,8 @@ func (c *Compute) InsertSubnetwork(_ context.Context, r *computepb.InsertSubnetw
 			continue
 		}
 		if op, err := netip.ParsePrefix(o.GetIpCidrRange()); err == nil && op.Overlaps(p) {
-			return nil, invalid("Invalid IPCidrRange: %s conflicts with existing subnetwork '%s' in region '%s'.", p, o.GetName(), last(o.GetRegion()))
+			return nil, invalid("Invalid IPCidrRange: %s conflicts with existing subnetwork '%s' in region '%s'.", p,
+				o.GetName(), last(o.GetRegion()))
 		}
 	}
 	c.seq++
@@ -275,7 +286,9 @@ func (c *Compute) InsertSubnetwork(_ context.Context, r *computepb.InsertSubnetw
 	return proto.Clone(op).(*computepb.Operation), nil
 }
 
-func (c *Compute) DeleteSubnetwork(_ context.Context, r *computepb.DeleteSubnetworkRequest) (*computepb.Operation, error) {
+func (c *Compute) DeleteSubnetwork(
+	_ context.Context, r *computepb.DeleteSubnetworkRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("DeleteSubnetwork"); err != nil {
@@ -286,20 +299,23 @@ func (c *Compute) DeleteSubnetwork(_ context.Context, r *computepb.DeleteSubnetw
 	}
 	key := r.GetRegion() + "/" + r.GetSubnetwork()
 	if c.subnets[key] == nil {
-		return nil, notFound(fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", r.GetProject(), r.GetRegion(), r.GetSubnetwork()))
+		return nil, notFound(fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", r.GetProject(), r.GetRegion(),
+			r.GetSubnetwork()))
 	}
 	for _, k := range sortedKeys(c.instances) {
 		in := c.instances[k]
 		for _, nic := range in.GetNetworkInterfaces() {
 			if regionOf(last(in.GetZone())) == r.GetRegion() && last(nic.GetSubnetwork()) == r.GetSubnetwork() {
-				return nil, inUse("The subnetwork resource 'projects/%s/regions/%s/subnetworks/%s' is already being used by 'projects/%s/zones/%s/instances/%s'",
+				return nil, inUse("The subnetwork resource 'projects/%s/regions/%s/subnetworks/%s' is already being used by "+
+					"'projects/%s/zones/%s/instances/%s'",
 					r.GetProject(), r.GetRegion(), r.GetSubnetwork(), r.GetProject(), last(in.GetZone()), in.GetName())
 			}
 		}
 	}
 	delete(c.subnets, key)
 	delete(c.usedIPs, key)
-	return c.simpleOp("regions/"+r.GetRegion(), "regions/"+r.GetRegion()+"/subnetworks/"+r.GetSubnetwork(), "DeleteSubnetwork"), nil
+	return c.simpleOp("regions/"+r.GetRegion(), "regions/"+r.GetRegion()+"/subnetworks/"+r.GetSubnetwork(),
+		"DeleteSubnetwork"), nil
 }
 
 // ----- firewalls -----
@@ -346,7 +362,8 @@ func (c *Compute) InsertFirewall(_ context.Context, r *computepb.InsertFirewallR
 		return nil, invalid("Invalid value for field 'resource.name': ''")
 	}
 	if c.firewalls[name] != nil {
-		return nil, Error(http.StatusConflict, "alreadyExists", fmt.Sprintf("The resource 'projects/%s/global/firewalls/%s' already exists", r.GetProject(), name))
+		return nil, Error(http.StatusConflict, "alreadyExists",
+			fmt.Sprintf("The resource 'projects/%s/global/firewalls/%s' already exists", r.GetProject(), name))
 	}
 	if c.networks[last(in.GetNetwork())] == nil {
 		return nil, notFound(in.GetNetwork())
@@ -380,7 +397,9 @@ func (c *Compute) DeleteFirewall(_ context.Context, r *computepb.DeleteFirewallR
 
 // ----- resource policies -----
 
-func (c *Compute) GetResourcePolicy(_ context.Context, r *computepb.GetResourcePolicyRequest) (*computepb.ResourcePolicy, error) {
+func (c *Compute) GetResourcePolicy(
+	_ context.Context, r *computepb.GetResourcePolicyRequest,
+) (*computepb.ResourcePolicy, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("GetResourcePolicy"); err != nil {
@@ -391,12 +410,15 @@ func (c *Compute) GetResourcePolicy(_ context.Context, r *computepb.GetResourceP
 	}
 	p := c.policies[r.GetRegion()+"/"+r.GetResourcePolicy()]
 	if p == nil {
-		return nil, notFound(fmt.Sprintf("projects/%s/regions/%s/resourcePolicies/%s", r.GetProject(), r.GetRegion(), r.GetResourcePolicy()))
+		return nil, notFound(fmt.Sprintf("projects/%s/regions/%s/resourcePolicies/%s", r.GetProject(), r.GetRegion(),
+			r.GetResourcePolicy()))
 	}
 	return proto.Clone(p).(*computepb.ResourcePolicy), nil
 }
 
-func (c *Compute) ListResourcePolicies(_ context.Context, r *computepb.ListResourcePoliciesRequest) (*computepb.ResourcePolicyList, error) {
+func (c *Compute) ListResourcePolicies(
+	_ context.Context, r *computepb.ListResourcePoliciesRequest,
+) (*computepb.ResourcePolicyList, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("ListResourcePolicies"); err != nil {
@@ -427,7 +449,9 @@ func (c *Compute) ListResourcePolicies(_ context.Context, r *computepb.ListResou
 	return &computepb.ResourcePolicyList{Items: all[lo:hi], NextPageToken: next}, nil
 }
 
-func (c *Compute) InsertResourcePolicy(_ context.Context, r *computepb.InsertResourcePolicyRequest) (*computepb.Operation, error) {
+func (c *Compute) InsertResourcePolicy(
+	_ context.Context, r *computepb.InsertResourcePolicyRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("InsertResourcePolicy"); err != nil {
@@ -450,7 +474,9 @@ func (c *Compute) InsertResourcePolicy(_ context.Context, r *computepb.InsertRes
 	}
 	key := r.GetRegion() + "/" + name
 	if c.policies[key] != nil {
-		return nil, Error(http.StatusConflict, "alreadyExists", fmt.Sprintf("The resource 'projects/%s/regions/%s/resourcePolicies/%s' already exists", r.GetProject(), r.GetRegion(), name))
+		return nil, Error(http.StatusConflict, "alreadyExists",
+			fmt.Sprintf("The resource 'projects/%s/regions/%s/resourcePolicies/%s' already exists", r.GetProject(),
+				r.GetRegion(), name))
 	}
 	c.seq++
 	in.Id = new(c.seq)
@@ -464,7 +490,9 @@ func (c *Compute) InsertResourcePolicy(_ context.Context, r *computepb.InsertRes
 	return proto.Clone(op).(*computepb.Operation), nil
 }
 
-func (c *Compute) DeleteResourcePolicy(_ context.Context, r *computepb.DeleteResourcePolicyRequest) (*computepb.Operation, error) {
+func (c *Compute) DeleteResourcePolicy(
+	_ context.Context, r *computepb.DeleteResourcePolicyRequest,
+) (*computepb.Operation, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.begin("DeleteResourcePolicy"); err != nil {
@@ -475,7 +503,8 @@ func (c *Compute) DeleteResourcePolicy(_ context.Context, r *computepb.DeleteRes
 	}
 	key := r.GetRegion() + "/" + r.GetResourcePolicy()
 	if c.policies[key] == nil {
-		return nil, notFound(fmt.Sprintf("projects/%s/regions/%s/resourcePolicies/%s", r.GetProject(), r.GetRegion(), r.GetResourcePolicy()))
+		return nil, notFound(fmt.Sprintf("projects/%s/regions/%s/resourcePolicies/%s", r.GetProject(), r.GetRegion(),
+			r.GetResourcePolicy()))
 	}
 	for _, k := range sortedKeys(c.instances) {
 		in := c.instances[k]
@@ -484,13 +513,15 @@ func (c *Compute) DeleteResourcePolicy(_ context.Context, r *computepb.DeleteRes
 		}
 		for _, p := range in.GetResourcePolicies() {
 			if last(p) == r.GetResourcePolicy() {
-				return nil, inUse("The resource_policy resource 'projects/%s/regions/%s/resourcePolicies/%s' is already being used by 'projects/%s/zones/%s/instances/%s'",
+				return nil, inUse("The resource_policy resource 'projects/%s/regions/%s/resourcePolicies/%s' "+
+					"is already being used by 'projects/%s/zones/%s/instances/%s'",
 					r.GetProject(), r.GetRegion(), r.GetResourcePolicy(), r.GetProject(), last(in.GetZone()), in.GetName())
 			}
 		}
 	}
 	delete(c.policies, key)
-	return c.simpleOp("regions/"+r.GetRegion(), "regions/"+r.GetRegion()+"/resourcePolicies/"+r.GetResourcePolicy(), "DeleteResourcePolicy"), nil
+	return c.simpleOp("regions/"+r.GetRegion(), "regions/"+r.GetRegion()+"/resourcePolicies/"+r.GetResourcePolicy(),
+		"DeleteResourcePolicy"), nil
 }
 
 // seedNetwork adds the custom network "vpc" and the subnet "nodes".
