@@ -89,7 +89,7 @@ The managed network security group has an allow rule between the nodes of its ap
 of `spec.networking.inbound` at priorities 100 and up, and a deny of the virtual network's traffic at 4000 (Azure's built-in
 `AllowVnetInBound` would let every node reach every other). Isolation `run` with a run key gets a group of its own per run.
 **A NIC takes one network security group, so a group brought with `use` decides alone and `networking.isolation` has no
-effect on it** (the driver logs it once). A resource group is deleted only if it carries the marker and holds nothing
+effect on it** (the vendor condition `ConfigurationWarning` says so, with one Warning event). A resource group is deleted only if it carries the marker and holds nothing
 but SCarpenter's own leftovers; nothing brought is ever modified or deleted. Nodes are IPv4 only; without a public address
 nothing gives them egress, so `publicIPv4: false` needs `subnets.use`.
 

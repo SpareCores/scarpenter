@@ -596,7 +596,7 @@ read-only guard.
   Resource Graph `expression`).
 - Q2, Q3, Q4, Q5, Q6, Q7, Q9, Q10: the recommendations.
 - Q8: no PremiumV2/Ultra disks; NVMe-only sizes are not offered.
-- Q11: document and log once (no refusal): a brought NSG decides alone and `networking.isolation` has no effect.
+- Q11: document it and show it as the vendor condition `ConfigurationWarning` with one Warning event (no refusal): a brought NSG decides alone and `networking.isolation` has no effect.
 - Q12: the public IP and NIC are separate resources made by the launch itself (not engine kinds: their names do not carry
   the engine's prefix); a failed launch deletes them (a transient failure keeps them only when a VM exists), and the
   garbage collector deletes the ones an interrupted launch left without a VM once their NodeClaim is gone (the core's
