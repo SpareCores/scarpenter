@@ -133,6 +133,9 @@ Per reconcile of a qualifying node:
    disrupting, and so do nodes carrying `karpenter.sh/disrupted` or the NodeClaim `DisruptionReason` condition (Karpenter patches those in
    `markDisrupted`, `pkg/controllers/disruption/queue.go`, before its own `MarkForDeletion`). `cluster.MarkForDeletion` comes before the
    NodeClaim delete, so Karpenter's next budget build sees the slot taken under the mutex, and `Deleted()` keeps it counted after the delete.
+   Karpenter stops counting a node once its NodeClaim has `InstanceTerminating` (the cloud delete was accepted), while the Node, still
+   tainted, waits for the instance to go: SCarpenter counts a node with its `releasing` taint as disrupting until the Node is gone, so a
+   second release of its own never starts in that window.
    Residual: Karpenter re-validates a command's budget 15 s after computing it and marks only in `StartCommand`, so a SCarpenter mark inside
    those milliseconds overshoots the budget by one node. Accepted (core has no hook; its queue is private to `NewControllers`), documented,
    and counted by `scarpenter_billing_budget_overshoot_total` when SCarpenter's post-mark recount is negative. **Blocked by

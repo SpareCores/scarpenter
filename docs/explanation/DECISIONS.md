@@ -718,7 +718,8 @@ registered, on-demand node of a non-static NodePool, owned by a NodeClaim of suc
    an older scheduling cycle is evicted and rescheduled by the drain, delayed and never lost.
 
 *Budget accounting.* The budget comes from the same cluster-state snapshot with Karpenter's own helpers, counting nodes marked for
-deletion or already disrupted, and SCarpenter marks the node before deleting the NodeClaim. Karpenter re-validates its own commands 15 seconds
+deletion or already disrupted, and nodes of its own releases until the Node is gone (Karpenter stops counting a node when the cloud
+delete is accepted), and SCarpenter marks the node before deleting the NodeClaim. Karpenter re-validates its own commands 15 seconds
 after computing them and marks only when it starts one, so a SCarpenter mark between that re-validation and Karpenter's mark can overshoot a budget by one node: accepted
 (core has no hook), documented and counted by `scarpenter_billing_budget_overshoot_total`.
 

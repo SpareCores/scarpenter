@@ -77,15 +77,25 @@ func (c *Controller) reschedulable(ctx context.Context, r client.Reader, node st
 // same cluster-state snapshot Karpenter builds its budgets from, with
 // Karpenter's own helpers. Nodes marked for deletion count as disrupting, and so
 // do nodes Karpenter has already tainted or flagged as disrupted but not yet
-// marked (markDisrupted runs before its MarkForDeletion).
+// marked (markDisrupted runs before its MarkForDeletion), and every node of a
+// release of ours until it is gone: Karpenter stops counting a node once its
+// NodeClaim has InstanceTerminating (the cloud delete was accepted), but the
+// Node is still there, tainted, for the seconds the instance takes to go, and a
+// second release in that window would be two at once under a budget of one.
 func (c *Controller) remaining(ctx context.Context, pool *karpv1.NodePool) (clamped, raw int) {
 	nodes := c.opts.Cluster.DeepCopyNodes()
 	numNodes, disrupting := disruption.NodePoolStatsFromNodes(nodes, karpv1.DisruptionReasonEmpty)
 	for _, n := range nodes {
-		if !n.Managed() || !n.Initialized() || n.MarkedForDeletion() || n.Labels()[karpv1.NodePoolLabelKey] != pool.Name {
+		if n.Labels()[karpv1.NodePoolLabelKey] != pool.Name {
 			continue
 		}
-		if disrupted(n) {
+		switch {
+		case n.Node != nil && hasReleasingTaint(n.Node):
+			_, counted := disruption.NodePoolStatsFromNodes([]*state.StateNode{n}, karpv1.DisruptionReasonEmpty)
+			if counted[pool.Name] == 0 {
+				disrupting[pool.Name]++
+			}
+		case n.Managed() && n.Initialized() && !n.MarkedForDeletion() && disrupted(n):
 			disrupting[pool.Name]++
 		}
 	}

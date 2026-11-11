@@ -121,6 +121,39 @@ func TestBudgetOfOneAllowsExactlyOneDelete(t *testing.T) {
 	})
 }
 
+// A budget of 1, two empty nodes whose deadlines are 10 s apart: the second
+// waits while the first is on its way out, also after Karpenter has stopped
+// counting the first (InstanceTerminating: the cloud delete was accepted, the
+// Node goes when the instance is gone).
+func TestBudgetOfOneCountsAReleaseUntilTheNodeIsGone(t *testing.T) {
+	h := newHarness(t, enabled())
+	h.replacePool(poolOpts{budgets: nodes("1")})
+	a, b := h.addNode(nodeOpts{}), h.addNode(nodeOpts{start: 10 * time.Second})
+	a.reconcile()
+	b.reconcile()
+	h.advanceTo(57 * time.Minute)
+	a.reconcile()
+	h.clk.Step(6 * time.Second)
+	a.reconcile()
+	if !a.deleted() {
+		t.Fatal("the first node is deleted at its deadline")
+	}
+	// Karpenter's termination: drained, cloud delete accepted.
+	claim := &karpv1.NodeClaim{}
+	h.must(h.c.Get(t.Context(), clientKey(a.claim), claim))
+	claim.StatusConditions().SetTrue(karpv1.ConditionTypeInstanceTerminating)
+	h.must(h.c.Status().Update(t.Context(), claim))
+
+	h.advanceTo(57*time.Minute + 11*time.Second)
+	b.reconcile()
+	if b.tainted() || b.deleted() {
+		t.Error("the second release started while the first node was still there")
+	}
+	if h.events.count(retention.EventReleaseBlockedByBudget, b.name) != 1 {
+		t.Error("expected ReleaseBlockedByBudget on the second node")
+	}
+}
+
 // racyCluster marks another node in the middle of a release, as Karpenter does
 // between our budget check and our mark.
 type racyCluster struct {
