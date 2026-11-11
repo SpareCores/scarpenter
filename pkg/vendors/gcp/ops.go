@@ -52,13 +52,12 @@ func (d *Driver) waitOp(ctx context.Context, api ComputeAPI, op *computepb.Opera
 	return op, nil
 }
 
-// finish waits for the operation of a mutating call and returns the classified
-// error of a failed or unfinished one.
-func (d *Driver) finish(ctx context.Context, api ComputeAPI, op *computepb.Operation, ec errContext,
-) error {
+// finish waits for the operation of a mutating call on a managed resource and
+// returns the classified error of a failed or unfinished one.
+func (d *Driver) finish(ctx context.Context, api ComputeAPI, op *computepb.Operation) error {
 	op, err := d.waitOp(ctx, api, op, d.launchWait)
 	if err != nil {
 		return err
 	}
-	return classifyOperation(op, ec)
+	return classifyOperation(op, errContext{})
 }

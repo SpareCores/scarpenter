@@ -523,7 +523,7 @@ func (d *Driver) ensureSubnet(ctx context.Context, api ComputeAPI, region string
 			return vendors.ResourceRef{}, false, classify(err, errContext{})
 		}
 		if err == nil {
-			if err := d.finish(ctx, api, op, errContext{}); err != nil {
+			if err := d.finish(ctx, api, op); err != nil {
 				return vendors.ResourceRef{}, false, err
 			}
 		}
@@ -551,7 +551,7 @@ func (d *Driver) ensureSubnet(ctx context.Context, api ComputeAPI, region string
 			return vendors.ResourceRef{}, false, classify(err, errContext{})
 		}
 		if err == nil {
-			if err := d.finish(ctx, api, op, errContext{}); err != nil {
+			if err := d.finish(ctx, api, op); err != nil {
 				return vendors.ResourceRef{}, false, err
 			}
 		}
@@ -610,7 +610,7 @@ func (d *Driver) ensurePolicy(ctx context.Context, api ComputeAPI, region string
 			return vendors.ResourceRef{}, false, classify(err, errContext{})
 		}
 		if err == nil {
-			if err := d.finish(ctx, api, op, errContext{}); err != nil {
+			if err := d.finish(ctx, api, op); err != nil {
 				return vendors.ResourceRef{}, false, err
 			}
 		}
@@ -753,7 +753,7 @@ func (d *Driver) ensureFirewall(ctx context.Context, api ComputeAPI, kind vendor
 			}
 			return vendors.ResourceRef{}, false, classify(err, errContext{})
 		}
-		if err := d.finish(ctx, api, op, errContext{}); err != nil {
+		if err := d.finish(ctx, api, op); err != nil {
 			return vendors.ResourceRef{}, false, err
 		}
 		created = true
@@ -1097,7 +1097,7 @@ func (d *Driver) deleteOp(ctx context.Context, api ComputeAPI, call func() (*com
 		}
 		return classify(err, errContext{})
 	}
-	if err := d.finish(ctx, api, op, errContext{}); err != nil && !vendors.IsClass(err, vendors.NotFound) {
+	if err := d.finish(ctx, api, op); err != nil && !vendors.IsClass(err, vendors.NotFound) {
 		return err
 	}
 	return nil

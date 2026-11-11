@@ -195,13 +195,18 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		}
 		return nil, cerr
 	}
-	if err := d.finish(ctx, api, op, ec); err != nil {
+	// A wait that failed (a deadline, a transport error, a 5xx) or an operation
+	// still running at the limit says nothing about the insert: the retry keeps the
+	// request ID. Only a finished operation that failed counts the attempt up.
+	done, err := d.waitOp(ctx, api, op, d.launchWait)
+	if err != nil {
+		return nil, err
+	}
+	if err := classifyOperation(done, ec); err != nil {
 		if vendors.CodeOf(err) == CodeAlreadyExists {
 			return d.existing(ctx, api, req, spec.Name)
 		}
-		// An operation still running at the limit, or a transport failure while
-		// waiting, is unknown and keeps the request ID; a finished failure does not.
-		if !vendors.IsClass(err, vendors.Retryable) || vendors.CodeOf(err) != codeTimeout {
+		if done.GetStatus() == computepb.Operation_DONE {
 			d.bumpAttempt(key)
 		}
 		return nil, err

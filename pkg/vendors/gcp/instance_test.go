@@ -7,12 +7,15 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package gcp_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
+	"github.com/go-logr/logr"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp"
@@ -203,6 +206,59 @@ func TestALostResponseKeepsTheRequestID(t *testing.T) {
 	inst, err := e.d.CreateInstance(t.Context(), req)
 	if err != nil || inst.Ref != gcp.NewRef(fake.SeedRegion, fake.SeedZoneA, req.Node.Name) {
 		t.Fatalf("the retry: %v, %v", inst, err)
+	}
+	if n := len(e.c.Instances()); n != 1 {
+		t.Errorf("%d instances, want 1", n)
+	}
+}
+
+// laggingList hides the instances from the next aggregated lists (the lookup of
+// a key right after an insert may not see it yet) and records the request IDs
+// of the inserts.
+type laggingList struct {
+	*fake.Compute
+	hide       int
+	requestIDs []string
+}
+
+func (l *laggingList) AggregatedListInstances(
+	ctx context.Context, req *computepb.AggregatedListInstancesRequest,
+) (*computepb.InstanceAggregatedList, error) {
+	if l.hide > 0 {
+		l.hide--
+		return &computepb.InstanceAggregatedList{}, nil
+	}
+	return l.Compute.AggregatedListInstances(ctx, req)
+}
+
+func (l *laggingList) InsertInstance(
+	ctx context.Context, req *computepb.InsertInstanceRequest,
+) (*computepb.Operation, error) {
+	l.requestIDs = append(l.requestIDs, req.GetRequestId())
+	return l.Compute.InsertInstance(ctx, req)
+}
+
+// TestAFailedWaitKeepsTheRequestID: a wait that fails in transport (a 5xx, not
+// the deadline) says nothing about the insert, so the retry of the same offering
+// reuses the request ID and gets the original operation back.
+func TestAFailedWaitKeepsTheRequestID(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	api := &laggingList{Compute: e.c, hide: 2}
+	d := gcp.New(gcp.WithAPI(api), gcp.WithProject(testProject), gcp.WithConfirmedSeries(confirmed),
+		gcp.WithCallTimeouts(5*time.Second, 5*time.Second), gcp.WithLaunchWait(10*time.Second))
+	if err := d.Init(t.Context(), vendors.Config{ClusterName: testCluster, Clock: e.clock, Log: logr.Discard()}); err != nil {
+		t.Fatal(err)
+	}
+	e.c.Inject("WaitZoneOperation", fake.Error(503, "backendError", "unavailable"), 1)
+	req := request(`{}`)
+	if _, err := d.CreateInstance(t.Context(), req); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("the failed wait: %v", err)
+	}
+	if _, err := d.CreateInstance(t.Context(), req); err != nil {
+		t.Fatalf("the retry: %v", err)
+	}
+	if len(api.requestIDs) != 2 || api.requestIDs[0] == "" || api.requestIDs[0] != api.requestIDs[1] {
+		t.Errorf("the request IDs %q, want the same one twice", api.requestIDs)
 	}
 	if n := len(e.c.Instances()); n != 1 {
 		t.Errorf("%d instances, want 1", n)
