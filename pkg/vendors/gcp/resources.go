@@ -31,8 +31,9 @@ import (
 const (
 	// KindSubnets is the regional network: the project's default network and its
 	// default subnetwork as found, or, where the project has none (or it cannot
-	// honour the request) or the NodeClass says create, a managed VPC with one
-	// subnetwork per region. The network is implied by the subnetwork.
+	// honour the request) or the NodeClass says create, the cluster's managed
+	// global VPC with one subnetwork per region (network.go). The network is
+	// implied by the subnetwork.
 	KindSubnets vendors.ResourceKind = "subnets"
 	// KindFirewalls is the network tag of a NodeClass and the rules that target it.
 	// A tag is not a resource: `use` names tags that rules of the project mention.
@@ -45,12 +46,6 @@ const (
 	// of Kinds and Resolve does not serve it; ResolveImage does.
 	KindImages = selector.ImagesKind
 )
-
-// ManagedCIDR is the range of the subnetwork of a managed network. Every managed
-// network is a VPC of its own (one per region), so the range never collides
-// inside it; it may collide with a user's network that is peered with it.
-// Plan 16, open question 10.
-const ManagedCIDR = "10.240.0.0/20"
 
 // Kinds implements vendors.ManagedResources. The deletion order is policies and
 // run rules first (nothing depends on them but instances), then the NodeClass
@@ -505,19 +500,34 @@ func (d *Driver) Ensure(ctx context.Context, kind vendors.ResourceKind, region s
 
 func (d *Driver) ensureSubnet(ctx context.Context, api ComputeAPI, region string, spec vendors.CreateSpec,
 ) (vendors.ResourceRef, bool, error) {
+	var params SubnetParams
+	if len(spec.Params) > 0 {
+		if err := json.Unmarshal(spec.Params, &params); err != nil {
+			return vendors.ResourceRef{}, false, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
+		}
+	}
+	poolStr := params.Pool
+	if poolStr == "" {
+		poolStr = DefaultPool
+	}
+	pool, err := ParsePool(poolStr)
+	if err != nil {
+		return vendors.ResourceRef{}, false, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
+	}
 	name := shorten(spec.Name)
-	desc := markerFor(spec, KindSubnets, region)
+	network := d.managedNetworkName()
 	created := false
-	netw, err := api.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: d.project, Network: name})
+	netw, err := api.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: d.project, Network: network})
 	switch {
 	case err == nil:
-		if _, _, ok := ownedBy(d.cfg.ClusterName, name, netw.GetDescription()); !ok {
+		if _, _, ok := ownedBy(d.cfg.ClusterName, network, netw.GetDescription()); !ok {
 			return vendors.ResourceRef{}, false, vendors.Errorf(vendors.Fatal,
-				"a network named %s exists and does not carry the SCarpenter marker of cluster %q", name, d.cfg.ClusterName)
+				"a network named %s exists and does not carry the SCarpenter marker of cluster %q", network, d.cfg.ClusterName)
 		}
 	case IsNotFound(err):
+		desc := networkMarker(spec)
 		op, err := api.InsertNetwork(ctx, &computepb.InsertNetworkRequest{Project: d.project,
-			NetworkResource: &computepb.Network{Name: &name, Description: &desc, AutoCreateSubnetworks: new(false),
+			NetworkResource: &computepb.Network{Name: &network, Description: &desc, AutoCreateSubnetworks: new(false),
 				RoutingConfig: &computepb.NetworkRoutingConfig{RoutingMode: new("REGIONAL")}}})
 		if err != nil && !IsAlreadyExists(err) {
 			return vendors.ResourceRef{}, false, classify(err, errContext{})
@@ -531,6 +541,8 @@ func (d *Driver) ensureSubnet(ctx context.Context, api ComputeAPI, region string
 	default:
 		return vendors.ResourceRef{}, false, classify(err, errContext{})
 	}
+	// An existing subnetwork of the name is the one this call, or an earlier run of
+	// the controller, created: its range stays, whatever the pool says now.
 	sub, err := api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{
 		Project: d.project, Region: region, Subnetwork: name})
 	switch {
@@ -541,19 +553,8 @@ func (d *Driver) ensureSubnet(ctx context.Context, api ComputeAPI, region string
 				d.cfg.ClusterName)
 		}
 	case IsNotFound(err):
-		op, err := api.InsertSubnetwork(ctx, &computepb.InsertSubnetworkRequest{Project: d.project, Region: region,
-			SubnetworkResource: &computepb.Subnetwork{
-				Name: &name, Description: &desc, Network: new(ProjectPrefix(d.project) + "global/networks/" + name),
-				IpCidrRange: new(ManagedCIDR), PrivateIpGoogleAccess: new(true),
-				StackType: new("IPV4_IPV6"), Ipv6AccessType: new("EXTERNAL"),
-			}})
-		if err != nil && !IsAlreadyExists(err) {
-			return vendors.ResourceRef{}, false, classify(err, errContext{})
-		}
-		if err == nil {
-			if err := d.finish(ctx, api, op); err != nil {
-				return vendors.ResourceRef{}, false, err
-			}
+		if err := d.insertSubnet(ctx, api, region, name, network, markerFor(spec, KindSubnets, region), pool); err != nil {
+			return vendors.ResourceRef{}, false, err
 		}
 		created = true
 		if sub, err = api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{
@@ -824,7 +825,6 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 		return nil, err
 	}
 	var out []vendors.ResourceRef
-	subnetNets := map[string]bool{}
 	for _, region := range usable {
 		subs, err := d.listSubnets(ctx, api, region, "")
 		if err != nil {
@@ -835,7 +835,6 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 			if !ok {
 				continue
 			}
-			subnetNets[lastSegment(s.GetNetwork())] = true
 			if !d.markerMatches(nc, string(KindSubnets), tags) {
 				continue
 			}
@@ -857,7 +856,7 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 			out = append(out, ref)
 		}
 	}
-	orphans, err := d.listOrphanNetworks(ctx, api, usable, subnetNets, tags)
+	orphans, err := d.listOrphanNetworks(ctx, api, usable, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -873,11 +872,15 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 	return out, nil
 }
 
-// listOrphanNetworks lists the managed networks that have no subnetwork (an
-// interrupted creation, or a subnetwork deleted first) as subnets resources, so
-// that they are held and deleted and not leaked.
-func (d *Driver) listOrphanNetworks(ctx context.Context, api ComputeAPI, usable []string, withSubnets map[string]bool,
+// listOrphanNetworks lists the managed networks that have no subnetwork in any
+// region (an interrupted creation, or every subnetwork deleted) as subnets
+// resources, so that they are held and deleted and not leaked. The network is
+// global: it is listed in the first region asked for.
+func (d *Driver) listOrphanNetworks(ctx context.Context, api ComputeAPI, usable []string,
 	tags map[vendors.TagKey]string) ([]vendors.ResourceRef, error) {
+	if len(usable) == 0 {
+		return nil, nil
+	}
 	nets, err := d.listNetworks(ctx, api)
 	if err != nil {
 		return nil, err
@@ -885,12 +888,10 @@ func (d *Driver) listOrphanNetworks(ctx context.Context, api ComputeAPI, usable 
 	var out []vendors.ResourceRef
 	for _, n := range nets {
 		nc, _, ok := ownedBy(d.cfg.ClusterName, n.GetName(), n.GetDescription())
-		region := markerRegion(n.GetDescription())
-		if !ok || withSubnets[n.GetName()] || !slices.Contains(usable, region) ||
-			!d.markerMatches(nc, string(KindSubnets), tags) {
+		if !ok || len(n.GetSubnetworks()) > 0 || !d.markerMatches(nc, string(KindSubnets), tags) {
 			continue
 		}
-		out = append(out, vendors.ResourceRef{Kind: KindSubnets, Region: region, ID: networkID(d.project, n.GetName()),
+		out = append(out, vendors.ResourceRef{Kind: KindSubnets, Region: usable[0], ID: networkID(d.project, n.GetName()),
 			Name: n.GetName(), Network: n.GetName(), Managed: true, CreatedAt: parseTime(n.GetCreationTimestamp()),
 			Tags: d.markerTags(nc, string(KindSubnets))})
 	}
@@ -1103,9 +1104,13 @@ func (d *Driver) deleteOp(ctx context.Context, api ComputeAPI, call func() (*com
 	return nil
 }
 
-// deleteSubnet deletes a managed subnetwork and then its network, or an orphaned
-// managed network.
+// deleteSubnet deletes a managed subnetwork and, when it was the last of the
+// network (which spans the regions), the network; or an orphaned managed network.
 func (d *Driver) deleteSubnet(ctx context.Context, api ComputeAPI, ref vendors.ResourceRef) error {
+	network := ref.Network
+	if network == "" {
+		network = d.managedNetworkName()
+	}
 	if !strings.Contains(ref.ID, "/global/networks/") {
 		s, err := api.GetSubnetwork(ctx, &computepb.GetSubnetworkRequest{Project: d.project, Region: ref.Region,
 			Subnetwork: ref.Name})
@@ -1114,6 +1119,7 @@ func (d *Driver) deleteSubnet(ctx context.Context, api ComputeAPI, ref vendors.R
 			if _, _, ok := ownedBy(d.cfg.ClusterName, s.GetName(), s.GetDescription()); !ok {
 				return vendors.Errorf(vendors.Fatal, "%s was not created by SCarpenter and is never deleted", ref.ID)
 			}
+			network = lastSegment(s.GetNetwork())
 			if err := d.deleteOp(ctx, api, func() (*computepb.Operation, error) {
 				return api.DeleteSubnetwork(ctx, &computepb.DeleteSubnetworkRequest{Project: d.project,
 					Region: ref.Region, Subnetwork: ref.Name})
@@ -1125,7 +1131,7 @@ func (d *Driver) deleteSubnet(ctx context.Context, api ComputeAPI, ref vendors.R
 			return classify(err, errContext{})
 		}
 	}
-	n, err := api.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: d.project, Network: ref.Name})
+	n, err := api.GetNetwork(ctx, &computepb.GetNetworkRequest{Project: d.project, Network: network})
 	if err != nil {
 		if IsNotFound(err) {
 			return nil
@@ -1135,7 +1141,10 @@ func (d *Driver) deleteSubnet(ctx context.Context, api ComputeAPI, ref vendors.R
 	if _, _, ok := ownedBy(d.cfg.ClusterName, n.GetName(), n.GetDescription()); !ok {
 		return nil // the subnetwork was ours, the network is not: never touched
 	}
+	if len(n.GetSubnetworks()) > 0 {
+		return nil // the network is global: the subnetworks of other regions keep it
+	}
 	return d.deleteOp(ctx, api, func() (*computepb.Operation, error) {
-		return api.DeleteNetwork(ctx, &computepb.DeleteNetworkRequest{Project: d.project, Network: ref.Name})
+		return api.DeleteNetwork(ctx, &computepb.DeleteNetworkRequest{Project: d.project, Network: network})
 	})
 }

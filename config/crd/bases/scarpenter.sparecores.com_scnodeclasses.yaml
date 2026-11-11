@@ -9356,7 +9356,7 @@ spec:
                             properties:
                               create:
                                 description: create lets SCarpenter create and own
-                                  the resource, with a lifecycle.
+                                  the network and its subnetworks.
                                 properties:
                                   lifecycle:
                                     description: |-
@@ -9382,6 +9382,23 @@ spec:
                                     x-kubernetes-validations:
                                     - message: ttl is only valid with policy idleTTL
                                       rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  pool:
+                                    description: |-
+                                      pool is the private range the managed subnetworks (one /20 per region) are
+                                      taken from: each is the first /20 of the pool that overlaps no subnetwork of
+                                      the managed network. Default 10.240.0.0/12. Set it when a network your own
+                                      network is peered with, or reaches by VPN, uses that range.
+                                    maxLength: 18
+                                    type: string
+                                    x-kubernetes-validations:
+                                    - message: pool must be an IPv4 CIDR inside 10.0.0.0/8,
+                                        172.16.0.0/12 or 192.168.0.0/16, with a prefix
+                                        length of at most 20
+                                      rule: isCIDR(self) && cidr(self).ip().family()
+                                        == 4 && cidr(self).masked() == cidr(self)
+                                        && cidr(self).prefixLength() <= 20 && (cidr('10.0.0.0/8').containsCIDR(self)
+                                        || cidr('172.16.0.0/12').containsCIDR(self)
+                                        || cidr('192.168.0.0/16').containsCIDR(self))
                                   timing:
                                     description: 'timing decides when the resource
                                       is created. Default: on demand.'
@@ -9412,14 +9429,12 @@ spec:
                                         : !has(self.regions)'
                                 type: object
                               forbid:
-                                description: |-
-                                  forbid opts the kind out of auto-creation: offerings that need it are
-                                  unavailable unless the vendor's default resource exists.
+                                description: forbid opts the kind out of auto-creation.
                                 type: boolean
                               use:
                                 description: |-
-                                  use brings an existing resource: it is validated per region, never
-                                  modified and never deleted.
+                                  use brings existing subnetworks: validated per region, never modified
+                                  and never deleted.
                                 properties:
                                   expression:
                                     description: expression is a query in the vendor's

@@ -191,7 +191,7 @@ error (`Unsupported`).
 
 | Kind | Scope | Default lifecycle | `use` | `create` |
 |---|---|---|---|---|
-| `subnets` | region | `idleTTL` | `ids` (`projects/<p>/regions/<r>/subnetworks/<n>` or the short name), `name`, `match` (`network`, `cidr`, `within`, `state`, `description`), `filters`, `expression`; **no `tags`** (no labels) | a VPC and one subnetwork named `scarpenter-<cluster>-subnets-<region>` |
+| `subnets` | region | `idleTTL` | `ids` (`projects/<p>/regions/<r>/subnetworks/<n>` or the short name), `name`, `match` (`network`, `cidr`, `within`, `state`, `description`), `filters`, `expression`; **no `tags`** (no labels) | the cluster's global VPC `scarpenter-<cluster>-subnets` and one subnetwork per region named `scarpenter-<cluster>-subnets-<region>`; `create.pool` sets the range they are taken from |
 | `firewalls` | region | `idleTTL` | `ids` are **network tags**, `name` a glob on the tags the rules target, `match.network`; no `tags` | rules for the tag `scarpenter-<cluster>-firewalls-<region>-...` |
 | `images` | global | never | see [Images](#images) | nothing |
 | `runFirewalls` (internal) | run | `perUse` | not configurable | one rule per run key |
@@ -199,16 +199,26 @@ error (`Unsupported`).
 
 - **Ownership marker.** Networks, subnetworks, firewall rules and resource policies have **no labels**. The
   marker is the name prefix `scarpenter-<cluster>-` **plus a description**
-  `scarpenter: cluster=<c> nodeclass=<n> managed-by=scarpenter resource-kind=<kind> region=<r>`. Both are
+  `scarpenter: cluster=<c> nodeclass=<n> managed-by=scarpenter resource-kind=<kind> region=<r>` (the global network's has no region). Both are
   required before the garbage collector lists, uses or deletes a resource; a resource of the name without
   the description is a `Fatal` conflict on create and is never deleted. Instances and disks carry real labels.
-- **The managed network** is a custom-mode VPC with one subnetwork per region, **one VPC per region and
-  cluster**, shared by the cluster's NodeClasses (not one global VPC: the engine's resources are per
-  region), so nodes in different regions have no private path to each other and every region uses one of
-  the project's network quota; range `10.240.0.0/20`, dual stack
-  with an external IPv6 range, private Google access. The VPC and its subnetwork are one resource: `List`
-  returns the subnetwork, a VPC whose subnetwork is gone is listed as the network so it is not leaked, and
-  `Delete` removes the subnetwork, then the VPC if it carries the marker.
+- **The managed network** is **one global custom-mode VPC per cluster**, `scarpenter-<cluster>-subnets` (Compute
+  networks are global), shared by the cluster's NodeClasses, with **one subnetwork per region**, dual stack
+  with an external IPv6 range and private Google access. The VPC's description carries the marker without a
+  region. Each subnetwork is a `/20`: the first `/20` of the pool (default `10.240.0.0/12`) that overlaps no
+  primary or secondary range of the VPC's subnetworks, found by reading the VPC's subnetworks, so the choice is
+  the same after a restart (an existing subnetwork of the name is adopted with its range) and never collides
+  with one that exists. The allocation and the insert are one critical section in the controller; when another
+  process wins a range (Compute answers `Invalid IPCidrRange: ... conflicts with existing subnetwork ...`) the
+  insert is retried with a fresh listing, up to five times. An exhausted pool is `Fatal`.
+  The pool is set per NodeClass with `resources.subnets.create.pool`: an IPv4 CIDR inside `10.0.0.0/8`,
+  `172.16.0.0/12` or `192.168.0.0/16`, in canonical form, no smaller than a `/20` (checked by the CRD and again
+  by `ValidateNodeClass`). A NodeClass with a pool gets its own subnetwork per region (the pool is part of the
+  resource's identity), taken from that pool in the same VPC. Set it when a network your VPC is peered with, or
+  reaches by VPN, uses `10.240.0.0/12`. Nodes in different regions have a private path through the VPC; the
+  firewall rules still allow only what the tag rules say. The VPC and its subnetworks are one resource kind:
+  `List` returns the subnetworks, a VPC with no subnetwork left is listed as the network so it is not leaked,
+  and `Delete` removes the subnetwork, then the VPC when it was the last one and carries the marker.
 - **The managed firewall** is a set of rules for one network tag: a rule per inbound rule of
   `spec.networking` (CIDR sources), a rule that lets the nodes of the tag reach each other for isolation
   `nodeclass` (and for isolation `run` without a run key), and a deny rule at the lowest priority that says

@@ -3529,17 +3529,18 @@ Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `create` | [object](#specvendorsgcpresourcessubnetscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
-| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
-| `use` | [object](#specvendorsgcpresourcessubnetsuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+| `create` | [object](#specvendorsgcpresourcessubnetscreate) |  | create lets SCarpenter create and own the network and its subnetworks. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation. |
+| `use` | [object](#specvendorsgcpresourcessubnetsuse) |  | use brings existing subnetworks: validated per region, never modified and never deleted. |
 
 ### `spec.vendors.gcp.resources.subnets.create`
 
-create lets SCarpenter create and own the resource, with a lifecycle.
+create lets SCarpenter create and own the network and its subnetworks.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `lifecycle` | [object](#specvendorsgcpresourcessubnetscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `pool` | string |  | pool is the private range the managed subnetworks (one /20 per region) are taken from: each is the first /20 of the pool that overlaps no subnetwork of the managed network. Default 10.240.0.0/12. Set it when a network your own network is peered with, or reaches by VPN, uses that range. At most 18 characters. Rule: pool must be an IPv4 CIDR inside 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16, with a prefix length of at most 20 (`isCIDR(self) && cidr(self).ip().family() == 4 && cidr(self).masked() == cidr(self) && cidr(self).prefixLength() <= 20 && (cidr('10.0.0.0/8').containsCIDR(self) \|\| cidr('172.16.0.0/12').containsCIDR(self) \|\| cidr('192.168.0.0/16').containsCIDR(self))`). |
 | `timing` | [object](#specvendorsgcpresourcessubnetscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
 
 ### `spec.vendors.gcp.resources.subnets.create.lifecycle`
@@ -3566,7 +3567,7 @@ Validation: regions is required with mode preCreate and invalid otherwise (`self
 
 ### `spec.vendors.gcp.resources.subnets.use`
 
-use brings an existing resource: it is validated per region, never modified and never deleted.
+use brings existing subnetworks: validated per region, never modified and never deleted.
 
 Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
 

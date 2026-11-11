@@ -279,7 +279,8 @@ func (d *Driver) validateBlock(b *gcpapi.Settings) []error {
 	}
 	if r := b.Resources; r != nil {
 		caps := d.Selectors()
-		errs = append(errs, validateResource(KindSubnets, caps[KindSubnets], r.Subnets, subnetIDPattern)...)
+		errs = append(errs, validateResource(KindSubnets, caps[KindSubnets], r.Subnets.Common(), subnetIDPattern)...)
+		errs = append(errs, validatePool(r.Subnets)...)
 		errs = append(errs, validateResource(KindFirewalls, caps[KindFirewalls], r.Firewalls, tagIDPattern)...)
 		errs = append(errs, validateResource(KindResourcePolicies, caps[KindResourcePolicies], r.ResourcePolicies,
 			policyIDPattern)...)

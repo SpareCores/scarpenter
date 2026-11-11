@@ -193,7 +193,16 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 	}
 	prep := &vendors.Prepared{}
 
-	subnetRefs, err := req.Resources.Require(ctx, vendors.ResourceRequest{Kind: KindSubnets, Settings: &req.Settings})
+	// The pool of a create override is part of the identity of the managed subnet;
+	// without one the subnet is the cluster's, shared by every NodeClass.
+	var subnetParams json.RawMessage
+	if pool := poolOf(st); pool != "" {
+		if subnetParams, err = json.Marshal(SubnetParams{Pool: pool}); err != nil {
+			return nil, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
+		}
+	}
+	subnetRefs, err := req.Resources.Require(ctx, vendors.ResourceRequest{
+		Kind: KindSubnets, Params: subnetParams, Settings: &req.Settings})
 	if err != nil {
 		return nil, err
 	}

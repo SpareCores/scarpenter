@@ -26,6 +26,10 @@ func use(ids map[string]common.IDList) *common.Resource {
 	return &common.Resource{Use: &common.ResourceUse{IDs: ids}}
 }
 
+func useSubnets(ids map[string]common.IDList) *gcpapi.SubnetResource {
+	return &gcpapi.SubnetResource{Use: &common.ResourceUse{IDs: ids}}
+}
+
 func TestValidateNodeClass(t *testing.T) {
 	e := newEnv(t, envOptions{bare: true})
 	ok := func(name string, nc *v1alpha1.SCNodeClass) {
@@ -49,7 +53,7 @@ func TestValidateNodeClass(t *testing.T) {
 			Data: []gcpapi.DataDisk{{GuestVolume: common.GuestVolume{Name: "d", MountPath: "/d"}, DiskType: "hyperdisk-balanced",
 				SizeGb: 100, ProvisionedIops: new(int64(5000))}}},
 		Resources: &gcpapi.Resources{
-			Subnets:          use(map[string]common.IDList{"europe-west3": {"projects/my-project/regions/europe-west3/subnetworks/n", "short"}}),
+			Subnets:          useSubnets(map[string]common.IDList{"europe-west3": {"projects/my-project/regions/europe-west3/subnetworks/n", "short"}}),
 			Firewalls:        use(map[string]common.IDList{"*": {"nodes"}}),
 			Images:           use(map[string]common.IDList{"*": {"projects/my-project/global/images/flatcar-stable-4757-2-3"}}),
 			ResourcePolicies: use(map[string]common.IDList{"europe-west3": {"policy"}}),
@@ -85,9 +89,22 @@ func TestValidateNodeClass(t *testing.T) {
 		LocalStorage: &common.LocalStorage{Policy: common.LocalStorageMount}}}), "needs a mountPath")
 	bad("a CIDR", nodeClass(&gcpapi.Settings{Networking: &common.NetworkingOverride{Inbound: &common.Inbound{
 		Rules: []common.InboundRule{{Protocol: "tcp", CIDRs: []string{"nope"}}}}}}), "not a CIDR")
-	bad("a region key", nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: use(map[string]common.IDList{"Mars": {"x"}})}}), "not a region")
-	bad("a subnet ID", nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: use(map[string]common.IDList{"*": {"Bad Name"}})}}), "not a valid ID")
-	bad("tags on a subnet", nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{
+	bad("a region key", nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: useSubnets(map[string]common.IDList{"Mars": {"x"}})}}), "not a region")
+	bad("a subnet ID", nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: useSubnets(map[string]common.IDList{"*": {"Bad Name"}})}}), "not a valid ID")
+	pool := func(p string) *gcpapi.Settings {
+		return &gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: &gcpapi.SubnetResource{
+			Create: &gcpapi.SubnetCreate{Pool: p}}}}
+	}
+	for _, p := range []string{"10.240.0.0/12", "10.0.0.0/8", "172.16.0.0/20", "192.168.64.0/18"} {
+		ok("pool "+p, nodeClass(pool(p)))
+	}
+	bad("a pool that is no CIDR", nodeClass(pool("nope")), "not an IPv4 CIDR")
+	bad("an IPv6 pool", nodeClass(pool("fd00::/8")), "not an IPv4 CIDR")
+	bad("a public pool", nodeClass(pool("8.8.0.0/16")), "not inside 10.0.0.0/8")
+	bad("a pool bigger than a private range", nodeClass(pool("172.0.0.0/8")), "not inside 10.0.0.0/8")
+	bad("a pool too small", nodeClass(pool("10.1.0.0/24")), "no subnetwork fits")
+	bad("a pool with host bits", nodeClass(pool("10.1.1.0/16")), "host bits")
+	bad("tags on a subnet", nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: &gcpapi.SubnetResource{Use: &common.ResourceUse{
 		Tags: map[string]string{"a": "b"}}}}}), "tags are not supported")
 	bad("a bad label key on images", nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Images: &common.Resource{Use: &common.ResourceUse{
 		Tags: map[string]string{"Bad Key": "b"}}}}}), "not a valid label key")
@@ -97,7 +114,7 @@ func TestValidateNodeClass(t *testing.T) {
 		return nc
 	}(), "no egress")
 	ok("no public address with own subnets", func() *v1alpha1.SCNodeClass {
-		nc := nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: use(map[string]common.IDList{"*": {"mine"}})}})
+		nc := nodeClass(&gcpapi.Settings{Resources: &gcpapi.Resources{Subnets: useSubnets(map[string]common.IDList{"*": {"mine"}})}})
 		nc.Spec.Networking.PublicIPv4 = new(false)
 		return nc
 	}())

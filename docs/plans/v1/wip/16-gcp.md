@@ -151,7 +151,7 @@ vendors:
 
 | Kind | Scope | Default lifecycle | `use` forms | `create` | What your IaC must output |
 |---|---|---|---|---|---|
-| `subnets` (the network is implied by the subnet) | region | `idleTTL` | `ids` (`projects/<p>/regions/<r>/subnetworks/<n>`, also the short name), `name` (glob, `{region}`), `match` (`network`, `cidr`, `within`, `state`, `owner` = the Shared VPC host project) and `filters` (`purpose`, `role`, `stackType`, ...), `expression` (a GCP filter); **no `tags`** (subnetworks have no labels, rejected) | yes: custom-mode VPC `scarpenter-<cluster>-subnets` (global) plus one subnet per region with the next free `/20` of `10.240.0.0/12` (found by listing the VPC's subnets, as AWS finds the first free `/20`), dual stack with external IPv6 and private Google access | the subnet resource ID per region (the network is implied) |
+| `subnets` (the network is implied by the subnet) | region | `idleTTL` | `ids` (`projects/<p>/regions/<r>/subnetworks/<n>`, also the short name), `name` (glob, `{region}`), `match` (`network`, `cidr`, `within`, `state`, `owner` = the Shared VPC host project) and `filters` (`purpose`, `role`, `stackType`, ...), `expression` (a GCP filter); **no `tags`** (subnetworks have no labels, rejected) | yes: custom-mode VPC `scarpenter-<cluster>-subnets` (global) plus one subnet per region with the next free `/20` of the pool (default `10.240.0.0/12`, `create.pool` overrides it; found by reading the VPC's subnets, as AWS finds the first free `/20`), dual stack with external IPv6 and private Google access | the subnet resource ID per region (the network is implied) |
 | `firewalls` | region (the rules are global; one rule set per region, named with the region, to fit the engine's per-region key) | `idleTTL` | `ids` = **network tags** (for example the tag `nodes` on your firewall rules), `name` (glob on the tags found in the rules' `targetTags`), `match.network`, `filters` on the rules (`direction`, `priority`, `disabled`); no `tags` (firewall rules have no labels, rejected) | yes: rules for one network tag `scarpenter-<cluster>-<nodeclass>-<region>` (hashed to 63 characters): inbound CIDR rules of `spec.networking.inbound`, for `isolation: nodeclass` allow-all from the same tag | the network tag per region |
 | `images` (not managed) | global, region key | not applicable | `ids` under `*` or per region (`projects/<p>/global/images/<name>`), `name` (exact: `images.get`; a glob lists the project, which does not show publicly shared images), `tags` (labels), `match` (`architecture`, `owner` = the project listed, `state`, `includeDeprecated`, `createdAfter`), `filters` (`family`, `deprecated.state`, ...), `expression`; `newest` by `orderBy=creationTimestamp desc`. A publicly shared image (`kinvolk-public`, the Spare Cores project) is reachable only by `ids`, exact `name` or `family` | never (ADR-021); without `images`: `kinvolk-public` by name (amd64), the Spare Cores project (arm64) | nothing (rungs 1 and 2), or the image IDs |
 | `runFirewalls` (internal, like AWS `runSecurityGroups`) | run | `perUse` | not configurable | one rule per run key (source tag = target tag = `scarpenter-run-<hash>`), the tag goes on the instance | nothing |
@@ -650,8 +650,7 @@ coordinator's.
 9. **Quota consumption rules.** Recommendation: ship only the spike-confirmed families as
    known; the rest reactive; add the Cloud Quotas API only if `regions.get` is insufficient.
 10. **Managed network CIDR pool** `10.240.0.0/12` with the first free `/20`: it may overlap what a
-    user's own networks use. Recommendation: keep it, and let a NodeClass `create`
-    parameter override the pool.
+    user's own networks use. **Decided and implemented:** keep it, and `create.pool` overrides it.
 
 ### Decided by default, maintainer to confirm
 
@@ -680,10 +679,10 @@ recommendation or, where it gave none, the conservative option.
 9. **Quota consumption**: `ConfirmedSeries` is empty, so every machine type is unknown quota and takes
    the reactive path (`QUOTA_EXCEEDED` names the metric); Spot is always unknown; the Cloud Quotas API is
    not used.
-10. **Managed network CIDR**: one VPC per region and cluster, shared by its NodeClasses (the resource engine's key is per region)
-    with the fixed range `10.240.0.0/20`, instead of one global VPC with the first free `/20` of
-    `10.240.0.0/12`; no `create` parameter overrides the range yet. A user's network peered with a managed
-    one must avoid `10.240.0.0/20`.
+10. **Managed network CIDR**: as planned: one global VPC per cluster (`scarpenter-<cluster>-subnets`) with one
+    subnetwork per region, each the first free `/20` of the pool `10.240.0.0/12` found from the VPC's
+    subnetworks (deterministic across restarts, never overlapping), and `resources.subnets.create.pool`
+    (a private IPv4 CIDR of at least a `/20`) overrides the pool per NodeClass; the open question 10 is closed.
 
 Other defaults taken: the request ID of an insert carries a random per-process epoch and an attempt
 counter that counts up after a definitive failure (a failed operation, a non-retryable HTTP error) and

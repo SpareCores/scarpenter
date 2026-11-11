@@ -159,26 +159,27 @@ func TestDefaultNetwork(t *testing.T) {
 
 func TestManagedNetworkLifecycle(t *testing.T) {
 	e := newEnv(t, envOptions{})
-	name := "scarpenter-conformance-subnets-europe-west3"
-	ref, created, err := e.d.Ensure(t.Context(), gcp.KindSubnets, testRegion, spec(name, ""))
-	if err != nil || !created || ref.Network != name || !ref.Managed {
+	sub := "scarpenter-conformance-subnets-europe-west3"
+	name := "scarpenter-conformance-subnets" // the network: global, one per cluster
+	ref, created, err := e.d.Ensure(t.Context(), gcp.KindSubnets, testRegion, spec(sub, ""))
+	if err != nil || !created || ref.Network != name || !ref.Managed || ref.Name != sub {
 		t.Fatalf("Ensure = %+v, %v, %v", ref, created, err)
 	}
 	// The network of an interrupted creation (no subnetwork yet) is adopted and finished.
 	e2 := newEnv(t, envOptions{})
 	_, _ = e2.c.InsertNetwork(t.Context(), &computepb.InsertNetworkRequest{Project: testProject, NetworkResource: &computepb.Network{
-		Name: &name, Description: new(gcp.MarkerDescription(testCluster, "class", "subnets") + " region=" + testRegion)}})
+		Name: &name, Description: new(gcp.MarkerDescription(testCluster, "class", "subnets"))}})
 	listed, err := e2.d.List(t.Context(), []string{testRegion}, nil)
 	if err != nil || len(listed) != 1 || listed[0].Kind != gcp.KindSubnets || !strings.Contains(listed[0].ID, "/global/networks/") {
 		t.Fatalf("an orphan network is listed as %+v, %v", listed, err)
 	}
-	if _, created, err := e2.d.Ensure(t.Context(), gcp.KindSubnets, testRegion, spec(name, "")); err != nil || !created {
+	if _, created, err := e2.d.Ensure(t.Context(), gcp.KindSubnets, testRegion, spec(sub, "")); err != nil || !created {
 		t.Errorf("finishing the creation: %v, %v", created, err)
 	}
 	// The orphan network is deleted on its own.
 	e3 := newEnv(t, envOptions{})
 	_, _ = e3.c.InsertNetwork(t.Context(), &computepb.InsertNetworkRequest{Project: testProject, NetworkResource: &computepb.Network{
-		Name: &name, Description: new(gcp.MarkerDescription(testCluster, "class", "subnets") + " region=" + testRegion)}})
+		Name: &name, Description: new(gcp.MarkerDescription(testCluster, "class", "subnets"))}})
 	orphan, _ := e3.d.List(t.Context(), nil, nil)
 	if err := e3.d.Delete(t.Context(), orphan[0]); err != nil {
 		t.Fatal(err)
@@ -190,7 +191,7 @@ func TestManagedNetworkLifecycle(t *testing.T) {
 	e4 := newEnv(t, envOptions{})
 	_, _ = e4.c.InsertNetwork(t.Context(), &computepb.InsertNetworkRequest{Project: testProject, NetworkResource: &computepb.Network{
 		Name: &name, Description: new("mine")}})
-	if _, _, err := e4.d.Ensure(t.Context(), gcp.KindSubnets, testRegion, spec(name, "")); vendors.ClassOf(err) != vendors.Fatal {
+	if _, _, err := e4.d.Ensure(t.Context(), gcp.KindSubnets, testRegion, spec(sub, "")); vendors.ClassOf(err) != vendors.Fatal {
 		t.Errorf("a foreign network of the name: %v, want Fatal", err)
 	}
 	if err := e4.d.Delete(t.Context(), vendors.ResourceRef{Kind: gcp.KindSubnets, Region: testRegion,

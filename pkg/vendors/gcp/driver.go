@@ -112,6 +112,9 @@ type Driver struct {
 	// epoch changes when the answers of Supported and PriceDelta may have.
 	epoch atomic.Uint64
 
+	// netMu serialises the allocation of a subnetwork range and its insert.
+	netMu sync.Mutex
+
 	mu       sync.Mutex
 	regions  cached[[]vendors.Region]
 	zones    cached[map[string][]vendors.Zone]

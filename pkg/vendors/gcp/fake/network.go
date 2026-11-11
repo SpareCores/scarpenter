@@ -265,9 +265,16 @@ func (c *Compute) InsertSubnetwork(
 		if last(o.GetNetwork()) != network {
 			continue
 		}
-		if op, err := netip.ParsePrefix(o.GetIpCidrRange()); err == nil && op.Overlaps(p) {
-			return nil, invalid("Invalid IPCidrRange: %s conflicts with existing subnetwork '%s' in region '%s'.", p,
-				o.GetName(), last(o.GetRegion()))
+		// Primary and secondary ranges share one space inside a network.
+		ranges := []string{o.GetIpCidrRange()}
+		for _, sec := range o.GetSecondaryIpRanges() {
+			ranges = append(ranges, sec.GetIpCidrRange())
+		}
+		for _, rg := range ranges {
+			if op, err := netip.ParsePrefix(rg); err == nil && op.Overlaps(p) {
+				return nil, invalid("Invalid IPCidrRange: %s conflicts with existing subnetwork '%s' in region '%s'.", p,
+					o.GetName(), last(o.GetRegion()))
+			}
 		}
 	}
 	c.seq++

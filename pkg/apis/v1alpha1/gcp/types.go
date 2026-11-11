@@ -66,7 +66,7 @@ type Settings struct {
 type Resources struct {
 	// subnets nodes are launched into (the network is implied by the subnet).
 	// +optional
-	Subnets *common.Resource `json:"subnets,omitempty"`
+	Subnets *SubnetResource `json:"subnets,omitempty"`
 
 	// firewalls are network tags: the tag of the rules that allow the nodes'
 	// traffic. ids are tag names.
@@ -88,6 +88,54 @@ type Resources struct {
 	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.select) || self.use.select != 'all'",message="images cannot use select all: a launch needs one image"
 	// +optional
 	Images *common.Resource `json:"images,omitempty"`
+}
+
+// SubnetResource is the resource of the subnets kind: use, create and forbid
+// as on every kind, with a create that can also say which private range the
+// managed subnetworks are taken from.
+//
+// +kubebuilder:validation:XValidation:rule="(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1",message="at most one of use, create and forbid may be set"
+type SubnetResource struct {
+	// use brings existing subnetworks: validated per region, never modified
+	// and never deleted.
+	// +optional
+	Use *common.ResourceUse `json:"use,omitempty"`
+
+	// create lets SCarpenter create and own the network and its subnetworks.
+	// +optional
+	Create *SubnetCreate `json:"create,omitempty"`
+
+	// forbid opts the kind out of auto-creation.
+	// +optional
+	Forbid bool `json:"forbid,omitempty"`
+}
+
+// SubnetCreate configures the managed network: its lifecycle and timing as on
+// every kind, and the pool the subnetworks are taken from.
+type SubnetCreate struct {
+	common.ResourceCreate `json:",inline"`
+
+	// pool is the private range the managed subnetworks (one /20 per region) are
+	// taken from: each is the first /20 of the pool that overlaps no subnetwork of
+	// the managed network. Default 10.240.0.0/12. Set it when a network your own
+	// network is peered with, or reaches by VPN, uses that range.
+	// +kubebuilder:validation:MaxLength=18
+	// +kubebuilder:validation:XValidation:rule="isCIDR(self) && cidr(self).ip().family() == 4 && cidr(self).masked() == cidr(self) && cidr(self).prefixLength() <= 20 && (cidr('10.0.0.0/8').containsCIDR(self) || cidr('172.16.0.0/12').containsCIDR(self) || cidr('192.168.0.0/16').containsCIDR(self))",message="pool must be an IPv4 CIDR inside 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16, with a prefix length of at most 20"
+	// +optional
+	Pool string `json:"pool,omitempty"`
+}
+
+// Common is the subnets resource as the generic resource engine sees it.
+func (r *SubnetResource) Common() *common.Resource {
+	if r == nil {
+		return nil
+	}
+	out := &common.Resource{Use: r.Use, Forbid: r.Forbid}
+	if r.Create != nil {
+		c := r.Create.ResourceCreate
+		out.Create = &c
+	}
+	return out
 }
 
 // DiskType is a Compute Engine disk type.

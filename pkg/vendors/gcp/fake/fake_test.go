@@ -631,6 +631,26 @@ func TestNetworkResources(t *testing.T) {
 	if _, err := c.InsertSubnetwork(ctx, subReq("overlap", "10.240.8.0/24")); httpCode(err) != 400 {
 		t.Fatalf("overlap = %v", err)
 	}
+	// The network is global: a range taken in one region is taken in the others, with
+	// the message of the real API; secondary ranges count.
+	other := subReq("elsewhere", "10.240.0.0/22")
+	other.Region = SeedOtherReg
+	if _, err := c.InsertSubnetwork(ctx, other); httpCode(err) != 400 || !strings.Contains(err.Error(),
+		"Invalid IPCidrRange: 10.240.0.0/22 conflicts with existing subnetwork 'scarpenter-c1-subnets-europe-west3' in region 'europe-west3'") {
+		t.Fatalf("cross-region overlap = %v", err)
+	}
+	sec := subReq("withsecondary", "10.242.0.0/20")
+	sec.Region = SeedOtherReg
+	sec.SubnetworkResource.SecondaryIpRanges = []*computepb.SubnetworkSecondaryRange{{RangeName: new("pods"), IpCidrRange: new("10.243.0.0/16")}}
+	if _, err := c.InsertSubnetwork(ctx, sec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.InsertSubnetwork(ctx, subReq("insecondary", "10.243.4.0/22")); httpCode(err) != 400 {
+		t.Fatalf("overlap with a secondary range = %v", err)
+	}
+	if _, err := c.DeleteSubnetwork(ctx, &computepb.DeleteSubnetworkRequest{Project: proj, Region: SeedOtherReg, Subnetwork: "withsecondary"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := c.InsertSubnetwork(ctx, subReq("scarpenter-c1-subnets-europe-west3", "10.241.0.0/20")); httpCode(err) != 409 {
 		t.Fatalf("duplicate subnet = %v", err)
 	}
