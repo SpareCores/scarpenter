@@ -405,6 +405,55 @@ func TestVultrCredentials(t *testing.T) {
 	}
 }
 
+// TestOVHCredentialsAndOptions: OVH credentials and options.
+func TestOVHCredentialsAndOptions(t *testing.T) {
+	base := []string{"--set", "cluster.name=c", "--set", "cluster.apiServerEndpoint=https://a.example.com", "--set", "vendors.ovh.enabled=true",
+		"--set", "vendors.aws.credentials.mode=none"}
+	env := func(t *testing.T, args ...string) (map[string]corev1.EnvVar, []string) {
+		t.Helper()
+		d := deployment(t, mustHelm(t, args...))
+		m := map[string]corev1.EnvVar{}
+		for _, e := range d.Spec.Template.Spec.Containers[0].Env {
+			m[e.Name] = e
+		}
+		return m, d.Spec.Template.Spec.Containers[0].Args
+	}
+	t.Run("secret", func(t *testing.T) {
+		m, args := env(t, append(slices.Clone(base), "--set", "vendors.ovh.credentials.secret.existingSecret=ovh-os",
+			"--set", "vendors.ovh.scheduleWait=30s", "--set", "vendors.ovh.regionAliases.GRA11=GRA11-NEW")...)
+		for name, key := range map[string]string{
+			"OS_AUTH_URL": "OS_AUTH_URL", "OS_USERNAME": "OS_USERNAME", "OS_PASSWORD": "OS_PASSWORD",
+			"OS_PROJECT_ID": "OS_PROJECT_ID", "OS_USER_DOMAIN_NAME": "OS_USER_DOMAIN_NAME",
+		} {
+			ref := m[name].ValueFrom
+			if ref == nil || ref.SecretKeyRef.Name != "ovh-os" || ref.SecretKeyRef.Key != key {
+				t.Errorf("%s = %+v", name, m[name])
+			}
+		}
+		if m["SCARPENTER_OVH_SCHEDULE_WAIT"].Value != "30s" || m["SCARPENTER_OVH_REGION_ALIASES"].Value != "GRA11=GRA11-NEW" {
+			t.Errorf("options %v", m)
+		}
+		if !slices.Contains(args, "--vendors=aws,ovh") {
+			t.Errorf("args %v: the vendors flag lists both", args)
+		}
+	})
+	t.Run("none", func(t *testing.T) {
+		m, _ := env(t, append(slices.Clone(base), "--set", "vendors.ovh.credentials.mode=none")...)
+		for _, k := range []string{"OS_AUTH_URL", "OS_PASSWORD", "SCARPENTER_OVH_SCHEDULE_WAIT"} {
+			if _, ok := m[k]; ok {
+				t.Errorf("%s set with mode none and no options", k)
+			}
+		}
+	})
+	t.Run("disabled", func(t *testing.T) {
+		m, args := env(t, "--set", "cluster.name=c", "--set", "cluster.apiServerEndpoint=https://a.example.com",
+			"--set", "vendors.aws.credentials.mode=none")
+		if _, ok := m["OS_PASSWORD"]; ok || slices.Contains(args, "--vendors=aws,ovh") {
+			t.Errorf("OVH wired while disabled: %v %v", m, args)
+		}
+	})
+}
+
 // TestRBACMatchesConfig is the drift check: the rules and bindings the chart
 // renders are those of config/rbac and config/rbac-core (the namespaces and
 // names aside).
@@ -663,6 +712,10 @@ func TestRejectedValues(t *testing.T) {
 		"token TTL in seconds":      {[]string{"bootstrap.tokenTTL=1000s"}, "at least 20m"},
 		"role ARN missing":          {[]string{"vendors.aws.credentials.webIdentity.roleArn="}, "roleArn is required"},
 		"secret missing":            {[]string{"vendors.aws.credentials.mode=secret"}, "existingSecret is required"},
+		"ovh secret missing":        {[]string{"vendors.ovh.enabled=true"}, "vendors.ovh.credentials.secret.existingSecret is required"},
+		"ovh bad credentials mode":  {[]string{"vendors.ovh.credentials.mode=oidc"}, "mode"},
+		"ovh bad schedule wait":     {[]string{"vendors.ovh.scheduleWait=soon"}, "scheduleWait"},
+		"ovh bad region alias":      {[]string{"vendors.ovh.regionAliases.gra_11=GRA11"}, "does not match pattern"},
 		"no vendor":                 {[]string{"vendors.aws.enabled=false"}, "at least one vendor"},
 		"inline CA without PEM":     {[]string{"kubeletClientCA.source=inline"}, "kubeletClientCA.inline is required"},
 		"lookup CA without cluster": {[]string{"kubeletClientCA.source=extensionApiserverAuthentication"}, "live cluster"},

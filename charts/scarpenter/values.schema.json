@@ -279,6 +279,69 @@
             }
           }
         },
+        "ovh": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "scheduleWait": {
+              "$ref": "#/definitions/duration"
+            },
+            "regionAliases": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9-]*$"
+              },
+              "propertyNames": {
+                "pattern": "^[A-Za-z0-9-]+$"
+              }
+            },
+            "credentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "secret",
+                    "none"
+                  ]
+                },
+                "secret": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "existingSecret": {
+                      "type": "string"
+                    },
+                    "authUrlKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "usernameKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "passwordKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "projectIdKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "userDomainNameKey": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "vultr": {
           "type": "object",
           "additionalProperties": false,
@@ -695,6 +758,18 @@
           }
         },
         "aws": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "regions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ovh": {
           "type": "object",
           "additionalProperties": false,
           "properties": {

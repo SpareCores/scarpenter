@@ -1,0 +1,28 @@
+# OVHcloud next to AWS: the OpenStack user of the Public Cloud project from a Secret
+# (custom key names), the scheduler wait, a region alias row and the example
+# NodeClasses of both vendors.
+cluster:
+  name: lab
+  apiServerEndpoint: https://100.64.0.1:6443
+  dns: [10.43.0.10]
+kubeletClientCA:
+  source: configMap
+  configMap: {name: k3s-client-ca, key: client-ca.crt}
+vendors:
+  aws:
+    credentials:
+      mode: secret
+      secret:
+        existingSecret: aws-keys
+  ovh:
+    enabled: true
+    scheduleWait: 30s
+    regionAliases: {GRA11: GRA11-NEW, SBG5: ""}
+    credentials:
+      secret:
+        existingSecret: ovh-openstack
+        projectIdKey: project
+examples:
+  enabled: true
+  ovh:
+    regions: [GRA11, EU-WEST-PAR]

@@ -148,6 +148,31 @@ vendors:
       secret:
         existingSecret: ""
         key: HCLOUD_TOKEN
+  # OVHcloud Public Cloud (docs/reference/ovh-driver.md): one Public Cloud
+  # project, authenticated with an OpenStack user of the project.
+  ovh:
+    enabled: false
+    # How long a server create waits for Nova's scheduler, so that a capacity
+    # failure falls through to the next candidate (SCARPENTER_OVH_SCHEDULE_WAIT, a
+    # Go duration); empty: 45s.
+    scheduleWait: ""
+    # Rows of the region table where the Keystone catalog's name of a region differs
+    # from Keeper's (SCARPENTER_OVH_REGION_ALIASES): Keeper region: catalog region,
+    # an empty value leaves the Keeper region unused. Empty: the built-in table.
+    regionAliases: {}
+    credentials:
+      # secret: the OpenStack environment (OS_AUTH_URL, OS_USERNAME, OS_PASSWORD,
+      #   OS_PROJECT_ID, OS_USER_DOMAIN_NAME) of a dedicated user of the project, from
+      #   an existing Secret (docs/how-to-guides/ovh-credentials.md).
+      # none: nothing is wired; set the variables yourself (extraEnv).
+      mode: secret
+      secret:
+        existingSecret: ""
+        authUrlKey: OS_AUTH_URL
+        usernameKey: OS_USERNAME
+        passwordKey: OS_PASSWORD
+        projectIdKey: OS_PROJECT_ID
+        userDomainNameKey: OS_USER_DOMAIN_NAME
   vultr:
     enabled: false
     # How long the stock of a region is cached (SCARPENTER_VULTR_AVAILABILITY_TTL);
@@ -345,6 +370,8 @@ examples:
       tags: ["tag:k8s-node"]
   aws:
     regions: [us-east-1]
+  ovh:
+    regions: [GRA11]
   nodePool:
     # CPU limit of the NodePool; the example's guard against a runaway.
     cpuLimit: "100"

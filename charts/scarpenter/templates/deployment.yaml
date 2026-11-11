@@ -10,9 +10,10 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- end }}
 {{- $aws := .Values.vendors.aws }}
 {{- $hcloud := .Values.vendors.hcloud }}
+{{- $ovh := .Values.vendors.ovh }}
 {{- $vultr := .Values.vendors.vultr }}
 {{- if not (include "scarpenter.vendors" .) }}
-{{- fail "enable at least one vendor: vendors.aws.enabled=true, vendors.hcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
+{{- fail "enable at least one vendor: vendors.aws.enabled=true, vendors.hcloud.enabled=true, vendors.ovh.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
 {{- end }}
 {{- if and $hcloud.enabled (not $hcloud.credentials.secret.existingSecret) }}
 {{- fail "vendors.hcloud.credentials.secret.existingSecret is required: the Secret that holds the API token of the Hetzner Cloud project (HCLOUD_TOKEN)" }}
@@ -23,6 +24,9 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- end }}
 {{- if and $aws.enabled (eq $mode "secret") (not $aws.credentials.secret.existingSecret) }}
 {{- fail "vendors.aws.credentials.secret.existingSecret is required with credentials mode secret" }}
+{{- end }}
+{{- if and $ovh.enabled (eq $ovh.credentials.mode "secret") (not $ovh.credentials.secret.existingSecret) }}
+{{- fail "vendors.ovh.credentials.secret.existingSecret is required with credentials mode secret (docs/how-to-guides/ovh-credentials.md); use mode none to set the OS_* variables yourself" }}
 {{- end }}
 {{- if and $vultr.enabled (not $vultr.credentials.secret.existingSecret) }}
 {{- fail "vendors.vultr.credentials.secret.existingSecret is required when vultr is enabled: the API key of the account (docs/how-to-guides/vultr-credentials.md)" }}
@@ -197,6 +201,27 @@ spec:
             {{- if and (not (kindIs "invalid" $hcloud.ipv4Price)) (ne (toString $hcloud.ipv4Price) "") }}
             - name: SCARPENTER_HCLOUD_IPV4_PRICE
               value: {{ toString $hcloud.ipv4Price | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if $ovh.enabled }}
+            {{- with $ovh.scheduleWait }}
+            - name: SCARPENTER_OVH_SCHEDULE_WAIT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if $ovh.regionAliases }}
+            {{- $aliases := list }}
+            {{- range $keeper, $api := $ovh.regionAliases }}
+            {{- $aliases = append $aliases (printf "%s=%s" $keeper $api) }}
+            {{- end }}
+            - name: SCARPENTER_OVH_REGION_ALIASES
+              value: {{ join "," $aliases | quote }}
+            {{- end }}
+            {{- if eq $ovh.credentials.mode "secret" }}
+            {{- $s := $ovh.credentials.secret }}
+            {{- range $env, $key := dict "OS_AUTH_URL" $s.authUrlKey "OS_USERNAME" $s.usernameKey "OS_PASSWORD" $s.passwordKey "OS_PROJECT_ID" $s.projectIdKey "OS_USER_DOMAIN_NAME" $s.userDomainNameKey }}
+            - name: {{ $env }}
+              valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $key | quote }}}}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- if $vultr.enabled }}
