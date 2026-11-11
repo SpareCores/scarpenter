@@ -104,6 +104,7 @@ func TestVMLifecycleAndIdempotency(t *testing.T) {
 	require.NoError(t, s.VMs().Delete(ctx, rg, "vm", true))
 	require.NoError(t, s.VMs().Delete(ctx, rg, "vm", true))
 	require.Empty(t, s.NICNames(), "the delete option cascades to the NIC")
+	require.Equal(t, []string{"rg/os"}, s.Disks(), "an OS disk without deleteOption Delete is detached, not deleted")
 	_, err = s.VMs().Get(ctx, rg, "vm", false)
 	code, status = codeOf(t, err)
 	require.Equal(t, "ResourceNotFound", code)

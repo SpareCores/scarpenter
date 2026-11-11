@@ -375,12 +375,19 @@ func (s *Subscription) removeVM(k string) {
 		return
 	}
 	delete(s.vms, k)
-	for dk, owner := range s.disks {
-		if owner == val(v.vm.Name) && strings.HasPrefix(dk, strings.ToLower(v.rg)+"/") {
-			delete(s.disks, dk)
+	// A disk goes with the VM only with deleteOption Delete; the default is
+	// Detach, which leaves the disk behind (owned by nobody).
+	p := v.vm.Properties
+	if sp := p.StorageProfile; sp != nil {
+		if sp.OSDisk != nil {
+			s.releaseDisk(v.rg, val(sp.OSDisk.Name), val(sp.OSDisk.DeleteOption) == armcompute.DiskDeleteOptionTypesDelete)
+		}
+		for _, d := range sp.DataDisks {
+			if d != nil {
+				s.releaseDisk(v.rg, val(d.Name), val(d.DeleteOption) == armcompute.DiskDeleteOptionTypesDelete)
+			}
 		}
 	}
-	p := v.vm.Properties
 	if p.NetworkProfile == nil {
 		return
 	}
@@ -413,6 +420,19 @@ func (s *Subscription) removeVM(k string) {
 			}
 		}
 	}
+}
+
+// releaseDisk deletes or detaches a disk of a VM that is being deleted.
+func (s *Subscription) releaseDisk(rg, name string, del bool) {
+	dk := key(rg, name)
+	if _, ok := s.disks[dk]; !ok {
+		return
+	}
+	if del {
+		delete(s.disks, dk)
+		return
+	}
+	s.disks[dk] = ""
 }
 
 // Delete removes a VM. Like ARM, deleting a VM that does not exist succeeds.

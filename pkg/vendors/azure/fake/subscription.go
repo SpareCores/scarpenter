@@ -36,7 +36,7 @@ type Subscription struct {
 	vms       map[string]*vmState
 	nics      map[string]*armnetwork.Interface
 	pips      map[string]*armnetwork.PublicIPAddress
-	disks     map[string]string // lower-cased rg/name -> VM name that owns it
+	disks     map[string]string // lower-cased rg/name -> VM name that owns it, "" when detached
 	nextIP    int
 	nextPub   int
 
