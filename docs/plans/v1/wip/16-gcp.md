@@ -245,7 +245,8 @@ does: `Instances.{Insert,Delete,Get,List,AggregatedList}`, `Zones.List`, `Region
 (`Wait`/`Get`), `Projects.Get`. Per-region clients are not needed (one endpoint); a per-call
 deadline as on AWS (45 s, 120 s for the insert's operation wait; the operation `wait` method
 long-polls up to two minutes server side). User agent `scarpenter/<version>`. Retries: the
-client library's defaults for 429 and 5xx, plus the driver's classification.
+REST client retries only 503 and 504 on reads, never insert or delete, so the
+driver's own classification (429, 5xx as `Retryable`) and backoff do the rest.
 
 **Launch** (`CreateInstance`): `instances.insert` in the zone with:
 

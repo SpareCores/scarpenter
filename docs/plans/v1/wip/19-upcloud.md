@@ -187,8 +187,8 @@ for credentials supplied some other way), like AWS's modes.
 - Credentials from the environment (`UPCLOUD_TOKEN`); `Init` builds the client and
   makes no call. One client for all zones (the API is global; the zone is a
   parameter). User agent `scarpenter/<version>`. Per-call deadlines (45 s; 90 s
-  for `CreateServer`), and the SDK's own retry (3 tries on 5xx) plus the driver's
-  backoff on throttling. Rate limits: none documented (**unverified**, S7).
+  for `CreateServer`), and no SDK retry of 5xx (only the SDK's pollers retry; the
+  driver classifies 5xx as `Retryable` and backs off, also on throttling). Rate limits: none documented (**unverified**, S7).
 
 ### Driver
 
