@@ -159,6 +159,8 @@ vendors:
     # Rows of the region table where the Keystone catalog's name of a region differs
     # from Keeper's (SCARPENTER_OVH_REGION_ALIASES): Keeper region: catalog region,
     # an empty value leaves the Keeper region unused. Empty: the built-in table.
+    # Until plan 14's A8 core change the controller refuses a row whose catalog
+    # name differs from the Keeper name (it would hide the region's offerings).
     regionAliases: {}
     credentials:
       # secret: the OpenStack environment (OS_AUTH_URL, OS_USERNAME, OS_PASSWORD,

@@ -69,13 +69,13 @@ func TestInit(t *testing.T) {
 		t.Error("a bad schedule wait is refused")
 	}
 	t.Setenv(ScheduleWaitEnv, "20s")
-	t.Setenv(RegionAliasesEnv, "GRA11=GRA11X, SBG5=")
+	t.Setenv(RegionAliasesEnv, "GRA13=GRA13, SBG5=")
 	d = New(WithProvider(fake.New()))
 	if err := d.Init(ctx, cfg); err != nil || d.wait.Timeout != 20*time.Second {
 		t.Fatalf("schedule wait %v: %v", d.wait, err)
 	}
-	if a, ok := d.regionMap.API("GRA11"); !ok || a != "GRA11X" {
-		t.Errorf("the alias row: %s %v", a, ok)
+	if a, ok := d.regionMap.API("GRA13"); !ok || a != "GRA13" {
+		t.Errorf("the added row: %s %v", a, ok)
 	}
 	if _, ok := d.regionMap.API("SBG5"); ok {
 		t.Error("an empty API name leaves the region unmapped")
@@ -84,9 +84,9 @@ func TestInit(t *testing.T) {
 	if err := New(WithProvider(fake.New())).Init(ctx, cfg); err == nil {
 		t.Error("an alias that is not KEEPER=API is refused")
 	}
-	t.Setenv(RegionAliasesEnv, "GRA9=GRA11") // two Keeper regions on one API name
-	if err := New(WithProvider(fake.New())).Init(ctx, cfg); err == nil {
-		t.Error("two Keeper regions on one API region are refused")
+	t.Setenv(RegionAliasesEnv, "GRA9=GRA11") // another API name: needs the Keeper name in vendors.Region (A8)
+	if err := New(WithProvider(fake.New())).Init(ctx, cfg); err == nil || !strings.Contains(err.Error(), "A8") {
+		t.Errorf("a row to another API name is refused until A8: %v", err)
 	}
 }
 

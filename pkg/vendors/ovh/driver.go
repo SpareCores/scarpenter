@@ -18,6 +18,7 @@ package ovh
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -45,8 +46,9 @@ const (
 	// duration; default 45s).
 	ScheduleWaitEnv = "SCARPENTER_OVH_SCHEDULE_WAIT"
 	// RegionAliasesEnv is the region alias table's runtime rows: comma-separated
-	// KEEPER=API pairs ("GRA11=GRA11-NEW"), an empty API name leaves the Keeper
-	// region unmapped.
+	// KEEPER=API pairs; an empty API name leaves the Keeper region unmapped. Until
+	// plan 14's A8 core change, the API name must equal the Keeper name
+	// (identityAliases).
 	RegionAliasesEnv = "SCARPENTER_OVH_REGION_ALIASES"
 )
 
@@ -168,6 +170,9 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 		}
 		d.aliases = a
 	}
+	if err := identityAliases(d.aliases); err != nil {
+		return err
+	}
 	m, err := NewRegionMap(d.aliases)
 	if err != nil {
 		return fmt.Errorf("the OVH region aliases: %w", err)
@@ -193,6 +198,23 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 	if d.prices == nil && cfg.KeeperURL != "" {
 		d.keeper = newKeeperPrices(cfg.KeeperURL, func() { d.epoch.Add(1) })
 		d.prices = d.keeper
+	}
+	return nil
+}
+
+// identityAliases refuses a configured row whose API name differs from the
+// Keeper name. vendors.Region carries one name, which the facts join Keeper's
+// offerings on (plan 14, A8 proposes the Keeper name as a second field: a core
+// change not made yet), so such a row would hide every offering of the region
+// without an error. Rows that add a region under its own name, or unmap one,
+// are fine.
+func identityAliases(rows map[string]string) error {
+	for _, k := range slices.Sorted(maps.Keys(rows)) {
+		if v := rows[k]; v != "" && !strings.EqualFold(k, v) {
+			return fmt.Errorf("%s: %s=%s maps a Keeper region to another API name, which needs the Keeper name "+
+				"in vendors.Region (plan 14, A8), not built yet; only KEEPER=KEEPER and KEEPER= rows are accepted",
+				RegionAliasesEnv, k, v)
+		}
 	}
 	return nil
 }

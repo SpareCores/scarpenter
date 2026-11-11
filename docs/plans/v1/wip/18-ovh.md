@@ -614,7 +614,8 @@ conservative option where the plan gave none):
 - **2** the alias table is in the driver (`regions.go`, `SCARPENTER_OVH_REGION_ALIASES`, the chart's
   `vendors.ovh.regionAliases`); `Regions` returns API names. A row that differs from Keeper's name needs the Keeper name in
   `vendors.Region`, the core change of A8, which this change does not make (core files are out of scope for a driver):
-  while every row is an identity (today it is) nothing is missing.
+  while every row is an identity (today it is) nothing is missing, and the driver's `Init` refuses a configured row that is not
+  (it would hide the region's offerings without an error).
 - **3** `openstackUser` only (the standard `OS_*` environment, from a Secret). The `serviceAccount` OIDC flow is not built;
   `docs/reference/ovh-iam-policy.json` is its policy, for later.
 - **4** the lane's identity is therefore an OpenStack user (`OVH_OS_USERNAME`, `OVH_OS_PASSWORD` of the `e2e` environment, a

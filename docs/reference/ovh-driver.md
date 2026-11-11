@@ -97,7 +97,9 @@ legacy names (`GRA11`, `SBG5`, ...) plus `EU-WEST-PAR` and `EU-SOUTH-MIL`.
 every priced Keeper region maps to itself; the trigram and inactive Keeper regions
 are listed as unmapped. `NewRegionMap` takes overrides (an empty value unmaps; the
 controller reads them from `SCARPENTER_OVH_REGION_ALIASES`, the chart's
-`vendors.ovh.regionAliases`) and refuses two Keeper names on one API name. A test over
+`vendors.ovh.regionAliases`) and refuses two Keeper names on one API name. The driver's `Init` refuses a configured row whose
+API name differs from the Keeper name: `vendors.Region` has one name, which the facts join Keeper's offerings on, so such a row
+would hide the region's offerings without an error until plan 14's A8 core change adds the Keeper name to it. A test over
 the committed Keeper snapshot (`test/data/sc-snapshot`) makes every Keeper OVH region appear in the table, mapped or
 unmapped, and every row exist in the snapshot.
 
