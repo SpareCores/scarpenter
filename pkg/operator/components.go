@@ -28,6 +28,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/controllers/quotastatus"
 	"github.com/SpareCores/scarpenter/pkg/controllers/resourcestatus"
+	"github.com/SpareCores/scarpenter/pkg/controllers/retention"
 	"github.com/SpareCores/scarpenter/pkg/quota"
 	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/scope"
@@ -56,6 +57,9 @@ type Components struct {
 	Refs      *bootstrap.KubeReferences
 	Renderer  *bootstrap.Renderer
 	Tokens    *bootstrap.Minter
+	// Signals carries what the cloud provider tells the billing retention
+	// controller (launches refused for quota).
+	Signals *retention.Signals
 
 	scopeMu   sync.Mutex
 	lastScope map[string][]string
@@ -88,7 +92,7 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		ZoneUnusable:         opts.UnavailableZoneUnusableTTL,
 	})
 
-	c := &Components{Registry: reg, Unavailable: un}
+	c := &Components{Registry: reg, Unavailable: un, Signals: retention.NewSignals(o.Clock)}
 	// The tracker needs the regions in scope, which need the driver facts, which
 	// need the tracker's launchable view: close the loop with the resolver.
 	c.Tracker = quota.New(quota.Options{
@@ -188,7 +192,14 @@ func (c *Components) regionsInUse(ctx context.Context, vendor string) []string {
 
 // NewCloudProvider returns the CloudProvider over the components.
 func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider {
+	var onRefusal func(cloudprovider.QuotaRefusal)
+	if o.Options.BillingRetention {
+		onRefusal = func(r cloudprovider.QuotaRefusal) {
+			c.Signals.ReportQuotaRefusal(r.Vendor, r.Region, r.CapacityType, r.CPU)
+		}
+	}
 	return cloudprovider.New(cloudprovider.Options{
+		OnQuotaRefusal:    onRefusal,
 		Client:            o.GetClient(),
 		Catalog:           c.Catalog,
 		Registry:          c.Registry,

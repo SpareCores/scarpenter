@@ -40,6 +40,10 @@ type Operator struct {
 	// staticCatalogs are the catalogs of the drivers that bring their own
 	// (vendors.CatalogProvider), set by NewComponents.
 	staticCatalogs map[string]catalog.Source
+
+	// clusterState is Karpenter's in-memory cluster state, built by
+	// WithCoreControllers and shared with the billing retention controller.
+	clusterState *state.Cluster
 }
 
 // NewOperator wraps a core operator. The options were parsed (and validated)
@@ -73,6 +77,7 @@ func (o *Operator) WithCoreControllers(ctx context.Context, cp karpcloudprovider
 	undecorated := metrics.Decorate(cp)
 	decorated := overlay.Decorate(undecorated, o.GetClient(), o.InstanceTypeStore)
 	clusterState := state.NewCluster(o.Clock, o.GetClient(), decorated)
+	o.clusterState = clusterState
 	return o.WithControllers(ctx, corecontrollers.NewControllers(
 		ctx,
 		o.Manager,

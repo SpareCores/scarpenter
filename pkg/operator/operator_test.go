@@ -129,7 +129,13 @@ func TestManagerStartsWithTheProductionWiring(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		op.WithCoreControllers(runCtx, op.NewCloudProvider(components)).Start(runCtx)
+		cp := op.NewCloudProvider(components)
+		op.WithCoreControllers(runCtx, cp)
+		if err := op.WithRetentionControllers(runCtx, components, cp); err != nil {
+			t.Error(err)
+			return
+		}
+		op.Start(runCtx)
 	}()
 	t.Cleanup(func() {
 		cancelRun()

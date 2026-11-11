@@ -159,6 +159,10 @@ type Options struct {
 	ResourceFullSweepEvery int
 	// AWSHomeRegion is the region of the AWS global endpoints.
 	AWSHomeRegion string
+	// BillingRetention runs the billing retention controller (ADR-024); the
+	// NodeClass's spec.billing is the real switch, this turns the whole
+	// controller off.
+	BillingRetention bool
 
 	vendorsRaw    string
 	clusterDNSRaw string
@@ -201,6 +205,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.ResourceCheckInterval, "resource-check-interval", env.WithDefaultDuration("SCARPENTER_RESOURCE_CHECK_INTERVAL", DefaultResourceCheckInterval), "How often the vendor resources of each SCNodeClass are checked (status, preCreate).")
 	fs.IntVar(&o.ResourceFullSweepEvery, "resource-full-sweep-every", env.WithDefaultInt("SCARPENTER_RESOURCE_FULL_SWEEP_EVERY", DefaultResourceFullSweepEvery), "Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed vendor resources of every region of the driver are swept, not only of the regions in use.")
 	fs.DurationVar(&o.ResourceDefaultTTL, "resource-default-ttl", env.WithDefaultDuration("SCARPENTER_RESOURCE_DEFAULT_TTL", DefaultResourceDefaultTTL), "idleTTL of managed shared vendor resources when an SCNodeClass does not set one.")
+	fs.BoolVar(&o.BillingRetention, "billing-retention", env.WithDefaultBool("SCARPENTER_BILLING_RETENTION", true), "Run the billing retention controller (it holds nodes until the end of their paid billing period for the SCNodeClasses that set spec.billing.retainUntilPeriodEnd). The NodeClass field is the real switch; false turns the controller off as a whole.")
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 }
 

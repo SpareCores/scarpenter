@@ -66,6 +66,9 @@ func TestDefaults(t *testing.T) {
 		o.AWSHomeRegion != want.AWSHomeRegion || strings.Join(o.Vendors, ",") != "aws" {
 		t.Errorf("defaults differ:\n got %+v\nwant %+v", *o, want)
 	}
+	if !o.BillingRetention {
+		t.Error("--billing-retention defaults to true: the NodeClass field is the real switch")
+	}
 	if wantGrace := 10 * time.Minute; o.TerminatingGrace != wantGrace || vendors.DefaultTerminatingGrace != wantGrace {
 		t.Errorf("--terminating-grace defaults to %s, vendors.DefaultTerminatingGrace is %s; want both 10m",
 			o.TerminatingGrace, vendors.DefaultTerminatingGrace)
@@ -102,9 +105,13 @@ func TestEnvironmentFallbacks(t *testing.T) {
 		"SCARPENTER_AWS_HOME_REGION":               "eu-central-1",
 		"SCARPENTER_CLUSTER_DNS":                   "10.96.0.10, fd00::a",
 		"SCARPENTER_CLUSTER_DOMAIN":                "k8s.example.com",
+		"SCARPENTER_BILLING_RETENTION":             "false",
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if o.BillingRetention {
+		t.Error("SCARPENTER_BILLING_RETENTION=false is not applied")
 	}
 	if o.ClusterName != "env-cluster" || o.APIServerEndpoint != "https://api.example.com:6443" ||
 		o.ClusterCAFile != "/etc/ca.pem" || strings.Join(o.Vendors, ",") != "aws,fake" ||

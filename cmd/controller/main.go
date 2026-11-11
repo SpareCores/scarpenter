@@ -38,7 +38,8 @@ func main() {
 		os.Exit(1)
 	}
 	lo.Must0(op.WithComponentControllers(ctx, components), "registering the controllers")
-	op.
-		WithCoreControllers(ctx, op.NewCloudProvider(components)).
-		Start(ctx)
+	cp := op.NewCloudProvider(components)
+	op.WithCoreControllers(ctx, cp)
+	lo.Must0(op.WithRetentionControllers(ctx, components, cp), "registering the billing retention controllers")
+	op.Start(ctx)
 }
