@@ -200,8 +200,9 @@ Karpenter's.
 (a failed or missing table never fails it: the status says `NoKeeperData`). The driver's optional
 `BillingDescriber` overrides it field by field per region and family and says whether the rule was verified on a live
 account ([driver contract](driver-contract.md#billing)); a driver without it is unverified and retention is off for it.
-Two shapes are supported: increments held with a minimum equal to the increment (hourly), and minimum only (a minimum, then per
-second: one boundary, `start + minimum`). Any other combination is `UnsupportedShape`. The boundaries count from
+Two shapes are supported: increments held (increment `>= minPeriod`) with a minimum equal to the increment or none (hourly), and
+minimum only (increment `< minPeriod`, such as a minimum then per second: one boundary, `start + minimum`). A minimum different
+from a held increment is `UnsupportedShape`. The boundaries count from
 the instance's `BillingStart` (annotation `scarpenter.sparecores.com/billing-start`, RFC 3339), never from the NodeClaim's
 time; the controller asks the cloud provider for it once for a NodeClaim that has none. The effective margin is the larger of
 `spec.billing.margin` and the rule's `DeleteLatency` plus 90 s.

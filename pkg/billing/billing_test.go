@@ -47,30 +47,29 @@ func override(inc, minimum time.Duration, verified bool) *vendors.BillingRule {
 func TestResolve(t *testing.T) {
 	stopped := true
 	for _, tc := range []struct {
-		name        string
-		keeper      catalog.BillingFacts
-		override    *vendors.BillingRule
-		inc, min    time.Duration
-		verified    bool
-		unsupported bool
+		name     string
+		keeper   catalog.BillingFacts
+		override *vendors.BillingRule
+		inc, min time.Duration
+		verified bool
 	}{
-		{"hourly, verified", facts(hour, hour), override(0, 0, true), hour, hour, true, false},
-		{"hourly without a minimum", facts(hour, 0), override(0, 0, true), hour, 0, true, false},
-		{"hourly, no override: unverified", facts(hour, hour), nil, hour, hour, false, false},
-		{"hourly, override unverified", facts(hour, hour), override(0, 0, false), hour, hour, false, false},
-		{"minimum only: 10m over per second", facts(time.Second, 10*minute), override(0, 0, true), time.Second, 10 * minute, true, false},
-		{"90m minimum over a 60m increment", facts(hour, 90*minute), override(0, 0, true), hour, 90 * minute, false, true},
-		{"30m minimum over a 60m increment", facts(hour, 30*minute), override(0, 0, true), hour, 30 * minute, false, true},
-		{"override wins field by field", facts(time.Second, minute), override(0, 5*minute, true), time.Second, 5 * minute, true, false},
-		{"override gives the increment Keeper lacks", facts(0, 0), override(hour, hour, true), hour, hour, true, false},
-		{"override can make a supported shape unsupported", facts(hour, hour), override(0, 90*minute, true), hour, 90 * minute, false, true},
-		{"null Keeper fields, no override", facts(0, 0), nil, 0, 0, false, false},
-		{"null increment never verifies", facts(0, 10*minute), override(0, 0, true), 0, 10 * minute, false, false},
+		{"hourly, verified", facts(hour, hour), override(0, 0, true), hour, hour, true},
+		{"hourly without a minimum", facts(hour, 0), override(0, 0, true), hour, 0, true},
+		{"hourly, no override: unverified", facts(hour, hour), nil, hour, hour, false},
+		{"hourly, override unverified", facts(hour, hour), override(0, 0, false), hour, hour, false},
+		{"minimum only: 10m over per second", facts(time.Second, 10*minute), override(0, 0, true), time.Second, 10 * minute, true},
+		{"90m minimum over a 60m increment: Assess decides the shape", facts(hour, 90*minute), override(0, 0, true), hour, 90 * minute, true},
+		{"30m minimum over a 60m increment: Assess decides the shape", facts(hour, 30*minute), override(0, 0, true), hour, 30 * minute, true},
+		{"override wins field by field", facts(time.Second, minute), override(0, 5*minute, true), time.Second, 5 * minute, true},
+		{"override gives the increment Keeper lacks", facts(0, 0), override(hour, hour, true), hour, hour, true},
+		{"override wins over the minimum", facts(hour, hour), override(0, 90*minute, true), hour, 90 * minute, true},
+		{"null Keeper fields, no override", facts(0, 0), nil, 0, 0, false},
+		{"null increment never verifies", facts(0, 10*minute), override(0, 0, true), 0, 10 * minute, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := billing.Resolve(tc.keeper, tc.override)
-			if r.Increment != tc.inc || r.Minimum != tc.min || r.Verified != tc.verified || r.Unsupported != tc.unsupported {
-				t.Errorf("got %+v, want increment %s minimum %s verified %v unsupported %v", r, tc.inc, tc.min, tc.verified, tc.unsupported)
+			if r.Increment != tc.inc || r.Minimum != tc.min || r.Verified != tc.verified {
+				t.Errorf("got %+v, want increment %s minimum %s verified %v", r, tc.inc, tc.min, tc.verified)
 			}
 		})
 	}
@@ -197,6 +196,12 @@ func TestAssess(t *testing.T) {
 		{"the hold floor exactly", billing.Resolve(facts(time.Second, 5*minute), override(0, 0, true)), true, on(10*minute, 3*minute), true, billing.ReasonActive, "minimum only", 5 * minute},
 		{"one second under the floor", billing.Resolve(facts(time.Second, 5*minute-time.Second), override(0, 0, true)), true, def, false, billing.ReasonMinimumTooShort, "", 0},
 		{"a bigger margin lifts the floor", billing.Resolve(facts(time.Second, 5*minute), override(0, 0, true)), true, on(10*minute, 4*minute), false, billing.ReasonMinimumTooShort, "", 0},
+		// 10m over 5m: the 5m increment is under minPeriod, so the rule is
+		// minimum-only (decision 12), not unsupported; with minPeriod 5m the
+		// increment is held and the shape is unsupported.
+		{"10m over 5m is minimum-only", billing.Resolve(facts(5*minute, 10*minute), override(0, 0, true)), true, def, true, billing.ReasonActive, "minimum only", 10 * minute},
+		{"10m over 5m held at minPeriod 5m", billing.Resolve(facts(5*minute, 10*minute), override(0, 0, true)), true, on(5*minute, 2*minute), false, billing.ReasonUnsupportedShape, "", 0},
+		{"90m over 60m with minPeriod 2h is minimum-only", billing.Resolve(facts(hour, 90*minute), override(0, 0, true)), true, on(2*hour, 3*minute), true, billing.ReasonActive, "minimum only", 90 * minute},
 		{"increment under minPeriod is not held", billing.Resolve(facts(5*minute, 5*minute), override(0, 0, true)), true, def, true, billing.ReasonActive, "minimum only", 5 * minute},
 		{"minPeriod under twice the margin", hourly, true, on(5*minute, 3*minute), false, billing.ReasonInvalidSettings, "", 0},
 		{"period under twice the margin", billing.Resolve(facts(5*minute, 5*minute), override(0, 0, true)), true, on(5*minute, 3*minute), false, billing.ReasonInvalidSettings, "", 0},
@@ -217,4 +222,18 @@ func TestAssess(t *testing.T) {
 			t.Errorf("%+v", st)
 		}
 	})
+}
+
+// A 10-minute minimum over 5-minute increments is minimum-only at the default
+// minPeriod (one boundary at start + 10m), and gives no window when minPeriod
+// holds the increment (the unsupported shape).
+func TestWindowMinimumOverAShorterIncrement(t *testing.T) {
+	r := billing.Resolve(facts(5*minute, 10*minute), override(0, 0, true))
+	boundary, deadline, in, last := billing.Window(t0, r, 10*minute, 3*minute, t0.Add(6*minute))
+	if !boundary.Equal(t0.Add(10*minute)) || !deadline.Equal(t0.Add(7*minute)) || in || !last {
+		t.Errorf("minimum-only: %s %s %v %v", boundary, deadline, in, last)
+	}
+	if boundary, _, _, _ := billing.Window(t0, r, 5*minute, 2*minute, t0.Add(time.Minute)); !boundary.IsZero() {
+		t.Errorf("unsupported shape gives a boundary %s", boundary)
+	}
 }

@@ -300,8 +300,9 @@ Keeper's needs a code comment that links the vendor's documentation), `DeleteLat
 deletes; the margin is at least this plus 90 s), `Verified` and `Source` (for the status). A driver that does not implement it uses Keeper's
 row and is **unverified**: retention is off for it, and the status says `Unverified`. A rule is verified only after a live check of
 the vendor's partial-period billing and of the period's anchor (from the server's start; no vendor documents clock-hour billing).
-Only two shapes are accepted: an increment of a minute or more with a minimum equal to it (or none), and a minimum with a shorter
-increment; anything else is `UnsupportedShape`. The AWS driver reports its per-second rule (1 s, 60 s minimum), verified, which is under
+Only two shapes are accepted: increments held (an increment of at least the NodeClass's `minPeriod`) with a minimum equal to the
+increment (or none), and minimum only (an increment shorter than `minPeriod`: one boundary at the minimum); a minimum different from
+a held increment is `UnsupportedShape`. The AWS driver reports its per-second rule (1 s, 60 s minimum), verified, which is under
 the hold floor.
 
 ## Registry

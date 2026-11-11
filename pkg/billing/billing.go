@@ -36,10 +36,6 @@ const (
 	// SkewAllowance is how far in the future a billing start may lie before it
 	// is not believed (clock skew between the controller and the vendor).
 	SkewAllowance = 2 * time.Minute
-	// MinPeriodFloor is the shortest increment that spec.billing.minPeriod can
-	// ever hold (its lowest valid value); Resolve calls a rule whose increment
-	// is at least this long and whose minimum differs from it unsupported.
-	MinPeriodFloor = time.Minute
 )
 
 // Reasons of the per-vendor status (status.billing[].reason).
@@ -83,19 +79,17 @@ type Rule struct {
 	// Source says where the rule comes from, for the status.
 	Source string
 	// Verified is true only when the driver says a live check confirmed the
-	// rule and its shape is supported.
+	// rule (and Keeper or the driver gives an increment).
 	Verified bool
-	// Unsupported is true for a shape Resolve does not support (a minimum
-	// different from a held increment): Verified is then false.
-	Unsupported bool
 }
 
 // Resolve combines Keeper's vendor row with the driver's override, field by
 // field: a field the override sets wins, the rest is Keeper's. A driver without
-// an override (nil) is unverified. Only two shapes are supported (ADR-024):
-// increments held with Minimum equal to Increment (or no minimum), and
-// minimum-only; a minimum different from an increment of a minute or more is
-// reported Unsupported, never guessed.
+// an override (nil) is unverified. Whether the rule's shape is supported
+// depends on spec.billing.minPeriod, so Assess decides it: increments held
+// (Increment >= minPeriod) with Minimum equal to Increment (or no minimum), and
+// minimum-only (Increment < minPeriod, one boundary at start + Minimum); a
+// minimum different from a held increment is UnsupportedShape, never guessed.
 func Resolve(keeper catalog.BillingFacts, override *vendors.BillingRule) Rule {
 	var r Rule
 	source := ""
@@ -136,9 +130,6 @@ func Resolve(keeper catalog.BillingFacts, override *vendors.BillingRule) Rule {
 	if r.Increment <= 0 {
 		r.Verified = false
 	}
-	if r.Increment >= MinPeriodFloor && r.Minimum > 0 && r.Minimum != r.Increment {
-		r.Verified, r.Unsupported = false, true
-	}
 	return r
 }
 
@@ -170,9 +161,18 @@ type Status struct {
 }
 
 // held reports whether the rule's increments are held: the increment is at
-// least minPeriod (Resolve guarantees Minimum equals it or is absent).
+// least minPeriod.
 func (r Rule) held(minPeriod time.Duration) bool {
 	return r.Increment > 0 && r.Increment >= minPeriod
+}
+
+// unsupported reports a shape that is not supported under minPeriod (ADR-024,
+// plan 23 decision 12): increments held with a minimum different from the
+// increment (90m over 60m, 30m over 60m). With the increment under minPeriod
+// the same rule is minimum-only, which is supported (10m over 5m holds until
+// start + 10m less the margin).
+func (r Rule) unsupported(minPeriod time.Duration) bool {
+	return r.held(minPeriod) && r.Minimum > 0 && r.Minimum != r.Increment
 }
 
 // Assess says whether a vendor's nodes can be held under the settings, and if
@@ -188,10 +188,10 @@ func (r Rule) Assess(keeperRow bool, s Settings) Status {
 		return no(ReasonDisabled, "spec.billing.retainUntilPeriodEnd is false")
 	case !keeperRow || r.Increment <= 0:
 		return no(ReasonNoKeeperData, "Keeper's vendor table has no billing increment for the vendor")
-	case r.Unsupported:
+	case r.unsupported(s.MinPeriod):
 		return no(ReasonUnsupportedShape,
-			"a minimum of %s differs from the %s increment; only equal or minimum-only rules are supported",
-			r.Minimum, r.Increment)
+			"a minimum of %s differs from the %s increment held at minPeriod %s; only equal or minimum-only rules are supported",
+			r.Minimum, r.Increment, s.MinPeriod)
 	case !r.Verified:
 		return no(ReasonUnverified, "the vendor's billing rule has not been verified on a live account")
 	}
@@ -219,18 +219,18 @@ func (r Rule) Assess(keeperRow bool, s Settings) Status {
 // Window is the arithmetic of one node. The anchor is always start, the
 // vendor's billing start (there is no clock-hour anchor, ADR-024).
 //
-// With increments held (Increment >= minPeriod; Resolve guarantees Minimum
-// equals it or is absent) the boundary is the next start + n*Increment strictly
-// after now. Otherwise the only boundary is start + Minimum and last is true:
-// there is no next period, and the boundary stays that one after it passed.
+// With increments held (Increment >= minPeriod, and Minimum equal to it or
+// absent) the boundary is the next start + n*Increment strictly after now.
+// Otherwise the only boundary is start + Minimum and last is true: there is no
+// next period, and the boundary stays that one after it passed.
 // deadline is boundary less the effective margin (the larger of margin and the
 // rule's DeleteLatency plus its allowance) and inMargin is now >= deadline.
 //
-// A zero start or a rule without a boundary gives zero times and false: the
-// caller must not hold the node.
+// A zero start, a rule without a boundary or an unsupported shape gives zero
+// times and false: the caller must not hold the node.
 func Window(start time.Time, r Rule, minPeriod, margin time.Duration, now time.Time) (
 	boundary, deadline time.Time, inMargin, last bool) {
-	if start.IsZero() {
+	if start.IsZero() || r.unsupported(minPeriod) {
 		return time.Time{}, time.Time{}, false, false
 	}
 	switch {
