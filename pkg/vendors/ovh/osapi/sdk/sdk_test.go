@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gophercloud/gophercloud/v2"
 	"github.com/gophercloud/gophercloud/v2/openstack/identity/v3/tokens"
@@ -154,13 +155,20 @@ func TestCreateBody(t *testing.T) {
 	if string(got) != want {
 		t.Fatalf("body\n got %s\nwant %s", got, want)
 	}
-	// No networks: "auto" (required from 2.37); no hint: none sent; user data that
-	// is valid base64 is still encoded (gophercloud would send it as is).
-	body, _ = CreateBody(osapi.CreateServerRequest{Name: "n", FlavorID: "f", ImageID: "i", UserData: []byte("abcd")})
+	// No hint: none sent; user data that is valid base64 is still encoded
+	// (gophercloud would send it as is).
+	body, _ = CreateBody(osapi.CreateServerRequest{
+		Name: "n", FlavorID: "f", ImageID: "i", NetworkIDs: []string{"net1"}, UserData: []byte("abcd"),
+	})
 	srv, _ := body["server"].(map[string]any)
 	ud, _ := srv["user_data"].(*string)
-	if srv["networks"] != "auto" || body["os:scheduler_hints"] != nil || ud == nil || *ud != "YWJjZA==" {
+	if body["os:scheduler_hints"] != nil || ud == nil || *ud != "YWJjZA==" {
 		t.Fatalf("defaults: %v", body)
+	}
+	// No network is refused: never "auto" (Neutron's auto-allocated topology,
+	// not Ext-Net) and never a server without a port.
+	if _, err := CreateBody(osapi.CreateServerRequest{Name: "n", FlavorID: "f", ImageID: "i"}); !errors.Is(err, errNoNetworks) {
+		t.Fatalf("no network: %v", err)
 	}
 }
 
@@ -172,7 +180,7 @@ func TestCreateServerReadsBack(t *testing.T) {
 		}
 		status(w, 200, `{"server":`+fmt.Sprintf(serverJSON, "new-1", "1", "BUILD")+`}`)
 	})
-	s, err := NewCompute(sc).CreateServer(context.Background(), osapi.CreateServerRequest{Name: "nc-1", FlavorID: "f", ImageID: "i"})
+	s, err := NewCompute(sc).CreateServer(context.Background(), osapi.CreateServerRequest{Name: "nc-1", FlavorID: "f", ImageID: "i", NetworkIDs: []string{"n"}})
 	if err != nil || s.ID != "new-1" || s.Status != "BUILD" || s.FlavorName != "b3-8" {
 		t.Fatalf("%+v %v", s, err)
 	}
@@ -187,7 +195,7 @@ func TestCreateServerReadsBack(t *testing.T) {
 		}
 		status(w, 503, `{}`)
 	})
-	s, err = NewCompute(sc).CreateServer(context.Background(), osapi.CreateServerRequest{Name: "nc-2", FlavorID: "f", ImageID: "i"})
+	s, err = NewCompute(sc).CreateServer(context.Background(), osapi.CreateServerRequest{Name: "nc-2", FlavorID: "f", ImageID: "i", NetworkIDs: []string{"n"}})
 	if err != nil || s.ID != "new-2" || s.Name != "nc-2" || s.Status != osapi.StatusBuild {
 		t.Fatalf("%+v %v", s, err)
 	}
@@ -195,7 +203,7 @@ func TestCreateServerReadsBack(t *testing.T) {
 	sc, _ = serve(t, func(w http.ResponseWriter, r *http.Request) {
 		status(w, 403, `{"forbidden":{"message":"Quota exceeded for instances: Requested 1, but already used 10 of 10 instances"}}`)
 	})
-	if _, err = NewCompute(sc).CreateServer(context.Background(), osapi.CreateServerRequest{Name: "x"}); !strings.Contains(err.Error(), "Quota exceeded") {
+	if _, err = NewCompute(sc).CreateServer(context.Background(), osapi.CreateServerRequest{Name: "x", NetworkIDs: []string{"n"}}); !strings.Contains(err.Error(), "Quota exceeded") {
 		t.Fatalf("%v", err)
 	}
 }
@@ -336,5 +344,59 @@ func TestEndpointNotFound(t *testing.T) {
 	}
 	if errors.Is(convertEndpoint(errors.New("x")), osapi.ErrNoEndpoint) {
 		t.Fatal("other errors are not a missing endpoint")
+	}
+}
+
+// New wires gophercloud's retries: a 429 is retried on any method (Retry-After
+// honoured), a 502/503/504 only on idempotent methods, a POST never.
+func TestRetries(t *testing.T) {
+	var gets, posts, throttled int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/throttled":
+			throttled++
+			if throttled < 3 {
+				w.Header().Set("Retry-After", "0")
+				status(w, 429, `{"message":"slow down"}`)
+				return
+			}
+			status(w, 202, `{}`)
+		case r.Method == http.MethodGet:
+			gets++
+			if gets < 3 {
+				status(w, 503, `{"message":"unavailable"}`)
+				return
+			}
+			status(w, 200, `{}`)
+		default:
+			posts++
+			status(w, 502, `{"message":"bad gateway"}`)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	pc := &gophercloud.ProviderClient{HTTPClient: *ts.Client()}
+	New(pc, Options{BaseBackoff: time.Millisecond, MaxBackoffRetries: 4})
+	ctx := context.Background()
+	if _, err := pc.Request(ctx, http.MethodGet, ts.URL+"/x", &gophercloud.RequestOpts{}); err != nil || gets != 3 {
+		t.Fatalf("GET 503 twice then 200: err %v after %d calls", err, gets)
+	}
+	if _, err := pc.Request(ctx, http.MethodPost, ts.URL+"/servers", &gophercloud.RequestOpts{JSONBody: map[string]any{}}); err == nil || posts != 1 {
+		t.Fatalf("POST 502 is not retried: err %v after %d calls", err, posts)
+	}
+	if _, err := pc.Request(ctx, http.MethodPost, ts.URL+"/throttled", &gophercloud.RequestOpts{JSONBody: map[string]any{}}); err != nil || throttled != 3 {
+		t.Fatalf("429 twice then 200: err %v after %d calls", err, throttled)
+	}
+	gets = -10 // always 503 from now on, until the retries run out
+	if _, err := pc.Request(ctx, http.MethodGet, ts.URL+"/x", &gophercloud.RequestOpts{}); err == nil || gets != -5 {
+		t.Fatalf("GET retries stop at MaxBackoffRetries: err %v, calls %d", err, gets+10)
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := backoff429(time.Hour)(cctx, nil, errors.New("e"), 1); err == nil {
+		t.Fatal("a canceled context stops the backoff")
+	}
+	if d := backoffWait(time.Second, 40); d > 30*time.Second || d < 15*time.Second {
+		t.Fatalf("backoff cap: %v", d)
 	}
 }

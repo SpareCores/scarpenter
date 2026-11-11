@@ -82,6 +82,9 @@ var textRules = []textRule{
 	{[]int{403}, svcNova, "Quota exceeded for ram", vendors.QuotaExceeded, CodeOverQuota},
 	{[]int{403}, svcNova, "Quota exceeded for server_groups", vendors.QuotaExceeded, CodeOverQuota},
 	{[]int{403}, svcNova, "Quota exceeded, too many server groups", vendors.QuotaExceeded, CodeOverQuota},
+	// Nova checks Neutron's port quota before it accepts the create
+	// (PortLimitExceeded, HTTP 403): every node takes one Ext-Net port.
+	{[]int{403}, svcNova, "Maximum number of ports exceeded", vendors.QuotaExceeded, CodeOverQuota},
 	// Neutron's OverQuota for ports and security groups (HTTP 409; the type is
 	// prefixed to the message by the client layer).
 	{[]int{409}, svcNeutron, "OverQuota", vendors.QuotaExceeded, CodeOverQuota},
@@ -96,6 +99,8 @@ var textRules = []textRule{
 	// The image of the call is gone or not usable: the hand-off is wrong, no
 	// other candidate helps.
 	{[]int{400}, svcNova, "Invalid imageRef provided", vendors.Fatal, CodeImageMissing},
+	// Nova's text for a well-formed image ID that Glance does not have.
+	{[]int{400}, svcNova, "Can not find requested image", vendors.Fatal, CodeImageMissing},
 	{[]int{400}, svcNova, "is not active", vendors.Fatal, CodeImageNotActive},
 }
 

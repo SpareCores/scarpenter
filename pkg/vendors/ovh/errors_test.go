@@ -48,6 +48,7 @@ func TestClassify(t *testing.T) {
 		{"nova ram", api("nova", 403, "Quota exceeded for ram: Requested 8192, but already used 0 of 4096 ram"), vendors.QuotaExceeded, CodeOverQuota},
 		{"nova server_groups", api("nova", 403, "Quota exceeded for server_groups: Requested 1, but already used 10 of 10 server_groups"), vendors.QuotaExceeded, CodeOverQuota},
 		{"nova server groups", api("nova", 403, "Quota exceeded, too many server groups."), vendors.QuotaExceeded, CodeOverQuota},
+		{"nova port quota", api("nova", 403, "Maximum number of ports exceeded"), vendors.QuotaExceeded, CodeOverQuota},
 		{"neutron ports", api("neutron", 409, "OverQuota: Quota exceeded for resources: ['port']."), vendors.QuotaExceeded, CodeOverQuota},
 		{"neutron groups", api("neutron", 409, "OverQuota: Quota exceeded for resources: ['security_group']."), vendors.QuotaExceeded, CodeOverQuota},
 		// unsupported
@@ -77,6 +78,7 @@ func TestClassify(t *testing.T) {
 		{"transport", &net.OpError{Op: "dial", Err: timeoutErr{}}, vendors.Retryable, CodeTransport},
 		// fatal
 		{"image missing", api("nova", 400, "Invalid imageRef provided."), vendors.Fatal, CodeImageMissing},
+		{"image unknown", api("nova", 400, "Can not find requested image"), vendors.Fatal, CodeImageMissing},
 		{"image not active", api("nova", 400, "Image 1234 is not active."), vendors.Fatal, CodeImageNotActive},
 		{"bad request", api("nova", 400, "Invalid input for field/attribute name."), vendors.Fatal, CodeBadRequest},
 		{"401 with fresh credentials", api("nova", 401, "Authentication required"), vendors.Fatal, CodeUnauthorized},

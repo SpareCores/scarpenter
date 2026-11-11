@@ -47,8 +47,11 @@ The gophercloud adapter (`sdk`) authenticates from the standard `OS_*` environme
 (`openstackUser` mode; the service-account OIDC flow is not built, a seam is marked), asks for
 Nova microversion 2.67 (server tags, `volume_type` in block device mappings, the
 server group `policy`), encodes user data itself (gophercloud sends data that happens to
-be valid base64 as is), sends `networks: auto` when no network is given (required from
-2.37), reads the server back after the create (the create answer holds only the ID; if
+be valid base64 as is), refuses a create without a network (never `networks: auto`,
+which asks Neutron's auto-allocated topology for a private network instead of `Ext-Net`),
+retries a 429 (honouring `Retry-After`) and a 502, 503 or 504 of an idempotent call (GET,
+HEAD, DELETE; never a POST: a create the gateway timed out may have happened, and the
+idempotency-key lookup on the core's retry covers it) with jittered backoff, reads the server back after the create (the create answer holds only the ID; if
 the read fails the minimal server is returned so the ID is never lost), and reads
 server, network and server group lists from the raw JSON because gophercloud's structs
 lack the fields the driver needs. From microversion 2.47 a server's flavor has no ID: the
@@ -119,13 +122,13 @@ confirmed on OVH.
 | Class | Status, service, text |
 |---|---|
 | `InsufficientCapacity` | 500 (a server's fault) "No valid host was found"; 500 "Exceeded maximum number of retries" |
-| `QuotaExceeded` | Nova 403 "Quota exceeded for instances", "cores", "ram", "server_groups", "Quota exceeded, too many server groups"; Neutron 409 `OverQuota`. Never account-wide: OVH's limits are per project and region |
+| `QuotaExceeded` | Nova 403 "Quota exceeded for instances", "cores", "ram", "server_groups", "Quota exceeded, too many server groups", "Maximum number of ports exceeded"; Neutron 409 `OverQuota`. Never account-wide: OVH's limits are per project and region |
 | `Unsupported` | Nova 400 "Invalid flavorRef provided", "Flavor's disk is too small", "Flavor's memory is too small" |
 | `ZoneUnusable` | 409 or 500 "No more IP addresses available" |
 | `RegionUnavailable` | no endpoint in the catalog; Keystone 401 or 403 |
 | `NotFound` | any 404 |
 | `Retryable` | 429, 5xx, a 409 that is not a quota, timeouts, canceled calls, network errors |
-| `Fatal` | everything else: other 400s (including a missing or inactive image), 401 and 403 of Nova without a quota text |
+| `Fatal` | everything else: other 400s (including a missing or inactive image: "Invalid imageRef provided", "Can not find requested image", "is not active"), 401 and 403 of Nova without a quota text |
 
 `ClassifyFault` classifies the fault of a server in `ERROR` the same way, using the
 fault's code as status.
@@ -134,7 +137,8 @@ fault's code as status.
 
 `QuotaReader` implements `vendors.QuotaReporter` on a provider: per region the buckets
 `instances`, `cores` and `ram` (MiB) from Nova's absolute limits, the usage being the
-whole project (foreign servers count); `Counted` are the servers that are not deleted.
+whole project (foreign servers count); a limit of -1 (unlimited) gives no bucket;
+`Counted` are the servers that are not deleted.
 `GlobalQuotas` is empty. `Consumption` is 1 instance, the flavor's vCPUs and its RAM;
 `false` for spot, for families the driver does not launch and for flavors not read yet
 (flavors are read per region and cached for an hour).

@@ -133,12 +133,14 @@ func (m *RegionMap) Known(keeper string) bool {
 
 // Join intersects the compute regions of the Keystone catalog with the table:
 // the usable regions with the Keeper name each joins to, in the catalog's order.
+// A region keeps the catalog's spelling: gophercloud matches endpoint regions
+// exactly, so a name changed here would find no endpoint.
 // A catalog region Keeper has no row for is returned in unknown (the catalog is
 // the truth, but without a Keeper row there are no offerings or prices for it).
 func (m *RegionMap) Join(catalog []string) (joined []vendors.Region, unknown []string) {
 	for _, c := range catalog {
 		if _, ok := m.Keeper(c); ok {
-			joined = append(joined, vendors.Region{Name: strings.ToUpper(c)})
+			joined = append(joined, vendors.Region{Name: c})
 		} else {
 			unknown = append(unknown, c)
 		}

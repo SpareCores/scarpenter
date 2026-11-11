@@ -93,6 +93,15 @@ func TestSnapshotSkipsDeleted(t *testing.T) {
 	}
 }
 
+// Nova's -1 is unlimited: no bucket, so the tracker does not read it as no
+// headroom.
+func TestSnapshotUnlimited(t *testing.T) {
+	s := Snapshot("GRA11", osapi.Limits{MaxInstances: -1, MaxCores: 20, UsedCores: 4, MaxRAMMiB: -1}, nil)
+	if len(s.Buckets) != 1 || s.Buckets[0].ID != BucketCores || s.Buckets[0].Limit != 20 {
+		t.Errorf("buckets %+v", s.Buckets)
+	}
+}
+
 func TestQuotaErrorsAreClassified(t *testing.T) {
 	ctx := context.Background()
 	c, _, _ := quotaCloud(t)

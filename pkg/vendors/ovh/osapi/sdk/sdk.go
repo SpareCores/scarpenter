@@ -14,9 +14,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
+	"math/rand/v2"
+	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,8 +56,12 @@ type Options struct {
 	ComputeMicroversion string
 	// UserAgent is prepended to the SDK's (scarpenter/<version>).
 	UserAgent string
-	// MaxBackoffRetries is how often gophercloud retries a 429 (default 5).
+	// MaxBackoffRetries is how often a call is retried: a 429 on any method, a
+	// 502, 503 or 504 on an idempotent one (default 5).
 	MaxBackoffRetries uint
+	// BaseBackoff is the first retry's wait, doubled per retry, with jitter
+	// (default 500 ms); a 429's Retry-After overrides it.
+	BaseBackoff time.Duration
 }
 
 // Provider implements osapi.Provider on an authenticated gophercloud provider
@@ -73,11 +81,85 @@ func New(pc *gophercloud.ProviderClient, opts Options) *Provider {
 	if opts.MaxBackoffRetries == 0 {
 		opts.MaxBackoffRetries = 5
 	}
+	if opts.BaseBackoff == 0 {
+		opts.BaseBackoff = 500 * time.Millisecond
+	}
 	if opts.UserAgent != "" {
 		pc.UserAgent.Prepend(opts.UserAgent)
 	}
 	pc.MaxBackoffRetries = opts.MaxBackoffRetries
+	// gophercloud retries a 429 only when RetryBackoffFunc is set, and other
+	// statuses only through RetryFunc; neither has a default.
+	pc.RetryBackoffFunc = backoff429(opts.BaseBackoff)
+	pc.RetryFunc = retryGateway(opts.BaseBackoff, opts.MaxBackoffRetries)
 	return &Provider{pc: pc, opts: opts}
+}
+
+// backoffWait is base * 2^(n-1), capped at 30 s, with up to 50 % jitter.
+func backoffWait(base time.Duration, n uint) time.Duration {
+	d := base << min(n-1, 10)
+	d = min(d, 30*time.Second)
+	return d/2 + rand.N(d/2+1)
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// backoff429 is gophercloud's RetryBackoffFunc: wait Retry-After (seconds, at
+// most 60) or the jittered backoff, then retry. gophercloud stops at
+// MaxBackoffRetries itself.
+func backoff429(base time.Duration) gophercloud.RetryBackoffFunc {
+	return func(ctx context.Context, re *gophercloud.ErrUnexpectedResponseCode, err error, n uint) error {
+		d := backoffWait(base, n)
+		if re != nil {
+			if s, perr := strconv.Atoi(re.ResponseHeader.Get("Retry-After")); perr == nil && s >= 0 {
+				d = min(time.Duration(s)*time.Second, time.Minute)
+			}
+		}
+		if serr := sleepCtx(ctx, d); serr != nil {
+			return err
+		}
+		return nil
+	}
+}
+
+// retryGateway is gophercloud's RetryFunc: a 502, 503 or 504 of an idempotent
+// call (GET, HEAD, DELETE) is retried with the jittered backoff. A POST is not:
+// a create the gateway timed out may have happened, and the driver's lookup by
+// the idempotency key, on the core's retry, is what makes a replay safe.
+// Everything else (transport errors included) is returned as is.
+func retryGateway(base time.Duration, maxRetries uint) gophercloud.RetryFunc {
+	return func(ctx context.Context, method, _ string, _ *gophercloud.RequestOpts, err error, n uint) error {
+		if n > maxRetries {
+			return err
+		}
+		switch method {
+		case http.MethodGet, http.MethodHead, http.MethodDelete:
+		default:
+			return err
+		}
+		sc, ok := errors.AsType[statusCoder](err)
+		if !ok {
+			return err
+		}
+		switch sc.GetStatusCode() {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		default:
+			return err
+		}
+		if serr := sleepCtx(ctx, backoffWait(base, n)); serr != nil {
+			return err
+		}
+		return nil
+	}
 }
 
 // FromEnv authenticates with the standard OS_* environment (OS_AUTH_URL,
@@ -321,7 +403,7 @@ func (c *Compute) GetServer(ctx context.Context, id string) (*osapi.Server, erro
 
 // createOpts builds the POST /servers body; exported to the tests through
 // CreateBody.
-func createOpts(req osapi.CreateServerRequest) (servers.CreateOpts, servers.SchedulerHintOptsBuilder) {
+func createOpts(req osapi.CreateServerRequest) (servers.CreateOpts, servers.SchedulerHintOptsBuilder, error) {
 	o := servers.CreateOpts{
 		Name: req.Name, FlavorRef: req.FlavorID, ImageRef: req.ImageID, SecurityGroups: req.SecurityGroups,
 		ConfigDrive: req.ConfigDrive, AvailabilityZone: req.AvailabilityZone, Metadata: req.Metadata, Tags: req.Tags,
@@ -330,15 +412,19 @@ func createOpts(req osapi.CreateServerRequest) (servers.CreateOpts, servers.Sche
 		// Encode here: gophercloud sends data that already is valid base64 as is.
 		o.UserData = []byte(base64.StdEncoding.EncodeToString(req.UserData))
 	}
+	// Networks are required from microversion 2.37; the driver always names
+	// them (BuildCreateRequest attaches Ext-Net). "auto" is never sent: it asks
+	// Neutron's auto-allocated topology for a private network and router, not
+	// Ext-Net, and OVH does not document it; "none" would boot a billed server
+	// nobody can reach.
 	if len(req.NetworkIDs) == 0 {
-		o.Networks = "auto" // required from microversion 2.37
-	} else {
-		nets := make([]servers.Network, 0, len(req.NetworkIDs))
-		for _, n := range req.NetworkIDs {
-			nets = append(nets, servers.Network{UUID: n})
-		}
-		o.Networks = nets
+		return servers.CreateOpts{}, nil, errNoNetworks
 	}
+	nets := make([]servers.Network, 0, len(req.NetworkIDs))
+	for _, n := range req.NetworkIDs {
+		nets = append(nets, servers.Network{UUID: n})
+	}
+	o.Networks = nets
 	for _, b := range req.BlockDevices {
 		o.BlockDevice = append(o.BlockDevice, servers.BlockDevice{
 			SourceType: servers.SourceType(b.SourceType), DestinationType: servers.DestinationType(b.DestinationType),
@@ -350,13 +436,19 @@ func createOpts(req osapi.CreateServerRequest) (servers.CreateOpts, servers.Sche
 	if req.SchedulerGroup != "" {
 		hints = servers.SchedulerHintOpts{Group: req.SchedulerGroup}
 	}
-	return o, hints
+	return o, hints, nil
 }
+
+// errNoNetworks is the error of a create request without a network.
+var errNoNetworks = errors.New("create server: no network given (Ext-Net must be attached explicitly)")
 
 // CreateBody returns the JSON body CreateServer would send, for the tests and
 // for debugging the request builder.
 func CreateBody(req osapi.CreateServerRequest) (map[string]any, error) {
-	o, hints := createOpts(req)
+	o, hints, err := createOpts(req)
+	if err != nil {
+		return nil, err
+	}
 	body, err := o.ToServerCreateMap()
 	if err != nil {
 		return nil, err
@@ -375,7 +467,10 @@ func CreateBody(req osapi.CreateServerRequest) (map[string]any, error) {
 // ID only, so the full server is read back; when that read fails the minimal
 // server (ID, name, BUILD) is returned, so the caller never loses the ID.
 func (c *Compute) CreateServer(ctx context.Context, req osapi.CreateServerRequest) (*osapi.Server, error) {
-	o, hints := createOpts(req)
+	o, hints, err := createOpts(req)
+	if err != nil {
+		return nil, err
+	}
 	r := servers.Create(ctx, c.sc, o, hints)
 	if r.Err != nil {
 		return nil, wrap("nova", r.Err)

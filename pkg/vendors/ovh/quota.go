@@ -38,12 +38,19 @@ const flavorTTL = time.Hour
 // the references of the servers that are not DELETED, so the in-flight ledger can
 // release the reservations of instances the usage now includes.
 func Snapshot(region string, l osapi.Limits, servers []osapi.Server) *vendors.QuotaSnapshot {
-	snap := &vendors.QuotaSnapshot{Buckets: []vendors.Bucket{
+	snap := &vendors.QuotaSnapshot{}
+	// Nova reports an unlimited quota as -1: no bucket (the tracker would read
+	// it as no headroom at all and block every launch).
+	for _, b := range []vendors.Bucket{
 		{ID: BucketInstances, Scope: vendors.QuotaScopeRegion, Unit: UnitInstances,
 			Limit: l.MaxInstances, Used: l.UsedInstances},
 		{ID: BucketCores, Scope: vendors.QuotaScopeRegion, Unit: UnitVCPU, Limit: l.MaxCores, Used: l.UsedCores},
 		{ID: BucketRAM, Scope: vendors.QuotaScopeRegion, Unit: UnitMiB, Limit: l.MaxRAMMiB, Used: l.UsedRAMMiB},
-	}}
+	} {
+		if b.Limit >= 0 {
+			snap.Buckets = append(snap.Buckets, b)
+		}
+	}
 	for _, s := range servers {
 		if InstanceState(s.Status) != vendors.StateTerminated {
 			snap.Counted = append(snap.Counted, InstanceRef(region, s.ID))
