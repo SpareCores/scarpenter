@@ -48,11 +48,15 @@ type Project struct {
 	cluster     string
 	serverLimit int
 
-	mu        sync.Mutex
+	// One lock per cache, so that a slow server list never holds up the
+	// locations or the type table.
+	locsMu    sync.Mutex
 	locs      cached[[]*hc.Location]
+	typesMu   sync.Mutex
 	types     cached[[]*hc.ServerType]
-	servers   cached[[]*hc.Server]
 	typesHash string
+	serversMu sync.Mutex
+	servers   cached[[]*hc.Server]
 	epoch     atomic.Uint64
 }
 
@@ -89,8 +93,8 @@ func (p *Project) API() API { return p.api }
 func (p *Project) RateLimit() RateLimit { return p.api.RateLimit() }
 
 func (p *Project) locations(ctx context.Context) ([]*hc.Location, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.locsMu.Lock()
+	defer p.locsMu.Unlock()
 	if p.locs.ok && p.clock.Now().Before(p.locs.until) {
 		return p.locs.v, nil
 	}
@@ -138,8 +142,8 @@ func (p *Project) NetworkZone(ctx context.Context, location string) (hc.NetworkZ
 // ServerTypes returns the type table (cached 3 min: the same call serves the
 // type table and the availability).
 func (p *Project) ServerTypes(ctx context.Context) ([]*hc.ServerType, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.typesMu.Lock()
+	defer p.typesMu.Unlock()
 	if p.types.ok && p.clock.Now().Before(p.types.until) {
 		return p.types.v, nil
 	}
@@ -243,8 +247,8 @@ func (p *Project) ResolveSSHKey(ctx context.Context, idOrName string) (int64, er
 // 5 seconds at most, whatever the number of callers. It holds every server of
 // the project (also those of other owners: the server limit counts them).
 func (p *Project) serverList(ctx context.Context) ([]*hc.Server, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.serversMu.Lock()
+	defer p.serversMu.Unlock()
 	if p.servers.ok && p.clock.Now().Before(p.servers.until) {
 		return p.servers.v, nil
 	}
@@ -257,9 +261,9 @@ func (p *Project) serverList(ctx context.Context) ([]*hc.Server, error) {
 }
 
 func (p *Project) forgetServers() {
-	p.mu.Lock()
+	p.serversMu.Lock()
 	p.servers = cached[[]*hc.Server]{}
-	p.mu.Unlock()
+	p.serversMu.Unlock()
 }
 
 // Create launches one server (plan 15, "CreateInstance"): one POST /servers, then
@@ -316,6 +320,13 @@ func (p *Project) replay(ctx context.Context, name, key string) (*vendors.Instan
 		if s.Name != name {
 			continue
 		}
+		if s.Status == hc.ServerStatusDeleting {
+			// A failed create that was discarded, or a server being
+			// deleted: the name frees when the delete completes, and the
+			// key counts as unused (a failed create leaves nothing).
+			return nil, vendors.NewError(vendors.Retryable, CodeNameInUse, fmt.Errorf(
+				"a server named %q is being deleted", name))
+		}
 		if key != "" && s.Labels[TagKey(vendors.TagIdempotencyKey)] == LabelValue(key) {
 			return ToInstance(s, ""), nil
 		}
@@ -325,12 +336,17 @@ func (p *Project) replay(ctx context.Context, name, key string) (*vendors.Instan
 	return nil, nil
 }
 
-// discard deletes a half-created server, under its own context (the create's
-// may be the thing that expired).
+// discard deletes a half-created server and waits for the delete, under its
+// own context (the create's may be the thing that expired), so that the name
+// and the idempotency key are free when the create returns its error. A delete
+// that does not complete leaves a server in status deleting, which replay
+// treats as a name still in use, never as the key's instance.
 func (p *Project) discard(ctx context.Context, s *hc.Server) {
-	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), DefaultCallTimeout)
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), DefaultCreateTimeout)
 	defer cancel()
-	_, _ = p.api.DeleteServer(dctx, s)
+	if act, err := p.api.DeleteServer(dctx, s); err == nil && act != nil {
+		_ = p.api.WaitForAction(dctx, act)
+	}
 	p.forgetServers()
 }
 

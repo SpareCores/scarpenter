@@ -294,9 +294,8 @@ func TestCreateFailedActionDeletesServer(t *testing.T) {
 	if class(err) != vendors.InsufficientCapacity || vendors.CodeOf(err) != "resource_unavailable" {
 		t.Errorf("%v", err)
 	}
-	e.f.Tick()
 	if e.f.ServerCount() != 0 {
-		t.Error("the half-created server is deleted")
+		t.Error("the half-created server is deleted before the create returns")
 	}
 	e.f.FailCreateAction("", "")
 	if _, err := e.p.Create(ctx, e.spec("nc-1")); err != nil {
@@ -594,5 +593,21 @@ func TestRateLimitPassThrough(t *testing.T) {
 	}
 	if e.p.API() != hcloud.API(e.f) {
 		t.Error("API")
+	}
+}
+
+// A server of the name that is being deleted (a discarded failed create whose
+// delete did not complete) is no replay of the key: the key stays unused.
+func TestCreateReplayOfDeletingServerIsNameInUse(t *testing.T) {
+	e := newEnv(t, nil)
+	inst, err := e.p.Create(ctx, e.spec("nc-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, id, _ := hcloud.ParseRef(inst.Ref)
+	e.f.SetStatus(id, hc.ServerStatusDeleting)
+	_, err = e.p.Create(ctx, e.spec("nc-1"))
+	if class(err) != vendors.Retryable || vendors.CodeOf(err) != hcloud.CodeNameInUse {
+		t.Errorf("replay of a deleting server: %v", err)
 	}
 }

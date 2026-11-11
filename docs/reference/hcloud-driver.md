@@ -74,15 +74,18 @@ injection and servers of other owners.
 Volumes are created with `BuildVolumeOpts` (10 to 10240 GB, no format: the first-boot
 unit formats them); their device is `/dev/disk/by-id/scsi-0HC_Volume_<id>`.
 `FirewallRules` makes inbound-only rules, one per rule and protocol (`any` becomes
-tcp, udp and icmp, ports only on tcp and udp); no rules mean a deny-all-inbound
-firewall.
+tcp, udp and icmp, ports only on tcp and udp; a tcp or udp rule without ports
+gets `1-65535`, since the API requires a port for both); no rules mean a
+deny-all-inbound firewall.
 
 `Project.Create` waits for the create action (a failed or timed-out action deletes
-the half-created server and returns the classified error). **Idempotency**: Hetzner
+the half-created server, waits for that delete so the name and the key are free, and
+returns the classified error). **Idempotency**: Hetzner
 has no create token; the server name is unique per project. A replay fails with
 `uniqueness_error`, the server is read by name and returned when its
 `idempotency-key` label is the key, whatever zone and type the replay asked for. A
-server of that name with another key is `Retryable` code `NameInUse`. The instance
+server of that name with another key, or one in status `deleting`, is `Retryable`
+code `NameInUse`. The instance
 returned by a create is `pending` (read before the start action); `Get` reports it
 running afterwards.
 
