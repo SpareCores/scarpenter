@@ -19,6 +19,8 @@ import (
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/request"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/conformance"
 	uc "github.com/SpareCores/scarpenter/pkg/vendors/upcloud"
@@ -141,6 +143,23 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params json.Raw
 			t.Helper()
 			return seed(t, envOf(t, d), k, region, conformance.SeedSpec{Name: "user-" + string(k), Tags: tags})
 		},
+		// The resolution order (ADR-022) without a vendor default: UpCloud has none for
+		// any kind, so the cases that arrange a default are skipped and the others
+		// (nothing found creates, forbid, interruption, kinds in a network) run.
+		OrderClass: func(t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*common.Resource, ipv6 bool) *v1alpha1.SCNodeClass {
+			t.Helper()
+			nc := class(testVersion, nil, nil)
+			r := nc.Spec.Vendors.UpCloud.Resources
+			r.Networks, r.Firewalls, r.ServerGroups = res[uc.KindNetworks], res[uc.KindFirewalls], res[uc.KindServerGroups]
+			nc.Spec.Networking.PublicIPv6 = &ipv6
+			return nc
+		},
+		SetDefault: func(t *testing.T, _ vendors.Driver, _ vendors.ResourceKind, _ string, state conformance.DefaultState) {
+			t.Helper()
+			if state != conformance.DefaultAbsent {
+				t.Skip("UpCloud has no vendor default for any kind")
+			}
+		},
 		Restart: func(t *testing.T, d vendors.Driver) vendors.Driver {
 			t.Helper()
 			old := envOf(t, d)
@@ -150,7 +169,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params json.Raw
 		},
 	}
 	if kind != uc.KindNetworks {
-		fx.Seed, fx.SeedImage, fx.SeedKinds = nil, nil, nil
+		fx.Seed, fx.SeedImage, fx.SeedKinds, fx.OrderClass, fx.SetDefault = nil, nil, nil, nil, nil
 	}
 	return fx
 }
