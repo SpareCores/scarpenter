@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -24,6 +25,7 @@ const (
 	CodeCanceled         = "CallCanceled"
 	CodeTransport        = "TransportError"
 	CodeServerError      = "ServerError"
+	CodeRateLimited      = "RateLimited"
 	CodePlacementFull    = "PlacementFull"
 	CodeNameInUse        = "NameInUse"
 	CodeUserDataTooLarge = "UserDataTooLarge"
@@ -112,13 +114,39 @@ func classify(err error) error {
 		return fromCode(hc.ErrorCode(actErr.Code), nil, err)
 	}
 	if errors.Is(err, hc.ErrStatusCode) {
-		if st, perr := strconv.Atoi(err.Error()[max(0, len(err.Error())-3):]); perr == nil && st >= 500 {
-			return vendors.NewError(vendors.Retryable, CodeServerError, err)
-		}
-		return vendors.NewError(vendors.Fatal, "", err)
+		return fromBareStatus(statusOf(err), err)
 	}
 	if _, ok := errors.AsType[net.Error](err); ok {
 		return vendors.NewError(vendors.Retryable, CodeTransport, err)
+	}
+	return vendors.NewError(vendors.Fatal, "", err)
+}
+
+// statusOf reads the HTTP status of the SDK's bare-status error
+// ("hcloud: server responded with status code 429"); 0 when it has none.
+func statusOf(err error) int {
+	f := strings.Fields(err.Error())
+	if len(f) == 0 {
+		return 0
+	}
+	st, perr := strconv.Atoi(f[len(f)-1])
+	if perr != nil {
+		return 0
+	}
+	return st
+}
+
+// fromBareStatus classifies a response without a JSON error body by its HTTP
+// status alone (no message text): 429 is the rate limit (Retryable, code
+// RateLimited; the SDK retries only a 429 with the JSON body, and the contract
+// has no delay hook, so the caller's backoff applies), 5xx is Retryable
+// ServerError, any other status Fatal.
+func fromBareStatus(status int, err error) error {
+	switch {
+	case status == http.StatusTooManyRequests:
+		return vendors.NewError(vendors.Retryable, CodeRateLimited, err)
+	case status >= 500 && status <= 599:
+		return vendors.NewError(vendors.Retryable, CodeServerError, err)
 	}
 	return vendors.NewError(vendors.Fatal, "", err)
 }

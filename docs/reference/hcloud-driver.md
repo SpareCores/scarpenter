@@ -119,8 +119,11 @@ without `auto_delete`.
 
 ## Error mapping
 
-By the API's `error.code` (never by message; a bare HTTP 5xx without a JSON body is
-`Retryable` `ServerError`). Every code is pinned by a table test.
+By the API's `error.code`, never by message. A response without a JSON error body
+is classified by its HTTP status alone: 429 is `Retryable` `RateLimited` (the SDK
+retries only the JSON `rate_limit_exceeded`, and the contract has no delay hook, so
+`Retry-After` is not read; the core's backoff applies), 5xx is `Retryable`
+`ServerError`, any other status `Fatal`. Every code and status is pinned by a table test.
 
 | Class | Codes |
 |---|---|

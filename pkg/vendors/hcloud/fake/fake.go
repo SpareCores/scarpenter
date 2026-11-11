@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"net/http"
 	"slices"
 	"strconv"
 	"sync"
@@ -73,6 +74,8 @@ type Fake struct {
 	// requests counts API requests (pages included); rateLimited forces 429.
 	requests    int
 	rateLimited bool
+	// bareRateLimit makes the 429 mode answer without a JSON body.
+	bareRateLimit bool
 	// inject holds the errors to return by operation name.
 	inject map[string][]injected
 	calls  map[string]int
@@ -188,6 +191,9 @@ func (f *Fake) call(op string, pages int) error {
 	}
 	if f.rateLimited || f.requests+pages > RateLimitPerHour {
 		f.requests++
+		if f.bareRateLimit {
+			return BareStatusError(http.StatusTooManyRequests)
+		}
 		return APIError(hc.ErrorCodeRateLimitExceeded, "limit of 3600 requests per hour reached")
 	}
 	f.requests += pages
@@ -241,6 +247,21 @@ func (f *Fake) SetRateLimited(b bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.rateLimited = b
+}
+
+// SetBareRateLimit makes the 429 mode (and an exhausted bucket) answer like a
+// proxy in front of the API: HTTP 429 without a JSON body, which the SDK
+// reports as ErrStatusCode only.
+func (f *Fake) SetBareRateLimit(b bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.bareRateLimit = b
+}
+
+// BareStatusError is the SDK's error for a response without a JSON error
+// body (the same text the SDK builds).
+func BareStatusError(status int) error {
+	return fmt.Errorf("hcloud: %w %d", hc.ErrStatusCode, status)
 }
 
 // ResetRateLimit refills the bucket.

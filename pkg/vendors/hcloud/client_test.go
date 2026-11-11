@@ -143,3 +143,23 @@ func TestGetUnknownIsNotFound(t *testing.T) {
 }
 
 var ctx = context.Background()
+
+// TestClientBareStatus: responses without a JSON error body, through the real
+// SDK: 429 is Retryable RateLimited, 503 Retryable, 403 Fatal.
+func TestClientBareStatus(t *testing.T) {
+	for status, want := range map[int]vendors.Class{429: vendors.Retryable, 503: vendors.Retryable, 403: vendors.Fatal} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte("slow down"))
+		}))
+		c := hcloud.NewClient(hcloud.ClientConfig{Token: "t", Endpoint: ts.URL})
+		_, err := hcloud.NewProject(c, "c").Get(context.Background(), "fsn1/1")
+		assert.Equal(t, want, vendors.ClassOf(err), "status %d: %v", status, err)
+		if status == 429 {
+			assert.Equal(t, hcloud.CodeRateLimited, vendors.CodeOf(err))
+		}
+		ts.Close()
+	}
+}

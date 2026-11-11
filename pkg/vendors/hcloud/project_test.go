@@ -611,3 +611,23 @@ func TestCreateReplayOfDeletingServerIsNameInUse(t *testing.T) {
 		t.Errorf("replay of a deleting server: %v", err)
 	}
 }
+
+// A rate limit answered without a JSON body is Retryable, not Fatal: the
+// launch backs off instead of failing.
+func TestBareRateLimitIsRetryable(t *testing.T) {
+	for _, bare := range []bool{false, true} {
+		e := newEnv(t, nil)
+		e.f.SetBareRateLimit(bare)
+		e.f.SetRateLimited(true)
+		_, err := e.p.Create(ctx, e.spec("nc-1"))
+		if class(err) != vendors.Retryable {
+			t.Errorf("bare=%v create: %v", bare, err)
+		}
+		if _, err := e.p.List(ctx, nil, nil); class(err) != vendors.Retryable {
+			t.Errorf("bare=%v list: %v", bare, err)
+		}
+		if bare && vendors.CodeOf(err) != hcloud.CodeRateLimited {
+			t.Errorf("code %q", vendors.CodeOf(err))
+		}
+	}
+}

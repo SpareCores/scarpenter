@@ -162,3 +162,31 @@ func TestIsCode(t *testing.T) {
 		t.Error("other")
 	}
 }
+
+// TestBareStatus pins the classification of responses without a JSON error
+// body, by HTTP status only.
+func TestBareStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		class  vendors.Class
+		code   string
+	}{
+		{429, vendors.Retryable, CodeRateLimited},
+		{500, vendors.Retryable, CodeServerError},
+		{502, vendors.Retryable, CodeServerError},
+		{503, vendors.Retryable, CodeServerError},
+		{504, vendors.Retryable, CodeServerError},
+		{599, vendors.Retryable, CodeServerError},
+		{400, vendors.Fatal, ""},
+		{401, vendors.Fatal, ""},
+		{403, vendors.Fatal, ""},
+		{404, vendors.Fatal, ""},
+		{409, vendors.Fatal, ""},
+		{422, vendors.Fatal, ""},
+	} {
+		c := classify(fmt.Errorf("op: %w", fmt.Errorf("hcloud: %w %d", hc.ErrStatusCode, tc.status)))
+		if vendors.ClassOf(c) != tc.class || vendors.CodeOf(c) != tc.code {
+			t.Errorf("%d: %s %q, want %s %q", tc.status, vendors.ClassOf(c), vendors.CodeOf(c), tc.class, tc.code)
+		}
+	}
+}
