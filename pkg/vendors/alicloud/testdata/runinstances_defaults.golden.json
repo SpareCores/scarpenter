@@ -1,0 +1,48 @@
+{
+  "SystemDisk": {
+    "Category": "cloud_essd",
+    "PerformanceLevel": "PL0",
+    "Size": "64"
+  },
+  "Amount": 1,
+  "ClientToken": "a3f75a4582666605e0dd33e6ff867cdbfaad4fbe7c267d5348192405df088342",
+  "HostName": "default-abc12",
+  "HttpEndpoint": "enabled",
+  "HttpTokens": "optional",
+  "ImageId": "m-flatcar-arm64",
+  "InstanceChargeType": "PostPaid",
+  "InstanceName": "default-abc12",
+  "InstanceType": "ecs.g8y.large",
+  "InternetChargeType": "PayByTraffic",
+  "InternetMaxBandwidthOut": 100,
+  "MinAmount": 1,
+  "RegionId": "ap-southeast-1",
+  "SecurityGroupIds": [
+    "sg-1"
+  ],
+  "Tag": [
+    {
+      "Key": "scarpenter.sparecores.com/cluster",
+      "Value": "my-cluster"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/managed-by",
+      "Value": "scarpenter"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/nodeclaim",
+      "Value": "default-abc12"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/nodeclass",
+      "Value": "default"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/nodepool",
+      "Value": "default"
+    }
+  ],
+  "UserData": "eyJpZ25pdGlvbiI6eyJ2ZXJzaW9uIjoiMy40LjAifX0=",
+  "VSwitchId": "vsw-1",
+  "ZoneId": "ap-southeast-1a"
+}

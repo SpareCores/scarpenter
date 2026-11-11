@@ -1,0 +1,620 @@
+ecs.av8m	launchable
+ecs.c1	drop: classic-network-only legacy family (unverified list)
+ecs.c10a	launchable
+ecs.c2	launchable
+ecs.c4	launchable
+ecs.c5	launchable
+ecs.c6	launchable
+ecs.c6a	launchable
+ecs.c6e	launchable
+ecs.c6r	launchable
+ecs.c6t	launchable
+ecs.c7	launchable
+ecs.c7a	launchable
+ecs.c7a-network_queue_upto16	launchable
+ecs.c7a-nps1	launchable
+ecs.c7a-nps1-ai	launchable
+ecs.c7a-nps1-xhs	launchable
+ecs.c7h	launchable
+ecs.c7n	launchable
+ecs.c7nex	launchable
+ecs.c7re	launchable
+ecs.c7se	launchable
+ecs.c7t	launchable
+ecs.c8a	launchable
+ecs.c8ae	launchable
+ecs.c8i	launchable
+ecs.c8ine	launchable
+ecs.c8ise	launchable
+ecs.c8m	launchable
+ecs.c8y	launchable
+ecs.c8y-dingding	launchable
+ecs.c9a	launchable
+ecs.c9a-flex	launchable
+ecs.c9a-flex-c1m1	launchable
+ecs.c9ae	launchable
+ecs.c9aene	launchable
+ecs.c9as	launchable
+ecs.c9h	launchable
+ecs.c9i	launchable
+ecs.c9i-2vnuma	launchable
+ecs.c9ine	launchable
+ecs.ce4	launchable
+ecs.cgn8i-24g	launchable
+ecs.cm4	launchable
+ecs.d1	launchable
+ecs.d1-c14d3	launchable
+ecs.d1-c8d3	launchable
+ecs.d1ne	launchable
+ecs.d1ne-c14d3	launchable
+ecs.d1ne-c8d3	launchable
+ecs.d2c	launchable
+ecs.d2s	launchable
+ecs.d3c	launchable
+ecs.d3s	launchable
+ecs.e-c1m1	launchable
+ecs.e-c1m2	launchable
+ecs.e-c1m3	launchable
+ecs.e-c1m4	launchable
+ecs.e-c1m5	launchable
+ecs.e-c1m6	launchable
+ecs.e-c1m7	launchable
+ecs.e-c1m8	launchable
+ecs.e-c2m1	launchable
+ecs.e-c2m11	launchable
+ecs.e-c2m13	launchable
+ecs.e-c2m15	launchable
+ecs.e-c2m3	launchable
+ecs.e-c2m5	launchable
+ecs.e-c2m7	launchable
+ecs.e-c2m9	launchable
+ecs.e-c4m1	launchable
+ecs.e-c4m11	launchable
+ecs.e-c4m13	launchable
+ecs.e-c4m15	launchable
+ecs.e-c4m17	launchable
+ecs.e-c4m19	launchable
+ecs.e-c4m21	launchable
+ecs.e-c4m23	launchable
+ecs.e-c4m25	launchable
+ecs.e-c4m27	launchable
+ecs.e-c4m29	launchable
+ecs.e-c4m31	launchable
+ecs.e-c4m5	launchable
+ecs.e-c4m7	launchable
+ecs.e-c4m9	launchable
+ecs.e-test-c1m1	drop: test family
+ecs.e3	launchable
+ecs.e4	launchable
+ecs.ebman1	drop: bare metal (ecs.ebm*)
+ecs.ebmc4	drop: bare metal (ecs.ebm*)
+ecs.ebmc5s	drop: bare metal (ecs.ebm*)
+ecs.ebmc6	drop: bare metal (ecs.ebm*)
+ecs.ebmc6a	drop: bare metal (ecs.ebm*)
+ecs.ebmc6e	drop: bare metal (ecs.ebm*)
+ecs.ebmc6me	drop: bare metal (ecs.ebm*)
+ecs.ebmc7	drop: bare metal (ecs.ebm*)
+ecs.ebmc7-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmc7a	drop: bare metal (ecs.ebm*)
+ecs.ebmc7a-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmc7a-nps1	drop: bare metal (ecs.ebm*)
+ecs.ebmc7a-nps2	drop: bare metal (ecs.ebm*)
+ecs.ebmc7t	drop: bare metal (ecs.ebm*)
+ecs.ebmc8a	drop: bare metal (ecs.ebm*)
+ecs.ebmc8ae	drop: bare metal (ecs.ebm*)
+ecs.ebmc8i	drop: bare metal (ecs.ebm*)
+ecs.ebmc8y	drop: bare metal (ecs.ebm*)
+ecs.ebmc9a-flex	drop: bare metal (ecs.ebm*)
+ecs.ebmc9ae	drop: bare metal (ecs.ebm*)
+ecs.ebmc9i	drop: bare metal (ecs.ebm*)
+ecs.ebmd3s	drop: bare metal (ecs.ebm*)
+ecs.ebmg10a-test	drop: bare metal (ecs.ebm*)
+ecs.ebmg5	drop: bare metal (ecs.ebm*)
+ecs.ebmg5s	drop: bare metal (ecs.ebm*)
+ecs.ebmg6	drop: bare metal (ecs.ebm*)
+ecs.ebmg6-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmg6a	drop: bare metal (ecs.ebm*)
+ecs.ebmg6e	drop: bare metal (ecs.ebm*)
+ecs.ebmg6e-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmg7	drop: bare metal (ecs.ebm*)
+ecs.ebmg7-dfs	drop: bare metal (ecs.ebm*)
+ecs.ebmg7-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmg7a	drop: bare metal (ecs.ebm*)
+ecs.ebmg7a-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmg7a-nps1	drop: bare metal (ecs.ebm*)
+ecs.ebmg7se	drop: bare metal (ecs.ebm*)
+ecs.ebmg7t	drop: bare metal (ecs.ebm*)
+ecs.ebmg8a	drop: bare metal (ecs.ebm*)
+ecs.ebmg8a-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmg8a-nps4	drop: bare metal (ecs.ebm*)
+ecs.ebmg8ae	drop: bare metal (ecs.ebm*)
+ecs.ebmg8i	drop: bare metal (ecs.ebm*)
+ecs.ebmg8i-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmg8ise	drop: bare metal (ecs.ebm*)
+ecs.ebmg8m	drop: bare metal (ecs.ebm*)
+ecs.ebmg8y	drop: bare metal (ecs.ebm*)
+ecs.ebmg9a	drop: bare metal (ecs.ebm*)
+ecs.ebmg9a-c1m6-flex	drop: bare metal (ecs.ebm*)
+ecs.ebmg9a-c1m6-flex-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmg9a-c1m6-flex-nps4	drop: bare metal (ecs.ebm*)
+ecs.ebmg9a-flex	drop: bare metal (ecs.ebm*)
+ecs.ebmg9a-flex-nps4	drop: bare metal (ecs.ebm*)
+ecs.ebmg9a-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmg9ae	drop: bare metal (ecs.ebm*)
+ecs.ebmg9ae-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmg9ae-nps4	drop: bare metal (ecs.ebm*)
+ecs.ebmg9h	drop: bare metal (ecs.ebm*)
+ecs.ebmg9i	drop: bare metal (ecs.ebm*)
+ecs.ebmg9i-hex	drop: bare metal (ecs.ebm*)
+ecs.ebmg9i-vsc	drop: bare metal (ecs.ebm*)
+ecs.ebmga8	drop: bare metal (ecs.ebm*)
+ecs.ebmgi6s	drop: bare metal (ecs.ebm*)
+ecs.ebmgn6e	drop: bare metal (ecs.ebm*)
+ecs.ebmgn6i	drop: bare metal (ecs.ebm*)
+ecs.ebmgn6ia	drop: bare metal (ecs.ebm*)
+ecs.ebmgn6v	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7e	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7ex	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7i	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7ix	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7ix-ant	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7t	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7v	drop: bare metal (ecs.ebm*)
+ecs.ebmgn7vx	drop: bare metal (ecs.ebm*)
+ecs.ebmgn8ga	drop: bare metal (ecs.ebm*)
+ecs.ebmgn8ga-wy	drop: bare metal (ecs.ebm*)
+ecs.ebmgn8ia	drop: bare metal (ecs.ebm*)
+ecs.ebmgn8is	drop: bare metal (ecs.ebm*)
+ecs.ebmgn8t	drop: bare metal (ecs.ebm*)
+ecs.ebmgn8te	drop: bare metal (ecs.ebm*)
+ecs.ebmgn8ts	drop: bare metal (ecs.ebm*)
+ecs.ebmgn8v	drop: bare metal (ecs.ebm*)
+ecs.ebmgn9g	drop: bare metal (ecs.ebm*)
+ecs.ebmgn9ga	drop: bare metal (ecs.ebm*)
+ecs.ebmgn9gc	drop: bare metal (ecs.ebm*)
+ecs.ebmgn9ge	drop: bare metal (ecs.ebm*)
+ecs.ebmgn9ge-1	drop: bare metal (ecs.ebm*)
+ecs.ebmgn9i	drop: bare metal (ecs.ebm*)
+ecs.ebmgn9t	drop: bare metal (ecs.ebm*)
+ecs.ebmgp7	drop: bare metal (ecs.ebm*)
+ecs.ebmgp7i	drop: bare metal (ecs.ebm*)
+ecs.ebmgp7ix	drop: bare metal (ecs.ebm*)
+ecs.ebmgp7v	drop: bare metal (ecs.ebm*)
+ecs.ebmhd7	drop: bare metal (ecs.ebm*)
+ecs.ebmhd8	drop: bare metal (ecs.ebm*)
+ecs.ebmhfc6	drop: bare metal (ecs.ebm*)
+ecs.ebmhfc7	drop: bare metal (ecs.ebm*)
+ecs.ebmhfc7-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmhfc8i	drop: bare metal (ecs.ebm*)
+ecs.ebmhfg5	drop: bare metal (ecs.ebm*)
+ecs.ebmhfg6	drop: bare metal (ecs.ebm*)
+ecs.ebmhfg6-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmhfg7	drop: bare metal (ecs.ebm*)
+ecs.ebmhfg7-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmhfg8i	drop: bare metal (ecs.ebm*)
+ecs.ebmhfr6	drop: bare metal (ecs.ebm*)
+ecs.ebmhfr6-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmhfr7	drop: bare metal (ecs.ebm*)
+ecs.ebmhfr7-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmhfr8i	drop: bare metal (ecs.ebm*)
+ecs.ebmhpc9a	drop: bare metal (ecs.ebm*)
+ecs.ebmr5s	drop: bare metal (ecs.ebm*)
+ecs.ebmr6	drop: bare metal (ecs.ebm*)
+ecs.ebmr6a	drop: bare metal (ecs.ebm*)
+ecs.ebmr6e	drop: bare metal (ecs.ebm*)
+ecs.ebmr7	drop: bare metal (ecs.ebm*)
+ecs.ebmr7-dfs	drop: bare metal (ecs.ebm*)
+ecs.ebmr7-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmr7a	drop: bare metal (ecs.ebm*)
+ecs.ebmr7a-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmr7a-ne	drop: bare metal (ecs.ebm*)
+ecs.ebmr7a-nps1	drop: bare metal (ecs.ebm*)
+ecs.ebmr8a	drop: bare metal (ecs.ebm*)
+ecs.ebmr8a-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmr8ae	drop: bare metal (ecs.ebm*)
+ecs.ebmr8y	drop: bare metal (ecs.ebm*)
+ecs.ebmr8y-1nvme	drop: bare metal (ecs.ebm*)
+ecs.ebmr8y-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmr9ae	drop: bare metal (ecs.ebm*)
+ecs.ebmr9i	drop: bare metal (ecs.ebm*)
+ecs.ebmr9i-hex	drop: bare metal (ecs.ebm*)
+ecs.ebmr9i-md-ud	drop: bare metal (ecs.ebm*)
+ecs.ebmre7p	drop: bare metal (ecs.ebm*)
+ecs.ebmre7p-1t	drop: bare metal (ecs.ebm*)
+ecs.ebmre7p-2t	drop: bare metal (ecs.ebm*)
+ecs.ebmre7p-4t	drop: bare metal (ecs.ebm*)
+ecs.ebmre7p-4t-2nvme	drop: bare metal (ecs.ebm*)
+ecs.ebmre7p-4t-2nvme-inc	drop: bare metal (ecs.ebm*)
+ecs.ebmre7p-htoff	drop: bare metal (ecs.ebm*)
+ecs.ebmre8	drop: bare metal (ecs.ebm*)
+ecs.ebmsg3	drop: bare metal (ecs.ebm*)
+ecs.f1-c28f1	launchable
+ecs.f1-c8f1	launchable
+ecs.f3-c12f1	launchable
+ecs.f3-c16f1	launchable
+ecs.f3-c4f1	launchable
+ecs.f3-c8f1	launchable
+ecs.f5-c16f1	launchable
+ecs.f5-c32f1	launchable
+ecs.f5-c8f1	launchable
+ecs.g10a	launchable
+ecs.g5	launchable
+ecs.g5ne	launchable
+ecs.g5nse	launchable
+ecs.g5se	launchable
+ecs.g6	launchable
+ecs.g6a	launchable
+ecs.g6e	launchable
+ecs.g6h	launchable
+ecs.g6r	launchable
+ecs.g6t	launchable
+ecs.g7	launchable
+ecs.g7a	launchable
+ecs.g7a-essdnum_upto17	launchable
+ecs.g7a-nps1	launchable
+ecs.g7a-nps1-ai	launchable
+ecs.g7a-nps1-sene	launchable
+ecs.g7a-nps1-xhs	launchable
+ecs.g7h	launchable
+ecs.g7n	launchable
+ecs.g7ne	launchable
+ecs.g7nex	launchable
+ecs.g7se	launchable
+ecs.g7t	launchable
+ecs.g8a	launchable
+ecs.g8a-essd2queue	launchable
+ecs.g8ae	launchable
+ecs.g8i	launchable
+ecs.g8ine	launchable
+ecs.g8ise	launchable
+ecs.g8m	launchable
+ecs.g8y	launchable
+ecs.g8yse	launchable
+ecs.g9a	launchable
+ecs.g9a-flex	launchable
+ecs.g9a-flex-ne	launchable
+ecs.g9ac	launchable
+ecs.g9ae	launchable
+ecs.g9aene	launchable
+ecs.g9as	launchable
+ecs.g9h	launchable
+ecs.g9hne	launchable
+ecs.g9i	launchable
+ecs.g9i-2vnuma	launchable
+ecs.g9i-hex	launchable
+ecs.g9ine	launchable
+ecs.g9it	launchable
+ecs.ga1	launchable
+ecs.gn4	launchable
+ecs.gn4-c4g1	launchable
+ecs.gn4-c8g1	launchable
+ecs.gn5-c28g1	launchable
+ecs.gn5-c4g1	launchable
+ecs.gn5-c8g1	launchable
+ecs.gn5i-c12g1	launchable
+ecs.gn5i-c16g1	launchable
+ecs.gn5i-c28g1	launchable
+ecs.gn5i-c2g1	launchable
+ecs.gn5i-c40g1	launchable
+ecs.gn5i-c48g1	launchable
+ecs.gn5i-c4g1	launchable
+ecs.gn5i-c8g1	launchable
+ecs.gn5t	launchable
+ecs.gn6e-c12g1	launchable
+ecs.gn6i-c16g1	launchable
+ecs.gn6i-c24g1	launchable
+ecs.gn6i-c40g1	launchable
+ecs.gn6i-c4g1	launchable
+ecs.gn6i-c8g1	launchable
+ecs.gn6v-c10g1	launchable
+ecs.gn6v-c8g1	launchable
+ecs.gn7-c12g1	launchable
+ecs.gn7-c13g1	launchable
+ecs.gn7e-c16g1	launchable
+ecs.gn7i-2x	launchable
+ecs.gn7i-4x	launchable
+ecs.gn7i-8x	launchable
+ecs.gn7i-c16g1	launchable
+ecs.gn7i-c32g1	launchable
+ecs.gn7i-c48e	launchable
+ecs.gn7i-c48g1	launchable
+ecs.gn7i-c56g1	launchable
+ecs.gn7i-c8g1	launchable
+ecs.gn7i-xr	launchable
+ecs.gn7ia-c16g1	launchable
+ecs.gn7r-c16g1	launchable
+ecs.gn7s	launchable
+ecs.gn7s-c16g1	launchable
+ecs.gn7s-c32g1	launchable
+ecs.gn7s-c48g1	launchable
+ecs.gn7s-c56g1	launchable
+ecs.gn7s-c8g1	launchable
+ecs.gn7t-c16g1	launchable
+ecs.gn8e	launchable
+ecs.gn8e-2x	launchable
+ecs.gn8e-4x	launchable
+ecs.gn8e-8x	launchable
+ecs.gn8ep	launchable
+ecs.gn8ep-2x	launchable
+ecs.gn8ep-4x	launchable
+ecs.gn8ep-8x	launchable
+ecs.gn8ga	launchable
+ecs.gn8ga-256g	launchable
+ecs.gn8ga-2x	launchable
+ecs.gn8ga-4x	launchable
+ecs.gn8ia	launchable
+ecs.gn8ia-2x	launchable
+ecs.gn8is	launchable
+ecs.gn8is-2x	launchable
+ecs.gn8is-4x	launchable
+ecs.gn8is-8x	launchable
+ecs.gn8t	launchable
+ecs.gn8t-2x	launchable
+ecs.gn8t-4x	launchable
+ecs.gn8t-8x	launchable
+ecs.gn8te	launchable
+ecs.gn8v	launchable
+ecs.gn8v-2x	launchable
+ecs.gn8v-4x	launchable
+ecs.gn8v-8x	launchable
+ecs.gn8v-tdx	launchable
+ecs.gn8v-tdx-8x	launchable
+ecs.gn8v-tee	launchable
+ecs.gn8v-tee-8x	launchable
+ecs.gn9g	launchable
+ecs.gn9g-2x	launchable
+ecs.gn9g-4x	launchable
+ecs.gn9g-8x	launchable
+ecs.gn9gc	launchable
+ecs.gn9gc-2x	launchable
+ecs.gn9gc-4x	launchable
+ecs.gn9gc-8x	launchable
+ecs.gn9i	launchable
+ecs.gn9i-2x	launchable
+ecs.gn9i-4x	launchable
+ecs.gn9i-8x	launchable
+ecs.gn9t	launchable
+ecs.gn9t-2x	launchable
+ecs.gn9t-4x	launchable
+ecs.gn9t-8x	launchable
+ecs.gp7-1x	launchable
+ecs.gp7-2x	launchable
+ecs.gp7-4x	launchable
+ecs.gp7-8x	launchable
+ecs.hbm-bf62p2l2d9-d	drop: test family
+ecs.hfc5	launchable
+ecs.hfc6	launchable
+ecs.hfc7	launchable
+ecs.hfc8i	launchable
+ecs.hfc9i	launchable
+ecs.hfg5	launchable
+ecs.hfg6	launchable
+ecs.hfg6-xm	launchable
+ecs.hfg7	launchable
+ecs.hfg8i	launchable
+ecs.hfg9i	launchable
+ecs.hfgn6g	launchable
+ecs.hfr6	launchable
+ecs.hfr7	launchable
+ecs.hfr8i	launchable
+ecs.hfr9i	launchable
+ecs.hpc6id	launchable
+ecs.hpc7i	launchable
+ecs.hpc7ip	launchable
+ecs.hpc8ae	launchable
+ecs.hpc8i	launchable
+ecs.hpc8y	launchable
+ecs.hpc9a	launchable
+ecs.i1	launchable
+ecs.i1-c10d1	launchable
+ecs.i1-c5d1	launchable
+ecs.i2	launchable
+ecs.i2d	launchable
+ecs.i2g	launchable
+ecs.i2gne	launchable
+ecs.i2ne	launchable
+ecs.i2ne-yfd	launchable
+ecs.i3	launchable
+ecs.i3g	launchable
+ecs.i4	launchable
+ecs.i4-inc	launchable
+ecs.i4g	launchable
+ecs.i4p	launchable
+ecs.i4r	launchable
+ecs.i5	launchable
+ecs.i5e	launchable
+ecs.i5e-erdma	launchable
+ecs.i5e-erdma-max	launchable
+ecs.i5e-grds-12t	launchable
+ecs.i5e-grds-16t	launchable
+ecs.i5e-grds-24t	launchable
+ecs.i5e-grds-2t	launchable
+ecs.i5e-grds-32t	launchable
+ecs.i5e-grds-4t	launchable
+ecs.i5e-grds-8t	launchable
+ecs.i5g	launchable
+ecs.i5ge	launchable
+ecs.ic5	launchable
+ecs.ic6	launchable
+ecs.ic9a-flex	launchable
+ecs.m1	launchable
+ecs.m2	launchable
+ecs.mn4	launchable
+ecs.n1	launchable
+ecs.n2	launchable
+ecs.n4	launchable
+ecs.poc-test	drop: test family
+ecs.r10a	launchable
+ecs.r5	launchable
+ecs.r6	launchable
+ecs.r6a	launchable
+ecs.r6e	launchable
+ecs.r7	launchable
+ecs.r7-vnuma	launchable
+ecs.r7a	launchable
+ecs.r7a-essdnum_upto17	launchable
+ecs.r7a-multi-numa	launchable
+ecs.r7a-nps1	launchable
+ecs.r7a-nps1-ai	launchable
+ecs.r7a-nps1-xhs	launchable
+ecs.r7h	launchable
+ecs.r7n	launchable
+ecs.r7p	launchable
+ecs.r7se	launchable
+ecs.r7se-x	launchable
+ecs.r7t	launchable
+ecs.r8a	launchable
+ecs.r8a-super	launchable
+ecs.r8ae	launchable
+ecs.r8i	launchable
+ecs.r8ise	launchable
+ecs.r8ise-rds	launchable
+ecs.r8m	launchable
+ecs.r8y	launchable
+ecs.r8yse	launchable
+ecs.r9a	launchable
+ecs.r9ae	launchable
+ecs.r9as	launchable
+ecs.r9hse	launchable
+ecs.r9i	launchable
+ecs.r9i-2vnuma	launchable
+ecs.r9i-flex	launchable
+ecs.r9it	launchable
+ecs.re4	launchable
+ecs.re6	launchable
+ecs.re6p	launchable
+ecs.re6p-redis	launchable
+ecs.re7p	launchable
+ecs.re8	launchable
+ecs.s1	drop: classic-network-only legacy family (unverified list)
+ecs.s2	launchable
+ecs.s3	launchable
+ecs.s6-c1m1	launchable
+ecs.s6-c1m2	launchable
+ecs.s6-c1m4	launchable
+ecs.sc3	launchable
+ecs.sc3a	launchable
+ecs.sc4	launchable
+ecs.sccc7	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.sccc8ae	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.sccg5	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.sccg5s	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.sccg7	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.sccg8ae	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.sccgn6	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.sccgn6e	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.sccgn7ex	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.scch5	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.scch5s	drop: Super Computing Cluster (ecs.scc*); Flatcar on them is unverified
+ecs.se1	launchable
+ecs.se1ne	launchable
+ecs.se1nec	launchable
+ecs.sg3	launchable
+ecs.sg4	launchable
+ecs.sgn6i-vws-m2	launchable
+ecs.sgn6i-vws-m4	launchable
+ecs.sgn6i-vws-m8	launchable
+ecs.sgn7i-vws-m2	launchable
+ecs.sgn7i-vws-m2s	launchable
+ecs.sgn7i-vws-m4	launchable
+ecs.sgn7i-vws-m4s	launchable
+ecs.sgn7i-vws-m8	launchable
+ecs.sgn7i-vws-m8s	launchable
+ecs.sgn8ga-wy-1024g-x4-ne	launchable
+ecs.sgn8ga-wy-128g-m24	launchable
+ecs.sgn8ga-wy-128g-x1	launchable
+ecs.sgn8ga-wy-12g-m2	launchable
+ecs.sgn8ga-wy-16g-m1	launchable
+ecs.sgn8ga-wy-16g-m2	launchable
+ecs.sgn8ga-wy-16g-m4	launchable
+ecs.sgn8ga-wy-256g-x1	launchable
+ecs.sgn8ga-wy-256g-x2	launchable
+ecs.sgn8ga-wy-256g-x2-ne	launchable
+ecs.sgn8ga-wy-32g-m12	launchable
+ecs.sgn8ga-wy-32g-m4	launchable
+ecs.sgn8ga-wy-32g-m8	launchable
+ecs.sgn8ga-wy-384g-x4	launchable
+ecs.sgn8ga-wy-384g-x4-ne	launchable
+ecs.sgn8ga-wy-512g-x1	launchable
+ecs.sgn8ga-wy-64g-m12	launchable
+ecs.sgn8ga-wy-64g-m16	launchable
+ecs.sgn8ga-wy-64g-m24	launchable
+ecs.sgn8ga-wy-64g-m8	launchable
+ecs.sgn8ga-wy-64g-x1	launchable
+ecs.sgn8ga-wy-64g-x1-ne	launchable
+ecs.sgn8ga-wy-8g-m2	launchable
+ecs.sgn8ia-m16	launchable
+ecs.sgn8ia-m2	launchable
+ecs.sgn8ia-m24	launchable
+ecs.sgn8ia-m4	launchable
+ecs.sgn8ia-m48	launchable
+ecs.sgn8ia-m8	launchable
+ecs.sgn9gc-wy-m12	launchable
+ecs.sgn9gc-wy-m18	launchable
+ecs.sgn9gc-wy-m3	launchable
+ecs.sgn9gc-wy-m36	launchable
+ecs.sgn9gc-wy-m6	launchable
+ecs.sgn9gc-wy-m9	launchable
+ecs.sn1	launchable
+ecs.sn1ne	launchable
+ecs.sn1nec	launchable
+ecs.sn2	launchable
+ecs.sn2ne	launchable
+ecs.sn2nec	launchable
+ecs.sr3	launchable
+ecs.sr4	launchable
+ecs.t1	launchable
+ecs.t5-c1m1	launchable
+ecs.t5-c1m2	launchable
+ecs.t5-c1m4	launchable
+ecs.t5-lc1m1	launchable
+ecs.t5-lc1m2	launchable
+ecs.t5-lc1m4	launchable
+ecs.t5-lc2m1	launchable
+ecs.t6-c1m1	launchable
+ecs.t6-c1m2	launchable
+ecs.t6-c1m4	launchable
+ecs.t6-c2m1	launchable
+ecs.t6-c4m1	launchable
+ecs.u0	launchable
+ecs.u1-c1m1	launchable
+ecs.u1-c1m2	launchable
+ecs.u1-c1m4	launchable
+ecs.u1-c1m8	launchable
+ecs.u2a-c1m1	launchable
+ecs.u2a-c1m2	launchable
+ecs.u2a-c1m4	launchable
+ecs.u2a-c1m4-ne	launchable
+ecs.u2i-c1m1	launchable
+ecs.u2i-c1m2	launchable
+ecs.u2i-c1m4	launchable
+ecs.u2i-c1m8	launchable
+ecs.v5-c1m1	launchable
+ecs.v5-c1m2	launchable
+ecs.v5-c1m4	launchable
+ecs.v5-c1m8	launchable
+ecs.vfx-c1m1	drop: test family
+ecs.vfx-c1m2	drop: test family
+ecs.vfx-c1m3	drop: test family
+ecs.vfx-c1m4	drop: test family
+ecs.vfx-c1m8	drop: test family
+ecs.vfx-c1m8-s	drop: test family
+ecs.vgn5i-m1	launchable
+ecs.vgn5i-m2	launchable
+ecs.vgn5i-m4	launchable
+ecs.vgn5i-m8	launchable
+ecs.vgn6i-m16-vws	launchable
+ecs.vgn6i-m4	launchable
+ecs.vgn6i-m4-vws	launchable
+ecs.vgn6i-m8	launchable
+ecs.vgn6i-m8-vws	launchable
+ecs.vgn7i-vws-m12	launchable
+ecs.vgn7i-vws-m24	launchable
+ecs.vgn7i-vws-m4	launchable
+ecs.vgn7i-vws-m8	launchable
+ecs.video-trans	launchable
+ecs.w-c1m1	launchable
+ecs.w-c1m2	launchable
+ecs.w-c1m4	launchable
+ecs.xn4	launchable

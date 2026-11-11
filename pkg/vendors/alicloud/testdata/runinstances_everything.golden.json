@@ -1,0 +1,83 @@
+{
+  "SystemDisk": {
+    "Category": "cloud_auto",
+    "Size": "100",
+    "BurstingEnabled": true,
+    "Encrypted": "true",
+    "KMSKeyId": "key-1",
+    "ProvisionedIops": 5000
+  },
+  "Amount": 1,
+  "ClientToken": "cd1c5f1353f64ede0d61583e11bb18fd374541eb8eb5efb3ae7210a4ce2e956e",
+  "DataDisk": [
+    {
+      "BurstingEnabled": false,
+      "Category": "cloud_auto",
+      "DeleteWithInstance": true,
+      "DiskName": "d",
+      "ProvisionedIops": 6000,
+      "Size": 200
+    },
+    {
+      "Category": "cloud_essd",
+      "DeleteWithInstance": true,
+      "DiskName": "e",
+      "Encrypted": "true",
+      "PerformanceLevel": "PL1",
+      "Size": 50
+    }
+  ],
+  "DeploymentSetId": "ds-1",
+  "HostName": "default-abc12",
+  "HttpEndpoint": "enabled",
+  "HttpTokens": "optional",
+  "ImageId": "m-flatcar-arm64",
+  "InstanceChargeType": "PostPaid",
+  "InstanceName": "default-abc12",
+  "InstanceType": "ecs.g8y.large",
+  "InternetChargeType": "PayByBandwidth",
+  "InternetMaxBandwidthOut": 50,
+  "MinAmount": 1,
+  "RegionId": "ap-southeast-1",
+  "ResourceGroupId": "rg-1",
+  "SecurityGroupIds": [
+    "sg-1",
+    "sg-run"
+  ],
+  "SpotDuration": 0,
+  "SpotInterruptionBehavior": "Terminate",
+  "SpotStrategy": "SpotAsPriceGo",
+  "Tag": [
+    {
+      "Key": "env",
+      "Value": "ci"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/cluster",
+      "Value": "my-cluster"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/managed-by",
+      "Value": "scarpenter"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/nodeclaim",
+      "Value": "default-abc12"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/nodeclass",
+      "Value": "default"
+    },
+    {
+      "Key": "scarpenter.sparecores.com/nodepool",
+      "Value": "default"
+    },
+    {
+      "Key": "team",
+      "Value": "data"
+    }
+  ],
+  "UserData": "eyJpZ25pdGlvbiI6eyJ2ZXJzaW9uIjoiMy40LjAifX0=",
+  "VSwitchId": "vsw-1",
+  "ZoneId": "ap-southeast-1a"
+}
