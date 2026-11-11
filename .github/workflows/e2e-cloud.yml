@@ -87,6 +87,7 @@ jobs:
       E2E_RUN_ID: ${{ github.run_id }}
       # The vendor's region variable is read in the Prepare step.
       VAR_AWS_REGION: ${{ vars.AWS_REGION }}
+      VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -138,6 +139,7 @@ jobs:
           # The vendor's own environment: the region of its lane.
           case "${E2E_VENDOR}" in
             aws) echo "AWS_REGION=${VAR_AWS_REGION:-us-east-2}" >> "${GITHUB_ENV}" ;;
+            vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
           esac
           mkdir -p "${RUNNER_TEMP}/e2e"
           # Everything validated: from here the steps that always run may use the vendor in a path.
@@ -185,6 +187,18 @@ jobs:
           # The controller keeps these credentials for the whole run: two hours (the role's
           # maximum session duration must allow it, docs/how-to-guides/testing.md).
           role-duration-seconds: 7200
+
+      # Vultr has no OIDC for callers: the key of the CI account's dedicated sub-user is a
+      # secret of the environment e2e (plan 20, section 9; its IP allowlist must admit
+      # GitHub-hosted runners, so required reviewers and the fork rule are the wall). The
+      # account's own limits are the cost ceiling: a key cannot deny plans or regions.
+      - name: Vultr API key (vultr)
+        if: inputs.vendor == 'vultr'
+        env:
+          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+        run: |
+          [ -n "${VULTR_API_KEY}" ] || { echo "::error::the environment secret VULTR_API_KEY is not set" >&2; exit 1; }
+          echo "VULTR_API_KEY=${VULTR_API_KEY}" >> "${GITHUB_ENV}"
 
       # Step 4: image and chart.
       - name: Build the image, install the chart

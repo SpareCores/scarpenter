@@ -1,0 +1,38 @@
+# The values the L5 lane installs the chart with (install.sh adds the image of the
+# build under test). What is left unset is the chart's own default on purpose: the
+# cluster DNS is found by the controller (kube-dns Service of the k3s cluster), the
+# Keeper is the public one, the sysexts come from the upstream releases, and the
+# kubelet client CA is copied from kube-system/extension-apiserver-authentication
+# (the client CA of k3s, which `kubectl logs` and `exec` need).
+#
+# Credentials: the API key of the CI account's dedicated sub-user, as a Secret
+# (install.sh); Vultr has no workload identity for callers. The key's IP allowlist must
+# admit the runner (docs/how-to-guides/testing.md#the-l5-lane).
+cluster:
+  name: ${E2E_CLUSTER}
+  # The API server's tailnet address: the nodes reach it over Tailscale.
+  apiServerEndpoint: https://${E2E_API_HOST}:6443
+kubeletClientCA:
+  source: extensionApiserverAuthentication
+vendors:
+  aws: {enabled: false}
+  vultr:
+    enabled: true
+    credentials:
+      secret:
+        existingSecret: vultr-credentials
+        key: apiKey
+gc: {interval: 1m}
+# Once its NodeClass is deleted, a managed firewall group or VPC (an idleTTL kind) is governed
+# by this default, not by the NodeClass's own 5-minute lifetime; a perUse group goes this
+# long after its last node.
+managedResources: {defaultTTL: 5m, perUseGrace: 1m}
+karpenter:
+  logLevel: debug
+# The control plane's node carries the CriticalAddonsOnly taint (bootstrap.sh), so
+# that test workloads land on SCarpenter's nodes only.
+tolerations:
+  - {key: CriticalAddonsOnly, operator: Exists}
+resources:
+  requests: {cpu: 200m, memory: 640Mi}
+  limits: {memory: 1536Mi}

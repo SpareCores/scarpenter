@@ -1,0 +1,30 @@
+# Scenario fw: the managed firewall group of a NodeClass: created with the rules of
+# spec.networking.inbound, deleted after the last node (perUse).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-fw
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every instance of the run (the sweeper's age check for what has
+  # no creation time of its own is the API's; this one is for the reader).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  networking:
+    isolation: none
+    inbound:
+      rules:
+        - {protocol: tcp, fromPort: 22, cidrs: ["192.0.2.0/24"]}
+  vendors:
+    vultr:
+      regions: [${VULTR_REGION}]
+      resources:
+        firewallGroups: {create: {lifecycle: {policy: perUse}}}

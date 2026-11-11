@@ -10,7 +10,11 @@ name: L5 canary
 #
 # Provisioned outside this repository: the environment e2e-canary with the secret
 # AWS_ROLE_ARN (the read-only role, trusted for this repository's OIDC subject of the
-# environment) and the variable AWS_REGION (optional, default us-east-2).
+# environment) and the variable AWS_REGION (optional, default us-east-2). The Vultr canary
+# (once vultr is a line of test/e2e-vendors.txt) needs the environment secret VULTR_API_KEY, the
+# key of a second sub-user with read access only (its IP allowlist must admit the runners), and
+# the variable VULTR_REGION (optional, default ewr). The pinned Flatcar version and the plans
+# are the lane's (test/e2e-vultr/defaults.sh).
 on:
   schedule:
     - cron: "41 3 * * *"
@@ -61,6 +65,7 @@ jobs:
     env:
       E2E_VENDOR: ${{ matrix.vendor }}
       VAR_AWS_REGION: ${{ vars.AWS_REGION }}
+      VAR_VULTR_REGION: ${{ vars.VULTR_REGION }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -75,6 +80,7 @@ jobs:
         run: |
           case "${E2E_VENDOR}" in
             aws) echo "AWS_REGION=${VAR_AWS_REGION:-us-east-2}" >> "${GITHUB_ENV}" ;;
+            vultr) echo "VULTR_REGION=${VAR_VULTR_REGION:-ewr}" >> "${GITHUB_ENV}" ;;
           esac
 
       - name: Assume the read-only role (aws)
@@ -85,6 +91,16 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
           role-session-name: scarpenter-canary-${{ github.run_id }}
+
+      # Vultr has no OIDC for callers: a read-only sub-user's key (the canary's guard refuses
+      # every non-read call as well).
+      - name: Read-only API key (vultr)
+        if: matrix.vendor == 'vultr'
+        env:
+          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+        run: |
+          [ -n "${VULTR_API_KEY}" ] || { echo "::error::the environment secret VULTR_API_KEY is not set" >&2; exit 1; }
+          echo "VULTR_API_KEY=${VULTR_API_KEY}" >> "${GITHUB_ENV}"
 
       # The output is redacted by the script (the job log, the artifact and the issue are public).
       - name: Canary

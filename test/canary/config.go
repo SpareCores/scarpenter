@@ -33,7 +33,15 @@ type config struct {
 }
 
 // vendorEnv maps a vendor to the environment variable of its region.
-var vendorEnv = map[string]string{"aws": "AWS_REGION"}
+var vendorEnv = map[string]string{"aws": "AWS_REGION", vendorVultr: "VULTR_REGION"}
+
+// typeVars are the variables of the instance types a lane pins, where a vendor's differ from
+// AWS's (Vultr has no Arm instances and no database type); noQuota are the vendors without a
+// readable quota (the vCPU pins are then not needed).
+var (
+	typeVars = map[string][]string{vendorVultr: {"E2E_TYPE_AMD64", "E2E_TYPE_SECOND"}}
+	noQuota  = map[string]bool{vendorVultr: true}
+)
 
 func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	c := &config{vendor: vendor}
@@ -53,7 +61,11 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	c.kubernetesVersion = need("E2E_KUBERNETES_VERSION")
 	c.tailscaleVersion = need("E2E_TAILSCALE_VERSION")
 	c.k3sVersion = need("E2E_K3S_VERSION")
-	for _, name := range []string{"E2E_TYPE_AMD64", "E2E_TYPE_ARM64", "E2E_TYPE_DB"} {
+	names, ok := typeVars[vendor]
+	if !ok {
+		names = []string{"E2E_TYPE_AMD64", "E2E_TYPE_ARM64", "E2E_TYPE_DB"}
+	}
+	for _, name := range names {
 		c.types = append(c.types, need(name))
 	}
 	for t := range strings.SplitSeq(need("E2E_TYPES_DESCRIBED"), ",") {
@@ -65,11 +77,13 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 		c.types = append(c.types, t)
 	}
 	var err error
-	if c.minOnDemand, err = intEnv(getenv, "E2E_MIN_VCPU_OD", &missing); err != nil {
-		return nil, err
-	}
-	if c.minSpot, err = intEnv(getenv, "E2E_MIN_VCPU_SPOT", &missing); err != nil {
-		return nil, err
+	if !noQuota[vendor] {
+		if c.minOnDemand, err = intEnv(getenv, "E2E_MIN_VCPU_OD", &missing); err != nil {
+			return nil, err
+		}
+		if c.minSpot, err = intEnv(getenv, "E2E_MIN_VCPU_SPOT", &missing); err != nil {
+			return nil, err
+		}
 	}
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("missing %s: the pins come from test/e2e-%s/defaults.sh, run test/canary/run.sh %s",
