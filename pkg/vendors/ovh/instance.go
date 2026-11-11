@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/ovh/osapi"
@@ -339,10 +340,41 @@ func matches(s osapi.Server, tags map[vendors.TagKey]string) bool {
 	return true
 }
 
+// stuckDeletingAfter is how long a server may stay in task state deleting
+// before the listings show it again (as terminating), so that the garbage
+// collector's second delete reaches a server Nova's delete left stuck (the
+// driver contract: ListInstances returns the instances the vendor is deleting).
+// A delete that completes normally is gone well inside it.
+const stuckDeletingAfter = 5 * time.Minute
+
+// deletingForgetAfter drops the first sightings of servers no longer seen.
+const deletingForgetAfter = 24 * time.Hour
+
+// stuckDeleting records the first sighting of a server in task state deleting
+// and reports whether it has been deleting for longer than stuckDeletingAfter.
+func (d *Driver) stuckDeleting(region, id string, now time.Time) bool {
+	key := region + "/" + id
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for k, at := range d.deletingSince {
+		if now.Sub(at) > deletingForgetAfter {
+			delete(d.deletingSince, k)
+		}
+	}
+	at, seen := d.deletingSince[key]
+	if !seen {
+		d.deletingSince[key] = now
+		return false
+	}
+	return now.Sub(at) >= stuckDeletingAfter
+}
+
 // list reads the region's servers that carry the tags, oldest first, without the
-// ones that are gone (DELETED) or being deleted (task state deleting): those are
-// not nodes any more and nobody needs to delete them again. A server that is off
-// by itself (SHUTOFF) stays: OVH keeps billing it.
+// ones that are gone (DELETED) and without those being deleted (task state
+// deleting) for less than stuckDeletingAfter: nobody needs to delete them again.
+// A server stuck deleting for longer comes back as terminating, for the garbage
+// collector to delete again. A server that is off by itself (SHUTOFF) stays: OVH
+// keeps billing it.
 func (d *Driver) list(
 	ctx context.Context, region string, tags map[vendors.TagKey]string,
 ) ([]osapi.Server, error) {
@@ -354,9 +386,12 @@ func (d *Driver) list(
 	if err != nil {
 		return nil, Classify(err)
 	}
+	now := d.clock.Now()
 	servers = slices.DeleteFunc(servers, func(s osapi.Server) bool {
-		return ServerState(s) == vendors.StateTerminated || strings.EqualFold(s.TaskState, osapi.TaskDeleting) ||
-			!matches(s, tags)
+		if ServerState(s) == vendors.StateTerminated || !matches(s, tags) {
+			return true
+		}
+		return strings.EqualFold(s.TaskState, osapi.TaskDeleting) && !d.stuckDeleting(region, s.ID, now)
 	})
 	slices.SortStableFunc(servers, func(a, b osapi.Server) int { return a.Created.Compare(b.Created) })
 	return servers, nil
@@ -387,9 +422,9 @@ func (d *Driver) FindInstance(
 	return d.instance(ctx, region, best), nil
 }
 
-// ListInstances implements vendors.Driver. A terminating server (deleting, or
-// shut off by itself, which OVH keeps billing) stays in the list so that the
-// garbage collector deletes it; DELETED ones do not.
+// ListInstances implements vendors.Driver. A terminating server (shut off by
+// itself, which OVH keeps billing, or stuck deleting) stays in the list so that
+// the garbage collector deletes it; DELETED ones do not.
 func (d *Driver) ListInstances(
 	ctx context.Context, regions []string, tags map[vendors.TagKey]string,
 ) ([]*vendors.Instance, error) {

@@ -638,7 +638,8 @@ Not in the table, also taken by default:
   (it is `perUse`, which does not need it, and the conformance suite's managed-resource checks therefore run for the security group kinds only).
 - The project's `default` security group is not used as a default: nodes always get a managed group, or the one you `use`.
 - `ReportImages` reports amd64 only (v1 has no arm64 type); `ResolveImage` resolves both.
-- `ListInstances` and `FindInstance` leave out servers being deleted (task state `deleting`); a `SHUTOFF` server stays.
+- `ListInstances` and `FindInstance` leave out servers being deleted (task state `deleting`) for their first 5 minutes; one stuck
+  longer is listed as terminating for the garbage collector's second delete (driver contract); a `SHUTOFF` server stays.
 - The driver offers the `metadata-from-pods` hardening (plan 14 said no vendor needed it from OVH, but OpenStack's metadata service
   has no hop limit and holds the user data).
 - The sweeper does not sweep volumes (the driver's volumes go with their server and carry no marker); the teardown fails the job on an

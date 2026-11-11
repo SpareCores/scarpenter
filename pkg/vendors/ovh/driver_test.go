@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/utils/clock"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/ovh/fake"
@@ -182,6 +183,39 @@ func TestCreateWaitsForTheScheduler(t *testing.T) {
 	w.cloud.SetNoValidHost(testRegion, testType, false)
 	if _, err := d.CreateInstance(ctx, req); err != nil {
 		t.Errorf("the same launch after the capacity came back: %v", err)
+	}
+}
+
+// A server Nova's delete leaves stuck in task state deleting is hidden only for
+// a while: after stuckDeletingAfter it is listed again, as terminating, so that
+// the garbage collector deletes it again (the driver contract).
+func TestStuckDeletingServerComesBack(t *testing.T) {
+	w := newWorld(t)
+	w.cloud.DeleteReads = 1 << 20 // the delete never completes
+	d := w.driver(t)
+	clk := clocktesting.NewFakeClock(time.Now())
+	d.clock = clk
+	inst, err := d.CreateInstance(ctx, launchReq(testRegion, testZone, 7))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DeleteInstance(ctx, inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := d.ListInstances(ctx, []string{testRegion}, nil); err != nil || len(got) != 0 {
+		t.Fatalf("a server just being deleted is not listed: %v %v", got, err)
+	}
+	clk.Step(stuckDeletingAfter)
+	got, err := d.ListInstances(ctx, []string{testRegion}, nil)
+	if err != nil || len(got) != 1 || got[0].Ref != inst.Ref || got[0].State != vendors.StateTerminating {
+		t.Fatalf("a server stuck deleting is listed as terminating: %v %v", got, err)
+	}
+	if err := d.DeleteInstance(ctx, inst.Ref); err != nil {
+		t.Errorf("deleting it again: %v", err)
+	}
+	clk.Step(deletingForgetAfter + time.Minute)
+	if got, _ := d.ListInstances(ctx, []string{testRegion}, nil); len(got) != 0 {
+		t.Errorf("an old sighting is forgotten and the clock restarts: %v", got)
 	}
 }
 

@@ -113,6 +113,9 @@ type Driver struct {
 	extNet     map[string]*cached[string]
 	images     map[imageKey]cachedImage
 	unknownLog map[string]bool
+	// deletingSince is the first sighting of a server in task state deleting
+	// (region/ID), for stuckDeleting.
+	deletingSince map[string]time.Time
 }
 
 // cached is a value with an expiry.
@@ -137,7 +140,7 @@ func New(opts ...Option) *Driver {
 	d := &Driver{
 		callTimeout: DefaultCallTimeout, cl: map[string]osapi.Clients{}, zones: map[string]*cached[[]vendors.Zone]{},
 		flavors: map[string]*cached[map[string]osapi.Flavor]{}, extNet: map[string]*cached[string]{},
-		images: map[imageKey]cachedImage{}, unknownLog: map[string]bool{},
+		images: map[imageKey]cachedImage{}, unknownLog: map[string]bool{}, deletingSince: map[string]time.Time{},
 	}
 	for _, o := range opts {
 		o(d)

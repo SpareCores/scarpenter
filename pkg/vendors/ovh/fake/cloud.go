@@ -384,9 +384,10 @@ func (cl *client) remove(s *serverRec) {
 
 func (cl *client) leave() { cl.c.mu.Unlock() }
 
-// advance moves a server along its state machine on a read.
+// advance moves a server along its state machine on a read. A server being
+// deleted stays as it is (Nova does not finish the build of a server it deletes).
 func (cl *client) advance(s *serverRec) {
-	if s.Status != osapi.StatusBuild {
+	if s.Status != osapi.StatusBuild || s.deleteCalls >= 0 {
 		return
 	}
 	s.reads++
