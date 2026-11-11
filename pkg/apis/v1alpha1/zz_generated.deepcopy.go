@@ -18,6 +18,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/upcloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/vultr"
 	"github.com/awslabs/operatorpkg/status"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -383,6 +384,11 @@ func (in *PlacementProfile) DeepCopyInto(out *PlacementProfile) {
 	if in.QEMU != nil {
 		in, out := &in.QEMU, &out.QEMU
 		*out = new(qemu.Placement)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.UpCloud != nil {
+		in, out := &in.UpCloud, &out.UpCloud
+		*out = new(upcloud.Placement)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Vultr != nil {
@@ -786,6 +792,11 @@ func (in *StorageProfile) DeepCopyInto(out *StorageProfile) {
 		*out = new(qemu.Storage)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.UpCloud != nil {
+		in, out := &in.UpCloud, &out.UpCloud
+		*out = new(upcloud.Storage)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Vultr != nil {
 		in, out := &in.Vultr, &out.Vultr
 		*out = new(vultr.Storage)
@@ -870,6 +881,11 @@ func (in *VendorBlocks) DeepCopyInto(out *VendorBlocks) {
 	if in.QEMU != nil {
 		in, out := &in.QEMU, &out.QEMU
 		*out = new(qemu.Settings)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.UpCloud != nil {
+		in, out := &in.UpCloud, &out.UpCloud
+		*out = new(upcloud.Settings)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Vultr != nil {

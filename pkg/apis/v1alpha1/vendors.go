@@ -13,6 +13,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/upcloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/vultr"
 )
 
@@ -52,6 +53,10 @@ type VendorBlocks struct {
 	// +optional
 	QEMU *qemu.Settings `json:"qemu,omitempty"`
 
+	// upcloud configures UpCloud nodes.
+	// +optional
+	UpCloud *upcloud.Settings `json:"upcloud,omitempty"`
+
 	// vultr configures Vultr nodes.
 	// +optional
 	Vultr *vultr.Settings `json:"vultr,omitempty"`
@@ -66,6 +71,7 @@ const (
 	VendorHCloud   = "hcloud"
 	VendorOVH      = "ovh"
 	VendorQEMU     = "qemu"
+	VendorUpCloud  = "upcloud"
 )
 
 // VendorVultr is the name of the Vultr vendor block.
@@ -92,6 +98,9 @@ func (v VendorBlocks) Names() []string {
 	if v.QEMU != nil {
 		names = append(names, VendorQEMU)
 	}
+	if v.UpCloud != nil {
+		names = append(names, VendorUpCloud)
+	}
 	if v.Vultr != nil {
 		names = append(names, VendorVultr)
 	}
@@ -114,6 +123,8 @@ type StorageProfile struct {
 	OVH *ovh.Storage `json:"ovh,omitempty"`
 	// +optional
 	QEMU *qemu.Storage `json:"qemu,omitempty"`
+	// +optional
+	UpCloud *upcloud.Storage `json:"upcloud,omitempty"`
 	// +optional
 	Vultr *vultr.Storage `json:"vultr,omitempty"`
 }
@@ -149,6 +160,8 @@ type PlacementProfile struct {
 	// +optional
 	QEMU *qemu.Placement `json:"qemu,omitempty"`
 	// +optional
+	UpCloud *upcloud.Placement `json:"upcloud,omitempty"`
+	// +optional
 	Vultr *vultr.Placement `json:"vultr,omitempty"`
 }
 
@@ -171,6 +184,8 @@ func (v VendorBlocks) Get(vendor string) (any, bool) {
 		return orNil(v.OVH), v.OVH != nil
 	case VendorQEMU:
 		return orNil(v.QEMU), v.QEMU != nil
+	case VendorUpCloud:
+		return orNil(v.UpCloud), v.UpCloud != nil
 	case VendorVultr:
 		return orNil(v.Vultr), v.Vultr != nil
 	}
@@ -193,6 +208,8 @@ func (p StorageProfile) For(vendor string) (any, bool) {
 		return orNil(p.OVH), p.OVH != nil
 	case VendorQEMU:
 		return orNil(p.QEMU), p.QEMU != nil
+	case VendorUpCloud:
+		return orNil(p.UpCloud), p.UpCloud != nil
 	case VendorVultr:
 		return orNil(p.Vultr), p.Vultr != nil
 	}
@@ -231,6 +248,8 @@ func (p PlacementProfile) For(vendor string) (any, bool) {
 		return orNil(p.OVH), p.OVH != nil
 	case VendorQEMU:
 		return orNil(p.QEMU), p.QEMU != nil
+	case VendorUpCloud:
+		return orNil(p.UpCloud), p.UpCloud != nil
 	case VendorVultr:
 		return orNil(p.Vultr), p.Vultr != nil
 	}
