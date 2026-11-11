@@ -144,7 +144,8 @@ type Fixture struct {
 	// The resolution-order subtests (ADR-022) run for drivers that implement
 	// vendors.ManagedResources, with Seed and: OrderClass, which builds the
 	// SCNodeClass of the vendor; SetDefault, which arranges the vendor's default of
-	// ResourceKind in the region; and, optionally, FailCreate, which makes the next
+	// ResourceKind in the region (nil: the vendor has none, and the cases about the
+	// default are skipped); and, optionally, FailCreate, which makes the next
 	// creation of the kind fail after its first call, so that a creation is
 	// interrupted midway (a vendor whose creation is one call has none). The
 	// subtests use ResourceKind as the order kind: a regional kind with tags.

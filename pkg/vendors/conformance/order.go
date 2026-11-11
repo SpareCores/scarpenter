@@ -56,8 +56,8 @@ type order struct {
 func newOrder(t *testing.T, e *env) *order {
 	t.Helper()
 	mr, ok := e.d.(vendors.ManagedResources)
-	if !ok || e.fx.OrderClass == nil || e.fx.Seed == nil || e.fx.SetDefault == nil || e.fx.ResourceKind == "" {
-		t.Skip("the fixture has no OrderClass, SetDefault and Seed, or the driver no managed resources")
+	if !ok || e.fx.OrderClass == nil || e.fx.Seed == nil || e.fx.ResourceKind == "" {
+		t.Skip("the fixture has no OrderClass and Seed, or the driver no managed resources")
 	}
 	o := &order{t: t, e: e, kind: e.fx.ResourceKind, mr: mr,
 		optIn: map[string]string{e.d.TagKey(vendors.TagUse): vendors.OptInValue}}
@@ -90,9 +90,23 @@ func (o *order) seedTagged() vendors.ResourceRef {
 	return o.e.fx.Seed(o.t, o.e.d, o.kind, o.e.region, SeedSpec{Name: "order-tagged", Tags: o.optIn})
 }
 
+// setDefault arranges the vendor's default. Without SetDefault the vendor has no
+// default of the kind: every state is "absent", which the cases that do not
+// assert the default accept.
 func (o *order) setDefault(state DefaultState) {
 	o.t.Helper()
+	if o.e.fx.SetDefault == nil {
+		return
+	}
 	o.e.fx.SetDefault(o.t, o.e.d, o.kind, o.e.region, state)
+}
+
+// needDefault skips a case that is about the vendor's default.
+func (o *order) needDefault() {
+	o.t.Helper()
+	if o.e.fx.SetDefault == nil {
+		o.t.Skip("the vendor has no default of the kind (no SetDefault)")
+	}
 }
 
 // managedCount is how many managed resources SCarpenter owns in the account.
@@ -164,6 +178,7 @@ func explicitBeatsTaggedBeatsDefault(t *testing.T, o *order) {
 }
 
 func taggedBeatsDefaultBeatsCreate(t *testing.T, o *order) {
+	o.needDefault()
 	o.setDefault(DefaultPresent)
 	nc := o.class(nil, false)
 
@@ -248,6 +263,7 @@ func explicitCreateSkips(t *testing.T, o *order) {
 }
 
 func unsuitableDefaultIsSkipped(t *testing.T, o *order) {
+	o.needDefault()
 	o.setDefault(DefaultWithoutIPv6)
 	ipv6 := &vendors.VendorSettings{Networking: common.Networking{PublicIPv6: new(true)}}
 	nc := o.class(nil, true)

@@ -340,7 +340,8 @@ vendor evaluating the selector exactly, narrowing to a superset, or not at all
 (`conformance.RunSelectors`).
 For a driver that declares the `images` kind with a `SeedImage` hook the [image cases](#images) (explicit IDs, both
 architectures, the version check, ordering, placeholders, the default image).
-For `ManagedResources` with `Seed`, `OrderClass` and `SetDefault` hooks, the resolution order behind the core's engine:
+For `ManagedResources` with `Seed` and `OrderClass` hooks (and `SetDefault` where the vendor has a default of the kind;
+without it the cases about the default are skipped), the resolution order behind the core's engine:
 explicit `use` beats the opt-in tag beats the default beats create; an explicit `use` that matches nothing fails and
 does not fall through; an explicit `create` skips discovery and the default; a default that cannot honour
 `publicIPv6` is skipped; `forbid` ends at a failure that names the kind, the region and the steps; a creation
