@@ -342,6 +342,21 @@ func TestListFallsBackToEveryVMWhenTheTagListingFails(t *testing.T) {
 	require.Len(t, list, 1)
 	require.Equal(t, vendors.StateRunning, list[0].State, "the fallback reads the instance view")
 	require.Equal(t, 1, e.sub.Calls("vm.list"))
+
+	// Without tags the fallback is scoped to the cluster too: a foreign VM
+	// is not listed.
+	e.sub.ClearFailures()
+	other := &Compute{Clients: e.clients, Cluster: "another-cluster"}
+	req, img := request{nodeClaim: "nc-x"}.build(t)
+	req.Tags[vendors.TagCluster] = "another-cluster"
+	l, err := NewLaunchSpec(req, "another-cluster", img, nil, nil, "key")
+	require.NoError(t, err)
+	_, err = other.Launch(context.Background(), l)
+	require.NoError(t, err)
+	e.sub.FailNext("resources.list", fake.Error(500, "InternalServerError", "boom"), -1)
+	list, err = e.c.List(context.Background(), []string{testRegion}, nil)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
 }
 
 func TestListErrorWhenBothFail(t *testing.T) {

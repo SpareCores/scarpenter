@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -207,11 +208,17 @@ func (c *Compute) Find(ctx context.Context, region string, tags map[vendors.TagK
 // listing filters by one tag (the cluster's when given), keeps the VMs of the
 // regions, reads each (with its instance view) and matches the rest of the tags
 // client side. When the tag listing fails the fallback is the list of every VM.
+// Without a cluster tag the listing is scoped to this cluster, on both paths.
 func (c *Compute) List(
 	ctx context.Context, regions []string, tags map[vendors.TagKey]string,
 ) ([]*vendors.Instance, error) {
-	if tags == nil {
-		tags = map[vendors.TagKey]string{}
+	if _, ok := tags[vendors.TagCluster]; !ok {
+		scoped := maps.Clone(tags)
+		if scoped == nil {
+			scoped = map[vendors.TagKey]string{}
+		}
+		scoped[vendors.TagCluster] = c.Cluster
+		tags = scoped
 	}
 	var candidates []armcompute.VirtualMachine
 	byTag, err := c.listByTag(ctx, regions, tags)
@@ -256,22 +263,13 @@ func (c *Compute) getVM(ctx context.Context, rg, name string) (armcompute.Virtua
 	return c.Clients.VMs.Get(cctx, rg, name, true)
 }
 
-// listByTag lists with the cluster tag (or any one tag) and reads the VMs of
+// listByTag lists with the cluster tag and reads the VMs of
 // the regions; a VM that vanished between the two calls is skipped.
 func (c *Compute) listByTag(
 	ctx context.Context, regions []string, tags map[vendors.TagKey]string,
 ) ([]armcompute.VirtualMachine, error) {
-	k, v := vendors.TagCluster, c.Cluster
-	if val, ok := tags[vendors.TagCluster]; ok {
-		v = val
-	} else {
-		for tk, tv := range tags {
-			k, v = tk, tv
-			break
-		}
-	}
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
-	res, err := c.Clients.Resources.ListByTag(cctx, TagKey(k), v)
+	res, err := c.Clients.Resources.ListByTag(cctx, TagKey(vendors.TagCluster), tags[vendors.TagCluster])
 	cancel()
 	if err != nil {
 		return nil, err
