@@ -417,3 +417,7 @@ func TestStatusCheckOfTheResources(t *testing.T) {
 		t.Errorf("the network has a subnet in fsn1's zone only: %v %v", bad, why)
 	}
 }
+
+func mustQuantity(s string) resource.Quantity { return resource.MustParse(s) }
+
+func hcfakeErr() error { return hcfake.APIError(hc.ErrorCodeServerError, "down") }
