@@ -180,7 +180,10 @@ profile: `nicModel` exists and has no use (ADR-017).
 
 `Supported` (per plan and zone): a storage profile whose root tier has no template in the zone is left out once the zone's
 templates are known (until then it is offered, and a launch that finds none is `Unsupported`); sizes within 10 to 1024 GB and at most
-four devices; every placement profile with a server group. `PriceDelta`: a root disk larger than the plan's included storage, of
+four devices; every placement profile with a server group, except that under `networking.isolation: run` (the API default) the
+profiles that create server groups per run key are not offered, because a run key cannot be satisfied there (decided 2026-11-11;
+per-run private networks stay deferred): the NodeClass's validation status then says to set `spec.networking.isolation` to
+`nodeclass` or `none`. A group by name (`use`) stays offered. `PriceDelta`: a root disk larger than the plan's included storage, of
 another tier, or on a plan with none (Cloud Native) at Keeper's GB-month price of the tier divided by 672; data disks the same;
 the public IPv4 address of Cloud Native plans (the others include one). It is incomplete when a price is missing, and while the
 plan's included tier is not known and an explicit tier is set.

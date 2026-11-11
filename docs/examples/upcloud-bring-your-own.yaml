@@ -12,6 +12,9 @@ spec:
     version: "4757.2.3"
   kubernetes:
     version: "v1.37.1"
+  # The spread profile creates a server group per run key: isolation run (the default)
+  # does not offer it on UpCloud, so the NodeClass sets nodeclass (or none).
+  networking: {isolation: nodeclass}
   network:
     template: tailscale
     tailscale:

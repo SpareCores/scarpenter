@@ -521,6 +521,16 @@ type NodeOptions interface {
 	Prepare(ctx context.Context, req PrepareRequest) (*Prepared, error)
 }
 
+// NetworkAwareOptions is the optional capability of a driver whose supported
+// profiles depend on the NodeClass's resolved networking (the isolation): the
+// catalog asks SupportedFor, with the networking of the NodeClass (API defaults
+// applied), instead of Supported. A profile the networking cannot satisfy is not
+// offered, so that Karpenter never picks it; the driver's ValidateNodeClass says
+// why in the NodeClass's status.
+type NetworkAwareOptions interface {
+	SupportedFor(it CatalogType, zone string, net common.Networking, p Profiles) map[string][]string
+}
+
 // EpochReporter is the optional capability of a driver whose answers to
 // Supported and PriceDelta can change at runtime (the fake driver's steering):
 // the epoch changes whenever they may have, so the catalog rebuilds.

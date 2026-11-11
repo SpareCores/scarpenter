@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
@@ -152,9 +154,23 @@ func (d *Driver) ValidateNodeClass(_ context.Context, nc *v1alpha1.SCNodeClass) 
 			errs = append(errs, validateStorage("profiles.storage."+name+".upcloud", p.UpCloud)...)
 		}
 	}
-	for name, p := range nc.Spec.Profiles.Placement {
-		if p.UpCloud != nil {
-			errs = append(errs, validatePlacement("profiles.placement."+name+".upcloud", p.UpCloud)...)
+	var override *common.NetworkingOverride
+	if b := nc.Spec.Vendors.UpCloud; b != nil {
+		override = b.Networking
+	}
+	run := isolationRun(options.ResolveNetworking(nc.Spec.Networking, override).Isolation)
+	for _, name := range slices.Sorted(maps.Keys(nc.Spec.Profiles.Placement)) {
+		p := nc.Spec.Profiles.Placement[name]
+		if p.UpCloud == nil {
+			continue
+		}
+		path := "profiles.placement." + name + ".upcloud"
+		perr := validatePlacement(path, p.UpCloud)
+		errs = append(errs, perr...)
+		if run && len(perr) == 0 && needsRunKey(*p.UpCloud) {
+			errs = append(errs, fmt.Errorf("%s: the server group is created per run key, and isolation run (the default) "+
+				"needs one SDN network per run key, which UpCloud nodes do not get in this version, so the profile is not "+
+				"offered; set spec.networking.isolation to nodeclass or none", path))
 		}
 	}
 	if len(nc.Spec.Tags) > 0 {

@@ -76,9 +76,26 @@ func (d *Driver) RootDiskForType(s vendors.VendorSettings, it vendors.CatalogTyp
 //     (known from the last image resolution; until it is known the tier is
 //     offered and a launch that finds none is Unsupported), sizes within the
 //     storage limits, and the storage devices of the server within the limit;
-//   - placement: a server group is supported on every plan;
+//   - placement: a server group is supported on every plan, but see SupportedFor;
 //   - network: UpCloud has no network profile blocks.
-func (d *Driver) Supported(_ vendors.CatalogType, zone string, p vendors.Profiles) map[string][]string {
+//
+// Without the NodeClass's networking this does not know the isolation; the
+// catalog asks SupportedFor.
+func (d *Driver) Supported(it vendors.CatalogType, zone string, p vendors.Profiles) map[string][]string {
+	return d.supported(zone, p, false)
+}
+
+// SupportedFor implements vendors.NetworkAwareOptions: Supported, and under
+// isolation run (the API default) not the placement profiles whose server
+// groups are created per run key, because a run key cannot be satisfied there
+// (no per-run SDN networks, Prepare refuses it): Karpenter must never pick
+// them. A group by name (use) needs no run key and stays.
+func (d *Driver) SupportedFor(_ vendors.CatalogType, zone string, net common.Networking, p vendors.Profiles,
+) map[string][]string {
+	return d.supported(zone, p, isolationRun(net.Isolation))
+}
+
+func (d *Driver) supported(zone string, p vendors.Profiles, run bool) map[string][]string {
 	out := map[string][]string{}
 	tiers := d.zoneTiers(zone)
 	for kind, byName := range p {
@@ -89,7 +106,7 @@ func (d *Driver) Supported(_ vendors.CatalogType, zone string, p vendors.Profile
 				ok = supportsStorage(block, tiers)
 			case vendors.ProfilePlacement:
 				pl, err := decodePlacement(block)
-				ok = err == nil && pl.ServerGroup != nil
+				ok = err == nil && pl.ServerGroup != nil && (!run || !needsRunKey(pl))
 			}
 			if ok {
 				out[kind] = append(out[kind], name)
@@ -100,6 +117,12 @@ func (d *Driver) Supported(_ vendors.CatalogType, zone string, p vendors.Profile
 		slices.Sort(names)
 	}
 	return out
+}
+
+// needsRunKey says whether a placement profile creates its server groups per
+// run key (a group by name, use, does not).
+func needsRunKey(pl ucapi.Placement) bool {
+	return pl.ServerGroup != nil && pl.ServerGroup.Use == nil
 }
 
 func supportsStorage(block json.RawMessage, tiers []string) bool {

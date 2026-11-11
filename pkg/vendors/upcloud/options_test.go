@@ -8,6 +8,7 @@ package upcloud_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -267,3 +268,56 @@ func TestValidateNodeClass(t *testing.T) {
 }
 
 func parseQuantity(s string) resource.Quantity { return resource.MustParse(s) }
+
+// Under isolation run (the API default) the server-group profiles that need a run
+// key are not offered; a group by name is; nodeclass and none offer both.
+func TestSupportedForIsolation(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	p := vendors.Profiles{vendors.ProfilePlacement: {
+		"spread": []byte(`{"serverGroup":{"antiAffinity":"strict"}}`),
+		"byname": []byte(`{"serverGroup":{"use":{"name":"existing"}}}`),
+	}}
+	it := vendors.CatalogType{APIReference: testType}
+	for iso, want := range map[common.Isolation]string{
+		common.IsolationRun:       "[byname]",
+		common.IsolationNodeClass: "[byname spread]",
+		common.IsolationNone:      "[byname spread]",
+	} {
+		got := e.d.SupportedFor(it, testZone, common.Networking{Isolation: iso}, p)
+		if fmt.Sprint(got[vendors.ProfilePlacement]) != want {
+			t.Errorf("isolation %s: placement = %v, want %s", iso, got[vendors.ProfilePlacement], want)
+		}
+	}
+}
+
+func TestValidateNodeClassRunNeedsNoRunKeyProfile(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	mk := func(iso common.Isolation, group *ucapi.ServerGroup) *v1alpha1.SCNodeClass {
+		nc := class(testVersion, nil, nil)
+		nc.Spec.Networking.Isolation = iso
+		nc.Spec.Profiles.Placement = map[string]v1alpha1.PlacementProfile{"spread": {UpCloud: &ucapi.Placement{ServerGroup: group}}}
+		return nc
+	}
+	create := &ucapi.ServerGroup{AntiAffinity: ucapi.AntiAffinityStrict}
+	for _, iso := range []common.Isolation{"", common.IsolationRun} {
+		err := e.d.ValidateNodeClass(e.ctx(), mk(iso, create))
+		if err == nil || !strings.Contains(err.Error(), "set spec.networking.isolation to nodeclass or none") {
+			t.Errorf("isolation %q: %v, want the message to set nodeclass or none", iso, err)
+		}
+	}
+	for _, iso := range []common.Isolation{common.IsolationNodeClass, common.IsolationNone} {
+		if err := e.d.ValidateNodeClass(e.ctx(), mk(iso, create)); err != nil {
+			t.Errorf("isolation %s: %v", iso, err)
+		}
+	}
+	use := &ucapi.ServerGroup{Use: &ucapi.ServerGroupRef{Name: "existing"}}
+	if err := e.d.ValidateNodeClass(e.ctx(), mk("", use)); err != nil {
+		t.Errorf("a group by name under run: %v", err)
+	}
+	// The vendor block's override wins over spec.networking.
+	nc := mk(common.IsolationRun, create)
+	nc.Spec.Vendors.UpCloud.Networking = &common.NetworkingOverride{Isolation: common.IsolationNone}
+	if err := e.d.ValidateNodeClass(e.ctx(), nc); err != nil {
+		t.Errorf("override isolation none: %v", err)
+	}
+}

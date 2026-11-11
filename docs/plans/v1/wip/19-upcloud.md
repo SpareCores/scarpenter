@@ -571,7 +571,14 @@ tests. Their results go into the "not verified" section of the reference doc.
    rules now; measure in S3; a guest-side option as a later, vendor-neutral plan.
 6. **`isolation: run` on UpCloud**: unsupported in v1 (infeasible offerings), or one
    SDN network per run key (account network limit, create latency).
-   Recommendation: unsupported in v1.
+   Recommendation: unsupported in v1. **Decided by the maintainer 2026-11-11:** keep it
+   unsupported with a run key (per-run private networks stay deferred); a server-group profile
+   that needs a run key is then not satisfiable under `run`, which is the API default, so
+   (1) the driver does not offer such profiles (`SupportedFor`, the optional
+   `vendors.NetworkAwareOptions`, drops them when the NodeClass's resolved isolation is `run`)
+   and Karpenter never picks them, and (2) a NodeClass that asks for one under `run` gets a
+   validation status message to set `spec.networking.isolation` to `nodeclass` or `none`.
+   A group by name (`use`) needs no run key and stays offered.
 7. **Managed network CIDR**: SCarpenter-created networks need a range that does not
    overlap a user's networks. Recommendation: a /24 hash-derived
    inside a documented `/16`, configurable.
@@ -594,8 +601,9 @@ Decided by default, maintainer to confirm (the driver as built; numbers follow t
 5. **Public interface firewall**: the driver's rules, written after the create call, and rewritten on an idempotent replay. UDP 41641
    (Tailscale's direct paths) is opened only for a NodeClass with the `tailscale` template (the driver reads the NodeClass,
    as it does for the resources; no NodeClass read: no port).
-6. **`isolation: run`**: unsupported with a run key (`Unsupported`, `IsolationRunUnsupported`), which includes every placement
-   profile under the API default `run`: a NodeClass that uses run keys sets `none` or `nodeclass`. Without a run key `run` behaves as
+6. **`isolation: run`**: unsupported with a run key (`Unsupported`, `IsolationRunUnsupported`). Decided by the maintainer
+   2026-11-11: the server-group profiles that create groups (they need a run key) are not offered under `run`, and the NodeClass
+   is refused with a status message to set `networking.isolation` to `nodeclass` or `none`; the lane NodeClasses set `none`. Without a run key `run` behaves as
    `nodeclass` (the nodes of the NodeClass are one run: SDN network and ruleset), as on the other vendors.
 7. **Managed network CIDR**: a /24 derived from the name inside `10.241.0.0/16`, the next free one on overlap; the /16 is
    `SCARPENTER_UPCLOUD_NETWORK_RANGE` (chart `vendors.upcloud.networkRange`).

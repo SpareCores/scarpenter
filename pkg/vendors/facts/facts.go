@@ -429,7 +429,12 @@ func (f *Facts) Supported(vendor string, class *catalog.Class, srv *model.Server
 		return nil
 	}
 	ct := catalogType(vendor, srv)
-	got := no.Supported(ct, zone, vendors.Profiles(in.Profiles))
+	var got map[string][]string
+	if na, ok := no.(vendors.NetworkAwareOptions); ok {
+		got = na.SupportedFor(ct, zone, in.Networking, vendors.Profiles(in.Profiles))
+	} else {
+		got = no.Supported(ct, zone, vendors.Profiles(in.Profiles))
+	}
 	if len(got) == 0 {
 		return nil
 	}
