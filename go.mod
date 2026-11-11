@@ -26,6 +26,7 @@ require (
 	github.com/awslabs/operatorpkg v0.0.0-20261002163259-5e8ed3699dea
 	github.com/coreos/butane v0.29.0
 	github.com/go-logr/logr v1.4.4
+	github.com/gophercloud/gophercloud/v2 v2.15.0
 	github.com/hetznercloud/hcloud-go/v2 v2.53.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/samber/lo v1.53.0

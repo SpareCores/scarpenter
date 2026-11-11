@@ -1,0 +1,54 @@
+{
+  "os:scheduler_hints": {
+    "group": "7f3c0f9e-2d1a-4a55-9d62-0a7a3d9f6b11"
+  },
+  "server": {
+    "availability_zone": "eu-west-par-b",
+    "block_device_mapping_v2": [
+      {
+        "boot_index": 0,
+        "delete_on_termination": true,
+        "destination_type": "volume",
+        "source_type": "image",
+        "uuid": "9c1f0000-0000-4000-8000-000000000001",
+        "volume_size": 64,
+        "volume_type": "high-speed"
+      },
+      {
+        "boot_index": -1,
+        "delete_on_termination": true,
+        "destination_type": "volume",
+        "source_type": "blank",
+        "volume_size": 100,
+        "volume_type": "classic"
+      }
+    ],
+    "config_drive": false,
+    "flavorRef": "flavor-b3-8",
+    "imageRef": "",
+    "metadata": {
+      "scarpenter-cluster": "my-cluster",
+      "scarpenter-idempotency-key": "0f1e2d3c-4b5a-4968-8776-655443322110",
+      "scarpenter-managed-by": "scarpenter",
+      "scarpenter-nodeclaim": "default-abc12",
+      "scarpenter-nodeclass": "flatcar",
+      "scarpenter-nodepool": "default",
+      "scarpenter-tag-team": "data"
+    },
+    "name": "default-abc12",
+    "networks": [
+      {
+        "uuid": "net-ext"
+      }
+    ],
+    "security_groups": [
+      {
+        "name": "scarpenter-my-cluster-flatcar"
+      }
+    ],
+    "tags": [
+      "scarpenter-cluster=my-cluster"
+    ],
+    "user_data": "eyJpZ25pdGlvbiI6eyJ2ZXJzaW9uIjoiMy40LjAifX0="
+  }
+}
