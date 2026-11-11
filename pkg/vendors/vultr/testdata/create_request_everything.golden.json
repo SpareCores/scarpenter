@@ -1,0 +1,26 @@
+{
+  "region": "ewr",
+  "plan": "vc2-2c-4gb",
+  "label": "claim-1",
+  "tags": [
+    "scarpenter.sparecores.com/cluster=my-cluster",
+    "scarpenter.sparecores.com/idempotency-key=11111111-2222-3333-4444-555555555555",
+    "scarpenter.sparecores.com/managed-by=scarpenter",
+    "scarpenter.sparecores.com/nodeclaim=claim-1",
+    "scarpenter.sparecores.com/nodeclass=default",
+    "scarpenter.sparecores.com/nodepool=pool",
+    "team=data"
+  ],
+  "firewall_group_id": "fa000000-0000-4000-8000-000000000002",
+  "hostname": "claim-1",
+  "snapshot_id": "5a000000-0000-4000-8000-000000000001",
+  "enable_ipv6": true,
+  "attach_vpc": [
+    "0c000000-0000-4000-8000-000000000003"
+  ],
+  "backups": "disabled",
+  "ddos_protection": false,
+  "user_data": "eyJpZ25pdGlvbiI6eyJ2ZXJzaW9uIjoiMy40LjAifX0=",
+  "activation_email": false,
+  "block_devices": null
+}
