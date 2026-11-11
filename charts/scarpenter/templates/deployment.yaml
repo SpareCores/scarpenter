@@ -22,10 +22,21 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- fail "vendors.alicloud.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
 {{- if not (include "scarpenter.vendors" .) }}
-{{- fail "enable at least one vendor: vendors.alicloud.enabled=true, vendors.aws.enabled=true, vendors.hcloud.enabled=true, vendors.ovh.enabled=true, vendors.upcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
+{{- fail "enable at least one vendor: vendors.alicloud.enabled=true, vendors.aws.enabled=true, vendors.azure.enabled=true, vendors.hcloud.enabled=true, vendors.ovh.enabled=true, vendors.upcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
 {{- end }}
 {{- if and $hcloud.enabled (not $hcloud.credentials.secret.existingSecret) }}
 {{- fail "vendors.hcloud.credentials.secret.existingSecret is required: the Secret that holds the API token of the Hetzner Cloud project (HCLOUD_TOKEN)" }}
+{{- end }}
+{{- $azure := .Values.vendors.azure }}
+{{- $azMode := $azure.credentials.mode }}
+{{- if and $azure.enabled (not $azure.subscriptionID) }}
+{{- fail "vendors.azure.subscriptionID is required when vendors.azure.enabled: one controller works in one subscription" }}
+{{- end }}
+{{- if and $azure.enabled (eq $azMode "workloadIdentity") (or (not $azure.credentials.workloadIdentity.clientId) (not $azure.credentials.workloadIdentity.tenantId)) }}
+{{- fail "vendors.azure.credentials.workloadIdentity.clientId and tenantId are required with credentials mode workloadIdentity (docs/how-to-guides/azure-credentials.md); use mode secret or none otherwise" }}
+{{- end }}
+{{- if and $azure.enabled (eq $azMode "secret") (not $azure.credentials.secret.existingSecret) }}
+{{- fail "vendors.azure.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
 {{- $mode := $aws.credentials.mode }}
 {{- if and $aws.enabled (eq $mode "webIdentity") (not $aws.credentials.webIdentity.roleArn) }}
@@ -283,6 +294,33 @@ spec:
               value: {{ $vultr.availabilityTTL | quote }}
             {{- end }}
             {{- end }}
+            {{- if $azure.enabled }}
+            - name: AZURE_SUBSCRIPTION_ID
+              value: {{ $azure.subscriptionID | quote }}
+            - name: SCARPENTER_AZURE_CREDENTIALS_MODE
+              value: {{ ternary "secret" "workloadIdentity" (eq $azMode "secret") | quote }}
+            {{- if and (not (kindIs "invalid" $azure.ipv4Price)) (ne (toString $azure.ipv4Price) "") }}
+            - name: SCARPENTER_AZURE_IPV4_PRICE
+              value: {{ toString $azure.ipv4Price | quote }}
+            {{- end }}
+            {{- if eq $azMode "workloadIdentity" }}
+            {{- $w := $azure.credentials.workloadIdentity }}
+            - name: AZURE_CLIENT_ID
+              value: {{ $w.clientId | quote }}
+            - name: AZURE_TENANT_ID
+              value: {{ $w.tenantId | quote }}
+            - name: AZURE_FEDERATED_TOKEN_FILE
+              value: /var/run/secrets/azure/tokens/azure-identity-token
+            {{- else if eq $azMode "secret" }}
+            {{- $s := $azure.credentials.secret }}
+            - name: AZURE_CLIENT_ID
+              valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.clientIdKey | quote }}}}
+            - name: AZURE_TENANT_ID
+              valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.tenantIdKey | quote }}}}
+            - name: AZURE_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: {{ $s.existingSecret | quote }}, key: {{ $s.clientSecretKey | quote }}}}
+            {{- end }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -320,6 +358,11 @@ spec:
             {{- if and $aws.enabled (eq $mode "webIdentity") }}
             - name: aws-token
               mountPath: /var/run/secrets/aws
+              readOnly: true
+            {{- end }}
+            {{- if and $azure.enabled (eq $azMode "workloadIdentity") }}
+            - name: azure-token
+              mountPath: /var/run/secrets/azure/tokens
               readOnly: true
             {{- end }}
             {{- if or .Values.cluster.ca.existingConfigMap .Values.cluster.ca.existingSecret }}
@@ -360,6 +403,15 @@ spec:
                   audience: {{ $aws.credentials.webIdentity.audience | quote }}
                   expirationSeconds: {{ $aws.credentials.webIdentity.expirationSeconds }}
                   path: token
+        {{- end }}
+        {{- if and $azure.enabled (eq $azMode "workloadIdentity") }}
+        - name: azure-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ $azure.credentials.workloadIdentity.audience | quote }}
+                  expirationSeconds: {{ $azure.credentials.workloadIdentity.expirationSeconds }}
+                  path: azure-identity-token
         {{- end }}
         {{- if .Values.cluster.ca.existingConfigMap }}
         - name: cluster-ca

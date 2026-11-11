@@ -157,6 +157,39 @@ vendors:
         secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
         # Optional: the key of a session token.
         sessionTokenKey: ""
+  azure:
+    enabled: false
+    # The subscription the controller works in (AZURE_SUBSCRIPTION_ID). REQUIRED
+    # when enabled: one controller, one subscription.
+    subscriptionID: ""
+    # Price of a Standard public IPv4 address per hour in USD, used in the price of
+    # Azure offerings (SCARPENTER_AZURE_IPV4_PRICE). An approximation, not a Keeper
+    # price; empty: 0.005. "0": free.
+    ipv4Price: ""
+    credentials:
+      # workloadIdentity: the ServiceAccount's projected token is exchanged for the
+      #   identity's token (a federated credential on a user-assigned managed
+      #   identity or an app registration); recommended.
+      # secret: a client secret from an existing Secret (the fallback).
+      # none: nothing is wired; the SDK's chain finds the credentials (AKS workload
+      #   identity webhook, the managed identity of the node).
+      mode: workloadIdentity
+      workloadIdentity:
+        # Client ID of the identity (AZURE_CLIENT_ID) and the tenant (AZURE_TENANT_ID).
+        # REQUIRED for this mode.
+        clientId: ""
+        tenantId: ""
+        # Audience of the projected token: what the federated credential lists.
+        audience: api://AzureADTokenExchange
+        expirationSeconds: 3600
+        # Also annotate the ServiceAccount with azure.workload.identity/client-id,
+        # for clusters that run the Azure workload identity webhook.
+        annotateServiceAccount: true
+      secret:
+        existingSecret: ""
+        clientIdKey: AZURE_CLIENT_ID
+        tenantIdKey: AZURE_TENANT_ID
+        clientSecretKey: AZURE_CLIENT_SECRET
   hcloud:
     # Hetzner Cloud: servers of one project, from Flatcar snapshots in that
     # project (docs/how-to-guides/hcloud-images.md, docs/reference/hcloud-driver.md).

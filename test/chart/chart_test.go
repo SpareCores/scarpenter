@@ -300,6 +300,61 @@ func TestFullValuesReachTheController(t *testing.T) {
 	}
 }
 
+func TestAzureCredentialModes(t *testing.T) {
+	base := []string{"--set", "cluster.name=c", "--set", "cluster.apiServerEndpoint=https://a.example.com",
+		"--set", "vendors.aws.enabled=false", "--set", "vendors.azure.enabled=true",
+		"--set", "vendors.azure.subscriptionID=00000000-0000-0000-0000-000000000000"}
+	env := func(t *testing.T, args ...string) (map[string]corev1.EnvVar, *appsv1.Deployment) {
+		t.Helper()
+		d := deployment(t, mustHelm(t, append(slices.Clone(base), args...)...))
+		m := map[string]corev1.EnvVar{}
+		for _, e := range d.Spec.Template.Spec.Containers[0].Env {
+			m[e.Name] = e
+		}
+		return m, d
+	}
+	t.Run("workloadIdentity", func(t *testing.T) {
+		m, d := env(t, "--set", "vendors.azure.credentials.workloadIdentity.clientId=11111111-1111-1111-1111-111111111111",
+			"--set", "vendors.azure.credentials.workloadIdentity.tenantId=22222222-2222-2222-2222-222222222222")
+		for k, want := range map[string]string{
+			"AZURE_SUBSCRIPTION_ID": "00000000-0000-0000-0000-000000000000", "AZURE_CLIENT_ID": "11111111-1111-1111-1111-111111111111",
+			"AZURE_FEDERATED_TOKEN_FILE": "/var/run/secrets/azure/tokens/azure-identity-token", "SCARPENTER_AZURE_CREDENTIALS_MODE": "workloadIdentity",
+		} {
+			if m[k].Value != want {
+				t.Errorf("%s = %q, want %q", k, m[k].Value, want)
+			}
+		}
+		found := false
+		for _, v := range d.Spec.Template.Spec.Volumes {
+			if v.Projected != nil && v.Projected.Sources[0].ServiceAccountToken.Audience == "api://AzureADTokenExchange" {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("no projected ServiceAccount token volume with the Azure audience")
+		}
+		if args := d.Spec.Template.Spec.Containers[0].Args; !slices.Contains(args, "--vendors=azure") {
+			t.Errorf("args %v do not enable the azure vendor", args)
+		}
+	})
+	t.Run("secret", func(t *testing.T) {
+		m, _ := env(t, "--set", "vendors.azure.credentials.mode=secret", "--set", "vendors.azure.credentials.secret.existingSecret=az")
+		ref := m["AZURE_CLIENT_SECRET"].ValueFrom
+		if ref == nil || ref.SecretKeyRef.Name != "az" || m["SCARPENTER_AZURE_CREDENTIALS_MODE"].Value != "secret" {
+			t.Errorf("AZURE_CLIENT_SECRET = %+v", m["AZURE_CLIENT_SECRET"])
+		}
+		if _, ok := m["AZURE_FEDERATED_TOKEN_FILE"]; ok {
+			t.Error("a token file next to a client secret")
+		}
+	})
+	t.Run("none", func(t *testing.T) {
+		m, d := env(t, "--set", "vendors.azure.credentials.mode=none")
+		if _, ok := m["AZURE_CLIENT_ID"]; ok || len(d.Spec.Template.Spec.Volumes) != 1 {
+			t.Errorf("mode none wires nothing: %v, %v", m, d.Spec.Template.Spec.Volumes)
+		}
+	})
+}
+
 func TestAWSCredentialModes(t *testing.T) {
 	env := func(t *testing.T, args ...string) (map[string]corev1.EnvVar, *appsv1.Deployment) {
 		t.Helper()
@@ -753,23 +808,25 @@ func TestRejectedValues(t *testing.T) {
 		"auth key secret without name": {[]string{"rbac.authKeySecrets[0].namespace=ns"}, "name"},
 		"string replicas":              {[]string{"replicaCount=many"}, "replicaCount"},
 
-		"token TTL under 20m":       {[]string{"bootstrap.tokenTTL=19m"}, "at least 20m"},
-		"token TTL in seconds":      {[]string{"bootstrap.tokenTTL=1000s"}, "at least 20m"},
-		"role ARN missing":          {[]string{"vendors.aws.credentials.webIdentity.roleArn="}, "roleArn is required"},
-		"secret missing":            {[]string{"vendors.aws.credentials.mode=secret"}, "existingSecret is required"},
-		"ovh secret missing":        {[]string{"vendors.ovh.enabled=true"}, "vendors.ovh.credentials.secret.existingSecret is required"},
-		"ovh bad credentials mode":  {[]string{"vendors.ovh.credentials.mode=oidc"}, "mode"},
-		"ovh bad schedule wait":     {[]string{"vendors.ovh.scheduleWait=soon"}, "scheduleWait"},
-		"ovh bad region alias":      {[]string{"vendors.ovh.regionAliases.gra_11=GRA11"}, "does not match pattern"},
-		"no vendor":                 {[]string{"vendors.aws.enabled=false"}, "at least one vendor"},
-		"alicloud role missing":     {[]string{"vendors.alicloud.enabled=true"}, "roleArn and providerArn are required"},
-		"alicloud secret missing":   {[]string{"vendors.alicloud.enabled=true", "vendors.alicloud.credentials.mode=secret"}, "existingSecret is required"},
-		"upcloud secret missing":    {[]string{"vendors.upcloud.enabled=true"}, "vendors.upcloud.credentials.secret.existingSecret is required"},
-		"upcloud bad range":         {[]string{"vendors.upcloud.networkRange=10.0.0.0/24"}, "networkRange"},
-		"upcloud bad mode":          {[]string{"vendors.upcloud.credentials.mode=webIdentity"}, "mode"},
-		"inline CA without PEM":     {[]string{"kubeletClientCA.source=inline"}, "kubeletClientCA.inline is required"},
-		"lookup CA without cluster": {[]string{"kubeletClientCA.source=extensionApiserverAuthentication"}, "live cluster"},
-		"tailscale example":         {[]string{"examples.enabled=true", "examples.nodeClass.networkTemplate=tailscale"}, "tailscale.version is required"},
+		"token TTL under 20m":        {[]string{"bootstrap.tokenTTL=19m"}, "at least 20m"},
+		"token TTL in seconds":       {[]string{"bootstrap.tokenTTL=1000s"}, "at least 20m"},
+		"role ARN missing":           {[]string{"vendors.aws.credentials.webIdentity.roleArn="}, "roleArn is required"},
+		"secret missing":             {[]string{"vendors.aws.credentials.mode=secret"}, "existingSecret is required"},
+		"ovh secret missing":         {[]string{"vendors.ovh.enabled=true"}, "vendors.ovh.credentials.secret.existingSecret is required"},
+		"ovh bad credentials mode":   {[]string{"vendors.ovh.credentials.mode=oidc"}, "mode"},
+		"ovh bad schedule wait":      {[]string{"vendors.ovh.scheduleWait=soon"}, "scheduleWait"},
+		"ovh bad region alias":       {[]string{"vendors.ovh.regionAliases.gra_11=GRA11"}, "does not match pattern"},
+		"no vendor":                  {[]string{"vendors.aws.enabled=false"}, "at least one vendor"},
+		"azure without subscription": {[]string{"vendors.aws.enabled=false", "vendors.azure.enabled=true"}, "subscriptionID is required"},
+		"azure without client":       {[]string{"vendors.aws.enabled=false", "vendors.azure.enabled=true", "vendors.azure.subscriptionID=00000000-0000-0000-0000-000000000000"}, "clientId and tenantId are required"},
+		"alicloud role missing":      {[]string{"vendors.alicloud.enabled=true"}, "roleArn and providerArn are required"},
+		"alicloud secret missing":    {[]string{"vendors.alicloud.enabled=true", "vendors.alicloud.credentials.mode=secret"}, "existingSecret is required"},
+		"upcloud secret missing":     {[]string{"vendors.upcloud.enabled=true"}, "vendors.upcloud.credentials.secret.existingSecret is required"},
+		"upcloud bad range":          {[]string{"vendors.upcloud.networkRange=10.0.0.0/24"}, "networkRange"},
+		"upcloud bad mode":           {[]string{"vendors.upcloud.credentials.mode=webIdentity"}, "mode"},
+		"inline CA without PEM":      {[]string{"kubeletClientCA.source=inline"}, "kubeletClientCA.inline is required"},
+		"lookup CA without cluster":  {[]string{"kubeletClientCA.source=extensionApiserverAuthentication"}, "live cluster"},
+		"tailscale example":          {[]string{"examples.enabled=true", "examples.nodeClass.networkTemplate=tailscale"}, "tailscale.version is required"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
