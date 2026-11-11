@@ -380,3 +380,33 @@ The sweeper (`e2e-aws-sweeper.yml`) runs in the environment `e2e-sweeper`, not `
 reviewers of `e2e` would make every scheduled sweep wait for an approval. What keeps that
 environment safe without reviewers is its limit to `main`: the only code that reaches the role
 through it is the reviewed sweeper of `main`.
+
+### Vultr
+
+The Vultr lane (`test/e2e-vultr/`) differs from AWS where Vultr has no equivalent, and it is
+**not yet a line of `test/e2e-vendors.txt`**: the guards that credentials cannot give (plan 20,
+open question 7) are met by the account's own limits, which the operator sets first.
+
+- **A dedicated Vultr account or sub-account** with a low account limit (maximum instances and
+  maximum instance cost, in the console under Account, Limits): the ceiling that replaces the
+  denied types and region. A key cannot deny plans or regions (ACLs are coarse).
+- **Environment `e2e`**: the secret `VULTR_API_KEY`, the key of a dedicated sub-user, and the
+  variable `VULTR_REGION` (default `ewr`). Vultr has no OIDC for callers, so the key is static and
+  its **IP allowlist must admit GitHub-hosted runners** (`0.0.0.0/0`): the required reviewers and
+  the fork rule are the wall. **Environment `e2e-sweeper`**: the same secret and variable, no
+  reviewers, limited to `main`. **Environment `e2e-canary`**: the secret `VULTR_API_KEY` of a second
+  sub-user with read access only, and optionally `VULTR_REGION`.
+- **The Flatcar snapshot**, once per pinned version, created by the account's operator from the
+  images repository's public URL (a snapshot-from-URL call), described
+  `flatcar-<channel>-<version>-amd64` (the pins of `test/e2e-vultr/defaults.sh`). The sweeper
+  never deletes a snapshot, and neither does a run.
+- **Run tag**: the instances carry `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>`
+  (and the NodeClass's `ci-created-at` and `ci-run`); firewall groups and VPCs have no tags, so
+  their description carries the ownership marker (managed ones) or is `<cluster>-byo` (the ones the
+  `byo` scenario brings), and the sweeper reads that.
+- **Cost**: `vc2-1c-1gb` and `vhf-1c-1gb` (about a cent per hour); a full run launches at most six
+  small instances. Whether a destroyed instance bills the started hour is unverified (plan 20,
+  spike S7), so assume one hour each.
+- **Before the first run**: the maintainer runs the spikes of plan 20, section 11 (S1 the image
+  import, S4 the error texts, S5 the minimal ACLs), sets the account limit, and then adds `vultr`
+  to `test/e2e-vendors.txt`.

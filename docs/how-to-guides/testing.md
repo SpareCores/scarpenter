@@ -577,6 +577,41 @@ against the same in-memory EC2 and compares its calls with the read-only policy;
 tests the path rules that decide which runs a pull request needs. `make lint` runs `actionlint` and
 `shellcheck` on the workflows and the scripts.
 
+#### The Vultr lane
+
+`test/e2e-vultr/` is the same lane for Vultr (plan 20, section 9): the control plane, the tailnet,
+the runner and the shape of the scenarios are the AWS ones, the cloud calls are `curl` against
+the Vultr API with `VULTR_API_KEY` (passed to curl through a config on a pipe, never in an
+argument). It is not in `test/e2e-vendors.txt` until the account's limits are set (see
+[Vultr](testing-and-releasing.md#vultr)), so the workflows do not run it by themselves.
+
+The plans the lane launches are `vc2-1c-1gb` (the exact-type scenarios) and `vhf-1c-1gb`
+(checked in stock by the preflight and the canary), and `vc2-1c-1gb`, `vc2-1c-2gb` and `vc2-2c-4gb`
+for the described-not-named one. There is no arm64, spot, placement-group, storage-profile or quota
+scenario: Vultr has none of them in v1. The lane's NodeClasses set `networking.isolation: none`
+explicitly (the default, `run`, puts the nodes in a managed VPC).
+
+| Scenario | What it proves |
+|---|---|
+| `amd64` | exact plan `vultr.vc2-1c-1gb`: Node Ready, Pod Running, `kubectl logs` and `exec`; the labels with the zone equal to the region; the instance's status, plan, tags (cluster, NodeClaim, NodePool, NodeClass, managed-by, the idempotency key, the NodeClass's own), the managed deny-all firewall group with its ownership marker, no VPC; the price and billing-start annotations; the bootstrap token, the serving CSR, the units and the cluster DNS |
+| `described` | a Pod that asks for 2 vCPUs and more than 3000 MiB gets `vc2-2c-4gb` |
+| `byo` | a firewall group (by ID) and a VPC (by description) created through the API are used, not created or deleted |
+| `fw` | the managed firewall group has the rules of `spec.networking.inbound` and is deleted after the last node (`perUse`) |
+| `vpc` | `isolation: nodeclass` creates a managed VPC and attaches the instance |
+| `negative` | `publicIPv4: false` makes the NodeClass not `VendorReady`; a Pod that needs arm64, and one that selects a storage profile with a `vultr` block, stay Pending with no NodeClaim |
+| `drift` | a change of the `vultr` block (inbound rules) replaces the node, with a restart of the controller during the create (the replay finds the first instance by its idempotency tag) |
+| `scalezero` | every instance is deleted within two minutes of the Pods' deletion; the snapshot, the managed group and the brought objects are still there |
+| `uninstall` | the install how-to's procedure; the managed groups and VPCs go by their lifecycle |
+
+The sweeper (`.github/workflows/e2e-vultr-sweeper.yml`, `go run ./test/e2e-vultr/sweeper`, engine
+`pkg/vendors/vultr/sweep`) deletes the instances of every `scarpenter-ci-*` cluster older than two
+hours (by their tag), and the firewall groups and VPCs whose description names such a cluster and
+that no instance uses; **never a snapshot**. The canary (`test/canary/vultr.go`) checks the key, the
+region, the snapshot and the plans in stock, behind a guard that refuses every call that is not a Get
+or a List (`test/canary/vultr_guard.go`, proved by reflection). `hack/dev.sh make
+test-e2e-vultr-dryrun` runs the manifests against an API server, the sweeper and the canary
+against the driver's in-memory Vultr API, and `selftest.sh`.
+
 ### Artifact fixtures
 
 `pkg/artifacts/testdata/<name>-<version>/SHA256SUMS` are the real checksum files of
