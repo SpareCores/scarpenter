@@ -106,7 +106,9 @@ func (g *gcpROCompute) DeleteInstance(context.Context, *computepb.DeleteInstance
 	return nil, g.audit.deny(gcpPermissionOf("DeleteInstance"))
 }
 
-func (g *gcpROCompute) GetInstance(ctx context.Context, req *computepb.GetInstanceRequest) (*computepb.Instance, error) {
+func (g *gcpROCompute) GetInstance(
+	ctx context.Context, req *computepb.GetInstanceRequest,
+) (*computepb.Instance, error) {
 	g.audit.read(gcpPermissionOf("GetInstance"))
 	return g.inner.GetInstance(ctx, req)
 }
@@ -140,7 +142,9 @@ func (g *gcpROCompute) GetRegion(ctx context.Context, req *computepb.GetRegionRe
 	return g.inner.GetRegion(ctx, req)
 }
 
-func (g *gcpROCompute) ListRegions(ctx context.Context, req *computepb.ListRegionsRequest) (*computepb.RegionList, error) {
+func (g *gcpROCompute) ListRegions(
+	ctx context.Context, req *computepb.ListRegionsRequest,
+) (*computepb.RegionList, error) {
 	g.audit.read(gcpPermissionOf("ListRegions"))
 	return g.inner.ListRegions(ctx, req)
 }
