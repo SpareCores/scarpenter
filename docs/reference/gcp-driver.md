@@ -218,7 +218,12 @@ error (`Unsupported`).
   reaches by VPN, uses `10.240.0.0/12`. Nodes in different regions have a private path through the VPC; the
   firewall rules still allow only what the tag rules say. The VPC and its subnetworks are one resource kind:
   `List` returns the subnetworks, a VPC with no subnetwork left is listed as the network so it is not leaked,
-  and `Delete` removes the subnetwork, then the VPC when it was the last one and carries the marker.
+  and `Delete` removes the subnetwork, then the VPC when it was the last one and carries the marker. A VPC
+  that something else still uses (rules of another NodeClass, or a subnetwork another controller added since
+  the read) stays, and the subnetwork's deletion is done; the VPC lists as an orphan and goes later. The
+  check of the VPC and the insert of a subnetwork, and the deletion of the VPC with its last subnetwork, are
+  one critical section in the controller; when another controller deletes the VPC in between, the insert
+  finds no VPC and it is made again.
 - **The managed firewall** is a set of rules for one network tag: a rule per inbound rule of
   `spec.networking` (CIDR sources), a rule that lets the nodes of the tag reach each other for isolation
   `nodeclass` (and for isolation `run` without a run key), and a deny rule at the lowest priority that says
