@@ -45,3 +45,6 @@ test/data/sc-snapshot.tmp/
 test/data/*.lock
 test/data/sc-snapshot*.lock
 test/data/sc-snapshot.old/
+
+# Build output of go build in the repository root
+/controller
