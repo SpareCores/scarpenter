@@ -1,60 +1,125 @@
-# Azure driver (foundation)
+# Azure driver
 
-`pkg/vendors/azure` is the vendor-specific foundation of the Azure driver. It is
-not yet a `vendors.Driver`: it is not registered, has no NodeClass API types and
-no conformance wiring, and nothing in it has run against Azure (no cloud call is
-made by any test). The design is plan 17; the contract the finished driver
-implements is the [driver contract](driver-contract.md).
+`pkg/vendors/azure` launches, lists and deletes Flatcar VMs in one Azure subscription. It is a
+complete `vendors.Driver` (registered as `azure`, enabled with `--vendors=azure`) with node options,
+managed resources, quotas and a NodeClass validator, and it passes the shared conformance suite
+against an in-memory ARM. **Nothing in it has run against Azure**: no test makes a cloud call. The
+design is [plan 17](../plans/v1/wip/17-azure.md); the contract it implements is the
+[driver contract](driver-contract.md). The NodeClass block is `spec.vendors.azure` ([API](api.md)).
 
-## What exists
+- [Account and credentials](#account-and-credentials)
+- [Regions, zones and images](#regions-zones-and-images)
+- [Launch](#launch)
+- [Node settings](#node-settings)
+- [Resources and network](#resources-and-network)
+- [Quotas, offerings and errors](#quotas-offerings-and-errors)
+- [Billing](#billing)
+- [Tests and the L5 lane](#tests-and-the-l5-lane)
+- [What is not verified against Azure yet](#what-is-not-verified-against-azure-yet)
 
-| Part | Where | What it does |
-|---|---|---|
-| API interfaces | `api.go` | The calls the driver needs, one narrow interface per service (VMs, NICs, public IPs, tag listing, SKUs, usages, images, marketplace agreements, locations). Long-running operations are awaited inside the call, pagers are drained. |
-| SDK adapters | `sdk.go` | The real track-2 clients behind those interfaces, created lazily per subscription, with the `scarpenter/<version>` user agent. |
-| Credentials | `credential.go` | The chain: workload identity, environment (mode `secret`), managed identity, Azure CLI only under a development flag. |
-| In-memory ARM | `fake/` | A fake subscription behind the same interfaces: idempotent VM `PUT` by name, provisioning and power states, quota and capacity failures, the delete-option cascade, tag listing without tags, error injection. Errors are real `*azcore.ResponseError` values. |
-| Errors | `errors.go` | ARM error codes to the contract's classes (table test with an independent copy); `SkuNotAvailable` depends on the priority, quota and `InvalidParameter` have message exceptions. |
-| Mapping | `names.go`, `states.go`, `skus.go` | VM name `<nodeclaim>-<hash8(cluster)>`, tag keys `scarpenter-<key>`, provider ID, instance reference `<region>/<resource group>/<vm>`, image URN, VM state, the SKU table (Gen2, SCSI, restrictions, zones). |
-| Launch request | `launch.go`, `settings.go` | The VM, NIC and public IP bodies with every field of plan 17 section 3, the settings of section 7 and their checks against the size's capabilities. |
-| Instances | `compute.go` | Launch (replay by name, wait, cleanup of a failed attempt), get, find, list, delete (cluster-tag check). |
-| Images | `image.go` | Marketplace lookup of the official Flatcar offers, one hour cache, the terms check. |
-| Quotas | `quota.go` | Both vCPU tiers, Spot and public IPs from the Usage APIs; the type to bucket mapping from the SKU table. |
+## Account and credentials
 
-## Behaviour worth knowing
+One controller works in one subscription: `AZURE_SUBSCRIPTION_ID` is required (the chart value
+`vendors.azure.subscriptionID`). `spec.vendors.azure.subscriptionID` is only a guard: a different value
+fails the NodeClass validation. The credential chain is workload identity (`AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`), then, in mode `secret`, the client secret of the
+environment, then the managed identity; the Azure CLI's login only under `SCARPENTER_AZURE_DEVELOPMENT=true`.
+How to set it up: [Azure credentials](../how-to-guides/azure-credentials.md). The custom role is
+[`azure-role.json`](azure-role.json). The resource providers `Microsoft.Compute`, `Microsoft.Network` and
+`Microsoft.MarketplaceOrdering` must be registered (a `MissingSubscriptionRegistration` is `Fatal`).
 
-- The deterministic VM name replaces the idempotency label. A replay returns the
-  existing VM whatever zone, size or capacity type it asks for; a `Failed` VM of
-  another size or zone is a leftover and is deleted first.
-- A launch waits for the long-running operation for 4 minutes; a VM still
-  `Creating` then is returned as pending. A failed create deletes its VM unless the error
-  is transient, so the key stays unused.
-- `stopped`, `stopping`, `deallocating`, `deallocated` and `Deleting` are
-  `terminating`; a `Failed` VM that exists is `running`.
-- Azure's limits are per subscription and region, so no quota error is
-  account-wide.
-- Any HTTP 429 is `Retryable`, whatever its code (the compute provider throttles
-  with `OperationNotAllowed`); azcore has retried it before.
-- Message texts the classification matches (the documented exception of the
-  contract; `errors_test.go` pins each, an unmatched text is `Fatal`):
-  `OperationNotAllowed` containing "exceeding approved" and "quota" is
-  `QuotaExceeded`, containing "another operation" and "progress" is `Retryable`;
-  `InvalidParameter` naming the launch's size with "not available" or "not
-  supported" is `Unsupported`.
-- The public IP has no zones field (zone-redundant in a zonal region), so the
-  attempt in the next zone reuses the address of the previous one.
-- The terms check reads `MarketplaceAgreements.Get` with the offer type
-  `virtualmachine` (role action
-  `Microsoft.MarketplaceOrdering/offerTypes/publishers/offers/plans/agreements/read`).
-- Sizes without Gen2, without a SCSI disk controller, or restricted for the
-  subscription are not launchable.
-- SCarpenter never accepts marketplace terms: the check fails with
-  `MarketplaceTermsNotAccepted` and names the `az vm image terms accept` command.
+## Regions, zones and images
 
-## Not yet
+Regions are the subscription's physical locations (`westeurope`); zones are the logical zones `1`, `2`, `3`
+(the identity mapping: Keeper's names), and zone `0` for a region without zones. An unknown zone is
+`ZoneUnusable`.
 
-The `vendors.Driver`, `NodeOptions` and `ManagedResources` implementations
-(resource groups, VNet and subnet, NSG, application security groups, proximity
-placement groups, and the public IP and NIC `Prepare` now done inside `Launch`),
-registration, NodeClass types, the `images` kind, conformance and the L5 lane. The
-seams are marked `TODO(plan 14)` in the code.
+Images come from the Azure Marketplace, publisher `kinvolk` (override: `imageOwner`): amd64
+`flatcar-container-linux-corevm-amd64`, SKU `<channel>-gen2` (for `lts` the `lts*-gen2` SKU that has the
+version); arm64 `flatcar-container-linux-corevm`, SKU `<channel>`. `Image.Ref` is the URN
+`publisher:offer:sku:version`. The `images` selector takes URNs (`ids`) or a pattern
+(`publisher:offer:sku:<version glob>`, `orderBy: name`); galleries and managed images are not supported. Whatever is
+found must say the pinned version (`ImageVersionMismatch`). **SCarpenter never accepts marketplace terms**: an image
+with a purchase plan whose terms are not accepted is not ready (`MarketplaceTermsNotAccepted`, the message holds
+the exact `az vm image terms accept` command). Only Gen2 sizes are launched.
+
+## Launch
+
+One `VirtualMachines` PUT per attempt, after a public IP and a NIC of the NodeClaim; no ARM template. The VM
+name `<nodeclaim>-<hash8(cluster)>` is the idempotency key: a replay returns the VM whatever zone or size it
+asks for; a failed create deletes its VM, NIC and public IP, so the key stays unused. The launch waits for the
+long-running operation up to 4 minutes (capacity and quota errors arrive inside it); a VM still `Creating` is
+returned pending. Disks, NIC and public IP carry `deleteOption: Delete`. The VM has `core` as admin user and one
+public key (`adminSSHPublicKey`, else a key generated at start whose private half is discarded: access is
+Ignition's business). Spot: priority `Spot`, eviction `Delete`, `maxPrice: -1`. States: `Creating` pending,
+`running` running; stopped, deallocated, `Deleting` terminating (the stopped-node rule); a `Failed` VM that exists
+is running (it costs: the NodeClaim deletes it). The instance reference is `<region>/<resource group>/<vm>`.
+Tags are `scarpenter-<key>` plus `Name`. `DeleteInstance` refuses a VM without the cluster tag.
+
+## Node settings
+
+| Block | Fields |
+|---|---|
+| `storage.root` | `storageAccountType` (default `Premium_LRS`), `diskSizeGB` (64), `caching` (`ReadWrite`), `diskEncryptionSetID`, `ephemeral.placement` |
+| `storage.data[]` | `name`, `storageAccountType`, `diskSizeGB`, `caching`, `filesystem`, `mountPath`; the device is `/dev/disk/azure/scsi1/lun<N>`, N the index |
+| `storage.localStorage` | `ignore` only |
+| network profile | `acceleratedNetworking.enabled`: `auto` (on where the size has it), `"true"` (other sizes unsupported), `"false"` |
+| placement profile | `proximityPlacementGroup`: `strategy: cluster` (one group per run key) or `use.name` |
+| settings | `adminSSHPublicKey`, `encryptionAtHost`, `imageOwner`, `subscriptionID` |
+
+Premium disks need the `PremiumIO` capability: sizes without it fail the default root disk (`Unsupported`, the
+offering is unavailable for a while); set `StandardSSD_LRS` to include them. Sizes without Gen2 or without a SCSI disk
+controller (NVMe-only: most of the v6 families) are not offered. `PriceDelta` rounds a disk to its billing tier and uses Keeper's
+GB-month price per region and SKU; Standard SKUs and unpriced disks make it incomplete; the public IPv4 address is a
+constant (`SCARPENTER_AZURE_IPV4_PRICE`).
+
+## Resources and network
+
+Kinds (the keys of `spec.vendors.azure.resources`): `resourceGroups` (ID is the name; default lifecycle `retain`),
+`subnets` (the ID of a subnet; tags are the virtual network's; `idleTTL`), `securityGroups` (`idleTTL`),
+`proximityPlacementGroups` and, internal, `runSecurityGroups` (`perUse`). Azure has no default resource: without `use`
+the order is the opt-in tag `scarpenter-use=true`, then creation of a resource group
+`scarpenter-<cluster>-resource-groups-<region>`, a virtual network `10.240.0.0/16` with one `/20` subnet `nodes`, and a
+network security group. Selectors: [Resource selectors](resource-selectors.md#azure).
+
+The managed network security group has an allow rule between the nodes of its application security group (isolation
+`nodeclass`, or `run` without a run key; `-nodes` after the group's name, created and deleted with it), the inbound rules
+of `spec.networking.inbound` at priorities 100 and up, and a deny of the virtual network's traffic at 4000 (Azure's built-in
+`AllowVnetInBound` would let every node reach every other). Isolation `run` with a run key gets a group of its own per run.
+**A NIC takes one network security group, so a group brought with `use` decides alone and `networking.isolation` has no
+effect on it** (the driver logs it once). A resource group is deleted only if it carries the marker and holds nothing
+but SCarpenter's own leftovers; nothing brought is ever modified or deleted. Nodes are IPv4 only; without a public address
+nothing gives them egress, so `publicIPv4: false` needs `subnets.use`.
+
+## Quotas, offerings and errors
+
+Quota is per subscription and region: the Usage APIs report the whole subscription's usage, so nothing is counted by
+hand; the buckets are `cores` (total regional), the size's family (from the SKU table, never from names),
+`lowPriorityCores` (Spot) and `StandardPublicIPAddresses`. `Counted` lists this cluster's VMs so the in-flight ledger
+releases its reservations. Offerings come from the SKU table (zones, restrictions, Gen2, SCSI). Errors are classified
+by ARM code (never message text, except `OperationNotAllowed` and `InvalidParameter`); `SkuNotAvailable` is
+`InsufficientCapacity` for Spot and `Unsupported` on demand; 429 is always `Retryable`. The table is in
+`errors.go` and tested against an independent copy.
+
+## Billing
+
+Azure bills per full minute with no documented minimum: not a retention candidate. `BillingRule` reports a verified
+one-minute rule with no minimum (the NodeClass status says `PerSecondBilling`) and `BillingStart` stays unset.
+
+## Tests and the L5 lane
+
+`go test ./pkg/vendors/azure/...` runs against the in-memory ARM (`fake/`), which returns real `*azcore.ResponseError`
+values; `TestConformance` runs the shared suite over every active Azure type of the Keeper snapshot, once per resource
+kind. The suite's resolution-order cases assume a vendor default resource; Azure has none, so `resolution_test.go` runs
+ADR-022's order through the engine instead. The L5 lane is `test/e2e-azure/`, the sweeper `pkg/vendors/azure/sweep`
+and the canary `test/canary/azure.go`; see [Test and develop](../how-to-guides/testing.md#the-l5-lane). They are validated
+statically only.
+
+## What is not verified against Azure yet
+
+Everything. In particular: the marketplace SKUs and versions per channel and architecture and whether the arm64
+offer has terms; that a VM with custom data and a throwaway key is accepted; the Compute and Network usage names, the
+SKU capability names and the family mapping; whether a failed allocation leaves a `Failed` VM; the `deleteOption`
+cascade; the codes of capacity, quota, zone and in-use errors (the zone and in-use codes are guesses); the role actions;
+Keeper's storage ids for Azure disks; device paths of data disks on Flatcar; accelerated networking on Flatcar; NVMe-only
+sizes; boot time; the `DenyVnetInbound` rules between nodes; per-minute billing.

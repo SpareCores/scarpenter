@@ -38,10 +38,12 @@ Available:
   resources and network, tags, quota classes and codes, error mapping, IAM
   ([policy](aws-iam-policy.json)) and what is not verified live yet (plan 08).
 
+- [**Azure driver**](azure-driver.md) — regions and zones, marketplace images, launch,
+  node settings, managed resources, quota, errors, the role ([actions](azure-role.json)) and what is not
+  verified live yet (plan 17).
 - [**Hetzner Cloud driver**](hcloud-driver.md) — the `hcloud` driver: regions, images and the label convention,
   launch, node settings, resources, quotas, billing, error mapping and what is not verified live yet (plan 15).
 - [**Vultr driver**](vultr-driver.md) — the Vultr Cloud Compute driver: snapshots as images, firewall groups and VPCs, the plan list, error mapping and what is not verified live yet (plan 20).
-- [**Azure driver**](azure-driver.md) — the `azure` driver foundation (plan 17).
 - [**GCP driver**](gcp-driver.md) — the Google Compute Engine driver, lower layers (plan 16).
 - [**UpCloud driver**](upcloud-driver.md) — regions that are zones, the Flatcar template
   convention, the two firewalls, launch, node settings, resources, quotas, errors, credentials

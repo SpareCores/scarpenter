@@ -62,6 +62,10 @@ The last column names the plan that introduced the flag.
 | (Vultr only) | `VULTR_API_KEY` | (none) | The API key of the Vultr account. Required when `--vendors` has `vultr`: the controller refuses to start without it. Environment only; the chart wires it from a Secret. [Vultr credentials](../how-to-guides/vultr-credentials.md). | plan 20 |
 | (Vultr only) | `SCARPENTER_VULTR_AVAILABILITY_TTL` | `5m` | How long the stock of a Vultr region (`GET /v2/regions/{id}/availability`) is cached by the driver. Environment only. | plan 20 |
 | (UpCloud only) | `SCARPENTER_UPCLOUD_NETWORK_RANGE` | `10.241.0.0/16` | The IPv4 /16 inside which the UpCloud driver's managed private networks take a /24 each (hash of the name, the next free one when it overlaps a network of the account). It must stay clear of the networks you bring: the networks of an UpCloud account must not overlap. A value that is not an IPv4 /16 is refused at startup. Environment only. | plan 19 |
+| (Azure only) | `AZURE_SUBSCRIPTION_ID` | required | The subscription the Azure driver works in: one controller, one subscription, no discovery. Environment only (no flag: the Azure SDK's own variable). | plan 17 |
+| (Azure only) | `SCARPENTER_AZURE_CREDENTIALS_MODE` | `workloadIdentity` | `workloadIdentity` (also `none`) or `secret`: the credential chain, see [Azure credentials](../how-to-guides/azure-credentials.md). Environment only. | plan 17 |
+| (Azure only) | `SCARPENTER_AZURE_DEVELOPMENT` | `false` | `true` ends the chain in the Azure CLI's login (the sweeper and a developer's machine; never in a cluster). Environment only. | plan 17 |
+| (Azure only) | `SCARPENTER_AZURE_IPV4_PRICE` | `0.005` | Price of a Standard public IPv4 address per hour in USD, used in the price delta of Azure offerings. An approximation, not a Keeper price; `0` means free; invalid values are refused at startup. Environment only. | plan 17 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region the account's region list (`DescribeRegions`) is read from; the AWS driver's other calls go to the region they concern ([AWS driver](aws-driver.md)). | plan 08 |
 
 All problems of the command line are reported together, and the controller
@@ -108,8 +112,11 @@ and that the controller's own parser accepts what the chart renders.
 | `cluster.dns` | `--cluster-dns` | A list of IPs, passed as it is. **Empty (the default): the controller finds the DNS Service itself** (the chart looks nothing up); `[none]` gives the nodes no `clusterDNS`. |
 | `cluster.domain` | `--cluster-domain` | |
 | `kubeletClientCA.source`, `inline`, `configMap.*`, `secret.*` | `--kubelet-client-ca-file` | `none`, `inline`, an existing `configMap` or `secret`, or `extensionApiserverAuthentication` (copies key `client-ca-file` of `kube-system/extension-apiserver-authentication` into a ConfigMap of the release with Helm's `lookup`; the API server's client CA: the k3s client CA, the cluster CA on kubeadm and EKS). kubeadm and EKS need none; on k3s without it `kubectl logs` and `exec` fail with 401. |
-| `vendors.aws.enabled`, `vendors.hcloud.enabled`, `vendors.extra` | `--vendors` | `alicloud`, `aws`, `hcloud`, `ovh`, `upcloud` and `vultr` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
+| `vendors.aws.enabled`, `vendors.azure.enabled`, `vendors.hcloud.enabled`, `vendors.extra` | `--vendors` | `alicloud`, `aws`, `azure`, `hcloud`, `ovh`, `upcloud` and `vultr` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
 | `vendors.alicloud.enabled`, `homeRegion` | `--vendors`, `SCARPENTER_ALICLOUD_HOME_REGION` | |
+| `vendors.azure.enabled`, `vendors.azure.subscriptionID` | `--vendors` (adds `azure`), `AZURE_SUBSCRIPTION_ID` | `subscriptionID` is required when enabled. |
+| `vendors.azure.ipv4Price` | `SCARPENTER_AZURE_IPV4_PRICE` | An approximation, see the table above. |
+| `vendors.azure.credentials.mode`, `workloadIdentity.*`, `secret.*` | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`, a projected ServiceAccount token, `AZURE_CLIENT_SECRET` | [Azure credentials](../how-to-guides/azure-credentials.md). `workloadIdentity` needs `clientId` and `tenantId`, `secret` an `existingSecret`. |
 | `vendors.aws.homeRegion` | `--aws-home-region` | |
 | `vendors.aws.region` | `AWS_REGION` | Default: the home region, else `us-east-1`. |
 | `vendors.aws.ipv4Price` | `SCARPENTER_AWS_IPV4_PRICE` | An approximation, see the table above. |

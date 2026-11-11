@@ -465,6 +465,16 @@ used: another API and permission, eventually consistent, so unsuitable right aft
 
 ### azure
 
+**What the driver implements (v1).** Every field is evaluated on the client, after one list call per kind
+(`ResourceGroups.List`, `VirtualNetworks.ListAll`, `SecurityGroups.ListAll`, `ProximityPlacementGroups.ListBySubscription`;
+the list calls return the tags). The kinds declare the side `client` for every field, and the virtual networks, security
+groups and placement groups are restricted to the region of the launch (a NIC, a VM and the group it joins share the
+region). `ids` are compared without regard to case (resource groups: name or ARM ID). The native filter is
+`resourceGroup` (subnets, securityGroups, proximityPlacementGroups). **Not implemented:** `expression` (Resource Graph), the
+`location` filter, `match.state` on resource groups, managed images and galleries (`images` takes marketplace URNs and
+`publisher:offer:sku:<version glob>` patterns only; the architecture comes from the image's own field). The prose below is
+the full design the rest of the plan builds on.
+
 **No per-kind list takes a filter** (compute and network alike: scope and paging only), so the mechanism is
 generic. The driver uses, in this order: (A) the ARM generic resource list (`GET /subscriptions/{s}/resources`
 with `$filter`) for `resourceType`, `location`, `resourceGroup`, `name` and tags; the per-kind list or `get` when the

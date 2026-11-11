@@ -50,6 +50,8 @@ Available:
 - [**Import Flatcar templates into UpCloud**](import-flatcar-templates-into-upcloud.md)
   (plan 19) — the per-zone, per-tier template and its labels, from the images
   repository's release asset; what SCarpenter reports.
+- [**Set up Azure credentials**](azure-credentials.md) (plan 17) — the custom role, workload
+  identity federation, a client secret, AKS, the marketplace terms.
 
 Planned for v1:
 

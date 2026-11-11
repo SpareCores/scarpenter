@@ -870,6 +870,18 @@ leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific c
   then adds `ovh` to `test/e2e-vendors.txt`.
 - **Provisioned outside this repository**: the project (one active region, low quotas, a spending alert), the two users, the
   images of [Upload the Flatcar image to OVH](ovh-images.md) in the lane's region, the environment secrets and variables above.
+### The L5 lane of Azure
+
+`test/e2e-azure/` has the same script names as `test/e2e-aws/`, with Azure's own scenarios (the proximity
+placement group and Premium data disk of `db`, the NIC, public IP and disk check of `scalezero`, the
+marketplace terms in the preflight), a sweeper (`pkg/vendors/azure/sweep`, `.github/workflows/e2e-azure-sweeper.yml`)
+and a canary (`test/canary/azure.go`, read-only through a guard that refuses every write).
+`make test-e2e-azure-dryrun` runs what needs no cloud: the manifests against the CRD, the sweeper and the canary against the
+in-memory ARM, the selftest. The identity is GitHub's OIDC straight to Azure, with the federated token refreshed in
+the background for the controller. **The lane is not in `test/e2e-vendors.txt`**: a line may be added only when every
+cost guard (an Allowed-SKU and an Allowed-locations policy on the lane's resource group, the tags, the sweeper, the
+quota ceiling, the read-only canary role) is true on a live account, and nobody has verified that yet.
+Nothing in the lane has run against Azure.
 
 ### Artifact fixtures
 
