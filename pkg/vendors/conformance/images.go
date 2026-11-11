@@ -70,8 +70,10 @@ func images(t *testing.T, e *env) {
 	c := &imageCases{t: t, e: e, caps: caps, tag: fmt.Sprintf("conf-image-%d", counter.Add(1))}
 	c.explicitIDs()
 	c.versionCheck()
-	c.ordering()
-	c.placeholders()
+	if caps.Tags != vendors.TagsNone {
+		c.ordering()
+		c.placeholders()
+	}
 	c.defaultImage()
 }
 
@@ -125,10 +127,16 @@ func (c *imageCases) explicitIDs() {
 	if img.Version != "" && (img.Version != imageVersion || img.Channel != imageChannel) {
 		t.Errorf("the image says %s %s, want %s %s", img.Channel, img.Version, imageChannel, imageVersion)
 	}
-	arm := c.seed(c.good(archARM64))
-	for arch, want := range map[string]string{archAMD64: amd, archARM64: arm} {
-		if got, err := c.resolve(arch, c.ids(amd, arm)); err != nil || got.Ref != want {
-			t.Errorf("both architectures listed, %s: %+v, %v; want %s", arch, got, err, want)
+	if c.e.fx.NoArm64 {
+		if _, err := c.resolve(archARM64, c.ids(amd)); !vendors.IsClass(err, vendors.Unsupported) {
+			t.Errorf("arm64 on a vendor without Arm instances: %v, want Unsupported", err)
+		}
+	} else {
+		arm := c.seed(c.good(archARM64))
+		for arch, want := range map[string]string{archAMD64: amd, archARM64: arm} {
+			if got, err := c.resolve(arch, c.ids(amd, arm)); err != nil || got.Ref != want {
+				t.Errorf("both architectures listed, %s: %+v, %v; want %s", arch, got, err, want)
+			}
 		}
 	}
 	excl := c.ids(amd)
