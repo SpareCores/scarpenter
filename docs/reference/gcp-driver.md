@@ -145,6 +145,11 @@ Rung 1 for amd64, rung 2 for arm64 ([ADR-021](../explanation/DECISIONS.md)).
 - **Delete** reads the instance first and refuses one without the cluster's label (`Fatal`): GCP IAM
   conditions cannot test labels, so this check and a dedicated project are the walls. A deleted
   instance and one that does not exist are success; the disks go with the instance.
+- **No `LeftoverCollector`**: a launch makes nothing besides the instance. Its disks are created in the
+  insert (`initializeParams`, `autoDelete`), its external addresses are ephemeral (`accessConfigs`), and GCE
+  has no network interface object, so no separate call can outlive a failed or interrupted launch. That a
+  failed insert operation leaves no disk behind is **unverified**; the lane's teardown lists disks by the
+  cluster label and fails on one.
 - **List and find** are one `instances.aggregatedList` with the label filter, narrowed to the regions
   asked; every status is listed.
 - **Provider ID** `scarpenter://gcp/<region>/<nodeclaim>`; **InstanceRef** `<region>/<zone>/<name>` (the
@@ -345,5 +350,7 @@ Tier 1); the guest OS features of `kinvolk-public`'s images (`GVNIC`); the name 
 a down zone (the generated request of `cloud.google.com/go/compute` v1.75.0 has no `returnPartialSuccess`
 field); the disk size and IOPS limits outside `pd-balanced` and `hyperdisk-balanced`; the external IPv4
 address price; that every method the lane's CI role uses supports IAM name conditions; the pricing page's
-billing rule. The L5 lane (`test/e2e-gcp`) is written and statically validated; its first live run is the
+billing rule; that a failed instance insert leaves no disk (hence no `LeftoverCollector`); whether a range
+conflict between two concurrent subnetwork inserts is refused in the call or in the operation (both are
+retried). The L5 lane (`test/e2e-gcp`) is written and statically validated; its first live run is the
 coordinator's and reports each of these.

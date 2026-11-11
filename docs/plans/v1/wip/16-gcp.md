@@ -683,6 +683,11 @@ recommendation or, where it gave none, the conservative option.
     subnetwork per region, each the first free `/20` of the pool `10.240.0.0/12` found from the VPC's
     subnetworks (deterministic across restarts, never overlapping), and `resources.subnets.create.pool`
     (a private IPv4 CIDR of at least a `/20`) overrides the pool per NodeClass; the open question 10 is closed.
+11. **No `LeftoverCollector`** (the optional garbage collector capability other drivers use for network
+    interfaces and addresses a failed launch leaves): a GCP launch makes nothing besides the instance (its
+    disks are part of the insert, its external addresses ephemeral, and GCE has no NIC object). Whether a
+    failed insert can leave a disk is unverified; the lane's teardown checks disks by label, and a disk
+    found there is the reason to add one.
 
 Other defaults taken: the request ID of an insert carries a random per-process epoch and an attempt
 counter that counts up after a definitive failure (a failed operation, a non-retryable HTTP error) and
