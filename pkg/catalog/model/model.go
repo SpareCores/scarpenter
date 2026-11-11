@@ -113,6 +113,22 @@ type Price struct {
 	USDPerHour   float64
 }
 
+// Vendor is a vendor row of the source's vendor table, with the billing facts.
+// Nullable facts are pointers: a null is unknown, not zero.
+type Vendor struct {
+	ID     string
+	Active bool
+
+	// BillingIncrementSeconds is the granularity compute is billed in.
+	BillingIncrementSeconds *int
+	// MinimumBillingSeconds is the minimum billed duration of a run.
+	MinimumBillingSeconds *int
+	// StoppedServerCharged says whether a stopped server is still charged.
+	StoppedServerCharged *bool
+	// BillingComment is free text on billing exceptions.
+	BillingComment string
+}
+
 // Data is one consistent state of the source: what a refresh reads.
 type Data struct {
 	// Version identifies the data (Keeper's database hash); a refresh that
@@ -124,6 +140,10 @@ type Data struct {
 	Regions []Region
 	Zones   []Zone
 	Prices  []Price
+	// Vendors is the vendor table; empty when the source has none or could not
+	// read it (billing retention then reports NoKeeperData, nothing else
+	// depends on it).
+	Vendors []Vendor
 
 	// Scores holds the benchmark scores the request asked for, by the request's
 	// metric query ID, then by APIReference of that query's vendor. Types

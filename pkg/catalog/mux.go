@@ -112,6 +112,7 @@ func mergeData(parts []*model.Data) *model.Data {
 		out.Regions = append(out.Regions, p.Regions...)
 		out.Zones = append(out.Zones, p.Zones...)
 		out.Prices = append(out.Prices, p.Prices...)
+		out.Vendors = append(out.Vendors, p.Vendors...)
 		maps.Copy(out.Scores, p.Scores)
 		maps.Copy(out.Selected, p.Selected)
 		maps.Copy(out.Invalid, p.Invalid)

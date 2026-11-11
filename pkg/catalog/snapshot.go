@@ -30,6 +30,8 @@ type snapshot struct {
 	requestKey string
 	loadedAt   time.Time
 	vendors    map[string]*vendorData
+	// vendorRows is the vendor table by vendor ID.
+	vendorRows map[string]*model.Vendor
 
 	mu     sync.Mutex
 	views  map[string]*classView
@@ -56,8 +58,11 @@ type vendorData struct {
 func newSnapshot(id uint64, data *model.Data, scope Scope, requestKey string, now time.Time) *snapshot {
 	s := &snapshot{
 		id: id, data: data, scope: scope, requestKey: requestKey, loadedAt: now,
-		vendors: map[string]*vendorData{},
-		views:   map[string]*classView{}, builds: map[buildKey]*vendorBuild{},
+		vendors: map[string]*vendorData{}, vendorRows: map[string]*model.Vendor{},
+		views: map[string]*classView{}, builds: map[buildKey]*vendorBuild{},
+	}
+	for i := range data.Vendors {
+		s.vendorRows[data.Vendors[i].ID] = &data.Vendors[i]
 	}
 	vd := func(vendor string) *vendorData {
 		v, ok := s.vendors[vendor]

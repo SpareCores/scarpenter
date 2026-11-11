@@ -13,6 +13,7 @@ package catalogtest
 import (
 	"compress/gzip"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,6 +48,37 @@ func SourceAt(url string) *catalog.KeeperSource {
 	return catalog.NewKeeperSource(catalog.KeeperOptions{
 		URL: url, UserAgent: "scarpenter-test", PricesRegionsPerRequest: 1,
 	})
+}
+
+// VendorRow is a row of the vendor table with the billing fields, which are
+// nullable in Keeper: a nil pointer is a null.
+type VendorRow struct {
+	VendorID                string  `json:"vendor_id"`
+	Name                    string  `json:"name"`
+	Status                  string  `json:"status"`
+	BillingIncrementSeconds *int    `json:"billing_increment_seconds"`
+	MinimumBillingSeconds   *int    `json:"minimum_billing_seconds"`
+	StoppedServerCharged    *bool   `json:"stopped_server_charged"`
+	BillingComment          *string `json:"billing_comment"`
+}
+
+// ServerWithVendors is Server with the vendor table replaced by rows, for tests
+// that need a billing rule the committed snapshot does not have (the committed
+// table has a null row for azure). Passing no rows serves an empty table.
+func ServerWithVendors(t testing.TB, rows ...VendorRow) *keepertest.Server {
+	t.Helper()
+	h, err := keepertest.NewHandler(SnapshotDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows == nil {
+		rows = []VendorRow{}
+	}
+	h.Mount("/table/vendor", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(rows)
+	}))
+	return keepertest.NewServer(t, h)
 }
 
 type tableRow struct {

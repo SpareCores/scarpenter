@@ -100,6 +100,7 @@ func (k *KeeperSource) Load(ctx context.Context, req Request) (*model.Data, erro
 	if err := k.loadTables(ctx, f, req.Scope, data); err != nil {
 		return nil, err
 	}
+	k.loadVendors(ctx, f, data)
 	regionIDs := regionResolver(data.Regions)
 	if err := k.loadPrices(ctx, f, req.Scope, regionIDs, data); err != nil {
 		return nil, err
@@ -163,6 +164,29 @@ func (k *KeeperSource) loadTables(ctx context.Context, f *keeper.Fetcher, scope 
 		})
 	}
 	return nil
+}
+
+// loadVendors reads the vendor table, which holds the billing facts. It is one
+// small call, and nothing but billing retention needs it: a failure is logged
+// and leaves the table empty instead of failing the refresh.
+func (k *KeeperSource) loadVendors(ctx context.Context, f *keeper.Fetcher, data *model.Data) {
+	rows, err := f.Vendors(ctx)
+	if err != nil {
+		log.FromContext(ctx).Info("reading /table/vendor failed, billing retention has no Keeper data", "error", err.Error())
+		return
+	}
+	for i := range rows {
+		v := &rows[i]
+		mv := model.Vendor{
+			ID: v.VendorID, Active: v.Status == statusActive,
+			BillingIncrementSeconds: v.BillingIncrementSeconds, MinimumBillingSeconds: v.MinimumBillingSeconds,
+			StoppedServerCharged: v.StoppedServerCharged,
+		}
+		if v.BillingComment != nil {
+			mv.BillingComment = *v.BillingComment
+		}
+		data.Vendors = append(data.Vendors, mv)
+	}
 }
 
 func serverFromTable(s *keeper.TableServer) (model.Server, bool) {

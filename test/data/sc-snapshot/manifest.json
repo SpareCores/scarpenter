@@ -28,6 +28,14 @@
       "sha256": "a34151dbfa3066e984802cb6551b0dca16acda0b2c618b84f12b24d1a4c28c80"
     },
     {
+      "file": "tables/vendor.json.gz",
+      "name": "tables/vendor",
+      "params": {},
+      "path": "/table/vendor",
+      "rows": 5,
+      "sha256": "e067f6f7c9b3d62fc910feb67d8006362a3154a1f178821d64b2d26867649c57"
+    },
+    {
       "file": "tables/server.json.gz",
       "name": "tables/server",
       "params": {},

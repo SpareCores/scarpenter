@@ -5,7 +5,7 @@
 # download once: /server_prices is not compressed server-side).
 #
 # What it holds (overview 5.1 and 13.5):
-#   - the region, zone, server and benchmark config tables;
+#   - the region, zone, vendor (billing facts), server and benchmark config tables;
 #   - /server_prices of AWS for every active region, ONE REGION PER REQUEST (the
 #     catalog tests read with keeper.WithServerPricesRegionsPerRequest(1), so
 #     any subset of the regions replays), both allocations in one response,
@@ -34,6 +34,7 @@ benchmarks:
 queries:
   - {name: tables/region, path: /table/region}
   - {name: tables/zone, path: /table/zone}
+  - {name: tables/vendor, path: /table/vendor}
   - {name: tables/server, path: /table/server}
   - {name: benchmark_configs, path: /benchmark_configs}
   # Three AWS regions for the selection profiles of a NodeClass that lists
