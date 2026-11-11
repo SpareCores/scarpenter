@@ -363,6 +363,16 @@ the canary uses a read-only OpenStack user behind `test/canary/ovh_guard.go`, an
 (`e2e`, `e2e-canary`, `e2e-sweeper`) with the secrets and variables of [the OVH lane](testing.md#the-l5-lane-of-ovhcloud). The account-level
 budget alert (OVH has per-project consumption alerts: unverified) is in the CI project's own infrastructure.
 
+**The UpCloud lane's guards** (plan 19; statically validated, not yet run live; **not yet a line of
+`test/e2e-vendors.txt`**: the token can deny nothing, and the sub-account's limits and the spending alert are
+unverified, see [UpCloud](#upcloud)): no type or zone deny is possible (the lane's NodePools name the
+STARTER plans of `defaults.sh`, and `UPCLOUD_ZONE` is one zone), the `scarpenter-ci` sub-account's resource
+limits (cores and memory, which the canary compares with the lane's needs) are the ceiling, the run tag is the
+label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` (and `ci-created-at`), `e2e-upcloud-sweeper.yml`
+is the sweeper (environment `e2e-sweeper`; never the templates labelled `scarpenter-use`), the run time limits
+and the failing teardown are AWS's, the canary's read-only guard is `test/canary/upcloud_guard.go` (an UpCloud
+token cannot be read-only), and the environment `e2e`'s required reviewers approve every run.
+
 ## Adding a vendor lane
 
 Eight or more vendors will follow AWS (OCI is next); the mechanics are one directory, one
@@ -406,6 +416,9 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
 - **OVHcloud** (vendor `ovh`): a dedicated Public Cloud project with one active region, low core and instance quotas and a
   spending alert that has been checked to fire, all set before `ovh` is added to `test/e2e-vendors.txt`, the two OpenStack users and
   their secrets and variables. Details in [Test and develop](testing.md#the-l5-lane-of-ovhcloud).
+- **UpCloud** (vendor `upcloud`): the `scarpenter-ci` sub-account with low resource limits and a
+  spending alert, both set and checked before `upcloud` is added to `test/e2e-vendors.txt`, the secret
+  `UPCLOUD_TOKEN` and the Flatcar templates. Details in [UpCloud](#upcloud).
 - **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, both set and checked before `hcloud` is added to `test/e2e-vendors.txt`, and the secret
   `HCLOUD_TOKEN` in the environments `e2e` and `e2e-sweeper` (read-write) and `e2e-canary` (read-only); the optional
   variable `E2E_HCLOUD_LOCATIONS`. Details in [Test and develop](testing.md#the-l5-lane-of-hetzner-cloud).
@@ -452,7 +465,10 @@ through it is the reviewed sweeper of `main`.
 ### UpCloud
 
 UpCloud's lane ([The UpCloud lane](testing.md#the-upcloud-lane)) needs none of the IAM and OIDC
-items above; in the UpCloud account of the CI infrastructure, the operator provides:
+items above, and it is **not yet a line of `test/e2e-vendors.txt`**: an UpCloud token can deny no
+plan and no zone, so the sub-account's resource limits are the only bound on a bug, and the
+operator verifies them first (below). In the UpCloud account of the CI infrastructure, the operator
+provides:
 
 - **A sub-account `scarpenter-ci`** with API access, server, storage and network access and no
   panel access, and small **resource limits** (cores, memory, networks) set by the main account:
@@ -467,6 +483,12 @@ items above; in the UpCloud account of the CI infrastructure, the operator provi
   `scarpenter-use=true` (the sweeper never touches them), built by the images repository and imported
   by the operator.
 - **The tailnet** items above (tags, grants, the federated identity for `e2e`); the canary does not join it.
+- **Before `upcloud` is added to `test/e2e-vendors.txt`**, the operator checks: the sub-account's
+  limits are set and no higher than the lane needs (`E2E_MIN_CORES` and `E2E_MIN_MEMORY_MB` of
+  `test/e2e-upcloud/defaults.sh`, which the canary compares them with; networks and storage small); a
+  launch beyond them is refused (`SERVER_CORE_LIMIT_REACHED`); a spending alert of the account reaches a
+  person (whether UpCloud can alert on one sub-account's spend is unverified); `e2e-sweeper` is limited
+  to `main`. Then the line is added; the lane's selftest checks that it is absent until then.
 
 ### Vultr
 

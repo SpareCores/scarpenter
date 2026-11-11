@@ -443,14 +443,27 @@ that an operator can judge it.
 
 Tier and cost policy as in `docs/how-to-guides/testing-and-releasing.md`: a full
 lane on pull requests touching the driver or its workflow, smoke on core changes,
-a release gate and a nightly canary slot; a line in `test/e2e-vendors.txt`; the
-vendor's section in the testing how-to.
+a release gate and a nightly canary slot; a line in `test/e2e-vendors.txt` once the
+cost guards are verified (below); the vendor's section in the testing how-to.
+
+**The lane is not in `test/e2e-vendors.txt` yet.** The CI cost-guard policy
+(`docs/how-to-guides/testing-and-releasing.md`, "Per-vendor cost guards") needs a bound on
+the damage of a bug, and UpCloud's token can deny nothing (no scopes, no plan or zone
+restriction): the only bound is the `scarpenter-ci` sub-account's resource limits. Before the
+line `upcloud` is added, the operator verifies that the sub-account's limits are set and low
+(cores and memory at the lane's needs, `E2E_MIN_CORES=10` and `E2E_MIN_MEMORY_MB=12288` of
+`defaults.sh`, and no higher; networks and storage small), that a launch beyond them is refused
+(`SERVER_CORE_LIMIT_REACHED`), that a spending alert of the account reaches a person (whether
+UpCloud can alert on one sub-account's spend: unverified), and that the sweeper's environment
+`e2e-sweeper` is limited to `main`. Until then the workflows do not run the lane by themselves,
+`make test-e2e-upcloud-dryrun` works, and the lane's selftest checks that the line is absent.
 
 - **Identity**: UpCloud has no OIDC federation: a **static API token** of a
   dedicated sub-account (`scarpenter-ci`), stored as the secret `UPCLOUD_TOKEN` of
   the `e2e` GitHub environment, with `UPCLOUD_ZONE` (one zone, for example
   `fi-hel1`) as a variable. The token expires (up to a year): the canary notices
-  (a read-only `GET /account`), and the rotation is `bootstrap/upcloud.sh`'s.
+  (a read-only `GET /account`), and the rotation is manual (create a token, replace the
+  secrets, delete the old one).
   an IaC tenant may not be able to mint it; document the manual step. A leaked token
   is as powerful as the sub-account: its limits (small `resource_limits` cores and
   memory, set by the main account) are the cost guard, together with the sweeper.

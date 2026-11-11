@@ -257,7 +257,6 @@ t_workflows_agree() { # the lane's pieces name each other consistently
   grep -qE '^    environment: e2e-sweeper$' "${w}/e2e-upcloud-sweeper.yml" || { echo "the sweeper is not in the environment e2e-sweeper"; return 1; }
   grep -q "inputs.vendor == 'upcloud'" "${w}/e2e-cloud.yml" || { echo "e2e-cloud.yml has no UpCloud credentials step"; return 1; }
   grep -q "matrix.vendor == 'upcloud'" "${w}/e2e-canary.yml" || { echo "e2e-canary.yml has no UpCloud credentials step"; return 1; }
-  grep -qxF upcloud "${root}/test/e2e-vendors.txt" || { echo "upcloud is not in test/e2e-vendors.txt"; return 1; }
   # The credential is the secret UPCLOUD_TOKEN and nothing else of UpCloud's is a secret.
   grep -q 'secrets.UPCLOUD_TOKEN' "${w}/e2e-cloud.yml"
 }
@@ -268,7 +267,11 @@ t_no_secrets_in_scripts() { # nothing that looks like a key, a token or a local 
 check "every scenario has a function" t_scenarios_defined
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
-check "the sweeper's environment, the credentials steps and the vendor list name UpCloud" t_workflows_agree
+t_not_in_the_vendor_list() { # the sub-account's limits and the spending alert are not verified yet: the CI cost-guard policy is unmet
+  ! grep -qx 'upcloud' "${root}/test/e2e-vendors.txt"
+}
+check "upcloud is not in test/e2e-vendors.txt until its cost guards are verified" t_not_in_the_vendor_list
+check "the sweeper's environment and the credentials steps name UpCloud" t_workflows_agree
 check "no key, token or local path in the lane's files" t_no_secrets_in_scripts
 
 # ---- the chart with the lane's values ----------------------------------------

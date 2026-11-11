@@ -257,7 +257,9 @@ and any 404 is "gone".
 ## Permissions
 
 UpCloud has no policy language. Use a dedicated sub-account with API access, server, storage and network access (and
-firewall) and no GUI access; its `resource_limits` (cores and memory, set by the main account) are the cost guard. The operations
+firewall) and no GUI access; its `resource_limits` (cores and memory, set by the main account) are the cost guard (the CI
+lane is not in `test/e2e-vendors.txt` until they and a spending alert are verified:
+[Per-vendor cost guards](../how-to-guides/testing-and-releasing.md#per-vendor-cost-guards)). The operations
 the driver uses, so that you can judge it:
 
 - servers: list (with label filters), get, create, stop, modify (the private firewall switch), delete with storages and backups,

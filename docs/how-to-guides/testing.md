@@ -659,7 +659,11 @@ tests the path rules that decide which runs a pull request needs. `make lint` ru
 the same shape as the AWS lane (a k3s control plane on the runner, nodes joined over Tailscale,
 the scripts `bootstrap.sh`, `mint-authkey.sh`, `install.sh`, `scenarios.sh`, `diagnostics.sh`,
 `teardown.sh`), with the cloud calls made with `curl` and `jq` against the UpCloud API
-(`lib.sh`: `up`, the label filters of the list calls). Differences that matter:
+(`lib.sh`: `up`, the label filters of the list calls). It is **not in `test/e2e-vendors.txt`** until
+the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified
+(the sub-account's limits and a spending alert, see [UpCloud](testing-and-releasing.md#upcloud)), so the
+workflows do not run it by themselves; `make test-e2e-upcloud-dryrun` checks it without a cloud.
+Differences that matter:
 
 - **Credential.** UpCloud has no OIDC federation and no workload identity. The lane uses the API
   token of a dedicated sub-account, `scarpenter-ci`, as the secret `UPCLOUD_TOKEN` of the `e2e`
