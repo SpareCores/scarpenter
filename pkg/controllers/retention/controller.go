@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -113,7 +112,7 @@ func (c *Controller) Register(mgr ctrl.Manager) error {
 					return nodeOf(name)
 				}
 				return nil
-			}), builder.WithPredicates()).
+			})).
 		Watches(&karpv1.NodeClaim{}, handler.EnqueueRequestsFromMapFunc(
 			func(_ context.Context, o client.Object) []reconcile.Request {
 				if name := o.(*karpv1.NodeClaim).Status.NodeName; name != "" {
@@ -368,6 +367,11 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 // (the annotations it set, a release in flight) and says once why the node is
 // left alone.
 func (c *Controller) leaveAlone(ctx context.Context, in *nodeInfo) (reconcile.Result, error) {
+	if in.skip == skipDeleting {
+		// The NodeClaim is being deleted, by a release of ours or by Karpenter:
+		// Karpenter's termination has the node, and our taint stays until it is gone.
+		return reconcile.Result{}, nil
+	}
 	if hasReleasingTaint(in.node) {
 		if err := c.undoRelease(ctx, in); err != nil {
 			return reconcile.Result{}, err

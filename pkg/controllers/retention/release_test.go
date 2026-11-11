@@ -335,6 +335,12 @@ func TestRestartInTheMiddle(t *testing.T) {
 		if h.events.count(retention.EventReleasedAtPeriodEnd, w.name) != 1 {
 			t.Error("expected ReleasedAtPeriodEnd")
 		}
+		// The claim is being deleted (Karpenter's termination has the node): the
+		// taint is not taken back.
+		w.reconcile()
+		if !w.tainted() {
+			t.Error("the releasing taint stays until the node is gone")
+		}
 	})
 }
 

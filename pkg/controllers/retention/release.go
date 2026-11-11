@@ -114,6 +114,12 @@ func (c *Controller) startRelease(ctx context.Context, in *nodeInfo, why string)
 	}
 	c.releaseMu.Lock()
 	defer c.releaseMu.Unlock()
+	// Another path (a deadline, the pressure loop) may have started the release
+	// of this node since it was read.
+	fresh := &corev1.Node{}
+	if err := c.opts.Reader.Get(ctx, client.ObjectKeyFromObject(in.node), fresh); err == nil && hasReleasingTaint(fresh) {
+		return stepStarted, nil
+	}
 	if free, _ := c.remaining(ctx, in.pool); free < 1 {
 		return stepBlocked, nil
 	}
