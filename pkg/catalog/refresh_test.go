@@ -46,7 +46,7 @@ func flakyKeeper(t *testing.T) (url string, down *atomic.Bool) {
 
 func quickKeeper(url string) *catalog.KeeperSource {
 	return catalog.NewKeeperSource(catalog.KeeperOptions{
-		URL: url, PricesRegionsPerRequest: 1,
+		URL:           url,
 		ClientOptions: []keeper.Option{keeper.WithRetries(0, time.Millisecond, time.Millisecond)},
 	})
 }

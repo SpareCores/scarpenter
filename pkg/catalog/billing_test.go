@@ -9,6 +9,7 @@ package catalog_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,18 +47,18 @@ func TestBillingFactsFromTheVendorTable(t *testing.T) {
 	}
 }
 
-// The committed snapshot carries the vendor table, with a null row.
+// The committed snapshot carries the vendor table.
 func TestSnapshotHasVendorTable(t *testing.T) {
 	c, _ := refreshed(t, catalog.Scope{"aws": {"us-east-1"}}, "aws")
 	if f, ok := c.BillingFacts("aws"); !ok || f.Increment != time.Second || f.Minimum != time.Minute {
 		t.Errorf("aws: %+v %v", f, ok)
 	}
-	if f, ok := c.BillingFacts("azure"); !ok || f.HasIncrement || f.HasMinimum {
+	if f, ok := c.BillingFacts("azure"); !ok || f.Increment != time.Second || f.Minimum != 5*time.Minute {
 		t.Errorf("azure: %+v %v", f, ok)
 	}
 }
 
-// A vendor table that cannot be read never fails the refresh: the facts are
+// A snapshot without the vendor table never fails the refresh: the facts are
 // missing, nothing else is.
 func TestMissingVendorTableDoesNotFailTheRefresh(t *testing.T) {
 	h, err := keepertest.NewHandler(catalogtest.SnapshotDir())
@@ -65,8 +66,10 @@ func TestMissingVendorTableDoesNotFailTheRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/table/vendor" {
-			http.Error(w, "boom", http.StatusInternalServerError)
+		if strings.HasSuffix(r.URL.Path, "/vendor") {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"type":"/problems/not-found","title":"unknown table","status":404}`))
 			return
 		}
 		h.ServeHTTP(w, r)

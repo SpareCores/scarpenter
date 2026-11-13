@@ -7,111 +7,18 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package catalog_test
 
 import (
-	"compress/gzip"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"runtime"
-	"slices"
-	"sync/atomic"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/SpareCores/sc-keeper-go/keepertest"
+	keeper "github.com/SpareCores/sc-keeper-go"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 )
-
-func serverID(t *testing.T, vendor, apiReference string) string {
-	t.Helper()
-	f, err := os.Open(filepath.Join(catalogtest.SnapshotDir(), "tables", "server.json.gz"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rows []struct {
-		VendorID     string `json:"vendor_id"`
-		ServerID     string `json:"server_id"`
-		APIReference string `json:"api_reference"`
-	}
-	if err := json.NewDecoder(zr).Decode(&rows); err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range rows {
-		if r.VendorID == vendor && r.APIReference == apiReference {
-			return r.ServerID
-		}
-	}
-	t.Fatalf("no server %s %s", vendor, apiReference)
-	return ""
-}
-
-// With an API key the flat /table/server_prices is read instead of the large
-// anonymous /server_prices (overview section 5.1).
-func TestAPIKeyReadsTheFlatPriceTable(t *testing.T) {
-	m7i := serverID(t, "aws", "m7i.large")
-	var tableRequests, anonymousRequests atomic.Int32
-	h, err := keepertest.NewHandler(catalogtest.SnapshotDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.Mount("/table/server_prices", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tableRequests.Add(1)
-		if r.Header.Get("Authorization") != "Bearer secret-key" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if got := r.URL.Query()["vendor_regions"]; !slices.Equal(got, []string{"aws~us-east-1"}) {
-			http.Error(w, "unexpected regions", http.StatusBadRequest)
-			return
-		}
-		rows := []map[string]any{
-			{"vendor_id": "aws", "region_id": "us-east-1", "zone_id": "use1-az1", "server_id": m7i, "operating_system": "Linux", "allocation": "ondemand", "unit": "hour", "price": 0.1, "currency": "USD", "status": "active"},
-			{"vendor_id": "aws", "region_id": "us-east-1", "zone_id": "use1-az1", "server_id": m7i, "operating_system": "Linux", "allocation": "spot", "unit": "hour", "price": 0.03, "currency": "USD", "status": "active"},
-			{"vendor_id": "aws", "region_id": "us-east-1", "zone_id": "use1-az1", "server_id": m7i, "operating_system": "Windows", "allocation": "ondemand", "unit": "hour", "price": 0.2, "currency": "USD", "status": "active"},
-			{"vendor_id": "aws", "region_id": "us-east-1", "zone_id": "use1-az1", "server_id": m7i, "operating_system": "Linux", "allocation": "reserved", "unit": "hour", "price": 0.05, "currency": "USD", "status": "active"},
-			{"vendor_id": "aws", "region_id": "us-east-1", "zone_id": "use1-az2", "server_id": m7i, "operating_system": "Linux", "allocation": "ondemand", "unit": "hour", "price": 0.1, "currency": "USD", "status": "inactive"},
-			{"vendor_id": "aws", "region_id": "us-east-1", "zone_id": "use1-az2", "server_id": m7i, "operating_system": "Linux", "allocation": "ondemand", "unit": "month", "price": 70, "currency": "USD", "status": "active"},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(rows)
-	}))
-	h.Mount("/server_prices", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		anonymousRequests.Add(1)
-		http.Error(w, "must not be used with an API key", http.StatusTeapot)
-	}))
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-
-	c := catalog.New(catalog.Options{
-		Source: catalog.NewKeeperSource(catalog.KeeperOptions{URL: srv.URL, APIKey: "secret-key"}),
-		Facts:  catalogtest.Facts(t, "aws"),
-	})
-	c.SetClasses([]catalog.Class{catalog.NewClass("c", catalog.Scope{"aws": {"us-east-1"}})})
-	if err := c.Refresh(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	its := all(t, c, catalog.Filter{})
-	if len(its) != 1 || its[0].Name != "aws.m7i.large" {
-		t.Fatalf("types = %v", its)
-	}
-	// Only the active, hourly, Linux on-demand and spot rows count.
-	if len(its[0].Offerings) != 2 {
-		t.Errorf("offerings = %d, want 2", len(its[0].Offerings))
-	}
-	if tableRequests.Load() != 1 || anonymousRequests.Load() != 0 {
-		t.Errorf("requests: %d table, %d anonymous", tableRequests.Load(), anonymousRequests.Load())
-	}
-}
 
 func TestKeeperSourceFilters(t *testing.T) {
 	c, _ := refreshed(t, catalog.Scope{"hcloud": {"fsn1"}})
@@ -204,30 +111,10 @@ func TestUnusableServersAreDropped(t *testing.T) {
 	}
 }
 
-// Retiring types stay in the catalog (overview 5.1); inactive and retired ones
-// are dropped.
+// Retiring types stay in the catalog (overview 5.1). Keeper's snapshot has no
+// inactive or retired servers at all.
 func TestPlannedForRetirementServersAreKept(t *testing.T) {
-	f, err := os.Open(filepath.Join(catalogtest.SnapshotDir(), "tables", "server.json.gz"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rows []struct {
-		VendorID, APIReference, Status string
-	}
-	var raw []map[string]any
-	if err := json.NewDecoder(zr).Decode(&raw); err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range raw {
-		if r["vendor_id"] == "gcp" {
-			rows = append(rows, struct{ VendorID, APIReference, Status string }{"gcp", r["api_reference"].(string), r["status"].(string)})
-		}
-	}
+	rows := catalogtest.Rows[keeper.TableServer](t, "server/gcp")
 	data, err := catalogtest.Source(t).Load(t.Context(), catalog.Request{Scope: catalog.Scope{"gcp": {"europe-west3"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -237,17 +124,17 @@ func TestPlannedForRetirementServersAreKept(t *testing.T) {
 		have[s.APIReference] = true
 	}
 	planned := 0
-	for _, r := range rows {
+	for i := range rows {
+		r := &rows[i]
 		switch r.Status {
 		case "planned-for-retirement":
 			planned++
 			if !have[r.APIReference] {
 				t.Errorf("%s (planned for retirement) was dropped", r.APIReference)
 			}
-		case "inactive", "retired":
-			if have[r.APIReference] {
-				t.Errorf("%s (%s) was kept", r.APIReference, r.Status)
-			}
+		case "active":
+		default:
+			t.Errorf("the snapshot has a %s server %s", r.Status, r.APIReference)
 		}
 	}
 	if planned == 0 {

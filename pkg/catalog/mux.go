@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/SpareCores/scarpenter/pkg/catalog/model"
@@ -27,6 +28,10 @@ type MuxSource struct {
 	Default Source
 	// Vendors maps a vendor ID to the source that serves it.
 	Vendors map[string]Source
+
+	mu       sync.Mutex
+	lastPart []*model.Data
+	lastData *model.Data
 }
 
 var _ Source = (*MuxSource)(nil)
@@ -88,7 +93,16 @@ func (m *MuxSource) Load(ctx context.Context, req Request) (*model.Data, error) 
 		}
 		loaded = append([]*model.Data{d}, loaded...)
 	}
-	return mergeData(loaded), nil
+	// Parts that are the very data of the last load (a source that found its
+	// data unchanged) merge to the last result, so the catalog can tell that
+	// nothing changed.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.lastData != nil && slices.Equal(loaded, m.lastPart) {
+		return m.lastData, nil
+	}
+	m.lastPart, m.lastData = loaded, mergeData(loaded)
+	return m.lastData, nil
 }
 
 // mergeData merges data of disjoint vendors: the version is a digest of the
@@ -113,6 +127,12 @@ func mergeData(parts []*model.Data) *model.Data {
 		out.Zones = append(out.Zones, p.Zones...)
 		out.Prices = append(out.Prices, p.Prices...)
 		out.Vendors = append(out.Vendors, p.Vendors...)
+		out.StoragePrices = append(out.StoragePrices, p.StoragePrices...)
+		out.IPv4Prices = append(out.IPv4Prices, p.IPv4Prices...)
+		out.SnapshotRead = out.SnapshotRead || p.SnapshotRead
+		if !p.PublishedAt.IsZero() && (out.PublishedAt.IsZero() || p.PublishedAt.Before(out.PublishedAt)) {
+			out.PublishedAt = p.PublishedAt
+		}
 		maps.Copy(out.Scores, p.Scores)
 		maps.Copy(out.Selected, p.Selected)
 		maps.Copy(out.Invalid, p.Invalid)

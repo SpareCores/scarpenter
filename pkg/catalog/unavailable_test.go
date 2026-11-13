@@ -81,7 +81,8 @@ func TestUnavailableOfferingsAreMarkedAndRecover(t *testing.T) {
 
 func TestResultsAreCachedByTheUnavailableSequence(t *testing.T) {
 	un := unavailable.New(nil, unavailable.TTLs{})
-	c := catalog.New(catalog.Options{Source: &fakeSource{data: synthetic()}, Facts: syntheticFacts(), Unavailable: un})
+	src := &fakeSource{data: synthetic()}
+	c := catalog.New(catalog.Options{Source: src, Facts: syntheticFacts(), Unavailable: un})
 	c.SetClasses([]catalog.Class{catalog.NewClass("c", catalog.Scope{"v": nil})})
 	if err := c.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
@@ -101,7 +102,15 @@ func TestResultsAreCachedByTheUnavailableSequence(t *testing.T) {
 			t.Error("a type handed out earlier was modified")
 		}
 	}
-	// A new snapshot is a new generation.
+	// Data the source still has is no new snapshot: nothing is rebuilt.
+	if err := c.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if e := all(t, c, catalog.Filter{}); e[0] != d[0] {
+		t.Error("an unchanged refresh dropped the cache")
+	}
+	// New data is a new generation.
+	src.data = synthetic()
 	if err := c.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}

@@ -141,12 +141,37 @@ type Vendor struct {
 	BillingComment string
 }
 
+// StoragePrice is a row of the source's storage price table: the USD price of
+// a GB of a storage type in a region per Unit ("GB/month").
+type StoragePrice struct {
+	Vendor    string
+	RegionID  string
+	StorageID string
+	Unit      string
+	USD       float64
+}
+
+// IPv4Price is a row of the source's public IPv4 price table: the USD price
+// of an address per Unit ("hour" or "month").
+type IPv4Price struct {
+	Vendor   string
+	RegionID string
+	Unit     string
+	USD      float64
+}
+
 // Data is one consistent state of the source: what a refresh reads.
 type Data struct {
 	// Version identifies the data (Keeper's database hash); a refresh that
 	// reads the same version produces the same catalog.
 	Version   string
 	FetchedAt time.Time
+	// SnapshotRead says that the data was read from Keeper's snapshot files
+	// (not from a development driver's static catalog).
+	SnapshotRead bool
+	// PublishedAt is when the source published that version (Keeper's
+	// SC-Data-Published-At); zero when the source does not say.
+	PublishedAt time.Time
 
 	Servers []Server
 	Regions []Region
@@ -156,6 +181,11 @@ type Data struct {
 	// read it (billing retention then reports NoKeeperData, nothing else
 	// depends on it).
 	Vendors []Vendor
+	// StoragePrices and IPv4Prices are the vendors' price rows of the source
+	// for the drivers that price an offering's disks and public address (active,
+	// USD, above zero); they are not selected by scope.
+	StoragePrices []StoragePrice
+	IPv4Prices    []IPv4Price
 
 	// Scores holds the benchmark scores the request asked for, by the request's
 	// metric query ID, then by APIReference of that query's vendor. Types

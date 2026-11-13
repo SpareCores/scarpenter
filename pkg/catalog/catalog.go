@@ -102,7 +102,19 @@ type Catalog struct {
 	trigger     chan struct{}
 	results     resultCache
 	refreshErrs prometheus.Counter
+	auth        authState
 }
+
+// authState is what the refreshes say about Keeper's API key: unknown until a
+// refresh read a snapshot or was refused.
+type authState struct {
+	known         bool
+	authorized    bool
+	keyConfigured bool
+}
+
+// keeperKeyDocs is where a Keeper API key is requested.
+const keeperKeyDocs = "https://docs.sparecores.com/api/#authentication"
 
 // New returns a catalog without data: Refresh (or Start) reads it.
 func New(opts Options) *Catalog {
@@ -210,6 +222,12 @@ func buildRequest(classes []Class) (Request, string) {
 	slices.SortFunc(req.Metrics, func(a, b MetricQuery) int { return strings.Compare(a.ID, b.ID) })
 	slices.SortFunc(req.Selections, func(a, b SelectionQuery) int { return strings.Compare(a.ID, b.ID) })
 
+	return req, requestKey(req)
+}
+
+// requestKey identifies what a request reads: its scope and its queries (the
+// IDs say what they ask for), in the order given.
+func requestKey(req Request) string {
 	ids := make([]string, 0, len(req.Metrics)+len(req.Selections))
 	for _, q := range req.Metrics {
 		ids = append(ids, q.ID)
@@ -225,7 +243,7 @@ func buildRequest(classes []Class) (Request, string) {
 		panic(fmt.Sprintf("hashing the catalog request: %v", err))
 	}
 	sum := sha256.Sum256(raw)
-	return req, hex.EncodeToString(sum[:])[:16]
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // Refresh reads the source once for the current classes. On failure the last
@@ -254,16 +272,44 @@ func (c *Catalog) Refresh(ctx context.Context) error {
 	data, err := c.opts.Source.Load(ctx, req)
 	if err != nil {
 		c.refreshErrs.Inc()
+		ae, unauthorized := errors.AsType[*KeeperAuthError](err)
 		c.mu.Lock()
 		c.lastErr, c.lastErrAt = err, c.opts.Clock.Now()
+		if unauthorized {
+			c.auth = authState{known: true, keyConfigured: ae.KeyConfigured}
+		}
 		c.mu.Unlock()
+		if unauthorized {
+			log.FromContext(ctx).WithName("catalog").Error(err, "Keeper needs an API key",
+				"keeperURL", ae.URL, "keyConfigured", ae.KeyConfigured,
+				"docs", `docs section "Keeper API key" (how-to-guides/install.md); request a key at `+keeperKeyDocs)
+		}
 		return fmt.Errorf("refreshing the catalog: %w", err)
+	}
+	now := c.opts.Clock.Now()
+	c.mu.Lock()
+	if c.snap != nil && c.snap.data == data && c.snap.requestKey == key {
+		// The source still has the data of the current snapshot: it is as fresh
+		// as Keeper's, and nothing is rebuilt.
+		c.snap.loadedAt = now
+		c.lastErr = nil
+		c.mu.Unlock()
+		return nil
+	}
+	c.mu.Unlock()
+	if sink, ok := c.opts.Facts.(PriceSink); ok && data.SnapshotRead {
+		// Before the data is published, so that its offerings never meet the
+		// prices of another version.
+		sink.SetKeeperPrices(data.Version, data.StoragePrices, data.IPv4Prices)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nextSnapID++
-	c.snap = newSnapshot(c.nextSnapID, data, req.Scope, key, c.opts.Clock.Now())
+	c.snap = newSnapshot(c.nextSnapID, data, req.Scope, key, now)
 	c.lastErr = nil
+	if data.SnapshotRead {
+		c.auth = authState{known: true, authorized: true, keyConfigured: c.auth.keyConfigured}
+	}
 	return nil
 }
 
@@ -284,7 +330,10 @@ func (c *Catalog) Start(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			logger.Error(err, "catalog refresh failed, keeping the last good snapshot")
+			if _, unauthorized := errors.AsType[*KeeperAuthError](err); !unauthorized {
+				// An unauthorized refresh logged its own, single line.
+				logger.Error(err, "catalog refresh failed, keeping the last good snapshot")
+			}
 		} else {
 			logger.V(1).Info("catalog refreshed", "duration", time.Since(start).String())
 		}
@@ -320,14 +369,53 @@ type Status struct {
 	// Ready is true when a snapshot covers the class's scope and is not older
 	// than the maximum age (overview section 5.2).
 	Ready bool
-	// Reason is a CamelCase reason when not ready: NoSnapshot, ScopePending,
-	// Stale or UnknownClass.
+	// Reason is a CamelCase reason when not ready: NoSnapshot, KeeperAPIKeyRequired,
+	// ScopePending, Stale or UnknownClass. Message names the data version when
+	// ready.
 	Reason  string
 	Message string
 	// Age is the age of the snapshot (zero without one).
 	Age time.Duration
 	// LastError is the last refresh error, nil after a success.
 	LastError error
+	// KeeperAuth says whether Keeper accepted the catalog's requests; it is
+	// informational and not part of Ready.
+	KeeperAuth KeeperAuth
+}
+
+// KeeperAuth is the state of the catalog's access to Keeper (the condition
+// KeeperAuthorized). Known is false until a refresh read a snapshot or was
+// refused with a 401.
+type KeeperAuth struct {
+	Known      bool
+	Authorized bool
+	// Reason and Message say why not, when Known and not Authorized.
+	Reason  string
+	Message string
+}
+
+// Reasons of an unauthorized KeeperAuth, and of CatalogReady when no catalog
+// exists because of it.
+const (
+	ReasonAPIKeyMissing  = "APIKeyMissing"
+	ReasonAPIKeyRejected = "APIKeyRejected"
+	ReasonKeyRequired    = "KeeperAPIKeyRequired"
+)
+
+func (a authState) status() KeeperAuth {
+	switch {
+	case !a.known:
+		return KeeperAuth{}
+	case a.authorized:
+		return KeeperAuth{Known: true, Authorized: true}
+	case a.keyConfigured:
+		return KeeperAuth{Known: true, Reason: ReasonAPIKeyRejected, Message: "Keeper rejected the API key: replace the " +
+			"key in the Secret of keeper.apiKey.existingSecret (flag --keeper-api-key-file); see the documentation " +
+			"section \"Keeper API key\" (request a key at " + keeperKeyDocs + ")"}
+	}
+	return KeeperAuth{Known: true, Reason: ReasonAPIKeyMissing, Message: "Keeper needs an API key, none is configured: " +
+		"set keeper.apiKey.existingSecret (flag --keeper-api-key-file); see the documentation section \"Keeper API key\" " +
+		"(request a key at " + keeperKeyDocs + ")"}
 }
 
 // Status returns the catalog state for the NodeClass. A failed refresh alone
@@ -337,14 +425,16 @@ func (c *Catalog) Status(className string) Status {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	class, ok := c.classes[className]
-	st := Status{LastError: c.lastErr}
+	st := Status{LastError: c.lastErr, KeeperAuth: c.auth.status()}
 	if !ok {
 		st.Reason, st.Message = "UnknownClass", "the catalog does not know the SCNodeClass"
 		return st
 	}
 	if c.snap == nil {
 		st.Reason, st.Message = "NoSnapshot", "the catalog has not been read from Keeper yet"
-		if c.lastErr != nil {
+		if st.KeeperAuth.Known && !st.KeeperAuth.Authorized {
+			st.Reason, st.Message = ReasonKeyRequired, st.KeeperAuth.Message
+		} else if c.lastErr != nil {
 			st.Message += ": " + c.lastErr.Error()
 		}
 		return st
@@ -367,6 +457,12 @@ func (c *Catalog) Status(className string) Status {
 		return st
 	}
 	st.Ready = true
+	if d := c.snap.data; d.SnapshotRead && d.Version != "" {
+		st.Message = "Keeper data version " + d.Version
+		if !d.PublishedAt.IsZero() {
+			st.Message += ", published " + d.PublishedAt.UTC().Format(time.RFC3339)
+		}
+	}
 	return st
 }
 
@@ -716,6 +812,11 @@ var (
 	offeringsDesc = prometheus.NewDesc("scarpenter_catalog_offerings",
 		"Priced offerings of the catalog snapshot (price rows in scope, before the driver's zone mapping).",
 		vendorLabel, nil)
+	publishedDesc = prometheus.NewDesc("scarpenter_catalog_data_published_timestamp_seconds",
+		"Unix time Keeper published the data version of the catalog snapshot (SC-Data-Published-At).", nil, nil)
+	unauthorizedDesc = prometheus.NewDesc("scarpenter_catalog_keeper_unauthorized",
+		"1 when Keeper answered the last refresh with 401 (no key, or a rejected one), 0 after a successful read.",
+		nil, nil)
 )
 
 // Describe implements prometheus.Collector.
@@ -723,17 +824,34 @@ func (k *collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- ageDesc
 	ch <- typesDesc
 	ch <- offeringsDesc
+	ch <- publishedDesc
+	ch <- unauthorizedDesc
 }
 
 // Collect implements prometheus.Collector.
 func (k *collector) Collect(ch chan<- prometheus.Metric) {
 	k.c.mu.RLock()
-	snap := k.c.snap
+	snap, auth := k.c.snap, k.c.auth
+	var age float64
+	var published time.Time
+	if snap != nil {
+		age = k.c.opts.Clock.Since(snap.loadedAt).Seconds()
+		published = snap.data.PublishedAt
+	}
 	k.c.mu.RUnlock()
+	if auth.known {
+		v := 0.0
+		if !auth.authorized {
+			v = 1
+		}
+		ch <- prometheus.MustNewConstMetric(unauthorizedDesc, prometheus.GaugeValue, v)
+	}
 	if snap == nil {
 		return
 	}
-	age := k.c.opts.Clock.Since(snap.loadedAt).Seconds()
+	if !published.IsZero() {
+		ch <- prometheus.MustNewConstMetric(publishedDesc, prometheus.GaugeValue, float64(published.Unix()))
+	}
 	for vendor, n := range k.c.counts() {
 		ch <- prometheus.MustNewConstMetric(ageDesc, prometheus.GaugeValue, age, vendor)
 		ch <- prometheus.MustNewConstMetric(typesDesc, prometheus.GaugeValue, float64(n[0]), vendor)

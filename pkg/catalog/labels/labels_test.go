@@ -7,8 +7,6 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package labels_test
 
 import (
-	"compress/gzip"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,6 +19,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
 	"github.com/SpareCores/scarpenter/pkg/catalog/model"
 )
@@ -256,23 +255,15 @@ func TestContinents(t *testing.T) {
 		t.Error("zz has a continent")
 	}
 	// Every country of an active region in the Keeper snapshot has a continent
-	// (all vendors, 269 regions).
-	f, err := os.Open(filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot", "tables", "region.json.gz"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var regions []struct {
+	// (all vendors).
+	type region struct {
 		VendorID  string `json:"vendor_id"`
 		CountryID string `json:"country_id"`
 		Status    string `json:"status"`
 	}
-	if err := json.NewDecoder(zr).Decode(&regions); err != nil {
-		t.Fatal(err)
+	regions := make([]region, 0, 300)
+	for _, v := range []string{"aws", "gcp", "azure", "alicloud", "hcloud", "ovh", "upcloud", "vultr"} {
+		regions = append(regions, catalogtest.Rows[region](t, "region/"+v)...)
 	}
 	checked := 0
 	for _, r := range regions {

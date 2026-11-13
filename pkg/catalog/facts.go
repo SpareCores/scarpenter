@@ -66,6 +66,17 @@ type LaunchableFacts interface {
 	Launchable(vendor, apiReference, zoneID string) (launchable, known bool)
 }
 
+// PriceSink is an optional extension of Facts: the drivers that price the
+// disks and the public IPv4 address of an offering from the source's data.
+// The catalog calls SetKeeperPrices with the rows of the data it has loaded,
+// after a successful refresh and before it publishes that data, so the
+// offerings of a data version always use that version's prices. The rows
+// cover every vendor of the data; the sink forwards each vendor's to its
+// driver.
+type PriceSink interface {
+	SetKeeperPrices(version string, storage []model.StoragePrice, ipv4 []model.IPv4Price)
+}
+
 // StaticFacts is a Facts with fixed answers, for tests and for drivers that
 // have nothing to say yet. Supported reports only the default profile.
 type StaticFacts struct {
