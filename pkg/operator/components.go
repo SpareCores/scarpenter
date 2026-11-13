@@ -71,13 +71,17 @@ type Components struct {
 // feeds the catalog the SCNodeClasses.
 func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	opts := o.Options
+	keeperClient, err := o.keeperClient()
+	if err != nil {
+		return nil, err
+	}
 	reg, err := vendors.NewRegistry(ctx, opts.Vendors, vendors.Config{
 		ClusterName: opts.ClusterName,
 		Client:      o.GetClient(),
 		Reader:      o.GetAPIReader(),
 		Clock:       o.Clock,
 		Log:         log.FromContext(ctx).WithName("vendors"),
-		KeeperURL:   opts.KeeperURL,
+		Keeper:      keeperClient,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("building the driver registry: %w", err)

@@ -91,7 +91,8 @@ type Options struct {
 	Vendors []string
 	// KeeperURL is the base URL of the Keeper API.
 	KeeperURL string
-	// KeeperAPIKeyFile holds an optional Keeper API key.
+	// KeeperAPIKeyFile holds the Keeper API key, which the public Keeper needs
+	// (optional for a self-hosted one). It is read at every catalog refresh.
 	KeeperAPIKeyFile string
 	// CatalogRefreshInterval is how often the catalog is refreshed (with jitter).
 	CatalogRefreshInterval time.Duration
@@ -141,10 +142,9 @@ type Options struct {
 	UnavailableUnsupportedTTL          time.Duration
 	UnavailableQuotaExceededTTL        time.Duration
 	UnavailableZoneUnusableTTL         time.Duration
-	// KeeperPricesRegionsPerRequest splits the price reads into requests of
-	// this many regions (0: the client's default). The replay server of the test
-	// lanes has one region per recorded request.
-	KeeperPricesRegionsPerRequest int
+	// KeeperCacheDir keeps Keeper's snapshot files of the pinned data version on
+	// disk (empty: no copy, every new version is fetched in full).
+	KeeperCacheDir string
 	// ResourceDefaultTTL is the idleTTL of managed shared resources when a
 	// SCNodeClass does not set one.
 	ResourceDefaultTTL time.Duration
@@ -183,8 +183,8 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.ClusterCAFile, "cluster-ca-file", env.WithDefaultString("SCARPENTER_CLUSTER_CA_FILE", ""), "File with the cluster CA bundle given to nodes. If empty, the kube-root-ca.crt ConfigMap of the controller's namespace is used.")
 	fs.StringVar(&o.KubeletClientCAFile, "kubelet-client-ca-file", env.WithDefaultString("SCARPENTER_KUBELET_CLIENT_CA_FILE", ""), "File with the CA bundle that signs the API server's kubelet client certificates, for control planes where it is not the cluster CA (k3s: server/tls/client-ca.crt). Written to the nodes as the kubelet's client CA, so kubectl logs and exec work. Empty means the cluster CA.")
 	fs.StringVar(&o.vendorsRaw, "vendors", env.WithDefaultString("SCARPENTER_VENDORS", DefaultVendors), "Comma-separated list of enabled vendor drivers.")
-	fs.StringVar(&o.KeeperURL, "keeper-url", env.WithDefaultString("SCARPENTER_KEEPER_URL", DefaultKeeperURL), "Base URL of the Spare Cores Keeper API.")
-	fs.StringVar(&o.KeeperAPIKeyFile, "keeper-api-key-file", env.WithDefaultString("SCARPENTER_KEEPER_API_KEY_FILE", ""), "File with an optional Keeper API key (higher rate limits).")
+	fs.StringVar(&o.KeeperURL, "keeper-url", env.WithDefaultString("SCARPENTER_KEEPER_URL", DefaultKeeperURL), "Base URL of the Keeper API: the public Spare Cores one by default, or a self-hosted Keeper (open source: github.com/SpareCores/sc-keeper).")
+	fs.StringVar(&o.KeeperAPIKeyFile, "keeper-api-key-file", env.WithDefaultString("SCARPENTER_KEEPER_API_KEY_FILE", ""), "File with the Keeper API key, which the public Keeper requires (request one: https://docs.sparecores.com/api/#authentication; docs section \"Keeper API key\"). Read at every catalog refresh. Optional for a self-hosted Keeper.")
 	fs.DurationVar(&o.CatalogRefreshInterval, "catalog-refresh-interval", env.WithDefaultDuration("SCARPENTER_CATALOG_REFRESH_INTERVAL", DefaultCatalogRefreshInterval), "How often the catalog is refreshed from Keeper (with 10% jitter).")
 	fs.DurationVar(&o.CatalogMaxAge, "catalog-max-age", env.WithDefaultDuration("SCARPENTER_CATALOG_MAX_AGE", DefaultCatalogMaxAge), "Age of the last good catalog snapshot after which SCNodeClasses report CatalogReady=False.")
 	fs.StringVar(&o.SysextBaseURL, "sysext-base-url", env.WithDefaultString("SCARPENTER_SYSEXT_BASE_URL", ""), "Mirror of the Flatcar sysext-bakery releases. Empty means upstream.")
@@ -206,7 +206,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.UnavailableUnsupportedTTL, "unavailable-unsupported-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL", 0), "How long a type stays unavailable in a zone after an Unsupported error (0 = 24h).")
 	fs.DurationVar(&o.UnavailableQuotaExceededTTL, "unavailable-quota-exceeded-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL", 0), "How long a region and capacity type stay unavailable after a QuotaExceeded error of a vendor without a quota API (0 = 30m).")
 	fs.DurationVar(&o.UnavailableZoneUnusableTTL, "unavailable-zone-unusable-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL", 0), "How long a zone stays unavailable after a ZoneUnusable error (0 = 10m).")
-	fs.IntVar(&o.KeeperPricesRegionsPerRequest, "keeper-prices-regions-per-request", env.WithDefaultInt("SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST", 0), "Regions per Keeper price request (0 = the client's default). Test lanes replaying a recorded snapshot set 1.")
+	fs.StringVar(&o.KeeperCacheDir, "keeper-cache-dir", env.WithDefaultString("SCARPENTER_KEEPER_CACHE_DIR", ""), "Directory that keeps Keeper's snapshot files of the pinned data version, so that a restart and an unchanged file need no download (empty: no copy).")
 	fs.DurationVar(&o.ResourcePerUseGrace, "resource-per-use-grace", env.WithDefaultDuration("SCARPENTER_RESOURCE_PER_USE_GRACE", DefaultResourcePerUseGrace), "How long an unused perUse managed vendor resource is kept for launches in flight.")
 	fs.DurationVar(&o.ResourceCheckInterval, "resource-check-interval", env.WithDefaultDuration("SCARPENTER_RESOURCE_CHECK_INTERVAL", DefaultResourceCheckInterval), "How often the vendor resources of each SCNodeClass are checked (status, preCreate).")
 	fs.IntVar(&o.ResourceFullSweepEvery, "resource-full-sweep-every", env.WithDefaultInt("SCARPENTER_RESOURCE_FULL_SWEEP_EVERY", DefaultResourceFullSweepEvery), "Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed vendor resources of every region of the driver are swept, not only of the regions in use.")
@@ -329,9 +329,6 @@ func (o *Options) Validate() error {
 		if d < 0 {
 			errs = append(errs, fmt.Errorf("%s must not be negative, got %s", name, d))
 		}
-	}
-	if o.KeeperPricesRegionsPerRequest < 0 {
-		errs = append(errs, fmt.Errorf("--keeper-prices-regions-per-request must not be negative, got %d", o.KeeperPricesRegionsPerRequest))
 	}
 	if o.AWSHomeRegion == "" {
 		errs = append(errs, errors.New("--aws-home-region must not be empty"))

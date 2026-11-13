@@ -13,6 +13,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	keeper "github.com/SpareCores/sc-keeper-go"
+
 	"github.com/SpareCores/scarpenter/internal/version"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/static"
@@ -22,7 +24,8 @@ import (
 )
 
 // WithCatalog builds the catalog from the flags (--keeper-url,
-// --keeper-api-key-file, --catalog-refresh-interval, --catalog-max-age), exposes
+// --keeper-api-key-file, --keeper-cache-dir, --catalog-refresh-interval,
+// --catalog-max-age), exposes
 // its metrics, and registers it and the controller that feeds it the
 // SCNodeClasses with the manager. The catalog reads Keeper only for the vendors
 // and regions the SCNodeClasses allow, so it is idle until one exists.
@@ -33,13 +36,14 @@ import (
 func (o *Operator) WithCatalog(
 	facts catalog.Facts, un *unavailable.Cache, gate catalog.Gate, classGate catalog.ClassGate,
 ) (*catalog.Catalog, error) {
-	key, err := readAPIKey(o.Options.KeeperAPIKeyFile)
-	if err != nil {
+	// The key is read at every refresh; a file that is missing or empty at the
+	// start is a configuration error worth failing for.
+	if _, err := readAPIKey(o.Options.KeeperAPIKeyFile); err != nil {
 		return nil, err
 	}
 	var source catalog.Source = catalog.NewKeeperSource(catalog.KeeperOptions{
-		URL: o.Options.KeeperURL, APIKey: key, UserAgent: "scarpenter/" + version.Get().Version,
-		PricesRegionsPerRequest: o.Options.KeeperPricesRegionsPerRequest,
+		URL: o.Options.KeeperURL, APIKeyFile: o.Options.KeeperAPIKeyFile, UserAgent: "scarpenter/" + version.Get().Version,
+		CacheDir: o.Options.KeeperCacheDir,
 	})
 	if len(o.staticCatalogs) > 0 {
 		source = &catalog.MuxSource{Default: source, Vendors: o.staticCatalogs}
@@ -61,6 +65,20 @@ func (o *Operator) WithCatalog(
 		return nil, fmt.Errorf("registering the catalog controller: %w", err)
 	}
 	return cat, nil
+}
+
+// keeperClient is the Keeper client the drivers get (the fake driver reads its
+// vendor's snapshot files with it), with the key as the file has it at start.
+func (o *Operator) keeperClient() (*keeper.Client, error) {
+	opts := []keeper.Option{keeper.WithUserAgent("scarpenter/" + version.Get().Version)}
+	key, err := readAPIKey(o.Options.KeeperAPIKeyFile)
+	if err != nil {
+		return nil, err
+	}
+	if key != "" {
+		opts = append(opts, keeper.WithAPIKey(key))
+	}
+	return keeper.New(o.Options.KeeperURL, opts...), nil
 }
 
 // readAPIKey reads the optional Keeper API key file ("" means no key).

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	keeper "github.com/SpareCores/sc-keeper-go"
 	"github.com/SpareCores/sc-keeper-go/keepertest"
 	"github.com/awslabs/operatorpkg/status"
 	"github.com/go-logr/logr"
@@ -136,7 +137,7 @@ func newEnv(t *testing.T, o envOptions) *env {
 	opts.ConfigTTL = 0
 	opts.StateInterval = time.Hour
 	drv := fakedriver.New(opts)
-	if err := drv.Init(ctx, vendors.Config{ClusterName: cluster, Client: kube, Reader: kube, Log: logr.Discard(), KeeperURL: keeperURL}); err != nil {
+	if err := drv.Init(ctx, vendors.Config{ClusterName: cluster, Client: kube, Reader: kube, Log: logr.Discard(), Keeper: keeper.New(keeperURL)}); err != nil {
 		t.Fatal(err)
 	}
 	var served vendors.Driver = drv

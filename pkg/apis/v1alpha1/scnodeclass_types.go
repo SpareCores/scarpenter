@@ -24,6 +24,11 @@ const (
 	// ConditionTypeRestartRequired is informational and not a dependent of
 	// Ready: a metric was added after start-up and its labels need a restart.
 	ConditionTypeRestartRequired = "RestartRequired"
+	// ConditionTypeKeeperAuthorized is informational and not a dependent of
+	// Ready: False (reason APIKeyMissing or APIKeyRejected) while Keeper
+	// refuses the catalog's requests with 401, True after the next successful
+	// snapshot read, absent until the catalog has read Keeper.
+	ConditionTypeKeeperAuthorized = "KeeperAuthorized"
 )
 
 // Condition types of a vendor in status.vendors.<vendor>.conditions.

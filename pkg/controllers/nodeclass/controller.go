@@ -49,6 +49,7 @@ const FieldManager = "scarpenter-nodeclass"
 // Condition reasons.
 const (
 	ReasonReady               = "Ready"
+	ReasonKeeperAuthorized    = "Authorized"
 	ReasonResolved            = "Resolved"
 	ReasonReleaseNotFound     = "ReleaseNotFound"
 	ReasonResolutionFailed    = "ResolutionFailed"
@@ -207,10 +208,18 @@ func (c *Controller) compute(ctx context.Context, nc *v1alpha1.SCNodeClass) *v1a
 
 	st := c.opts.Catalog.Status(nc.Name)
 	if st.Ready {
-		cs.SetTrueWithReason(v1alpha1.ConditionTypeCatalogReady, ReasonReady, "")
+		cs.SetTrueWithReason(v1alpha1.ConditionTypeCatalogReady, ReasonReady, trim(st.Message))
 	} else {
 		cs.SetFalse(v1alpha1.ConditionTypeCatalogReady,
 			orDefault(st.Reason, v1alpha1.ConditionTypeCatalogReady), trim(st.Message))
+	}
+	switch a := st.KeeperAuth; {
+	case a.Known && a.Authorized:
+		cs.SetTrueWithReason(v1alpha1.ConditionTypeKeeperAuthorized, ReasonKeeperAuthorized, "")
+	case a.Known:
+		cs.SetFalse(v1alpha1.ConditionTypeKeeperAuthorized, a.Reason, trim(a.Message))
+	default:
+		_ = cs.Clear(v1alpha1.ConditionTypeKeeperAuthorized)
 	}
 	c.restartRequired(desired, cs)
 

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -31,7 +32,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/karpenter/pkg/events"
 
+	"github.com/SpareCores/sc-keeper-go/keepertest"
 	"github.com/SpareCores/scarpenter/internal/testutil"
+
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
@@ -679,6 +682,77 @@ func TestCatalogNotReady(t *testing.T) {
 	res, err := e.ctrl.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKey{Name: e.name}})
 	if err != nil || res.RequeueAfter > 30*time.Second {
 		t.Errorf("a NodeClass that is not ready is looked at again soon, got %v, %v", res.RequeueAfter, err)
+	}
+}
+
+// A Keeper that refuses the catalog's requests shows as KeeperAuthorized=False
+// next to CatalogReady=False (KeeperAPIKeyRequired); a key that works makes it
+// True. It is informational: Ready does not depend on it.
+func TestKeeperAuthorizedCondition(t *testing.T) {
+	e := newEnv(t)
+	h, err := keepertest.NewHandler(catalogtest.SnapshotDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.RequireAPIKey("secret")
+	srv := keepertest.NewServer(t, h)
+	keyFile := filepath.Join(t.TempDir(), "key")
+	controllerOver := func(cat *catalog.Catalog) *nodeclass.Controller {
+		return nodeclass.New(nodeclass.Options{
+			Client: e.c, Catalog: cat, Registry: vendors.NewRegistryFrom(e.drv),
+			Artifacts: artifacts.New(artifacts.Config{SysextBase: e.server}),
+			Renderer:  bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: e.refs, APIServerEndpoint: "https://api.example.com:6443"}),
+			Refs:      e.refs, ServerVersion: func(context.Context) (string, error) { return e.version, nil }, Recorder: e.rec,
+		})
+	}
+	nc := e.newNodeClass(nil)
+	if err := e.c.Create(t.Context(), nc); err != nil {
+		t.Fatal(err)
+	}
+	class, err := catalog.ClassFromNodeClass(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No key file configured.
+	noKey := catalog.New(catalog.Options{
+		Source: catalog.NewKeeperSource(catalog.KeeperOptions{URL: srv.URL}), Facts: catalogtest.Facts(t, "aws"),
+	})
+	noKey.SetClasses([]catalog.Class{class})
+	if err := noKey.Refresh(t.Context()); err == nil {
+		t.Fatal("the refresh succeeded without a key")
+	}
+	ctrl := controllerOver(noKey)
+	if _, err := ctrl.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKey{Name: e.name}}); err != nil {
+		t.Fatal(err)
+	}
+	got := e.get(e.name)
+	wantCond(t, got, v1alpha1.ConditionTypeCatalogReady, metav1.ConditionFalse, "KeeperAPIKeyRequired")
+	wantCond(t, got, v1alpha1.ConditionTypeKeeperAuthorized, metav1.ConditionFalse, "APIKeyMissing")
+	if c := cond(got, v1alpha1.ConditionTypeKeeperAuthorized); !strings.Contains(c.Message, "--keeper-api-key-file") {
+		t.Errorf("message = %q", c.Message)
+	}
+
+	// A key that works.
+	if err := os.WriteFile(keyFile, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withKey := catalog.New(catalog.Options{
+		Source: catalog.NewKeeperSource(catalog.KeeperOptions{URL: srv.URL, APIKeyFile: keyFile}),
+		Facts:  catalogtest.Facts(t, "aws"),
+	})
+	withKey.SetClasses([]catalog.Class{class})
+	if err := withKey.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	ctrl = controllerOver(withKey)
+	if _, err := ctrl.Reconcile(t.Context(), reconcile.Request{NamespacedName: client.ObjectKey{Name: e.name}}); err != nil {
+		t.Fatal(err)
+	}
+	got = e.get(e.name)
+	wantCond(t, got, v1alpha1.ConditionTypeCatalogReady, metav1.ConditionTrue, "Ready")
+	wantCond(t, got, v1alpha1.ConditionTypeKeeperAuthorized, metav1.ConditionTrue, "Authorized")
+	if c := cond(got, v1alpha1.ConditionTypeCatalogReady); !strings.Contains(c.Message, "Keeper data version") {
+		t.Errorf("CatalogReady message = %q", c.Message)
 	}
 }
 
