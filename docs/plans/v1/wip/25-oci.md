@@ -34,7 +34,9 @@ Decided by the maintainer on 2026-11-14 (fixed; the sections below apply them):
    memory within bounds; Spare Cores defines a fixed list of named sizes per shape, as AWS has a
    fixed list of types. The names and sizes are the `server` rows of Keeper's OCI data
    (`VM.Standard.E5.Flex.2-16`). Plan 24's NodeClass-configurable grid is **not needed** for OCI now;
-   plan 24 stays a draft and the grid stays a later option (note added to plan 24's status and §7).
+   plan 24 stays a draft and the grid stays a later option (the note is in plan 24's status and §7;
+   plan 24, `wip/24-flexible-shapes.md`, is **not committed yet** and must land with or before this
+   plan, because sections 1, 2 and 6 cite its research).
 2. **Keeper does not serve OCI yet.** SCarpenter ships a static, embedded OCI catalog, generated
    from the sample data by a small committed generator, plugged in at the seam where Keeper data
    enters the catalog, and swapped for real Keeper data later by a flag.
@@ -60,13 +62,19 @@ Decided by the maintainer on 2026-11-14 (fixed; the sections below apply them):
    ships an official OCI image (qcow2) from Stable 4757.2.3 on. Rung 3 (section 3).
 5. **Availability domains (AD) are named per tenancy** (`Xxxx:EU-FRANKFURT-1-AD-1`: a prefix that
    differs by tenancy) and most regions have one. Keeper's zone is `<region>-ad-<N>` with the name
-   `EU-FRANKFURT-1-AD-1` (no prefix). The driver maps both ways (section 4).
+   `EU-FRANKFURT-1-AD-1` (no prefix). The driver maps both ways (section 4). The **numbering** is
+   per tenancy too (AD-1 of the crawler's tenancy is not AD-1 of the user's), so Keeper's per-AD
+   rows say which shapes the *crawler's* tenancy had in its AD-N: the prices hold everywhere, the
+   per-AD presence does not (section 6, open question 11).
 6. **Limits are per AD and per shape family, in cores and in GB**, read with the Limits service's
    `GetResourceAvailability`; `QuotaReporter.Consumption` has no zone argument (section 7: a
    contract gap, with a safe v1 answer).
-7. **"Out of host capacity" is `InternalError`, HTTP 500**, and the SDK's default retry policy
-   retries every 5xx (up to eight times, about a minute and a half): the launch call runs with
-   `common.NoRetryPolicy()` and the driver classifies (section 5, section 7).
+7. **"Out of host capacity" is `InternalError`, HTTP 500**, and `common.DefaultRetryPolicy()`
+   retries every 5xx but 501 (up to eight times, about a minute and a half) and, with its eventual
+   consistency part, a 404 for up to about four minutes. The SDK's per-operation defaults differ
+   (`LaunchInstance`, `GetInstance`, `ListInstances`, `TerminateInstance`: no retry; `ListImages`,
+   `GetResourceAvailability`: the default policy), so the driver sets the policy itself: the launch
+   runs with `common.NoRetryPolicy()` and the driver classifies (section 5, section 7).
 8. **No server-side tag filter** on `ListInstances`, `ListSubnets`, `ListImages` and the others:
    tags are matched client-side, and the idempotency lookup lists the compartment's instances.
 9. **A launch is asynchronous** (the instance is `PROVISIONING`; the work request finishes it); the
@@ -139,9 +147,10 @@ shape  := ^(VM|BM)\.[A-Za-z0-9._-]+$
   sent (full OCPUs: no burstable types in the catalog).
 - **Extended memory** (OCPU or memory beyond one NUMA node: `maxPerNumaNode` of `ocpuOptions` and
   `maxPerNumaNodeInGBs` of `memoryOptions`; for E5, 94 OCPUs and 1049 GB; plan 24 §1.1) needs a
-  separate limit and cannot be preemptible. The rows are in the data (`E5.Flex.126-*`,
-  `E4.Flex.114-*`, `Standard3.Flex.56-*`; they are the rows of a preemptible series **without** a spot
-  price) and in the catalog. v1 does not launch them: the pre-launch check above also compares with
+  separate limit and cannot be preemptible. The crawler computes the flag (`ocpus > maxPerNumaNode`
+  or `memoryGB > maxPerNumaNodeInGBs`, `_shape_configs`) but does not store it. The rows are in the
+  data (`E5.Flex.126-*`, `E4.Flex.114-*`, `E3.Flex.114-*`, `Standard3.Flex.56-*`: 10 rows; they are
+  exactly the rows of a preemptible series **without** a spot price) and in the catalog. v1 does not launch them: the pre-launch check above also compares with
   the per-NUMA limits and returns `Unsupported` with the code `ExtendedMemoryUnsupported` (24 hours
   unavailable per zone, no cloud call). Open question 3 asks the crawler to flag them so the
   catalog can drop them.
@@ -190,8 +199,9 @@ contract SCarpenter's default lookup relies on; nothing here names a tool):
    network attachment, boot volume and remote data volume types) and shape compatibility for the Arm
    shapes (`VM.Standard.A1.Flex` is what Flatcar's CI adds; `A2` and `A4` are untested and must be
    added by the operator). Flatcar's docs omit these steps; the mechanics are in its mantle code
-   (`platform/api/oraclecloud/api.go`). That the schema survives the launch with the per-instance
-   options of section 5 is **unverified** (spike S7).
+   (`platform/api/oraclecloud/api.go`). **Verified live** on `A1.Flex` (2026-11-13 node test: the
+   schema, the entry and the per-instance launch options of section 5 booted Flatcar arm64 in
+   us-ashburn-1); `A2` and `A4` remain spike S7.
 5. Cost: custom image storage is billed like Object Storage Standard on the image's billable size
    (observed 1 GB for the amd64 image: cents per version and region); quota `custom-image-count` is
    100 per region (25 on pay-as-you-go and trial); import is about 6.5 minutes.
@@ -224,15 +234,23 @@ contract SCarpenter's default lookup relies on; nothing here names a tool):
   for the Flatcar image; the root volume may be larger, never smaller: section 8).
 
 **What boots.** Flatcar's `oraclecloud` image with the OEM id `oraclecloud`. Ignition reads the
-user data from the instance metadata service (the `user_data` metadata key, base64; the exact
-endpoint version is **unverified**, spike S6). SCarpenter's Ignition (the tiny outer config that
-merges the gzip+base64 parts, then the sysext download from GitHub) needs **egress**: a public
-IPv4 address on an internet-gatewayed subnet, or a NAT gateway (section 9). Afterburn is not used
-(ADR-007). `/etc/hostname` comes from Ignition, so the OCI hostname is irrelevant to the join. The
-kubelet's DNS is the VCN resolver (169.254.169.254 by DHCP); Flatcar is not told about swap,
-sysctls, modules or MTU by SCarpenter (the node checklist of the investigation lists what to read
-back on a real node; spike S6 and the lane settle it: DNS, time sync, the NIC name for flannel,
-VNIC MTU, ports 10250 and 8472 in the network security group).
+user data from the instance metadata service: `GET http://169.254.169.254/opc/v2/instance/metadata/user_data`,
+the metadata key `user_data`, base64 of the Ignition JSON (**verified live**, Flatcar 4757.2.3,
+amd64 on `E5.Flex` and arm64 on `A1.Flex`, by the Flatcar-on-OCI node test of 2026-11-13, which ran
+the investigation's node checklist with SCarpenter's base and `direct` templates). SCarpenter's
+Ignition (the tiny outer config that merges the gzip+base64 parts, then the sysext download from
+GitHub) needs **egress**: a public IPv4 address on an internet-gatewayed subnet, or a NAT gateway
+(section 9). The node test showed the failure mode: with a network security group of ingress rules
+only and a subnet security list without rules, egress is denied, Ignition retries the sysext GET
+silently and the node needs about 20 minutes instead of about one; the managed network of section 9
+and the hand-off of section 4 therefore carry an explicit egress rule. Afterburn
+(`coreos-metadata.service`) is disabled at boot on the image and not used (ADR-007). `/etc/hostname`
+comes from Ignition, so the OCI hostname is irrelevant to the join. Read back on the test nodes:
+DNS is the VCN resolver (169.254.169.254, via `systemd-resolved`'s uplink file), time sync is
+`systemd-timesyncd` against Flatcar's public NTP pool (egress UDP 123), the NIC is `eth0` with
+**MTU 9000**, the boot disk is `/dev/sda` (paravirtualized SCSI), `br_netfilter`, `overlay` and the
+forwarding sysctls are in place, no swap, cgroup v2. Still open for a real join (spike S6 and the
+lane): the CSR approval, flannel across nodes (UDP 8472 in the group) and Pod DNS.
 
 The image placement is added to ADR-021's ladder (OCI: rung 3) and to
 `docs/explanation/flatcar-images.md` by the coordinator when this plan lands.
@@ -265,7 +283,7 @@ a `scarpenter-` prefix is reserved; defined tags are not supported and rejected,
 
 | Kind | Scope | Default lifecycle | `use` forms | `create` | What your IaC must output |
 |---|---|---|---|---|---|
-| `subnets` (the network, the VCN, is implied by the subnet and returned as `ResourceRef.Network`) | region (a regional subnet serves every AD; an AD-specific subnet serves one: `ZoneGaps`) | `idleTTL` | `ids` (subnet OCIDs), `name` (glob on the display name; `{region}`), `tags` (freeform, client-side), `match` (`cidr`, `within`, `network` = the VCN OCID, `state`, `zone` = the subnet's AD, `createdAfter`), `filters` (`vcn-id`, `lifecycle-state`, `display-name`); `select` default `exactlyOne` | yes: a VCN `scarpenter-<cluster>-<region>` (default `10.240.0.0/16`, `create.cidr` overrides), an internet gateway, a route table (`0.0.0.0/0` to the gateway), an empty security list, and one regional public subnet of the first `/20` | the subnet OCID per region |
+| `subnets` (the network, the VCN, is implied by the subnet and returned as `ResourceRef.Network`) | region (a regional subnet serves every AD; an AD-specific subnet serves one: `ZoneGaps`) | `idleTTL` | `ids` (subnet OCIDs), `name` (glob on the display name; `{region}`), `tags` (freeform, client-side), `match` (`cidr`, `within`, `network` = the VCN OCID, `state`, `zone` = the subnet's AD, `createdAfter`), `filters` (`vcn-id`, `lifecycle-state`, `display-name`); `select` default `exactlyOne` | yes: a VCN `scarpenter-<cluster>-<region>` (default `10.240.0.0/16`, `create.cidr` overrides), an internet gateway, a route table (`0.0.0.0/0` to the gateway), a minimal security list (egress all, ingress ICMP 3/4 only), and one regional public subnet of the first `/20` | the subnet OCID per region |
 | `networkSecurityGroups` | region, in the subnet's VCN (`InNetwork: subnets`) | `idleTTL` | `ids`, `name`, `tags`, `match` (`network`, `state`, `createdAfter`), `filters` (`vcn-id`, `lifecycle-state`, `display-name`); `select` default `all` (at most 5 per VNIC) | yes: one group `scarpenter-<cluster>-<nodeclass>-<region>` with the rules of `spec.networking.inbound`; for `isolation: nodeclass` an allow-all rule whose source is the group itself | the group OCIDs per region |
 | `runNetworkSecurityGroups` (internal, like AWS's `runSecurityGroups`) | run | `perUse` | not configurable | one group per run key (source = itself), attached to the run's instances | nothing |
 | `images` (not managed) | region | not applicable | section 3 | never (ADR-021) | the image OCIDs, or images named by the contract of section 3 |
@@ -292,13 +310,16 @@ The operator's IaC provides, all optional except the first two:
 2. **The images** per region and architecture (section 3).
 3. **The controller's identity** and its policy (section 4, "Credentials"; `docs/reference/oci-iam-policy.txt`).
 4. **A subnet per region and the network security group** (`subnets.use`,
-   `networkSecurityGroups.use`, or the discovery tag): egress to GitHub (sysexts) and the Kubernetes
-   API server, inbound 10250 from the control plane and the CNI ports, UDP 41641 for the `tailscale`
-   template, ICMP. A brought subnet with `prohibitPublicIpOnVnic` needs a NAT gateway.
+   `networkSecurityGroups.use`, or the discovery tag): **egress** (in the group or the subnet's
+   security list; without it Ignition stalls, section 3) to GitHub (sysexts), the container
+   registries, NTP (UDP 123) and the Kubernetes API server; inbound 10250 from the control plane and
+   the CNI ports, UDP 41641 for the `tailscale` template, ICMP type 3 code 4 (path MTU: the VNIC MTU
+   is 9000). A brought subnet with `prohibitPublicIpOnVnic` needs a NAT gateway and
+   `networking.publicIPv4: false`.
 5. **Quotas and limits**: service limit increases and compartment quotas as the operator wants
    them (section 7); compartment quotas are also the hard cost ceiling of the lane (section 11).
 
-SCarpenter self-manages, without `use`: the VCN, gateway, route table, empty security list and
+SCarpenter self-manages, without `use`: the VCN, gateway, route table, minimal security list and
 subnet (`create`), the groups, and the run groups.
 
 ### Account scope and credentials
@@ -342,10 +363,15 @@ is checked in step (b)): `core` (`ComputeClient`, `VirtualNetworkClient`), `iden
 concrete structs, so narrow interfaces wrap them (`computeAPI`, `networkAPI`, `identityAPI`,
 `limitsAPI`), as `ec2API` does. One client of each kind **per region** (`SetRegion`); the identity
 client of the home region for the subscription list. User agent `scarpenter/<version>`. Per-call
-deadline 45 s. **Retry policy**: reads use `common.DefaultRetryPolicy()`; `LaunchInstance` uses
-`common.NoRetryPolicy()` (finding 7 of section 1: the default retries the capacity error), and the
-driver's classification (HTTP 429 and 5xx other than capacity: `Retryable`) and the core's backoff
-do the rest. `TerminateInstance` and the deletes use the default policy (idempotent).
+deadline 45 s. **Retry policy**: reads, `TerminateInstance` and the deletes (idempotent) retry;
+`LaunchInstance` uses `common.NoRetryPolicy()` (finding 7 of section 1: a retry policy would retry
+the capacity error), and the driver's classification (HTTP 429 and 5xx other than capacity:
+`Retryable`) and the core's backoff do the rest. Concretely: every client gets `SetCustomClientConfiguration` with
+`common.DefaultRetryPolicyWithoutEventualConsistency()` (**not** `DefaultRetryPolicy()`: its
+eventual-consistency part retries a 404 for minutes, which would hide `NotFound` from `Get` and
+`Delete`), bounded by the 45 s deadline; `LaunchInstance` passes `RequestMetadata.RetryPolicy =
+NoRetryPolicy()` per request. `OCI_SDK_DEFAULT_RETRY_ENABLED` and `common.GlobalRetry` are not
+used.
 
 **Launch** (`CreateInstance`): `LaunchInstance` with:
 
@@ -358,9 +384,9 @@ do the rest. `TerminateInstance` and the deletes use the default policy (idempot
 | `displayName` | the NodeClaim name (the lookup key of `FindInstance` by name; not unique in OCI, so never trusted alone) |
 | `sourceDetails` | `InstanceSourceViaImageDetails{imageId, bootVolumeSizeInGBs, bootVolumeVpusPerGB, kmsKeyId}` |
 | `createVnicDetails` | `subnetId`, `assignPublicIp` from `networking.publicIPv4` (default true), `assignIpv6Ip` from `publicIPv6`, `nsgIds` (the groups, plus the run group), `displayName`, `freeformTags`; no `hostnameLabel`; `skipSourceDestCheck` false |
-| `metadata` | `user_data` = base64 of the rendered Ignition; the block's `metadata`; never `ssh_authorized_keys` (Ignition installs keys) |
-| `instanceOptions` | `areLegacyImdsEndpointsDisabled: true` **only after spike S6 shows Ignition and Afterburn use the v2 endpoints**; false until then |
-| `launchOptions` | amd64: none (the image's); arm64: `firmware: UEFI_64`, `bootVolumeType`, `networkType`, `remoteDataVolumeType` all `PARAVIRTUALIZED` (what Flatcar's CI sets; **unverified**, S7) |
+| `metadata` | `user_data` = base64 of the rendered Ignition; the block's `metadata`; never `ssh_authorized_keys` (Ignition installs keys). OCI caps `metadata` plus `extendedMetadata` at 32,000 bytes: the driver's `MaxUserData` (and the conformance fixture's) is SCarpenter's 16 KiB budget, and the launch checks the total of every value (base64 `user_data` included) before the call (`Fatal` with the sizes when over) |
+| `instanceOptions` | `areLegacyImdsEndpointsDisabled: true`: Ignition reads `/opc/v2/` (verified live, section 3) and SCarpenter uses no Afterburn; the lane re-checks that the node boots with it |
+| `launchOptions` | amd64: none (the image's); arm64: `firmware: UEFI_64`, `bootVolumeType`, `networkType`, `remoteDataVolumeType` all `PARAVIRTUALIZED`, `isConsistentVolumeNamingEnabled: true` (the five options of Flatcar's mantle `launchOptionsForBoard`; **verified live** on `A1.Flex`, section 3) |
 | `preemptibleInstanceConfig` | spot: `PreemptibleInstanceConfigDetails{PreemptionAction: TerminatePreemptionAction{PreserveBootVolume: false}}`; on-demand: unset |
 | `availabilityConfig` | unset |
 | `freeformTags` | the logical tags, the NodeClass tags and the idempotency tag (below); `definedTags` unset |
@@ -449,7 +475,12 @@ so the driver's `KeeperPriceConsumer` and the billing code see the same thing fr
   `keeper.DecodeSnapshotRows[keeper.TableServer]` and the other row types of `sc-keeper-go` (already
   pinned by main), and converts with the same functions as `KeeperSource` (`serverFromTable`, the price
   conversion; after part B, the shared body of `loadVendor`): **no second conversion**. A real Keeper
-  snapshot of OCI therefore parses unchanged.
+  snapshot of OCI therefore parses unchanged. Part B's `loadVendor` is a method of the network
+  `refresh` (it reads through `r.file`); step (a2) makes its body a function over a small reader
+  (`func(path string) (*keeper.SnapshotBody, rows int, err error)` plus `Lookup` on a
+  `keeper.Manifest`), which `refresh` and the embedded source both implement. The manifest file is a
+  `keeper.ManifestFile` columnar file read with `keeper.DecodeManifest`; its SHA-256 is of the
+  **uncompressed** JSON, as Keeper's.
 - **The generator**: `hack/oci-catalog/generate.py` (Python 3 standard library only: `sqlite3`,
   `gzip`, `json`, `hashlib`; no new Go dependency). `python3 hack/oci-catalog/generate.py --db
   <sc-data-oci.db> --out pkg/catalog/embeddeddata/oci` rewrites the files deterministically (sorted,
@@ -468,8 +499,12 @@ so the driver's `KeeperPriceConsumer` and the billing code see the same thing fr
   series of `_PREEMPTIBLE_SERIES` and for non-extended sizes).
 - **Mapping to the catalog**: `Server.ID` = Keeper `server_id`, `Server.APIReference` = the **type
   name** (rule R below). `Zone.ID` = Keeper's `zone_id` (`eu-frankfurt-1-ad-1`), `Zone.Name` = the zone's
-  `api_reference` (`EU-FRANKFURT-1-AD-1`). Prices are per AD, so the catalog builds an offering per
-  active AD of each region in the allow-list.
+  `api_reference` (`EU-FRANKFURT-1-AD-1`; Ashburn's is `US-ASHBURN-AD-1`, Phoenix's `PHX-AD-1`).
+  Prices are per AD, so the catalog builds an offering per AD that has a price row. The rows follow
+  the crawler tenancy's `ListShapes` per AD: E5, E4, A1 and the other main shapes are in every AD of
+  the three regions, but 24 (shape, region) pairs lack one or two ADs (`A4.Flex`, `A4.Ax.Flex`,
+  `E6.Ax.Flex`, `Standard4.Ax.Flex`, `VM.Standard1.*` in Phoenix, several `BM.*`), and that
+  presence is the crawler's AD numbering, not the user's (section 1, finding 5).
 
 **Rule R (in the catalog's conversion, one place, used by every source).** Active rows of one
 vendor that **share an `api_reference` take their `server_id` as `APIReference`**; rows with a
@@ -477,18 +512,37 @@ unique `api_reference` keep it. Today no vendor in Keeper's data has duplicates 
 committed snapshot), so nothing existing changes; before this rule the loser rows of a duplicate were
 dropped silently. It is data-driven, names no vendor, applies the same to the stub and to a real
 Keeper snapshot of OCI, and keeps the byte-for-byte equality "type name = server ID = what the driver
-parses". The metrics path (`byAPIReference`) maps through the converted servers, so scores follow. A test feeds a
-Keeper-shaped duplicate set and asserts the names; a second assertion makes any remaining
-duplicate **loud** (an error log with the rows, not a silent drop).
+parses". **Where exactly**: one function `uniqueAPIReferences(data *model.Data)` in its own file of
+`pkg/catalog`, called by each source **after its servers are loaded and before its metrics and
+selections** (in part B's `refresh.run`, after the `loadVendor` loop and before `loadMetrics`; in the
+embedded source after decoding), because three later readers key by `APIReference`: `byAPIReference`
+(scores), the local selection (`specRow` -> `selection.Candidate.Name()` is the row's `APIReference`,
+so `Data.Selected` is keyed by it) and `newSnapshot`'s `byAPIRef`. Applied in `newSnapshot` instead,
+it would be too late: scores and selections would already be keyed by the shape. Everything after
+the snapshot keys by the type's `APIReference` and so becomes per size, as wanted: the unavailable
+cache and `Gate` (`catalog.go`), the quota tracker's `Blocked` and `Consumption`, the
+`api-reference` label, `vendors.CreateRequest.InstanceType` and `CatalogType.APIReference`. No other
+driver is affected (none has duplicates). `newSnapshot`'s first-wins dedup stays as the guard and
+becomes the **loud** one (an error log naming the rows instead of the silent `continue`). A test
+feeds a Keeper-shaped duplicate set and asserts the names, and that a metric query of the vendor maps
+its scores to the sized names.
 
 **Wiring.** `pkg/operator/catalog.go` builds the mux; the embedded vendors are one option:
 `--embedded-catalog-vendors` / `SCARPENTER_EMBEDDED_CATALOG_VENDORS`, default **`oci`**, Helm
 `catalog.embeddedVendors`. Each listed vendor with embedded data gets `MuxSource.Vendors[<vendor>]`; a
 request that concerns only embedded vendors never reaches Keeper (so an OCI-only deployment needs no
 Keeper key; the static dev catalogs of the fake and qemu drivers work the same way). The source
-reports `Data.Version` as a digest of the manifest and `PublishedAt` as the generator's data date;
-how part B's `SnapshotRead` and the freshness logic treat the embedded data is decided in step (a) so
-that the data neither claims to be Keeper's nor trips a staleness alarm. At start the controller logs
+reports `Data.Version` as a digest of the manifest, `FetchedAt` as the load time, **`SnapshotRead:
+false` and a zero `PublishedAt`**: `MuxSource.mergeData` ORs `SnapshotRead` and keeps the *oldest*
+non-zero `PublishedAt`, so a data date there would show in the Keeper status message ("Keeper data
+version ..., published ...") and in the published-at metric of every mixed deployment, and
+`SnapshotRead` also sets the Keeper auth state. Part B feeds the `PriceSink` (the drivers'
+`SetKeeperPrices`) only `if data.SnapshotRead`, which would leave OCI's storage prices unknown in an
+OCI-only deployment; step (a2) adds `model.Data.AuxPricesRead bool` (set by `KeeperSource` and the
+embedded source, ORed by the mux) and gates the sink on it instead. The source keeps its loaded
+`*model.Data` per request scope and returns the same pointer when nothing changed, so the mux's
+unchanged-data shortcut (part B) holds. The data date (the generator's `observed_at`) goes only into
+the log line and the gauge below. At start the controller logs
 `vendor oci is served from the embedded catalog (data of 2026-11-13); prices and sizes are static`,
 exports the gauge `scarpenter_catalog_embedded_vendor{vendor}` = 1, and the NodeClass condition
 `VendorReady` message for OCI says the same.
@@ -507,10 +561,15 @@ swap's runbook in the docs: compare `kubectl get` of the instance types before a
 intersected with the allow-list; `Zones(region)` = `ListAvailabilityDomains` with
 `Zone{ID: <region>-ad-<N>, Name: <name without the tenancy prefix>}`, `N` from the suffix `-AD-<N>`
 (`PHX-AD-1` -> `us-phoenix-1-ad-1`, as the crawler's `_zone_id`). The full name goes in the launch.
-The tenancy-specific AD numbering maps to different datacenters per tenancy (prices are the same,
-so Keeper's per-AD rows stay valid). The zone name is the value of `topology.kubernetes.io/zone`, so
-the prefix with its colon (not a label-value character) must not be in it. A zone without a Keeper
-row (an AD the sample lacks) has no offerings.
+The tenancy-specific AD numbering maps to different datacenters per tenancy: the prices stay valid
+(the same everywhere), the per-AD presence of a shape does not. The zone ID is therefore **not** a
+portable physical identity as AWS's `use1-az1` is; it is "AD number N", whatever the tenancy maps
+it to. Consequences in v1: a type offered in an AD where the user's tenancy lacks the shape fails the
+driver's pre-launch check against the cached `ListShapes` of that AD (`Unsupported`, 24 hours, no
+launch call), so over-offering costs nothing; a shape the user's AD has but the crawler's AD of that
+number lacked is never offered (open question 11). The zone name is the value of
+`topology.kubernetes.io/zone`, so the prefix with its colon (not a label-value character) must not be
+in it. A zone without a Keeper row (an AD the sample lacks) has no offerings.
 
 **Spot offerings** exist where Keeper has a spot price (flexible and fixed VM series of the
 preemptible list: `Standard1`, `Standard.B1`, `Standard2`, `Standard3`, `Standard.E2..E6`, `Standard.A1`,
@@ -524,7 +583,13 @@ error (`Unsupported`).
 serviceName "compute", limitName, compartmentId, availabilityDomain)` returns `used` and `available`
 (and `effectiveQuotaValue` when a compartment quota policy applies; fractional variants exist). The
 limit names come from `ListShapes`: each shape lists its `quotaNames` (`standard-e5-core-count` and
-`standard-e5-memory-count` for the E5 flexible shape; the fixed shapes have one count name each).
+`standard-e5-memory-count` for the E5 flexible shape; the fixed VM shapes have a `*-core-count` name
+too, `standard2-core-count` for `VM.Standard2.4`; bare metal shapes may have a per-shape
+`*-count`). Whether a limit is per AD or per region is `scopeType` of
+`LimitsClient.ListLimitDefinitions(serviceName "compute")` (`AD`, `REGION`, `GLOBAL`; read with the
+shape table, cached an hour): `AD` limits are read per AD, `REGION` limits once without
+`availabilityDomain`, a definition with `isResourceAvailabilitySupported` false makes its types
+unknown.
 
 - **Buckets** (region scope): one per quota name seen in the region's shapes. `ID` = the quota
   name; `Unit` = `OCPU` for `*-core-count`, `GB` for `*-memory-count`, `instances` for the others (a
@@ -535,14 +600,23 @@ limit names come from `ListShapes`: each shape lists its `quotaNames` (`standard
   would refresh the region's quota and try the same AD again (open question 6 proposes the
   contract extension: an optional zone-aware consumption and a zone on `QuotaExceeded`; the decision
   is the maintainers').
-- **`Consumption`**: for a sized flexible type, the shape's core bucket `+= ocpus` and memory bucket
-  `+= gb`; for a fixed shape its count bucket `+= 1`. Spot consumes the same buckets (whether
+- **`Consumption`**: one entry per quota name of the shape, by the name's form: `*-core-count`
+  `+= ocpus` (a sized type: from the name; a fixed shape: the shape's `ocpus` from `ListShapes`, 4 for
+  `VM.Standard2.4`), `*-memory-count` `+= gb` (fixed: the shape's `memoryInGBs`), any other
+  `*-count` `+= 1`. Spot consumes the same buckets (whether
   preemptible capacity has its own limit: **unverified**, S9, so spot types are **unknown** until the
   spike confirms it, the GCP rule). Types whose shape is not in the cached shape table are unknown.
-- **Which usage**: `used` of `GetResourceAvailability` is "in the given compartment"; the limit is the
-  tenancy's. Whether the call on the controller's compartment sees the whole tenancy's usage is
-  **unverified** (S3); if not, the driver asks with the tenancy OCID where the policy allows it (open
-  question 7).
+- **Which usage**: the contract says `Bucket.Used` is the **whole account's** usage (driver contract,
+  "Quotas"). `GetResourceAvailability` reports the usage of the compartment it is asked about, so the
+  driver asks with the **tenancy OCID** (the root compartment, from the credentials), which needs
+  `inspect resource-availability in tenancy` (section 11). That the root's figure includes the
+  sub-compartments' usage is **unverified** (S3); a compartment quota policy on the controller's
+  compartment (`effectiveQuotaValue` of a second call on that compartment) lowers `Limit` to the
+  smaller of the two.
+- **`Counted`**: the cluster's instances of the region in a state that holds quota (not
+  `TERMINATED`), from the same compartment list the idempotency lookup uses (one `ListInstances`,
+  client-side filter on `scarpenter-cluster`), as GCP does, so the tracker releases their in-flight
+  reservations.
 - `GlobalQuotas`: none. The test asserts that every shape of the embedded catalog is mapped or on an
   explicit unknown list (as AWS and GCP).
 
@@ -590,6 +664,9 @@ the NodeClass's, not the type's).
   (unverified: the rows say 120 VPUs/GB at most); `publicIPv6` only on a subnet with an IPv6 CIDR (a
   managed subnet has none in v1: the offerings are unavailable with a reason); `publicIPv4: false`
   only on a brought subnet (a managed subnet is public: a NAT gateway is not created in v1);
+  `publicIPv4: true` (the default) on a brought subnet with `prohibitPublicIpOnVnic` is unavailable
+  with that reason (never launched without the address, ADR-017: the user sets `publicIPv4: false`
+  and provides the NAT gateway);
   `isolation: run` and `nodeclass` always (groups).
 - **`PriceDelta`**: root volume GB x Keeper's GB-month price of the region and performance level /
   730 (the level's price includes its VPUs: `balanced` 0.0425 = 0.0255 + 10 x 0.0017); incomplete for
@@ -616,9 +693,12 @@ selector-only `images`. `KindSpec.InNetwork`: groups live in the VCN of the subn
   find the tagged VCN `scarpenter-<cluster>-<region>`; create what is missing in this order: VCN
   (`CreateVcn`, CIDR from `create.cidr`, default `10.240.0.0/16`, no IPv6), internet gateway
   (`CreateInternetGateway`), route table (`CreateRouteTable`, `0.0.0.0/0` to the gateway), an
-  **empty security list** (no ingress, egress allow-all: the subnet must not inherit the VCN default
-  list, which allows SSH from anywhere; groups carry the policy), subnet (`CreateSubnet`: regional, the
-  first free `/20` of the VCN, `prohibitPublicIpOnVnic` false, the route table and the empty list). A
+  **minimal security list** (egress allow-all to `0.0.0.0/0`, stateful; ingress only ICMP type 3
+  code 4 from `0.0.0.0/0`, the "fragmentation needed" message path MTU discovery needs, because the
+  VNIC MTU is 9000 and the internet path 1500; OCI's own default list has the same rule; the subnet
+  must not inherit the VCN default list, which also allows SSH from anywhere; groups carry the
+  policy), subnet (`CreateSubnet`: regional, the
+  first free `/20` of the VCN, `prohibitPublicIpOnVnic` false, the route table and the minimal list). A
   part left by a failed creation is adopted and finished by the next call (all parts carry the
   marker); `Ensure` while a part is `PROVISIONING` is `Retryable`.
 - **`Ensure` of `networkSecurityGroups`**: `CreateNetworkSecurityGroup` and
@@ -719,10 +799,12 @@ tailnet, nodes with the `tailscale` template).
 per hour; the lane runs minutes per scenario); a full run is expected in cents (unverified; the first
 live run reports it). **The IAM policy** (`docs/reference/oci-iam-policy.txt`, validated in `make
 lint` by `iam_test.go`, which maps every method of the narrow interfaces to the statement that covers
-it): `manage instance-family` in the compartment (instances, boot volumes, VNIC attachments, image
-reads), `use virtual-network-family` in the compartment (and in the compartments of brought
-resources), `inspect compartments` and `inspect tenancies` in the tenancy (region subscriptions and
-ADs), `inspect`/`read` on `resource-availability` or `limits` for the quotas, an **optional** second
+it): `manage instance-family` in the compartment (instances, VNIC attachments, image reads),
+`use volume-family` in the compartment (the boot volume a launch creates and a terminate deletes;
+Oracle's documented launch policy has it next to `instance-family`), `use virtual-network-family` in
+the compartment (and in the compartments of brought resources), `inspect compartments` and `inspect
+tenancies` in the tenancy (region subscriptions and ADs), `inspect resource-availability` and `inspect
+limits` **in the tenancy** (the quotas are read on the root compartment, section 7), an **optional** second
 block `manage virtual-network-family` in the compartment only for NodeClasses that use `create`. Which
 verb each call needs is **unverified** (S12); the file is corrected by the first live run, as AWS's.
 
@@ -741,12 +823,13 @@ S5. The error shapes of a limit failure (reduce a quota to 0 in the dedicated co
     (needs luck: `A1` or a large shape; HTTP status and exact message of "Out of host capacity"), of an
     incompatible shape for the image, an extended memory size, a missing subnet, a full subnet, and of a
     token conflict.
-S6. A launch of Flatcar amd64 (the investigation's node checklist is the script): the endpoint version
-    Ignition and Afterburn use (`/opc/v2/...`), user data base64, `areLegacyImdsEndpointsDisabled`,
-    DNS, time sync, NIC name and MTU, device names, kubelet join against a control plane;
-    metadata reachable from a Pod.
-S7. The same for arm64 on `A1`, then `A2` and `A4` (the schema and compatibility entries; the launch
-    options of section 5 against the image's own).
+S6. **Partly done** by the node test of 2026-11-13 (amd64 `E5.Flex`, arm64 `A1.Flex`: the endpoint
+    `/opc/v2/instance/metadata/user_data`, base64 user data, DNS, time sync, NIC `eth0` MTU 9000,
+    `/dev/sda`, egress needed; section 3). Left: a launch with `areLegacyImdsEndpointsDisabled: true`,
+    the outer gzip merge config as SCarpenter renders it, the kubelet join and CSR approval against a
+    control plane, flannel across two nodes, metadata reachable from a Pod.
+S7. arm64 on `A1` is done (same test, with the schema, the compatibility entry and the five launch
+    options of section 5). Left: `A2` and `A4` (compatibility entries the schema accepts, a boot).
 S8. The freeform tag key charset (`scarpenter.sparecores.com/x` accepted?), 100/256 limits, tag
     propagation to the boot volume (none expected).
 S9. Preemptible launch: limit consumed (own or the same as on-demand), the reclaim path
@@ -757,32 +840,42 @@ S11. The token exchange for the keyless modes (cluster OIDC and GitHub OIDC): bu
      token lifetime and refresh, a policy for the resulting principal.
 S12. The policy statements per call (a dedicated group with the proposed statements; the minimal set);
      whether `where` conditions on compartment and region hold.
-S13. Managed network: create and delete order, the conflicts, a subnet's behaviour with the empty
+S13. Managed network: create and delete order, the conflicts, a subnet's behaviour with the minimal
      security list and a group; NSG limits per VCN and per VNIC.
 
 ## 13. Scope (what the executing models build, one step at a time, each ending green)
 
-Every step: a **fresh agent per step**, CONVENTIONS rules (no commit, no live calls), the gates below. Steps
-(a) and (b) are independent; (c) needs (b) and, for the catalog, (a); (d) needs (c).
+Every step: a **fresh agent per step**, CONVENTIONS rules (no commit, no live calls), the gates below.
+Order: (a1) first (it does not wait for part B); (b) needs the committed files of (a1) only (its
+tests read the type list from them); (a2) needs 13 part B on main; (c) needs (b) and (a2); (d) needs
+(c). (a1) and part B touch different code (a new file and one call in the Keeper load), so they do
+not conflict; (a2) is the only step that edits part B's code (`loadVendor`, the sink gate).
 
-**(a) The embedded catalog.** `hack/oci-catalog/generate.py` and its committed output
-`pkg/catalog/embeddeddata/oci/`; `pkg/catalog/embedded.go` (`NewEmbeddedSource`), rule R in the
-conversion (`uniqueAPIReferences`), the option, the Helm value and the docs
+**(a1) The data and rule R** (on main, no part B): `hack/oci-catalog/generate.py` and its committed
+output `pkg/catalog/embeddeddata/oci/` (with a Go file that exports the `embed.FS`); rule R
+(`uniqueAPIReferences`, called once in the current `KeeperSource` after the servers load) and the loud
+dedup in `newSnapshot`. Tests: the files against the manifest, decoding into `sc-keeper-go`'s types,
+the counts of section 2 and the spot rule; rule R with a Keeper-shaped duplicate set (scores and
+names), no change for any committed vendor's data.
+
+**(a2) The embedded source** (after 13 part B is on main; or with the coordinator's go-ahead on
+`plan13-part-b`): `pkg/catalog/embedded.go` (`NewEmbeddedSource`), the `loadVendor` reader refactor,
+`model.Data.AuxPricesRead` and the sink gate (section 6), the option, the Helm value and the docs
 (`controller.md`: the flag and the gauge; `labels-and-offerings.md`: OCI's names, zone names and the
-missing scores). Tests: the files against the manifest; the counts of section 2; the catalog built
-from the embedded data has `oci.VM.Standard.E5.Flex.2-16` with on-demand and spot prices in three ADs of
-three regions, the fixed shapes, no collapsed shapes (before rule R: one type per shape, as a
-regression test of the Keeper-shaped duplicate set); rule R and the loud duplicate; a request for `oci`
+missing scores). Tests: the catalog built from the embedded data has `oci.VM.Standard.E5.Flex.2-16`
+with on-demand and spot prices in three ADs of three regions, the fixed shapes, no collapsed shapes
+(256 sized types, not 12); the same rows served as a Keeper snapshot (`keepertest`) give the same
+catalog (the swap of section 6); a request for `oci`
 alone never reaches the default source; `MuxSource` merges the embedded `StoragePrices` and
-`IPv4Prices`. **Requires 13 part B on main** (or the coordinator's go-ahead to build on `plan13-part-b`);
-if part B is late, build the source against `model.Data` and the main branch's conversion and rebase.
+`IPv4Prices` and an OCI-only load sets them on the driver (`AuxPricesRead`); the merged data of
+Keeper plus the embedded source keeps Keeper's `PublishedAt` and status message.
 
 **(b) The driver foundation** (no CRD, no registration): `pkg/vendors/oci`: `ParseType`/`FormatType` and
 the vCPU table, the narrow interfaces, `fake/`, the SDK adapters behind the interfaces (compile-checked,
 unit-tested against the fake), `errors.go` (the table of section 7), `names.go`, tags and the
 retry token, the shape and AD caches, `quota.go` (buckets, `Consumption`, the unknown list), `iam_test.go`
-(with the policy file), state mapping. The conformance suite runs over the fake with the embedded
-catalog's types. No exported driver registration yet.
+(with the policy file), state mapping. The conformance suite runs over the fake with the types of
+(a1)'s committed `server/oci` file. No exported driver registration yet.
 
 **(c) The full driver and the surfaces**: `Init`, `Regions`, `Zones`, `ResolveImage`/`ReportImages`,
 `CreateInstance`, `Get`/`Find`/`List`/`Delete`, `NodeOptions`, `ManagedResources` with the managed network,
@@ -819,11 +912,12 @@ is green. The first live run is the coordinator's.
 - **14** (done): the contract items this plan uses. **23** (done): `BillingStart`.
 - **13 part A** (on main): the snapshot of the refresh's data. **13 part B** (branch `plan13-part-b`, being
   implemented elsewhere; read-only for this plan): the snapshot-reading `KeeperSource`, the `MuxSource`
-  change, `model.Data.StoragePrices`/`IPv4Prices`, `PriceSink`/`KeeperPriceConsumer`. Step (a) is
-  written against the shapes it fixes (the `catalog.Source` seam exists on main today and survives in
-  B) and lands after it.
-- **24** (draft): **not a dependency** (decision 1); the later grid option would replace the fixed list
-  per NodeClass and keep the name format.
+  change, `model.Data.StoragePrices`/`IPv4Prices`, `PriceSink`/`KeeperPriceConsumer`. Step (a1) does
+  not need it; step (a2) is written against the shapes it fixes (the `catalog.Source` seam exists on
+  main today and survives in B) and lands after it.
+- **24** (draft): **not a dependency** for the code (decision 1); the later grid option would replace
+  the fixed list per NodeClass and keep the name format. Its file is not committed yet; this plan
+  cites its research, so it lands with or before this plan (open question 12).
 - **22**: not needed (Flatcar's official image); an optional later job there is an import helper or a
   Community Application.
 - **Outside the repository**: the operator's IaC for images, subscriptions, identity and quotas
@@ -853,9 +947,10 @@ is green. The first live run is the coordinator's.
    The v1 answer is the best AD's headroom per region (safe, can retry an exhausted AD). Recommendation:
    an optional zone-aware consumption and a zone on `QuotaExceeded` (a core change with a conformance
    case), decided after the first live runs.
-7. **Tenancy-wide usage.** If `GetResourceAvailability` on the compartment sees only its own usage, the
-   buckets over-report headroom when other compartments share the limit. Recommendation: query with the
-   tenancy OCID when the policy allows it (`inspect` on the tenancy), else document the limit of the view.
+7. *(Settled by the contract, kept for the numbering.)* `Bucket.Used` must be the whole account's
+   usage, so the driver reads `GetResourceAvailability` on the tenancy OCID (section 7) and the policy
+   has `inspect resource-availability in tenancy`; S3 confirms that the root includes the
+   sub-compartments.
 8. **Image sharing beyond the user's tenancy.** A Community Application per region and release
    (rung 2) would remove the per-tenancy import. Recommendation: not in v1; plan 22 may take it.
 9. **Bare metal in the catalog.** 16 `BM.*` rows are in the data; Flatcar's CI does not test them; they
@@ -863,15 +958,27 @@ is green. The first live run is the coordinator's.
    them as plain shapes), exclude them from the lane, and mark them unverified in the reference.
 10. **NAT gateway for `publicIPv4: false` on a managed subnet** and **IPv6 on a managed VCN.**
     Recommendation: post-v1 (offerings unavailable with a reason, ADR-017); brought subnets cover both.
+11. **AD numbering in Keeper's OCI data.** The crawler's per-AD price rows are the presence of a
+    shape in the crawler tenancy's AD-N, which is another datacenter in the user's tenancy (section 6):
+    over-offering is caught by the cached `ListShapes` pre-check, under-offering hides a shape in an AD
+    that has it. Recommendation: v1 as written (the main shapes are in every AD of the three regions);
+    ask the crawler to price every shape in every AD of a region where any AD has it (OCI prices are the
+    same everywhere), so the driver's `ListShapes` check alone decides per tenancy. If that is not
+    wanted, the predicate capability of question 4 is the core-side fix.
+12. **Plan 24's file.** `wip/24-flexible-shapes.md` (with the 2026-11-14 note) exists only in a working
+    tree, not on `main` or this branch. Recommendation: commit it (status draft) before this plan
+    merges; this plan cites its §1.1, §1.2 and §7.
 
 ### Decided by default, maintainer to confirm
 
 1. The tag keys are `scarpenter-<key>` (the restrictive mapping), the discovery tag `scarpenter-use`.
-2. `areLegacyImdsEndpointsDisabled` false until spike S6.
+2. `areLegacyImdsEndpointsDisabled` **true** (Ignition reads `/opc/v2/`, verified by the node test;
+   SCarpenter uses no Afterburn); the lane's first boot confirms it, and the field is one line to flip.
 3. Default root volume 64 GiB `balanced`; `storage.data` and local storage rejected in v1.
 4. `VM.Standard2.*`, `VM.Standard.E2.*`, `VM.Standard1.*` and bare metal stay in the catalog as fixed shapes;
    what OCI refuses becomes `Unsupported`.
-5. `compartmentId` required at the controller; every managed resource in it.
+5. `compartmentId` required at the controller; every managed resource in it. (The NodeClass field
+   `compartmentId`, which may only repeat it, can be dropped from v1 without loss.)
 6. Fault domains unset; no capacity reservations, no placement.
 7. Preemptible = `spot`, `TERMINATE` with the boot volume deleted.
 8. The embedded vendors flag defaults to `oci`.
@@ -882,11 +989,12 @@ is green. The first live run is the coordinator's.
   (S5), including the token conflict and the subnet-full code.
 - That capacity and limit errors are synchronous on the launch call, not on the work request (S5).
 - The replay semantics and retention of `opc-retry-token` for a failed launch (S4).
-- Whether `GetResourceAvailability` on a compartment shows the tenancy's usage, and the unit of every
-  quota name form (S3); whether preemptible capacity has its own limit (S9).
-- The IMDS endpoint version Ignition uses and that disabling the legacy endpoints is safe (S6); the
-  encoding of `user_data` Ignition expects (base64 assumed).
-- The arm64 launch options and capability schema with `A1`, and the same for `A2`, `A4` (S7).
+- That `GetResourceAvailability` on the tenancy OCID includes the sub-compartments' usage, the scope
+  type of every compute limit, and the unit of every quota name form (S3); whether preemptible
+  capacity has its own limit (S9).
+- That a node boots with `areLegacyImdsEndpointsDisabled: true` (S6; the endpoint and the base64
+  `user_data` are verified).
+- The arm64 capability schema and launch options with `A2`, `A4` (S7; `A1` is verified).
 - Whether `ListImageShapeCompatibilityEntries` is a sufficient architecture signal for images without
   the `arch` tag (S7).
 - The freeform tag key charset, including `/` and `.` (S8); that no tag reaches the boot volume.
