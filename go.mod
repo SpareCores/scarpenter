@@ -11,7 +11,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12 v12.1.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources v1.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions v1.3.0
-	github.com/SpareCores/sc-keeper-go v0.1.3-0.20261111002342-57cbb420d047
+	github.com/SpareCores/sc-keeper-go v0.1.3-0.20261113205715-b4fdb90f88e5
 	github.com/UpCloudLtd/upcloud-go-api/v8 v8.42.0
 	github.com/alibabacloud-go/darabonba-openapi/v2 v2.2.5
 	github.com/alibabacloud-go/ecs-20140526/v7 v7.11.7
