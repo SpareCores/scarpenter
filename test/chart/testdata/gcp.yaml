@@ -605,6 +605,7 @@ spec:
             - "--cluster-name=lab"
             - "--gcp-project=my-project"
             - "--health-probe-port=8081"
+            - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--metrics-port=8080"
             - "--vendors=gcp"
           env:
@@ -671,6 +672,8 @@ spec:
             - name: gcp-credentials
               mountPath: /etc/scarpenter/gcp
               readOnly: true
+            - name: keeper-cache
+              mountPath: /var/cache/scarpenter/keeper
       volumes:
         - name: tmp
           emptyDir: {}
@@ -686,6 +689,9 @@ spec:
             name: "gcp-credential-configuration"
             items:
               - {key: "credential-configuration.json", path: "credential-configuration.json"}
+        - name: keeper-cache
+          emptyDir:
+            sizeLimit: "256Mi"
       nodeSelector:
         kubernetes.io/os: linux
       affinity:

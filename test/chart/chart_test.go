@@ -227,7 +227,7 @@ func TestFullValuesReachTheController(t *testing.T) {
 		{"vendors", o.Vendors, []string{"aws"}},
 		{"Keeper URL", o.KeeperURL, "https://keeper.example.com"},
 		{"Keeper API key file", o.KeeperAPIKeyFile, "/etc/scarpenter/keeper/api-key"},
-		{"Keeper regions per request", o.KeeperPricesRegionsPerRequest, 3},
+		{"Keeper cache dir", o.KeeperCacheDir, "/var/cache/scarpenter/keeper"},
 		{"catalog refresh", o.CatalogRefreshInterval, 30 * time.Minute},
 		{"catalog max age", o.CatalogMaxAge, 12 * time.Hour},
 		{"sysext base URL", o.SysextBaseURL, "https://mirror.example.com/sysext"},
@@ -349,7 +349,7 @@ func TestAzureCredentialModes(t *testing.T) {
 	})
 	t.Run("none", func(t *testing.T) {
 		m, d := env(t, "--set", "vendors.azure.credentials.mode=none")
-		if _, ok := m["AZURE_CLIENT_ID"]; ok || len(d.Spec.Template.Spec.Volumes) != 1 {
+		if _, ok := m["AZURE_CLIENT_ID"]; ok || len(d.Spec.Template.Spec.Volumes) != 2 {
 			t.Errorf("mode none wires nothing: %v, %v", m, d.Spec.Template.Spec.Volumes)
 		}
 	})
@@ -405,8 +405,8 @@ func TestAWSCredentialModes(t *testing.T) {
 		if m["AWS_REGION"].Value != "us-east-1" {
 			t.Errorf("AWS_REGION = %q, want the default us-east-1 so that the SDK has a region", m["AWS_REGION"].Value)
 		}
-		if len(d.Spec.Template.Spec.Volumes) != 1 {
-			t.Errorf("volumes %v: only tmp expected", d.Spec.Template.Spec.Volumes)
+		if len(d.Spec.Template.Spec.Volumes) != 2 {
+			t.Errorf("volumes %v: only tmp and the Keeper cache expected", d.Spec.Template.Spec.Volumes)
 		}
 	})
 	t.Run("aws disabled", func(t *testing.T) {

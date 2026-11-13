@@ -42,8 +42,8 @@ flannel and kube-proxy; the flags of a k3s server are in
 [node bootstrap](../reference/node-bootstrap.md#cluster-prerequisites).
 
 **Outbound access for the controller** (not for your nodes): HTTPS to the Keeper API
-(`keeper.sparecores.net`: the catalog and, for AWS, the EBS prices from
-`/storage_prices`), to the vendor's APIs (for AWS: EC2, Service Quotas and STS), and to the
+(`keeper.sparecores.net`: `/healthcheck`, the snapshot files of the catalog, the
+vendors' storage and IPv4 prices, and `/benchmark_configs`; it needs an [API key](#keeper-api-key)), to the vendor's APIs (for AWS: EC2, Service Quotas and STS), and to the
 hosts of the node artifacts (the Flatcar release server and the sysext-bakery
 releases on GitHub; point `artifacts.sysextBaseURL` and `artifacts.flatcarBaseURL`
 at mirrors if the controller has no such access). Nodes download the same
@@ -121,7 +121,7 @@ refuses to start on any problem of its command line and logs all of them.
 | `cluster.domain` | The kubelet's `clusterDomain` (default `cluster.local`). |
 | `cluster.ca.*` | A CA bundle for the nodes other than the `kube-root-ca.crt` ConfigMap of the release namespace (which every namespace has, and which is the right one on kubeadm, k3s and EKS). |
 | `kubeletClientCA.*` | [k3s](#k3s-the-kubelet-client-ca). |
-| `keeper.url`, `keeper.apiKey.existingSecret` | A different Keeper, or an API key (higher rate limits) from a Secret you create. |
+| `keeper.url`, `keeper.apiKey.existingSecret` | A self-hosted Keeper, and the API key the public Keeper requires, from a Secret you create ([Keeper API key](#keeper-api-key)). |
 | `bootstrap.tokenTTL` | Lifetime of a node's bootstrap token; at least 20m (core gives a NodeClaim 15 minutes to register). |
 | `bootstrap.tailnetPrefixes` | For a Headscale with other prefixes than Tailscale's. |
 | `rbac.authKeySecrets` | The tailscale auth key Secrets of other namespaces: the chart creates a Role that reads just that Secret and a RoleBinding there. The key Secret in the release namespace needs nothing. |
@@ -225,6 +225,39 @@ the lease `<release>-leader-election` in the release namespace); add
 `webIdentity` (the ServiceAccount's token exchanged for an IAM role; the
 recommendation), `secret` (static keys in a Secret you create) and `none` (EKS Pod
 Identity or the node's instance profile, which the SDK finds itself).
+
+## Keeper API key
+
+SCarpenter reads its catalog (instance types, regions, zones, prices, benchmark
+scores) from Keeper's snapshot files. The public Keeper
+(`https://keeper.sparecores.net`) requires an API key for them: without one the
+catalog stays empty, SCNodeClasses report `CatalogReady=False` with reason
+`KeeperAPIKeyRequired`, `KeeperAuthorized=False` (`APIKeyMissing`, or
+`APIKeyRejected` when a key was sent and refused) and the controller logs
+`Keeper needs an API key`.
+
+1. Request a key: <https://docs.sparecores.com/api/#authentication>.
+2. Put it in a Secret and point the chart at it (`key` defaults to `api-key`):
+
+   ```bash
+   kubectl -n scarpenter-system create secret generic keeper-api-key \
+     --from-file=api-key=<file with the key>
+   ```
+
+   ```yaml
+   keeper:
+     apiKey:
+       existingSecret: keeper-api-key
+   ```
+
+   Without the chart, pass `--keeper-api-key-file` (or
+   `SCARPENTER_KEEPER_API_KEY_FILE`) with the path of a file holding the key.
+3. Rotate it by updating the Secret: the file is read at every catalog refresh,
+   no restart is needed. The key stays optional at startup.
+
+Keeper is open source (<https://github.com/SpareCores/sc-keeper>) and can be
+self-hosted: set `keeper.url` (`--keeper-url`) to it. A self-hosted Keeper may
+need no key.
 
 ## First NodeClass and NodePool
 

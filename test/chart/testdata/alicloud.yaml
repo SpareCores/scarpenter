@@ -603,6 +603,7 @@ spec:
             - "--api-server-endpoint=https://api.example.com"
             - "--cluster-name=lab"
             - "--health-probe-port=8081"
+            - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--metrics-port=8080"
             - "--vendors=alicloud,aws"
           env:
@@ -672,6 +673,8 @@ spec:
             - name: alibabacloud-token
               mountPath: /var/run/secrets/alibabacloud
               readOnly: true
+            - name: keeper-cache
+              mountPath: /var/cache/scarpenter/keeper
       volumes:
         - name: tmp
           emptyDir: {}
@@ -682,6 +685,9 @@ spec:
                   audience: "sts.aliyuncs.com"
                   expirationSeconds: 3600
                   path: token
+        - name: keeper-cache
+          emptyDir:
+            sizeLimit: "256Mi"
       nodeSelector:
         kubernetes.io/os: linux
       affinity:

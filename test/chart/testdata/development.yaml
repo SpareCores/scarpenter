@@ -613,6 +613,7 @@ spec:
             - "--cluster-dns=10.96.0.10"
             - "--cluster-name=scarpenter-kwok"
             - "--health-probe-port=8081"
+            - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--log-level=debug"
             - "--metrics-port=8080"
             - "--vendors=fake"
@@ -670,9 +671,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: keeper-cache
+              mountPath: /var/cache/scarpenter/keeper
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: keeper-cache
+          emptyDir:
+            sizeLimit: "256Mi"
       nodeSelector:
         kubernetes.io/os: linux
       affinity:

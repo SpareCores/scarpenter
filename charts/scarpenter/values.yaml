@@ -127,8 +127,9 @@ vendors:
     # use. Empty: homeRegion, else us-east-1.
     region: ""
     # Price of a public IPv4 address per hour in USD, used in the price of AWS
-    # offerings (SCARPENTER_AWS_IPV4_PRICE). An approximation, not a Keeper price;
-    # empty: 0.005 (what AWS charges in every commercial region). "0": free.
+    # offerings (SCARPENTER_AWS_IPV4_PRICE). An explicit override that wins over
+    # Keeper's ipv4_price rows; empty: Keeper's price of the region (a region
+    # without a row makes the price incomplete). "0": free.
     ipv4Price: ""
     credentials:
       # webIdentity: the ServiceAccount's projected token is exchanged for the
@@ -163,8 +164,8 @@ vendors:
     # when enabled: one controller, one subscription.
     subscriptionID: ""
     # Price of a Standard public IPv4 address per hour in USD, used in the price of
-    # Azure offerings (SCARPENTER_AZURE_IPV4_PRICE). An approximation, not a Keeper
-    # price; empty: 0.005. "0": free.
+    # Azure offerings (SCARPENTER_AZURE_IPV4_PRICE). An explicit override that wins
+    # over Keeper's ipv4_price rows; empty: Keeper's price of the region. "0": free.
     ipv4Price: ""
     credentials:
       # workloadIdentity: the ServiceAccount's projected token is exchanged for the
@@ -199,8 +200,8 @@ vendors:
     # federation carries none, so set it there.
     project: ""
     # Price of an external IPv4 address per hour in USD, used in the price of GCP
-    # offerings (SCARPENTER_GCP_IPV4_PRICE). An approximation, not a Keeper price;
-    # empty: 0.005. "0": free.
+    # offerings (SCARPENTER_GCP_IPV4_PRICE). An explicit override that wins over
+    # Keeper's ipv4_price rows; empty: Keeper's price of the region. "0": free.
     ipv4Price: ""
     credentials:
       # workloadIdentity: an external_account credential configuration (an existing
@@ -233,8 +234,9 @@ vendors:
     # (--hcloud-server-limit). 0: unknown.
     serverLimit: 0
     # Price of a Primary IPv4 address per hour in USD, used in the price of
-    # Hetzner offerings (SCARPENTER_HCLOUD_IPV4_PRICE). Keeper has none; empty:
-    # 0.0007 (0.50 EUR a month). "0": free.
+    # Hetzner offerings (SCARPENTER_HCLOUD_IPV4_PRICE). An explicit override that
+    # wins over Keeper's ipv4_price rows; empty: Keeper's price of the region. "0":
+    # free.
     ipv4Price: ""
     credentials:
       # The API token of the project (HCLOUD_TOKEN), from an existing Secret: a
@@ -306,18 +308,26 @@ vendors:
   extra: []
 
 keeper:
-  # Base URL of the Spare Cores Keeper API (--keeper-url). The controller needs
-  # outbound HTTPS to it: the catalog (/table/*, /servers, /server_prices) and the
-  # AWS EBS prices (/storage_prices).
+  # Base URL of the Keeper API (--keeper-url). The public Spare Cores Keeper is
+  # the default; Keeper is open source (https://github.com/SpareCores/sc-keeper)
+  # and can be self-hosted: point this at it. The controller needs outbound HTTPS
+  # to it: /healthcheck, /snapshot/<hash>/... (the catalog, the vendors' storage
+  # and IPv4 prices) and /benchmark_configs.
   url: ""
-  # Optional Keeper API key, read from an existing Secret and mounted as a file
-  # (--keeper-api-key-file). Without it the access is anonymous.
+  # The Keeper API key, read from an existing Secret and mounted as a file
+  # (--keeper-api-key-file; read at every refresh, so updating the Secret rotates
+  # it). The public Keeper requires one: without it the catalog stays empty
+  # (CatalogReady=False, KeeperAPIKeyRequired). Request a key at
+  # https://docs.sparecores.com/api/#authentication, see "Keeper API key" in
+  # docs/how-to-guides/install.md. A self-hosted Keeper may need none.
   apiKey:
     existingSecret: ""
     key: api-key
-  # Regions per price request (--keeper-prices-regions-per-request); 0 or empty:
-  # the client's default.
-  pricesRegionsPerRequest: null
+  # On-disk copy of Keeper's snapshot files of the pinned data version
+  # (--keeper-cache-dir, an emptyDir at /var/cache/scarpenter/keeper): a restart
+  # and an unchanged file need no download.
+  cacheDir:
+    sizeLimit: 256Mi
 
 catalog:
   # How often the catalog is refreshed from Keeper (--catalog-refresh-interval; 1h).

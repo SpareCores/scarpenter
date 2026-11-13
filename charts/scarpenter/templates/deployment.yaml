@@ -77,7 +77,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "cluster-domain" .Values.cluster.domain
   "tailnet-prefixes" (join "," .Values.bootstrap.tailnetPrefixes)
   "keeper-url" .Values.keeper.url
-  "keeper-prices-regions-per-request" .Values.keeper.pricesRegionsPerRequest
+  "keeper-cache-dir" "/var/cache/scarpenter/keeper"
   "catalog-refresh-interval" .Values.catalog.refreshInterval
   "catalog-max-age" .Values.catalog.maxAge
   "sysext-base-url" .Values.artifacts.sysextBaseURL
@@ -417,6 +417,8 @@ spec:
               mountPath: /etc/scarpenter/keeper
               readOnly: true
             {{- end }}
+            - name: keeper-cache
+              mountPath: /var/cache/scarpenter/keeper
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -497,6 +499,9 @@ spec:
               - {key: {{ include "scarpenter.kubeletClientCAKey" . | quote }}, path: {{ include "scarpenter.kubeletClientCAKey" . | quote }}}
           {{- end }}
         {{- end }}
+        - name: keeper-cache
+          emptyDir:
+            sizeLimit: {{ .Values.keeper.cacheDir.sizeLimit | default "256Mi" | quote }}
         {{- if .Values.keeper.apiKey.existingSecret }}
         - name: keeper-api-key
           secret:

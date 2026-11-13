@@ -604,6 +604,7 @@ spec:
             - "--cluster-dns=none"
             - "--cluster-name=my-cluster"
             - "--health-probe-port=8081"
+            - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--metrics-port=8080"
             - "--vendors=aws"
           env:
@@ -662,9 +663,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: keeper-cache
+              mountPath: /var/cache/scarpenter/keeper
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: keeper-cache
+          emptyDir:
+            sizeLimit: "256Mi"
       nodeSelector:
         kubernetes.io/os: linux
       affinity:

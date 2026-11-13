@@ -138,12 +138,16 @@ region ID or an alias; only active regions match.
 
 ### Prices
 
-`Price` is the hourly USD price of Keeper's `/server_prices` (or
-`/table/server_prices` with a Keeper API key) plus the price delta of the
-driver's default settings (root disk, public IPv4 where billed; zero until the
-drivers exist). On AWS the EBS part comes from Keeper's storage prices, the IPv4
-part is a constant (0.005 USD per hour, `SCARPENTER_AWS_IPV4_PRICE`): an
-approximation, Keeper has no IPv4 price. Only active, hourly, USD, Linux rows count. With
+`Price` is the hourly USD price of the `server_price` file of Keeper's snapshot
+for the vendor, plus the price delta of the driver's default settings (root disk,
+public IPv4 where billed). The disk and IPv4 parts come from the snapshot's
+`storage_price` and `ipv4_price` files of the same data version (handed to the
+drivers by the catalog, `SetKeeperPrices`); an explicit `SCARPENTER_*_IPV4_PRICE`
+overrides Keeper's IPv4 price, and a region without a Keeper row makes the delta
+incomplete. Only active, hourly, USD, Linux rows with a price above zero count.
+Snapshot prices are converted to USD by Keeper and not rounded, so offering
+prices of converted vendors differ from the old rounded routes in the last digits
+(selection still rounds to 4 digits). With
 `pricing.allowIncomplete: false` offerings whose delta is incomplete are
 dropped. When several rows give the same zone and capacity type the lowest
 wins.
@@ -307,7 +311,7 @@ Offering-level, from Keeper's region table. Unknown is `DoesNotExist`.
 | `green-energy` | `green_energy`: `true` or `false`; unknown (Keeper's data is tri-state) is `DoesNotExist` |
 
 `city`, `state` and `green_energy` are fields of sc-keeper-go's `Region`
-(`/table/region`, nullable).
+(`region` file of the snapshot, nullable).
 
 ### Profile labels
 
@@ -352,10 +356,22 @@ union changes, a refresh starts at once.
 
 ### Refresh and staleness
 
-- A refresh reads one consistent `data_version`: `/healthcheck`, `/table/server`,
-  `/table/region`, `/table/zone`, `/server_prices` of the scope (flat
-  `/table/server_prices` with `--keeper-api-key-file`), `/benchmark_configs` and
-  the benchmark and selection queries.
+- A refresh reads one pinned Keeper data version: `/healthcheck` pins the
+  `database_hash`, then the manifest `/snapshot/{hash}` and the files of that
+  hash the request needs: the global `vendor` table; per vendor in scope
+  `region`, `zone`, `server`, `server_price`, `storage_price`, `ipv4_price`; one
+  `benchmark_score/{vendor}/{benchmark_id}` per vendor and benchmark that a metric
+  or selection uses. `/benchmark_configs` is the one other live read, and only
+  when metrics or selections exist. Files are streamed into rows (never held
+  uncompressed) and filtered locally; scores are matched to the resolved
+  benchmark config byte for byte. A metric without any matching score row is an
+  invalid metric. A data version that Keeper's replica no longer serves
+  (`snapshot-not-available`) is re-pinned once to the replica's current one.
+- With `--keeper-cache-dir` the gzip files are kept per hash and checked against
+  the manifest's SHA-256: a restart within the same version asks Keeper for
+  `/healthcheck` only, and a new version fetches only the files that changed. When
+  the hash and the request equal the current catalog's, a refresh stops after
+  `/healthcheck`.
 - It runs every `--catalog-refresh-interval` (default 1 h) with 10 % jitter, at
   start-up, and when the scope, a metric or a selection changes. After a failure
   it retries within a minute.
@@ -364,12 +380,11 @@ union changes, a refresh starts at once.
   `Ready` until the snapshot is older than `--catalog-max-age` (default 24 h);
   then `Stale`, which the NodeClass controller turns into `CatalogReady=False`
   with the last error. A class the snapshot does not cover yet is `ScopePending`.
-- **Cold start**: without any snapshot the status is `NoSnapshot` and
+- **Cold start**: without any snapshot the status is `NoSnapshot` (`KeeperAPIKeyRequired` when Keeper answered 401, see [Keeper API key](../how-to-guides/install.md#keeper-api-key)) and
   `GetInstanceTypes` returns nothing for the class, so pods stay pending instead
   of nodes being launched blind.
-- `/server_prices` is large (about 4 KB per row, not compressed by Keeper) and
-  `sc-keeper-go` decodes it as a stream into flat rows, so a NodeClass's region
-  allow-list bounds the refresh directly.
+- The largest file is Azure's `server_price` (295k rows); it is decoded as a
+  stream, see the memory numbers in the plan.
 
 ### The pre-filter
 

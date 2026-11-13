@@ -659,12 +659,15 @@
             }
           }
         },
-        "pricesRegionsPerRequest": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0
+        "cacheDir": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sizeLimit": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?([KMGTP]i?|m|k)?$"
+            }
+          }
         }
       }
     },

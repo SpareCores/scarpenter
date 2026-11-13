@@ -721,7 +721,7 @@ spec:
             - "--gc-interval=3m"
             - "--health-probe-port=9091"
             - "--keeper-api-key-file=/etc/scarpenter/keeper/api-key"
-            - "--keeper-prices-regions-per-request=3"
+            - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--keeper-url=https://keeper.example.com"
             - "--kubelet-client-ca-file=/etc/scarpenter/kubelet-client-ca/client-ca.crt"
             - "--log-level=debug"
@@ -822,6 +822,8 @@ spec:
             - name: keeper-api-key
               mountPath: /etc/scarpenter/keeper
               readOnly: true
+            - name: keeper-cache
+              mountPath: /var/cache/scarpenter/keeper
       volumes:
         - name: tmp
           emptyDir: {}
@@ -842,6 +844,9 @@ spec:
             name: "scarpenter-kubelet-client-ca"
             items:
               - {key: "client-ca.crt", path: "client-ca.crt"}
+        - name: keeper-cache
+          emptyDir:
+            sizeLimit: "512Mi"
         - name: keeper-api-key
           secret:
             secretName: "keeper-key"

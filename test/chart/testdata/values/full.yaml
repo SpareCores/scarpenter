@@ -36,7 +36,7 @@ vendors:
 keeper:
   url: https://keeper.example.com
   apiKey: {existingSecret: keeper-key, key: token}
-  pricesRegionsPerRequest: 3
+  cacheDir: {sizeLimit: 512Mi}
 catalog: {refreshInterval: 30m, maxAge: 12h}
 artifacts:
   sysextBaseURL: https://mirror.example.com/sysext

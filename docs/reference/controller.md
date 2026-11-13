@@ -28,8 +28,9 @@ The last column names the plan that introduced the flag.
 | `--cluster-ca-file` | `SCARPENTER_CLUSTER_CA_FILE` | empty | File with the cluster CA bundle given to nodes. Empty means the `kube-root-ca.crt` ConfigMap of the controller's namespace (`POD_NAMESPACE`; `kube-system` without it). | plan 05 |
 | `--kubelet-client-ca-file` | `SCARPENTER_KUBELET_CLIENT_CA_FILE` | empty | File with the CA bundle that signs the API server's kubelet client certificates, for control planes where it is not the cluster CA (k3s: `<data-dir>/server/tls/client-ca.crt`). Written to the nodes as `/etc/kubernetes/pki/kubelet-client-ca.crt` and used as the kubelet's `authentication.x509.clientCAFile`; without it the kubelet trusts the cluster CA, and `kubectl logs` and `exec` fail with 401 on k3s. Read at every rendering. | plan 07 |
 | `--vendors` | `SCARPENTER_VENDORS` | `aws` | Comma-separated list of enabled vendor drivers. | plan 04 |
-| `--keeper-url` | `SCARPENTER_KEEPER_URL` | `https://keeper.sparecores.net` | Base URL of the Spare Cores Keeper API. | plan 03 |
-| `--keeper-api-key-file` | `SCARPENTER_KEEPER_API_KEY_FILE` | empty | File with an optional Keeper API key. | plan 03 |
+| `--keeper-url` | `SCARPENTER_KEEPER_URL` | `https://keeper.sparecores.net` | Base URL of the Keeper API: the public Spare Cores one by default, or a self-hosted Keeper (open source, <https://github.com/SpareCores/sc-keeper>). | plan 03 |
+| `--keeper-api-key-file` | `SCARPENTER_KEEPER_API_KEY_FILE` | empty | File with the Keeper API key. The public Keeper requires one ([Keeper API key](../how-to-guides/install.md#keeper-api-key)); optional for a self-hosted Keeper. Read at every catalog refresh, so a rotated Secret takes effect without a restart; an empty file is an error. | plan 03, plan 13 |
+| `--keeper-cache-dir` | `SCARPENTER_KEEPER_CACHE_DIR` | empty (no copy) | Directory that keeps Keeper's snapshot files of the pinned data version (`<dir>/<hash>/...`, the gzip bytes as received, checked against the manifest's SHA-256 before use). A restart within the same data version reads only `/healthcheck` from Keeper; a new version fetches only the files that changed. Directories of other versions are deleted after a successful refresh. The chart sets it to an `emptyDir` at `/var/cache/scarpenter/keeper`. | plan 13 |
 | `--catalog-refresh-interval` | `SCARPENTER_CATALOG_REFRESH_INTERVAL` | `1h` | How often the catalog is refreshed (with 10 % jitter). | plan 03 |
 | `--catalog-max-age` | `SCARPENTER_CATALOG_MAX_AGE` | `24h` | Snapshot age after which SCNodeClasses report `CatalogReady=False`. Must not be shorter than the refresh interval. | plan 03 |
 | `--sysext-base-url` | `SCARPENTER_SYSEXT_BASE_URL` | empty (upstream) | Mirror of the Flatcar sysext-bakery releases: `<base>/<name>-<version>/...` as upstream. | plan 05 |
@@ -49,16 +50,15 @@ The last column names the plan that introduced the flag.
 | `--unavailable-unsupported-ttl` | `SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL` | `0` (24h) | How long a type stays unavailable in a zone after `Unsupported`. | plan 04 |
 | `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (30m) | How long a region and capacity type stay unavailable after `QuotaExceeded` of a vendor without a quota API; every region of the vendor when the error is account-wide. | plan 04 |
 | `--unavailable-zone-unusable-ttl` | `SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL` | `0` (10m) | How long a zone stays unavailable after `ZoneUnusable`. | plan 04 |
-| `--keeper-prices-regions-per-request` | `SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST` | `0` (client default) | Regions per Keeper price request. The replay server of the test lanes has one region per recorded request and needs `1`. | plan 04 |
 | `--resource-default-ttl` | `SCARPENTER_RESOURCE_DEFAULT_TTL` | `24h` | `idleTTL` of managed shared resources when an SCNodeClass does not set one. | plan 06 |
 | `--resource-per-use-grace` | `SCARPENTER_RESOURCE_PER_USE_GRACE` | `2m` | How long an unused `perUse` managed resource is kept for launches in flight. | plan 06 |
 | `--resource-full-sweep-every` | `SCARPENTER_RESOURCE_FULL_SWEEP_EVERY` | `10` | Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed resources of every region of the driver are swept, not only of the regions in use. **Cost:** a full sweep asks the vendor, for every region the account can use, which managed resources exist (for AWS: a few `Describe*` calls per resource kind and region): read-only and free, but rate limited, and it runs on the leader only. At the default `--gc-interval` of 2m it happens every 20 minutes; raise the value to make it rarer, `1` makes every sweep a full one. | plan 06 |
 | `--resource-check-interval` | `SCARPENTER_RESOURCE_CHECK_INTERVAL` | `30s` | How often the vendor resources of each SCNodeClass are checked (`status.vendors.<vendor>.resources`, `ResourcesReady`, preCreate). | plan 06 |
-| (AWS only) | `SCARPENTER_AWS_IPV4_PRICE` | `0.005` | Price of a public IPv4 address per hour in USD, used in the price delta of AWS offerings. **An approximation, not a Keeper price** (Keeper has no IPv4 price): AWS charges 0.005 in every commercial region since 2024-02-01. `0` means free; negative, NaN and infinite values are refused at startup. The driver logs the value it uses. Environment only. | plan 08 |
+| (AWS only) | `SCARPENTER_AWS_IPV4_PRICE` | unset (Keeper's) | Price of a public IPv4 address per hour in USD, used in the price delta of AWS offerings. Unset (the default), the price is Keeper's `ipv4_price` row of the region, and a region without a row makes the price delta incomplete; set, it is an explicit override that wins over Keeper. `0` means free; negative, NaN and infinite values are refused at startup. The driver logs the value it uses. Environment only. | plan 08 |
 | `--gcp-project` | `SCARPENTER_GCP_PROJECT` | project of the credentials | The Google Cloud project of the GCP driver's nodes: the controller targets one. Required with workload identity federation (it carries no project); a NodeClass's `vendors.gcp.project`, when set, must equal it ([GCP driver](gcp-driver.md#credentials-and-clients)). | plan 16 |
-| (GCP only) | `SCARPENTER_GCP_IPV4_PRICE` | `0.005` | Price of an external IPv4 address per hour in USD, used in the price delta of GCP offerings. **An approximation, not a Keeper price, and unverified**; `0` means free; negative, NaN and infinite values are refused at startup. Environment only. | plan 16 |
+| (GCP only) | `SCARPENTER_GCP_IPV4_PRICE` | unset (Keeper's) | Price of an external IPv4 address per hour in USD, used in the price delta of GCP offerings. Unset, Keeper's `ipv4_price` row of the region (none: incomplete delta); set, an explicit override that wins over Keeper; `0` means free; negative, NaN and infinite values are refused at startup. Environment only. | plan 16 |
 | `--hcloud-server-limit` | `SCARPENTER_HCLOUD_SERVER_LIMIT` | `0` (unknown) | The server limit of the Hetzner Cloud project, as the Console shows it (the API does not report it). With it the driver reports one global quota bucket and headroom is known before a launch; without it only the API's own refusal ends a launch. Negative values are refused. | plan 15 |
-| (hcloud only) | `SCARPENTER_HCLOUD_IPV4_PRICE` | `0.0007` | Price of a Primary IPv4 address per hour in USD, used in the price delta of Hetzner offerings. **An approximation, not a Keeper price** (Keeper has none): 0.50 EUR a month over 730 hours. `0` means free; negative, NaN and infinite values are refused at startup. Environment only. | plan 15 |
+| (hcloud only) | `SCARPENTER_HCLOUD_IPV4_PRICE` | unset (Keeper's) | Price of a Primary IPv4 address per hour in USD, used in the price delta of Hetzner offerings. Unset, Keeper's `ipv4_price` row of the region (a monthly price divided by 730 hours; none: incomplete delta); set, an explicit override that wins over Keeper. `0` means free; negative, NaN and infinite values are refused at startup. Environment only. | plan 15 |
 | (OVH only) | `SCARPENTER_OVH_SCHEDULE_WAIT` | `45s` | How long a server create waits for Nova's scheduler (a Go duration), so that a capacity failure shows as the create's error and the attempt loop tries the next candidate; a server still scheduling after it is returned as pending. Environment only ([OVHcloud driver](ovh-driver.md)). | plan 18 |
 | (OVH only) | `SCARPENTER_OVH_REGION_ALIASES` | (none) | Rows of the OVH region table: comma-separated `KEEPER=API` pairs (`GRA13=GRA13` adds a region Keeper knows and the table lacks); an empty API name leaves the Keeper region unused. A row whose API name differs from the Keeper name is refused at start: it needs the Keeper name in `vendors.Region` (plan 14, A8: a core change not made yet), without which it would hide the region's offerings. Environment only. | plan 18 |
 | (Vultr only) | `VULTR_API_KEY` | (none) | The API key of the Vultr account. Required when `--vendors` has `vultr`: the controller refuses to start without it. Environment only; the chart wires it from a Secret. [Vultr credentials](../how-to-guides/vultr-credentials.md). | plan 20 |
@@ -67,7 +67,7 @@ The last column names the plan that introduced the flag.
 | (Azure only) | `AZURE_SUBSCRIPTION_ID` | required | The subscription the Azure driver works in: one controller, one subscription, no discovery. Environment only (no flag: the Azure SDK's own variable). | plan 17 |
 | (Azure only) | `SCARPENTER_AZURE_CREDENTIALS_MODE` | `workloadIdentity` | `workloadIdentity` (also `none`) or `secret`: the credential chain, see [Azure credentials](../how-to-guides/azure-credentials.md). Environment only. | plan 17 |
 | (Azure only) | `SCARPENTER_AZURE_DEVELOPMENT` | `false` | `true` ends the chain in the Azure CLI's login (the sweeper and a developer's machine; never in a cluster). Environment only. | plan 17 |
-| (Azure only) | `SCARPENTER_AZURE_IPV4_PRICE` | `0.005` | Price of a Standard public IPv4 address per hour in USD, used in the price delta of Azure offerings. An approximation, not a Keeper price; `0` means free; invalid values are refused at startup. Environment only. | plan 17 |
+| (Azure only) | `SCARPENTER_AZURE_IPV4_PRICE` | unset (Keeper's) | Price of a Standard public IPv4 address per hour in USD, used in the price delta of Azure offerings. Unset, Keeper's `ipv4_price` row of the region (none: incomplete delta); set, an explicit override that wins over Keeper; `0` means free; invalid values are refused at startup. Environment only. | plan 17 |
 | `--aws-home-region` | `SCARPENTER_AWS_HOME_REGION` | `us-east-1` | AWS region the account's region list (`DescribeRegions`) is read from; the AWS driver's other calls go to the region they concern ([AWS driver](aws-driver.md)). | plan 08 |
 
 All problems of the command line are reported together, and the controller
@@ -118,15 +118,15 @@ and that the controller's own parser accepts what the chart renders.
 | `vendors.aws.enabled`, `vendors.azure.enabled`, `vendors.gcp.enabled`, `vendors.hcloud.enabled`, `vendors.extra` | `--vendors` | `alicloud`, `aws`, `azure`, `gcp`, `hcloud`, `ovh`, `upcloud` and `vultr` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
 | `vendors.alicloud.enabled`, `homeRegion` | `--vendors`, `SCARPENTER_ALICLOUD_HOME_REGION` | |
 | `vendors.azure.enabled`, `vendors.azure.subscriptionID` | `--vendors` (adds `azure`), `AZURE_SUBSCRIPTION_ID` | `subscriptionID` is required when enabled. |
-| `vendors.azure.ipv4Price` | `SCARPENTER_AZURE_IPV4_PRICE` | An approximation, see the table above. |
+| `vendors.azure.ipv4Price` | `SCARPENTER_AZURE_IPV4_PRICE` | An explicit override that wins over Keeper's price, see the table above. |
 | `vendors.azure.credentials.mode`, `workloadIdentity.*`, `secret.*` | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`, a projected ServiceAccount token, `AZURE_CLIENT_SECRET` | [Azure credentials](../how-to-guides/azure-credentials.md). `workloadIdentity` needs `clientId` and `tenantId`, `secret` an `existingSecret`. |
 | `vendors.gcp.enabled` | `--vendors` | `gcp` is added to the list when enabled (off by default). |
 | `vendors.gcp.project` | `--gcp-project` | |
-| `vendors.gcp.ipv4Price` | `SCARPENTER_GCP_IPV4_PRICE` | An approximation, see the table above. |
+| `vendors.gcp.ipv4Price` | `SCARPENTER_GCP_IPV4_PRICE` | An explicit override that wins over Keeper's price, see the table above. |
 | `vendors.gcp.credentials.mode`, `workloadIdentity.*`, `secret.*` | `GOOGLE_APPLICATION_CREDENTIALS`, a projected ServiceAccount token (audience `workloadIdentity.audience`) and a ConfigMap or Secret mount | [GCP credentials](../how-to-guides/gcp-credentials.md). `workloadIdentity` needs `configMap` and `audience`, `secret` an `existingSecret`. |
 | `vendors.aws.homeRegion` | `--aws-home-region` | |
 | `vendors.aws.region` | `AWS_REGION` | Default: the home region, else `us-east-1`. |
-| `vendors.aws.ipv4Price` | `SCARPENTER_AWS_IPV4_PRICE` | An approximation, see the table above. |
+| `vendors.aws.ipv4Price` | `SCARPENTER_AWS_IPV4_PRICE` | An explicit override that wins over Keeper's price, see the table above. |
 | `vendors.ovh.enabled` | `--vendors` | Adds `ovh` after `aws` and `hcloud`. |
 | `vendors.ovh.scheduleWait`, `regionAliases` | `SCARPENTER_OVH_SCHEDULE_WAIT`, `SCARPENTER_OVH_REGION_ALIASES` | A map of aliases is rendered as `KEEPER=API` pairs, sorted. |
 | `vendors.ovh.credentials.mode`, `secret.*` | `OS_AUTH_URL`, `OS_USERNAME`, `OS_PASSWORD`, `OS_PROJECT_ID`, `OS_USER_DOMAIN_NAME` | [OVH credentials](../how-to-guides/ovh-credentials.md). `secret` needs an `existingSecret`; the `*Key` values name its keys; `none` wires nothing. |
@@ -137,13 +137,13 @@ and that the controller's own parser accepts what the chart renders.
 | `vendors.aws.credentials.mode`, `webIdentity.*`, `secret.*` | `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, a projected ServiceAccount token, `AWS_ACCESS_KEY_ID`, ... | [AWS credentials](../how-to-guides/aws-credentials.md). `webIdentity` needs `roleArn`, `secret` an `existingSecret`. |
 | `vendors.hcloud.credentials.secret.existingSecret`, `key` | `HCLOUD_TOKEN` | The Secret that holds the project's API token ([Hetzner Cloud driver](hcloud-driver.md)); the name is required when the driver is enabled. |
 | `vendors.hcloud.serverLimit` | `--hcloud-server-limit` | `0`: unknown (flag left out). |
-| `vendors.hcloud.ipv4Price` | `SCARPENTER_HCLOUD_IPV4_PRICE` | An approximation, see the table above. |
+| `vendors.hcloud.ipv4Price` | `SCARPENTER_HCLOUD_IPV4_PRICE` | An explicit override that wins over Keeper's price, see the table above. |
 | `vendors.vultr.enabled` | `--vendors` | Adds `vultr` after `aws`, `hcloud` and `ovh`. Requires `credentials.secret.existingSecret`. |
 | `vendors.vultr.credentials.secret.existingSecret`, `key` | `VULTR_API_KEY` | The API key from the Secret (key default `apiKey`); the only credential mode. [Vultr credentials](../how-to-guides/vultr-credentials.md). |
 | `vendors.vultr.availabilityTTL` | `SCARPENTER_VULTR_AVAILABILITY_TTL` | |
-| `keeper.url` | `--keeper-url` | |
-| `keeper.apiKey.existingSecret`, `key` | `--keeper-api-key-file` | The Secret's key is mounted as a file. |
-| `keeper.pricesRegionsPerRequest` | `--keeper-prices-regions-per-request` | |
+| `keeper.url` | `--keeper-url` | The public Keeper needs an API key. |
+| `keeper.apiKey.existingSecret`, `key` | `--keeper-api-key-file` | The Secret's key (default `api-key`) is mounted as a file and read at every refresh; [Keeper API key](../how-to-guides/install.md#keeper-api-key). |
+| `keeper.cacheDir.sizeLimit` | `--keeper-cache-dir` | Size limit (default `256Mi`) of the `emptyDir` at `/var/cache/scarpenter/keeper`; the flag is always set. |
 | `catalog.refreshInterval`, `maxAge` | `--catalog-refresh-interval`, `--catalog-max-age` | |
 | `artifacts.sysextBaseURL`, `flatcarBaseURL` | `--sysext-base-url`, `--flatcar-base-url` | |
 | `bootstrap.tokenTTL` | `--bootstrap-token-ttl` | At least 20m; the chart refuses less. |
@@ -185,7 +185,7 @@ kubelets register them), and no state store is needed: its state is the cluster
 objects, the vendor's resources and their tags.
 
 The controller's network access is outbound only: the Kubernetes API, the Keeper
-API (HTTPS; the catalog and the AWS EBS prices from `/storage_prices`), the
+API (HTTPS: `/healthcheck`, the snapshot routes `/snapshot/<hash>/...` and `/benchmark_configs`; no `/storage_prices`: the vendors' storage and IPv4 prices are files of the snapshot), the
 vendors' APIs and the artifact hosts (or their mirrors). It listens on the metrics
 and health ports only; no webhook, no admission controller.
 
@@ -194,7 +194,8 @@ and health ports only; no webhook, no admission controller.
 | Condition | Meaning | Set by |
 |---|---|---|
 | `Ready` | Root condition: true when `CatalogReady`, `ArtifactsReady` and `ValidationSucceeded` are. A vendor that is not ready only makes its own offerings unavailable. | derived (operatorpkg) |
-| `CatalogReady` | The catalog snapshot for the SCNodeClass is available and not older than `--catalog-max-age`. The catalog computes it (`Catalog.Status`: `NoSnapshot`, `ScopePending`, `Stale`); the NodeClass controller writes it to the status. | plan 03 (status), plan 05 (condition) |
+| `CatalogReady` | The catalog snapshot for the SCNodeClass is available and not older than `--catalog-max-age`. The catalog computes it (`Catalog.Status`: `NoSnapshot`, `KeeperAPIKeyRequired` (no catalog because Keeper answered 401), `ScopePending`, `Stale`); the NodeClass controller writes it to the status. When `True`, the message names the Keeper data version (hash) and when it was published. | plan 03 (status), plan 05 (condition), plan 13 |
+| `KeeperAuthorized` | Informational, not a dependent of `Ready` (like `RestartRequired`): `False` with reason `APIKeyMissing` (no key configured) or `APIKeyRejected` (Keeper rejected the one sent) after Keeper answered a refresh with 401, the message naming `--keeper-api-key-file` / `keeper.apiKey.existingSecret` and the [Keeper API key](../how-to-guides/install.md#keeper-api-key) section; `True` (`Authorized`) after the next successful snapshot read; absent before either. The catalog computes it (`Catalog.Status`); the NodeClass controller writes it. | plan 13 |
 | `ArtifactsReady` | The sysext images for the pinned versions are resolved (`status.resolved`). Reasons: `Resolved`, `ReleaseNotFound`, `ResolutionFailed`. | plan 05 |
 | `ValidationSucceeded` | The semantic checks pass: kubelet quantities parse, the Kubernetes version is within the skew of the API server (at most three minors older, never newer), the referenced ConfigMaps and Secret exist, a trial rendering of the user-data succeeds within the size budget, and the cluster DNS is known (`--cluster-dns`, or found). Reasons: `Valid`, `InvalidKubeletSettings`, `KubernetesVersionNotSupported`, `ReferenceNotFound`, `ReferenceUnreadable`, `TemplateInvalid`, `ClusterDNSUnknown`, `InvalidResourceUse`. A `use` block of a vendor resource that selects nothing (an empty `use`, which an old object stored before a field was renamed has after the API server pruned the field) is `InvalidResourceUse`, never "nothing given": the controller does not fall back to the vendor's default or to creating the resource. | plan 05, plan 14 |
 | `BillingRetention` | Informational, not a dependent of `Ready`: `True` (`Active`) when billing retention is active for at least one vendor of the NodeClass, else `False` (`Disabled` or `NotActive`). The message gives the reason per vendor and counts the nodes left alone per reason (`ConsolidationNever`, `UserDoNotDisrupt`, `StaticPool`, `Spot`, `Drifted`). See [Billing retention](#billing-retention). | plan 23 |
@@ -303,12 +304,26 @@ At start-up, and when it changes, the controller logs the resolved rule per vend
 ## Catalog
 
 The catalog reads Keeper for the vendors and regions of the SCNodeClasses
-(`--keeper-url`, `--keeper-api-key-file`, `--catalog-refresh-interval`,
+(`--keeper-url`, `--keeper-api-key-file`, `--keeper-cache-dir`, `--catalog-refresh-interval`,
 `--catalog-max-age`) and is described in
 [Labels and offerings](labels-and-offerings.md). `Operator.NewComponents` builds it
 from those flags with the driver facts (zones, root disk, profiles, launchable
 types), the quota tracker and the unavailable-offerings cache, and runs it in the
 manager.
+
+A refresh pins one Keeper data version (`/healthcheck`), reads the manifest
+and the snapshot files of that version (from the on-disk copy when
+`--keeper-cache-dir` is set, else downloaded), and reads `/benchmark_configs`
+live when a metric or selection uses benchmarks. When Keeper still serves the
+version of the current catalog for the same scopes and queries, a refresh costs
+the one `/healthcheck` request.
+
+**A 401 is never retried** (Keeper charges a rejected request 11 credits): the
+refresh stops at the first one and keeps the previous catalog. It logs one error
+line, `Keeper needs an API key`, with `keeperURL`, `keyConfigured` and a pointer
+to the "+doc+" section, sets `KeeperAuthorized=False`, and the next scheduled
+refresh tries once more. Without any catalog, `CatalogReady` is `False` with
+reason `KeeperAPIKeyRequired`.
 
 Metrics (Prometheus, on the metrics port):
 
@@ -318,6 +333,8 @@ Metrics (Prometheus, on the metrics port):
 | `scarpenter_catalog_refresh_errors_total` | counter | | Failed refreshes; the last good snapshot stays in use. |
 | `scarpenter_catalog_instance_types` | gauge | `vendor` | Instance types with a price in scope. |
 | `scarpenter_catalog_offerings` | gauge | `vendor` | Priced offerings (price rows in scope, before the driver's zone mapping). |
+| `scarpenter_catalog_data_published_timestamp_seconds` | gauge | | Unix time Keeper published the data version of the snapshot (`SC-Data-Published-At`): the age of the data, not of the read. |
+| `scarpenter_catalog_keeper_unauthorized` | gauge | | `1` after Keeper answered a refresh with 401, `0` after a successful snapshot read. |
 
 At start-up, before core's controllers are built, the controller lists the
 SCNodeClasses and registers their `metric-<m>` keys, and all `cpu-flag-<flag>`
@@ -526,7 +543,7 @@ Besides the metrics of Karpenter core, the controller serves, on the metrics por
 
 | Metric | Section |
 |---|---|
-| `scarpenter_catalog_age_seconds`, `scarpenter_catalog_refresh_errors_total`, `scarpenter_catalog_instance_types`, `scarpenter_catalog_offerings` | [Catalog](#catalog) |
+| `scarpenter_catalog_age_seconds`, `scarpenter_catalog_refresh_errors_total`, `scarpenter_catalog_instance_types`, `scarpenter_catalog_offerings`, `scarpenter_catalog_data_published_timestamp_seconds`, `scarpenter_catalog_keeper_unauthorized` | [Catalog](#catalog) |
 | `scarpenter_launches_total`, `scarpenter_launch_skipped_total`, `scarpenter_launch_attempts`, `scarpenter_create_duration_seconds` | [CloudProvider](#cloudprovider) |
 | `scarpenter_quota_limit`, `scarpenter_quota_used`, `scarpenter_quota_reserved`, `scarpenter_quota_refresh_age_seconds`, `scarpenter_quota_refresh_errors_total` | [Quota](#quota) |
 | `scarpenter_gc_deletions_total`, `scarpenter_gc_sweep_duration_seconds`, `scarpenter_gc_last_sweep_timestamp_seconds` | [Garbage collection](#garbage-collection) |

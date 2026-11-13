@@ -606,6 +606,7 @@ spec:
             - "--cluster-dns=10.96.0.10"
             - "--cluster-name=my-cluster"
             - "--health-probe-port=8081"
+            - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--metrics-port=8080"
             - "--vendors=aws"
           env:
@@ -671,6 +672,8 @@ spec:
             - name: aws-token
               mountPath: /var/run/secrets/aws
               readOnly: true
+            - name: keeper-cache
+              mountPath: /var/cache/scarpenter/keeper
       volumes:
         - name: tmp
           emptyDir: {}
@@ -681,6 +684,9 @@ spec:
                   audience: "sts.amazonaws.com"
                   expirationSeconds: 3600
                   path: token
+        - name: keeper-cache
+          emptyDir:
+            sizeLimit: "256Mi"
       nodeSelector:
         kubernetes.io/os: linux
       affinity:

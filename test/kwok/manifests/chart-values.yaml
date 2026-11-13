@@ -15,8 +15,6 @@ vendors:
   extra: [fake]
 keeper:
   url: http://keeper-replay.scarpenter-system:8080
-  # The replay server has one region per recorded request.
-  pricesRegionsPerRequest: 1
 artifacts:
   # The sysext release checksums come from the replay server too.
   sysextBaseURL: http://keeper-replay.scarpenter-system:8080/sysext

@@ -88,23 +88,44 @@ The design of the layers is in
 
 ### The Keeper snapshot
 
-`test/data/sc-snapshot/` holds recorded responses of the public Keeper API: the
-region, zone, server and benchmark config tables, `/server_prices` of **every
-active AWS region** (one region per request, so any subset replays) and of one
-region of hcloud and gcp, and the benchmark scores the catalog tests use. The
-query list is `test/data/sc-snapshot/queries.yaml`; the files are written by
-`sc-keeper-go`'s fetcher and replayed by its `keepertest` server, through
+`test/data/sc-snapshot/` holds a recording of Keeper's snapshot files of one
+database hash (the gzip bytes as Keeper sent them): for all eight vendors the
+`region`, `zone`, `server`, `server_price`, `storage_price` and `ipv4_price`
+tables, the global `vendor` table, the score files of the test benchmarks
+(`geekbench:score`, `stress_ng:bestn`, `membench:latency`) for every vendor, and
+`/benchmark_configs`, the one live route besides `/healthcheck`. The query list is
+`test/data/sc-snapshot/queries.yaml`; the files are written by `sc-keeper-go`'s
+recorder and replayed by its `keepertest` server (snapshot routes, manifest,
+`401`, `503 snapshot-preparing`, a second hash), through
 `pkg/catalog/catalogtest`:
 
 ```go
 src := catalogtest.Source(t)           // a Keeper source reading the replay server
-facts := catalogtest.Facts(t, "aws")   // driver facts from the snapshot's zone table
+facts := catalogtest.Facts(t, "aws")   // driver facts from the snapshot's zone tables
 ```
 
-Tests never reach the network. Refresh the snapshot only when the data should
-change, with the manual workflow "Refresh Spare Cores snapshot" (or
-`hack/dev.sh make snapshot`): it downloads about 1 GB, so run it rarely and not
-while iterating. The committed snapshot is about 4.4 MB.
+Tests never reach the network and need no key. Refresh the recording only when
+the data should change. Keeper's snapshot routes need an API key (request one at
+<https://docs.sparecores.com/api/#authentication>), which is never written to the
+repository or the recording:
+
+```bash
+KEEPER_API_KEY=<key> hack/dev.sh make snapshot            # key in the environment
+KEEPER_API_KEY_FILE=<file> hack/dev.sh make snapshot      # key in a file (mounted read-only)
+```
+
+In CI the manual workflow "Refresh Spare Cores snapshot" gets the key from the
+composite action `.github/actions/keeper-key`: it assumes the CI role of the
+job's environment (`secrets.AWS_ROLE_ARN`) through GitHub's OIDC, reads the
+SSM parameter named by the **repository variable** `KEEPER_API_KEY_PARAMETER`
+(its ARN, kept in GitHub's configuration, never in the repository) with
+`ssm:GetParameter` and decryption, masks the value and writes it to a `0600`
+file under `$RUNNER_TEMP` (never to `$GITHUB_ENV`). The CI roles of the `e2e`
+and `e2e-canary` environments must therefore allow `ssm:GetParameter` on that
+parameter (and `kms:Decrypt` if it uses a customer-managed key). When the role or
+the variable is not set (a fork), the refresh workflow fails with a clear message;
+the L5 lanes skip the step and run against Keeper without a key. The committed
+recording is about 2.4 MB.
 
 ### The L3 lane
 
@@ -433,7 +454,9 @@ The nightly canary has its own environment, `e2e-canary`, with a read-only role.
 - variables `AWS_REGION` (`us-east-2`), `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE` (the client
   ID and audience of the Tailscale federated identity; not sensitive);
 - the secret `AWS_ROLE_ARN` (the workflow reads it as a secret; a variable would need the
-  workflow changed);
+  workflow changed); the role also allows `ssm:GetParameter` on the Keeper API key
+  parameter (and `kms:Decrypt` for its key), which the repository variable
+  `KEEPER_API_KEY_PARAMETER` names (see [The Keeper snapshot](#the-keeper-snapshot));
 - no Tailscale secret: there is no OAuth client secret.
 
 In the repository's Actions settings, require approval for all outside collaborators.

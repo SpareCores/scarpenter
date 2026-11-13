@@ -554,6 +554,7 @@ spec:
             - "--cluster-dns=10.43.0.10"
             - "--cluster-name=lab"
             - "--health-probe-port=8081"
+            - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--kubelet-client-ca-file=/etc/scarpenter/kubelet-client-ca/client-ca.crt"
             - "--metrics-port=8080"
             - "--vendors=aws"
@@ -624,6 +625,8 @@ spec:
             - name: kubelet-client-ca
               mountPath: /etc/scarpenter/kubelet-client-ca
               readOnly: true
+            - name: keeper-cache
+              mountPath: /var/cache/scarpenter/keeper
       volumes:
         - name: tmp
           emptyDir: {}
@@ -632,6 +635,9 @@ spec:
             name: "k3s-client-ca"
             items:
               - {key: "client-ca.crt", path: "client-ca.crt"}
+        - name: keeper-cache
+          emptyDir:
+            sizeLimit: "256Mi"
       nodeSelector:
         kubernetes.io/os: linux
       affinity:
