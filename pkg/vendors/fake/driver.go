@@ -202,7 +202,7 @@ func (d *Driver) catalog(ctx context.Context) (*catalogData, error) {
 	if d.data != nil {
 		return d.data, nil
 	}
-	data, err := loadCatalogData(ctx, d.cfg.KeeperURL, d.Vendor())
+	data, err := loadCatalogData(ctx, d.cfg.Keeper, d.Vendor())
 	if err != nil {
 		return nil, vendors.NewError(vendors.Retryable, "CatalogUnavailable", err)
 	}

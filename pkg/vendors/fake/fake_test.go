@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	keeper "github.com/SpareCores/sc-keeper-go"
 	"github.com/SpareCores/sc-keeper-go/keepertest"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -40,7 +41,7 @@ import (
 )
 
 // keeperURL is a replay server of the committed snapshot shared by every test:
-// the driver caches the catalog tables per URL.
+// the driver caches the catalog tables per hash and vendor.
 var keeperURL string
 
 func TestMain(m *testing.M) {
@@ -86,7 +87,7 @@ func newHarness(t *testing.T, data map[string]string) *harness {
 	opts.StateInterval = time.Hour // tests flush by hand
 	d := fakedriver.New(opts)
 	if err := d.Init(t.Context(), vendors.Config{
-		ClusterName: "my-cluster", Client: cl, Reader: cl, Log: logr.Discard(), KeeperURL: keeperURL,
+		ClusterName: "my-cluster", Client: cl, Reader: cl, Log: logr.Discard(), Keeper: keeper.New(keeperURL),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +350,7 @@ func restart(t *testing.T, d *fakedriver.Driver) *fakedriver.Driver {
 	opts.StateInterval = time.Hour
 	d2 := fakedriver.New(opts)
 	if err := d2.Init(t.Context(), vendors.Config{
-		ClusterName: "my-cluster", Client: cl, Reader: cl, Log: logr.Discard(), KeeperURL: keeperURL,
+		ClusterName: "my-cluster", Client: cl, Reader: cl, Log: logr.Discard(), Keeper: keeper.New(keeperURL),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -731,7 +732,7 @@ func contains(s, sub string) bool {
 
 func TestInitDoesNotNeedKeeper(t *testing.T) {
 	d := fakedriver.New(fakedriver.DefaultOptions())
-	if err := d.Init(t.Context(), vendors.Config{KeeperURL: "http://127.0.0.1:1"}); err != nil {
+	if err := d.Init(t.Context(), vendors.Config{Keeper: keeper.New("http://127.0.0.1:1")}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -752,7 +753,7 @@ func TestRegistration(t *testing.T) {
 	opts := fakedriver.DefaultOptions()
 	opts.CatalogVendor = "aws"
 	ctx := opts.ToContext(t.Context())
-	reg, err := vendors.NewRegistry(ctx, []string{"fake"}, vendors.Config{KeeperURL: keeperURL})
+	reg, err := vendors.NewRegistry(ctx, []string{"fake"}, vendors.Config{Keeper: keeper.New(keeperURL)})
 	if err != nil {
 		t.Fatal(err)
 	}

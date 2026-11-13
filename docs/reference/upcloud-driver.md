@@ -65,10 +65,10 @@ rulesets your IaC created (**unverified** across sub-accounts).
 - The SDK is `upcloud-go-api/v8`. It lacks the standalone firewall rulesets, so three endpoints
   (`/firewall-ruleset`, and `attach` and `detach_firewall_ruleset/private` of a server) are written over the
   SDK's HTTP client, from the OpenAPI-generated v9 module (alpha). They have never been called.
-- The driver reads storage and IPv4 prices from Keeper's `/storage_prices` and `/ipv4_prices` in USD (`--keeper-url`),
-  in the background from the first read of the regions and every six hours. Until they are loaded, and for what
-  Keeper lacks, the price of an offering is incomplete. Currency is Keeper's: the catalog and the driver both ask for
-  USD, nothing is converted here.
+- The driver takes storage and IPv4 prices from the `storage_price` and `ipv4_price` files of the Keeper snapshot the
+  catalog loaded, which the catalog hands to the driver after every refresh. Until the first refresh, and for what
+  Keeper lacks, the price of an offering is incomplete. The catalog passes USD rows only, nothing is converted here;
+  a monthly IPv4 price is divided by 672 hours.
 - `SCARPENTER_UPCLOUD_NETWORK_RANGE` (default `10.241.0.0/16`): the /16 of the managed networks, see
   [resources](#resources-and-network).
 
@@ -297,6 +297,6 @@ these before the first live run:
 - **Rulesets**: the endpoints (`/firewall-ruleset`, `attach` and `detach_firewall_ruleset/private`), their JSON, the error codes
   (`FIREWALL_RULESET_NOT_FOUND`, `FIREWALL_RULESET_IN_USE`), whether the list carries labels (without them a managed ruleset is
   adopted by its name), the number of servers a group may hold.
-- **Keeper**: the `/ipv4_prices` endpoint and the unit of the storage prices for UpCloud.
+- **Keeper**: the unit of the storage prices for UpCloud.
 - **Plans**: Keeper's active plans today are Starter, Premium, Cloud Native and GPU; the driver classifies them by name and takes
   the included tier from the account's plan list.

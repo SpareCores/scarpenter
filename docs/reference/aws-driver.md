@@ -60,15 +60,13 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
   (code `CallTimeout`).
 - `--aws-home-region` (default `us-east-1`) is the region the global listing
   (`DescribeRegions`) is read from.
-- The driver reads the EBS prices from Keeper's anonymous
-  `/storage_prices?vendor=aws&currency=USD&limit=-1` (`--keeper-url`; one row per
-  region and volume type, `GB/month`), in the background from the first read of the
-  regions and every six hours. Until they are loaded, and for any volume type Keeper
-  lacks, the price of an offering is incomplete (`price-incomplete: "true"`).
-  **Keeper has no public IPv4 price**: the driver uses a constant, 0.005 USD per
-  hour (what AWS charges in every commercial region since 2024-02-01), which
-  `SCARPENTER_AWS_IPV4_PRICE` overrides. It is not from Keeper (a Keeper/crawler
-  addition is on the backlog).
+- The driver takes the EBS prices and the public IPv4 price from the `storage_price`
+  and `ipv4_price` files of the Keeper snapshot the catalog loaded (one row per region
+  and volume type, `GB/month`; per region, `hour`), which the catalog hands to the
+  driver after every refresh. Until the first refresh, and for any volume type or
+  region Keeper lacks, the price of an offering is incomplete
+  (`price-incomplete: "true"`). `SCARPENTER_AWS_IPV4_PRICE` overrides Keeper's IPv4
+  price, also where Keeper has no row.
 - `Init` gives the SDK configuration the home region as its default region: the
   web identity provider (the recommended credentials) builds its STS client from
   that configuration, so without it a cluster that does not set `AWS_REGION` fails
@@ -519,7 +517,7 @@ it live. Specifically:
 
 - the exact `Flatcar-<channel>-<version>[-arm64]-hvm` AMI names (the public
   release lists carry AMI IDs, not names);
-- the public IPv4 constant against a real bill (Keeper has no such price);
+- the public IPv4 price of Keeper against a real bill;
 - the serving certificates of the `tailscale` template are approved against the
   Node's addresses (the tailnet IP cannot be verified without the Tailscale API);
   only `direct` is held to the instance's addresses;

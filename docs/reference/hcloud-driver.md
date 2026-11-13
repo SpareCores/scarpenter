@@ -198,10 +198,11 @@ dedicated to the NodeClass. A network found by the opt-in label is held to the s
 (`Fatal`, `InvalidSettings`).
 
 **Price delta** (`PriceDelta`): volumes at Keeper's `block` price of the location per GB-month over 730 hours
-plus the Primary IPv4 as a constant, 0.0007 USD an hour (0.50 EUR a month; override with
-`SCARPENTER_HCLOUD_IPV4_PRICE`, chart `vendors.hcloud.ipv4Price`), because Keeper has no IPv4 price.
+plus the Primary IPv4 at Keeper's `ipv4_price` row of the location (monthly rows over 730 hours; override with
+`SCARPENTER_HCLOUD_IPV4_PRICE`, chart `vendors.hcloud.ipv4Price`, which also covers a location without a row). Both
+prices come from the Keeper snapshot the catalog loaded.
 Traffic over the included amount is not priced. The price is incomplete when a price is unknown.
-A storage profile is supported in a location only when Keeper has a `block` row for it (after the first load).
+A storage profile is supported in a location only when Keeper has a `block` row for it (after the first refresh).
 
 ## Resources and network
 

@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	keeper "github.com/SpareCores/sc-keeper-go"
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
@@ -395,7 +396,7 @@ func flakyDriver(t *testing.T, failures int32, written chan<- string) (*fakedriv
 	opts.ConfigTTL = 0
 	opts.StateInterval = time.Millisecond
 	d := fakedriver.New(opts)
-	if err := d.Init(t.Context(), vendors.Config{ClusterName: "my-cluster", Client: cl, Reader: cl, Log: logr.Discard(), KeeperURL: keeperURL}); err != nil {
+	if err := d.Init(t.Context(), vendors.Config{ClusterName: "my-cluster", Client: cl, Reader: cl, Log: logr.Discard(), Keeper: keeper.New(keeperURL)}); err != nil {
 		t.Fatal(err)
 	}
 	return d, cl

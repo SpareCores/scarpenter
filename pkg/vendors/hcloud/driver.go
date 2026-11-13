@@ -46,7 +46,7 @@ type Option func(*Driver)
 func WithAPI(a API) Option { return func(d *Driver) { d.api = a } }
 
 // WithPrices replaces the price source (tests); without it Init reads Keeper's
-// volume prices when a Keeper URL is configured.
+// volume prices from SetKeeperPrices.
 func WithPrices(p PriceSource) Option { return func(d *Driver) { d.prices = p } }
 
 // WithHCloudServerLimit sets the project's server limit (0: unknown), instead of
@@ -129,18 +129,18 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 		})
 	}
 	d.p = NewProject(d.api, cfg.ClusterName, WithClock(d.clock), WithServerLimit(d.serverLimit))
-	if d.prices == nil && cfg.KeeperURL != "" {
-		ipv4 := DefaultIPv4PricePerHour
+	if d.prices == nil {
+		var override *float64
 		if v := os.Getenv(IPv4PriceEnv); v != "" {
 			p, err := strconv.ParseFloat(v, 64)
 			if err != nil || p < 0 || math.IsNaN(p) || math.IsInf(p, 0) {
 				return fmt.Errorf("%s=%q is not a price in USD per hour (a finite number, 0 for free)", IPv4PriceEnv, v)
 			}
-			ipv4 = p
+			override = &p
+			d.log.Info("the price of a Primary IPv4 address is set by the operator, Keeper's is not used",
+				"usdPerHour", p, "override", IPv4PriceEnv)
 		}
-		d.log.Info("the price of a Primary IPv4 address is a constant, not from Keeper (it has none)",
-			"usdPerHour", ipv4, "override", IPv4PriceEnv)
-		d.keeper = newKeeperPrices(cfg.KeeperURL, ipv4, func() { d.epoch.Add(1) })
+		d.keeper = newKeeperPrices(override)
 		d.prices = d.keeper
 	}
 	d.registerRateLimitGauges()
@@ -203,7 +203,6 @@ func (d *Driver) Regions(ctx context.Context) ([]vendors.Region, error) {
 	if err := d.ready(); err != nil {
 		return nil, err
 	}
-	d.kickPrices()
 	return d.p.Regions(ctx)
 }
 
@@ -215,18 +214,14 @@ func (d *Driver) Zones(ctx context.Context, region string) ([]vendors.Zone, erro
 	return d.p.Zones(ctx, region)
 }
 
-func (d *Driver) kickPrices() {
-	if d.keeper != nil {
-		d.keeper.kick(d.clock.Now(), func(err error) { d.log.Error(err, "loading the volume prices from Keeper") })
+// SetKeeperPrices implements vendors.KeeperPriceConsumer: the storage and IPv4 prices of the
+// Keeper data version the catalog loaded. The node options epoch changes when
+// they differ from the previous ones. A driver with injected prices
+// (WithPrices) ignores them.
+func (d *Driver) SetKeeperPrices(p vendors.KeeperPrices) {
+	if d.keeper != nil && d.keeper.set(p) {
+		d.epoch.Add(1)
 	}
-}
-
-// LoadPrices loads the volume prices now (tests and start-up).
-func (d *Driver) LoadPrices(ctx context.Context) error {
-	if d.keeper == nil {
-		return nil
-	}
-	return d.keeper.load(ctx)
 }
 
 // NodeOptionsEpoch implements vendors.EpochReporter: the epoch changes when the

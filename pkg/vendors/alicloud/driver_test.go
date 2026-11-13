@@ -9,8 +9,6 @@ package alicloud
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -48,9 +46,6 @@ func TestRegisteredAndIdentity(t *testing.T) {
 	_ = d2.Init(bg(), vendors.Config{ClusterName: "c"})
 	if d2.home != "cn-hangzhou" {
 		t.Error("WithHomeRegion")
-	}
-	if err := d2.LoadPrices(bg()); err != nil {
-		t.Error(err)
 	}
 }
 
@@ -650,23 +645,19 @@ func TestPriceDelta(t *testing.T) {
 }
 
 func TestKeeperPrices(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.RequestURI(), "/storage_prices?vendor=alicloud") {
-			w.WriteHeader(404)
-			return
-		}
-		_, _ = w.Write([]byte(`[{"vendor_id":"alicloud","region_id":"ap-southeast-1","storage_id":"cloud_essd","unit":"GB/month","price":0.1,"currency":"USD","status":"active"},
-{"vendor_id":"alicloud","region_id":"ap-southeast-1","storage_id":"cloud_essd_pl0","unit":"GB/month","price":0.05,"currency":"USD","status":"active"},
-{"vendor_id":"alicloud","region_id":"ap-southeast-1","storage_id":"cloud_ssd","unit":"GB/hour","price":0.1,"currency":"USD","status":"active"}]`))
-	}))
-	defer srv.Close()
 	d := New()
-	if err := d.Init(bg(), vendors.Config{ClusterName: "c", KeeperURL: srv.URL, Log: logr.Discard()}); err != nil {
+	if err := d.Init(bg(), vendors.Config{ClusterName: "c", Log: logr.Discard()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.LoadPrices(bg()); err != nil {
-		t.Fatal(err)
+	if _, ok := d.prices.StoragePrice("ap-southeast-1", "cloud_essd", "PL1"); ok {
+		t.Error("a price is known before any was set")
 	}
+	prices := vendors.KeeperPrices{Hash: "h1", Storage: []vendors.StoragePrice{
+		{Region: "ap-southeast-1", StorageID: "cloud_essd", Unit: "GB/month", USD: 0.1},
+		{Region: "ap-southeast-1", StorageID: "cloud_essd_pl0", Unit: "GB/month", USD: 0.05},
+		{Region: "ap-southeast-1", StorageID: "cloud_ssd", Unit: "GB/hour", USD: 0.1},
+	}}
+	d.SetKeeperPrices(prices)
 	if v, ok := d.prices.StoragePrice("ap-southeast-1", "cloud_essd", "PL1"); !ok || v != 0.1 {
 		t.Error(v, ok)
 	}
@@ -679,24 +670,20 @@ func TestKeeperPrices(t *testing.T) {
 	if _, ok := d.prices.StoragePrice("ap-southeast-1", "cloud_ssd", ""); ok {
 		t.Error("an hourly row")
 	}
-	if d.NodeOptionsEpoch() == 0 {
+	epoch := d.NodeOptionsEpoch()
+	if epoch == 0 {
 		t.Error("the epoch did not change with the prices")
 	}
-	d.kickPrices() // a load ran lately: nothing starts
-	bad := newKeeperPrices(srv.URL+"/nope", nil)
-	if err := bad.load(bg()); err == nil {
-		t.Error("a 404")
+	prices.Hash = "h2"
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() != epoch {
+		t.Error("the epoch changed for equal prices")
 	}
-	k := newKeeperPrices(srv.URL, func() {})
-	k.kick(time.Now(), func(error) {})
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, ok := k.StoragePrice("ap-southeast-1", "cloud_essd", ""); ok {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	prices.Storage[0].USD = 0.2
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() == epoch {
+		t.Error("the epoch did not change for a new price")
 	}
-	t.Error("the background load did not finish")
 }
 
 // engineEnv is a driver behind the core's resource engine.

@@ -7,11 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package upcloud_test
 
 import (
-	"compress/gzip"
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -22,10 +18,10 @@ import (
 	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	uc "github.com/SpareCores/scarpenter/pkg/vendors/upcloud"
 	"github.com/SpareCores/scarpenter/pkg/vendors/upcloud/fake"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 )
 
 const (
@@ -56,19 +52,7 @@ var (
 func upcloudServers(t testing.TB) []snapshotRow {
 	t.Helper()
 	snapshotOnce.Do(func() {
-		f, err := os.Open(filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot", "tables", "server.json.gz"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = f.Close() }()
-		zr, err := gzip.NewReader(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var rows []snapshotRow
-		if err := json.NewDecoder(zr).Decode(&rows); err != nil {
-			t.Fatal(err)
-		}
+		rows := vendortest.SnapshotRows[snapshotRow](t, "server", "upcloud")
 		for _, r := range rows {
 			if r.VendorID == "upcloud" {
 				snapshot = append(snapshot, r)

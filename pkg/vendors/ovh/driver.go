@@ -84,8 +84,8 @@ func WithScheduleWait(w WaitOptions) Option { return func(d *Driver) { d.wait = 
 // WithCallTimeout sets the deadline of one OpenStack call.
 func WithCallTimeout(t time.Duration) Option { return func(d *Driver) { d.callTimeout = t } }
 
-// WithPrices sets the source of the volume prices; by default the driver reads
-// them from Keeper.
+// WithPrices sets the source of the volume prices; by default the driver takes
+// them from Keeper (SetKeeperPrices).
 func WithPrices(p PriceSource) Option { return func(d *Driver) { d.prices = p } }
 
 // Driver implements vendors.Driver and the capabilities NodeClassValidator,
@@ -195,8 +195,8 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 		d.provider = &lazyProvider{}
 	}
 	d.quota = NewQuotaReader(d.provider, d.clock)
-	if d.prices == nil && cfg.KeeperURL != "" {
-		d.keeper = newKeeperPrices(cfg.KeeperURL, func() { d.epoch.Add(1) })
+	if d.prices == nil {
+		d.keeper = newKeeperPrices()
 		d.prices = d.keeper
 	}
 	return nil
@@ -342,7 +342,6 @@ func (d *Driver) Regions(ctx context.Context) ([]vendors.Region, error) {
 		d.log.Info("regions of the catalog without a row in the region table are not used (they have no Keeper offerings)",
 			"regions", fresh, "hint", RegionAliasesEnv)
 	}
-	d.kickPrices()
 	return slices.Clone(regions), nil
 }
 
@@ -400,26 +399,19 @@ func (d *Driver) zoneOf(ctx context.Context, region string, s osapi.Server) stri
 	return zs[0].Name
 }
 
+// SetKeeperPrices implements vendors.KeeperPriceConsumer: the storage prices of the
+// Keeper data version the catalog loaded. The node options epoch changes when
+// they differ from the previous ones. A driver with injected prices
+// (WithPrices) ignores them.
+func (d *Driver) SetKeeperPrices(p vendors.KeeperPrices) {
+	if d.keeper != nil && d.keeper.set(p) {
+		d.epoch.Add(1)
+	}
+}
+
 // NodeOptionsEpoch implements vendors.EpochReporter: PriceDelta depends on the
 // volume prices, which load at runtime.
 func (d *Driver) NodeOptionsEpoch() uint64 { return d.epoch.Load() }
-
-// kickPrices starts the background load of the volume prices.
-func (d *Driver) kickPrices() {
-	if d.keeper != nil {
-		d.keeper.kick(d.clock.Now(), func(err error) { d.log.Error(err, "loading the volume prices from Keeper") })
-	}
-}
-
-// LoadPrices reads the volume prices from Keeper now and waits for the result;
-// the driver otherwise loads them in the background from the first read of the
-// regions. A no-op without a Keeper URL.
-func (d *Driver) LoadPrices(ctx context.Context) error {
-	if d.keeper == nil {
-		return nil
-	}
-	return d.keeper.load(ctx)
-}
 
 // VendorArch implements vendors.ArchNamer: the value of the Glance image property
 // architecture.

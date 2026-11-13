@@ -7,14 +7,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package ovh
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
+	"maps"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
 // hoursPerMonth turns a GB-month price into an hourly one (plan 18: /730).
@@ -37,25 +34,17 @@ func (p StaticPrices) StoragePrice(region, volumeType string) (float64, bool) {
 	return v, ok
 }
 
-// keeperPrices reads the volume prices from Keeper's /storage_prices, in the
-// background, and refreshes them every few hours.
+// keeperPrices holds the prices of the Keeper data version the catalog loaded
+// last (SetKeeperPrices). Until the first call, and for anything the data
+// lacks, the prices are unknown.
 type keeperPrices struct {
-	url    string
-	client *http.Client
-	onLoad func()
-
 	mu      sync.RWMutex
 	storage map[string]float64
 	loaded  bool
-	loading bool
-	last    time.Time
+	hash    string
 }
 
-const priceRefresh = 6 * time.Hour
-
-func newKeeperPrices(url string, onLoad func()) *keeperPrices {
-	return &keeperPrices{url: strings.TrimRight(url, "/"), client: &http.Client{Timeout: 2 * time.Minute}, onLoad: onLoad}
-}
+func newKeeperPrices() *keeperPrices { return &keeperPrices{} }
 
 // StoragePrice implements PriceSource.
 func (k *keeperPrices) StoragePrice(region, volumeType string) (float64, bool) {
@@ -65,74 +54,16 @@ func (k *keeperPrices) StoragePrice(region, volumeType string) (float64, bool) {
 	return v, ok
 }
 
-// kick starts a load unless one is running or one ran recently.
-func (k *keeperPrices) kick(now time.Time, errs func(error)) {
-	k.mu.Lock()
-	interval := time.Minute
-	if k.loaded {
-		interval = priceRefresh
-	}
-	if k.loading || (!k.last.IsZero() && now.Sub(k.last) < interval) {
-		k.mu.Unlock()
-		return
-	}
-	k.loading, k.last = true, now
-	k.mu.Unlock()
-	go func() {
-		err := k.load(context.Background())
-		k.mu.Lock()
-		k.loading = false
-		k.mu.Unlock()
-		if err != nil {
-			errs(err)
-		}
-	}()
-}
-
-type storagePriceRow struct {
-	VendorID  string  `json:"vendor_id"`
-	RegionID  string  `json:"region_id"`
-	StorageID string  `json:"storage_id"`
-	Unit      string  `json:"unit"`
-	Price     float64 `json:"price"`
-	Currency  string  `json:"currency"`
-	Status    string  `json:"status"`
-}
-
-const storagePricesPath = "/storage_prices?vendor=ovh&currency=USD&limit=-1"
-
-// load reads the prices now.
-func (k *keeperPrices) load(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.url+storagePricesPath, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "scarpenter")
-	resp, err := k.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("reading Keeper's storage prices: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
-		return fmt.Errorf("reading Keeper's storage prices: HTTP %d", resp.StatusCode)
-	}
-	var rows []storagePriceRow
-	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
-		return fmt.Errorf("decoding Keeper's storage prices: %w", err)
-	}
+// set replaces the prices with the rows of a Keeper data version and reports
+// whether they differ from the ones held (the first call always does).
+func (k *keeperPrices) set(p vendors.KeeperPrices) bool {
 	storage := map[string]float64{}
-	for _, r := range rows {
-		if r.VendorID != Vendor || r.Currency != "USD" || r.Unit != "GB/month" || r.Price <= 0 || r.Status != "active" {
-			continue
-		}
-		storage[strings.ToUpper(r.RegionID)+"/"+strings.ToLower(r.StorageID)] = r.Price
+	for _, r := range vendors.GBMonth(p.Storage) {
+		storage[strings.ToUpper(r.Region)+"/"+strings.ToLower(r.StorageID)] = r.USD
 	}
 	k.mu.Lock()
-	k.storage, k.loaded = storage, true
-	k.mu.Unlock()
-	if k.onLoad != nil {
-		k.onLoad()
-	}
-	return nil
+	defer k.mu.Unlock()
+	changed := !k.loaded || !maps.Equal(k.storage, storage)
+	k.storage, k.loaded, k.hash = storage, true, p.Hash
+	return changed
 }

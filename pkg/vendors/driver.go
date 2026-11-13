@@ -26,6 +26,8 @@ import (
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	keeper "github.com/SpareCores/sc-keeper-go"
+
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 )
@@ -274,9 +276,44 @@ type Config struct {
 	Reader client.Reader
 	Clock  clock.Clock
 	Log    logr.Logger
-	// KeeperURL is the Keeper API base URL, for drivers that impersonate a
-	// vendor's catalog (fake).
-	KeeperURL string
+	// Keeper reads Keeper's snapshot files, for drivers that impersonate a
+	// vendor's catalog (fake). The operator builds it from --keeper-url and the
+	// API key; nil in tests that do not need it.
+	Keeper *keeper.Client
+}
+
+// StoragePrice is one row of Keeper's storage_price file of a vendor: the USD
+// price of a GB of a storage type in a region per Unit (the catalog passes
+// active, USD rows with a price above zero).
+type StoragePrice struct {
+	// Region is Keeper's region id, StorageID the storage type's id.
+	Region, StorageID, Unit string
+	USD                     float64
+}
+
+// IPv4Price is one row of Keeper's ipv4_price file of a vendor: the USD price
+// of a public IPv4 address per Unit ("hour" or "month").
+type IPv4Price struct {
+	Region, Unit string
+	USD          float64
+}
+
+// KeeperPrices are the prices of the Keeper data version the catalog loaded.
+type KeeperPrices struct {
+	// Hash is Keeper's database hash the rows are of.
+	Hash    string
+	Storage []StoragePrice
+	IPv4    []IPv4Price
+}
+
+// KeeperPriceConsumer is the optional capability of drivers that price the
+// storage and the public IPv4 address of an offering from Keeper (plan 13).
+// The catalog calls SetKeeperPrices after every successful load and before it
+// publishes the data, so the offerings of a hash use that hash's prices; the
+// driver bumps its NodeOptionsEpoch when the prices changed. Until the first
+// call the prices are unknown.
+type KeeperPriceConsumer interface {
+	SetKeeperPrices(KeeperPrices)
 }
 
 // Driver is implemented by every vendor package and registered by name.

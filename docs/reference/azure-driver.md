@@ -72,8 +72,9 @@ Tags are `scarpenter-<key>` plus `Name`. `DeleteInstance` refuses a VM without t
 Premium disks need the `PremiumIO` capability: sizes without it fail the default root disk (`Unsupported`, the
 offering is unavailable for a while); set `StandardSSD_LRS` to include them. Sizes without Gen2 or without a SCSI disk
 controller (NVMe-only: most of the v6 families) are not offered. `PriceDelta` rounds a disk to its billing tier and uses Keeper's
-GB-month price per region and SKU; Standard SKUs and unpriced disks make it incomplete; the public IPv4 address is a
-constant (`SCARPENTER_AZURE_IPV4_PRICE`).
+GB-month price per region and SKU; Standard SKUs and unpriced disks make it incomplete; the public IPv4 address is
+Keeper's `ipv4_price` row of the region (`SCARPENTER_AZURE_IPV4_PRICE` overrides it, also where Keeper has no row). Both
+prices come from the Keeper snapshot the catalog loaded.
 
 ## Resources and network
 

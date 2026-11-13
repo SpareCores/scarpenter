@@ -7,11 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package vultr_test
 
 import (
-	"compress/gzip"
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -19,8 +15,8 @@ import (
 	"github.com/go-logr/logr"
 	clocktesting "k8s.io/utils/clock/testing"
 
-	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 	"github.com/SpareCores/scarpenter/pkg/vendors/vultr"
 	"github.com/SpareCores/scarpenter/pkg/vendors/vultr/fake"
 )
@@ -50,19 +46,7 @@ var (
 func vultrServers(t testing.TB) []snapshotRow {
 	t.Helper()
 	snapshotOnce.Do(func() {
-		f, err := os.Open(filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot", "tables", "server.json.gz"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = f.Close() }()
-		zr, err := gzip.NewReader(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var rows []snapshotRow
-		if err := json.NewDecoder(zr).Decode(&rows); err != nil {
-			t.Fatal(err)
-		}
+		rows := vendortest.SnapshotRows[snapshotRow](t, "server", "vultr")
 		for _, r := range rows {
 			if r.VendorID == "vultr" {
 				snapshot = append(snapshot, r)

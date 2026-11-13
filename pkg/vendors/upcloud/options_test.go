@@ -10,8 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -123,58 +121,60 @@ func TestPriceDeltaChargesWhatThePlanDoesNotInclude(t *testing.T) {
 	}
 }
 
-func TestKeeperPricesLoadInTheBackgroundAndBumpTheEpoch(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/storage_prices", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("vendor") != "upcloud" || r.URL.Query().Get("currency") != "USD" {
-			http.Error(w, "bad query", http.StatusBadRequest)
-			return
-		}
-		_, _ = w.Write([]byte(`[
-		 {"vendor_id":"upcloud","region_id":"fi-hel1","storage_id":"MaxIOPS","unit":"GB/month","price":0.22,"currency":"USD","status":"active"},
-		 {"vendor_id":"upcloud","region_id":"fi-hel1","storage_id":"hdd","unit":"GB/month","price":0.05,"currency":"EUR","status":"active"},
-		 {"vendor_id":"upcloud","region_id":"fi-hel1","storage_id":"standard","unit":"GB/month","price":0,"currency":"USD","status":"active"},
-		 {"vendor_id":"aws","region_id":"fi-hel1","storage_id":"x","unit":"GB/month","price":1,"currency":"USD","status":"active"}]`))
-	})
-	mux.HandleFunc("/ipv4_prices", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`[{"vendor_id":"upcloud","region_id":"fi-hel1","unit":"month","price":6.72,"currency":"USD","status":"active"},
-		 {"vendor_id":"upcloud","region_id":"de-fra1","unit":"hour","price":0.01,"currency":"USD","status":"active"},
-		 {"vendor_id":"upcloud","region_id":"nl-ams1","unit":"year","price":1,"currency":"USD","status":"active"}]`))
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
+func TestKeeperPricesBumpTheEpochOnlyWhenTheyChange(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	d := uc.New(uc.WithAPI(e.f))
-	if err := d.Init(e.ctx(), vendors.Config{ClusterName: testCluster, KeeperURL: srv.URL, Clock: e.clock}); err != nil {
+	if err := d.Init(e.ctx(), vendors.Config{ClusterName: testCluster, Clock: e.clock}); err != nil {
 		t.Fatal(err)
+	}
+	settings := vendors.VendorSettings{Raw: json.RawMessage(`{"storage":{"root":{"size":"100Gi"}}}`)}
+	if _, ok := d.PriceDelta(settings, offering("CLOUDNATIVE-2xCPU-4GB", 0)); ok {
+		t.Error("a price is complete before any was set")
 	}
 	before := d.NodeOptionsEpoch()
-	if err := d.LoadPrices(e.ctx()); err != nil {
-		t.Fatal(err)
+	prices := vendors.KeeperPrices{Hash: "h1",
+		Storage: []vendors.StoragePrice{
+			{Region: "fi-hel1", StorageID: "MaxIOPS", Unit: "GB/month", USD: 0.22},
+			{Region: "fi-hel1", StorageID: "hdd", Unit: "TB/month", USD: 50},
+			{Region: "fi-hel1", StorageID: "standard", Unit: "GB/month", USD: 0},
+			{Region: "de-fra1", StorageID: "MaxIOPS", Unit: "GB/month", USD: 0.22},
+			{Region: "nl-ams1", StorageID: "MaxIOPS", Unit: "GB/month", USD: 0.22},
+		},
+		IPv4: []vendors.IPv4Price{
+			{Region: "fi-hel1", Unit: "month", USD: 6.72}, // over UpCloud's 672 hours
+			{Region: "de-fra1", Unit: "hour", USD: 0.01},
+			{Region: "nl-ams1", Unit: "year", USD: 1},
+		},
 	}
+	d.SetKeeperPrices(prices)
 	if d.NodeOptionsEpoch() == before {
-		t.Error("loading the prices did not change the epoch")
+		t.Error("setting the prices did not change the epoch")
 	}
-	p, ok := d.PriceDelta(vendors.VendorSettings{Raw: json.RawMessage(`{"storage":{"root":{"size":"100Gi"}}}`)},
-		offering("CLOUDNATIVE-2xCPU-4GB", 0))
+	p, ok := d.PriceDelta(settings, offering("CLOUDNATIVE-2xCPU-4GB", 0))
 	if !ok || math.Abs(p-(100*0.22/672+6.72/672)) > 1e-9 {
 		t.Errorf("PriceDelta = %v, %v", p, ok)
 	}
-	// Regions drives the background load, which the same driver repeats later.
-	if _, err := d.Regions(e.ctx()); err != nil {
-		t.Fatal(err)
+	// An IPv4 row in another unit leaves the address price unknown; an hourly one is as it is.
+	ams := offering("CLOUDNATIVE-2xCPU-4GB", 0)
+	ams.Region, ams.Zone = "nl-ams1", "nl-ams1"
+	if _, ok := d.PriceDelta(vendors.VendorSettings{}, ams); ok {
+		t.Error("an IPv4 row in another unit priced the address")
 	}
-	bad := httptest.NewServer(http.NotFoundHandler())
-	defer bad.Close()
-	d2 := uc.New(uc.WithAPI(e.f))
-	if err := d2.Init(e.ctx(), vendors.Config{ClusterName: testCluster, KeeperURL: bad.URL, Clock: e.clock}); err != nil {
-		t.Fatal(err)
+	fra := ams
+	fra.Region, fra.Zone = "de-fra1", "de-fra1"
+	if _, ok := d.PriceDelta(vendors.VendorSettings{}, fra); !ok {
+		t.Error("an hourly IPv4 row did not price the address")
 	}
-	if err := d2.LoadPrices(e.ctx()); err == nil {
-		t.Error("a Keeper that answers 404 loaded")
+	before = d.NodeOptionsEpoch()
+	prices.Hash = "h2"
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() != before {
+		t.Error("equal prices changed the epoch")
 	}
-	if err := e.d.LoadPrices(e.ctx()); err != nil {
-		t.Errorf("without a Keeper URL LoadPrices is a no-op: %v", err)
+	prices.IPv4[1].USD = 0.02
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() == before {
+		t.Error("a new price did not change the epoch")
 	}
 }
 

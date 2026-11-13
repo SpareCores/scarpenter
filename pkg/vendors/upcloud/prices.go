@@ -7,14 +7,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package upcloud
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
+	"maps"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
 // PriceSource answers the prices of what an offering costs on top of the plan:
@@ -49,28 +46,18 @@ func (p StaticPrices) IPv4Price(region string) (float64, bool) {
 	return v, ok
 }
 
-// keeperPrices reads the storage and IPv4 prices from Keeper in the background.
-// Until the first successful load (and for anything the tables lack) the prices
-// are unknown.
+// keeperPrices holds the prices of the Keeper data version the catalog loaded
+// last (SetKeeperPrices). Until the first call, and for anything the data
+// lacks, the prices are unknown.
 type keeperPrices struct {
-	url    string
-	client *http.Client
-	onLoad func()
-
 	mu      sync.RWMutex
 	storage map[string]float64
 	ipv4    map[string]float64
 	loaded  bool
-	loading bool
-	last    time.Time
+	hash    string
 }
 
-// priceRefresh is how long loaded prices are trusted before a reload.
-const priceRefresh = 6 * time.Hour
-
-func newKeeperPrices(url string, onLoad func()) *keeperPrices {
-	return &keeperPrices{url: strings.TrimRight(url, "/"), client: &http.Client{Timeout: 2 * time.Minute}, onLoad: onLoad}
-}
+func newKeeperPrices() *keeperPrices { return &keeperPrices{} }
 
 // StoragePrice implements PriceSource.
 func (k *keeperPrices) StoragePrice(region, tier string) (float64, bool) {
@@ -88,109 +75,17 @@ func (k *keeperPrices) IPv4Price(region string) (float64, bool) {
 	return v, ok
 }
 
-// kick starts a load in the background when none ran lately: loaded prices are
-// trusted for priceRefresh, a failed load is tried again after a minute.
-func (k *keeperPrices) kick(now time.Time, errs func(error)) {
-	k.mu.Lock()
-	interval := time.Minute
-	if k.loaded {
-		interval = priceRefresh
-	}
-	if k.loading || (!k.last.IsZero() && now.Sub(k.last) < interval) {
-		k.mu.Unlock()
-		return
-	}
-	k.loading, k.last = true, now
-	k.mu.Unlock()
-	go func() {
-		err := k.load(context.Background())
-		k.mu.Lock()
-		k.loading = false
-		k.mu.Unlock()
-		if err != nil {
-			errs(err)
-		}
-	}()
-}
-
-// priceRow is the part of a row of Keeper's /storage_prices and /ipv4_prices that
-// the driver reads (the rows also embed the region, vendor and storage objects).
-type priceRow struct {
-	VendorID  string  `json:"vendor_id"`
-	RegionID  string  `json:"region_id"`
-	StorageID string  `json:"storage_id"`
-	Unit      string  `json:"unit"`
-	Price     float64 `json:"price"`
-	Currency  string  `json:"currency"`
-	Status    string  `json:"status"`
-}
-
-// Keeper's anonymous price endpoints for UpCloud, USD (converted by Keeper), all
-// rows. The paths and the row shape are those of the AWS storage prices; they
-// are unverified for UpCloud: a row the driver cannot read leaves that price
-// unknown and the offering's price incomplete.
-const (
-	storagePricesPath = "/storage_prices?vendor=upcloud&currency=USD&limit=-1"
-	ipv4PricesPath    = "/ipv4_prices?vendor=upcloud&currency=USD&limit=-1"
-)
-
-func (k *keeperPrices) rows(ctx context.Context, path string) ([]priceRow, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.url+path, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "scarpenter")
-	resp, err := k.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("reading Keeper's prices (%s): %w", path, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
-		return nil, fmt.Errorf("reading Keeper's prices (%s): HTTP %d", path, resp.StatusCode)
-	}
-	var rows []priceRow
-	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
-		return nil, fmt.Errorf("decoding Keeper's prices (%s): %w", path, err)
-	}
-	return rows, nil
-}
-
-// load reads the prices. A storage price is USD per GB and month (the unit
-// "GB/month"); an IPv4 price per month (divided by 672) or per hour. Rows of
-// another vendor or currency, inactive ones and those without a positive price
-// are ignored.
-func (k *keeperPrices) load(ctx context.Context) error {
-	srows, err := k.rows(ctx, storagePricesPath)
-	if err != nil {
-		return err
-	}
+// set replaces the prices with the rows of a Keeper data version and reports
+// whether they differ from the ones held (the first call always does).
+func (k *keeperPrices) set(p vendors.KeeperPrices) bool {
 	storage := map[string]float64{}
-	for _, r := range srows {
-		if r.VendorID != Vendor || r.Currency != "USD" || r.Price <= 0 || r.Status != "active" || r.Unit != "GB/month" {
-			continue
-		}
-		storage[r.RegionID+"/"+strings.ToLower(r.StorageID)] = r.Price
+	for _, r := range vendors.GBMonth(p.Storage) {
+		storage[r.Region+"/"+strings.ToLower(r.StorageID)] = r.USD
 	}
-	ipv4 := map[string]float64{}
-	if irows, err := k.rows(ctx, ipv4PricesPath); err == nil {
-		for _, r := range irows {
-			if r.VendorID != Vendor || r.Currency != "USD" || r.Price <= 0 || r.Status != "active" {
-				continue
-			}
-			switch r.Unit {
-			case "month":
-				ipv4[r.RegionID] = r.Price / hoursPerMonth
-			case "hour":
-				ipv4[r.RegionID] = r.Price
-			}
-		}
-	}
+	ipv4 := vendors.HourlyIPv4(p.IPv4, hoursPerMonth)
 	k.mu.Lock()
-	k.storage, k.ipv4, k.loaded = storage, ipv4, true
-	k.mu.Unlock()
-	if k.onLoad != nil {
-		k.onLoad()
-	}
-	return nil
+	defer k.mu.Unlock()
+	changed := !k.loaded || !maps.Equal(k.storage, storage) || !maps.Equal(k.ipv4, ipv4)
+	k.storage, k.ipv4, k.loaded, k.hash = storage, ipv4, true, p.Hash
+	return changed
 }

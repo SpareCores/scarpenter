@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 )
 
 type snapServer struct {
@@ -27,18 +29,16 @@ type snapServer struct {
 }
 
 func ovhServers(t testing.TB) []snapServer {
-	var all, out []snapServer
-	readSnapshot(t, "server", &all)
-	for _, s := range all {
-		if s.VendorID == "ovh" {
-			out = append(out, s)
-		}
-	}
+	out := vendortest.SnapshotRows[snapServer](t, "server", "ovh")
 	if len(out) == 0 {
 		t.Fatal("the snapshot has no OVH servers")
 	}
 	return out
 }
+
+// retiredAtKeeper are the classified families the snapshot has no type of,
+// because Keeper keeps their types as inactive rows.
+var retiredAtKeeper = []string{"eg", "g1", "g2", "g3", "hg", "s1", "sp", "vps"}
 
 // Every Keeper OVH family of the committed snapshot is launched or excluded, a
 // launched one is an active x86_64 type without accelerators, and everything the
@@ -67,8 +67,11 @@ func TestEveryFamilyIsClassified(t *testing.T) {
 		}
 	}
 	for _, f := range slices.Concat(LaunchedFamilies(), ExcludedFamilies()) {
-		if !seen[f] {
-			t.Errorf("family %s is classified but has no type in the snapshot (stale)", f)
+		// Keeper's snapshot has the active types only: the families it retired
+		// stay classified, so that a running node of one still resolves.
+		if retired := slices.Contains(retiredAtKeeper, f); retired == seen[f] {
+			t.Errorf("family %s is classified, in the snapshot: %v, listed as retired at Keeper: %v (stale or unlisted)",
+				f, seen[f], retired)
 		}
 	}
 	if !slices.IsSorted(ExcludedFamilies()) {

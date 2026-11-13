@@ -90,6 +90,7 @@ type Facts struct {
 var (
 	_ catalog.Facts           = (*Facts)(nil)
 	_ catalog.LaunchableFacts = (*Facts)(nil)
+	_ catalog.PriceSink       = (*Facts)(nil)
 )
 
 // New returns facts without data: Load (or Start) reads regions and zones.
@@ -521,6 +522,44 @@ func (f *Facts) Epoch() uint64 {
 		e += f.opts.Launchable.LaunchableEpoch()
 	}
 	return e
+}
+
+// SetKeeperPrices implements catalog.PriceSink: it hands each vendor's storage
+// and IPv4 price rows to its driver, when the driver is a
+// vendors.KeeperPriceConsumer. A consumer of a vendor without rows gets none:
+// its prices become unknown, as for any region the data lacks.
+func (f *Facts) SetKeeperPrices(version string, storage []model.StoragePrice, ipv4 []model.IPv4Price) {
+	byVendor := map[string]*vendors.KeeperPrices{}
+	of := func(vendor string) *vendors.KeeperPrices {
+		p, ok := byVendor[vendor]
+		if !ok {
+			p = &vendors.KeeperPrices{Hash: version}
+			byVendor[vendor] = p
+		}
+		return p
+	}
+	for _, r := range storage {
+		p := of(r.Vendor)
+		p.Storage = append(p.Storage, vendors.StoragePrice{
+			Region: r.RegionID, StorageID: r.StorageID, Unit: r.Unit, USD: r.USD,
+		})
+	}
+	for _, r := range ipv4 {
+		p := of(r.Vendor)
+		p.IPv4 = append(p.IPv4, vendors.IPv4Price{Region: r.RegionID, Unit: r.Unit, USD: r.USD})
+	}
+	for _, vendor := range f.opts.Registry.Vendors() {
+		drv, _ := f.opts.Registry.Driver(vendor)
+		consumer, ok := drv.(vendors.KeeperPriceConsumer)
+		if !ok {
+			continue
+		}
+		if p := byVendor[vendor]; p != nil {
+			consumer.SetKeeperPrices(*p)
+		} else {
+			consumer.SetKeeperPrices(vendors.KeeperPrices{Hash: version})
+		}
+	}
 }
 
 // LogFacts logs what was loaded, for the start-up log.

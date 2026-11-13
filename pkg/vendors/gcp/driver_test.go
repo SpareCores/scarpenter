@@ -9,8 +9,6 @@ package gcp_test
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -101,71 +99,90 @@ func TestInitNeedsAProject(t *testing.T) {
 func TestInitReadsTheIPv4Price(t *testing.T) {
 	t.Setenv(gcp.IPv4PriceEnv, "abc")
 	d := gcp.New(gcp.WithAPI(fake.NewSeeded("p")), gcp.WithProject("p"))
-	if err := d.Init(t.Context(), vendors.Config{Log: logr.Discard(), KeeperURL: "http://keeper.invalid"}); err == nil {
+	if err := d.Init(t.Context(), vendors.Config{Log: logr.Discard()}); err == nil {
 		t.Error("a bad price override is accepted")
 	}
 	t.Setenv(gcp.IPv4PriceEnv, "0.01")
 	d = gcp.New(gcp.WithAPI(fake.NewSeeded("p")), gcp.WithProject("p"))
-	if err := d.Init(t.Context(), vendors.Config{Log: logr.Discard(), KeeperURL: "http://keeper.invalid"}); err != nil {
+	if err := d.Init(t.Context(), vendors.Config{Log: logr.Discard()}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// TestKeeperPrices reads the disk prices from a fake Keeper and prices a node.
-func TestKeeperPrices(t *testing.T) {
-	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		if !strings.HasPrefix(r.URL.RequestURI(), "/storage_prices?vendor=gcp") {
-			t.Errorf("unexpected request %s", r.URL.RequestURI())
-		}
-		_ = json.NewEncoder(w).Encode([]map[string]any{
-			{"vendor_id": "gcp", "region_id": fake.SeedRegion, "storage_id": "pd-balanced", "unit": "GB/month",
-				"price": 0.146, "currency": "USD", "status": "active"},
-			{"vendor_id": "gcp", "region_id": fake.SeedRegion, "storage_id": "hyperdisk-balanced", "unit": "GB/month",
-				"price": 0.1, "currency": "EUR", "status": "active"},
-			{"vendor_id": "aws", "region_id": fake.SeedRegion, "storage_id": "pd-ssd", "unit": "GB/month",
-				"price": 1, "currency": "USD", "status": "active"},
-		})
-	}))
-	defer srv.Close()
+func newPricedDriver(t *testing.T) *gcp.Driver {
+	t.Helper()
 	d := gcp.New(gcp.WithAPI(fake.NewSeeded("p")), gcp.WithProject("p"))
-	if err := d.Init(t.Context(), vendors.Config{Log: logr.Discard(), KeeperURL: srv.URL}); err != nil {
+	if err := d.Init(t.Context(), vendors.Config{Log: logr.Discard()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.LoadPrices(t.Context()); err != nil {
-		t.Fatal(err)
+	return d
+}
+
+// TestKeeperPrices sets the disk and IPv4 prices of a Keeper data version and
+// prices a node.
+func TestKeeperPrices(t *testing.T) {
+	d := newPricedDriver(t)
+	off := vendors.Offering{Region: fake.SeedRegion, APIReference: "e2-small"}
+	if _, complete := d.PriceDelta(d.Defaults(), off); complete {
+		t.Error("the price is complete before any price was set")
 	}
-	s := d.Defaults()
-	price, complete := d.PriceDelta(s, vendors.Offering{Region: fake.SeedRegion, APIReference: "e2-small"})
-	want := 64*0.146/730 + gcp.DefaultIPv4PricePerHour
+	epoch := d.NodeOptionsEpoch()
+	prices := vendors.KeeperPrices{Hash: "h1",
+		Storage: []vendors.StoragePrice{
+			{Region: fake.SeedRegion, StorageID: "pd-balanced", Unit: "GB/month", USD: 0.146},
+			{Region: fake.SeedRegion, StorageID: "pd-ssd", Unit: "GB/hour", USD: 1}, // another unit: ignored
+			{Region: fake.SeedRegion, StorageID: "hyperdisk-balanced", Unit: "GB/month", USD: 0},
+		},
+		IPv4: []vendors.IPv4Price{{Region: fake.SeedRegion, Unit: "month", USD: 3.65}}, // 0.005 an hour
+	}
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() == epoch {
+		t.Error("the epoch did not change when the prices arrived")
+	}
+	price, complete := d.PriceDelta(d.Defaults(), off)
+	want := 64*0.146/730 + 0.005
 	if !complete || price < want-1e-9 || price > want+1e-9 {
 		t.Errorf("PriceDelta = %v, %v; want %v, complete", price, complete, want)
 	}
 	// A disk type Keeper has no usable price for makes the price incomplete.
-	hs := vendors.VendorSettings{Raw: json.RawMessage(`{"storage":{"root":{"diskType":"hyperdisk-balanced","sizeGb":10}}}`)}
-	if _, complete := d.PriceDelta(hs, vendors.Offering{Region: fake.SeedRegion}); complete {
-		t.Error("a price without a row is complete")
+	for _, typ := range []string{"hyperdisk-balanced", "pd-ssd"} {
+		hs := vendors.VendorSettings{Raw: json.RawMessage(`{"storage":{"root":{"diskType":"` + typ + `","sizeGb":10}}}`)}
+		if _, complete := d.PriceDelta(hs, vendors.Offering{Region: fake.SeedRegion}); complete {
+			t.Errorf("%s: a price without a usable row is complete", typ)
+		}
 	}
-	if d.NodeOptionsEpoch() == 0 {
-		t.Error("the epoch did not change when the prices loaded")
+	// A region without an IPv4 row is incomplete.
+	if _, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "other"}); complete {
+		t.Error("a region without rows is complete")
 	}
-	// Regions kicks the background load, and a bad answer is an error.
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(500) }))
-	defer bad.Close()
-	d2 := gcp.New(gcp.WithAPI(fake.NewSeeded("p")), gcp.WithProject("p"))
-	if err := d2.Init(t.Context(), vendors.Config{Log: logr.Discard(), KeeperURL: bad.URL}); err != nil {
-		t.Fatal(err)
+	// Equal prices keep the epoch, other prices change it.
+	epoch = d.NodeOptionsEpoch()
+	prices.Hash = "h2"
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() != epoch {
+		t.Error("the epoch changed for equal prices")
 	}
-	if err := d2.LoadPrices(t.Context()); err == nil {
-		t.Error("an HTTP 500 from Keeper is not an error")
+	prices.Storage[0].USD = 0.2
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() == epoch {
+		t.Error("the epoch did not change for a new price")
 	}
-	if err := gcp.New().LoadPrices(t.Context()); err != nil {
-		t.Errorf("LoadPrices without Keeper: %v", err)
+}
+
+func TestIPv4PriceOverrideWinsOverKeeper(t *testing.T) {
+	prices := vendors.KeeperPrices{Hash: "h",
+		Storage: []vendors.StoragePrice{{Region: fake.SeedRegion, StorageID: "pd-balanced", Unit: "GB/month", USD: 0.146}},
+		IPv4:    []vendors.IPv4Price{{Region: fake.SeedRegion, Unit: "hour", USD: 0.005}}}
+	t.Setenv(gcp.IPv4PriceEnv, "0")
+	d := newPricedDriver(t)
+	d.SetKeeperPrices(prices)
+	price, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: fake.SeedRegion})
+	if want := 64 * 0.146 / 730; !complete || price < want-1e-9 || price > want+1e-9 {
+		t.Errorf("PriceDelta = %v, %v; want %v (a free address, not Keeper's)", price, complete, want)
 	}
-	if _, err := d2.Regions(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+}
+
+func TestStaticPrices(t *testing.T) {
 	if _, ok := (gcp.StaticPrices{Storage: map[string]float64{"r/pd-ssd": 1}, IPv4: map[string]float64{"r": 2}}).StoragePrice("r", "pd-ssd"); !ok {
 		t.Error("StaticPrices")
 	}

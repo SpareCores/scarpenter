@@ -11,8 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -424,61 +422,42 @@ func TestQuotaAndOfferings(t *testing.T) {
 }
 
 func TestKeeperPrices(t *testing.T) {
-	var asked string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		asked = r.URL.RequestURI()
-		_, _ = w.Write([]byte(`[
-		 {"vendor_id":"ovh","region_id":"gra11","storage_id":"High-Speed","unit":"GB/month","price":0.0916,"currency":"USD","status":"active"},
-		 {"vendor_id":"ovh","region_id":"GRA11","storage_id":"classic","unit":"GB/month","price":0.0451,"currency":"USD","status":"inactive"},
-		 {"vendor_id":"aws","region_id":"GRA11","storage_id":"classic","unit":"GB/month","price":1,"currency":"USD","status":"active"},
-		 {"vendor_id":"ovh","region_id":"GRA11","storage_id":"classic","unit":"GB/hour","price":1,"currency":"USD","status":"active"}]`))
-	}))
-	defer srv.Close()
 	w := newWorld(t)
 	d := New(WithProvider(w.cloud))
-	if err := d.Init(ctx, vendors.Config{ClusterName: "c", KeeperURL: srv.URL, Clock: clock.RealClock{}, Log: logr.Discard()}); err != nil {
+	if err := d.Init(ctx, vendors.Config{ClusterName: "c", Clock: clock.RealClock{}, Log: logr.Discard()}); err != nil {
 		t.Fatal(err)
+	}
+	if _, ok := d.storagePrice("GRA11", "high-speed"); ok {
+		t.Error("a price is known before any was set")
 	}
 	before := d.NodeOptionsEpoch()
-	if err := d.LoadPrices(ctx); err != nil {
-		t.Fatal(err)
-	}
+	prices := vendors.KeeperPrices{Hash: "h1", Storage: []vendors.StoragePrice{
+		{Region: "gra11", StorageID: "High-Speed", Unit: "GB/month", USD: 0.0916},
+		{Region: "GRA11", StorageID: "classic", Unit: "GB/hour", USD: 1},
+		{Region: "GRA11", StorageID: "high-speed-gen2", Unit: "GB/month", USD: 0},
+	}}
+	d.SetKeeperPrices(prices)
 	if d.NodeOptionsEpoch() == before {
-		t.Error("the options epoch changes when prices load")
-	}
-	if !strings.Contains(asked, "vendor=ovh") {
-		t.Errorf("asked %s", asked)
+		t.Error("the options epoch changes when prices are set")
 	}
 	if p, ok := d.storagePrice("GRA11", "high-speed"); !ok || p != 0.0916 {
 		t.Errorf("price %v %v", p, ok)
 	}
-	if _, ok := d.storagePrice("GRA11", "classic"); ok {
-		t.Error("inactive, foreign and non-monthly rows are not prices")
-	}
-	// The background load from the first read of the regions.
-	d2 := New(WithProvider(w.cloud))
-	_ = d2.Init(ctx, vendors.Config{ClusterName: "c", KeeperURL: srv.URL, Clock: clock.RealClock{}, Log: logr.Discard()})
-	if _, err := d2.Regions(ctx); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, ok := d2.storagePrice("GRA11", "high-speed"); ok {
-			break
+	for _, typ := range []string{"classic", "high-speed-gen2"} {
+		if _, ok := d.storagePrice("GRA11", typ); ok {
+			t.Errorf("%s: non-monthly and zero rows are not prices", typ)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	if _, ok := d2.storagePrice("GRA11", "high-speed"); !ok {
-		t.Error("the prices load in the background")
+	before = d.NodeOptionsEpoch()
+	prices.Hash = "h2"
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() != before {
+		t.Error("the epoch changed for equal prices")
 	}
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "no", 500) }))
-	defer bad.Close()
-	k := newKeeperPrices(bad.URL, nil)
-	if err := k.load(ctx); err == nil {
-		t.Error("a failing Keeper is an error")
-	}
-	if err := New().LoadPrices(ctx); err != nil {
-		t.Errorf("without Keeper: %v", err)
+	prices.Storage[0].USD = 0.1
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() == before {
+		t.Error("the epoch did not change for a new price")
 	}
 	if p, ok := (StaticPrices{"GRA11/classic": 0.05}).StoragePrice("gra11", "Classic"); !ok || p != 0.05 {
 		t.Error("static prices ignore case")

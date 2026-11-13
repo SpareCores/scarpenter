@@ -7,15 +7,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package ovh
 
 import (
-	"compress/gzip"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/SpareCores/scarpenter/internal/testutil"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 )
 
 type snapRegion struct {
@@ -32,30 +28,8 @@ type snapZone struct {
 	Status   string `json:"status"`
 }
 
-func readSnapshot(t testing.TB, table string, into any) {
-	t.Helper()
-	f, err := os.Open(filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot", "tables", table+".json.gz"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.NewDecoder(zr).Decode(into); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func ovhRegions(t testing.TB) []snapRegion {
-	var all, out []snapRegion
-	readSnapshot(t, "region", &all)
-	for _, r := range all {
-		if r.VendorID == "ovh" {
-			out = append(out, r)
-		}
-	}
+	out := vendortest.SnapshotRows[snapRegion](t, "region", "ovh")
 	if len(out) == 0 {
 		t.Fatal("the snapshot has no OVH regions")
 	}
@@ -64,8 +38,8 @@ func ovhRegions(t testing.TB) []snapRegion {
 
 // Plan 14 A8: every Keeper OVH region of the committed snapshot maps to an API
 // name or is listed as unmapped, and the table has no row the snapshot lacks (a
-// stale row would hide a rename). The snapshot has no price table, so "with
-// prices" is every region row, active or not.
+// stale row would hide a rename). Keeper's snapshot has the active regions
+// only, so the rows noted as inactive are the ones it lacks.
 func TestEveryKeeperRegionMapsOrIsUnmapped(t *testing.T) {
 	m, err := NewRegionMap(nil)
 	if err != nil {
@@ -85,7 +59,12 @@ func TestEveryKeeperRegionMapsOrIsUnmapped(t *testing.T) {
 		}
 	}
 	for _, row := range regionAliases {
-		if !inSnapshot[row.Keeper] {
+		// Keeper's snapshot has the active regions only: a row noted as inactive
+		// is not in it, and one that is in it is no longer inactive.
+		if row.Note == noteInactive && inSnapshot[row.Keeper] {
+			t.Errorf("table row %s is noted inactive, but the snapshot has it", row.Keeper)
+		}
+		if row.Note != noteInactive && !inSnapshot[row.Keeper] {
 			t.Errorf("table row %s is not a Keeper region of the snapshot (stale)", row.Keeper)
 		}
 	}
@@ -150,8 +129,7 @@ func TestRegionMapOverrides(t *testing.T) {
 // region, whatever Nova names its zones: "nova" in a 1-AZ region, the zone IDs
 // themselves in a 3-AZ one (the real names are spike S4).
 func TestZoneIDsMatchTheSnapshot(t *testing.T) {
-	var all []snapZone
-	readSnapshot(t, "zone", &all)
+	all := vendortest.SnapshotRows[snapZone](t, "zone", "ovh")
 	want := map[string][]string{}
 	for _, z := range all {
 		if z.VendorID == "ovh" && z.Status == "active" {

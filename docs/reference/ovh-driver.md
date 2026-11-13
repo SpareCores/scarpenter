@@ -198,8 +198,8 @@ call go with the server.
 | placement profile `serverGroup {policy}` | a Nova server group per (profile, run key), `affinity` or `anti-affinity`, `perUse`, passed as the scheduler hint; `use {name}` references an existing group; a group that cannot be satisfied fails the launch with `NoValidHost` (`InsufficientCapacity`) |
 | network profiles | none exist on OVH (bandwidth is per flavor) |
 
-`PriceDelta` is Keeper's GB-month price of the volume type in the region (`/storage_prices?vendor=ovh`, loaded in the
-background) divided by 730, for the boot volume and every data volume; incomplete where a price is missing. The
+`PriceDelta` is Keeper's GB-month price of the volume type in the region (the `storage_price` file of the Keeper snapshot the
+catalog loaded, handed to the driver after every refresh) divided by 730, for the boot volume and every data volume; incomplete where a price is missing. The
 public address is free. `Supported` removes the profiles that are invalid or ask for `localStorage`.
 `ValidateNodeClass` rejects, besides the above: `networking.publicIPv4: false` (a private-only node needs a billed gateway),
 region names that are not the catalog's, malformed `use` selectors and IDs (Neutron and Glance UUIDs), and tags that do not fit Nova metadata.

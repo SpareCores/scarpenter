@@ -8,8 +8,6 @@ package alicloud
 
 import (
 	"bufio"
-	"compress/gzip"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -18,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SpareCores/scarpenter/internal/testutil"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files")
@@ -94,19 +92,7 @@ type serverRow struct {
 
 func alicloudTypes(t *testing.T) []string {
 	t.Helper()
-	f, err := os.Open(filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot", "tables", "server.json.gz"))
-	if err != nil {
-		t.Skipf("the Keeper snapshot is not available: %v", err)
-	}
-	defer func() { _ = f.Close() }()
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rows []serverRow
-	if err := json.NewDecoder(zr).Decode(&rows); err != nil {
-		t.Fatal(err)
-	}
+	rows := vendortest.SnapshotRows[serverRow](t, "server", "alicloud")
 	var out []string
 	for _, r := range rows {
 		if r.VendorID == "alicloud" {

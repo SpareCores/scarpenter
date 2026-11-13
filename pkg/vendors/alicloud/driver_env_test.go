@@ -7,11 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package alicloud
 
 import (
-	"compress/gzip"
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,9 +17,9 @@ import (
 	"github.com/go-logr/logr"
 	clocktesting "k8s.io/utils/clock/testing"
 
-	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/alicloud/fake"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 )
 
 // snapshotRow is the part of a /table/server row the tests need.
@@ -45,19 +41,7 @@ var (
 func alicloudServers(t testing.TB) []snapshotRow {
 	t.Helper()
 	snapshotOnce.Do(func() {
-		f, err := os.Open(filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot", "tables", "server.json.gz"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = f.Close() }()
-		zr, err := gzip.NewReader(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var rows []snapshotRow
-		if err := json.NewDecoder(zr).Decode(&rows); err != nil {
-			t.Fatal(err)
-		}
+		rows := vendortest.SnapshotRows[snapshotRow](t, "server", "alicloud")
 		for _, r := range rows {
 			if r.VendorID == Vendor {
 				snapshot = append(snapshot, r)

@@ -94,8 +94,9 @@ func pricesLoaded(p PriceSource) bool {
 }
 
 // PriceDelta implements vendors.NodeOptions: the volumes (GB-month over 730
-// hours, Keeper's block price of the location) and the Primary IPv4 (a
-// constant). Placement groups, firewalls and networks are free; traffic over the
+// hours, Keeper's block price of the location) and the Primary IPv4 (Keeper's
+// price of the location, or the operator's override). Placement groups,
+// firewalls and networks are free; traffic over the
 // included amount is not priced.
 func (d *Driver) PriceDelta(s vendors.VendorSettings, o vendors.Offering) (float64, bool) {
 	st, err := decodeSettings(s)
@@ -124,7 +125,7 @@ func (d *Driver) PriceDelta(s vendors.VendorSettings, o vendors.Offering) (float
 	if boolOr(s.Networking.PublicIPv4, true) {
 		price, ok := 0.0, false
 		if d.prices != nil {
-			price, ok = d.prices.IPv4Price()
+			price, ok = d.prices.IPv4Price(location)
 		}
 		if !ok {
 			complete = false

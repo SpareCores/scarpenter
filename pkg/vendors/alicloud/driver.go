@@ -56,8 +56,8 @@ func WithSleep(f func(ctx context.Context, d time.Duration) error) Option {
 	return func(d *Driver) { d.sleep = f }
 }
 
-// WithPrices sets the source of the disk prices; by default the driver reads
-// them from Keeper.
+// WithPrices sets the source of the disk prices; by default the driver takes
+// them from Keeper (SetKeeperPrices).
 func WithPrices(p PriceSource) Option { return func(d *Driver) { d.prices = p } }
 
 // Driver implements vendors.Driver and the capabilities NodeClassValidator,
@@ -147,8 +147,8 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 		d.cloud.sleep = d.sleep
 	}
 	d.quotas = NewQuotas(d.cloud)
-	if d.prices == nil && cfg.KeeperURL != "" {
-		d.keeper = newKeeperPrices(cfg.KeeperURL, func() { d.bumpEpoch() })
+	if d.prices == nil {
+		d.keeper = newKeeperPrices()
 		d.prices = d.keeper
 	}
 	return nil
@@ -158,6 +158,16 @@ func (d *Driver) bumpEpoch() {
 	d.mu.Lock()
 	d.epoch++
 	d.mu.Unlock()
+}
+
+// SetKeeperPrices implements vendors.KeeperPriceConsumer: the storage prices of the
+// Keeper data version the catalog loaded. The node options epoch changes when
+// they differ from the previous ones. A driver with injected prices
+// (WithPrices) ignores them.
+func (d *Driver) SetKeeperPrices(p vendors.KeeperPrices) {
+	if d.keeper != nil && d.keeper.set(p) {
+		d.bumpEpoch()
+	}
 }
 
 // NodeOptionsEpoch implements vendors.EpochReporter: Supported and PriceDelta
@@ -189,7 +199,6 @@ func (d *Driver) Regions(ctx context.Context) ([]vendors.Region, error) {
 	d.mu.Lock()
 	d.regions.set(regions, d.clock.Now().Add(regionsTTL))
 	d.mu.Unlock()
-	d.kickPrices()
 	return slices.Clone(regions), nil
 }
 
@@ -217,23 +226,6 @@ func (d *Driver) Zones(ctx context.Context, region string) ([]vendors.Zone, erro
 	c.set(zones, d.clock.Now().Add(zonesTTL))
 	d.mu.Unlock()
 	return slices.Clone(zones), nil
-}
-
-// kickPrices starts the background load of the disk prices.
-func (d *Driver) kickPrices() {
-	if d.keeper != nil {
-		d.keeper.kick(d.clock.Now(), func(err error) { d.log.Error(err, "loading the disk prices from Keeper") })
-	}
-}
-
-// LoadPrices reads the disk prices from Keeper now and waits for the result; the
-// driver otherwise loads them in the background from the first read of the
-// regions. A no-op without a Keeper URL.
-func (d *Driver) LoadPrices(ctx context.Context) error {
-	if d.keeper == nil {
-		return nil
-	}
-	return d.keeper.load(ctx)
 }
 
 // Cloud returns the client layer, for the sweeper CLI and the tests.

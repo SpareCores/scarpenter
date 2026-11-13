@@ -8,11 +8,7 @@ package aws_test
 
 import (
 	"context"
-	"encoding/json"
 	"math"
-	"net/http"
-	"net/http/httptest"
-	"os"
 	"slices"
 	"testing"
 	"time"
@@ -24,6 +20,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws/fake"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 )
 
 func TestRegistered(t *testing.T) {
@@ -174,138 +171,100 @@ func TestUnknownZoneIsUnusable(t *testing.T) {
 	}
 }
 
-func TestKeeperPrices(t *testing.T) {
-	// The recorded shape of Keeper's anonymous /storage_prices (an excerpt of the
-	// real response of 2026-11-07, values only): rows with nested objects.
-	raw, err := os.ReadFile("testdata/keeper_storage_prices.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var asked []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		asked = append(asked, r.URL.RequestURI())
-		if r.URL.Path != "/storage_prices" {
-			http.NotFound(w, r) // the /table/ipv4_price and /table/storage_price of the first version do not exist
-			return
-		}
-		_, _ = w.Write(raw)
-	}))
-	defer srv.Close()
-
+func uninitialisedPriceDriver() *aws.Driver {
 	acct := fake.New()
 	acct.SetInstanceTypes(smallTypes)
-	d := aws.New(aws.WithClientFactory(func(_ context.Context, region string) (aws.Clients, error) {
+	return aws.New(aws.WithClientFactory(func(_ context.Context, region string) (aws.Clients, error) {
 		return aws.Clients{EC2: acct.EC2(region), Quotas: acct.Quotas(region)}, nil
 	}))
-	if err := d.Init(context.Background(), vendors.Config{ClusterName: testCluster, KeeperURL: srv.URL, Log: logr.Discard()}); err != nil {
+}
+
+func newPriceDriver(t *testing.T) *aws.Driver {
+	t.Helper()
+	d := uninitialisedPriceDriver()
+	if err := d.Init(context.Background(), vendors.Config{ClusterName: testCluster, Log: logr.Discard()}); err != nil {
 		t.Fatal(err)
 	}
+	return d
+}
+
+func TestKeeperPrices(t *testing.T) {
+	// The recorded shape of Keeper's storage prices (an excerpt of a real
+	// response, values only).
+	storage := vendortest.StoragePrices(t, "testdata/keeper_storage_prices.json", "aws")
+	d := newPriceDriver(t)
 	off := vendors.Offering{Region: "us-east-1", APIReference: testType}
 	if _, complete := d.PriceDelta(d.Defaults(), off); complete {
-		t.Error("the price is complete before any price was loaded")
+		t.Error("the price is complete before any price was set")
 	}
 	epoch := d.NodeOptionsEpoch()
-	if err := d.LoadPrices(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	prices := vendors.KeeperPrices{Hash: "h1", Storage: storage, IPv4: []vendors.IPv4Price{
+		{Region: "us-east-1", Unit: "hour", USD: 0.005},
+		{Region: "eu-central-1", Unit: "month", USD: 7.3}, // 0.01 an hour
+		{Region: "ap-south-1", Unit: "year", USD: 100},    // not a unit the driver knows
+	}}
+	d.SetKeeperPrices(prices)
 	if d.NodeOptionsEpoch() == epoch {
 		t.Error("the epoch did not change when the prices arrived: the catalog would not reprice")
 	}
-	// 64 GiB of gp3 at the recorded 0.08 per GB-month, and the public IPv4
-	// address at the driver's constant (Keeper has none).
+	// 64 GiB of gp3 at the recorded 0.08 per GB-month and the hourly IPv4 row.
 	got, complete := d.PriceDelta(d.Defaults(), off)
-	if want := 64*0.08/730 + aws.DefaultIPv4PricePerHour; !complete || math.Abs(got-want) > 1e-9 {
+	if want := 64*0.08/730 + 0.005; !complete || math.Abs(got-want) > 1e-9 {
 		t.Errorf("PriceDelta = %v, %v after the load; want %v, complete", got, complete, want)
 	}
-	// eu-central-1 has gp3 but st1 is per IOPS and sc1 is in EUR: ignored.
-	if got, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "eu-central-1"}); !complete || got <= 64*0.09/730 {
-		t.Errorf("eu-central-1 gp3: %v, %v", got, complete)
+	// eu-central-1: a monthly IPv4 row is divided by 730 hours.
+	if got, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "eu-central-1"}); !complete || got <= 64*0.09/730+0.0099 {
+		t.Errorf("eu-central-1 gp3 and monthly IPv4: %v, %v", got, complete)
 	}
 	st1 := resolveSettings(t, d, `{"storage":{"root":{"volumeType":"st1","volumeSize":"125Gi"}}}`, defaultNetworking(), nil, options.Selection{})
 	if _, complete := d.PriceDelta(st1, vendors.Offering{Region: "eu-central-1"}); complete {
 		t.Error("a row in another unit priced st1")
 	}
 	if _, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "ap-south-1"}); complete {
-		t.Error("a region without rows is complete")
+		t.Error("a region without usable rows is complete")
 	}
-	if len(asked) != 1 || asked[0] != "/storage_prices?vendor=aws&currency=USD&limit=-1" {
-		t.Errorf("Keeper was asked %v", asked)
+	if _, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "sa-east-1"}); complete {
+		t.Error("a region without an IPv4 row is complete")
+	}
+
+	// The same prices again change nothing; a changed price does.
+	epoch = d.NodeOptionsEpoch()
+	prices.Hash = "h2"
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() != epoch {
+		t.Error("the epoch changed for equal prices")
+	}
+	prices.IPv4 = []vendors.IPv4Price{{Region: "us-east-1", Unit: "hour", USD: 0.006}}
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() == epoch {
+		t.Error("the epoch did not change for a new IPv4 price")
 	}
 }
 
-func TestIPv4PriceIsConfigurable(t *testing.T) {
-	raw, err := os.ReadFile("testdata/keeper_storage_prices.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(raw) }))
-	defer srv.Close()
-	acct := fake.New()
-	build := func() *aws.Driver {
-		return aws.New(aws.WithClientFactory(func(_ context.Context, region string) (aws.Clients, error) {
-			return aws.Clients{EC2: acct.EC2(region), Quotas: acct.Quotas(region)}, nil
-		}))
-	}
-	cfg := vendors.Config{ClusterName: testCluster, KeeperURL: srv.URL, Log: logr.Discard()}
+func TestIPv4PriceOverrideWinsOverKeeper(t *testing.T) {
 	storage := 64 * 0.08 / 730
-	for env, want := range map[string]float64{"": aws.DefaultIPv4PricePerHour, "0.01": 0.01, "0": 0} {
+	prices := vendors.KeeperPrices{Hash: "h", Storage: vendortest.StoragePrices(t, "testdata/keeper_storage_prices.json", "aws"),
+		IPv4: []vendors.IPv4Price{{Region: "us-east-1", Unit: "hour", USD: 0.005}}}
+	for env, want := range map[string]float64{"": 0.005, "0.01": 0.01, "0": 0} {
 		t.Setenv(aws.IPv4PriceEnv, env)
-		d := build()
-		if err := d.Init(context.Background(), cfg); err != nil {
-			t.Fatal(err)
-		}
-		if err := d.LoadPrices(context.Background()); err != nil {
-			t.Fatal(err)
-		}
+		d := newPriceDriver(t)
+		d.SetKeeperPrices(prices)
 		got, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "us-east-1"})
 		if !complete || math.Abs(got-(storage+want)) > 1e-9 {
 			t.Errorf("%q: PriceDelta = %v, %v; want %v complete (0 is free, not unknown)", env, got, complete, storage+want)
 		}
 	}
+	// An override covers a region Keeper has no row for.
+	t.Setenv(aws.IPv4PriceEnv, "0.01")
+	d := newPriceDriver(t)
+	d.SetKeeperPrices(prices)
+	if _, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "eu-central-1"}); !complete {
+		t.Error("the override did not cover a region without a Keeper row")
+	}
 	for _, bad := range []string{"free", "NaN", "Inf", "-Inf", "-0.5"} {
 		t.Setenv(aws.IPv4PriceEnv, bad)
-		if err := build().Init(context.Background(), cfg); err == nil {
+		if err := uninitialisedPriceDriver().Init(context.Background(), vendors.Config{ClusterName: testCluster, Log: logr.Discard()}); err == nil {
 			t.Errorf("%q was accepted as a price", bad)
 		}
-	}
-}
-
-func TestKeeperPricesFailureKeepsThePriceIncomplete(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusBadGateway) }))
-	defer srv.Close()
-	acct := fake.New()
-	d := aws.New(aws.WithClientFactory(func(_ context.Context, region string) (aws.Clients, error) {
-		return aws.Clients{EC2: acct.EC2(region), Quotas: acct.Quotas(region)}, nil
-	}))
-	if err := d.Init(context.Background(), vendors.Config{ClusterName: testCluster, KeeperURL: srv.URL, Log: logr.Discard()}); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.LoadPrices(context.Background()); err == nil {
-		t.Fatal("a failed load reported success")
-	}
-	if _, complete := d.PriceDelta(d.Defaults(), vendors.Offering{Region: "us-east-1"}); complete {
-		t.Error("a failed price load made the price complete")
-	}
-}
-
-func TestReadingTheRegionsStartsThePriceLoad(t *testing.T) {
-	hit := make(chan string, 8)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit <- r.URL.Path
-		_ = json.NewEncoder(w).Encode([]any{})
-	}))
-	defer srv.Close()
-	acct := fake.New()
-	d := aws.New(aws.WithClientFactory(func(_ context.Context, region string) (aws.Clients, error) {
-		return aws.Clients{EC2: acct.EC2(region), Quotas: acct.Quotas(region)}, nil
-	}))
-	if err := d.Init(context.Background(), vendors.Config{ClusterName: testCluster, KeeperURL: srv.URL, Log: logr.Discard()}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.Regions(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := <-hit; got != "/storage_prices" {
-		t.Errorf("the first Keeper request is %s", got)
 	}
 }

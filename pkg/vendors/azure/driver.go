@@ -81,7 +81,7 @@ func WithClients(c Clients) Option { return func(d *Driver) { d.clients = c } }
 func WithSubscription(id string) Option { return func(d *Driver) { d.subscription = id } }
 
 // WithPrices sets the source of the disk and public IP prices; by default the
-// driver reads the disk prices from Keeper (the IPv4 price is a constant).
+// driver takes the disk and IPv4 prices from Keeper (SetKeeperPrices).
 func WithPrices(p PriceSource) Option { return func(d *Driver) { d.prices = p } }
 
 // WithCreateTimeout sets how long a launch waits for the VM's long-running
@@ -197,19 +197,18 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 		CreateTimeout: d.createTimeout, DeleteTimeout: d.deleteTimeout}
 	d.images = &Images{API: d.clients.Images, Terms: d.clients.Agreements, Clock: d.clock}
 	d.quota = NewQuotaReader(d.clients.Usages)
-	if d.prices == nil && cfg.KeeperURL != "" {
-		ipv4 := DefaultIPv4PricePerHour
+	if d.prices == nil {
+		var override *float64
 		if v := os.Getenv(EnvIPv4Price); v != "" {
 			p, err := strconv.ParseFloat(v, 64)
 			if err != nil || p < 0 || math.IsNaN(p) || math.IsInf(p, 0) {
 				return fmt.Errorf("%s=%q is not a price in USD per hour (a finite number, 0 for free)", EnvIPv4Price, v)
 			}
-			ipv4 = p
+			override = &p
+			d.log.Info("the price of a Standard public IPv4 address is set by the operator, Keeper's is not used",
+				"usdPerHour", p, "override", EnvIPv4Price)
 		}
-		// An approximation, not a Keeper price: say so where the operator sees it.
-		d.log.Info("the price of a public IPv4 address is a constant, not from Keeper (it has none)",
-			"usdPerHour", ipv4, "override", EnvIPv4Price)
-		d.keeper = newKeeperPrices(cfg.KeeperURL, ipv4, func() { d.epoch.Add(1) })
+		d.keeper = newKeeperPrices(override)
 		d.prices = d.keeper
 	}
 	return nil
@@ -268,7 +267,6 @@ func (d *Driver) locationList(ctx context.Context) ([]*armsubscriptions.Location
 	d.mu.Lock()
 	d.locations.set(physical, d.clock.Now().Add(regionsTTL))
 	d.mu.Unlock()
-	d.kickPrices()
 	return physical, nil
 }
 
@@ -314,26 +312,19 @@ func (d *Driver) Zones(ctx context.Context, region string) ([]vendors.Zone, erro
 		fmt.Errorf("the subscription has no region %q", region))
 }
 
+// SetKeeperPrices implements vendors.KeeperPriceConsumer: the storage and IPv4 prices of the
+// Keeper data version the catalog loaded. The node options epoch changes when
+// they differ from the previous ones. A driver with injected prices
+// (WithPrices) ignores them.
+func (d *Driver) SetKeeperPrices(p vendors.KeeperPrices) {
+	if d.keeper != nil && d.keeper.set(p) {
+		d.epoch.Add(1)
+	}
+}
+
 // NodeOptionsEpoch implements vendors.EpochReporter: Supported and PriceDelta
 // depend on the SKU table and the prices, which load at runtime.
 func (d *Driver) NodeOptionsEpoch() uint64 { return d.epoch.Load() }
-
-// kickPrices starts the background load of the disk prices.
-func (d *Driver) kickPrices() {
-	if d.keeper != nil {
-		d.keeper.kick(d.clock.Now(), func(err error) { d.log.Error(err, "loading the disk prices from Keeper") })
-	}
-}
-
-// LoadPrices reads the disk prices from Keeper now and waits for the result;
-// the driver otherwise loads them in the background from the first read of the
-// regions. A no-op without a Keeper URL.
-func (d *Driver) LoadPrices(ctx context.Context) error {
-	if d.keeper == nil {
-		return nil
-	}
-	return d.keeper.load(ctx)
-}
 
 // skuTable reads the size table of a region (cached for an hour) and feeds the
 // facts the options and the quota mapping read. A region whose sizes are all

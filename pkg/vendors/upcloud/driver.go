@@ -56,7 +56,7 @@ type Option func(*Driver)
 func WithAPI(a api.API) Option { return func(d *Driver) { d.api = a } }
 
 // WithPrices sets the source of the storage and IPv4 prices; by default the
-// driver reads them from Keeper.
+// driver takes them from Keeper (SetKeeperPrices).
 func WithPrices(p PriceSource) Option { return func(d *Driver) { d.prices = p } }
 
 // WithNetworkRange sets the /16 of the managed networks, as NetworkRangeEnv does.
@@ -142,11 +142,21 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 	if err := checkRange(d.networkRange); err != nil {
 		return fmt.Errorf("%s: %w", NetworkRangeEnv, err)
 	}
-	if d.prices == nil && cfg.KeeperURL != "" {
-		d.keeper = newKeeperPrices(cfg.KeeperURL, func() { d.epoch.Add(1) })
+	if d.prices == nil {
+		d.keeper = newKeeperPrices()
 		d.prices = d.keeper
 	}
 	return nil
+}
+
+// SetKeeperPrices implements vendors.KeeperPriceConsumer: the storage and IPv4 prices of the
+// Keeper data version the catalog loaded. The node options epoch changes when
+// they differ from the previous ones. A driver with injected prices
+// (WithPrices) ignores them.
+func (d *Driver) SetKeeperPrices(p vendors.KeeperPrices) {
+	if d.keeper != nil && d.keeper.set(p) {
+		d.epoch.Add(1)
+	}
 }
 
 // NodeOptionsEpoch implements vendors.EpochReporter: Supported and PriceDelta
@@ -184,7 +194,6 @@ func (d *Driver) Regions(ctx context.Context) ([]vendors.Region, error) {
 	d.mu.Lock()
 	d.regions.set(regions, d.clock.Now().Add(regionsTTL))
 	d.mu.Unlock()
-	d.kickPrices()
 	return slices.Clone(regions), nil
 }
 
@@ -248,23 +257,6 @@ func (d *Driver) knownPlans() Plans {
 		return d.plans.v
 	}
 	return nil
-}
-
-// kickPrices starts the background load of the prices from Keeper.
-func (d *Driver) kickPrices() {
-	if d.keeper != nil {
-		d.keeper.kick(d.clock.Now(), func(err error) { d.log.Error(err, "loading the prices from Keeper") })
-	}
-}
-
-// LoadPrices reads the prices from Keeper now and waits for the result; the
-// driver otherwise loads them in the background from the first read of the
-// regions. A no-op without a Keeper URL.
-func (d *Driver) LoadPrices(ctx context.Context) error {
-	if d.keeper == nil {
-		return nil
-	}
-	return d.keeper.load(ctx)
 }
 
 var (

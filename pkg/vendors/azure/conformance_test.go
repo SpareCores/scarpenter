@@ -8,13 +8,10 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package azure_test
 
 import (
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,11 +22,11 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/go-logr/logr"
 
-	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/azure"
 	"github.com/SpareCores/scarpenter/pkg/vendors/azure/fake"
 	"github.com/SpareCores/scarpenter/pkg/vendors/conformance"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 )
 
 const (
@@ -62,19 +59,7 @@ var (
 func azureServers(t testing.TB) []snapshotRow {
 	t.Helper()
 	snapshotOnce.Do(func() {
-		f, err := os.Open(filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot", "tables", "server.json.gz"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = f.Close() }()
-		zr, err := gzip.NewReader(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var rows []snapshotRow
-		if err := json.NewDecoder(zr).Decode(&rows); err != nil {
-			t.Fatal(err)
-		}
+		rows := vendortest.SnapshotRows[snapshotRow](t, "server", "azure")
 		for _, r := range rows {
 			if r.VendorID == "azure" && r.Status == "active" {
 				snapshot = append(snapshot, r)

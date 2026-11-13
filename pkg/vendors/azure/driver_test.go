@@ -10,7 +10,6 @@ package azure
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -54,11 +53,11 @@ func TestInit(t *testing.T) {
 	for _, v := range []string{"abc", "-1", "NaN"} {
 		t.Setenv(EnvIPv4Price, v)
 		require.ErrorContains(t, New(WithClients(e.clients)).Init(ctx, vendors.Config{
-			ClusterName: testCluster, Log: logr.Discard(), KeeperURL: "http://keeper.invalid"}), EnvIPv4Price)
+			ClusterName: testCluster, Log: logr.Discard()}), EnvIPv4Price)
 	}
 	t.Setenv(EnvIPv4Price, "0.01")
 	d = New(WithClients(e.clients), WithCreateTimeout(time.Second))
-	require.NoError(t, d.Init(ctx, vendors.Config{ClusterName: testCluster, Log: logr.Discard(), KeeperURL: "http://keeper.invalid"}))
+	require.NoError(t, d.Init(ctx, vendors.Config{ClusterName: testCluster, Log: logr.Discard()}))
 	p, ok := d.prices.IPv4Price("westeurope")
 	require.True(t, ok)
 	require.InDelta(t, 0.01, p, 1e-9)
@@ -291,71 +290,72 @@ func TestFailedLaunchDropsItsNetwork(t *testing.T) {
 }
 
 func TestKeeperPrices(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/storage_prices", r.URL.Path)
-		require.Equal(t, "azure", r.URL.Query().Get("vendor"))
-		_, _ = w.Write([]byte(`[
-		 {"vendor_id":"azure","region_id":"westeurope","storage_id":"premium_lrs","unit":"GB/month","price":0.15,"currency":"USD","status":"active"},
-		 {"vendor_id":"azure","region_id":"westeurope","storage_id":"standardssd_lrs","unit":"GB/month","price":0.08,"currency":"USD","status":"active"},
-		 {"vendor_id":"azure","region_id":"westeurope","storage_id":"standard_lrs","unit":"GB/hour","price":1,"currency":"USD","status":"active"},
-		 {"vendor_id":"aws","region_id":"westeurope","storage_id":"x","unit":"GB/month","price":1,"currency":"USD","status":"active"}]`))
-	}))
-	defer srv.Close()
-	k := newKeeperPrices(srv.URL, 0.005, nil)
-	loaded := make(chan struct{}, 1)
-	k.onLoad = func() { loaded <- struct{}{} }
-	_, ok := k.StoragePrice("westeurope", "Premium_LRS")
-	require.False(t, ok, "nothing is known before the load")
-	require.NoError(t, k.load(context.Background()))
-	p, ok := k.StoragePrice("westeurope", "Premium_LRS")
-	require.True(t, ok)
-	require.InDelta(t, 0.15, p, 1e-9)
-	_, ok = k.StoragePrice("westeurope", "Standard_LRS")
-	require.False(t, ok, "only USD per GB and month rows count")
-	_, ok = k.StoragePrice("northeurope", "Premium_LRS")
-	require.False(t, ok)
-	ip, ok := k.IPv4Price("westeurope")
-	require.True(t, ok)
-	require.InDelta(t, 0.005, ip, 1e-9)
-	<-loaded
-
-	// kick loads in the background, at most once a minute.
-	k2 := newKeeperPrices(srv.URL, 0.005, nil)
-	done := make(chan struct{}, 1)
-	k2.onLoad = func() { done <- struct{}{} }
-	now := time.Now()
-	k2.kick(now, func(error) {})
-	<-done
-	// onLoad runs inside the load, before the background load clears loading: a
-	// kick before that is a no-op.
-	require.Eventually(t, func() bool {
-		k2.mu.RLock()
-		defer k2.mu.RUnlock()
-		return !k2.loading
-	}, 10*time.Second, time.Millisecond)
-	k2.kick(now.Add(time.Second), func(error) {})
-	k2.kick(now.Add(7*time.Hour), func(error) {})
-	<-done
-
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }))
-	defer bad.Close()
-	require.ErrorContains(t, newKeeperPrices(bad.URL, 0, nil).load(context.Background()), "HTTP 418")
-	junk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("{")) }))
-	defer junk.Close()
-	require.ErrorContains(t, newKeeperPrices(junk.URL, 0, nil).load(context.Background()), "decoding")
-	errs := make(chan error, 1)
-	k3 := newKeeperPrices(bad.URL, 0, nil)
-	k3.kick(time.Now(), func(err error) { errs <- err })
-	require.Error(t, <-errs)
-
-	// The driver loads them on the first read of the regions and in LoadPrices.
+	prices := vendors.KeeperPrices{Hash: "h1",
+		Storage: []vendors.StoragePrice{
+			{Region: "westeurope", StorageID: "premium_lrs", Unit: "GB/month", USD: 0.15},
+			{Region: "westeurope", StorageID: "standardssd_lrs", Unit: "GB/month", USD: 0.08},
+			{Region: "westeurope", StorageID: "standard_lrs", Unit: "GB/hour", USD: 1},
+		},
+		IPv4: []vendors.IPv4Price{
+			{Region: "westeurope", Unit: "hour", USD: 0.005},
+			{Region: "northeurope", Unit: "month", USD: 7.3}, // 0.01 an hour
+			{Region: "eastus", Unit: "day", USD: 1},
+		},
+	}
 	e := newEnv(t)
 	d := New(WithClients(e.clients), WithSubscription("sub-1"))
-	require.NoError(t, d.Init(context.Background(), vendors.Config{ClusterName: testCluster, Log: logr.Discard(), KeeperURL: srv.URL}))
-	require.NoError(t, d.LoadPrices(context.Background()))
-	_, ok = d.storagePrice("westeurope", "Premium_LRS")
+	require.NoError(t, d.Init(context.Background(), vendors.Config{ClusterName: testCluster, Log: logr.Discard()}))
+	_, ok := d.storagePrice("westeurope", "Premium_LRS")
+	require.False(t, ok, "nothing is known before the prices are set")
+	_, ok = d.ipv4Price("westeurope")
+	require.False(t, ok)
+	epoch := d.NodeOptionsEpoch()
+	d.SetKeeperPrices(prices)
+	require.NotEqual(t, epoch, d.NodeOptionsEpoch(), "the catalog must reprice")
+
+	p, ok := d.storagePrice("westeurope", "Premium_LRS")
 	require.True(t, ok)
-	require.NoError(t, New().LoadPrices(context.Background()), "a no-op without a Keeper URL")
+	require.InDelta(t, 0.15, p, 1e-9)
+	_, ok = d.storagePrice("westeurope", "Standard_LRS")
+	require.False(t, ok, "only GB per month rows count")
+	_, ok = d.storagePrice("northeurope", "Premium_LRS")
+	require.False(t, ok)
+	ip, ok := d.ipv4Price("westeurope")
+	require.True(t, ok)
+	require.InDelta(t, 0.005, ip, 1e-9)
+	ip, ok = d.ipv4Price("northeurope")
+	require.True(t, ok)
+	require.InDelta(t, 0.01, ip, 1e-9, "a monthly row is divided by 730 hours")
+	_, ok = d.ipv4Price("eastus")
+	require.False(t, ok, "another unit is ignored")
+	_, ok = d.ipv4Price("southeastasia")
+	require.False(t, ok, "a region without a row is unknown")
+
+	epoch = d.NodeOptionsEpoch()
+	prices.Hash = "h2"
+	d.SetKeeperPrices(prices)
+	require.Equal(t, epoch, d.NodeOptionsEpoch(), "equal prices keep the epoch")
+	prices.Storage[0].USD = 0.16
+	d.SetKeeperPrices(prices)
+	require.NotEqual(t, epoch, d.NodeOptionsEpoch())
+
+	// The operator's price wins over Keeper's, also where Keeper has no row.
+	t.Setenv(EnvIPv4Price, "0.02")
+	d = New(WithClients(e.clients), WithSubscription("sub-1"))
+	require.NoError(t, d.Init(context.Background(), vendors.Config{ClusterName: testCluster, Log: logr.Discard()}))
+	d.SetKeeperPrices(prices)
+	for _, region := range []string{"westeurope", "southeastasia"} {
+		ip, ok = d.ipv4Price(region)
+		require.True(t, ok)
+		require.InDelta(t, 0.02, ip, 1e-9)
+	}
+
+	// Injected prices are not replaced.
+	d = New(WithClients(e.clients), WithSubscription("sub-1"), WithPrices(StaticPrices{}))
+	require.NoError(t, d.Init(context.Background(), vendors.Config{ClusterName: testCluster, Log: logr.Discard()}))
+	epoch = d.NodeOptionsEpoch()
+	d.SetKeeperPrices(prices)
+	require.Equal(t, epoch, d.NodeOptionsEpoch())
 	_, ok = New().storagePrice("westeurope", "x")
 	require.False(t, ok)
 	_, ok = New().ipv4Price("westeurope")

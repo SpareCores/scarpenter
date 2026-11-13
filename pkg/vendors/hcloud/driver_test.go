@@ -101,40 +101,44 @@ func TestInit(t *testing.T) {
 }
 
 func TestKeeperPricesAndPriceDelta(t *testing.T) {
-	rows := `[{"vendor_id":"hcloud","region_id":"fsn1","storage_id":"block","unit":"GB/month","price":0.0584,"currency":"USD","status":"active"},
-	{"vendor_id":"hcloud","region_id":"nbg1","storage_id":"block","unit":"TB/month","price":9,"currency":"USD","status":"active"},
-	{"vendor_id":"aws","region_id":"hel1","storage_id":"block","unit":"GB/month","price":1,"currency":"USD","status":"active"}]`
-	var path string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path = r.URL.RequestURI()
-		_, _ = w.Write([]byte(rows))
-	}))
-	defer srv.Close()
-	t.Setenv(hcloud.IPv4PriceEnv, "0.001")
-	f := hcfake.New()
-	d := hcloud.New(hcloud.WithAPI(f), hcloud.WithRegisterer(nopRegisterer{}))
-	if err := d.Init(context.Background(), vendors.Config{ClusterName: "c", Log: logr.Discard(), KeeperURL: srv.URL}); err != nil {
-		t.Fatal(err)
+	prices := vendors.KeeperPrices{Hash: "h1",
+		Storage: []vendors.StoragePrice{
+			{Region: "fsn1", StorageID: "block", Unit: "GB/month", USD: 0.0584},
+			{Region: "nbg1", StorageID: "block", Unit: "TB/month", USD: 9},
+			{Region: "hel1", StorageID: "other", Unit: "GB/month", USD: 1},
+		},
+		IPv4: []vendors.IPv4Price{
+			{Region: "fsn1", Unit: "month", USD: 0.73}, // 0.001 an hour
+			{Region: "hel1", Unit: "hour", USD: 0.002},
+			{Region: "nbg1", Unit: "year", USD: 5},
+		},
 	}
+	f := hcfake.New()
+	newDriver := func() *hcloud.Driver {
+		d := hcloud.New(hcloud.WithAPI(f), hcloud.WithRegisterer(nopRegisterer{}))
+		if err := d.Init(context.Background(), vendors.Config{ClusterName: "c", Log: logr.Discard()}); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	d := newDriver()
 	vol := json.RawMessage(`{"data":[{"name":"a","size":"100G","mountPath":"/a"}]}`)
 	s := vendors.VendorSettings{Raw: json.RawMessage(`{"storage":` + string(vol) + `}`)}
 	off := vendors.Offering{Region: "fsn1", Zone: "fsn1"}
 	if _, complete := d.PriceDelta(s, off); complete {
-		t.Error("the volume price is unknown before Keeper answered")
+		t.Error("the volume price is unknown before any price was set")
 	}
-	// Before the load, a storage profile is accepted anywhere (nothing is known).
+	// Before the prices are set, a storage profile is accepted anywhere (nothing is known).
 	if got := d.Supported(vendors.CatalogType{}, "sin", vendors.Profiles{"storage": {"a": vol}}); len(got["storage"]) != 1 {
-		t.Errorf("Supported before the load: %v", got)
+		t.Errorf("Supported before the prices: %v", got)
 	}
 	before := d.NodeOptionsEpoch()
-	if err := d.LoadPrices(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(path, "/storage_prices?vendor=hcloud") || d.NodeOptionsEpoch() == before {
-		t.Errorf("the request %q, epoch %d -> %d", path, before, d.NodeOptionsEpoch())
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() == before {
+		t.Errorf("the epoch did not change: %d", before)
 	}
 	delta, complete := d.PriceDelta(s, off)
-	want := 100*0.0584/730 + 0.001
+	want := 100*0.0584/730 + 0.001 // the monthly IPv4 row over 730 hours
 	if !complete || delta < want-1e-9 || delta > want+1e-9 {
 		t.Errorf("PriceDelta = %v, %v; want %v", delta, complete, want)
 	}
@@ -143,9 +147,16 @@ func TestKeeperPricesAndPriceDelta(t *testing.T) {
 	if delta, complete := d.PriceDelta(s6, vendors.Offering{Region: "sin"}); delta != 0 || !complete {
 		t.Errorf("IPv6-only without volumes: %v %v", delta, complete)
 	}
-	// nbg1 has no usable row: its volume price is unknown and the profile unsupported there.
+	// hel1 has an hourly IPv4 row; no volumes needed.
+	if delta, complete := d.PriceDelta(vendors.VendorSettings{}, vendors.Offering{Region: "hel1", Zone: "hel1"}); !complete || delta != 0.002 {
+		t.Errorf("hel1 IPv4: %v %v", delta, complete)
+	}
+	// nbg1 has no usable rows: its volume price is unknown and the profile unsupported there.
 	if _, complete := d.PriceDelta(s, vendors.Offering{Zone: "nbg1"}); complete {
 		t.Error("no price row for nbg1")
+	}
+	if _, complete := d.PriceDelta(vendors.VendorSettings{}, vendors.Offering{Zone: "nbg1"}); complete {
+		t.Error("an IPv4 row in another unit priced nbg1")
 	}
 	if got := d.Supported(vendors.CatalogType{}, "nbg1", vendors.Profiles{"storage": {"a": vol}}); len(got["storage"]) != 0 {
 		t.Errorf("a location without a volume price: %v", got)
@@ -153,14 +164,32 @@ func TestKeeperPricesAndPriceDelta(t *testing.T) {
 	if got := d.Supported(vendors.CatalogType{}, "fsn1", vendors.Profiles{"storage": {"a": vol}}); len(got["storage"]) != 1 {
 		t.Errorf("a location with one: %v", got)
 	}
+	// Equal prices keep the epoch, other prices change it.
+	before = d.NodeOptionsEpoch()
+	prices.Hash = "h2"
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() != before {
+		t.Error("the epoch changed for equal prices")
+	}
+	prices.IPv4[1].USD = 0.003
+	d.SetKeeperPrices(prices)
+	if d.NodeOptionsEpoch() == before {
+		t.Error("the epoch did not change for a new IPv4 price")
+	}
+
+	// The operator's price wins over Keeper's, also where Keeper has no row.
+	t.Setenv(hcloud.IPv4PriceEnv, "0.01")
+	d = newDriver()
+	d.SetKeeperPrices(prices)
+	for _, loc := range []string{"fsn1", "nbg1", "sin"} {
+		if delta, complete := d.PriceDelta(vendors.VendorSettings{}, vendors.Offering{Zone: loc}); !complete || delta != 0.01 {
+			t.Errorf("%s with the override: %v %v", loc, delta, complete)
+		}
+	}
 	t.Setenv(hcloud.IPv4PriceEnv, "free")
 	if err := hcloud.New(hcloud.WithAPI(f), hcloud.WithRegisterer(nopRegisterer{})).Init(context.Background(),
-		vendors.Config{Log: logr.Discard(), KeeperURL: srv.URL}); err == nil {
+		vendors.Config{Log: logr.Discard()}); err == nil {
 		t.Error("an invalid IPv4 price")
-	}
-	rows = "not json"
-	if err := d.LoadPrices(context.Background()); err == nil {
-		t.Error("an invalid answer")
 	}
 }
 

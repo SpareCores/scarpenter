@@ -183,9 +183,11 @@ error (`Unsupported`).
   the series and sizes that offer it (30 vCPUs or more), compact placement only on the series that support
   it. The series tables are in `series.go` and **unverified**.
 - **`PriceDelta`**: disks at Keeper's GB-month price of the region and disk type divided by 730, plus the
-  external IPv4 address (a constant, 0.005 USD per hour, **unverified**, overridable with
-  `SCARPENTER_GCP_IPV4_PRICE` / `vendors.gcp.ipv4Price`; Keeper has none). **Incomplete** for provisioned
-  Hyperdisk IOPS or throughput above the baseline, Tier 1, and any price Keeper lacks.
+  external IPv4 address (Keeper's `ipv4_price` row of the region; `SCARPENTER_GCP_IPV4_PRICE` /
+  `vendors.gcp.ipv4Price` overrides it, also where Keeper has no row). Both come from the snapshot of the
+  Keeper data version the catalog loaded, which the catalog hands to the driver after every refresh.
+  **Incomplete** for provisioned Hyperdisk IOPS or throughput above the baseline, Tier 1, and any price Keeper
+  lacks.
 - **Device hints**: GCP lets the driver name the device. A data volume's hint is
   `ByID: /dev/disk/by-id/google-<name>`; no serial pattern, no equal-size ambiguity. It relies on the
   guest's udev rules (the amd64 OEM sysext; the path naming of NVMe-attached disks is **unverified**). Local
