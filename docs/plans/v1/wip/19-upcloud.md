@@ -329,6 +329,7 @@ is the part of the plan; a bigger one does not fit, **unverified**, S4), data
 volumes per GB-month from Keeper's storage rows, IPv4 for Cloud Native plans (no
 included address) from Keeper's IPv4 price; everything is complete (no
 provisioned IOPS). `EpochReporter` when Keeper's storage or IPv4 prices load.
+Plan 13 moves both to the pinned Keeper snapshot (`SetKeeperPrices`; IPv4 `month` rows / 672).
 
 Networking (generic): `publicIPv4: true` default. `publicIPv4: false` needs a
 `networks` resource with a gateway the user provides (a NAT gateway or router):

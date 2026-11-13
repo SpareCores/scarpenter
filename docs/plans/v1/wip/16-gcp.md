@@ -359,6 +359,7 @@ not apply; `BillingStart` is `creationTimestamp` for the record only. Nothing to
   `hyperdisk-balanced-high-availability` (no `pd-extreme`, no local SSD price), and GB-month
   storage prices per region (`/storage_prices?vendor=gcp`). The crawler drops sole-tenancy
   SKUs (vendor-capabilities): no dedicated tenancy.
+  Plan 13 moves the disk and IPv4 prices to the pinned Keeper snapshot (`SetKeeperPrices`).
 - `Regions`: `regions.list`, only `status: UP`; `Zones`: `zones.list` per region (filter
   by region), `status: UP`, not deprecated; cached for 1 hour. A region the credentials
   cannot read (permission denied) is `RegionUnavailable` as on AWS.

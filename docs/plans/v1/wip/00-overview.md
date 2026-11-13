@@ -304,6 +304,8 @@ JSON; `/table/*` and `/server_prices` are cached by the CDN (`max-age` 3600 and
 directly bounds the refresh cost; enabling compression at Keeper's CDN would
 cut the transfer by an order of magnitude.
 
+Plan 13 replaces these routes with Keeper's snapshot files of one pinned hash (`/snapshot/{hash}/...`, API key required).
+
 ### 5.2 Refresh and staleness
 
 - Refresh every `--catalog-refresh-interval` (default 1 h) with ±10 % jitter,
@@ -320,6 +322,7 @@ cut the transfer by an order of magnitude.
   price database continuously updated, so drivers never query vendor price
   APIs (no `DescribeSpotPriceHistory`). The catalog refresh interval bounds
   how stale a spot price can be.
+- Plan 13: a 401 from Keeper keeps the last catalog and sets `KeeperAuthorized=False`; the key is optional at startup.
 
 ### 5.3 Instance types
 

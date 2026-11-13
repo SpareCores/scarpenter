@@ -391,6 +391,7 @@ are **unverified** and a table-driven test pins every code; L5 provokes the chea
 - **`PriceDelta`**: volumes from `storage_prices` per GB-month / 730; IPv4 constant;
   complete in every case (placement groups, firewalls and networks are free; Hetzner has
   no provisioned-IOPS or dedicated-tenancy dimension).
+  Plan 13 moves the volume and IPv4 prices to the pinned Keeper snapshot (`SetKeeperPrices`).
 - **`Supported`**: volume profiles are valid in every location that has a Keeper `block`
   price row; the first-boot volume limit is 16 per server; the same deterministic answer
   for every type.

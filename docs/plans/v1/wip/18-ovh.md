@@ -444,6 +444,7 @@ unsupported; `bootFromVolume` needs Nova ≥ 2.67 for `volume_type` in the mappi
 `PriceDelta`: Keeper's GB-month storage price of the type per region, hourly = /730;
 complete (IOPS scales with size; there is no provisioning knob). A volume is zonal in
 3-AZ regions; the zone of the instance is given as the volume's availability zone.
+Plan 13 moves the storage prices to the pinned Keeper snapshot (`SetKeeperPrices`).
 
 **Device hints** (`Prepare`): the volume IDs exist only after the call, so the hint is a serial
 pattern plus size: virtio disks carry the first 20 characters of the volume UUID as the

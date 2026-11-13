@@ -409,6 +409,7 @@ Decisions that differ from AWS, each an open question:
   divided by 730 (price incomplete when Keeper has no row: `cloud_auto`, per-level ESSD,
   any `provisionedIops` or bursting); the public IP is free, traffic is billed per GB and
   is not priced (not priced for any vendor); `PayByBandwidth` is incomplete.
+  Plan 13 moves the disk prices to the pinned Keeper snapshot (`SetKeeperPrices`).
 - **Device hints** (`Prepare`): disks exist at launch (part of `RunInstances`); the
   guest sees virtio-blk (older types) or NVMe (8th generation and later) devices. The
   serial of a virtio disk is the disk ID without the `d-` prefix (`/dev/disk/by-id/virtio-<id>`)

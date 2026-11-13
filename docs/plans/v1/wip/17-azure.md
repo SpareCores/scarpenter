@@ -436,6 +436,7 @@ CLI, `diskSizeGB`, an open question against AWS's `volumeSize`).
   prices in `/storage_prices` for the vendor *unverified*), the public IPv4 address (a
   constant like AWS). Transaction costs of Standard disks, PremiumV2/Ultra IOPS and
   bandwidth: incomplete.
+  Plan 13 moves the disk and IPv4 prices to the pinned Keeper snapshot (`SetKeeperPrices`).
 - **Milestone 6 (separable, may move to a follow-up plan):** `PremiumV2_LRS` and
   `UltraSSD_LRS` data disks (provisioned `diskIOPSReadWrite`, `diskMBpsReadWrite`) cannot
   be created inline: a `disks` kind (node scope, `perUse`, zonal, `createOption: Attach`),
