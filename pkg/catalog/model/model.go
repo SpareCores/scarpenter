@@ -47,6 +47,14 @@ type Server struct {
 	// CPUL2PerCoreKiB and CPUL3KiB are cache sizes in KiB; L3 is the total.
 	CPUL2PerCoreKiB *float64
 	CPUL3KiB        *float64
+	// CPUL1dPerCoreKiB, CPUL1iPerCoreKiB, CPUL3CacheKiB (one L3 cache) and
+	// CPUL3CacheTotalKiB are Keeper's cache columns as they are, which selection
+	// profiles filter on (CPUL3KiB is the label source: the total, else one
+	// cache).
+	CPUL1dPerCoreKiB   *float64
+	CPUL1iPerCoreKiB   *float64
+	CPUL3CacheKiB      *float64
+	CPUL3CacheTotalKiB *float64
 
 	MemoryMiB float64
 
@@ -55,6 +63,10 @@ type Server struct {
 	AcceleratorManufacturer string
 	AcceleratorModel        string
 	AcceleratorMemoryMiB    *float64
+	// AcceleratorFamily and AcceleratorMemoryMinMiB (per device) are read by
+	// selection profiles only; AcceleratorMemoryMiB is the total.
+	AcceleratorFamily       string
+	AcceleratorMemoryMinMiB *float64
 
 	NetworkBaselineGbps *float64
 	NetworkPeakGbps     *float64

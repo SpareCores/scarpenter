@@ -9,6 +9,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"iter"
 	"maps"
 	"net/http"
 	"slices"
@@ -212,11 +213,14 @@ func serverFromTable(s *keeper.TableServer) (model.Server, bool) {
 		CPUManufacturer: deref(s.CPUManufacturer), CPUFamily: deref(s.CPUFamily),
 		CPUSpeedGHz: s.CPUSpeed, CPUFlags: s.CPUFlags,
 		CPUL2PerCoreKiB: s.CPUL2Cache, CPUL3KiB: s.CPUL3CacheTotal,
+		CPUL1dPerCoreKiB: s.CPUL1dCache, CPUL1iPerCoreKiB: s.CPUL1iCache,
+		CPUL3CacheKiB: s.CPUL3Cache, CPUL3CacheTotalKiB: s.CPUL3CacheTotal,
 		MemoryMiB:        s.MemoryAmount,
 		AcceleratorCount: s.AcceleratorCount, AcceleratorType: strings.ToUpper(deref(s.AcceleratorType)),
 		AcceleratorManufacturer: deref(s.AcceleratorManufacturer), AcceleratorModel: deref(s.AcceleratorModel),
-		AcceleratorMemoryMiB: s.AcceleratorMemoryTotal,
-		NetworkBaselineGbps:  s.NetworkSpeedBaseline, NetworkPeakGbps: s.NetworkSpeedMax,
+		AcceleratorMemoryMiB: s.AcceleratorMemoryTotal, AcceleratorFamily: deref(s.AcceleratorFamily),
+		AcceleratorMemoryMinMiB: s.AcceleratorMemoryMin,
+		NetworkBaselineGbps:     s.NetworkSpeedBaseline, NetworkPeakGbps: s.NetworkSpeedMax,
 		LocalStorageGB: s.StorageSize, LocalStorageCount: len(s.Storages),
 	}
 	if srv.CPUL3KiB == nil {
@@ -293,24 +297,18 @@ func (k *KeeperSource) loadPrices(ctx context.Context, f *keeper.Fetcher, scope 
 	return nil
 }
 
-// appendPrice keeps the active hourly USD Linux prices of the two allocations
-// the catalog offers.
+// appendPrice keeps the prices selection counts (selection.AcceptPrice: active,
+// hourly, USD, Linux or blank, above zero, on-demand or spot), so offerings
+// and selection profiles see the same prices.
 func appendPrice(prices []model.Price, vendor, region, zone, server, os string, alloc keeper.PriceAllocation,
 	unit, currency, status string, price float64) []model.Price {
-	if status != statusActive || unit != "hour" || (currency != "" && currency != currencyUSD) || price <= 0 {
+	a, ok := selection.AcceptPrice(status, unit, currency, os, alloc, price)
+	if !ok {
 		return prices
 	}
-	if os != "" && !strings.EqualFold(os, "Linux") {
-		return prices
-	}
-	var capacity string
-	switch alloc {
-	case keeper.PriceAllocationOnDemand:
-		capacity = model.CapacityOnDemand
-	case keeper.PriceAllocationSpot:
+	capacity := model.CapacityOnDemand
+	if a == keeper.AllocationSpot {
 		capacity = model.CapacitySpot
-	default:
-		return prices
 	}
 	return append(prices, model.Price{
 		Vendor: vendor, RegionID: region, ZoneID: zone, ServerID: server, CapacityType: capacity, USDPerHour: price,
@@ -332,20 +330,49 @@ func (k *KeeperSource) loadMetrics(ctx context.Context, f *keeper.Fetcher, queri
 			data.Invalid[q.ID] = err.Error()
 			continue
 		}
-		// On-demand basis: a spot-only type gets no score.
-		rows, err := f.Servers(ctx, keeper.Query{Vendor: q.Vendor, Allocation: keeper.AllocationOnDemand, Benchmark: &key})
+		byID, err := benchmarkScores(ctx, f, q.Vendor, key, keeper.AllocationOnDemand)
 		if err != nil {
-			return fmt.Errorf("reading benchmark %s of %s: %w", key, q.Vendor, err)
+			return err
 		}
-		scores := map[string]float64{}
-		for i := range rows {
-			if rows[i].SelectedBenchmarkScore != nil {
-				scores[rows[i].APIReference] = *rows[i].SelectedBenchmarkScore
-			}
-		}
-		data.Scores[q.ID] = scores
+		data.Scores[q.ID] = byAPIReference(data, q.Vendor, byID)
 	}
 	return nil
+}
+
+// benchmarkScores reads the scores of one benchmark of a vendor's types, by
+// server id. Keeper lists a type only when it has a price of the allocation
+// (in any region), so the allocation decides which types can have a score: the
+// metrics read on-demand scores (a spot-only type gets none), a selection
+// profile the scores of its price basis, as its /servers queries did. The
+// query has no regions, so metrics and profiles of an allocation share one
+// request per refresh.
+func benchmarkScores(ctx context.Context, f *keeper.Fetcher, vendor string, key keeper.BenchmarkKey,
+	alloc keeper.Allocation) (map[string]float64, error) {
+	rows, err := f.Servers(ctx, keeper.Query{Vendor: vendor, Allocation: alloc, Benchmark: &key})
+	if err != nil {
+		return nil, fmt.Errorf("reading benchmark %s of %s: %w", key, vendor, err)
+	}
+	scores := make(map[string]float64, len(rows))
+	for i := range rows {
+		if rows[i].SelectedBenchmarkScore != nil {
+			scores[rows[i].ServerID] = *rows[i].SelectedBenchmarkScore
+		}
+	}
+	return scores, nil
+}
+
+// byAPIReference maps scores by server id to the api_reference of the vendor's
+// server rows (Data.Scores' key). The two differ for GCP and Hetzner.
+func byAPIReference(data *model.Data, vendor string, byID map[string]float64) map[string]float64 {
+	out := make(map[string]float64, len(byID))
+	for i := range data.Servers {
+		if s := &data.Servers[i]; s.Vendor == vendor {
+			if score, ok := byID[s.ID]; ok {
+				out[s.APIReference] = score
+			}
+		}
+	}
+	return out
 }
 
 func resolveBenchmark(catalog *keeper.BenchmarkCatalog, q MetricQuery) (keeper.BenchmarkKey, error) {
@@ -359,6 +386,10 @@ func resolveBenchmark(catalog *keeper.BenchmarkCatalog, q MetricQuery) (keeper.B
 	return catalog.Resolve(keeper.WorkloadProfileID(string(q.WorkloadProfile)), nil)
 }
 
+// loadSelections evaluates the selection profiles on the data of the refresh:
+// the servers and prices already read, and the scores of the benchmarks the
+// profile uses (the same source as the metrics'). It sends no /servers query
+// for specifications or prices.
 func (k *KeeperSource) loadSelections(ctx context.Context, f *keeper.Fetcher, queries []SelectionQuery,
 	resolve func(string, []string) []string, data *model.Data) error {
 	if len(queries) == 0 {
@@ -369,6 +400,7 @@ func (k *KeeperSource) loadSelections(ctx context.Context, f *keeper.Fetcher, qu
 		return fmt.Errorf("reading /benchmark_configs: %w", err)
 	}
 	opts := selection.Options{Catalog: catalog, DefaultBasis: selapi.PriceBasisOnDemand}
+	rows := map[string][]keeper.Server{}
 	for _, q := range queries {
 		var ids []string
 		if len(q.Regions) > 0 {
@@ -378,16 +410,20 @@ func (k *KeeperSource) loadSelections(ctx context.Context, f *keeper.Fetcher, qu
 			}
 		}
 		spec := q.Spec
-		plan, err := selection.PlanQueries(&spec, q.Vendor, ids, opts)
+		keys, err := selection.BenchmarkKeys(&spec, opts)
 		if err != nil {
 			data.Invalid[q.ID] = err.Error()
 			continue
 		}
-		results, err := f.ServersAll(ctx, plan)
-		if err != nil {
-			return fmt.Errorf("reading the servers of selection %s: %w", q.Vendor, err)
+		basis := selection.AllocationOf(selection.ResolveBasis(&spec, opts.DefaultBasis))
+		scores := make(map[keeper.BenchmarkKey]map[string]float64, len(keys))
+		for _, key := range keys {
+			if scores[key], err = benchmarkScores(ctx, f, q.Vendor, key, basis); err != nil {
+				return fmt.Errorf("reading the scores of selection %s: %w", q.Vendor, err)
+			}
 		}
-		res, err := selection.Evaluate(&spec, selection.BuildCandidates(results), opts)
+		cands := selectionCandidates(vendorRows(rows, data, q.Vendor), data, q.Vendor, ids, scores, basis)
+		res, err := selection.Evaluate(&spec, cands, opts)
 		if err != nil {
 			data.Invalid[q.ID] = err.Error()
 			continue
@@ -399,4 +435,88 @@ func (k *KeeperSource) loadSelections(ctx context.Context, f *keeper.Fetcher, qu
 		data.Selected[q.ID] = members
 	}
 	return nil
+}
+
+// selectionCandidates are the candidates of a vendor in the regions (empty:
+// all) that price on the basis, from the data of the refresh.
+func selectionCandidates(rows []keeper.Server, data *model.Data, vendor string, regionIDs []string,
+	scores map[keeper.BenchmarkKey]map[string]float64, basis keeper.Allocation) []*selection.Candidate {
+	return selection.BuildCatalogCandidates(selection.CatalogInput{
+		Servers: rows, Prices: vendorPrices(data, vendor), Regions: regionIDs, Scores: scores,
+	}, basis)
+}
+
+// vendorRows returns the vendor's servers as selection's specification rows,
+// built once per refresh.
+func vendorRows(cache map[string][]keeper.Server, data *model.Data, vendor string) []keeper.Server {
+	if rows, ok := cache[vendor]; ok {
+		return rows
+	}
+	var rows []keeper.Server
+	for i := range data.Servers {
+		if s := &data.Servers[i]; s.Vendor == vendor {
+			rows = append(rows, specRow(s))
+		}
+	}
+	cache[vendor] = rows
+	return rows
+}
+
+// specRow is the specification of a server as selection reads it. The catalog
+// holds orderable servers only (no Status), and nullable text columns are nil
+// when blank, as in Keeper.
+func specRow(s *model.Server) keeper.Server {
+	text := func(v string) *string {
+		if v == "" {
+			return nil
+		}
+		return &v
+	}
+	arch := "arm64"
+	if s.Arch == model.ArchAMD64 {
+		arch = "x86_64"
+	}
+	row := keeper.Server{
+		ServerID: s.ID, VendorID: s.Vendor, APIReference: s.APIReference, Family: s.Family,
+		VCPUs: s.VCPUs, CPUCores: s.CPUCores, CPUAllocation: s.CPUAllocation, CPUArchitecture: arch,
+		CPUManufacturer: text(s.CPUManufacturer), CPUFamily: text(s.CPUFamily), CPUSpeed: s.CPUSpeedGHz, CPUFlags: s.CPUFlags,
+		CPUL1dCache: s.CPUL1dPerCoreKiB, CPUL1iCache: s.CPUL1iPerCoreKiB, CPUL2Cache: s.CPUL2PerCoreKiB,
+		CPUL3Cache: s.CPUL3CacheKiB, CPUL3CacheTotal: s.CPUL3CacheTotalKiB,
+		MemoryAmount:     s.MemoryMiB,
+		AcceleratorCount: s.AcceleratorCount, AcceleratorType: text(s.AcceleratorType),
+		AcceleratorFamily:       text(s.AcceleratorFamily),
+		AcceleratorManufacturer: text(s.AcceleratorManufacturer), AcceleratorModel: text(s.AcceleratorModel),
+		AcceleratorMemoryMin: s.AcceleratorMemoryMinMiB, AcceleratorMemoryTotal: s.AcceleratorMemoryMiB,
+		NetworkSpeedBaseline: s.NetworkBaselineGbps, NetworkSpeedMax: s.NetworkPeakGbps,
+		StorageSize: s.LocalStorageGB,
+	}
+	// Selection counts the disks only.
+	if s.LocalStorageCount > 0 {
+		row.Storages = make([]keeper.Storage, s.LocalStorageCount)
+	}
+	return row
+}
+
+// vendorPrices yields the vendor's prices of the data. They were filtered by
+// selection.AcceptPrice when they were read, so the neutral values stand for
+// the columns the catalog does not keep.
+func vendorPrices(data *model.Data, vendor string) iter.Seq[selection.CatalogPrice] {
+	return func(yield func(selection.CatalogPrice) bool) {
+		for i := range data.Prices {
+			p := &data.Prices[i]
+			if p.Vendor != vendor {
+				continue
+			}
+			alloc := keeper.PriceAllocationOnDemand
+			if p.CapacityType == model.CapacitySpot {
+				alloc = keeper.PriceAllocationSpot
+			}
+			if !yield(selection.CatalogPrice{
+				ServerID: p.ServerID, RegionID: p.RegionID, ZoneID: p.ZoneID, Allocation: alloc,
+				Unit: "hour", Currency: currencyUSD, Status: statusActive, Price: p.USDPerHour,
+			}) {
+				return
+			}
+		}
+	}
 }
