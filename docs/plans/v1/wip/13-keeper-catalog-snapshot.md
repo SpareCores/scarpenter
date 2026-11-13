@@ -488,19 +488,21 @@ file (an incomplete recording) has no billing data: retention is off with
 - `make snapshot` passes the key from `KEEPER_API_KEY` (never written to
   disk in the repository). CI reads the key from AWS SSM, never from a
   GitHub secret holding the key itself:
-  - A composite action `.github/actions/keeper-key` assumes a read-only
-    role through GitHub's OIDC (`id-token: write`) and runs
-    `aws ssm get-parameter --with-decryption`, in the parameter's own
-    region (taken from its ARN). It masks the value (`::add-mask::`) and
-    writes it to a `0600` file under `$RUNNER_TEMP`, whose path it outputs;
-    the key never goes into `$GITHUB_ENV`.
-  - The role and the parameter come from GitHub configuration, never from
-    the repository: secret `KEEPER_KEY_ROLE_ARN`, variable
-    `KEEPER_API_KEY_PARAMETER` (the parameter's ARN). The role allows only
-    `ssm:GetParameter` on that parameter; it is separate from the AWS lane
-    role, so non-AWS lanes get no EC2 rights.
-  - `.github/workflows/refresh-sc-snapshot.yml` uses the action before
-    `make snapshot` (`-api-key-file`), and its comments drop the 1 GB note.
+  - A composite action `.github/actions/keeper-key` assumes the
+    environment's existing CI role (`secrets.AWS_ROLE_ARN`, the same role
+    the AWS lanes use) through GitHub's OIDC (`id-token: write`), and runs
+    `aws ssm get-parameter --with-decryption` in the parameter's own region
+    (taken from its ARN). It masks the value (`::add-mask::`) and writes it
+    to a `0600` file under `$RUNNER_TEMP`, whose path it outputs; the key
+    never goes into `$GITHUB_ENV`. It does not leave AWS credentials in the
+    job's environment for non-AWS lanes.
+  - The parameter comes from GitHub configuration, never from the
+    repository: the repository variable `KEEPER_API_KEY_PARAMETER` (its
+    ARN). The CI roles of the `e2e` and `e2e-canary` environments allow
+    `ssm:GetParameter` on it.
+  - `.github/workflows/refresh-sc-snapshot.yml` runs in the `e2e`
+    environment and uses the action before `make snapshot`
+    (`-api-key-file`); its comments drop the 1 GB note.
   - When the role or the variable is not set (forks), the action fails
     with a clear message in the refresh workflow, and is skipped in the L5
     lanes, which then run against Keeper without a key.
@@ -520,10 +522,9 @@ file (an incomplete recording) has no billing data: retention is off with
   `e2e.yml` and `e2e-cloud.yml`): when a key file is given
   (`KEEPER_API_KEY_FILE`), `install.sh` creates the Secret `keeper-api-key`
   and sets `keeper.apiKey.existingSecret`; the workflows get the file from
-  `.github/actions/keeper-key`. `docs/how-to-guides/testing.md` lists the
-  role, its trust (the repository's `e2e`, `e2e-canary` and refresh
-  workflow subjects) and policy, the secret and the variable, without any
-  account id or ARN.
+  `.github/actions/keeper-key`. `docs/how-to-guides/testing.md` adds the
+  `ssm:GetParameter` permission to the CI role's requirements and names
+  the variable, without any account id or ARN.
 
 Gates: CONVENTIONS 1–3, L3 (`make test-kwok`), and:
 

@@ -145,7 +145,7 @@ Live verification list (everything in plan 08 ran against the in-memory fake onl
 7. Serving CSRs approved for `tailscale` and `direct` nodes; a forged IP denied under
    `direct`; a VPC IP the Node claims denied under `tailscale`.
 8. A complete `PriceDelta` from `/storage_prices`; the IPv4 constant against the bill.
-   (Plan 13: prices from the Keeper snapshot; the lanes read the Keeper key from SSM through `.github/actions/keeper-key` and pass it to `install.sh`.)
+   (Plan 13: prices from the Keeper snapshot; the lanes read the Keeper key from SSM (the CI role reads it through `.github/actions/keeper-key`) and pass it to `install.sh`.)
 9. Quota: `GetServiceQuota` for all 18 codes in a fresh region; `stopping` and
    `shutting-down` counting; unused ODCR counting; a spot request `active` after
    termination; the API volume of the 2-minute full `DescribeInstances` and of
