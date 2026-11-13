@@ -486,9 +486,24 @@ file (an incomplete recording) has no billing data: retention is off with
   `/server_prices` and `/servers` queries and part A's equivalence test with
   them; keep `/benchmark_configs`.
 - `make snapshot` passes the key from `KEEPER_API_KEY` (never written to
-  disk in the repository); `.github/workflows/refresh-sc-snapshot.yml` sets
-  `KEEPER_API_KEY: ${{ secrets.KEEPER_API_KEY }}` on that step only, and its
-  comments drop the 1 GB note.
+  disk in the repository). CI reads the key from AWS SSM, never from a
+  GitHub secret holding the key itself:
+  - A composite action `.github/actions/keeper-key` assumes a read-only
+    role through GitHub's OIDC (`id-token: write`) and runs
+    `aws ssm get-parameter --with-decryption`, in the parameter's own
+    region (taken from its ARN). It masks the value (`::add-mask::`) and
+    writes it to a `0600` file under `$RUNNER_TEMP`, whose path it outputs;
+    the key never goes into `$GITHUB_ENV`.
+  - The role and the parameter come from GitHub configuration, never from
+    the repository: secret `KEEPER_KEY_ROLE_ARN`, variable
+    `KEEPER_API_KEY_PARAMETER` (the parameter's ARN). The role allows only
+    `ssm:GetParameter` on that parameter; it is separate from the AWS lane
+    role, so non-AWS lanes get no EC2 rights.
+  - `.github/workflows/refresh-sc-snapshot.yml` uses the action before
+    `make snapshot` (`-api-key-file`), and its comments drop the 1 GB note.
+  - When the role or the variable is not set (forks), the action fails
+    with a clear message in the refresh workflow, and is skipped in the L5
+    lanes, which then run against Keeper without a key.
 - L1–L4 replay recordings and need no key: the catalog tests, the kwok
   replay server (`test/kwok/replay/main.go`, `keepertest`) and the vendor
   price tests (now through `SetKeeperPrices`).
@@ -502,11 +517,13 @@ file (an incomplete recording) has no billing data: retention is off with
   previous catalog kept, `KeeperAuthorized=False` and the log line; a key
   file updated between refreshes.
 - L5 lanes that install the chart (`test/e2e-*/install.sh`, workflows
-  `e2e.yml` and `e2e-cloud.yml`): when `KEEPER_API_KEY` is set, `install.sh`
-  creates the Secret `keeper-api-key` and sets
-  `keeper.apiKey.existingSecret`; the workflows pass
-  `secrets.KEEPER_API_KEY`. The maintainers create the repository secret
-  `KEEPER_API_KEY`; this plan only names it.
+  `e2e.yml` and `e2e-cloud.yml`): when a key file is given
+  (`KEEPER_API_KEY_FILE`), `install.sh` creates the Secret `keeper-api-key`
+  and sets `keeper.apiKey.existingSecret`; the workflows get the file from
+  `.github/actions/keeper-key`. `docs/how-to-guides/testing.md` lists the
+  role, its trust (the repository's `e2e`, `e2e-canary` and refresh
+  workflow subjects) and policy, the secret and the variable, without any
+  account id or ARN.
 
 Gates: CONVENTIONS 1–3, L3 (`make test-kwok`), and:
 
