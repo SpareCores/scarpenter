@@ -96,11 +96,11 @@ test-docs: ## Check that the relative links and anchors of the Markdown files re
 	python3 hack/check-docs.py
 
 .PHONY: snapshot
-snapshot: ## Refresh test/data/sc-snapshot from the public Keeper API (about 1 GB of download: run rarely, from the refresh workflow; -resume continues an interrupted run).
+snapshot: ## Refresh test/data/sc-snapshot from Keeper's snapshot routes (needs an API key: KEEPER_API_KEY, or KEEPER_API_KEY_FILE; about 30 MB; -resume continues an interrupted run).
 	@# sc-snapshot replaces the output directory as a whole, the query list included.
 	mkdir -p .out
 	cp test/data/sc-snapshot/queries.yaml .out/queries.yaml
-	go run github.com/SpareCores/sc-keeper-go/cmd/sc-snapshot -resume -queries .out/queries.yaml -out test/data/sc-snapshot
+	go run github.com/SpareCores/sc-keeper-go/cmd/sc-snapshot -resume $(if $(KEEPER_API_KEY_FILE),-api-key-file "$(KEEPER_API_KEY_FILE)") -queries .out/queries.yaml -out test/data/sc-snapshot
 	cp .out/queries.yaml test/data/sc-snapshot/queries.yaml
 
 .PHONY: dev-check-privileged

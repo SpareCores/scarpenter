@@ -115,8 +115,20 @@ for name in UPDATE KWOK_SCENARIOS KWOK_SETUP_ONLY KEEP_CLUSTER REUSE_CLUSTER KIN
   fi
 done
 
+# A Keeper API key reaches the container as a file (KEEPER_API_KEY_FILE, mounted
+# read-only) or in the environment (KEEPER_API_KEY, copied by name like the
+# settings above): `make snapshot` is the only user.
+key_args=()
+if [[ -n "${KEEPER_API_KEY_FILE:-}" ]]; then
+  key_args=(-v "$(readlink -f "${KEEPER_API_KEY_FILE}"):/run/keeper-api-key:ro" -e KEEPER_API_KEY_FILE=/run/keeper-api-key)
+fi
+if [[ -n "${KEEPER_API_KEY:-}" ]]; then
+  key_args+=(-e KEEPER_API_KEY)
+fi
+
 exec docker run --rm "${tty_flags[@]}" \
   "${env_args[@]}" \
+  "${key_args[@]}" \
   "${priv_args[@]}" \
   "${user_args[@]}" \
   "${net_args[@]}" \
