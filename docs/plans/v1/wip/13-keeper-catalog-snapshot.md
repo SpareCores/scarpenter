@@ -314,6 +314,32 @@ membership changes only where step 4 says why.
 
 Gates: CONVENTIONS 1–3, L3 (`make test-kwok`), and the equivalence report.
 
+#### Part A equivalence
+
+Result of `TestLocalSelectionEqualsTheServersPath` and
+`TestLocalCandidatesEqualTheServersRows` (`pkg/catalog/equivalence_test.go`) on
+`test/data/sc-snapshot/`: 40 selection runs (aws one region, aws three regions,
+gcp, hcloud; twelve profiles, four for aws three regions), **36 identical, 4
+differ**. No unexplained difference in members, prices or scores.
+
+- **GCP, 4 runs:** six planned-for-retirement types are selected only by
+  `/servers`: `n1-megamem-96`, `n1-ultramem-40`, `n1-ultramem-80`,
+  `n1-ultramem-160`, `z3-highmem-88` and `z3-highmem-176` (12 member
+  entries over the four runs). Cause: the anonymous `/server_prices`
+  `only_active` filters on `Server.status` (sc-keeper `api.py`, about line
+  1729), so these types have no price rows in the catalog and no offering,
+  while `/servers` prices them from `ServerPrice` directly. They cannot be
+  launched either way. Part B's snapshot `server_price` table has the rows,
+  and the difference then disappears.
+- **AWS, no run differs:** nine types (`t2.*`, `t1.micro`, `m1.*`, `c1.medium`,
+  `c3.large`) are in `/servers` and absent locally, because the catalog drops
+  architectures Kubernetes has no name for. Evaluate drops candidates with an
+  empty architecture first, so no selection changes.
+- **4th-digit price differences: 0 measured.** The recordings are `/server_prices`
+  responses Keeper already converted and rounded, so snapshot-versus-`/servers`
+  conversion differences cannot show here. Part B counts them on the snapshot
+  recordings.
+
 ### Step 3 — SCarpenter part B: snapshots
 
 **A refresh, in order** (`pkg/catalog/keeper.go`, renamed to
