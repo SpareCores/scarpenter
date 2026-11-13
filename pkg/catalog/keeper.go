@@ -9,7 +9,6 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"iter"
 	"maps"
 	"net/http"
 	"slices"
@@ -106,10 +105,11 @@ func (k *KeeperSource) Load(ctx context.Context, req Request) (*model.Data, erro
 	if err := k.loadPrices(ctx, f, req.Scope, regionIDs, data); err != nil {
 		return nil, err
 	}
-	if err := k.loadMetrics(ctx, f, req.Metrics, data); err != nil {
+	local := newLocalData(f, data)
+	if err := k.loadMetrics(ctx, f, req.Metrics, data, local); err != nil {
 		return nil, err
 	}
-	if err := k.loadSelections(ctx, f, req.Selections, regionIDs, data); err != nil {
+	if err := k.loadSelections(ctx, f, req.Selections, regionIDs, data, local); err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -316,7 +316,7 @@ func appendPrice(prices []model.Price, vendor, region, zone, server, os string, 
 }
 
 func (k *KeeperSource) loadMetrics(ctx context.Context, f *keeper.Fetcher, queries []MetricQuery,
-	data *model.Data) error {
+	data *model.Data, local *localData) error {
 	if len(queries) == 0 {
 		return nil
 	}
@@ -330,7 +330,7 @@ func (k *KeeperSource) loadMetrics(ctx context.Context, f *keeper.Fetcher, queri
 			data.Invalid[q.ID] = err.Error()
 			continue
 		}
-		byID, err := benchmarkScores(ctx, f, q.Vendor, key, keeper.AllocationOnDemand)
+		byID, err := local.scores(ctx, q.Vendor, key, keeper.AllocationOnDemand)
 		if err != nil {
 			return err
 		}
@@ -391,7 +391,7 @@ func resolveBenchmark(catalog *keeper.BenchmarkCatalog, q MetricQuery) (keeper.B
 // profile uses (the same source as the metrics'). It sends no /servers query
 // for specifications or prices.
 func (k *KeeperSource) loadSelections(ctx context.Context, f *keeper.Fetcher, queries []SelectionQuery,
-	resolve func(string, []string) []string, data *model.Data) error {
+	resolve func(string, []string) []string, data *model.Data, local *localData) error {
 	if len(queries) == 0 {
 		return nil
 	}
@@ -400,7 +400,6 @@ func (k *KeeperSource) loadSelections(ctx context.Context, f *keeper.Fetcher, qu
 		return fmt.Errorf("reading /benchmark_configs: %w", err)
 	}
 	opts := selection.Options{Catalog: catalog, DefaultBasis: selapi.PriceBasisOnDemand}
-	rows := map[string][]keeper.Server{}
 	for _, q := range queries {
 		var ids []string
 		if len(q.Regions) > 0 {
@@ -418,11 +417,11 @@ func (k *KeeperSource) loadSelections(ctx context.Context, f *keeper.Fetcher, qu
 		basis := selection.AllocationOf(selection.ResolveBasis(&spec, opts.DefaultBasis))
 		scores := make(map[keeper.BenchmarkKey]map[string]float64, len(keys))
 		for _, key := range keys {
-			if scores[key], err = benchmarkScores(ctx, f, q.Vendor, key, basis); err != nil {
+			if scores[key], err = local.scores(ctx, q.Vendor, key, basis); err != nil {
 				return fmt.Errorf("reading the scores of selection %s: %w", q.Vendor, err)
 			}
 		}
-		cands := selectionCandidates(vendorRows(rows, data, q.Vendor), data, q.Vendor, ids, scores, basis)
+		cands := local.candidates(q.Vendor, ids, scores, basis)
 		res, err := selection.Evaluate(&spec, cands, opts)
 		if err != nil {
 			data.Invalid[q.ID] = err.Error()
@@ -437,29 +436,77 @@ func (k *KeeperSource) loadSelections(ctx context.Context, f *keeper.Fetcher, qu
 	return nil
 }
 
-// selectionCandidates are the candidates of a vendor in the regions (empty:
-// all) that price on the basis, from the data of the refresh.
-func selectionCandidates(rows []keeper.Server, data *model.Data, vendor string, regionIDs []string,
+// scoreKey identifies the scores of one benchmark of a vendor on a price basis.
+type scoreKey struct {
+	vendor string
+	key    keeper.BenchmarkKey
+	basis  keeper.Allocation
+}
+
+// localData is what a refresh derives once from its data for the local
+// selection: the vendors' specification rows and prices, and the score maps
+// already read. Metrics and selection profiles of one refresh share it.
+type localData struct {
+	f      *keeper.Fetcher
+	data   *model.Data
+	rows   map[string][]keeper.Server
+	prices map[string][]selection.CatalogPrice
+	cached map[scoreKey]map[string]float64
+}
+
+func newLocalData(f *keeper.Fetcher, data *model.Data) *localData {
+	return &localData{f: f, data: data, cached: map[scoreKey]map[string]float64{}}
+}
+
+// scores is benchmarkScores, read once per vendor, benchmark and basis.
+func (l *localData) scores(ctx context.Context, vendor string, key keeper.BenchmarkKey,
+	basis keeper.Allocation) (map[string]float64, error) {
+	k := scoreKey{vendor, key, basis}
+	if m, ok := l.cached[k]; ok {
+		return m, nil
+	}
+	m, err := benchmarkScores(ctx, l.f, vendor, key, basis)
+	if err != nil {
+		return nil, err
+	}
+	l.cached[k] = m
+	return m, nil
+}
+
+// candidates are the candidates of a vendor in the regions (empty: all) that
+// price on the basis, from the data of the refresh.
+func (l *localData) candidates(vendor string, regionIDs []string,
 	scores map[keeper.BenchmarkKey]map[string]float64, basis keeper.Allocation) []*selection.Candidate {
+	if l.rows == nil {
+		l.split()
+	}
 	return selection.BuildCatalogCandidates(selection.CatalogInput{
-		Servers: rows, Prices: vendorPrices(data, vendor), Regions: regionIDs, Scores: scores,
+		Servers: l.rows[vendor], Prices: slices.Values(l.prices[vendor]), Regions: regionIDs, Scores: scores,
 	}, basis)
 }
 
-// vendorRows returns the vendor's servers as selection's specification rows,
-// built once per refresh.
-func vendorRows(cache map[string][]keeper.Server, data *model.Data, vendor string) []keeper.Server {
-	if rows, ok := cache[vendor]; ok {
-		return rows
+// split groups the servers (as selection's specification rows) and the prices
+// of the data by vendor. The prices were filtered by selection.AcceptPrice when
+// they were read, so neutral values stand for the columns the catalog does not
+// keep.
+func (l *localData) split() {
+	l.rows = map[string][]keeper.Server{}
+	l.prices = map[string][]selection.CatalogPrice{}
+	for i := range l.data.Servers {
+		s := &l.data.Servers[i]
+		l.rows[s.Vendor] = append(l.rows[s.Vendor], specRow(s))
 	}
-	var rows []keeper.Server
-	for i := range data.Servers {
-		if s := &data.Servers[i]; s.Vendor == vendor {
-			rows = append(rows, specRow(s))
+	for i := range l.data.Prices {
+		p := &l.data.Prices[i]
+		alloc := keeper.PriceAllocationOnDemand
+		if p.CapacityType == model.CapacitySpot {
+			alloc = keeper.PriceAllocationSpot
 		}
+		l.prices[p.Vendor] = append(l.prices[p.Vendor], selection.CatalogPrice{
+			ServerID: p.ServerID, RegionID: p.RegionID, ZoneID: p.ZoneID, Allocation: alloc,
+			Unit: "hour", Currency: currencyUSD, Status: statusActive, Price: p.USDPerHour,
+		})
 	}
-	cache[vendor] = rows
-	return rows
 }
 
 // specRow is the specification of a server as selection reads it. The catalog
@@ -495,28 +542,4 @@ func specRow(s *model.Server) keeper.Server {
 		row.Storages = make([]keeper.Storage, s.LocalStorageCount)
 	}
 	return row
-}
-
-// vendorPrices yields the vendor's prices of the data. They were filtered by
-// selection.AcceptPrice when they were read, so the neutral values stand for
-// the columns the catalog does not keep.
-func vendorPrices(data *model.Data, vendor string) iter.Seq[selection.CatalogPrice] {
-	return func(yield func(selection.CatalogPrice) bool) {
-		for i := range data.Prices {
-			p := &data.Prices[i]
-			if p.Vendor != vendor {
-				continue
-			}
-			alloc := keeper.PriceAllocationOnDemand
-			if p.CapacityType == model.CapacitySpot {
-				alloc = keeper.PriceAllocationSpot
-			}
-			if !yield(selection.CatalogPrice{
-				ServerID: p.ServerID, RegionID: p.RegionID, ZoneID: p.ZoneID, Allocation: alloc,
-				Unit: "hour", Currency: currencyUSD, Status: statusActive, Price: p.USDPerHour,
-			}) {
-				return
-			}
-		}
-	}
 }

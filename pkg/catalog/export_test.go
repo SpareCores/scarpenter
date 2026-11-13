@@ -17,7 +17,7 @@ import (
 // the data, for the equivalence test against Keeper's /servers.
 func SelectionCandidates(data *model.Data, vendor string, regionIDs []string,
 	scores map[keeper.BenchmarkKey]map[string]float64, basis keeper.Allocation) []*selection.Candidate {
-	return selectionCandidates(vendorRows(map[string][]keeper.Server{}, data, vendor), data, vendor, regionIDs, scores, basis)
+	return newLocalData(nil, data).candidates(vendor, regionIDs, scores, basis)
 }
 
 // BenchmarkScores exposes the scores of one benchmark by server id.

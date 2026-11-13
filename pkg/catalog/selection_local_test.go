@@ -25,11 +25,10 @@ import (
 // score queries (not recorded in the snapshot) are answered with the on-demand
 // recording, so the test can see them.
 type requestLog struct {
-	mu       sync.Mutex
-	servers  []url.Values
-	prices   int
-	h        http.Handler
-	spotOnly bool
+	mu      sync.Mutex
+	servers []url.Values
+	prices  int
+	h       http.Handler
 }
 
 func (l *requestLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +40,7 @@ func (l *requestLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		l.prices++
 	}
 	l.mu.Unlock()
-	if l.spotOnly && r.URL.Path == "/servers" && r.URL.Query().Get("best_price_allocation") == "SPOT_ONLY" {
+	if r.URL.Path == "/servers" && r.URL.Query().Get("best_price_allocation") == "SPOT_ONLY" {
 		q := r.URL.Query()
 		q.Set("best_price_allocation", "ONDEMAND_ONLY")
 		r.URL.RawQuery = q.Encode()
@@ -55,7 +54,7 @@ func newRequestLog(t *testing.T) (*requestLog, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := &requestLog{h: h, spotOnly: true}
+	l := &requestLog{h: h}
 	srv := httptest.NewServer(l)
 	t.Cleanup(srv.Close)
 	return l, srv.URL
@@ -85,11 +84,11 @@ func loadSelection(t *testing.T, base string, regions []string, spec selapi.Spec
 func TestSelectionAsksOnlyForScores(t *testing.T) {
 	l, base := newRequestLog(t)
 	two, three, six := int32(2), int32(3), int32(6)
-	max := 0.5
+	minScore := 0.5
 	spec := selapi.Spec{
 		Selector: &selapi.Selector{
 			VCPUs: &selapi.IntRange{Min: &two}, Price: &selapi.PriceSelector{MaxHourly: "0.5"},
-			Benchmarks: []selapi.BenchmarkFilter{{BenchmarkRef: *benchmark("geekbench:score", `{"cores":"single"}`), Min: &max}},
+			Benchmarks: []selapi.BenchmarkFilter{{BenchmarkRef: *benchmark("geekbench:score", `{"cores":"single"}`), Min: &minScore}},
 		},
 		Ranking: &selapi.Ranking{
 			Score:     selapi.RankingScore{Benchmark: benchmark("geekbench:score", `{"cores":"single"}`)},
@@ -120,8 +119,9 @@ func TestSelectionAsksOnlyForScores(t *testing.T) {
 	}
 }
 
-// A spot-basis profile reads the scores of spot-priced types: a type with a
-// spot price and no on-demand price still gets its score.
+// A spot-basis profile asks for the scores of its price basis (SPOT_ONLY: Keeper
+// lists a type only when it has a price of the allocation, so a spot-only type
+// can only get its score that way), and never for on-demand scores.
 func TestSpotSelectionReadsSpotScores(t *testing.T) {
 	l, base := newRequestLog(t)
 	three := int32(3)
@@ -141,14 +141,14 @@ func TestSpotSelectionReadsSpotScores(t *testing.T) {
 	defer l.mu.Unlock()
 	var spot []url.Values
 	for _, q := range l.servers {
-		if q["best_price_allocation"][0] == "SPOT_ONLY" {
+		if q.Get("best_price_allocation") == "SPOT_ONLY" {
 			spot = append(spot, q)
 		}
 	}
 	if len(spot) != 1 || len(spot[0]["vendor_regions"]) != 0 {
 		t.Errorf("spot score queries = %v", spot)
 	}
-	if slices.ContainsFunc(l.servers, func(q url.Values) bool { return q["best_price_allocation"][0] != "SPOT_ONLY" }) {
+	if slices.ContainsFunc(l.servers, func(q url.Values) bool { return q.Get("best_price_allocation") != "SPOT_ONLY" }) {
 		t.Errorf("a spot profile read on-demand scores: %v", l.servers)
 	}
 }

@@ -27,8 +27,8 @@ import (
 // /servers responses of one region per vendor (and of three AWS regions) for
 // three benchmarks, on-demand basis; the local builder reads the same
 // snapshot's tables, /server_prices and the vendor-wide scores. The documented
-// differences are in docs/plans/v1/wip/13-keeper-catalog-snapshot.md's report
-// and in the comments below.
+// differences are in the section "Part A equivalence" of
+// docs/plans/v1/wip/13-keeper-catalog-snapshot.md and in the comments below.
 
 type equivCase struct {
 	name   string
@@ -147,8 +147,8 @@ func compareCandidates(t *testing.T, name string, rows []keeper.Server, cands []
 	t.Helper()
 	want := map[string]*keeper.Server{}
 	for i := range rows {
-		// /servers also lists types without a price on the basis only when no
-		// regions are given; with regions every row has one.
+		// /servers with a best_price_allocation hides types without a price of
+		// it, with or without regions, so every row has one.
 		want[rows[i].APIReference] = &rows[i]
 	}
 	got := map[string]*selection.Candidate{}
