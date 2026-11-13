@@ -34,6 +34,7 @@ log "namespace and Secrets"
 kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n "${ns}" create secret generic ts-node-key --from-file=authkey="${E2E_OUT}/ts-authkey" \
   --dry-run=client -o yaml | kubectl apply -f -
+keeper_key_args "${ns}"
 kubectl -n "${ns}" create secret generic gcp-credentials --from-file=credentials.json="${GOOGLE_APPLICATION_CREDENTIALS}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
@@ -56,7 +57,7 @@ values="$(mktemp)"
 render "${here}/manifests/chart-values.yaml" >"${values}"
 helm upgrade --install scarpenter "${root}/charts/scarpenter" --namespace "${ns}" \
   -f "${values}" --set image.repository=scarpenter-controller --set image.tag=e2e \
-  --set image.pullPolicy=Never --wait --timeout 6m
+  --set image.pullPolicy=Never "${keeper_helm_args[@]}" --wait --timeout 6m
 rm -f "${values}"
 
 log "NodePools"

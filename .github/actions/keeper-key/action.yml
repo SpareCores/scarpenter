@@ -1,0 +1,96 @@
+name: Keeper API key
+description: >-
+  Reads the Keeper API key from AWS SSM Parameter Store and writes it to a 0600
+  file under RUNNER_TEMP, for `make snapshot` (KEEPER_API_KEY_FILE) and the L5
+  lanes (test/e2e-*/install.sh). The job needs `id-token: write`. The role is
+  assumed through GitHub's OIDC for this one step only: no AWS credentials stay
+  in the job's environment (nothing goes to GITHUB_ENV), so lanes of other
+  vendors are not affected and the AWS lane assumes its own role as before. The
+  key itself never goes to GITHUB_ENV or the log (it is masked).
+
+inputs:
+  role-arn:
+    description: The CI role of the job's environment (secrets.AWS_ROLE_ARN).
+    required: false
+    default: ""
+  parameter-arn:
+    description: >-
+      ARN of the SSM parameter that holds the key (vars.KEEPER_API_KEY_PARAMETER);
+      the region of the parameter is taken from it.
+    required: false
+    default: ""
+  optional:
+    description: >-
+      "true": when the role or the parameter is not set (a fork), skip with a
+      notice and output present=false. Otherwise a missing one fails the step.
+    required: false
+    default: "false"
+
+outputs:
+  file:
+    description: Path of the 0600 file holding the key; empty when not present.
+    value: ${{ steps.read.outputs.file }}
+  present:
+    description: '"true" when the key was read.'
+    value: ${{ steps.read.outputs.present }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read the Keeper API key
+      id: read
+      shell: bash
+      env:
+        ROLE_ARN: ${{ inputs.role-arn }}
+        PARAMETER_ARN: ${{ inputs.parameter-arn }}
+        OPTIONAL: ${{ inputs.optional }}
+      run: |
+        set -euo pipefail
+        echo "file=" >> "${GITHUB_OUTPUT}"
+        echo "present=false" >> "${GITHUB_OUTPUT}"
+        if [[ -z "${ROLE_ARN}" || -z "${PARAMETER_ARN}" ]]; then
+          msg="no Keeper API key: the CI role (secret AWS_ROLE_ARN of the environment) or the repository variable KEEPER_API_KEY_PARAMETER is not set"
+          if [[ "${OPTIONAL}" == "true" ]]; then
+            echo "::notice::${msg}; continuing without a key"
+            exit 0
+          fi
+          echo "::error::${msg}"
+          exit 1
+        fi
+        echo "::add-mask::${ROLE_ARN}"
+        echo "::add-mask::${PARAMETER_ARN}"
+        if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+          echo "::error::the job needs the permission id-token: write to assume the role"
+          exit 1
+        fi
+        IFS=: read -r _ _ service region _ <<<"${PARAMETER_ARN}"
+        if [[ "${service}" != ssm || -z "${region}" ]]; then
+          echo "::error::KEEPER_API_KEY_PARAMETER is not an SSM parameter ARN"
+          exit 1
+        fi
+
+        work="$(mktemp -d "${RUNNER_TEMP}/keeper-key.XXXXXX")"
+        trap 'rm -rf "${work}"' EXIT
+        umask 077
+        # The OIDC token of the job, for this step's AWS call only.
+        curl -sSf -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" |
+          jq -r .value >"${work}/token"
+        echo "::add-mask::$(cat "${work}/token")"
+        # Credentials of the job (an AWS lane's) must not win over the web identity.
+        unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE
+        export AWS_ROLE_ARN="${ROLE_ARN}" AWS_WEB_IDENTITY_TOKEN_FILE="${work}/token"
+        export AWS_ROLE_SESSION_NAME="scarpenter-keeper-key-${GITHUB_RUN_ID}"
+        export AWS_EC2_METADATA_DISABLED=true
+        key="$(aws ssm get-parameter --region "${region}" --name "${PARAMETER_ARN}" --with-decryption \
+          --query Parameter.Value --output text)"
+        if [[ -z "${key}" || "${key}" == None ]]; then
+          echo "::error::the Keeper API key parameter is empty"
+          exit 1
+        fi
+        echo "::add-mask::${key}"
+        out="$(mktemp "${RUNNER_TEMP}/keeper-api-key.XXXXXX")"
+        chmod 600 "${out}"
+        printf '%s' "${key}" >"${out}"
+        echo "file=${out}" >> "${GITHUB_OUTPUT}"
+        echo "present=true" >> "${GITHUB_OUTPUT}"

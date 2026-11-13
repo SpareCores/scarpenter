@@ -38,3 +38,22 @@ kind_down() {
     docker run --rm -v /dev/shm:/shm --entrypoint rm "${node_image}" -rf "/shm/${cluster}" >/dev/null 2>&1 || true
   fi
 }
+
+# keeper_key_args <namespace>
+#
+# When KEEPER_API_KEY_FILE names a file (the L5 workflows get it from
+# .github/actions/keeper-key), creates the Secret keeper-api-key from it (key
+# api-key) and sets keeper_helm_args to the chart values that use it; otherwise
+# keeper_helm_args is empty and the controller reads Keeper without a key. The key
+# is never printed or put into a process list: kubectl reads the file.
+keeper_helm_args=()
+# shellcheck disable=SC2034 # read by the install.sh scripts that source this file
+keeper_key_args() {
+  local namespace="$1"
+  keeper_helm_args=()
+  [[ -n "${KEEPER_API_KEY_FILE:-}" ]] || return 0
+  [[ -s "${KEEPER_API_KEY_FILE}" ]] || { echo "KEEPER_API_KEY_FILE is empty or missing" >&2; return 1; }
+  kubectl -n "${namespace}" create secret generic keeper-api-key \
+    --from-file=api-key="${KEEPER_API_KEY_FILE}" --dry-run=client -o yaml | kubectl apply -f -
+  keeper_helm_args=(--set keeper.apiKey.existingSecret=keeper-api-key)
+}

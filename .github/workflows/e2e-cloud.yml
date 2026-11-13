@@ -13,7 +13,9 @@ name: L5 (cloud e2e)
 # prerequisites): the environment e2e (required reviewers: a human approves every run), the
 # variables TS_OAUTH_CLIENT_ID, TS_AUDIENCE and AWS_REGION (a Tailscale federated identity
 # for GitHub Actions: no stored secret), the environment secret AWS_ROLE_ARN, the IAM role
-# and the tailnet's ACL. For OVH (vendor ovh): the variables OVH_PROJECT_ID, OVH_REGION (a
+# (which also allows ssm:GetParameter on the parameter of the Keeper API key, named by the
+# repository variable KEEPER_API_KEY_PARAMETER; optional) and the tailnet's ACL. For OVH
+# (vendor ovh): the variables OVH_PROJECT_ID, OVH_REGION (a
 # Keystone catalog name, default GRA11) and optionally OVH_AUTH_URL, and the environment secrets
 # OVH_OS_USERNAME and OVH_OS_PASSWORD of a dedicated OpenStack user of the lane's own Public
 # Cloud project (one active region, low quotas); OVH documents no GitHub OIDC trust, so the
@@ -362,8 +364,23 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
+      # Keeper's snapshot routes need an API key: read from the parameter the repository
+      # variable KEEPER_API_KEY_PARAMETER names, with the environment's CI role, for this step
+      # only (no credentials are left in the job). Without the role or the variable (a fork) the
+      # step is skipped and the controller reads Keeper without a key.
+      - name: Keeper API key
+        id: keeper
+        uses: ./.github/actions/keeper-key
+        with:
+          role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          parameter-arn: ${{ vars.KEEPER_API_KEY_PARAMETER }}
+          optional: "true"
+
       # Step 4: image and chart.
       - name: Build the image, install the chart
+        env:
+          # install.sh makes the Secret keeper-api-key of this file (empty: none).
+          KEEPER_API_KEY_FILE: ${{ steps.keeper.outputs.file }}
         run: |
           "test/e2e-${E2E_VENDOR}/install.sh"
 

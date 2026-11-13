@@ -21,6 +21,7 @@ log "namespace and Secrets"
 kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n "${ns}" create secret generic ts-node-key --from-file=authkey="${E2E_OUT}/ts-authkey" \
   --dry-run=client -o yaml | kubectl apply -f -
+keeper_key_args "${ns}"
 # printf is a builtin: the values do not appear in a process list.
 kubectl -n "${ns}" create secret generic vultr-credentials \
   --from-env-file=<(printf 'apiKey=%s\n' "${VULTR_API_KEY}") \
@@ -45,7 +46,7 @@ values="$(mktemp)"
 render "${here}/manifests/chart-values.yaml" >"${values}"
 helm upgrade --install scarpenter "${root}/charts/scarpenter" --namespace "${ns}" \
   -f "${values}" --set image.repository=scarpenter-controller --set image.tag=e2e \
-  --set image.pullPolicy=Never --wait --timeout 6m
+  --set image.pullPolicy=Never "${keeper_helm_args[@]}" --wait --timeout 6m
 rm -f "${values}"
 
 log "NodePools"
