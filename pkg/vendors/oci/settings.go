@@ -26,9 +26,10 @@ const (
 )
 
 // The performance levels of the boot volume, Keeper's storage IDs; the level
-// sets the volume performance units per GB.
+// sets the volume performance units per GB. Keeper's fourth level, lower-cost (0
+// VPUs), is for block volumes: a boot volume takes 10 VPUs per GB at least
+// (bootVolumeVpusPerGB of the launch).
 const (
-	PerformanceLowerCost       = "lower-cost"
 	PerformanceBalanced        = "balanced"
 	PerformanceHigher          = "higher-performance"
 	PerformanceUltraHigh       = "ultra-high-performance"
@@ -108,13 +109,11 @@ func decodeSettings(s vendors.VendorSettings) (settings, error) {
 	return st, nil
 }
 
-// vpus is the volume performance units per GB of the root volume: 0, 10 and 20
-// for the first three levels, vpusPerGb (30 to 120 in steps of 10, default 30) for
-// ultra-high-performance.
+// vpus is the volume performance units per GB of the root volume: 10 and 20 for
+// balanced and higher-performance, vpusPerGb (30 to 120 in steps of 10, default
+// 30) for ultra-high-performance.
 func (r RootVolume) vpus() (int64, error) {
 	switch r.Performance {
-	case PerformanceLowerCost:
-		return 0, r.noVPUs()
 	case PerformanceBalanced:
 		return 10, r.noVPUs()
 	case PerformanceHigher:
@@ -129,8 +128,8 @@ func (r RootVolume) vpus() (int64, error) {
 		}
 		return v, nil
 	}
-	return 0, fmt.Errorf("storage.root.performance %q is not one of %s, %s, %s, %s", r.Performance,
-		PerformanceLowerCost, PerformanceBalanced, PerformanceHigher, PerformanceUltraHigh)
+	return 0, fmt.Errorf("storage.root.performance %q is not one of %s, %s, %s (a boot volume has no lower-cost level)",
+		r.Performance, PerformanceBalanced, PerformanceHigher, PerformanceUltraHigh)
 }
 
 func (r RootVolume) noVPUs() error {

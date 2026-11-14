@@ -15,10 +15,10 @@ import (
 // (00a section 3). The compartment is not here: it is the controller's
 // (--oci-compartment), one for every NodeClass.
 type Settings struct {
-	// regions is the allow-list of OCI regions (eu-frankfurt-1); empty means
-	// every region the tenancy has subscribed.
+	// regions is the allow-list of OCI regions (eu-frankfurt-1,
+	// us-gov-ashburn-1); empty means every region the tenancy has subscribed.
 	// +kubebuilder:validation:MaxItems=64
-	// +kubebuilder:validation:items:Pattern=`^[a-z]{2}-[a-z]+-[0-9]+$`
+	// +kubebuilder:validation:items:Pattern=`^[a-z]{2}(-[a-z]+)+-[0-9]+$`
 	// +listType=set
 	// +optional
 	Regions []string `json:"regions,omitempty"`
@@ -55,14 +55,14 @@ type Resources struct {
 	// subnet). A regional subnet serves every availability domain. Without use,
 	// SCarpenter creates a VCN with an internet gateway, a route table, a minimal
 	// security list and one regional public subnet per region (create).
-	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.ids) || self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]subnet[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))",message="use.ids are subnet OCIDs per region name, never *"
+	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.ids) || self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]subnet[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$')))",message="use.ids are subnet OCIDs per region name, never *"
 	// +optional
 	Subnets *SubnetResource `json:"subnets,omitempty"`
 
 	// networkSecurityGroups are attached to the nodes' VNICs (at most five per
 	// VNIC), in the VCN of the subnet. Without use, SCarpenter creates one group
 	// per NodeClass and region with the rules of networking.inbound.
-	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.ids) || self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]networksecuritygroup[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))",message="use.ids are network security group OCIDs per region name, never *"
+	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.ids) || self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]networksecuritygroup[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$')))",message="use.ids are network security group OCIDs per region name, never *"
 	// +optional
 	NetworkSecurityGroups *common.Resource `json:"networkSecurityGroups,omitempty"`
 
@@ -75,7 +75,7 @@ type Resources struct {
 	// not ready. Images take use only.
 	// +kubebuilder:validation:XValidation:rule="has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)",message="images accepts use only: it has no create and no forbid"
 	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.select) || self.use.select != 'all'",message="images cannot use select all: a launch needs one image"
-	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.ids) || self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]image[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))",message="use.ids are image OCIDs per region name, never *"
+	// +kubebuilder:validation:XValidation:rule="!has(self.use) || !has(self.use.ids) || self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]image[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$')))",message="use.ids are image OCIDs per region name, never *"
 	// +optional
 	Images *common.Resource `json:"images,omitempty"`
 }
@@ -127,13 +127,13 @@ func (r *SubnetResource) Common() *common.Resource {
 }
 
 // Performance is the performance level of the boot volume: Keeper's storage IDs
-// of OCI; the level sets the volume performance units (VPUs) per GB.
-// +kubebuilder:validation:Enum=lower-cost;balanced;higher-performance;ultra-high-performance
+// of OCI; the level sets the volume performance units (VPUs) per GB. The lower-cost
+// level (0 VPUs) is for block volumes only: OCI does not take it for a boot volume.
+// +kubebuilder:validation:Enum=balanced;higher-performance;ultra-high-performance
 type Performance string
 
-// Performance levels (0, 10, 20 and 30 to 120 VPUs per GB).
+// Performance levels of a boot volume (10, 20 and 30 to 120 VPUs per GB).
 const (
-	PerformanceLowerCost Performance = "lower-cost"
 	PerformanceBalanced  Performance = "balanced"
 	PerformanceHigher    Performance = "higher-performance"
 	PerformanceUltraHigh Performance = "ultra-high-performance"
@@ -172,7 +172,7 @@ type RootVolume struct {
 
 	// kmsKeyId is the OCID of a Vault key that encrypts the volume; default
 	// the Oracle-managed key.
-	// +kubebuilder:validation:Pattern=`^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+)?$`
+	// +kubebuilder:validation:Pattern=`^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+)?$`
 	// +optional
 	KmsKeyID string `json:"kmsKeyId,omitempty"`
 }

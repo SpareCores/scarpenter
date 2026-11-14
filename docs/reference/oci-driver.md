@@ -144,8 +144,8 @@ certificate approver needs them).
 ## Node settings
 
 `spec.vendors.oci`: `regions`, `storage.root` (`sizeGb` 50 to 32768, default 64; `performance`
-`lower-cost`, `balanced` (default), `higher-performance` or `ultra-high-performance`; `vpusPerGb` 30 to 120
-in steps of 10 for the last; `kmsKeyId`), `networking` (the generic block; `publicIPv4` defaults to true),
+`balanced` (default), `higher-performance` or `ultra-high-performance`, not `lower-cost`, which OCI
+offers for block volumes only; `vpusPerGb` 30 to 120 in steps of 10 for the last; `kmsKeyId`), `networking` (the generic block; `publicIPv4` defaults to true),
 `metadata` (`user_data` and `ssh_authorized_keys` are reserved) and `resources`. Data volumes, local
 storage, profiles and a per-NodeClass compartment are not supported in v1 (the compartment is the
 controller's, `--oci-compartment`). `spec.tags` become freeform tags; a `scarpenter-` prefix is reserved.

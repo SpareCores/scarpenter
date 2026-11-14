@@ -25,8 +25,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
-// regionPattern is the shape of an OCI region name (eu-frankfurt-1).
-var regionPattern = regexp.MustCompile(`^[a-z]{2}-[a-z]+-[0-9]+$`)
+// regionPattern is the shape of an OCI region name (eu-frankfurt-1, us-gov-ashburn-1); the CRD has
+// the same pattern.
+var regionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]+$`)
 
 // maxUserTags leaves room for the seven tags SCarpenter adds to the 64 OCI allows.
 const maxUserTags = maxTags - 7

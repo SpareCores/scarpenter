@@ -10444,9 +10444,9 @@
                   "type": "object"
                 },
                 "regions": {
-                  "description": "regions is the allow-list of OCI regions (eu-frankfurt-1); empty means\nevery region the tenancy has subscribed.",
+                  "description": "regions is the allow-list of OCI regions (eu-frankfurt-1,\nus-gov-ashburn-1); empty means every region the tenancy has subscribed.",
                   "items": {
-                    "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$",
+                    "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]+$",
                     "type": "string"
                   },
                   "maxItems": 64,
@@ -11249,13 +11249,12 @@
                       "properties": {
                         "kmsKeyId": {
                           "description": "kmsKeyId is the OCID of a Vault key that encrypts the volume; default\nthe Oracle-managed key.",
-                          "pattern": "^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+)?$",
+                          "pattern": "^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+)?$",
                           "type": "string"
                         },
                         "performance": {
                           "description": "performance level of the volume. Built-in default balanced (10 VPUs per\nGB).",
                           "enum": [
-                            "lower-cost",
                             "balanced",
                             "higher-performance",
                             "ultra-high-performance"

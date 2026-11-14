@@ -4126,7 +4126,7 @@ oci configures Oracle Cloud Infrastructure nodes.
 |---|---|---|---|
 | `metadata` | map of string values |  | metadata is extra instance metadata. user_data and ssh_authorized_keys are reserved: the first is the Ignition and the nodes carry no SSH keys. Rule: the metadata keys user_data and ssh_authorized_keys are reserved (`!('user_data' in self) && !('ssh_authorized_keys' in self)`). |
 | `networking` | [object](#specvendorsocinetworking) |  | networking overrides the generic spec.networking for OCI. publicIPv4 defaults to true; inbound rules become rules of the network security group. |
-| `regions` | array of string |  | regions is the allow-list of OCI regions (eu-frankfurt-1); empty means every region the tenancy has subscribed. At most 64 items. Pattern `^[a-z]{2}-[a-z]+-[0-9]+$`. |
+| `regions` | array of string |  | regions is the allow-list of OCI regions (eu-frankfurt-1, us-gov-ashburn-1); empty means every region the tenancy has subscribed. At most 64 items. Pattern `^[a-z]{2}(-[a-z]+)+-[0-9]+$`. |
 | `resources` | [object](#specvendorsociresources) |  | resources says how the OCI resources a node depends on are provided. |
 | `storage` | [object](#specvendorsocistorage) |  | storage overrides the built-in storage defaults (a 64 GiB boot volume of the balanced performance level). Data volumes and local storage are not supported in v1. |
 
@@ -4186,7 +4186,7 @@ Validation: images accepts use only: it has no create and no forbid (`has(self.u
 
 Validation: images cannot use select all: a launch needs one image (`!has(self.use) \|\| !has(self.use.select) \|\| self.use.select != 'all'`).
 
-Validation: use.ids are image OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]image[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))`).
+Validation: use.ids are image OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]image[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$')))`).
 
 Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
 
@@ -4279,7 +4279,7 @@ Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner
 
 networkSecurityGroups are attached to the nodes' VNICs (at most five per VNIC), in the VCN of the subnet. Without use, SCarpenter creates one group per NodeClass and region with the rules of networking.inbound.
 
-Validation: use.ids are network security group OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]networksecuritygroup[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))`).
+Validation: use.ids are network security group OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]networksecuritygroup[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$')))`).
 
 Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
 
@@ -4372,7 +4372,7 @@ Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner
 
 subnets nodes are launched into (the network, the VCN, is implied by the subnet). A regional subnet serves every availability domain. Without use, SCarpenter creates a VCN with an internet gateway, a route table, a minimal security list and one regional public subnet per region (create).
 
-Validation: use.ids are subnet OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]subnet[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))`).
+Validation: use.ids are subnet OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]subnet[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$')))`).
 
 Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
 
@@ -4478,8 +4478,8 @@ Validation: vpusPerGb is only valid with performance ultra-high-performance (`!h
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `kmsKeyId` | string |  | kmsKeyId is the OCID of a Vault key that encrypts the volume; default the Oracle-managed key. Pattern `^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+)?$`. |
-| `performance` | string |  | performance level of the volume. Built-in default balanced (10 VPUs per GB). One of `lower-cost`, `balanced`, `higher-performance`, `ultra-high-performance`. |
+| `kmsKeyId` | string |  | kmsKeyId is the OCID of a Vault key that encrypts the volume; default the Oracle-managed key. Pattern `^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+)?$`. |
+| `performance` | string |  | performance level of the volume. Built-in default balanced (10 VPUs per GB). One of `balanced`, `higher-performance`, `ultra-high-performance`. |
 | `sizeGb` | integer (int64) |  | sizeGb of the boot volume in GB (OCI's GB). Built-in default 64; the Flatcar image needs about 47. Minimum 50. Maximum 32768. |
 | `vpusPerGb` | integer (int64) |  | vpusPerGb of an ultra-high-performance volume: 30 to 120 in steps of 10, default 30. Minimum 30. Maximum 120. |
 

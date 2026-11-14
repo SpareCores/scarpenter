@@ -273,7 +273,7 @@ vendors:
   oci:
     regions: [eu-frankfurt-1, us-ashburn-1]   # allow-list; empty = every subscribed region
     storage:
-      root: {sizeGb: 64, performance: balanced}      # lower-cost | balanced | higher-performance | ultra-high-performance
+      root: {sizeGb: 64, performance: balanced}      # balanced | higher-performance | ultra-high-performance
     networking: {}                                    # per-vendor override of spec.networking
     metadata: {}                                      # extra instance metadata (never user_data, ssh_authorized_keys)
     resources:
@@ -686,7 +686,7 @@ the NodeClass's, not the type's).
 
 | Block | Fields |
 |---|---|
-| `storage.root` | `sizeGb` (50 to 32768 from Keeper's storage rows), `performance` (the four Keeper storage IDs: VPUs 0, 10, 20, 30), `vpusPerGb` (only with `ultra-high-performance`: 30 to 120 in steps of 10), `kmsKeyId` |
+| `storage.root` | `sizeGb` (50 to 32768 from Keeper's storage rows), `performance` (three of the four Keeper storage IDs: VPUs 10, 20, 30; `lower-cost`, 0 VPUs, is for block volumes only and a boot volume refuses it), `vpusPerGb` (only with `ultra-high-performance`: 30 to 120 in steps of 10), `kmsKeyId` |
 | `storage.data[]`, `storage.localStorage` | **not supported in v1**: rejected by validation (ADR-017). Data volumes need `LaunchVolumeAttachments` and device hints for paravirtualized attachments (unverified); the Dense I/O VMs are not in Keeper's data |
 | placement profile | none (no placement groups, fault domains or capacity reservations in v1) |
 | network profile | none |

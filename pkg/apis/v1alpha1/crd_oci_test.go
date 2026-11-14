@@ -23,9 +23,9 @@ func TestOCISpecsAreAccepted(t *testing.T) {
 		"everything": `
 vendors:
   oci:
-    regions: [eu-frankfurt-1, us-ashburn-1]
+    regions: [eu-frankfurt-1, us-ashburn-1, us-gov-ashburn-1]
     networking: {publicIPv4: true, publicIPv6: false, inbound: {rules: []}}
-    storage: {root: {sizeGb: 100, performance: ultra-high-performance, vpusPerGb: 40, kmsKeyId: ocid1.key.oc1.eu-frankfurt-1.aaaa}}
+    storage: {root: {sizeGb: 100, performance: ultra-high-performance, vpusPerGb: 40, kmsKeyId: ocid1.key.oc1.eu-frankfurt-1.bbqzaaaa.abtheljraaaa}}
     metadata: {custom: value}
     resources:
       subnets: {use: {ids: {eu-frankfurt-1: [ocid1.subnet.oc1.eu-frankfurt-1.aaaa]}}}
@@ -66,9 +66,11 @@ func TestOCIInvalidSpecsAreRejected(t *testing.T) {
 		{"subnet range too small", `vendors: {oci: {resources: {subnets: {create: {cidr: 10.0.0.0/24}}}}}`, "cidr must be an IPv4 CIDR"},
 		{"root size too small", `vendors: {oci: {storage: {root: {sizeGb: 20}}}}`, "should be greater than or equal to 50"},
 		{"root performance", `vendors: {oci: {storage: {root: {performance: fast}}}}`, "Unsupported value"},
+		{"root lower-cost", `vendors: {oci: {storage: {root: {performance: lower-cost}}}}`, "Unsupported value"},
 		{"vpus without ultra", `vendors: {oci: {storage: {root: {performance: balanced, vpusPerGb: 40}}}}`, "vpusPerGb is only valid"},
 		{"vpus not a multiple of 10", `vendors: {oci: {storage: {root: {performance: ultra-high-performance, vpusPerGb: 35}}}}`, "multiple of 10"},
 		{"kms key", `vendors: {oci: {storage: {root: {kmsKeyId: mykey}}}}`, "should match"},
+		{"kms key of another kind", `vendors: {oci: {storage: {root: {kmsKeyId: ocid1.vault.oc1.iad.bbqzaaaa.abthel}}}}`, "should match"},
 		{"metadata user_data", `vendors: {oci: {metadata: {user_data: abc}}}`, "reserved"},
 		{"metadata ssh keys", `vendors: {oci: {metadata: {ssh_authorized_keys: abc}}}`, "reserved"},
 		{"data volumes", `vendors: {oci: {storage: {data: [{name: d, size: 10Gi, mountPath: /d}]}}}`, "unknown field"},

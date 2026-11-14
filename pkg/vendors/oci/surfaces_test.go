@@ -546,8 +546,15 @@ func TestValidateNodeClass(t *testing.T) {
 		"kms key": {func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Vendors.OCI.Storage = &ociapi.Storage{Root: &ociapi.RootVolume{KmsKeyID: "key"}}
 		}, "key OCID"},
-		"metadata":   {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.OCI.Metadata = map[string]string{"user_data": "x"} }, "reserved"},
-		"tag prefix": {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Tags = map[string]string{"scarpenter-x": "y"} }, "reserved prefix"},
+		"vault key with its vault segment": {func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Vendors.OCI.Storage = &ociapi.Storage{Root: &ociapi.RootVolume{KmsKeyID: "ocid1.key.oc1.iad.bbqzaaaa.abtheljraaaa"}}
+		}, ""},
+		"lower-cost boot volume": {func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Vendors.OCI.Storage = &ociapi.Storage{Root: &ociapi.RootVolume{Performance: "lower-cost"}}
+		}, "no lower-cost level"},
+		"multi-word region": {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.OCI.Regions = []string{"us-gov-ashburn-1"} }, ""},
+		"metadata":          {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.OCI.Metadata = map[string]string{"user_data": "x"} }, "reserved"},
+		"tag prefix":        {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Tags = map[string]string{"scarpenter-x": "y"} }, "reserved prefix"},
 		"too many tags": {func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Tags = map[string]string{}
 			for i := range 60 {

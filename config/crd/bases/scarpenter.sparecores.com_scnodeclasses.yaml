@@ -11293,10 +11293,10 @@ spec:
                         type: object
                       regions:
                         description: |-
-                          regions is the allow-list of OCI regions (eu-frankfurt-1); empty means
-                          every region the tenancy has subscribed.
+                          regions is the allow-list of OCI regions (eu-frankfurt-1,
+                          us-gov-ashburn-1); empty means every region the tenancy has subscribed.
                         items:
-                          pattern: ^[a-z]{2}-[a-z]+-[0-9]+$
+                          pattern: ^[a-z]{2}(-[a-z]+)+-[0-9]+$
                           type: string
                         maxItems: 64
                         type: array
@@ -11613,7 +11613,7 @@ spec:
                             - message: use.ids are image OCIDs per region name, never
                                 *
                               rule: '!has(self.use) || !has(self.use.ids) || self.use.ids.all(r,
-                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]image[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$'')))'
+                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]image[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$'')))'
                             - message: at most one of use, create and forbid may be
                                 set
                               rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
@@ -11915,7 +11915,7 @@ spec:
                             - message: use.ids are network security group OCIDs per
                                 region name, never *
                               rule: '!has(self.use) || !has(self.use.ids) || self.use.ids.all(r,
-                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]networksecuritygroup[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$'')))'
+                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]networksecuritygroup[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$'')))'
                             - message: at most one of use, create and forbid may be
                                 set
                               rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
@@ -12232,7 +12232,7 @@ spec:
                             - message: use.ids are subnet OCIDs per region name, never
                                 *
                               rule: '!has(self.use) || !has(self.use.ids) || self.use.ids.all(r,
-                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]subnet[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$'')))'
+                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]subnet[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+$'')))'
                             - message: at most one of use, create and forbid may be
                                 set
                               rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
@@ -12252,14 +12252,13 @@ spec:
                                 description: |-
                                   kmsKeyId is the OCID of a Vault key that encrypts the volume; default
                                   the Oracle-managed key.
-                                pattern: ^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+)?$
+                                pattern: ^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*([.][a-z0-9]+)+)?$
                                 type: string
                               performance:
                                 description: |-
                                   performance level of the volume. Built-in default balanced (10 VPUs per
                                   GB).
                                 enum:
-                                - lower-cost
                                 - balanced
                                 - higher-performance
                                 - ultra-high-performance
