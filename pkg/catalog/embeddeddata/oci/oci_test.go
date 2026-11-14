@@ -212,6 +212,29 @@ func TestServerCounts(t *testing.T) {
 	}
 }
 
+// Enum columns sc-keeper-go's row type does not decode carry Keeper's values,
+// not the crawler's enum names.
+func TestStorageTypeHasKeeperValues(t *testing.T) {
+	type row struct {
+		ServerID    string  `json:"server_id"`
+		StorageType *string `json:"storage_type"`
+	}
+	keeperValues := []string{"hdd", "ssd", "nvme ssd", "network"}
+	local := 0
+	for _, r := range rows[row](t, manifest(t), "server/oci") {
+		if r.StorageType == nil {
+			continue
+		}
+		local++
+		if !slices.Contains(keeperValues, *r.StorageType) {
+			t.Errorf("%s: storage_type %q, want one of %v", r.ServerID, *r.StorageType, keeperValues)
+		}
+	}
+	if local == 0 {
+		t.Error("no server has local storage: the test checks nothing")
+	}
+}
+
 // Sized rows: vcpus = OCPUs x k(shape) and memory = GB x 1024 MiB (plan 25,
 // section 2).
 func TestSizedRowsAreConsistent(t *testing.T) {

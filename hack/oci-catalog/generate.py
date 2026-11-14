@@ -35,9 +35,9 @@ inactive servers). Every column of the database table is kept, with the
 SQLite enum names converted to Keeper's API values: allocation ONDEMAND/SPOT
 to ondemand/spot, status ACTIVE/INACTIVE to active/inactive, cpu_architecture
 X86_64/ARM64 to x86_64/arm64, cpu_allocation DEDICATED to Dedicated (likewise
-Shared, Burstable), unit HOUR/MONTH/GB_MONTH to hour/month/GB/month, storage
-type in lower case; JSON text columns are parsed, booleans are true/false and
-timestamps are ISO 8601. The prices are as of the data's observed_at columns;
+Shared, Burstable), unit HOUR/MONTH/GB_MONTH to hour/month/GB/month,
+storage_type HDD/SSD/NVME_SSD/NETWORK to hdd/ssd/"nvme ssd"/network; JSON
+text columns are parsed, booleans are true/false and timestamps are ISO 8601. The prices are as of the data's observed_at columns;
 no other time enters the output.
 
 The output is reproducible: rows are sorted by primary key, keys have a fixed
@@ -65,11 +65,12 @@ ALLOCATION = {"ONDEMAND": "ondemand", "SPOT": "spot", "RESERVED": "reserved"}
 ARCHITECTURE = {"X86_64": "x86_64", "ARM64": "arm64", "I386": "i386"}
 CPU_ALLOCATION = {"DEDICATED": "Dedicated", "SHARED": "Shared", "BURSTABLE": "Burstable"}
 UNIT = {"HOUR": "hour", "MONTH": "month", "GB_MONTH": "GB/month"}
+# The values of the crawler's StorageType (Keeper serves "nvme ssd").
+STORAGE_TYPE = {"HDD": "hdd", "SSD": "ssd", "NVME_SSD": "nvme ssd", "NETWORK": "network"}
 
 # Per column: a map (the value must be a key) or a function.
 BOOLEAN = "bool"
 JSON = "json"
-LOWER = "lower"
 TIMESTAMP = "ts"
 
 COLUMN_RULES = {
@@ -78,7 +79,7 @@ COLUMN_RULES = {
     "cpu_architecture": ARCHITECTURE,
     "cpu_allocation": CPU_ALLOCATION,
     "unit": UNIT,
-    "storage_type": LOWER,
+    "storage_type": STORAGE_TYPE,
     "observed_at": TIMESTAMP,
     "hw_virt": BOOLEAN,
     "memory_ecc": BOOLEAN,
@@ -120,8 +121,6 @@ def convert(column, value):
         return bool(value)
     if rule == JSON:
         return json.loads(value) if isinstance(value, str) else value
-    if rule == LOWER:
-        return value.lower()
     if rule == TIMESTAMP:
         return value.replace(" ", "T")
     if value not in rule:

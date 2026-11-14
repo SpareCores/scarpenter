@@ -493,9 +493,9 @@ so the driver's `KeeperPriceConsumer` and the billing code see the same thing fr
   fixed gzip mtime). Conversions from the SQLite enum names to the API values: allocation
   `ONDEMAND`/`SPOT` -> `ondemand`/`spot`, status `ACTIVE`/`INACTIVE` -> `active`/`inactive`,
   `cpu_architecture` `X86_64`/`ARM64` -> `x86_64`/`arm64`, `cpu_allocation` `DEDICATED` -> `Dedicated`,
-  units `HOUR`/`MONTH`/`GB_MONTH` -> `hour`/`month`/`GB/month`, storage type lower case. It keeps
-  every column the Keeper files have and `api_reference_object` as is. It **drops** nothing: the
-  catalog and the driver decide (inactive servers are skipped by the converter). It prints the counts
+  units `HOUR`/`MONTH`/`GB_MONTH` -> `hour`/`month`/`GB/month`, `storage_type` `NVME_SSD` ->
+  `nvme ssd` (Keeper's value). It keeps every column the Keeper files have and
+  `api_reference_object` as is. It **drops** nothing: the catalog and the driver decide (inactive servers are skipped by the converter). It prints the counts
   and the rows it could not convert. The committed README of the directory (in the generator's
   docstring, not a Markdown file) says where the input comes from and that the prices are as of the
   data's `observed_at`.
