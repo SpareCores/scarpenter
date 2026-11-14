@@ -36,16 +36,19 @@ type vpcRec struct {
 	tokens         map[string]string
 }
 
-// status is Pending for NetworkPendingFor after the creation.
+// status is Pending for NetworkPendingFor after the creation. A creation time
+// ahead of the clock (SetCreated backdates or dates resources freely, and a test
+// clock may lag the wall clock) is not a fresh resource: it is Available.
 func (x *vpcRec) status(now time.Time, pendingFor time.Duration) string {
-	if now.Sub(x.created) < pendingFor {
-		return "Pending"
-	}
-	return statusAvailable
+	return pendingStatus(now.Sub(x.created), pendingFor)
 }
 
 func (v *vswitchRec) status(now time.Time, pendingFor time.Duration) string {
-	if now.Sub(v.created) < pendingFor {
+	return pendingStatus(now.Sub(v.created), pendingFor)
+}
+
+func pendingStatus(age, pendingFor time.Duration) string {
+	if age >= 0 && age < pendingFor {
 		return "Pending"
 	}
 	return statusAvailable

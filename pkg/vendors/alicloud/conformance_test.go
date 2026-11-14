@@ -246,7 +246,7 @@ func seed(t *testing.T, e *denv, kind vendors.ResourceKind, region string, spec 
 	case KindSubnets:
 		cidr := spec.CIDR
 		if cidr == "" {
-			cidr = fmt.Sprintf("172.20.%d.0/24", 10+seedCIDR.Add(1))
+			cidr = fmt.Sprintf("172.20.%d.0/24", 10+seedCIDR.Add(1)%240)
 		}
 		in := &vpc.CreateVSwitchRequest{
 			RegionId: &region, VpcId: new(e.vpc[region]), ZoneId: new(testZoneA), CidrBlock: &cidr, VSwitchName: &spec.Name,
