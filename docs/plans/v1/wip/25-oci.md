@@ -837,8 +837,9 @@ tailnet, nodes with the `tailscale` template).
   client ID and secret, a `urn:oci:token-type:oci-upst` request with the public key of a key pair it makes, `subject_token_type=jwt`) for
   the `oci` CLI (a `security_token` profile), keeps the OIDC token file fresh in a background loop (GitHub's token lives minutes), and
   puts that file into the Secret the controller reads: the lane installs the chart with `credentials.mode: none` and passes the
-  `workloadIdentityFederation` flags with `extraArgs` (they come last, so the last `--oci-auth` wins: the chart's own mode projects the
-  ServiceAccount token, whose issuer is not public on a runner). The Go programs (sweeper, canary) read the same token file through
+  `workloadIdentityFederation` flags with `extraArgs` (the chart's own mode projects the ServiceAccount token, whose issuer is not
+  public on a runner; the review of (d) made the mode `none` render no `--oci-auth`, so the lane's flag is the only one and no flag
+  order is relied on). The Go programs (sweeper, canary) read the same token file through
   `test/e2e-oci/ocienv`. The stored secrets: only `OCI_CLIENT_SECRET`. Still **unverified** (S11): the audience, the answer's fields
   (`token`, falling back to `access_token`), that a CLI profile without a fingerprint works, the session lifetime.
 - **Files.** `test/e2e-oci/` has the GCP lane's script names, plus `oci-session.sh`, `ci-policy.sh` and `canary-policy.sh` (policy

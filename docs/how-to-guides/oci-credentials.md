@@ -20,7 +20,7 @@ verbs each call needs are verified by the first live run). OCIDs and names below
 |---|---|---|
 | `apiKey` | an API signing key of a user: from a Secret mounted as a directory (`--oci-credentials-dir`), from the `OCI_CLI_*` environment, or from an OCI config file with a profile (`--oci-config-file`, `--oci-config-profile`; session-token profiles work too) | it works anywhere; the key is a long-lived credential: rotate it |
 | `workloadIdentityFederation` | the ServiceAccount's projected token (or any OIDC token in a file), exchanged at an IAM identity domain for a short-lived user principal session token | the identity domain can trust the cluster's token issuer. No stored key; the one secret is the confidential application's client secret. **Recommended where it is available**, and the mode of the CI live lane. |
-| `none` (chart only) | nothing is wired: set `OCI_CLI_*` with `extraEnv`, or `configFile` | you manage the environment or a mounted config file yourself |
+| `none` (chart only) | nothing is wired, not even `--oci-auth` (the controller's default is `apiKey`): set `OCI_CLI_*` with `extraEnv`, or `configFile`, or the mode and its flags with `extraArgs` | you manage the environment or a mounted config file yourself |
 
 `instancePrincipal` (a controller on an OCI compute instance in a dynamic group) and `okeWorkloadIdentity`
 (a controller on OKE) are **not supported yet**; the controller refuses them and names the supported modes.

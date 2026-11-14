@@ -561,10 +561,10 @@ t_chart() {
   helm template scarpenter "${root}/charts/scarpenter" --namespace scarpenter-system --kube-version 1.37.0 \
     -f "${tmp}/values.yaml" --set kubeletClientCA.source=inline --set-string kubeletClientCA.inline=PEM --set image.repository=scarpenter-controller --set image.tag=e2e >"${tmp}/chart.yaml"
   grep_all "${tmp}/chart.yaml" '--cluster-name=scarpenter-ci-1' "--oci-compartment=${OCI_COMPARTMENT}" 'https://100.64.0.1:6443' 'CriticalAddonsOnly' || { echo "the basics"; return 1; }
-  # The credentials: the keyless flags come after the chart's own --oci-auth, so that they win (the last flag wins), and no key is mounted.
+  # The credentials: the chart's mode none renders no --oci-auth, so the lane's is the only one (no flag is overridden), and no key is mounted.
   local auth
   auth="$(grep -o -- '--oci-auth=[A-Za-z]*' "${tmp}/chart.yaml")"
-  [[ "$(tail -n1 <<<"${auth}")" == --oci-auth=workloadIdentityFederation ]] || { echo "the last --oci-auth is not the federation: ${auth}"; return 1; }
+  [[ "${auth}" == --oci-auth=workloadIdentityFederation ]] || { echo "not exactly one --oci-auth, the federation: ${auth}"; return 1; }
   grep_all "${tmp}/chart.yaml" '--oci-token-file=/var/run/secrets/oci/token' "--oci-identity-domain-url=${OCI_IDENTITY_DOMAIN_URL}" '--oci-client-id=client-1' '--oci-client-secret-file=/etc/scarpenter/oci-client/client-secret' '--oci-region=eu-frankfurt-1' || { echo "the federation flags"; return 1; }
   grep_all "${tmp}/chart.yaml" 'secretName: oci-federated-token' 'secretName: oci-client' || { echo "the secrets"; return 1; }
   ! grep -q -- '--oci-credentials-dir=' "${tmp}/chart.yaml" || { echo "an API key directory is wired"; return 1; }
@@ -574,7 +574,7 @@ t_chart() {
     grep -q "\"${flag}\"" "${root}/pkg/operator/options/options.go" || { echo "the controller has no flag --${flag}"; return 1; }
   done
 }
-check "the chart renders with the lane's values (the keyless flags win, the secrets, the compartment, the endpoint)" t_chart
+check "the chart renders with the lane's values (the keyless flags alone, the secrets, the compartment, the endpoint)" t_chart
 
 if [[ "${failures}" -ne 0 ]]; then
   echo "selftest: ${failures} failure(s)" >&2

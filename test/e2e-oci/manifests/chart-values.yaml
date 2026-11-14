@@ -12,9 +12,10 @@
 # confidential application and its client secret (the Secret oci-client of install.sh) are the lane's
 # own. The chart's own workloadIdentityFederation mode projects the ServiceAccount token of the cluster,
 # whose issuer is not public on an ephemeral runner (the identity domain could not trust it), so the
-# chart's credentials mode is none (it wires nothing and renders --oci-auth=apiKey); the flags and mounts
-# are the lane's own, through the chart's generic extraArgs, extraVolumes and extraVolumeMounts. The flags
-# of extraArgs come last, and the last --oci-auth wins: selftest.sh renders the chart and checks that.
+# chart's credentials mode is none (it wires nothing, --oci-auth included); the flags and mounts are the
+# lane's own, through the chart's generic extraArgs, extraVolumes and extraVolumeMounts, and are the
+# controller's only OCI credential flags: selftest.sh renders the chart and checks that. The lane thus
+# tests the driver's workloadIdentityFederation mode, not the chart's projected token wiring.
 cluster:
   name: ${E2E_CLUSTER}
   # The API server's tailnet address: the nodes reach it over Tailscale.

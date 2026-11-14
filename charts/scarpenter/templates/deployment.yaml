@@ -119,7 +119,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "aws-home-region" (ternary $aws.homeRegion "" $aws.enabled)
   "gcp-project" (ternary $gcp.project "" $gcp.enabled)
   "oci-compartment" (ternary $oci.compartment "" $oci.enabled)
-  "oci-auth" (ternary (ternary "workloadIdentityFederation" "apiKey" (eq $ociMode "workloadIdentityFederation")) "" $oci.enabled)
+  "oci-auth" (ternary $ociMode "" (and $oci.enabled (ne $ociMode "none")))
   "oci-credentials-dir" (ternary "/etc/scarpenter/oci-key" "" (and $oci.enabled (eq $ociMode "apiKey")))
   "oci-config-file" (ternary $oci.credentials.configFile "" (and $oci.enabled (eq $ociMode "none")))
   "oci-config-profile" (ternary $oci.credentials.configProfile "" (and $oci.enabled (eq $ociMode "none")))

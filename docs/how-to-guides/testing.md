@@ -1048,8 +1048,8 @@ hack/dev.sh make test-e2e-oci-dryrun                            # everything tha
   session token; **no API key exists anywhere**. `test/e2e-oci/oci-session.sh` does it for the `oci` CLI of the scripts (a profile with a session token and
   a key pair it makes), keeps the OIDC token file fresh in the background (GitHub's token lives minutes) and puts that file into the Secret
   `oci-federated-token`; the controller's `workloadIdentityFederation` mode exchanges it itself (`install.sh`; the cluster's own ServiceAccount issuer is
-  not public, so the chart's projected token could not be trusted by the domain: the lane sets the mode `none` and passes the flags with
-  `extraArgs`, which come last, so that the last `--oci-auth` wins; the selftest renders the chart and checks that). The sweeper and the canary (Go) exchange the same
+  not public, so the chart's projected token could not be trusted by the domain: the lane sets the mode `none`, which renders no OCI credential flag, and passes
+  the flags with `extraArgs`; the selftest renders the chart and checks that they are the only ones. The lane tests the driver's mode, not the chart's projected token). The sweeper and the canary (Go) exchange the same
   file through `test/e2e-oci/ocienv`. The one stored secret is the application's client secret (`OCI_CLIENT_SECRET`, an environment secret).
   The audience the trust expects, the exact fields of the token endpoint's answer and that the CLI's `security_token` profile needs no fingerprint are **unverified**
   until the first live run (spike S11).
@@ -1115,7 +1115,7 @@ server as a server-side dry run, runs the sweeper's and the canary's tests again
 against stubs of the CLI and fixtures (including the redaction of tenancy and compartment OCIDs, tokens, signatures and private keys), the session script against a stub of
 `curl` (the exchange, the modes of the files, the masks, no secret on a command line), the scenario list, the workflows (keyless credentials, a pinned CLI, no API key, every action pinned by SHA),
 the byo names shared by the scripts and the sweeper, the policies `ci-policy.sh` and `canary-policy.sh` print (the driver's statements all there, nothing tenancy-wide that writes, only reads in the canary's),
-that the lane is ready for its line in `test/e2e-vendors.txt` and absent from it, and the chart with the lane's values (the keyless flags win). The canary's test compares the statements of the calls it made with `canary-policy.sh statements`.
+that the lane is ready for its line in `test/e2e-vendors.txt` and absent from it, and the chart with the lane's values (the keyless flags, and only those). The canary's test compares the statements of the calls it made with `canary-policy.sh statements`.
 
 ### Artifact fixtures
 

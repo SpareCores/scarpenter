@@ -261,7 +261,9 @@ vendors:
       #   ServiceAccount's projected token is exchanged at an IAM identity domain
       #   for a short-lived session token (docs/how-to-guides/oci-credentials.md);
       #   recommended where the cluster's issuer can be trusted by the domain.
-      # none: nothing is wired; set the OCI_CLI_* variables with extraEnv.
+      # none: nothing is wired, not even --oci-auth (the controller's default is
+      #   apiKey); set the OCI_CLI_* variables with extraEnv, or the mode and its
+      #   flags yourself with extraArgs or extraEnv (SCARPENTER_OCI_*).
       # (instancePrincipal and okeWorkloadIdentity are not supported yet.)
       mode: apiKey
       apiKey:

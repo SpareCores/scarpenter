@@ -607,7 +607,6 @@ spec:
             - "--health-probe-port=8081"
             - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--metrics-port=8080"
-            - "--oci-auth=apiKey"
             - "--oci-compartment=ocid1.compartment.oc1..aaaaaaaaexample"
             - "--oci-config-file=/etc/oci/config"
             - "--oci-config-profile=scarpenter"

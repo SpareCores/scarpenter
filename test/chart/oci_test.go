@@ -69,8 +69,12 @@ func TestOCICredentialModes(t *testing.T) {
 				t.Errorf("credentials wired in mode none: %s", a)
 			}
 		}
-		if !slices.Contains(args, "--oci-auth=apiKey") {
-			t.Errorf("args %v", args)
+		// Nothing wired, not even the mode: the controller's default (apiKey) applies unless
+		// extraArgs or extraEnv set it, and then that flag is the only one.
+		for _, a := range args {
+			if strings.HasPrefix(a, "--oci-auth") {
+				t.Errorf("mode none renders %s", a)
+			}
 		}
 		for _, v := range d.Spec.Template.Spec.Volumes {
 			if strings.HasPrefix(v.Name, "oci-") {
