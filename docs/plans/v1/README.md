@@ -38,7 +38,7 @@ Execution protocol:
 | 10 | `done/10-aws-e2e.md` | done | L5 AWS e2e over Tailscale + sweeper (first green live run 2026-11-10) | 09 |
 | 11 | `wip/11-docs-and-release.md` | todo | tutorials, how-tos for profiles, selection and resources, add-a-vendor guide, first release (v0.1.0) | 07, 10 |
 | 12 | `wip/12-aws-gpu.md` | optional | NVIDIA sysext on AWS GPU types | 10 + GPU spike |
-| 13 | `wip/13-keeper-catalog-snapshot.md` | review | catalog, vendor storage and IPv4 prices from Keeper snapshots pinned per data version, with local selection; API key handling; three steps: sc-keeper-go, part A, part B | 03, 14–21, 23 |
+| 13 | `done/13-keeper-catalog-snapshot.md` | done | catalog, vendor storage and IPv4 prices from Keeper snapshots pinned per data version, with local selection; API key handling; three steps: sc-keeper-go, part A, part B | 03, 14–21, 23 |
 | 14 | `done/14-multi-vendor-groundwork.md` | done | shared core and API changes the vendor plans need (the `images` kind and `ImageRequest`, per-type root disk, idempotency label, stopped-node rule, account-wide quota errors, message-based classification, Butane hook, region aliases, malformed references, the one `use` selector of ADR-023), the published hand-off contract (IaC-neutral), CRD schema and examples, and the resource resolution order of ADR-022 | 10 |
 | 15 | `wip/15-hcloud.md` | review; live verification pending | Hetzner Cloud driver, fake, conformance, L5 lane; images on rung 3 | 14 |
 | 16 | `wip/16-gcp.md` | review; live verification pending | GCP driver, fake, conformance, L5 lane; amd64 on rung 1, arm64 on rung 2 | 14, 22 (arm64) |

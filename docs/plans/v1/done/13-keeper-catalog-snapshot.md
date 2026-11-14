@@ -4,7 +4,7 @@ Depends on: 03, 14 to 21 (the vendor price fetchers this plan replaces) and
 23 (the vendor table). Read `docs/plans/v1/CONVENTIONS.md` first. Spec:
 overview §5.1–§5.2; the coordinator rewrites overview §5.1 when part B lands.
 
-Status: **review** (part B; steps 1 and 2 are merged). Part B measured on
+Status: **done** (all three steps; part B was reviewed). Part B measured on
 the recording of Keeper database `40ecd194b481` (published 2026-11-13) and
 live the same day:
 
@@ -642,3 +642,39 @@ value, whatever Keeper says.
   handling.
 - **Not here**: sc-keeper itself; sc-karpenter-nodepool (it needs a key for
   snapshots too, in its own repository); a tag of sc-keeper-go.
+
+## Outcome
+
+Landed in three steps: sc-keeper-go's snapshot client and recorder, part A (local
+selection) and part B. A refresh now pins the hash from `/healthcheck`, reads the
+snapshot files of that hash from an optional on-disk copy or from Keeper, and
+selects locally; only `/benchmark_configs` is read live besides. Scores come from
+the score files byte for byte, the vendor drivers get storage and IPv4 prices from
+the refresh's data (`SetKeeperPrices`), and a 401 keeps the previous catalog and
+shows as `KeeperAuthorized=False`.
+
+- **Family and series.** sc-crawler 0.10.4 made Keeper's `family` a broad class
+  ("General Purpose") and `series` the hardware line. The catalog's `family` label
+  and selection's family filter and ranking use the series, else the family
+  (`familyOf`); the labels reference says so.
+- **Memory.** L3 S10 at rest: 193 MiB (three AWS regions) and 360 MiB (every AWS
+  region) against plan 06's 217 and 377. Building every region of all eight
+  vendors (about 520 000 offerings) holds about 1.1 GiB of Go heap, so the chart's
+  default limit is 2Gi (request 640Mi); the controller reference has the per-scope
+  numbers.
+- **Pricing fixes.** GCP rows are keyed by numeric region and storage ids: the
+  catalog hands drivers the region name and the storage name, and Facts forwards
+  both. Azure's driver overrides Keeper's 300 s minimum with none, so retention
+  never holds Azure nodes.
+- **CI.** `.github/actions/keeper-key` reads the key from the parameter named by
+  the repository variable `KEEPER_API_KEY_PARAMETER` with the environment's role;
+  the refresh workflow runs in the `e2e` environment and needs approval there.
+
+Open items:
+
+- sc-keeper-go's recorder writes its files with mode 0600 (kept on hold); the kwok
+  replay image and `run.sh` make the recording readable meanwhile.
+- sc-keeper-go's selection package and sc-karpenter-nodepool still have to adapt
+  to the family/series change.
+- The offerings dominate memory and could be cut further (for example by not
+  holding the price slice after the offerings are built).
