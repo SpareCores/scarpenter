@@ -10,6 +10,7 @@ package fake
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -114,10 +115,48 @@ func (c *Cloud) SeedVcn(regionName, name, cidr string, tags map[string]string) s
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	id := c.nextID("vcn", regionName)
-	c.net.vcns[id] = &core.Vcn{Id: &id, CompartmentId: &c.compartment, CidrBlock: &cidr, DisplayName: &name,
+	v := &core.Vcn{Id: &id, CompartmentId: &c.compartment, CidrBlock: &cidr, DisplayName: &name,
 		FreeformTags: tags, LifecycleState: core.VcnLifecycleStateAvailable, TimeCreated: c.stamp()}
+	c.net.vcns[id] = v
 	c.net.objRegion[id] = regionName
+	c.addDefaults(regionName, v)
 	return id
+}
+
+// addDefaults creates what OCI creates with every VCN: a default route table (no rules) and a
+// default security list (ingress tcp/22 and ICMP from anywhere, egress all), named "Default ... for
+// <vcn>", carrying the VCN's freeform tags (verified live, 2026-11-14), and sets the VCN's
+// DefaultRouteTableId and DefaultSecurityListId. Neither can be deleted: they go with the VCN.
+func (c *Cloud) addDefaults(regionName string, v *core.Vcn) {
+	rid := c.nextID("routetable", regionName)
+	rname := "Default Route Table for " + deref(v.DisplayName)
+	c.net.routes[rid] = &core.RouteTable{Id: &rid, CompartmentId: &c.compartment, VcnId: v.Id, DisplayName: &rname,
+		FreeformTags: maps.Clone(v.FreeformTags), LifecycleState: core.RouteTableLifecycleStateAvailable,
+		TimeCreated: c.stamp()}
+	c.net.objRegion[rid] = regionName
+	lid := c.nextID("securitylist", regionName)
+	lname := "Default Security List for " + deref(v.DisplayName)
+	anywhere := "0.0.0.0/0"
+	c.net.lists[lid] = &core.SecurityList{Id: &lid, CompartmentId: &c.compartment, VcnId: v.Id, DisplayName: &lname,
+		FreeformTags: maps.Clone(v.FreeformTags), LifecycleState: core.SecurityListLifecycleStateAvailable,
+		TimeCreated: c.stamp(),
+		EgressSecurityRules: []core.EgressSecurityRule{{Protocol: new("all"), Destination: &anywhere,
+			DestinationType: core.EgressSecurityRuleDestinationTypeCidrBlock, IsStateless: new(false)}},
+		IngressSecurityRules: []core.IngressSecurityRule{
+			{Protocol: new("6"), Source: &anywhere, SourceType: core.IngressSecurityRuleSourceTypeCidrBlock,
+				IsStateless: new(false), TcpOptions: &core.TcpOptions{DestinationPortRange: &core.PortRange{
+					Min: new(22), Max: new(22)}}},
+			{Protocol: new("1"), Source: &anywhere, SourceType: core.IngressSecurityRuleSourceTypeCidrBlock,
+				IsStateless: new(false), IcmpOptions: &core.IcmpOptions{Type: new(3), Code: new(4)}},
+		}}
+	c.net.objRegion[lid] = regionName
+	v.DefaultRouteTableId, v.DefaultSecurityListId = &rid, &lid
+}
+
+// isDefault reports whether the id is the default route table or security list of its VCN.
+func (c *Cloud) isDefault(vcn *string, id string) bool {
+	v, ok := c.net.vcns[deref(vcn)]
+	return ok && (deref(v.DefaultRouteTableId) == id || deref(v.DefaultSecurityListId) == id)
 }
 
 // SeedSubnet adds a subnet a user brought: ad is "" for a regional subnet; ipv6
@@ -158,11 +197,42 @@ func (c *Cloud) SeedNSG(regionName, vcnID, name string, tags map[string]string) 
 }
 
 // NetworkCounts are the numbers of VCNs, subnets, internet gateways, route
-// tables, security lists and network security groups of the fake.
+// tables, security lists and network security groups of the fake. The default
+// route table and security list every VCN has are not counted (see DefaultParts):
+// they are not anything a driver creates or deletes.
 func (c *Cloud) NetworkCounts() (vcns, subnets, gateways, routeTables, securityLists, groups int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.net.vcns), len(c.net.subnets), len(c.net.igws), len(c.net.routes), len(c.net.lists), len(c.net.nsgs)
+	for id, r := range c.net.routes {
+		if !c.isDefault(r.VcnId, id) {
+			routeTables++
+		}
+	}
+	for id, l := range c.net.lists {
+		if !c.isDefault(l.VcnId, id) {
+			securityLists++
+		}
+	}
+	return len(c.net.vcns), len(c.net.subnets), len(c.net.igws), routeTables, securityLists, len(c.net.nsgs)
+}
+
+// DefaultParts is the number of default route tables and default security lists:
+// two per VCN, and they are deleted with it.
+func (c *Cloud) DefaultParts() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for id, r := range c.net.routes {
+		if c.isDefault(r.VcnId, id) {
+			n++
+		}
+	}
+	for id, l := range c.net.lists {
+		if c.isDefault(l.VcnId, id) {
+			n++
+		}
+	}
+	return n
 }
 
 // NSGRules returns the rules added to a group.
@@ -218,6 +288,7 @@ func (c *Cloud) CreateVcn(ctx context.Context, regionName string, req core.Creat
 		TimeCreated: c.stamp()}
 	c.net.vcns[id] = v
 	c.net.objRegion[id] = regionName
+	c.addDefaults(regionName, v)
 	return core.CreateVcnResponse{Vcn: *v}, nil
 }
 
@@ -267,13 +338,24 @@ func (c *Cloud) DeleteVcn(ctx context.Context, regionName string, req core.Delet
 		}
 	}
 	for _, l := range c.net.lists {
-		if deref(l.VcnId) == id && !strings.HasPrefix(deref(l.DisplayName), "Default ") {
+		if deref(l.VcnId) == id && !c.isDefault(l.VcnId, deref(l.Id)) {
 			return core.DeleteVcnResponse{}, conflict("The vcn %s still has a security list", id)
 		}
 	}
 	for _, r := range c.net.routes {
-		if deref(r.VcnId) == id {
+		if deref(r.VcnId) == id && !c.isDefault(r.VcnId, deref(r.Id)) {
 			return core.DeleteVcnResponse{}, conflict("The vcn %s still has a route table", id)
+		}
+	}
+	// The default route table and security list go with the VCN.
+	for rid, r := range c.net.routes {
+		if deref(r.VcnId) == id {
+			delete(c.net.routes, rid)
+		}
+	}
+	for lid, l := range c.net.lists {
+		if deref(l.VcnId) == id {
+			delete(c.net.lists, lid)
 		}
 	}
 	delete(c.net.vcns, id)
@@ -329,6 +411,7 @@ func (c *Cloud) DeleteInternetGateway(ctx context.Context, regionName string, re
 	if _, ok := c.net.igws[id]; !ok || c.net.objRegion[id] != regionName {
 		return core.DeleteInternetGatewayResponse{}, notFound("internet gateway " + id)
 	}
+	// UNVERIFIED: OCI refuses to delete a gateway that a route rule still targets.
 	for _, r := range c.net.routes {
 		for _, rule := range r.RouteRules {
 			if deref(rule.NetworkEntityId) == id {
@@ -391,8 +474,13 @@ func (c *Cloud) DeleteRouteTable(ctx context.Context, regionName string, req cor
 		return core.DeleteRouteTableResponse{}, err
 	}
 	id := deref(req.RtId)
-	if _, ok := c.net.routes[id]; !ok || c.net.objRegion[id] != regionName {
+	r, ok := c.net.routes[id]
+	if !ok || c.net.objRegion[id] != regionName {
 		return core.DeleteRouteTableResponse{}, notFound("route table " + id)
+	}
+	if c.isDefault(r.VcnId, id) {
+		// UNVERIFIED status and code: OCI refuses to delete a default route table.
+		return core.DeleteRouteTableResponse{}, conflict("The default route table %s cannot be deleted: it goes with its vcn", id)
 	}
 	for _, s := range c.net.subnets {
 		if deref(s.RouteTableId) == id {
@@ -449,8 +537,13 @@ func (c *Cloud) DeleteSecurityList(ctx context.Context, regionName string, req c
 		return core.DeleteSecurityListResponse{}, err
 	}
 	id := deref(req.SecurityListId)
-	if _, ok := c.net.lists[id]; !ok || c.net.objRegion[id] != regionName {
+	l, ok := c.net.lists[id]
+	if !ok || c.net.objRegion[id] != regionName {
 		return core.DeleteSecurityListResponse{}, notFound("security list " + id)
+	}
+	if c.isDefault(l.VcnId, id) {
+		// UNVERIFIED status and code: OCI refuses to delete a default security list.
+		return core.DeleteSecurityListResponse{}, conflict("The default security list %s cannot be deleted: it goes with its vcn", id)
 	}
 	for _, s := range c.net.subnets {
 		if slices.Contains(s.SecurityListIds, id) {
@@ -531,6 +624,36 @@ func (c *Cloud) ListSubnets(ctx context.Context, regionName string, req core.Lis
 	slices.SortFunc(all, func(a, b core.Subnet) int { return strings.Compare(deref(a.Id), deref(b.Id)) })
 	page, next := paged(all, c.pageSize, req.Page)
 	return core.ListSubnetsResponse{Items: page, OpcNextPage: next}, nil
+}
+
+// UpdateSubnet implements NetworkAPI: the route table and security lists of the subnet.
+func (c *Cloud) UpdateSubnet(ctx context.Context, regionName string, req core.UpdateSubnetRequest) (core.UpdateSubnetResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.checkNet(ctx, "UpdateSubnet", regionName); err != nil {
+		return core.UpdateSubnetResponse{}, err
+	}
+	id := deref(req.SubnetId)
+	s, ok := c.net.subnets[id]
+	if !ok || c.net.objRegion[id] != regionName {
+		return core.UpdateSubnetResponse{}, notFound("subnet " + id)
+	}
+	d := req.UpdateSubnetDetails
+	if d.RouteTableId != nil {
+		if r, ok := c.net.routes[*d.RouteTableId]; !ok || deref(r.VcnId) != deref(s.VcnId) {
+			return core.UpdateSubnetResponse{}, invalid("The route table %s is not in the vcn of the subnet", *d.RouteTableId)
+		}
+		s.RouteTableId = d.RouteTableId
+	}
+	if d.SecurityListIds != nil {
+		for _, l := range d.SecurityListIds {
+			if x, ok := c.net.lists[l]; !ok || deref(x.VcnId) != deref(s.VcnId) {
+				return core.UpdateSubnetResponse{}, invalid("The security list %s is not in the vcn of the subnet", l)
+			}
+		}
+		s.SecurityListIds = slices.Clone(d.SecurityListIds)
+	}
+	return core.UpdateSubnetResponse{Subnet: *s}, nil
 }
 
 func (c *Cloud) DeleteSubnet(ctx context.Context, regionName string, req core.DeleteSubnetRequest) (core.DeleteSubnetResponse, error) {

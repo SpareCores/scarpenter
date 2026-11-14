@@ -744,3 +744,171 @@ func TestLaunchWithAnImageOfTheImageCompartment(t *testing.T) {
 		t.Errorf("launch %+v, want the compartment %q and the image %q", last, fake.SeedCompartment, id)
 	}
 }
+
+// managedSpec is the CreateSpec of a managed network named name.
+func managedSpec(name string) vendors.CreateSpec {
+	return vendors.CreateSpec{Name: name, Tags: map[vendors.TagKey]string{
+		vendors.TagCluster: testCluster, vendors.TagNodeClass: "class", vendors.TagManagedBy: vendors.ManagedByValue,
+		vendors.TagResource: "subnets"}}
+}
+
+// routeAndList returns the route table and the security list of the VCN with the display name.
+func routeAndList(t *testing.T, c *fake.Cloud, vcn *string, name string) (core.RouteTable, core.SecurityList) {
+	t.Helper()
+	routes, err := c.ListRouteTables(t.Context(), testRegion, core.ListRouteTablesRequest{VcnId: vcn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lists, err := c.ListSecurityLists(t.Context(), testRegion, core.ListSecurityListsRequest{VcnId: vcn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rt core.RouteTable
+	var sl core.SecurityList
+	for _, r := range routes.Items {
+		if *r.DisplayName == name+"-rt" {
+			rt = r
+		}
+	}
+	for _, l := range lists.Items {
+		if *l.DisplayName == name+"-sl" {
+			sl = l
+		}
+	}
+	if rt.Id == nil || sl.Id == nil {
+		t.Fatalf("the VCN has no route table %s-rt or security list %s-sl: %d route tables, %d security lists",
+			name, name, len(routes.Items), len(lists.Items))
+	}
+	return rt, sl
+}
+
+// OCI creates a default route table (no rules) and a default security list (SSH open) with the VCN, and
+// both carry the VCN's ownership tags: the driver must make its own route table (0.0.0.0/0 to the
+// gateway) and security list, and the subnet must use them, not the defaults (the first live run took
+// the defaults, so the instance had no route to the internet).
+func TestManagedNetworkMakesItsOwnRouteTableAndListNotTheDefaults(t *testing.T) {
+	e := newEngine(t)
+	mr := vendors.ManagedResources(e.d)
+	ref, created, err := mr.Ensure(t.Context(), driver.KindSubnets, testRegion, managedSpec("scarpenter-net"))
+	if err != nil || !created {
+		t.Fatalf("Ensure: %v, created %v", err, created)
+	}
+	vcn, _ := e.c.VcnByName("scarpenter-net")
+	rt, sl := routeAndList(t, e.c, vcn.Id, "scarpenter-net")
+	if *rt.Id == *vcn.DefaultRouteTableId || *sl.Id == *vcn.DefaultSecurityListId {
+		t.Fatal("the driver took the VCN's default route table or security list for its own")
+	}
+	igws, err := e.c.ListInternetGateways(t.Context(), testRegion, core.ListInternetGatewaysRequest{VcnId: vcn.Id})
+	if err != nil || len(igws.Items) != 1 {
+		t.Fatalf("the gateways: %v, %v", igws.Items, err)
+	}
+	if len(rt.RouteRules) != 1 || *rt.RouteRules[0].Destination != "0.0.0.0/0" ||
+		*rt.RouteRules[0].NetworkEntityId != *igws.Items[0].Id {
+		t.Errorf("the route rules %+v, want 0.0.0.0/0 to the gateway", rt.RouteRules)
+	}
+	sub, ok := e.c.Subnet(ref.ID)
+	if ok {
+		t.Fatal("the reference is the VCN, not a subnet")
+	}
+	subs, err := e.c.ListSubnets(t.Context(), testRegion, core.ListSubnetsRequest{CompartmentId: new(fake.SeedCompartment), VcnId: vcn.Id})
+	if err != nil || len(subs.Items) != 1 {
+		t.Fatalf("the subnets: %v, %v", subs.Items, err)
+	}
+	sub = subs.Items[0]
+	if *sub.RouteTableId != *rt.Id || len(sub.SecurityListIds) != 1 || sub.SecurityListIds[0] != *sl.Id {
+		t.Errorf("the subnet uses route table %s and lists %v, want %s and [%s]", *sub.RouteTableId, sub.SecurityListIds, *rt.Id, *sl.Id)
+	}
+}
+
+// A subnet that an earlier version made with the VCN's defaults (as in the first live run: the defaults
+// were taken for the driver's own parts, so the driver's own were never made) is moved to the driver's own
+// route table and security list by the next Ensure.
+func TestManagedNetworkSubnetOnTheDefaultsIsRepaired(t *testing.T) {
+	e := newEngine(t)
+	mr := vendors.ManagedResources(e.d)
+	spec := managedSpec("scarpenter-net")
+	if _, _, err := mr.Ensure(t.Context(), driver.KindSubnets, testRegion, spec); err != nil {
+		t.Fatal(err)
+	}
+	vcn, _ := e.c.VcnByName("scarpenter-net")
+	subs, _ := e.c.ListSubnets(t.Context(), testRegion, core.ListSubnetsRequest{CompartmentId: new(fake.SeedCompartment), VcnId: vcn.Id})
+	broken := subs.Items[0]
+	if _, err := e.c.UpdateSubnet(t.Context(), testRegion, core.UpdateSubnetRequest{SubnetId: broken.Id,
+		UpdateSubnetDetails: core.UpdateSubnetDetails{RouteTableId: vcn.DefaultRouteTableId,
+			SecurityListIds: []string{*vcn.DefaultSecurityListId}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := mr.Ensure(t.Context(), driver.KindSubnets, testRegion, spec); err != nil || created {
+		t.Fatalf("Ensure of the broken network: created %v, %v", created, err)
+	}
+	rt, sl := routeAndList(t, e.c, vcn.Id, "scarpenter-net")
+	if fixed, _ := e.c.Subnet(*broken.Id); *fixed.RouteTableId != *rt.Id || fixed.SecurityListIds[0] != *sl.Id {
+		t.Errorf("the subnet still uses route table %s and lists %v", *fixed.RouteTableId, fixed.SecurityListIds)
+	}
+	if v, s, g, r, l, _ := e.c.NetworkCounts(); v != 2 || s != 2 || g != 1 || r != 1 || l != 1 {
+		t.Errorf("the repair made more parts: %d %d %d %d %d", v, s, g, r, l)
+	}
+}
+
+// The teardown deletes the subnet, the route table, the security list, the gateway and the VCN, never the
+// VCN's defaults (OCI refuses them: they go with the VCN); an interrupted delete is resumed by the next call.
+func TestManagedNetworkTeardownRemovesEverythingAndResumes(t *testing.T) {
+	e := newEngine(t)
+	mr := vendors.ManagedResources(e.d)
+	ref, _, err := mr.Ensure(t.Context(), driver.KindSubnets, testRegion, managedSpec("scarpenter-net"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The gateway is deleted last but one: a failure there leaves the route table and list gone.
+	e.c.Inject("DeleteInternetGateway", fake.Error(http.StatusInternalServerError, "InternalError", "x"), 1)
+	if err := mr.Delete(t.Context(), ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("the interrupted delete: %v, want Retryable", err)
+	}
+	if v, s, g, r, l, _ := e.c.NetworkCounts(); v != 2 || s != 1 || g != 1 || r != 0 || l != 0 {
+		t.Errorf("after the interrupted delete: %d %d %d %d %d", v, s, g, r, l)
+	}
+	if err := mr.Delete(t.Context(), ref); err != nil {
+		t.Fatalf("the resumed delete: %v", err)
+	}
+	if err := mr.Delete(t.Context(), ref); err != nil {
+		t.Fatalf("a delete of what is gone: %v", err)
+	}
+	// What is left is the seeded network and its two defaults; nothing of the managed network.
+	if v, s, g, r, l, n := e.c.NetworkCounts(); v != 1 || s != 1 || g != 0 || r != 0 || l != 0 || n != 2 {
+		t.Errorf("after the teardown: %d %d %d %d %d %d", v, s, g, r, l, n)
+	}
+	if n := e.c.DefaultParts(); n != 2 {
+		t.Errorf("%d default parts are left, want the 2 of the seeded VCN", n)
+	}
+	if _, ok := e.c.VcnByName("scarpenter-net"); ok {
+		t.Error("the VCN is left")
+	}
+}
+
+// The garbage collector lists every region the driver is given; a region whose list answers
+// NotAuthorizedOrNotFound (the lane's policy covers one region; the tenancy subscribes others) is skipped,
+// while any other error still fails the list.
+func TestListSkipsARegionTheCredentialsCannotRead(t *testing.T) {
+	e := newEngine(t)
+	mr := vendors.ManagedResources(e.d)
+	tags := map[vendors.TagKey]string{vendors.TagCluster: testCluster}
+	if _, _, err := mr.Ensure(t.Context(), driver.KindSubnets, testRegion, managedSpec("scarpenter-net")); err != nil {
+		t.Fatal(err)
+	}
+	e.c.Inject("ListVcns", fake.Error(http.StatusNotFound, "NotAuthorizedOrNotFound", "no access"), 1)
+	// The regions are listed in order: the first one is denied, the next ones answer.
+	listed, err := mr.List(t.Context(), nil, tags)
+	if err != nil {
+		t.Fatalf("List with a denied region: %v", err)
+	}
+	if len(listed) != 0 {
+		t.Errorf("the denied region was listed: %+v", listed)
+	}
+	e.c.Inject("ListVcns", fake.Error(http.StatusInternalServerError, "InternalError", "boom"), 1)
+	if _, err := mr.List(t.Context(), nil, tags); err == nil {
+		t.Error("a server error of a region did not fail the list")
+	}
+	if listed, err := mr.List(t.Context(), []string{testRegion}, tags); err != nil || len(listed) != 1 {
+		t.Errorf("List of the region: %+v, %v", listed, err)
+	}
+}

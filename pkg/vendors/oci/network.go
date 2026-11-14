@@ -76,6 +76,12 @@ func notAvailable(what, name, state string) error {
 // allows SSH from anywhere: the groups carry the policy) and one regional public subnet of the first
 // /20. A part left by an interrupted creation is adopted and finished by the next call (all parts
 // carry the marker); a part still PROVISIONING makes the call Retryable.
+//
+// OCI creates a default route table and a default security list with every VCN, and they carry
+// the VCN's freeform tags (the ownership marker), so the marker alone does not identify the
+// driver's own: those are found by their display name and the marker, and never are the VCN's
+// DefaultRouteTableId and DefaultSecurityListId. A subnet that was made with the defaults (by an
+// earlier version of the driver) is moved to the driver's own route table and security list.
 func (d *Driver) ensureNetwork(ctx context.Context, region string, spec vendors.CreateSpec,
 ) (vendors.ResourceRef, bool, error) {
 	var p SubnetParams
@@ -100,9 +106,9 @@ func (d *Driver) ensureNetwork(ctx context.Context, region string, spec vendors.
 	}
 	steps := []func() (bool, error){
 		func() (bool, error) { return d.ensureGateway(ctx, region, vcn.Id, n.igw, tags) },
-		func() (bool, error) { return d.ensureRouteTable(ctx, region, vcn.Id, n.route, tags) },
-		func() (bool, error) { return d.ensureSecurityList(ctx, region, vcn.Id, n.list, tags) },
-		func() (bool, error) { return d.ensureSubnet(ctx, region, vcn.Id, n, subCIDR, tags) },
+		func() (bool, error) { return d.ensureRouteTable(ctx, region, vcn, n.route, tags) },
+		func() (bool, error) { return d.ensureSecurityList(ctx, region, vcn, n.list, tags) },
+		func() (bool, error) { return d.ensureSubnet(ctx, region, vcn, n, subCIDR, tags) },
 	}
 	for _, step := range steps {
 		c, err := step()
@@ -194,28 +200,51 @@ func (d *Driver) gatewayOf(ctx context.Context, region string, vcn *string) (*st
 	return nil, vendors.Errorf(vendors.Retryable, "the internet gateway of the VCN %s is not listed yet", deref(vcn))
 }
 
-func (d *Driver) ensureRouteTable(ctx context.Context, region string, vcn *string, name string, tags map[string]string,
-) (bool, error) {
+// ownedRouteTable is the driver's own route table of the VCN: the display name and the ownership
+// marker agree, and it is not the VCN's default route table (which carries the marker too).
+//
+//nolint:dupl // the same lookup over another SDK type
+func (d *Driver) ownedRouteTable(ctx context.Context, region string, vcn *core.Vcn, name string,
+) (*core.RouteTable, error) {
 	routes, err := pages(func(page *string) ([]core.RouteTable, *string, error) {
 		res, err := d.api.Network.ListRouteTables(ctx, region, core.ListRouteTablesRequest{
-			CompartmentId: &d.compartment, VcnId: vcn, Page: page})
+			CompartmentId: &d.compartment, VcnId: vcn.Id, Page: page})
 		return res.Items, res.OpcNextPage, classify(err, kindRead)
 	})
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	for _, r := range routes {
-		if d.owned(r.FreeformTags) {
-			return false, availableOr(r.LifecycleState == core.RouteTableLifecycleStateAvailable,
-				"route table", name, string(r.LifecycleState))
+	for i := range routes {
+		r := &routes[i]
+		if deref(r.DisplayName) == name && d.owned(r.FreeformTags) && !isDefaultPart(r.Id, vcn.DefaultRouteTableId) &&
+			r.LifecycleState != core.RouteTableLifecycleStateTerminating &&
+			r.LifecycleState != core.RouteTableLifecycleStateTerminated {
+			return r, nil
 		}
 	}
-	igw, err := d.gatewayOf(ctx, region, vcn)
+	return nil, nil
+}
+
+// isDefaultPart reports whether the id is the VCN's default route table or security list.
+func isDefaultPart(id, def *string) bool { return id != nil && def != nil && *id == *def }
+
+func (d *Driver) ensureRouteTable(ctx context.Context, region string, vcn *core.Vcn, name string,
+	tags map[string]string,
+) (bool, error) {
+	r, err := d.ownedRouteTable(ctx, region, vcn, name)
+	if err != nil {
+		return false, err
+	}
+	if r != nil {
+		return false, availableOr(r.LifecycleState == core.RouteTableLifecycleStateAvailable,
+			"route table", name, string(r.LifecycleState))
+	}
+	igw, err := d.gatewayOf(ctx, region, vcn.Id)
 	if err != nil {
 		return false, err
 	}
 	res, err := d.api.Network.CreateRouteTable(ctx, region, core.CreateRouteTableRequest{
-		CreateRouteTableDetails: core.CreateRouteTableDetails{CompartmentId: &d.compartment, VcnId: vcn,
+		CreateRouteTableDetails: core.CreateRouteTableDetails{CompartmentId: &d.compartment, VcnId: vcn.Id,
 			DisplayName: &name, FreeformTags: tags, RouteRules: []core.RouteRule{{
 				NetworkEntityId: igw, Destination: new("0.0.0.0/0"), DestinationType: core.RouteRuleDestinationTypeCidrBlock}}}})
 	if err != nil {
@@ -225,10 +254,10 @@ func (d *Driver) ensureRouteTable(ctx context.Context, region string, vcn *strin
 		"route table", name, string(res.LifecycleState))
 }
 
-func (d *Driver) ensureSecurityList(ctx context.Context, region string, vcn *string, name string,
+func (d *Driver) ensureSecurityList(ctx context.Context, region string, vcn *core.Vcn, name string,
 	tags map[string]string,
 ) (bool, error) {
-	list, err := d.ownedSecurityList(ctx, region, vcn)
+	list, err := d.ownedSecurityList(ctx, region, vcn, name)
 	if err != nil {
 		return false, err
 	}
@@ -237,7 +266,7 @@ func (d *Driver) ensureSecurityList(ctx context.Context, region string, vcn *str
 			"security list", name, string(list.LifecycleState))
 	}
 	res, err := d.api.Network.CreateSecurityList(ctx, region, core.CreateSecurityListRequest{
-		CreateSecurityListDetails: core.CreateSecurityListDetails{CompartmentId: &d.compartment, VcnId: vcn,
+		CreateSecurityListDetails: core.CreateSecurityListDetails{CompartmentId: &d.compartment, VcnId: vcn.Id,
 			DisplayName: &name, FreeformTags: tags,
 			EgressSecurityRules: []core.EgressSecurityRule{{Protocol: new("all"), Destination: new("0.0.0.0/0"),
 				DestinationType: core.EgressSecurityRuleDestinationTypeCidrBlock, IsStateless: new(false)}},
@@ -251,44 +280,57 @@ func (d *Driver) ensureSecurityList(ctx context.Context, region string, vcn *str
 		"security list", name, string(res.LifecycleState))
 }
 
-func (d *Driver) ownedSecurityList(ctx context.Context, region string, vcn *string) (*core.SecurityList, error) {
+// ownedSecurityList is the driver's own security list of the VCN, found like the route table: by
+// display name and marker, never the VCN's default list.
+//
+//nolint:dupl // the same lookup over another SDK type
+func (d *Driver) ownedSecurityList(ctx context.Context, region string, vcn *core.Vcn, name string,
+) (*core.SecurityList, error) {
 	lists, err := pages(func(page *string) ([]core.SecurityList, *string, error) {
 		res, err := d.api.Network.ListSecurityLists(ctx, region, core.ListSecurityListsRequest{
-			CompartmentId: &d.compartment, VcnId: vcn, Page: page})
+			CompartmentId: &d.compartment, VcnId: vcn.Id, Page: page})
 		return res.Items, res.OpcNextPage, classify(err, kindRead)
 	})
 	if err != nil {
 		return nil, err
 	}
 	for i := range lists {
-		if d.owned(lists[i].FreeformTags) {
-			return &lists[i], nil
+		l := &lists[i]
+		if deref(l.DisplayName) == name && d.owned(l.FreeformTags) && !isDefaultPart(l.Id, vcn.DefaultSecurityListId) &&
+			l.LifecycleState != core.SecurityListLifecycleStateTerminating &&
+			l.LifecycleState != core.SecurityListLifecycleStateTerminated {
+			return l, nil
 		}
 	}
 	return nil, nil
 }
 
-func (d *Driver) ensureSubnet(ctx context.Context, region string, vcn *string, n networkParts, cidr string,
+func (d *Driver) ensureSubnet(ctx context.Context, region string, vcn *core.Vcn, n networkParts, cidr string,
 	tags map[string]string,
 ) (bool, error) {
-	subs, err := d.ownedSubnets(ctx, region, vcn)
+	subs, err := d.ownedSubnets(ctx, region, vcn.Id)
 	if err != nil {
 		return false, err
 	}
 	for _, s := range subs {
 		if s.LifecycleState != core.SubnetLifecycleStateTerminating {
+			if usesDefaults(s, vcn) {
+				if s, err = d.repairSubnet(ctx, region, vcn, n, s); err != nil {
+					return false, err
+				}
+			}
 			d.rememberSubnet(region, s)
 			return false, availableOr(s.LifecycleState == core.SubnetLifecycleStateAvailable,
 				"subnet", n.subnet, string(s.LifecycleState))
 		}
 	}
-	route, list, err := d.subnetParts(ctx, region, vcn)
+	route, list, err := d.subnetParts(ctx, region, vcn, n)
 	if err != nil {
 		return false, err
 	}
 	res, err := d.api.Network.CreateSubnet(ctx, region, core.CreateSubnetRequest{
 		CreateSubnetDetails: core.CreateSubnetDetails{
-			CompartmentId: &d.compartment, VcnId: vcn, DisplayName: &n.subnet, CidrBlock: &cidr,
+			CompartmentId: &d.compartment, VcnId: vcn.Id, DisplayName: &n.subnet, CidrBlock: &cidr,
 			ProhibitPublicIpOnVnic: new(false), RouteTableId: route, SecurityListIds: []string{deref(list)},
 			FreeformTags: tags}})
 	if err != nil {
@@ -299,30 +341,46 @@ func (d *Driver) ensureSubnet(ctx context.Context, region string, vcn *string, n
 		"subnet", n.subnet, string(res.LifecycleState))
 }
 
+// usesDefaults reports whether the subnet has the VCN's default route table or security list: what
+// a subnet made without its own gets, and what an earlier driver version left behind when it took
+// the defaults for its own (no route to the internet, SSH open to the world).
+func usesDefaults(s core.Subnet, vcn *core.Vcn) bool {
+	return isDefaultPart(s.RouteTableId, vcn.DefaultRouteTableId) ||
+		slices.ContainsFunc(s.SecurityListIds, func(id string) bool { return isDefaultPart(&id, vcn.DefaultSecurityListId) })
+}
+
+// repairSubnet moves a subnet that uses the VCN's defaults to the driver's own route table and
+// security list (UpdateSubnet): the subnet, and the instances in it, keep their addresses.
+func (d *Driver) repairSubnet(ctx context.Context, region string, vcn *core.Vcn, n networkParts, s core.Subnet,
+) (core.Subnet, error) {
+	route, list, err := d.subnetParts(ctx, region, vcn, n)
+	if err != nil {
+		return s, err
+	}
+	res, err := d.api.Network.UpdateSubnet(ctx, region, core.UpdateSubnetRequest{SubnetId: s.Id,
+		UpdateSubnetDetails: core.UpdateSubnetDetails{RouteTableId: route, SecurityListIds: []string{deref(list)}}})
+	if err != nil {
+		return s, classify(err, kindRead)
+	}
+	return res.Subnet, nil
+}
+
 // subnetParts are the managed route table and security list the subnet is made with.
-func (d *Driver) subnetParts(ctx context.Context, region string, vcn *string) (route, list *string, err error) {
-	routes, err := pages(func(page *string) ([]core.RouteTable, *string, error) {
-		res, err := d.api.Network.ListRouteTables(ctx, region, core.ListRouteTablesRequest{
-			CompartmentId: &d.compartment, VcnId: vcn, Page: page})
-		return res.Items, res.OpcNextPage, classify(err, kindRead)
-	})
+func (d *Driver) subnetParts(ctx context.Context, region string, vcn *core.Vcn, n networkParts,
+) (route, list *string, err error) {
+	rt, err := d.ownedRouteTable(ctx, region, vcn, n.route)
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, r := range routes {
-		if d.owned(r.FreeformTags) {
-			route = r.Id
-		}
-	}
-	sl, err := d.ownedSecurityList(ctx, region, vcn)
+	sl, err := d.ownedSecurityList(ctx, region, vcn, n.list)
 	if err != nil {
 		return nil, nil, err
 	}
-	if route == nil || sl == nil {
+	if rt == nil || sl == nil {
 		return nil, nil, vendors.Errorf(vendors.Retryable,
-			"the route table and security list of the VCN %s are not listed yet", deref(vcn))
+			"the route table and security list of the VCN %s are not listed yet", deref(vcn.Id))
 	}
-	return route, sl.Id, nil
+	return rt.Id, sl.Id, nil
 }
 
 // availableOr is the Retryable error of a part that is not AVAILABLE yet, or nil.
@@ -430,10 +488,14 @@ func (d *Driver) subnetIDs(ctx context.Context, ref vendors.ResourceRef) ([]stri
 	return out, nil
 }
 
-// deleteNetwork deletes the managed network of a reference, in the dependency order: the subnet,
-// the route table, the internet gateway, the security list, the VCN. Only a VCN with the
-// ownership marker is touched, only its parts with the marker are deleted, and the VCN goes only
-// when no subnet is left in it (one a user added is not ours).
+// deleteNetwork deletes the managed network of a reference, in the order OCI accepts: the subnet
+// (its instances are gone: the engine deletes the NodeClass's resources after them), the route
+// table, the security list, the internet gateway (OCI refuses it while a route rule targets it, so
+// the route table goes first), the VCN. Only a VCN with the ownership marker is touched, only its
+// parts with the marker are deleted, and the VCN goes only when no subnet is left in it (one a
+// user added is not ours). The VCN's default route table and security list are never deleted (OCI
+// refuses: they go with the VCN), although they carry the marker. A part already gone or already
+// terminating is passed over, so a call after an interrupted one resumes where it stopped.
 func (d *Driver) deleteNetwork(ctx context.Context, ref vendors.ResourceRef) error {
 	vcnID, err := d.vcnOf(ctx, ref)
 	if err != nil {
@@ -460,7 +522,7 @@ func (d *Driver) deleteNetwork(ctx context.Context, ref vendors.ResourceRef) err
 	if err != nil || remaining > 0 {
 		return err
 	}
-	if err := d.deleteParts(ctx, ref.Region, &vcnID); err != nil {
+	if err := d.deleteParts(ctx, ref.Region, &vcns[i]); err != nil {
 		return err
 	}
 	_, err = d.api.Network.DeleteVcn(ctx, ref.Region, core.DeleteVcnRequest{VcnId: &vcnID})
@@ -499,36 +561,23 @@ func (d *Driver) deleteSubnets(ctx context.Context, region string, vcn *string) 
 	return remaining, nil
 }
 
-// deleteParts deletes the route table, the internet gateway and the security list of ours in the VCN.
-func (d *Driver) deleteParts(ctx context.Context, region string, vcn *string) error {
+// deleteParts deletes the route table, the security list and the internet gateway of ours in the
+// VCN, in that order; the VCN's defaults are left to the VCN's own deletion.
+func (d *Driver) deleteParts(ctx context.Context, region string, vcn *core.Vcn) error {
 	net := d.api.Network
 	routes, err := pages(func(page *string) ([]core.RouteTable, *string, error) {
 		res, err := net.ListRouteTables(ctx, region, core.ListRouteTablesRequest{
-			CompartmentId: &d.compartment, VcnId: vcn, Page: page})
+			CompartmentId: &d.compartment, VcnId: vcn.Id, Page: page})
 		return res.Items, res.OpcNextPage, classify(err, kindRead)
 	})
 	if err != nil {
 		return err
 	}
 	for _, r := range routes {
-		if d.owned(r.FreeformTags) {
+		if d.owned(r.FreeformTags) && !isDefaultPart(r.Id, vcn.DefaultRouteTableId) &&
+			r.LifecycleState != core.RouteTableLifecycleStateTerminated &&
+			r.LifecycleState != core.RouteTableLifecycleStateTerminating {
 			_, err := net.DeleteRouteTable(ctx, region, core.DeleteRouteTableRequest{RtId: r.Id})
-			if err := deleted(err); err != nil {
-				return err
-			}
-		}
-	}
-	igws, err := pages(func(page *string) ([]core.InternetGateway, *string, error) {
-		res, err := net.ListInternetGateways(ctx, region, core.ListInternetGatewaysRequest{
-			CompartmentId: &d.compartment, VcnId: vcn, Page: page})
-		return res.Items, res.OpcNextPage, classify(err, kindRead)
-	})
-	if err != nil {
-		return err
-	}
-	for _, g := range igws {
-		if d.owned(g.FreeformTags) {
-			_, err := net.DeleteInternetGateway(ctx, region, core.DeleteInternetGatewayRequest{IgId: g.Id})
 			if err := deleted(err); err != nil {
 				return err
 			}
@@ -536,15 +585,34 @@ func (d *Driver) deleteParts(ctx context.Context, region string, vcn *string) er
 	}
 	lists, err := pages(func(page *string) ([]core.SecurityList, *string, error) {
 		res, err := net.ListSecurityLists(ctx, region, core.ListSecurityListsRequest{
-			CompartmentId: &d.compartment, VcnId: vcn, Page: page})
+			CompartmentId: &d.compartment, VcnId: vcn.Id, Page: page})
 		return res.Items, res.OpcNextPage, classify(err, kindRead)
 	})
 	if err != nil {
 		return err
 	}
 	for _, l := range lists {
-		if d.owned(l.FreeformTags) {
+		if d.owned(l.FreeformTags) && !isDefaultPart(l.Id, vcn.DefaultSecurityListId) &&
+			l.LifecycleState != core.SecurityListLifecycleStateTerminated &&
+			l.LifecycleState != core.SecurityListLifecycleStateTerminating {
 			_, err := net.DeleteSecurityList(ctx, region, core.DeleteSecurityListRequest{SecurityListId: l.Id})
+			if err := deleted(err); err != nil {
+				return err
+			}
+		}
+	}
+	igws, err := pages(func(page *string) ([]core.InternetGateway, *string, error) {
+		res, err := net.ListInternetGateways(ctx, region, core.ListInternetGatewaysRequest{
+			CompartmentId: &d.compartment, VcnId: vcn.Id, Page: page})
+		return res.Items, res.OpcNextPage, classify(err, kindRead)
+	})
+	if err != nil {
+		return err
+	}
+	for _, g := range igws {
+		if d.owned(g.FreeformTags) && g.LifecycleState != core.InternetGatewayLifecycleStateTerminated &&
+			g.LifecycleState != core.InternetGatewayLifecycleStateTerminating {
+			_, err := net.DeleteInternetGateway(ctx, region, core.DeleteInternetGatewayRequest{IgId: g.Id})
 			if err := deleted(err); err != nil {
 				return err
 			}

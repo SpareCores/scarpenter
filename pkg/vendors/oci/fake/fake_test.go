@@ -217,3 +217,68 @@ func TestInjectAndCalls(t *testing.T) {
 		t.Errorf("a canceled context: %v", err)
 	}
 }
+
+// OCI creates a default route table and security list with every VCN, tagged like the VCN, refuses to
+// delete them (status and code UNVERIFIED), deletes them with the VCN, and refuses to delete the VCN
+// while anything else is left in it or a route rule still targets its gateway.
+func TestVcnDefaultsAndTheOrderOfTheDeletes(t *testing.T) {
+	ctx := context.Background()
+	c := seeded()
+	tags := map[string]string{"k": "v"}
+	res, err := c.CreateVcn(ctx, fake.SeedRegion, core.CreateVcnRequest{CreateVcnDetails: core.CreateVcnDetails{
+		CompartmentId: common.String(fake.SeedCompartment), DisplayName: new("v"), CidrBlocks: []string{"10.1.0.0/16"},
+		FreeformTags: tags}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vcn := res.Vcn
+	if vcn.DefaultRouteTableId == nil || vcn.DefaultSecurityListId == nil {
+		t.Fatal("the VCN has no default route table or security list")
+	}
+	routes, _ := c.ListRouteTables(ctx, fake.SeedRegion, core.ListRouteTablesRequest{VcnId: vcn.Id})
+	lists, _ := c.ListSecurityLists(ctx, fake.SeedRegion, core.ListSecurityListsRequest{VcnId: vcn.Id})
+	if len(routes.Items) != 1 || len(routes.Items[0].RouteRules) != 0 || routes.Items[0].FreeformTags["k"] != "v" ||
+		*routes.Items[0].DisplayName != "Default Route Table for v" {
+		t.Errorf("the default route table: %+v", routes.Items)
+	}
+	if len(lists.Items) != 1 || lists.Items[0].FreeformTags["k"] != "v" || len(lists.Items[0].IngressSecurityRules) != 2 {
+		t.Errorf("the default security list: %+v", lists.Items)
+	}
+	if _, err := c.DeleteRouteTable(ctx, fake.SeedRegion, core.DeleteRouteTableRequest{RtId: vcn.DefaultRouteTableId}); status(err) != http.StatusConflict {
+		t.Errorf("delete of the default route table: %v", err)
+	}
+	if _, err := c.DeleteSecurityList(ctx, fake.SeedRegion, core.DeleteSecurityListRequest{SecurityListId: vcn.DefaultSecurityListId}); status(err) != http.StatusConflict {
+		t.Errorf("delete of the default security list: %v", err)
+	}
+
+	ig, err := c.CreateInternetGateway(ctx, fake.SeedRegion, core.CreateInternetGatewayRequest{
+		CreateInternetGatewayDetails: core.CreateInternetGatewayDetails{CompartmentId: common.String(fake.SeedCompartment),
+			VcnId: vcn.Id, IsEnabled: new(true)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := c.CreateRouteTable(ctx, fake.SeedRegion, core.CreateRouteTableRequest{CreateRouteTableDetails: core.CreateRouteTableDetails{
+		CompartmentId: common.String(fake.SeedCompartment), VcnId: vcn.Id, RouteRules: []core.RouteRule{{
+			NetworkEntityId: ig.Id, Destination: new("0.0.0.0/0"), DestinationType: core.RouteRuleDestinationTypeCidrBlock}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DeleteInternetGateway(ctx, fake.SeedRegion, core.DeleteInternetGatewayRequest{IgId: ig.Id}); status(err) != http.StatusConflict {
+		t.Errorf("delete of a gateway a route rule targets: %v", err)
+	}
+	if _, err := c.DeleteVcn(ctx, fake.SeedRegion, core.DeleteVcnRequest{VcnId: vcn.Id}); status(err) != http.StatusConflict {
+		t.Errorf("delete of a VCN with a route table of its own: %v", err)
+	}
+	if _, err := c.DeleteRouteTable(ctx, fake.SeedRegion, core.DeleteRouteTableRequest{RtId: rt.Id}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DeleteInternetGateway(ctx, fake.SeedRegion, core.DeleteInternetGatewayRequest{IgId: ig.Id}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DeleteVcn(ctx, fake.SeedRegion, core.DeleteVcnRequest{VcnId: vcn.Id}); err != nil {
+		t.Fatalf("delete of the VCN with only its defaults: %v", err)
+	}
+	if n := c.DefaultParts(); n != 2 {
+		t.Errorf("%d default parts, want the 2 of the seeded VCN: the VCN's went with it", n)
+	}
+}

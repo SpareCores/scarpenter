@@ -70,6 +70,7 @@ var managedNeeds = map[string]need{
 	"NetworkAPI.CreateSecurityList":                   {"manage", "security-lists", "compartment"},
 	"NetworkAPI.DeleteSecurityList":                   {"manage", "security-lists", "compartment"},
 	"NetworkAPI.CreateSubnet":                         {"manage", "subnets", "compartment"},
+	"NetworkAPI.UpdateSubnet":                         {"manage", "subnets", "compartment"},
 	"NetworkAPI.DeleteSubnet":                         {"manage", "subnets", "compartment"},
 	"NetworkAPI.CreateNetworkSecurityGroup":           {"manage", "network-security-groups", "compartment"},
 	"NetworkAPI.DeleteNetworkSecurityGroup":           {"manage", "network-security-groups", "compartment"},

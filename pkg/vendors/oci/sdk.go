@@ -419,6 +419,15 @@ func (s *SDK) CreateSubnet(ctx context.Context, region string, req core.CreateSu
 	return invoke(ctx, s, false, c.CreateSubnet, req)
 }
 
+// UpdateSubnet implements NetworkAPI.
+func (s *SDK) UpdateSubnet(ctx context.Context, region string, req core.UpdateSubnetRequest) (core.UpdateSubnetResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.UpdateSubnetResponse{}, err
+	}
+	return invoke(ctx, s, true, c.UpdateSubnet, req)
+}
+
 // DeleteSubnet implements NetworkAPI.
 func (s *SDK) DeleteSubnet(ctx context.Context, region string, req core.DeleteSubnetRequest) (core.DeleteSubnetResponse, error) {
 	c, err := s.networkClient(region)

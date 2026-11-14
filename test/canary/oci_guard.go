@@ -41,6 +41,9 @@ const (
 // its call needs ("<verb> <resource type> in compartment|tenancy"; the same table as
 // pkg/vendors/oci/iam_test.go, UNVERIFIED like it, spike S12). The writes are listed too: a
 // refusal is recorded with the statement it would have needed.
+// manageSubnets is the statement of the writes on subnets.
+const manageSubnets = "manage subnets in compartment"
+
 var ociStatements = map[string]string{
 	"ComputeAPI.LaunchInstance":                        "manage instances in compartment",
 	"ComputeAPI.GetInstance":                           "read instances in compartment",
@@ -54,8 +57,9 @@ var ociStatements = map[string]string{
 	"NetworkAPI.GetVnic":                               "read vnics in compartment",
 	"NetworkAPI.GetSubnet":                             "read subnets in compartment",
 	"NetworkAPI.ListSubnets":                           "inspect subnets in compartment",
-	"NetworkAPI.CreateSubnet":                          "manage subnets in compartment",
-	"NetworkAPI.DeleteSubnet":                          "manage subnets in compartment",
+	"NetworkAPI.CreateSubnet":                          manageSubnets,
+	"NetworkAPI.UpdateSubnet":                          manageSubnets,
+	"NetworkAPI.DeleteSubnet":                          manageSubnets,
 	"NetworkAPI.ListVcns":                              "inspect vcns in compartment",
 	"NetworkAPI.CreateVcn":                             "manage vcns in compartment",
 	"NetworkAPI.DeleteVcn":                             "manage vcns in compartment",
@@ -197,6 +201,11 @@ func (g *ociRONetwork) ListSubnets(ctx context.Context, region string, req core.
 func (g *ociRONetwork) CreateSubnet(context.Context, string, core.CreateSubnetRequest,
 ) (core.CreateSubnetResponse, error) {
 	return core.CreateSubnetResponse{}, g.audit.deny(ociStatementOf("NetworkAPI", "CreateSubnet"))
+}
+
+func (g *ociRONetwork) UpdateSubnet(context.Context, string, core.UpdateSubnetRequest,
+) (core.UpdateSubnetResponse, error) {
+	return core.UpdateSubnetResponse{}, g.audit.deny(ociStatementOf("NetworkAPI", "UpdateSubnet"))
 }
 
 func (g *ociRONetwork) DeleteSubnet(context.Context, string, core.DeleteSubnetRequest,

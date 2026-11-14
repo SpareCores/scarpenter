@@ -52,6 +52,7 @@ type NetworkAPI interface {
 	GetSubnet(ctx context.Context, region string, req core.GetSubnetRequest) (core.GetSubnetResponse, error)
 	ListSubnets(ctx context.Context, region string, req core.ListSubnetsRequest) (core.ListSubnetsResponse, error)
 	CreateSubnet(ctx context.Context, region string, req core.CreateSubnetRequest) (core.CreateSubnetResponse, error)
+	UpdateSubnet(ctx context.Context, region string, req core.UpdateSubnetRequest) (core.UpdateSubnetResponse, error)
 	DeleteSubnet(ctx context.Context, region string, req core.DeleteSubnetRequest) (core.DeleteSubnetResponse, error)
 	ListVcns(ctx context.Context, region string, req core.ListVcnsRequest) (core.ListVcnsResponse, error)
 	CreateVcn(ctx context.Context, region string, req core.CreateVcnRequest) (core.CreateVcnResponse, error)

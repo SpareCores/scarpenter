@@ -178,9 +178,11 @@ IPv6 prefix with `publicIPv6: true`, cannot host a node: the zone is skipped and
 it. Without `use` (ADR-022): subnets and groups that carry the freeform tag `scarpenter-use=true`, else
 `create`, else `ResourcesReady=False` naming what was tried; a tenancy's other VCNs are never used without an
 opt-in. A managed VCN is the resource of the `subnets` kind (it stands for its parts, as the VPC does on
-AWS); `Delete` removes the subnet, the route table, the gateway, the security list and the VCN in that
+AWS); `Delete` removes the subnet, the route table, the security list, the gateway and the VCN in that
 order, only those that carry the ownership marker (cluster and managed-by), and the VCN only when no subnet
-is left in it. A 409 on a delete is `Retryable`. `InUse` reads the compartment's VNIC attachments (subnets)
+is left in it. The VCN's default route table and security list (OCI creates them, with the VCN's tags) are
+neither used nor deleted: they go with the VCN. The garbage collection skips a region whose listing answers
+`NotAuthorizedOrNotFound` (a policy limited to one region). A 409 on a delete is `Retryable`. `InUse` reads the compartment's VNIC attachments (subnets)
 or the group's VNICs. The gateway, NAT gateways, IPv6 on a managed VCN and peering are not created in v1.
 
 ## What your IaC provides

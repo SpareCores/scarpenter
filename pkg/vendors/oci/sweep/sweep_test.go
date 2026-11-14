@@ -226,6 +226,11 @@ func TestSweepsAClusterInDependencyOrder(t *testing.T) {
 	if st := w.instanceState(id); st != core.InstanceLifecycleStateTerminated {
 		t.Errorf("the instance is %s", st)
 	}
+	// The VCN's default route table and security list carry the VCN's tags but are not deleted
+	// (OCI refuses), reported or left behind: they go with the VCN.
+	if n := w.c.DefaultParts(); n != 2 {
+		t.Errorf("%d default parts left, want the 2 of the seeded VCN", n)
+	}
 	kinds := make([]string, 0, len(rep.Items))
 	for _, i := range rep.Items {
 		if i.Outcome != sweep.Deleted {

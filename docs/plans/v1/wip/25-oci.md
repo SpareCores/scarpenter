@@ -754,8 +754,10 @@ selector-only `images`. `KindSpec.InNetwork`: groups live in the VCN of the subn
   `tailscale` template).
 - **`InUse`**: groups by `ListNetworkSecurityGroupVnics`; subnets by one `ListVnicAttachments` of the
   compartment, client-filtered on the subnet. **`Delete`** is `Retryable` while attached (409
-  `Conflict`), in the dependency order: groups, subnet, route table, internet gateway, security list,
-  VCN. A VCN is deleted only when no subnet of ours remains and it carries the marker.
+  `Conflict`), in the dependency order: groups, subnet, route table, security list, internet gateway
+  (a route rule that targets it must go first), VCN. A VCN is deleted only when no subnet of ours remains
+  and it carries the marker. The VCN's default route table and security list are never deleted (they go
+  with the VCN) and never taken for the driver's own: its own are found by display name and marker.
 - **`ZoneGaps`** (`ZoneChecker`): an AD-specific brought subnet serves only its AD; the other ADs are
   gaps with the reason.
 - **No `ResourceDefaults`, no `DefaultChecker`, no `LeftoverCollector`**: a launch makes no
@@ -1188,6 +1190,21 @@ is green. The first live run is the coordinator's.
   a name the server filters as before. The fake answers the same 400. Other combinations of the SDK's
   `ListImagesRequest` are not documented as invalid. The same rule for other List calls with
   `displayName` is unchecked.
+- **Default route table and security list** (verified live 2026-11-14, eu-frankfurt-1, run 43629882778):
+  OCI creates a default route table (no rules) and a default security list (ingress tcp/22 and ICMP from
+  anywhere) with every VCN, and they carry the VCN's freeform tags, the ownership marker included. A
+  subnet created without a route table gets the default one. The first driver version took any tagged
+  route table or security list of the VCN for its own, so it found the defaults, never made its own, and
+  launched the subnet on a route table with no route to the internet (the node never joined); its teardown
+  tried to delete the defaults, which OCI refuses (a 409 is `Retryable`), and stopped before the gateway
+  and the VCN. The driver now identifies its parts by display name and marker, never the VCN's
+  `DefaultRouteTableId` / `DefaultSecurityListId`; moves a subnet found on the defaults to its own
+  (`UpdateSubnet`); deletes in the order subnet, route table, security list, gateway, VCN. The fake
+  creates the defaults. Still unverified: the status and code of the refusal to delete a default part,
+  and that OCI refuses to delete a gateway a route rule targets (the fake answers 409 for both).
+- **Garbage collection scope**: a lane's policy covers its own region and the tenancy may subscribe
+  others, so `ListVcns` in another subscribed region answers 404 `NotAuthorizedOrNotFound`. `List` skips a
+  region that answers it (debug log) instead of failing the whole sweep.
 
 ## Unverified facts (settled by the spike or the first live run)
 

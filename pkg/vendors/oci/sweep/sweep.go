@@ -29,7 +29,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // A resource without one of these is never touched, an imported image included (images
 // are not even listed). The compartment of the sweep is the controller's. With an age
 // limit a resource is touched only when old enough, by its creation time. A VCN's own
-// default route table and security list are untagged and go with the VCN. A boot volume
+// default route table and security list carry the VCN's tags (OCI copies them) but not its
+// name prefix, so the name rule leaves them alone; OCI deletes them with the VCN. A boot volume
 // goes with its instance (the terminate does not preserve it); one that stays is swept
 // when asked (BootVolumes) by the same rule as the instances: the cluster tag, which it
 // carries only when OCI copied the instance's tags to it at launch, and the age. An
@@ -543,11 +544,21 @@ func createdAtTag(tags map[string]string) *common.SDKTime {
 
 // resource is what the network kinds have in common for the sweep.
 type resource struct {
-	id, name   string
-	tags       map[string]string
-	created    *common.SDKTime
-	terminated bool
+	id, name string
+	tags     map[string]string
+	created  *common.SDKTime
+	// ignored: terminated, or a VCN's default route table or security list, which OCI deletes with the VCN
+	// (never deleted on their own: it refuses).
+	ignored bool
 }
+
+// The names OCI gives a VCN's default route table and security list.
+const (
+	defaultRoutePrefix = "Default Route Table for "
+	defaultListPrefix  = "Default Security List for "
+)
+
+func isDefault(name, prefix string) bool { return strings.HasPrefix(name, prefix) }
 
 // sweepKind lists the resources of one kind and deletes the ones that are owned and old enough.
 func sweepKind[T any](ctx context.Context, s *sweeper, region, kind string,
@@ -559,7 +570,7 @@ func sweepKind[T any](ctx context.Context, s *sweeper, region, kind string,
 	}
 	for _, it := range items {
 		r := view(it)
-		if r.terminated {
+		if r.ignored {
 			continue
 		}
 		cluster, ok := s.pick(region, kind, r.id, r.name, r.tags, r.created)
@@ -630,7 +641,7 @@ func (s *sweeper) routeTables(ctx context.Context, region string) error {
 		},
 		func(r core.RouteTable) resource {
 			return resource{deref(r.Id), deref(r.DisplayName), r.FreeformTags, r.TimeCreated,
-				r.LifecycleState == core.RouteTableLifecycleStateTerminated}
+				r.LifecycleState == core.RouteTableLifecycleStateTerminated || isDefault(deref(r.DisplayName), defaultRoutePrefix)}
 		},
 		func(id string) error {
 			_, err := s.api.Network.DeleteRouteTable(ctx, region, core.DeleteRouteTableRequest{RtId: &id})
@@ -666,7 +677,7 @@ func (s *sweeper) securityLists(ctx context.Context, region string) error {
 		},
 		func(l core.SecurityList) resource {
 			return resource{deref(l.Id), deref(l.DisplayName), l.FreeformTags, l.TimeCreated,
-				l.LifecycleState == core.SecurityListLifecycleStateTerminated}
+				l.LifecycleState == core.SecurityListLifecycleStateTerminated || isDefault(deref(l.DisplayName), defaultListPrefix)}
 		},
 		func(id string) error {
 			_, err := s.api.Network.DeleteSecurityList(ctx, region, core.DeleteSecurityListRequest{SecurityListId: &id})
