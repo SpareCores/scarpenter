@@ -254,6 +254,12 @@ vendors:
     # OCID of the compartment of the nodes (--oci-compartment). REQUIRED when oci
     # is enabled; there is no per-NodeClass compartment.
     compartment: ""
+    # OCID of the compartment the images are looked up in (--oci-image-compartment):
+    # the default image and the images.use selectors by name, tags or OS. Empty (the
+    # default): the compartment of the nodes. Set it when the Flatcar images are
+    # imported into another compartment; the controller then needs
+    # `read instance-images` there (docs/how-to-guides/oci-credentials.md).
+    imageCompartment: ""
     credentials:
       # apiKey: an API key from an existing Secret (keys tenancy, user,
       #   fingerprint, region, key; optional passphrase), mounted as a directory.

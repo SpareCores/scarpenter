@@ -612,6 +612,7 @@ spec:
             - "--oci-client-secret-file=/etc/scarpenter/oci-client/client-secret"
             - "--oci-compartment=ocid1.compartment.oc1..aaaaaaaaexample"
             - "--oci-identity-domain-url=https://idcs-example.identity.oraclecloud.com"
+            - "--oci-image-compartment=ocid1.compartment.oc1..aaaaaaaaimages"
             - "--oci-region=eu-frankfurt-1"
             - "--oci-token-file=/var/run/secrets/oci/token"
             - "--vendors=oci"

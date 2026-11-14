@@ -33,7 +33,7 @@ func TestApplyContextOptions(t *testing.T) {
 	write(t, dir, SecretFingerprint, "aa:bb")
 	write(t, dir, SecretRegion, "eu-frankfurt-1")
 	write(t, dir, SecretKey, testKeyPEM(t))
-	o := &operatoroptions.Options{OCICompartment: "ocid1.compartment.oc1..cccc", OCIAuth: AuthAPIKey, OCICredentialsDir: dir}
+	o := &operatoroptions.Options{OCICompartment: "ocid1.compartment.oc1..cccc", OCIImageCompartment: "ocid1.compartment.oc1..iiii", OCIAuth: AuthAPIKey, OCICredentialsDir: dir}
 
 	d := New()
 	if err := d.applyContextOptions(o.ToContext(t.Context())); err != nil {
@@ -41,6 +41,13 @@ func TestApplyContextOptions(t *testing.T) {
 	}
 	if d.Compartment() != o.OCICompartment || d.provider == nil {
 		t.Errorf("compartment %q, provider %v", d.Compartment(), d.provider)
+	}
+
+	if d.ImageCompartment() != o.OCIImageCompartment {
+		t.Errorf("image compartment %q", d.ImageCompartment())
+	}
+	if d = New(WithCompartment("c")); d.ImageCompartment() != "c" {
+		t.Errorf("image compartment default %q", d.ImageCompartment())
 	}
 
 	d = New(WithCompartment("ocid1.compartment.oc1..own"))

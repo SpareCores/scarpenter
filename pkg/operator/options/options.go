@@ -174,7 +174,10 @@ type Options struct {
 	// the oci vendor); OCIAuth the credentials mode; the other OCI fields are the
 	// sources of the identity (docs/how-to-guides/oci-credentials.md).
 	OCICompartment string
-	OCIAuth        string
+	// OCIImageCompartment is the compartment the OCI driver lists images in; empty
+	// means OCICompartment.
+	OCIImageCompartment string
+	OCIAuth             string
 	// OCICredentialsDir is a directory with one file per key of the API-key
 	// Secret (tenancy, user, fingerprint, region, key); OCIConfigFile and
 	// OCIConfigProfile an OCI config file; none of them: OCI_CLI_* variables.
@@ -244,6 +247,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 	fs.StringVar(&o.GCPProject, "gcp-project", env.WithDefaultString("SCARPENTER_GCP_PROJECT", ""), "Google Cloud project of the GCP driver's nodes; empty means the project of the credentials (a service account key or the metadata server; workload identity federation has none, so set it there).")
 	fs.StringVar(&o.OCICompartment, "oci-compartment", env.WithDefaultString("SCARPENTER_OCI_COMPARTMENT", ""), "[REQUIRED with the oci vendor] OCID of the OCI compartment of the nodes: instances, boot volumes, the managed network and the default image lookup live in it. The tenancy root is not a default.")
+	fs.StringVar(&o.OCIImageCompartment, "oci-image-compartment", env.WithDefaultString("SCARPENTER_OCI_IMAGE_COMPARTMENT", ""), "OCID of the OCI compartment the default image lookup and the images.use selectors (name, tags, OS) list images in, for images an operator keeps apart from the nodes. Default (empty): --oci-compartment. images.use.ids is not affected; launches stay in --oci-compartment.")
 	fs.StringVar(&o.OCIAuth, "oci-auth", env.WithDefaultString("SCARPENTER_OCI_AUTH", DefaultOCIAuth), "OCI credentials mode: apiKey (a credentials directory, an OCI config file or the OCI_CLI_* variables) or workloadIdentityFederation (a token file exchanged at an identity domain for a short-lived session token).")
 	fs.StringVar(&o.OCICredentialsDir, "oci-credentials-dir", env.WithDefaultString("SCARPENTER_OCI_CREDENTIALS_DIR", ""), "apiKey: directory with one file per key of the OCI API-key Secret (tenancy, user, fingerprint, region, key; optional passphrase). Wins over --oci-config-file.")
 	fs.StringVar(&o.OCIConfigFile, "oci-config-file", env.WithDefaultString("SCARPENTER_OCI_CONFIG_FILE", ""), "apiKey: an OCI config file (the development path; a profile with security_token_file is a session-token profile). Without it and --oci-credentials-dir the OCI_CLI_* variables are read.")
@@ -411,6 +415,10 @@ func (o *Options) validateOCI() []error {
 	if !ociCompartmentPattern.MatchString(o.OCICompartment) {
 		errs = append(errs, fmt.Errorf("--oci-compartment (SCARPENTER_OCI_COMPARTMENT) is required with the oci vendor and "+
 			"must be a compartment OCID (ocid1.compartment...), got %q", o.OCICompartment))
+	}
+	if o.OCIImageCompartment != "" && !ociCompartmentPattern.MatchString(o.OCIImageCompartment) {
+		errs = append(errs, fmt.Errorf("--oci-image-compartment (SCARPENTER_OCI_IMAGE_COMPARTMENT) must be a compartment OCID "+
+			"(ocid1.compartment...) or empty, got %q", o.OCIImageCompartment))
 	}
 	switch o.OCIAuth {
 	case "apiKey":

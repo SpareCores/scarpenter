@@ -45,6 +45,14 @@ func (c *Cloud) AddImage(regionName string, img core.Image, shapes ...string) st
 	return *img.Id
 }
 
+// AddImageCompartment makes ListImages accept another compartment of the tenancy (the
+// image compartment of the controller); AddImage with that CompartmentId puts images in it.
+func (c *Cloud) AddImageCompartment(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.imageComps[id] = true
+}
+
 // SetImageState changes the lifecycle state of an image.
 func (c *Cloud) SetImageState(id string, state core.ImageLifecycleStateEnum) {
 	c.mu.Lock()
@@ -76,8 +84,10 @@ func (c *Cloud) ListImages(ctx context.Context, regionName string, req core.List
 	if err := c.checkNet(ctx, "ListImages", regionName); err != nil {
 		return core.ListImagesResponse{}, err
 	}
-	if err := c.inCompartment(req.CompartmentId); err != nil {
-		return core.ListImagesResponse{}, err
+	if !c.imageComps[deref(req.CompartmentId)] {
+		if err := c.inCompartment(req.CompartmentId); err != nil {
+			return core.ListImagesResponse{}, err
+		}
 	}
 	var all []core.Image
 	for _, r := range c.images {

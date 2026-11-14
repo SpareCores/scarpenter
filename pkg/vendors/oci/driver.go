@@ -55,6 +55,10 @@ func WithConfigProvider(p common.ConfigurationProvider) Option {
 // instances, boot volumes and the default image lookup live in it.
 func WithCompartment(ocid string) Option { return func(d *Driver) { d.compartment = ocid } }
 
+// WithImageCompartment sets the compartment the image selectors list images in
+// (--oci-image-compartment); empty is the compartment of the nodes.
+func WithImageCompartment(ocid string) Option { return func(d *Driver) { d.imageCompartment = ocid } }
+
 // WithTenancy sets the tenancy OCID; the default is the credentials'.
 func WithTenancy(ocid string) Option { return func(d *Driver) { d.tenancy = ocid } }
 
@@ -72,8 +76,10 @@ type Driver struct {
 	api         Clients
 	provider    common.ConfigurationProvider
 	compartment string
-	tenancy     string
-	callTimeout time.Duration
+	// imageCompartment is where images are listed; empty is compartment.
+	imageCompartment string
+	tenancy          string
+	callTimeout      time.Duration
 	// epochID is random per process start; with the attempt counters it makes
 	// the retry tokens of launches.
 	epochID string
@@ -137,6 +143,15 @@ func New(opts ...Option) *Driver {
 
 // Vendor implements vendors.Driver.
 func (d *Driver) Vendor() string { return Name }
+
+// ImageCompartment returns the compartment images are listed in: the image
+// compartment, or the compartment of the nodes when none is set.
+func (d *Driver) ImageCompartment() string {
+	if d.imageCompartment != "" {
+		return d.imageCompartment
+	}
+	return d.compartment
+}
 
 // Compartment returns the compartment the driver works in.
 func (d *Driver) Compartment() string { return d.compartment }

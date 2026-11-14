@@ -11,6 +11,7 @@ vendors:
   oci:
     enabled: true
     compartment: ocid1.compartment.oc1..aaaaaaaaexample
+    imageCompartment: ocid1.compartment.oc1..aaaaaaaaimages
     credentials:
       mode: workloadIdentityFederation
       workloadIdentityFederation:

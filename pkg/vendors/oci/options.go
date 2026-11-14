@@ -39,6 +39,9 @@ func (d *Driver) applyContextOptions(ctx context.Context) error {
 	if d.compartment == "" {
 		d.compartment = o.OCICompartment
 	}
+	if d.imageCompartment == "" {
+		d.imageCompartment = o.OCIImageCompartment
+	}
 	if d.api.Compute == nil && d.provider == nil {
 		p, err := NewConfigurationProvider(CredentialConfigFromOptions(o))
 		if err != nil {

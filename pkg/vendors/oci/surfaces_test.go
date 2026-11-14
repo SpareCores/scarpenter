@@ -628,3 +628,33 @@ func TestShapeMissingInAnADIsUnsupportedWithoutALaunchCall(t *testing.T) {
 		t.Errorf("CreateInstance in an AD with the shape: %v", err)
 	}
 }
+
+// Images kept in another compartment are found by the default lookup and by the selectors
+// only with the image compartment; without it they are not, and ids keep working either way.
+func TestResolveImageInImageCompartment(t *testing.T) {
+	const imageComp = "ocid1.compartment.oc1..aaaaimagecompartment"
+	for _, use := range []vendors.UseRef{{}, {Name: "flatcar-stable-" + fake.SeedVersion + "-arm64"}} {
+		c := newCloud(t)
+		c.AddImageCompartment(imageComp)
+		img := fake.FlatcarImage("stable", fake.SeedVersion, "arm64")
+		img.CompartmentId = new(imageComp)
+		id := c.AddImage(testRegion, img)
+
+		without := restart(t, c, testCluster)
+		if _, err := without.d.ResolveImage(t.Context(), imageReq("arm64", use)); !vendors.IsClass(err, vendors.NotFound) {
+			t.Errorf("use %+v without the option: %v, want NotFound", use, err)
+		}
+		with := restart(t, c, testCluster, driver.WithImageCompartment(imageComp))
+		got, err := with.d.ResolveImage(t.Context(), imageReq("arm64", use))
+		if err != nil || got.Ref != id {
+			t.Errorf("use %+v with the option: %+v, %v", use, got, err)
+		}
+		if with.d.ImageCompartment() != imageComp || with.d.Compartment() != fake.SeedCompartment {
+			t.Errorf("compartments %q, %q", with.d.ImageCompartment(), with.d.Compartment())
+		}
+		byID, err := without.d.ResolveImage(t.Context(), imageReq("arm64", vendors.UseRef{IDs: []string{id}}))
+		if err != nil || byID.Ref != id {
+			t.Errorf("ids without the option: %+v, %v", byID, err)
+		}
+	}
+}

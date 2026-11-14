@@ -41,6 +41,18 @@ func TestOCICredentialModes(t *testing.T) {
 			t.Error("the key Secret is not mounted")
 		}
 	})
+	t.Run("image compartment", func(t *testing.T) {
+		_, args := render(t, "--set", "vendors.oci.credentials.mode=none")
+		for _, a := range args {
+			if strings.HasPrefix(a, "--oci-image-compartment") {
+				t.Errorf("rendered without a value: %s", a)
+			}
+		}
+		_, args = render(t, "--set", "vendors.oci.credentials.mode=none", "--set", "vendors.oci.imageCompartment=ocid1.compartment.oc1..images")
+		if !slices.Contains(args, "--oci-image-compartment=ocid1.compartment.oc1..images") {
+			t.Errorf("args %v lack the image compartment", args)
+		}
+	})
 	t.Run("workloadIdentityFederation", func(t *testing.T) {
 		d, args := render(t, "--set", "vendors.oci.credentials.mode=workloadIdentityFederation",
 			"--set", "vendors.oci.credentials.workloadIdentityFederation.region=eu-frankfurt-1",
@@ -101,13 +113,14 @@ func TestOCIValuesAreValidated(t *testing.T) {
 		set  []string
 		want string
 	}{
-		"no compartment":        {[]string{"vendors.oci.credentials.mode=none"}, "compartment is required"},
-		"a bad compartment":     {[]string{"vendors.oci.credentials.mode=none", "vendors.oci.compartment=my-compartment"}, "compartment"},
-		"no key secret":         {[]string{comp}, "existingSecret is required"},
-		"a bad mode":            {[]string{comp, "vendors.oci.credentials.mode=instancePrincipal"}, "mode"},
-		"federation incomplete": {[]string{comp, "vendors.oci.credentials.mode=workloadIdentityFederation"}, "are required with credentials mode workloadIdentityFederation"},
-		"a bad region":          {[]string{comp, "vendors.oci.credentials.mode=none", "vendors.oci.credentials.workloadIdentityFederation.region=Frankfurt"}, "region"},
-		"a short token":         {[]string{comp, "vendors.oci.credentials.mode=none", "vendors.oci.credentials.workloadIdentityFederation.expirationSeconds=60"}, "expirationSeconds"},
+		"no compartment":          {[]string{"vendors.oci.credentials.mode=none"}, "compartment is required"},
+		"a bad compartment":       {[]string{"vendors.oci.credentials.mode=none", "vendors.oci.compartment=my-compartment"}, "compartment"},
+		"a bad image compartment": {[]string{comp, "vendors.oci.credentials.mode=none", "vendors.oci.imageCompartment=images"}, "imageCompartment"},
+		"no key secret":           {[]string{comp}, "existingSecret is required"},
+		"a bad mode":              {[]string{comp, "vendors.oci.credentials.mode=instancePrincipal"}, "mode"},
+		"federation incomplete":   {[]string{comp, "vendors.oci.credentials.mode=workloadIdentityFederation"}, "are required with credentials mode workloadIdentityFederation"},
+		"a bad region":            {[]string{comp, "vendors.oci.credentials.mode=none", "vendors.oci.credentials.workloadIdentityFederation.region=Frankfurt"}, "region"},
+		"a short token":           {[]string{comp, "vendors.oci.credentials.mode=none", "vendors.oci.credentials.workloadIdentityFederation.expirationSeconds=60"}, "expirationSeconds"},
 	} {
 		args := slices.Clone(base)
 		for _, s := range tc.set {

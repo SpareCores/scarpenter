@@ -61,7 +61,7 @@ type cachedArch struct {
 }
 
 // ResolveImage implements vendors.Driver (rung 3 of ADR-021): the image of the pinned
-// release in the controller's compartment, found by its name and freeform tags, or by
+// release in the image compartment (--oci-image-compartment, default the controller's compartment), found by its name and freeform tags, or by
 // the NodeClass's images selector. An image whose architecture is not known never
 // satisfies a request, and whatever is found must say it is the pinned release.
 func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
@@ -238,7 +238,7 @@ const (
 )
 
 // listImages reads the candidates of a use block: the IDs (a get each: the image may live in
-// a compartment other than the controller's), or the compartment's images narrowed on the
+// a compartment other than the image compartment), or the image compartment's images narrowed on the
 // server by an exact name, the native filters and the state (available unless match.state
 // says otherwise); the matcher re-applies everything.
 func (d *Driver) listImages(ctx context.Context, region string, use vendors.UseRef) ([]core.Image, error) {
@@ -256,7 +256,7 @@ func (d *Driver) listImages(ctx context.Context, region string, use vendors.UseR
 		}
 		return out, nil
 	}
-	req := core.ListImagesRequest{CompartmentId: &d.compartment}
+	req := core.ListImagesRequest{CompartmentId: new(d.ImageCompartment())}
 	if use.Name != "" && !selector.HasWildcard(use.Name) {
 		req.DisplayName = &use.Name
 	}

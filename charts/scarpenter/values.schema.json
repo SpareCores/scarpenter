@@ -507,6 +507,10 @@
               "type": "string",
               "pattern": "^(ocid1\\.(compartment|tenancy)\\.[a-z0-9]+\\.[a-z0-9-]*\\.[a-z0-9]+)?$"
             },
+            "imageCompartment": {
+              "type": "string",
+              "pattern": "^(ocid1\\.(compartment|tenancy)\\.[a-z0-9]+\\.[a-z0-9-]*\\.[a-z0-9]+)?$"
+            },
             "credentials": {
               "type": "object",
               "additionalProperties": false,

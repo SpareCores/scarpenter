@@ -116,7 +116,9 @@ type Cloud struct {
 	net       netStore
 	seedVCN   string
 	images    map[string]*imageRec
-	launches  []core.LaunchInstanceRequest
+	// imageComps are the compartments besides the controller's that list images (AddImageCompartment).
+	imageComps map[string]bool
+	launches   []core.LaunchInstanceRequest
 
 	limitValues map[string]int64 // region|ad|name, ad "" for the region's
 	scopes      map[string]limits.LimitDefinitionSummaryScopeTypeEnum
@@ -134,7 +136,7 @@ func New(tenancy, compartment string) *Cloud {
 		now: time.Now, tenancy: tenancy, compartment: compartment,
 		regions: map[string]*region{}, instances: map[string]*core.Instance{},
 		attach: map[string][]core.VnicAttachment{}, vnics: map[string]core.Vnic{}, boot: map[string]bootVolume{},
-		tokens: map[string]tokenRec{}, net: newNetStore(), images: map[string]*imageRec{}, limitValues: map[string]int64{},
+		tokens: map[string]tokenRec{}, net: newNetStore(), images: map[string]*imageRec{}, imageComps: map[string]bool{}, limitValues: map[string]int64{},
 		scopes: map[string]limits.LimitDefinitionSummaryScopeTypeEnum{}, unsupported: map[string]bool{},
 		stockouts: map[string]bool{}, injected: map[string][]error{}, calls: map[string]int{},
 	}
