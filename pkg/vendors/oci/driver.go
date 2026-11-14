@@ -4,12 +4,12 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
-// Package oci is the Oracle Cloud Infrastructure driver (plan 25). This is its
-// foundation (step b): the type names and their parsing, the narrow API
-// interfaces with the SDK adapter and the in-memory fake, the error table, names
-// and tags, the shape and availability domain caches, the instance calls and the
-// quota reporter. The API block, the images, the resources and the registration
-// follow in step (c).
+// Package oci is the Oracle Cloud Infrastructure driver (plan 25): the type names
+// and their parsing, the narrow API interfaces with the SDK adapter (the in-memory
+// fake is in the fake package), the error table, names and tags, the shape and
+// availability domain caches, the instances, the quota reporter, the images, the
+// node options, the managed network and the validation of the API block
+// (pkg/apis/v1alpha1/oci). docs/reference/oci-driver.md describes it.
 package oci
 
 import (
@@ -62,9 +62,9 @@ func WithTenancy(ocid string) Option { return func(d *Driver) { d.tenancy = ocid
 // DefaultCallTimeout. It applies to the adapter the driver builds itself.
 func WithCallTimeout(t time.Duration) Option { return func(d *Driver) { d.callTimeout = t } }
 
-// Driver implements vendors.Driver and the capability QuotaReporter. The other
-// capabilities (images, node options, managed resources, validation) come in
-// step (c).
+// Driver implements vendors.Driver and the capabilities QuotaReporter,
+// ImageReporter, NodeOptions, ManagedResources, ZoneChecker, NodeClassValidator
+// and NodeHardener.
 type Driver struct {
 	cfg         vendors.Config
 	clock       clock.Clock
@@ -144,8 +144,11 @@ func (d *Driver) Compartment() string { return d.compartment }
 // Init implements vendors.Driver. It checks the configuration and builds the SDK
 // adapter over the credentials, but makes no API call: the clients are made with
 // the first call of a region, so an unreachable Oracle does not keep the
-// controller from starting. The startup check of plan 25 (section 4) is the
-// caller's: Regions proves the identity, ListInstances the policy.
+// controller from starting. The one exception is the tenancy of the
+// workloadIdentityFederation mode, a claim of the session token: reading it is
+// the first token exchange, so a federation that does not work fails the start.
+// The startup check of plan 25 (section 4) is the caller's: Regions proves the
+// identity, ListInstances the policy.
 func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 	if err := d.applyContextOptions(ctx); err != nil {
 		return err

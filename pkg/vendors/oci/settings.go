@@ -59,8 +59,8 @@ const MaxUserData = 16 * 1024
 // maxNSGs is the number of network security groups OCI allows on one VNIC.
 const maxNSGs = 5
 
-// settings is the part of the resolved vendor block the launch reads. Step (c)
-// moves it to the API types (pkg/apis/v1alpha1/oci) with the validation.
+// settings is the part of the resolved vendor block the launch reads (the
+// storage and metadata of pkg/apis/v1alpha1/oci, with the driver's defaults).
 type settings struct {
 	Storage struct {
 		Root RootVolume `json:"root"`

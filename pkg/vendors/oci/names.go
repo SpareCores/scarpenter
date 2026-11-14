@@ -39,8 +39,8 @@ const (
 	maxTags     = 64
 )
 
-// Resource kinds of the driver (plan 25, section 4). Step (c) implements
-// ManagedResources over them; the launch reads the prepared ones.
+// Resource kinds of the driver (plan 25, section 4): ManagedResources serves
+// them, and the launch reads the prepared ones.
 const (
 	KindSubnets                 vendors.ResourceKind = "subnets"
 	KindNetworkSecurityGroups   vendors.ResourceKind = "networkSecurityGroups"
