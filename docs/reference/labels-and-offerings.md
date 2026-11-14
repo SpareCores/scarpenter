@@ -71,6 +71,27 @@ The raw reference is the `scarpenter.sparecores.com/api-reference` label. When
 it does not fit a label value that key is `DoesNotExist` on the type;
 `Catalog.Lookup(name)` still resolves the name to `(vendor, api_reference)`.
 
+### Embedded catalogs
+
+A vendor Keeper does not serve yet can be served from a catalog compiled into
+the binary (`--embedded-catalog-vendors`, default `oci`; see
+[the controller reference](controller.md#catalog)). It is Keeper's snapshot
+layout read by the same code, so a real Keeper snapshot gives the same types:
+
+- OCI's names are `oci.<shape>` for the fixed shapes (`oci.BM.Standard3.64`) and
+  `oci.<shape>.<ocpus>-<memory GB>` for the flexible ones
+  (`oci.VM.Standard.E5.Flex.2-16`), 256 sized types of 12 shapes in the data of
+  2026-11-13; the `api-reference` label is the same name without `oci.`.
+- Zones are the zone table's: `topology.kubernetes.io/zone` is the zone's name
+  as the driver reports it (`EU-FRANKFURT-1-AD-1`, `US-ASHBURN-AD-1`,
+  `PHX-AD-1`) and the zone ID Keeper's (`eu-frankfurt-1-ad-1`). Prices are per
+  availability domain in the data, the same in all of them.
+- There are no benchmark scores: the `metric-*` labels and selection profiles of
+  these types are `DoesNotExist`, so a NodeClass that pins a metric or a
+  selection finds no type of the vendor.
+- The data has no publication time and does not touch the Keeper data version
+  in the catalog status; `scarpenter_catalog_embedded_vendor{vendor}` is `1`.
+
 ### Capacity and overhead
 
 | Resource | Value |
@@ -107,8 +128,12 @@ A server type is offered when all of these hold:
   architectures have no Kubernetes equivalent;
 - it has at least one usable price in scope (below).
 
-When two servers of a vendor share an `api_reference`, the one with the lower
-server ID is used.
+Servers of a vendor that share an `api_reference` take their server ID as the
+name (rule R, applied by every source before scores and selections key by the
+name): the sized types of OCI (`VM.Standard.E5.Flex.2-16`, one per OCPU and
+memory size) share the name of their shape in Keeper's rows and so get one type
+each. Where the references are unique, which is every other vendor's data, the
+reference is kept.
 
 ## Offerings
 

@@ -334,6 +334,11 @@ catalog:
   refreshInterval: ""
   # Age after which a snapshot is stale (--catalog-max-age; 24h).
   maxAge: ""
+  # Vendors served from the catalog embedded in the binary (static prices and
+  # sizes) instead of Keeper (--embedded-catalog-vendors): for vendors Keeper
+  # does not serve yet. Remove a vendor (an empty list: none) to read it from
+  # Keeper; a vendor listed here is never requested from Keeper.
+  embeddedVendors: [oci]
 
 artifacts:
   # Mirrors of the Flatcar sysext-bakery releases and the Flatcar release files

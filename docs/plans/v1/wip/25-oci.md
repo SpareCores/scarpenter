@@ -486,12 +486,15 @@ so the driver's `KeeperPriceConsumer` and the billing code see the same thing fr
   `keeper.DecodeSnapshotRows[keeper.TableServer]` and the other row types of `sc-keeper-go` (already
   pinned by main), and converts with the same functions as `KeeperSource` (`serverFromTable`, the price
   conversion; after part B, the shared body of `loadVendor`): **no second conversion**. A real Keeper
-  snapshot of OCI therefore parses unchanged. Part B's `loadVendor` is a method of the network
-  `refresh` (it reads through `r.file`); step (a2) makes its body a function over a small reader
-  (`func(path string) (*keeper.SnapshotBody, rows int, err error)` plus `Lookup` on a
-  `keeper.Manifest`), which `refresh` and the embedded source both implement. The manifest file is a
+  snapshot of OCI therefore parses unchanged. Part B's `loadVendor` and `loadVendorTable` read through the
+  network `refresh`; step (a2) made them (with `loadPrices`, `loadAuxPrices`, `regionsInScope` and
+  `decodeFile`) functions over the unexported interface `snapshotFiles` (`lookup(path)`, `file(ctx,
+  path) (*keeper.SnapshotBody, rows, error)`, `snapLogger()`), which `refresh` and the embedded source
+  both implement. The manifest file is a
   `keeper.ManifestFile` columnar file read with `keeper.DecodeManifest`; its SHA-256 is of the
-  **uncompressed** JSON, as Keeper's.
+  **uncompressed** JSON, as Keeper's. The source is `catalog.NewEmbeddedSource(vendor, fs.FS)`
+  (`pkg/catalog/embedded.go`, type `EmbeddedSource`); each file is verified against the manifest
+  when read.
 - **The generator**: `hack/oci-catalog/generate.py` (Python 3 standard library only: `sqlite3`,
   `gzip`, `json`, `hashlib`; no new Go dependency). `python3 hack/oci-catalog/generate.py --db
   <sc-data-oci.db> --out pkg/catalog/embeddeddata/oci` rewrites the files deterministically (sorted,
@@ -542,23 +545,31 @@ its scores to the sized names.
 
 **Wiring.** `pkg/operator/catalog.go` builds the mux; the embedded vendors are one option:
 `--embedded-catalog-vendors` / `SCARPENTER_EMBEDDED_CATALOG_VENDORS`, default **`oci`**, Helm
-`catalog.embeddedVendors`. Each listed vendor with embedded data gets `MuxSource.Vendors[<vendor>]`; a
+`catalog.embeddedVendors`. The value `none` is the empty list (the chart passes it for an empty
+`catalog.embeddedVendors`, as a flag with an empty value would be dropped from the arguments and
+leave the default). Each listed vendor gets `MuxSource.Vendors[<vendor>]` from the table
+`embeddedData` of `pkg/operator/catalog.go` (a vendor without embedded data, or one a development
+driver brings its own catalog for, is a start-up error); a
 request that concerns only embedded vendors never reaches Keeper (so an OCI-only deployment needs no
 Keeper key; the static dev catalogs of the fake and qemu drivers work the same way). The source
 reports `Data.Version` as a digest of the manifest, `FetchedAt` as the load time, **`SnapshotRead:
-false` and a zero `PublishedAt`**: `MuxSource.mergeData` ORs `SnapshotRead` and keeps the *oldest*
+false` and a zero `PublishedAt`** (`Version` is a SHA-256 over the manifest's path, rows and hash lines): `MuxSource.mergeData` ORs `SnapshotRead` and keeps the *oldest*
 non-zero `PublishedAt`, so a data date there would show in the Keeper status message ("Keeper data
 version ..., published ...") and in the published-at metric of every mixed deployment, and
 `SnapshotRead` also sets the Keeper auth state. Part B feeds the `PriceSink` (the drivers'
 `SetKeeperPrices`) only `if data.SnapshotRead`, which would leave OCI's storage prices unknown in an
 OCI-only deployment; step (a2) adds `model.Data.AuxPricesRead bool` (set by `KeeperSource` and the
-embedded source, ORed by the mux) and gates the sink on it instead. The source keeps its loaded
+embedded source, ORed by the mux) and gates the sink on it instead (done). OCI's IPv4 price is 0, so
+`loadAuxPrices` (active, USD, above zero, as for Keeper's rows) leaves `IPv4Prices` empty for it:
+the driver treats a missing IPv4 price as free; its 176 storage rows (4 levels x 44 regions) reach the
+sink, which does not select them by scope. The source keeps its loaded
 `*model.Data` per request scope and returns the same pointer when nothing changed, so the mux's
 unchanged-data shortcut (part B) holds. The data date (the generator's `observed_at`) goes only into
 the log line and the gauge below. At start the controller logs
 `vendor oci is served from the embedded catalog (data of 2026-11-13); prices and sizes are static`,
-exports the gauge `scarpenter_catalog_embedded_vendor{vendor}` = 1, and the NodeClass condition
-`VendorReady` message for OCI says the same.
+exports the gauge `scarpenter_catalog_embedded_vendor{vendor}` = 1 (`catalog.Options.EmbeddedVendors`), and
+the NodeClass condition `VendorReady` message for OCI says the same (**not in (a2)**: the condition
+is the driver's, step (c)).
 
 **When Keeper starts serving OCI.** The flag decides, and it is a one-line change: remove `oci` from the
 default of `--embedded-catalog-vendors` (or set it empty in the Helm values); the mux then routes
@@ -888,6 +899,17 @@ catalog (the swap of section 6); a request for `oci`
 alone never reaches the default source; `MuxSource` merges the embedded `StoragePrices` and
 `IPv4Prices` and an OCI-only load sets them on the driver (`AuxPricesRead`); the merged data of
 Keeper plus the embedded source keeps Keeper's `PublishedAt` and status message.
+
+Done (step (a2), branch `oci-a2`), with these corrections to the text above: `NewEmbeddedSource` takes
+the vendor and an `fs.FS`; `loadVendor` and the readers it calls became functions over `snapshotFiles`
+(not a reader of `func(path)`); `KeeperSource` also sets `AuxPricesRead`; the flag accepts `none`;
+`controller.md` and `labels-and-offerings.md` also got the rule R sentence (the old "the lower server ID
+wins" text was stale). **Not done, open for (c) or a follow-up:** the decision of 2026-11-14 that a
+type is offered in every AD of the region the tenancy lists on the strength of a price row in any AD
+of it. The catalog still maps a zone-level price to its zone by Keeper's zone ID (`resolveZones`), so
+with the embedded data a type has offerings in exactly the ADs the data has rows for (all of them for
+E5 and the main shapes; 24 shape/region pairs lack one or two). A catalog change would be
+vendor-neutral code; it would have to leave every other vendor's offerings as they are.
 
 **(b) The driver foundation** (no CRD, no registration): `pkg/vendors/oci`: `ParseType`/`FormatType` and
 the vCPU table, the narrow interfaces, `fake/`, the SDK adapters behind the interfaces (compile-checked,

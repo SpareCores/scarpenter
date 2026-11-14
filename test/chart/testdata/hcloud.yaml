@@ -603,6 +603,7 @@ spec:
             - "--api-server-endpoint=https://api.example.com:6443"
             - "--cluster-dns=none"
             - "--cluster-name=hcloud-prod"
+            - "--embedded-catalog-vendors=oci"
             - "--hcloud-server-limit=25"
             - "--health-probe-port=8081"
             - "--keeper-cache-dir=/var/cache/scarpenter/keeper"

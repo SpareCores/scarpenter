@@ -8,15 +8,21 @@ package operator
 
 import (
 	"fmt"
+	"io/fs"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	keeper "github.com/SpareCores/sc-keeper-go"
 
 	"github.com/SpareCores/scarpenter/internal/version"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	ocidata "github.com/SpareCores/scarpenter/pkg/catalog/embeddeddata/oci"
 	"github.com/SpareCores/scarpenter/pkg/catalog/static"
 	"github.com/SpareCores/scarpenter/pkg/controllers/catalogsync"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
@@ -45,8 +51,12 @@ func (o *Operator) WithCatalog(
 		URL: o.Options.KeeperURL, APIKeyFile: o.Options.KeeperAPIKeyFile, UserAgent: "scarpenter/" + version.Get().Version,
 		CacheDir: o.Options.KeeperCacheDir,
 	})
-	if len(o.staticCatalogs) > 0 {
-		source = &catalog.MuxSource{Default: source, Vendors: o.staticCatalogs}
+	own, err := o.ownCatalogs(log.Log.WithName("catalog"))
+	if err != nil {
+		return nil, err
+	}
+	if len(own) > 0 {
+		source = &catalog.MuxSource{Default: source, Vendors: own}
 	}
 	cat := catalog.New(catalog.Options{
 		Source:          source,
@@ -56,6 +66,7 @@ func (o *Operator) WithCatalog(
 		ClassGate:       classGate,
 		RefreshInterval: o.Options.CatalogRefreshInterval,
 		MaxAge:          o.Options.CatalogMaxAge,
+		EmbeddedVendors: slices.Sorted(maps.Keys(o.embeddedCatalogs)),
 		Registerer:      metrics.Registry,
 	})
 	if err := o.Add(cat); err != nil {
@@ -65,6 +76,42 @@ func (o *Operator) WithCatalog(
 		return nil, fmt.Errorf("registering the catalog controller: %w", err)
 	}
 	return cat, nil
+}
+
+// embeddedData is the catalog compiled into the binary, by vendor: the vendors
+// --embedded-catalog-vendors can name. A vendor leaves it when it has no files
+// any more (its catalog is Keeper's).
+var embeddedData = map[string]fs.FS{"oci": ocidata.FS}
+
+// ownCatalogs is the sources of the vendors that do not read Keeper: the
+// development drivers' static catalogs and the embedded catalogs of the vendors
+// the option lists. A request that concerns only these vendors never reaches
+// Keeper.
+func (o *Operator) ownCatalogs(logger logr.Logger) (map[string]catalog.Source, error) {
+	own := maps.Clone(o.staticCatalogs)
+	if own == nil {
+		own = map[string]catalog.Source{}
+	}
+	o.embeddedCatalogs = map[string]catalog.Source{}
+	for _, vendor := range o.Options.EmbeddedCatalogVendors {
+		files, ok := embeddedData[vendor]
+		if !ok {
+			return nil, fmt.Errorf("--embedded-catalog-vendors: there is no embedded catalog of vendor %q (have %s)",
+				vendor, strings.Join(slices.Sorted(maps.Keys(embeddedData)), ", "))
+		}
+		if _, dup := own[vendor]; dup {
+			return nil, fmt.Errorf("--embedded-catalog-vendors: the %s driver brings its own catalog", vendor)
+		}
+		src, err := catalog.NewEmbeddedSource(vendor, files)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info(fmt.Sprintf("vendor %s is served from the embedded catalog (data of %s); prices and sizes are static",
+			vendor, src.DataDate()), "vendor", vendor, "version", src.Version())
+		own[vendor] = src
+		o.embeddedCatalogs[vendor] = src
+	}
+	return own, nil
 }
 
 // keeperClient is the Keeper client the drivers get (the fake driver reads its

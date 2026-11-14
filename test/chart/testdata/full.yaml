@@ -714,6 +714,7 @@ spec:
             - "--cluster-dns=10.96.0.10,fd00::10"
             - "--cluster-domain=cluster.example"
             - "--cluster-name=prod_1"
+            - "--embedded-catalog-vendors=oci"
             - "--feature-gates=NodeRepair=true"
             - "--flatcar-base-url=https://mirror.example.com/flatcar/{channel}"
             - "--gc-dry-run=true"

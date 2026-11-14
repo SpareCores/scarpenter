@@ -40,6 +40,7 @@ func init() {
 const (
 	DefaultVendors                    = "aws"
 	DefaultKeeperURL                  = "https://keeper.sparecores.net"
+	DefaultEmbeddedCatalogVendors     = "oci"
 	DefaultCatalogRefreshInterval     = time.Hour
 	DefaultCatalogMaxAge              = 24 * time.Hour
 	DefaultBootstrapTokenTTL          = time.Hour
@@ -145,6 +146,10 @@ type Options struct {
 	// KeeperCacheDir keeps Keeper's snapshot files of the pinned data version on
 	// disk (empty: no copy, every new version is fetched in full).
 	KeeperCacheDir string
+	// EmbeddedCatalogVendors are the vendors whose catalog is the one compiled
+	// into the binary, never read from Keeper (--embedded-catalog-vendors; the
+	// value "none" is the empty list). Remove a vendor to read it from Keeper.
+	EmbeddedCatalogVendors []string
 	// ResourceDefaultTTL is the idleTTL of managed shared resources when a
 	// SCNodeClass does not set one.
 	ResourceDefaultTTL time.Duration
@@ -171,6 +176,7 @@ type Options struct {
 	BillingRetention bool
 
 	vendorsRaw    string
+	embeddedRaw   string
 	clusterDNSRaw string
 	tailnetRaw    string
 }
@@ -185,6 +191,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.vendorsRaw, "vendors", env.WithDefaultString("SCARPENTER_VENDORS", DefaultVendors), "Comma-separated list of enabled vendor drivers.")
 	fs.StringVar(&o.KeeperURL, "keeper-url", env.WithDefaultString("SCARPENTER_KEEPER_URL", DefaultKeeperURL), "Base URL of the Keeper API: the public Spare Cores one by default, or a self-hosted Keeper (open source: github.com/SpareCores/sc-keeper).")
 	fs.StringVar(&o.KeeperAPIKeyFile, "keeper-api-key-file", env.WithDefaultString("SCARPENTER_KEEPER_API_KEY_FILE", ""), "File with the Keeper API key, which the public Keeper requires (request one: https://docs.sparecores.com/api/#authentication; docs section \"Keeper API key\"). Read at every catalog refresh. Optional for a self-hosted Keeper.")
+	fs.StringVar(&o.embeddedRaw, "embedded-catalog-vendors", env.WithDefaultString("SCARPENTER_EMBEDDED_CATALOG_VENDORS", DefaultEmbeddedCatalogVendors), "Comma-separated vendors served from the catalog embedded in the binary (static prices and sizes) instead of Keeper, for vendors Keeper does not serve yet; \"none\" lists none. A vendor listed here is never requested from Keeper.")
 	fs.DurationVar(&o.CatalogRefreshInterval, "catalog-refresh-interval", env.WithDefaultDuration("SCARPENTER_CATALOG_REFRESH_INTERVAL", DefaultCatalogRefreshInterval), "How often the catalog is refreshed from Keeper (with 10% jitter).")
 	fs.DurationVar(&o.CatalogMaxAge, "catalog-max-age", env.WithDefaultDuration("SCARPENTER_CATALOG_MAX_AGE", DefaultCatalogMaxAge), "Age of the last good catalog snapshot after which SCNodeClasses report CatalogReady=False.")
 	fs.StringVar(&o.SysextBaseURL, "sysext-base-url", env.WithDefaultString("SCARPENTER_SYSEXT_BASE_URL", ""), "Mirror of the Flatcar sysext-bakery releases. Empty means upstream.")
@@ -226,6 +233,9 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 		return fmt.Errorf("parsing flags: %w", err)
 	}
 	o.Vendors = splitList(o.vendorsRaw)
+	if !strings.EqualFold(strings.TrimSpace(o.embeddedRaw), "none") {
+		o.EmbeddedCatalogVendors = splitList(o.embeddedRaw)
+	}
 	o.ClusterDNS = splitList(o.clusterDNSRaw)
 	if len(o.ClusterDNS) == 1 && strings.EqualFold(o.ClusterDNS[0], "none") {
 		o.ClusterDNS, o.ClusterDNSNone = nil, true
@@ -283,6 +293,7 @@ func (o *Options) Validate() error {
 			errs = append(errs, fmt.Errorf("--cluster-dns: %q is not an IP address", ip))
 		}
 	}
+	errs = append(errs, o.validateEmbeddedVendors()...)
 	for _, p := range o.TailnetPrefixes {
 		if _, err := netip.ParsePrefix(p); err != nil {
 			errs = append(errs, fmt.Errorf("--tailnet-prefixes: %q is not a CIDR", p))
@@ -339,6 +350,23 @@ func (o *Options) Validate() error {
 // VendorEnabled reports whether a vendor driver is enabled.
 func (o *Options) VendorEnabled(vendor string) bool {
 	return slices.Contains(o.Vendors, vendor)
+}
+
+// validateEmbeddedVendors checks the names of --embedded-catalog-vendors (that
+// each has an embedded catalog is checked when the catalog is built).
+func (o *Options) validateEmbeddedVendors() []error {
+	var errs []error
+	seen := map[string]bool{}
+	for _, v := range o.EmbeddedCatalogVendors {
+		switch {
+		case !vendorPattern.MatchString(v):
+			errs = append(errs, fmt.Errorf("--embedded-catalog-vendors: %q is not a vendor name (lower-case letters and digits)", v))
+		case seen[v]:
+			errs = append(errs, fmt.Errorf("--embedded-catalog-vendors: %q is listed twice", v))
+		}
+		seen[v] = true
+	}
+	return errs
 }
 
 func splitList(s string) []string {

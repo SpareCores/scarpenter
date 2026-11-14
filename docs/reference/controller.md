@@ -30,6 +30,7 @@ The last column names the plan that introduced the flag.
 | `--vendors` | `SCARPENTER_VENDORS` | `aws` | Comma-separated list of enabled vendor drivers. | plan 04 |
 | `--keeper-url` | `SCARPENTER_KEEPER_URL` | `https://keeper.sparecores.net` | Base URL of the Keeper API: the public Spare Cores one by default, or a self-hosted Keeper (open source, <https://github.com/SpareCores/sc-keeper>). | plan 03 |
 | `--keeper-api-key-file` | `SCARPENTER_KEEPER_API_KEY_FILE` | empty | File with the Keeper API key. The public Keeper requires one ([Keeper API key](../how-to-guides/install.md#keeper-api-key)); optional for a self-hosted Keeper. Read at every catalog refresh, so a rotated Secret takes effect without a restart; an empty file is an error. (The development `fake` driver reads the key once, at start.) | plan 03, plan 13 |
+| `--embedded-catalog-vendors` | `SCARPENTER_EMBEDDED_CATALOG_VENDORS` | `oci` | Comma-separated vendors served from the catalog compiled into the binary (static prices and sizes, no network) instead of Keeper, for vendors Keeper does not serve yet. A vendor listed here is never requested from Keeper (a deployment of only such vendors needs no Keeper key); a vendor not listed is read from Keeper as before. `none` or an empty value lists none: removing `oci` is the whole switch to Keeper's own OCI data. A vendor without an embedded catalog is a start-up error. | plan 25 |
 | `--keeper-cache-dir` | `SCARPENTER_KEEPER_CACHE_DIR` | empty (no copy) | Directory that keeps Keeper's snapshot files of the pinned data version (`<dir>/<hash>/...`, the gzip bytes as received, checked against the manifest's SHA-256 before use). A restart within the same data version reads only `/healthcheck` from Keeper; a new version fetches only the files that changed. Directories of other versions are deleted after a successful refresh. The chart sets it to an `emptyDir` at `/var/cache/scarpenter/keeper`. | plan 13 |
 | `--catalog-refresh-interval` | `SCARPENTER_CATALOG_REFRESH_INTERVAL` | `1h` | How often the catalog is refreshed (with 10 % jitter). | plan 03 |
 | `--catalog-max-age` | `SCARPENTER_CATALOG_MAX_AGE` | `24h` | Snapshot age after which SCNodeClasses report `CatalogReady=False`. Must not be shorter than the refresh interval. | plan 03 |
@@ -145,6 +146,7 @@ and that the controller's own parser accepts what the chart renders.
 | `keeper.apiKey.existingSecret`, `key` | `--keeper-api-key-file` | The Secret's key (default `api-key`) is mounted as a file and read at every refresh; [Keeper API key](../how-to-guides/install.md#keeper-api-key). |
 | `keeper.cacheDir.sizeLimit` | `--keeper-cache-dir` | Size limit (default `256Mi`) of the `emptyDir` at `/var/cache/scarpenter/keeper`; the flag is always set. |
 | `catalog.refreshInterval`, `maxAge` | `--catalog-refresh-interval`, `--catalog-max-age` | |
+| `catalog.embeddedVendors` | `--embedded-catalog-vendors` | A list of vendors, default `[oci]`; an empty list passes `none`. |
 | `artifacts.sysextBaseURL`, `flatcarBaseURL` | `--sysext-base-url`, `--flatcar-base-url` | |
 | `bootstrap.tokenTTL` | `--bootstrap-token-ttl` | At least 20m; the chart refuses less. |
 | `bootstrap.tailnetPrefixes` | `--tailnet-prefixes` | A list of CIDRs. |
@@ -345,6 +347,20 @@ to the "+doc+" section, sets `KeeperAuthorized=False`, and the next scheduled
 refresh tries once more. Without any catalog, `CatalogReady` is `False` with
 reason `KeeperAPIKeyRequired`.
 
+**Embedded vendors.** The vendors of `--embedded-catalog-vendors` (default
+`oci`) are read from files of Keeper's snapshot layout compiled into the binary,
+by the same code that reads Keeper's snapshot (rule R included, so the sized
+types of a shape have their own names), and never from Keeper: a request that
+concerns only them makes no Keeper request and needs no key. The data is static;
+the start-up log says `vendor oci is served from the embedded catalog (data of
+<date>); prices and sizes are static`. The embedded data reports no Keeper data
+version or publication time (the `Keeper data version ..., published ...` status
+message and the published-at metric stay those of Keeper's own data) and has no
+benchmark scores (its metric and selection labels are `DoesNotExist`). Its
+storage and IPv4 prices reach the driver like Keeper's. To switch a vendor to
+Keeper once Keeper serves it, remove it from the flag (Helm: from
+`catalog.embeddedVendors`); the type names, which are the vendor's own, stay.
+
 Metrics (Prometheus, on the metrics port):
 
 | Metric | Type | Labels | Meaning |
@@ -355,6 +371,7 @@ Metrics (Prometheus, on the metrics port):
 | `scarpenter_catalog_offerings` | gauge | `vendor` | Priced offerings (price rows in scope, before the driver's zone mapping). |
 | `scarpenter_catalog_data_published_timestamp_seconds` | gauge | | Unix time Keeper published the data version of the snapshot (`SC-Data-Published-At`): the age of the data, not of the read. |
 | `scarpenter_catalog_keeper_unauthorized` | gauge | | `1` after Keeper answered a refresh with 401, `0` after a successful snapshot read. |
+| `scarpenter_catalog_embedded_vendor` | gauge | `vendor` | `1` for each vendor served from the embedded catalog (`--embedded-catalog-vendors`) instead of Keeper: its prices and sizes are static. |
 
 At start-up, before core's controllers are built, the controller lists the
 SCNodeClasses and registers their `metric-<m>` keys, and all `cpu-flag-<flag>`
@@ -563,7 +580,7 @@ Besides the metrics of Karpenter core, the controller serves, on the metrics por
 
 | Metric | Section |
 |---|---|
-| `scarpenter_catalog_age_seconds`, `scarpenter_catalog_refresh_errors_total`, `scarpenter_catalog_instance_types`, `scarpenter_catalog_offerings`, `scarpenter_catalog_data_published_timestamp_seconds`, `scarpenter_catalog_keeper_unauthorized` | [Catalog](#catalog) |
+| `scarpenter_catalog_age_seconds`, `scarpenter_catalog_refresh_errors_total`, `scarpenter_catalog_instance_types`, `scarpenter_catalog_offerings`, `scarpenter_catalog_data_published_timestamp_seconds`, `scarpenter_catalog_keeper_unauthorized`, `scarpenter_catalog_embedded_vendor` | [Catalog](#catalog) |
 | `scarpenter_launches_total`, `scarpenter_launch_skipped_total`, `scarpenter_launch_attempts`, `scarpenter_create_duration_seconds` | [CloudProvider](#cloudprovider) |
 | `scarpenter_quota_limit`, `scarpenter_quota_used`, `scarpenter_quota_reserved`, `scarpenter_quota_refresh_age_seconds`, `scarpenter_quota_refresh_errors_total` | [Quota](#quota) |
 | `scarpenter_gc_deletions_total`, `scarpenter_gc_sweep_duration_seconds`, `scarpenter_gc_last_sweep_timestamp_seconds` | [Garbage collection](#garbage-collection) |

@@ -80,6 +80,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "keeper-cache-dir" "/var/cache/scarpenter/keeper"
   "catalog-refresh-interval" .Values.catalog.refreshInterval
   "catalog-max-age" .Values.catalog.maxAge
+  "embedded-catalog-vendors" (default "none" (join "," .Values.catalog.embeddedVendors))
   "sysext-base-url" .Values.artifacts.sysextBaseURL
   "flatcar-base-url" .Values.artifacts.flatcarBaseURL
   "bootstrap-token-ttl" .Values.bootstrap.tokenTTL

@@ -34,6 +34,31 @@ func parse(t *testing.T, env map[string]string, args ...string) (*options.Option
 
 var required = []string{"--cluster-name=my-cluster", "--api-server-endpoint=https://10.0.0.1:6443"}
 
+func TestEmbeddedCatalogVendors(t *testing.T) {
+	for name, tc := range map[string]struct {
+		env  map[string]string
+		args []string
+		want string
+	}{
+		"default is oci": {nil, nil, "oci"},
+		"flag":           {nil, []string{"--embedded-catalog-vendors=oci, other"}, "oci,other"},
+		"none":           {nil, []string{"--embedded-catalog-vendors=none"}, ""},
+		"empty":          {nil, []string{"--embedded-catalog-vendors="}, ""},
+		"environment":    {map[string]string{"SCARPENTER_EMBEDDED_CATALOG_VENDORS": "other"}, nil, "other"},
+		"flag over env":  {map[string]string{"SCARPENTER_EMBEDDED_CATALOG_VENDORS": "other"}, []string{"--embedded-catalog-vendors=none"}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			o, err := parse(t, tc.env, append(tc.args, required...)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(o.EmbeddedCatalogVendors, ","); got != tc.want {
+				t.Errorf("embedded vendors = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	o, err := parse(t, nil, required...)
 	if err != nil {
@@ -170,6 +195,8 @@ func TestValidation(t *testing.T) {
 		{"token ttl shorter than core's registration timeout", append([]string{"--bootstrap-token-ttl=10m"}, required...), "--bootstrap-token-ttl must be at least 20m0s"},
 		{"cluster dns not an ip", append([]string{"--cluster-dns=10.96.0.10,dns.example.com"}, required...), "--cluster-dns"},
 		{"tailnet prefix not a cidr", append([]string{"--tailnet-prefixes=100.64.0.0/10,nope"}, required...), "--tailnet-prefixes"},
+		{"embedded vendor invalid", append([]string{"--embedded-catalog-vendors=OCI"}, required...), "--embedded-catalog-vendors"},
+		{"embedded vendor twice", append([]string{"--embedded-catalog-vendors=oci,oci"}, required...), "listed twice"},
 		{"empty cluster domain", append([]string{"--cluster-domain="}, required...), "--cluster-domain must not be empty"},
 		{"zero gc interval", append([]string{"--gc-interval=0s"}, required...), "--gc-interval must be positive"},
 		{"zero terminating grace", append([]string{"--terminating-grace=0s"}, required...), "--terminating-grace must be positive"},

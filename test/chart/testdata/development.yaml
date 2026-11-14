@@ -612,6 +612,7 @@ spec:
             - "--api-server-endpoint=https://kubernetes.default.svc"
             - "--cluster-dns=10.96.0.10"
             - "--cluster-name=scarpenter-kwok"
+            - "--embedded-catalog-vendors=oci"
             - "--health-probe-port=8081"
             - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--log-level=debug"

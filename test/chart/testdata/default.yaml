@@ -605,6 +605,7 @@ spec:
             - "--api-server-endpoint=https://api.example.com:6443"
             - "--cluster-dns=10.96.0.10"
             - "--cluster-name=my-cluster"
+            - "--embedded-catalog-vendors=oci"
             - "--health-probe-port=8081"
             - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--metrics-port=8080"
