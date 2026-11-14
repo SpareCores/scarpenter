@@ -68,6 +68,9 @@ type Options struct {
 	ClassGate ClassGate
 	// Clock defaults to the real one.
 	Clock clock.Clock
+	// EmbeddedVendors are the vendors served from embedded data (EmbeddedSource):
+	// they are exported as the gauge scarpenter_catalog_embedded_vendor.
+	EmbeddedVendors []string
 	// Registerer receives the catalog metrics; nil registers none.
 	Registerer prometheus.Registerer
 }
@@ -297,7 +300,7 @@ func (c *Catalog) Refresh(ctx context.Context) error {
 		return nil
 	}
 	c.mu.Unlock()
-	if sink, ok := c.opts.Facts.(PriceSink); ok && data.SnapshotRead {
+	if sink, ok := c.opts.Facts.(PriceSink); ok && data.AuxPricesRead {
 		// Before the data is published, so that its offerings never meet the
 		// prices of another version.
 		sink.SetKeeperPrices(data.Version, data.StoragePrices, data.IPv4Prices)
@@ -814,6 +817,9 @@ var (
 		vendorLabel, nil)
 	publishedDesc = prometheus.NewDesc("scarpenter_catalog_data_published_timestamp_seconds",
 		"Unix time Keeper published the data version of the catalog snapshot (SC-Data-Published-At).", nil, nil)
+	embeddedDesc = prometheus.NewDesc("scarpenter_catalog_embedded_vendor",
+		"1 for each vendor served from the catalog embedded in the binary instead of Keeper (static prices and sizes).",
+		vendorLabel, nil)
 	unauthorizedDesc = prometheus.NewDesc("scarpenter_catalog_keeper_unauthorized",
 		"1 when Keeper answered the last refresh with 401 (no key, or a rejected one), 0 after a successful read.",
 		nil, nil)
@@ -826,10 +832,14 @@ func (k *collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- offeringsDesc
 	ch <- publishedDesc
 	ch <- unauthorizedDesc
+	ch <- embeddedDesc
 }
 
 // Collect implements prometheus.Collector.
 func (k *collector) Collect(ch chan<- prometheus.Metric) {
+	for _, vendor := range k.c.opts.EmbeddedVendors {
+		ch <- prometheus.MustNewConstMetric(embeddedDesc, prometheus.GaugeValue, 1, vendor)
+	}
 	k.c.mu.RLock()
 	snap, auth := k.c.snap, k.c.auth
 	var age float64
