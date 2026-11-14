@@ -1,0 +1,22 @@
+# IAM policy of the SCarpenter OCI controller (plan 25, section 11): statements for
+# the group of the controller's identity. Replace <group> and <compartment>.
+# The verbs of each call are UNVERIFIED (spike S12): the first live run corrects
+# this file. iam_test.go maps every method of the driver's API interfaces to the
+# statement that covers it.
+
+# The instances, their VNIC attachments and the shapes, in the compartment of the nodes.
+Allow group <group> to manage instance-family in compartment <compartment>
+# The boot volume a launch creates and a terminate deletes.
+Allow group <group> to use volume-family in compartment <compartment>
+# The subnet and the network security groups of a launch, and the VNICs' addresses
+# (also in the compartments of brought resources).
+Allow group <group> to use virtual-network-family in compartment <compartment>
+# The region subscriptions and the availability domains.
+Allow group <group> to inspect tenancies in tenancy
+Allow group <group> to inspect compartments in tenancy
+# The quotas are read on the root compartment (the tenancy), for the whole account's usage.
+Allow group <group> to inspect resource-availability in tenancy
+Allow group <group> to inspect limits in tenancy
+
+# optional: only for NodeClasses whose resources are created by SCarpenter (step c)
+Allow group <group> to manage virtual-network-family in compartment <compartment>
