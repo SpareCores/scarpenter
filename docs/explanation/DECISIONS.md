@@ -383,7 +383,10 @@ and version can be named and read back from the image (ADR-012, ADR-017):
    (GCP arm64; Alibaba community images later, if Spare Cores is eligible).
 3. **Images can be created in the user's own account**: pre-create them (per
    region where the vendor's images are regional) with infrastructure as code or a
-   CI job of the operator's choice, and pass the IDs to SCarpenter (hcloud, OVH, UpCloud, Vultr, Alibaba). The source
+   CI job of the operator's choice, and pass the IDs to SCarpenter (hcloud, OVH, UpCloud, Vultr, Alibaba), or, where the
+   vendor has a naming convention the driver can look up, follow it (OCI: the operator's IaC imports
+   Flatcar's `oraclecloud` image per region and architecture, named and tagged as the
+   [reference](flatcar-images.md) says). The source
    is Flatcar's official image for that platform; where Flatcar ships none, the
    image built by Spare Cores' images repository: the generic Flatcar image with
    the OEM id set (`vultr`, `upcloud`, `aliyun`).
@@ -416,6 +419,10 @@ Details:
   `resources.images.use.ids` of the NodeClass; nothing is needed on rungs 1 and 2
   ([hand-off contract](../reference/infrastructure-handoff.md#images)).
 - **GCP arm64** is published by Spare Cores (rung 2), not left out of v1.
+- **OCI** is rung 3: OCI images are regional and private to a tenancy (no public image, no sharing without a
+  per-consumer pre-authenticated request), and Flatcar ships an official `oraclecloud` image. The operator's IaC
+  imports it into the controller's compartment, per region and architecture; the driver finds it by name and
+  freeform tags without `images`.
 - **Order.** GCP and Azure (rung 1) first, then Hetzner, then OVH, UpCloud, Vultr
   and Alibaba (the order among these four is open).
 

@@ -98,6 +98,7 @@ hash; the pinned version is.
 | gcp, arm64 | 2 | Spare Cores GCP project, shared with `allAuthenticatedUsers` | global | images repository |
 | hcloud | 3 | Flatcar's `hetzner` image as a snapshot | global in the project | your IaC |
 | ovh | 3 | Flatcar's `openstack` image in Glance | regional | your IaC |
+| oci | 3 | Flatcar's `oraclecloud` image, imported as a custom image | regional | your IaC |
 | upcloud | 3 | images repository, OEM id `upcloud` | per zone and storage tier | your IaC |
 | vultr | 3 | images repository, OEM id `vultr` | global in the account | your IaC |
 | alicloud | 3 | images repository, OEM id `aliyun` | regional | your IaC |
@@ -216,6 +217,20 @@ hash; the pinned version is.
 | Architectures | amd64, arm64 |
 | Later | if Spare Cores' account may publish community images, the repository publishes them per region (rung 2) and `images` becomes optional; an upstream `oem-aliyun` replaces the source |
 
+### oci
+
+| | |
+|---|---|
+| Rung | 3 (OCI images are regional and private to a tenancy; no public Flatcar image) |
+| Source | Flatcar's official `flatcar_production_oraclecloud_image.img` (qcow2), uploaded to Object Storage and imported as a custom image in every region (a bucket in one region and a read-only pre-authenticated request import into the others) |
+| Scope | regional, in the controller's compartment, bound to an architecture |
+| Created by | your IaC; source type `QCOW2`, launch mode `PARAVIRTUALIZED`, operating system `Flatcar` and the Flatcar version as operating system version, shape compatibility for every shape that may launch; arm64 also needs an image capability schema |
+| Pinned version | display name `flatcar-<channel>-<version>-<arch>` and freeform tags `flatcar-channel`, `flatcar-version`, `arch`, `os=flatcar`; exactly one match |
+| Architectures | amd64, arm64 (A1 verified; A2 and A4 untested) |
+| Later | a Community Application per region and release would make the import unnecessary (rung 2) |
+
+The contract the operator's IaC follows is section 3 of [plan 25](../plans/v1/wip/25-oci.md).
+
 ## Later moves
 
 Nothing in the ladder is final; a vendor moves up when the world changes, and the
@@ -224,7 +239,7 @@ only change for users is that `images` becomes optional or its source changes:
 - **Upstream Flatcar ships a platform** (GCE arm64, `upcloud`, `vultr`, `aliyun`):
   the images repository proposes them and stops building a platform from the
   release that carries it. Versions already built stay available for pins.
-- **OVH community visibility** or **Alibaba community images**: rung 3 to rung 2.
+- **OVH community visibility**, **Alibaba community images** or an **OCI Community Application**: rung 3 to rung 2.
 - **The Vultr Marketplace**: rung 3 to rung 2, if Vultr allows a base image.
 - **Rung 4** (`SCImage`, `ImageImporter`) only if a vendor appears for which IaC
   cannot create the image.
