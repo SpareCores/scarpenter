@@ -20,7 +20,7 @@ Prefix `scarpenter.sparecores.com/` omitted in the first column.
 |---|---|---|
 | `vendor` | `aws` | enum |
 | `api-reference` | `m7i.large` | enum |
-| `family` | `m7i` | enum |
+| `family` | `m7i` | enum; Keeper's `series` (the hardware line: `m7i`, `n2`, Hetzner `cx`, `cpx`, `ccx`, `cax`), or its `family` where a vendor has no series (UpCloud, Vultr bare metal). Keeper's own `family` is a broad class ("General Purpose") for most vendors since sc-crawler 0.10.4; there is no label for it |
 | `zone-id` | `use1-az1` | enum |
 | `cpu-manufacturer`, `cpu-family`, `cpu-allocation` | `AMD`, `EPYC`, `Dedicated` | enum |
 | `accelerator-count`, `accelerator-memory-mib` | `1`, `24576` | integer |

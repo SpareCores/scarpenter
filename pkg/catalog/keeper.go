@@ -768,6 +768,24 @@ func (l *localData) split() {
 	}
 }
 
+// familyOf is the instance family of a server: Keeper's series (the hardware
+// line: t3a, n2, cpx), else its family. Since sc-crawler 0.10.4 the family
+// column is the broad class ("General Purpose") where a series exists; vendors
+// without series (UpCloud, Vultr bare metal) keep the family as it is.
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func familyOf(s *keeper.TableServer) string {
+	if s.Series != nil && *s.Series != "" {
+		return *s.Series
+	}
+	return deref(s.Family)
+}
+
 func serverFromTable(s *keeper.TableServer) (model.Server, bool) {
 	var arch string
 	switch s.CPUArchitecture {
@@ -779,14 +797,8 @@ func serverFromTable(s *keeper.TableServer) (model.Server, bool) {
 		// i386 and the *_mac architectures have no Kubernetes equivalent.
 		return model.Server{}, false
 	}
-	deref := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return *p
-	}
 	srv := model.Server{
-		Vendor: s.VendorID, ID: s.ServerID, APIReference: s.APIReference, Family: deref(s.Family),
+		Vendor: s.VendorID, ID: s.ServerID, APIReference: s.APIReference, Family: familyOf(s),
 		VCPUs: s.VCPUs, CPUCores: s.CPUCores, CPUAllocation: s.CPUAllocation, Arch: arch,
 		CPUManufacturer: deref(s.CPUManufacturer), CPUFamily: deref(s.CPUFamily),
 		CPUSpeedGHz: s.CPUSpeed, CPUFlags: s.CPUFlags,

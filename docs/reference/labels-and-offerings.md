@@ -252,6 +252,8 @@ For a metric `<m>`:
 | `metric-<m>-pct` | type | the percentile 0 to 100, 100 best |
 | `metric-<m>-per-usd` | offering | the scaled score divided by the offering's USD per hour |
 
+- Scores belong to the type, not to a price: a type that has only spot prices
+  gets metric labels too.
 - `normalize: PerVcpu` divides the score by the vCPU count before everything
   else.
 - The percentile is across all types of **all vendors of the NodeClass**

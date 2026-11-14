@@ -882,3 +882,37 @@ func TestSelectionsRunOnTheSnapshotData(t *testing.T) {
 		}
 	}
 }
+
+// Keeper's family is a broad class since sc-crawler 0.10.4; the catalog's family
+// is the series, or the family where a vendor has none.
+func TestFamilyIsTheSeries(t *testing.T) {
+	e := newKeeperEnv(t)
+	data, err := catalogtest.SourceAt(e.URL).Load(t.Context(), catalog.Request{
+		Scope: catalog.Scope{"aws": {"us-east-1"}, "hcloud": nil, "upcloud": nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"aws/m7i.large": "m7i", "aws/t3a.small": "t3a"}
+	got := map[string]string{}
+	hcloud := map[string]bool{}
+	for _, s := range data.Servers {
+		got[s.Vendor+"/"+s.APIReference] = s.Family
+		if s.Vendor == "hcloud" {
+			hcloud[s.Family] = true
+		}
+		if s.Family == "" || (s.Vendor != "upcloud" && strings.Contains(s.Family, " ")) {
+			t.Errorf("%s/%s has family %q", s.Vendor, s.APIReference, s.Family)
+		}
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s family = %q, want %q", k, got[k], v)
+		}
+	}
+	for _, f := range []string{"cx", "cpx", "ccx", "cax"} {
+		if !hcloud[f] {
+			t.Errorf("no hcloud family %s in %v", f, hcloud)
+		}
+	}
+}
