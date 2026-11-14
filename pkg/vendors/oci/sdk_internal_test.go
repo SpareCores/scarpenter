@@ -249,7 +249,8 @@ func TestWithinDeadline(t *testing.T) {
 // as the SDK's constructor made it (here the circuit breaker its environment asks for).
 func TestSDKKeepsClientConfiguration(t *testing.T) {
 	t.Setenv("OCI_SDK_DEFAULT_CIRCUITBREAKER_ENABLED", "true")
-	c, err := NewSDK(testProvider(t), "x").computeClient("eu-frankfurt-1")
+	t.Setenv("OCI_SDK_CLIENT_TIMEOUT", "0") // no HTTP timeout at all in the SDK's own client
+	c, err := NewSDK(testProvider(t), "x", WithSDKTimeout(7*time.Second)).computeClient("eu-frankfurt-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +259,10 @@ func TestSDKKeepsClientConfiguration(t *testing.T) {
 	}
 	if p := c.RetryPolicy(); p == nil || p.MaximumNumberAttempts != 1 {
 		t.Errorf("retry policy %+v; the SDK's own retries must be off (the adapter retries)", p)
+	}
+	// A call abandoned at its deadline (within) ends by the HTTP client's timeout.
+	if hc, ok := c.HTTPClient.(*http.Client); !ok || hc.Timeout != 7*time.Second {
+		t.Errorf("HTTP client %T %+v; want the call's deadline as its timeout", c.HTTPClient, c.HTTPClient)
 	}
 }
 

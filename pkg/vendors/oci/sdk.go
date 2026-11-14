@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"sync"
 	"time"
 
@@ -105,8 +106,9 @@ func retryBackoff(n int) time.Duration {
 // when the context ends first, returns a response variable its own goroutine
 // still writes, a data race on every timed-out call (oci-go-sdk v65.130.0,
 // common/retry.go). Without a Done channel in the SDK's context that select
-// cannot fire. The abandoned request ends by the HTTP client's own timeout; its
-// result is dropped (the channel is buffered).
+// cannot fire. The abandoned request ends by the HTTP client's timeout, which
+// configure sets to the same deadline; its result is dropped (the channel is
+// buffered).
 func within[Q, R any](ctx context.Context, d time.Duration, f func(context.Context, Q) (R, error), req Q) (R, error) {
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
@@ -160,9 +162,9 @@ func invoke[Q, R any](ctx context.Context, s *SDK, retry bool, f func(context.Co
 	}
 }
 
-// configure applies what every client gets: the retry policy, the user agent and
-// the endpoint of the region. Only the retry policy of the client's configuration
-// is set: the rest (the circuit breaker the SDK's environment variables ask for,
+// configure applies what every client gets: the retry policy, the user agent, the
+// HTTP timeout and the endpoint of the region. Only the retry policy of the
+// client's configuration is set: the rest (the circuit breaker the SDK's environment variables ask for,
 // the dual-stack choice) stays as the constructor made it.
 func (s *SDK) configure(base *common.BaseClient, service, region string, setRegion func(string)) {
 	setRegion(region)
@@ -173,6 +175,11 @@ func (s *SDK) configure(base *common.BaseClient, service, region string, setRegi
 	// The SDK's retry loop is off (invoke retries); see within.
 	policy := common.NoRetryPolicy()
 	base.Configuration.RetryPolicy = &policy
+	// A call within abandons at its deadline ends by the HTTP client's timeout:
+	// the same deadline, whatever OCI_SDK_CLIENT_TIMEOUT says (0 there is none).
+	if hc, ok := base.HTTPClient.(*http.Client); ok {
+		hc.Timeout = s.timeout
+	}
 }
 
 func clientError(service, region string, err error) error {
