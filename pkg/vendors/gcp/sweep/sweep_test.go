@@ -15,6 +15,7 @@ import (
 
 	"cloud.google.com/go/compute/apiv1/computepb"
 
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp/fake"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp/sweep"
@@ -232,6 +233,45 @@ func TestSweepsAManagedRunInDependencyOrder(t *testing.T) {
 	// The seeded world's own network is not the sweep's business.
 	if !w.has("network", "", "vpc") || !w.has("subnet", fake.SeedRegion, fake.SeedSubnet) {
 		t.Fatal("the sweep deleted what is not marked")
+	}
+}
+
+// The lane's cluster names (scarpenter-ci-<run id>) are longer than the engine keeps in a
+// name, so its names carry a shortened cluster with a hash: the sweep must match those.
+func TestSweepsTheNamesTheEngineGivesALongClusterName(t *testing.T) {
+	for _, tc := range []struct{ name, cluster string }{
+		{"a short cluster name", "c1"},
+		{"the lane's cluster name", "scarpenter-ci-43633475650"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t)
+			w.at(oldAt)
+			sn := resources.ResourceName(tc.cluster, "subnets", fake.SeedRegion, "", "")
+			net := gcp.ResourceNamePrefix(tc.cluster) + "subnets"
+			fw := resources.ResourceName(tc.cluster, "firewalls", fake.SeedRegion, "z", "k")
+			w.network(net, marker(tc.cluster, "subnets"))
+			w.subnet(fake.SeedRegion, sn, net, "10.240.16.0/20", marker(tc.cluster, "subnets"))
+			w.firewall(fw, net, marker(tc.cluster, "firewalls"))
+			// Another cluster's, named by the engine for it, stays.
+			other := "scarpenter-ci-200"
+			otherSn := resources.ResourceName(other, "subnets", fake.SeedRegion, "", "")
+			otherNet := gcp.ResourceNamePrefix(other) + "subnets"
+			w.network(otherNet, marker(other, "subnets"))
+			w.subnet(fake.SeedRegion, otherSn, otherNet, "10.240.32.0/20", marker(other, "subnets"))
+
+			rep := run(t, w, sweep.Options{Cluster: tc.cluster, Regions: []string{fake.SeedRegion}})
+			if rep.Count(sweep.Failed) != 0 || rep.Count(sweep.Deleted) != 3 {
+				t.Fatalf("want 3 deleted, none failed: %+v", rep.Items)
+			}
+			for _, k := range [][3]string{{"network", "", net}, {"subnet", fake.SeedRegion, sn}, {"firewall", "", fw}} {
+				if w.has(k[0], k[1], k[2]) {
+					t.Errorf("%s %s is still there", k[0], k[2])
+				}
+			}
+			if !w.has("network", "", otherNet) || !w.has("subnet", fake.SeedRegion, otherSn) {
+				t.Error("another cluster's network was swept")
+			}
+		})
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/compute/apiv1/computepb"
 
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp/fake"
 )
@@ -231,6 +232,23 @@ func TestMarker(t *testing.T) {
 	}
 	if ResourceNamePrefix("c1") != "scarpenter-c1-" {
 		t.Fatal("prefix")
+	}
+}
+
+// The engine names the managed resources with a shortened cluster name when it is long: the
+// driver must recognise its own resources by that prefix.
+func TestOwnedByTheEnginesNames(t *testing.T) {
+	for _, c := range []string{"c1", "scarpenter-ci-43633475650"} {
+		name := resources.ResourceName(c, KindSubnets, "europe-west3", "", "")
+		if !strings.HasPrefix(name, ResourceNamePrefix(c)) {
+			t.Errorf("%q does not start with %q", name, ResourceNamePrefix(c))
+		}
+		if _, _, ok := ownedBy(c, name, MarkerDescription(c, "nc", string(KindSubnets))); !ok {
+			t.Errorf("the cluster %q does not own %q", c, name)
+		}
+		if _, _, ok := ownedBy("another", name, MarkerDescription(c, "nc", string(KindSubnets))); ok {
+			t.Errorf("another cluster owns %q", name)
+		}
 	}
 }
 

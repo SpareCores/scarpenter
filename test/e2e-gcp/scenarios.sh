@@ -397,7 +397,7 @@ scn_arm64() {
 
 # policies_of_cluster: the resource policies SCarpenter made for the cluster, as JSON.
 policies_of_cluster() {
-  gc compute resource-policies list --filter="name~^scarpenter-${E2E_CLUSTER}-" --format=json
+  gc compute resource-policies list --filter="name~^${E2E_NAME_PREFIX}" --format=json
 }
 
 scn_db() {
@@ -421,7 +421,7 @@ scn_db() {
   assert_eq "resource policies of the cluster" 1 "$(jq 'length' <<<"${pol}")"
   polname="$(jq -r '.[0].name' <<<"${pol}")"
   # scarpenter-<cluster>-<kind>-<region>-<hash>, shortened by the engine to 63 characters.
-  assert_match "the policy's name" "^scarpenter-${E2E_CLUSTER}-" "${polname}"
+  assert_match "the policy's name" "^${E2E_NAME_PREFIX}" "${polname}"
   [[ "${#polname}" -le 63 ]] || fail "the policy's name ${polname} is longer than 63 characters"
   assert_eq "the policy's description is the ownership marker" "scarpenter: cluster=${E2E_CLUSTER} nodeclass=e2e-amd64 managed-by=scarpenter resource-kind=resourcePolicies" \
     "$(jq -r '.[0].description' <<<"${pol}")"
@@ -560,7 +560,7 @@ scn_byo() {
 scn_create() {
   start_create
   wait_node "the Pod running" "${E2E_NODE_TIMEOUT}" app=e2e-create "" pod_running app=e2e-create
-  local pod node iid j net sn fws tag pfx="scarpenter-${E2E_CLUSTER}-"
+  local pod node iid j net sn fws tag pfx="${E2E_NAME_PREFIX}"
   pod="$(kubectl get pod -l app=e2e-create -o jsonpath='{.items[0].metadata.name}')"
   node="$(pod_node "${pod}")"
   iid="$(instance_of_claim "$(claim_of_node "${node}")")"
@@ -603,7 +603,7 @@ scn_create() {
 }
 
 managed_rules_of() { # managed_rules_of <nodeclass>: the managed rules whose marker names the NodeClass
-  gc compute firewall-rules list --filter="name~^scarpenter-${E2E_CLUSTER}- AND description~nodeclass=$1[[:space:]]" --format='value(name)'
+  gc compute firewall-rules list --filter="name~^${E2E_NAME_PREFIX} AND description~nodeclass=$1[[:space:]]" --format='value(name)'
 }
 
 # scn_default: no resources block: the project's default network (plan 16 section 2).
@@ -958,7 +958,7 @@ scn_uninstall() {
 # managed_names <gcloud compute collection words...>: the names of SCarpenter's resources of
 # the cluster in the collection (the byo resources carry another prefix and stay for the teardown).
 managed_names() {
-  gc compute "$@" list --filter="name~^scarpenter-${E2E_CLUSTER}-" --format='value(name)'
+  gc compute "$@" list --filter="name~^${E2E_NAME_PREFIX}" --format='value(name)'
 }
 
 # scarpenter_claims: how many NodeClaims belong to an SCNodeClass.
@@ -1018,6 +1018,9 @@ run_scenario() { # run_scenario <name>
     failure_snapshot "${name}" "${sel:-scarpenter-e2e=true}" || true
   fi
 }
+
+# The name prefix of the cluster's managed resources, in this shell: the scenarios filter names by it.
+name_prefix >/dev/null
 
 run_scenario preflight
 if [[ "${failed}" -ne 0 ]]; then

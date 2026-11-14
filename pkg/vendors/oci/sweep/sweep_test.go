@@ -19,6 +19,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/vendors/oci"
 	"github.com/SpareCores/scarpenter/pkg/vendors/oci/fake"
 	"github.com/SpareCores/scarpenter/pkg/vendors/oci/sweep"
@@ -263,6 +264,35 @@ func TestAnotherClustersResourcesAreNotTouched(t *testing.T) {
 	}
 	if st := w.instanceState(id); st != core.InstanceLifecycleStateRunning {
 		t.Errorf("the instance is %s", st)
+	}
+}
+
+// The lane's cluster names (scarpenter-ci-<run id>) are longer than the engine keeps in a
+// name, so its names carry a shortened cluster with a hash: the sweep must match those.
+func TestSweepsTheNamesTheEngineGivesALongClusterName(t *testing.T) {
+	for _, tc := range []struct{ name, cluster string }{
+		{"a short cluster name", "c1"},
+		{"the lane's cluster name", "scarpenter-ci-43633475650"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t)
+			name := resources.ResourceName(tc.cluster, oci.KindSubnets, region, "", "")
+			w.network(name, managed(tc.cluster), oldAt)
+			// Another cluster's network, named by the engine for it, stays.
+			w.network(resources.ResourceName(other, oci.KindSubnets, region, "", ""), managed(other), oldAt)
+			rep := w.sweep(sweep.Options{Cluster: tc.cluster, Regions: []string{region}})
+			if n := len(outcomes(rep, "vcn")); n != 1 {
+				t.Errorf("%d VCN outcomes, want 1: %+v", n, rep.Items)
+			}
+			for _, i := range rep.Items {
+				if i.Outcome != sweep.Deleted {
+					t.Errorf("not deleted: %+v", i)
+				}
+			}
+			if got := w.counts(); got != (counts{vcns: 2, subnets: 2, gateways: 1, routes: 1, lists: 1, groups: 3}) {
+				t.Errorf("left %+v, want the seeded network and the other cluster's", got)
+			}
+		})
 	}
 }
 
@@ -594,5 +624,10 @@ func TestNamesAgreeWithTheDriver(t *testing.T) {
 	}
 	if got := sweep.ResourceNamePrefix("c1"); got != "scarpenter-c1-" {
 		t.Errorf("prefix %q", got)
+	}
+	for _, c := range []string{"c1", "scarpenter-ci-43633475650"} {
+		if name := resources.ResourceName(c, oci.KindSubnets, region, "", ""); !strings.HasPrefix(name, sweep.ResourceNamePrefix(c)) {
+			t.Errorf("the engine's name %q does not start with %q", name, sweep.ResourceNamePrefix(c))
+		}
 	}
 }

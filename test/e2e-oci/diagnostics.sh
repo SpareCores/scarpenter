@@ -48,7 +48,9 @@ collect session-loop.log cat "${OCI_SESSION_DIR:-/nonexistent}/loop.log"
 # cannot take the time of the teardown.
 if command -v oci >/dev/null 2>&1 && [[ -n "${OCI_COMPARTMENT:-}" && -n "${E2E_CLUSTER:-}" ]]; then
   ocq() { timeout 120 oci "$@"; }
-  prefix="scarpenter-${E2E_CLUSTER}-"
+  # Read-only: if the sweeper cannot print the name prefix, the broader scarpenter- shows more.
+  name_prefix >/dev/null || E2E_NAME_PREFIX="scarpenter-"
+  prefix="${E2E_NAME_PREFIX}"
   byo="scarpenter-e2e-byo-${E2E_RUN_ID:-0}"
   collect instances.json bash -c "
     oci compute instance list --compartment-id '${OCI_COMPARTMENT}' --all --output json | jq --arg c '${E2E_CLUSTER}' '[(.data // [])[] |

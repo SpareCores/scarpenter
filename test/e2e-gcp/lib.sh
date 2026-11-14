@@ -33,6 +33,16 @@ ns="scarpenter-system"
 # The label every instance and disk of the cluster carries (gcp.TagKey of the cluster tag).
 ctag="scarpenter-cluster"
 label_domain="scarpenter.sparecores.com"
+
+# name_prefix: what the names of the cluster's managed resources start with. The engine shortens
+# a long cluster name (a hash is appended), so it is not scarpenter-${E2E_CLUSTER}-: the sweeper
+# prints it (pkg/resources.NamePrefix), the one place that knows. Cached in E2E_NAME_PREFIX.
+name_prefix() {
+  if [[ -z "${E2E_NAME_PREFIX:-}" ]]; then
+    E2E_NAME_PREFIX="$(cd "${e2e_root}" && go run ./test/e2e-gcp/sweeper -print-name-prefix -cluster "${E2E_CLUSTER}")" || return 1
+  fi
+  printf '%s\n' "${E2E_NAME_PREFIX}"
+}
 export CLOUDSDK_CORE_DISABLE_PROMPTS=1 CLOUDSDK_CORE_DISABLE_USAGE_REPORTING=true CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK=true
 
 # ------------------------------------------------------------ redaction -----

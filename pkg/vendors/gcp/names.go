@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -267,7 +268,7 @@ func LabelFilter(tags map[vendors.TagKey]string) string {
 
 // ResourceNamePrefix is the name prefix of the resources SCarpenter manages for a
 // cluster (networks, subnets, firewall rules, resource policies have no labels).
-func ResourceNamePrefix(cluster string) string { return LabelPrefix + cluster + "-" }
+func ResourceNamePrefix(cluster string) string { return resources.NamePrefix(cluster) }
 
 // MarkerDescription is the description that, with the name prefix, marks a
 // managed resource (ADR-018's fallback): both are required before the garbage

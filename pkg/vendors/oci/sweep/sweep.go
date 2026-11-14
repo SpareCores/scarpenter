@@ -50,6 +50,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 
+	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/oci"
 )
@@ -85,8 +86,9 @@ const (
 )
 
 // ResourceNamePrefix is the display name prefix of the resources SCarpenter manages
-// for a cluster.
-func ResourceNamePrefix(cluster string) string { return oci.TagPrefix + cluster + "-" }
+// for a cluster: what the engine names them with (resources.NamePrefix), which is not
+// the raw cluster name when that is long.
+func ResourceNamePrefix(cluster string) string { return resources.NamePrefix(cluster) }
 
 // VolumesAPI is the part of the Block Volume service the sweep needs. The driver has no
 // block storage calls: the command implements it over the SDK.

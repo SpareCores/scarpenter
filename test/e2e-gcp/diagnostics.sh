@@ -47,7 +47,9 @@ collect tailscale-status.txt tailscale status --peers=false
 # a hung gcloud cannot take the time of the teardown.
 if command -v gcloud >/dev/null 2>&1 && [[ -n "${GCP_PROJECT:-}" && -n "${E2E_CLUSTER:-}" ]]; then
   gcq() { timeout 120 gcloud --project "${GCP_PROJECT}" --quiet "$@"; }
-  prefix="scarpenter-${E2E_CLUSTER}-"
+  # Read-only: if the sweeper cannot print the name prefix, the broader scarpenter- shows more.
+  name_prefix >/dev/null || E2E_NAME_PREFIX="scarpenter-"
+  prefix="${E2E_NAME_PREFIX}"
   collect instances.json gcq compute instances list --filter="labels.${ctag}=${E2E_CLUSTER}" \
     --format='json(name,zone.basename(),machineType.basename(),status,scheduling,creationTimestamp,labels,tags,metadata.items[].key,disks[].deviceName,networkInterfaces[].subnetwork.basename(),resourcePolicies)'
   collect disks.json gcq compute disks list --filter="labels.${ctag}=${E2E_CLUSTER}" \

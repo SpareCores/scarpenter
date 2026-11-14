@@ -36,6 +36,16 @@ ns="scarpenter-system"
 # The freeform tag every instance of the cluster carries (oci.TagKey of the cluster tag).
 ctag="scarpenter-cluster"
 label_domain="scarpenter.sparecores.com"
+
+# name_prefix: what the names of the cluster's managed resources start with. The engine shortens
+# a long cluster name (a hash is appended), so it is not scarpenter-${E2E_CLUSTER}-: the sweeper
+# prints it (pkg/resources.NamePrefix), the one place that knows. Cached in E2E_NAME_PREFIX.
+name_prefix() {
+  if [[ -z "${E2E_NAME_PREFIX:-}" ]]; then
+    E2E_NAME_PREFIX="$(cd "${e2e_root}" && go run ./test/e2e-oci/sweeper -print-name-prefix -cluster "${E2E_CLUSTER}")" || return 1
+  fi
+  printf '%s\n' "${E2E_NAME_PREFIX}"
+}
 export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True OCI_CLI_REGION="${OCI_REGION}"
 
 # ------------------------------------------------------------ redaction -----

@@ -52,6 +52,12 @@ left="$(cluster_instances | wc -l | tr -d ' ')"
 (cd "${root}" && go run ./test/e2e-gcp/sweeper -project "${GCP_PROJECT}" -cluster "${E2E_CLUSTER}" -max-age 0 -regions "${GCP_REGION}" -wait 5m) ||
   problem "the sweeper failed"
 
+# The name prefix the engine gave the managed resources (a long cluster name is shortened).
+name_prefix >/dev/null || {
+  problem "could not get the name prefix of the managed resources; filtering by the raw cluster name"
+  E2E_NAME_PREFIX="scarpenter-${E2E_CLUSTER}-"
+}
+
 log "3. nothing of ${E2E_CLUSTER} may remain"
 leaks() { # leaks <what> <command printing the names>
   local out
@@ -62,7 +68,7 @@ leaks() { # leaks <what> <command printing the names>
   [[ -z "${out}" ]] || problem "${1} left: ${out}"
 }
 # Names: SCarpenter's managed resources and the lane's own byo resources.
-managed="^scarpenter-${E2E_CLUSTER}-"
+managed="^${E2E_NAME_PREFIX}"
 byo="^scarpenter-e2e-byo-${E2E_RUN_ID}"
 names="name~${managed} OR name~${byo}"
 leaks instances cluster_instances

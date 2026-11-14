@@ -52,6 +52,12 @@ left="$(cluster_instances | wc -l | tr -d ' ')"
 (cd "${root}" && go run ./test/e2e-oci/sweeper -cluster "${E2E_CLUSTER}" -max-age 0 -regions "${OCI_REGION}" -boot-volumes -wait 5m) ||
   problem "the sweeper failed"
 
+# The name prefix the engine gave the managed resources (a long cluster name is shortened).
+name_prefix >/dev/null || {
+  problem "could not get the name prefix of the managed resources; filtering by the raw cluster name"
+  E2E_NAME_PREFIX="scarpenter-${E2E_CLUSTER}-"
+}
+
 log "3. nothing of ${E2E_CLUSTER} may remain"
 leaks() { # leaks <what> <command printing the names>
   local out
@@ -65,7 +71,7 @@ leaks() { # leaks <what> <command printing the names>
 # are not terminated: SCarpenter's managed ones (the tag and the name prefix) and the lane's own byo ones.
 net_left() {
   oc network "$1" list --compartment-id "${OCI_COMPARTMENT}" --all --output json |
-    jq -r --arg c "${E2E_CLUSTER}" --arg p "scarpenter-${E2E_CLUSTER}-" --arg b "scarpenter-e2e-byo-${E2E_RUN_ID}" '
+    jq -r --arg c "${E2E_CLUSTER}" --arg p "${E2E_NAME_PREFIX}" --arg b "scarpenter-e2e-byo-${E2E_RUN_ID}" '
       (.data // [])[] | select(."lifecycle-state" != "TERMINATED")
       | select((."freeform-tags"["scarpenter-cluster"] == $c) or ((."display-name" // "") | startswith($p)) or ((."display-name" // "") | startswith($b)))
       | ."display-name"'

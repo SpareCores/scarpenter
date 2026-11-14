@@ -57,7 +57,17 @@ func run() int {
 		callTimeout = flag.Duration("call-timeout", oci.DefaultCallTimeout, "the deadline of one API call")
 		timeout     = flag.Duration("timeout", 25*time.Minute, "the deadline of the whole sweep")
 	)
+	printPrefix := flag.Bool("print-name-prefix", false,
+		"print the name prefix of the managed resources of -cluster and exit (what the lane's scripts filter names by)")
 	flag.Parse()
+	if *printPrefix {
+		if *cluster == "" {
+			fmt.Fprintln(os.Stderr, "sweeper: -print-name-prefix needs -cluster")
+			return 2
+		}
+		fmt.Println(sweep.ResourceNamePrefix(*cluster))
+		return 0
+	}
 
 	vars, err := ocienv.Need(os.Getenv, ocienv.Compartment, ocienv.Tenancy)
 	if err != nil {

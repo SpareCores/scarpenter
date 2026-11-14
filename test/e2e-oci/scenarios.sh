@@ -500,7 +500,7 @@ byo_snapshot() {
 scn_create() {
   start_create
   wait_node "the Pod running" "${E2E_NODE_TIMEOUT}" app=e2e-create "" pod_running app=e2e-create
-  local pod node iid vnic vcn sn g pfx="scarpenter-${E2E_CLUSTER}-"
+  local pod node iid vnic vcn sn g pfx="${E2E_NAME_PREFIX}"
   pod="$(kubectl get pod -l app=e2e-create -o jsonpath='{.items[0].metadata.name}')"
   node="$(pod_node "${pod}")"
   iid="$(instance_of_claim "$(claim_of_node "${node}")")"
@@ -545,7 +545,7 @@ scn_create() {
 # ownership tags and the name prefix, all required), not terminated, as a JSON list.
 managed_json() {
   oc network "$1" list --compartment-id "${OCI_COMPARTMENT}" --all --output json |
-    jq --arg c "${E2E_CLUSTER}" --arg p "scarpenter-${E2E_CLUSTER}-" '[(.data // [])[]
+    jq --arg c "${E2E_CLUSTER}" --arg p "${E2E_NAME_PREFIX}" '[(.data // [])[]
       | select(."lifecycle-state" != "TERMINATED" and ."lifecycle-state" != "TERMINATING")
       | select(."freeform-tags"["scarpenter-cluster"] == $c and ."freeform-tags"["scarpenter-managed-by"] == "scarpenter" and ((."display-name" // "") | startswith($p)))]'
 }
@@ -943,6 +943,9 @@ run_scenario() { # run_scenario <name>
     failure_snapshot "${name}" "${sel:-scarpenter-e2e=true}" || true
   fi
 }
+
+# The name prefix of the cluster's managed resources, in this shell: the scenarios filter names by it.
+name_prefix >/dev/null
 
 run_scenario preflight
 if [[ "${failed}" -ne 0 ]]; then
