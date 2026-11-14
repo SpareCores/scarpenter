@@ -1,0 +1,69 @@
+# The NodePools of the lane. Consolidation is WhenEmpty with 0 s, so an empty node goes
+# at once (the scale-to-zero exit criterion); limits keep a runaway small; every pool
+# lists the instance types it may launch (the quota pins and the docs name the same ones), and
+# the workloads select their pool, so that two pools with the same type never compete.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-amd64
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-amd64}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [oci]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_TYPE_AMD64}"]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "8"}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-spot
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-amd64}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [oci]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [spot]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_TYPE_AMD64}"]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "4"}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-drift
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-drift}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [oci]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_TYPE_AMD64}"]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "8"}
+---
+# The described-not-named pool: the NodeClass of the amd64 scenarios, three sizes of the E5 flexible
+# shape. The workload narrows it with vcpus and memory.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-described
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-amd64}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [oci]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: [${E2E_TYPES_DESCRIBED_YAML}]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "8"}

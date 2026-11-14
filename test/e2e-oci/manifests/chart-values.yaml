@@ -1,0 +1,65 @@
+# The values the OCI L5 lane installs the chart with (install.sh adds the image of the
+# build under test). What is left unset is the chart's own default on purpose: the
+# cluster DNS is found by the controller (kube-dns Service of the k3s cluster), the
+# sysexts come from the upstream releases, the OCI catalog is the one embedded in the binary
+# (catalog.embeddedVendors defaults to oci: no Keeper key is needed), and the kubelet client CA is
+# copied from kube-system/extension-apiserver-authentication (the client CA of k3s, which
+# `kubectl logs` and `exec` need).
+#
+# Credentials: the keyless token exchange (plan 25 section 4), the controller's workloadIdentityFederation
+# mode with the token of the job: GitHub's OIDC token, renewed by oci-session.sh into the Secret
+# oci-federated-token, is the token file the controller reads at every exchange; the identity domain, the
+# confidential application and its client secret (the Secret oci-client of install.sh) are the lane's
+# own. The chart's own workloadIdentityFederation mode projects the ServiceAccount token of the cluster,
+# whose issuer is not public on an ephemeral runner (the identity domain could not trust it), so the
+# chart's credentials mode is none (it wires nothing and renders --oci-auth=apiKey); the flags and mounts
+# are the lane's own, through the chart's generic extraArgs, extraVolumes and extraVolumeMounts. The flags
+# of extraArgs come last, and the last --oci-auth wins: selftest.sh renders the chart and checks that.
+cluster:
+  name: ${E2E_CLUSTER}
+  # The API server's tailnet address: the nodes reach it over Tailscale.
+  apiServerEndpoint: https://${E2E_API_HOST}:6443
+kubeletClientCA:
+  source: extensionApiserverAuthentication
+vendors:
+  aws:
+    enabled: false
+  oci:
+    enabled: true
+    compartment: ${OCI_COMPARTMENT}
+    credentials:
+      mode: none
+extraArgs:
+  - --oci-auth=workloadIdentityFederation
+  - --oci-region=${OCI_HOME_REGION}
+  - --oci-token-file=/var/run/secrets/oci/token
+  - --oci-identity-domain-url=${OCI_IDENTITY_DOMAIN_URL}
+  - --oci-client-id=${OCI_CLIENT_ID}
+  - --oci-client-secret-file=/etc/scarpenter/oci-client/client-secret
+extraVolumes:
+  - name: oci-federated-token
+    secret: {secretName: oci-federated-token, defaultMode: 0440}
+  - name: oci-client
+    secret: {secretName: oci-client, defaultMode: 0440}
+extraVolumeMounts:
+  - {name: oci-federated-token, mountPath: /var/run/secrets/oci, readOnly: true}
+  - {name: oci-client, mountPath: /etc/scarpenter/oci-client, readOnly: true}
+# Short intervals: the quota scenarios wait for refreshes (E2E_QUOTA_REFRESH).
+quota:
+  refreshInterval: 30s
+  limitsRefreshInterval: 1m
+  launchableRefreshInterval: 5m
+gc: {interval: 1m}
+# Once its NodeClass is deleted, a managed network or group (idleTTL kinds) is governed
+# by this default, not by the NodeClass's own lifetime: without it the uninstall scenario would
+# wait for a 24-hour TTL.
+managedResources: {defaultTTL: 5m}
+karpenter:
+  logLevel: debug
+# The control plane's node carries the CriticalAddonsOnly taint (bootstrap.sh), so
+# that test workloads land on SCarpenter's nodes only.
+tolerations:
+  - {key: CriticalAddonsOnly, operator: Exists}
+resources:
+  requests: {cpu: 200m, memory: 640Mi}
+  limits: {memory: 1536Mi}

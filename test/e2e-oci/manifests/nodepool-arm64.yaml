@@ -1,0 +1,16 @@
+# The pool of the arm64 scenario: A1 and, where its capacity is short, A2.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-arm64
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-arm64}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [oci]}
+        - {key: kubernetes.io/arch, operator: In, values: [arm64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: [${E2E_TYPES_ARM64_YAML}]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "8"}

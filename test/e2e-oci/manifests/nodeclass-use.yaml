@@ -1,0 +1,30 @@
+# The NodeClass of the bring-your-own-resources scenario: the VCN, the subnet and the network
+# security group the workflow created with the oci CLI (named scarpenter-e2e-byo-<run id>*, tagged
+# e2e-byo-cluster=<cluster>, a tag the sweeper reads and the controller's garbage collector does
+# not recognize) are used, not created. Applied by the scenario, after the resources exist.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-use
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time and the run on every instance of the run (freeform tags), which the
+  # sweeper reads (a tag key and value: letters, digits, - and _).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    oci:
+      regions: [${OCI_REGION}]
+      storage:
+        root: {sizeGb: ${E2E_ROOT_GB}, performance: balanced}
+      resources:
+        subnets: {use: {ids: {${OCI_REGION}: ["${E2E_BYO_SUBNET}"]}}}
+        networkSecurityGroups: {use: {ids: {${OCI_REGION}: ["${E2E_BYO_NSG}"]}}}

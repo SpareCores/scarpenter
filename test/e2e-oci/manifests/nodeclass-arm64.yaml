@@ -1,0 +1,29 @@
+# The NodeClass of the arm64 scenario (E2E_ARM64=true): the same, on the arm64 image
+# (flatcar-<channel>-<version>-arm64, with the capability schema and the Arm shapes added to its
+# compatibility, docs/how-to-guides/oci-images.md). The pool names the Arm shapes.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-arm64
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time and the run on every instance of the run (freeform tags), which the
+  # sweeper reads (a tag key and value: letters, digits, - and _).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    oci:
+      regions: [${OCI_REGION}]
+      storage:
+        root: {sizeGb: ${E2E_ROOT_GB}, performance: balanced}
+      resources:
+        subnets: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
+        networkSecurityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

@@ -1,0 +1,35 @@
+# The described scenario: the pool allows three sizes of the E5 flexible shape; the workload asks
+# for 2 vCPUs (more than 1, fewer than 3: one OCPU) and more than 6000 MiB of memory, which rules
+# out the 4 GB size and the 4 vCPU size and leaves oci.VM.Standard.E5.Flex.1-8. Node affinity,
+# because Gt and Lt are not available to a nodeSelector. (The embedded OCI catalog has no benchmark
+# scores, so there is no percentile to ask for.)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-described
+  labels: {app: e2e-described, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-described}
+  template:
+    metadata:
+      labels: {app: e2e-described, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 0
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-described
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: scarpenter.sparecores.com/vcpus, operator: Gt, values: ["1"]}
+                  - {key: scarpenter.sparecores.com/vcpus, operator: Lt, values: ["3"]}
+                  - {key: scarpenter.sparecores.com/memory-mib, operator: Gt, values: ["6000"]}
+      containers:
+        - name: probe
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command: [sh, -c, "exec sleep 86400"]
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}

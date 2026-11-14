@@ -1,0 +1,35 @@
+# The NodeClass of the amd64 scenarios (plan 25 section 11): the tailscale template with pinned
+# versions and a small balanced boot volume. The network, the subnet and the group are SCarpenter's
+# own (create, a short idle lifetime so that the uninstall scenario sees them go): a tenancy has
+# no default network and the lane brings none for this class. The Flatcar image is the one the
+# lane's operator imported into the compartment, found by name (flatcar-<channel>-<version>-amd64).
+#
+# It must exist before the controller starts: the label keys of a NodeClass's
+# metrics are registered with Karpenter core at start-up (install.sh applies it
+# before the chart).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-amd64
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      # The auth key Secret of install.sh: minted through the Tailscale API,
+      # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time and the run on every instance of the run (freeform tags), which the
+  # sweeper reads (a tag key and value: letters, digits, - and _).
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    oci:
+      regions: [${OCI_REGION}]
+      storage:
+        root: {sizeGb: ${E2E_ROOT_GB}, performance: balanced}
+      resources:
+        subnets: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
+        networkSecurityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
