@@ -408,6 +408,11 @@ type VendorSettings struct {
 	// Raw is the merged vendor block (regions and resources removed): its
 	// storage member already holds the selected storage profile.
 	Raw json.RawMessage
+	// Resources is the vendor block's resources member as the NodeClass wrote it
+	// (not merged, not part of Raw): what a driver needs of the create blocks to
+	// make a resource, for example the range of a managed network. nil when the
+	// NodeClass has none.
+	Resources json.RawMessage
 	// Network and Placement are the blocks of the selected network and
 	// placement profiles; nil with the default.
 	Network   json.RawMessage

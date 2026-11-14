@@ -83,7 +83,7 @@ func Resolve(no vendors.NodeOptions, in Input, sel Selection) (vendors.VendorSet
 	}
 	merged := merge(base, block)
 
-	s := vendors.VendorSettings{Networking: in.Networking, Profiles: sel.Applied()}
+	s := vendors.VendorSettings{Networking: in.Networking, Profiles: sel.Applied(), Resources: in.Resources}
 	for _, kind := range kinds {
 		name := sel.Name(kind)
 		if name == vendors.DefaultProfile {

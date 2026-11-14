@@ -26,6 +26,9 @@ type Input struct {
 	// Block is the vendor block without regions, resources and networking
 	// (JSON of the vendor package's Settings).
 	Block json.RawMessage
+	// Resources is the vendor block's resources member, as written; it is not
+	// part of Block (it is not node configuration: it does not drift nodes).
+	Resources json.RawMessage
 	// Networking is spec.networking with the vendor block's override applied.
 	Networking common.Networking
 	// Profiles are the vendor's blocks of the profiles by kind and name; a
@@ -74,6 +77,11 @@ func InputFromNodeClass(nc *v1alpha1.SCNodeClass, vendor string) (in Input, ok b
 		override = &common.NetworkingOverride{}
 		if err := json.Unmarshal(ob, override); err != nil {
 			return Input{}, true, fmt.Errorf("decoding the %s networking override: %w", vendor, err)
+		}
+	}
+	if r, has := m["resources"]; has {
+		if in.Resources, err = json.Marshal(r); err != nil {
+			return Input{}, true, fmt.Errorf("encoding the %s resources: %w", vendor, err)
 		}
 	}
 	delete(m, "regions")

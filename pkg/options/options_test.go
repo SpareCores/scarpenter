@@ -181,6 +181,15 @@ func TestInputStripsWhatTheDriverDoesNotDecideAndKeepsProfilesPerVendor(t *testi
 	if _, has := block["storage"]; !has {
 		t.Errorf("the block lost its storage: %s", in.Block)
 	}
+	// The resources member is kept apart for the driver (the create parameters), and reaches the
+	// resolved settings without becoming node configuration.
+	if len(in.Resources) == 0 || !strings.Contains(string(in.Resources), "{") {
+		t.Errorf("the resources member is lost: %q", in.Resources)
+	}
+	if s, err := options.Resolve(driver{}, in, options.Selection{}); err != nil ||
+		string(s.Resources) != string(in.Resources) || strings.Contains(string(s.Raw), "resources") {
+		t.Errorf("Resolve: resources %q raw %q err %v", s.Resources, s.Raw, err)
+	}
 	// The generic networking is the NodeClass's with the vendor's override.
 	if !*in.Networking.PublicIPv4 || !*in.Networking.PublicIPv6 || in.Networking.Isolation != common.IsolationNodeClass {
 		t.Errorf("networking = %+v", in.Networking)
