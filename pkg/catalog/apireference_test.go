@@ -162,7 +162,7 @@ func TestDuplicateReferenceInASnapshotKeepsTheLowerID(t *testing.T) {
 // The committed Keeper snapshot has no duplicates: the rule changes the data of
 // no vendor in it.
 func TestRuleRChangesNothingInTheCommittedSnapshot(t *testing.T) {
-	var rows []keeper.TableServer
+	rows := make([]keeper.TableServer, 0, 8000)
 	for _, v := range []string{"aws", "gcp", "azure", "alicloud", "hcloud", "ovh", "upcloud", "vultr"} {
 		rows = append(rows, catalogtest.Rows[keeper.TableServer](t, "server/"+v)...)
 	}
