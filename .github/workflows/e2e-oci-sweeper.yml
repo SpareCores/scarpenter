@@ -111,3 +111,8 @@ jobs:
           args=(-max-age "${age}" -regions "${regions}" -boot-volumes)
           if [ "${INPUT_DRY_RUN}" = "true" ]; then args+=(-dry-run); fi
           go run ./test/e2e-oci/sweeper "${args[@]}"
+
+      # The renewal loop ends and the key, the tokens and the client secret are removed.
+      - name: End the OCI session
+        if: always()
+        run: test/e2e-oci/oci-session.sh stop "${RUNNER_TEMP}/oci-session"

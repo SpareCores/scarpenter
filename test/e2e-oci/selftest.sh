@@ -333,12 +333,14 @@ t_session() {
   local d="${tmp}/session"
   : >"${STUB_CURL_LOG}" && : >"${tmp}/github-env"
   session_env "${here}/oci-session.sh" start "${d}" >"${tmp}/session.out"
-  "${here}/oci-session.sh" stop "${d}"
+  [[ -s "${d}/loop.pid" ]] || { echo "no loop"; return 1; }
   [[ "$(stat -c %a "${d}/oidc-token" "${d}/session-token" "${d}/session.pem" "${d}/client-secret" "${d}/config" | sort -u)" == 600 ]] || { echo "modes"; return 1; }
   [[ "$(cat "${d}/session-token")" == UPST-FROM-THE-DOMAIN ]] || { echo "the session token"; return 1; }
   grep_all "${d}/config" '^\[CI\]$' "^tenancy=${OCI_TENANCY}$" "^key_file=${d}/session.pem$" "^security_token_file=${d}/session-token$" || { echo "the config"; cat "${d}/config"; return 1; }
   # What the exchange sent: the token and the public key in the body, the application's credentials as a Basic header file.
   grep_all "${STUB_CURL_BODY}" 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange' 'requested_token_type=urn%3Aoci%3Atoken-type%3Aoci-upst' 'subject_token_type=jwt' 'subject_token=eyJ' 'public_key=MII' || { echo "the body"; cat "${STUB_CURL_BODY}"; return 1; }
+  # The body is the form and nothing else: no trailing newline in the public key.
+  [[ "$(tail -c1 "${STUB_CURL_BODY}" | od -An -c | tr -d ' ')" != '\n' ]] || { echo "the body ends with a newline"; return 1; }
   grep -q "^HEADER Authorization: Basic $(printf '%s:%s' client-1 the-client-secret-value | base64 -w0)\$" "${STUB_CURL_LOG}" || { echo "the Basic header"; return 1; }
   grep -q '^AUDIENCE oci-federation$' "${STUB_CURL_LOG}" || { echo "the audience"; cat "${STUB_CURL_LOG}"; return 1; }
   # No secret on a command line: not the client secret, not the request token, not the OIDC token.
@@ -348,8 +350,12 @@ t_session() {
   ! grep -v '^::add-mask::' "${tmp}/session.out" | grep -qE 'eyJ|UPST-FROM|the-client-secret' || { echo "a token is printed"; return 1; }
   # The variables of the next steps.
   grep_all "${tmp}/github-env" "^OCI_CLI_CONFIG_FILE=${d}/config$" '^OCI_CLI_PROFILE=CI$' '^OCI_CLI_AUTH=security_token$' "^OCI_TOKEN_FILE=${d}/oidc-token$" "^OCI_CLIENT_SECRET_FILE=${d}/client-secret$" || { echo "GITHUB_ENV"; cat "${tmp}/github-env"; return 1; }
-  # The loop was ended by stop.
-  [[ ! -e "${d}/loop.pid" ]]
+  # stop ends the loop and removes the directory with the key, the tokens and the secret.
+  local pid
+  pid="$(cat "${d}/loop.pid")"
+  "${here}/oci-session.sh" stop "${d}"
+  [[ ! -e "${d}" ]] || { echo "the session directory is left"; return 1; }
+  ! kill -0 "${pid}" 2>/dev/null || { echo "the loop still runs"; return 1; }
 }
 t_session_refuses() {
   ! (env -u OCI_CLIENT_SECRET PATH="${tmp}/bin:${PATH}" OCI_TENANCY=x OCI_REGION=r OCI_IDENTITY_DOMAIN_URL=https://x OCI_CLIENT_ID=c OCI_OIDC_AUDIENCE=a "${here}/oci-session.sh" once "${tmp}/s2") &&
@@ -417,6 +423,11 @@ t_workflows_oci() { # keyless credentials, no key file, a CLI pinned by version,
   grep -q 'oci-session.sh' "${w}/e2e-oci-sweeper.yml" || { echo "the sweeper does not run oci-session.sh"; return 1; }
   grep -qE '^    environment: e2e-sweeper$' "${w}/e2e-oci-sweeper.yml" || { echo "the sweeper is not in the environment e2e-sweeper"; return 1; }
   grep -q 'id-token: write' "${w}/e2e-oci-sweeper.yml" || { echo "the sweeper cannot request the OIDC token"; return 1; }
+  # Every job that starts a session ends it (the teardown does in e2e-cloud.yml).
+  for f in e2e-canary.yml e2e-oci-sweeper.yml; do
+    grep -q 'oci-session.sh stop' "${w}/${f}" || { echo "${f} does not end the session"; return 1; }
+  done
+  grep -q 'oci-session.sh" stop' "${here}/teardown.sh" || { echo "the teardown does not end the session"; return 1; }
   # The teardown asks for a fresh session first.
   grep_all "${w}/e2e-cloud.yml" 'Teardown' 'again for the teardown (oci)' || { echo "no fresh session before the teardown"; return 1; }
   # No API key of the account is stored anywhere: no private key, fingerprint or user OCID variable.

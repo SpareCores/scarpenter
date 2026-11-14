@@ -279,6 +279,11 @@ jobs:
           mkdir -p out
           test/canary/run.sh "${E2E_VENDOR}" | tee "out/canary-${E2E_VENDOR}.txt"
 
+      # The renewal loop ends and the key, the tokens and the client secret are removed.
+      - name: End the OCI session (oci)
+        if: always() && matrix.vendor == 'oci'
+        run: test/e2e-oci/oci-session.sh stop "${RUNNER_TEMP}/oci-session"
+
       - name: Summary
         if: always()
         run: |

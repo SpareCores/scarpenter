@@ -22,7 +22,8 @@
 #   oci-session.sh once  <dir>    fetch a token, exchange it, write everything (mode 0600)
 #   oci-session.sh loop  <dir>    renew until stopped or E2E_OCI_SESSION_MAX_SECONDS
 #   oci-session.sh start <dir>    once, export the variables to GITHUB_ENV, detach a loop (<dir>/loop.pid)
-#   oci-session.sh stop  <dir>    end the loop recorded in <dir>/loop.pid
+#   oci-session.sh stop  <dir>    end the loop recorded in <dir>/loop.pid and remove <dir> (the key, the
+#                                tokens and the client secret)
 #
 # Environment: ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (the job's permission
 # id-token: write); OCI_TENANCY, OCI_REGION, OCI_IDENTITY_DOMAIN_URL (https://idcs-<id>.identity.oraclecloud.com),
@@ -82,9 +83,11 @@ exchange() {
       "subject_token_type=jwt",
       "subject_token=" + ($t | rtrimstr("\n") | @uri),
       "public_key=" + ($p | @uri)] | join("&")')"
-  resp="$(curl -fsS --retry 3 -H @<(printf 'Authorization: Basic %s\n' "${basic}") \
+  # printf, not a here-string: --data-binary sends the bytes as they are, and a here-string's
+  # newline would end up in the value of the last field (the public key).
+  resp="$(printf '%s' "${body}" | curl -fsS --retry 3 -H @<(printf 'Authorization: Basic %s\n' "${basic}") \
     -H 'Content-Type: application/x-www-form-urlencoded' --data-binary @- \
-    "${OCI_IDENTITY_DOMAIN_URL%/}/oauth2/v1/token" <<<"${body}")" || return 1
+    "${OCI_IDENTITY_DOMAIN_URL%/}/oauth2/v1/token")" || return 1
   tok="$(jq -er '.token // .access_token' <<<"${resp}")" || return 1
   printf '%s' "${tok}" | write_private "${dir}/session-token"
   [[ "${OCI_SESSION_MASK:-}" != true ]] || echo "::add-mask::${tok}"
@@ -186,8 +189,8 @@ case "${cmd}" in
       if [[ "${pid}" =~ ^[0-9]+$ ]] && tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null | grep -q "oci-session.sh loop"; then
         kill "${pid}" 2>/dev/null || true
       fi
-      rm -f "${dir}/loop.pid"
     fi
+    rm -rf "${dir}"
     ;;
   *)
     echo "unknown command ${cmd}" >&2
