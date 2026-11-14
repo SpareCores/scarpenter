@@ -140,9 +140,6 @@ func (r embeddedReader) snapLogger() logr.Logger { return r.logger }
 
 // file implements snapshotFiles. A path that is not listed does not exist.
 func (s *EmbeddedSource) file(_ context.Context, path string) (*keeper.SnapshotBody, int, error) {
-	if path == manifestPath {
-		return nil, 0, fmt.Errorf("embedded catalog of %s: %w", s.vendor, fs.ErrNotExist)
-	}
 	mf, ok := s.manifest.Lookup(path)
 	if !ok {
 		return nil, 0, fmt.Errorf("embedded catalog of %s: %s is not in the manifest: %w", s.vendor, path, fs.ErrNotExist)

@@ -40,9 +40,6 @@ type Operator struct {
 	// staticCatalogs are the catalogs of the drivers that bring their own
 	// (vendors.CatalogProvider), set by NewComponents.
 	staticCatalogs map[string]catalog.Source
-	// embeddedCatalogs are the catalogs compiled into the binary of the vendors
-	// in --embedded-catalog-vendors, built by WithCatalog.
-	embeddedCatalogs map[string]catalog.Source
 
 	// clusterState is Karpenter's in-memory cluster state, built by
 	// WithCoreControllers and shared with the billing retention controller.

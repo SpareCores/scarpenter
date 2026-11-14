@@ -352,8 +352,9 @@ reason `KeeperAPIKeyRequired`.
 by the same code that reads Keeper's snapshot (rule R included, so the sized
 types of a shape have their own names), and never from Keeper: a request that
 concerns only them makes no Keeper request and needs no key. The data is static;
-the start-up log says `vendor oci is served from the embedded catalog (data of
-<date>); prices and sizes are static`. The embedded data reports no Keeper data
+when the vendor's driver is enabled (`--vendors`), the start-up log says
+`vendor oci is served from the embedded catalog (data of <date>); prices and
+sizes are static` and the gauge below is `1`. The embedded data reports no Keeper data
 version or publication time (the `Keeper data version ..., published ...` status
 message and the published-at metric stay those of Keeper's own data) and has no
 benchmark scores (its metric and selection labels are `DoesNotExist`). Its
@@ -371,7 +372,7 @@ Metrics (Prometheus, on the metrics port):
 | `scarpenter_catalog_offerings` | gauge | `vendor` | Priced offerings (price rows in scope, before the driver's zone mapping). |
 | `scarpenter_catalog_data_published_timestamp_seconds` | gauge | | Unix time Keeper published the data version of the snapshot (`SC-Data-Published-At`): the age of the data, not of the read. |
 | `scarpenter_catalog_keeper_unauthorized` | gauge | | `1` after Keeper answered a refresh with 401, `0` after a successful snapshot read. |
-| `scarpenter_catalog_embedded_vendor` | gauge | `vendor` | `1` for each vendor served from the embedded catalog (`--embedded-catalog-vendors`) instead of Keeper: its prices and sizes are static. |
+| `scarpenter_catalog_embedded_vendor` | gauge | `vendor` | `1` for each enabled vendor served from the embedded catalog (`--embedded-catalog-vendors`) instead of Keeper: its prices and sizes are static. |
 
 At start-up, before core's controllers are built, the controller lists the
 SCNodeClasses and registers their `metric-<m>` keys, and all `cpu-flag-<flag>`

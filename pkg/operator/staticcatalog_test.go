@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package operator
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -62,34 +63,41 @@ func TestStaticCatalogsRejectsAnInvalidCatalog(t *testing.T) {
 }
 
 func TestOwnCatalogsAddsTheEmbeddedVendorsOfTheOption(t *testing.T) {
-	o := &Operator{Options: &options.Options{EmbeddedCatalogVendors: []string{"oci"}}}
+	o := &Operator{Options: &options.Options{EmbeddedCatalogVendors: []string{"oci"}, Vendors: []string{"oci", "dev"}}}
 	o.staticCatalogs = map[string]catalog.Source{"dev": nil}
-	own, err := o.ownCatalogs(logr.Discard())
+	own, embedded, err := o.ownCatalogs(logr.Discard())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(own) != 2 || own["oci"] == nil || len(o.embeddedCatalogs) != 1 || o.embeddedCatalogs["oci"] == nil {
-		t.Errorf("own catalogs %v, embedded %v", own, o.embeddedCatalogs)
+	if len(own) != 2 || own["oci"] == nil || !slices.Equal(embedded, []string{"oci"}) {
+		t.Errorf("own catalogs %v, embedded %v", own, embedded)
 	}
 	if len(o.staticCatalogs) != 1 {
 		t.Errorf("the static catalogs were changed: %v", o.staticCatalogs)
 	}
 
+	// Without the vendor's driver the vendor is still served from the embedded
+	// catalog, but not reported as such (no log line, no gauge).
+	o = &Operator{Options: &options.Options{EmbeddedCatalogVendors: []string{"oci"}, Vendors: []string{"aws"}}}
+	if own, embedded, err = o.ownCatalogs(logr.Discard()); err != nil || own["oci"] == nil || len(embedded) != 0 {
+		t.Errorf("own catalogs %v, embedded %v (%v)", own, embedded, err)
+	}
+
 	// Removing the vendor from the option is the swap to Keeper: no own catalog.
-	o = &Operator{Options: &options.Options{}}
-	if own, err = o.ownCatalogs(logr.Discard()); err != nil || len(own) != 0 || len(o.embeddedCatalogs) != 0 {
-		t.Errorf("own catalogs %v, embedded %v (%v)", own, o.embeddedCatalogs, err)
+	o = &Operator{Options: &options.Options{Vendors: []string{"oci"}}}
+	if own, embedded, err = o.ownCatalogs(logr.Discard()); err != nil || len(own) != 0 || len(embedded) != 0 {
+		t.Errorf("own catalogs %v, embedded %v (%v)", own, embedded, err)
 	}
 }
 
 func TestOwnCatalogsRejectsUnknownAndClashingVendors(t *testing.T) {
 	o := &Operator{Options: &options.Options{EmbeddedCatalogVendors: []string{"nosuch"}}}
-	if _, err := o.ownCatalogs(logr.Discard()); err == nil || !strings.Contains(err.Error(), "nosuch") {
+	if _, _, err := o.ownCatalogs(logr.Discard()); err == nil || !strings.Contains(err.Error(), "nosuch") {
 		t.Errorf("unknown vendor: error = %v", err)
 	}
 	o = &Operator{Options: &options.Options{EmbeddedCatalogVendors: []string{"oci"}}}
 	o.staticCatalogs = map[string]catalog.Source{"oci": nil}
-	if _, err := o.ownCatalogs(logr.Discard()); err == nil || !strings.Contains(err.Error(), "its own catalog") {
+	if _, _, err := o.ownCatalogs(logr.Discard()); err == nil || !strings.Contains(err.Error(), "its own catalog") {
 		t.Errorf("clash: error = %v", err)
 	}
 }
