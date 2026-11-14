@@ -916,3 +916,111 @@ func TestFamilyIsTheSeries(t *testing.T) {
 		}
 	}
 }
+
+// A hash that is not a hash is never a path: the refresh fails and keeps the
+// previous catalog.
+func TestAnInvalidHashIsNeverPinned(t *testing.T) {
+	e := newKeeperEnv(t)
+	c := catalogOver(t, catalogtest.SourceAt(e.URL), catalog.Scope{"hcloud": nil})
+	if err := c.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	e.take()
+	for _, bad := range []string{"../../etc", "ABCDEF" + strings.Repeat("0", 40), "abc"} {
+		e.setIntercept(func(w http.ResponseWriter, r *http.Request) bool {
+			if r.URL.Path != "/healthcheck" {
+				return false
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"database_hash":%q}`, bad)
+			return true
+		})
+		if err := c.Refresh(t.Context()); err == nil || !strings.Contains(err.Error(), "not a hash") {
+			t.Errorf("%q: err = %v", bad, err)
+		}
+		if got := paths(e.take()); !slices.Equal(got, []string{"/healthcheck"}) {
+			t.Errorf("%q: requests %v", bad, got)
+		}
+	}
+	// The same for the current hash of a 404.
+	e.setIntercept(func(w http.ResponseWriter, r *http.Request) bool {
+		if strings.HasPrefix(r.URL.Path, "/snapshot/") {
+			problemNotAvailable(w, "x", "../../x")
+			return true
+		}
+		return false
+	})
+	if err := e.H.AddHash(catalogtest.NewHash, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.H.SetCurrent(catalogtest.NewHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Refresh(t.Context()); err == nil || !strings.Contains(err.Error(), "not a hash") {
+		t.Errorf("a 404 naming a bad hash: %v", err)
+	}
+	if !c.Status("c").Ready {
+		t.Error("the previous catalog was not kept")
+	}
+}
+
+// The cache directory may hold other things: only hash directories are pruned.
+func TestPruneLeavesForeignEntries(t *testing.T) {
+	e := newKeeperEnv(t)
+	dir := t.TempDir()
+	for _, p := range []string{"lost+found/x", "notes.txt", "1111111111111111111111111111111111111111/server.json.gz"} {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := catalogOver(t, catalog.NewKeeperSource(catalog.KeeperOptions{URL: e.URL, CacheDir: dir}), catalog.Scope{"hcloud": nil})
+	if err := c.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"lost+found/x", "notes.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
+			t.Errorf("%s was removed: %v", p, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "1111111111111111111111111111111111111111")); err == nil {
+		t.Error("the directory of another hash stayed")
+	}
+}
+
+// After a re-pin to a hash whose manifest is on disk, the publication time is
+// the one stored with it.
+func TestPublishedAtSurvivesTheDiskCopyAfterARepin(t *testing.T) {
+	e := newKeeperEnv(t)
+	dir := t.TempDir()
+	opts := catalog.KeeperOptions{URL: e.URL, CacheDir: dir}
+	req := catalog.Request{Scope: catalog.Scope{"hcloud": nil}}
+	if _, err := catalog.NewKeeperSource(opts).Load(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	orig := recordedHash(t)
+	// Healthcheck names another hash whose snapshot is gone; its current is the cached one.
+	stale := strings.Repeat("a", 40)
+	e.setIntercept(func(w http.ResponseWriter, r *http.Request) bool {
+		switch {
+		case r.URL.Path == "/healthcheck":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"database_hash":%q}`, stale)
+			return true
+		case strings.HasPrefix(r.URL.Path, "/snapshot/"+stale):
+			problemNotAvailable(w, stale, orig)
+			return true
+		}
+		return false
+	})
+	data, err := catalog.NewKeeperSource(opts).Load(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 11, 13, 19, 50, 14, 0, time.UTC); !data.PublishedAt.Equal(want) {
+		t.Errorf("PublishedAt = %v, want %v", data.PublishedAt, want)
+	}
+}

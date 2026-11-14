@@ -13,6 +13,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -159,6 +160,9 @@ func (k *KeeperSource) load(ctx context.Context, client *keeper.Client, req Requ
 	if hash == "" {
 		return nil, errors.New("Keeper serves no data version") //nolint:staticcheck // Keeper is a name
 	}
+	if !validHash(hash) {
+		return nil, fmt.Errorf("the data version %q of Keeper's health check is not a hash", hash)
+	}
 	reqKey := requestKey(req)
 	k.mu.Lock()
 	last := k.last
@@ -184,11 +188,20 @@ func (k *KeeperSource) load(ctx context.Context, client *keeper.Client, req Requ
 		if !ok || !keeper.IsSnapshotNotAvailable(err) || attempt > 0 || pe.Current == "" || pe.Current == hash {
 			return nil, err
 		}
+		if !validHash(pe.Current) {
+			return nil, fmt.Errorf("the current data version %q Keeper names is not a hash: %w", pe.Current, err)
+		}
 		r.logger.Info("Keeper no longer serves the data version, pinning to its current one",
 			"requested", hash, "current", pe.Current)
 		hash, published = pe.Current, time.Time{}
 	}
 }
+
+// hashPattern is what Keeper's snapshot routes accept as a hash. It also keeps
+// a hash from ever being more than a file name.
+var hashPattern = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+
+func validHash(h string) bool { return hashPattern.MatchString(h) }
 
 // refresh is one pass over the files of one pinned hash.
 type refresh struct {
@@ -205,9 +218,10 @@ type refresh struct {
 	// fromDisk says that the manifest came from the disk copy.
 	fromDisk bool
 
-	prevHash     string
-	prevManifest *keeper.Manifest
-	prevTried    bool
+	cacheErrLogged bool
+	prevHash       string
+	prevManifest   *keeper.Manifest
+	prevTried      bool
 
 	benchmarks *keeper.BenchmarkCatalog
 	scoreRows  map[string][]keeper.BenchmarkScore
@@ -251,14 +265,29 @@ func (r *refresh) run(ctx context.Context, req Request) (*model.Data, error) {
 	// The manifest goes to disk last: a directory with one holds a complete
 	// load of the hash.
 	if r.src.cache.enabled() && !r.fromDisk {
-		if err := r.src.cache.write(r.hash, "", r.manifestGz.Gzip); err != nil {
-			r.logger.Error(err, "keeping the Keeper manifest on disk failed")
+		r.cacheError(r.writeManifest())
+	}
+	r.cacheError(r.src.cache.prune(r.hash))
+	return data, nil
+}
+
+// cacheError logs a failure of the disk copy once per refresh (a directory that
+// cannot be written fails every file); the refresh goes on without it.
+func (r *refresh) cacheError(err error) {
+	if err != nil && !r.cacheErrLogged {
+		r.cacheErrLogged = true
+		r.logger.Error(err, "the Keeper disk copy is not usable, reading without it")
+	}
+}
+
+// writeManifest keeps the manifest and when its hash was published.
+func (r *refresh) writeManifest() error {
+	if !r.published.IsZero() {
+		if err := r.src.cache.writeMeta(r.hash, publishedFile, []byte(r.published.UTC().Format(time.RFC3339))); err != nil {
+			return err
 		}
 	}
-	if err := r.src.cache.prune(r.hash); err != nil {
-		r.logger.Error(err, "pruning the Keeper disk copy failed")
-	}
-	return data, nil
+	return r.src.cache.write(r.hash, "", r.manifestGz.Gzip)
 }
 
 // noDataError says that the manifest lists none of a vendor's files.
@@ -273,6 +302,13 @@ func (r *refresh) loadManifest(ctx context.Context) error {
 		body := &keeper.SnapshotBody{Gzip: gz}
 		if m, err := keeper.DecodeManifest(body); err == nil && len(m.Files) > 0 {
 			r.manifest, r.manifestGz, r.fromDisk = m, body, true
+			if r.published.IsZero() {
+				if raw, ok := r.src.cache.readMeta(r.hash, publishedFile); ok {
+					if t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(raw))); err == nil {
+						r.published = t.UTC()
+					}
+				}
+			}
 			return nil
 		}
 		r.src.cache.remove(r.hash, "")
@@ -352,9 +388,7 @@ func (r *refresh) file(ctx context.Context, path string) (*keeper.SnapshotBody, 
 	if err := body.Verify(mf.SHA256); err != nil {
 		return nil, 0, fmt.Errorf("the Keeper snapshot file %s: %w", path, err)
 	}
-	if err := r.src.cache.write(r.hash, path, body.Gzip); err != nil {
-		r.logger.Error(err, "keeping a Keeper file on disk failed", "path", path)
-	}
+	r.cacheError(r.src.cache.write(r.hash, path, body.Gzip))
 	return body, rows, nil
 }
 
@@ -378,9 +412,7 @@ func (r *refresh) copyFromPrevious(path string, mf keeper.ManifestFile) *keeper.
 	if body.Verify(mf.SHA256) != nil {
 		return nil
 	}
-	if err := r.src.cache.write(r.hash, path, gz); err != nil {
-		r.logger.Error(err, "keeping a Keeper file on disk failed", "path", path)
-	}
+	r.cacheError(r.src.cache.write(r.hash, path, gz))
 	return body
 }
 

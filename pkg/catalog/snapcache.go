@@ -16,6 +16,9 @@ import (
 	"strings"
 )
 
+// publishedFile holds when the hash was published, next to its manifest.
+const publishedFile = "published-at"
+
 // manifestFile is the name of a hash's manifest below its directory.
 const manifestFile = "manifest.json.gz"
 
@@ -92,7 +95,7 @@ func (c diskCache) previous(hash string) string {
 	}
 	best, bestAt := "", int64(-1)
 	for _, e := range entries {
-		if !e.IsDir() || e.Name() == hash {
+		if !e.IsDir() || e.Name() == hash || !hashPattern.MatchString(e.Name()) {
 			continue
 		}
 		info, err := os.Stat(c.file(e.Name(), ""))
@@ -121,7 +124,9 @@ func (c diskCache) prune(keep string) error {
 	}
 	var errs []error
 	for _, e := range entries {
-		if e.Name() == keep {
+		// Only what the cache itself made: a directory of a hash. The directory
+		// may be shared with other files, which stay.
+		if e.Name() == keep || !e.IsDir() || !hashPattern.MatchString(e.Name()) {
 			continue
 		}
 		errs = append(errs, os.RemoveAll(filepath.Join(c.dir, e.Name())))
@@ -152,4 +157,26 @@ func safeName(s string) bool {
 		}
 	}
 	return true
+}
+
+// readMeta and writeMeta keep a small plain file of a hash's directory.
+func (c diskCache) readMeta(hash, name string) ([]byte, bool) {
+	if !c.enabled() {
+		return nil, false
+	}
+	b, err := os.ReadFile(filepath.Join(c.hashDir(hash), name))
+	return b, err == nil
+}
+
+func (c diskCache) writeMeta(hash, name string, b []byte) error {
+	if !c.enabled() {
+		return nil
+	}
+	if err := os.MkdirAll(c.hashDir(hash), 0o750); err != nil {
+		return fmt.Errorf("writing the Keeper cache: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(c.hashDir(hash), name), b, 0o600); err != nil {
+		return fmt.Errorf("writing the Keeper cache: %w", err)
+	}
+	return nil
 }

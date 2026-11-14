@@ -38,7 +38,7 @@ func ovhServers(t testing.TB) []snapServer {
 
 // retiredAtKeeper are the classified families the snapshot has no type of,
 // because Keeper keeps their types as inactive rows.
-var retiredAtKeeper = []string{"eg", "g1", "g2", "g3", "hg", "s1", "sp", "vps"}
+var retiredAtKeeper = slices.Concat(legacyFamilies, []string{"g1", "g2", "g3"})
 
 // Every Keeper OVH family of the committed snapshot is launched or excluded, a
 // launched one is an active x86_64 type without accelerators, and everything the

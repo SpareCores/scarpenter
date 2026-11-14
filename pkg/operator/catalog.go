@@ -68,7 +68,9 @@ func (o *Operator) WithCatalog(
 }
 
 // keeperClient is the Keeper client the drivers get (the fake driver reads its
-// vendor's snapshot files with it), with the key as the file has it at start.
+// vendor's snapshot files with it). Unlike the catalog, which reads the key file
+// at every refresh, this client takes the key once, at start: a rotated key
+// reaches the fake driver (a development driver) with a restart.
 func (o *Operator) keeperClient() (*keeper.Client, error) {
 	opts := []keeper.Option{keeper.WithUserAgent("scarpenter/" + version.Get().Version)}
 	key, err := readAPIKey(o.Options.KeeperAPIKeyFile)
