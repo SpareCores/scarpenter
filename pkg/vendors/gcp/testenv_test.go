@@ -33,7 +33,7 @@ const (
 // (the real table is empty until a live run confirms a series).
 var confirmed = map[string][]string{"e2": {"CPUS"}, "n2": {"CPUS", "N2_CPUS"}}
 
-// snapshotRow is the part of a /table/server row the tests need.
+// snapshotRow is the part of a snapshot server row the tests need.
 type snapshotRow struct {
 	VendorID     string `json:"vendor_id"`
 	APIReference string `json:"api_reference"`

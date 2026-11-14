@@ -349,6 +349,9 @@ func TestS13DescribedNotNamed(t *testing.T) {
 	}
 
 	// Pod B: only members of the selection profile.
+	// Pod B asks for more memory than the node of pod A has, so that it needs a
+	// node of its own even when pod A's type is a member of the profile.
+	const minMemB = 3<<30 + 256<<20
 	member := reqs(req1(v1alpha1.LabelSelection, corev1.NodeSelectorOpIn, "fast-single-core"),
 		req1(labelCapacity, corev1.NodeSelectorOpIn, "on-demand"), req1(v1alpha1.LabelVendor, corev1.NodeSelectorOpIn, vendor))
 	// A NodeClaim that pins one selection profile with a non-Price objective
@@ -358,15 +361,15 @@ func TestS13DescribedNotNamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	members := eligible(pinned, member, minMem)
+	members := eligible(pinned, member, minMemB)
 	if len(members) == 0 {
 		t.Fatal("the selection profile has no member offering in the reference catalog")
 	}
-	all := eligible(its, reqs(req1(labelCapacity, corev1.NodeSelectorOpIn, "on-demand")), minMem)
+	all := eligible(its, reqs(req1(labelCapacity, corev1.NodeSelectorOpIn, "on-demand")), minMemB)
 	podWith(t, "s13-b", map[string]string{
 		labelNodePool: "s13", labelCapacity: "on-demand", v1alpha1.LabelSelection: "fast-single-core",
 	}, func(s *corev1.PodSpec) {
-		s.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("256Mi")
+		s.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("3Gi")
 	})
 	nodeB := waitPodRunning(t, "s13-b", long)
 	instB := instanceOfNode(t, nodeB)

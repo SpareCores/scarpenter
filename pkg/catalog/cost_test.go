@@ -74,7 +74,7 @@ func peakRSSMiB() int {
 }
 
 // TestRefreshCost logs what one refresh costs: requests, bytes on the wire,
-// time, and the heap the catalog retains, for AWS with three regions, AWS with
+// time, the peak of the refresh and the heap the catalog retains, for AWS with three regions, AWS with
 // all regions and all vendors, with the three test metrics. It reads the
 // committed recording; with SCARPENTER_COST_URL set it reads that Keeper
 // instead (with the key of KEEPER_API_KEY_FILE), which is how the live numbers
@@ -82,7 +82,7 @@ func peakRSSMiB() int {
 //
 //	go test ./pkg/catalog -run 'TestRefreshCost/aws-three-regions' -v
 func TestRefreshCost(t *testing.T) {
-	url := os.Getenv("SCARPENTER_COST_URL")
+	live := os.Getenv("SCARPENTER_COST_URL")
 	scopes := map[string]catalog.Scope{
 		"aws-three-regions": {"aws": threeRegions},
 		"aws-all-regions":   {"aws": nil},
@@ -91,6 +91,7 @@ func TestRefreshCost(t *testing.T) {
 	}
 	for name, scope := range scopes {
 		t.Run(name, func(t *testing.T) {
+			url := live
 			if url == "" {
 				url = catalogtest.Server(t).URL
 			}
@@ -119,6 +120,9 @@ func TestRefreshCost(t *testing.T) {
 			}
 			took := time.Since(start)
 			peak := peakRSSMiB()
+			runtime.GC()
+			var loaded runtime.MemStats
+			runtime.ReadMemStats(&loaded)
 			its, err := c.InstanceTypes(t.Context(), catalog.Query{Class: "c"})
 			if err != nil {
 				t.Fatal(err)
@@ -131,10 +135,11 @@ func TestRefreshCost(t *testing.T) {
 			runtime.GC()
 			var ms runtime.MemStats
 			runtime.ReadMemStats(&ms)
-			t.Logf("%s: refresh %s, %d requests, %.1f MiB gzip on the wire; %d types, %d offerings; "+
-				"heap in use after a GC %d MiB (all of the test process); peak resident set %d MiB",
-				name, took.Round(time.Millisecond), ct.requests.Load(), float64(ct.bytes.Load())/(1<<20),
-				types, offerings, ms.HeapInuse>>20, peak)
+			t.Logf("%s: refresh %s, %d requests, %.1f MiB gzip on the wire; peak resident set of the refresh %d MiB; "+
+				"heap in use after a GC: %d MiB with the loaded data, %d MiB with %d types and %d offerings built "+
+				"(the whole test process)",
+				name, took.Round(time.Millisecond), ct.requests.Load(), float64(ct.bytes.Load())/(1<<20), peak,
+				loaded.HeapInuse>>20, ms.HeapInuse>>20, types, offerings)
 			runtime.KeepAlive(c)
 		})
 	}

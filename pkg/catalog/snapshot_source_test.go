@@ -877,7 +877,7 @@ func TestSelectionsRunOnTheSnapshotData(t *testing.T) {
 		t.Errorf("requests = %v", got)
 	}
 	for _, p := range got {
-		if strings.HasPrefix(p, "/servers") || strings.HasPrefix(p, "/server_prices") || strings.HasPrefix(p, "/table") {
+		if !strings.HasPrefix(p, "/snapshot/") && p != "/healthcheck" && p != "/benchmark_configs" {
 			t.Errorf("legacy request %s", p)
 		}
 	}

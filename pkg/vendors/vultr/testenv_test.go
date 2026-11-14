@@ -28,7 +28,7 @@ const (
 	testRelease = "stable-4081.2.0"
 )
 
-// snapshotRow is the part of a /table/server row the tests need.
+// snapshotRow is the part of a snapshot server row the tests need.
 type snapshotRow struct {
 	VendorID     string  `json:"vendor_id"`
 	APIReference string  `json:"api_reference"`

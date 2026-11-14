@@ -191,7 +191,7 @@ func newPriceDriver(t *testing.T) *aws.Driver {
 func TestKeeperPrices(t *testing.T) {
 	// The recorded shape of Keeper's storage prices (an excerpt of a real
 	// response, values only).
-	storage := vendortest.StoragePrices(t, "testdata/keeper_storage_prices.json", "aws")
+	storage := vendortest.StoragePrices(t, "testdata/keeper_storage_price_rows.json", "aws")
 	d := newPriceDriver(t)
 	off := vendors.Offering{Region: "us-east-1", APIReference: testType}
 	if _, complete := d.PriceDelta(d.Defaults(), off); complete {
@@ -243,7 +243,7 @@ func TestKeeperPrices(t *testing.T) {
 
 func TestIPv4PriceOverrideWinsOverKeeper(t *testing.T) {
 	storage := 64 * 0.08 / 730
-	prices := vendors.KeeperPrices{Hash: "h", Storage: vendortest.StoragePrices(t, "testdata/keeper_storage_prices.json", "aws"),
+	prices := vendors.KeeperPrices{Hash: "h", Storage: vendortest.StoragePrices(t, "testdata/keeper_storage_price_rows.json", "aws"),
 		IPv4: []vendors.IPv4Price{{Region: "us-east-1", Unit: "hour", USD: 0.005}}}
 	for env, want := range map[string]float64{"": 0.005, "0.01": 0.01, "0": 0} {
 		t.Setenv(aws.IPv4PriceEnv, env)
