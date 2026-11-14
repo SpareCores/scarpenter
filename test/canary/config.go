@@ -35,6 +35,11 @@ type config struct {
 	// minCores and minMemoryMB are the account limits the UpCloud suite needs (cores and
 	// memory in MB; UpCloud's limits are account-wide, and have no spot).
 	minCores, minMemoryMB int64
+	// compartment and tenancy are the OCI lane's compartment and tenancy OCIDs (OCI_COMPARTMENT,
+	// OCI_TENANCY); minOCPU and minMemoryGB the limits of the amd64 shape family the OCI suite needs
+	// (E2E_MIN_OCPU, E2E_MIN_MEMORY_GB: OCI's limits are cores and gigabytes, with no spot).
+	compartment, tenancy string
+	minOCPU, minMemoryGB int64
 
 	// flatcarImageFile is the file the vendor's images are made from, which the canary checks on
 	// the Flatcar release server (hcloud: the Hetzner raw image); empty: nothing to check.
@@ -58,7 +63,7 @@ type config struct {
 // For hcloud it is the comma-separated list of the lane's locations.
 var vendorEnv = map[string]string{
 	vendorAlicloud: "ALICLOUD_REGION", vendorAWS: "AWS_REGION", vendorAzure: "AZURE_REGION",
-	vendorGCP: "GCP_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOVH: "OS_REGION_NAME",
+	vendorGCP: "GCP_REGION", vendorHCloud: "E2E_HCLOUD_LOCATIONS", vendorOCI: "OCI_REGION", vendorOVH: "OS_REGION_NAME",
 	vendorUpCloud: "UPCLOUD_ZONE", vendorVultr: "VULTR_REGION",
 }
 
@@ -80,6 +85,7 @@ const typeAMD64 = "E2E_TYPE_AMD64"
 // readable quota (the vCPU pins are then not needed; Hetzner's limits cannot be read).
 var (
 	typeVars = map[string][]string{
+		vendorOCI:     {typeAMD64, "E2E_TYPE_ARM64", "E2E_TYPE_ARM64_ALT"},
 		vendorOVH:     {typeAMD64, "E2E_TYPE_DB"},
 		vendorUpCloud: {typeAMD64},
 		vendorVultr:   {typeAMD64, "E2E_TYPE_SECOND"},
@@ -109,6 +115,10 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	if projectVar, ok := vendorProjectEnv[vendor]; ok {
 		c.project = need(projectVar)
 	}
+	if vendor == vendorOCI {
+		c.compartment = need("OCI_COMPARTMENT")
+		c.tenancy = need("OCI_TENANCY")
+	}
 	c.armType = strings.TrimSpace(getenv("E2E_TYPE_ARM64"))
 	c.arm64 = strings.TrimSpace(getenv("E2E_ARM64")) == "true"
 	c.arm64ImageProject = strings.TrimSpace(getenv("E2E_ARM64_IMAGE_PROJECT"))
@@ -134,6 +144,13 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	}
 	var err error
 	switch {
+	case vendor == vendorOCI: // cores and gigabytes of the shape family's limits, no spot quota
+		if c.minOCPU, err = intEnv(getenv, "E2E_MIN_OCPU", &missing); err != nil {
+			return nil, err
+		}
+		if c.minMemoryGB, err = intEnv(getenv, "E2E_MIN_MEMORY_GB", &missing); err != nil {
+			return nil, err
+		}
 	case vendor == vendorUpCloud: // account-wide cores and memory, no spot
 		if c.minCores, err = intEnv(getenv, "E2E_MIN_CORES", &missing); err != nil {
 			return nil, err
