@@ -90,6 +90,10 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 	}
 	facts := c.opts.Facts
 	launchable, _ := facts.(LaunchableFacts)
+	regionPriced := false
+	if rp, ok := facts.(RegionPricedFacts); ok {
+		regionPriced = rp.RegionPriced(vendor)
+	}
 	zonesByRegion, hasZones := facts.Zones(vendor)
 	view := snap.view(class)
 	allowed := class.Vendors[vendor]
@@ -127,7 +131,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			continue
 		}
 		name := InstanceTypeName(vendor, srv.APIReference)
-		offs := c.offeringsOf(vd, srv, prices, regions, zonesByRegion, hasZones, class, vendor)
+		offs := c.offeringsOf(vd, srv, prices, regions, zonesByRegion, hasZones, regionPriced, class, vendor)
 		if launchable != nil {
 			offs = slices.DeleteFunc(offs, func(o resolvedOffering) bool {
 				ok, known := launchable.Launchable(vendor, srv.APIReference, o.zone.ID)
@@ -271,7 +275,7 @@ func (o resolvedOffering) info() offeringInfo {
 // offeringsOf resolves the price rows of a server to offerings: one per zone
 // and capacity type, in a deterministic order.
 func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.Price, regions map[string]*regionInfo,
-	zonesByRegion map[string][]Zone, hasZones bool, class *Class, vendor string) []resolvedOffering {
+	zonesByRegion map[string][]Zone, hasZones, regionPriced bool, class *Class, vendor string) []resolvedOffering {
 	type key struct {
 		region, zone, capacityType string
 	}
@@ -281,7 +285,7 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 		if ri == nil {
 			continue
 		}
-		for _, z := range resolveZones(vd, ri.region, p, zonesByRegion, hasZones) {
+		for _, z := range resolveZones(vd, ri.region, p, zonesByRegion, hasZones, regionPriced) {
 			delta, complete := c.opts.Facts.PriceDelta(vendor, class, srv, z.Name, p.CapacityType)
 			if !complete && !class.AllowIncompletePrice {
 				continue
@@ -313,9 +317,11 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 // resolveZones maps a price row to the zones the driver's account has (ADR-009):
 // a zone-level price to its zone by Keeper zone ID, dropped when the account does
 // not have it; a region-level price to every zone of the region. Vendors without
-// zones are offered with zone = region.
+// zones are offered with zone = region. For a region-priced vendor (see
+// RegionPricedFacts) a zone-level price of an active zone is a region-level one;
+// where several rows price the same zone, the cheapest wins (offeringsOf).
 func resolveZones(vd *vendorData, region *model.Region, p model.Price,
-	zonesByRegion map[string][]Zone, hasZones bool) []Zone {
+	zonesByRegion map[string][]Zone, hasZones, regionPriced bool) []Zone {
 	if !hasZones {
 		id := p.ZoneID
 		if id == "" {
@@ -333,6 +339,9 @@ func resolveZones(vd *vendorData, region *model.Region, p model.Price,
 	// Keeper marks retired zones inactive in its zone table.
 	if active, known := vd.zones[zoneKey{p.RegionID, p.ZoneID}]; known && !active {
 		return nil
+	}
+	if regionPriced {
+		return zones
 	}
 	for _, z := range zones {
 		if z.ID == p.ZoneID {

@@ -294,3 +294,21 @@ func TestEpochFollowsTheDriver(t *testing.T) {
 		t.Error("a driver whose answers changed did not change the epoch: the catalog would serve stale profile labels")
 	}
 }
+
+// regionPricedDriver is a driver that says its prices are per region.
+type regionPricedDriver struct{ *driver }
+
+func (regionPricedDriver) PricesPerRegion() bool { return true }
+
+func TestRegionPricedFollowsTheDriver(t *testing.T) {
+	if setup(t, &driver{}).RegionPriced("aws") {
+		t.Error("a driver that does not say so is region-priced")
+	}
+	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(regionPricedDriver{&driver{}})})
+	if err := f.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !f.RegionPriced("aws") || f.RegionPriced("gcp") {
+		t.Error("RegionPriced does not follow the driver")
+	}
+}

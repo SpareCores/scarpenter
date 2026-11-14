@@ -818,6 +818,16 @@ type ZoneChecker interface {
 	) (map[string]string, error)
 }
 
+// RegionPriced is implemented by a driver whose prices are per region although
+// Keeper's price rows name a zone: the catalog then offers every type in every
+// zone the driver lists for the region, whichever zone the price row names, and
+// the driver's own checks decide where a type can launch (OCI: availability
+// domains are named and numbered per tenancy, so a row of the crawler's AD-1 says
+// nothing about the account's AD-1).
+type RegionPriced interface {
+	PricesPerRegion() bool
+}
+
 // QuotaScope says whether a bucket is per region or account-wide.
 type QuotaScope string
 

@@ -421,3 +421,52 @@ func TestClassGateMakesOfferingsOfOneClassUnavailable(t *testing.T) {
 		}
 	}
 }
+
+// regionPriced is a Facts of a vendor whose prices are per region.
+type regionPriced struct{ catalog.StaticFacts }
+
+func (regionPriced) RegionPriced(vendor string) bool { return vendor == "v" }
+
+// A region-priced vendor (OCI: the zones are availability domains named and numbered per
+// tenancy) is offered in every zone the account has, on the strength of a price row of any
+// zone of the region; where several rows price a zone the cheapest wins. A zone the data
+// never names (zx) gets offerings, and a retired zone's rows still do not count.
+func TestRegionPricedVendorIsOfferedInEveryZoneOfTheAccount(t *testing.T) {
+	facts := regionPriced{catalog.StaticFacts{ZonesByVendor: map[string]map[string][]catalog.Zone{
+		"v": {"region-1": {{ID: "z1", Name: "zone-1"}, {ID: "zx", Name: "zone-x"}, {ID: "zy", Name: "zone-y"}}},
+	}}}
+	c := newSynthetic(t, func(d *model.Data) {
+		d.Prices = []model.Price{
+			{Vendor: "v", RegionID: "r1", ZoneID: "z2", ServerID: "1", CapacityType: model.CapacityOnDemand, USDPerHour: 0.3},
+			{Vendor: "v", RegionID: "r1", ZoneID: "z1", ServerID: "1", CapacityType: model.CapacityOnDemand, USDPerHour: 0.2},
+		}
+	}, facts)
+	small := byName(all(t, c, catalog.Filter{}), "v.small")
+	if small == nil || len(small.Offerings) != 3 {
+		t.Fatalf("want an offering in each of the account's 3 zones, got %v", small)
+	}
+	for _, o := range small.Offerings {
+		if o.Price != 0.2 {
+			t.Errorf("zone %s priced %v, want the cheapest row 0.2", o.Zone(), o.Price)
+		}
+	}
+	// The same data for a vendor that is not region-priced keeps the zone mapping.
+	plain := newSynthetic(t, func(d *model.Data) {
+		d.Prices = []model.Price{
+			{Vendor: "v", RegionID: "r1", ZoneID: "z1", ServerID: "1", CapacityType: model.CapacityOnDemand, USDPerHour: 0.2},
+		}
+	}, facts.StaticFacts)
+	if s := byName(all(t, plain, catalog.Filter{}), "v.small"); s == nil || len(s.Offerings) != 1 {
+		t.Errorf("a vendor that is not region-priced: %v", s)
+	}
+	// A retired zone's row is no price.
+	retired := newSynthetic(t, func(d *model.Data) {
+		d.Zones[0].Active = false
+		d.Prices = []model.Price{
+			{Vendor: "v", RegionID: "r1", ZoneID: "z1", ServerID: "1", CapacityType: model.CapacityOnDemand, USDPerHour: 0.2},
+		}
+	}, facts)
+	if s := byName(all(t, retired, catalog.Filter{}), "v.small"); s != nil {
+		t.Errorf("the only row is of a retired zone: %v", s)
+	}
+}

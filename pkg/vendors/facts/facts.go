@@ -88,9 +88,10 @@ type Facts struct {
 }
 
 var (
-	_ catalog.Facts           = (*Facts)(nil)
-	_ catalog.LaunchableFacts = (*Facts)(nil)
-	_ catalog.PriceSink       = (*Facts)(nil)
+	_ catalog.Facts             = (*Facts)(nil)
+	_ catalog.LaunchableFacts   = (*Facts)(nil)
+	_ catalog.RegionPricedFacts = (*Facts)(nil)
+	_ catalog.PriceSink         = (*Facts)(nil)
 )
 
 // New returns facts without data: Load (or Start) reads regions and zones.
@@ -496,6 +497,17 @@ func (f *Facts) PriceDelta(vendor string, class *catalog.Class, srv *model.Serve
 	return no.PriceDelta(s, vendors.Offering{
 		Region: f.regionOf(vendor, zone), Zone: zone, CapacityType: capacityType, APIReference: srv.APIReference, Type: ct,
 	})
+}
+
+// RegionPriced implements catalog.RegionPricedFacts: the driver says its prices
+// are per region (vendors.RegionPriced).
+func (f *Facts) RegionPriced(vendor string) bool {
+	if drv, ok := f.opts.Registry.Driver(vendor); ok {
+		if rp, ok := drv.(vendors.RegionPriced); ok {
+			return rp.PricesPerRegion()
+		}
+	}
+	return false
 }
 
 // Launchable implements catalog.LaunchableFacts.

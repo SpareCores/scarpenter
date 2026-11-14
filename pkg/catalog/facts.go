@@ -56,6 +56,16 @@ type Facts interface {
 	Epoch() uint64
 }
 
+// RegionPricedFacts is an optional extension of Facts: the vendors whose prices
+// are per region although Keeper's price rows name a zone. For such a vendor a
+// zone-level price row is the price of every zone of its region the account has,
+// whatever the row's zone (OCI: the zones are availability domains, named and
+// numbered per tenancy, so a row of the crawler's AD-1 says nothing about the
+// account's AD-1). The vendor's own checks decide where a type can launch.
+type RegionPricedFacts interface {
+	RegionPriced(vendor string) bool
+}
+
 // LaunchableFacts is an optional extension of Facts: the driver's
 // OfferingLister view (overview section 5.9). An offering whose type is not
 // launchable in the zone is dropped from the catalog instead of being found out
