@@ -15,7 +15,9 @@ reference is the [OCI driver](../reference/oci-driver.md#images) and
    verify the signature and the digest against Flatcar's published key. Upload it to an Object Storage
    bucket. One bucket in one region and a read-only pre-authenticated request import into the other
    regions (a cross-region import took about 6.5 minutes).
-2. Import it in each region as a custom image in the controller's compartment (`--oci-compartment`):
+2. Import it in each region as a custom image in the controller's compartment (`--oci-compartment`), or in a
+   separate compartment for images that you tell the controller about with `--oci-image-compartment` (chart:
+   `vendors.oci.imageCompartment`; see [the image compartment](#the-image-compartment)):
    source type `QCOW2`, launch mode `PARAVIRTUALIZED`, operating system `Flatcar`, operating system version
    the Flatcar version (`4757.2.3`), display name **`flatcar-<channel>-<version>-<arch>`**
    (`flatcar-stable-4757.2.3-amd64`) and the freeform tags **`flatcar-channel`**, **`flatcar-version`**,
@@ -30,9 +32,22 @@ reference is the [OCI driver](../reference/oci-driver.md#images) and
    gone. Custom image storage is billed like Object Storage Standard on the image's billable size (about 1 GB
    for the amd64 image). The limit `custom-image-count` is 100 per region (25 on pay-as-you-go and trial).
 
+## The image compartment
+
+Shared images are often kept apart from the nodes: an IaC that imports Flatcar into every region of a
+tenancy puts the images into its own compartment. Give that compartment's OCID to the controller with
+`--oci-image-compartment` (`SCARPENTER_OCI_IMAGE_COMPARTMENT`; chart value `vendors.oci.imageCompartment`);
+empty (the default) means the compartment of the nodes. The option applies to the default lookup and to every
+`images.use` selector that lists images (by `name`, `tags`, operating system and so on); `images.use.ids`
+reads each image by its OCID and works either way. Nodes are still launched in `--oci-compartment`.
+
+The controller's identity needs `read instance-images in compartment <image compartment>`
+([policy](../reference/oci-iam-policy.txt), [credentials](oci-credentials.md#the-policy)). The naming and
+tag contract above is the same, and a region's image must exist in the compartment of that region.
+
 ## How SCarpenter reads it
 
-Without `resources.images`, SCarpenter lists the compartment's available images by the display name of the
+Without `resources.images`, SCarpenter lists the available images of the image compartment by the display name of the
 pinned release and architecture and the operating system `Flatcar`. The version comes from the tag
 `flatcar-version` (else the operating system version), the architecture from the tag `arch` (else the
 compatible shapes); an image of another version, or that says none, is not ready. Check the NodeClass

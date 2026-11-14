@@ -225,7 +225,7 @@ contract SCarpenter's default lookup relies on; nothing here names a tool):
   `orderBy: created`. Native `filters`: `operating-system`, `operating-system-version`, `shape`,
   `lifecycle-state` (server-side: `ListImages` parameters); no `expression`.
 - **Default** (no `images`, `Use.IsDefault()`): `ListImages(compartmentId = the controller's
-  compartment, displayName = flatcar-<channel>-<version>-<arch>, lifecycleState = AVAILABLE)`,
+  compartment (or --oci-image-compartment, below), displayName = flatcar-<channel>-<version>-<arch>, lifecycleState = AVAILABLE)`,
   then the selector as above. The platform images the API also returns for any compartment are
   ignored (their operating system is not `Flatcar`).
 - **Architecture** is not an `Image` field. It is the freeform tag `arch` when present, else
@@ -337,6 +337,15 @@ subnet (`create`), the groups, and the run groups.
   a default). There is **no per-NodeClass `compartmentId` in v1** (decided 2026-11-14; deferred with
   multiple compartments). Brought subnets, groups and images may live in other compartments the
   credentials can read. The **tenancy** OCID comes from the credentials.
+- **Image compartment** (maintainer decision 2026-11-14, after the driver was complete): operators commonly import
+  the shared images into a compartment other than the nodes'. The optional `--oci-image-compartment` /
+  `SCARPENTER_OCI_IMAGE_COMPARTMENT` (Helm `vendors.oci.imageCompartment`; an OCID, validated like
+  `--oci-compartment`, default empty = the main compartment) is the compartment of the default image lookup and
+  of every `images.use` selector that lists images (name, tags, OS). `images.use.ids` is unchanged (a get per
+  OCID); only image listing reads that compartment, launches stay in the main one. The identity needs
+  `read instance-images in compartment <image compartment>` (`oci-iam-policy.txt`). The L5 lane reads the optional
+  environment variable `OCI_IMAGE_COMPARTMENT` (controller install, preflight, canary; `ci-policy.sh` and
+  `canary-policy.sh` take it as an optional last argument); the sweeper never touches images.
 - **Authentication.** The SDK's `common.ConfigurationProvider`, chosen by `vendors.oci.credentials.mode`
   (Helm; flag `--oci-auth`). Two families in v1 (decided 2026-11-14):
   1. `apiKey`: the tenancy, user, fingerprint, region (the home region) and the private key from

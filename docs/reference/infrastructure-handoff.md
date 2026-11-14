@@ -277,7 +277,7 @@ stated failure. Public-only nodes need nothing.
 
 ## oci
 
-Images: rung 3, per region and architecture, in the controller's compartment, named `flatcar-<channel>-<version>-<arch>`
+Images: rung 3, per region and architecture, in the controller's compartment (or the one `--oci-image-compartment` names), named `flatcar-<channel>-<version>-<arch>`
 with the freeform tags `flatcar-channel`, `flatcar-version`, `arch` and `os=flatcar`
 ([how to](../how-to-guides/oci-images.md)); or their OCIDs in `resources.images.use.ids` per region. Credentials: the
 controller's `--oci-compartment` (one for every NodeClass) and an API key or the keyless mode

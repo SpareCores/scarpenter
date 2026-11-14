@@ -294,7 +294,7 @@ and `OCI_REGION`) runs the OCI driver's read paths over the real SDK adapter, ev
 | read-only guard | the audit of the run | a check that tried a write |
 
 The policy is **read-only** and cannot be narrowed to the region: `inspect instances` and `read instance-images` in the compartment and `inspect tenancies`, `inspect compartments`,
-`inspect resource-availability` and `inspect limits` in the tenancy (`test/e2e-oci/canary-policy.sh policy <group> <compartment>` prints it). The second wall is `test/canary/oci_guard.go`, which refuses every
+`inspect resource-availability` and `inspect limits` in the tenancy (`test/e2e-oci/canary-policy.sh policy <group> <compartment> [image compartment]` prints it; with the optional `OCI_IMAGE_COMPARTMENT` it adds `read instance-images` in that compartment). The second wall is `test/canary/oci_guard.go`, which refuses every
 method of the driver's four API interfaces that is not a get or a list; `oci_guard_test.go` checks by reflection that every method is passed through as a read or refused (and has its policy statement in the table),
 and `oci_test.go` compares the statements of the calls the canary made with the policy.
 
@@ -622,11 +622,11 @@ The OCI lane ([The L5 lane on OCI](testing.md#the-l5-lane-on-oci)) uses GitHub's
 repository):
 
 - **Compartment**: a dedicated one, with the region subscribed, a **compartment quota** (the Quotas service) that caps compute cores and memory at what the pins need (8 OCPUs and 48 GB of the E5 family; the Arm families too when `E2E_ARM64` is true) and a budget alert.
-- **Images**: the Flatcar images of the pinned release in the compartment, per architecture ([oci-images.md](../how-to-guides/oci-images.md)).
+- **Images**: the Flatcar images of the pinned release in the compartment (or in `OCI_IMAGE_COMPARTMENT`), per architecture ([oci-images.md](../how-to-guides/oci-images.md)).
 - **Identity domain**: an application with the client credentials grant and a trust for `https://token.actions.githubusercontent.com` that maps this repository's subjects for the environments `e2e`, `e2e-sweeper` and `e2e-canary` (the audience: `OCI_OIDC_AUDIENCE`) to identity domain users;
-  the CI group (the first two) with the statements printed by `test/e2e-oci/ci-policy.sh policy <group> <compartment> <region>`, the canary group with `test/e2e-oci/canary-policy.sh policy <group> <compartment>`.
+  the CI group (the first two) with the statements printed by `test/e2e-oci/ci-policy.sh policy <group> <compartment> <region> [image compartment]`, the canary group with `test/e2e-oci/canary-policy.sh policy <group> <compartment> [image compartment]` (the optional last argument is the `OCI_IMAGE_COMPARTMENT`: both add `read instance-images` in it when it differs from the compartment).
 - **Environments**: `e2e` (reviewers), `e2e-sweeper` (`main`, no reviewers) and `e2e-canary` (`main`) each with the variables `OCI_COMPARTMENT`, `OCI_TENANCY`, `OCI_IDENTITY_DOMAIN_URL`, `OCI_CLIENT_ID` and, optional, `OCI_REGION` (default `eu-frankfurt-1`),
-  `OCI_HOME_REGION`, `OCI_OIDC_AUDIENCE` (default `oci-federation`), and the secret `OCI_CLIENT_SECRET`.
+  `OCI_IMAGE_COMPARTMENT` (the compartment of the imported images when not `OCI_COMPARTMENT`; the sweeper does not read it and never touches images), `OCI_HOME_REGION`, `OCI_OIDC_AUDIENCE` (default `oci-federation`), and the secret `OCI_CLIENT_SECRET`.
 - **Tailscale**: the same tags, grants and federated identity as for AWS.
 - **Before `oci` is added to `test/e2e-vendors.txt`**, the operator checks: the policy's region condition bites (a launch in another region, and a write in another compartment, are refused for the CI group: which verbs accept the conditions is
   unverified); the compartment holds nothing but the lane, the compartment quota is no higher than the lane needs (no policy can deny a shape, so the quota is the ceiling) and the budget alert reaches a person; the

@@ -18,6 +18,12 @@ Allow group <group> to inspect compartments in tenancy
 Allow group <group> to inspect resource-availability in tenancy
 Allow group <group> to inspect limits in tenancy
 
+# optional: only with --oci-image-compartment, the compartment the images are listed in when it is
+# not the compartment of the nodes (the default image and the images.use selectors list there,
+# images.use.ids get there). Reads only; launches stay in <compartment>, which already holds
+# instance-family (and with it the images) for the nodes.
+Allow group <group> to read instance-images in compartment <image compartment>
+
 # optional: needed unless every NodeClass brings both its subnets and its network security groups (use) and none
 # has isolation run: SCarpenter creates the network (VCN, gateway, route table, security list, subnet) without a
 # subnets use, a group per NodeClass without a networkSecurityGroups use, and a group per run for isolation run

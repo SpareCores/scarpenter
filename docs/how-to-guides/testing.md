@@ -1030,6 +1030,7 @@ hand against a tenancy of one's own:
 
 ```bash
 export OCI_COMPARTMENT=ocid1.compartment... OCI_TENANCY=ocid1.tenancy...      # the lane's variables; no account has a default
+# optional: export OCI_IMAGE_COMPARTMENT=ocid1.compartment...  # where the Flatcar images are imported, if not OCI_COMPARTMENT
 export OCI_CLI_CONFIG_FILE=~/.oci/config OCI_CLI_PROFILE=DEFAULT OCI_REGION=eu-frankfurt-1
 test/canary/run.sh oci                                          # the free check (read-only identity)
 go run ./test/e2e-oci/sweeper -dry-run -regions eu-frankfurt-1  # what a sweep would delete
@@ -1053,7 +1054,7 @@ hack/dev.sh make test-e2e-oci-dryrun                            # everything tha
   file through `test/e2e-oci/ocienv`. The one stored secret is the application's client secret (`OCI_CLIENT_SECRET`, an environment secret).
   The audience the trust expects, the exact fields of the token endpoint's answer and that the CLI's `security_token` profile needs no fingerprint are **unverified**
   until the first live run (spike S11).
-- **Images.** The lane's operator imports Flatcar's own `oraclecloud` image into the compartment, per architecture, named
+- **Images.** The lane's operator imports Flatcar's own `oraclecloud` image into the compartment (or into the compartment `OCI_IMAGE_COMPARTMENT` names, which the lane passes to the controller as `vendors.oci.imageCompartment` and to the preflight and the canary), per architecture, named
   `flatcar-<channel>-<version>-<arch>` with the freeform tags of [Flatcar images on OCI](oci-images.md); the preflight and the canary read them
   and their shape compatibility. arm64 runs only with `E2E_ARM64=true` (the image needs a capability schema and the Arm shapes added).
 - **Types.** `oci.VM.Standard.E5.Flex.1-4` (amd64, on demand and preemptible; 1 OCPU is 2 vCPUs, 4 GB), `VM.Standard.E5.Flex.1-8` and
@@ -1072,7 +1073,7 @@ hack/dev.sh make test-e2e-oci-dryrun                            # everything tha
 
 | Scenario | Proves |
 |---|---|
-| preflight | the region is subscribed (`READY`) and has availability domains; the pinned Flatcar image exists in the compartment (`AVAILABLE`, its `flatcar-version` and `arch` tags) and is registered for the lane's shapes; every lane shape is offered in an availability domain; the E5 limits suffice; the NodeClasses are `Ready`, `VendorReady` and `ImagesReady` |
+| preflight | the region is subscribed (`READY`) and has availability domains; the pinned Flatcar image exists in the image compartment (`OCI_IMAGE_COMPARTMENT`, default the compartment; `AVAILABLE`, its `flatcar-version` and `arch` tags) and is registered for the lane's shapes; every lane shape is offered in an availability domain; the E5 limits suffice; the NodeClasses are `Ready`, `VendorReady` and `ImagesReady` |
 | `amd64` | on demand, exact type `oci.VM.Standard.E5.Flex.1-4`: Node Ready, Pod Running, `kubectl logs` and `exec`; node labels of overview section 5.5 (the zone name without the tenancy's prefix, the Keeper zone ID `<region>-ad-<N>`, `vcpus` 2, `memory-mib` 4096); the instance's freeform tags (cluster, nodeclaim, nodepool, nodeclass, managed-by, the idempotency key equal to the NodeClaim's UID, the NodeClass's `spec.tags`); `shapeConfig` equal to the name; the metadata keys of plan 25 section 5 (`user_data`, no `ssh_authorized_keys`), the legacy metadata endpoints disabled, a public address and a group on the VNIC; the pinned image; the boot volume (size and VPUs); the price annotation; the bootstrap token is gone, the serving CSR approved; on the node, the checks of L4 scenarios Q09 and Q10; the metadata service answers on the node (the `user_data` is the Ignition) and no login user exists; the answer from a Pod (OCI has no hop limit) and from the legacy endpoint are recorded as notes |
 | `spot` | the same size preemptible: `preemptibleInstanceConfig` with the action `TERMINATE` and the boot volume not preserved |
 | `arm64` | optional (`E2E_ARM64=true`): `A1` or, where its capacity is short, `A2` on the arm64 image; the five launch options of a Flatcar arm64 image (`UEFI_64`, paravirtualized network and volumes, consistent volume naming); the join units are active |
@@ -1093,10 +1094,10 @@ or checked yet:
 - the **Flatcar images** of the pinned release in the compartment of the lane's region ([oci-images.md](oci-images.md): imported, named, tagged, with their shape compatibility, and for arm64 the capability schema);
 - an **IAM identity domain** with a **confidential application** (client credentials) and a **trust** for GitHub's OIDC issuer (`https://token.actions.githubusercontent.com`) that maps the subjects of this repository's environments
   `e2e`, `e2e-sweeper` and `e2e-canary` to identity domain users, in a CI group (the first two) and a canary group (the last); a second application for the canary is allowed;
-- the **policies**: `test/e2e-oci/ci-policy.sh policy <group> <compartment> [region]` prints the CI group's statements (the driver's, `manage volume-family` for the sweeper's boot volume deletion, and the region condition),
-  `test/e2e-oci/canary-policy.sh policy <group> <compartment>` the canary's read-only ones;
+- the **policies**: `test/e2e-oci/ci-policy.sh policy <group> <compartment> [region] [image compartment]` prints the CI group's statements (the driver's, `manage volume-family` for the sweeper's boot volume deletion, and the region condition),
+  `test/e2e-oci/canary-policy.sh policy <group> <compartment> [image compartment]` the canary's read-only ones (both add `read instance-images` in the optional image compartment);
 - the GitHub environments: `e2e` (required reviewers), `e2e-sweeper` (limited to `main`, no reviewers) and `e2e-canary` (limited to `main`), each with the **variables** `OCI_COMPARTMENT`, `OCI_TENANCY`
-  (OCIDs), `OCI_IDENTITY_DOMAIN_URL` (`https://idcs-<id>.identity.oraclecloud.com`), `OCI_CLIENT_ID`, and optionally `OCI_REGION` (default `eu-frankfurt-1`), `OCI_HOME_REGION` (default the region),
+  (OCIDs), `OCI_IDENTITY_DOMAIN_URL` (`https://idcs-<id>.identity.oraclecloud.com`), `OCI_CLIENT_ID`, and optionally `OCI_REGION` (default `eu-frankfurt-1`), `OCI_IMAGE_COMPARTMENT` (OCID; empty means `OCI_COMPARTMENT`; the sweeper ignores it and never touches images), `OCI_HOME_REGION` (default the region),
   `OCI_OIDC_AUDIENCE` (default `oci-federation`; what the trust expects), and the **secret** `OCI_CLIENT_SECRET` (the application's client secret; the canary's own in `e2e-canary`); the Tailscale variables and tags are the AWS lane's;
 - for `byo`, nothing: the workflow creates and deletes its own network.
 

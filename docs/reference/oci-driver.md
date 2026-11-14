@@ -12,7 +12,7 @@ the resource engine around it is in [vendor resources](vendor-resources.md); the
 [OCI credentials](../how-to-guides/oci-credentials.md).
 
 It is enabled with `--vendors=oci` and `--oci-compartment` (the chart: `vendors.oci.enabled`,
-`vendors.oci.compartment`; see the [controller reference](controller.md)). Tests run against the in-memory
+`vendors.oci.compartment`, and optionally `vendors.oci.imageCompartment` for the images; see the [controller reference](controller.md)). Tests run against the in-memory
 API of `pkg/vendors/oci/fake` and the shared conformance suite; nothing in the repository's tests calls
 Oracle (the first live run is the L5 lane).
 
@@ -95,14 +95,18 @@ with the boot volume deleted.
 
 ## Images
 
-`ResolveImage` finds the image of the pinned release in the controller's compartment, per region and
-architecture:
+`ResolveImage` finds the image of the pinned release in the image compartment, per region and
+architecture. The image compartment is `--oci-image-compartment` (chart `vendors.oci.imageCompartment`) and
+defaults to the controller's compartment; set it when your IaC imports the images into another one. Only the
+image listing reads it: instances, boot volumes and the network stay in `--oci-compartment`, and the
+controller's identity needs `read instance-images` in the image compartment ([policy](oci-iam-policy.txt)).
+The option also applies to every `images.use` selector that lists images (`name`, `tags`, `match`, `filters`):
 
-- **Default** (no `resources.images`): `ListImages` by the display name
+- **Default** (no `resources.images`): `ListImages` in the image compartment by the display name
   `flatcar-<channel>-<version>-<arch>` and the operating system `Flatcar`, available images only. The
   platform images the API also lists are ignored.
 - **`resources.images.use`**: `ids` (a region key, never `*`; each is read with `GetImage`, so an image
-  in another compartment works), `name` (a glob), `tags` (freeform tags), `match` (`architecture`, `state`,
+  in any compartment the identity can read works, with or without the image compartment), `name` (a glob), `tags` (freeform tags), `match` (`architecture`, `state`,
   `createdAfter`, `createdBefore`; no `owner`), the native `filters` `operating-system`,
   `operating-system-version`, `shape` and `lifecycle-state`, `select` (default `exactlyOne`) and `orderBy`.
 - **The architecture** of an image is the freeform tag `arch`, else derived from the shapes it is
@@ -182,7 +186,7 @@ or the group's VNICs. The gateway, NAT gateways, IPv6 on a managed VCN and peeri
 ## What your IaC provides
 
 The controller's compartment and the subscriptions of the regions, the images per region and
-architecture, the controller's identity and its [policy](oci-iam-policy.txt), optionally a subnet and
+architecture (in the controller's compartment, or in another one that you name with `--oci-image-compartment`), the controller's identity and its [policy](oci-iam-policy.txt), optionally a subnet and
 groups (with egress: Ignition needs it at first boot), and the limits and compartment quotas you want. See
 [infrastructure hand-off](infrastructure-handoff.md#oci).
 

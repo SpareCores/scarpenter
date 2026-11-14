@@ -37,12 +37,14 @@ Create (or pick) the compartment, note its OCID and subscribe the tenancy to eve
 (a one-way, tenancy-wide action). The controller targets this one compartment: set `--oci-compartment`
 (chart: `vendors.oci.compartment`, required). Instances, boot volumes, the managed network and the default
 image lookup live in it; brought subnets, groups and images may live in other compartments the identity can
-read. There is no per-NodeClass compartment.
+read. There is no per-NodeClass compartment. Images are looked up in the same compartment unless you set
+`--oci-image-compartment` (chart: `vendors.oci.imageCompartment`) to the compartment where your IaC imports
+them ([OCI images](oci-images.md#the-image-compartment)).
 
 ## The policy
 
 Create a group (the identity below becomes a member), then the statements of
-[`oci-iam-policy.txt`](../reference/oci-iam-policy.txt), replacing `<group>` and `<compartment>`:
+[`oci-iam-policy.txt`](../reference/oci-iam-policy.txt), replacing `<group>`, `<compartment>` and, with an image compartment, `<image compartment>`:
 
 - `manage instance-family`, `use volume-family` and `use virtual-network-family` in the compartment: the
   instances, their boot volumes and VNICs, and the subnet and groups of a launch;
@@ -50,6 +52,8 @@ Create a group (the identity below becomes a member), then the statements of
   availability domains;
 - `inspect resource-availability` and `inspect limits` **in the tenancy**: the quotas are read on the root
   compartment, which is how the usage of the whole account is seen;
+- `read instance-images` in the image compartment, only when `--oci-image-compartment` names a compartment other
+  than the nodes' (the nodes' compartment's `manage instance-family` already covers the images in it);
 - `manage virtual-network-family` in the compartment, unless every NodeClass brings both its subnets and its
   network security groups (`use`) and none has `isolation: run`: SCarpenter creates the network without a
   subnets `use`, a group per NodeClass without a groups `use`, and a group per run for `isolation: run`.
