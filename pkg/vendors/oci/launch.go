@@ -63,6 +63,9 @@ func BuildLaunch(s LaunchSpec) (core.LaunchInstanceRequest, error) {
 		return core.LaunchInstanceRequest{}, err
 	}
 	tags := maps.Clone(s.Tags)
+	if tags == nil {
+		tags = map[string]string{}
+	}
 	if s.IdempotencyKey != "" {
 		tags[TagKey(vendors.TagIdempotencyKey)] = s.IdempotencyKey
 	}

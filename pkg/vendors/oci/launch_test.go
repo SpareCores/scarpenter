@@ -15,6 +15,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 	driver "github.com/SpareCores/scarpenter/pkg/vendors/oci"
 	"github.com/SpareCores/scarpenter/pkg/vendors/oci/fake"
 )
@@ -219,5 +220,18 @@ func TestBuildLaunchRejects(t *testing.T) {
 				t.Error("no error")
 			}
 		})
+	}
+}
+
+// A spec without tags still gets the idempotency key's tag.
+func TestBuildLaunchWithoutTags(t *testing.T) {
+	s := baseSpec()
+	s.Tags = nil
+	req, err := driver.BuildLaunch(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.FreeformTags[driver.TagKey(vendors.TagIdempotencyKey)]; got == "" || got != s.IdempotencyKey {
+		t.Errorf("idempotency tag %q, want %q", got, s.IdempotencyKey)
 	}
 }
