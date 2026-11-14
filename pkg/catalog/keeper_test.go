@@ -23,8 +23,8 @@ import (
 func TestKeeperSourceFilters(t *testing.T) {
 	c, _ := refreshed(t, catalog.Scope{"hcloud": {"fsn1"}})
 	its := all(t, c, catalog.Filter{})
-	if len(its) != 15 {
-		t.Fatalf("hcloud has %d types in fsn1, want 15 (the active ones with a price)", len(its))
+	if len(its) != 13 {
+		t.Fatalf("hcloud has %d types in fsn1, want 13 (the active ones with a price)", len(its))
 	}
 	for _, it := range its {
 		if len(it.Offerings) != 1 {

@@ -142,17 +142,22 @@ type Vendor struct {
 }
 
 // StoragePrice is a row of the source's storage price table: the USD price of
-// a GB of a storage type in a region per Unit ("GB/month").
+// a GB of a storage type in a region per Unit ("GB/month"). RegionID is the
+// vendor's name of the region (Region.Name; the source's id where it has no
+// such region), StorageName the source's name of the storage type (empty when
+// the source has no storage table): both differ from the ids at GCP.
 type StoragePrice struct {
-	Vendor    string
-	RegionID  string
-	StorageID string
-	Unit      string
-	USD       float64
+	Vendor      string
+	RegionID    string
+	StorageID   string
+	StorageName string
+	Unit        string
+	USD         float64
 }
 
 // IPv4Price is a row of the source's public IPv4 price table: the USD price
-// of an address per Unit ("hour" or "month").
+// of an address per Unit ("hour" or "month"). RegionID is the vendor's name of
+// the region, as in StoragePrice.
 type IPv4Price struct {
 	Vendor   string
 	RegionID string

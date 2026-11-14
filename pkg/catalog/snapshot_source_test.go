@@ -154,7 +154,7 @@ func catalogOver(t *testing.T, src catalog.Source, scope catalog.Scope, opts ...
 }
 
 var awsFiles = []string{
-	"/snapshot/server/aws", "/snapshot/region/aws", "/snapshot/zone/aws", "/snapshot/server_price/aws",
+	"/snapshot/server/aws", "/snapshot/region/aws", "/snapshot/zone/aws", "/snapshot/server_price/aws", "/snapshot/storage/aws",
 	"/snapshot/storage_price/aws", "/snapshot/ipv4_price/aws",
 }
 
@@ -178,7 +178,7 @@ func TestRefreshReadsTheSnapshotOfTheHealthcheckHash(t *testing.T) {
 	}
 	// The data age is the recording's publication time, and CatalogReady names the hash.
 	st := c.Status("c")
-	if !st.Ready || !strings.Contains(st.Message, hash) || !strings.Contains(st.Message, "2026-11-13T19:50:14Z") {
+	if !st.Ready || !strings.Contains(st.Message, hash) || !strings.Contains(st.Message, "2026-11-14T00:08:26Z") {
 		t.Errorf("status = %+v", st)
 	}
 	if !st.KeeperAuth.Known || !st.KeeperAuth.Authorized {
@@ -252,7 +252,7 @@ func TestRestartOnAFilledCacheDirReadsOnlyTheHealthcheck(t *testing.T) {
 	if got, want := len(all(t, c2, catalog.Filter{})), len(all(t, c, catalog.Filter{})); got != want || got == 0 {
 		t.Errorf("types after the restart = %d, want %d", got, want)
 	}
-	if st := c2.Status("c"); !strings.Contains(st.Message, "2026-11-13T19:50:14Z") {
+	if st := c2.Status("c"); !strings.Contains(st.Message, "2026-11-14T00:08:26Z") {
 		t.Errorf("the restart lost the publication time: %+v", st)
 	}
 }
@@ -796,7 +796,7 @@ func TestPublishedTimestampMetric(t *testing.T) {
 	if err := c.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	want := float64(time.Date(2026, 11, 13, 19, 50, 14, 0, time.UTC).Unix())
+	want := float64(time.Date(2026, 11, 14, 0, 8, 26, 0, time.UTC).Unix())
 	if got := gaugeValue(t, reg, "scarpenter_catalog_data_published_timestamp_seconds"); got != want {
 		t.Errorf("published = %v, want %v", got, want)
 	}
@@ -1020,7 +1020,7 @@ func TestPublishedAtSurvivesTheDiskCopyAfterARepin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := time.Date(2026, 11, 13, 19, 50, 14, 0, time.UTC); !data.PublishedAt.Equal(want) {
+	if want := time.Date(2026, 11, 14, 0, 8, 26, 0, time.UTC); !data.PublishedAt.Equal(want) {
 		t.Errorf("PublishedAt = %v, want %v", data.PublishedAt, want)
 	}
 }

@@ -174,8 +174,8 @@ func TestMetrics(t *testing.T) {
 			t.Errorf("%s: no types or offerings in the metrics: %v", v, got)
 		}
 	}
-	if got["scarpenter_catalog_instance_types"]["hcloud"] != 15 {
-		t.Errorf("hcloud types = %v, want 15", got["scarpenter_catalog_instance_types"]["hcloud"])
+	if got["scarpenter_catalog_instance_types"]["hcloud"] != 13 {
+		t.Errorf("hcloud types = %v, want 13", got["scarpenter_catalog_instance_types"]["hcloud"])
 	}
 }
 

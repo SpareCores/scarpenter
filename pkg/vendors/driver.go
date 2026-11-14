@@ -286,12 +286,15 @@ type Config struct {
 // price of a GB of a storage type in a region per Unit (the catalog passes
 // active, USD rows with a price above zero).
 type StoragePrice struct {
-	// Region is Keeper's region id, StorageID the storage type's id.
-	Region, StorageID, Unit string
-	USD                     float64
+	// Region is the vendor's name of the region, StorageID the storage type's
+	// id and Name Keeper's name of it (the vendor's own disk type at GCP,
+	// whose ids are numbers; empty without a storage table).
+	Region, StorageID, Name, Unit string
+	USD                           float64
 }
 
-// IPv4Price is one row of Keeper's ipv4_price file of a vendor: the USD price
+// IPv4Price is one row of Keeper's ipv4_price file of a vendor (Region is the
+// vendor's name of the region): the USD price
 // of a public IPv4 address per Unit ("hour" or "month").
 type IPv4Price struct {
 	Region, Unit string

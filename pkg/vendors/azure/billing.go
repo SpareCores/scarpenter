@@ -18,13 +18,15 @@ import (
 // 23) never applies and the NodeClass status says PerSecondBilling. The rule is
 // reported verified for that reason only (the same as AWS's): it comes from the
 // pricing documentation, not from a live account, and it holds nothing either
-// way. Keeper's own 1 second and 300 second row is not supported by the page
-// (a data issue of plan 13), so the driver overrides it. BillingStart stays
+// way. Keeper's own row (1 second increment, 300 second minimum) is not
+// supported by the page (a data issue of plan 13), so the driver overrides both
+// values: a minimum left to Keeper would make retention hold nodes for it.
+// BillingStart stays
 // unset on instances: retention has nothing to count from.
 func (d *Driver) BillingRule(string, string) (vendors.BillingRule, bool) {
-	inc := time.Minute
+	inc, none := time.Minute, time.Duration(0)
 	return vendors.BillingRule{
-		Increment: &inc, Verified: true,
+		Increment: &inc, Minimum: &none, Verified: true,
 		Source: "Azure virtual machine pricing: per full minute, no documented minimum",
 	}, true
 }

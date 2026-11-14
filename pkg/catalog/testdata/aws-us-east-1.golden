@@ -266,7 +266,7 @@ offerings: 10
     scarpenter.sparecores.com/zone-id In [use1-az1]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1d]
-- price: 36800u
+- price: 36600u
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []
@@ -277,7 +277,7 @@ offerings: 10
     scarpenter.sparecores.com/zone-id In [use1-az2]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1a]
-- price: 37300u
+- price: 37m
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []
@@ -288,7 +288,7 @@ offerings: 10
     scarpenter.sparecores.com/zone-id In [use1-az4]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1b]
-- price: 39400u
+- price: 39m
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []
@@ -411,7 +411,7 @@ offerings: 10
     scarpenter.sparecores.com/zone-id In [use1-az6]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1c]
-- price: 101700u
+- price: 101600u
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []
@@ -444,7 +444,7 @@ offerings: 10
     scarpenter.sparecores.com/zone-id In [use1-az4]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1b]
-- price: 81m
+- price: 81100u
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []
@@ -455,7 +455,7 @@ offerings: 10
     scarpenter.sparecores.com/zone-id In [use1-az5]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1f]
-- price: 80700u
+- price: 80800u
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []
@@ -556,7 +556,7 @@ offerings: 8
     scarpenter.sparecores.com/zone-id In [use1-az6]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1c]
-- price: 20464300u
+- price: 20416400u
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []
@@ -567,7 +567,7 @@ offerings: 8
     scarpenter.sparecores.com/zone-id In [use1-az1]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1d]
-- price: 16339900u
+- price: 16089400u
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []
@@ -578,7 +578,7 @@ offerings: 8
     scarpenter.sparecores.com/zone-id In [use1-az2]
     topology.kubernetes.io/region In [us-east-1]
     topology.kubernetes.io/zone In [us-east-1a]
-- price: 16289900u
+- price: 16074300u
   available: true
     karpenter.sh/capacity-type In [spot]
     scarpenter.sparecores.com/city DoesNotExist []

@@ -584,10 +584,41 @@ func (r *refresh) loadPrices(ctx context.Context, vendor string, regions map[str
 	return nil
 }
 
+// storageRow is the part of a storage row the catalog reads: the name of the
+// storage type, which a vendor's own API uses where its ids are numbers (GCP).
+type storageRow struct {
+	StorageID string `json:"storage_id"`
+	Name      string `json:"name"`
+}
+
 // loadAuxPrices reads the vendor's storage and IPv4 prices, for its driver:
-// active USD rows with a price above zero, in every region.
+// active USD rows with a price above zero, in every region. Regions are named
+// as the vendor does (the region table's api_reference), storage types carry
+// the source's name besides the id.
 func (r *refresh) loadAuxPrices(ctx context.Context, vendor string, data *model.Data) error {
+	regionName := map[string]string{}
+	for i := range data.Regions {
+		if rg := &data.Regions[i]; rg.Vendor == vendor && rg.Name != "" {
+			regionName[rg.ID] = rg.Name
+		}
+	}
+	named := func(id string) string {
+		if n, ok := regionName[id]; ok {
+			return n
+		}
+		return id
+	}
 	if path := keeper.VendorTablePath("storage_price", vendor); r.listed(path) {
+		storageName := map[string]string{}
+		if spath := keeper.VendorTablePath("storage", vendor); r.listed(spath) {
+			rows, err := decodeFile[storageRow](ctx, r, spath)
+			if err != nil {
+				return err
+			}
+			for _, s := range rows {
+				storageName[s.StorageID] = s.Name
+			}
+		}
 		rows, err := decodeFile[keeper.StoragePrice](ctx, r, path)
 		if err != nil {
 			return err
@@ -595,7 +626,8 @@ func (r *refresh) loadAuxPrices(ctx context.Context, vendor string, data *model.
 		for _, p := range rows {
 			if p.Status == statusActive && p.Currency == currencyUSD && p.Price > 0 {
 				data.StoragePrices = append(data.StoragePrices, model.StoragePrice{
-					Vendor: vendor, RegionID: p.RegionID, StorageID: p.StorageID, Unit: p.Unit, USD: p.Price,
+					Vendor: vendor, RegionID: named(p.RegionID), StorageID: p.StorageID,
+					StorageName: storageName[p.StorageID], Unit: p.Unit, USD: p.Price,
 				})
 			}
 		}
@@ -608,7 +640,7 @@ func (r *refresh) loadAuxPrices(ctx context.Context, vendor string, data *model.
 		for _, p := range rows {
 			if p.Status == statusActive && p.Currency == currencyUSD && p.Price > 0 {
 				data.IPv4Prices = append(data.IPv4Prices, model.IPv4Price{
-					Vendor: vendor, RegionID: p.RegionID, Unit: p.Unit, USD: p.Price,
+					Vendor: vendor, RegionID: named(p.RegionID), Unit: p.Unit, USD: p.Price,
 				})
 			}
 		}

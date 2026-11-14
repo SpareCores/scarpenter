@@ -91,7 +91,12 @@ func (k *keeperPrices) IPv4Price(region string) (float64, bool) {
 func (k *keeperPrices) set(p vendors.KeeperPrices) bool {
 	storage := map[string]float64{}
 	for _, r := range vendors.GBMonth(p.Storage) {
-		storage[r.Region+"/"+strings.ToLower(r.StorageID)] = r.USD
+		// GCP's storage ids are numbers; the driver knows a disk type by its name.
+		disk := r.Name
+		if disk == "" {
+			disk = r.StorageID
+		}
+		storage[r.Region+"/"+strings.ToLower(disk)] = r.USD
 	}
 	ipv4 := vendors.HourlyIPv4(p.IPv4, hoursPerMonth)
 	k.mu.Lock()
