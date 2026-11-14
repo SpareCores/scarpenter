@@ -1,8 +1,8 @@
 {
-  "fetched_at": "2026-11-13T22:29:22+00:00",
+  "fetched_at": "2026-11-14T01:17:43+00:00",
   "keeper": {
-    "database_hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-    "database_last_updated": "2026-11-13T20:31:03+00:00",
+    "database_hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+    "database_last_updated": "2026-11-14T00:31:54+00:00",
     "packages": {
       "sparecores-crawler": "0.10.4",
       "sparecores-data": "0.5.1",
@@ -27,8 +27,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "vendor",
         "rows": 8,
@@ -39,8 +39,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "region/aws",
         "rows": 33,
@@ -51,8 +51,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "zone/aws",
         "rows": 104,
@@ -63,8 +63,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server/aws",
         "rows": 1396,
@@ -75,20 +75,32 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server_price/aws",
-        "rows": 135501,
-        "sha256": "366eac2ee2453c83622c9ae9f41ec8603318d70e46e8937e676f352054154b77"
+        "rows": 135502,
+        "sha256": "7b1650be47410a1e0c21178da18b4d0e476eb9a0315078b66303cf76c65c2e79"
+      },
+      {
+        "file": "snapshot/storage/aws.json.gz",
+        "headers": {
+          "Cache-Control": "private, max-age=86400, immutable",
+          "Content-Type": "application/json",
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
+        },
+        "path": "storage/aws",
+        "rows": 7,
+        "sha256": "9bd3cf3ff6dd7e5f5067fadaef74767588f7427d43ff5b520c9b7769ba7575a1"
       },
       {
         "file": "snapshot/storage_price/aws.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "storage_price/aws",
         "rows": 231,
@@ -99,8 +111,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "ipv4_price/aws",
         "rows": 33,
@@ -111,44 +123,44 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/aws/geekbench:score",
         "rows": 2274,
-        "sha256": "e1f31b9a208f9f73627fc04b4cd55ee9bbd5204751d318ba4243fdb9a16d4030"
+        "sha256": "c75c6f0d1091d7df457aae0fce0454a0b61a2d9b502196329e5e543a30658da7"
       },
       {
         "file": "snapshot/benchmark_score/aws/stress_ng_bestn.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/aws/stress_ng:bestn",
         "rows": 1168,
-        "sha256": "b50ac04839f3792c158f4b0d0ac15ea130f5bfc74c3610f73583bf39a3bd7200"
+        "sha256": "eb42c0299523a6cecb5b15e4b9d0a343219182a3cb35baa2fa17fd45f21d663c"
       },
       {
         "file": "snapshot/benchmark_score/aws/membench_latency.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/aws/membench:latency",
         "rows": 2248,
-        "sha256": "83fdb98e7f7b795538661b04c59fda0b310fe3f82c092f3e883e359f4941df7a"
+        "sha256": "6a507f7ac926ca3f113372c7f1745a37e749fc9e4444336fec6a2435e7142291"
       },
       {
         "file": "snapshot/region/gcp.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "region/gcp",
         "rows": 43,
@@ -159,8 +171,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "zone/gcp",
         "rows": 130,
@@ -171,8 +183,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server/gcp",
         "rows": 620,
@@ -183,20 +195,32 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server_price/gcp",
         "rows": 73794,
         "sha256": "55564324e86ee337385d152179d4950e8e60bfebd4edf068f82d00397687914f"
       },
       {
+        "file": "snapshot/storage/gcp.json.gz",
+        "headers": {
+          "Cache-Control": "private, max-age=86400, immutable",
+          "Content-Type": "application/json",
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
+        },
+        "path": "storage/gcp",
+        "rows": 8,
+        "sha256": "d66ae8dea3bf9b12699357dc7c33d4addf91fdd537e1de902648a54aaf7677b5"
+      },
+      {
         "file": "snapshot/storage_price/gcp.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "storage_price/gcp",
         "rows": 343,
@@ -207,8 +231,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "ipv4_price/gcp",
         "rows": 43,
@@ -219,8 +243,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/gcp/geekbench:score",
         "rows": 756,
@@ -231,8 +255,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/gcp/stress_ng:bestn",
         "rows": 394,
@@ -243,8 +267,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/gcp/membench:latency",
         "rows": 4202,
@@ -255,8 +279,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "region/azure",
         "rows": 61,
@@ -267,8 +291,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "zone/azure",
         "rows": 140,
@@ -279,8 +303,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server/azure",
         "rows": 1440,
@@ -291,32 +315,44 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server_price/azure",
         "rows": 294674,
         "sha256": "2f8658197c03a936d1bfc8916f1fcc518fffd81ea8e2bf5a0e98e96a49c15f04"
       },
       {
+        "file": "snapshot/storage/azure.json.gz",
+        "headers": {
+          "Cache-Control": "private, max-age=86400, immutable",
+          "Content-Type": "application/json",
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
+        },
+        "path": "storage/azure",
+        "rows": 7,
+        "sha256": "b41108b2175d10802d508dcb5b825518e24b8287696f08c494ade8f83cd6b693"
+      },
+      {
         "file": "snapshot/storage_price/azure.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "storage_price/azure",
         "rows": 361,
-        "sha256": "9bea187c2c11309e1d977e6fa76bfe9a337b87f381ffb9a3ddaa766665494ab3"
+        "sha256": "66d404993a1fdfaa03bc4eb2411716bf416606af7c89b245be2b736cf644f0d8"
       },
       {
         "file": "snapshot/ipv4_price/azure.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "ipv4_price/azure",
         "rows": 58,
@@ -327,8 +363,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/azure/geekbench:score",
         "rows": 1970,
@@ -339,8 +375,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/azure/stress_ng:bestn",
         "rows": 1186,
@@ -351,8 +387,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/azure/membench:latency",
         "rows": 9299,
@@ -363,8 +399,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "region/alicloud",
         "rows": 33,
@@ -375,8 +411,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "zone/alicloud",
         "rows": 108,
@@ -387,32 +423,44 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server/alicloud",
         "rows": 1067,
-        "sha256": "6c6f5d8e1f93f77d2761c1fa484d30b1c8001d51a328b89218ffa2217f3017a6"
+        "sha256": "a254e8b7d8b9578765e515fe5953ef950db9354c224dec065235b8f4f656510d"
       },
       {
         "file": "snapshot/server_price/alicloud.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server_price/alicloud",
-        "rows": 11404,
-        "sha256": "960deb9c2dd1ce95668ff1d80ece69c14f22f78f18585cf68716ac3767fc3e82"
+        "rows": 11572,
+        "sha256": "43b8c4a4e8d83ec0bc62a5d16f773ad2d7e33f60e733e9375c025280f7c4d1ed"
+      },
+      {
+        "file": "snapshot/storage/alicloud.json.gz",
+        "headers": {
+          "Cache-Control": "private, max-age=86400, immutable",
+          "Content-Type": "application/json",
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
+        },
+        "path": "storage/alicloud",
+        "rows": 7,
+        "sha256": "a459a8b4710ee9e8f5540868d03a04c439cab1ffb78d81b69d3036ac50f67649"
       },
       {
         "file": "snapshot/storage_price/alicloud.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "storage_price/alicloud",
         "rows": 182,
@@ -423,8 +471,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "ipv4_price/alicloud",
         "rows": 33,
@@ -435,8 +483,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/alicloud/geekbench:score",
         "rows": 884,
@@ -447,8 +495,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/alicloud/stress_ng:bestn",
         "rows": 511,
@@ -459,8 +507,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/alicloud/membench:latency",
         "rows": 5437,
@@ -471,8 +519,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "region/hcloud",
         "rows": 6,
@@ -483,8 +531,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "zone/hcloud",
         "rows": 6,
@@ -495,8 +543,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server/hcloud",
         "rows": 26,
@@ -507,20 +555,32 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server_price/hcloud",
-        "rows": 79,
-        "sha256": "49a9b4c7d987b090ffd0e0b2904b2c229288c0568f9267b460ea52c519afc12c"
+        "rows": 74,
+        "sha256": "64e4407324608af296a70b128e0765893733608bf2def174a38dcf0d1b62489f"
+      },
+      {
+        "file": "snapshot/storage/hcloud.json.gz",
+        "headers": {
+          "Cache-Control": "private, max-age=86400, immutable",
+          "Content-Type": "application/json",
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
+        },
+        "path": "storage/hcloud",
+        "rows": 1,
+        "sha256": "5815728723ea8b0c28dae8155dfcdb0b3d5d440983289ad3118945107390d9c1"
       },
       {
         "file": "snapshot/storage_price/hcloud.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "storage_price/hcloud",
         "rows": 6,
@@ -531,8 +591,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "ipv4_price/hcloud",
         "rows": 6,
@@ -543,8 +603,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/hcloud/geekbench:score",
         "rows": 46,
@@ -555,8 +615,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/hcloud/stress_ng:bestn",
         "rows": 26,
@@ -567,8 +627,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/hcloud/membench:latency",
         "rows": 280,
@@ -579,8 +639,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "region/ovh",
         "rows": 26,
@@ -591,8 +651,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "zone/ovh",
         "rows": 30,
@@ -603,32 +663,44 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server/ovh",
-        "rows": 109,
-        "sha256": "3437ab2189d9040085ebc8504a1e324ef1b37789d16426dca3ed98672774cc9c"
+        "rows": 110,
+        "sha256": "a3750634c49cda8cec3941b2839f15538df49f4c847ec8eecff57aa58aa598e7"
       },
       {
         "file": "snapshot/server_price/ovh.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server_price/ovh",
-        "rows": 1252,
-        "sha256": "0f7014bf3d08db2bbbc23186a1293644acea1d3d6f7d288f59d1603faa27e2e6"
+        "rows": 1257,
+        "sha256": "a5d98487140db3316eaed6a9d577ee3bdc4628acf03ea7e576fd1c17a249d726"
+      },
+      {
+        "file": "snapshot/storage/ovh.json.gz",
+        "headers": {
+          "Cache-Control": "private, max-age=86400, immutable",
+          "Content-Type": "application/json",
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
+        },
+        "path": "storage/ovh",
+        "rows": 3,
+        "sha256": "36329afda9b65f94491e1836e035f15a2293364b5982ba4d7989712f66558d57"
       },
       {
         "file": "snapshot/storage_price/ovh.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "storage_price/ovh",
         "rows": 47,
@@ -639,8 +711,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "ipv4_price/ovh",
         "rows": 16,
@@ -651,8 +723,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/ovh/geekbench:score",
         "rows": 184,
@@ -663,32 +735,32 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/ovh/stress_ng:bestn",
-        "rows": 101,
-        "sha256": "2b47bbb37c79da9c9f49a6700103f444cac16e7da627ee58ac68058c0db29b75"
+        "rows": 102,
+        "sha256": "c88cd752d88b4c0c5c8b97cff92b6ea4c6f727dccb1491121d05a3204303c959"
       },
       {
         "file": "snapshot/benchmark_score/ovh/membench_latency.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/ovh/membench:latency",
-        "rows": 895,
-        "sha256": "1804a44b3be66cc2d0443e4d774a9a109b0612b748c99b27db4517758b479253"
+        "rows": 905,
+        "sha256": "7a6045ac6c64e7814877356cf5b6bdce9fbe73c93e584b079b246147c9088009"
       },
       {
         "file": "snapshot/region/upcloud.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "region/upcloud",
         "rows": 15,
@@ -699,8 +771,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "zone/upcloud",
         "rows": 15,
@@ -711,32 +783,44 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server/upcloud",
-        "rows": 91,
-        "sha256": "e19e8a87ff85b3954c56a3e4f161dc6539f28a58943a3c45c871a2e0bfa2d96b"
+        "rows": 90,
+        "sha256": "cee7d941bc5bec2d5302fb177386418b4390d507ccc870405b8ac768368528b0"
       },
       {
         "file": "snapshot/server_price/upcloud.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server_price/upcloud",
-        "rows": 1157,
-        "sha256": "81c3a4256505b1b11606f772a445457f9820d80f0e7ce61a83b2f9d3af65883c"
+        "rows": 1154,
+        "sha256": "3690d408364fe9aa56b4e5a07d48589071cdc34c36246221edb88767b3ac52e9"
+      },
+      {
+        "file": "snapshot/storage/upcloud.json.gz",
+        "headers": {
+          "Cache-Control": "private, max-age=86400, immutable",
+          "Content-Type": "application/json",
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
+        },
+        "path": "storage/upcloud",
+        "rows": 3,
+        "sha256": "d9a0206bf92d9b362c9c258a96d8989d0604cfa16460cdb08386fdce7d0fa2a0"
       },
       {
         "file": "snapshot/storage_price/upcloud.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "storage_price/upcloud",
         "rows": 45,
@@ -747,8 +831,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "ipv4_price/upcloud",
         "rows": 15,
@@ -759,8 +843,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/upcloud/geekbench:score",
         "rows": 166,
@@ -771,8 +855,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/upcloud/stress_ng:bestn",
         "rows": 90,
@@ -783,8 +867,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/upcloud/membench:latency",
         "rows": 977,
@@ -795,8 +879,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "region/vultr",
         "rows": 33,
@@ -807,8 +891,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "zone/vultr",
         "rows": 33,
@@ -819,8 +903,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server/vultr",
         "rows": 132,
@@ -831,20 +915,32 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "server_price/vultr",
-        "rows": 2865,
-        "sha256": "1e9a1967f17d56735e37e8c8abde34b7526ce394297c161cab6c53579116925d"
+        "rows": 2869,
+        "sha256": "7d55b6185ec4cdcb53427a36adc713836a61ee1f7c08a517fc810b0d59b19a9e"
+      },
+      {
+        "file": "snapshot/storage/vultr.json.gz",
+        "headers": {
+          "Cache-Control": "private, max-age=86400, immutable",
+          "Content-Type": "application/json",
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
+        },
+        "path": "storage/vultr",
+        "rows": 2,
+        "sha256": "0bb655eef90c2405b2390e5c06e57e04b70dccc59e65dfbf80fadb4cef22ce6d"
       },
       {
         "file": "snapshot/storage_price/vultr.json.gz",
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "storage_price/vultr",
         "rows": 43,
@@ -855,8 +951,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "ipv4_price/vultr",
         "rows": 33,
@@ -867,8 +963,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/vultr/geekbench:score",
         "rows": 228,
@@ -879,8 +975,8 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/vultr/stress_ng:bestn",
         "rows": 127,
@@ -891,28 +987,30 @@
         "headers": {
           "Cache-Control": "private, max-age=86400, immutable",
           "Content-Type": "application/json",
-          "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-          "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+          "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+          "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
         },
         "path": "benchmark_score/vultr/membench:latency",
         "rows": 1329,
         "sha256": "e6038324597d8792def06e0fa57fd55049effd4f1db68dbb6f2cae4d19f2e7d8"
       }
     ],
-    "hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
+    "hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
     "healthcheck": {
       "database_alembic_version": "c7d8e9f0a1b2",
-      "database_hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-      "database_last_updated": 1794601863.444098,
-      "database_published_at": "2026-11-13T19:50:14Z",
-      "inspector_rules": "github@170f03fc5bdf64f07d29737b5eeb85a50831e2ab",
+      "database_hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+      "database_last_updated": 1794616314.9639406,
+      "database_published_at": "2026-11-14T00:08:26Z",
+      "inspector_rules": "github@3dfe2eeced8b1525c38f1c21540fa1c03e0ab789",
       "packages": {
         "sparecores-crawler": "0.10.4",
         "sparecores-data": "0.5.1",
         "sparecores-keeper": "2026.11+g7a8f5c0"
       },
       "snapshot_hashes": [
-        "40ecd194b481b86a3237f51c9be6f590abcd53df"
+        "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+        "3024c0241007661d0a5d114f740301b429fd89ef",
+        "3796e7310f283d17107c82590ac8fad5acda82c2"
       ]
     },
     "manifest": {
@@ -920,11 +1018,11 @@
       "headers": {
         "Cache-Control": "private, max-age=86400, immutable",
         "Content-Type": "application/json",
-        "Sc-Data-Hash": "40ecd194b481b86a3237f51c9be6f590abcd53df",
-        "Sc-Data-Published-At": "2026-11-13T19:50:14Z"
+        "Sc-Data-Hash": "2c401c21664c45b8540083c06ab22fe68ae47ae0",
+        "Sc-Data-Published-At": "2026-11-14T00:08:26Z"
       }
     },
-    "published_at": "2026-11-13T19:50:14Z"
+    "published_at": "2026-11-14T00:08:26Z"
   },
   "vendors": {
     "alicloud": {

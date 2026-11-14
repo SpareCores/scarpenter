@@ -7,7 +7,8 @@
 #
 # What it holds (plan 13): the files of Keeper's snapshot of one database hash,
 # as the gzip bytes Keeper sent, the way the catalog reads them:
-#   - for every vendor the six per-vendor tables the catalog reads;
+#   - for every vendor the seven per-vendor tables the catalog reads (storage
+#     names the storage ids of the price rows);
 #   - the global vendor table (billing facts);
 #   - the score files of the test benchmarks for every vendor, every config of
 #     a benchmark in one file;
@@ -23,7 +24,7 @@ vendors:
   - {name: vultr}
 
 snapshot:
-  vendors: [region, zone, server, server_price, storage_price, ipv4_price]
+  vendors: [region, zone, server, server_price, storage, storage_price, ipv4_price]
   global: [vendor]
   benchmarks: ["geekbench:score", "stress_ng:bestn", "membench:latency"]
 
