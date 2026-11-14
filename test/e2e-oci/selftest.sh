@@ -71,6 +71,27 @@ for f in nodeclass-amd64 nodeclass-arm64 nodeclass-drift nodeclass-create nodecl
   check "render ${f}" render "${here}/manifests/${f}.yaml"
 done
 check "render probe-arm64" env NAME=e2e-arm64 POOL=e2e-arm64 bash -c "source '${here}/lib.sh'; render '${here}/manifests/probe-arm64.yaml'"
+# Every manifest of the lane renders with exactly the variables its callers set (lib.sh probe, install.sh,
+# scenarios.sh), so that a template that needs one nobody sets fails here and not in the live run. A manifest
+# without an entry fails too, so that a new one is not forgotten.
+t_render_all() {
+  local f n vars rc=0
+  for f in "${here}"/manifests/*.yaml; do
+    n="$(basename "${f}" .yaml)"
+    case "${n}" in
+      probe) vars="NAME=e2e-amd64 POOL=e2e-amd64 TYPE=oci.VM.Standard.E5.Flex.1-4 CAPACITY=on-demand" ;;
+      probe-spot) vars="NAME=e2e-spot POOL=e2e-spot CAPACITY=spot" ;;
+      probe-arm64) vars="NAME=e2e-arm64 POOL=e2e-arm64" ;;
+      nodeshell) vars="NODE=node-1 PODNAME=nodeshell-node-1" ;;
+      *) vars="" ;;
+    esac
+    # shellcheck disable=SC2086  # the assignments are split on purpose
+    env -u NAME -u POOL -u TYPE -u CAPACITY -u NODE -u PODNAME ${vars} bash -c "source '${here}/lib.sh'; render '${f}' >/dev/null" ||
+      { echo "${n} does not render with ${vars:-no variables}"; rc=1; }
+  done
+  return "${rc}"
+}
+check "every manifest renders with the variables its callers set" t_render_all
 
 # ---- the pins ----------------------------------------------------------------
 t_pins() {

@@ -1,4 +1,4 @@
-# Like probe.yaml without the instance type: the NodePool lists the types it may take (the spot
+# Like probe.yaml without the instance type (it renders without TYPE): the NodePool lists the types it may take (the spot
 # scenario takes whichever launches). A one-replica workload pinned to a NodePool and a capacity
 # type (lib.sh: probe). It logs a line (kubectl logs) and sleeps (kubectl exec); no
 # grace period, so that deleting it does not hold the node. Public ECR mirror of
@@ -19,7 +19,6 @@ spec:
       terminationGracePeriodSeconds: 0
       nodeSelector:
         karpenter.sh/nodepool: ${POOL}
-        node.kubernetes.io/instance-type: ${TYPE}
         karpenter.sh/capacity-type: ${CAPACITY}
       containers:
         - name: probe
