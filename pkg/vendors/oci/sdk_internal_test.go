@@ -66,6 +66,7 @@ func newServer(t *testing.T, h func(n int, w http.ResponseWriter, r *http.Reques
 	}))
 	t.Cleanup(s.Close)
 	sdk := NewSDK(testProvider(t), "scarpenter/test", WithSDKTimeout(10*time.Second))
+	sdk.backoff = func(int) time.Duration { return time.Millisecond }
 	sdk.host = func(service, region string) string {
 		s.mu.Lock()
 		s.hosts = append(s.hosts, service+"/"+region)
@@ -162,12 +163,6 @@ func TestSDKReadsRetryAndNotFoundDoesNot(t *testing.T) {
 
 // Every call has a deadline: a server that never answers does not hold the driver.
 func TestSDKCallDeadline(t *testing.T) {
-	if raceEnabled {
-		// common.Retry of oci-go-sdk v65.130.0 returns its goroutine's response variable
-		// when the context ends, without synchronisation: a data race inside the SDK
-		// whenever a call times out. TestWithinDeadline covers the deadline itself.
-		t.Skip("the SDK's retry loop races on a deadline (oci-go-sdk v65.130.0, common/retry.go)")
-	}
 	release := make(chan struct{})
 	_, sdk := newServer(t, func(_ int, _ http.ResponseWriter, r *http.Request) {
 		select {
@@ -260,7 +255,31 @@ func TestSDKKeepsClientConfiguration(t *testing.T) {
 	if c.Configuration.CircuitBreaker == nil {
 		t.Error("the circuit breaker of the environment was dropped")
 	}
-	if p := c.RetryPolicy(); p == nil || p.MaximumNumberAttempts <= 1 {
-		t.Errorf("retry policy %+v; want the default policy without eventual consistency", p)
+	if p := c.RetryPolicy(); p == nil || p.MaximumNumberAttempts != 1 {
+		t.Errorf("retry policy %+v; the SDK's own retries must be off (the adapter retries)", p)
+	}
+}
+
+// A call that keeps failing with a transient error is attempted maxCallAttempts times and
+// then gives up; a 429 is retried like a 5xx.
+func TestSDKRetryIsBounded(t *testing.T) {
+	s, sdk := newServer(t, func(_ int, w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, 429, `{"code":"TooManyRequests","message":"slow down"}`)
+	})
+	_, err := sdk.GetInstance(t.Context(), "eu-frankfurt-1", core.GetInstanceRequest{
+		InstanceId: new("ocid1.instance.oc1.eu-frankfurt-1.aaaa")})
+	if !vendors.IsClass(classify(err, kindRead), vendors.Retryable) {
+		t.Errorf("error %v, want Retryable", err)
+	}
+	if n := s.requests.Load(); n != maxCallAttempts {
+		t.Errorf("%d requests, want %d attempts", n, maxCallAttempts)
+	}
+}
+
+func TestRetryBackoffGrows(t *testing.T) {
+	for n, base := range []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second} {
+		if got := retryBackoff(n); got > base || got < base*3/4 {
+			t.Errorf("retryBackoff(%d) = %s, want %s less up to a quarter", n, got, base)
+		}
 	}
 }

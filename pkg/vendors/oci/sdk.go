@@ -9,6 +9,7 @@ package oci
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 )
 
 // DefaultCallTimeout bounds one API call (one page of a list), the retries of
-// the client's policy included: every SDK call the driver makes runs under it.
+// the adapter included: every SDK call the driver makes runs under it.
 const DefaultCallTimeout = 45 * time.Second
 
 // SDK implements ComputeAPI, NetworkAPI, IdentityAPI and LimitsAPI over the
@@ -29,14 +30,13 @@ const DefaultCallTimeout = 45 * time.Second
 // first use, with the user agent scarpenter/<version> and a deadline on every
 // call.
 //
-// The retry policy of every client is common.DefaultRetryPolicyWithoutEventualConsistency:
-// reads and the idempotent deletes retry 429, 5xx (but 501) and the conflicts
-// IncorrectState and LockConflict with backoff, bounded by the call's deadline.
-// It is not DefaultRetryPolicy, whose eventual-consistency part would retry a 404
-// for minutes and hide NotFound from Get and Delete. LaunchInstance overrides it
-// per request with NoRetryPolicy: a retry policy would retry the HTTP 500 "Out of
-// host capacity" up to eight times, and the capacity answer is for the driver
-// to classify.
+// The SDK's own retry policy is off on every client (NoRetryPolicy), because
+// its retry loop cannot run under a deadline without a data race (see within).
+// invoke retries the idempotent calls itself: reads and deletes retry 429, 5xx
+// (but the capacity answer) and the conflicts of a resource in use with backoff,
+// bounded by the call's deadline; a 404 is never retried, so NotFound stays
+// visible to Get and Delete. LaunchInstance is never retried: the HTTP 500 "Out of
+// host capacity" is the driver's to classify.
 type SDK struct {
 	provider common.ConfigurationProvider
 	agent    string
@@ -44,6 +44,8 @@ type SDK struct {
 	// host overrides the endpoint of a service in a region (the tests point it
 	// at a local server); nil uses the SDK's endpoints.
 	host func(service, region string) string
+	// backoff overrides the wait between retries (the tests); nil is retryBackoff.
+	backoff func(attempt int) time.Duration
 
 	mu       sync.Mutex
 	compute  map[string]*core.ComputeClient
@@ -86,11 +88,75 @@ func NewSDK(provider common.ConfigurationProvider, userAgent string, opts ...SDK
 	return s
 }
 
+// maxCallAttempts bounds the driver-side retries of an idempotent call.
+const maxCallAttempts = 4
+
+// retryBackoff is the wait before the retry after attempt n (0-based): 0.5 s,
+// 1 s, 2 s, with up to a quarter of jitter. The call's deadline bounds the sum.
+func retryBackoff(n int) time.Duration {
+	d := 500 * time.Millisecond << n
+	return d - time.Duration(rand.Int64N(int64(d/4)+1))
+}
+
 // within runs one call under a deadline; a shorter deadline of the caller wins.
+// The call runs on its own goroutine under a context that never ends, and the
+// deadline is enforced here: the SDK's common.Retry selects on its context and,
+// when the context ends first, returns a response variable its own goroutine
+// still writes, a data race on every timed-out call (oci-go-sdk v65.130.0,
+// common/retry.go). Without a Done channel in the SDK's context that select
+// cannot fire. The abandoned request ends by the HTTP client's own timeout; its
+// result is dropped (the channel is buffered).
 func within[Q, R any](ctx context.Context, d time.Duration, f func(context.Context, Q) (R, error), req Q) (R, error) {
 	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
-	return f(ctx, req)
+	type result struct {
+		r   R
+		err error
+	}
+	done := make(chan result, 1)
+	sdkCtx := context.WithoutCancel(ctx)
+	go func() {
+		r, err := f(sdkCtx, req)
+		done <- result{r, err}
+	}()
+	select {
+	case res := <-done:
+		return res.r, res.err
+	case <-ctx.Done():
+		var zero R
+		return zero, ctx.Err()
+	}
+}
+
+// invoke runs one SDK call under the adapter's deadline. The SDK's own retry
+// policy is off on every client (see within for why it cannot run under a
+// deadline safely); an idempotent call (retry true) is retried here, up to
+// maxCallAttempts times and within the one deadline, when its error is
+// Retryable: 429, 5xx but the capacity answer, the conflicts of a resource still
+// in use and transport errors. A 404 is never retried, so NotFound stays visible.
+// LaunchInstance passes false: the capacity answer must reach the driver at once.
+func invoke[Q, R any](ctx context.Context, s *SDK, retry bool, f func(context.Context, Q) (R, error), req Q,
+) (R, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	for attempt := 0; ; attempt++ {
+		r, err := within(ctx, s.timeout, f, req)
+		if err == nil || !retry || attempt+1 >= maxCallAttempts || ctx.Err() != nil ||
+			!vendors.IsClass(classify(err, kindRead), vendors.Retryable) {
+			return r, err
+		}
+		wait := s.backoff
+		if wait == nil {
+			wait = retryBackoff
+		}
+		t := time.NewTimer(wait(attempt))
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			t.Stop()
+			return r, err
+		}
+	}
 }
 
 // configure applies what every client gets: the retry policy, the user agent and
@@ -103,7 +169,8 @@ func (s *SDK) configure(base *common.BaseClient, service, region string, setRegi
 		base.Host = s.host(service, region)
 	}
 	base.UserAgent = s.agent
-	policy := common.DefaultRetryPolicyWithoutEventualConsistency()
+	// The SDK's retry loop is off (invoke retries); see within.
+	policy := common.NoRetryPolicy()
 	base.Configuration.RetryPolicy = &policy
 }
 
@@ -182,7 +249,7 @@ func (s *SDK) LaunchInstance(ctx context.Context, region string, req core.Launch
 	}
 	none := common.NoRetryPolicy()
 	req.RequestMetadata.RetryPolicy = &none
-	return within(ctx, s.timeout, c.LaunchInstance, req)
+	return invoke(ctx, s, false, c.LaunchInstance, req)
 }
 
 // GetInstance implements ComputeAPI.
@@ -192,7 +259,7 @@ func (s *SDK) GetInstance(ctx context.Context, region string, req core.GetInstan
 	if err != nil {
 		return core.GetInstanceResponse{}, err
 	}
-	return within(ctx, s.timeout, c.GetInstance, req)
+	return invoke(ctx, s, true, c.GetInstance, req)
 }
 
 // ListInstances implements ComputeAPI.
@@ -202,7 +269,7 @@ func (s *SDK) ListInstances(ctx context.Context, region string, req core.ListIns
 	if err != nil {
 		return core.ListInstancesResponse{}, err
 	}
-	return within(ctx, s.timeout, c.ListInstances, req)
+	return invoke(ctx, s, true, c.ListInstances, req)
 }
 
 // TerminateInstance implements ComputeAPI.
@@ -212,7 +279,7 @@ func (s *SDK) TerminateInstance(ctx context.Context, region string, req core.Ter
 	if err != nil {
 		return core.TerminateInstanceResponse{}, err
 	}
-	return within(ctx, s.timeout, c.TerminateInstance, req)
+	return invoke(ctx, s, true, c.TerminateInstance, req)
 }
 
 // ListVnicAttachments implements ComputeAPI.
@@ -222,7 +289,7 @@ func (s *SDK) ListVnicAttachments(ctx context.Context, region string, req core.L
 	if err != nil {
 		return core.ListVnicAttachmentsResponse{}, err
 	}
-	return within(ctx, s.timeout, c.ListVnicAttachments, req)
+	return invoke(ctx, s, true, c.ListVnicAttachments, req)
 }
 
 // ListShapes implements ComputeAPI.
@@ -232,7 +299,7 @@ func (s *SDK) ListShapes(ctx context.Context, region string, req core.ListShapes
 	if err != nil {
 		return core.ListShapesResponse{}, err
 	}
-	return within(ctx, s.timeout, c.ListShapes, req)
+	return invoke(ctx, s, true, c.ListShapes, req)
 }
 
 // GetVnic implements NetworkAPI.
@@ -241,7 +308,7 @@ func (s *SDK) GetVnic(ctx context.Context, region string, req core.GetVnicReques
 	if err != nil {
 		return core.GetVnicResponse{}, err
 	}
-	return within(ctx, s.timeout, c.GetVnic, req)
+	return invoke(ctx, s, true, c.GetVnic, req)
 }
 
 // ListRegionSubscriptions implements IdentityAPI, in the home region of the
@@ -257,7 +324,7 @@ func (s *SDK) ListRegionSubscriptions(ctx context.Context, req identity.ListRegi
 	if err != nil {
 		return identity.ListRegionSubscriptionsResponse{}, err
 	}
-	return within(ctx, s.timeout, c.ListRegionSubscriptions, req)
+	return invoke(ctx, s, true, c.ListRegionSubscriptions, req)
 }
 
 // ListAvailabilityDomains implements IdentityAPI.
@@ -267,7 +334,7 @@ func (s *SDK) ListAvailabilityDomains(ctx context.Context, region string, req id
 	if err != nil {
 		return identity.ListAvailabilityDomainsResponse{}, err
 	}
-	return within(ctx, s.timeout, c.ListAvailabilityDomains, req)
+	return invoke(ctx, s, true, c.ListAvailabilityDomains, req)
 }
 
 // GetResourceAvailability implements LimitsAPI.
@@ -277,7 +344,7 @@ func (s *SDK) GetResourceAvailability(ctx context.Context, region string, req li
 	if err != nil {
 		return limits.GetResourceAvailabilityResponse{}, err
 	}
-	return within(ctx, s.timeout, c.GetResourceAvailability, req)
+	return invoke(ctx, s, true, c.GetResourceAvailability, req)
 }
 
 // ListLimitDefinitions implements LimitsAPI.
@@ -287,5 +354,5 @@ func (s *SDK) ListLimitDefinitions(ctx context.Context, region string, req limit
 	if err != nil {
 		return limits.ListLimitDefinitionsResponse{}, err
 	}
-	return within(ctx, s.timeout, c.ListLimitDefinitions, req)
+	return invoke(ctx, s, true, c.ListLimitDefinitions, req)
 }
