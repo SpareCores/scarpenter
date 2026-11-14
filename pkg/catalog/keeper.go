@@ -236,17 +236,17 @@ func (r *refresh) run(ctx context.Context, req Request) (*model.Data, error) {
 		Version:      r.hash,
 		FetchedAt:    time.Now(),
 		PublishedAt:  r.published,
-		SnapshotRead: true,
-		Scores:       map[string]map[string]float64{},
-		Selected:     map[string]map[string]model.Member{},
-		Invalid:      map[string]string{},
+		SnapshotRead: true, AuxPricesRead: true,
+		Scores:   map[string]map[string]float64{},
+		Selected: map[string]map[string]model.Member{},
+		Invalid:  map[string]string{},
 	}
-	if err := r.loadVendorTable(ctx, data); err != nil {
+	if err := loadVendorTable(ctx, r, data); err != nil {
 		return nil, err
 	}
 	missing := map[string]bool{}
 	for _, vendor := range slices.Sorted(maps.Keys(req.Scope)) {
-		if err := r.loadVendor(ctx, vendor, req.Scope[vendor], data); err != nil {
+		if err := loadVendor(ctx, r, vendor, req.Scope[vendor], data); err != nil {
 			if nd, ok := errors.AsType[*noDataError](err); ok {
 				r.logger.Info("Keeper has no data for the vendor, it is skipped", "vendor", vendor, "reason", nd.Error())
 				missing[vendor] = true
@@ -420,9 +420,29 @@ func (r *refresh) copyFromPrevious(path string, mf keeper.ManifestFile) *keeper.
 	return body
 }
 
+// snapshotFiles is where the tables of a snapshot are read from: the network
+// refresh of KeeperSource, or the files embedded in the binary (EmbeddedSource).
+// Both are read by the same functions (loadVendorTable, loadVendor), so the
+// rows of either become the same model.Data.
+type snapshotFiles interface {
+	// lookup finds the path in the manifest.
+	lookup(path string) (keeper.ManifestFile, bool)
+	// file returns the gzip file of the path and the row count the manifest
+	// lists for it (-1: not listed).
+	file(ctx context.Context, path string) (*keeper.SnapshotBody, int, error)
+	// logger is where the readers report what they skip.
+	snapLogger() logr.Logger
+}
+
+func (r *refresh) lookup(path string) (keeper.ManifestFile, bool) { return r.manifest.Lookup(path) }
+
+func (r *refresh) snapLogger() logr.Logger { return r.logger }
+
+var _ snapshotFiles = (*refresh)(nil)
+
 // decodeFile reads the rows of one snapshot file.
-func decodeFile[T any](ctx context.Context, r *refresh, path string) ([]T, error) {
-	body, rows, err := r.file(ctx, path)
+func decodeFile[T any](ctx context.Context, fs snapshotFiles, path string) ([]T, error) {
+	body, rows, err := fs.file(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -436,15 +456,16 @@ func decodeFile[T any](ctx context.Context, r *refresh, path string) ([]T, error
 // loadVendorTable reads the global vendor table, which holds the billing
 // facts. A Keeper without the file leaves the table empty (retention then has
 // no Keeper data); every other failure fails the load.
-func (r *refresh) loadVendorTable(ctx context.Context, data *model.Data) error {
+func loadVendorTable(ctx context.Context, fs snapshotFiles, data *model.Data) error {
 	path := keeper.TablePath("vendor")
-	if _, listed := r.manifest.Lookup(path); !listed {
-		r.logger.Info("the Keeper snapshot has no vendor table, billing retention has no Keeper data")
+	if _, listed := fs.lookup(path); !listed {
+		fs.snapLogger().Info("the Keeper snapshot has no vendor table, billing retention has no Keeper data")
 		return nil
 	}
-	rows, err := decodeFile[keeper.Vendor](ctx, r, path)
+	rows, err := decodeFile[keeper.Vendor](ctx, fs, path)
 	if keeper.IsNotFound(err) {
-		r.logger.Info("the Keeper snapshot has no vendor table, billing retention has no Keeper data", "error", err.Error())
+		fs.snapLogger().Info("the Keeper snapshot has no vendor table, billing retention has no Keeper data",
+			"error", err.Error())
 		return nil
 	}
 	if err != nil {
@@ -483,16 +504,16 @@ type priceRow struct {
 // zones, the server prices of the regions in scope, and its storage and IPv4
 // prices. A vendor the manifest has none of the required files of is a
 // *noDataError.
-func (r *refresh) loadVendor(ctx context.Context, vendor string, allowed []string, data *model.Data) error {
+func loadVendor(ctx context.Context, fs snapshotFiles, vendor string, allowed []string, data *model.Data) error {
 	if !safeName(vendor) {
 		return &noDataError{vendor: vendor, table: "valid vendor id"}
 	}
 	for _, t := range requiredTables {
-		if _, ok := r.manifest.Lookup(keeper.VendorTablePath(t, vendor)); !ok {
+		if _, ok := fs.lookup(keeper.VendorTablePath(t, vendor)); !ok {
 			return &noDataError{vendor: vendor, table: keeper.VendorTablePath(t, vendor)}
 		}
 	}
-	servers, err := decodeFile[keeper.TableServer](ctx, r, keeper.VendorTablePath("server", vendor))
+	servers, err := decodeFile[keeper.TableServer](ctx, fs, keeper.VendorTablePath("server", vendor))
 	if err != nil {
 		return err
 	}
@@ -507,7 +528,7 @@ func (r *refresh) loadVendor(ctx context.Context, vendor string, allowed []strin
 			data.Servers = append(data.Servers, srv)
 		}
 	}
-	regions, err := decodeFile[keeper.Region](ctx, r, keeper.VendorTablePath("region", vendor))
+	regions, err := decodeFile[keeper.Region](ctx, fs, keeper.VendorTablePath("region", vendor))
 	if err != nil {
 		return err
 	}
@@ -526,7 +547,7 @@ func (r *refresh) loadVendor(ctx context.Context, vendor string, allowed []strin
 		reg.GreenEnergy = rg.GreenEnergy
 		data.Regions = append(data.Regions, reg)
 	}
-	zones, err := decodeFile[keeper.Zone](ctx, r, keeper.VendorTablePath("zone", vendor))
+	zones, err := decodeFile[keeper.Zone](ctx, fs, keeper.VendorTablePath("zone", vendor))
 	if err != nil {
 		return err
 	}
@@ -535,19 +556,19 @@ func (r *refresh) loadVendor(ctx context.Context, vendor string, allowed []strin
 			Vendor: vendor, RegionID: z.RegionID, ID: z.ZoneID, Name: z.APIReference, Active: z.Status == statusActive,
 		})
 	}
-	ids := r.regionsInScope(vendor, allowed, data.Regions[first:])
+	ids := regionsInScope(fs, vendor, allowed, data.Regions[first:])
 	if ids != nil {
-		if err := r.loadPrices(ctx, vendor, ids, data); err != nil {
+		if err := loadPrices(ctx, fs, vendor, ids, data); err != nil {
 			return err
 		}
 	}
-	return r.loadAuxPrices(ctx, vendor, data)
+	return loadAuxPrices(ctx, fs, vendor, data)
 }
 
 // regionsInScope returns the ids of the regions whose prices are read: the
 // active ones the allow-list names, or all active ones without a list. It
 // returns nil when the list names none that Keeper knows.
-func (r *refresh) regionsInScope(vendor string, allowed []string, regions []model.Region) map[string]bool {
+func regionsInScope(fs snapshotFiles, vendor string, allowed []string, regions []model.Region) map[string]bool {
 	ids := map[string]bool{}
 	if len(allowed) > 0 {
 		resolve := regionResolver(regions)
@@ -556,7 +577,7 @@ func (r *refresh) regionsInScope(vendor string, allowed []string, regions []mode
 		}
 		for _, n := range allowed {
 			if len(resolve(vendor, []string{n})) == 0 {
-				r.logger.Info("region of the NodeClass scope is unknown to Keeper, ignored", "vendor", vendor, "region", n)
+				fs.snapLogger().Info("region of the NodeClass scope is unknown to Keeper, ignored", "vendor", vendor, "region", n)
 			}
 		}
 		if len(ids) == 0 {
@@ -572,8 +593,8 @@ func (r *refresh) regionsInScope(vendor string, allowed []string, regions []mode
 	return ids
 }
 
-func (r *refresh) loadPrices(ctx context.Context, vendor string, regions map[string]bool, data *model.Data) error {
-	rows, err := decodeFile[priceRow](ctx, r, keeper.VendorTablePath("server_price", vendor))
+func loadPrices(ctx context.Context, fs snapshotFiles, vendor string, regions map[string]bool, data *model.Data) error {
+	rows, err := decodeFile[priceRow](ctx, fs, keeper.VendorTablePath("server_price", vendor))
 	if err != nil {
 		return err
 	}
@@ -599,7 +620,7 @@ type storageRow struct {
 // active USD rows with a price above zero, in every region. Regions are named
 // as the vendor does (the region table's api_reference), storage types carry
 // the source's name besides the id.
-func (r *refresh) loadAuxPrices(ctx context.Context, vendor string, data *model.Data) error {
+func loadAuxPrices(ctx context.Context, fs snapshotFiles, vendor string, data *model.Data) error {
 	regionName := map[string]string{}
 	for i := range data.Regions {
 		if rg := &data.Regions[i]; rg.Vendor == vendor && rg.Name != "" {
@@ -612,10 +633,10 @@ func (r *refresh) loadAuxPrices(ctx context.Context, vendor string, data *model.
 		}
 		return id
 	}
-	if path := keeper.VendorTablePath("storage_price", vendor); r.listed(path) {
+	if path := keeper.VendorTablePath("storage_price", vendor); listed(fs, path) {
 		storageName := map[string]string{}
-		if spath := keeper.VendorTablePath("storage", vendor); r.listed(spath) {
-			rows, err := decodeFile[storageRow](ctx, r, spath)
+		if spath := keeper.VendorTablePath("storage", vendor); listed(fs, spath) {
+			rows, err := decodeFile[storageRow](ctx, fs, spath)
 			if err != nil {
 				return err
 			}
@@ -623,7 +644,7 @@ func (r *refresh) loadAuxPrices(ctx context.Context, vendor string, data *model.
 				storageName[s.StorageID] = s.Name
 			}
 		}
-		rows, err := decodeFile[keeper.StoragePrice](ctx, r, path)
+		rows, err := decodeFile[keeper.StoragePrice](ctx, fs, path)
 		if err != nil {
 			return err
 		}
@@ -636,8 +657,8 @@ func (r *refresh) loadAuxPrices(ctx context.Context, vendor string, data *model.
 			}
 		}
 	}
-	if path := keeper.VendorTablePath("ipv4_price", vendor); r.listed(path) {
-		rows, err := decodeFile[keeper.IPv4Price](ctx, r, path)
+	if path := keeper.VendorTablePath("ipv4_price", vendor); listed(fs, path) {
+		rows, err := decodeFile[keeper.IPv4Price](ctx, fs, path)
 		if err != nil {
 			return err
 		}
@@ -652,8 +673,8 @@ func (r *refresh) loadAuxPrices(ctx context.Context, vendor string, data *model.
 	return nil
 }
 
-func (r *refresh) listed(path string) bool {
-	_, ok := r.manifest.Lookup(path)
+func listed(fs snapshotFiles, path string) bool {
+	_, ok := fs.lookup(path)
 	return ok
 }
 

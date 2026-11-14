@@ -130,6 +130,7 @@ func mergeData(parts []*model.Data) *model.Data {
 		out.StoragePrices = append(out.StoragePrices, p.StoragePrices...)
 		out.IPv4Prices = append(out.IPv4Prices, p.IPv4Prices...)
 		out.SnapshotRead = out.SnapshotRead || p.SnapshotRead
+		out.AuxPricesRead = out.AuxPricesRead || p.AuxPricesRead
 		if !p.PublishedAt.IsZero() && (out.PublishedAt.IsZero() || p.PublishedAt.Before(out.PublishedAt)) {
 			out.PublishedAt = p.PublishedAt
 		}
