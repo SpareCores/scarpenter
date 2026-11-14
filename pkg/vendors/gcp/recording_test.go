@@ -14,6 +14,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/facts"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp/fake"
 )
@@ -26,22 +27,15 @@ func TestRecordedKeeperPricesAreFoundByName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var prices vendors.KeeperPrices
-	for _, r := range data.StoragePrices {
-		prices.Storage = append(prices.Storage, vendors.StoragePrice{
-			Region: r.RegionID, StorageID: r.StorageID, Name: r.StorageName, Unit: r.Unit, USD: r.USD})
-	}
-	for _, r := range data.IPv4Prices {
-		prices.IPv4 = append(prices.IPv4, vendors.IPv4Price{Region: r.RegionID, Unit: r.Unit, USD: r.USD})
-	}
-	if len(prices.Storage) == 0 || len(prices.IPv4) == 0 {
-		t.Fatalf("the recording has %d storage and %d IPv4 rows of gcp", len(prices.Storage), len(prices.IPv4))
+	if len(data.StoragePrices) == 0 || len(data.IPv4Prices) == 0 {
+		t.Fatalf("the recording has %d storage and %d IPv4 rows of gcp", len(data.StoragePrices), len(data.IPv4Prices))
 	}
 	d := gcp.New(gcp.WithAPI(fake.NewSeeded("p")), gcp.WithProject("p"))
 	if err := d.Init(t.Context(), vendors.Config{Log: logr.Discard()}); err != nil {
 		t.Fatal(err)
 	}
-	d.SetKeeperPrices(prices)
+	// The way the catalog hands rows to drivers: through the facts.
+	facts.New(facts.Options{Registry: vendors.NewRegistryFrom(d)}).SetKeeperPrices(data.Version, data.StoragePrices, data.IPv4Prices)
 	off := vendors.Offering{Region: "europe-west3", APIReference: "e2-small"}
 	if price, complete := d.PriceDelta(d.Defaults(), off); !complete || price <= 0 {
 		t.Errorf("PriceDelta in europe-west3 = %v, complete %v; want the default disk and address priced", price, complete)

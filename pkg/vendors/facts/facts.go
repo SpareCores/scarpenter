@@ -541,7 +541,7 @@ func (f *Facts) SetKeeperPrices(version string, storage []model.StoragePrice, ip
 	for _, r := range storage {
 		p := of(r.Vendor)
 		p.Storage = append(p.Storage, vendors.StoragePrice{
-			Region: r.RegionID, StorageID: r.StorageID, Unit: r.Unit, USD: r.USD,
+			Region: r.RegionID, StorageID: r.StorageID, Name: r.StorageName, Unit: r.Unit, USD: r.USD,
 		})
 	}
 	for _, r := range ipv4 {

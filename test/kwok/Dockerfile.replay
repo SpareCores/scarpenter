@@ -2,8 +2,8 @@
 # checksums.
 FROM scratch
 COPY replay /replay
-# World-readable whatever the recorder wrote (it keeps its files private).
-COPY --chmod=a+rX snapshot /snapshot
-COPY --chmod=a+rX sysext /sysext
+# run.sh makes the recording world-readable (the recorder keeps its files private).
+COPY snapshot /snapshot
+COPY sysext /sysext
 USER 65532:65532
 ENTRYPOINT ["/replay", "-snapshot=/snapshot", "-sysext=/sysext"]
