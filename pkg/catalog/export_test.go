@@ -22,3 +22,11 @@ func SelectionCandidates(data *model.Data, vendor string, regionIDs []string,
 
 // BenchmarkScores exposes the scores of one benchmark by server id.
 var BenchmarkScores = benchmarkScores
+
+// UniqueAPIReferences, ByAPIReference and ServerFromTable expose rule R and the
+// two readers that key by APIReference, for the rule's tests.
+var (
+	UniqueAPIReferences = uniqueAPIReferences
+	ByAPIReference      = byAPIReference
+	ServerFromTable     = serverFromTable
+)

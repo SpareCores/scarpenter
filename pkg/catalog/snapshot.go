@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	selapi "github.com/SpareCores/sc-keeper-go/selection/api"
 
 	keeper "github.com/SpareCores/sc-keeper-go"
@@ -86,7 +88,8 @@ func newSnapshot(id uint64, data *model.Data, scope Scope, requestKey string, no
 		vd(z.Vendor).zones[zoneKey{z.RegionID, z.ID}] = z.Active
 	}
 	// Servers sorted by ID, so that of two servers with the same API reference
-	// the lower ID wins, deterministically.
+	// the lower ID wins, deterministically. Sources make the references unique
+	// (uniqueAPIReferences), so a duplicate here is a source bug: it is logged.
 	servers := make([]*model.Server, len(data.Servers))
 	for i := range data.Servers {
 		servers[i] = &data.Servers[i]
@@ -96,7 +99,9 @@ func newSnapshot(id uint64, data *model.Data, scope Scope, requestKey string, no
 	})
 	for _, srv := range servers {
 		v := vd(srv.Vendor)
-		if _, dup := v.byAPIRef[srv.APIReference]; dup {
+		if first, dup := v.byAPIRef[srv.APIReference]; dup {
+			log.Log.WithName("catalog").Error(nil, "two servers share an api_reference, the second is ignored",
+				"vendor", srv.Vendor, "apiReference", srv.APIReference, "kept", first.ID, "ignored", srv.ID)
 			continue
 		}
 		v.byAPIRef[srv.APIReference] = srv

@@ -100,6 +100,9 @@ func (k *KeeperSource) Load(ctx context.Context, req Request) (*model.Data, erro
 	if err := k.loadTables(ctx, f, req.Scope, data); err != nil {
 		return nil, err
 	}
+	if n := uniqueAPIReferences(data); n > 0 {
+		log.FromContext(ctx).V(1).Info("servers that share an api_reference are named by their server id", "servers", n)
+	}
 	k.loadVendors(ctx, f, data)
 	regionIDs := regionResolver(data.Regions)
 	if err := k.loadPrices(ctx, f, req.Scope, regionIDs, data); err != nil {
