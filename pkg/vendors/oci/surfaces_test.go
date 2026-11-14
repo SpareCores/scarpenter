@@ -82,6 +82,50 @@ func TestResolveImageDefaultLookup(t *testing.T) {
 	}
 }
 
+// OCI rejects ListImages with a display name and any other filter (verified live): the fake
+// answers the same 400, and the lookup by name sends the name alone and filters the answer.
+func TestListImagesDisplayNameIsTheOnlyFilter(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	name := driver.ImageName("stable", fake.SeedVersion, "amd64")
+	_, err := e.c.ListImages(ctx, testRegion, core.ListImagesRequest{
+		CompartmentId: new(fake.SeedCompartment), DisplayName: &name,
+		LifecycleState: core.ImageLifecycleStateAvailable, OperatingSystem: new("Flatcar")})
+	if se, ok := err.(*fake.ServiceError); !ok || se.Status != http.StatusBadRequest || se.Code != "InvalidParameter" {
+		t.Fatalf("name with other filters: %v, want 400 InvalidParameter", err)
+	}
+	if _, err := e.c.ListImages(ctx, testRegion, core.ListImagesRequest{
+		CompartmentId: new(fake.SeedCompartment), DisplayName: &name}); err != nil {
+		t.Fatalf("name alone: %v", err)
+	}
+	// The default lookup (name, operating system, state) and a selector with a shape filter.
+	if img, err := e.d.ResolveImage(ctx, imageReq("amd64", vendors.UseRef{})); err != nil || img.Ref != fake.SeedImage {
+		t.Fatalf("default lookup: %+v, %v", img, err)
+	}
+	use := vendors.UseRef{Name: name, Filters: []apicommon.ResourceFilter{
+		{Name: "operating-system", Values: []string{"Flatcar"}}, {Name: "lifecycle-state", Values: []string{"available"}},
+		{Name: "shape", Values: []string{"VM.Standard.E5.Flex"}}}}
+	if _, err := e.d.ResolveImage(ctx, imageReq("amd64", use)); err != nil {
+		t.Errorf("name with filters: %v", err)
+	}
+	// The client side still filters: another operating system or an unknown shape finds nothing.
+	use.Filters[0].Values = []string{"Oracle Linux"}
+	if _, err := e.d.ResolveImage(ctx, imageReq("amd64", use)); !vendors.IsClass(err, vendors.NotFound) {
+		t.Errorf("name with another operating system: %v, want NotFound", err)
+	}
+	use.Filters[0].Values = []string{"Flatcar"}
+	use.Filters[2].Values = []string{"VM.Standard.A1.Flex"}
+	if _, err := e.d.ResolveImage(ctx, imageReq("amd64", use)); !vendors.IsClass(err, vendors.NotFound) {
+		t.Errorf("name with a shape the image does not run on: %v, want NotFound", err)
+	}
+	use.Filters[2].Values = []string{"VM.Standard.E5.Flex"}
+	e.clock.Step(time.Hour)
+	e.c.Inject("ListImageShapeCompatibilityEntries", fake.Error(http.StatusBadRequest, "InvalidParameter", "bad"), 1)
+	if _, err := e.d.ResolveImage(ctx, imageReq("amd64", use)); !vendors.IsClass(err, vendors.Fatal) {
+		t.Errorf("a failing compatibility read: %v, want Fatal", err)
+	}
+}
+
 // The answers, and the misses, are cached; a miss clears after five minutes.
 func TestResolveImageCaches(t *testing.T) {
 	e := newEnv(t)

@@ -84,6 +84,11 @@ func (c *Cloud) ListImages(ctx context.Context, regionName string, req core.List
 	if err := c.checkNet(ctx, "ListImages", regionName); err != nil {
 		return core.ListImagesResponse{}, err
 	}
+	// Like the API: a display name is the only filter besides the compartment.
+	if req.DisplayName != nil && (req.OperatingSystem != nil || req.OperatingSystemVersion != nil ||
+		req.Shape != nil || req.LifecycleState != "") {
+		return core.ListImagesResponse{}, invalid("Invalid filters: If you filter by displayName it must be the only filter.")
+	}
 	if !c.imageComps[deref(req.CompartmentId)] {
 		if err := c.inCompartment(req.CompartmentId); err != nil {
 			return core.ListImagesResponse{}, err

@@ -223,10 +223,11 @@ contract SCarpenter's default lookup relies on; nothing here names a tool):
   name, placeholders `{channel}`, `{version}`, `{arch}`, `{region}`), `tags` (freeform; client-side),
   `match` (`architecture`, `state`, `createdAfter`; **no `owner`**), `select` default `exactlyOne`,
   `orderBy: created`. Native `filters`: `operating-system`, `operating-system-version`, `shape`,
-  `lifecycle-state` (server-side: `ListImages` parameters); no `expression`.
+  `lifecycle-state` (`ListImages` parameters, sent to the server only when no exact `name` is given: see
+  Verified facts); no `expression`.
 - **Default** (no `images`, `Use.IsDefault()`): `ListImages(compartmentId = the controller's
-  compartment (or --oci-image-compartment, below), displayName = flatcar-<channel>-<version>-<arch>, lifecycleState = AVAILABLE)`,
-  then the selector as above. The platform images the API also returns for any compartment are
+  compartment (or --oci-image-compartment, below), displayName = flatcar-<channel>-<version>-<arch>)`;
+  the state (AVAILABLE) and the operating system are checked on the answer; then the selector as above. The platform images the API also returns for any compartment are
   ignored (their operating system is not `Flatcar`).
 - **Architecture** is not an `Image` field. It is the freeform tag `arch` when present, else
   derived from the image's compatible shapes (`ListImageShapeCompatibilityEntries`: any shape
@@ -1176,6 +1177,17 @@ is green. The first live run is the coordinator's.
 6. Fault domains unset; no capacity reservations, no placement.
 7. Preemptible = `spot`, `TERMINATE` with the boot volume deleted.
 8. The embedded vendors flag defaults to `oci`.
+
+## Verified facts (first live run)
+
+- `ListImages`: `displayName` must be the only filter besides `compartmentId` (and paging, sorting); with
+  `lifecycleState`, `operatingSystem`, `operatingSystemVersion` or `shape` the API answers 400
+  `InvalidParameter` "Invalid filters: If you filter by displayName it must be the only filter" (verified
+  live 2026-11-14, eu-frankfurt-1). The driver sends a name alone and applies state, operating system and
+  version to the answer (a `shape` filter with a name is checked with the compatibility entries); without
+  a name the server filters as before. The fake answers the same 400. Other combinations of the SDK's
+  `ListImagesRequest` are not documented as invalid. The same rule for other List calls with
+  `displayName` is unchecked.
 
 ## Unverified facts (settled by the spike or the first live run)
 

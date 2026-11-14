@@ -238,9 +238,9 @@ const (
 )
 
 // listImages reads the candidates of a use block: the IDs (a get each: the image may live in
-// a compartment other than the image compartment), or the image compartment's images narrowed on the
-// server by an exact name, the native filters and the state (available unless match.state
-// says otherwise); the matcher re-applies everything.
+// a compartment other than the image compartment), or the image compartment's images narrowed by
+// an exact name alone, or else by the native filters and the state (available unless match.state
+// says otherwise); with a name the rest is applied here, and the matcher re-applies everything.
 func (d *Driver) listImages(ctx context.Context, region string, use vendors.UseRef) ([]core.Image, error) {
 	if len(use.IDs) > 0 {
 		var out []core.Image
@@ -257,13 +257,11 @@ func (d *Driver) listImages(ctx context.Context, region string, use vendors.UseR
 		return out, nil
 	}
 	req := core.ListImagesRequest{CompartmentId: new(d.ImageCompartment())}
-	if use.Name != "" && !selector.HasWildcard(use.Name) {
-		req.DisplayName = &use.Name
-	}
-	req.LifecycleState = core.ImageLifecycleStateAvailable
+	state := core.ImageLifecycleStateAvailable
 	if len(use.Match.State) > 0 {
-		req.LifecycleState = ""
+		state = ""
 	}
+	var osName, osVersion, shape *string
 	for _, f := range use.Filters {
 		if len(f.Values) != 1 {
 			return nil, vendors.NewError(vendors.Fatal, codeSettings, fmt.Errorf(
@@ -272,14 +270,26 @@ func (d *Driver) listImages(ctx context.Context, region string, use vendors.UseR
 		v := f.Values[0]
 		switch f.Name {
 		case filterOS:
-			req.OperatingSystem = &v
+			osName = &v
 		case filterOSVersion:
-			req.OperatingSystemVersion = &v
+			osVersion = &v
 		case filterShape:
-			req.Shape = &v
+			shape = &v
 		case filterState:
-			req.LifecycleState = core.ImageLifecycleStateEnum(strings.ToUpper(v))
+			state = core.ImageLifecycleStateEnum(strings.ToUpper(v))
 		}
+	}
+	// ListImages accepts displayName only with compartmentId (the API answers 400
+	// InvalidParameter "If you filter by displayName it must be the only filter"): a name is
+	// sent alone and every other condition is applied to the answer. Without a name the
+	// server narrows by the rest.
+	name := ""
+	if use.Name != "" && !selector.HasWildcard(use.Name) {
+		name = use.Name
+		req.DisplayName = &name
+	} else {
+		req.OperatingSystem, req.OperatingSystemVersion, req.Shape = osName, osVersion, shape
+		req.LifecycleState = state
 	}
 	var out []core.Image
 	for {
@@ -287,9 +297,61 @@ func (d *Driver) listImages(ctx context.Context, region string, use vendors.UseR
 		if err != nil {
 			return nil, classify(err, kindRead)
 		}
-		out = append(out, res.Items...)
+		for _, im := range res.Items {
+			if name == "" || imageFits(im, state, osName, osVersion) {
+				out = append(out, im)
+			}
+		}
 		if res.OpcNextPage == nil || *res.OpcNextPage == "" {
-			return out, nil
+			break
+		}
+		req.Page = res.OpcNextPage
+	}
+	if name == "" || shape == nil {
+		return out, nil
+	}
+	// The shape filter cannot ride with a name: ask the compatibility entries of the few
+	// images that remain.
+	var fit []core.Image
+	for _, im := range out {
+		ok, err := d.imageRunsOn(ctx, region, im, *shape)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			fit = append(fit, im)
+		}
+	}
+	return fit, nil
+}
+
+// imageFits applies on the client the conditions that cannot be sent with a display name.
+func imageFits(im core.Image, state core.ImageLifecycleStateEnum, osName, osVersion *string) bool {
+	switch {
+	case state != "" && im.LifecycleState != state:
+	case osName != nil && deref(im.OperatingSystem) != *osName:
+	case osVersion != nil && deref(im.OperatingSystemVersion) != *osVersion:
+	default:
+		return true
+	}
+	return false
+}
+
+// imageRunsOn reports whether the image is compatible with the shape.
+func (d *Driver) imageRunsOn(ctx context.Context, region string, im core.Image, shape string) (bool, error) {
+	req := core.ListImageShapeCompatibilityEntriesRequest{ImageId: im.Id}
+	for {
+		res, err := d.api.Compute.ListImageShapeCompatibilityEntries(ctx, region, req)
+		if err != nil {
+			return false, classify(err, kindRead)
+		}
+		for _, e := range res.Items {
+			if deref(e.Shape) == shape {
+				return true, nil
+			}
+		}
+		if res.OpcNextPage == nil || *res.OpcNextPage == "" {
+			return false, nil
 		}
 		req.Page = res.OpcNextPage
 	}
