@@ -10,7 +10,7 @@ Not on 22 (Flatcar publishes the OCI image itself), not on 24 (a draft owned by 
 00a §6, §9, §11; ADR-009, ADR-013, ADR-017, ADR-018, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024;
 `docs/reference/driver-contract.md`; the plans 15, 16 and 20 as the pattern (16 most of all).
 
-Status: **draft for review.** Research date: 2026-11-14, from public documentation, the
+Status: **review; live verification pending** (all five steps are on main, statically validated; the first live run is the maintainer's). Research date: 2026-11-14, from public documentation, the
 `oci-go-sdk` v65.130.0 source, the sample Keeper data of OCI (SQLite, 2026-11-13), the crawler pull
 request `SpareCores/sc-crawler#180`, the research of the plan 24 draft (cited, not repeated) and the notes of the
 Flatcar-on-OCI investigation (2026-11-13). No cloud API was called. Everything marked
@@ -831,6 +831,37 @@ tailnet, nodes with the `tailscale` template).
    subscriptions, the environment secrets and variables (compartment, identity domain URL, client ID and
    secret, region), and a VCN with a `nodes` group for the `byo` scenario.
 
+**Built in step (d), with these corrections to the list above** (reality over the text):
+
+- **Credentials.** `test/e2e-oci/oci-session.sh` does the keyless exchange (the job's OIDC token, the confidential application's
+  client ID and secret, a `urn:oci:token-type:oci-upst` request with the public key of a key pair it makes, `subject_token_type=jwt`) for
+  the `oci` CLI (a `security_token` profile), keeps the OIDC token file fresh in a background loop (GitHub's token lives minutes), and
+  puts that file into the Secret the controller reads: the lane installs the chart with `credentials.mode: none` and passes the
+  `workloadIdentityFederation` flags with `extraArgs` (they come last, so the last `--oci-auth` wins: the chart's own mode projects the
+  ServiceAccount token, whose issuer is not public on a runner). The Go programs (sweeper, canary) read the same token file through
+  `test/e2e-oci/ocienv`. The stored secrets: only `OCI_CLIENT_SECRET`. Still **unverified** (S11): the audience, the answer's fields
+  (`token`, falling back to `access_token`), that a CLI profile without a fingerprint works, the session lifetime.
+- **Files.** `test/e2e-oci/` has the GCP lane's script names, plus `oci-session.sh`, `ci-policy.sh` and `canary-policy.sh` (policy
+  statements, not a role file), `ocienv/` and `sweeper/`; no `db` and no `default` scenario (no data volumes or profiles in v1, no default
+  network), and `drift` changes the boot volume size only. The `oci` CLI (`oci-cli==3.94.2`, pinned in `e2e-cloud.yml`) is installed for the scripts; the canary and the sweeper are Go.
+- **Sweeper** (`pkg/vendors/oci/sweep`, `test/e2e-oci/sweeper`): instances (terminated and waited for: the groups, subnets and VCNs need
+  their VNICs gone), then groups, subnets, route tables, gateways, security lists, VCNs; ownership is the tags **and** the name
+  (`scarpenter-cluster` and `scarpenter-managed-by` with the prefix `scarpenter-<cluster>-`; the lane's byo resources by the prefix
+  `scarpenter-e2e-byo-` and the tag `e2e-byo-cluster`); a VCN with a subnet the sweep does not select is kept; with `-boot-volumes` (the
+  sweeper workflow passes it: the compartment is dedicated) the available boot volumes older than the limit go, tagged or not, which is the only
+  untagged thing it touches; images are never listed. The block volume client is the command's own (the driver has none).
+- **Teardown** lists the boot volumes created since the run began with the CLI and fails the job on a leftover (a terminate deletes them: `preserveBootVolume=false`).
+- **Canary** (`test/canary/oci.go`, `oci_guard.go`): facts (subscriptions, ADs), `ResolveImage` per architecture and the image's shape
+  compatibility, the E5 core and memory limits against `E2E_MIN_OCPU` and `E2E_MIN_MEMORY_GB` (an Arm family against twice its lane type), every lane type
+  parsed, offered and mapped to buckets; the guard wraps the four interfaces, and the policy it needs is exactly `canary-policy.sh`.
+- **IAM** is policy statements (`ci-policy.sh policy <group> <compartment> [region]`, the region condition only on the compartment statements) and the CI
+  group also needs `manage volume-family` (the leaked boot volume cleanup).
+- **Not done:** the line `oci` in `test/e2e-vendors.txt` (the cost guards are unverified; the selftest checks it is absent), the `db` and `default`
+  scenarios (they do not exist on OCI), a `no drift` control (no profiles), bare metal, `L3 KWOK` (not run in this step).
+- **Settled by the first live run** (besides S1 to S12): the kind of each audit-log denial of the CI policy's conditions, whether OCI copies an instance's
+  tags to its boot volume, that `oci compute image-shape-compatibility-entry list` and `oci limits resource-availability get` answer as the scripts read them
+  (the `jq` paths follow the CLI's kebab-case JSON), the lane's cost (`E2E_MIN_OCPU` 8 and `E2E_MIN_MEMORY_GB` 48 are guesses), and the node boot time (`E2E_NODE_TIMEOUT` 900).
+
 **Cost per run**: `1-4` and `1-2` sizes on-demand and preemptible: cents (E5 1 OCPU + 4 GB is $0.038
 per hour; the lane runs minutes per scenario); a full run is expected in cents (unverified; the first
 live run reports it). **The IAM policy** (`docs/reference/oci-iam-policy.txt`, validated in `make
@@ -1025,7 +1056,7 @@ Review of step (c) (fixes on the branch, from the SDK v65.130.0 source and OCI's
 - The policy's `manage virtual-network-family` block is needed whenever SCarpenter creates a group: without a
   groups `use` (a brought subnet included) and for `isolation: run`.
 
-**(d) L5** (statically validated; **no live run without the maintainer's go-ahead**): `test/e2e-oci`,
+**(d) L5** (done in the branch `oci-d`, statically validated; **no live run without the maintainer's go-ahead**; see the corrections in section 11): `test/e2e-oci`,
 the sweeper, the canary and its guard, the workflows (`e2e-cloud.yml` and `e2e-canary.yml` get a credentials
 step; the new sweeper workflow), `make test-e2e-oci-dryrun`, the testing docs' lane section; the line
 `oci` is **not** added to `test/e2e-vendors.txt`.

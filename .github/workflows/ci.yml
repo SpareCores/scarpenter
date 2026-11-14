@@ -47,6 +47,9 @@ jobs:
       - name: L5 of Alibaba Cloud without a cloud (manifests, sweeper, canary, helpers, policies)
         run: hack/dev.sh make test-e2e-alicloud-dryrun
 
+      - name: L5 of Oracle Cloud without a cloud (manifests, sweeper, canary, helpers, session script, policies)
+        run: hack/dev.sh make test-e2e-oci-dryrun
+
       - name: Build the controller binary
         run: hack/dev.sh make build
 

@@ -1,0 +1,112 @@
+name: L5 sweeper (OCI e2e)
+
+# Deletes what the L5 lane (e2e-cloud.yml, vendor oci) left behind in its compartment when a run died or
+# was cancelled before its teardown: instances, network security groups, subnets, route tables, internet
+# gateways, security lists and the managed VCN of every cluster named scarpenter-ci-* that is older than two
+# hours, in the lane's region (OCI_REGION), and the available boot volumes of the compartment that are that
+# old (the compartment is dedicated to the lane, and a boot volume carries no tag of ours unless OCI copies
+# the instance's). Instances are found by their freeform tag scarpenter-cluster; the network resources by the
+# ownership tags (cluster and managed-by) together with the name prefix scarpenter-<cluster>- (and the lane's
+# brought resources by scarpenter-e2e-byo-* and their own tag e2e-byo-cluster); the age is the creation
+# time. The selection logic is pkg/vendors/oci/sweep (tested against the OCI driver's in-memory API);
+# docs/how-to-guides/testing.md#the-l5-lane-on-oci describes it. Untagged resources and imported images are
+# never touched. Same identity as the lane (the keyless token exchange of test/e2e-oci/oci-session.sh), but
+# its own environment, e2e-sweeper: limited to main and without reviewers, so that a scheduled sweep never
+# waits for an approval, and a manual run from another branch (whose code would hold the identity without a
+# review) is refused. The identity domain's trust names the OIDC subject of both environments.
+#
+# Provisioned outside this repository: the environment e2e-sweeper with the variables OCI_COMPARTMENT,
+# OCI_TENANCY, OCI_REGION (optional), OCI_HOME_REGION (optional), OCI_IDENTITY_DOMAIN_URL, OCI_CLIENT_ID and
+# OCI_OIDC_AUDIENCE, and the secret OCI_CLIENT_SECRET.
+on:
+  schedule:
+    - cron: "23 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only report what would be deleted"
+        default: false
+        type: boolean
+      max_age:
+        description: "Minimum age of what is deleted (a Go duration)"
+        default: 2h
+        type: string
+      regions:
+        description: "Regions to sweep: a comma list, or all (default: the lane's region)"
+        default: ""
+        type: string
+
+# One sweep at a time, and not while a lane run is tearing down (the age limit keeps it
+# away from a running one anyway).
+concurrency:
+  group: e2e-oci-sweeper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    if: github.repository == 'SpareCores/scarpenter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: e2e-sweeper
+    permissions:
+      contents: read
+      id-token: write # the OIDC token the identity domain exchanges
+    env:
+      OCI_COMPARTMENT: ${{ vars.OCI_COMPARTMENT }}
+      OCI_TENANCY: ${{ vars.OCI_TENANCY }}
+      OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+      OCI_HOME_REGION: ${{ vars.OCI_HOME_REGION || vars.OCI_REGION || 'eu-frankfurt-1' }}
+      OCI_IDENTITY_DOMAIN_URL: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
+      OCI_CLIENT_ID: ${{ vars.OCI_CLIENT_ID }}
+      OCI_OIDC_AUDIENCE: ${{ vars.OCI_OIDC_AUDIENCE || 'oci-federation' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false # a privileged job restores no cache
+
+      - name: Check the account
+        run: |
+          [[ "${OCI_COMPARTMENT}" =~ ^ocid1\.compartment\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$ ]] || { echo "::error::the variable OCI_COMPARTMENT must be a compartment OCID"; exit 1; }
+          [[ "${OCI_TENANCY}" =~ ^ocid1\.tenancy\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$ ]] || { echo "::error::the variable OCI_TENANCY must be a tenancy OCID"; exit 1; }
+          [[ "${OCI_REGION}" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || { echo "::error::the variable OCI_REGION must look like eu-frankfurt-1"; exit 1; }
+          [[ "${OCI_HOME_REGION}" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || { echo "::error::the variable OCI_HOME_REGION must look like eu-frankfurt-1"; exit 1; }
+          [[ "${OCI_IDENTITY_DOMAIN_URL}" =~ ^https://idcs-[a-f0-9]+\.identity\.[a-z.]*oraclecloud\.com$ ]] || { echo "::error::the variable OCI_IDENTITY_DOMAIN_URL must be the identity domain's URL"; exit 1; }
+          [[ "${OCI_CLIENT_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::the variable OCI_CLIENT_ID must be set"; exit 1; }
+          [[ "${OCI_OIDC_AUDIENCE}" =~ ^[A-Za-z0-9:/._-]+$ ]] || { echo "::error::the variable OCI_OIDC_AUDIENCE has characters it must not"; exit 1; }
+
+      # The keyless token exchange: the job's OIDC token for a session; the sweeper (Go) exchanges the token file itself.
+      - name: Start the OCI session
+        env:
+          OCI_CLIENT_SECRET: ${{ secrets.OCI_CLIENT_SECRET }}
+        run: |
+          [[ -n "${OCI_CLIENT_SECRET}" ]] || { echo "::error::the environment secret OCI_CLIENT_SECRET is not set in the environment e2e-sweeper"; exit 1; }
+          test/e2e-oci/oci-session.sh start "${RUNNER_TEMP}/oci-session"
+
+      - name: Sweep
+        env:
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_MAX_AGE: ${{ inputs.max_age }}
+          INPUT_REGIONS: ${{ inputs.regions }}
+        run: |
+          # Not below two hours: a lane run may take 90 minutes, and its resources must never
+          # look old enough to sweep while it runs.
+          age="${INPUT_MAX_AGE:-2h}"
+          if ! [[ "${age}" =~ ^(([2-9]|[1-9][0-9]+)h|(1[2-9][0-9]|[2-9][0-9]{2}|[1-9][0-9]{3,})m)$ ]]; then
+            echo "::error::max_age must be at least 2h (a Go duration in whole hours or minutes)"; exit 1
+          fi
+          regions="${INPUT_REGIONS:-${OCI_REGION}}"
+          if ! [[ "${regions}" =~ ^(all|[a-z0-9,-]+)$ ]]; then
+            echo "::error::regions must be a comma list of regions, or all"; exit 1
+          fi
+          # -boot-volumes: the compartment is dedicated to the lane (docs/how-to-guides/testing-and-releasing.md#oci).
+          args=(-max-age "${age}" -regions "${regions}" -boot-volumes)
+          if [ "${INPUT_DRY_RUN}" = "true" ]; then args+=(-dry-run); fi
+          go run ./test/e2e-oci/sweeper "${args[@]}"

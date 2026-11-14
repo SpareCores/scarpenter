@@ -164,6 +164,13 @@ test-e2e-hcloud-dryrun: ## L5 of Hetzner Cloud without a cloud or Tailscale: the
 	test/e2e-hcloud/selftest.sh
 	test/e2e-plan-selftest.sh
 
+.PHONY: test-e2e-oci-dryrun
+test-e2e-oci-dryrun: ## L5 (OCI) without a cloud or Tailscale: the manifests against an API server, the sweeper and the canary against the in-memory OCI API, the helpers and the session script against stubs, the CI and canary policies, the chart with the lane's values.
+	@test -n "$$KUBEBUILDER_ASSETS" || { echo "KUBEBUILDER_ASSETS is not set; run via hack/dev.sh" >&2; exit 1; }
+	go test -count=1 ./test/e2e-oci/... ./test/canary/... ./pkg/vendors/oci/sweep/...
+	test/e2e-oci/selftest.sh
+	test/e2e-plan-selftest.sh
+
 .PHONY: test-e2e-ovh-dryrun
 test-e2e-ovh-dryrun: ## L5 for OVH without a cloud or Tailscale: the manifests against an API server, the sweeper and the canary against the in-memory OpenStack, the helpers against stubs, the chart with the lane's values.
 	@test -n "$$KUBEBUILDER_ASSETS" || { echo "KUBEBUILDER_ASSETS is not set; run via hack/dev.sh" >&2; exit 1; }

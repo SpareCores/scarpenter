@@ -1013,6 +1013,110 @@ every action pinned by SHA), the byo names shared by the scripts and the sweeper
 permissions all there, no IAM, no overlap between the three, only reads in the canary's), that the lane is ready for its line in `test/e2e-vendors.txt`, and the chart
 with the lane's values once the chart knows `vendors.gcp`. The canary's test compares the permissions of the calls it made with `canary-policy.sh role`.
 
+### The L5 lane on OCI
+
+The OCI lane is the same lane as the AWS one (a k3s control plane on the runner, nodes that join over
+Tailscale, the reusable `e2e-cloud.yml`, the same pins of Kubernetes, k3s, Tailscale and Flatcar) with the
+cloud calls of Oracle Cloud Infrastructure; everything it adds lives in `test/e2e-oci/`, `pkg/vendors/oci/sweep`,
+`test/canary/oci.go` and `.github/workflows/e2e-oci-sweeper.yml`. **It is not in `test/e2e-vendors.txt` yet**:
+the line is added only when the cost guards of [Testing and releasing](testing-and-releasing.md#per-vendor-cost-guards)
+are true on a live tenancy, which is provisioned outside this repository, and nobody has verified them yet (what to
+check first: [OCI](testing-and-releasing.md#oci)); the lane's selftest checks that the line is absent. **Nothing in the lane has run
+against Oracle yet** (a static validation only: the lane is written against the driver's fake, the SDK source and the documentation, and
+the first live run corrects it). Everything else is ready, so that the single line `oci` in that file is enough: the planner, the canary
+matrix and the release gate read it, and `test/e2e-plan-selftest.sh` and `test/e2e-oci/selftest.sh` check that nothing else is missing
+(the credentials steps of both reusable workflows, the sweeper workflow, the canary's vendor part, the smoke set). Until then it runs by
+hand against a tenancy of one's own:
+
+```bash
+export OCI_COMPARTMENT=ocid1.compartment... OCI_TENANCY=ocid1.tenancy...      # the lane's variables; no account has a default
+export OCI_CLI_CONFIG_FILE=~/.oci/config OCI_CLI_PROFILE=DEFAULT OCI_REGION=eu-frankfurt-1
+test/canary/run.sh oci                                          # the free check (read-only identity)
+go run ./test/e2e-oci/sweeper -dry-run -regions eu-frankfurt-1  # what a sweep would delete
+hack/dev.sh make test-e2e-oci-dryrun                            # everything that needs no tenancy
+```
+
+**What differs from AWS.**
+
+- **A dedicated compartment.** A policy condition cannot test the freeform tags of an instance on every verb, and cannot
+  deny a shape, so the AWS statements "only with the cluster tag" and "only these instance types" have no equivalent. The wall
+  is the driver's own ownership check plus a compartment that holds nothing else, a **compartment quota** (the Quotas service) that
+  caps compute cores and memory at what the pins need (the hard ceiling), and the CI policy's condition on the lane's region
+  (unverified for which verbs).
+- **Credentials: the keyless token exchange.** The CI identity is GitHub's OIDC token exchanged at an IAM identity domain (a
+  confidential application, a trust for this repository's environments, a group with the policy) for a short-lived user principal
+  session token; **no API key exists anywhere**. `test/e2e-oci/oci-session.sh` does it for the `oci` CLI of the scripts (a profile with a session token and
+  a key pair it makes), keeps the OIDC token file fresh in the background (GitHub's token lives minutes) and puts that file into the Secret
+  `oci-federated-token`; the controller's `workloadIdentityFederation` mode exchanges it itself (`install.sh`; the cluster's own ServiceAccount issuer is
+  not public, so the chart's projected token could not be trusted by the domain: the lane sets the mode `none` and passes the flags with
+  `extraArgs`, which come last, so that the last `--oci-auth` wins; the selftest renders the chart and checks that). The sweeper and the canary (Go) exchange the same
+  file through `test/e2e-oci/ocienv`. The one stored secret is the application's client secret (`OCI_CLIENT_SECRET`, an environment secret).
+  The audience the trust expects, the exact fields of the token endpoint's answer and that the CLI's `security_token` profile needs no fingerprint are **unverified**
+  until the first live run (spike S11).
+- **Images.** The lane's operator imports Flatcar's own `oraclecloud` image into the compartment, per architecture, named
+  `flatcar-<channel>-<version>-<arch>` with the freeform tags of [Flatcar images on OCI](oci-images.md); the preflight and the canary read them
+  and their shape compatibility. arm64 runs only with `E2E_ARM64=true` (the image needs a capability schema and the Arm shapes added).
+- **Types.** `oci.VM.Standard.E5.Flex.1-4` (amd64, on demand and preemptible; 1 OCPU is 2 vCPUs, 4 GB), `VM.Standard.E5.Flex.1-8` and
+  `VM.Standard.E5.Flex.2-8` (the described scenario), `VM.Standard.A1.Flex.1-2` and `VM.Standard.A2.Flex.1-8` (arm64, optional: the pool takes whichever has capacity).
+  The pools of `test/e2e-oci/manifests/nodepools.yaml` name the same types, and a test keeps this page and them together. No bare metal (cost and boot time).
+- **Limits.** About 8 OCPUs and 48 GB of the E5 family in the region (`E2E_MIN_OCPU`, `E2E_MIN_MEMORY_GB`). The Limits service reports `used` and `available` per availability
+  domain, so the `quota` scenario compares the controller's buckets (`standard-e5-core-count`, `standard-e5-memory-count`: usage is the sum over the domains,
+  the limit is that plus the largest availability) with what `oci limits resource-availability get` says; preemptible capacity is counted like any other until
+  the first live run says otherwise (spike S9).
+- **Ownership marker.** Instances carry the freeform tags `scarpenter-cluster=scarpenter-ci-<run id>` (and `ci-created-at`, `ci-run` from the NodeClass's `spec.tags`).
+  The VCN, the internet gateway, the route table, the security list, the subnet and the groups SCarpenter creates carry `scarpenter-cluster`, `scarpenter-managed-by`,
+  `scarpenter-nodeclass` and `scarpenter-resource-kind` **and** a name that starts with `scarpenter-<cluster>-`. What the workflow brings itself for `byo` is named
+  `scarpenter-e2e-byo-<run id>*` and tagged `e2e-byo-cluster=<cluster>`, a tag the controller's garbage collector does not recognize and the sweeper does.
+- **No default network, no data volumes.** There is no `default` scenario (a tenancy has no default VCN) and no `db` scenario (no data volumes or profiles in v1);
+  the `drift` scenario changes the boot volume size only.
+
+| Scenario | Proves |
+|---|---|
+| preflight | the region is subscribed (`READY`) and has availability domains; the pinned Flatcar image exists in the compartment (`AVAILABLE`, its `flatcar-version` and `arch` tags) and is registered for the lane's shapes; every lane shape is offered in an availability domain; the E5 limits suffice; the NodeClasses are `Ready`, `VendorReady` and `ImagesReady` |
+| `amd64` | on demand, exact type `oci.VM.Standard.E5.Flex.1-4`: Node Ready, Pod Running, `kubectl logs` and `exec`; node labels of overview section 5.5 (the zone name without the tenancy's prefix, the Keeper zone ID `<region>-ad-<N>`, `vcpus` 2, `memory-mib` 4096); the instance's freeform tags (cluster, nodeclaim, nodepool, nodeclass, managed-by, the idempotency key equal to the NodeClaim's UID, the NodeClass's `spec.tags`); `shapeConfig` equal to the name; the metadata keys of plan 25 section 5 (`user_data`, no `ssh_authorized_keys`), the legacy metadata endpoints disabled, a public address and a group on the VNIC; the pinned image; the boot volume (size and VPUs); the price annotation; the bootstrap token is gone, the serving CSR approved; on the node, the checks of L4 scenarios Q09 and Q10; the metadata service answers on the node (the `user_data` is the Ignition) and no login user exists; the answer from a Pod (OCI has no hop limit) and from the legacy endpoint are recorded as notes |
+| `spot` | the same size preemptible: `preemptibleInstanceConfig` with the action `TERMINATE` and the boot volume not preserved |
+| `arm64` | optional (`E2E_ARM64=true`): `A1` or, where its capacity is short, `A2` on the arm64 image; the five launch options of a Flatcar arm64 image (`UEFI_64`, paravirtualized network and volumes, consistent volume naming); the join units are active |
+| `described` | a Deployment that selects by `vcpus` and `memory-mib` ranges within the allowed sizes gets `VM.Standard.E5.Flex.1-8` (the only size with 2 vCPUs and more than 6000 MiB; checked against the instance's `shapeConfig`) |
+| `byo` | a VCN, an internet gateway, a route table, a subnet and a network security group that the workflow creates with the `oci` CLI are `use`d by a second NodeClass (by their OCIDs): the node launches into the subnet with that group and no other, and after the workload, the pool and the NodeClass are gone SCarpenter has not touched them (the subnet and the group, rules included, are unchanged); the teardown (the sweeper) deletes them |
+| `create` | no `use`: SCarpenter creates a VCN `scarpenter-<cluster>-...` of `10.240.0.0/16`, an internet gateway, a route table, a security list, one regional public subnet (the first `/20`) and a group for the NodeClass, all with the ownership tags; the node uses them; once the NodeClass is deleted its group goes by its lifecycle |
+| `negative` | a NodeClass with a region the driver cannot use and one with `publicIPv4: false` (the managed network has no NAT gateway) are refused (`VendorReady=False`, the messages name the region and `publicIPv4`); no instance is launched for either |
+| `quota` | the buckets the controller reports (`scarpenter_quota_limit`, `scarpenter_quota_used` for the E5 core and memory limits) equal the Limits service; the usage covers the running nodes; the in-flight reservations are released; the launched shape is in the shape table of its availability domain |
+| `drift` | a change to the boot volume size replaces the node (new size, old instance terminated, NodeClaim and Node gone, the Pod moves), the controller Pod is killed hard while the replacement's `Create` is in flight (opportunistic replay assertion). Always asserted: no orphan, and **at most one instance ever launched for the replacement claim** (a terminated instance stays listed for about twelve hours) |
+| `scalezero` | the exit criterion: after the workloads are deleted every instance of the cluster is terminated within 2 minutes; no node, NodeClaim, bootstrap token or **boot volume created by the run** is left; the quota usage equals the Limits service again |
+| `uninstall` | the procedure of [Uninstall](install.md#uninstall): the NodePools, the SCNodeClasses (the managed groups, subnets, route tables, gateways, security lists and VCNs fall under `managedResources.defaultTTL`), then `helm uninstall` |
+
+**Provisioning (outside this repository).** A maintainer provisions once, with whatever tool they use; the repository holds none of it. Nothing below has been created
+or checked yet:
+
+- a **dedicated compartment** and nothing else in it, with a **compartment quota** (the Quotas service) that caps the E5 and Arm compute cores and memory at what the pins need, a budget alert, and the
+  subscription of the lane's region;
+- the **Flatcar images** of the pinned release in the compartment of the lane's region ([oci-images.md](oci-images.md): imported, named, tagged, with their shape compatibility, and for arm64 the capability schema);
+- an **IAM identity domain** with a **confidential application** (client credentials) and a **trust** for GitHub's OIDC issuer (`https://token.actions.githubusercontent.com`) that maps the subjects of this repository's environments
+  `e2e`, `e2e-sweeper` and `e2e-canary` to identity domain users, in a CI group (the first two) and a canary group (the last); a second application for the canary is allowed;
+- the **policies**: `test/e2e-oci/ci-policy.sh policy <group> <compartment> [region]` prints the CI group's statements (the driver's, `manage volume-family` for the boot volume cleanup, and the region condition),
+  `test/e2e-oci/canary-policy.sh policy <group> <compartment>` the canary's read-only ones;
+- the GitHub environments: `e2e` (required reviewers), `e2e-sweeper` (limited to `main`, no reviewers) and `e2e-canary` (limited to `main`), each with the **variables** `OCI_COMPARTMENT`, `OCI_TENANCY`
+  (OCIDs), `OCI_IDENTITY_DOMAIN_URL` (`https://idcs-<id>.identity.oraclecloud.com`), `OCI_CLIENT_ID`, and optionally `OCI_REGION` (default `eu-frankfurt-1`), `OCI_HOME_REGION` (default the region),
+  `OCI_OIDC_AUDIENCE` (default `oci-federation`; what the trust expects), and the **secret** `OCI_CLIENT_SECRET` (the application's client secret; the canary's own in `e2e-canary`); the Tailscale variables and tags are the AWS lane's;
+- for `byo`, nothing: the workflow creates and deletes its own network.
+
+**The sweeper.** `.github/workflows/e2e-oci-sweeper.yml` runs every three hours and on demand in the environment `e2e-sweeper`. It terminates the instances (and waits: their VNICs
+must be gone), then deletes, in dependency order, the network security groups, the subnets, the route tables, the internet gateways, the security lists and the VCNs of every cluster whose name starts
+with `scarpenter-ci-` and that is more than two hours old, in the lane's region (`-regions` takes a comma list or `all`), and, because the compartment is dedicated, the available boot volumes of the compartment that are that old
+(`-boot-volumes`: a volume that is still attached is refused by OCI and skipped). The age is the creation time. A resource is SCarpenter's only when its tags **and** its name say so
+(`pkg/vendors/oci/sweep`), a brought resource of the lane when its name starts with `scarpenter-e2e-byo-` **and** it carries `e2e-byo-cluster=<cluster>`; anything untagged, an imported image included,
+is never touched. A VCN with a subnet the sweep does not select (a user's, or one that is too young) is kept. `pkg/vendors/oci/sweep` is tested against the driver's in-memory API (old and young runs, another cluster's resources,
+a marker without its name and a name without its marker, a user's subnet in a managed VCN, the byo resources by their own tag, a resource still in use retried, an instance that stays `TERMINATING`, a region without access, boot volumes,
+a dry run); `go run ./test/e2e-oci/sweeper -dry-run` lists what a sweep would delete and `-cluster <name> -max-age 0 -regions <region>` is what the teardown uses. The teardown also lists the boot volumes created since the run began
+with the CLI and fails the job on a leftover (which it then deletes). Every call runs under a deadline (the SDK adapter's, and the whole run's).
+
+**Without a tenancy.** `hack/dev.sh make test-e2e-oci-dryrun` renders every manifest of `test/e2e-oci/manifests` and sends it to an envtest API
+server as a server-side dry run, runs the sweeper's and the canary's tests against the in-memory OCI API, and `test/e2e-oci/selftest.sh`: the helpers
+against stubs of the CLI and fixtures (including the redaction of tenancy and compartment OCIDs, tokens, signatures and private keys), the session script against a stub of
+`curl` (the exchange, the modes of the files, the masks, no secret on a command line), the scenario list, the workflows (keyless credentials, a pinned CLI, no API key, every action pinned by SHA),
+the byo names shared by the scripts and the sweeper, the policies `ci-policy.sh` and `canary-policy.sh` print (the driver's statements all there, nothing tenancy-wide that writes, only reads in the canary's),
+that the lane is ready for its line in `test/e2e-vendors.txt` and absent from it, and the chart with the lane's values (the keyless flags win). The canary's test compares the statements of the calls it made with `canary-policy.sh statements`.
+
 ### Artifact fixtures
 
 `pkg/artifacts/testdata/<name>-<version>/SHA256SUMS` are the real checksum files of

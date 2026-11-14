@@ -28,6 +28,12 @@ name: L5 (cloud e2e)
 # Alibaba Cloud (alicloud): the variables ALICLOUD_REGION and ALICLOUD_OIDC_AUDIENCE and the
 # environment secrets ALICLOUD_ROLE_ARN and ALICLOUD_OIDC_PROVIDER_ARN (a RAM role assumed
 # through a RAM OIDC identity provider; the lane has not run yet).
+# Oracle Cloud (oci): the variables OCI_COMPARTMENT and OCI_TENANCY (OCIDs of the lane's dedicated
+# compartment and of the tenancy), OCI_REGION (default eu-frankfurt-1), OCI_HOME_REGION (optional),
+# OCI_IDENTITY_DOMAIN_URL, OCI_CLIENT_ID and OCI_OIDC_AUDIENCE (the identity domain and its confidential
+# application that trust GitHub's OIDC token), and the environment secret OCI_CLIENT_SECRET (the
+# application's client secret: the one stored secret; no API key exists). The identity is the keyless
+# token exchange of test/e2e-oci/oci-session.sh (the lane has not run yet).
 on:
   workflow_call:
     inputs:
@@ -115,6 +121,15 @@ jobs:
       VAR_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       VAR_GCP_PROJECT: ${{ vars.GCP_PROJECT }}
       VAR_GCP_REGION: ${{ vars.GCP_REGION }}
+      # OCI: OCIDs, a region and the identity domain's address and client (variables; the client secret is
+      # the environment secret read by the session step only).
+      VAR_OCI_REGION: ${{ vars.OCI_REGION }}
+      VAR_OCI_HOME_REGION: ${{ vars.OCI_HOME_REGION }}
+      VAR_OCI_COMPARTMENT: ${{ vars.OCI_COMPARTMENT }}
+      VAR_OCI_TENANCY: ${{ vars.OCI_TENANCY }}
+      VAR_OCI_IDENTITY_DOMAIN_URL: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
+      VAR_OCI_CLIENT_ID: ${{ vars.OCI_CLIENT_ID }}
+      VAR_OCI_OIDC_AUDIENCE: ${{ vars.OCI_OIDC_AUDIENCE }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -207,6 +222,28 @@ jobs:
               valid GCP_REGION "${VAR_GCP_REGION}" '^[a-z]+(-[a-z]+)*[0-9]+$'
               echo "GCP_PROJECT=${VAR_GCP_PROJECT}" >> "${GITHUB_ENV}"
               echo "GCP_REGION=${VAR_GCP_REGION:-us-central1}" >> "${GITHUB_ENV}"
+              ;;
+            oci)
+              # OCIDs, a region and a URL go into paths, filters and the environment: only their shapes are
+              # accepted (a newline would add a variable to GITHUB_ENV). None has a default but the region.
+              valid OCI_COMPARTMENT "${VAR_OCI_COMPARTMENT}" '^ocid1\.compartment\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$'
+              valid OCI_TENANCY "${VAR_OCI_TENANCY}" '^ocid1\.tenancy\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$'
+              [[ -n "${VAR_OCI_COMPARTMENT}" && -n "${VAR_OCI_TENANCY}" && -n "${VAR_OCI_CLIENT_ID}" ]] || { echo "::error::the variables OCI_COMPARTMENT, OCI_TENANCY and OCI_CLIENT_ID must be set" >&2; exit 1; }
+              valid OCI_REGION "${VAR_OCI_REGION}" '^[a-z]{2}(-[a-z]+)+-[0-9]+$'
+              valid OCI_HOME_REGION "${VAR_OCI_HOME_REGION}" '^[a-z]{2}(-[a-z]+)+-[0-9]+$'
+              valid OCI_IDENTITY_DOMAIN_URL "${VAR_OCI_IDENTITY_DOMAIN_URL}" '^https://idcs-[a-f0-9]+\.identity\.[a-z.]*oraclecloud\.com$'
+              [[ -n "${VAR_OCI_IDENTITY_DOMAIN_URL}" ]] || { echo "::error::the variable OCI_IDENTITY_DOMAIN_URL must be set" >&2; exit 1; }
+              valid OCI_CLIENT_ID "${VAR_OCI_CLIENT_ID}" '^[A-Za-z0-9_-]+$'
+              valid OCI_OIDC_AUDIENCE "${VAR_OCI_OIDC_AUDIENCE}" '^[A-Za-z0-9:/._-]+$'
+              {
+                echo "OCI_COMPARTMENT=${VAR_OCI_COMPARTMENT}"
+                echo "OCI_TENANCY=${VAR_OCI_TENANCY}"
+                echo "OCI_REGION=${VAR_OCI_REGION:-eu-frankfurt-1}"
+                echo "OCI_HOME_REGION=${VAR_OCI_HOME_REGION:-${VAR_OCI_REGION:-eu-frankfurt-1}}"
+                echo "OCI_IDENTITY_DOMAIN_URL=${VAR_OCI_IDENTITY_DOMAIN_URL}"
+                echo "OCI_CLIENT_ID=${VAR_OCI_CLIENT_ID}"
+                echo "OCI_OIDC_AUDIENCE=${VAR_OCI_OIDC_AUDIENCE:-oci-federation}"
+              } >> "${GITHUB_ENV}"
               ;;
           esac
           mkdir -p "${RUNNER_TEMP}/e2e"
@@ -364,6 +401,24 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
+      # Oracle Cloud: the keyless token exchange (test/e2e-oci/oci-session.sh): the job's OIDC token is
+      # exchanged at the identity domain for a session token for the oci CLI of the scripts; the token file
+      # itself, renewed in the background, is what the Go programs and the controller in k3s exchange (the
+      # cluster issuer is not public, so the chart's own ServiceAccount token could not be trusted). The one
+      # stored secret is the confidential application's client secret. The CLI is pinned by version.
+      - name: Install the oci CLI (oci)
+        if: inputs.vendor == 'oci'
+        run: pipx install "oci-cli==3.94.2"
+
+      - name: Start the OCI session (oci)
+        if: inputs.vendor == 'oci'
+        env:
+          OCI_CLIENT_SECRET: ${{ secrets.OCI_CLIENT_SECRET }}
+          OCI_TOKEN_SECRET: scarpenter-system/oci-federated-token
+        run: |
+          [[ -n "${OCI_CLIENT_SECRET}" ]] || { echo "::error::the environment secret OCI_CLIENT_SECRET is not set" >&2; exit 1; }
+          test/e2e-oci/oci-session.sh start "${RUNNER_TEMP}/oci-session"
+
       # Keeper's snapshot routes need an API key: read from the parameter the repository
       # variable KEEPER_API_KEY_PARAMETER names, with the environment's CI role, for this step
       # only (no credentials are left in the job). Without the role or the variable (a fork) the
@@ -459,6 +514,13 @@ jobs:
           project_id: ${{ env.GCP_PROJECT }}
           create_credentials_file: true
           export_environment_variables: true
+
+      # The first session may be hours old (or the job was cancelled at the timeout): exchange again.
+      - name: Exchange again for the teardown (oci)
+        if: always() && env.E2E_PREPARED == 'true' && inputs.vendor == 'oci'
+        env:
+          OCI_CLIENT_SECRET: ${{ secrets.OCI_CLIENT_SECRET }}
+        run: test/e2e-oci/oci-session.sh once "${OCI_SESSION_DIR:-${RUNNER_TEMP}/oci-session}"
 
       - name: Teardown
         if: always() && env.E2E_PREPARED == 'true'

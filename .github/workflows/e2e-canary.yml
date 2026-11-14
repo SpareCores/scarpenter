@@ -26,6 +26,10 @@ name: L5 canary
 # variables GCP_PROJECT and GCP_REGION (optional, default us-central1) and the secrets
 # GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT (the read-only role of
 # test/e2e-gcp/canary-policy.sh; federated, no key file).
+# For the vendor oci: the variables OCI_COMPARTMENT, OCI_TENANCY, OCI_REGION (optional, default
+# eu-frankfurt-1), OCI_HOME_REGION (optional), OCI_IDENTITY_DOMAIN_URL, OCI_CLIENT_ID and
+# OCI_OIDC_AUDIENCE, and the secret OCI_CLIENT_SECRET: an identity domain application whose trust names
+# the environment e2e-canary and whose group holds the read-only policy of test/e2e-oci/canary-policy.sh.
 on:
   schedule:
     - cron: "41 3 * * *"
@@ -90,6 +94,13 @@ jobs:
       VAR_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       VAR_GCP_PROJECT: ${{ vars.GCP_PROJECT }}
       VAR_GCP_REGION: ${{ vars.GCP_REGION }}
+      VAR_OCI_REGION: ${{ vars.OCI_REGION }}
+      VAR_OCI_HOME_REGION: ${{ vars.OCI_HOME_REGION }}
+      VAR_OCI_COMPARTMENT: ${{ vars.OCI_COMPARTMENT }}
+      VAR_OCI_TENANCY: ${{ vars.OCI_TENANCY }}
+      VAR_OCI_IDENTITY_DOMAIN_URL: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
+      VAR_OCI_CLIENT_ID: ${{ vars.OCI_CLIENT_ID }}
+      VAR_OCI_OIDC_AUDIENCE: ${{ vars.OCI_OIDC_AUDIENCE }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -134,6 +145,25 @@ jobs:
               [[ -z "${VAR_GCP_REGION}" || "${VAR_GCP_REGION}" =~ ^[a-z]+(-[a-z]+)*[0-9]+$ ]] || { echo "::error::the variable GCP_REGION must look like us-central1" >&2; exit 1; }
               echo "GCP_PROJECT=${VAR_GCP_PROJECT}" >> "${GITHUB_ENV}"
               echo "GCP_REGION=${VAR_GCP_REGION:-us-central1}" >> "${GITHUB_ENV}"
+              ;;
+            oci)
+              # OCIDs, a region and a URL go into the environment: only their shapes are accepted.
+              [[ "${VAR_OCI_COMPARTMENT}" =~ ^ocid1\.compartment\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$ ]] || { echo "::error::the variable OCI_COMPARTMENT must be a compartment OCID" >&2; exit 1; }
+              [[ "${VAR_OCI_TENANCY}" =~ ^ocid1\.tenancy\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$ ]] || { echo "::error::the variable OCI_TENANCY must be a tenancy OCID" >&2; exit 1; }
+              [[ -z "${VAR_OCI_REGION}" || "${VAR_OCI_REGION}" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || { echo "::error::the variable OCI_REGION must look like eu-frankfurt-1" >&2; exit 1; }
+              [[ -z "${VAR_OCI_HOME_REGION}" || "${VAR_OCI_HOME_REGION}" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || { echo "::error::the variable OCI_HOME_REGION must look like eu-frankfurt-1" >&2; exit 1; }
+              [[ "${VAR_OCI_IDENTITY_DOMAIN_URL}" =~ ^https://idcs-[a-f0-9]+\.identity\.[a-z.]*oraclecloud\.com$ ]] || { echo "::error::the variable OCI_IDENTITY_DOMAIN_URL must be the identity domain's URL" >&2; exit 1; }
+              [[ "${VAR_OCI_CLIENT_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::the variable OCI_CLIENT_ID must be set" >&2; exit 1; }
+              [[ -z "${VAR_OCI_OIDC_AUDIENCE}" || "${VAR_OCI_OIDC_AUDIENCE}" =~ ^[A-Za-z0-9:/._-]+$ ]] || { echo "::error::the variable OCI_OIDC_AUDIENCE has characters it must not" >&2; exit 1; }
+              {
+                echo "OCI_COMPARTMENT=${VAR_OCI_COMPARTMENT}"
+                echo "OCI_TENANCY=${VAR_OCI_TENANCY}"
+                echo "OCI_REGION=${VAR_OCI_REGION:-eu-frankfurt-1}"
+                echo "OCI_HOME_REGION=${VAR_OCI_HOME_REGION:-${VAR_OCI_REGION:-eu-frankfurt-1}}"
+                echo "OCI_IDENTITY_DOMAIN_URL=${VAR_OCI_IDENTITY_DOMAIN_URL}"
+                echo "OCI_CLIENT_ID=${VAR_OCI_CLIENT_ID}"
+                echo "OCI_OIDC_AUDIENCE=${VAR_OCI_OIDC_AUDIENCE:-oci-federation}"
+              } >> "${GITHUB_ENV}"
               ;;
           esac
 
@@ -230,6 +260,17 @@ jobs:
           project_id: ${{ env.GCP_PROJECT }}
           create_credentials_file: true
           export_environment_variables: true
+
+      # Oracle Cloud: the read-only identity through the keyless token exchange (test/e2e-oci/oci-session.sh). The
+      # canary's Go code reads the token file (the driver's workload identity federation mode), which a background
+      # loop keeps fresh for the length of the job; it needs no CLI. The canary's guard refuses every write as well.
+      - name: Start the OCI session with the read-only identity (oci)
+        if: matrix.vendor == 'oci'
+        env:
+          OCI_CLIENT_SECRET: ${{ secrets.OCI_CLIENT_SECRET }}
+        run: |
+          [[ -n "${OCI_CLIENT_SECRET}" ]] || { echo "::error::the environment secret OCI_CLIENT_SECRET is not set in the environment e2e-canary" >&2; exit 1; }
+          test/e2e-oci/oci-session.sh start "${RUNNER_TEMP}/oci-session"
 
       # The output is redacted by the script (the job log, the artifact and the issue are public).
       - name: Canary
