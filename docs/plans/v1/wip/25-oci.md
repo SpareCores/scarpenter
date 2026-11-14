@@ -989,8 +989,8 @@ Done (step (c), branch `oci-c`), with these corrections to the text above:
   subnet is the subnet itself. `Delete` accepts either.
 - **`create.cidr` reaches the driver** through a small core change: `VendorSettings.Resources` carries the
   `resources` member of the vendor block as written (it stays out of `Raw`, so it does not drift nodes).
-  GCP's `create.pool` is read from `Raw`, where `resources` has been stripped; it looks like it never reaches
-  that driver (not changed here).
+  GCP's `create.pool` was read from `Raw`, where `resources` has been stripped, so it never reached that
+  driver (a bug on main; fixed in the review of (c): GCP reads it from `VendorSettings.Resources`).
 - **`ListNetworkSecurityGroupSecurityRules`** is in `NetworkAPI`: a group that exists without rules (an
   interrupted creation between the group and its rules) gets them from the next `Ensure`. A 409 on a delete is
   `Retryable` (a `kindDelete` in the classification).
@@ -1008,6 +1008,22 @@ Done (step (c), branch `oci-c`), with these corrections to the text above:
   `--oci-identity-domain-url`, `--oci-client-id` and `--oci-client-secret-file` (each with a `SCARPENTER_OCI_*`
   variable); the chart values are `vendors.oci.*`. The token exchange parameters stay **unverified** (S11).
 - Coverage of `pkg/vendors/oci/...` is above 85 % (the fake included).
+
+Review of step (c) (fixes on the branch, from the SDK v65.130.0 source and OCI's API reference):
+
+- The token exchange sends `subject_token_type=jwt` (the SDK sends it only when the builder sets it; its
+  examples all do). The identity domain URL is the host only: the SDK appends `/oauth2/v1/token` and refuses
+  a URL with a path, now at start-up. Reading the tenancy at `Init` is the first exchange in this mode.
+- A boot volume has no `lower-cost` level (`bootVolumeVpusPerGB` takes 10, 20, 30 to 120): the enum and the
+  driver offer `balanced`, `higher-performance` and `ultra-high-performance` only.
+- The OCID patterns of the CEL rules take more than one segment after the region (a Vault key's OCID has
+  two); region names may have several words (`us-gov-ashburn-1`), in the CRD, the validation and the chart.
+- A 400 `InvalidParameter` naming `preemptible` is `Unsupported` (Fatal failed the claim and the same spot
+  offering was tried again).
+- The SDK clients' HTTP timeout is the call's deadline, so a call the adapter abandons ends with it
+  (`OCI_SDK_CLIENT_TIMEOUT=0` would otherwise leave it running).
+- The policy's `manage virtual-network-family` block is needed whenever SCarpenter creates a group: without a
+  groups `use` (a brought subnet included) and for `isolation: run`.
 
 **(d) L5** (statically validated; **no live run without the maintainer's go-ahead**): `test/e2e-oci`,
 the sweeper, the canary and its guard, the workflows (`e2e-cloud.yml` and `e2e-canary.yml` get a credentials
