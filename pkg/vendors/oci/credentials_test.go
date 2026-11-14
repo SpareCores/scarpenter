@@ -83,8 +83,8 @@ func TestAPIKeyFromASecretDirectory(t *testing.T) {
 
 func TestAPIKeyFromTheEnvironment(t *testing.T) {
 	dir := t.TempDir()
-	pem := testKeyPEM(t)
-	keyFile := write(t, dir, "key.pem", pem)
+	keyPEM := testKeyPEM(t)
+	keyFile := write(t, dir, "key.pem", keyPEM)
 	base := map[string]string{
 		"OCI_CLI_TENANCY": "ocid1.tenancy.oc1..aaaa", "OCI_CLI_USER": "ocid1.user.oc1..aaaa",
 		"OCI_CLI_FINGERPRINT": "aa:bb", "OCI_CLI_REGION": "eu-frankfurt-1",
@@ -98,14 +98,14 @@ func TestAPIKeyFromTheEnvironment(t *testing.T) {
 		}
 	}
 	checkIdentity(t, CredentialConfig{Getenv: with(map[string]string{"OCI_CLI_KEY_FILE": keyFile})})
-	checkIdentity(t, CredentialConfig{Getenv: with(map[string]string{"OCI_CLI_KEY_CONTENT": pem})})
+	checkIdentity(t, CredentialConfig{Getenv: with(map[string]string{"OCI_CLI_KEY_CONTENT": keyPEM})})
 
 	for name, tc := range map[string]struct {
 		env  map[string]string
 		want string
 	}{
 		"no key":           {nil, "OCI_CLI_KEY_FILE or OCI_CLI_KEY_CONTENT"},
-		"no tenancy":       {map[string]string{"OCI_CLI_TENANCY": "", "OCI_CLI_KEY_CONTENT": pem}, "OCI_CLI_TENANCY"},
+		"no tenancy":       {map[string]string{"OCI_CLI_TENANCY": "", "OCI_CLI_KEY_CONTENT": keyPEM}, "OCI_CLI_TENANCY"},
 		"key file missing": {map[string]string{"OCI_CLI_KEY_FILE": filepath.Join(dir, "nope")}, "OCI_CLI_KEY_FILE"},
 	} {
 		t.Run(name, func(t *testing.T) {

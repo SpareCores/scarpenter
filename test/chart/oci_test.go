@@ -22,7 +22,7 @@ func TestOCICredentialModes(t *testing.T) {
 		t.Helper()
 		base := []string{"--set", "cluster.name=c", "--set", "cluster.apiServerEndpoint=https://a.example.com",
 			"--set", "vendors.aws.enabled=false", "--set", "vendors.oci.enabled=true", "--set", "vendors.oci.compartment=" + compartment}
-		d := deployment(t, mustHelm(t, append(base, args...)...))
+		d := deployment(t, mustHelm(t, slices.Concat(base, args)...))
 		return d, d.Spec.Template.Spec.Containers[0].Args
 	}
 	t.Run("apiKey", func(t *testing.T) {

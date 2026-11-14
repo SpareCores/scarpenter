@@ -160,8 +160,8 @@ func (c CredentialConfig) fromEnvironment() (common.ConfigurationProvider, error
 		}
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("the OCI API key is not configured: set %s, or a credentials directory (--oci-credentials-dir) "+
-			"or a config file (--oci-config-file)", strings.Join(missing, ", "))
+		return nil, fmt.Errorf("the OCI API key is not configured: set %s, or a credentials directory "+
+			"(--oci-credentials-dir) or a config file (--oci-config-file)", strings.Join(missing, ", "))
 	}
 	return rawProvider(tenancy, user, region, fingerprint, key, c.env("OCI_CLI_PASSPHRASE"))
 }
@@ -217,7 +217,7 @@ func hasSessionToken(path, profile string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	in := false
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
@@ -269,7 +269,8 @@ func (c CredentialConfig) federation() (common.ConfigurationProvider, error) {
 		}
 	}
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("the OCI mode %s needs %s", AuthWorkloadIdentityFederation, strings.Join(slices.Sorted(slices.Values(missing)), ", "))
+		slices.Sort(missing)
+		return nil, fmt.Errorf("the OCI mode %s needs %s", AuthWorkloadIdentityFederation, strings.Join(missing, ", "))
 	}
 	secret, err := os.ReadFile(c.ClientSecretFile)
 	if err != nil {
