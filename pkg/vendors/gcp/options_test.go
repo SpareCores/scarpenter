@@ -14,7 +14,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	gcpapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/gcp"
+	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp"
 )
@@ -94,6 +97,39 @@ func TestPrepareManagedResources(t *testing.T) {
 	}
 	if params.SelfReference || len(params.Inbound) != 1 {
 		t.Errorf("firewall params = %+v", params)
+	}
+}
+
+// The pool of the create block reaches the request of the managed subnet when the
+// settings are resolved from a NodeClass as the core resolves them: the resources
+// member is not in the merged block (Raw) but in VendorSettings.Resources.
+func TestPreparePassesThePoolOfTheNodeClass(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	nc := &v1alpha1.SCNodeClass{Spec: v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{GCP: &gcpapi.Settings{
+		Resources: &gcpapi.Resources{Subnets: &gcpapi.SubnetResource{Create: &gcpapi.SubnetCreate{Pool: "10.64.0.0/16"}}},
+	}}}}
+	in, ok, err := options.InputFromNodeClass(nc, "gcp")
+	if err != nil || !ok {
+		t.Fatalf("input: %v, %v", ok, err)
+	}
+	settings, err := options.Resolve(e.d, in, options.Selection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &provider{d: e.d, region: testRegion}
+	req := prepareReq(e, p, "")
+	req.Settings = settings
+	if _, err := e.d.Prepare(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	var params gcp.SubnetParams
+	for _, c := range p.calls {
+		if c.Kind == gcp.KindSubnets {
+			_ = json.Unmarshal(c.Params, &params)
+		}
+	}
+	if params.Pool != "10.64.0.0/16" {
+		t.Errorf("the subnets request has the pool %q, want the NodeClass's 10.64.0.0/16", params.Pool)
 	}
 }
 

@@ -8,6 +8,7 @@ package gcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -79,13 +80,21 @@ func validatePool(r *gcpapi.SubnetResource) []error {
 	return nil
 }
 
-// poolOf is the pool of the subnets create block of the settings; empty for the
-// default.
-func poolOf(st gcpapi.Settings) string {
-	if st.Resources != nil && st.Resources.Subnets != nil && st.Resources.Subnets.Create != nil {
-		return st.Resources.Subnets.Create.Pool
+// poolOf is the pool of the subnets create block of the NodeClass's resources;
+// empty for the default. The resources member is not part of the merged block
+// (Raw): it reaches the driver as VendorSettings.Resources.
+func poolOf(s vendors.VendorSettings) (string, error) {
+	if len(s.Resources) == 0 {
+		return "", nil
 	}
-	return ""
+	var r gcpapi.Resources
+	if err := json.Unmarshal(s.Resources, &r); err != nil {
+		return "", fmt.Errorf("decoding the GCP resources: %w", err)
+	}
+	if r.Subnets == nil || r.Subnets.Create == nil {
+		return "", nil
+	}
+	return r.Subnets.Create.Pool, nil
 }
 
 // managedNetworkName is the name of the cluster's managed network.
