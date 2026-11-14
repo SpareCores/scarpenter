@@ -19,6 +19,10 @@ Available:
   capabilities, error classes, the conformance suite and the fake driver
   (plan 04). Quota-aware placement is in the [controller reference](controller.md#quota).
 
+- [**OCI driver**](oci-driver.md) — regions and availability domains, the named sizes, images, launch,
+  node settings, resources and network, quotas, error mapping, IAM ([policy](oci-iam-policy.txt)) and what
+  is not verified live yet (plan 25).
+
 - [**Node bootstrap**](node-bootstrap.md) — the rendered Ignition, the Butane
   templates and their variables, bootstrap tokens, artifacts, the size budget,
   the NodeClass controller, the serving certificate approver, RBAC and security

@@ -84,6 +84,8 @@ spec:
       colocated: {aws: {placementGroup: {strategy: cluster}}}
 ```
 
+OCI has no profile blocks in v1: `spec.vendors.oci.storage.root` sets the boot volume (`sizeGb`,
+`performance`, `vpusPerGb`, `kmsKeyId`; [OCI driver](oci-driver.md#node-settings)).
 On GCP the same profiles are in the driver's terms, for example
 `gcp: {data: [{name: pgdata, diskType: hyperdisk-balanced, sizeGb: 500, mountPath: /var/lib/pgdata}]}` for storage and
 `gcp: {resourcePolicy: {groupPlacement: {collocation: COLLOCATED}}}` for placement

@@ -229,7 +229,7 @@ hash; the pinned version is.
 | Architectures | amd64, arm64 (A1 verified; A2 and A4 untested) |
 | Later | a Community Application per region and release would make the import unnecessary (rung 2) |
 
-The contract the operator's IaC follows is section 3 of [plan 25](../plans/v1/wip/25-oci.md).
+The steps are in [Flatcar images on OCI](../how-to-guides/oci-images.md).
 
 ## Later moves
 

@@ -29,6 +29,9 @@ the keys of `spec.vendors.<vendor>.resources` (for AWS `subnets`,
 `runSecurityGroups`, see the [AWS driver](aws-driver.md#resources-and-network)).
 For UpCloud they are `networks`, `firewalls` and `serverGroups`, plus the use-only
 `images` ([UpCloud driver](upcloud-driver.md#resources-and-network)).
+For OCI they are `subnets` (a VCN with its subnet, gateway, route table and security list when created),
+`networkSecurityGroups` and the internal `runNetworkSecurityGroups`, plus the use-only `images`
+([OCI driver](oci-driver.md#resources-and-network)).
 For GCP they are `subnets`,
 `firewalls` (network tags) and `resourcePolicies`, with the internal `runFirewalls`, see the
 [GCP driver](gcp-driver.md#resources-and-network); their networks, subnetworks, rules and policies have no

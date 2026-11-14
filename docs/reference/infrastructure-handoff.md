@@ -36,6 +36,7 @@ a vendor's section marks *planned* (its tagged discovery, its default) arrives w
 - [gcp](#gcp)
 - [azure](#azure)
 - [hcloud](#hcloud)
+- [oci](#oci)
 - [ovh](#ovh)
 - [upcloud](#upcloud)
 - [vultr](#vultr)
@@ -159,6 +160,7 @@ needs, in neutral terms:
 | gcp | the workload identity pool and provider, the service account with the custom role, and the Cloud Quotas permission if quota spikes need it |
 | azure | the user-assigned managed identity, its federated credential, the custom role and its assignment, and the registered resource providers (`Microsoft.Compute`, `Microsoft.Network`, `Microsoft.MarketplaceOrdering`) |
 | hcloud | a separate read-write token of the project, as a Secret |
+| oci | the compartment of the nodes, the subscriptions of the regions, the identity (an API key, or the identity domain application and trust of the keyless mode) and its policy ([`oci-iam-policy.txt`](oci-iam-policy.txt)) |
 | ovh | a dedicated service account with an IAM policy on the project, and the `nodes` group's rules for `Ext-Net` nodes (or `tailscale` only) |
 | upcloud | a token (sub-account) that sees the templates and networks you created |
 | vultr | the API key with the minimal ACLs and the controller's egress address in its allowlist |
@@ -272,6 +274,27 @@ A server needs no subnet reference: it gets an address from the network's subnet
 its location. `sshKey` is optional (nodes use Ignition). Without `use`: labelled
 networks and firewalls (*planned*), no vendor default; a managed firewall, else a
 stated failure. Public-only nodes need nothing.
+
+## oci
+
+Images: rung 3, per region and architecture, in the controller's compartment, named `flatcar-<channel>-<version>-<arch>`
+with the freeform tags `flatcar-channel`, `flatcar-version`, `arch` and `os=flatcar`
+([how to](../how-to-guides/oci-images.md)); or their OCIDs in `resources.images.use.ids` per region. Credentials: the
+controller's `--oci-compartment` (one for every NodeClass) and an API key or the keyless mode
+([how to](../how-to-guides/oci-credentials.md)).
+
+| Kind | Provide | `use` fields |
+|---|---|---|
+| `subnets` | subnet OCIDs per region (regional, or AD-specific), or the freeform tag `scarpenter-use=true` | `ids`, `name` (`{region}`, `{zone}`), `tags`, `match` (`network`, `cidr`, `within`, `state`, `zone`, `createdAfter`, `createdBefore`), `filters` |
+| `networkSecurityGroups` | group OCIDs per region, in the subnet's VCN | `ids`, `name`, `tags`, `match`, `filters` |
+
+Egress: a node needs egress at first boot (Ignition fetches the sysexts from GitHub; without it the node needs about
+20 minutes instead of one): in the group or the subnet's security list to GitHub, the container registries, NTP
+(UDP 123) and the Kubernetes API server. Inbound: 10250 from the control plane, the CNI ports, UDP 41641 for the
+`tailscale` template, ICMP type 3 code 4 (path MTU: the VNIC MTU is 9000). A subnet with
+`prohibitPublicIpOnVnic` needs a NAT gateway and `networking.publicIPv4: false`. Without `use`: tagged subnets and
+groups, else a managed VCN, internet gateway, route table, minimal security list, subnet and group (OCI has no default
+VCN), else a stated failure.
 
 ## ovh
 

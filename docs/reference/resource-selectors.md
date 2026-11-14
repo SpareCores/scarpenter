@@ -31,7 +31,7 @@ SDK source and are checked in the driver's spike before it relies on them.
 - [Validation](#validation)
 - [Resolution, status and caching](#resolution-status-and-caching)
 - [Per vendor](#per-vendor): [aws](#aws), [gcp](#gcp), [azure](#azure), [hcloud](#hcloud),
-  [ovh](#ovh), [upcloud](#upcloud), [vultr](#vultr), [alicloud](#alicloud)
+  [oci](#oci), [ovh](#ovh), [upcloud](#upcloud), [vultr](#vultr), [alicloud](#alicloud)
 
 ## The format
 
@@ -574,6 +574,48 @@ Order: `sort=created`, `name`. No separate subnet kind. **firewalls**, **placeme
 (exact), `tags`, `created` client, `sort=created`; firewall rules and attachments are client-side only.
 Other kinds: **volumes** (`status`; location and attachment client-side), **SSH keys** (`fingerprint`; no `created` sort),
 **primary IPs** (`ip`; type and location client-side), **floating IPs**.
+
+### oci
+
+The Core services' list calls per region (`ListSubnets`, `ListNetworkSecurityGroups`, `ListImages`), in the
+controller's compartment; `ids` are read with a get each, so a resource of another compartment the credentials
+can read works. There is **no server-side tag filter**: `tags` (freeform tags) are matched on the client, as
+every `match` attribute except the ones below. `ids` keys are region names, never `*` (OCIDs are regional).
+`expression` is not supported. Reference: `https://docs.oracle.com/en-us/iaas/api/`.
+
+**subnets** (`ListSubnets`, paged; zonal: an AD-specific subnet has a zone, a regional one serves every zone):
+
+| Field | Maps to | Where |
+|---|---|---|
+| `ids` | `GetSubnet` per ID | by id |
+| `name` | `displayName` (an exact name on the server, a glob on the client) | server+client |
+| `tags` | freeform tags | client |
+| `match.network` | `vcnId` (one value is sent) | server+client |
+| `match.cidr`, `match.within` | `cidrBlock` and the IPv6 prefix | client |
+| `match.state` | `lifecycleState` (`available`, `pending`, `failed`) | client |
+| `match.zone` | `availabilityDomain` without the tenancy prefix; a regional subnet matches every zone | client |
+| `match.createdAfter`, `createdBefore` | `timeCreated` | client |
+
+Filters: `vcn-id`, `lifecycle-state`, `display-name` (one value each). Default `select`: `exactlyOne`.
+
+**networkSecurityGroups** (`ListNetworkSecurityGroups`, paged): `ids` (`GetNetworkSecurityGroup`), `name`, `tags`,
+`match.network` (`vcnId`), `match.state`, `match.createdAfter`, `match.createdBefore`; filters `vcn-id`,
+`lifecycle-state`, `display-name`. No zone or CIDR. Default `select`: `all` (at most five groups per VNIC). A group
+must be in the VCN of the chosen subnet: combine with `match.network`.
+
+**images** (`ListImages` of the compartment, paged; `GetImage` for `ids`):
+
+| Field | Maps to | Where |
+|---|---|---|
+| `ids` | `GetImage` per ID | by id |
+| `name` | `displayName` | server+client |
+| `tags` | freeform tags (`flatcar-channel`, `flatcar-version`, `arch`, `os`) | client |
+| `match.architecture` | the tag `arch`, else the shape compatibility entries; also the request's own architecture | client |
+| `match.state` | `lifecycleState` (default: available only) | server+client |
+| `match.createdAfter`, `createdBefore` | `timeCreated` | client |
+
+No `owner`. Filters: `operating-system`, `operating-system-version`, `shape`, `lifecycle-state` (the `ListImages`
+parameters). Whatever the lookup, the image's version must say the pinned release.
 
 ### ovh
 

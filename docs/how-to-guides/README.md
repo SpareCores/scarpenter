@@ -52,6 +52,10 @@ Available:
   repository's release asset; what SCarpenter reports.
 - [**Set up Azure credentials**](azure-credentials.md) (plan 17) — the custom role, workload
   identity federation, a client secret, AKS, the marketplace terms.
+- [**Flatcar images on OCI**](oci-images.md) (plan 25) — the image to import per region and architecture,
+  its name and tags, the arm64 steps.
+- [**Set up OCI credentials**](oci-credentials.md) (plan 25) — the API key, the keyless workload identity
+  federation, the policy, the chart values.
 - [**Set up GCP credentials**](gcp-credentials.md) (plan 16) — the custom roles,
   workload identity federation, a service account key, the metadata server, the
   chart values, egress for nodes without a public address.

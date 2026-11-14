@@ -260,8 +260,8 @@ DNS is the VCN resolver (169.254.169.254, via `systemd-resolved`'s uplink file),
 forwarding sysctls are in place, no swap, cgroup v2. Still open for a real join (spike S6 and the
 lane): the CSR approval, flannel across nodes (UDP 8472 in the group) and Pod DNS.
 
-The image placement is added to ADR-021's ladder (OCI: rung 3) and to
-`docs/explanation/flatcar-images.md` by the coordinator when this plan lands.
+The image placement is in ADR-021's ladder (OCI: rung 3) and in `docs/explanation/flatcar-images.md`
+(step (c)).
 
 ## 4. The `spec.vendors.oci` block and the hand-off
 
@@ -382,7 +382,13 @@ the capacity error), and the driver's classification (HTTP 429 and 5xx other tha
 eventual-consistency part retries a 404 for minutes, which would hide `NotFound` from `Get` and
 `Delete`), bounded by the 45 s deadline; `LaunchInstance` passes `RequestMetadata.RetryPolicy =
 NoRetryPolicy()` per request. `OCI_SDK_DEFAULT_RETRY_ENABLED` and `common.GlobalRetry` are not
-used.
+used. **Corrected in step (c):** the SDK's own retry loop (`common.Retry`) cannot run under a deadline
+without a data race (see the step (b) corrections), and `NoRetryPolicy` does not avoid it (the loop and its
+goroutine run for every policy). The adapter therefore runs every SDK call on its own goroutine under a
+context that never ends (so the SDK's `select` on the context cannot fire), enforces the 45 second deadline
+itself, sets `NoRetryPolicy` on every client and retries the idempotent calls (reads, `TerminateInstance`,
+the deletes) itself, up to four attempts with backoff inside the one deadline, when the error is
+`Retryable` by the driver's own classification. Creates and the launch are not retried.
 
 **Launch** (`CreateInstance`): `LaunchInstance` with:
 
@@ -965,6 +971,43 @@ schema, `docs/reference/oci-driver.md`, `oci-iam-policy.txt`, `docs/how-to-guide
 `vendor-resources.md`, `node-settings.md`, `resource-selectors.md`, `infrastructure-handoff.md`, and the
 overview's quota table (this change adds the row), the lane section pointers. The coordinator updates
 ADR-021 and `docs/explanation/flatcar-images.md`.
+
+Done (step (c), branch `oci-c`), with these corrections to the text above:
+
+- **Per-region prices** (decision of 2026-11-14) are a vendor-neutral catalog change: a driver that implements
+  `vendors.RegionPriced` (OCI does) makes the catalog read a price row of an active zone as the price of every
+  zone of its region the driver lists, the cheapest row winning per zone (`catalog.RegionPricedFacts`,
+  `facts.Facts.RegionPriced`). Every other driver maps by Keeper's zone ID as before. A test builds the catalog
+  from the embedded data over the driver's own facts and checks that every type is offered in all three ADs of
+  the tenancy.
+- **SDK retries and the data race**: see section 5 (corrected). `TestSDKCallDeadline` runs under `-race`; the
+  `raceEnabled` files are gone.
+- **The managed network is the VCN, not the subnet.** `Ensure` of `subnets` returns the VCN as the managed
+  resource (`ID` and `Network` are the VCN OCID), as AWS returns the VPC: the reference stays the same when an
+  interrupted creation is completed (the resolution-order conformance case), `List` returns one reference per
+  VCN with the marker, and `Prepare` and the launch pick the subnet of the VCN that serves the zone. A brought
+  subnet is the subnet itself. `Delete` accepts either.
+- **`create.cidr` reaches the driver** through a small core change: `VendorSettings.Resources` carries the
+  `resources` member of the vendor block as written (it stays out of `Raw`, so it does not drift nodes).
+  GCP's `create.pool` is read from `Raw`, where `resources` has been stripped; it looks like it never reaches
+  that driver (not changed here).
+- **`ListNetworkSecurityGroupSecurityRules`** is in `NetworkAPI`: a group that exists without rules (an
+  interrupted creation between the group and its rules) gets them from the next `Ensure`. A 409 on a delete is
+  `Retryable` (a `kindDelete` in the classification).
+- The managed group has the egress rule, ICMP type 3 code 4, the rules of `networking.inbound` and, for
+  `isolation: nodeclass`, itself; the run group allows its members to reach each other. UDP 41641 for the
+  `tailscale` template is not added by the driver: it is in `networking.inbound` or the brought group.
+- `ValidateNodeClass` also refuses `publicIPv4: false` and `publicIPv6: true` where the network is managed (no
+  NAT gateway and no IPv6 prefix in v1).
+- **Not done:** the `VendorReady` message about the embedded catalog (the condition is the core's and has no hook
+  for a driver message; the log line and the gauge of step (a2) say it). The offering lister and the vendor's
+  default network do not exist for OCI, so those conformance cases are skipped by design; the selector, image
+  and resolution-order cases run in the run of the `subnets` kind.
+- Credentials: the flags are `--oci-compartment`, `--oci-auth` (`apiKey` or `workloadIdentityFederation`),
+  `--oci-credentials-dir`, `--oci-config-file`, `--oci-config-profile`, `--oci-region`, `--oci-token-file`,
+  `--oci-identity-domain-url`, `--oci-client-id` and `--oci-client-secret-file` (each with a `SCARPENTER_OCI_*`
+  variable); the chart values are `vendors.oci.*`. The token exchange parameters stay **unverified** (S11).
+- Coverage of `pkg/vendors/oci/...` is above 85 % (the fake included).
 
 **(d) L5** (statically validated; **no live run without the maintainer's go-ahead**): `test/e2e-oci`,
 the sweeper, the canary and its guard, the workflows (`e2e-cloud.yml` and `e2e-canary.yml` get a credentials
