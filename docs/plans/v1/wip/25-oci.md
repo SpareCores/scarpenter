@@ -5,14 +5,14 @@ the stopped-node rule, account-wide quota errors, message-based classification, 
 references, the one `use` selector), 23 (`Instance.BillingStart`), 10 (the L5 lane framework and
 the canary), 13 part A (on main: local selection over the refresh's data) and, for step (a) only,
 13 part B (branch `plan13-part-b`: the snapshot-reading `KeeperSource`; see "Dependencies").
-Not on 22 (Flatcar publishes the OCI image itself), not on 24 (see "Sizes"). Read
+Not on 22 (Flatcar publishes the OCI image itself), not on 24 (a draft owned by another work stream; see "Sizes"). Read
 `docs/plans/v1/CONVENTIONS.md` first. Spec: overview §5.8, §5.9, §7, §9, §11 (as the model),
 00a §6, §9, §11; ADR-009, ADR-013, ADR-017, ADR-018, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024;
 `docs/reference/driver-contract.md`; the plans 15, 16 and 20 as the pattern (16 most of all).
 
 Status: **draft for review.** Research date: 2026-11-14, from public documentation, the
 `oci-go-sdk` v65.130.0 source, the sample Keeper data of OCI (SQLite, 2026-11-13), the crawler pull
-request `SpareCores/sc-crawler#180`, plan 24's research (cited, not repeated) and the notes of the
+request `SpareCores/sc-crawler#180`, the research of the plan 24 draft (cited, not repeated) and the notes of the
 Flatcar-on-OCI investigation (2026-11-13). No cloud API was called. Everything marked
 **unverified** is settled by the spike (section 12) or by the first live run, and listed again in
 "Unverified facts".
@@ -34,9 +34,10 @@ Decided by the maintainer on 2026-11-14 (fixed; the sections below apply them):
    memory within bounds; Spare Cores defines a fixed list of named sizes per shape, as AWS has a
    fixed list of types. The names and sizes are the `server` rows of Keeper's OCI data
    (`VM.Standard.E5.Flex.2-16`). Plan 24's NodeClass-configurable grid is **not needed** for OCI now;
-   plan 24 stays a draft and the grid stays a later option (the note is in plan 24's status and §7;
-   plan 24, `wip/24-flexible-shapes.md`, is **not committed yet** and must land with or before this
-   plan, because sections 1, 2 and 6 cite its research).
+   plan 24 stays a draft and the grid stays a later option. The plan 24 draft is owned by another
+   work stream and is not part of this repository's tree yet: this plan does not depend on it
+   being committed; where it cites its research (the OCPU facts, the price list), the section numbers are those of the draft and the
+   facts are marked as from it.
 2. **Keeper does not serve OCI yet.** SCarpenter ships a static, embedded OCI catalog, generated
    from the sample data by a small committed generator, plugged in at the seam where Keeper data
    enters the catalog, and swapped for real Keeper data later by a flag.
@@ -64,8 +65,9 @@ Decided by the maintainer on 2026-11-14 (fixed; the sections below apply them):
    differs by tenancy) and most regions have one. Keeper's zone is `<region>-ad-<N>` with the name
    `EU-FRANKFURT-1-AD-1` (no prefix). The driver maps both ways (section 4). The **numbering** is
    per tenancy too (AD-1 of the crawler's tenancy is not AD-1 of the user's), so Keeper's per-AD
-   rows say which shapes the *crawler's* tenancy had in its AD-N: the prices hold everywhere, the
-   per-AD presence does not (section 6, open question 11).
+   rows say which shapes the *crawler's* tenancy had in its AD-N. Decided 2026-11-14: **Keeper's OCI
+   prices are treated per region** (the same in every AD), and the driver asks the user's tenancy
+   (`ListShapes` per AD) which ADs offer a shape and launches only there (section 6).
 6. **Limits are per AD and per shape family, in cores and in GB**, read with the Limits service's
    `GetResourceAvailability`; `QuotaReporter.Consumption` has no zone argument (section 7: a
    contract gap, with a safe v1 answer).
@@ -160,8 +162,9 @@ shape  := ^(VM|BM)\.[A-Za-z0-9._-]+$
   with limit 0 in an AD has no headroom, section 7) and the reactive `Unsupported`
   (open question 4).
 
-**Plan 24.** Its status line and §7 get a note (this change): plan 25 uses fixed named sizes per
-the maintainer's decision of 2026-11-14; `server_shape`, `server_shape_price`, `sc-keeper-go/flex`,
+**Plan 24** (a draft, by name only; its owner keeps its text). Plan 25 uses fixed named sizes per
+the maintainer's decision of 2026-11-14, and a note to that effect belongs in the draft's status line and §7 when
+its owner commits it (nothing here waits for that); `server_shape`, `server_shape_price`, `sc-keeper-go/flex`,
 the grid, sticky live sizes and `ShapeCapacityMonotonic` are not needed for OCI now; the grid
 remains a later option (it would also serve GCP custom machine types). The data model of this plan
 is forward compatible: a size is a `Server` row either way, and the name `<shape>.<ocpus>-<gb>`
@@ -264,7 +267,6 @@ keys: `FRA`), **availability domain** (zone) and **compartment** (the scope of e
 vendors:
   oci:
     regions: [eu-frankfurt-1, us-ashburn-1]   # allow-list; empty = every subscribed region
-    compartmentId: ocid1.compartment.oc1..example   # optional; must equal the controller's compartment
     storage:
       root: {sizeGb: 64, performance: balanced}      # lower-cost | balanced | higher-performance | ultra-high-performance
     networking: {}                                    # per-vendor override of spec.networking
@@ -305,7 +307,7 @@ contract as freeform tags (section 5).
 
 The operator's IaC provides, all optional except the first two:
 
-1. **The compartment** (`compartmentId`, or the controller's `--oci-compartment`) and the
+1. **The compartment** (the controller's `--oci-compartment`) and the
    **region subscriptions** of every region in the allow-list (a one-way tenancy action).
 2. **The images** per region and architecture (section 3).
 3. **The controller's identity** and its policy (section 4, "Credentials"; `docs/reference/oci-iam-policy.txt`).
@@ -325,30 +327,34 @@ subnet (`create`), the groups, and the run groups.
 ### Account scope and credentials
 
 - **Compartment.** Instances, boot volumes, the managed network and the default image lookup live in
-  **one compartment**: `--oci-compartment` / `SCARPENTER_OCI_COMPARTMENT` (Helm
-  `vendors.oci.compartment`), **required** (the tenancy root is not a default). The NodeClass field
-  `compartmentId`, when set, must equal it (`VendorReady` says otherwise). Brought subnets, groups
-  and images may live in other compartments the credentials can read. The **tenancy** OCID comes from
-  the credentials. Multiple compartments are post-v1.
+  **one compartment**, taken from the controller's configuration: `--oci-compartment` /
+  `SCARPENTER_OCI_COMPARTMENT` (Helm `vendors.oci.compartment`), **required** (the tenancy root is not
+  a default). There is **no per-NodeClass `compartmentId` in v1** (decided 2026-11-14; deferred with
+  multiple compartments). Brought subnets, groups and images may live in other compartments the
+  credentials can read. The **tenancy** OCID comes from the credentials.
 - **Authentication.** The SDK's `common.ConfigurationProvider`, chosen by `vendors.oci.credentials.mode`
-  (Helm; flag `--oci-auth`):
-  1. `workloadIdentityFederation` (**recommended for a controller anywhere**, no API key): the
-     SDK's `auth.TokenExchangeConfigurationProviderFromIssuer` with a `TokenIssuer` that reads the
-     projected ServiceAccount token file, exchanged at an IAM Identity Domain's token endpoint
-     (a confidential application's client ID and secret, a `urn:oci:token-type:oci-upst` request) for a
-     short-lived user principal session token. The identity domain needs a trust for the cluster's
-     OIDC issuer. This is also how CI gets in (section 11). The one stored secret is the application's
-     client secret (a Kubernetes Secret); the SDK refreshes the token. The exact builder fields
-     and the audience are **unverified** (spike S11).
-  2. `instancePrincipal`: `auth.InstancePrincipalConfigurationProvider()`, for a controller on an OCI
-     compute instance in a dynamic group.
-  3. `okeWorkloadIdentity`: `auth.OkeWorkloadIdentityConfigurationProvider()`, for a controller on
-     OKE.
-  4. `apiKey`: a Secret with `tenancy`, `user`, `fingerprint`, `region` (the home region) and the
-     private key; `common.NewRawConfigurationProvider`. Works anywhere; the key is a long-lived
-     credential (documented as the fallback).
-  5. `configFile` (development): `~/.oci/config` with a profile, including session-token profiles
-     (`ConfigurationProviderForSessionTokenWithProfile`).
+  (Helm; flag `--oci-auth`). Two families in v1 (decided 2026-11-14):
+  1. `apiKey`: the tenancy, user, fingerprint, region (the home region) and the private key from
+     (a) a Kubernetes Secret (the chart mounts it; keys `tenancy`, `user`, `fingerprint`, `region`,
+     `key`), (b) the environment (`OCI_CLI_TENANCY`, `OCI_CLI_USER`, `OCI_CLI_FINGERPRINT`,
+     `OCI_CLI_REGION`, `OCI_CLI_KEY_FILE` or `OCI_CLI_KEY_CONTENT`; `common.ConfigurationProviderEnvironmentVariables`), or
+     (c) a config file (`~/.oci/config` or `OCI_CONFIG_FILE` with a profile, including session-token
+     profiles via `ConfigurationProviderForSessionTokenWithProfile`; the development path).
+     `common.NewRawConfigurationProvider` for (a). Works anywhere; the key is a long-lived credential.
+  2. `workloadIdentityFederation` (keyless token exchange, **recommended where it is available**, and
+     the mode of the CI live lane, which therefore stores no key): the SDK's
+     `auth.TokenExchangeConfigurationProviderFromIssuer` with a `TokenIssuer` that reads a token file
+     (the projected ServiceAccount token of a cluster, or the OIDC token of the CI job), exchanged at an IAM
+     Identity Domain's token endpoint (a confidential application's client ID and secret, a
+     `urn:oci:token-type:oci-upst` request) for a short-lived user principal session token. The identity
+     domain needs a trust for the token's issuer. The one stored secret is the application's client secret
+     (a Kubernetes Secret, or a CI secret); the SDK refreshes the token. The exact builder fields and the
+     audience are **unverified** (spike S11).
+  **Deferred** (a later step of this plan, or a follow-up; not in v1's steps): `instancePrincipal`
+  (`auth.InstancePrincipalConfigurationProvider()`, a controller on an OCI compute instance in a
+  dynamic group) and `okeWorkloadIdentity` (`auth.OkeWorkloadIdentityConfigurationProvider()`, a
+  controller on OKE). `vendors.oci.credentials.mode` rejects both with a message naming the supported modes;
+  the enum leaves room for them.
 - **Nodes carry no instance principal** and no credentials (the metadata service is the exposure,
   section 8).
 - **Startup check**: `ListRegionSubscriptions` (proves the identity and the tenancy), then
@@ -500,11 +506,13 @@ so the driver's `KeeperPriceConsumer` and the billing code see the same thing fr
 - **Mapping to the catalog**: `Server.ID` = Keeper `server_id`, `Server.APIReference` = the **type
   name** (rule R below). `Zone.ID` = Keeper's `zone_id` (`eu-frankfurt-1-ad-1`), `Zone.Name` = the zone's
   `api_reference` (`EU-FRANKFURT-1-AD-1`; Ashburn's is `US-ASHBURN-AD-1`, Phoenix's `PHX-AD-1`).
-  Prices are per AD, so the catalog builds an offering per AD that has a price row. The rows follow
-  the crawler tenancy's `ListShapes` per AD: E5, E4, A1 and the other main shapes are in every AD of
-  the three regions, but 24 (shape, region) pairs lack one or two ADs (`A4.Flex`, `A4.Ax.Flex`,
-  `E6.Ax.Flex`, `Standard4.Ax.Flex`, `VM.Standard1.*` in Phoenix, several `BM.*`), and that
-  presence is the crawler's AD numbering, not the user's (section 1, finding 5).
+  Prices are treated **per region** (decision of 2026-11-14): the catalog builds an offering in every AD
+  of a region that has a price row for the type in any AD of it, with that price. The sample's
+  rows follow the crawler tenancy's `ListShapes` per AD: E5, E4, A1 and the other main shapes are in
+  every AD of the three regions, but 24 (shape, region) pairs lack one or two ADs (`A4.Flex`,
+  `A4.Ax.Flex`, `E6.Ax.Flex`, `Standard4.Ax.Flex`, `VM.Standard1.*` in Phoenix, several `BM.*`); that
+  presence is the crawler's AD numbering, not the user's (section 1, finding 5), so it is not used, and
+  the driver's `ListShapes` check decides per tenancy.
 
 **Rule R (in the catalog's conversion, one place, used by every source).** Active rows of one
 vendor that **share an `api_reference` take their `server_id` as `APIReference`**; rows with a
@@ -561,13 +569,17 @@ swap's runbook in the docs: compare `kubectl get` of the instance types before a
 intersected with the allow-list; `Zones(region)` = `ListAvailabilityDomains` with
 `Zone{ID: <region>-ad-<N>, Name: <name without the tenancy prefix>}`, `N` from the suffix `-AD-<N>`
 (`PHX-AD-1` -> `us-phoenix-1-ad-1`, as the crawler's `_zone_id`). The full name goes in the launch.
-The tenancy-specific AD numbering maps to different datacenters per tenancy: the prices stay valid
-(the same everywhere), the per-AD presence of a shape does not. The zone ID is therefore **not** a
-portable physical identity as AWS's `use1-az1` is; it is "AD number N", whatever the tenancy maps
-it to. Consequences in v1: a type offered in an AD where the user's tenancy lacks the shape fails the
-driver's pre-launch check against the cached `ListShapes` of that AD (`Unsupported`, 24 hours, no
-launch call), so over-offering costs nothing; a shape the user's AD has but the crawler's AD of that
-number lacked is never offered (open question 11). The zone name is the value of
+The tenancy-specific AD numbering maps to different datacenters per tenancy, so Keeper's per-AD rows
+carry no information about the user's ADs. **Decided 2026-11-14: prices are per region**: the catalog
+takes a type's price in a region from any of its Keeper rows (the same in every AD) and offers the type in
+**every AD of the region the user's tenancy lists** (`Zones`). Which ADs can launch a shape is the
+driver's pre-launch check against the user's tenancy: `ListShapes` per AD (cached, an hour) decides,
+and an AD whose list lacks the shape gets `Unsupported` (24 hours, no launch call), so the driver launches only
+where the tenancy offers the shape. The zone ID is **not** a portable physical identity as AWS's
+`use1-az1` is; it is "AD number N", whatever the tenancy maps it to. A region with no Keeper row for a type has
+no offering of it. **Follow-up (not now):** ask the crawler to price each shape in every AD of its
+region, so that Keeper's own rows match this treatment; until then the catalog derives the missing ADs
+from the region's other rows. The zone name is the value of
 `topology.kubernetes.io/zone`, so the prefix with its colon (not a label-value character) must not be
 in it. A zone without a Keeper row (an AD the sample lacks) has no offerings.
 
@@ -657,7 +669,7 @@ the NodeClass's, not the type's).
 | `networking.publicIPv4`, `publicIPv6`, `isolation`, `inbound` | as the generic block |
 | `metadata` | as above |
 
-- **Validation** (`ValidateNodeClass`): regions (subscribed), compartment equals the controller's,
+- **Validation** (`ValidateNodeClass`): regions (subscribed),
   OCID formats, reserved metadata keys, tags, resource references, root size against the storage
   rows (min 50, max 32768), the VPU rule, and that no data volume or local storage is configured.
 - **`Supported`**: `ultra-high-performance` above 30 VPUs only where the shape and region accept it
@@ -750,7 +762,7 @@ tailnet, nodes with the `tailscale` template).
 2. A line `oci` in `test/e2e-vendors.txt` **only when every cost guard below is true on the live
    tenancy** (the AWS line stays alone until then); the credentials step in `e2e-cloud.yml` and
    `e2e-canary.yml`; `e2e-oci-sweeper.yml`; `make test-e2e-oci-dryrun`.
-3. **CI identity**: keyless, the `workloadIdentityFederation` mode of section 4 with GitHub's OIDC
+3. **CI identity**: keyless (a v1 mode, decision of 2026-11-14), the `workloadIdentityFederation` mode of section 4 with GitHub's OIDC
    token: the repository's subject (`repo:<owner>/scarpenter:environment:e2e`, and a read-only one for the
    canary) is exchanged at the identity domain for a user principal session token (the SDK provider with
    a `TokenIssuer` that returns the job's token); the CI account's operator creates the trust, the
@@ -880,10 +892,10 @@ retry token, the shape and AD caches, `quota.go` (buckets, `Consumption`, the un
 **(c) The full driver and the surfaces**: `Init`, `Regions`, `Zones`, `ResolveImage`/`ReportImages`,
 `CreateInstance`, `Get`/`Find`/`List`/`Delete`, `NodeOptions`, `ManagedResources` with the managed network,
 `NodeClassValidator`, `ZoneChecker`, `NodeHardener`; `pkg/apis/v1alpha1/oci` (types, deepcopy, CEL: OCID
-patterns for `compartmentId`, region name pattern, `create` and `use` mutually exclusive as the other
+patterns for the OCIDs, region name pattern, `create` and `use` mutually exclusive as the other
 vendors, no `use.ids` without a region key, rejected unknown fields), the `vendors.oci` block in
 `SCNodeClass` and the CRD, the registration (`cmd/controller/oci.go`), the controller flags
-(`--oci-compartment`, `--oci-auth`, the identity-domain options) and the chart (`vendors.oci`,
+(`--oci-compartment`, `--oci-auth`, the API-key sources and the identity-domain options; the modes `instancePrincipal` and `okeWorkloadIdentity` are not in this step) and the chart (`vendors.oci`,
 credentials modes, values schema, golden `helm template`), the published example NodeClasses and
 schema, `docs/reference/oci-driver.md`, `oci-iam-policy.txt`, `docs/how-to-guides/oci-credentials.md` and
 `oci-images.md` (the contract of section 3, as a how-to for a tool-neutral operator), rows in
@@ -915,9 +927,9 @@ is green. The first live run is the coordinator's.
   change, `model.Data.StoragePrices`/`IPv4Prices`, `PriceSink`/`KeeperPriceConsumer`. Step (a1) does
   not need it; step (a2) is written against the shapes it fixes (the `catalog.Source` seam exists on
   main today and survives in B) and lands after it.
-- **24** (draft): **not a dependency** for the code (decision 1); the later grid option would replace
-  the fixed list per NodeClass and keep the name format. Its file is not committed yet; this plan
-  cites its research, so it lands with or before this plan (open question 12).
+- **24** (a draft, owned by another work stream): **not a dependency**, for the code (decision 1) or for
+  the repository's state: this plan neither links to it nor waits for it to be committed. The later
+  grid option would replace the fixed list per NodeClass and keep the name format.
 - **22**: not needed (Flatcar's official image); an optional later job there is an import helper or a
   Community Application.
 - **Outside the repository**: the operator's IaC for images, subscriptions, identity and quotas
@@ -927,8 +939,6 @@ is green. The first live run is the coordinator's.
 
 ## Open questions for the maintainers
 
-1. **One compartment per controller in v1?** Recommendation: yes (flag, Helm value; the NodeClass field
-   must match). Multiple compartments multiply clients, quota views and garbage collection.
 2. **Keeper's `api_reference` for sized rows.** The crawler stores the shape for every size, so the
    catalog needs rule R (section 6). Recommendation: keep rule R (it also fixes the silent drop for
    any vendor); optionally make the crawler's `api_reference` of a sized row equal to its server ID, which
@@ -958,16 +968,23 @@ is green. The first live run is the coordinator's.
    them as plain shapes), exclude them from the lane, and mark them unverified in the reference.
 10. **NAT gateway for `publicIPv4: false` on a managed subnet** and **IPv6 on a managed VCN.**
     Recommendation: post-v1 (offerings unavailable with a reason, ADR-017); brought subnets cover both.
-11. **AD numbering in Keeper's OCI data.** The crawler's per-AD price rows are the presence of a
-    shape in the crawler tenancy's AD-N, which is another datacenter in the user's tenancy (section 6):
-    over-offering is caught by the cached `ListShapes` pre-check, under-offering hides a shape in an AD
-    that has it. Recommendation: v1 as written (the main shapes are in every AD of the three regions);
-    ask the crawler to price every shape in every AD of a region where any AD has it (OCI prices are the
-    same everywhere), so the driver's `ListShapes` check alone decides per tenancy. If that is not
-    wanted, the predicate capability of question 4 is the core-side fix.
-12. **Plan 24's file.** `wip/24-flexible-shapes.md` (with the 2026-11-14 note) exists only in a working
-    tree, not on `main` or this branch. Recommendation: commit it (status draft) before this plan
-    merges; this plan cites its §1.1, §1.2 and §7.
+
+### Decided by the maintainer 2026-11-14
+
+(The former open questions 1, 11 and 12 are closed here; the numbers of the others are kept.)
+
+1. **Credentials in the first version**: the OCI API key (config file, environment or a Kubernetes
+   Secret) **and** the keyless workload-identity token exchange, so that the CI live lane needs no stored
+   key (sections 4 and 11). Instance principal and OKE workload identity are deferred: a later step of
+   this plan or a follow-up.
+2. **Zones**: Keeper's OCI prices are treated per region (the crawler tenancy's AD numbering does not
+   carry over); the driver checks, in the user's tenancy, with `ListShapes` which ADs offer a shape and
+   launches only there (section 6). Follow-up, not now: ask the crawler to price each shape in every AD of
+   its region.
+3. **One compartment**, from the controller's configuration; no per-NodeClass `compartmentId` in v1
+   (deferred with multiple compartments; section 4).
+4. **Plan 24 is a draft owned by another work stream**; plan 25 does not depend on it being committed
+   and refers to it by name only.
 
 ### Decided by default, maintainer to confirm
 
@@ -977,8 +994,7 @@ is green. The first live run is the coordinator's.
 3. Default root volume 64 GiB `balanced`; `storage.data` and local storage rejected in v1.
 4. `VM.Standard2.*`, `VM.Standard.E2.*`, `VM.Standard1.*` and bare metal stay in the catalog as fixed shapes;
    what OCI refuses becomes `Unsupported`.
-5. `compartmentId` required at the controller; every managed resource in it. (The NodeClass field
-   `compartmentId`, which may only repeat it, can be dropped from v1 without loss.)
+5. Every managed resource lives in the controller's compartment (decided 2026-11-14, above).
 6. Fault domains unset; no capacity reservations, no placement.
 7. Preemptible = `spot`, `TERMINATE` with the boot volume deleted.
 8. The embedded vendors flag defaults to `oci`.
