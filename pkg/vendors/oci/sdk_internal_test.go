@@ -15,6 +15,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -280,6 +281,67 @@ func TestRetryBackoffGrows(t *testing.T) {
 	for n, base := range []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second} {
 		if got := retryBackoff(n); got > base || got < base*3/4 {
 			t.Errorf("retryBackoff(%d) = %s, want %s less up to a quarter", n, got, base)
+		}
+	}
+}
+
+// Every method of the narrow interfaces reaches its endpoint through the adapter: a request whose
+// string fields are set (the path parameters) is sent, and the answer decodes. The retry and
+// deadline behaviour is tested above; this is the table of the thin wrappers.
+func TestSDKReachesEveryEndpoint(t *testing.T) {
+	var paths []string
+	var mu sync.Mutex
+	_, sdk := newServer(t, func(_ int, w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		if r.Method == http.MethodGet && !strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "x") {
+			writeJSON(w, 200, `[]`)
+			return
+		}
+		writeJSON(w, 200, `{}`)
+	})
+	n := 0
+	for _, it := range []reflect.Type{reflect.TypeFor[ComputeAPI](), reflect.TypeFor[NetworkAPI](),
+		reflect.TypeFor[IdentityAPI](), reflect.TypeFor[LimitsAPI]()} {
+		for m := range it.Methods() {
+			n++
+			fn := reflect.ValueOf(sdk).MethodByName(m.Name)
+			args := []reflect.Value{reflect.ValueOf(t.Context())}
+			if m.Type.NumIn() == 3 { // (ctx, region, req) for the regional ones
+				args = append(args, reflect.ValueOf("eu-frankfurt-1"))
+			}
+			req := reflect.New(m.Type.In(m.Type.NumIn() - 1)).Elem()
+			fill(req)
+			out := fn.Call(append(args, req))
+			// A list answers an array and a get an object: the decoding of the wrong shape is an error
+			// that still proves the request left, so only a transport-level failure fails the test.
+			if err, _ := reflect.TypeAssert[error](out[1]); err != nil && !strings.Contains(err.Error(), "json") &&
+				!strings.Contains(err.Error(), "cannot unmarshal") {
+				t.Errorf("%s: %v", m.Name, err)
+			}
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(paths) < n {
+		t.Errorf("%d requests for %d methods: %v", len(paths), n, paths)
+	}
+}
+
+// fill sets the string pointers of a request to "x" and its nil lists to empty ones, in the
+// structs it embeds (the details of a create).
+func fill(v reflect.Value) {
+	for _, f := range v.Fields() {
+		switch {
+		case !f.CanSet():
+		case f.Kind() == reflect.Pointer && f.Type().Elem().Kind() == reflect.String:
+			f.Set(reflect.ValueOf(new("x")))
+		case f.Kind() == reflect.Slice && f.IsNil():
+			f.Set(reflect.MakeSlice(f.Type(), 0, 0))
+		case f.Kind() == reflect.Struct && f.Type().PkgPath() != "" && !strings.HasPrefix(f.Type().PkgPath(), "time") &&
+			f.Type().Name() != "RequestMetadata":
+			fill(f)
 		}
 	}
 }

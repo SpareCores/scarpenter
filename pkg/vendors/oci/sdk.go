@@ -4,6 +4,7 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
+//nolint:lll // the adapters repeat the SDK method signatures
 package oci
 
 import (
@@ -355,4 +356,238 @@ func (s *SDK) ListLimitDefinitions(ctx context.Context, region string, req limit
 		return limits.ListLimitDefinitionsResponse{}, err
 	}
 	return invoke(ctx, s, true, c.ListLimitDefinitions, req)
+}
+
+// ListImages implements ComputeAPI.
+func (s *SDK) ListImages(ctx context.Context, region string, req core.ListImagesRequest) (core.ListImagesResponse, error) {
+	c, err := s.computeClient(region)
+	if err != nil {
+		return core.ListImagesResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListImages, req)
+}
+
+// GetImage implements ComputeAPI.
+func (s *SDK) GetImage(ctx context.Context, region string, req core.GetImageRequest) (core.GetImageResponse, error) {
+	c, err := s.computeClient(region)
+	if err != nil {
+		return core.GetImageResponse{}, err
+	}
+	return invoke(ctx, s, true, c.GetImage, req)
+}
+
+// ListImageShapeCompatibilityEntries implements ComputeAPI.
+func (s *SDK) ListImageShapeCompatibilityEntries(ctx context.Context, region string, req core.ListImageShapeCompatibilityEntriesRequest) (core.ListImageShapeCompatibilityEntriesResponse, error) {
+	c, err := s.computeClient(region)
+	if err != nil {
+		return core.ListImageShapeCompatibilityEntriesResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListImageShapeCompatibilityEntries, req)
+}
+
+// GetSubnet implements NetworkAPI.
+func (s *SDK) GetSubnet(ctx context.Context, region string, req core.GetSubnetRequest) (core.GetSubnetResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.GetSubnetResponse{}, err
+	}
+	return invoke(ctx, s, true, c.GetSubnet, req)
+}
+
+// ListSubnets implements NetworkAPI.
+func (s *SDK) ListSubnets(ctx context.Context, region string, req core.ListSubnetsRequest) (core.ListSubnetsResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.ListSubnetsResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListSubnets, req)
+}
+
+// CreateSubnet implements NetworkAPI.
+func (s *SDK) CreateSubnet(ctx context.Context, region string, req core.CreateSubnetRequest) (core.CreateSubnetResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.CreateSubnetResponse{}, err
+	}
+	return invoke(ctx, s, false, c.CreateSubnet, req)
+}
+
+// DeleteSubnet implements NetworkAPI.
+func (s *SDK) DeleteSubnet(ctx context.Context, region string, req core.DeleteSubnetRequest) (core.DeleteSubnetResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.DeleteSubnetResponse{}, err
+	}
+	return invoke(ctx, s, true, c.DeleteSubnet, req)
+}
+
+// ListVcns implements NetworkAPI.
+func (s *SDK) ListVcns(ctx context.Context, region string, req core.ListVcnsRequest) (core.ListVcnsResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.ListVcnsResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListVcns, req)
+}
+
+// CreateVcn implements NetworkAPI.
+func (s *SDK) CreateVcn(ctx context.Context, region string, req core.CreateVcnRequest) (core.CreateVcnResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.CreateVcnResponse{}, err
+	}
+	return invoke(ctx, s, false, c.CreateVcn, req)
+}
+
+// DeleteVcn implements NetworkAPI.
+func (s *SDK) DeleteVcn(ctx context.Context, region string, req core.DeleteVcnRequest) (core.DeleteVcnResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.DeleteVcnResponse{}, err
+	}
+	return invoke(ctx, s, true, c.DeleteVcn, req)
+}
+
+// ListInternetGateways implements NetworkAPI.
+func (s *SDK) ListInternetGateways(ctx context.Context, region string, req core.ListInternetGatewaysRequest) (core.ListInternetGatewaysResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.ListInternetGatewaysResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListInternetGateways, req)
+}
+
+// CreateInternetGateway implements NetworkAPI.
+func (s *SDK) CreateInternetGateway(ctx context.Context, region string, req core.CreateInternetGatewayRequest) (core.CreateInternetGatewayResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.CreateInternetGatewayResponse{}, err
+	}
+	return invoke(ctx, s, false, c.CreateInternetGateway, req)
+}
+
+// DeleteInternetGateway implements NetworkAPI.
+func (s *SDK) DeleteInternetGateway(ctx context.Context, region string, req core.DeleteInternetGatewayRequest) (core.DeleteInternetGatewayResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.DeleteInternetGatewayResponse{}, err
+	}
+	return invoke(ctx, s, true, c.DeleteInternetGateway, req)
+}
+
+// ListRouteTables implements NetworkAPI.
+func (s *SDK) ListRouteTables(ctx context.Context, region string, req core.ListRouteTablesRequest) (core.ListRouteTablesResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.ListRouteTablesResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListRouteTables, req)
+}
+
+// CreateRouteTable implements NetworkAPI.
+func (s *SDK) CreateRouteTable(ctx context.Context, region string, req core.CreateRouteTableRequest) (core.CreateRouteTableResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.CreateRouteTableResponse{}, err
+	}
+	return invoke(ctx, s, false, c.CreateRouteTable, req)
+}
+
+// DeleteRouteTable implements NetworkAPI.
+func (s *SDK) DeleteRouteTable(ctx context.Context, region string, req core.DeleteRouteTableRequest) (core.DeleteRouteTableResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.DeleteRouteTableResponse{}, err
+	}
+	return invoke(ctx, s, true, c.DeleteRouteTable, req)
+}
+
+// ListSecurityLists implements NetworkAPI.
+func (s *SDK) ListSecurityLists(ctx context.Context, region string, req core.ListSecurityListsRequest) (core.ListSecurityListsResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.ListSecurityListsResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListSecurityLists, req)
+}
+
+// CreateSecurityList implements NetworkAPI.
+func (s *SDK) CreateSecurityList(ctx context.Context, region string, req core.CreateSecurityListRequest) (core.CreateSecurityListResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.CreateSecurityListResponse{}, err
+	}
+	return invoke(ctx, s, false, c.CreateSecurityList, req)
+}
+
+// DeleteSecurityList implements NetworkAPI.
+func (s *SDK) DeleteSecurityList(ctx context.Context, region string, req core.DeleteSecurityListRequest) (core.DeleteSecurityListResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.DeleteSecurityListResponse{}, err
+	}
+	return invoke(ctx, s, true, c.DeleteSecurityList, req)
+}
+
+// GetNetworkSecurityGroup implements NetworkAPI.
+func (s *SDK) GetNetworkSecurityGroup(ctx context.Context, region string, req core.GetNetworkSecurityGroupRequest) (core.GetNetworkSecurityGroupResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.GetNetworkSecurityGroupResponse{}, err
+	}
+	return invoke(ctx, s, true, c.GetNetworkSecurityGroup, req)
+}
+
+// ListNetworkSecurityGroups implements NetworkAPI.
+func (s *SDK) ListNetworkSecurityGroups(ctx context.Context, region string, req core.ListNetworkSecurityGroupsRequest) (core.ListNetworkSecurityGroupsResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.ListNetworkSecurityGroupsResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListNetworkSecurityGroups, req)
+}
+
+// CreateNetworkSecurityGroup implements NetworkAPI.
+func (s *SDK) CreateNetworkSecurityGroup(ctx context.Context, region string, req core.CreateNetworkSecurityGroupRequest) (core.CreateNetworkSecurityGroupResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.CreateNetworkSecurityGroupResponse{}, err
+	}
+	return invoke(ctx, s, false, c.CreateNetworkSecurityGroup, req)
+}
+
+// DeleteNetworkSecurityGroup implements NetworkAPI.
+func (s *SDK) DeleteNetworkSecurityGroup(ctx context.Context, region string, req core.DeleteNetworkSecurityGroupRequest) (core.DeleteNetworkSecurityGroupResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.DeleteNetworkSecurityGroupResponse{}, err
+	}
+	return invoke(ctx, s, true, c.DeleteNetworkSecurityGroup, req)
+}
+
+// AddNetworkSecurityGroupSecurityRules implements NetworkAPI.
+func (s *SDK) AddNetworkSecurityGroupSecurityRules(ctx context.Context, region string, req core.AddNetworkSecurityGroupSecurityRulesRequest) (core.AddNetworkSecurityGroupSecurityRulesResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.AddNetworkSecurityGroupSecurityRulesResponse{}, err
+	}
+	return invoke(ctx, s, false, c.AddNetworkSecurityGroupSecurityRules, req)
+}
+
+// ListNetworkSecurityGroupVnics implements NetworkAPI.
+func (s *SDK) ListNetworkSecurityGroupVnics(ctx context.Context, region string, req core.ListNetworkSecurityGroupVnicsRequest) (core.ListNetworkSecurityGroupVnicsResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.ListNetworkSecurityGroupVnicsResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListNetworkSecurityGroupVnics, req)
+}
+
+// ListNetworkSecurityGroupSecurityRules implements NetworkAPI.
+func (s *SDK) ListNetworkSecurityGroupSecurityRules(ctx context.Context, region string, req core.ListNetworkSecurityGroupSecurityRulesRequest) (core.ListNetworkSecurityGroupSecurityRulesResponse, error) {
+	c, err := s.networkClient(region)
+	if err != nil {
+		return core.ListNetworkSecurityGroupSecurityRulesResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListNetworkSecurityGroupSecurityRules, req)
 }

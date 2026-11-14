@@ -53,6 +53,9 @@ func (c *Cloud) LaunchInstance(ctx context.Context, regionName string, req core.
 	if d.CreateVnicDetails == nil || deref(d.CreateVnicDetails.SubnetId) == "" {
 		return core.LaunchInstanceResponse{}, Error(http.StatusBadRequest, "MissingParameter", "subnetId is required")
 	}
+	if err := c.checkVnic(regionName, ad, d.CreateVnicDetails); err != nil {
+		return core.LaunchInstanceResponse{}, err
+	}
 	ocpus, mem, err := sizeOf(shape, d.ShapeConfig)
 	if err != nil {
 		return core.LaunchInstanceResponse{}, err
@@ -106,6 +109,35 @@ func (c *Cloud) LaunchInstance(ctx context.Context, regionName string, req core.
 		return core.LaunchInstanceResponse{}, fmt.Errorf("reading the launch response: %w", context.DeadlineExceeded)
 	}
 	return core.LaunchInstanceResponse{Instance: provisioning(*in)}, nil
+}
+
+// checkVnic checks what the launch names: the subnet exists in the region and serves the
+// availability domain, allows the public address asked for, and the groups are in its VCN.
+func (c *Cloud) checkVnic(regionName, ad string, v *core.CreateVnicDetails) error {
+	id := deref(v.SubnetId)
+	sub, ok := c.net.subnets[id]
+	if !ok || c.net.objRegion[id] != regionName {
+		return notFound("subnet " + id)
+	}
+	if sub.AvailabilityDomain != nil && *sub.AvailabilityDomain != ad {
+		return invalid("The subnet %s is in the availability domain %s, not in %s", id, *sub.AvailabilityDomain, ad)
+	}
+	if deref(sub.ProhibitPublicIpOnVnic) && deref(v.AssignPublicIp) {
+		return invalid("The subnet %s prohibits public IP addresses on VNICs", id)
+	}
+	if deref(v.AssignIpv6Ip) && sub.Ipv6CidrBlock == nil {
+		return invalid("The subnet %s is not enabled for IPv6", id)
+	}
+	for _, g := range v.NsgIds {
+		nsg, ok := c.net.nsgs[g]
+		if !ok || c.net.objRegion[g] != regionName {
+			return notFound("network security group " + g)
+		}
+		if deref(nsg.VcnId) != deref(sub.VcnId) {
+			return invalid("The network security group %s is not in the VCN of the subnet", g)
+		}
+	}
+	return nil
 }
 
 func provisioning(in core.Instance) core.Instance {

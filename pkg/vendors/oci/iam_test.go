@@ -32,16 +32,48 @@ var methodNeeds = map[string][]need{
 		{"manage", "instances", "compartment"}, {"use", "boot-volumes", "compartment"},
 		{"use", "subnets", "compartment"}, {"use", "network-security-groups", "compartment"},
 	},
-	"ComputeAPI.GetInstance":              {{"read", "instances", "compartment"}},
-	"ComputeAPI.ListInstances":            {{"inspect", "instances", "compartment"}},
-	"ComputeAPI.TerminateInstance":        {{"manage", "instances", "compartment"}, {"use", "boot-volumes", "compartment"}},
-	"ComputeAPI.ListVnicAttachments":      {{"read", "vnic-attachments", "compartment"}},
-	"ComputeAPI.ListShapes":               {{"inspect", "instances", "compartment"}},
-	"NetworkAPI.GetVnic":                  {{"read", "vnics", "compartment"}},
-	"IdentityAPI.ListRegionSubscriptions": {{"inspect", "tenancies", "tenancy"}},
-	"IdentityAPI.ListAvailabilityDomains": {{"inspect", "compartments", "tenancy"}},
-	"LimitsAPI.GetResourceAvailability":   {{"inspect", "resource-availability", "tenancy"}},
-	"LimitsAPI.ListLimitDefinitions":      {{"inspect", "limits", "tenancy"}},
+	"ComputeAPI.GetInstance":                           {{"read", "instances", "compartment"}},
+	"ComputeAPI.ListInstances":                         {{"inspect", "instances", "compartment"}},
+	"ComputeAPI.TerminateInstance":                     {{"manage", "instances", "compartment"}, {"use", "boot-volumes", "compartment"}},
+	"ComputeAPI.ListVnicAttachments":                   {{"read", "vnic-attachments", "compartment"}},
+	"ComputeAPI.ListShapes":                            {{"inspect", "instances", "compartment"}},
+	"ComputeAPI.ListImages":                            {{"inspect", "instance-images", "compartment"}},
+	"ComputeAPI.GetImage":                              {{"read", "instance-images", "compartment"}},
+	"ComputeAPI.ListImageShapeCompatibilityEntries":    {{"read", "instance-images", "compartment"}},
+	"NetworkAPI.GetVnic":                               {{"read", "vnics", "compartment"}},
+	"NetworkAPI.GetSubnet":                             {{"read", "subnets", "compartment"}},
+	"NetworkAPI.ListSubnets":                           {{"inspect", "subnets", "compartment"}},
+	"NetworkAPI.ListVcns":                              {{"inspect", "vcns", "compartment"}},
+	"NetworkAPI.ListInternetGateways":                  {{"inspect", "internet-gateways", "compartment"}},
+	"NetworkAPI.ListRouteTables":                       {{"inspect", "route-tables", "compartment"}},
+	"NetworkAPI.ListSecurityLists":                     {{"inspect", "security-lists", "compartment"}},
+	"NetworkAPI.GetNetworkSecurityGroup":               {{"read", "network-security-groups", "compartment"}},
+	"NetworkAPI.ListNetworkSecurityGroups":             {{"inspect", "network-security-groups", "compartment"}},
+	"NetworkAPI.ListNetworkSecurityGroupVnics":         {{"read", "network-security-groups", "compartment"}},
+	"NetworkAPI.ListNetworkSecurityGroupSecurityRules": {{"read", "network-security-groups", "compartment"}},
+	"IdentityAPI.ListRegionSubscriptions":              {{"inspect", "tenancies", "tenancy"}},
+	"IdentityAPI.ListAvailabilityDomains":              {{"inspect", "compartments", "tenancy"}},
+	"LimitsAPI.GetResourceAvailability":                {{"inspect", "resource-availability", "tenancy"}},
+	"LimitsAPI.ListLimitDefinitions":                   {{"inspect", "limits", "tenancy"}},
+}
+
+// managedNeeds are the calls only a NodeClass with a managed network makes (the create
+// and delete of the VCN, gateway, route table, security list, subnet and group, and
+// the group's rules): the optional block of the policy covers them.
+var managedNeeds = map[string]need{
+	"NetworkAPI.CreateVcn":                            {"manage", "vcns", "compartment"},
+	"NetworkAPI.DeleteVcn":                            {"manage", "vcns", "compartment"},
+	"NetworkAPI.CreateInternetGateway":                {"manage", "internet-gateways", "compartment"},
+	"NetworkAPI.DeleteInternetGateway":                {"manage", "internet-gateways", "compartment"},
+	"NetworkAPI.CreateRouteTable":                     {"manage", "route-tables", "compartment"},
+	"NetworkAPI.DeleteRouteTable":                     {"manage", "route-tables", "compartment"},
+	"NetworkAPI.CreateSecurityList":                   {"manage", "security-lists", "compartment"},
+	"NetworkAPI.DeleteSecurityList":                   {"manage", "security-lists", "compartment"},
+	"NetworkAPI.CreateSubnet":                         {"manage", "subnets", "compartment"},
+	"NetworkAPI.DeleteSubnet":                         {"manage", "subnets", "compartment"},
+	"NetworkAPI.CreateNetworkSecurityGroup":           {"manage", "network-security-groups", "compartment"},
+	"NetworkAPI.DeleteNetworkSecurityGroup":           {"manage", "network-security-groups", "compartment"},
+	"NetworkAPI.AddNetworkSecurityGroupSecurityRules": {"manage", "network-security-groups", "compartment"},
 }
 
 // families are the resource types the aggregate resource types of the policy
@@ -111,12 +143,14 @@ func TestPolicyMatchesTheDriver(t *testing.T) {
 		}
 	}
 	for _, m := range methods {
-		if _, ok := methodNeeds[m]; !ok {
+		_, read := methodNeeds[m]
+		_, managed := managedNeeds[m]
+		if !read && !managed {
 			t.Errorf("the API method %s has no entry in this test's table", m)
 		}
 	}
 	for m := range methodNeeds {
-		if !slices.Contains(methods, m) {
+		if _, both := managedNeeds[m]; both || !slices.Contains(methods, m) {
 			t.Errorf("the table names %s, which is not an API method", m)
 		}
 	}
@@ -131,6 +165,11 @@ func TestPolicyMatchesTheDriver(t *testing.T) {
 				continue
 			}
 			maxNeed[first] = max(maxNeed[first], verbRank[n.verb])
+		}
+	}
+	for m, n := range managedNeeds {
+		if !slices.ContainsFunc(stmts, func(s statement) bool { return s.optional && s.covers(n) }) {
+			t.Errorf("%s needs %s %s in %s: no optional statement covers it", m, n.verb, n.resource, n.scope)
 		}
 	}
 	for i, s := range stmts {

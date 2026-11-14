@@ -18,5 +18,5 @@ Allow group <group> to inspect compartments in tenancy
 Allow group <group> to inspect resource-availability in tenancy
 Allow group <group> to inspect limits in tenancy
 
-# optional: only for NodeClasses whose resources are created by SCarpenter (step c)
+# optional: only for NodeClasses whose network SCarpenter creates (the VCN, gateway, route table, security list, subnet and groups)
 Allow group <group> to manage virtual-network-family in compartment <compartment>

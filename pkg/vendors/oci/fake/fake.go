@@ -113,6 +113,9 @@ type Cloud struct {
 	vnics     map[string]core.Vnic
 	boot      map[string]bootVolume // instance ID -> boot volume
 	tokens    map[string]tokenRec   // region|token
+	net       netStore
+	seedVCN   string
+	images    map[string]*imageRec
 	launches  []core.LaunchInstanceRequest
 
 	limitValues map[string]int64 // region|ad|name, ad "" for the region's
@@ -131,7 +134,7 @@ func New(tenancy, compartment string) *Cloud {
 		now: time.Now, tenancy: tenancy, compartment: compartment,
 		regions: map[string]*region{}, instances: map[string]*core.Instance{},
 		attach: map[string][]core.VnicAttachment{}, vnics: map[string]core.Vnic{}, boot: map[string]bootVolume{},
-		tokens: map[string]tokenRec{}, limitValues: map[string]int64{},
+		tokens: map[string]tokenRec{}, net: newNetStore(), images: map[string]*imageRec{}, limitValues: map[string]int64{},
 		scopes: map[string]limits.LimitDefinitionSummaryScopeTypeEnum{}, unsupported: map[string]bool{},
 		stockouts: map[string]bool{}, injected: map[string][]error{}, calls: map[string]int{},
 	}
@@ -185,6 +188,15 @@ func (c *Cloud) AddShape(regionName string, s core.Shape, ads ...string) {
 
 // SetLimit sets a Compute limit; an empty ad sets the limit of every availability
 // domain of the region (and the region's own). The default is 10000.
+// RemoveShape removes a shape from the table of an availability domain.
+func (c *Cloud) RemoveShape(regionName, shape, ad string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if r := c.regions[regionName]; r != nil {
+		delete(r.shapes[ad], shape)
+	}
+}
+
 func (c *Cloud) SetLimit(regionName, ad, name string, value int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

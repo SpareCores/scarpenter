@@ -58,6 +58,9 @@ const (
 	kindRead callKind = iota
 	// kindLaunch is the launch call.
 	kindLaunch
+	// kindDelete is the delete of a resource: a 409 says that something still uses it,
+	// which clears when the users are gone.
+	kindDelete
 	// kindRegion reads the facts of a region (subscriptions, availability
 	// domains): a denied or unknown region is RegionUnavailable.
 	kindRegion
@@ -149,7 +152,7 @@ func classifyService(status int, code, msg string, kind callKind, cause error) e
 		return vendors.NewError(vendors.ZoneUnusable, code, cause)
 	case status == http.StatusTooManyRequests || code == CodeTooManyRequests:
 		return vendors.NewError(vendors.Retryable, codeOf(code, status), cause)
-	case code == CodeIncorrectState || code == CodeLockConflict:
+	case code == CodeIncorrectState || code == CodeLockConflict || (kind == kindDelete && status == http.StatusConflict):
 		// A resource still in use or locked: clears when the users are gone.
 		return vendors.NewError(vendors.Retryable, code, cause)
 	}

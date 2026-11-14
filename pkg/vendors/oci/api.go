@@ -4,6 +4,7 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
+//nolint:lll // the interface repeats the SDK method signatures
 package oci
 
 import (
@@ -37,12 +38,40 @@ type ComputeAPI interface {
 	ListVnicAttachments(ctx context.Context, region string, req core.ListVnicAttachmentsRequest,
 	) (core.ListVnicAttachmentsResponse, error)
 	ListShapes(ctx context.Context, region string, req core.ListShapesRequest) (core.ListShapesResponse, error)
+	ListImages(ctx context.Context, region string, req core.ListImagesRequest) (core.ListImagesResponse, error)
+	GetImage(ctx context.Context, region string, req core.GetImageRequest) (core.GetImageResponse, error)
+	ListImageShapeCompatibilityEntries(ctx context.Context, region string, req core.ListImageShapeCompatibilityEntriesRequest) (core.ListImageShapeCompatibilityEntriesResponse, error)
 }
 
-// NetworkAPI is the part of the Virtual Network service the driver calls. Step
-// (c) adds the subnets, groups and the managed network.
+// NetworkAPI is the part of the Virtual Network service the driver calls: the
+// VNICs of the instances, the subnets and network security groups it resolves,
+// and the VCN, internet gateway, route table, security list, subnet and group it
+// creates and deletes for a managed network.
 type NetworkAPI interface {
 	GetVnic(ctx context.Context, region string, req core.GetVnicRequest) (core.GetVnicResponse, error)
+	GetSubnet(ctx context.Context, region string, req core.GetSubnetRequest) (core.GetSubnetResponse, error)
+	ListSubnets(ctx context.Context, region string, req core.ListSubnetsRequest) (core.ListSubnetsResponse, error)
+	CreateSubnet(ctx context.Context, region string, req core.CreateSubnetRequest) (core.CreateSubnetResponse, error)
+	DeleteSubnet(ctx context.Context, region string, req core.DeleteSubnetRequest) (core.DeleteSubnetResponse, error)
+	ListVcns(ctx context.Context, region string, req core.ListVcnsRequest) (core.ListVcnsResponse, error)
+	CreateVcn(ctx context.Context, region string, req core.CreateVcnRequest) (core.CreateVcnResponse, error)
+	DeleteVcn(ctx context.Context, region string, req core.DeleteVcnRequest) (core.DeleteVcnResponse, error)
+	ListInternetGateways(ctx context.Context, region string, req core.ListInternetGatewaysRequest) (core.ListInternetGatewaysResponse, error)
+	CreateInternetGateway(ctx context.Context, region string, req core.CreateInternetGatewayRequest) (core.CreateInternetGatewayResponse, error)
+	DeleteInternetGateway(ctx context.Context, region string, req core.DeleteInternetGatewayRequest) (core.DeleteInternetGatewayResponse, error)
+	ListRouteTables(ctx context.Context, region string, req core.ListRouteTablesRequest) (core.ListRouteTablesResponse, error)
+	CreateRouteTable(ctx context.Context, region string, req core.CreateRouteTableRequest) (core.CreateRouteTableResponse, error)
+	DeleteRouteTable(ctx context.Context, region string, req core.DeleteRouteTableRequest) (core.DeleteRouteTableResponse, error)
+	ListSecurityLists(ctx context.Context, region string, req core.ListSecurityListsRequest) (core.ListSecurityListsResponse, error)
+	CreateSecurityList(ctx context.Context, region string, req core.CreateSecurityListRequest) (core.CreateSecurityListResponse, error)
+	DeleteSecurityList(ctx context.Context, region string, req core.DeleteSecurityListRequest) (core.DeleteSecurityListResponse, error)
+	GetNetworkSecurityGroup(ctx context.Context, region string, req core.GetNetworkSecurityGroupRequest) (core.GetNetworkSecurityGroupResponse, error)
+	ListNetworkSecurityGroups(ctx context.Context, region string, req core.ListNetworkSecurityGroupsRequest) (core.ListNetworkSecurityGroupsResponse, error)
+	CreateNetworkSecurityGroup(ctx context.Context, region string, req core.CreateNetworkSecurityGroupRequest) (core.CreateNetworkSecurityGroupResponse, error)
+	DeleteNetworkSecurityGroup(ctx context.Context, region string, req core.DeleteNetworkSecurityGroupRequest) (core.DeleteNetworkSecurityGroupResponse, error)
+	AddNetworkSecurityGroupSecurityRules(ctx context.Context, region string, req core.AddNetworkSecurityGroupSecurityRulesRequest) (core.AddNetworkSecurityGroupSecurityRulesResponse, error)
+	ListNetworkSecurityGroupSecurityRules(ctx context.Context, region string, req core.ListNetworkSecurityGroupSecurityRulesRequest) (core.ListNetworkSecurityGroupSecurityRulesResponse, error)
+	ListNetworkSecurityGroupVnics(ctx context.Context, region string, req core.ListNetworkSecurityGroupVnicsRequest) (core.ListNetworkSecurityGroupVnicsResponse, error)
 }
 
 // IdentityAPI is the part of the Identity service the driver calls.

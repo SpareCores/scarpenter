@@ -9,6 +9,7 @@ package fake
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -21,6 +22,8 @@ const (
 	SeedCompartment = "ocid1.compartment.oc1..aaaaexamplecompartment"
 	SeedSubnet      = "ocid1.subnet.oc1.eu-frankfurt-1.aaaaexamplesubnet"
 	SeedImage       = "ocid1.image.oc1.eu-frankfurt-1.aaaaexampleimage"
+	SeedGroup       = "ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaone"
+	SeedRunGroup    = "ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaarun"
 	// SeedRegion has three availability domains, SeedRegionB too (with another
 	// naming), SeedRegionOne one, SeedRegionUnsubscribed is listed but not READY.
 	SeedRegion             = "eu-frankfurt-1"
@@ -34,6 +37,9 @@ const (
 
 // SeedZoneA, SeedZoneB are the zone names (the AD names without the prefix) of
 // SeedRegion.
+// SeedVersion is the Flatcar version of the seeded image.
+const SeedVersion = "4757.2.3"
+
 const (
 	SeedZoneA = "EU-FRANKFURT-1-AD-1"
 	SeedZoneB = "EU-FRANKFURT-1-AD-2"
@@ -54,6 +60,28 @@ func NewSeeded() *Cloud {
 		"zXyW:US-ASHBURN-AD-1", "zXyW:US-ASHBURN-AD-2", "zXyW:US-ASHBURN-AD-3")
 	c.AddRegion(SeedRegionOne, identity.RegionSubscriptionStatusReady, "qRsT:UK-LONDON-1-AD-1")
 	c.AddRegion(SeedRegionUnsubscribed, identity.RegionSubscriptionStatusInProgress, "mNoP:AP-SYDNEY-1-AD-1")
+	// The network and image of the constants: a regional subnet in a VCN of Frankfurt and
+	// the Flatcar image of the convention, which is compatible with the E5 flexible shape.
+	vcn := c.SeedVcn(SeedRegion, "seed-vcn", "10.0.0.0/16", nil)
+	c.seedVCN = vcn
+	c.mu.Lock()
+	id := c.addSubnet(SeedRegion, vcn, "seed-subnet", "10.0.0.0/20", "", nil, true, false)
+	s := c.net.subnets[id]
+	delete(c.net.subnets, id)
+	delete(c.net.objRegion, id)
+	s.Id = new(SeedSubnet)
+	c.net.subnets[SeedSubnet] = s
+	c.net.objRegion[SeedSubnet] = SeedRegion
+	for _, g := range []string{SeedGroup, SeedRunGroup} {
+		name := strings.TrimPrefix(g, "ocid1.networksecuritygroup.oc1.eu-frankfurt-1.")
+		c.net.nsgs[g] = &core.NetworkSecurityGroup{Id: new(g), CompartmentId: &c.compartment, VcnId: &vcn, DisplayName: &name,
+			LifecycleState: core.NetworkSecurityGroupLifecycleStateAvailable, TimeCreated: c.stamp()}
+		c.net.objRegion[g] = SeedRegion
+	}
+	c.mu.Unlock()
+	img := FlatcarImage("stable", SeedVersion, "amd64")
+	img.Id = new(SeedImage)
+	c.AddImage(SeedRegion, img, "VM.Standard.E5.Flex")
 	return c
 }
 
@@ -94,4 +122,11 @@ func sortedRegions(m map[string]*region) []*region {
 		out = append(out, m[k])
 	}
 	return out
+}
+
+// SeededVCN is the OCID of the VCN of the seeded subnet and groups.
+func (c *Cloud) SeededVCN() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.seedVCN
 }
