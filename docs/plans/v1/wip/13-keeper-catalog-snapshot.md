@@ -9,8 +9,10 @@ the recording of Keeper database `40ecd194b481` (published 2026-11-13) and
 live the same day:
 
 - **Controller memory** (L3 scenario S10, at rest, RSS; plan 06: 217 and 377
-  MiB): AWS three regions **188 MiB** (peak 234 MiB RSS, 181 MiB Go heap in use),
-  all AWS regions **367 MiB** (peak 382 MiB RSS, 287 MiB heap). No need to drop
+  MiB): AWS three regions **193 MiB** (peak 241 MiB RSS, 173 MiB Go heap in use),
+  all AWS regions **360 MiB** (peak 373 MiB RSS, 294 MiB heap); per-scope refresh
+  and build numbers, Azure included, are in the controller reference ("Memory
+  sizing"), and the chart limit is now 2Gi. No need to drop
   the price slice.
 - **One refresh** (`TestRefreshCost`, three test metrics, empty disk copy):
   AWS three regions 13 requests, 0.8 MiB gzip, 0.17 s on the recording and 2.1 s
@@ -23,7 +25,8 @@ live the same day:
   (79, 1,250 and 1,154 of 79, 1,252 and 1,157) have more than four decimals;
   every other vendor's prices are exact to four. Goldens that read converted
   vendors moved in the last digits.
-- L3 (`make test-kwok`): green, 55 min 11 s.
+- L3 (`make test-kwok`): green, 54 min 32 s (after the review fixes; the
+  recording is Keeper database `2c401c216`).
 
 ## Goal
 
