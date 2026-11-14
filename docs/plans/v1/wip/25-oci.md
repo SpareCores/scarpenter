@@ -136,6 +136,11 @@ shape  := ^(VM|BM)\.[A-Za-z0-9._-]+$
   flexible shape without a size), `VM.Standard.E5.Flex.2` , `VM.Standard.E5.Flex.2-16-3`,
   `VM.Standard.E5.Flex.0-4`, `VM.Standard.E5.Flex.02-16`, `e5.2-16` all fail with `InvalidInstanceType`
   (`Fatal` when the shape prefix itself is not `VM.` or `BM.`).
+- A name with a `.Flex` segment that is not the shape's last one (`VM.Standard.E5.Flex.1.5-8` splits
+  as shape `...Flex.1` with the size `5-8`; `VM.Standard.E5.Flex.2`) and a tail of digits and hyphens
+  that is not a valid size are rejected at parse time (step (b)), so the examples above fail with
+  `InvalidInstanceType` without the shape table; the digits of the fixed shapes (`BM.Standard3.64`)
+  have no hyphen and no Flex segment.
 - `FormatType(shape, ocpus, gb)` is the inverse. `Instance.Type` of a returned instance is rebuilt
   from the instance's `shape` and `shapeConfig` (`ocpus`, `memoryInGBs` as integers) and must equal
   the `CreateRequest.InstanceType` byte for byte; a foreign instance with fractional sizes gets
@@ -605,9 +610,11 @@ unknown.
 
 - **Buckets** (region scope): one per quota name seen in the region's shapes. `ID` = the quota
   name; `Unit` = `OCPU` for `*-core-count`, `GB` for `*-memory-count`, `instances` for the others (a
-  name of another form makes every type of that shape **unknown**, so reactive). `Limit` and `Used`
-  from the **AD with the most headroom** (`Limit = used + available` of that AD): the tracker then
-  blocks a family only when no AD has room, and never wrongly. Per-AD buckets would be exact, but
+  name of another form makes every type of that shape **unknown**, so reactive). `Used` is the
+  region's usage (the sum of the ADs' `used`; one read for a `REGION` limit) and `Limit = Used +` the
+  `available` of the **AD with the most headroom** (step (b) correction): the headroom is that AD's, so
+  the tracker blocks a family only when no AD has room, and never wrongly, while `Used` grows by what
+  any launch consumes, as the conformance suite checks. Per-AD buckets would be exact, but
   `Consumption(instanceType, capacityType)` has no zone argument, and a launch refused in one AD
   would refresh the region's quota and try the same AD again (open question 6 proposes the
   contract extension: an optional zone-aware consumption and a zone on `QuotaExceeded`; the decision
@@ -888,6 +895,32 @@ unit-tested against the fake), `errors.go` (the table of section 7), `names.go`,
 retry token, the shape and AD caches, `quota.go` (buckets, `Consumption`, the unknown list), `iam_test.go`
 (with the policy file), state mapping. The conformance suite runs over the fake with the types of
 (a1)'s committed `server/oci` file. No exported driver registration yet.
+
+Corrections from step (b) (reality over the text above):
+- The narrow interfaces are exported (`ComputeAPI`, `NetworkAPI`, `IdentityAPI`, `LimitsAPI`, bundled
+  in `Clients`) and every regional method takes the region first; the fake lives in
+  `pkg/vendors/oci/fake` and satisfies them structurally. `NetworkAPI` has only `GetVnic` in (b):
+  step (c) adds the subnet, group and managed-network calls and their fake.
+- The conformance suite launches without `Prepared` and OCI has no default subnet (no
+  `ResourceDefaults`), so the driver answers `Unsupported` `ResourceMissing`; the test wraps the driver
+  and adds the seeded subnet, as the core's `Prepare` would. `ResolveImage` is a stub (`Fatal`) until
+  (c); the images and managed-resources subtests are skipped until then.
+- `docs/reference/oci-iam-policy.txt` is `pkg/vendors/oci/testdata/oci-iam-policy.txt` in (b) (the step
+  stays inside the package); (c) moves it with a one-line change of `policyFile` in `iam_test.go`.
+- `common.ServiceError` does not implement `error`: the classifier reads it with `errors.As` and an
+  interface target, not `errors.AsType`.
+- oci-go-sdk v65.130.0 `common.Retry` returns its goroutine's response variable when the call's context
+  ends, unsynchronised: `go test -race` reports a data race inside the SDK on any real-SDK call that
+  times out. The SDK-level deadline test is skipped under `-race`; the deadline helper has its own test.
+- Quota buckets: `Used` and `Limit` both from the best AD (the text of section 7 before this
+  correction) break the conformance check that `Used` grows by what a launch consumes (a launch in
+  another AD changes neither). The bucket is `Used` = the sum over the region's ADs (each AD read
+  once, so nothing is counted twice) and `Limit` = `Used` + the largest `available` (at least 0, so the
+  headroom is never negative); the headroom is the same as before. A limit with no reading (no AD, or
+  every read refused) has no bucket and its types are unknown.
+- Quotas are not narrowed by a compartment quota's `effectiveQuotaValue` yet (one more call per name
+  on the controller's compartment); a compartment quota is found reactively (`LimitExceeded` or
+  `QuotaExceeded`) until S3 settles it.
 
 **(c) The full driver and the surfaces**: `Init`, `Regions`, `Zones`, `ResolveImage`/`ReportImages`,
 `CreateInstance`, `Get`/`Find`/`List`/`Delete`, `NodeOptions`, `ManagedResources` with the managed network,
