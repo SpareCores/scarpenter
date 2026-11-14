@@ -666,7 +666,7 @@ text is documented here and pinned by a table-driven test, an unmatched text is 
 |---|---|
 | `InsufficientCapacity` | 500 `InternalError` with the message containing `Out of host capacity` (also `Out of capacity`); 500 `InternalError` with `Out of capacity for shape` |
 | `QuotaExceeded` | 400 `LimitExceeded` (the message names the limits: `The following service limits were exceeded: standard-e5-core-count`; not account-wide); 400 `QuotaExceeded` (a compartment quota policy; also the limit name) |
-| `Unsupported` | 400 `InvalidParameter` with `Shape <x> is not compatible with image`, `shape ... not available`, `shape is not supported in the availability domain`, or an extended memory message; the driver's own pre-checks (`InvalidInstanceType`, `ExtendedMemoryUnsupported`) |
+| `Unsupported` | 400 `InvalidParameter` with `Shape <x> is not compatible with image`, `shape ... not available`, `shape is not supported in the availability domain`, an extended memory message, or a message naming `preemptible` (a shape that cannot be spot); the driver's own pre-checks (`InvalidInstanceType`, `ExtendedMemoryUnsupported`) |
 | `ZoneUnusable` | the subnet has no free IP addresses (400 or 409 `InvalidParameter`/`Conflict` naming the subnet: unverified; the core's zone rule skips the region for a regional subnet) |
 | `Retryable` | 429 `TooManyRequests`; 5xx and network errors other than the capacity rows; 409 `IncorrectState` and `LockConflict` on deletes of resources still in use; the driver's own timeout (`CallTimeout`) |
 | `NotFound` | 404 `NotAuthorizedOrNotFound` on get, terminate and the resource gets; a malformed instance reference |

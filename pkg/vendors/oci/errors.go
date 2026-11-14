@@ -74,11 +74,14 @@ const (
 // live (plan 25, spike S5); the first live run corrects them.
 var (
 	capacityRe = regexp.MustCompile(`(?i)out of (host )?capacity`)
-	// unsupportedRe: the shape cannot be used with the image or in the AD, or an
-	// extended memory configuration the tenancy cannot take.
+	// unsupportedRe: the shape cannot be used with the image or in the AD, an
+	// extended memory configuration the tenancy cannot take, or a shape that
+	// cannot be preemptible (only a spot launch mentions it: the old fixed VMs
+	// that Keeper prices as spot are learned this way, plan 25 section 6; as
+	// Fatal, the claim would fail and the same offering be tried again).
 	unsupportedRe = regexp.MustCompile(`(?i)(shape .*(is )?not compatible with image|shape .*not available|` +
 		`shape .*not supported in the availability domain|not supported in the availability domain|` +
-		`extended memory|is not a valid shape)`)
+		`extended memory|is not a valid shape|preemptible)`)
 	// subnetFullRe: the subnet has no free IP addresses.
 	subnetFullRe = regexp.MustCompile(`(?i)subnet.*(no (more )?(free |available )?ip|not enough (free )?ip|` +
 		`ip (addresses )?(are )?exhausted|out of ip)`)

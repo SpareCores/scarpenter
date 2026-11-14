@@ -210,7 +210,7 @@ known, has unknown quota (reactive). The usage is read on the tenancy (the root 
 |---|---|
 | `InsufficientCapacity` | HTTP 500 `InternalError` whose message says "Out of host capacity" |
 | `QuotaExceeded` | `LimitExceeded`, `QuotaExceeded` (not account-wide) |
-| `Unsupported` | 400 `InvalidParameter` for a shape not compatible with the image or not available in the AD; the driver's own `InvalidInstanceType`, `ShapeNotInAvailabilityDomain`, `ExtendedMemoryUnsupported` |
+| `Unsupported` | 400 `InvalidParameter` for a shape not compatible with the image, not available in the AD or not available as preemptible; the driver's own `InvalidInstanceType`, `ShapeNotInAvailabilityDomain`, `ExtendedMemoryUnsupported` |
 | `ZoneUnusable` | a subnet with no free IP addresses |
 | `Retryable` | 429, 5xx, network errors, `IncorrectState`, `LockConflict`, a 409 on a delete, the driver's call timeout |
 | `NotFound` | 404 on get, terminate and the resource gets; a malformed instance reference |
