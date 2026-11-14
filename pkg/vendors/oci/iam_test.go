@@ -86,20 +86,25 @@ var families = map[string][]string{
 
 var verbRank = map[string]int{"inspect": 1, "read": 2, "use": 3, "manage": 4}
 
-var statementRe = regexp.MustCompile(`^Allow group <group> to (inspect|read|use|manage) ([a-z-]+) in (compartment <compartment>|tenancy)$`)
+var statementRe = regexp.MustCompile(`^Allow group <group> to (inspect|read|use|manage) ([a-z-]+) in (compartment <compartment>|compartment <image compartment>|tenancy)$`)
 
 type statement struct {
 	need
 	optional bool
 }
 
-func readPolicy(t *testing.T) []statement {
+func readPolicy(t *testing.T) (out []statement) {
+	out, _ = readPolicyAll(t)
+	return out
+}
+
+// readPolicyAll also returns the statements on the optional image compartment.
+func readPolicyAll(t *testing.T) (out, imageStmts []statement) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(policyFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []statement
 	optional := false
 	for line := range strings.SplitSeq(string(raw), "\n") {
 		line = strings.TrimSpace(line)
@@ -113,6 +118,10 @@ func readPolicy(t *testing.T) []statement {
 			if m == nil {
 				t.Fatalf("%s: %q is not a statement of the form Allow group <group> to <verb> <resource> in <scope>", policyFile, line)
 			}
+			if m[3] == "compartment <image compartment>" {
+				imageStmts = append(imageStmts, statement{need{m[1], m[2], "compartment"}, true})
+				continue
+			}
 			scope := "tenancy"
 			if strings.HasPrefix(m[3], "compartment") {
 				scope = "compartment"
@@ -120,7 +129,7 @@ func readPolicy(t *testing.T) []statement {
 			out = append(out, statement{need{m[1], m[2], scope}, optional})
 		}
 	}
-	return out
+	return out, imageStmts
 }
 
 func (s statement) covers(n need) bool {
@@ -187,6 +196,22 @@ func TestPolicyMatchesTheDriver(t *testing.T) {
 	for _, s := range stmts {
 		if s.verb == "manage" && !slices.Contains([]string{"instance-family", "virtual-network-family"}, s.resource) {
 			t.Errorf("the policy manages %s", s.resource)
+		}
+	}
+}
+
+// The image compartment (--oci-image-compartment) needs only reads of images: exactly one
+// statement, read instance-images, and it covers every image call the driver makes there.
+func TestPolicyImageCompartment(t *testing.T) {
+	_, img := readPolicyAll(t)
+	if len(img) != 1 || img[0].verb != "read" || img[0].resource != "instance-images" {
+		t.Fatalf("the image compartment statements: %+v, want read instance-images", img)
+	}
+	for _, m := range []string{"ComputeAPI.ListImages", "ComputeAPI.GetImage", "ComputeAPI.ListImageShapeCompatibilityEntries"} {
+		for _, n := range methodNeeds[m] {
+			if !img[0].covers(n) {
+				t.Errorf("%s needs %+v, not covered by the image compartment statement", m, n)
+			}
 		}
 	}
 }

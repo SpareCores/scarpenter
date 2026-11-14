@@ -150,6 +150,31 @@ func TestOCICanaryCompartmentMismatchFails(t *testing.T) {
 	}
 }
 
+func TestOCICanaryImageCompartment(t *testing.T) {
+	const imageComp = "ocid1.compartment.oc1..aaaaimagecompartment"
+	c := fake.NewSeeded()
+	c.AddImageCompartment(imageComp)
+	for _, arch := range []string{"amd64", "arm64"} {
+		img := fake.FlatcarImage("stable", "4800.0.0", arch)
+		img.CompartmentId = &[]string{imageComp}[0]
+		c.AddImage(fake.SeedRegion, img, "VM.Standard.E5.Flex", "VM.Standard.A1.Flex", "VM.Standard.A2.Flex")
+	}
+	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E5.Flex", 94, 1049, 1, 64, 0, 0, "standard-e5-core-count", "standard-e5-memory-count"))
+	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-count", "standard-a1-memory-count"))
+	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A2.Flex", 78, 946, 1, 64, 0, 0, "standard-a2-core-count", "standard-a2-memory-count"))
+	cfg := ociTestConfig()
+	cfg.flatcarVersion = "4800.0.0" // only in the image compartment (the seed has the pinned one)
+	rep, _ := runOCICanary(t, c, cfg)
+	if f := failed(rep); len(f) == 0 {
+		t.Fatal("images in another compartment were found without the option")
+	}
+	cfg.imageCompartment = imageComp
+	rep, _ = runOCICanary(t, c, cfg)
+	if f := failed(rep); len(f) > 0 {
+		t.Errorf("failed with the option: %v", f)
+	}
+}
+
 func TestOCICanaryNeedsAWorkingDriver(t *testing.T) {
 	cfg := ociTestConfig()
 	cfg.compartment = "not-an-ocid"
@@ -167,13 +192,14 @@ func TestLoadConfigOCI(t *testing.T) {
 		"E2E_TYPE_AMD64": "oci.VM.Standard.E5.Flex.1-4", "E2E_TYPE_ARM64": "oci.VM.Standard.A1.Flex.1-2",
 		"E2E_TYPE_ARM64_ALT": "oci.VM.Standard.A2.Flex.1-8", "E2E_TYPES_DESCRIBED": "oci.VM.Standard.E5.Flex.1-8, oci.VM.Standard.E5.Flex.2-8",
 		"E2E_MIN_OCPU": "8", "E2E_MIN_MEMORY_GB": "48", "E2E_ARM64": "true",
+		"OCI_IMAGE_COMPARTMENT": " ocid1.compartment.oc1..img ",
 	}
 	get := func(k string) string { return env[k] }
 	c, err := loadConfig("oci", get)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.compartment != "ocid1.compartment.oc1..x" || c.tenancy != "ocid1.tenancy.oc1..y" || c.region != "eu-frankfurt-1" ||
+	if c.imageCompartment != "ocid1.compartment.oc1..img" || c.compartment != "ocid1.compartment.oc1..x" || c.tenancy != "ocid1.tenancy.oc1..y" || c.region != "eu-frankfurt-1" ||
 		c.minOCPU != 8 || c.minMemoryGB != 48 || !c.arm64 || len(c.types) != 5 || c.minOnDemand != 0 {
 		t.Errorf("config %+v", c)
 	}

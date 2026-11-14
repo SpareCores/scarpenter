@@ -28,6 +28,7 @@ vendors:
   oci:
     enabled: true
     compartment: ${OCI_COMPARTMENT}
+    imageCompartment: "${OCI_IMAGE_COMPARTMENT}"
     credentials:
       mode: none
 extraArgs:

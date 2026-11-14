@@ -28,6 +28,9 @@
 # domain or client lives in this repository.
 : "${OCI_COMPARTMENT:=}"
 : "${OCI_TENANCY:=}"
+# Optional: the compartment the Flatcar images are imported into when it is not the lane's (the
+# controller's --oci-image-compartment, vendors.oci.imageCompartment). Empty: the lane's compartment.
+: "${OCI_IMAGE_COMPARTMENT:=}"
 : "${OCI_REGION:=eu-frankfurt-1}"
 # The home region of the tenancy (where the identity domain lives); the lane's region when unset.
 : "${OCI_HOME_REGION:=${OCI_REGION}}"
@@ -41,7 +44,7 @@
 : "${E2E_KUBERNETES_VERSION:=v1.37.1}"
 : "${E2E_TAILSCALE_VERSION:=v1.98.10}"
 : "${E2E_FLATCAR_CHANNEL:=stable}"
-# The first release with the oraclecloud image. The image is imported into the compartment by the
+# The first release with the oraclecloud image. The image is imported into the compartment (or OCI_IMAGE_COMPARTMENT) by the
 # lane's operator, named flatcar-<channel>-<version>-<arch> (docs/how-to-guides/oci-images.md).
 : "${E2E_FLATCAR_VERSION:=4757.2.3}"
 # Instance types the suite launches; the NodePools name them. A flexible shape with a size:
@@ -106,7 +109,7 @@ E2E_FLATCAR_IMAGE_AMD64="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-a
 E2E_FLATCAR_IMAGE_ARM64="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-arm64"
 
 # envsubst (manifests) and the child processes read exported variables.
-export OCI_COMPARTMENT OCI_TENANCY OCI_REGION OCI_HOME_REGION OCI_IDENTITY_DOMAIN_URL OCI_CLIENT_ID OCI_OIDC_AUDIENCE \
+export OCI_COMPARTMENT OCI_IMAGE_COMPARTMENT OCI_TENANCY OCI_REGION OCI_HOME_REGION OCI_IDENTITY_DOMAIN_URL OCI_CLIENT_ID OCI_OIDC_AUDIENCE \
   E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION \
   E2E_FLATCAR_IMAGE_AMD64 E2E_FLATCAR_IMAGE_ARM64 E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_ARM64_ALT E2E_TYPES_DESCRIBED \
   E2E_TYPES_DESCRIBED_YAML E2E_TYPES_ARM64_YAML E2E_ARM64 E2E_ROOT_GB E2E_ROOT_GB_DRIFT E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT \

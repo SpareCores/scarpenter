@@ -70,7 +70,7 @@ func TestMain(m *testing.M) {
 // defaults.sh and what each render call adds (lib.sh probe and node_shell, the byo scenario's
 // resources).
 var sample = map[string]string{
-	"OCI_COMPARTMENT": "ocid1.compartment.oc1..aaaaexample", "OCI_TENANCY": "ocid1.tenancy.oc1..aaaaexample",
+	"OCI_COMPARTMENT": "ocid1.compartment.oc1..aaaaexample", "OCI_IMAGE_COMPARTMENT": "ocid1.compartment.oc1..aaaaimages", "OCI_TENANCY": "ocid1.tenancy.oc1..aaaaexample",
 	"OCI_REGION": "eu-frankfurt-1", "OCI_HOME_REGION": "eu-frankfurt-1",
 	"OCI_IDENTITY_DOMAIN_URL": "https://idcs-0123456789abcdef0123456789abcdef.identity.oraclecloud.com",
 	"OCI_CLIENT_ID":           "0123456789abcdef", "OCI_OIDC_AUDIENCE": "oci-federation",

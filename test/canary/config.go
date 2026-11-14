@@ -39,6 +39,8 @@ type config struct {
 	// OCI_TENANCY); minOCPU and minMemoryGB the limits of the amd64 shape family the OCI suite needs
 	// (E2E_MIN_OCPU, E2E_MIN_MEMORY_GB: OCI's limits are cores and gigabytes, with no spot).
 	compartment, tenancy string
+	// imageCompartment is where the images are listed (OCI_IMAGE_COMPARTMENT, optional); empty: compartment.
+	imageCompartment     string
 	minOCPU, minMemoryGB int64
 
 	// flatcarImageFile is the file the vendor's images are made from, which the canary checks on
@@ -118,6 +120,7 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	if vendor == vendorOCI {
 		c.compartment = need("OCI_COMPARTMENT")
 		c.tenancy = need("OCI_TENANCY")
+		c.imageCompartment = strings.TrimSpace(getenv("OCI_IMAGE_COMPARTMENT"))
 	}
 	c.armType = strings.TrimSpace(getenv("E2E_TYPE_ARM64"))
 	c.arm64 = strings.TrimSpace(getenv("E2E_ARM64")) == "true"

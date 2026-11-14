@@ -29,7 +29,8 @@ name: L5 (cloud e2e)
 # environment secrets ALICLOUD_ROLE_ARN and ALICLOUD_OIDC_PROVIDER_ARN (a RAM role assumed
 # through a RAM OIDC identity provider; the lane has not run yet).
 # Oracle Cloud (oci): the variables OCI_COMPARTMENT and OCI_TENANCY (OCIDs of the lane's dedicated
-# compartment and of the tenancy), OCI_REGION (default eu-frankfurt-1), OCI_HOME_REGION (optional),
+# compartment and of the tenancy), OCI_IMAGE_COMPARTMENT (optional: the OCID of the compartment the Flatcar images are
+# imported into when it is not OCI_COMPARTMENT; empty means OCI_COMPARTMENT), OCI_REGION (default eu-frankfurt-1), OCI_HOME_REGION (optional),
 # OCI_IDENTITY_DOMAIN_URL, OCI_CLIENT_ID and OCI_OIDC_AUDIENCE (the identity domain and its confidential
 # application that trust GitHub's OIDC token), and the environment secret OCI_CLIENT_SECRET (the
 # application's client secret: the one stored secret; no API key exists). The identity is the keyless
@@ -126,6 +127,7 @@ jobs:
       VAR_OCI_REGION: ${{ vars.OCI_REGION }}
       VAR_OCI_HOME_REGION: ${{ vars.OCI_HOME_REGION }}
       VAR_OCI_COMPARTMENT: ${{ vars.OCI_COMPARTMENT }}
+      VAR_OCI_IMAGE_COMPARTMENT: ${{ vars.OCI_IMAGE_COMPARTMENT }}
       VAR_OCI_TENANCY: ${{ vars.OCI_TENANCY }}
       VAR_OCI_IDENTITY_DOMAIN_URL: ${{ vars.OCI_IDENTITY_DOMAIN_URL }}
       VAR_OCI_CLIENT_ID: ${{ vars.OCI_CLIENT_ID }}
@@ -227,6 +229,7 @@ jobs:
               # OCIDs, a region and a URL go into paths, filters and the environment: only their shapes are
               # accepted (a newline would add a variable to GITHUB_ENV). None has a default but the region.
               valid OCI_COMPARTMENT "${VAR_OCI_COMPARTMENT}" '^ocid1\.compartment\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$'
+              valid OCI_IMAGE_COMPARTMENT "${VAR_OCI_IMAGE_COMPARTMENT}" '^ocid1\.compartment\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$'
               valid OCI_TENANCY "${VAR_OCI_TENANCY}" '^ocid1\.tenancy\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9]+$'
               [[ -n "${VAR_OCI_COMPARTMENT}" && -n "${VAR_OCI_TENANCY}" && -n "${VAR_OCI_CLIENT_ID}" ]] || { echo "::error::the variables OCI_COMPARTMENT, OCI_TENANCY and OCI_CLIENT_ID must be set" >&2; exit 1; }
               valid OCI_REGION "${VAR_OCI_REGION}" '^[a-z]{2}(-[a-z]+)+-[0-9]+$'
@@ -237,6 +240,7 @@ jobs:
               valid OCI_OIDC_AUDIENCE "${VAR_OCI_OIDC_AUDIENCE}" '^[A-Za-z0-9:/._-]+$'
               {
                 echo "OCI_COMPARTMENT=${VAR_OCI_COMPARTMENT}"
+                echo "OCI_IMAGE_COMPARTMENT=${VAR_OCI_IMAGE_COMPARTMENT}"
                 echo "OCI_TENANCY=${VAR_OCI_TENANCY}"
                 echo "OCI_REGION=${VAR_OCI_REGION:-eu-frankfurt-1}"
                 echo "OCI_HOME_REGION=${VAR_OCI_HOME_REGION:-${VAR_OCI_REGION:-eu-frankfurt-1}}"

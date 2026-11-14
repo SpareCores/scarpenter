@@ -178,6 +178,10 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 		return fmt.Errorf("the OCI compartment is not set or not a compartment OCID (%q): "+
 			"set --oci-compartment (SCARPENTER_OCI_COMPARTMENT)", d.compartment)
 	}
+	if d.imageCompartment != "" && !IsOCID(d.imageCompartment, "compartment") {
+		return fmt.Errorf("the OCI image compartment is not a compartment OCID (%q): "+
+			"set --oci-image-compartment (SCARPENTER_OCI_IMAGE_COMPARTMENT) or leave it empty", d.imageCompartment)
+	}
 	if d.api.Compute == nil {
 		if d.provider == nil {
 			return fmt.Errorf("the OCI credentials are not set: see docs/how-to-guides/oci-credentials.md")

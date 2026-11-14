@@ -136,7 +136,8 @@ func New(tenancy, compartment string) *Cloud {
 		now: time.Now, tenancy: tenancy, compartment: compartment,
 		regions: map[string]*region{}, instances: map[string]*core.Instance{},
 		attach: map[string][]core.VnicAttachment{}, vnics: map[string]core.Vnic{}, boot: map[string]bootVolume{},
-		tokens: map[string]tokenRec{}, net: newNetStore(), images: map[string]*imageRec{}, imageComps: map[string]bool{}, limitValues: map[string]int64{},
+		tokens: map[string]tokenRec{}, net: newNetStore(), images: map[string]*imageRec{},
+		imageComps: map[string]bool{}, limitValues: map[string]int64{},
 		scopes: map[string]limits.LimitDefinitionSummaryScopeTypeEnum{}, unsupported: map[string]bool{},
 		stockouts: map[string]bool{}, injected: map[string][]error{}, calls: map[string]int{},
 	}

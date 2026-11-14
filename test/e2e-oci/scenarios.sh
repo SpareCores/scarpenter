@@ -202,9 +202,9 @@ scn_preflight() {
   [[ -n "${ads}" ]] || fail "the region ${OCI_REGION} has no availability domain"
   note "availability domains of ${OCI_REGION}: $(zone_names | paste -sd' ' -)"
 
-  # 1. The Flatcar images (plan 25 section 3): the naming and tag contract in the compartment,
-  # available, and registered for the shapes of the lane.
-  local arch img name shapes t types=("${E2E_TYPE_AMD64}")
+  # 1. The Flatcar images (plan 25 section 3): the naming and tag contract in the image compartment
+  # (OCI_IMAGE_COMPARTMENT, else the lane's compartment), available, and registered for the shapes of the lane.
+  local arch img name shapes t types=("${E2E_TYPE_AMD64}") image_compartment="${OCI_IMAGE_COMPARTMENT:-${OCI_COMPARTMENT}}"
   IFS=, read -ra described <<<"${E2E_TYPES_DESCRIBED}"
   types+=("${described[@]}")
   for arch in amd64 arm64; do
@@ -216,9 +216,9 @@ scn_preflight() {
       types+=("${E2E_TYPE_ARM64}" "${E2E_TYPE_ARM64_ALT}")
     fi
     name="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-${arch}"
-    img="$(oc compute image list --compartment-id "${OCI_COMPARTMENT}" --display-name "${name}" --lifecycle-state AVAILABLE --all --output json |
-      jq '[(.data // [])[]] | first // empty')" || fail "the images of the compartment cannot be listed"
-    [[ -n "${img}" ]] || fail "the image ${name} does not exist (or is not AVAILABLE) in the compartment: import it (docs/how-to-guides/oci-images.md)"
+    img="$(oc compute image list --compartment-id "${image_compartment}" --display-name "${name}" --lifecycle-state AVAILABLE --all --output json |
+      jq '[(.data // [])[]] | first // empty')" || fail "the images of the image compartment cannot be listed"
+    [[ -n "${img}" ]] || fail "the image ${name} does not exist (or is not AVAILABLE) in the image compartment: import it (docs/how-to-guides/oci-images.md)"
     assert_eq "the ${arch} image's version tag" "${E2E_FLATCAR_VERSION}" "$(tag_of "${img}" flatcar-version)"
     assert_eq "the ${arch} image's arch tag" "${arch}" "$(tag_of "${img}" arch)"
     shapes="$(oc compute image-shape-compatibility-entry list --image-id "$(jq -r '.id' <<<"${img}")" --all --output json | jq -r '(.data // [])[].shape')" ||

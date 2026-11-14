@@ -11,6 +11,7 @@
 #   E2E_RUN_ID              the workflow run id (a unique suffix)
 #   E2E_CREATED_AT          Unix seconds of the start; tags every instance (sweeper)
 #   OCI_COMPARTMENT         the dedicated compartment of the lane (OCID)
+#   OCI_IMAGE_COMPARTMENT   optional: the compartment of the imported Flatcar images (OCID; empty: OCI_COMPARTMENT)
 #   OCI_TENANCY             the tenancy (OCID)
 #   OCI_REGION              the region of the run (eu-frankfurt-1)
 #   KUBECONFIG              the k3s cluster
@@ -68,7 +69,7 @@ SED
 redact() {
   local -a extra=()
   local v
-  for v in "${OCI_COMPARTMENT:-}" "${OCI_TENANCY:-}"; do
+  for v in "${OCI_COMPARTMENT:-}" "${OCI_IMAGE_COMPARTMENT:-}" "${OCI_TENANCY:-}"; do
     if [[ "${v}" =~ ^ocid1\.[a-z]+\.oc[0-9]+\.[a-z0-9-]*\.[A-Za-z0-9_]+$ ]]; then
       extra+=(-e "s/${v//./\\.}/<ocid>/g")
     fi

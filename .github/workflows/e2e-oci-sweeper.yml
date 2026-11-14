@@ -18,7 +18,8 @@ name: L5 sweeper (OCI e2e)
 #
 # Provisioned outside this repository: the environment e2e-sweeper with the variables OCI_COMPARTMENT,
 # OCI_TENANCY, OCI_REGION (optional), OCI_HOME_REGION (optional), OCI_IDENTITY_DOMAIN_URL, OCI_CLIENT_ID and
-# OCI_OIDC_AUDIENCE, and the secret OCI_CLIENT_SECRET.
+# OCI_OIDC_AUDIENCE, and the secret OCI_CLIENT_SECRET. The optional OCI_IMAGE_COMPARTMENT of the other workflows is not
+# read: the sweeper lists and deletes only instances, boot volumes and network objects of the lane (never images).
 on:
   schedule:
     - cron: "23 */3 * * *"

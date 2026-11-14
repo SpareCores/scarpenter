@@ -61,8 +61,8 @@ type cachedArch struct {
 }
 
 // ResolveImage implements vendors.Driver (rung 3 of ADR-021): the image of the pinned
-// release in the image compartment (--oci-image-compartment, default the controller's compartment), found by its name and freeform tags, or by
-// the NodeClass's images selector. An image whose architecture is not known never
+// release in the image compartment (--oci-image-compartment, default the controller's compartment), found
+// by its name and freeform tags, or by the NodeClass's images selector. An image whose architecture is not known never
 // satisfies a request, and whatever is found must say it is the pinned release.
 func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
 	if req.Arch != ArchAMD64 && req.Arch != ArchARM64 {

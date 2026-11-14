@@ -658,3 +658,10 @@ func TestResolveImageInImageCompartment(t *testing.T) {
 		}
 	}
 }
+
+func TestInitRejectsABadImageCompartment(t *testing.T) {
+	d := driver.New(driver.WithCompartment(fake.SeedCompartment), driver.WithImageCompartment("images"))
+	if err := d.Init(t.Context(), vendors.Config{}); err == nil || !strings.Contains(err.Error(), "image compartment") {
+		t.Errorf("Init = %v, want an image compartment error", err)
+	}
+}

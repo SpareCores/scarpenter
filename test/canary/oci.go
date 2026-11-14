@@ -64,7 +64,8 @@ type ociCheck struct {
 // runOCI runs the checks over the API (the guarded real one, or the fake's in the tests) and
 // ends with the audit of what was called.
 func runOCI(ctx context.Context, cfg *config, rep *report, api oci.Clients, a *audit) {
-	drv := oci.New(oci.WithClients(api), oci.WithCompartment(cfg.compartment), oci.WithTenancy(cfg.tenancy))
+	drv := oci.New(oci.WithClients(api), oci.WithCompartment(cfg.compartment),
+		oci.WithImageCompartment(cfg.imageCompartment), oci.WithTenancy(cfg.tenancy))
 	if err := drv.Init(ctx, vendors.Config{Log: logr.Discard()}); err != nil {
 		rep.check("OCI driver", func() (string, error) { return "", err })
 		return
@@ -118,7 +119,8 @@ func (c *ociCheck) facts() {
 }
 
 // images: the Flatcar image the NodeClasses resolve (ImagesReady): the naming contract of
-// docs/how-to-guides/oci-images.md in the controller's compartment, per architecture (arm64 only
+// docs/how-to-guides/oci-images.md in the image compartment (OCI_IMAGE_COMPARTMENT, default the
+// controller's compartment), per architecture (arm64 only
 // when the lane runs it), and its shape compatibility entries: every lane type of the
 // architecture must be one the image is registered for.
 func (c *ociCheck) images() {

@@ -530,6 +530,18 @@ t_ci_policy_text() {
   "${here}/ci-policy.sh" policy g "${ocid}" us-ashburn-1 | grep -q "in compartment id ${ocid} where request.region = 'us-ashburn-1'$" || { echo "the OCID form and the region"; return 1; }
   ! "${here}/ci-policy.sh" policy g "${ocid}" us-ashburn-1 | grep -q eu-frankfurt-1 || { echo "the default region leaks into another region's policy"; return 1; }
 }
+t_ci_policy_images() {
+  local ocid=ocid1.compartment.oc1..aaaaexample img=ocid1.compartment.oc1..bbbbimages out
+  out="$("${here}/ci-policy.sh" policy g "${ocid}" us-ashburn-1 "${img}")"
+  grep -qx "Allow group g to read instance-images in compartment id ${img} where request.region = 'us-ashburn-1'" <<<"${out}" || { echo "the image statement"; return 1; }
+  [[ "$(grep -c "${img}" <<<"${out}")" == 1 ]] || { echo "the image compartment has more than one statement"; return 1; }
+  # none without the argument, with an empty one, or the same compartment
+  ! "${here}/ci-policy.sh" policy g "${ocid}" us-ashburn-1 | grep -q "${img}" || { echo "an image statement without an image compartment"; return 1; }
+  [[ "$("${here}/ci-policy.sh" policy g "${ocid}" us-ashburn-1 "" | wc -l)" == "$("${here}/ci-policy.sh" policy g "${ocid}" us-ashburn-1 | wc -l)" ]] || { echo "an empty image compartment adds a line"; return 1; }
+  [[ "$("${here}/ci-policy.sh" policy g "${ocid}" us-ashburn-1 "${ocid}" | wc -l)" == "$("${here}/ci-policy.sh" policy g "${ocid}" us-ashburn-1 | wc -l)" ]] || { echo "the same compartment adds a line"; return 1; }
+}
+check "ci-policy.sh adds read instance-images in the image compartment only when it is another one" t_ci_policy_images
+check_fails "ci-policy.sh refuses a malformed image compartment" "${here}/ci-policy.sh" policy g comp eu-frankfurt-1 'bad image;'
 check "ci-policy.sh prints the driver's statements and the lane's, no IAM, nothing tenancy-wide that writes" t_ci_policy
 check "ci-policy.sh prints the policy: the region condition on the compartment statements only, names and OCIDs" t_ci_policy_text
 check_fails "ci-policy.sh refuses an unknown command" "${here}/ci-policy.sh" everything
@@ -552,6 +564,14 @@ t_canary_policy_text() {
     grep -q '^Allow group canary-group to inspect instances in compartment lane$' <<<"${out}" &&
     ! grep -qE 'manage|use |where' <<<"${out}"
 }
+t_canary_policy_images() {
+  local img=ocid1.compartment.oc1..bbbbimages out
+  out="$("${here}/canary-policy.sh" policy g lane "${img}")"
+  grep -qx "Allow group g to read instance-images in compartment id ${img}" <<<"${out}" || { echo "the image statement"; return 1; }
+  [[ "$("${here}/canary-policy.sh" policy g lane | wc -l)" == "$("${here}/canary-policy.sh" policy g lane "" | wc -l)" ]]
+}
+check "canary-policy.sh adds read instance-images in the image compartment when given" t_canary_policy_images
+check_fails "canary-policy.sh refuses a malformed image compartment" "${here}/canary-policy.sh" policy g lane 'bad image;'
 check "canary-policy.sh prints read-only statements (inspect, read), sorted and unique" t_canary_policy
 check "canary-policy.sh prints the policy for a group and a compartment" t_canary_policy_text
 check_fails "canary-policy.sh refuses a malformed group" "${here}/canary-policy.sh" policy 'bad group;' comp
