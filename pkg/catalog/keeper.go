@@ -255,6 +255,10 @@ func (r *refresh) run(ctx context.Context, req Request) (*model.Data, error) {
 			return nil, err
 		}
 	}
+	// Rule R, once, before the metrics and selections that key by APIReference.
+	if n := uniqueAPIReferences(data); n > 0 {
+		r.logger.V(1).Info("servers that share an api_reference are named by their server id", "servers", n)
+	}
 	local := newLocalData(data)
 	if err := r.loadMetrics(ctx, req.Metrics, data, missing); err != nil {
 		return nil, err

@@ -1024,3 +1024,37 @@ func TestPublishedAtSurvivesTheDiskCopyAfterARepin(t *testing.T) {
 		t.Errorf("PublishedAt = %v, want %v", data.PublishedAt, want)
 	}
 }
+
+// Rule R applies to the snapshot loader: servers of one vendor that share an
+// api_reference in Keeper's rows take their server id, before metrics and
+// selections read them.
+func TestRuleRAppliesToTheSnapshotLoader(t *testing.T) {
+	e := newKeeperEnv(t)
+	rows := catalogtest.Rows[keeper.TableServer](t, "server/hcloud")
+	if len(rows) < 3 {
+		t.Fatal("too few hcloud servers")
+	}
+	rows[1].APIReference = rows[0].APIReference
+	if err := e.H.AddHash(catalogtest.NewHash, map[string][]byte{"server/hcloud": catalogtest.Columns(t, rows)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.H.SetCurrent(catalogtest.NewHash); err != nil {
+		t.Fatal(err)
+	}
+	data, err := catalogtest.SourceAt(e.URL).Load(t.Context(), catalog.Request{Scope: catalog.Scope{"hcloud": nil}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, s := range data.Servers {
+		got[s.ID] = s.APIReference
+	}
+	for _, i := range []int{0, 1} {
+		if got[rows[i].ServerID] != rows[i].ServerID {
+			t.Errorf("%s has api_reference %q, want its server id", rows[i].ServerID, got[rows[i].ServerID])
+		}
+	}
+	if got[rows[2].ServerID] != rows[2].APIReference {
+		t.Errorf("a unique reference changed: %q", got[rows[2].ServerID])
+	}
+}

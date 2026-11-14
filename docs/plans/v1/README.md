@@ -49,19 +49,20 @@ Execution protocol:
 | 21 | `wip/21-alicloud.md` | review; live verification pending | Alibaba Cloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
 | 22 | `wip/22-flatcar-images.md` | todo | the Flatcar images repository (proposed `SpareCores/flatcar-images`): OEM-patched images for vultr, upcloud and aliyun, the GCP arm64 image, signatures, release tracking, upstream proposals | — |
 | 23 | `done/23-billing-retention.md` | done | opt-in `spec.billing`: keep period-billed nodes (hcloud first, then UpCloud, Vultr; OVH US if hourly; Alibaba until the end of its minimum) until the end of their paid period and reuse them; Keeper vendor billing facts, `BillingStart`, the retention controller, metrics, fake-clock tests | 14 and the Keeper vendor table (live; plan 13 is not needed) |
+| 25 | `wip/25-oci.md` | draft for review | Oracle Cloud Infrastructure driver, fake, conformance, L5 lane; fixed named sizes per flexible shape (`VM.Standard.E5.Flex.2-16`), an embedded OCI catalog (Keeper does not serve OCI yet) behind the `catalog.Source` seam, images on rung 3 from Flatcar's own OCI image, managed VCN, subnet and network security groups; five steps: catalog data and rule R, driver foundation, embedded source, full driver and surfaces, L5 | 14, 23, 13 (part B, for the embedded-source step), 24 committed (cited) |
 
 Shared rules for every plan: [`CONVENTIONS.md`](CONVENTIONS.md).
 
 ## Further vendors
 
-More vendors follow AWS as their own plans (15 to 21), each one driver, an in-memory
+More vendors follow AWS as their own plans (15 to 21, and 25), each one driver, an in-memory
 fake, conformance and an opt-in e2e workflow, all on the shared groundwork of plan 14.
 Where a vendor's Flatcar image comes from is decided by the image ladder of
 [ADR-021](../../explanation/DECISIONS.md#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10)
 ([per vendor](../../explanation/flatcar-images.md)): the vendor's own
 public image (AWS, Azure, GCP amd64), Spare Cores' published image (GCP arm64),
 or an image created in the user's account by infrastructure as code (hcloud, OVH,
-UpCloud, Vultr, Alibaba). No image-import plan precedes any vendor: SCarpenter does not
+UpCloud, Vultr, Alibaba, OCI). No image-import plan precedes any vendor: SCarpenter does not
 import images, and `SCImage` and `ImageImporter` stay reserved.
 
 Order:
@@ -71,6 +72,9 @@ Order:
    for plan 22.
 3. **15 (Hetzner)**: rung 3 with Flatcar's own image.
 4. **18 to 21** (OVH, UpCloud, Vultr, Alibaba); the order among them is open.
+5. **25 (OCI)**: rung 3 with Flatcar's own OCI image, no wait for 22; its catalog is embedded
+   (Keeper does not serve OCI yet) and its sizes are fixed named sizes per flexible shape, so it
+   does not wait for 24 either.
 
 **23**, billing-period retention, needs 14 only (its Keeper data is the live vendor table, not
 plan 13's snapshots) and is fully testable on the fake driver; it can be built as soon as 14 is done,

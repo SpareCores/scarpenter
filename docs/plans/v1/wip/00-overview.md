@@ -519,6 +519,7 @@ future drivers, to be verified there):
 | gcp | `regions.get` quotas (limit and usage), project quotas | `CPUS`, per-family `*_CPUS`, `PREEMPTIBLE_CPUS`, GPU quotas, `CPUS_ALL_REGIONS` (global) | machine types per zone |
 | alicloud | ECS account attributes (vCPU limits and usage) | vCPU on-demand and spot per region | `DescribeAvailableResource` (also stock) |
 | upcloud | account resource limits + own usage | cores, memory, GPUs | — |
+| oci | Limits service `GetResourceAvailability` per availability domain and quota name (from `ListShapes`), used and available | OCPU and GB per shape family, region scope (the best AD's headroom, plan 25) | — (no list: types are named sizes, plan 25) |
 | ovh | OpenStack quota sets with usage | cores, instances, RAM | — |
 | hcloud, vultr | none known | reactive only | — |
 

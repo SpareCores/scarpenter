@@ -669,6 +669,10 @@ shows as `KeeperAuthorized=False`.
 - **CI.** `.github/actions/keeper-key` reads the key from the parameter named by
   the repository variable `KEEPER_API_KEY_PARAMETER` with the environment's role;
   the refresh workflow runs in the `e2e` environment and needs approval there.
+- Main's rule R (`uniqueAPIReferences`) runs in the snapshot loader after the
+  vendors load and before metrics and selections; the OCI embedded catalog data
+  and generator from plan 25 came along unchanged (its source is plan 25's step a2,
+  not on main, so nothing of it needed wiring).
 
 Open items:
 
