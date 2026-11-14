@@ -375,6 +375,11 @@ func TestGetInstanceAddresses(t *testing.T) {
 	if len(got.Addresses) != 1 || !strings.HasPrefix(got.Addresses[0], "10.240.") {
 		t.Errorf("addresses %v without publicIPv4", got.Addresses)
 	}
+	// A VNIC deleted between the listing and the read: the instance still exists.
+	e.c.Inject("GetVnic", fake.Error(404, "NotAuthorizedOrNotFound", "gone"), 1)
+	if got, err = e.d.GetInstance(t.Context(), inst.Ref); err != nil || len(got.Addresses) != 0 {
+		t.Errorf("a vanished VNIC: %v, %v; want the instance without addresses", got, err)
+	}
 	e.c.Inject("GetVnic", fake.Error(500, "InternalError", "x"), 1)
 	if _, err := e.d.GetInstance(t.Context(), inst.Ref); !vendors.IsClass(err, vendors.Retryable) {
 		t.Errorf("a failing VNIC read: %v, want Retryable", err)
@@ -501,6 +506,13 @@ func TestLaunchErrorsFromTheFake(t *testing.T) {
 		err := func() error { _, err := e.d.CreateInstance(t.Context(), request(testType)); return err }()
 		if !vendors.IsClass(err, vendors.QuotaExceeded) || !strings.Contains(err.Error(), "standard-e5-core-count") {
 			t.Errorf("a limit: %v", err)
+		}
+	})
+	t.Run("a full subnet is the zone, not a token conflict", func(t *testing.T) {
+		e := newEnv(t)
+		e.c.Inject("LaunchInstance", fake.Error(409, "Conflict", "subnet ocid1.subnet.oc1..x: not enough free IP addresses"), 1)
+		if _, err := e.d.CreateInstance(t.Context(), request(testType)); !vendors.IsClass(err, vendors.ZoneUnusable) {
+			t.Errorf("a full subnet: %v", err)
 		}
 	})
 	t.Run("a timeout is retryable", func(t *testing.T) {

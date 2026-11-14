@@ -71,6 +71,7 @@ func TestClassify(t *testing.T) {
 		{"not found on a get", kindRead, 404, "NotAuthorizedOrNotFound", "gone", vendors.NotFound},
 		{"404 without a code", kindRead, 404, "", "gone", vendors.NotFound},
 		{"not found on the launch is fatal", kindLaunch, 404, "NotAuthorizedOrNotFound", "no subnet", vendors.Fatal},
+		{"any 404 on the launch is fatal", kindLaunch, 404, "NotFound", "no image", vendors.Fatal},
 		// RegionUnavailable from the calls that read a region's facts.
 		{"region not found", kindRegion, 404, "NotAuthorizedOrNotFound", "region", vendors.RegionUnavailable},
 		{"region not authenticated", kindRegion, 401, "NotAuthenticated", "who", vendors.RegionUnavailable},
@@ -135,6 +136,7 @@ func TestRetryTokenConflict(t *testing.T) {
 		{"conflict, another code", fake.Error(409, "RetryTokenInUse", "x"), true},
 		{"incorrect state", fake.Error(409, "IncorrectState", "in use"), false},
 		{"lock conflict", fake.Error(409, "LockConflict", "locked"), false},
+		{"subnet full", fake.Error(409, "Conflict", "subnet ocid1.subnet.oc1..x: not enough free IP addresses"), false},
 		{"a 400", fake.Error(400, "Conflict", "x"), false},
 		{"not a service error", errors.New("409"), false},
 		{"wrapped", fmt.Errorf("launch: %w", fake.Error(409, "Conflict", "x")), true},

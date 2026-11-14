@@ -309,6 +309,10 @@ func (d *Driver) addresses(ctx context.Context, region string, in core.Instance)
 			continue
 		}
 		res, err := d.api.Network.GetVnic(ctx, region, core.GetVnicRequest{VnicId: a.VnicId})
+		if isNotFound(err) {
+			// Detached and deleted since the listing: the instance still exists.
+			continue
+		}
 		if err != nil {
 			return nil, classify(err, kindRead)
 		}

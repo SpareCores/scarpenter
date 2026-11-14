@@ -157,9 +157,10 @@ func classifyService(status int, code, msg string, kind callKind, cause error) e
 	case kind == kindRegion && (status == http.StatusNotFound || code == CodeNotAuthenticated ||
 		status == http.StatusUnauthorized || status == http.StatusForbidden):
 		return vendors.NewError(vendors.RegionUnavailable, codeOf(code, status), cause)
-	case status == http.StatusNotFound && code == CodeNotAuthorizedOrFound && kind == kindLaunch:
+	case status == http.StatusNotFound && kind == kindLaunch:
 		// A missing subnet, image or compartment, or a missing permission: OCI
-		// does not say which, and the launch cannot be retried into success.
+		// does not say which, and the launch cannot be retried into success. The
+		// launch has no instance yet, so it is never NotFound.
 		return vendors.NewError(vendors.Fatal, code, fmt.Errorf(
 			"%w (a subnet, image or compartment of the launch is missing, or the policy does not allow it)", cause))
 	case status == http.StatusNotFound:
@@ -180,10 +181,11 @@ func codeOf(code string, status int) string {
 // isRetryTokenConflict reports whether err is the answer to an opc-retry-token
 // that was used by another request (HTTP 409; the code is UNVERIFIED, S4/S5): the
 // driver resolves it by looking the instance up by its idempotency key. The
-// conflicts that mean "still in use" (IncorrectState, LockConflict) are not it.
+// conflicts that mean "still in use" (IncorrectState, LockConflict) and a full
+// subnet (ZoneUnusable in the table) are not it.
 func isRetryTokenConflict(err error) bool {
 	se, ok := serviceError(err)
-	if !ok || se.GetHTTPStatusCode() != http.StatusConflict {
+	if !ok || se.GetHTTPStatusCode() != http.StatusConflict || subnetFullRe.MatchString(se.GetMessage()) {
 		return false
 	}
 	switch se.GetCode() {
