@@ -182,6 +182,10 @@ type Data struct {
 	// PublishedAt is when the source published that version (Keeper's
 	// SC-Data-Published-At); zero when the source does not say.
 	PublishedAt time.Time
+	// SnapshotVersion is Keeper's data version within data that a MuxSource
+	// merged from several sources (whose Version is then a digest of the
+	// parts'); empty when Version is Keeper's own or no part read Keeper.
+	SnapshotVersion string
 
 	Servers []Server
 	Regions []Region

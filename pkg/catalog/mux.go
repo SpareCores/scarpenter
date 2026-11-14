@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package catalog
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -106,7 +107,10 @@ func (m *MuxSource) Load(ctx context.Context, req Request) (*model.Data, error) 
 }
 
 // mergeData merges data of disjoint vendors: the version is a digest of the
-// parts' versions (it changes when any part does), the fetch time is the oldest.
+// parts' versions (it changes when any part does), the fetch time is the oldest,
+// the publication time and the snapshot version are Keeper's. The parts of the
+// own sources come after the default one's, so their vendor rows win over
+// Keeper's rows of the same vendor (the snapshot keeps the last row per ID).
 func mergeData(parts []*model.Data) *model.Data {
 	if len(parts) == 1 {
 		return parts[0]
@@ -129,7 +133,10 @@ func mergeData(parts []*model.Data) *model.Data {
 		out.Vendors = append(out.Vendors, p.Vendors...)
 		out.StoragePrices = append(out.StoragePrices, p.StoragePrices...)
 		out.IPv4Prices = append(out.IPv4Prices, p.IPv4Prices...)
-		out.SnapshotRead = out.SnapshotRead || p.SnapshotRead
+		if p.SnapshotRead {
+			out.SnapshotRead = true
+			out.SnapshotVersion = cmp.Or(p.SnapshotVersion, p.Version)
+		}
 		out.AuxPricesRead = out.AuxPricesRead || p.AuxPricesRead
 		if !p.PublishedAt.IsZero() && (out.PublishedAt.IsZero() || p.PublishedAt.Before(out.PublishedAt)) {
 			out.PublishedAt = p.PublishedAt

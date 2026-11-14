@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package catalog
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -68,8 +69,9 @@ type Options struct {
 	ClassGate ClassGate
 	// Clock defaults to the real one.
 	Clock clock.Clock
-	// EmbeddedVendors are the vendors served from embedded data (EmbeddedSource):
-	// they are exported as the gauge scarpenter_catalog_embedded_vendor.
+	// EmbeddedVendors are the enabled vendors served from embedded data
+	// (EmbeddedSource): they are exported as the gauge
+	// scarpenter_catalog_embedded_vendor.
 	EmbeddedVendors []string
 	// Registerer receives the catalog metrics; nil registers none.
 	Registerer prometheus.Registerer
@@ -460,8 +462,8 @@ func (c *Catalog) Status(className string) Status {
 		return st
 	}
 	st.Ready = true
-	if d := c.snap.data; d.SnapshotRead && d.Version != "" {
-		st.Message = "Keeper data version " + d.Version
+	if d := c.snap.data; d.SnapshotRead && cmp.Or(d.SnapshotVersion, d.Version) != "" {
+		st.Message = "Keeper data version " + cmp.Or(d.SnapshotVersion, d.Version)
 		if !d.PublishedAt.IsZero() {
 			st.Message += ", published " + d.PublishedAt.UTC().Format(time.RFC3339)
 		}

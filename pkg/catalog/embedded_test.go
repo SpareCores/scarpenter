@@ -310,6 +310,8 @@ func TestMuxMergesEmbeddedPricesAndKeepsKeepersPublishedAt(t *testing.T) {
 	kd.Version, kd.SnapshotRead, kd.AuxPricesRead, kd.PublishedAt = "kv", true, true, published
 	kd.StoragePrices = []model.StoragePrice{{Vendor: "v", RegionID: "region-1", StorageID: "ssd", Unit: "GB/month", USD: 0.1}}
 	kd.IPv4Prices = []model.IPv4Price{{Vendor: "v", RegionID: "region-1", Unit: "hour", USD: 0.005}}
+	// Keeper's vendor table also has a row of the embedded vendor: the embedded one wins.
+	kd.Vendors = append(slices.Clone(kd.Vendors), model.Vendor{ID: "oci", BillingComment: "from Keeper"})
 	sink := &priceSink{StaticFacts: ociFacts(t)}
 	sink.ZonesByVendor["v"] = syntheticFacts().ZonesByVendor["v"]
 	mux := &catalog.MuxSource{Default: &fakeSource{data: kd}, Vendors: map[string]catalog.Source{"oci": embeddedOCI(t)}}
@@ -319,11 +321,14 @@ func TestMuxMergesEmbeddedPricesAndKeepsKeepersPublishedAt(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := c.Status("c")
-	if !st.Ready || !strings.Contains(st.Message, "published 2026-11-14T00:08:26Z") || !st.KeeperAuth.Authorized {
+	if !st.Ready || st.Message != "Keeper data version kv, published 2026-11-14T00:08:26Z" || !st.KeeperAuth.Authorized {
 		t.Errorf("status = %+v", st)
 	}
 	if sink.calls != 1 {
 		t.Fatalf("%d price sink calls, want 1", sink.calls)
+	}
+	if f, ok := c.BillingFacts("oci"); !ok || f.Comment == "from Keeper" {
+		t.Errorf("billing facts of oci = %+v, %v: want the embedded vendor row", f, ok)
 	}
 	vendors := map[string]int{}
 	for _, p := range sink.storage {
