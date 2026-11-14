@@ -41,9 +41,8 @@ func TestIdentityOfTheDriver(t *testing.T) {
 	if _, ok := vendors.Driver(d).(vendors.QuotaReporter); !ok {
 		t.Error("the driver is no QuotaReporter")
 	}
-	// Step (b) registers nothing: the registry does not know the vendor yet.
-	if got := vendors.Registered(); slices.Contains(got, "oci") {
-		t.Errorf("the registry already holds oci: %v", got)
+	if got := vendors.Registered(); !slices.Contains(got, "oci") {
+		t.Errorf("the registry does not hold oci: %v", got)
 	}
 }
 

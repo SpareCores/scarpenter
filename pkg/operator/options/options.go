@@ -58,6 +58,7 @@ const (
 	DefaultResourceCheckInterval      = 30 * time.Second
 	DefaultResourceFullSweepEvery     = 10
 	DefaultAWSHomeRegion              = "us-east-1"
+	DefaultOCIAuth                    = "apiKey"
 )
 
 // bootstrapTokenMinTTL is the shortest token lifetime (bootstrap.MinTokenTTL;
@@ -71,6 +72,8 @@ var (
 	// The cluster name is a vendor tag value and part of resource names.
 	clusterNamePattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z_-]{0,62}$`)
 	vendorPattern      = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
+	// ociCompartmentPattern is a compartment OCID (or the tenancy's, the root compartment).
+	ociCompartmentPattern = regexp.MustCompile(`^ocid1\.(compartment|tenancy)\.[a-z0-9]+\.[a-z0-9-]*\.[a-z0-9]+$`)
 )
 
 // Options are the flags of the controller. Flags that later plans consume
@@ -167,6 +170,25 @@ type Options struct {
 	// GCPProject is the Google Cloud project of the GCP driver; empty means the
 	// project of the credentials.
 	GCPProject string
+	// OCICompartment is the compartment of the OCI driver's nodes (required with
+	// the oci vendor); OCIAuth the credentials mode; the other OCI fields are the
+	// sources of the identity (docs/how-to-guides/oci-credentials.md).
+	OCICompartment string
+	OCIAuth        string
+	// OCICredentialsDir is a directory with one file per key of the API-key
+	// Secret (tenancy, user, fingerprint, region, key); OCIConfigFile and
+	// OCIConfigProfile an OCI config file; none of them: OCI_CLI_* variables.
+	OCICredentialsDir string
+	OCIConfigFile     string
+	OCIConfigProfile  string
+	// Workload identity federation: the home region, the token file, the
+	// identity domain's URL and the confidential application's client ID and
+	// client secret file.
+	OCIRegion           string
+	OCITokenFile        string
+	OCIIdentityDomain   string
+	OCIClientID         string
+	OCIClientSecretFile string
 	// HCloudServerLimit is the server limit of the Hetzner Cloud project, which
 	// the API does not report (0 unknown: no headroom is known before a launch).
 	HCloudServerLimit int
@@ -221,6 +243,16 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.BoolVar(&o.BillingRetention, "billing-retention", env.WithDefaultBool("SCARPENTER_BILLING_RETENTION", true), "Run the billing retention controller (it holds nodes until the end of their paid billing period for the SCNodeClasses that set spec.billing.retainUntilPeriodEnd). The NodeClass field is the real switch; false turns the controller off as a whole.")
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 	fs.StringVar(&o.GCPProject, "gcp-project", env.WithDefaultString("SCARPENTER_GCP_PROJECT", ""), "Google Cloud project of the GCP driver's nodes; empty means the project of the credentials (a service account key or the metadata server; workload identity federation has none, so set it there).")
+	fs.StringVar(&o.OCICompartment, "oci-compartment", env.WithDefaultString("SCARPENTER_OCI_COMPARTMENT", ""), "[REQUIRED with the oci vendor] OCID of the OCI compartment of the nodes: instances, boot volumes, the managed network and the default image lookup live in it. The tenancy root is not a default.")
+	fs.StringVar(&o.OCIAuth, "oci-auth", env.WithDefaultString("SCARPENTER_OCI_AUTH", DefaultOCIAuth), "OCI credentials mode: apiKey (a credentials directory, an OCI config file or the OCI_CLI_* variables) or workloadIdentityFederation (a token file exchanged at an identity domain for a short-lived session token).")
+	fs.StringVar(&o.OCICredentialsDir, "oci-credentials-dir", env.WithDefaultString("SCARPENTER_OCI_CREDENTIALS_DIR", ""), "apiKey: directory with one file per key of the OCI API-key Secret (tenancy, user, fingerprint, region, key; optional passphrase). Wins over --oci-config-file.")
+	fs.StringVar(&o.OCIConfigFile, "oci-config-file", env.WithDefaultString("SCARPENTER_OCI_CONFIG_FILE", ""), "apiKey: an OCI config file (the development path; a profile with security_token_file is a session-token profile). Without it and --oci-credentials-dir the OCI_CLI_* variables are read.")
+	fs.StringVar(&o.OCIConfigProfile, "oci-config-profile", env.WithDefaultString("SCARPENTER_OCI_CONFIG_PROFILE", ""), "apiKey: the profile of --oci-config-file (default DEFAULT).")
+	fs.StringVar(&o.OCIRegion, "oci-region", env.WithDefaultString("SCARPENTER_OCI_REGION", ""), "workloadIdentityFederation: the home region of the tenancy.")
+	fs.StringVar(&o.OCITokenFile, "oci-token-file", env.WithDefaultString("SCARPENTER_OCI_TOKEN_FILE", ""), "workloadIdentityFederation: file with the token to exchange (the projected ServiceAccount token of a cluster, or the OIDC token of a CI job); read at every exchange.")
+	fs.StringVar(&o.OCIIdentityDomain, "oci-identity-domain-url", env.WithDefaultString("SCARPENTER_OCI_IDENTITY_DOMAIN_URL", ""), "workloadIdentityFederation: URL of the IAM identity domain whose token endpoint does the exchange.")
+	fs.StringVar(&o.OCIClientID, "oci-client-id", env.WithDefaultString("SCARPENTER_OCI_CLIENT_ID", ""), "workloadIdentityFederation: client ID of the identity domain's confidential application.")
+	fs.StringVar(&o.OCIClientSecretFile, "oci-client-secret-file", env.WithDefaultString("SCARPENTER_OCI_CLIENT_SECRET_FILE", ""), "workloadIdentityFederation: file with the confidential application's client secret.")
 	fs.IntVar(&o.HCloudServerLimit, "hcloud-server-limit", env.WithDefaultInt("SCARPENTER_HCLOUD_SERVER_LIMIT", 0), "Server limit of the Hetzner Cloud project (shown in its Console; the API does not report it). 0 means unknown: only the API's own refusal ends a launch.")
 }
 
@@ -294,6 +326,7 @@ func (o *Options) Validate() error {
 		}
 	}
 	errs = append(errs, o.validateEmbeddedVendors()...)
+	errs = append(errs, o.validateOCI()...)
 	for _, p := range o.TailnetPrefixes {
 		if _, err := netip.ParsePrefix(p); err != nil {
 			errs = append(errs, fmt.Errorf("--tailnet-prefixes: %q is not a CIDR", p))
@@ -365,6 +398,39 @@ func (o *Options) validateEmbeddedVendors() []error {
 			errs = append(errs, fmt.Errorf("--embedded-catalog-vendors: %q is listed twice", v))
 		}
 		seen[v] = true
+	}
+	return errs
+}
+
+// validateOCI checks the OCI options when the oci vendor is enabled.
+func (o *Options) validateOCI() []error {
+	if !slices.Contains(o.Vendors, "oci") {
+		return nil
+	}
+	var errs []error
+	if !ociCompartmentPattern.MatchString(o.OCICompartment) {
+		errs = append(errs, fmt.Errorf("--oci-compartment (SCARPENTER_OCI_COMPARTMENT) is required with the oci vendor and "+
+			"must be a compartment OCID (ocid1.compartment...), got %q", o.OCICompartment))
+	}
+	switch o.OCIAuth {
+	case "apiKey":
+	case "workloadIdentityFederation":
+		for name, v := range map[string]string{
+			"--oci-region": o.OCIRegion, "--oci-token-file": o.OCITokenFile, "--oci-identity-domain-url": o.OCIIdentityDomain,
+			"--oci-client-id": o.OCIClientID, "--oci-client-secret-file": o.OCIClientSecretFile,
+		} {
+			if v == "" {
+				errs = append(errs, fmt.Errorf("%s is required with --oci-auth=workloadIdentityFederation", name))
+			}
+		}
+		if o.OCIIdentityDomain != "" {
+			if err := validateURL("--oci-identity-domain-url", o.OCIIdentityDomain, "https"); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	default:
+		errs = append(errs, fmt.Errorf("--oci-auth must be apiKey or workloadIdentityFederation (instancePrincipal and "+
+			"okeWorkloadIdentity are not supported yet), got %q", o.OCIAuth))
 	}
 	return errs
 }

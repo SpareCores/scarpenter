@@ -268,3 +268,39 @@ func TestClusterDNSNone(t *testing.T) {
 		t.Error("none next to an address must be refused")
 	}
 }
+
+func TestOCIOptions(t *testing.T) {
+	const compartment = "ocid1.compartment.oc1..aaaa"
+	base := []string{"--cluster-name=c", "--api-server-endpoint=https://10.0.0.1:6443", "--vendors=oci"}
+	federation := []string{"--oci-auth=workloadIdentityFederation", "--oci-region=eu-frankfurt-1", "--oci-token-file=/t",
+		"--oci-identity-domain-url=https://idcs.example.com", "--oci-client-id=id", "--oci-client-secret-file=/s"}
+	for name, tc := range map[string]struct {
+		env  map[string]string
+		args []string
+		want string // an error substring; empty: valid
+	}{
+		"api key from flags":     {nil, []string{"--oci-compartment=" + compartment}, ""},
+		"compartment from env":   {map[string]string{"SCARPENTER_OCI_COMPARTMENT": compartment}, nil, ""},
+		"no compartment":         {nil, nil, "--oci-compartment"},
+		"compartment of a kind":  {nil, []string{"--oci-compartment=ocid1.subnet.oc1..aaaa"}, "--oci-compartment"},
+		"the tenancy root":       {nil, []string{"--oci-compartment=ocid1.tenancy.oc1..aaaa"}, ""},
+		"unknown mode":           {nil, []string{"--oci-compartment=" + compartment, "--oci-auth=instancePrincipal"}, "--oci-auth must be apiKey or workloadIdentityFederation"},
+		"federation complete":    {nil, append([]string{"--oci-compartment=" + compartment}, federation...), ""},
+		"federation incomplete":  {nil, []string{"--oci-compartment=" + compartment, "--oci-auth=workloadIdentityFederation"}, "--oci-token-file is required"},
+		"federation http domain": {nil, append(append([]string{"--oci-compartment=" + compartment}, federation...), "--oci-identity-domain-url=http://x"), "--oci-identity-domain-url"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parse(t, tc.env, append(append([]string{}, base...), tc.args...)...)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Fatal(err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Fatalf("error %v, want one containing %q", err, tc.want)
+			}
+		})
+	}
+	// Without the oci vendor none of it is checked.
+	if o, err := parse(t, nil, required...); err != nil || o.OCIAuth != "apiKey" {
+		t.Errorf("without oci: %v, auth %q", err, o.OCIAuth)
+	}
+}
