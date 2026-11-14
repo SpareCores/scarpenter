@@ -157,6 +157,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.verify.outputs.e2e_matrix) }}
     uses: ./.github/workflows/e2e-cloud.yml
+    secrets: inherit # the environment secrets of the called job's environment (e2e) reach it only so
     with:
       vendor: ${{ matrix.vendor }}
       mode: ${{ matrix.mode }}
