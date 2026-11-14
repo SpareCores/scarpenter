@@ -38,6 +38,13 @@ extraArgs:
   - --oci-identity-domain-url=${OCI_IDENTITY_DOMAIN_URL}
   - --oci-client-id=${OCI_CLIENT_ID}
   - --oci-client-secret-file=/etc/scarpenter/oci-client/client-secret
+# The credential Secrets are mounted 0440 (owner root): the group must be the controller's own
+# (the image runs as 65532:65532), or it cannot read them.
+podSecurityContext:
+  runAsNonRoot: true
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
 extraVolumes:
   - name: oci-federated-token
     secret: {secretName: oci-federated-token, defaultMode: 0440}

@@ -30,6 +30,13 @@ extraEnv:
   - {name: AZURE_TENANT_ID, value: "${AZURE_TENANT_ID}"}
   - {name: AZURE_CLIENT_ID, value: "${AZURE_CLIENT_ID}"}
   - {name: AZURE_FEDERATED_TOKEN_FILE, value: /var/run/secrets/azure/tokens/token}
+# The credential Secrets are mounted 0440 (owner root): the group must be the controller's own
+# (the image runs as 65532:65532), or it cannot read them.
+podSecurityContext:
+  runAsNonRoot: true
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
 extraVolumes:
   - name: azure-federated-token
     secret: {secretName: azure-federated-token, defaultMode: 0440}
