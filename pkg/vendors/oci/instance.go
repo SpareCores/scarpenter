@@ -190,7 +190,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			fmt.Errorf("%s is not a .Flex shape; preemptible capacity is for flexible VM shapes", t.Shape))
 	}
 	key := attemptKey(req)
-	spec, err := d.launchSpec(req, t, ad)
+	spec, err := d.launchSpec(ctx, req, t, ad)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,8 @@ func (d *Driver) launchFailed(ctx context.Context, req vendors.CreateRequest, ke
 }
 
 // launchSpec builds the resolved launch of a CreateRequest.
-func (d *Driver) launchSpec(req vendors.CreateRequest, t InstanceType, ad availabilityDomain) (LaunchSpec, error) {
+func (d *Driver) launchSpec(ctx context.Context, req vendors.CreateRequest, t InstanceType, ad availabilityDomain,
+) (LaunchSpec, error) {
 	st, err := decodeSettings(req.Settings)
 	if err != nil {
 		return LaunchSpec{}, vendors.NewError(vendors.Fatal, codeSettings, err)
@@ -243,6 +244,15 @@ func (d *Driver) launchSpec(req vendors.CreateRequest, t InstanceType, ad availa
 	if lr.subnet == "" {
 		return LaunchSpec{}, vendors.NewError(vendors.Unsupported, vendors.CodeResourceMissing,
 			fmt.Errorf("no subnet was prepared for the launch"))
+	}
+	if strings.HasPrefix(lr.subnet, "ocid1.vcn.") {
+		// A managed network: the subnet of its VCN that serves the zone.
+		sn, err := d.chooseSubnet(ctx, req.Region, req.Zone, []vendors.ResourceRef{{Kind: KindSubnets, ID: lr.subnet}},
+			boolOr(req.Settings.Networking.PublicIPv4, true), boolOr(req.Settings.Networking.PublicIPv6, false))
+		if err != nil {
+			return LaunchSpec{}, err
+		}
+		lr.subnet = sn.ID
 	}
 	tags, err := FreeformTags(req.Tags, req.ExtraTags)
 	if err != nil {

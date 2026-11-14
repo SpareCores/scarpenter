@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -87,6 +88,16 @@ type Driver struct {
 	// for: the shapes that consume them have unknown quota.
 	noQuota  map[string]bool
 	attempts map[string]int
+	prices   keeperPrices
+	epoch    atomic.Uint64
+	// images caches the resolved images (and the misses) by request; archs the
+	// architecture of an image that has no arch tag, read from its shape
+	// compatibility entries.
+	images map[imageKey]cachedImage
+	archs  map[string]cachedArch
+	// subnets remembers what Resolve read of the subnets (the availability domain
+	// and the options a launch into it depends on).
+	subnets map[string]cached[subnetInfo]
 }
 
 // cached is a value with an expiry.
@@ -112,7 +123,8 @@ func New(opts ...Option) *Driver {
 		callTimeout: DefaultCallTimeout,
 		ads:         map[string]cached[[]availabilityDomain]{}, shapes: map[adKey]cached[map[string]*shapeInfo]{},
 		index: map[string]*shapeInfo{}, limits: map[string]cached[map[string]limitDef]{},
-		attempts: map[string]int{}, noQuota: map[string]bool{},
+		attempts: map[string]int{}, noQuota: map[string]bool{}, images: map[imageKey]cachedImage{},
+		archs: map[string]cachedArch{}, subnets: map[string]cached[subnetInfo]{},
 	}
 	var b [6]byte
 	_, _ = rand.Read(b[:])
@@ -134,7 +146,10 @@ func (d *Driver) Compartment() string { return d.compartment }
 // the first call of a region, so an unreachable Oracle does not keep the
 // controller from starting. The startup check of plan 25 (section 4) is the
 // caller's: Regions proves the identity, ListInstances the policy.
-func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
+func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
+	if err := d.applyContextOptions(ctx); err != nil {
+		return err
+	}
 	d.cfg = cfg
 	d.clock = cfg.Clock
 	if d.clock == nil {
@@ -279,13 +294,6 @@ func (d *Driver) adOf(ctx context.Context, region, zone string) (availabilityDom
 	}
 	return availabilityDomain{}, vendors.NewError(vendors.Unsupported, codeNoSuchZone,
 		fmt.Errorf("the tenancy has no availability domain %q in %s", zone, region))
-}
-
-// ResolveImage implements vendors.Driver. It is step (c): the images are found by
-// the naming contract and the `images` selector once the API block exists.
-func (d *Driver) ResolveImage(context.Context, vendors.ImageRequest) (*vendors.Image, error) {
-	return nil, vendors.NewError(vendors.Fatal, codeNotReady,
-		fmt.Errorf("the OCI driver resolves images in step (c) of plan 25"))
 }
 
 var (

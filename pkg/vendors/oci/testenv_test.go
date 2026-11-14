@@ -150,9 +150,11 @@ type testDriver struct {
 
 func (d testDriver) CreateInstance(ctx context.Context, req vendors.CreateRequest) (*vendors.Instance, error) {
 	if req.Prepared == nil {
-		req.Prepared = &vendors.Prepared{Resources: []vendors.ResourceRef{
-			{Kind: driver.KindSubnets, ID: fake.SeedSubnet, Region: req.Region},
-		}}
+		req.Prepared = &vendors.Prepared{}
+	}
+	if !slices.ContainsFunc(req.Prepared.Resources, func(r vendors.ResourceRef) bool { return r.Kind == driver.KindSubnets }) {
+		req.Prepared.Resources = append(req.Prepared.Resources,
+			vendors.ResourceRef{Kind: driver.KindSubnets, ID: fake.SeedSubnet, Region: req.Region})
 	}
 	return d.Driver.CreateInstance(ctx, req)
 }
@@ -205,8 +207,8 @@ func request(typ string) vendors.CreateRequest {
 		Node:           vendors.NodeInfo{Name: "claim-1"},
 		Prepared: &vendors.Prepared{Resources: []vendors.ResourceRef{
 			{Kind: driver.KindSubnets, ID: fake.SeedSubnet},
-			{Kind: driver.KindNetworkSecurityGroups, ID: "ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaone"},
-			{Kind: driver.KindRunNetworkSecurityGroup, ID: "ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaarun"},
+			{Kind: driver.KindNetworkSecurityGroups, ID: fake.SeedGroup},
+			{Kind: driver.KindRunNetworkSecurityGroup, ID: fake.SeedRunGroup},
 		}},
 	}
 }
