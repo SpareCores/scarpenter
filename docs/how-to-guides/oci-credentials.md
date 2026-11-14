@@ -50,8 +50,9 @@ Create a group (the identity below becomes a member), then the statements of
   availability domains;
 - `inspect resource-availability` and `inspect limits` **in the tenancy**: the quotas are read on the root
   compartment, which is how the usage of the whole account is seen;
-- optional, only for NodeClasses whose network SCarpenter creates (no `use`):
-  `manage virtual-network-family` in the compartment.
+- `manage virtual-network-family` in the compartment, unless every NodeClass brings both its subnets and its
+  network security groups (`use`) and none has `isolation: run`: SCarpenter creates the network without a
+  subnets `use`, a group per NodeClass without a groups `use`, and a group per run for `isolation: run`.
 
 Tenancy-level statements belong to the root compartment's policy; the compartment ones can be in the
 compartment's own policy.
