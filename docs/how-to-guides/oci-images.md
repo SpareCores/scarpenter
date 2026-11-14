@@ -42,8 +42,9 @@ empty (the default) means the compartment of the nodes. The option applies to th
 reads each image by its OCID and works either way. Nodes are still launched in `--oci-compartment`.
 
 The controller's identity needs `read instance-images in compartment <image compartment>`
-([policy](../reference/oci-iam-policy.txt), [credentials](oci-credentials.md#the-policy)). The naming and
-tag contract above is the same, and a region's image must exist in the compartment of that region.
+([policy](../reference/oci-iam-policy.txt), [credentials](oci-credentials.md#the-policy)); for the root
+compartment (the tenancy's OCID) it is `read instance-images in tenancy`. The naming and tag contract above
+is the same, and each region's image must be imported into the image compartment in that region.
 
 ## How SCarpenter reads it
 

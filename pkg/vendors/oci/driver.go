@@ -178,8 +178,10 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 		return fmt.Errorf("the OCI compartment is not set or not a compartment OCID (%q): "+
 			"set --oci-compartment (SCARPENTER_OCI_COMPARTMENT)", d.compartment)
 	}
-	if d.imageCompartment != "" && !IsOCID(d.imageCompartment, "compartment") {
-		return fmt.Errorf("the OCI image compartment is not a compartment OCID (%q): "+
+	// The image compartment may be the root compartment (the tenancy's OCID), as the
+	// flag's and the chart's validation allow: images are often imported there.
+	if d.imageCompartment != "" && !IsOCID(d.imageCompartment, "compartment") && !IsOCID(d.imageCompartment, "tenancy") {
+		return fmt.Errorf("the OCI image compartment is not a compartment or tenancy OCID (%q): "+
 			"set --oci-image-compartment (SCARPENTER_OCI_IMAGE_COMPARTMENT) or leave it empty", d.imageCompartment)
 	}
 	if d.api.Compute == nil {

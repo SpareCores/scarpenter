@@ -21,7 +21,8 @@ Allow group <group> to inspect limits in tenancy
 # optional: only with --oci-image-compartment, the compartment the images are listed in when it is
 # not the compartment of the nodes (the default image and the images.use selectors list there,
 # images.use.ids get there). Reads only; launches stay in <compartment>, which already holds
-# instance-family (and with it the images) for the nodes.
+# instance-family (and with it the images) for the nodes. When the image compartment is the root
+# compartment (the tenancy's OCID), the statement is "read instance-images in tenancy".
 Allow group <group> to read instance-images in compartment <image compartment>
 
 # optional: needed unless every NodeClass brings both its subnets and its network security groups (use) and none

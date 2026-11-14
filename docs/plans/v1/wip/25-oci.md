@@ -339,8 +339,9 @@ subnet (`create`), the groups, and the run groups.
   credentials can read. The **tenancy** OCID comes from the credentials.
 - **Image compartment** (maintainer decision 2026-11-14, after the driver was complete): operators commonly import
   the shared images into a compartment other than the nodes'. The optional `--oci-image-compartment` /
-  `SCARPENTER_OCI_IMAGE_COMPARTMENT` (Helm `vendors.oci.imageCompartment`; an OCID, validated like
-  `--oci-compartment`, default empty = the main compartment) is the compartment of the default image lookup and
+  `SCARPENTER_OCI_IMAGE_COMPARTMENT` (Helm `vendors.oci.imageCompartment`; a compartment OCID, or the
+  tenancy's for the root compartment, which the driver's Init accepts here unlike for `--oci-compartment`;
+  default empty = the main compartment) is the compartment of the default image lookup and
   of every `images.use` selector that lists images (name, tags, OS). `images.use.ids` is unchanged (a get per
   OCID); only image listing reads that compartment, launches stay in the main one. The identity needs
   `read instance-images in compartment <image compartment>` (`oci-iam-policy.txt`). The L5 lane reads the optional

@@ -664,4 +664,10 @@ func TestInitRejectsABadImageCompartment(t *testing.T) {
 	if err := d.Init(t.Context(), vendors.Config{}); err == nil || !strings.Contains(err.Error(), "image compartment") {
 		t.Errorf("Init = %v, want an image compartment error", err)
 	}
+	// The root compartment (the tenancy's OCID) is a compartment images can live in.
+	c := newCloud(t)
+	root := restart(t, c, testCluster, driver.WithImageCompartment(fake.SeedTenancy))
+	if root.d.ImageCompartment() != fake.SeedTenancy {
+		t.Errorf("image compartment %q, want the tenancy", root.d.ImageCompartment())
+	}
 }

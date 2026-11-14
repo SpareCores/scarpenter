@@ -418,7 +418,7 @@ func (o *Options) validateOCI() []error {
 	}
 	if o.OCIImageCompartment != "" && !ociCompartmentPattern.MatchString(o.OCIImageCompartment) {
 		errs = append(errs, fmt.Errorf("--oci-image-compartment (SCARPENTER_OCI_IMAGE_COMPARTMENT) must be a compartment OCID "+
-			"(ocid1.compartment...) or empty, got %q", o.OCIImageCompartment))
+			"(ocid1.compartment..., or the tenancy's for the root compartment) or empty, got %q", o.OCIImageCompartment))
 	}
 	switch o.OCIAuth {
 	case "apiKey":
