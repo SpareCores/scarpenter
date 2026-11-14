@@ -248,3 +248,19 @@ func TestWithinDeadline(t *testing.T) {
 		t.Errorf("the caller's shorter deadline did not win: %v after %s", err, time.Since(start))
 	}
 }
+
+// The adapter sets the retry policy and leaves the rest of the client's configuration
+// as the SDK's constructor made it (here the circuit breaker its environment asks for).
+func TestSDKKeepsClientConfiguration(t *testing.T) {
+	t.Setenv("OCI_SDK_DEFAULT_CIRCUITBREAKER_ENABLED", "true")
+	c, err := NewSDK(testProvider(t), "x").computeClient("eu-frankfurt-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Configuration.CircuitBreaker == nil {
+		t.Error("the circuit breaker of the environment was dropped")
+	}
+	if p := c.RetryPolicy(); p == nil || p.MaximumNumberAttempts <= 1 {
+		t.Errorf("retry policy %+v; want the default policy without eventual consistency", p)
+	}
+}

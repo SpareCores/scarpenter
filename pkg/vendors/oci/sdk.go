@@ -94,7 +94,9 @@ func within[Q, R any](ctx context.Context, d time.Duration, f func(context.Conte
 }
 
 // configure applies what every client gets: the retry policy, the user agent and
-// the endpoint of the region.
+// the endpoint of the region. Only the retry policy of the client's configuration
+// is set: the rest (the circuit breaker the SDK's environment variables ask for,
+// the dual-stack choice) stays as the constructor made it.
 func (s *SDK) configure(base *common.BaseClient, service, region string, setRegion func(string)) {
 	setRegion(region)
 	if s.host != nil {
@@ -102,7 +104,7 @@ func (s *SDK) configure(base *common.BaseClient, service, region string, setRegi
 	}
 	base.UserAgent = s.agent
 	policy := common.DefaultRetryPolicyWithoutEventualConsistency()
-	base.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &policy})
+	base.Configuration.RetryPolicy = &policy
 }
 
 func clientError(service, region string, err error) error {
