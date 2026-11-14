@@ -4,8 +4,26 @@ Depends on: 03, 14 to 21 (the vendor price fetchers this plan replaces) and
 23 (the vendor table). Read `docs/plans/v1/CONVENTIONS.md` first. Spec:
 overview §5.1–§5.2; the coordinator rewrites overview §5.1 when part B lands.
 
-Status: **todo.** Three steps, in order, each with its own gates (section
-"Steps"): (1) sc-keeper-go, (2) SCarpenter part A, (3) SCarpenter part B.
+Status: **review** (part B; steps 1 and 2 are merged). Part B measured on
+the recording of Keeper database `40ecd194b481` (published 2026-11-13) and
+live the same day:
+
+- **Controller memory** (L3 scenario S10, at rest, RSS; plan 06: 217 and 377
+  MiB): AWS three regions **188 MiB** (peak 234 MiB RSS, 181 MiB Go heap in use),
+  all AWS regions **367 MiB** (peak 382 MiB RSS, 287 MiB heap). No need to drop
+  the price slice.
+- **One refresh** (`TestRefreshCost`, three test metrics, empty disk copy):
+  AWS three regions 13 requests, 0.8 MiB gzip, 0.17 s on the recording and 2.1 s
+  live (peak 78 MiB RSS, 18 MiB heap retained by the data); AWS all regions the
+  same requests, 0.2 s, peak 118 MiB, 42 MiB retained; all eight vendors 76
+  requests (about 76 credits), 2.2 MiB gzip, 0.7 s on the recording and 7.8 s
+  live (peak 224-279 MiB RSS, 131 MiB retained by the data; the 520k offerings
+  built from it hold the heap at about 1.1 GiB).
+- **Rounding:** 2,483 of the 2,488 hcloud, OVH and UpCloud hourly prices
+  (79, 1,250 and 1,154 of 79, 1,252 and 1,157) have more than four decimals;
+  every other vendor's prices are exact to four. Goldens that read converted
+  vendors moved in the last digits.
+- L3 (`make test-kwok`): green, 55 min 11 s.
 
 ## Goal
 
