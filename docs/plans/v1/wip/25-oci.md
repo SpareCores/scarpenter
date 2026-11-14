@@ -1066,6 +1066,16 @@ the sweeper, the canary and its guard, the workflows (`e2e-cloud.yml` and `e2e-c
 step; the new sweeper workflow), `make test-e2e-oci-dryrun`, the testing docs' lane section; the line
 `oci` is **not** added to `test/e2e-vendors.txt`.
 
+Review of step (d) (fixes on the branch):
+
+- The sweeper deletes a boot volume only by the cluster tag (never an untagged one), and the teardown reports a boot volume left
+  since the run began instead of deleting it (section 11's corrections say why).
+- The chart's credentials mode `none` renders no `--oci-auth` (it rendered the default `apiKey`), so the lane's `extraArgs` flag is the
+  only one; the lane tests the driver's federation mode, not the chart's projected token.
+- `oci-session.sh` sent the token request body with a trailing newline (in the public key's value); `stop` also removes the session
+  directory, and the canary and sweeper workflows run it in a final step.
+- Coverage of `pkg/vendors/oci/...` with `-coverpkg` over the tree is 89.9 % (the fake's own tests alone cover 34 % of it).
+
 ## Gates
 
 Per step, in this order, all green: `hack/dev.sh make generate manifests docs-api chart-crds` leaves no
