@@ -15,6 +15,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- $upcloud := .Values.vendors.upcloud }}
 {{- $vultr := .Values.vendors.vultr }}
 {{- $gcp := .Values.vendors.gcp }}
+{{- $oci := .Values.vendors.oci }}
 {{- $amode := $ali.credentials.mode }}
 {{- if and $ali.enabled (eq $amode "oidc") (or (not $ali.credentials.oidc.roleArn) (not $ali.credentials.oidc.providerArn)) }}
 {{- fail "vendors.alicloud.credentials.oidc.roleArn and providerArn are required with credentials mode oidc (docs/how-to-guides/alicloud-credentials.md); use mode secret or none otherwise" }}
@@ -23,7 +24,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- fail "vendors.alicloud.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
 {{- if not (include "scarpenter.vendors" .) }}
-{{- fail "enable at least one vendor: vendors.alicloud.enabled=true, vendors.aws.enabled=true, vendors.azure.enabled=true, vendors.gcp.enabled=true, vendors.hcloud.enabled=true, vendors.ovh.enabled=true, vendors.upcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
+{{- fail "enable at least one vendor: vendors.alicloud.enabled=true, vendors.aws.enabled=true, vendors.azure.enabled=true, vendors.gcp.enabled=true, vendors.hcloud.enabled=true, vendors.oci.enabled=true, vendors.ovh.enabled=true, vendors.upcloud.enabled=true, vendors.vultr.enabled=true, or vendors.extra for the development image" }}
 {{- end }}
 {{- if and $hcloud.enabled (not $hcloud.credentials.secret.existingSecret) }}
 {{- fail "vendors.hcloud.credentials.secret.existingSecret is required: the Secret that holds the API token of the Hetzner Cloud project (HCLOUD_TOKEN)" }}
@@ -65,6 +66,19 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- if and $gcp.enabled (eq $gcpMode "secret") (not $gcp.credentials.secret.existingSecret) }}
 {{- fail "vendors.gcp.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
+{{- $ociMode := $oci.credentials.mode }}
+{{- if and $oci.enabled (not $oci.compartment) }}
+{{- fail "vendors.oci.compartment is required when oci is enabled: the OCID of the compartment of the nodes (docs/how-to-guides/oci-credentials.md)" }}
+{{- end }}
+{{- if and $oci.enabled (not (has $ociMode (list "apiKey" "workloadIdentityFederation" "none"))) }}
+{{- fail "vendors.oci.credentials.mode must be apiKey, workloadIdentityFederation or none (instancePrincipal and okeWorkloadIdentity are not supported yet)" }}
+{{- end }}
+{{- if and $oci.enabled (eq $ociMode "apiKey") (not $oci.credentials.apiKey.existingSecret) }}
+{{- fail "vendors.oci.credentials.apiKey.existingSecret is required with credentials mode apiKey: the Secret with the keys tenancy, user, fingerprint, region and key (docs/how-to-guides/oci-credentials.md); use mode none and extraEnv for the OCI_CLI_* variables" }}
+{{- end }}
+{{- if and $oci.enabled (eq $ociMode "workloadIdentityFederation") (or (not $oci.credentials.workloadIdentityFederation.region) (not $oci.credentials.workloadIdentityFederation.identityDomainURL) (not $oci.credentials.workloadIdentityFederation.clientId) (not $oci.credentials.workloadIdentityFederation.clientSecret.existingSecret) (not $oci.credentials.workloadIdentityFederation.audience)) }}
+{{- fail "vendors.oci.credentials.workloadIdentityFederation.region, identityDomainURL, clientId, audience and clientSecret.existingSecret are required with credentials mode workloadIdentityFederation (docs/how-to-guides/oci-credentials.md)" }}
+{{- end }}
 {{- if and .Values.bootstrap.tokenTTL (lt (int (include "scarpenter.seconds" .Values.bootstrap.tokenTTL)) 1200) }}
 {{- fail "bootstrap.tokenTTL must be at least 20m: core gives a NodeClaim 15 minutes to register and the token must outlive that" }}
 {{- end }}
@@ -104,6 +118,16 @@ checks that every flag of pkg/operator/options can be set from here.
   "resource-full-sweep-every" .Values.managedResources.fullSweepEvery
   "aws-home-region" (ternary $aws.homeRegion "" $aws.enabled)
   "gcp-project" (ternary $gcp.project "" $gcp.enabled)
+  "oci-compartment" (ternary $oci.compartment "" $oci.enabled)
+  "oci-auth" (ternary (ternary "workloadIdentityFederation" "apiKey" (eq $ociMode "workloadIdentityFederation")) "" $oci.enabled)
+  "oci-credentials-dir" (ternary "/etc/scarpenter/oci-key" "" (and $oci.enabled (eq $ociMode "apiKey")))
+  "oci-config-file" (ternary $oci.credentials.configFile "" (and $oci.enabled (eq $ociMode "none")))
+  "oci-config-profile" (ternary $oci.credentials.configProfile "" (and $oci.enabled (eq $ociMode "none")))
+  "oci-region" (ternary $oci.credentials.workloadIdentityFederation.region "" (and $oci.enabled (eq $ociMode "workloadIdentityFederation")))
+  "oci-token-file" (ternary "/var/run/secrets/oci/token" "" (and $oci.enabled (eq $ociMode "workloadIdentityFederation")))
+  "oci-identity-domain-url" (ternary $oci.credentials.workloadIdentityFederation.identityDomainURL "" (and $oci.enabled (eq $ociMode "workloadIdentityFederation")))
+  "oci-client-id" (ternary $oci.credentials.workloadIdentityFederation.clientId "" (and $oci.enabled (eq $ociMode "workloadIdentityFederation")))
+  "oci-client-secret-file" (ternary (printf "/etc/scarpenter/oci-client/%s" $oci.credentials.workloadIdentityFederation.clientSecret.key) "" (and $oci.enabled (eq $ociMode "workloadIdentityFederation")))
   "hcloud-server-limit" (ternary $hcloud.serverLimit "" (and $hcloud.enabled (gt (int $hcloud.serverLimit) 0)))
   "log-level" .Values.karpenter.logLevel
   "batch-max-duration" .Values.karpenter.batchMaxDuration
@@ -403,6 +427,18 @@ spec:
               mountPath: /etc/scarpenter/gcp-key
               readOnly: true
             {{- end }}
+            {{- if and $oci.enabled (eq $ociMode "apiKey") }}
+            - name: oci-key
+              mountPath: /etc/scarpenter/oci-key
+              readOnly: true
+            {{- else if and $oci.enabled (eq $ociMode "workloadIdentityFederation") }}
+            - name: oci-token
+              mountPath: /var/run/secrets/oci
+              readOnly: true
+            - name: oci-client
+              mountPath: /etc/scarpenter/oci-client
+              readOnly: true
+            {{- end }}
             {{- if or .Values.cluster.ca.existingConfigMap .Values.cluster.ca.existingSecret }}
             - name: cluster-ca
               mountPath: /etc/scarpenter/cluster-ca
@@ -472,6 +508,25 @@ spec:
             secretName: {{ $gcp.credentials.secret.existingSecret | quote }}
             items:
               - {key: {{ $gcp.credentials.secret.key | quote }}, path: {{ $gcp.credentials.secret.key | quote }}}
+        {{- end }}
+        {{- if and $oci.enabled (eq $ociMode "apiKey") }}
+        - name: oci-key
+          secret:
+            secretName: {{ $oci.credentials.apiKey.existingSecret | quote }}
+        {{- else if and $oci.enabled (eq $ociMode "workloadIdentityFederation") }}
+        {{- $wif := $oci.credentials.workloadIdentityFederation }}
+        - name: oci-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ $wif.audience | quote }}
+                  expirationSeconds: {{ $wif.expirationSeconds }}
+                  path: token
+        - name: oci-client
+          secret:
+            secretName: {{ $wif.clientSecret.existingSecret | quote }}
+            items:
+              - {key: {{ $wif.clientSecret.key | quote }}, path: {{ $wif.clientSecret.key | quote }}}
         {{- end }}
         {{- if .Values.cluster.ca.existingConfigMap }}
         - name: cluster-ca

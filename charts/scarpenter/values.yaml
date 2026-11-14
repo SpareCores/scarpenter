@@ -245,6 +245,49 @@ vendors:
       secret:
         existingSecret: ""
         key: HCLOUD_TOKEN
+  oci:
+    # Oracle Cloud Infrastructure (docs/reference/oci-driver.md): instances of one
+    # compartment of the tenancy, from Flatcar images imported into it
+    # (docs/how-to-guides/oci-images.md). The embedded catalog serves OCI until
+    # Keeper does (catalog.embeddedVendors).
+    enabled: false
+    # OCID of the compartment of the nodes (--oci-compartment). REQUIRED when oci
+    # is enabled; there is no per-NodeClass compartment.
+    compartment: ""
+    credentials:
+      # apiKey: an API key from an existing Secret (keys tenancy, user,
+      #   fingerprint, region, key; optional passphrase), mounted as a directory.
+      # workloadIdentityFederation: the keyless token exchange: the
+      #   ServiceAccount's projected token is exchanged at an IAM identity domain
+      #   for a short-lived session token (docs/how-to-guides/oci-credentials.md);
+      #   recommended where the cluster's issuer can be trusted by the domain.
+      # none: nothing is wired; set the OCI_CLI_* variables with extraEnv.
+      # (instancePrincipal and okeWorkloadIdentity are not supported yet.)
+      mode: apiKey
+      apiKey:
+        existingSecret: ""
+      # With mode none: an OCI config file that is already in the pod (for example
+      # mounted with extraVolumes) and its profile (--oci-config-file,
+      # --oci-config-profile); a profile with security_token_file is a
+      # session-token profile. Empty: the OCI_CLI_* variables are read.
+      configFile: ""
+      configProfile: ""
+      workloadIdentityFederation:
+        # The home region of the tenancy. REQUIRED.
+        region: ""
+        # URL of the identity domain, https://idcs-<id>.identity.oraclecloud.com. REQUIRED.
+        identityDomainURL: ""
+        # Client ID of the domain's confidential application. REQUIRED.
+        clientId: ""
+        # Its client secret, from an existing Secret. REQUIRED.
+        clientSecret:
+          existingSecret: ""
+          key: client-secret
+        # Audience of the projected token: what the domain's trust for the cluster's
+        # issuer expects. REQUIRED. (Whether the domain accepts it is settled by the
+        # first live run: plan 25, spike S11.)
+        audience: ""
+        expirationSeconds: 3600
   # OVHcloud Public Cloud (docs/reference/ovh-driver.md): one Public Cloud
   # project, authenticated with an OpenStack user of the project.
   ovh:

@@ -1,0 +1,16 @@
+# The OCI driver with an API key from a Secret (keys tenancy, user, fingerprint,
+# region, key), mounted as a directory; the AWS vendor off.
+cluster:
+  name: lab
+  apiServerEndpoint: https://100.64.0.1:6443
+  dns: [10.43.0.10]
+vendors:
+  aws:
+    enabled: false
+  oci:
+    enabled: true
+    compartment: ocid1.compartment.oc1..aaaaaaaaexample
+    credentials:
+      mode: apiKey
+      apiKey:
+        existingSecret: oci-api-key

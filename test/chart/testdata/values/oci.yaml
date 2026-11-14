@@ -1,0 +1,22 @@
+# The OCI driver with the keyless token exchange (workload identity federation):
+# the ServiceAccount's projected token is exchanged at an identity domain; the AWS
+# vendor off.
+cluster:
+  name: lab
+  apiServerEndpoint: https://100.64.0.1:6443
+  dns: [10.43.0.10]
+vendors:
+  aws:
+    enabled: false
+  oci:
+    enabled: true
+    compartment: ocid1.compartment.oc1..aaaaaaaaexample
+    credentials:
+      mode: workloadIdentityFederation
+      workloadIdentityFederation:
+        region: eu-frankfurt-1
+        identityDomainURL: https://idcs-example.identity.oraclecloud.com
+        clientId: scarpenter-client
+        clientSecret:
+          existingSecret: oci-client
+        audience: oci-federation

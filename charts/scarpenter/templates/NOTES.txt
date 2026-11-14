@@ -39,6 +39,14 @@ get them from the metadata server (GKE Workload Identity, or the node's service
 account) and set --gcp-project (vendors.gcp.project) if they carry no project.
 {{- end }}
 {{- end }}
+{{- if .Values.vendors.oci.enabled }}
+{{- if eq .Values.vendors.oci.credentials.mode "none" }}
+
+OCI credentials are not wired by the chart (credentials.mode none): set the
+OCI_CLI_TENANCY, OCI_CLI_USER, OCI_CLI_FINGERPRINT, OCI_CLI_REGION and
+OCI_CLI_KEY_FILE (or OCI_CLI_KEY_CONTENT) variables with extraEnv.
+{{- end }}
+{{- end }}
 {{- if not .Values.examples.enabled }}
 
 Create an SCNodeClass and a NodePool that references it; examples:

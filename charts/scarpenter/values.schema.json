@@ -496,6 +496,85 @@
             }
           }
         },
+        "oci": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "compartment": {
+              "type": "string",
+              "pattern": "^(ocid1\\.(compartment|tenancy)\\.[a-z0-9]+\\.[a-z0-9-]*\\.[a-z0-9]+)?$"
+            },
+            "credentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "apiKey",
+                    "workloadIdentityFederation",
+                    "none"
+                  ]
+                },
+                "apiKey": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "existingSecret": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "configFile": {
+                  "type": "string"
+                },
+                "configProfile": {
+                  "type": "string"
+                },
+                "workloadIdentityFederation": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "region": {
+                      "type": "string",
+                      "pattern": "^([a-z]{2}-[a-z]+-[0-9]+)?$"
+                    },
+                    "identityDomainURL": {
+                      "type": "string",
+                      "pattern": "^(https://.+)?$"
+                    },
+                    "clientId": {
+                      "type": "string"
+                    },
+                    "clientSecret": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "existingSecret": {
+                          "type": "string"
+                        },
+                        "key": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "audience": {
+                      "type": "string"
+                    },
+                    "expirationSeconds": {
+                      "type": "integer",
+                      "minimum": 600,
+                      "maximum": 86400
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "ovh": {
           "type": "object",
           "additionalProperties": false,

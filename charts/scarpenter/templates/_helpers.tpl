@@ -66,7 +66,7 @@ Seconds of a Go duration made of h, m and s parts ("1h", "90s", "1h30m").
 {{- $total }}
 {{- end }}
 
-{{/* The vendors flag: alicloud, aws, azure, gcp, hcloud, ovh, upcloud and vultr if enabled, then the extra ones (development builds: fake, qemu). */}}
+{{/* The vendors flag: alicloud, aws, azure, gcp, hcloud, oci, ovh, upcloud and vultr if enabled, then the extra ones (development builds: fake, qemu). */}}
 {{- define "scarpenter.vendors" -}}
 {{- $v := list }}
 {{- if .Values.vendors.alicloud.enabled }}{{ $v = append $v "alicloud" }}{{ end }}
@@ -74,6 +74,7 @@ Seconds of a Go duration made of h, m and s parts ("1h", "90s", "1h30m").
 {{- if .Values.vendors.azure.enabled }}{{ $v = append $v "azure" }}{{ end }}
 {{- if .Values.vendors.gcp.enabled }}{{ $v = append $v "gcp" }}{{ end }}
 {{- if .Values.vendors.hcloud.enabled }}{{ $v = append $v "hcloud" }}{{ end }}
+{{- if .Values.vendors.oci.enabled }}{{ $v = append $v "oci" }}{{ end }}
 {{- if .Values.vendors.ovh.enabled }}{{ $v = append $v "ovh" }}{{ end }}
 {{- if .Values.vendors.upcloud.enabled }}{{ $v = append $v "upcloud" }}{{ end }}
 {{- if .Values.vendors.vultr.enabled }}{{ $v = append $v "vultr" }}{{ end }}

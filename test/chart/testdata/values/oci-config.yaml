@@ -1,0 +1,16 @@
+# The OCI driver with an OCI config file that is already in the pod (credentials
+# mode none), a profile of it, and the AWS vendor off.
+cluster:
+  name: lab
+  apiServerEndpoint: https://100.64.0.1:6443
+  dns: [10.43.0.10]
+vendors:
+  aws:
+    enabled: false
+  oci:
+    enabled: true
+    compartment: ocid1.compartment.oc1..aaaaaaaaexample
+    credentials:
+      mode: none
+      configFile: /etc/oci/config
+      configProfile: scarpenter
