@@ -10,11 +10,17 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These tests build providers from files and variables made here: no key is real
@@ -180,6 +186,8 @@ func TestWorkloadIdentityFederation(t *testing.T) {
 		"secret file gone":  func(c *CredentialConfig) { c.ClientSecretFile = filepath.Join(dir, "nope") },
 		"token file gone":   func(c *CredentialConfig) { c.TokenFile = filepath.Join(dir, "nope") },
 		"empty secret file": func(c *CredentialConfig) { c.ClientSecretFile = write(t, dir, "empty", "\n") },
+		"token path in url": func(c *CredentialConfig) { c.IdentityDomain += "oauth2/v1/token" },
+		"plain http url":    func(c *CredentialConfig) { c.IdentityDomain = "http://idcs-example.identity.oraclecloud.com" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := good
@@ -188,6 +196,63 @@ func TestWorkloadIdentityFederation(t *testing.T) {
 				t.Error("accepted")
 			}
 		})
+	}
+}
+
+// TestWorkloadIdentityFederationExchange runs one exchange against a local identity domain
+// (a TLS server on the loopback interface) and checks the request the SDK sends for the
+// provider: the token endpoint, the client's basic credentials and the form of a JWT
+// exchanged for a user principal session token.
+func TestWorkloadIdentityFederationExchange(t *testing.T) {
+	var got struct {
+		path, auth string
+		form       map[string][]string
+	}
+	seg := func(v any) string {
+		b, _ := json.Marshal(v)
+		return base64.RawURLEncoding.EncodeToString(b)
+	}
+	upst := seg(map[string]any{"alg": "none"}) + "." + seg(map[string]any{
+		"exp": time.Now().Add(time.Hour).Unix(), "tenant": "ocid1.tenancy.oc1..aaaa", "sub": "ocid1.user.oc1..bbbb",
+	}) + ".sig"
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.path, got.auth = r.URL.Path, r.Header.Get("Authorization")
+		if err := r.ParseForm(); err == nil {
+			got.form = r.PostForm
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"token":%q}`, upst)
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	ca := write(t, dir, "ca.pem", string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})))
+	t.Setenv("OCI_DEFAULT_CERTS_PATH", ca)
+
+	p, err := NewConfigurationProvider(CredentialConfig{
+		Mode: AuthWorkloadIdentityFederation, TokenFile: write(t, dir, "token", "a.b.c\n"), IdentityDomain: srv.URL,
+		ClientID: "client", ClientSecretFile: write(t, dir, "secret", "s3cret\n"), Region: "eu-frankfurt-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenancy, err := p.TenancyOCID()
+	if err != nil || tenancy != "ocid1.tenancy.oc1..aaaa" {
+		t.Fatalf("tenancy %q, %v", tenancy, err)
+	}
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("client:s3cret"))
+	if got.path != "/oauth2/v1/token" || got.auth != wantAuth {
+		t.Errorf("request to %q with %q", got.path, got.auth)
+	}
+	for k, want := range map[string]string{
+		"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange", "requested_token_type": upstTokenType,
+		"subject_token_type": "jwt", "subject_token": "a.b.c",
+	} {
+		if v := got.form[k]; len(v) != 1 || v[0] != want {
+			t.Errorf("form %s = %q, want %q", k, v, want)
+		}
+	}
+	if len(got.form["public_key"]) != 1 || got.form["public_key"][0] == "" {
+		t.Error("the exchange sent no public key")
 	}
 }
 

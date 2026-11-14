@@ -9,6 +9,7 @@ package oci
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -258,6 +259,24 @@ func (f fileIssuer) GetToken() (string, error) {
 // of the session token: the SDK refreshes it).
 const upstTokenType = "urn:oci:token-type:oci-upst"
 
+// subjectTokenType says that the token the exchange sends is a JWT: the identity
+// domain's token exchange requires it (the SDK's own examples set it; without it
+// the parameter is not sent).
+const subjectTokenType = "jwt"
+
+// domainEndpoint checks the identity domain's URL: https and a host only. The
+// SDK appends the token endpoint's path itself and refuses a URL that has one, at
+// the first call; this fails at start-up instead.
+func domainEndpoint(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimRight(raw, "/"))
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
+		u.User != nil {
+		return "", fmt.Errorf("the OCI identity domain URL %q must be https://<host> only "+
+			"(https://idcs-<id>.identity.oraclecloud.com, without /oauth2/v1/token)", raw)
+	}
+	return u.String(), nil
+}
+
 func (c CredentialConfig) federation() (common.ConfigurationProvider, error) {
 	var missing []string
 	for name, v := range map[string]string{
@@ -272,6 +291,10 @@ func (c CredentialConfig) federation() (common.ConfigurationProvider, error) {
 		slices.Sort(missing)
 		return nil, fmt.Errorf("the OCI mode %s needs %s", AuthWorkloadIdentityFederation, strings.Join(missing, ", "))
 	}
+	domain, err := domainEndpoint(c.IdentityDomain)
+	if err != nil {
+		return nil, err
+	}
 	secret, err := os.ReadFile(c.ClientSecretFile)
 	if err != nil {
 		return nil, fmt.Errorf("reading the OCI client secret file: %w", err)
@@ -284,7 +307,7 @@ func (c CredentialConfig) federation() (common.ConfigurationProvider, error) {
 		return nil, err
 	}
 	return auth.TokenExchangeConfigurationProviderFromIssuer(issuer, auth.TokenExchangeBuilder{
-		DomainUrl: strings.TrimRight(c.IdentityDomain, "/"), ClientId: c.ClientID,
-		ClientSecret: strings.TrimSpace(string(secret)), Region: c.Region, RequestedTokenType: upstTokenType,
+		DomainUrl: domain, ClientId: c.ClientID, ClientSecret: strings.TrimSpace(string(secret)), Region: c.Region,
+		RequestedTokenType: upstTokenType, SubjectTokenType: subjectTokenType,
 	})
 }
