@@ -904,7 +904,15 @@ Done (step (a2), branch `oci-a2`), with these corrections to the text above: `Ne
 the vendor and an `fs.FS`; `loadVendor` and the readers it calls became functions over `snapshotFiles`
 (not a reader of `func(path)`); `KeeperSource` also sets `AuxPricesRead`; the flag accepts `none`;
 `controller.md` and `labels-and-offerings.md` also got the rule R sentence (the old "the lower server ID
-wins" text was stale). **Not done, open for (c) or a follow-up:** the decision of 2026-11-14 that a
+wins" text was stale). Review fixes: the merged data of a `MuxSource` carries Keeper's own version in
+`model.Data.SnapshotVersion`, so the status message of a mixed deployment names Keeper's data version
+(not the digest of the parts); the start-up log line and the gauge `scarpenter_catalog_embedded_vendor`
+are only for listed vendors whose driver is enabled (`--vendors`), so the default `oci` does not report
+OCI in a deployment without the driver (the vendor is still routed to the embedded source); the
+embedded vendor row wins over a Keeper row of the same vendor (the own parts merge after Keeper's).
+**Open for (c):** in a deployment of Keeper vendors and OCI, a failed Keeper read fails the whole load
+(the mux is one snapshot), so OCI's NodeClasses go stale with Keeper's; only an OCI-only deployment is
+independent of Keeper. **Not done, open for (c) or a follow-up:** the decision of 2026-11-14 that a
 type is offered in every AD of the region the tenancy lists on the strength of a price row in any AD
 of it. The catalog still maps a zone-level price to its zone by Keeper's zone ID (`resolveZones`), so
 with the embedded data a type has offerings in exactly the ADs the data has rows for (all of them for
