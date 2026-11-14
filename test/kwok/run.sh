@@ -117,6 +117,7 @@ docker build -q -t "${manager_image}" --build-arg GO_TAGS=scarpenter_dev \
   --build-arg VERSION=l3 --build-arg COMMIT="$(git -c safe.directory='*' rev-parse HEAD 2>/dev/null || true)" "${root}"
 gobuild "${ctx}/replay/replay" ./test/kwok/replay
 cp -r "${root}/test/data/sc-snapshot" "${ctx}/replay/snapshot"
+chmod -R u+rwX,go+rX "${ctx}/replay/snapshot"
 cp -r "${root}/pkg/artifacts/testdata" "${ctx}/replay/sysext"
 docker build -q -t "${replay_image}" -f "${here}/Dockerfile.replay" "${ctx}/replay"
 phase

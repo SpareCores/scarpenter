@@ -2,7 +2,8 @@
 # checksums.
 FROM scratch
 COPY replay /replay
-COPY snapshot /snapshot
-COPY sysext /sysext
+# World-readable whatever the recorder wrote (it keeps its files private).
+COPY --chmod=a+rX snapshot /snapshot
+COPY --chmod=a+rX sysext /sysext
 USER 65532:65532
 ENTRYPOINT ["/replay", "-snapshot=/snapshot", "-sysext=/sysext"]

@@ -86,6 +86,7 @@ func TestRefreshCost(t *testing.T) {
 	scopes := map[string]catalog.Scope{
 		"aws-three-regions": {"aws": threeRegions},
 		"aws-all-regions":   {"aws": nil},
+		"azure-all-regions": {"azure": nil},
 		"all-vendors": {"aws": nil, "gcp": nil, "azure": nil, "alicloud": nil, "hcloud": nil, "ovh": nil,
 			"upcloud": nil, "vultr": nil},
 	}

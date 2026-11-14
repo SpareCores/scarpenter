@@ -227,6 +227,26 @@ is not ready offers no instance types; a `Create` fails with `NodeClassNotReady`
 only when every vendor the NodeClaim allows is not ready (when another, ready
 vendor simply has no capacity, it is `InsufficientCapacity`).
 
+### Memory sizing
+
+The memory of the controller is the catalog it holds: the data of one Keeper
+data version in scope and the instance types built from it (one offering per
+price row of a zone). Measured on the committed recording (Keeper database
+`2c401c216`) with three benchmark metrics; "refresh peak" is the resident set
+while the files are read, "built" the Go heap after a GC with every type of the
+scope built, and the controller rows are the L3 scale scenario S10, at rest:
+
+| Scope | Offerings | Refresh peak (RSS) | Data held | Built (heap) |
+|---|---|---|---|---|
+| AWS, three regions | 26,303 | 77 MiB | 18 MiB | 87 MiB (controller 188 MiB RSS at rest) |
+| AWS, every region | 134,992 | 116 MiB | 42 MiB | 303 MiB (controller 367 MiB at rest) |
+| Azure, every region | 294,674 | 197 MiB | 68 MiB | 571 MiB |
+| All eight vendors, every region | 520,386 | 269 MiB | 131 MiB | 1,078 MiB |
+
+The chart's default limit is 2Gi (request 640Mi), which covers every region of
+all eight vendors; scope the NodeClasses' `regions` to what you use to need less.
+The refresh itself reads each file as a stream and holds no uncompressed body.
+
 ## Billing retention
 
 The billing retention controller ([ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10),

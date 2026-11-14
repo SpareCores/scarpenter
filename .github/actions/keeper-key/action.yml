@@ -22,7 +22,7 @@ inputs:
   optional:
     description: >-
       "true": when the role or the parameter is not set (a fork), skip with a
-      notice and output present=false. Otherwise a missing one fails the step.
+      warning and output present=false. Otherwise a missing one fails the step.
     required: false
     default: "false"
 
@@ -51,7 +51,7 @@ runs:
         if [[ -z "${ROLE_ARN}" || -z "${PARAMETER_ARN}" ]]; then
           msg="no Keeper API key: the CI role (secret AWS_ROLE_ARN of the environment) or the repository variable KEEPER_API_KEY_PARAMETER is not set"
           if [[ "${OPTIONAL}" == "true" ]]; then
-            echo "::notice::${msg}; continuing without a key"
+            echo "::warning::${msg}; continuing without a key (the public Keeper answers 401 to snapshot requests without one)"
             exit 0
           fi
           echo "::error::${msg}"
