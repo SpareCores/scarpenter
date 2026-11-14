@@ -265,9 +265,10 @@ func (d *Driver) Ensure(ctx context.Context, kind vendors.ResourceKind, region s
 	return d.ensureGroup(ctx, kind, region, spec)
 }
 
-// List implements vendors.ManagedResources: the managed resources carrying all the tags,
-// top-level resources only: a subnet stands for its VCN, gateway, route table and security list (a
-// VCN with no subnet, left by an interrupted creation, stands for itself).
+// List implements vendors.ManagedResources: the managed resources carrying all the tags in the
+// regions (every subscribed region when none are named; a region that answers NotAuthorizedOrNotFound
+// is skipped, with a debug log), top-level resources only: a subnet stands for its VCN, gateway, route
+// table and security list (a VCN with no subnet, left by an interrupted creation, stands for itself).
 func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.TagKey]string,
 ) ([]vendors.ResourceRef, error) {
 	all, err := d.Regions(ctx)
@@ -279,30 +280,48 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 		if len(regions) > 0 && !slices.Contains(regions, r.Name) {
 			continue
 		}
-		nets, err := d.listNetworks(ctx, r.Name, tags)
+		refs, err := d.listManaged(ctx, r.Name, tags)
 		if err != nil {
-			return nil, fmt.Errorf("listing the managed resources of %s: %w", r.Name, err)
-		}
-		groups, err := d.listGroups(ctx, r.Name, listFilters{})
-		if err != nil {
-			return nil, fmt.Errorf("listing the managed resources of %s: %w", r.Name, err)
-		}
-		out = append(out, nets...)
-		for _, g := range groups {
-			if !d.owned(g.FreeformTags) || !tagsMatch(g.FreeformTags, tags) {
+			if vendors.IsClass(err, vendors.NotFound) {
+				// The answer for a region the policy does not cover (the compartment's policy of a lane is
+				// limited to its region) or a compartment that is not there: nothing of ours can be listed
+				// there, and one such region must not fail the sweep of the others.
+				d.log.V(1).Info("the managed resources of a region cannot be listed: not authorized or not found, skipped",
+					"region", r.Name, "error", err.Error())
 				continue
 			}
-			kind := vendors.ResourceKind(g.FreeformTags[TagKey(vendors.TagResource)])
-			if !isGroupKind(kind) {
-				kind = KindNetworkSecurityGroups
-			}
-			out = append(out, d.groupRef(kind, r.Name, g))
+			return nil, fmt.Errorf("listing the managed resources of %s: %w", r.Name, err)
 		}
+		out = append(out, refs...)
 	}
 	for i := range out {
 		out[i].Managed = true
 	}
 	sortRefs(out)
+	return out, nil
+}
+
+// listManaged lists the managed networks and groups of one region carrying all the tags.
+func (d *Driver) listManaged(ctx context.Context, region string, tags map[vendors.TagKey]string,
+) ([]vendors.ResourceRef, error) {
+	out, err := d.listNetworks(ctx, region, tags)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := d.listGroups(ctx, region, listFilters{})
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range groups {
+		if !d.owned(g.FreeformTags) || !tagsMatch(g.FreeformTags, tags) {
+			continue
+		}
+		kind := vendors.ResourceKind(g.FreeformTags[TagKey(vendors.TagResource)])
+		if !isGroupKind(kind) {
+			kind = KindNetworkSecurityGroups
+		}
+		out = append(out, d.groupRef(kind, region, g))
+	}
 	return out, nil
 }
 
