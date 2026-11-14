@@ -18,9 +18,9 @@ import (
 	driver "github.com/SpareCores/scarpenter/pkg/vendors/oci"
 )
 
-// policyFile is the policy of the controller's identity. Step (c) moves it to
-// docs/reference/oci-iam-policy.txt with the other reference documents.
-const policyFile = "testdata/oci-iam-policy.txt"
+// policyFile is the policy of the controller's identity, one of the reference
+// documents.
+const policyFile = "../../../docs/reference/oci-iam-policy.txt"
 
 // need is what one call requires: a verb on a resource type in a scope.
 type need struct{ verb, resource, scope string }
