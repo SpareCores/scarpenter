@@ -539,11 +539,11 @@
                   "properties": {
                     "region": {
                       "type": "string",
-                      "pattern": "^([a-z]{2}-[a-z]+-[0-9]+)?$"
+                      "pattern": "^([a-z]{2}(-[a-z]+)+-[0-9]+)?$"
                     },
                     "identityDomainURL": {
                       "type": "string",
-                      "pattern": "^(https://.+)?$"
+                      "pattern": "^(https://[^/?#]+/?)?$"
                     },
                     "clientId": {
                       "type": "string"
