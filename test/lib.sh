@@ -57,3 +57,30 @@ keeper_key_args() {
     --from-file=api-key="${KEEPER_API_KEY_FILE}" --dry-run=client -o yaml | kubectl apply -f -
   keeper_helm_args=(--set keeper.apiKey.existingSecret=keeper-api-key)
 }
+
+# wait_condition <condition> <timeout seconds> <resource>...
+#
+# kubectl wait --for=condition=X fails at once ("accessor error") on an object
+# that has no .status.conditions yet: a just-created CRD, or a resource whose
+# controller has not written status. This polls until every resource exists and
+# has a condition, then runs kubectl wait with the time left. A missing resource,
+# or a condition that stays False, still fails at the deadline, with kubectl's
+# last error on stderr.
+wait_condition() {
+  local condition="$1" timeout="$2" res err="" left
+  shift 2
+  local deadline=$((SECONDS + timeout))
+  for res in "$@"; do
+    until [[ -n "$(kubectl get "${res}" -o jsonpath='{.status.conditions[*].type}' 2>/dev/null)" ]]; do
+      if ((SECONDS >= deadline)); then
+        err="$(kubectl get "${res}" -o jsonpath='{.status.conditions}' 2>&1)" || true
+        echo "${res} has no status conditions after ${timeout}s: ${err:-no conditions}" >&2
+        return 1
+      fi
+      sleep 1
+    done
+  done
+  left=$((deadline - SECONDS))
+  ((left >= 1)) || left=1
+  kubectl wait --for="condition=${condition}" "$@" --timeout="${left}s"
+}

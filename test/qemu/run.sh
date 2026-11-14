@@ -292,8 +292,8 @@ log "installing the CRDs, the RBAC, flannel and kube-proxy"
 core_dir="$(go list -m -f '{{.Dir}}' sigs.k8s.io/karpenter)"
 kubectl apply --server-side -f "${core_dir}/pkg/apis/crds/"
 kubectl apply --server-side -f "${root}/config/crd/bases/"
-kubectl wait --for=condition=Established crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh \
-  crd/scnodeclasses.scarpenter.sparecores.com --timeout=60s
+wait_condition Established 60 crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh \
+  crd/scnodeclasses.scarpenter.sparecores.com
 kubectl apply -f "${here}/manifests/namespace.yaml"
 # The production RBAC (SCarpenter's permissions, the namespaced Roles, the
 # node-join bindings) and, on top of it, core's permissions.

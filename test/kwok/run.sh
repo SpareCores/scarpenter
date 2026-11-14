@@ -145,7 +145,7 @@ for f in kwok.yaml stage-fast.yaml; do
   download "https://github.com/kubernetes-sigs/kwok/releases/download/${KWOK_VERSION}/${f}" "${cache}/${KWOK_VERSION}-${f}"
 done
 kubectl apply --server-side -f "${cache}/${KWOK_VERSION}-kwok.yaml"
-kubectl wait --for=condition=Established crd/stages.kwok.x-k8s.io --timeout=60s
+wait_condition Established 60 crd/stages.kwok.x-k8s.io
 kubectl apply -f "${cache}/${KWOK_VERSION}-stage-fast.yaml"
 # The kwok-controller must run on the real node and manage fake ones only.
 kubectl -n kube-system patch deployment kwok-controller --type strategic -p '{"spec":{"template":{"spec":{
@@ -169,8 +169,8 @@ helm_values=(-f "${here}/manifests/chart-values.yaml"
 # NodeClass can be created.
 helm upgrade --install scarpenter "${root}/charts/scarpenter" --namespace "${ns}" \
   "${helm_values[@]}" --set replicaCount=0 --wait --timeout 3m
-kubectl wait --for=condition=Established crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh \
-  crd/scnodeclasses.scarpenter.sparecores.com --timeout=60s
+wait_condition Established 60 crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh \
+  crd/scnodeclasses.scarpenter.sparecores.com
 kubectl apply -f "${here}/manifests/nodeclass-described.yaml"
 helm upgrade --install scarpenter "${root}/charts/scarpenter" --namespace "${ns}" \
   "${helm_values[@]}" --wait --timeout 5m
@@ -184,7 +184,7 @@ dns_ip="$(kubectl -n kube-system get service kube-dns -o jsonpath='{.spec.cluste
 [[ "${args}" == *"--kubelet-client-ca-file="* ]] || { echo "the chart did not set --kubelet-client-ca-file: ${args}" >&2; exit 1; }
 # The log line is written when a NodeClass is first validated: wait for the lane's
 # NodeClass (S13's, applied before the controller started) to be Ready.
-kubectl wait --for=condition=Ready scnodeclass/l3-described --timeout=180s
+wait_condition Ready 180 scnodeclass/l3-described
 kubectl -n "${ns}" logs deployment/scarpenter --tail=-1 | grep -F 'found the cluster DNS Service' | grep -F "${dns_ip}" ||
   { echo "the controller did not discover the cluster DNS ${dns_ip}" >&2; exit 1; }
 kubectl -n "${ns}" get configmap scarpenter-kubelet-client-ca -o jsonpath='{.data.client-ca\.crt}' | grep -q 'BEGIN CERTIFICATE'

@@ -236,7 +236,7 @@ node_shell() {
   local node="$1" pod="nodeshell-$1"
   if ! kubectl get pod "${pod}" >/dev/null 2>&1; then
     NODE="${node}" PODNAME="${pod}" render "${e2e_dir}/manifests/nodeshell.yaml" | kubectl apply -f - >/dev/null
-    kubectl wait --for=condition=Ready "pod/${pod}" --timeout=240s >/dev/null
+    wait_condition Ready 240 "pod/${pod}" >/dev/null
   fi
   kubectl exec "${pod}" -- chroot /host sh -c "$2"
 }

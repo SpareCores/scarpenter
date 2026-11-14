@@ -51,8 +51,8 @@ docker save scarpenter-controller:e2e | sudo k3s ctr images import - >/dev/null
 
 log "CRDs and NodeClasses"
 kubectl apply --server-side -f "${root}/charts/scarpenter/crds/"
-kubectl wait --for=condition=Established crd/scnodeclasses.scarpenter.sparecores.com \
-  crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh --timeout=60s
+wait_condition Established 60 crd/scnodeclasses.scarpenter.sparecores.com \
+  crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh
 for f in "${nodeclass_files[@]}"; do
   render "${here}/manifests/${f}.yaml" | kubectl apply -f -
 done
@@ -69,7 +69,7 @@ log "NodePools"
 render "${here}/manifests/nodepools.yaml" | kubectl apply -f -
 [[ "${E2E_ARM64}" != true ]] || render "${here}/manifests/nodepool-arm64.yaml" | kubectl apply -f -
 for nc in "${classes[@]}"; do
-  kubectl wait --for=condition=Ready "scnodeclass/${nc}" --timeout=600s ||
+  wait_condition Ready 600 "scnodeclass/${nc}" ||
     {
       kubectl get scnodeclass "${nc}" -o yaml
       exit 1
