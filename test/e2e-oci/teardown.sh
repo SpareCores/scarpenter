@@ -4,12 +4,12 @@
 #   1. delete SCarpenter's NodePools and wait for the NodeClaims to go (the controller
 #      deletes the instances), if the controller still runs;
 #   2. force-delete anything tagged with the run's cluster and delete what it left (groups,
-#      subnets, route tables, gateways, security lists, the managed VCN, and what the byo scenario
-#      brought) with the sweeper, ignoring the age limit;
+#      subnets, route tables, gateways, security lists, the managed VCN, what the byo scenario
+#      brought, and boot volumes with the run's cluster tag) with the sweeper, ignoring the age limit;
 #   3. check that nothing of the run remains: no instance, no network resource by the run's tags and
-#      name prefixes (plan 25 section 11), and no boot volume created since the run began (the
-#      sweeper does not touch boot volumes without a tag of ours, and a terminate deletes them: one
-#      that stays is a leak this step deletes and reports): the job fails when something does;
+#      name prefixes (plan 25 section 11), and no boot volume created since the run began (a
+#      terminate deletes them; one without the cluster tag is never deleted by a script, so a leak
+#      is reported for a person to look at): the job fails when something does;
 #   4. revoke the nodes' auth key, end the session loop and take the runner off the tailnet.
 # Every step runs even when an earlier one failed; the exit status is the sum.
 set -uo pipefail
@@ -49,7 +49,7 @@ fi
 log "2. force-delete and sweep what the cluster tag and the run's marker find"
 left="$(cluster_instances | wc -l | tr -d ' ')"
 [[ "${left}" == 0 ]] || echo "NOTE: ${left} instance(s) were still there and are deleted by the sweeper"
-(cd "${root}" && go run ./test/e2e-oci/sweeper -cluster "${E2E_CLUSTER}" -max-age 0 -regions "${OCI_REGION}" -wait 5m) ||
+(cd "${root}" && go run ./test/e2e-oci/sweeper -cluster "${E2E_CLUSTER}" -max-age 0 -regions "${OCI_REGION}" -boot-volumes -wait 5m) ||
   problem "the sweeper failed"
 
 log "3. nothing of ${E2E_CLUSTER} may remain"
@@ -74,15 +74,12 @@ leaks instances cluster_instances
 for kind in nsg subnet route-table internet-gateway security-list vcn; do
   leaks "${kind}s" net_left "${kind}"
 done
-# Boot volumes go with their instance. One that stays is deleted here and reported.
+# Boot volumes go with their instance (the deletion runs after the terminate). One that stays is
+# reported, not deleted: without the run's tag nothing proves it is the run's.
 deadline=$((SECONDS + 120))
 until [[ -z "$(new_boot_volumes 2>/dev/null)" ]]; do
   if [[ "${SECONDS}" -ge "${deadline}" ]]; then
-    leaked="$(new_boot_volumes 2>&1)"
-    problem "boot volumes left (deleting them now): ${leaked}"
-    while read -r id; do
-      [[ -z "${id}" ]] || oc bv boot-volume delete --boot-volume-id "${id}" --force >/dev/null 2>&1 || true
-    done <<<"${leaked}"
+    problem "boot volumes created since the run began are left (delete them by hand once checked): $(new_boot_volumes 2>&1)"
     break
   fi
   sleep 10

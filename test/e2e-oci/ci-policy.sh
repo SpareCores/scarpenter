@@ -9,8 +9,8 @@
 # The statements are the driver's (docs/reference/oci-iam-policy.txt: instances, boot volumes, the
 # network, the region subscriptions, the limits, and the optional block that creates networks) plus what
 # the lane's scenarios, the sweeper and the teardown need beyond it: the lane's own network of the byo
-# scenario (virtual-network-family, covered by the driver's optional block) and the deletion of boot
-# volumes that a terminate left behind (manage volume-family: the driver itself only needs use). No
+# scenario (virtual-network-family, covered by the driver's optional block) and the sweeper's deletion
+# of a tagged boot volume that a terminate left behind (manage volume-family: the driver only needs use). No
 # `manage all-resources`, nothing in the identity services (no users, groups, policies or dynamic groups),
 # nothing tenancy-wide that writes: a statement either reads the tenancy or acts in the one compartment.
 #

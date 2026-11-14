@@ -449,11 +449,11 @@ The OCI lane's, which are **not all true yet**: `oci` is not in `test/e2e-vendor
 | The CI identity cannot create instances of shapes the lane does not use | **not expressible**: a policy statement names a resource family, not a shape; the pools name the shapes and the **compartment quota** on compute cores and memory is the hard ceiling (**to provision**) |
 | The CI identity cannot act outside the lane's region | the statements are bound with `where request.region = '<region>'` (`ci-policy.sh policy`; which verbs accept the condition is unverified until the first live run) |
 | The compartment holds nothing but the lane's resources (no policy can protect instances by tag) | a dedicated compartment; the driver refuses to delete an instance without its cluster's tag |
-| Every resource carries a run marker, so cost and leftovers are attributable | the freeform tag `scarpenter-cluster=scarpenter-ci-<run id>` and `ci-created-at` on instances; the ownership tags plus the name prefix `scarpenter-<cluster>-` on the network resources; a boot volume carries a tag only if OCI copies the instance's, so the compartment is the marker |
-| A sweeper that deletes what a dead run left behind, by tag, name and age | `e2e-oci-sweeper.yml`, every three hours, environment `e2e-sweeper` (boot volumes older than two hours too: the compartment is dedicated) |
+| Every resource carries a run marker, so cost and leftovers are attributable | the freeform tag `scarpenter-cluster=scarpenter-ci-<run id>` and `ci-created-at` on instances; the ownership tags plus the name prefix `scarpenter-<cluster>-` on the network resources; a boot volume carries the cluster tag only if OCI copies the instance's (unverified), and goes with its instance |
+| A sweeper that deletes what a dead run left behind, by tag, name and age | `e2e-oci-sweeper.yml`, every three hours, environment `e2e-sweeper` (boot volumes too, by the cluster tag only; an untagged one is never deleted) |
 | A run time limit | 90 minutes for the job (60 for a smoke), 55 (25) for the scenarios step; the teardown always runs |
 | Small, cheap shapes; preemptible where the vendor has it | `VM.Standard.E5.Flex` of 1 OCPU and 4 to 8 GB (on demand and preemptible; 1 OCPU and 4 GB cost cents per hour), `A1` and `A2` (arm64, optional) |
-| A teardown that fails the job when anything of the run remains | `test/e2e-oci/teardown.sh`: instances, groups, subnets, route tables, gateways, security lists, VCNs and boot volumes created since the run began |
+| A teardown that fails the job when anything of the run remains | `test/e2e-oci/teardown.sh`: instances, groups, subnets, route tables, gateways, security lists, VCNs, and boot volumes created since the run began (reported, not deleted) |
 | A quota that bounds the damage of a bug | the compartment quota on compute cores and memory (8 OCPUs and 48 GB of E5 needed) and the service limits of the region (**to provision**) |
 | A read-only policy for the canary | `canary-policy.sh`, a group of its own, environment `e2e-canary` |
 | Approval for every run of pull request or release code that reaches the compartment | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) |
@@ -630,7 +630,7 @@ repository):
 - **Tailscale**: the same tags, grants and federated identity as for AWS.
 - **Before `oci` is added to `test/e2e-vendors.txt`**, the operator checks: the policy's region condition bites (a launch in another region, and a write in another compartment, are refused for the CI group: which verbs accept the conditions is
   unverified); the compartment holds nothing but the lane, the compartment quota is no higher than the lane needs (no policy can deny a shape, so the quota is the ceiling) and the budget alert reaches a person; the
-  sweeper, run with the real CI identity, deletes a planted tagged instance, group, subnet, route table, gateway and VCN and a boot volume, and the teardown finds a planted boot volume; the canary's group reads what the canary reads and
+  sweeper, run with the real CI identity, deletes a planted tagged instance, group, subnet, route table, gateway, VCN and boot volume and leaves an untagged boot volume, and the teardown reports a planted boot volume; the canary's group reads what the canary reads and
   writes nothing; `e2e-sweeper` and `e2e-canary` are limited to `main` and the identity domain's trust names only this repository and the three environments. Then the line is added, with the note in `test/e2e-oci/defaults.sh` and the
   selftest's check changed; until then the selftest checks that it is absent.
 

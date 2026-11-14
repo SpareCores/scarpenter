@@ -507,7 +507,7 @@ t_ci_policy() {
     covered "${s}" "${out}" || { echo "the driver's policy has '${s}', the CI policy does not"; return 1; }
   done <"${ref}"
   [[ -n "${s}" ]] || { echo "the driver's policy file has no statement the check could read"; return 1; }
-  # The lane's own needs beyond the driver's: boot volumes (the teardown's leak deletion and the sweeper's boot volume sweep).
+  # The lane's own needs beyond the driver's: boot volumes (the sweeper's deletion of a tagged one that a terminate left).
   grep -qxF 'manage volume-family in compartment' "${out}" || { echo "no manage volume-family"; return 1; }
 }
 t_ci_policy_text() {

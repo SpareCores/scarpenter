@@ -301,7 +301,7 @@ scn_amd64() {
   assert_eq "boot volume size" "${E2E_ROOT_GB}" "$(jq -r '."size-in-gbs"' <<<"${d}")"
   assert_eq "boot volume performance (VPUs per GB, balanced)" 10 "$(jq -r '."vpus-per-gb"' <<<"${d}")"
   # Whether OCI copies the instance's tags to its boot volume is unverified: recorded for the first live run.
-  note "the boot volume's tag scarpenter-cluster: '$(tag_of "${d}" scarpenter-cluster)' (the sweeper's boot volume sweep does not rely on it)"
+  note "the boot volume's tag scarpenter-cluster: '$(tag_of "${d}" scarpenter-cluster)' (the sweeper's boot volume sweep relies on it)"
 
   log "the claim: price, bootstrap token, serving certificate"
   price="$(kubectl get nodeclaim "${claim}" -o json | jq -r --arg k "${label_domain}/price" '.metadata.annotations[$k] // empty')"

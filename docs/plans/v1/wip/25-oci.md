@@ -813,14 +813,16 @@ tailnet, nodes with the `tailscale` template).
    compartment and the lane's region (`where request.region = ...` and `target.compartment.id = ...`: **unverified**
    which verbs accept the conditions); sweeper every 3 hours; 90/55 minute limits; teardown fails
    the job when anything with the run's marker remains, including **unattached boot volumes** (they have no
-   tags of ours: the dedicated compartment makes any boot volume older than 2 hours the lane's); approval
+   tags of ours: the dedicated compartment makes any boot volume older than 2 hours the lane's; corrected
+   below: reported, deleted only by the cluster tag); approval
    through the `e2e` environment's reviewers. **The lane is not in `test/e2e-vendors.txt` until the
    maintainer has verified these live**; `make test-e2e-oci-dryrun` and the selftest check that the
    line is absent.
 6. **Sweeper** (`pkg/vendors/oci/sweep`, as AWS and GCP): instances by tag cluster `scarpenter-ci-*` and
    age (over 2 hours), then groups, subnets, route tables, internet gateways, security lists, VCNs by
    name prefix `scarpenter-scarpenter-ci-` and the marker tags and age, unattached boot volumes of the
-   dedicated compartment older than 2 hours, regions narrowed by `-regions`, dependency order.
+   dedicated compartment older than 2 hours (corrected below: by the cluster tag only), regions narrowed by
+   `-regions`, dependency order.
 7. **Canary** (`test/canary/oci.go`, `oci_guard.go`, the reflection test of `guard_test.go`): facts
    (subscriptions, ADs), `ResolveImage` for amd64 (the pinned version by the naming contract) and
    arm64 when configured (`ListImageShapeCompatibilityEntries` has the Arm shapes), quotas against
@@ -849,14 +851,16 @@ tailnet, nodes with the `tailscale` template).
   their VNICs gone), then groups, subnets, route tables, gateways, security lists, VCNs; ownership is the tags **and** the name
   (`scarpenter-cluster` and `scarpenter-managed-by` with the prefix `scarpenter-<cluster>-`; the lane's byo resources by the prefix
   `scarpenter-e2e-byo-` and the tag `e2e-byo-cluster`); a VCN with a subnet the sweep does not select is kept; with `-boot-volumes` (the
-  sweeper workflow passes it: the compartment is dedicated) the available boot volumes older than the limit go, tagged or not, which is the only
-  untagged thing it touches; images are never listed. The block volume client is the command's own (the driver has none).
-- **Teardown** lists the boot volumes created since the run began with the CLI and fails the job on a leftover (a terminate deletes them: `preserveBootVolume=false`).
+  sweeper workflow and the teardown pass it) the available boot volumes with the cluster tag of a selected cluster and older than the limit go.
+  The review of (d) removed the sweep of untagged boot volumes (section 11's "any boot volume older than 2 hours" of the dedicated compartment):
+  a terminate with `preserveBootVolume=false` deletes the boot volume, the launch API has no tags for it (`InstanceSourceViaImageDetails`), so
+  the tag exists only if OCI copies the instance's, and nothing else proves an untagged volume is the lane's. Images are never listed. The block volume client is the command's own (the driver has none).
+- **Teardown** lists the boot volumes created since the run began with the CLI and fails the job on a leftover (a terminate deletes them: `preserveBootVolume=false`); it deletes none, a person does.
 - **Canary** (`test/canary/oci.go`, `oci_guard.go`): facts (subscriptions, ADs), `ResolveImage` per architecture and the image's shape
   compatibility, the E5 core and memory limits against `E2E_MIN_OCPU` and `E2E_MIN_MEMORY_GB` (an Arm family against twice its lane type), every lane type
   parsed, offered and mapped to buckets; the guard wraps the four interfaces, and the policy it needs is exactly `canary-policy.sh`.
 - **IAM** is policy statements (`ci-policy.sh policy <group> <compartment> [region]`, the region condition only on the compartment statements) and the CI
-  group also needs `manage volume-family` (the leaked boot volume cleanup).
+  group also needs `manage volume-family` (the sweeper's deletion of a tagged boot volume).
 - **Not done:** the line `oci` in `test/e2e-vendors.txt` (the cost guards are unverified; the selftest checks it is absent), the `db` and `default`
   scenarios (they do not exist on OCI), a `no drift` control (no profiles), bare metal, `L3 KWOK` (not run in this step).
 - **Settled by the first live run** (besides S1 to S12): the kind of each audit-log denial of the CI policy's conditions, whether OCI copies an instance's

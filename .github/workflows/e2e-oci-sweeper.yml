@@ -3,12 +3,13 @@ name: L5 sweeper (OCI e2e)
 # Deletes what the L5 lane (e2e-cloud.yml, vendor oci) left behind in its compartment when a run died or
 # was cancelled before its teardown: instances, network security groups, subnets, route tables, internet
 # gateways, security lists and the managed VCN of every cluster named scarpenter-ci-* that is older than two
-# hours, in the lane's region (OCI_REGION), and the available boot volumes of the compartment that are that
-# old (the compartment is dedicated to the lane, and a boot volume carries no tag of ours unless OCI copies
-# the instance's). Instances are found by their freeform tag scarpenter-cluster; the network resources by the
-# ownership tags (cluster and managed-by) together with the name prefix scarpenter-<cluster>- (and the lane's
-# brought resources by scarpenter-e2e-byo-* and their own tag e2e-byo-cluster); the age is the creation
-# time. The selection logic is pkg/vendors/oci/sweep (tested against the OCI driver's in-memory API);
+# hours, in the lane's region (OCI_REGION), and the available boot volumes of those clusters that are that
+# old (a terminate deletes the boot volume; one that stays is swept only when it carries the cluster tag,
+# which OCI copies from the instance at launch if at all). Instances and boot volumes are found by their
+# freeform tag scarpenter-cluster; the network resources by the ownership tags (cluster and managed-by)
+# together with the name prefix scarpenter-<cluster>- (and the lane's brought resources by
+# scarpenter-e2e-byo-* and their own tag e2e-byo-cluster); the age is the creation time.
+# The selection logic is pkg/vendors/oci/sweep (tested against the OCI driver's in-memory API);
 # docs/how-to-guides/testing.md#the-l5-lane-on-oci describes it. Untagged resources and imported images are
 # never touched. Same identity as the lane (the keyless token exchange of test/e2e-oci/oci-session.sh), but
 # its own environment, e2e-sweeper: limited to main and without reviewers, so that a scheduled sweep never
@@ -106,7 +107,7 @@ jobs:
           if ! [[ "${regions}" =~ ^(all|[a-z0-9,-]+)$ ]]; then
             echo "::error::regions must be a comma list of regions, or all"; exit 1
           fi
-          # -boot-volumes: the compartment is dedicated to the lane (docs/how-to-guides/testing-and-releasing.md#oci).
+          # -boot-volumes: only those with the cluster tag of a selected cluster, never an untagged one.
           args=(-max-age "${age}" -regions "${regions}" -boot-volumes)
           if [ "${INPUT_DRY_RUN}" = "true" ]; then args+=(-dry-run); fi
           go run ./test/e2e-oci/sweeper "${args[@]}"

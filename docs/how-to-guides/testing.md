@@ -1093,7 +1093,7 @@ or checked yet:
 - the **Flatcar images** of the pinned release in the compartment of the lane's region ([oci-images.md](oci-images.md): imported, named, tagged, with their shape compatibility, and for arm64 the capability schema);
 - an **IAM identity domain** with a **confidential application** (client credentials) and a **trust** for GitHub's OIDC issuer (`https://token.actions.githubusercontent.com`) that maps the subjects of this repository's environments
   `e2e`, `e2e-sweeper` and `e2e-canary` to identity domain users, in a CI group (the first two) and a canary group (the last); a second application for the canary is allowed;
-- the **policies**: `test/e2e-oci/ci-policy.sh policy <group> <compartment> [region]` prints the CI group's statements (the driver's, `manage volume-family` for the boot volume cleanup, and the region condition),
+- the **policies**: `test/e2e-oci/ci-policy.sh policy <group> <compartment> [region]` prints the CI group's statements (the driver's, `manage volume-family` for the sweeper's boot volume deletion, and the region condition),
   `test/e2e-oci/canary-policy.sh policy <group> <compartment>` the canary's read-only ones;
 - the GitHub environments: `e2e` (required reviewers), `e2e-sweeper` (limited to `main`, no reviewers) and `e2e-canary` (limited to `main`), each with the **variables** `OCI_COMPARTMENT`, `OCI_TENANCY`
   (OCIDs), `OCI_IDENTITY_DOMAIN_URL` (`https://idcs-<id>.identity.oraclecloud.com`), `OCI_CLIENT_ID`, and optionally `OCI_REGION` (default `eu-frankfurt-1`), `OCI_HOME_REGION` (default the region),
@@ -1102,13 +1102,13 @@ or checked yet:
 
 **The sweeper.** `.github/workflows/e2e-oci-sweeper.yml` runs every three hours and on demand in the environment `e2e-sweeper`. It terminates the instances (and waits: their VNICs
 must be gone), then deletes, in dependency order, the network security groups, the subnets, the route tables, the internet gateways, the security lists and the VCNs of every cluster whose name starts
-with `scarpenter-ci-` and that is more than two hours old, in the lane's region (`-regions` takes a comma list or `all`), and, because the compartment is dedicated, the available boot volumes of the compartment that are that old
-(`-boot-volumes`: a volume that is still attached is refused by OCI and skipped). The age is the creation time. A resource is SCarpenter's only when its tags **and** its name say so
+with `scarpenter-ci-` and that is more than two hours old, in the lane's region (`-regions` takes a comma list or `all`), and the available boot volumes of those clusters that are that old
+(`-boot-volumes`: a terminate deletes the boot volume; one that stays is swept only when it carries the cluster tag, which OCI copies from the instance at launch if at all, and a volume that is still attached is refused by OCI and skipped). The age is the creation time. A resource is SCarpenter's only when its tags **and** its name say so
 (`pkg/vendors/oci/sweep`), a brought resource of the lane when its name starts with `scarpenter-e2e-byo-` **and** it carries `e2e-byo-cluster=<cluster>`; anything untagged, an imported image included,
 is never touched. A VCN with a subnet the sweep does not select (a user's, or one that is too young) is kept. `pkg/vendors/oci/sweep` is tested against the driver's in-memory API (old and young runs, another cluster's resources,
 a marker without its name and a name without its marker, a user's subnet in a managed VCN, the byo resources by their own tag, a resource still in use retried, an instance that stays `TERMINATING`, a region without access, boot volumes,
 a dry run); `go run ./test/e2e-oci/sweeper -dry-run` lists what a sweep would delete and `-cluster <name> -max-age 0 -regions <region>` is what the teardown uses. The teardown also lists the boot volumes created since the run began
-with the CLI and fails the job on a leftover (which it then deletes). Every call runs under a deadline (the SDK adapter's, and the whole run's).
+with the CLI and fails the job on a leftover; it deletes none (without the run's tag nothing proves the volume is the run's), a person does. Every call runs under a deadline (the SDK adapter's, and the whole run's).
 
 **Without a tenancy.** `hack/dev.sh make test-e2e-oci-dryrun` renders every manifest of `test/e2e-oci/manifests` and sends it to an envtest API
 server as a server-side dry run, runs the sweeper's and the canary's tests against the in-memory OCI API, and `test/e2e-oci/selftest.sh`: the helpers

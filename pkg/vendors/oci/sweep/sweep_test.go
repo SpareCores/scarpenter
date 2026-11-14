@@ -505,14 +505,16 @@ func TestAFailedListIsAFailureOfTheRegionAndTheOtherStagesRun(t *testing.T) {
 	}
 }
 
-func TestBootVolumesAreOnlySweptWhenAsked(t *testing.T) {
+func TestBootVolumesAreOnlySweptWhenAskedAndByTheirTag(t *testing.T) {
+	tagged := map[string]string{sweep.ClusterTag: cluster}
 	vol := &fakeVolumes{attached: map[string]bool{"bv-attached": true}}
-	vol.add("bv-old", core.BootVolumeLifecycleStateAvailable, oldAt, nil)
-	vol.add("bv-young", core.BootVolumeLifecycleStateAvailable, youngAt, nil)
-	vol.add("bv-terminating", core.BootVolumeLifecycleStateTerminating, oldAt, nil)
-	vol.add("bv-attached", core.BootVolumeLifecycleStateAvailable, oldAt, nil)
+	vol.add("bv-untagged", core.BootVolumeLifecycleStateAvailable, oldAt, nil)
+	vol.add("bv-foreign", core.BootVolumeLifecycleStateAvailable, oldAt, map[string]string{"owner": "someone"})
+	vol.add("bv-young", core.BootVolumeLifecycleStateAvailable, youngAt, tagged)
+	vol.add("bv-terminating", core.BootVolumeLifecycleStateTerminating, oldAt, tagged)
+	vol.add("bv-attached", core.BootVolumeLifecycleStateAvailable, oldAt, tagged)
 	vol.add("bv-other", core.BootVolumeLifecycleStateAvailable, oldAt, map[string]string{sweep.ClusterTag: other})
-	vol.add("bv-tagged", core.BootVolumeLifecycleStateAvailable, oldAt, map[string]string{sweep.ClusterTag: cluster})
+	vol.add("bv-tagged", core.BootVolumeLifecycleStateAvailable, oldAt, tagged)
 	w := newWorld(t)
 	opts := sweep.Options{Compartment: fake.SeedCompartment, Tenancy: fake.SeedTenancy, Cluster: cluster,
 		Regions: []string{region}, MaxAge: 2 * time.Hour, Now: func() time.Time { return now }}
@@ -522,18 +524,25 @@ func TestBootVolumesAreOnlySweptWhenAsked(t *testing.T) {
 	}
 	opts.BootVolumes = true
 	rep = w.run(opts, vol)
-	slices.Sort(vol.deleted)
-	if want := []string{"bv-old", "bv-tagged"}; !slices.Equal(vol.deleted, want) {
+	if want := []string{"bv-tagged"}; !slices.Equal(vol.deleted, want) {
 		t.Errorf("deleted %v, want %v: %+v", vol.deleted, want, rep.Items)
 	}
 	if got := rep.Count(sweep.Skipped); got != 2 { // the young one and the attached one
 		t.Errorf("skipped %d: %+v", got, rep.Items)
 	}
+	// An untagged volume is never touched, not even without an age limit.
+	vol.deleted = nil
+	opts.MaxAge = 0
+	rep = w.run(opts, vol)
+	slices.Sort(vol.deleted)
+	if want := []string{"bv-tagged", "bv-young"}; !slices.Equal(vol.deleted, want) {
+		t.Errorf("any age: deleted %v, want %v: %+v", vol.deleted, want, rep.Items)
+	}
 	// A dry run deletes nothing.
 	vol.deleted = nil
-	opts.DryRun = true
+	opts.MaxAge, opts.DryRun = 2*time.Hour, true
 	rep = w.run(opts, vol)
-	if len(vol.deleted) != 0 || rep.Count(sweep.WouldDelete) != 3 { // an attached one is not known to be
+	if len(vol.deleted) != 0 || rep.Count(sweep.WouldDelete) != 2 { // an attached one is not known to be
 		t.Errorf("dry run: %v %+v", vol.deleted, rep.Items)
 	}
 }

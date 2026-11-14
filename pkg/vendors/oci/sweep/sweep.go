@@ -29,11 +29,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // A resource without one of these is never touched, an imported image included (images
 // are not even listed). The compartment of the sweep is the controller's. With an age
 // limit a resource is touched only when old enough, by its creation time. A VCN's own
-// default route table and security list are untagged and go with the VCN. Boot volumes
-// have no tag of ours unless OCI copies the instance's: they are swept only when the
-// caller says the compartment is dedicated to the lane (BootVolumes), and only the
-// available ones that are old enough (a volume that is still attached is refused by
-// OCI and skipped).
+// default route table and security list are untagged and go with the VCN. A boot volume
+// goes with its instance (the terminate does not preserve it); one that stays is swept
+// when asked (BootVolumes) by the same rule as the instances: the cluster tag, which it
+// carries only when OCI copied the instance's tags to it at launch, and the age. An
+// untagged boot volume is never touched: the teardown reports it.
 package sweep
 
 import (
@@ -117,9 +117,9 @@ type Options struct {
 	// (see ParseRegions). Only in that all-regions mode is a region the credentials may
 	// not read skipped; a requested region that cannot be read is a failure.
 	Regions []string
-	// BootVolumes also sweeps the available boot volumes of the compartment that are
-	// old enough (any age with MaxAge 0), tagged or not: set it only for a compartment
-	// dedicated to the lane. It needs the volumes client.
+	// BootVolumes also sweeps the available boot volumes whose freeform tag
+	// scarpenter-cluster selects them and that are old enough, as the instances (never an
+	// untagged one). It needs the volumes client.
 	BootVolumes bool
 	// WaitDeleted bounds the wait for an instance to be terminated and for a resource
 	// that is still in use by another one to be released (default 5 minutes).
@@ -754,8 +754,8 @@ func (s *sweeper) bootVolumes(ctx context.Context, region string) error {
 			}
 			id := deref(v.Id)
 			cluster := v.FreeformTags[ClusterTag]
-			if cluster != "" && !s.matches(cluster) {
-				continue // another cluster's (a tag of ours that names another cluster)
+			if !s.matches(cluster) {
+				continue // untagged, or another cluster's
 			}
 			if young, why := s.old(v.TimeCreated); !young {
 				s.add(Item{Region: region, Kind: kindVolume, ID: id, Cluster: cluster, Outcome: Skipped, Reason: why})

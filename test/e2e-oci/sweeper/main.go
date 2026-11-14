@@ -11,8 +11,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // all, in every subscribed region. The e2e workflow runs it for its own cluster (-cluster, no
 // age limit) as part of the teardown. The selection logic is in pkg/vendors/oci/sweep, tested
 // against the in-memory OCI API of the driver. -boot-volumes also deletes the available boot
-// volumes of the compartment that are old enough, tagged or not: only for a compartment
-// dedicated to the lane.
+// volumes that carry the cluster tag (OCI copies an instance's tags to its boot volume only
+// at launch, if at all) and are old enough; an untagged one is never touched.
 //
 //	go run ./test/e2e-oci/sweeper -dry-run
 //
@@ -51,7 +51,7 @@ func run() int {
 		dryRun  = flag.Bool("dry-run", false, "report what would be deleted, delete nothing")
 		regions = flag.String("regions", "", "regions, comma-separated; empty or all: every subscribed region")
 		volumes = flag.Bool("boot-volumes", false,
-			"also delete available boot volumes of the compartment that are old enough (a dedicated compartment only)")
+			"also delete the available boot volumes of the selected clusters (by their cluster tag) that are old enough")
 		wait = flag.Duration("wait", 5*time.Minute,
 			"how long to wait for an instance to be terminated, and for a resource in use to be released")
 		callTimeout = flag.Duration("call-timeout", oci.DefaultCallTimeout, "the deadline of one API call")
