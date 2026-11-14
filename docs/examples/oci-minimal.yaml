@@ -1,0 +1,20 @@
+# The smallest OCI NodeClass: no vendor resources are named, so SCarpenter resolves them itself in each region,
+# in this order (ADR-022): subnets and groups of your tenancy that carry the tag scarpenter-use=true, else a VCN
+# with an internet gateway, a route table, a minimal security list and one regional public subnet, and a network
+# security group, which it creates and owns, else ResourcesReady=False naming what it tried. OCI has no default
+# VCN. The Flatcar image is found by its name flatcar-<channel>-<version>-<arch> in the controller's compartment
+# (docs/how-to-guides/oci-images.md). The compartment is the controller's (--oci-compartment), not the NodeClass's.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: oci-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    oci:
+      regions: [eu-frankfurt-1]

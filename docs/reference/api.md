@@ -1315,6 +1315,7 @@ vendors has one block per vendor; a vendor is enabled for this SCNodeClass by ha
 | `fake` | [object](#specvendorsfake) |  | fake configures the fake (KWOK) development vendor. |
 | `gcp` | [object](#specvendorsgcp) |  | gcp configures GCP (Compute Engine) nodes. |
 | `hcloud` | [object](#specvendorshcloud) |  | hcloud configures Hetzner Cloud nodes. |
+| `oci` | [object](#specvendorsoci) |  | oci configures Oracle Cloud Infrastructure nodes. |
 | `ovh` | [object](#specvendorsovh) |  | ovh configures OVHcloud Public Cloud nodes. |
 | `qemu` | [object](#specvendorsqemu) |  | qemu configures the qemu development vendor. |
 | `upcloud` | [object](#specvendorsupcloud) |  | upcloud configures UpCloud nodes. |
@@ -4116,6 +4117,371 @@ DataVolume is a data volume: its size plus the guest side (name, filesystem, mou
 | `mountPath` (required) | string |  | mountPath is the absolute path the volume is mounted at. At most 255 characters. Pattern `^/[^\x00]*$`. |
 | `name` (required) | string |  | name identifies the volume in the profile and in the device hints rendered into Ignition. At most 40 characters. Pattern `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
 | `size` (required) | integer or string |  | size of the volume, e.g. 100Gi. Hetzner counts GB: the size is rounded up to whole GB and is 10 GB to 10 TB. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+
+### `spec.vendors.oci`
+
+oci configures Oracle Cloud Infrastructure nodes.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `metadata` | map of string values |  | metadata is extra instance metadata. user_data and ssh_authorized_keys are reserved: the first is the Ignition and the nodes carry no SSH keys. Rule: the metadata keys user_data and ssh_authorized_keys are reserved (`!('user_data' in self) && !('ssh_authorized_keys' in self)`). |
+| `networking` | [object](#specvendorsocinetworking) |  | networking overrides the generic spec.networking for OCI. publicIPv4 defaults to true; inbound rules become rules of the network security group. |
+| `regions` | array of string |  | regions is the allow-list of OCI regions (eu-frankfurt-1); empty means every region the tenancy has subscribed. At most 64 items. Pattern `^[a-z]{2}-[a-z]+-[0-9]+$`. |
+| `resources` | [object](#specvendorsociresources) |  | resources says how the OCI resources a node depends on are provided. |
+| `storage` | [object](#specvendorsocistorage) |  | storage overrides the built-in storage defaults (a 64 GiB boot volume of the balanced performance level). Data volumes and local storage are not supported in v1. |
+
+### `spec.vendors.oci.networking`
+
+networking overrides the generic spec.networking for OCI. publicIPv4 defaults to true; inbound rules become rules of the network security group.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `inbound` | [object](#specvendorsocinetworkinginbound) |  | inbound replaces spec.networking.inbound. |
+| `isolation` | string |  | isolation overrides spec.networking.isolation. One of `none`, `nodeclass`, `run`. |
+| `publicIPv4` | boolean |  | publicIPv4 overrides spec.networking.publicIPv4. |
+| `publicIPv6` | boolean |  | publicIPv6 overrides spec.networking.publicIPv6. |
+
+### `spec.vendors.oci.networking.inbound`
+
+inbound replaces spec.networking.inbound.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `rules` | array of [object](#specvendorsocinetworkinginboundrules) |  | rules allow traffic from CIDRs; everything else is denied. At most 32 items. |
+
+### `spec.vendors.oci.networking.inbound.rules[]`
+
+InboundRule allows inbound traffic from CIDRs.
+
+Validation: ports are only valid for tcp and udp (`!has(self.fromPort) \|\| self.protocol == 'tcp' \|\| self.protocol == 'udp'`).
+
+Validation: toPort needs fromPort (`!has(self.toPort) \|\| has(self.fromPort)`).
+
+Validation: toPort must not be smaller than fromPort (`!has(self.toPort) \|\| self.toPort >= self.fromPort`).
+
+Validation: cidrs must be valid CIDR notation (`self.cidrs.all(c, isCIDR(c))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `cidrs` (required) | array of string |  | cidrs are the allowed source networks. At least 1 items. At most 32 items. At most 43 characters. |
+| `fromPort` | integer (int32) |  | fromPort is the first port of the range (tcp and udp); without ports the rule covers every port. Minimum 1. Maximum 65535. |
+| `protocol` (required) | string |  | protocol of the rule. One of `tcp`, `udp`, `icmp`, `any`. |
+| `toPort` | integer (int32) |  | toPort is the last port of the range; defaults to fromPort. Minimum 1. Maximum 65535. |
+
+### `spec.vendors.oci.resources`
+
+resources says how the OCI resources a node depends on are provided.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `images` | [object](#specvendorsociresourcesimages) |  | images brings the Flatcar images with the one selector of every resource kind (plan 14 A1). Optional: without it the driver finds the images of the pinned release in the controller's compartment by the name flatcar-&lt;channel&gt;-&lt;version&gt;-&lt;arch&gt;. Images are regional: IDs go under the region name, never "*". Whatever the lookup, the image's tags or operating system version must say the pinned channel and version, or the images are not ready. Images take use only. |
+| `networkSecurityGroups` | [object](#specvendorsociresourcesnetworksecuritygroups) |  | networkSecurityGroups are attached to the nodes' VNICs (at most five per VNIC), in the VCN of the subnet. Without use, SCarpenter creates one group per NodeClass and region with the rules of networking.inbound. |
+| `subnets` | [object](#specvendorsociresourcessubnets) |  | subnets nodes are launched into (the network, the VCN, is implied by the subnet). A regional subnet serves every availability domain. Without use, SCarpenter creates a VCN with an internet gateway, a route table, a minimal security list and one regional public subnet per region (create). |
+
+### `spec.vendors.oci.resources.images`
+
+images brings the Flatcar images with the one selector of every resource kind (plan 14 A1). Optional: without it the driver finds the images of the pinned release in the controller's compartment by the name flatcar-&lt;channel&gt;-&lt;version&gt;-&lt;arch&gt;. Images are regional: IDs go under the region name, never "*". Whatever the lookup, the image's tags or operating system version must say the pinned channel and version, or the images are not ready. Images take use only.
+
+Validation: images accepts use only: it has no create and no forbid (`has(self.use) && !has(self.create) && !(has(self.forbid) && self.forbid)`).
+
+Validation: images cannot use select all: a launch needs one image (`!has(self.use) \|\| !has(self.use.select) \|\| self.use.select != 'all'`).
+
+Validation: use.ids are image OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]image[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsociresourcesimagescreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsociresourcesimagesuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.oci.resources.images.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsociresourcesimagescreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsociresourcesimagescreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.oci.resources.images.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.oci.resources.images.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.oci.resources.images.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsociresourcesimagesusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsociresourcesimagesusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.oci.resources.images.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.oci.resources.images.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.oci.resources.networkSecurityGroups`
+
+networkSecurityGroups are attached to the nodes' VNICs (at most five per VNIC), in the VCN of the subnet. Without use, SCarpenter creates one group per NodeClass and region with the rules of networking.inbound.
+
+Validation: use.ids are network security group OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]networksecuritygroup[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsociresourcesnetworksecuritygroupscreate) |  | create lets SCarpenter create and own the resource, with a lifecycle. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation: offerings that need it are unavailable unless the vendor's default resource exists. |
+| `use` | [object](#specvendorsociresourcesnetworksecuritygroupsuse) |  | use brings an existing resource: it is validated per region, never modified and never deleted. |
+
+### `spec.vendors.oci.resources.networkSecurityGroups.create`
+
+create lets SCarpenter create and own the resource, with a lifecycle.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `lifecycle` | [object](#specvendorsociresourcesnetworksecuritygroupscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsociresourcesnetworksecuritygroupscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.oci.resources.networkSecurityGroups.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.oci.resources.networkSecurityGroups.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.oci.resources.networkSecurityGroups.use`
+
+use brings an existing resource: it is validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsociresourcesnetworksecuritygroupsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsociresourcesnetworksecuritygroupsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.oci.resources.networkSecurityGroups.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.oci.resources.networkSecurityGroups.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.oci.resources.subnets`
+
+subnets nodes are launched into (the network, the VCN, is implied by the subnet). A regional subnet serves every availability domain. Without use, SCarpenter creates a VCN with an internet gateway, a route table, a minimal security list and one regional public subnet per region (create).
+
+Validation: use.ids are subnet OCIDs per region name, never * (`!has(self.use) \|\| !has(self.use.ids) \|\| self.use.ids.all(r, r != '*' && self.use.ids[r].all(id, id.matches('^ocid1[.]subnet[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$')))`).
+
+Validation: at most one of use, create and forbid may be set (`(has(self.use) ? 1 : 0) + (has(self.create) ? 1 : 0) + ((has(self.forbid) && self.forbid) ? 1 : 0) <= 1`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `create` | [object](#specvendorsociresourcessubnetscreate) |  | create lets SCarpenter create and own the VCN and its subnet. |
+| `forbid` | boolean |  | forbid opts the kind out of auto-creation. |
+| `use` | [object](#specvendorsociresourcessubnetsuse) |  | use brings existing subnets: validated per region, never modified and never deleted. |
+
+### `spec.vendors.oci.resources.subnets.create`
+
+create lets SCarpenter create and own the VCN and its subnet.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `cidr` | string |  | cidr is the IPv4 range of the VCN SCarpenter creates (one regional subnet, the first /20 of it). Default 10.240.0.0/16. Set it when a network your own network is peered with, or reaches by VPN, uses that range. At most 18 characters. Rule: cidr must be an IPv4 CIDR inside 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16, with a prefix length of at most 20 (`isCIDR(self) && cidr(self).ip().family() == 4 && cidr(self).masked() == cidr(self) && cidr(self).prefixLength() <= 20 && (cidr('10.0.0.0/8').containsCIDR(self) \|\| cidr('172.16.0.0/12').containsCIDR(self) \|\| cidr('192.168.0.0/16').containsCIDR(self))`). |
+| `lifecycle` | [object](#specvendorsociresourcessubnetscreatelifecycle) |  | lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3). |
+| `timing` | [object](#specvendorsociresourcessubnetscreatetiming) |  | timing decides when the resource is created. Default: on demand. |
+
+### `spec.vendors.oci.resources.subnets.create.lifecycle`
+
+lifecycle decides when the resource is deleted. Without it the kind's default applies (00a section 9.3).
+
+Validation: ttl is only valid with policy idleTTL (`self.policy == 'idleTTL' \|\| !has(self.ttl)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `policy` (required) | string |  | policy is perUse, idleTTL or retain. One of `perUse`, `idleTTL`, `retain`. |
+| `ttl` | string |  | ttl is how long an unused resource is kept (policy idleTTL). Default 24h, or the controller's --resource-default-ttl. |
+
+### `spec.vendors.oci.resources.subnets.create.timing`
+
+timing decides when the resource is created. Default: on demand.
+
+Validation: regions is required with mode preCreate and invalid otherwise (`self.mode == 'preCreate' ? has(self.regions) : !has(self.regions)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `mode` | string | `"onDemand"` | mode: onDemand creates the resource when the first launch needs it; preCreate creates it in the listed regions right away and keeps it. One of `onDemand`, `preCreate`. |
+| `regions` | array of string |  | regions are the regions to create the resource in (mode preCreate). At least 1 items. At most 64 items. |
+
+### `spec.vendors.oci.resources.subnets.use`
+
+use brings existing subnets: validated per region, never modified and never deleted.
+
+Validation: set at least one of ids, name, tags, match, filters and expression: an empty use would select every resource (`has(self.ids) \|\| has(self.name) \|\| has(self.tags) \|\| has(self.match) \|\| has(self.filters) \|\| has(self.expression)`).
+
+Validation: orderBy is only valid with select newest or oldest (`!has(self.orderBy) \|\| (has(self.select) && (self.select == 'newest' \|\| self.select == 'oldest'))`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `expression` | string |  | expression is a query in the vendor's own language, where it has one. At most 4096 characters. |
+| `filters` | array of [object](#specvendorsociresourcessubnetsusefilters) |  | filters are the vendor's own filters for the kind, passed through: name is the vendor's filter or parameter name, values are ORed. At least 1 items. At most 32 items. |
+| `ids` | map of array values |  | ids lists vendor IDs per region (the vendor's region name). The key "*" applies to every region in scope (a resource that is global at the vendor, the same ID in every region); a region key adds to it. With other fields the IDs are ANDed with them. Rule: ids keys are a region name or * (`self.all(k, k.size() > 0 && k.size() <= 64)`). |
+| `match` | [object](#specvendorsociresourcessubnetsusematch) |  | match holds the portable attributes, with one spelling on every vendor. |
+| `name` | string |  | name is a glob on the kind's name field: * is any run of characters, ? one character, \ escapes them; exact without wildcards. At most 255 characters. |
+| `orderBy` | string |  | orderBy is what newest and oldest order by: created, name or label:&lt;key&gt;. At most 255 characters. Rule: orderBy is created, name or label:<key> (`self == 'created' \|\| self == 'name' \|\| (self.startsWith('label:') && self.size() > 6)`). |
+| `select` | string |  | select says how many of the matches are used. Without it the kind's default applies (the driver's capability declaration). One of `exactlyOne`, `all`, `newest`, `oldest`. |
+| `tags` | map of string values |  | tags are tags (labels, where the vendor has no tags) that must all be on the resource with the given value; the value "*" means the key exists. Rule: tag keys are 1 to 255 characters and values at most 255 (`self.all(k, k.size() > 0 && k.size() <= 255 && self[k].size() <= 255)`). |
+
+### `spec.vendors.oci.resources.subnets.use.filters[]`
+
+ResourceFilter is one of the vendor's own filters.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` (required) | string |  | name is the vendor's own filter or parameter name. At most 255 characters. |
+| `values` (required) | array of string |  | values are ORed. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.oci.resources.subnets.use.match`
+
+match holds the portable attributes, with one spelling on every vendor.
+
+Validation: match sets no attribute (`has(self.architecture) \|\| has(self.owner) \|\| has(self.state) \|\| has(self.includeDeprecated) \|\| has(self.createdAfter) \|\| has(self.createdBefore) \|\| has(self.description) \|\| has(self.zone) \|\| has(self.network) \|\| has(self.cidr) \|\| has(self.within)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `architecture` | array of string |  | architecture is the CPU architecture of an image. One of `amd64`, `arm64`. At least 1 items. At most 2 items. |
+| `cidr` | string |  | cidr is a range the resource's range must equal. At most 255 characters. Rule: cidr must be a CIDR (`isCIDR(self)`). |
+| `createdAfter` | string (date-time) |  | createdAfter and createdBefore bound the creation time (RFC 3339), on kinds that have one. |
+| `createdBefore` | string (date-time) |  |  |
+| `description` | string |  | description is a glob on the description field. At most 255 characters. |
+| `includeDeprecated` | boolean |  | includeDeprecated includes images the vendor marked deprecated. |
+| `network` | array of string |  | network lists the network IDs a subnet or security group belongs to. At least 1 items. At most 32 items. At most 255 characters. |
+| `owner` | array of string |  | owner is whose resources to look at: self, an account or project ID, or the vendor's public alias. At least 1 items. At most 32 items. At most 255 characters. |
+| `state` | array of string |  | state is the vendor's state, normalised. Default [available] for every kind that has a state. One of `available`, `pending`, `failed`. At least 1 items. At most 3 items. |
+| `within` | string |  | within is a range the resource's range must lie inside. At most 255 characters. Rule: within must be a CIDR (`isCIDR(self)`). |
+| `zone` | array of string |  | zone lists the vendor's zone IDs of a zonal resource. At least 1 items. At most 32 items. At most 255 characters. |
+
+### `spec.vendors.oci.storage`
+
+storage overrides the built-in storage defaults (a 64 GiB boot volume of the balanced performance level). Data volumes and local storage are not supported in v1.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `root` | [object](#specvendorsocistorageroot) |  | root configures the boot volume. |
+
+### `spec.vendors.oci.storage.root`
+
+root configures the boot volume.
+
+Validation: vpusPerGb is only valid with performance ultra-high-performance (`!has(self.vpusPerGb) \|\| (has(self.performance) && self.performance == 'ultra-high-performance')`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `kmsKeyId` | string |  | kmsKeyId is the OCID of a Vault key that encrypts the volume; default the Oracle-managed key. Pattern `^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+)?$`. |
+| `performance` | string |  | performance level of the volume. Built-in default balanced (10 VPUs per GB). One of `lower-cost`, `balanced`, `higher-performance`, `ultra-high-performance`. |
+| `sizeGb` | integer (int64) |  | sizeGb of the boot volume in GB (OCI's GB). Built-in default 64; the Flatcar image needs about 47. Minimum 50. Maximum 32768. |
+| `vpusPerGb` | integer (int64) |  | vpusPerGb of an ultra-high-performance volume: 30 to 120 in steps of 10, default 30. Minimum 30. Maximum 120. |
 
 ### `spec.vendors.ovh`
 

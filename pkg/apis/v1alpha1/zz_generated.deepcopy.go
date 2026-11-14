@@ -18,6 +18,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/gcp"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/oci"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/upcloud"
@@ -913,6 +914,11 @@ func (in *VendorBlocks) DeepCopyInto(out *VendorBlocks) {
 	if in.HCloud != nil {
 		in, out := &in.HCloud, &out.HCloud
 		*out = new(hcloud.Settings)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.OCI != nil {
+		in, out := &in.OCI, &out.OCI
+		*out = new(oci.Settings)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.OVH != nil {

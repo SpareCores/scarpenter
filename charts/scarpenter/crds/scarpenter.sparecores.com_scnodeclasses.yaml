@@ -11195,6 +11195,1099 @@ spec:
                             x-kubernetes-list-type: map
                         type: object
                     type: object
+                  oci:
+                    description: oci configures Oracle Cloud Infrastructure nodes.
+                    properties:
+                      metadata:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          metadata is extra instance metadata. user_data and ssh_authorized_keys are
+                          reserved: the first is the Ignition and the nodes carry no SSH keys.
+                        maxProperties: 32
+                        type: object
+                        x-kubernetes-validations:
+                        - message: the metadata keys user_data and ssh_authorized_keys
+                            are reserved
+                          rule: '!(''user_data'' in self) && !(''ssh_authorized_keys''
+                            in self)'
+                      networking:
+                        description: |-
+                          networking overrides the generic spec.networking for OCI. publicIPv4
+                          defaults to true; inbound rules become rules of the network security
+                          group.
+                        properties:
+                          inbound:
+                            description: inbound replaces spec.networking.inbound.
+                            properties:
+                              rules:
+                                description: rules allow traffic from CIDRs; everything
+                                  else is denied.
+                                items:
+                                  description: InboundRule allows inbound traffic
+                                    from CIDRs.
+                                  properties:
+                                    cidrs:
+                                      description: cidrs are the allowed source networks.
+                                      items:
+                                        maxLength: 43
+                                        type: string
+                                      maxItems: 32
+                                      minItems: 1
+                                      type: array
+                                      x-kubernetes-list-type: set
+                                    fromPort:
+                                      description: |-
+                                        fromPort is the first port of the range (tcp and udp); without ports
+                                        the rule covers every port.
+                                      format: int32
+                                      maximum: 65535
+                                      minimum: 1
+                                      type: integer
+                                    protocol:
+                                      description: protocol of the rule.
+                                      enum:
+                                      - tcp
+                                      - udp
+                                      - icmp
+                                      - any
+                                      type: string
+                                    toPort:
+                                      description: toPort is the last port of the
+                                        range; defaults to fromPort.
+                                      format: int32
+                                      maximum: 65535
+                                      minimum: 1
+                                      type: integer
+                                  required:
+                                  - cidrs
+                                  - protocol
+                                  type: object
+                                  x-kubernetes-validations:
+                                  - message: ports are only valid for tcp and udp
+                                    rule: '!has(self.fromPort) || self.protocol ==
+                                      ''tcp'' || self.protocol == ''udp'''
+                                  - message: toPort needs fromPort
+                                    rule: '!has(self.toPort) || has(self.fromPort)'
+                                  - message: toPort must not be smaller than fromPort
+                                    rule: '!has(self.toPort) || self.toPort >= self.fromPort'
+                                  - message: cidrs must be valid CIDR notation
+                                    rule: self.cidrs.all(c, isCIDR(c))
+                                maxItems: 32
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            type: object
+                          isolation:
+                            description: isolation overrides spec.networking.isolation.
+                            enum:
+                            - none
+                            - nodeclass
+                            - run
+                            type: string
+                          publicIPv4:
+                            description: publicIPv4 overrides spec.networking.publicIPv4.
+                            type: boolean
+                          publicIPv6:
+                            description: publicIPv6 overrides spec.networking.publicIPv6.
+                            type: boolean
+                        type: object
+                      regions:
+                        description: |-
+                          regions is the allow-list of OCI regions (eu-frankfurt-1); empty means
+                          every region the tenancy has subscribed.
+                        items:
+                          pattern: ^[a-z]{2}-[a-z]+-[0-9]+$
+                          type: string
+                        maxItems: 64
+                        type: array
+                        x-kubernetes-list-type: set
+                      resources:
+                        description: resources says how the OCI resources a node depends
+                          on are provided.
+                        properties:
+                          images:
+                            description: |-
+                              images brings the Flatcar images with the one selector of every resource
+                              kind (plan 14 A1). Optional: without it the driver finds the images of the
+                              pinned release in the controller's compartment by the name
+                              flatcar-<channel>-<version>-<arch>. Images are regional: IDs go under the
+                              region name, never "*". Whatever the lookup, the image's tags or operating
+                              system version must say the pinned channel and version, or the images are
+                              not ready. Images take use only.
+                            properties:
+                              create:
+                                description: create lets SCarpenter create and own
+                                  the resource, with a lifecycle.
+                                properties:
+                                  lifecycle:
+                                    description: |-
+                                      lifecycle decides when the resource is deleted. Without it the kind's
+                                      default applies (00a section 9.3).
+                                    properties:
+                                      policy:
+                                        description: policy is perUse, idleTTL or
+                                          retain.
+                                        enum:
+                                        - perUse
+                                        - idleTTL
+                                        - retain
+                                        type: string
+                                      ttl:
+                                        description: |-
+                                          ttl is how long an unused resource is kept (policy idleTTL). Default
+                                          24h, or the controller's --resource-default-ttl.
+                                        type: string
+                                    required:
+                                    - policy
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ttl is only valid with policy idleTTL
+                                      rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  timing:
+                                    description: 'timing decides when the resource
+                                      is created. Default: on demand.'
+                                    properties:
+                                      mode:
+                                        default: onDemand
+                                        description: |-
+                                          mode: onDemand creates the resource when the first launch needs it;
+                                          preCreate creates it in the listed regions right away and keeps it.
+                                        enum:
+                                        - onDemand
+                                        - preCreate
+                                        type: string
+                                      regions:
+                                        description: regions are the regions to create
+                                          the resource in (mode preCreate).
+                                        items:
+                                          type: string
+                                        maxItems: 64
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: regions is required with mode preCreate
+                                        and invalid otherwise
+                                      rule: 'self.mode == ''preCreate'' ? has(self.regions)
+                                        : !has(self.regions)'
+                                type: object
+                              forbid:
+                                description: |-
+                                  forbid opts the kind out of auto-creation: offerings that need it are
+                                  unavailable unless the vendor's default resource exists.
+                                type: boolean
+                              use:
+                                description: |-
+                                  use brings an existing resource: it is validated per region, never
+                                  modified and never deleted.
+                                properties:
+                                  expression:
+                                    description: expression is a query in the vendor's
+                                      own language, where it has one.
+                                    maxLength: 4096
+                                    minLength: 1
+                                    type: string
+                                  filters:
+                                    description: |-
+                                      filters are the vendor's own filters for the kind, passed through: name is
+                                      the vendor's filter or parameter name, values are ORed.
+                                    items:
+                                      description: ResourceFilter is one of the vendor's
+                                        own filters.
+                                      properties:
+                                        name:
+                                          description: name is the vendor's own filter
+                                            or parameter name.
+                                          maxLength: 255
+                                          minLength: 1
+                                          type: string
+                                        values:
+                                          description: values are ORed.
+                                          items:
+                                            maxLength: 255
+                                            type: string
+                                          maxItems: 32
+                                          minItems: 1
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      required:
+                                      - name
+                                      - values
+                                      type: object
+                                    maxItems: 32
+                                    minItems: 1
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  ids:
+                                    additionalProperties:
+                                      description: IDList is the IDs of a resource
+                                        kind in one region.
+                                      items:
+                                        maxLength: 255
+                                        minLength: 1
+                                        type: string
+                                      maxItems: 64
+                                      minItems: 1
+                                      type: array
+                                    description: |-
+                                      ids lists vendor IDs per region (the vendor's region name). The key "*"
+                                      applies to every region in scope (a resource that is global at the vendor,
+                                      the same ID in every region); a region key adds to it. With other fields
+                                      the IDs are ANDed with them.
+                                    maxProperties: 64
+                                    minProperties: 1
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ids keys are a region name or *
+                                      rule: self.all(k, k.size() > 0 && k.size() <=
+                                        64)
+                                  match:
+                                    description: match holds the portable attributes,
+                                      with one spelling on every vendor.
+                                    properties:
+                                      architecture:
+                                        description: architecture is the CPU architecture
+                                          of an image.
+                                        items:
+                                          enum:
+                                          - amd64
+                                          - arm64
+                                          type: string
+                                        maxItems: 2
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      cidr:
+                                        description: cidr is a range the resource's
+                                          range must equal.
+                                        maxLength: 255
+                                        type: string
+                                        x-kubernetes-validations:
+                                        - message: cidr must be a CIDR
+                                          rule: isCIDR(self)
+                                      createdAfter:
+                                        description: |-
+                                          createdAfter and createdBefore bound the creation time (RFC 3339), on
+                                          kinds that have one.
+                                        format: date-time
+                                        type: string
+                                      createdBefore:
+                                        format: date-time
+                                        type: string
+                                      description:
+                                        description: description is a glob on the
+                                          description field.
+                                        maxLength: 255
+                                        minLength: 1
+                                        type: string
+                                      includeDeprecated:
+                                        description: includeDeprecated includes images
+                                          the vendor marked deprecated.
+                                        type: boolean
+                                      network:
+                                        description: network lists the network IDs
+                                          a subnet or security group belongs to.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      owner:
+                                        description: |-
+                                          owner is whose resources to look at: self, an account or project ID, or
+                                          the vendor's public alias.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      state:
+                                        description: |-
+                                          state is the vendor's state, normalised. Default [available] for every
+                                          kind that has a state.
+                                        items:
+                                          enum:
+                                          - available
+                                          - pending
+                                          - failed
+                                          type: string
+                                        maxItems: 3
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      within:
+                                        description: within is a range the resource's
+                                          range must lie inside.
+                                        maxLength: 255
+                                        type: string
+                                        x-kubernetes-validations:
+                                        - message: within must be a CIDR
+                                          rule: isCIDR(self)
+                                      zone:
+                                        description: zone lists the vendor's zone
+                                          IDs of a zonal resource.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: match sets no attribute
+                                      rule: has(self.architecture) || has(self.owner)
+                                        || has(self.state) || has(self.includeDeprecated)
+                                        || has(self.createdAfter) || has(self.createdBefore)
+                                        || has(self.description) || has(self.zone)
+                                        || has(self.network) || has(self.cidr) ||
+                                        has(self.within)
+                                  name:
+                                    description: |-
+                                      name is a glob on the kind's name field: * is any run of characters, ?
+                                      one character, \ escapes them; exact without wildcards.
+                                    maxLength: 255
+                                    minLength: 1
+                                    type: string
+                                  orderBy:
+                                    description: |-
+                                      orderBy is what newest and oldest order by: created, name or
+                                      label:<key>.
+                                    maxLength: 255
+                                    type: string
+                                    x-kubernetes-validations:
+                                    - message: orderBy is created, name or label:<key>
+                                      rule: self == 'created' || self == 'name' ||
+                                        (self.startsWith('label:') && self.size()
+                                        > 6)
+                                  select:
+                                    description: |-
+                                      select says how many of the matches are used. Without it the kind's
+                                      default applies (the driver's capability declaration).
+                                    enum:
+                                    - exactlyOne
+                                    - all
+                                    - newest
+                                    - oldest
+                                    type: string
+                                  tags:
+                                    additionalProperties:
+                                      type: string
+                                    description: |-
+                                      tags are tags (labels, where the vendor has no tags) that must all be on
+                                      the resource with the given value; the value "*" means the key exists.
+                                    maxProperties: 32
+                                    minProperties: 1
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: tag keys are 1 to 255 characters and
+                                        values at most 255
+                                      rule: self.all(k, k.size() > 0 && k.size() <=
+                                        255 && self[k].size() <= 255)
+                                type: object
+                                x-kubernetes-validations:
+                                - message: 'set at least one of ids, name, tags, match,
+                                    filters and expression: an empty use would select
+                                    every resource'
+                                  rule: has(self.ids) || has(self.name) || has(self.tags)
+                                    || has(self.match) || has(self.filters) || has(self.expression)
+                                - message: orderBy is only valid with select newest
+                                    or oldest
+                                  rule: '!has(self.orderBy) || (has(self.select) &&
+                                    (self.select == ''newest'' || self.select == ''oldest''))'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: 'images accepts use only: it has no create
+                                and no forbid'
+                              rule: has(self.use) && !has(self.create) && !(has(self.forbid)
+                                && self.forbid)
+                            - message: 'images cannot use select all: a launch needs
+                                one image'
+                              rule: '!has(self.use) || !has(self.use.select) || self.use.select
+                                != ''all'''
+                            - message: use.ids are image OCIDs per region name, never
+                                *
+                              rule: '!has(self.use) || !has(self.use.ids) || self.use.ids.all(r,
+                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]image[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$'')))'
+                            - message: at most one of use, create and forbid may be
+                                set
+                              rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
+                                1 : 0) + ((has(self.forbid) && self.forbid) ? 1 :
+                                0) <= 1'
+                          networkSecurityGroups:
+                            description: |-
+                              networkSecurityGroups are attached to the nodes' VNICs (at most five per
+                              VNIC), in the VCN of the subnet. Without use, SCarpenter creates one group
+                              per NodeClass and region with the rules of networking.inbound.
+                            properties:
+                              create:
+                                description: create lets SCarpenter create and own
+                                  the resource, with a lifecycle.
+                                properties:
+                                  lifecycle:
+                                    description: |-
+                                      lifecycle decides when the resource is deleted. Without it the kind's
+                                      default applies (00a section 9.3).
+                                    properties:
+                                      policy:
+                                        description: policy is perUse, idleTTL or
+                                          retain.
+                                        enum:
+                                        - perUse
+                                        - idleTTL
+                                        - retain
+                                        type: string
+                                      ttl:
+                                        description: |-
+                                          ttl is how long an unused resource is kept (policy idleTTL). Default
+                                          24h, or the controller's --resource-default-ttl.
+                                        type: string
+                                    required:
+                                    - policy
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ttl is only valid with policy idleTTL
+                                      rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  timing:
+                                    description: 'timing decides when the resource
+                                      is created. Default: on demand.'
+                                    properties:
+                                      mode:
+                                        default: onDemand
+                                        description: |-
+                                          mode: onDemand creates the resource when the first launch needs it;
+                                          preCreate creates it in the listed regions right away and keeps it.
+                                        enum:
+                                        - onDemand
+                                        - preCreate
+                                        type: string
+                                      regions:
+                                        description: regions are the regions to create
+                                          the resource in (mode preCreate).
+                                        items:
+                                          type: string
+                                        maxItems: 64
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: regions is required with mode preCreate
+                                        and invalid otherwise
+                                      rule: 'self.mode == ''preCreate'' ? has(self.regions)
+                                        : !has(self.regions)'
+                                type: object
+                              forbid:
+                                description: |-
+                                  forbid opts the kind out of auto-creation: offerings that need it are
+                                  unavailable unless the vendor's default resource exists.
+                                type: boolean
+                              use:
+                                description: |-
+                                  use brings an existing resource: it is validated per region, never
+                                  modified and never deleted.
+                                properties:
+                                  expression:
+                                    description: expression is a query in the vendor's
+                                      own language, where it has one.
+                                    maxLength: 4096
+                                    minLength: 1
+                                    type: string
+                                  filters:
+                                    description: |-
+                                      filters are the vendor's own filters for the kind, passed through: name is
+                                      the vendor's filter or parameter name, values are ORed.
+                                    items:
+                                      description: ResourceFilter is one of the vendor's
+                                        own filters.
+                                      properties:
+                                        name:
+                                          description: name is the vendor's own filter
+                                            or parameter name.
+                                          maxLength: 255
+                                          minLength: 1
+                                          type: string
+                                        values:
+                                          description: values are ORed.
+                                          items:
+                                            maxLength: 255
+                                            type: string
+                                          maxItems: 32
+                                          minItems: 1
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      required:
+                                      - name
+                                      - values
+                                      type: object
+                                    maxItems: 32
+                                    minItems: 1
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  ids:
+                                    additionalProperties:
+                                      description: IDList is the IDs of a resource
+                                        kind in one region.
+                                      items:
+                                        maxLength: 255
+                                        minLength: 1
+                                        type: string
+                                      maxItems: 64
+                                      minItems: 1
+                                      type: array
+                                    description: |-
+                                      ids lists vendor IDs per region (the vendor's region name). The key "*"
+                                      applies to every region in scope (a resource that is global at the vendor,
+                                      the same ID in every region); a region key adds to it. With other fields
+                                      the IDs are ANDed with them.
+                                    maxProperties: 64
+                                    minProperties: 1
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ids keys are a region name or *
+                                      rule: self.all(k, k.size() > 0 && k.size() <=
+                                        64)
+                                  match:
+                                    description: match holds the portable attributes,
+                                      with one spelling on every vendor.
+                                    properties:
+                                      architecture:
+                                        description: architecture is the CPU architecture
+                                          of an image.
+                                        items:
+                                          enum:
+                                          - amd64
+                                          - arm64
+                                          type: string
+                                        maxItems: 2
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      cidr:
+                                        description: cidr is a range the resource's
+                                          range must equal.
+                                        maxLength: 255
+                                        type: string
+                                        x-kubernetes-validations:
+                                        - message: cidr must be a CIDR
+                                          rule: isCIDR(self)
+                                      createdAfter:
+                                        description: |-
+                                          createdAfter and createdBefore bound the creation time (RFC 3339), on
+                                          kinds that have one.
+                                        format: date-time
+                                        type: string
+                                      createdBefore:
+                                        format: date-time
+                                        type: string
+                                      description:
+                                        description: description is a glob on the
+                                          description field.
+                                        maxLength: 255
+                                        minLength: 1
+                                        type: string
+                                      includeDeprecated:
+                                        description: includeDeprecated includes images
+                                          the vendor marked deprecated.
+                                        type: boolean
+                                      network:
+                                        description: network lists the network IDs
+                                          a subnet or security group belongs to.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      owner:
+                                        description: |-
+                                          owner is whose resources to look at: self, an account or project ID, or
+                                          the vendor's public alias.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      state:
+                                        description: |-
+                                          state is the vendor's state, normalised. Default [available] for every
+                                          kind that has a state.
+                                        items:
+                                          enum:
+                                          - available
+                                          - pending
+                                          - failed
+                                          type: string
+                                        maxItems: 3
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      within:
+                                        description: within is a range the resource's
+                                          range must lie inside.
+                                        maxLength: 255
+                                        type: string
+                                        x-kubernetes-validations:
+                                        - message: within must be a CIDR
+                                          rule: isCIDR(self)
+                                      zone:
+                                        description: zone lists the vendor's zone
+                                          IDs of a zonal resource.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: match sets no attribute
+                                      rule: has(self.architecture) || has(self.owner)
+                                        || has(self.state) || has(self.includeDeprecated)
+                                        || has(self.createdAfter) || has(self.createdBefore)
+                                        || has(self.description) || has(self.zone)
+                                        || has(self.network) || has(self.cidr) ||
+                                        has(self.within)
+                                  name:
+                                    description: |-
+                                      name is a glob on the kind's name field: * is any run of characters, ?
+                                      one character, \ escapes them; exact without wildcards.
+                                    maxLength: 255
+                                    minLength: 1
+                                    type: string
+                                  orderBy:
+                                    description: |-
+                                      orderBy is what newest and oldest order by: created, name or
+                                      label:<key>.
+                                    maxLength: 255
+                                    type: string
+                                    x-kubernetes-validations:
+                                    - message: orderBy is created, name or label:<key>
+                                      rule: self == 'created' || self == 'name' ||
+                                        (self.startsWith('label:') && self.size()
+                                        > 6)
+                                  select:
+                                    description: |-
+                                      select says how many of the matches are used. Without it the kind's
+                                      default applies (the driver's capability declaration).
+                                    enum:
+                                    - exactlyOne
+                                    - all
+                                    - newest
+                                    - oldest
+                                    type: string
+                                  tags:
+                                    additionalProperties:
+                                      type: string
+                                    description: |-
+                                      tags are tags (labels, where the vendor has no tags) that must all be on
+                                      the resource with the given value; the value "*" means the key exists.
+                                    maxProperties: 32
+                                    minProperties: 1
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: tag keys are 1 to 255 characters and
+                                        values at most 255
+                                      rule: self.all(k, k.size() > 0 && k.size() <=
+                                        255 && self[k].size() <= 255)
+                                type: object
+                                x-kubernetes-validations:
+                                - message: 'set at least one of ids, name, tags, match,
+                                    filters and expression: an empty use would select
+                                    every resource'
+                                  rule: has(self.ids) || has(self.name) || has(self.tags)
+                                    || has(self.match) || has(self.filters) || has(self.expression)
+                                - message: orderBy is only valid with select newest
+                                    or oldest
+                                  rule: '!has(self.orderBy) || (has(self.select) &&
+                                    (self.select == ''newest'' || self.select == ''oldest''))'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: use.ids are network security group OCIDs per
+                                region name, never *
+                              rule: '!has(self.use) || !has(self.use.ids) || self.use.ids.all(r,
+                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]networksecuritygroup[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$'')))'
+                            - message: at most one of use, create and forbid may be
+                                set
+                              rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
+                                1 : 0) + ((has(self.forbid) && self.forbid) ? 1 :
+                                0) <= 1'
+                          subnets:
+                            description: |-
+                              subnets nodes are launched into (the network, the VCN, is implied by the
+                              subnet). A regional subnet serves every availability domain. Without use,
+                              SCarpenter creates a VCN with an internet gateway, a route table, a minimal
+                              security list and one regional public subnet per region (create).
+                            properties:
+                              create:
+                                description: create lets SCarpenter create and own
+                                  the VCN and its subnet.
+                                properties:
+                                  cidr:
+                                    description: |-
+                                      cidr is the IPv4 range of the VCN SCarpenter creates (one regional subnet,
+                                      the first /20 of it). Default 10.240.0.0/16. Set it when a network your own
+                                      network is peered with, or reaches by VPN, uses that range.
+                                    maxLength: 18
+                                    type: string
+                                    x-kubernetes-validations:
+                                    - message: cidr must be an IPv4 CIDR inside 10.0.0.0/8,
+                                        172.16.0.0/12 or 192.168.0.0/16, with a prefix
+                                        length of at most 20
+                                      rule: isCIDR(self) && cidr(self).ip().family()
+                                        == 4 && cidr(self).masked() == cidr(self)
+                                        && cidr(self).prefixLength() <= 20 && (cidr('10.0.0.0/8').containsCIDR(self)
+                                        || cidr('172.16.0.0/12').containsCIDR(self)
+                                        || cidr('192.168.0.0/16').containsCIDR(self))
+                                  lifecycle:
+                                    description: |-
+                                      lifecycle decides when the resource is deleted. Without it the kind's
+                                      default applies (00a section 9.3).
+                                    properties:
+                                      policy:
+                                        description: policy is perUse, idleTTL or
+                                          retain.
+                                        enum:
+                                        - perUse
+                                        - idleTTL
+                                        - retain
+                                        type: string
+                                      ttl:
+                                        description: |-
+                                          ttl is how long an unused resource is kept (policy idleTTL). Default
+                                          24h, or the controller's --resource-default-ttl.
+                                        type: string
+                                    required:
+                                    - policy
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ttl is only valid with policy idleTTL
+                                      rule: self.policy == 'idleTTL' || !has(self.ttl)
+                                  timing:
+                                    description: 'timing decides when the resource
+                                      is created. Default: on demand.'
+                                    properties:
+                                      mode:
+                                        default: onDemand
+                                        description: |-
+                                          mode: onDemand creates the resource when the first launch needs it;
+                                          preCreate creates it in the listed regions right away and keeps it.
+                                        enum:
+                                        - onDemand
+                                        - preCreate
+                                        type: string
+                                      regions:
+                                        description: regions are the regions to create
+                                          the resource in (mode preCreate).
+                                        items:
+                                          type: string
+                                        maxItems: 64
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: regions is required with mode preCreate
+                                        and invalid otherwise
+                                      rule: 'self.mode == ''preCreate'' ? has(self.regions)
+                                        : !has(self.regions)'
+                                type: object
+                              forbid:
+                                description: forbid opts the kind out of auto-creation.
+                                type: boolean
+                              use:
+                                description: |-
+                                  use brings existing subnets: validated per region, never modified and
+                                  never deleted.
+                                properties:
+                                  expression:
+                                    description: expression is a query in the vendor's
+                                      own language, where it has one.
+                                    maxLength: 4096
+                                    minLength: 1
+                                    type: string
+                                  filters:
+                                    description: |-
+                                      filters are the vendor's own filters for the kind, passed through: name is
+                                      the vendor's filter or parameter name, values are ORed.
+                                    items:
+                                      description: ResourceFilter is one of the vendor's
+                                        own filters.
+                                      properties:
+                                        name:
+                                          description: name is the vendor's own filter
+                                            or parameter name.
+                                          maxLength: 255
+                                          minLength: 1
+                                          type: string
+                                        values:
+                                          description: values are ORed.
+                                          items:
+                                            maxLength: 255
+                                            type: string
+                                          maxItems: 32
+                                          minItems: 1
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      required:
+                                      - name
+                                      - values
+                                      type: object
+                                    maxItems: 32
+                                    minItems: 1
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  ids:
+                                    additionalProperties:
+                                      description: IDList is the IDs of a resource
+                                        kind in one region.
+                                      items:
+                                        maxLength: 255
+                                        minLength: 1
+                                        type: string
+                                      maxItems: 64
+                                      minItems: 1
+                                      type: array
+                                    description: |-
+                                      ids lists vendor IDs per region (the vendor's region name). The key "*"
+                                      applies to every region in scope (a resource that is global at the vendor,
+                                      the same ID in every region); a region key adds to it. With other fields
+                                      the IDs are ANDed with them.
+                                    maxProperties: 64
+                                    minProperties: 1
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: ids keys are a region name or *
+                                      rule: self.all(k, k.size() > 0 && k.size() <=
+                                        64)
+                                  match:
+                                    description: match holds the portable attributes,
+                                      with one spelling on every vendor.
+                                    properties:
+                                      architecture:
+                                        description: architecture is the CPU architecture
+                                          of an image.
+                                        items:
+                                          enum:
+                                          - amd64
+                                          - arm64
+                                          type: string
+                                        maxItems: 2
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      cidr:
+                                        description: cidr is a range the resource's
+                                          range must equal.
+                                        maxLength: 255
+                                        type: string
+                                        x-kubernetes-validations:
+                                        - message: cidr must be a CIDR
+                                          rule: isCIDR(self)
+                                      createdAfter:
+                                        description: |-
+                                          createdAfter and createdBefore bound the creation time (RFC 3339), on
+                                          kinds that have one.
+                                        format: date-time
+                                        type: string
+                                      createdBefore:
+                                        format: date-time
+                                        type: string
+                                      description:
+                                        description: description is a glob on the
+                                          description field.
+                                        maxLength: 255
+                                        minLength: 1
+                                        type: string
+                                      includeDeprecated:
+                                        description: includeDeprecated includes images
+                                          the vendor marked deprecated.
+                                        type: boolean
+                                      network:
+                                        description: network lists the network IDs
+                                          a subnet or security group belongs to.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      owner:
+                                        description: |-
+                                          owner is whose resources to look at: self, an account or project ID, or
+                                          the vendor's public alias.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      state:
+                                        description: |-
+                                          state is the vendor's state, normalised. Default [available] for every
+                                          kind that has a state.
+                                        items:
+                                          enum:
+                                          - available
+                                          - pending
+                                          - failed
+                                          type: string
+                                        maxItems: 3
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                      within:
+                                        description: within is a range the resource's
+                                          range must lie inside.
+                                        maxLength: 255
+                                        type: string
+                                        x-kubernetes-validations:
+                                        - message: within must be a CIDR
+                                          rule: isCIDR(self)
+                                      zone:
+                                        description: zone lists the vendor's zone
+                                          IDs of a zonal resource.
+                                        items:
+                                          maxLength: 255
+                                          type: string
+                                        maxItems: 32
+                                        minItems: 1
+                                        type: array
+                                        x-kubernetes-list-type: set
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: match sets no attribute
+                                      rule: has(self.architecture) || has(self.owner)
+                                        || has(self.state) || has(self.includeDeprecated)
+                                        || has(self.createdAfter) || has(self.createdBefore)
+                                        || has(self.description) || has(self.zone)
+                                        || has(self.network) || has(self.cidr) ||
+                                        has(self.within)
+                                  name:
+                                    description: |-
+                                      name is a glob on the kind's name field: * is any run of characters, ?
+                                      one character, \ escapes them; exact without wildcards.
+                                    maxLength: 255
+                                    minLength: 1
+                                    type: string
+                                  orderBy:
+                                    description: |-
+                                      orderBy is what newest and oldest order by: created, name or
+                                      label:<key>.
+                                    maxLength: 255
+                                    type: string
+                                    x-kubernetes-validations:
+                                    - message: orderBy is created, name or label:<key>
+                                      rule: self == 'created' || self == 'name' ||
+                                        (self.startsWith('label:') && self.size()
+                                        > 6)
+                                  select:
+                                    description: |-
+                                      select says how many of the matches are used. Without it the kind's
+                                      default applies (the driver's capability declaration).
+                                    enum:
+                                    - exactlyOne
+                                    - all
+                                    - newest
+                                    - oldest
+                                    type: string
+                                  tags:
+                                    additionalProperties:
+                                      type: string
+                                    description: |-
+                                      tags are tags (labels, where the vendor has no tags) that must all be on
+                                      the resource with the given value; the value "*" means the key exists.
+                                    maxProperties: 32
+                                    minProperties: 1
+                                    type: object
+                                    x-kubernetes-validations:
+                                    - message: tag keys are 1 to 255 characters and
+                                        values at most 255
+                                      rule: self.all(k, k.size() > 0 && k.size() <=
+                                        255 && self[k].size() <= 255)
+                                type: object
+                                x-kubernetes-validations:
+                                - message: 'set at least one of ids, name, tags, match,
+                                    filters and expression: an empty use would select
+                                    every resource'
+                                  rule: has(self.ids) || has(self.name) || has(self.tags)
+                                    || has(self.match) || has(self.filters) || has(self.expression)
+                                - message: orderBy is only valid with select newest
+                                    or oldest
+                                  rule: '!has(self.orderBy) || (has(self.select) &&
+                                    (self.select == ''newest'' || self.select == ''oldest''))'
+                            type: object
+                            x-kubernetes-validations:
+                            - message: use.ids are subnet OCIDs per region name, never
+                                *
+                              rule: '!has(self.use) || !has(self.use.ids) || self.use.ids.all(r,
+                                r != ''*'' && self.use.ids[r].all(id, id.matches(''^ocid1[.]subnet[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+$'')))'
+                            - message: at most one of use, create and forbid may be
+                                set
+                              rule: '(has(self.use) ? 1 : 0) + (has(self.create) ?
+                                1 : 0) + ((has(self.forbid) && self.forbid) ? 1 :
+                                0) <= 1'
+                        type: object
+                      storage:
+                        description: |-
+                          storage overrides the built-in storage defaults (a 64 GiB boot volume of
+                          the balanced performance level). Data volumes and local storage are not
+                          supported in v1.
+                        properties:
+                          root:
+                            description: root configures the boot volume.
+                            properties:
+                              kmsKeyId:
+                                description: |-
+                                  kmsKeyId is the OCID of a Vault key that encrypts the volume; default
+                                  the Oracle-managed key.
+                                pattern: ^(ocid1[.]key[.][a-z0-9]+[.][a-z0-9-]*[.][a-z0-9]+)?$
+                                type: string
+                              performance:
+                                description: |-
+                                  performance level of the volume. Built-in default balanced (10 VPUs per
+                                  GB).
+                                enum:
+                                - lower-cost
+                                - balanced
+                                - higher-performance
+                                - ultra-high-performance
+                                type: string
+                              sizeGb:
+                                description: |-
+                                  sizeGb of the boot volume in GB (OCI's GB). Built-in default 64; the
+                                  Flatcar image needs about 47.
+                                format: int64
+                                maximum: 32768
+                                minimum: 50
+                                type: integer
+                              vpusPerGb:
+                                description: |-
+                                  vpusPerGb of an ultra-high-performance volume: 30 to 120 in steps of 10,
+                                  default 30.
+                                format: int64
+                                maximum: 120
+                                minimum: 30
+                                multipleOf: 10
+                                type: integer
+                            type: object
+                            x-kubernetes-validations:
+                            - message: vpusPerGb is only valid with performance ultra-high-performance
+                              rule: '!has(self.vpusPerGb) || (has(self.performance)
+                                && self.performance == ''ultra-high-performance'')'
+                        type: object
+                    type: object
                   ovh:
                     description: ovh configures OVHcloud Public Cloud nodes.
                     properties:

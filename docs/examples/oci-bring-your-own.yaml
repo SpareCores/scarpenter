@@ -1,0 +1,32 @@
+# A subnet and a network security group your own tooling provides, by OCID per region, and an image you imported
+# (a Flatcar image in your tenancy). SCarpenter uses them and never changes or deletes them. The group's rules
+# (or the subnet's security list) must allow egress, which Ignition needs at first boot, inbound 10250 from the
+# control plane, the CNI ports, UDP 41641 for the tailscale template, and ICMP type 3 code 4 (path MTU). The
+# OCIDs below are placeholders. Images are regional: ids go under the region name, never *.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: oci-bring-your-own
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    oci:
+      regions: [eu-frankfurt-1]
+      resources:
+        subnets:
+          use:
+            ids:
+              eu-frankfurt-1: [ocid1.subnet.oc1.eu-frankfurt-1.aaaaaaaaexample]
+        networkSecurityGroups:
+          use:
+            ids:
+              eu-frankfurt-1: [ocid1.networksecuritygroup.oc1.eu-frankfurt-1.aaaaaaaaexample]
+        images:
+          use:
+            ids:
+              eu-frankfurt-1: [ocid1.image.oc1.eu-frankfurt-1.aaaaaaaaexample]

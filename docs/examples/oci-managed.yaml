@@ -1,0 +1,34 @@
+# SCarpenter creates and owns the VCN (10.200.0.0/16), internet gateway, route table, minimal security list and
+# regional subnet of each region, and a network security group per NodeClass with the inbound rules below; it
+# keeps them while nodes use them and deletes them five minutes after the last node is gone (the default is 24
+# hours). Boot volumes are 100 GB of the higher-performance level. The resources carry the display name prefix
+# scarpenter-<cluster>- and the freeform tags scarpenter-cluster, scarpenter-nodeclass and scarpenter-managed-by.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: oci-managed
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  networking:
+    isolation: nodeclass
+    inbound:
+      rules:
+        - {protocol: tcp, fromPort: 22, cidrs: ["203.0.113.0/24"]}
+  vendors:
+    oci:
+      regions: [eu-frankfurt-1, us-ashburn-1]
+      storage:
+        root: {sizeGb: 100, performance: higher-performance}
+      resources:
+        subnets:
+          create:
+            cidr: 10.200.0.0/16
+            lifecycle: {policy: idleTTL, ttl: 5m}
+        networkSecurityGroups:
+          create:
+            lifecycle: {policy: idleTTL, ttl: 5m}

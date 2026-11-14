@@ -13,6 +13,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/gcp"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/oci"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/upcloud"
@@ -55,6 +56,10 @@ type VendorBlocks struct {
 	// +optional
 	HCloud *hcloud.Settings `json:"hcloud,omitempty"`
 
+	// oci configures Oracle Cloud Infrastructure nodes.
+	// +optional
+	OCI *oci.Settings `json:"oci,omitempty"`
+
 	// ovh configures OVHcloud Public Cloud nodes.
 	// +optional
 	OVH *ovh.Settings `json:"ovh,omitempty"`
@@ -89,6 +94,9 @@ const (
 // VendorVultr is the name of the Vultr vendor block.
 const VendorVultr = "vultr"
 
+// VendorOCI is the name of the OCI vendor block.
+const VendorOCI = "oci"
+
 // Names returns the vendors that have a block, in a fixed order.
 func (v VendorBlocks) Names() []string {
 	var names []string
@@ -109,6 +117,9 @@ func (v VendorBlocks) Names() []string {
 	}
 	if v.HCloud != nil {
 		names = append(names, VendorHCloud)
+	}
+	if v.OCI != nil {
+		names = append(names, VendorOCI)
 	}
 	if v.OVH != nil {
 		names = append(names, VendorOVH)
@@ -214,6 +225,8 @@ func (v VendorBlocks) Get(vendor string) (any, bool) {
 		return orNil(v.GCP), v.GCP != nil
 	case VendorHCloud:
 		return orNil(v.HCloud), v.HCloud != nil
+	case VendorOCI:
+		return orNil(v.OCI), v.OCI != nil
 	case VendorOVH:
 		return orNil(v.OVH), v.OVH != nil
 	case VendorQEMU:
