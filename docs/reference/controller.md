@@ -161,7 +161,7 @@ and that the controller's own parser accepts what the chart renders.
 | `serviceAccount.*`, `rbac.*` | | `rbac.authKeySecrets`: a Role (`get` on that one Secret) and a RoleBinding for tailscale auth key Secrets in other namespaces; `rbac.extraRules` are appended to the controller's ClusterRole. |
 | `metrics.*`, `serviceMonitor.*` | | A Service for the metrics port and an optional ServiceMonitor (needs the Prometheus Operator CRD). |
 | `examples.*` | | An example `SCNodeClass` and `NodePool` per enabled vendor. |
-| `resources`, `affinity`, `nodeSelector`, `tolerations`, `topologySpreadConstraints`, `priorityClassName`, `podSecurityContext`, `securityContext`, probes, `podAnnotations`, `podLabels`, `extraArgs`, `extraEnv`, `extraVolumes`, `extraVolumeMounts` | | The default affinity prefers nodes without the `karpenter.sh/nodepool` label (the controller must not run on a node it manages). The default resources come from the L3 scale measurement: about 300 MiB peak with three regions, 475 MiB with every AWS region. |
+| `resources`, `affinity`, `nodeSelector`, `tolerations`, `topologySpreadConstraints`, `priorityClassName`, `podSecurityContext`, `securityContext`, probes, `podAnnotations`, `podLabels`, `extraArgs`, `extraEnv`, `extraVolumes`, `extraVolumeMounts` | | The default affinity prefers nodes without the `karpenter.sh/nodepool` label (the controller must not run on a node it manages). The default resources come from the L3 scale measurement: about 310 MiB peak with three AWS regions and 430 MiB with every AWS region; the chart limit is 2Gi (see [Memory sizing](#memory-sizing)). |
 
 ## Permissions
 
@@ -238,8 +238,8 @@ scope built, and the controller rows are the L3 scale scenario S10, at rest:
 
 | Scope | Offerings | Refresh peak (RSS) | Data held | Built (heap) |
 |---|---|---|---|---|
-| AWS, three regions | 26,303 | 77 MiB | 18 MiB | 87 MiB (controller 188 MiB RSS at rest) |
-| AWS, every region | 134,992 | 116 MiB | 42 MiB | 303 MiB (controller 367 MiB at rest) |
+| AWS, three regions | 26,303 | 77 MiB | 18 MiB | 87 MiB (controller 239 MiB RSS at rest, peak 310) |
+| AWS, every region | 134,992 | 116 MiB | 42 MiB | 303 MiB (controller 384 MiB at rest, peak 430) |
 | Azure, every region | 294,674 | 197 MiB | 68 MiB | 571 MiB |
 | All eight vendors, every region | 520,386 | 269 MiB | 131 MiB | 1,078 MiB |
 

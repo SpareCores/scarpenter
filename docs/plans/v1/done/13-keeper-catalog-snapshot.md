@@ -9,8 +9,10 @@ the recording of Keeper database `40ecd194b481` (published 2026-11-13) and
 live the same day:
 
 - **Controller memory** (L3 scenario S10, at rest, RSS; plan 06: 217 and 377
-  MiB): AWS three regions **193 MiB** (peak 241 MiB RSS, 173 MiB Go heap in use),
-  all AWS regions **360 MiB** (peak 373 MiB RSS, 294 MiB heap); per-scope refresh
+  MiB): AWS three regions **239 MiB** (peak 310 MiB RSS, 184 MiB Go heap in use),
+  all AWS regions **384 MiB** (peak 430 MiB RSS, 300 MiB heap), in the final L3 run
+  (earlier runs rested at 188-193 and 360-367 MiB: the figure moves by tens of MiB
+  with the Go GC); per-scope refresh
   and build numbers, Azure included, are in the controller reference ("Memory
   sizing"), and the chart limit is now 2Gi. No need to drop
   the price slice.
@@ -657,8 +659,8 @@ shows as `KeeperAuthorized=False`.
   ("General Purpose") and `series` the hardware line. The catalog's `family` label
   and selection's family filter and ranking use the series, else the family
   (`familyOf`); the labels reference says so.
-- **Memory.** L3 S10 at rest: 193 MiB (three AWS regions) and 360 MiB (every AWS
-  region) against plan 06's 217 and 377. Building every region of all eight
+- **Memory.** L3 S10 at rest: 239 MiB (three AWS regions) and 384 MiB (every AWS
+  region; the final L3 run, earlier runs 188-193 and 360-367 MiB) against plan 06's 217 and 377. Building every region of all eight
   vendors (about 520 000 offerings) holds about 1.1 GiB of Go heap, so the chart's
   default limit is 2Gi (request 640Mi); the controller reference has the per-scope
   numbers.
@@ -676,8 +678,9 @@ shows as `KeeperAuthorized=False`.
 
 Open items:
 
-- sc-keeper-go's recorder writes its files with mode 0600 (kept on hold); the kwok
-  replay image and `run.sh` make the recording readable meanwhile.
+- sc-keeper-go's recorder writes its files with mode 0600 (kept on hold); only
+  `test/kwok/run.sh` makes the recording readable for the replay image meanwhile
+  (the Dockerfile has no `--chmod`).
 - sc-keeper-go's selection package and sc-karpenter-nodepool still have to adapt
   to the family/series change.
 - The offerings dominate memory and could be cut further (for example by not

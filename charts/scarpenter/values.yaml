@@ -529,8 +529,8 @@ securityContext:
 
 # Sized from the L3 scale measurement (50 pending pods, one NodePool) and the
 # refresh measurements in the controller reference ("Memory sizing"): AWS with
-# three regions rests at about 190 MiB RSS and peaks at about 235 MiB, with
-# every region at about 370 and 380 MiB; every region of all eight vendors
+# three regions rests at about 240 MiB RSS and peaks at about 310 MiB, with
+# every region at about 385 and 430 MiB; every region of all eight vendors
 # (about 520 000 offerings) holds about 1.1 GiB of Go heap. The memory limit
 # also sets the garbage collector's soft limit (core's MEMORY_LIMIT, 90 %).
 # Scope the NodeClasses to the regions you use, or raise the limit further.
