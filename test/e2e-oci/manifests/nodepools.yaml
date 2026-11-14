@@ -18,6 +18,8 @@ spec:
   disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
   limits: {cpu: "8"}
 ---
+# Preemptible capacity: the types in order of preference (E2E_SPOT_TYPES, all of one size). OCI often has no
+# preemptible capacity of one family; the engine marks a refused offering unavailable and tries the next.
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
@@ -30,9 +32,9 @@ spec:
         - {key: scarpenter.sparecores.com/vendor, operator: In, values: [oci]}
         - {key: kubernetes.io/arch, operator: In, values: [amd64]}
         - {key: karpenter.sh/capacity-type, operator: In, values: [spot]}
-        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_TYPE_AMD64}"]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: [${E2E_SPOT_TYPES_YAML}]}
   disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
-  limits: {cpu: "4"}
+  limits: {cpu: "4"} # two nodes of the largest listed type (2 vCPUs each)
 ---
 apiVersion: karpenter.sh/v1
 kind: NodePool

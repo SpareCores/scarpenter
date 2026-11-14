@@ -55,6 +55,12 @@
 # allows A2 and the Pod gets whichever launches.
 : "${E2E_TYPE_ARM64:=oci.VM.Standard.A1.Flex.1-2}"
 : "${E2E_TYPE_ARM64_ALT:=oci.VM.Standard.A2.Flex.1-8}"
+# The types the spot scenario may launch, in order of preference: the same size (1 OCPU, 4 GB) of the E5, E4
+# and E3 flexible shapes, all offered as preemptible in eu-frankfurt-1 by the embedded catalog
+# (pkg/catalog/embeddeddata/oci). OCI regularly has no preemptible E5 capacity ("Out of host capacity"); the
+# NodePool lists them all and the engine tries the others once an offering is unavailable. The
+# scenario takes whichever launches, and is skipped when none has capacity.
+: "${E2E_SPOT_TYPES:=oci.VM.Standard.E5.Flex.1-4,oci.VM.Standard.E4.Flex.1-4,oci.VM.Standard.E3.Flex.1-4}"
 # The types the described-not-named scenario may pick from: 2 vCPUs (1 OCPU) and more than
 # 6000 MiB rules out the first (4096 MiB) and the third (4 vCPUs).
 : "${E2E_TYPES_DESCRIBED:=oci.VM.Standard.E5.Flex.1-4,oci.VM.Standard.E5.Flex.1-8,oci.VM.Standard.E5.Flex.2-8}"
@@ -102,6 +108,10 @@
 IFS=, read -ra _described <<<"${E2E_TYPES_DESCRIBED}"
 E2E_TYPES_DESCRIBED_YAML="$(printf '"%s", ' "${_described[@]}")"
 E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
+# The spot types as a YAML flow sequence for the e2e-spot NodePool.
+IFS=, read -ra _spot <<<"${E2E_SPOT_TYPES}"
+E2E_SPOT_TYPES_YAML="$(printf '"%s", ' "${_spot[@]}")"
+E2E_SPOT_TYPES_YAML="${E2E_SPOT_TYPES_YAML%, }"
 # The arm64 types of the pool as a YAML flow sequence.
 E2E_TYPES_ARM64_YAML="$(printf '"%s", "%s"' "${E2E_TYPE_ARM64}" "${E2E_TYPE_ARM64_ALT}")"
 # The image names of the pinned release (the naming contract of the default lookup).
@@ -112,6 +122,6 @@ E2E_FLATCAR_IMAGE_ARM64="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-a
 export OCI_COMPARTMENT OCI_IMAGE_COMPARTMENT OCI_TENANCY OCI_REGION OCI_HOME_REGION OCI_IDENTITY_DOMAIN_URL OCI_CLIENT_ID OCI_OIDC_AUDIENCE \
   E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION \
   E2E_FLATCAR_IMAGE_AMD64 E2E_FLATCAR_IMAGE_ARM64 E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_ARM64_ALT E2E_TYPES_DESCRIBED \
-  E2E_TYPES_DESCRIBED_YAML E2E_TYPES_ARM64_YAML E2E_ARM64 E2E_ROOT_GB E2E_ROOT_GB_DRIFT E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT \
+  E2E_TYPES_DESCRIBED_YAML E2E_TYPES_ARM64_YAML E2E_SPOT_TYPES E2E_SPOT_TYPES_YAML E2E_ARM64 E2E_ROOT_GB E2E_ROOT_GB_DRIFT E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT \
   E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_SMOKE_SCENARIOS E2E_MIN_OCPU \
   E2E_MIN_MEMORY_GB E2E_TAG_RUNNER E2E_TAG_NODE

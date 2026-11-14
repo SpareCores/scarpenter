@@ -82,6 +82,8 @@ t_pins() {
     { echo "the home region does not follow the region"; return 1; }
   [[ "${E2E_TYPES_DESCRIBED_YAML}" == '"oci.VM.Standard.E5.Flex.1-4", "oci.VM.Standard.E5.Flex.1-8", "oci.VM.Standard.E5.Flex.2-8"' ]] ||
     { echo "described: ${E2E_TYPES_DESCRIBED_YAML}"; return 1; }
+  [[ "${E2E_SPOT_TYPES_YAML}" == '"oci.VM.Standard.E5.Flex.1-4", "oci.VM.Standard.E4.Flex.1-4", "oci.VM.Standard.E3.Flex.1-4"' ]] ||
+    { echo "spot: ${E2E_SPOT_TYPES_YAML}"; return 1; }
   [[ "${E2E_TYPES_ARM64_YAML}" == '"oci.VM.Standard.A1.Flex.1-2", "oci.VM.Standard.A2.Flex.1-8"' ]] || { echo "arm64: ${E2E_TYPES_ARM64_YAML}"; return 1; }
   # No compartment, tenancy, identity domain or client is pinned in the repository: the workflow's variables provide them.
   [[ "$(env -u OCI_COMPARTMENT -u OCI_TENANCY -u OCI_IDENTITY_DOMAIN_URL -u OCI_CLIENT_ID bash -c "source '${here}/defaults.sh'; echo \"\${OCI_COMPARTMENT}\${OCI_TENANCY}\${OCI_IDENTITY_DOMAIN_URL}\${OCI_CLIENT_ID}\"")" == "" ]]

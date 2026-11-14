@@ -12,6 +12,8 @@
 # assertion ends it, the runner records the result and goes on. Waits have explicit
 # deadlines. Workloads of all selected scenarios are started together
 # (the prelude), so that the nodes boot in parallel; a scenario then only waits and checks.
+# A scenario that cannot run for want of cloud capacity ends with skip_scenario and is reported as SKIP
+# (the spot scenario when OCI has no preemptible capacity), never as PASS; report.txt ends with the totals.
 # The exit status is 1 when a scenario failed; with E2E_FAIL_FAST=true (the default) the
 # scenarios after the first failure are reported as SKIP and not run, so that the
 # diagnostics and the teardown start at once. A failed scenario prints one redacted
@@ -60,6 +62,55 @@ settle() {
   setstate "${app}.uid" "$(kubectl get nodeclaim "${claim}" -o jsonpath='{.metadata.uid}')"
   setstate "${app}.iid" "${iid}"
   note "${app}: pod ${pod}, node ${node}, claim ${claim}, instance ${iid}, ready after $(ready_seconds "${claim}" "${node}")s"
+}
+
+# spot_launch_failures: the failed launch attempts of spot offerings in the controller's log (it logs one line
+# per attempt, with the class of the vendor's error), as "<class><TAB><type><TAB><zone><TAB><error>".
+spot_launch_failures() {
+  kubectl -n "${ns}" logs deploy/scarpenter --tail=-1 2>/dev/null | jq -R -r '
+    fromjson? | select((.msg // .message) == "launch attempt failed" and .["capacity-type"] == "spot")
+    | [.class, .type, .zone, ((.error // "") | gsub("[\\r\\n\\t]+"; " "))] | @tsv' || true
+}
+
+# settle_spot: like `settle e2e-spot`, but OCI having no preemptible capacity is not a failure: when no spot
+# NodeClaim launched within E2E_LAUNCH_TIMEOUT and every failed launch attempt of the spot offerings was
+# InsufficientCapacity, it records the reason (state e2e-spot.skipped) and returns 1. Any other failure ends
+# the scenario. Settled once: a later call returns at once with the recorded result.
+settle_spot() {
+  local f rc fails other types zones msg
+  [[ -z "$(getstate e2e-spot.skipped)" ]] || return 1
+  [[ -z "$(getstate e2e-spot.iid)" ]] || return 0
+  f="$(mktemp)"
+  set +e
+  (
+    set -e
+    settle e2e-spot
+  ) 2>&1 | tee "${f}"
+  rc="${PIPESTATUS[0]}"
+  set -e
+  if [[ "${rc}" -eq 0 ]]; then
+    rm -f "${f}"
+    return 0
+  fi
+  fails="$(spot_launch_failures)"
+  other="$(awk -F'\t' '$1 != "InsufficientCapacity"' <<<"${fails}")"
+  if grep -q 'never launched' "${f}" && [[ -n "${fails}" && -z "${other}" ]]; then
+    types="$(cut -f2 <<<"${fails}" | sort -u | sed 's/^oci\.//' | paste -sd, -)"
+    zones="$(cut -f3 <<<"${fails}" | sort -u | paste -sd, -)"
+    msg="$(head -n1 <<<"${fails}" | cut -f4 | redact | cut -c1-300)"
+    setstate e2e-spot.skipped "OCI had no preemptible capacity for ${types} in ${zones}: ${msg}"
+    rm -f "${f}"
+    return 1
+  fi
+  rm -f "${f}"
+  exit "${rc}"
+}
+
+# skip_scenario <reason>: ends the running scenario as skipped (the runner reports SKIP, not PASS).
+skip_scenario() {
+  note "${E2E_CURRENT_SCENARIO}: skipped, $1"
+  setstate "${E2E_CURRENT_SCENARIO}.skipped" "$1"
+  exit 0
 }
 
 # The instance's cloud-side facts every scenario checks (plan 25 sections 4, 5 and 11): running, the
@@ -124,7 +175,8 @@ check_node_labels() {
 # Idempotent: they apply what the scenario then waits for.
 
 start_amd64() { probe e2e-amd64 e2e-amd64 "${E2E_TYPE_AMD64}" on-demand; }
-start_spot() { probe e2e-spot e2e-spot "${E2E_TYPE_AMD64}" spot; }
+# The spot pool lists the types (E2E_SPOT_TYPES); the Pod does not pin one.
+start_spot() { NAME=e2e-spot POOL=e2e-spot CAPACITY=spot render "${here}/manifests/probe-spot.yaml" | kubectl apply -f -; }
 start_arm64() {
   [[ "${E2E_ARM64}" == true ]] || return 0
   # The pool allows A1 and A2: the Pod selects the pool and takes whichever launches.
@@ -230,6 +282,21 @@ scn_preflight() {
       grep -qxF -- "${t%.*}" <<<"${shapes}" || fail "the image ${name} is not registered for the shape ${t%.*}"
     done
   done
+
+  # The spot types besides the E5 one are fallbacks: an image that is not registered for their shapes
+  # is a note here (the spot scenario would fail on the launch, not skip, if it came to them).
+  local spot_types st
+  IFS=, read -ra spot_types <<<"${E2E_SPOT_TYPES}"
+  if [[ "${E2E_FLATCAR_IMAGE_AMD64:-}" != "" ]]; then
+    img="$(oc compute image list --compartment-id "${image_compartment}" --display-name "${E2E_FLATCAR_IMAGE_AMD64}" --lifecycle-state AVAILABLE --all --output json |
+      jq '[(.data // [])[]] | first // empty')" || fail "the images of the image compartment cannot be listed"
+    shapes="$(oc compute image-shape-compatibility-entry list --image-id "$(jq -r '.id' <<<"${img}")" --all --output json | jq -r '(.data // [])[].shape')" ||
+      fail "the shape compatibility of ${E2E_FLATCAR_IMAGE_AMD64} cannot be listed"
+    for st in "${spot_types[@]}"; do
+      st="${st#oci.}"
+      grep -qxF -- "${st%.*}" <<<"${shapes}" || note "the image ${E2E_FLATCAR_IMAGE_AMD64} is not registered for the spot shape ${st%.*}: a launch of it would fail"
+    done
+  fi
 
   # 2. The shapes are offered in an availability domain of the region.
   local ad found
@@ -378,22 +445,25 @@ node_unit_checks() {
 # action TERMINATE and the boot volume not preserved, so that a reclaimed instance leaves nothing behind.
 scn_spot() {
   start_spot
-  settle e2e-spot
-  local pod node claim iid uid j
+  settle_spot || skip_scenario "$(getstate e2e-spot.skipped)"
+  local pod node claim iid uid j type
   pod="$(getstate e2e-spot.pod)"
   node="$(getstate e2e-spot.node)"
   claim="$(getstate e2e-spot.claim)"
   iid="$(getstate e2e-spot.iid)"
   uid="$(getstate e2e-spot.uid)"
-  check_node_labels "${node}" "${E2E_TYPE_AMD64}" spot amd64 e2e-spot
+  # The node's type is whichever of the pool's list launched (E5 first, then E4 and E3 where OCI has no capacity).
+  type="$(node_label "${node}" node.kubernetes.io/instance-type)"
+  assert_match "the spot node's type is one of E2E_SPOT_TYPES" "(^|,)${type//./\\.}(,|$)" "${E2E_SPOT_TYPES}"
+  check_node_labels "${node}" "${type}" spot amd64 e2e-spot
   check_instance "${iid}" "${claim}" "${uid}" e2e-spot e2e-amd64
   j="$(instance_json "${iid}")"
-  check_shape "${j}" "${E2E_TYPE_AMD64}"
+  check_shape "${j}" "${type}"
   assert_eq "preemption action" TERMINATE "$(jq -r '."preemptible-instance-config"."preemption-action".type' <<<"${j}")"
   assert_eq "the boot volume is not preserved on preemption" false "$(jq -r '."preemptible-instance-config"."preemption-action"."preserve-boot-volume"' <<<"${j}")"
   wait_until "kubectl logs" 120 kubectl logs "${pod}" --tail=5
   assert_eq "kubectl exec" ok "$(kubectl exec "${pod}" -- echo ok)"
-  note "spot claim ${claim}: ready after $(ready_seconds "${claim}" "${node}")s"
+  note "spot: launched as ${type}; claim ${claim}: ready after $(ready_seconds "${claim}" "${node}")s"
 }
 
 # scn_arm64: optional (E2E_ARM64=true): the arm64 image on A1, or on A2 where A1's capacity is short.
@@ -605,22 +675,27 @@ scn_quota() {
   for metric in "${bucket_cores}" "${bucket_memory}"; do
     wait_until "scarpenter_quota_used ${metric} equals the Limits service" 300 quota_field_is "${m}" used "${metric}"
   done
-  # The consumption mapping (plan 25 section 7): the E5 nodes count their OCPUs and GB. The on-demand and the
-  # spot node (the same type; preemptible capacity is counted like any other until S9 says otherwise) use
-  # at least 2 OCPUs and 8 GB.
-  local limit used
+  # The consumption mapping (plan 25 section 7): the E5 nodes count their OCPUs. The on-demand node and the spot
+  # node, when it exists and is an E5 (the E4 and E3 shapes have limits of their own; preemptible capacity is
+  # counted like any other until S9 says otherwise), use at least one OCPU each.
+  local limit used t type want=0
+  for t in $(fixtures_running); do
+    type="$(node_label "$(getstate "${t}.node")" node.kubernetes.io/instance-type)"
+    [[ "${type}" == oci.VM.Standard.E5.Flex.* ]] && want=$((want + 1))
+  done
   read -r limit used <<<"$(region_quota "${bucket_cores}")"
-  [[ "${used}" -ge 2 ]] || fail "two 1-OCPU nodes are running but the ${bucket_cores} usage is ${used}"
+  [[ "${used}" -ge "${want}" ]] || fail "${want} 1-OCPU E5 node(s) are running but the ${bucket_cores} usage is ${used}"
   wait_until "the in-flight reservations are gone" 240 quota_reserved_zero "${m}" "${bucket_cores}"
   note "the quota after the nodes of the quota scenario: ${bucket_cores} $(region_quota "${bucket_cores}"), ${bucket_memory} $(region_quota "${bucket_memory}") (limit used)"
 
   log "the launched types are offered in the availability domain they run in"
-  local t ad
-  for t in e2e-amd64 e2e-spot; do
+  local ad
+  for t in $(fixtures_running); do
+    type="$(node_label "$(getstate "${t}.node")" node.kubernetes.io/instance-type)"
     ad="$(jq -r '."availability-domain"' <<<"$(instance_json "$(getstate "${t}.iid")")")"
-    assert_eq "${E2E_TYPE_AMD64#oci.} (its shape) in the shapes of ${ad}" 1 \
+    assert_eq "${t}: ${type#oci.} (its shape) in the shapes of ${ad}" 1 \
       "$(oc compute shape list --compartment-id "${OCI_COMPARTMENT}" --availability-domain "${ad}" --all --output json |
-        jq --arg s "${E2E_TYPE_AMD64#oci.}" '[(.data // [])[] | select(.shape == ($s | sub("\\.[0-9]+-[0-9]+$"; "")))] | length')"
+        jq --arg s "${type#oci.}" '[(.data // [])[] | select(.shape == ($s | sub("\\.[0-9]+-[0-9]+$"; "")))] | length')"
   done
   rm -f "${m}"
 }
@@ -642,16 +717,24 @@ quota_reserved_zero() { # quota_reserved_zero <metrics file> <bucket>
   [[ "$(num "$(metric_value "$1" scarpenter_quota_reserved "${OCI_REGION}" "$2")")" == 0 ]]
 }
 
-# settle_fixtures: the amd64 and spot nodes of the first scenarios (started if the
-# scenario runs alone).
+# fixtures_running: the fixtures that exist (the spot node does not when OCI had no preemptible capacity).
+fixtures_running() {
+  local t
+  for t in e2e-amd64 e2e-spot; do
+    [[ -z "$(getstate "${t}.iid")" ]] || echo "${t}"
+  done
+}
+
+# settle_fixtures: the amd64 and spot nodes of the first scenarios (started if the scenario runs alone). The
+# spot node is optional: without preemptible capacity the scenarios that use the fixtures go on without it.
 settle_fixtures() {
   [[ -n "$(getstate e2e-amd64.iid)" ]] || {
     start_amd64
     settle e2e-amd64
   }
-  [[ -n "$(getstate e2e-spot.iid)" ]] || {
+  [[ -n "$(getstate e2e-spot.iid)" || -n "$(getstate e2e-spot.skipped)" ]] || {
     start_spot
-    settle e2e-spot
+    settle_spot || note "spot: skipped, $(getstate e2e-spot.skipped)"
   }
 }
 
@@ -932,7 +1015,9 @@ run_scenario() { # run_scenario <name>
   ) 2>&1 | tee "${E2E_OUT}/logs/${name}.log"
   rc="${PIPESTATUS[0]}"
   set -e
-  if [[ "${rc}" -eq 0 ]]; then
+  if [[ "${rc}" -eq 0 && -n "$(getstate "${name}.skipped")" ]]; then
+    results+=("SKIP ${name} ($(($(now) - start))s): $(getstate "${name}.skipped")")
+  elif [[ "${rc}" -eq 0 ]]; then
     results+=("PASS ${name} ($(($(now) - start))s)")
   else
     results+=("FAIL ${name} ($(($(now) - start))s)")
@@ -972,5 +1057,12 @@ for s in "${selected[@]}"; do
 done
 
 printf '\n'
-printf '%s\n' "${results[@]}" | tee "${E2E_OUT}/report.txt"
+# A skipped scenario is not a pass: the totals count the three outcomes apart.
+{
+  printf '%s\n' "${results[@]}"
+  printf 'TOTAL: %d passed, %d failed, %d skipped\n' \
+    "$(printf '%s\n' "${results[@]}" | grep -c '^PASS ' || true)" \
+    "$(printf '%s\n' "${results[@]}" | grep -c '^FAIL ' || true)" \
+    "$(printf '%s\n' "${results[@]}" | grep -c '^SKIP ' || true)"
+} | tee "${E2E_OUT}/report.txt"
 exit "${failed}"

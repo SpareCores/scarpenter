@@ -808,7 +808,11 @@ tailnet, nodes with the `tailscale` template).
 4. **Scenarios** (the AWS and GCP ones that apply): `amd64` (`oci.VM.Standard.E5.Flex.1-4`: node
    Ready, labels with the zone name and Keeper zone ID consistent, freeform tags on the instance,
    `shapeConfig` equal to the name via `oci compute instance get`, metadata keys as section 5, the boot
-   volume deleted), `spot` (the same size preemptible), `arm64` (`oci.VM.Standard.A1.Flex.1-2`; runs only
+   volume deleted), `spot` (the same size preemptible: the NodePool lists
+   `E5`, `E4` and `E3` `.Flex.1-4` in order of preference and the node is whichever launches; OCI often has no
+   preemptible capacity (`Out of host capacity`, a 500 the driver classes as `InsufficientCapacity`), and when none
+   of the three launches the scenario is skipped, reported as SKIP, while `quota` and the other scenarios go on
+   without the spot node), `arm64` (`oci.VM.Standard.A1.Flex.1-2`; runs only
    when the lane's arm64 image and capability schema exist: capacity of `A1` may be short, the scenario
    retries `A2.Flex.1-8`), `scalezero`, `drift` (change `storage.root.sizeGb`), `quota` (the reported
    buckets equal `GetResourceAvailability` for the lane's family, section 7), `described`

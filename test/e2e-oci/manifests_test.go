@@ -82,6 +82,7 @@ var sample = map[string]string{
 	"E2E_TYPE_ARM64_ALT":       "oci.VM.Standard.A2.Flex.1-8",
 	"E2E_TYPES_DESCRIBED_YAML": `"oci.VM.Standard.E5.Flex.1-4", "oci.VM.Standard.E5.Flex.1-8", "oci.VM.Standard.E5.Flex.2-8"`,
 	"E2E_TYPES_ARM64_YAML":     `"oci.VM.Standard.A1.Flex.1-2", "oci.VM.Standard.A2.Flex.1-8"`,
+	"E2E_SPOT_TYPES_YAML":      `"oci.VM.Standard.E5.Flex.1-4", "oci.VM.Standard.E4.Flex.1-4", "oci.VM.Standard.E3.Flex.1-4"`,
 	"E2E_ROOT_GB":              "60", "E2E_ROOT_GB_DRIFT": "70",
 	"E2E_TAG_RUNNER": "tag:scarpenter-ci", "E2E_TAG_NODE": "tag:scarpenter-ci-node",
 	"E2E_BYO_SUBNET": "ocid1.subnet.oc1.eu-frankfurt-1.aaaaexamplesubnet",
@@ -140,6 +141,7 @@ func TestVariablesAreDeclared(t *testing.T) {
 	}
 	pins["E2E_TYPES_DESCRIBED_YAML"] = true // derived in defaults.sh
 	pins["E2E_TYPES_ARM64_YAML"] = true
+	pins["E2E_SPOT_TYPES_YAML"] = true
 	// Set by the workflow, the scenarios or the render call.
 	for _, v := range []string{"E2E_CLUSTER", "E2E_RUN_ID", "E2E_CREATED_AT", "E2E_API_HOST", "E2E_BYO_SUBNET", "E2E_BYO_NSG",
 		"NAME", "POOL", "TYPE", "CAPACITY", "NODE", "PODNAME"} {
