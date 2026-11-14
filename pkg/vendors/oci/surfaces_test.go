@@ -671,3 +671,32 @@ func TestInitRejectsABadImageCompartment(t *testing.T) {
 		t.Errorf("image compartment %q, want the tenancy", root.d.ImageCompartment())
 	}
 }
+
+// An image resolved in the image compartment launches in the compartment of the nodes: only the
+// image listing reads the image compartment.
+func TestLaunchWithAnImageOfTheImageCompartment(t *testing.T) {
+	const imageComp = "ocid1.compartment.oc1..aaaaimagecompartment"
+	c := newCloud(t)
+	c.AddImageCompartment(imageComp)
+	img := fake.FlatcarImage("stable", "4800.0.0", "amd64")
+	img.CompartmentId = new(imageComp)
+	id := c.AddImage(testRegion, img)
+	e := restart(t, c, testCluster, driver.WithImageCompartment(imageComp))
+	req := imageReq("amd64", vendors.UseRef{})
+	req.Version = "4800.0.0"
+	got, err := e.d.ResolveImage(t.Context(), req)
+	if err != nil || got.Ref != id {
+		t.Fatalf("ResolveImage = %+v, %v; want %s", got, err, id)
+	}
+	cr := request(testType)
+	cr.Image = *got
+	if _, err := (testDriver{e.d}).CreateInstance(t.Context(), cr); err != nil {
+		t.Fatalf("CreateInstance: %v", err)
+	}
+	l := c.Launches()
+	last := l[len(l)-1].LaunchInstanceDetails
+	src, ok := last.SourceDetails.(core.InstanceSourceViaImageDetails)
+	if !ok || src.ImageId == nil || *src.ImageId != id || last.CompartmentId == nil || *last.CompartmentId != fake.SeedCompartment {
+		t.Errorf("launch %+v, want the compartment %q and the image %q", last, fake.SeedCompartment, id)
+	}
+}
