@@ -444,18 +444,18 @@ The OCI lane's (`oci` is a line of `test/e2e-vendors.txt`; the workflows' creden
 
 | Guard | OCI lane |
 |---|---|
-| A budget alert on the compartment that hosts the lane, to a person | compartment-level, in the CI account's infrastructure (**to provision**) |
-| The CI identity cannot create instances of shapes the lane does not use | **not expressible**: a policy statement names a resource family, not a shape; the pools name the shapes and the **compartment quota** on compute cores and memory is the hard ceiling (**to provision**) |
-| The CI identity cannot act outside the lane's region | the statements are bound with `where request.region = '<region>'` (`ci-policy.sh policy`), and the `guards` scenario (preflight, then every run, smoke included) makes the CI identity try a VCN create in another region (`E2E_OCI_PROBE_REGION`, default `us-ashburn-1`) and a VCN create in the tenancy's root compartment, and expects `NotAuthorizedOrNotFound` (HTTP 404) from each; an instance launch is not probed (input validation precedes authorization, so a 404 would be ambiguous), the same region clause on instance-family and volume-family is read from the live policy |
+| A budget alert on the compartment that hosts the lane, to a person | a compartment-level budget with three rules (50 % and 100 % of actual spend, 100 % of forecast) to an operator mailbox; configured, but its **delivery is not shown** (with a budget far below the spend the thresholds were crossed and no email arrived), so it is the operator's check; the amount is in the tenancy's currency |
+| The CI identity cannot create instances of shapes the lane does not use | **not expressible**: a policy statement names a resource family, not a shape; the pools name the shapes and the **compartment quota** on compute cores and memory is the hard ceiling (shown: see the quota row below) |
+| The CI identity cannot act outside the lane's region | the statements are bound with `where request.region = '<region>'` (`ci-policy.sh policy`), and the `guards` scenario (preflight, then every run, smoke included) makes the CI identity try a VCN create in another region (`E2E_OCI_PROBE_REGION`, default `us-ashburn-1`) and a VCN create in the tenancy's root compartment, and expects `NotAuthorizedOrNotFound` (HTTP 404) from each; an instance launch is not probed (input validation precedes authorization, so a 404 would be ambiguous), the same region clause on instance-family and volume-family is read from the live policy; shown live (smoke run, 4/4) with both probes refused |
 | The compartment holds nothing but the lane's resources (no policy can protect instances by tag) | a dedicated compartment; the driver refuses to delete an instance without its cluster's tag |
 | Every resource carries a run marker, so cost and leftovers are attributable | the freeform tag `scarpenter-cluster=scarpenter-ci-<run id>` and `ci-created-at` on instances; the ownership tags plus the name prefix `scarpenter-<cluster>-` on the network resources; a boot volume carries the cluster tag only if OCI copies the instance's (unverified), and goes with its instance |
-| A sweeper that deletes what a dead run left behind, by tag, name and age | `e2e-oci-sweeper.yml`, every three hours, environment `e2e-sweeper` (boot volumes too, by the cluster tag only; an untagged one is never deleted) |
+| A sweeper that deletes what a dead run left behind, by tag, name and age | `e2e-oci-sweeper.yml`, every three hours, environment `e2e-sweeper`; the scheduled sweep on main deleted the 8 leftovers of two dead runs with the real identity (a VCN's default route table and security list go with the VCN) (boot volumes too, by the cluster tag only; an untagged one is never deleted) |
 | A run time limit | 90 minutes for the job (60 for a smoke), 55 (25) for the scenarios step; the teardown always runs |
 | Small, cheap shapes; preemptible where the vendor has it | `VM.Standard.E5.Flex` of 1 OCPU and 4 to 8 GB (on demand and preemptible; 1 OCPU and 4 GB cost cents per hour), `A1` and `A2` (arm64, optional) |
 | A teardown that fails the job when anything of the run remains | `test/e2e-oci/teardown.sh`: instances, groups, subnets, route tables, gateways, security lists, VCNs, and boot volumes created since the run began (reported, not deleted) |
-| A quota that bounds the damage of a bug | the compartment quota on compute cores and memory (8 OCPUs and 48 GB of E5 needed) and the service limits of the region (**to provision**) |
-| A read-only policy for the canary | `canary-policy.sh`, a group of its own, environment `e2e-canary` |
-| Approval for every run of pull request or release code that reaches the compartment | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) |
+| A quota that bounds the damage of a bug | the compartment quota on compute cores and memory (8 OCPUs and 48 GB of E5 needed) and the service limits of the region; the Quotas service accepted the names `standard-e5-core-count`, `standard-e5-memory-count`, `standard-e4-core-count`, `standard-e4-memory-count` and `standard-e3-memory-count` (the E3 cores are `standard-e3-core-ad-count`), and the `quota` scenario reaches the limit |
+| A read-only policy for the canary | `canary-policy.sh`, a group of its own, environment `e2e-canary`; the live policy has only inspect and read verbs |
+| Approval for every run of pull request or release code that reaches the compartment | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`; both it and `e2e-canary` are limited to `main`, and the identity domain's trust maps exactly the three environments' subjects to the CI and canary users) |
 
 ## Adding a vendor lane
 
@@ -617,7 +617,7 @@ repository):
 ### OCI
 
 The OCI lane ([The L5 lane on OCI](testing.md#the-l5-lane-on-oci)) uses GitHub's OIDC through an IAM identity domain's token exchange (**no API key**), and it is **a line of
-`test/e2e-vendors.txt`**: its guards are a dedicated compartment, a compartment quota and policy conditions that the lane's `guards` scenario shows with the CI identity. The operator provides (nothing here is created by this
+`test/e2e-vendors.txt`**: its guards are a dedicated compartment, a compartment quota and policy conditions that the lane's `guards` scenario shows with the CI identity (the budget alert's delivery is the operator's check). The operator provides (nothing here is created by this
 repository):
 
 - **Compartment**: a dedicated one, with the region subscribed, a **compartment quota** (the Quotas service) that caps compute cores and memory at what the pins need (8 OCPUs and 48 GB of the E5 family; the Arm families too when `E2E_ARM64` is true) and a budget alert.
@@ -627,10 +627,8 @@ repository):
 - **Environments**: `e2e` (reviewers), `e2e-sweeper` (`main`, no reviewers) and `e2e-canary` (`main`) each with the variables `OCI_COMPARTMENT`, `OCI_TENANCY`, `OCI_IDENTITY_DOMAIN_URL`, `OCI_CLIENT_ID` and, optional, `OCI_REGION` (default `eu-frankfurt-1`),
   `OCI_IMAGE_COMPARTMENT` (the compartment of the imported images when not `OCI_COMPARTMENT`; the sweeper does not read it and never touches images), `OCI_HOME_REGION`, `OCI_OIDC_AUDIENCE` (default `oci-federation`), and the secret `OCI_CLIENT_SECRET`.
 - **Tailscale**: the same tags, grants and federated identity as for AWS.
-- **For `oci`, a line of `test/e2e-vendors.txt`**, the operator checks: the compartment holds nothing but the lane, the compartment quota is no higher than the lane needs (no policy can deny a shape, so the quota is the ceiling) and the budget alert reaches a person; the
-  sweeper, run with the real CI identity, deletes a planted tagged instance, group, subnet, route table, gateway, VCN and boot volume and leaves an untagged boot volume, and the teardown reports a planted boot volume; the canary's group reads what the canary reads and
-  writes nothing; `e2e-sweeper` and `e2e-canary` are limited to `main` and the identity domain's trust names only this repository and the three environments. The policy's region and compartment conditions are shown by the `guards` scenario of every run
-  (its probe region, `E2E_OCI_PROBE_REGION`, must be subscribed).
+- **What was shown live for the line of `test/e2e-vendors.txt`**: the compartment quota names are accepted and the `quota` scenario reaches the limit; the `guards` scenario of every run shows the policy's region condition (a VCN create in another subscribed region, `E2E_OCI_PROBE_REGION`, which must be subscribed) and the compartment condition (a VCN create in the tenancy root) refused with 404 `NotAuthorizedOrNotFound`; the scheduled sweep on `main` deleted the leftovers of dead runs with the real CI identity; the canary's group has only inspect and read verbs; `e2e-sweeper` and `e2e-canary` are limited to `main`; and the identity domain's trust names exactly this repository's three environments.
+  **The operator's check, not shown**: the budget alert reaches a person (the rules were configured and their thresholds crossed, but no email arrived). The budget amount is in the tenancy's currency: an amount meant in EUR or USD but read in a weaker currency alerts on every run.
 
 ### UpCloud
 

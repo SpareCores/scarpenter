@@ -49,7 +49,7 @@ Execution protocol:
 | 21 | `wip/21-alicloud.md` | review; live verification pending | Alibaba Cloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
 | 22 | `wip/22-flatcar-images.md` | todo | the Flatcar images repository (proposed `SpareCores/flatcar-images`): OEM-patched images for vultr, upcloud and aliyun, the GCP arm64 image, signatures, release tracking, upstream proposals | — |
 | 23 | `done/23-billing-retention.md` | done | opt-in `spec.billing`: keep period-billed nodes (hcloud first, then UpCloud, Vultr; OVH US if hourly; Alibaba until the end of its minimum) until the end of their paid period and reuse them; Keeper vendor billing facts, `BillingStart`, the retention controller, metrics, fake-clock tests | 14 and the Keeper vendor table (live; plan 13 is not needed) |
-| 25 | `wip/25-oci.md` | review; live verification pending | Oracle Cloud Infrastructure driver, fake, conformance, L5 lane; fixed named sizes per flexible shape (`VM.Standard.E5.Flex.2-16`), an embedded OCI catalog (Keeper does not serve OCI yet) behind the `catalog.Source` seam, images on rung 3 from Flatcar's own OCI image, managed VCN, subnet and network security groups; five steps: catalog data and rule R, driver foundation, embedded source, full driver and surfaces, L5 | 14, 23, 13 (part B, for the embedded-source step), 24 committed (cited) |
+| 25 | `done/25-oci.md` | done (2026-11-15: the live lane is green, `oci` is in `test/e2e-vendors.txt`) | Oracle Cloud Infrastructure driver, fake, conformance, L5 lane; fixed named sizes per flexible shape (`VM.Standard.E5.Flex.2-16`), an embedded OCI catalog (Keeper does not serve OCI yet) behind the `catalog.Source` seam, images on rung 3 from Flatcar's own OCI image, managed VCN, subnet and network security groups; five steps: catalog data and rule R, driver foundation, embedded source, full driver and surfaces, L5 | 14, 23, 13 (part B, for the embedded-source step), 24 committed (cited) |
 
 Shared rules for every plan: [`CONVENTIONS.md`](CONVENTIONS.md).
 
@@ -89,9 +89,9 @@ its name.
 
 ## Status of the vendor plans 15 to 21
 
-CONVENTIONS ends a plan at `review` and the README moves it to `done/` when it is finished. These seven are
+CONVENTIONS ends a plan at `review` and the README moves it to `done/` when it is finished. These seven (not 25) are
 implemented and reviewed on main, but each plan's own scope includes a live run (its spikes and the L5 lane) that
-has not happened: the lanes are statically validated only, and no vendor is in `test/e2e-vendors.txt` yet. They
+has not happened: the lanes are statically validated only, and none of them is in `test/e2e-vendors.txt` yet (plan 25, OCI, is: its lane ran green live and the plan is in `done/`). They
 therefore stay in `wip/` with the status `review; live verification pending` and an in-progress outcome that lists
 the main commits and what L5 must still verify. (Plan 08 went to `done/` because its live run was a separate plan, 10.)
 

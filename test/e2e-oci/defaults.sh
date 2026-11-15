@@ -3,17 +3,20 @@
 # (the workflow's inputs do it for the minimum-Kubernetes run).
 #
 # This lane is a line of test/e2e-vendors.txt (pull request tiers, nightly canary, release gate). Each cost guard of
-# docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards is shown by:
+# docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards was shown by:
 #   - a dedicated compartment and a compartment quota on cores and memory (the ceiling: no IAM statement can
-#     deny a shape): the quota scenario hitting the limit;
+#     deny a shape): the Quotas service accepted the quota names and the quota scenario reached the limit;
 #   - the CI policy's region and compartment conditions (ci-policy.sh): the guards scenario, which makes the CI
-#     identity attempt a write in another region and in another compartment and expects a refusal;
-#   - a budget alert on the compartment that reaches a person: checked by the operator;
+#     identity attempt a VCN create in another region and in the tenancy root and got a refusal (404) each time
+#     (an instance launch cannot be probed, the clause is read from the live policy);
+#   - a budget alert on the compartment (50 % and 100 % actual, 100 % forecast): configured, its delivery is NOT
+#     shown, the operator checks that an email arrives (the amount is in the tenancy's currency);
 #   - the sweeper (e2e-oci-sweeper.yml, environment e2e-sweeper) deleting a dead run's resources with the real
-#     CI identity: the scheduled sweep on main;
-#   - the canary's group reads and writes nothing: canary-policy.sh and the canary's own read-only checks;
-#   - e2e-sweeper and e2e-canary limited to main, the identity domain's trust naming only this repository and
-#     the three environments: the environments' settings.
+#     CI identity: the scheduled sweep on main did;
+#   - the canary's group reads and writes nothing: its live policy has only inspect and read verbs, and the
+#     canary's own read-only checks;
+#   - e2e-sweeper and e2e-canary limited to main (the deployment branch policy), the identity domain's trust
+#     mapping exactly the three environments' subjects of this repository to the CI and canary users.
 # shellcheck disable=SC2034  # used by the scripts that source lib.sh
 
 # The account of the lane: a dedicated compartment of a tenancy (the compartment is the only

@@ -10,12 +10,12 @@ Not on 22 (Flatcar publishes the OCI image itself), not on 24 (a draft owned by 
 00a §6, §9, §11; ADR-009, ADR-013, ADR-017, ADR-018, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024;
 `docs/reference/driver-contract.md`; the plans 15, 16 and 20 as the pattern (16 most of all).
 
-Status: **review; live verification pending** (all five steps are on main, statically validated; the first live run is the maintainer's). Research date: 2026-11-14, from public documentation, the
+Status: **done** (2026-11-15: all five steps are on main and the L5 lane is green live; `oci` is a line of `test/e2e-vendors.txt`; see "Verified facts"; what stays open is under "Unverified facts and follow-ups"). Research date: 2026-11-14, from public documentation, the
 `oci-go-sdk` v65.130.0 source, the sample Keeper data of OCI (SQLite, 2026-11-13), the crawler pull
 request `SpareCores/sc-crawler#180`, the research of the plan 24 draft (cited, not repeated) and the notes of the
 Flatcar-on-OCI investigation (2026-11-13). No cloud API was called. Everything marked
-**unverified** is settled by the spike (section 12) or by the first live run, and listed again in
-"Unverified facts".
+**unverified** was to be settled by the spike (section 12) or by the live runs; what the runs did not settle is listed in
+"Unverified facts and follow-ups".
 
 ## Goal
 
@@ -1184,7 +1184,7 @@ is green. The first live run is the coordinator's.
 7. Preemptible = `spot`, `TERMINATE` with the boot volume deleted.
 8. The embedded vendors flag defaults to `oci`.
 
-## Verified facts (first live run)
+## Verified facts (the live runs)
 
 - `ListImages` with `displayName`: the first driver version sent the name together with the operating
   system, its version, the shape and `lifecycleState`, and the API answered 400 `InvalidParameter`
@@ -1212,8 +1212,43 @@ is green. The first live run is the coordinator's.
 - **Garbage collection scope**: a lane's policy covers its own region and the tenancy may subscribe
   others, so `ListVcns` in another subscribed region answers 404 `NotAuthorizedOrNotFound`. `List` skips a
   region that answers it (debug log) instead of failing the whole sweep.
+- **The lane, live** (eu-frankfurt-1; run ids are GitHub Actions runs of the e2e workflow): the full lane passed 12/12 twice
+  (run 43692646530, run 43695258962); the smoke set with the guards scenario passed 4/4 (run 43754403884).
+- **Preemptible capacity**: `VM.Standard.E5.Flex` preemptible was out of host capacity in all three Frankfurt availability
+  domains, and Karpenter fell back to `VM.Standard.E3.Flex.1-4` (run 43691743075, run 43692646530, run 43695258962). The spot
+  scenario takes whichever of the E5, E4 and E3 sizes launches.
+- **Compartment quota names** (run 43692646530): `standard-e5-core-count`, `standard-e5-memory-count`, `standard-e4-core-count`,
+  `standard-e4-memory-count` and `standard-e3-memory-count` are accepted by the Quotas service; the E3 cores are named
+  `standard-e3-core-ad-count` (taken from the live quota-exceeded error). The quota scenario reaches the limit.
+- **The CI policy's conditions** (run 43754403884): the `where request.region = '<lane region>'` condition refuses a VCN create
+  in another subscribed region (us-ashburn-1), and a VCN create in the tenancy root compartment is refused too; both answer
+  404 `NotAuthorizedOrNotFound`. An instance launch cannot be probed: input validation precedes authorization (a launch with a
+  fake image OCID answers 400 `InvalidParameter`), so the identical clause on instance-family and volume-family is read from the
+  live policy, not probed.
+- **The sweeper**: the scheduled sweep on main deleted the leftovers of two dead runs with the real sweeper identity (8 objects:
+  a network security group, a subnet, a route table, two internet gateways, a security list and two VCNs; run 43735547216).
+  A VCN's default route table and security list go with the VCN.
+- **The canary and the identities**: the canary's live policy has only inspect and read verbs. `e2e-sweeper` and `e2e-canary`
+  are restricted to main (GitHub deployment branch policy). The identity propagation trust maps exactly the three
+  environments' `sub` (with the numeric owner and repository ids) to the CI and canary users.
+- **Budget alert, configured but not shown**: the lane compartment has a budget with three rules (50 % and 100 % of actual
+  spend, 100 % of forecast, to an operator mailbox). Delivery is not shown: with a budget far below the spend the thresholds
+  were crossed and no email reached the maintainer. This stays unverified and is the operator's to check. The budget amount is in
+  the tenancy's currency: an amount meant in EUR or USD but read in a weaker currency alerts on every run.
 
-## Unverified facts (settled by the spike or the first live run)
+## Unverified facts and follow-ups (not settled by the live runs)
+
+The list was written before the live runs; the "Verified facts" above settle some of its items (quota names, policy conditions), and
+the rest stays open unless noted. Added by the live runs:
+
+- **arm64**: needs the image's capability schema and the Arm shapes; the scenario skips.
+- The error code (and status) of deleting a VCN's default route table or default security list.
+- Whether an internet gateway delete is refused while a route rule references it.
+- Other `displayName` list filters (beyond `ListImages`).
+- The delivery of the budget alert (the operator's check; see above).
+
+From the spike list:
+
 
 - The exact HTTP status, code and message of "Out of host capacity" and of each error row of section 7
   (S5), including the token conflict and the subnet-full code.
@@ -1231,7 +1266,7 @@ is green. The first live run is the coordinator's.
 - That `maxPerNumaNode` and `maxPerNumaNodeInGBs` mark exactly the extended-memory sizes (S2).
 - That the grid sizes of the sample data are inside every AD's bounds and that Keeper's `A1` row
   `VM.Standard.A1.Flex.80-320` (80 OCPUs) is launchable (plan 24 lists 76 as the maximum) (S2).
-- The policy verbs per call and that the `where` conditions hold (S12).
+- The policy verbs per call beyond what the green runs exercised (the region and compartment conditions are verified above).
 - The token exchange parameters of the keyless modes (S11).
 - Whether a failed launch can leave a boot volume or a VNIC behind (the lane's teardown).
 - That the prices are the same in every region and AD (plan 24 §1.2: the public price API has no

@@ -1019,7 +1019,7 @@ The OCI lane is the same lane as the AWS one (a k3s control plane on the runner,
 Tailscale, the reusable `e2e-cloud.yml`, the same pins of Kubernetes, k3s, Tailscale and Flatcar) with the
 cloud calls of Oracle Cloud Infrastructure; everything it adds lives in `test/e2e-oci/`, `pkg/vendors/oci/sweep`,
 `test/canary/oci.go` and `.github/workflows/e2e-oci-sweeper.yml`. **It is a line of `test/e2e-vendors.txt`**: the cost guards of [Testing and releasing](testing-and-releasing.md#per-vendor-cost-guards)
-are shown on a live tenancy (provisioned outside this repository; what to check: [OCI](testing-and-releasing.md#oci)), and the pull request tiers, the nightly canary and the release gate run it. The planner, the canary matrix and the release gate read that file, and `test/e2e-plan-selftest.sh` and `test/e2e-oci/selftest.sh` check that nothing else is missing
+were shown on a live tenancy (provisioned outside this repository; what was shown and what stays the operator's: [OCI](testing-and-releasing.md#oci)), and the pull request tiers, the nightly canary and the release gate run it. The planner, the canary matrix and the release gate read that file, and `test/e2e-plan-selftest.sh` and `test/e2e-oci/selftest.sh` check that nothing else is missing
 (the credentials steps of both reusable workflows, the sweeper workflow, the canary's vendor part, the smoke set). It also runs by
 hand against a tenancy of one's own:
 
@@ -1058,7 +1058,7 @@ hack/dev.sh make test-e2e-oci-dryrun                            # everything tha
 - **Limits.** About 8 OCPUs and 48 GB of the E5 family in the region (`E2E_MIN_OCPU`, `E2E_MIN_MEMORY_GB`). The Limits service reports `used` and `available` per availability
   domain, so the `quota` scenario compares the controller's buckets (`standard-e5-core-count`, `standard-e5-memory-count`: usage is the sum over the domains,
   the limit is that plus the largest availability) with what `oci limits resource-availability get` says; preemptible capacity is counted like any other until
-  the first live run says otherwise (spike S9).
+  the first live run says otherwise (spike S9); the Quotas service accepts `standard-e5-core-count`, `standard-e5-memory-count`, the E4 pair and `standard-e3-memory-count`, and the E3 cores are `standard-e3-core-ad-count`.
 - **Ownership marker.** Instances carry the freeform tags `scarpenter-cluster=scarpenter-ci-<run id>` (and `ci-created-at`, `ci-run` from the NodeClass's `spec.tags`).
   The VCN, the internet gateway, the route table, the security list, the subnet and the groups SCarpenter creates carry `scarpenter-cluster`, `scarpenter-managed-by`,
   `scarpenter-nodeclass` and `scarpenter-resource-kind` **and** a name that starts with `scarpenter-<cluster>-`. What the workflow brings itself for `byo` is named
@@ -1082,8 +1082,7 @@ hack/dev.sh make test-e2e-oci-dryrun                            # everything tha
 | `scalezero` | the exit criterion: after the workloads are deleted every instance of the cluster is terminated within 2 minutes; no node, NodeClaim, bootstrap token or **boot volume created by the run** is left; the quota usage equals the Limits service again |
 | `uninstall` | the procedure of [Uninstall](install.md#uninstall): the NodePools, the SCNodeClasses (the managed groups, subnets, route tables, gateways, security lists and VCNs fall under `managedResources.defaultTTL`), then `helm uninstall` |
 
-**Provisioning (outside this repository).** A maintainer provisions once, with whatever tool they use; the repository holds none of it. Nothing below has been created
-or checked yet:
+**Provisioning (outside this repository).** A maintainer provisions once, with whatever tool they use; the repository holds none of it. The lane is green live (the full lane 12/12 twice, the smoke set with the guards 4/4). The preemptible E5 shape had no host capacity in the three Frankfurt availability domains, and the spot scenario launched `VM.Standard.E3.Flex.1-4` instead. The budget alert's delivery is the one guard not shown (the operator checks that an email arrives):
 
 - a **dedicated compartment** and nothing else in it, with a **compartment quota** (the Quotas service) that caps the E5 and Arm compute cores and memory at what the pins need, a budget alert, and the
   subscription of the lane's region;
