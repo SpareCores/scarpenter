@@ -74,11 +74,13 @@ spot_launch_failures() {
 
 # settle_spot: like `settle e2e-spot`, but OCI having no preemptible capacity is not a failure: when no spot
 # NodeClaim launched within E2E_LAUNCH_TIMEOUT and every failed launch attempt of the spot offerings was
-# InsufficientCapacity, it records the reason (state e2e-spot.skipped) and returns 1. Any other failure ends
-# the scenario. Settled once: a later call returns at once with the recorded result.
+# InsufficientCapacity, it records the reason (state e2e-spot.skipped), stops the spot Deployment and returns 0.
+# Any other failure ends the scenario. Settled once: a later call returns at once with the recorded result.
+# Call it plainly, never as `settle_spot || ...` or in an `if`: bash would switch errexit off inside it, and a
+# failing step of settle would no longer abort. The callers branch on the state e2e-spot.skipped.
 settle_spot() {
   local f rc fails other types zones msg
-  [[ -z "$(getstate e2e-spot.skipped)" ]] || return 1
+  [[ -z "$(getstate e2e-spot.skipped)" ]] || return 0
   [[ -z "$(getstate e2e-spot.iid)" ]] || return 0
   f="$(mktemp)"
   set +e
@@ -100,10 +102,18 @@ settle_spot() {
     msg="$(head -n1 <<<"${fails}" | cut -f4 | redact | cut -c1-300)"
     setstate e2e-spot.skipped "OCI had no preemptible capacity for ${types} in ${zones}: ${msg}"
     rm -f "${f}"
-    return 1
+    stop_spot
+    return 0
   fi
   rm -f "${f}"
   exit "${rc}"
+}
+
+# stop_spot: removes the spot probe and its NodeClaims, so that Karpenter stops retrying spot launches during
+# the later scenarios (the quota scenario waits for the in-flight reservations to vanish).
+stop_spot() {
+  kubectl delete deployment e2e-spot --ignore-not-found --wait=false >/dev/null || true
+  kubectl delete nodeclaim -l karpenter.sh/nodepool=e2e-spot --ignore-not-found --wait=false >/dev/null || true
 }
 
 # skip_scenario <reason>: ends the running scenario as skipped (the runner reports SKIP, not PASS).
@@ -176,7 +186,10 @@ check_node_labels() {
 
 start_amd64() { probe e2e-amd64 e2e-amd64 "${E2E_TYPE_AMD64}" on-demand; }
 # The spot pool lists the types (E2E_SPOT_TYPES); the Pod does not pin one.
-start_spot() { NAME=e2e-spot POOL=e2e-spot CAPACITY=spot render "${here}/manifests/probe-spot.yaml" | kubectl apply -f -; }
+start_spot() {
+  [[ -z "$(getstate e2e-spot.skipped)" ]] || return 0
+  NAME=e2e-spot POOL=e2e-spot CAPACITY=spot render "${here}/manifests/probe-spot.yaml" | kubectl apply -f -
+}
 start_arm64() {
   [[ "${E2E_ARM64}" == true ]] || return 0
   # The pool allows A1 and A2: the Pod selects the pool and takes whichever launches.
@@ -445,7 +458,8 @@ node_unit_checks() {
 # action TERMINATE and the boot volume not preserved, so that a reclaimed instance leaves nothing behind.
 scn_spot() {
   start_spot
-  settle_spot || skip_scenario "$(getstate e2e-spot.skipped)"
+  settle_spot
+  [[ -z "$(getstate e2e-spot.skipped)" ]] || skip_scenario "$(getstate e2e-spot.skipped)"
   local pod node claim iid uid j type
   pod="$(getstate e2e-spot.pod)"
   node="$(getstate e2e-spot.node)"
@@ -734,7 +748,8 @@ settle_fixtures() {
   }
   [[ -n "$(getstate e2e-spot.iid)" || -n "$(getstate e2e-spot.skipped)" ]] || {
     start_spot
-    settle_spot || note "spot: skipped, $(getstate e2e-spot.skipped)"
+    settle_spot
+    [[ -z "$(getstate e2e-spot.skipped)" ]] || note "spot: skipped, $(getstate e2e-spot.skipped)"
   }
 }
 
