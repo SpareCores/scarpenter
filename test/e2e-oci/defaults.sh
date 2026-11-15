@@ -52,7 +52,8 @@
 # 1 OCPU (2 vCPUs on x86) and 4 GB is the smallest node that boots Flatcar and joins.
 : "${E2E_TYPE_AMD64:=oci.VM.Standard.E5.Flex.1-4}"
 # arm64 runs unless E2E_ARM64=false (the image needs a capability schema and A1 in its shape
-# compatibility, oci-images.md). A1 only: A2 and A4 are untested. A1 capacity in eu-frankfurt-1
+# compatibility, oci-images.md; verified live on A1). A1 only: A2 and A4 are untested. The
+# compartment quota must set A1 under both the plain and the regional name pairs. A1 capacity in eu-frankfurt-1
 # is often short; the scenario is then skipped, not failed.
 : "${E2E_TYPE_ARM64:=oci.VM.Standard.A1.Flex.1-2}"
 # The types the spot scenario may launch, in order of preference: the same size (1 OCPU, 4 GB) of the E5, E4

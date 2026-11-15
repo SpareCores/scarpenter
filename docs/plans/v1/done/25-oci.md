@@ -209,7 +209,7 @@ contract SCarpenter's default lookup relies on; nothing here names a tool):
    added by the operator). Flatcar's docs omit these steps; the mechanics are in its mantle code
    (`platform/api/oraclecloud/api.go`). **Verified live** on `A1.Flex` (2026-11-13 node test: the
    schema, the entry and the per-instance launch options of section 5 booted Flatcar arm64 in
-   us-ashburn-1); `A2` and `A4` remain spike S7.
+   us-ashburn-1) and in the e2e lane (eu-frankfurt-1, run 43764563702); `A2` and `A4` remain spike S7.
 5. Cost: custom image storage is billed like Object Storage Standard on the image's billable size
    (observed 1 GB for the amd64 image: cents per version and region); quota `custom-image-count` is
    100 per region (25 on pay-as-you-go and trial); import is about 6.5 minutes.
@@ -917,7 +917,7 @@ S6. **Partly done** by the node test of 2026-11-13 (amd64 `E5.Flex`, arm64 `A1.F
     `/dev/sda`, egress needed; section 3). Left: a launch with `areLegacyImdsEndpointsDisabled: true`,
     the outer gzip merge config as SCarpenter renders it, the kubelet join and CSR approval against a
     control plane, flannel across two nodes, metadata reachable from a Pod.
-S7. arm64 on `A1` is done (same test, with the schema, the compatibility entry and the five launch
+S7. arm64 on `A1` is done (same test and the lane's run 43764563702, with the schema, the compatibility entry and the five launch
     options of section 5). Left: `A2` and `A4` (compatibility entries the schema accepts, a boot).
 S8. The freeform tag key charset (`scarpenter.sparecores.com/x` accepted?), 100/256 limits, tag
     propagation to the boot volume (none expected).
@@ -1226,6 +1226,15 @@ is green. The first live run is the coordinator's.
   the core and the memory form whatever infix (`-ad`, `-regional`, `-global`) sits before `-count`; classifying by the plain
   `-core-count` suffix counted one instance against an OCPU or GB limit. Per-shape names such as `bm-standard3-64-count` stay
   instance limits.
+- **arm64 on OCI is verified** (run 43764563702): an `oci.VM.Standard.A1.Flex.1-2` node (Flatcar stable 4757.2.3 arm64, UEFI
+  launch options) joined in 82 s and the teardown was clean. The full lane on this branch passed every other scenario (run
+  43760803735, 12 passed; arm64 failed there only on the compartment quota, next entry). `QuotaExceeded` is correctly a failure,
+  not a SKIP, in the arm64 scenario: only `InsufficientCapacity` skips.
+- **A1 compartment quotas need both name pairs** (runs 43760803735 and 43763224246): Compute enforces the A1 compartment quotas
+  under both `standard-a1-core-count` / `standard-a1-memory-count` and `standard-a1-core-regional-count` /
+  `standard-a1-memory-regional-count`. With only one pair set (the other zeroed), launches were refused with `QuotaExceeded`
+  naming the other pair, both ways. The Limits service lists A1 only under the regional names. So an operator's compartment quota
+  for a shape family must set every name Compute may check; only a launch reveals them.
 - **The CI policy's conditions** (run 43754403884): the `where request.region = '<lane region>'` condition refuses a VCN create
   in another subscribed region (us-ashburn-1), and a VCN create in the tenancy root compartment is refused too; both answer
   404 `NotAuthorizedOrNotFound`. An instance launch cannot be probed: input validation precedes authorization (a launch with a
@@ -1247,7 +1256,6 @@ is green. The first live run is the coordinator's.
 The list was written before the live runs; the "Verified facts" above settle some of its items (quota names, policy conditions), and
 the rest stays open unless noted. Added by the live runs:
 
-- **arm64**: enabled on `A1` only (the image's capability schema and the `VM.Standard.A1.Flex` compatibility entry are the operator's; `A2` and `A4` stay untested and are not in the lane); verification is pending a live run.
 - The error code (and status) of deleting a VCN's default route table or default security list.
 - Whether an internet gateway delete is refused while a route rule references it.
 - Other `displayName` list filters (beyond `ListImages`).
