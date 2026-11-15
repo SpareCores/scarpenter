@@ -368,6 +368,11 @@ t_ci_roles() {
       echo "role ${r}: not a role definition"
       return 1
     fi
+    # quoted: a plain YAML scalar ends at ": " or " #" (the canary's role is parsed in test/canary)
+    if ! { grep -qE '^title: ".+"$' "${tmp}/role-${r}.yaml" && grep -qE '^description: ".+"$' "${tmp}/role-${r}.yaml"; }; then
+      echo "role ${r}: the title or the description is not a quoted YAML string"
+      return 1
+    fi
     role_perms "${here}/ci-policy.sh" role "${r}" >"${tmp}/perms-${r}"
     [[ -s "${tmp}/perms-${r}" ]] || { echo "role ${r}: no permissions"; return 1; }
     # only compute permissions, no wildcard, sorted and unique
