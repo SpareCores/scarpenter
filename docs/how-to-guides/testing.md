@@ -1018,14 +1018,9 @@ with the lane's values once the chart knows `vendors.gcp`. The canary's test com
 The OCI lane is the same lane as the AWS one (a k3s control plane on the runner, nodes that join over
 Tailscale, the reusable `e2e-cloud.yml`, the same pins of Kubernetes, k3s, Tailscale and Flatcar) with the
 cloud calls of Oracle Cloud Infrastructure; everything it adds lives in `test/e2e-oci/`, `pkg/vendors/oci/sweep`,
-`test/canary/oci.go` and `.github/workflows/e2e-oci-sweeper.yml`. **It is not in `test/e2e-vendors.txt` yet**:
-the line is added only when the cost guards of [Testing and releasing](testing-and-releasing.md#per-vendor-cost-guards)
-are true on a live tenancy, which is provisioned outside this repository, and nobody has verified them yet (what to
-check first: [OCI](testing-and-releasing.md#oci)); the lane's selftest checks that the line is absent. **Nothing in the lane has run
-against Oracle yet** (a static validation only: the lane is written against the driver's fake, the SDK source and the documentation, and
-the first live run corrects it). Everything else is ready, so that the single line `oci` in that file is enough: the planner, the canary
-matrix and the release gate read it, and `test/e2e-plan-selftest.sh` and `test/e2e-oci/selftest.sh` check that nothing else is missing
-(the credentials steps of both reusable workflows, the sweeper workflow, the canary's vendor part, the smoke set). Until then it runs by
+`test/canary/oci.go` and `.github/workflows/e2e-oci-sweeper.yml`. **It is a line of `test/e2e-vendors.txt`**: the cost guards of [Testing and releasing](testing-and-releasing.md#per-vendor-cost-guards)
+are shown on a live tenancy (provisioned outside this repository; what to check: [OCI](testing-and-releasing.md#oci)), and the pull request tiers, the nightly canary and the release gate run it. The planner, the canary matrix and the release gate read that file, and `test/e2e-plan-selftest.sh` and `test/e2e-oci/selftest.sh` check that nothing else is missing
+(the credentials steps of both reusable workflows, the sweeper workflow, the canary's vendor part, the smoke set). It also runs by
 hand against a tenancy of one's own:
 
 ```bash
@@ -1073,6 +1068,7 @@ hack/dev.sh make test-e2e-oci-dryrun                            # everything tha
 
 | Scenario | Proves |
 |---|---|
+| guards | the CI identity's policy conditions bite: with the lane's own session, a VCN create in another region (`E2E_OCI_PROBE_REGION`, default `us-ashburn-1`, which must be subscribed and not the lane's), an instance launch there (shape `VM.Probe.Invalid`) and a VCN create in the tenancy's root compartment each fail with `NotAuthorizedOrNotFound` (HTTP 404); the service code and status are noted. A success is deleted at once and fails the scenario; the probe's name and tags are the run's, so the teardown and the sweeper find a leftover. Runs in the smoke set too |
 | preflight | the region is subscribed (`READY`) and has availability domains; the pinned Flatcar image exists in the image compartment (`OCI_IMAGE_COMPARTMENT`, default the compartment; `AVAILABLE`, its `flatcar-version` and `arch` tags) and is registered for the lane's shapes; every lane shape is offered in an availability domain; the E5 limits suffice; the NodeClasses are `Ready`, `VendorReady` and `ImagesReady` |
 | `amd64` | on demand, exact type `oci.VM.Standard.E5.Flex.1-4`: Node Ready, Pod Running, `kubectl logs` and `exec`; node labels of overview section 5.5 (the zone name without the tenancy's prefix, the Keeper zone ID `<region>-ad-<N>`, `vcpus` 2, `memory-mib` 4096); the instance's freeform tags (cluster, nodeclaim, nodepool, nodeclass, managed-by, the idempotency key equal to the NodeClaim's UID, the NodeClass's `spec.tags`); `shapeConfig` equal to the name; the metadata keys of plan 25 section 5 (`user_data`, no `ssh_authorized_keys`), the legacy metadata endpoints disabled, a public address and a group on the VNIC; the pinned image; the boot volume (size and VPUs); the price annotation; the bootstrap token is gone, the serving CSR approved; on the node, the checks of L4 scenarios Q09 and Q10; the metadata service answers on the node (the `user_data` is the Ignition) and no login user exists; the answer from a Pod (OCI has no hop limit) and from the legacy endpoint are recorded as notes |
 | `spot` | the same size preemptible, one of `E2E_SPOT_TYPES` (`oci.VM.Standard.E5.Flex.1-4`, then `oci.VM.Standard.E4.Flex.1-4` and `oci.VM.Standard.E3.Flex.1-4`, the catalog's preemptible shapes of that size; the node's type is noted): `preemptibleInstanceConfig` with the action `TERMINATE` and the boot volume not preserved, the shape and `shapeConfig` of the node's actual type. OCI often has no preemptible capacity (`Out of host capacity`): when no spot NodeClaim launches within `E2E_LAUNCH_TIMEOUT` and every failed spot launch attempt in the controller log was `InsufficientCapacity`, the scenario is **skipped** (`SKIP` in the report and the job summary, with the types, the availability domains and the message; not counted as passed); any other failure fails it. `quota` and the scenarios that use the fixtures do not need the spot node |
@@ -1116,7 +1112,7 @@ server as a server-side dry run, runs the sweeper's and the canary's tests again
 against stubs of the CLI and fixtures (including the redaction of tenancy and compartment OCIDs, tokens, signatures and private keys), the session script against a stub of
 `curl` (the exchange, the modes of the files, the masks, no secret on a command line), the scenario list, the workflows (keyless credentials, a pinned CLI, no API key, every action pinned by SHA),
 the byo names shared by the scripts and the sweeper, the policies `ci-policy.sh` and `canary-policy.sh` print (the driver's statements all there, nothing tenancy-wide that writes, only reads in the canary's),
-that the lane is ready for its line in `test/e2e-vendors.txt` and absent from it, and the chart with the lane's values (the keyless flags, and only those). The canary's test compares the statements of the calls it made with `canary-policy.sh statements`.
+that the lane is ready for its line in `test/e2e-vendors.txt` and listed in it, the guard probe against a stub (a refusal passes; a 400 or a success fails, and a success is deleted), and the chart with the lane's values (the keyless flags, and only those). The canary's test compares the statements of the calls it made with `canary-policy.sh statements`.
 
 ### Artifact fixtures
 
