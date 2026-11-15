@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 
+	"sigs.k8s.io/yaml"
+
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp/fake"
 )
 
@@ -207,12 +209,21 @@ func TestGCPRoleIsExactlyWhatTheCanaryCalls(t *testing.T) {
 	if err != nil {
 		t.Skipf("the role script cannot run here (bash is needed): %v", err)
 	}
-	var allowed []string
-	for line := range strings.SplitSeq(string(out), "\n") {
-		if p, ok := strings.CutPrefix(line, "- "); ok {
-			allowed = append(allowed, p)
-		}
+	// Parsed as YAML, as `gcloud iam roles create --file` reads it: a plain scalar with ": " in it
+	// would not parse.
+	var role struct {
+		Title               string   `json:"title"`
+		Description         string   `json:"description"`
+		Stage               string   `json:"stage"`
+		IncludedPermissions []string `json:"includedPermissions"`
 	}
+	if err := yaml.UnmarshalStrict(out, &role); err != nil {
+		t.Fatalf("the role is not a role definition in YAML: %v\n%s", err, out)
+	}
+	if role.Title == "" || role.Description == "" || role.Stage != "GA" {
+		t.Errorf("the role has no title, no description or a stage other than GA: %+v", role)
+	}
+	allowed := role.IncludedPermissions
 	if len(allowed) == 0 {
 		t.Fatalf("no permissions in the role:\n%s", out)
 	}

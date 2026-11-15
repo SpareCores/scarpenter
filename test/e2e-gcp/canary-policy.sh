@@ -25,6 +25,9 @@ permissions=(
   compute.zones.list
 )
 
+# yaml_str <text>: the text as a YAML double-quoted scalar (a plain scalar ends at ": " or " #").
+yaml_str() { local t="${1//\\/\\\\}"; printf '"%s"' "${t//\"/\\\"}"; }
+
 # sq <text>: the text in single quotes, for the commands that are printed.
 sq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
 
@@ -38,8 +41,8 @@ perms() { printf '%s\n' "${permissions[@]}" | LC_ALL=C sort; }
 
 cmd_role() {
   local p
-  echo "title: SCarpenter canary reads"
-  echo "description: Read-only calls of the L5 canary: regions, zones, machine types, images and quotas. No write permission."
+  echo "title: $(yaml_str "SCarpenter canary reads")"
+  echo "description: $(yaml_str "Read-only calls of the L5 canary: regions, zones, machine types, images and quotas. No write permission.")"
   echo "stage: GA"
   echo "includedPermissions:"
   while read -r p; do echo "- ${p}"; done < <(perms)

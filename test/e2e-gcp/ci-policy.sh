@@ -63,6 +63,9 @@ global=(
   compute.networks.create compute.networks.delete compute.networks.updatePolicy
 )
 
+# yaml_str <text>: the text as a YAML double-quoted scalar (a plain scalar ends at ": " or " #").
+yaml_str() { local t="${1//\\/\\\\}"; printf '"%s"' "${t//\"/\\\"}"; }
+
 # sq <text>: the text in single quotes, for the commands that are printed.
 sq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
 
@@ -100,8 +103,8 @@ role_id() { case "$1" in reads) echo scarpenterCiReads ;; regional) echo scarpen
 cmd_role() {
   local name="${1:-}" p
   [[ "${name}" =~ ^(reads|regional|global)$ ]] || usage
-  echo "title: $(role_title "${name}")"
-  echo "description: $(role_description "${name}")"
+  echo "title: $(yaml_str "$(role_title "${name}")")"
+  echo "description: $(yaml_str "$(role_description "${name}")")"
   echo "stage: GA"
   echo "includedPermissions:"
   while read -r p; do echo "- ${p}"; done < <(role_permissions "${name}")
