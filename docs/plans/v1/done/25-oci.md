@@ -1220,6 +1220,12 @@ is green. The first live run is the coordinator's.
 - **Compartment quota names** (run 43692646530): `standard-e5-core-count`, `standard-e5-memory-count`, `standard-e4-core-count`,
   `standard-e4-memory-count` and `standard-e3-memory-count` are accepted by the Quotas service; the E3 cores are named
   `standard-e3-core-ad-count` (taken from the live quota-exceeded error). The quota scenario reaches the limit.
+- **Limit names carry scope infixes** (live service limits of the tenancy, 2026-11-15; the quota-exceeded error of run
+  43646354816): between the form and `-count` OCI may put the scope, as in `standard-e3-core-ad-count` (AD-scoped E3 cores) and
+  `standard-a1-core-regional-count`, `standard-a1-memory-regional-count` (the A1 limits, scope REGION). The driver recognises
+  the core and the memory form whatever infix (`-ad`, `-regional`, `-global`) sits before `-count`; classifying by the plain
+  `-core-count` suffix counted one instance against an OCPU or GB limit. Per-shape names such as `bm-standard3-64-count` stay
+  instance limits.
 - **The CI policy's conditions** (run 43754403884): the `where request.region = '<lane region>'` condition refuses a VCN create
   in another subscribed region (us-ashburn-1), and a VCN create in the tenancy root compartment is refused too; both answer
   404 `NotAuthorizedOrNotFound`. An instance launch cannot be probed: input validation precedes authorization (a launch with a

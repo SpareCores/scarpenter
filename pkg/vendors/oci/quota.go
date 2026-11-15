@@ -25,9 +25,9 @@ const serviceCompute = "compute"
 
 // The forms of a limit name and the units of their buckets (plan 25, section 7).
 const (
-	coreSuffix   = "-core-count"
-	memorySuffix = "-memory-count"
-	countSuffix  = "-count"
+	coreForm    = "-core"
+	memoryForm  = "-memory"
+	countSuffix = "-count"
 
 	UnitOCPU      = "OCPU"
 	UnitGB        = "GB"
@@ -45,15 +45,31 @@ type limitDef struct {
 // whether it counts OCPUs, GB or instances. ok is false for a name of another
 // form, which makes every type of the shape that lists it unknown (reactive).
 func limitForm(name string) (unit string, ok bool) {
-	switch {
-	case strings.HasSuffix(name, coreSuffix):
-		return UnitOCPU, true
-	case strings.HasSuffix(name, memorySuffix):
-		return UnitGB, true
-	case strings.HasSuffix(name, countSuffix):
-		return UnitInstances, true
+	base, found := strings.CutSuffix(name, countSuffix)
+	if !found {
+		return "", false
 	}
-	return "", false
+	// OCI names a scoped limit with an infix between the form and "-count":
+	// standard-e3-core-ad-count, standard-a1-core-regional-count.
+	for _, scope := range []string{"-ad", "-regional", "-global"} {
+		if b, ok := strings.CutSuffix(base, scope); ok {
+			base = b
+			break
+		}
+	}
+	switch {
+	case strings.HasSuffix(base, coreForm):
+		return UnitOCPU, true
+	case strings.HasSuffix(base, memoryForm):
+		return UnitGB, true
+	}
+	return UnitInstances, true
+}
+
+// IsCoreLimit says whether the limit name counts OCPUs, whatever its scope infix.
+func IsCoreLimit(name string) bool {
+	unit, ok := limitForm(name)
+	return ok && unit == UnitOCPU
 }
 
 // limitDefs returns the definitions of the Compute limits of the region, cached for

@@ -35,7 +35,7 @@ func ociTestConfig() *config {
 func ociAccount() *fake.Cloud {
 	c := fake.NewSeeded()
 	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E5.Flex", 94, 1049, 1, 64, 0, 0, "standard-e5-core-count", "standard-e5-memory-count"))
-	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-count", "standard-a1-memory-count"))
+	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-regional-count", "standard-a1-memory-regional-count"))
 	arm := fake.FlatcarImage("stable", fake.SeedVersion, "arm64")
 	c.AddImage(fake.SeedRegion, arm, "VM.Standard.A1.Flex")
 	return c
@@ -80,7 +80,7 @@ func TestOCICanaryChecksArm64WhenTheLaneRunsIt(t *testing.T) {
 	if f := failed(rep); len(f) > 0 {
 		t.Fatalf("failed checks %v:\n%s", f, b.String())
 	}
-	for _, want := range []string{"Flatcar stable 4757.2.3 arm64", "Flatcar stable 4757.2.3 arm64 shape compatibility", "VM.Standard.A1.Flex.1-2", "standard-a1-core-count"} {
+	for _, want := range []string{"Flatcar stable 4757.2.3 arm64", "Flatcar stable 4757.2.3 arm64 shape compatibility", "VM.Standard.A1.Flex.1-2", "standard-a1-core-regional-count"} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("the table has no %q:\n%s", want, b.String())
 		}
@@ -88,7 +88,7 @@ func TestOCICanaryChecksArm64WhenTheLaneRunsIt(t *testing.T) {
 	// An arm64 image that is gone fails only its own rows.
 	c2 := fake.NewSeeded() // no arm64 image at all
 	c2.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E5.Flex", 94, 1049, 1, 64, 0, 0, "standard-e5-core-count", "standard-e5-memory-count"))
-	c2.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-count", "standard-a1-memory-count"))
+	c2.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-regional-count", "standard-a1-memory-regional-count"))
 	rep, _ = runOCICanary(t, c2, cfg)
 	f := failed(rep)
 	if !slices.Contains(f, "Flatcar stable 4757.2.3 arm64") || slices.Contains(f, "Flatcar stable 4757.2.3 amd64") {
@@ -158,7 +158,7 @@ func TestOCICanaryImageCompartment(t *testing.T) {
 		c.AddImage(fake.SeedRegion, img, "VM.Standard.E5.Flex", "VM.Standard.A1.Flex")
 	}
 	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E5.Flex", 94, 1049, 1, 64, 0, 0, "standard-e5-core-count", "standard-e5-memory-count"))
-	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-count", "standard-a1-memory-count"))
+	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-regional-count", "standard-a1-memory-regional-count"))
 	cfg := ociTestConfig()
 	cfg.flatcarVersion = "4800.0.0" // only in the image compartment (the seed has the pinned one)
 	rep, _ := runOCICanary(t, c, cfg)

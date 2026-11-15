@@ -35,13 +35,17 @@ func (c *Cloud) limit(regionName, ad, name string) int64 {
 }
 
 // consumes is what an instance of the shape and size consumes of a limit: the
-// OCPUs for *-core-count, the GB for *-memory-count, one for any other name. The
+// OCPUs for *-core[-ad|-regional]-count, the GB for *-memory[-ad|-regional]-count, one for any other name. The
 // same for preemptible instances (UNVERIFIED, spike S9).
 func consumes(name string, ocpus, mem float64) int64 {
+	base := strings.TrimSuffix(name, "-count")
+	for _, scope := range []string{"-ad", "-regional", "-global"} {
+		base = strings.TrimSuffix(base, scope)
+	}
 	switch {
-	case strings.HasSuffix(name, "-core-count"):
+	case strings.HasSuffix(base, "-core"):
 		return int64(ocpus)
-	case strings.HasSuffix(name, "-memory-count"):
+	case strings.HasSuffix(base, "-memory"):
 		return int64(mem)
 	}
 	return 1

@@ -29,9 +29,6 @@ const (
 	// ociCheckTimeout bounds one check; every API call has its own deadline below it (the
 	// SDK adapter's), and the whole canary one more (-timeout).
 	ociCheckTimeout = 3 * time.Minute
-
-	ociCoreSuffix   = "-core-count"
-	ociMemorySuffix = "-memory-count"
 )
 
 // checkOCI is the OCI part: the real driver, over the real SDK adapter with a deadline on every
@@ -254,7 +251,7 @@ func (c *ociCheck) laneBuckets() []string {
 // need is what the suite needs of a bucket: the pins for the amd64 families, and for an Arm
 // family twice the biggest lane type of it (a replacement runs next to the node it replaces).
 func (c *ociCheck) need(id string) int64 {
-	cores := strings.HasSuffix(id, ociCoreSuffix)
+	cores := oci.IsCoreLimit(id)
 	var arm int64
 	for _, t := range c.types {
 		typ, err := oci.ParseType(t)

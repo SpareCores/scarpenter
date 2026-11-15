@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package oci_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/limits"
@@ -81,9 +82,14 @@ func TestQuotaRegionScope(t *testing.T) {
 	if b, _ := bucketNamed(snap, "standard-e5-core-count"); b.Used != 2 || b.Limit != 40 {
 		t.Errorf("bucket %+v, want used 2, limit 40", b)
 	}
-	// One call for the region-scoped name, three (the ADs) for each other name.
-	names := len(snap.Buckets)
-	if got, want := e.c.Calls("GetResourceAvailability")-before, 1+3*(names-1); got != want {
+	// One call for each region-scoped name (the E5 cores and the A1 limits), three (the ADs) for each other name.
+	names, regional := len(snap.Buckets), 1
+	for _, bk := range snap.Buckets {
+		if strings.Contains(bk.ID, "-regional-") {
+			regional++
+		}
+	}
+	if got, want := e.c.Calls("GetResourceAvailability")-before, regional+3*(names-regional); got != want {
 		t.Errorf("%d availability calls for %d buckets, want %d", got, names, want)
 	}
 }
@@ -132,7 +138,7 @@ func TestConsumption(t *testing.T) {
 		{testType, vendors.CapacityOnDemand, []vendors.Consumption{
 			{Bucket: "standard-e5-core-count", Amount: 2}, {Bucket: "standard-e5-memory-count", Amount: 16}}, true},
 		{"VM.Standard.A1.Flex.80-320", vendors.CapacityOnDemand, []vendors.Consumption{
-			{Bucket: "standard-a1-core-count", Amount: 80}, {Bucket: "standard-a1-memory-count", Amount: 320}}, true},
+			{Bucket: "standard-a1-core-regional-count", Amount: 80}, {Bucket: "standard-a1-memory-regional-count", Amount: 320}}, true},
 		// A fixed shape consumes its own size: 4 OCPUs for VM.Standard2.4.
 		{"VM.Standard2.4", vendors.CapacityOnDemand, []vendors.Consumption{{Bucket: "standard2-4-core-count", Amount: 4}}, true},
 		{"BM.Standard3.64", vendors.CapacityOnDemand, []vendors.Consumption{{Bucket: "bm-standard3-64-count", Amount: 1}}, true},

@@ -17,6 +17,7 @@ import (
 
 	keeper "github.com/SpareCores/sc-keeper-go"
 	"github.com/go-logr/logr"
+	"github.com/oracle/oci-go-sdk/v65/limits"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/SpareCores/scarpenter/pkg/catalog/embeddeddata/oci"
@@ -124,8 +125,14 @@ func seedShapes(t testing.TB, c *fake.Cloud) {
 			if shape == "VM.Standard.E5.Flex" {
 				numaO, numaG = 94, 1049 // plan 25, section 2
 			}
-			c.AddShape(region, fake.FlexShape(shape, b.maxO, b.maxG, b.minPer, b.maxPer, numaO, numaG,
-				tag+"-core-count", tag+"-memory-count"))
+			core, mem := tag+"-core-count", tag+"-memory-count"
+			if shape == "VM.Standard.A1.Flex" {
+				// The tenancy's A1 limits are named and scoped by region (live service limits, 2026-11-15).
+				core, mem = tag+"-core-regional-count", tag+"-memory-regional-count"
+				c.SetScope(core, limits.LimitDefinitionSummaryScopeTypeRegion)
+				c.SetScope(mem, limits.LimitDefinitionSummaryScopeTypeRegion)
+			}
+			c.AddShape(region, fake.FlexShape(shape, b.maxO, b.maxG, b.minPer, b.maxPer, numaO, numaG, core, mem))
 		}
 		for _, r := range fixed {
 			k, ok := driver.VCPUsPerOCPU(r.ID)
