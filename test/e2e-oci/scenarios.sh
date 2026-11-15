@@ -5,8 +5,9 @@
 # what each proves and how to read a failure).
 #
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:
-#                   amd64 spot arm64 described byo create negative quota drift scalezero uninstall
-#                   (preflight always runs first, and ends the run when it fails)
+#                   guards amd64 spot arm64 described byo create negative quota drift scalezero uninstall
+#                   (preflight always runs first, and ends the run when it fails; guards, in the smoke set
+#                   too, tries the CI policy's conditions: a write in another region and compartment)
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -348,6 +349,49 @@ scn_preflight() {
       "$(kubectl get scnodeclass "${nc}" -o jsonpath='{.status.vendors.oci.conditions[?(@.type=="ImagesReady")].status}')"
   done
   note "compartment of the lane, region ${OCI_REGION}"
+}
+
+# guards: the CI policy's conditions (ci-policy.sh) refuse a write in another region and in another compartment.
+# Only the CI identity itself can show it, so the lane tries, with the identity every scenario uses:
+#   oci network vcn create       in the probe region (E2E_OCI_PROBE_REGION), in the lane's compartment
+#   oci compute instance launch  there too, with a shape that does not exist (VM.Probe.Invalid)
+#   oci network vcn create       in the lane's region, in the tenancy's root compartment
+# and expects NotAuthorizedOrNotFound, HTTP 404, from each: the policy refused it before looking at the
+# request (a 400 for the launch would mean the policy let it through and the shape was rejected). A call that
+# succeeds is undone at once, and the scenario fails. The names carry the run's name prefix and tags, so the
+# teardown and the sweeper find a leftover (the teardown adds the probe region when a probe leaked).
+scn_guards() {
+  local probe="${E2E_OCI_PROBE_REGION}" subs ad name tags
+  [[ "${probe}" != "${OCI_REGION}" ]] || fail "E2E_OCI_PROBE_REGION (${probe}) is the lane's region: the probe would show nothing"
+  [[ "${OCI_TENANCY}" != "${OCI_COMPARTMENT}" ]] || fail "the lane's compartment is the tenancy: the lane needs a dedicated compartment"
+  # An unsubscribed region may refuse everything, so a refusal there would show nothing about the policy.
+  subs="$(oc iam region-subscription list --tenancy-id "${OCI_TENANCY}" --output json)" || fail "the region subscriptions cannot be listed"
+  assert_eq "the probe region ${probe} is subscribed and READY (else its refusal proves nothing about the policy)" READY \
+    "$(jq -r --arg r "${probe}" '[(.data // [])[] | select(."region-name" == $r) | .status] | first // "absent"' <<<"${subs}")"
+  name_prefix >/dev/null
+  name="${E2E_NAME_PREFIX}guard-probe"
+  tags="{\"scarpenter-cluster\":\"${E2E_CLUSTER}\",\"scarpenter-managed-by\":\"scarpenter\",\"ci-created-at\":\"${E2E_CREATED_AT}\"}"
+
+  guard_call network vcn create --region "${probe}" --compartment-id "${OCI_COMPARTMENT}" --cidr-block 10.255.255.0/28 \
+    --display-name "${name}" --freeform-tags "${tags}" --output json
+  guard_refused "a VCN create in another region (${probe}), in the lane's compartment" "${probe}" vcn
+
+  # The launch is a different verb family (instance-family): refused by the policy, never a running instance. The
+  # availability domain is read from the probe region when the identity may (else a placeholder).
+  ad="$(oc iam availability-domain list --region "${probe}" --compartment-id "${OCI_TENANCY}" --output json 2>/dev/null | jq -r '(.data // [])[0].name // empty')" || ad=""
+  [[ -n "${ad}" ]] || {
+    ad="probe-AD-1"
+    note "the availability domains of ${probe} cannot be listed: the launch probe uses the placeholder ${ad}"
+  }
+  guard_call compute instance launch --region "${probe}" --compartment-id "${OCI_COMPARTMENT}" --availability-domain "${ad}" \
+    --shape VM.Probe.Invalid --image-id ocid1.image.oc1..probe --subnet-id ocid1.subnet.oc1..probe \
+    --display-name "${name}" --freeform-tags "${tags}" --output json
+  guard_refused "an instance launch in another region (${probe}), in the lane's compartment" "${probe}" instance
+
+  guard_call network vcn create --region "${OCI_REGION}" --compartment-id "${OCI_TENANCY}" --cidr-block 10.255.255.0/28 \
+    --display-name "${name}" --freeform-tags "${tags}" --output json
+  guard_refused "a VCN create in another compartment (the tenancy root), in ${OCI_REGION}" "${OCI_REGION}" vcn
+  note "the probe region ${probe} was READY for the tenancy, so the refusals come from the request, not from a missing subscription"
 }
 
 # zone_names: the zone names of the region's availability domains, one per line.
@@ -1000,7 +1044,7 @@ scarpenter_claims() {
 
 # --------------------------------------------------------------- runner -----
 
-all_scenarios=(amd64 spot arm64 described byo create negative quota drift scalezero uninstall)
+all_scenarios=(guards amd64 spot arm64 described byo create negative quota drift scalezero uninstall)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")

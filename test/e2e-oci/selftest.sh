@@ -178,6 +178,15 @@ case "$*" in
       {"id":"ocid1.bootvolume.oc1.eu-frankfurt-1.old","lifecycle-state":"AVAILABLE","time-created":"2020-01-01T00:00:00.000000+00:00"},
       {"id":"ocid1.bootvolume.oc1.eu-frankfurt-1.gone","lifecycle-state":"TERMINATED","time-created":"2027-01-15T08:00:00.000000+00:00"}]}' ;;
   *"bv boot-volume list"*) ;; # an empty list prints nothing
+  *"network vcn create"*)
+    if [[ "${STUB_GUARD:-refuse}" == allow ]]; then
+      echo '{"data":{"id":"ocid1.vcn.oc1.us-ashburn-1.leak"}}'
+    else
+      printf 'ServiceError:\n{\n  "client_version": "Oracle-PythonSDK/2",\n  "code": "NotAuthorizedOrNotFound",\n  "message": "Authorization failed\\nor requested resource not found.",\n  "status": 404\n}\n' >&2
+      exit 1
+    fi ;;
+  *"network vcn delete"*) echo '{}' ;;
+  *"compute instance launch"*) printf 'ServiceError:\n{\n  "code": "InvalidParameter",\n  "message": "shape",\n  "status": 400\n}\n' >&2; exit 1 ;;
   *) echo "unexpected oci call: $*" >&2; exit 1 ;;
 esac
 STUB
@@ -401,7 +410,7 @@ t_scenarios_defined() {
     }
   done
   # The scenarios of plan 25 section 11 item 4 (no db: no data volumes in v1; no default: no default network).
-  for n in amd64 spot arm64 scalezero drift quota described byo create negative uninstall; do
+  for n in guards amd64 spot arm64 scalezero drift quota described byo create negative uninstall; do
     [[ " ${names} " == *" ${n} "* ]] || {
       echo "the plan's scenario ${n} is missing"
       return 1
@@ -414,7 +423,7 @@ t_scenarios_defined() {
 t_unknown_scenario() { # exit status 2, and the message names the known ones
   local out rc=0
   out="$(E2E_SCENARIOS=nosuch E2E_CLUSTER=x E2E_RUN_ID=1 E2E_CREATED_AT=1 KUBECONFIG=/dev/null "${here}/scenarios.sh" 2>&1)" || rc=$?
-  [[ "${rc}" == 2 ]] && grep -q 'unknown scenario nosuch (known: amd64 spot' <<<"${out}"
+  [[ "${rc}" == 2 ]] && grep -q 'unknown scenario nosuch (known: guards amd64 spot' <<<"${out}"
 }
 t_pins_pinned() { # every action of the L5 workflows is pinned by a full commit SHA (a local reusable workflow has no pin)
   local w="${root}/.github/workflows"
@@ -502,12 +511,63 @@ t_ready_for_the_list() {
   [[ -x "${root}/test/canary/run.sh" && -d "${here}/sweeper" ]] || { echo "canary run.sh or sweeper missing"; return 1; }
 }
 check "the lane has everything the vendor list's consumers read (one line in test/e2e-vendors.txt is enough)" t_ready_for_the_list
-t_vendor_list() { # the cost guards are not verified on a live tenancy: the CI cost-guard policy is unmet, so oci stays out of the list
-  # Whoever verifies them adds the line, removes the note in defaults.sh and changes this check (plan 25, section 11).
-  ! grep -qxF oci "${root}/test/e2e-vendors.txt" || { echo "oci is in test/e2e-vendors.txt, but its cost guards are not verified"; return 1; }
-  grep -q 'THIS LANE IS NOT IN test/e2e-vendors.txt' "${here}/defaults.sh" || { echo "defaults.sh does not say why oci is not in the list"; return 1; }
+t_vendor_list() { # every cost guard is shown by something, and oci is a line of the list
+  grep -qxF oci "${root}/test/e2e-vendors.txt" || { echo "oci is not in test/e2e-vendors.txt"; return 1; }
+  ! grep -q 'THIS LANE IS NOT IN' "${here}/defaults.sh" || { echo "defaults.sh still says the lane is not in the list"; return 1; }
+  grep -q 'This lane is a line of test/e2e-vendors.txt' "${here}/defaults.sh" || { echo "defaults.sh does not say which guard shows what"; return 1; }
 }
-check "oci is not in test/e2e-vendors.txt until its cost guards are verified, and defaults.sh lists them" t_vendor_list
+check "oci is a line of test/e2e-vendors.txt, and defaults.sh says which guard shows each item" t_vendor_list
+
+# ---- the guard probe (scenario guards): the policy's conditions, shown by the CI identity itself ---------------
+t_guards_registered() {
+  local names
+  names="$(all_names)"
+  [[ " ${names} " == *" guards "* ]] || { echo "guards is not in all_scenarios"; return 1; }
+  [[ ",${E2E_SMOKE_SCENARIOS}," == *",guards,"* ]] || { echo "guards is not in the smoke set"; return 1; }
+  [[ -n "${E2E_OCI_PROBE_REGION}" && "${E2E_OCI_PROBE_REGION}" != "${OCI_REGION}" ]] || { echo "the probe region is empty or the lane's region"; return 1; }
+  # It runs right after the preflight (the first of the list), in both modes.
+  [[ "${names%% *}" == guards ]] || { echo "guards does not run first"; return 1; }
+}
+check "the guard probe is registered, in the smoke set, and its region is not the lane's" t_guards_registered
+# shellcheck disable=SC2016  # the greps look for shell text, which must not expand
+t_guards_probe() { # the three probes, the expected refusal, the sweep of a leak
+  local body want
+  body="$(sed -n '/^scn_guards() {/,/^}/p' "${here}/scenarios.sh")"
+  for want in 'network vcn create --region "${probe}" --compartment-id "${OCI_COMPARTMENT}"' \
+    'compute instance launch --region "${probe}" --compartment-id "${OCI_COMPARTMENT}"' 'VM.Probe.Invalid' \
+    'network vcn create --region "${OCI_REGION}" --compartment-id "${OCI_TENANCY}"' \
+    'E2E_NAME_PREFIX' 'scarpenter-managed-by'; do
+    grep -qF -- "${want}" <<<"${body}" || { echo "scn_guards lacks: ${want}"; return 1; }
+  done
+  grep -qF 'NotAuthorizedOrNotFound && "${guard_status}" == 404' "${here}/lib.sh" || { echo "the refusal is not NotAuthorizedOrNotFound/404"; return 1; }
+  grep -qF 'guards.leaked' "${here}/teardown.sh" || { echo "the teardown does not sweep a leaked probe's region"; return 1; }
+}
+check "the guard probe's commands, names and expected refusal" t_guards_probe
+t_guard_call() { # the stub refuses: code and status are read from the ServiceError, the message is one line
+  withstub guard_call network vcn create --region us-ashburn-1 --compartment-id x
+  [[ "${guard_rc}" == 1 && "${guard_code}" == NotAuthorizedOrNotFound && "${guard_status}" == 404 && "${guard_message}" == *"Authorization failed or"* ]] || {
+    echo "rc=${guard_rc} code=${guard_code} status=${guard_status} message=${guard_message}"
+    return 1
+  }
+  (E2E_OUT="${tmp}/gout" withstub guard_refused "a VCN" us-ashburn-1 vcn) | grep -q 'service code NotAuthorizedOrNotFound, HTTP status 404'
+}
+t_guard_other_error() { # a 400 is not a refusal
+  local out rc=0
+  withstub guard_call compute instance launch --region x
+  out="$( (E2E_OUT="${tmp}/gout" withstub guard_refused "a launch" us-ashburn-1 instance) 2>&1)" || rc=$?
+  [[ "${rc}" != 0 ]] && grep -q "got code 'InvalidParameter' status '400'" <<<"${out}"
+}
+t_guard_success() { # a probe that succeeds is deleted at once, recorded for the teardown, and fails
+  local out rc=0
+  : >"${STUB_OCI_LOG}"
+  STUB_GUARD=allow withstub guard_call network vcn create --region us-ashburn-1
+  out="$( (E2E_OUT="${tmp}/gout2" withstub guard_refused "a VCN" us-ashburn-1 vcn) 2>&1)" || rc=$?
+  [[ "${rc}" != 0 ]] && grep -q 'network vcn delete --region us-ashburn-1 --vcn-id ocid1.vcn.oc1.us-ashburn-1.leak --force' "${STUB_OCI_LOG}" &&
+    [[ "$(cat "${tmp}/gout2/state/guards.leaked")" == us-ashburn-1 ]] && grep -q 'the policy.s conditions do not bite' <<<"${out}"
+}
+check "guard_call reads the service code and status; the refusal is NotAuthorizedOrNotFound (stub)" t_guard_call
+check "a 400 from a probe fails it (stub)" t_guard_other_error
+check "a probe that succeeds is deleted, recorded for the teardown and fails (stub)" t_guard_success
 
 # ---- the policies -------------------------------------------------------------
 # covered <statement> <file of statements>: the file has the statement, or one with a stronger verb (inspect, read, use, manage)

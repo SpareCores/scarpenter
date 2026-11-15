@@ -2,23 +2,18 @@
 # The pins of the L5 lane (OCI). Every value can be overridden through the environment
 # (the workflow's inputs do it for the minimum-Kubernetes run).
 #
-# THIS LANE IS NOT IN test/e2e-vendors.txt, ON PURPOSE. A line there puts OCI into the
-# pull request tiers, the nightly canary and the release gate, and may only be added when
-# every cost guard of docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards
-# is true on a LIVE tenancy. Nobody has verified them; the guards still to be verified
-# live (docs/how-to-guides/testing-and-releasing.md#oci) are:
-#   - the compartment is dedicated to the lane and holds nothing else, and a compartment
-#     quota (the Quotas service) caps compute cores and memory at what the pins below need:
-#     the hard ceiling, since no IAM statement can deny a shape;
-#   - the CI policy's conditions (ci-policy.sh) refuse a write in another region and in
-#     another compartment (which verbs accept the conditions is unverified);
-#   - a budget alert on the compartment reaches a person;
-#   - the sweeper (e2e-oci-sweeper.yml, environment e2e-sweeper) deletes a dead run's
-#     instances, groups, subnets, route tables, gateways and VCNs with the real CI identity,
-#     and the teardown finds a leftover boot volume;
-#   - the canary's group reads what the canary reads and writes nothing;
-#   - e2e-sweeper and e2e-canary are limited to main, and the identity domain's trust names
-#     only this repository and the three environments.
+# This lane is a line of test/e2e-vendors.txt (pull request tiers, nightly canary, release gate). Each cost guard of
+# docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards is shown by:
+#   - a dedicated compartment and a compartment quota on cores and memory (the ceiling: no IAM statement can
+#     deny a shape): the quota scenario hitting the limit;
+#   - the CI policy's region and compartment conditions (ci-policy.sh): the guards scenario, which makes the CI
+#     identity attempt a write in another region and in another compartment and expects a refusal;
+#   - a budget alert on the compartment that reaches a person: checked by the operator;
+#   - the sweeper (e2e-oci-sweeper.yml, environment e2e-sweeper) deleting a dead run's resources with the real
+#     CI identity: the scheduled sweep on main;
+#   - the canary's group reads and writes nothing: canary-policy.sh and the canary's own read-only checks;
+#   - e2e-sweeper and e2e-canary limited to main, the identity domain's trust naming only this repository and
+#     the three environments: the environments' settings.
 # shellcheck disable=SC2034  # used by the scripts that source lib.sh
 
 # The account of the lane: a dedicated compartment of a tenancy (the compartment is the only
@@ -34,6 +29,9 @@
 : "${OCI_REGION:=eu-frankfurt-1}"
 # The home region of the tenancy (where the identity domain lives); the lane's region when unset.
 : "${OCI_HOME_REGION:=${OCI_REGION}}"
+# The region the guards scenario writes in to show that the CI policy refuses it: not the lane's, and a region the tenancy IS
+# subscribed to (an unsubscribed region refuses everything and proves nothing; the scenario checks it is READY).
+: "${E2E_OCI_PROBE_REGION:=us-ashburn-1}"
 : "${OCI_IDENTITY_DOMAIN_URL:=}"
 : "${OCI_CLIENT_ID:=}"
 # The audience of GitHub's OIDC token: what the identity domain's trust expects (unverified, S11).
@@ -89,11 +87,11 @@
 # margin for the debounce and the API.
 : "${E2E_QUOTA_REFRESH:=30}"
 # The scenarios of the smoke mode (docs/how-to-guides/testing-and-releasing.md): the
-# shortest path through the node path (the preflight always runs first, then one on-demand
+# shortest path through the node path (the preflight always runs first, then the guards, one on-demand
 # node from the pods to Ready, then scale to zero). Standalone-safe: amd64 needs only its own
 # workload, and scalezero reads the amd64 node's state when it exists and checks the
 # cluster-wide exit criterion whatever ran before. Order is the runner's, not this list's.
-: "${E2E_SMOKE_SCENARIOS:=amd64,scalezero}"
+: "${E2E_SMOKE_SCENARIOS:=guards,amd64,scalezero}"
 # The limits the suite needs in the region (the preflight and the canary check them): OCPUs and
 # GB of the E5 flexible shape family at once (the on-demand, spot, drift, described, byo and
 # create nodes, and a replacement next to the node it replaces). OCI has no spot quota of its own
@@ -119,7 +117,7 @@ E2E_FLATCAR_IMAGE_AMD64="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-a
 E2E_FLATCAR_IMAGE_ARM64="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-arm64"
 
 # envsubst (manifests) and the child processes read exported variables.
-export OCI_COMPARTMENT OCI_IMAGE_COMPARTMENT OCI_TENANCY OCI_REGION OCI_HOME_REGION OCI_IDENTITY_DOMAIN_URL OCI_CLIENT_ID OCI_OIDC_AUDIENCE \
+export OCI_COMPARTMENT OCI_IMAGE_COMPARTMENT OCI_TENANCY OCI_REGION OCI_HOME_REGION E2E_OCI_PROBE_REGION OCI_IDENTITY_DOMAIN_URL OCI_CLIENT_ID OCI_OIDC_AUDIENCE \
   E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION \
   E2E_FLATCAR_IMAGE_AMD64 E2E_FLATCAR_IMAGE_ARM64 E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_ARM64_ALT E2E_TYPES_DESCRIBED \
   E2E_TYPES_DESCRIBED_YAML E2E_TYPES_ARM64_YAML E2E_SPOT_TYPES E2E_SPOT_TYPES_YAML E2E_ARM64 E2E_ROOT_GB E2E_ROOT_GB_DRIFT E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT \

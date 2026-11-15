@@ -49,7 +49,13 @@ fi
 log "2. force-delete and sweep what the cluster tag and the run's marker find"
 left="$(cluster_instances | wc -l | tr -d ' ')"
 [[ "${left}" == 0 ]] || echo "NOTE: ${left} instance(s) were still there and are deleted by the sweeper"
-(cd "${root}" && go run ./test/e2e-oci/sweeper -cluster "${E2E_CLUSTER}" -max-age 0 -regions "${OCI_REGION}" -boot-volumes -wait 5m) ||
+# The regions the guards scenario recorded as written in (a probe that the policy did not refuse) are swept too.
+sweep_regions="${OCI_REGION}"
+if [[ -s "${E2E_OUT}/state/guards.leaked" ]]; then
+  sweep_regions="$(printf '%s\n' "${OCI_REGION}" "$(cat "${E2E_OUT}/state/guards.leaked")" | sort -u | paste -sd, -)"
+  echo "NOTE: a guard probe created something (regions ${sweep_regions}); sweeping them all"
+fi
+(cd "${root}" && go run ./test/e2e-oci/sweeper -cluster "${E2E_CLUSTER}" -max-age 0 -regions "${sweep_regions}" -boot-volumes -wait 5m) ||
   problem "the sweeper failed"
 
 # The name prefix the engine gave the managed resources (a long cluster name is shortened).

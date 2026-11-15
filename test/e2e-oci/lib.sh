@@ -150,6 +150,44 @@ wait_until() {
 # oc <oci arguments>: the oci CLI, which prints JSON (an empty list prints nothing).
 oc() { oci "$@"; }
 
+# guard_call <oci arguments>: runs the oci CLI once and never fails; the guard probes (scenario guards) expect an
+# error. Sets guard_rc, guard_out (stdout) and, from the ServiceError JSON the CLI prints to stderr, guard_code,
+# guard_status and guard_message (empty when the error is not a service error, e.g. a usage error).
+guard_call() {
+  local err
+  err="$(mktemp)"
+  guard_rc=0 guard_code="" guard_status="" guard_message=""
+  guard_out="$(oc "$@" 2>"${err}")" || guard_rc=$?
+  if [[ "${guard_rc}" -ne 0 ]]; then
+    guard_code="$(sed -n '/^{/,$p' "${err}" | jq -r '.code // empty' 2>/dev/null || true)"
+    guard_status="$(sed -n '/^{/,$p' "${err}" | jq -r '.status // empty' 2>/dev/null || true)"
+    guard_message="$(sed -n '/^{/,$p' "${err}" | jq -r '.message // empty' 2>/dev/null | tr '\n' ' ' || true)"
+    [[ -n "${guard_code}" ]] || guard_message="$(tr '\n' ' ' <"${err}" | cut -c1-300)"
+  fi
+  rm -f "${err}"
+}
+
+# guard_refused <what> <region> <vcn|instance>: judges the guard_call that just ran (the scenario guards, scenarios.sh):
+# it must have failed with NotAuthorizedOrNotFound, HTTP 404. A call that succeeded created something: it is undone,
+# its region is recorded for the teardown (state/guards.leaked) and the scenario fails.
+guard_refused() { # guard_refused <what> <region> <vcn|instance>: judges the guard_call that just ran
+  local what="$1" region="$2" kind="$3" id
+  if [[ "${guard_rc}" -eq 0 ]]; then
+    id="$(jq -r '.data.id // empty' <<<"${guard_out}")"
+    note "guard ${what}: the call SUCCEEDED and created ${id:-<unknown id>} in ${region}"
+    mkdir -p "${E2E_OUT}/state"
+    printf '%s\n' "${region}" >>"${E2E_OUT}/state/guards.leaked"
+    case "${kind}" in
+      vcn) oc network vcn delete --region "${region}" --vcn-id "${id}" --force || echo "could not delete ${id}: delete it by hand" >&2 ;;
+      instance) oc compute instance terminate --region "${region}" --instance-id "${id}" --force || echo "could not terminate ${id}: terminate it by hand" >&2 ;;
+    esac
+    fail "the CI identity was allowed ${what}: the policy's conditions do not bite (created ${id:-<unknown id>}, deleted again when possible)"
+  fi
+  note "guard ${what}: service code ${guard_code:-none}, HTTP status ${guard_status:-none}${guard_message:+, message: ${guard_message}}"
+  [[ "${guard_code}" == NotAuthorizedOrNotFound && "${guard_status}" == 404 ]] ||
+    fail "${what}: wanted NotAuthorizedOrNotFound (HTTP 404), got code '${guard_code:-none}' status '${guard_status:-none}'${guard_message:+: ${guard_message}}"
+}
+
 # cluster_instances [state...]: the OCIDs of the cluster's instances, one per line, in the lifecycle
 # states (default: every one but TERMINATED: OCI lists a terminated instance for about twelve
 # hours, so "gone" means "terminated").
