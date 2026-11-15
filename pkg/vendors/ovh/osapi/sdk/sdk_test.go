@@ -440,7 +440,7 @@ func TestDeletes(t *testing.T) {
 }
 
 func TestEnvConfigured(t *testing.T) {
-	for _, k := range []string{"OS_AUTH_URL", "OS_USERNAME", "OS_PASSWORD", "OS_PROJECT_ID", "OS_PROJECT_NAME", "OS_TENANT_ID", "OS_TENANT_NAME"} {
+	for _, k := range []string{"OS_AUTH_URL", "OS_USERNAME", "OS_PASSWORD", "OS_PROJECT_ID", "OS_PROJECT_NAME", "OS_TENANT_ID", "OS_TENANT_NAME", "OS_DOMAIN_ID", "OS_DOMAIN_NAME", "OS_USER_DOMAIN_ID", "OS_USER_DOMAIN_NAME"} {
 		t.Setenv(k, "")
 	}
 	if err := EnvConfigured(); err == nil {
@@ -450,7 +450,67 @@ func TestEnvConfigured(t *testing.T) {
 	t.Setenv("OS_USERNAME", "u")
 	t.Setenv("OS_PASSWORD", "p")
 	t.Setenv("OS_PROJECT_ID", "0a1b")
+	if err := EnvConfigured(); err == nil {
+		t.Error("a username without a domain is not configured")
+	}
+	t.Setenv("OS_USER_DOMAIN_NAME", "Default")
 	if err := EnvConfigured(); err != nil {
 		t.Errorf("a complete one is: %v", err)
+	}
+}
+
+func TestAuthOptionsFromEnvUserDomain(t *testing.T) {
+	base := map[string]string{
+		"OS_AUTH_URL":   "https://auth.example/v3",
+		"OS_USERNAME":   "user-x",
+		"OS_PASSWORD":   "pw",
+		"OS_PROJECT_ID": "p1",
+	}
+	cases := []struct {
+		name             string
+		env              map[string]string
+		wantID, wantName string
+		wantErr          bool
+	}{
+		{name: "user domain name", env: map[string]string{"OS_USER_DOMAIN_NAME": "Default"}, wantName: "Default"},
+		{name: "user domain id", env: map[string]string{"OS_USER_DOMAIN_ID": "default", "OS_USER_DOMAIN_NAME": "Default"}, wantID: "default"},
+		{name: "OS_DOMAIN_NAME wins", env: map[string]string{"OS_DOMAIN_NAME": "D", "OS_USER_DOMAIN_NAME": "Default"}, wantName: "D"},
+		{name: "no domain", env: map[string]string{}, wantErr: true},
+	}
+	all := []string{"OS_DOMAIN_ID", "OS_DOMAIN_NAME", "OS_USER_DOMAIN_ID", "OS_USER_DOMAIN_NAME", "OS_USERID", "OS_TENANT_ID", "OS_TENANT_NAME", "OS_PROJECT_NAME", "OS_SYSTEM_SCOPE", "OS_APPLICATION_CREDENTIAL_ID", "OS_APPLICATION_CREDENTIAL_NAME", "OS_APPLICATION_CREDENTIAL_SECRET"}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range all {
+				t.Setenv(k, "")
+			}
+			for k, v := range base {
+				t.Setenv(k, v)
+			}
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			ao, err := authOptionsFromEnv()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("want an error, got %+v", ao)
+				}
+				if !strings.Contains(err.Error(), "OS_USER_DOMAIN_NAME") {
+					t.Fatalf("error %q does not name OS_USER_DOMAIN_NAME", err)
+				}
+				if EnvConfigured() == nil {
+					t.Fatal("EnvConfigured accepted a username without a domain")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ao.DomainID != tc.wantID || ao.DomainName != tc.wantName {
+				t.Fatalf("domain = (%q, %q), want (%q, %q)", ao.DomainID, ao.DomainName, tc.wantID, tc.wantName)
+			}
+			if ao.TenantID != "p1" {
+				t.Fatalf("project = %q", ao.TenantID)
+			}
+		})
 	}
 }

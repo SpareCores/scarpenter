@@ -19,6 +19,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -166,15 +167,39 @@ func retryGateway(base time.Duration, maxRetries uint) gophercloud.RetryFunc {
 // EnvConfigured checks, without any network call, that the standard OS_*
 // environment holds what FromEnv needs.
 func EnvConfigured() error {
-	_, err := openstack.AuthOptionsFromEnv()
+	_, err := authOptionsFromEnv()
 	return err
+}
+
+// authOptionsFromEnv is openstack.AuthOptionsFromEnv plus the user's domain
+// from OS_USER_DOMAIN_ID or OS_USER_DOMAIN_NAME, the variables the openstack
+// CLI and OVH's openrc use. Gophercloud reads only OS_DOMAIN_ID and
+// OS_DOMAIN_NAME, which still win when set. Keystone v3 needs the domain to
+// resolve a user by name.
+func authOptionsFromEnv() (gophercloud.AuthOptions, error) {
+	ao, err := openstack.AuthOptionsFromEnv()
+	if err != nil {
+		return ao, err
+	}
+	if ao.DomainID == "" && ao.DomainName == "" {
+		ao.DomainID = os.Getenv("OS_USER_DOMAIN_ID")
+		if ao.DomainID == "" {
+			ao.DomainName = os.Getenv("OS_USER_DOMAIN_NAME")
+		}
+	}
+	if ao.UserID == "" && ao.Username != "" && ao.DomainID == "" && ao.DomainName == "" {
+		return gophercloud.AuthOptions{}, gophercloud.ErrMissingAnyoneOfEnvironmentVariables{
+			EnvironmentVariables: []string{"OS_USER_DOMAIN_NAME", "OS_USER_DOMAIN_ID"},
+		}
+	}
+	return ao, nil
 }
 
 // FromEnv authenticates with the standard OS_* environment (OS_AUTH_URL,
 // OS_USERNAME, OS_PASSWORD, OS_PROJECT_ID, OS_USER_DOMAIN_NAME): the
 // `openstackUser` credentials mode. Re-authentication on expiry is on.
 func FromEnv(ctx context.Context, opts Options) (*Provider, error) {
-	ao, err := openstack.AuthOptionsFromEnv()
+	ao, err := authOptionsFromEnv()
 	if err != nil {
 		return nil, err
 	}

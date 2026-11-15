@@ -104,7 +104,9 @@ cat >"${tmp}/bin/openstack" <<'STUB'
 # a stub of the OpenStack CLI for selftest.sh
 case "$*" in
   *"server list"*) echo '[{"ID":"s-aaa","Status":"ACTIVE"},{"ID":"s-bbb","Status":"BUILD"},{"ID":"s-ccc","Status":"SHUTOFF"}]' ;;
-  *"limits show"*) echo '[{"Name":"maxTotalCores","Value":64},{"Name":"totalCoresUsed","Value":6}]' ;;
+  *"limits show"*) if [[ -n "${STUB_SDK_LIMITS:-}" ]]; then
+      echo '[{"Name":"instances","Value":10},{"Name":"total_cores","Value":20},{"Name":"total_cores_used","Value":0}]'
+    else echo '[{"Name":"maxTotalCores","Value":64},{"Name":"totalCoresUsed","Value":6}]'; fi ;;
   *"server show"*) echo '{"properties":{"scarpenter-cluster":"scarpenter-ci-1"},"flavor":{"original_name":"b3-8"}}' ;;
   *) echo "unexpected openstack call: $*" >&2; exit 1 ;;
 esac
@@ -116,12 +118,16 @@ t_cluster_instances() {
 }
 t_limit_and_meta() {
   [[ "$(PATH="${tmp}/bin:${PATH}" limit_of maxTotalCores)" == 64 && "$(PATH="${tmp}/bin:${PATH}" limit_of totalCoresUsed)" == 6 ]] &&
+    [[ "$(PATH="${tmp}/bin:${PATH}" STUB_SDK_LIMITS=1 limit_of maxTotalCores)" == 20 &&
+      "$(PATH="${tmp}/bin:${PATH}" STUB_SDK_LIMITS=1 limit_of totalCoresUsed)" == 0 &&
+      "$(PATH="${tmp}/bin:${PATH}" STUB_SDK_LIMITS=1 limit_of maxTotalInstances)" == 10 ]] &&
+    ! PATH="${tmp}/bin:${PATH}" STUB_SDK_LIMITS=1 limit_of totalInstancesUsed 2>/dev/null &&
     [[ "$(meta_of '{"properties":{"scarpenter-x":"y"}}' scarpenter-x)" == y ]] &&
     [[ "$(flavor_of '{"flavor":{"original_name":"b3-8"}}')" == b3-8 && "$(flavor_of '{"flavor":"d2-2 (abc123)"}')" == d2-2 ]]
 }
 t_cluster_tag() { [[ "$(cluster_tag)" == "scarpenter-cluster=scarpenter-ci-1" ]]; }
 check "cluster_instances lists the IDs of the cluster's servers, filtered by status" t_cluster_instances
-check "limit_of, meta_of and flavor_of read the CLI's JSON" t_limit_and_meta
+check "limit_of (Nova's and the SDK's row names), meta_of and flavor_of read the CLI's JSON" t_limit_and_meta
 check "cluster_tag is the server tag of the driver" t_cluster_tag
 
 # ---- redaction ---------------------------------------------------------------

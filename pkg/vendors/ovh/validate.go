@@ -200,7 +200,12 @@ func (d *Driver) ValidateNodeClass(_ context.Context, nc *v1alpha1.SCNodeClass) 
 	}
 	for name, p := range nc.Spec.Profiles.Storage {
 		if p.OVH != nil {
-			errs = append(errs, validateStorage("profiles.storage."+name+".ovh", p.OVH)...)
+			// A profile that asks for localStorage is not an error of the NodeClass:
+			// Supported leaves it unsupported for every type, so its Pods stay
+			// Pending (ADR-017). Only the vendor block's own localStorage is invalid.
+			st := *p.OVH
+			st.LocalStorage = nil
+			errs = append(errs, validateStorage("profiles.storage."+name+".ovh", &st)...)
 		}
 	}
 	for name, p := range nc.Spec.Profiles.Placement {
