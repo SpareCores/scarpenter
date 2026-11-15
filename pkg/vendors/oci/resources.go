@@ -267,7 +267,7 @@ func (d *Driver) Ensure(ctx context.Context, kind vendors.ResourceKind, region s
 
 // List implements vendors.ManagedResources: the managed resources carrying all the tags in the
 // regions (every subscribed region when none are named; a region that answers NotAuthorizedOrNotFound
-// is skipped, with a debug log), top-level resources only: a subnet stands for its VCN, gateway, route
+// is skipped, with an info log), top-level resources only: a subnet stands for its VCN, gateway, route
 // table and security list (a VCN with no subnet, left by an interrupted creation, stands for itself).
 func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.TagKey]string,
 ) ([]vendors.ResourceRef, error) {
@@ -286,8 +286,8 @@ func (d *Driver) List(ctx context.Context, regions []string, tags map[vendors.Ta
 				// The answer for a region the policy does not cover (the compartment's policy of a lane is
 				// limited to its region) or a compartment that is not there: nothing of ours can be listed
 				// there, and one such region must not fail the sweep of the others.
-				d.log.V(1).Info("the managed resources of a region cannot be listed: not authorized or not found, skipped",
-					"region", r.Name, "error", err.Error())
+				d.log.Info("the managed resources of a region cannot be listed: not authorized or not found, skipped",
+					"region", r.Name, "compartment", d.compartment, "error", err.Error())
 				continue
 			}
 			return nil, fmt.Errorf("listing the managed resources of %s: %w", r.Name, err)
