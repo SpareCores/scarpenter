@@ -181,12 +181,14 @@ case "$*" in
   *"network vcn create"*)
     if [[ "${STUB_GUARD:-refuse}" == allow ]]; then
       echo '{"data":{"id":"ocid1.vcn.oc1.us-ashburn-1.leak"}}'
+    elif [[ "${STUB_GUARD:-refuse}" == bad ]]; then
+      printf 'ServiceError:\n{\n  "code": "InvalidParameter",\n  "message": "cidr",\n  "status": 400\n}\n' >&2
+      exit 1
     else
       printf 'ServiceError:\n{\n  "client_version": "Oracle-PythonSDK/2",\n  "code": "NotAuthorizedOrNotFound",\n  "message": "Authorization failed\\nor requested resource not found.",\n  "status": 404\n}\n' >&2
       exit 1
     fi ;;
   *"network vcn delete"*) echo '{}' ;;
-  *"compute instance launch"*) printf 'ServiceError:\n{\n  "code": "InvalidParameter",\n  "message": "shape",\n  "status": 400\n}\n' >&2; exit 1 ;;
   *) echo "unexpected oci call: $*" >&2; exit 1 ;;
 esac
 STUB
@@ -530,11 +532,10 @@ t_guards_registered() {
 }
 check "the guard probe is registered, in the smoke set, and its region is not the lane's" t_guards_registered
 # shellcheck disable=SC2016  # the greps look for shell text, which must not expand
-t_guards_probe() { # the three probes, the expected refusal, the sweep of a leak
+t_guards_probe() { # the two probes, the expected refusal, the sweep of a leak
   local body want
   body="$(sed -n '/^scn_guards() {/,/^}/p' "${here}/scenarios.sh")"
   for want in 'network vcn create --region "${probe}" --compartment-id "${OCI_COMPARTMENT}"' \
-    'compute instance launch --region "${probe}" --compartment-id "${OCI_COMPARTMENT}"' 'VM.Probe.Invalid' \
     'network vcn create --region "${OCI_REGION}" --compartment-id "${OCI_TENANCY}"' \
     'E2E_NAME_PREFIX' 'scarpenter-managed-by'; do
     grep -qF -- "${want}" <<<"${body}" || { echo "scn_guards lacks: ${want}"; return 1; }
@@ -549,19 +550,19 @@ t_guard_call() { # the stub refuses: code and status are read from the ServiceEr
     echo "rc=${guard_rc} code=${guard_code} status=${guard_status} message=${guard_message}"
     return 1
   }
-  (E2E_OUT="${tmp}/gout" withstub guard_refused "a VCN" us-ashburn-1 vcn) | grep -q 'service code NotAuthorizedOrNotFound, HTTP status 404'
+  (E2E_OUT="${tmp}/gout" withstub guard_refused "a VCN" us-ashburn-1) | grep -q 'service code NotAuthorizedOrNotFound, HTTP status 404'
 }
 t_guard_other_error() { # a 400 is not a refusal
   local out rc=0
-  withstub guard_call compute instance launch --region x
-  out="$( (E2E_OUT="${tmp}/gout" withstub guard_refused "a launch" us-ashburn-1 instance) 2>&1)" || rc=$?
+  STUB_GUARD=bad withstub guard_call network vcn create --region x
+  out="$( (E2E_OUT="${tmp}/gout" withstub guard_refused "a VCN" us-ashburn-1) 2>&1)" || rc=$?
   [[ "${rc}" != 0 ]] && grep -q "got code 'InvalidParameter' status '400'" <<<"${out}"
 }
 t_guard_success() { # a probe that succeeds is deleted at once, recorded for the teardown, and fails
   local out rc=0
   : >"${STUB_OCI_LOG}"
   STUB_GUARD=allow withstub guard_call network vcn create --region us-ashburn-1
-  out="$( (E2E_OUT="${tmp}/gout2" withstub guard_refused "a VCN" us-ashburn-1 vcn) 2>&1)" || rc=$?
+  out="$( (E2E_OUT="${tmp}/gout2" withstub guard_refused "a VCN" us-ashburn-1) 2>&1)" || rc=$?
   [[ "${rc}" != 0 ]] && grep -q 'network vcn delete --region us-ashburn-1 --vcn-id ocid1.vcn.oc1.us-ashburn-1.leak --force' "${STUB_OCI_LOG}" &&
     [[ "$(cat "${tmp}/gout2/state/guards.leaked")" == us-ashburn-1 ]] && grep -q 'the policy.s conditions do not bite' <<<"${out}"
 }

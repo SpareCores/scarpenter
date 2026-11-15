@@ -167,25 +167,26 @@ guard_call() {
   rm -f "${err}"
 }
 
-# guard_refused <what> <region> <vcn|instance>: judges the guard_call that just ran (the scenario guards, scenarios.sh):
-# it must have failed with NotAuthorizedOrNotFound, HTTP 404. A call that succeeded created something: it is undone,
-# its region is recorded for the teardown (state/guards.leaked) and the scenario fails.
-guard_refused() { # guard_refused <what> <region> <vcn|instance>: judges the guard_call that just ran
-  local what="$1" region="$2" kind="$3" id
+# guard_refused <what> <region>: judges the guard_call (of a VCN create) that just ran (the scenario guards,
+# scenarios.sh): it must have failed with NotAuthorizedOrNotFound, HTTP 404. A call that succeeded created something:
+# it is undone and its region is recorded for the teardown (state/guards.leaked). A failed probe prints FAIL and
+# returns 1 instead of exiting, so that the probes after it still run; the scenario fails at the end.
+guard_refused() {
+  local what="$1" region="$2" id
   if [[ "${guard_rc}" -eq 0 ]]; then
     id="$(jq -r '.data.id // empty' <<<"${guard_out}")"
     note "guard ${what}: the call SUCCEEDED and created ${id:-<unknown id>} in ${region}"
     mkdir -p "${E2E_OUT}/state"
     printf '%s\n' "${region}" >>"${E2E_OUT}/state/guards.leaked"
-    case "${kind}" in
-      vcn) oc network vcn delete --region "${region}" --vcn-id "${id}" --force || echo "could not delete ${id}: delete it by hand" >&2 ;;
-      instance) oc compute instance terminate --region "${region}" --instance-id "${id}" --force || echo "could not terminate ${id}: terminate it by hand" >&2 ;;
-    esac
-    fail "the CI identity was allowed ${what}: the policy's conditions do not bite (created ${id:-<unknown id>}, deleted again when possible)"
+    oc network vcn delete --region "${region}" --vcn-id "${id}" --force || echo "could not delete ${id}: delete it by hand" >&2
+    echo "FAIL: the CI identity was allowed ${what}: the policy's conditions do not bite (created ${id:-<unknown id>}, deleted again when possible)" >&2
+    return 1
   fi
   note "guard ${what}: service code ${guard_code:-none}, HTTP status ${guard_status:-none}${guard_message:+, message: ${guard_message}}"
-  [[ "${guard_code}" == NotAuthorizedOrNotFound && "${guard_status}" == 404 ]] ||
-    fail "${what}: wanted NotAuthorizedOrNotFound (HTTP 404), got code '${guard_code:-none}' status '${guard_status:-none}'${guard_message:+: ${guard_message}}"
+  [[ "${guard_code}" == NotAuthorizedOrNotFound && "${guard_status}" == 404 ]] || {
+    echo "FAIL: ${what}: wanted NotAuthorizedOrNotFound (HTTP 404), got code '${guard_code:-none}' status '${guard_status:-none}'${guard_message:+: ${guard_message}}" >&2
+    return 1
+  }
 }
 
 # cluster_instances [state...]: the OCIDs of the cluster's instances, one per line, in the lifecycle

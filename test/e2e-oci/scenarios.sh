@@ -354,14 +354,12 @@ scn_preflight() {
 # guards: the CI policy's conditions (ci-policy.sh) refuse a write in another region and in another compartment.
 # Only the CI identity itself can show it, so the lane tries, with the identity every scenario uses:
 #   oci network vcn create       in the probe region (E2E_OCI_PROBE_REGION), in the lane's compartment
-#   oci compute instance launch  there too, with a shape that does not exist (VM.Probe.Invalid)
 #   oci network vcn create       in the lane's region, in the tenancy's root compartment
-# and expects NotAuthorizedOrNotFound, HTTP 404, from each: the policy refused it before looking at the
-# request (a 400 for the launch would mean the policy let it through and the shape was rejected). A call that
-# succeeds is undone at once, and the scenario fails. The names carry the run's name prefix and tags, so the
+# and expects NotAuthorizedOrNotFound, HTTP 404, from each: the policy refused it. Every probe is reported; the
+# scenario fails at the end when any failed. A call that succeeds is undone at once. The names carry the run's name prefix and tags, so the
 # teardown and the sweeper find a leftover (the teardown adds the probe region when a probe leaked).
 scn_guards() {
-  local probe="${E2E_OCI_PROBE_REGION}" subs ad name tags
+  local probe="${E2E_OCI_PROBE_REGION}" subs name tags failed=0
   [[ "${probe}" != "${OCI_REGION}" ]] || fail "E2E_OCI_PROBE_REGION (${probe}) is the lane's region: the probe would show nothing"
   [[ "${OCI_TENANCY}" != "${OCI_COMPARTMENT}" ]] || fail "the lane's compartment is the tenancy: the lane needs a dedicated compartment"
   # An unsubscribed region may refuse everything, so a refusal there would show nothing about the policy.
@@ -374,23 +372,17 @@ scn_guards() {
 
   guard_call network vcn create --region "${probe}" --compartment-id "${OCI_COMPARTMENT}" --cidr-block 10.255.255.0/28 \
     --display-name "${name}" --freeform-tags "${tags}" --output json
-  guard_refused "a VCN create in another region (${probe}), in the lane's compartment" "${probe}" vcn
+  guard_refused "a VCN create in another region (${probe}), in the lane's compartment" "${probe}" || failed=1
 
-  # The launch is a different verb family (instance-family): refused by the policy, never a running instance. The
-  # availability domain is read from the probe region when the identity may (else a placeholder).
-  ad="$(oc iam availability-domain list --region "${probe}" --compartment-id "${OCI_TENANCY}" --output json 2>/dev/null | jq -r '(.data // [])[0].name // empty')" || ad=""
-  [[ -n "${ad}" ]] || {
-    ad="probe-AD-1"
-    note "the availability domains of ${probe} cannot be listed: the launch probe uses the placeholder ${ad}"
-  }
-  guard_call compute instance launch --region "${probe}" --compartment-id "${OCI_COMPARTMENT}" --availability-domain "${ad}" \
-    --shape VM.Probe.Invalid --image-id ocid1.image.oc1..probe --subnet-id ocid1.subnet.oc1..probe \
-    --display-name "${name}" --freeform-tags "${tags}" --output json
-  guard_refused "an instance launch in another region (${probe}), in the lane's compartment" "${probe}" instance
+  # No instance launch is probed. The CLI and the service validate the input (image and subnet OCIDs) before they
+  # authorize, so a fake OCID gets a 400, and any well-formed but nonexistent OCID gets a 404 that cannot be told
+  # apart from an authorization refusal. The same `where request.region = ...` clause on instance-family and
+  # volume-family is read from the live policy (the preflight) instead of probed.
 
   guard_call network vcn create --region "${OCI_REGION}" --compartment-id "${OCI_TENANCY}" --cidr-block 10.255.255.0/28 \
     --display-name "${name}" --freeform-tags "${tags}" --output json
-  guard_refused "a VCN create in another compartment (the tenancy root), in ${OCI_REGION}" "${OCI_REGION}" vcn
+  guard_refused "a VCN create in another compartment (the tenancy root), in ${OCI_REGION}" "${OCI_REGION}" || failed=1
+  [[ "${failed}" == 0 ]] || fail "a guard probe failed (see the lines above)"
   note "the probe region ${probe} was READY for the tenancy, so the refusals come from the request, not from a missing subscription"
 }
 
