@@ -885,6 +885,54 @@ func TestManagedNetworkTeardownRemovesEverythingAndResumes(t *testing.T) {
 	}
 }
 
+// A subnet of ours that OCI is still terminating is not a finished delete: the VCN and its parts stay and the
+// call is Retryable until the subnet is gone. A subnet of a user in the VCN is never deleted, and keeps the VCN
+// without an error.
+func TestManagedNetworkDeleteWaitsForTerminatingSubnets(t *testing.T) {
+	e := newEngine(t)
+	mr := vendors.ManagedResources(e.d)
+	ref, _, err := mr.Ensure(t.Context(), driver.KindSubnets, testRegion, managedSpec("scarpenter-net"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.c.SetSubnetStates(ref.ID, core.SubnetLifecycleStateTerminating) != 1 {
+		t.Fatal("the managed subnet is not in the fake")
+	}
+	if err := mr.Delete(t.Context(), ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("delete with a terminating subnet: %v, want Retryable", err)
+	}
+	if v, s, g, r, l, _ := e.c.NetworkCounts(); v != 2 || s != 2 || g != 1 || r != 1 || l != 1 {
+		t.Errorf("the VCN and its parts must stay: %d %d %d %d %d", v, s, g, r, l)
+	}
+	e.c.SetSubnetStates(ref.ID, core.SubnetLifecycleStateTerminated)
+	if err := mr.Delete(t.Context(), ref); err != nil {
+		t.Fatalf("delete once the subnet is gone: %v", err)
+	}
+	if _, ok := e.c.VcnByName("scarpenter-net"); ok {
+		t.Error("the VCN is left")
+	}
+}
+
+func TestManagedNetworkDeleteLeavesAUserSubnetAlone(t *testing.T) {
+	e := newEngine(t)
+	mr := vendors.ManagedResources(e.d)
+	ref, _, err := mr.Ensure(t.Context(), driver.KindSubnets, testRegion, managedSpec("scarpenter-net"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vcn, _ := e.c.VcnByName("scarpenter-net")
+	user := e.c.SeedSubnet(testRegion, *vcn.Id, "user-subnet", "10.240.16.0/20", "", nil, false, false)
+	if err := mr.Delete(t.Context(), ref); err != nil {
+		t.Fatalf("delete next to a user's subnet: %v", err)
+	}
+	if _, ok := e.c.Subnet(user); !ok {
+		t.Error("the user's subnet was deleted")
+	}
+	if _, ok := e.c.VcnByName("scarpenter-net"); !ok {
+		t.Error("the VCN went with a user's subnet in it")
+	}
+}
+
 // The garbage collector lists every region the driver is given; a region whose list answers
 // NotAuthorizedOrNotFound (the lane's policy covers one region; the tenancy subscribes others) is skipped,
 // while any other error still fails the list.

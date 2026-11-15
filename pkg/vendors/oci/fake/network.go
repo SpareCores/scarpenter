@@ -253,6 +253,26 @@ func (c *Cloud) Subnet(id string) (core.Subnet, bool) {
 	return *s, true
 }
 
+// SetSubnetStates sets the lifecycle state of every subnet of a VCN (a test's way to leave them
+// TERMINATING, as OCI does for a while after a delete); TERMINATED removes them, as OCI stops listing and
+// counting them. It returns how many subnets it changed.
+func (c *Cloud) SetSubnetStates(vcnID string, state core.SubnetLifecycleStateEnum) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, s := range c.net.subnets {
+		if deref(s.VcnId) == vcnID {
+			if state == core.SubnetLifecycleStateTerminated {
+				delete(c.net.subnets, deref(s.Id))
+			} else {
+				s.LifecycleState = state
+			}
+			n++
+		}
+	}
+	return n
+}
+
 // VcnByName returns the VCN of a name (a test's lookup of a managed network).
 func (c *Cloud) VcnByName(name string) (core.Vcn, bool) {
 	c.mu.Lock()

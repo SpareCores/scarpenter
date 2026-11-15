@@ -518,9 +518,15 @@ func (d *Driver) deleteNetwork(ctx context.Context, ref vendors.ResourceRef) err
 	if !d.owned(vcns[i].FreeformTags) {
 		return vendors.Errorf(vendors.Fatal, "%s was not created by SCarpenter and is never deleted", ref.ID)
 	}
-	remaining, err := d.deleteSubnets(ctx, ref.Region, &vcnID)
-	if err != nil || remaining > 0 {
+	foreign, terminating, err := d.deleteSubnets(ctx, ref.Region, &vcnID)
+	if err != nil {
 		return err
+	}
+	if terminating > 0 {
+		return vendors.Errorf(vendors.Retryable, "%d subnet(s) of %s are still terminating", terminating, ref.ID)
+	}
+	if foreign > 0 {
+		return nil // a subnet of a user keeps the VCN; what is ours stays with it
 	}
 	if err := d.deleteParts(ctx, ref.Region, &vcns[i]); err != nil {
 		return err
@@ -538,27 +544,28 @@ func deleted(err error) error {
 	return nil
 }
 
-// deleteSubnets deletes the subnets of ours in the VCN and returns how many subnets are left:
-// those of a user, and those OCI is still terminating.
-func (d *Driver) deleteSubnets(ctx context.Context, region string, vcn *string) (int, error) {
+// deleteSubnets deletes the subnets of ours in the VCN and returns how many subnets are left: foreign
+// ones (a user's, never deleted) and those of ours that OCI is still terminating.
+func (d *Driver) deleteSubnets(ctx context.Context, region string, vcn *string) (foreign, terminating int, err error) {
 	subs, err := d.allSubnets(ctx, region, vcn)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	remaining := 0
 	for _, s := range subs {
 		switch {
 		case s.LifecycleState == core.SubnetLifecycleStateTerminated:
-		case !d.owned(s.FreeformTags) || s.LifecycleState == core.SubnetLifecycleStateTerminating:
-			remaining++
+		case !d.owned(s.FreeformTags):
+			foreign++
+		case s.LifecycleState == core.SubnetLifecycleStateTerminating:
+			terminating++
 		default:
 			_, err := d.api.Network.DeleteSubnet(ctx, region, core.DeleteSubnetRequest{SubnetId: s.Id})
 			if err := deleted(err); err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 		}
 	}
-	return remaining, nil
+	return foreign, terminating, nil
 }
 
 // deleteParts deletes the route table, the security list and the internet gateway of ours in the
