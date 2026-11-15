@@ -1186,14 +1186,17 @@ is green. The first live run is the coordinator's.
 
 ## Verified facts (first live run)
 
-- `ListImages`: `displayName` must be the only filter besides `compartmentId` (and paging, sorting); with
-  `lifecycleState`, `operatingSystem`, `operatingSystemVersion` or `shape` the API answers 400
-  `InvalidParameter` "Invalid filters: If you filter by displayName it must be the only filter" (verified
-  live 2026-11-14, eu-frankfurt-1). The driver sends a name alone and applies state, operating system and
-  version to the answer (a `shape` filter with a name is checked with the compatibility entries); without
-  a name the server filters as before. The fake answers the same 400. Other combinations of the SDK's
-  `ListImagesRequest` are not documented as invalid. The same rule for other List calls with
-  `displayName` is unchecked.
+- `ListImages` with `displayName`: the first driver version sent the name together with the operating
+  system, its version, the shape and `lifecycleState`, and the API answered 400 `InvalidParameter`
+  "Invalid filters: If you filter by displayName it must be the only filter" (live run 4, 2026-11-14,
+  eu-frankfurt-1). Which of those filters the API refuses is not isolated: the lane's preflight calls
+  `oci compute image list --display-name ... --lifecycle-state AVAILABLE` and it is accepted, so a name with
+  `lifecycleState` alone works through the CLI. The fake rejects a name combined with the operating system,
+  its version or the shape, and accepts it with the state. The driver stays on the safe side: it sends a
+  name alone and applies state, operating system and version to the answer (a `shape` filter with a name is
+  checked with the compatibility entries); without a name the server filters as before. Other
+  combinations of the SDK's `ListImagesRequest` are not documented as invalid. The same rule for other
+  List calls with `displayName` is unchecked.
 - **Default route table and security list** (verified live 2026-11-14, eu-frankfurt-1, run 43629882778):
   OCI creates a default route table (no rules) and a default security list (ingress tcp/22 and ICMP from
   anywhere) with every VCN, and they carry the VCN's freeform tags, the ownership marker included. A

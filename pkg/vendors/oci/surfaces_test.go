@@ -82,17 +82,28 @@ func TestResolveImageDefaultLookup(t *testing.T) {
 	}
 }
 
-// OCI rejects ListImages with a display name and any other filter (verified live): the fake
-// answers the same 400, and the lookup by name sends the name alone and filters the answer.
-func TestListImagesDisplayNameIsTheOnlyFilter(t *testing.T) {
+// OCI rejected ListImages with a display name and the operating system, version or shape filters (verified
+// live); with the lifecycle state alone the oci CLI is accepted. The fake does the same, and the lookup by name
+// sends the name alone and filters the answer.
+func TestListImagesDisplayNameRejectsTheNativeFilters(t *testing.T) {
 	e := newEnv(t)
 	ctx := t.Context()
 	name := driver.ImageName("stable", fake.SeedVersion, "amd64")
-	_, err := e.c.ListImages(ctx, testRegion, core.ListImagesRequest{
+	for _, req := range []core.ListImagesRequest{
+		{OperatingSystem: new("Flatcar")},
+		{OperatingSystemVersion: new(fake.SeedVersion)},
+		{Shape: new("VM.Standard.E5.Flex")},
+	} {
+		req.CompartmentId, req.DisplayName = new(fake.SeedCompartment), &name
+		_, err := e.c.ListImages(ctx, testRegion, req)
+		if se, ok := err.(*fake.ServiceError); !ok || se.Status != http.StatusBadRequest || se.Code != "InvalidParameter" {
+			t.Fatalf("name with %+v: %v, want 400 InvalidParameter", req, err)
+		}
+	}
+	if _, err := e.c.ListImages(ctx, testRegion, core.ListImagesRequest{
 		CompartmentId: new(fake.SeedCompartment), DisplayName: &name,
-		LifecycleState: core.ImageLifecycleStateAvailable, OperatingSystem: new("Flatcar")})
-	if se, ok := err.(*fake.ServiceError); !ok || se.Status != http.StatusBadRequest || se.Code != "InvalidParameter" {
-		t.Fatalf("name with other filters: %v, want 400 InvalidParameter", err)
+		LifecycleState: core.ImageLifecycleStateAvailable}); err != nil {
+		t.Fatalf("name with the lifecycle state: %v", err)
 	}
 	if _, err := e.c.ListImages(ctx, testRegion, core.ListImagesRequest{
 		CompartmentId: new(fake.SeedCompartment), DisplayName: &name}); err != nil {

@@ -84,9 +84,10 @@ func (c *Cloud) ListImages(ctx context.Context, regionName string, req core.List
 	if err := c.checkNet(ctx, "ListImages", regionName); err != nil {
 		return core.ListImagesResponse{}, err
 	}
-	// Like the API: a display name is the only filter besides the compartment.
-	if req.DisplayName != nil && (req.OperatingSystem != nil || req.OperatingSystemVersion != nil ||
-		req.Shape != nil || req.LifecycleState != "") {
+	// Like the API: a display name is rejected together with the operating system, its version or the
+	// shape. With the lifecycle state alone the oci CLI is accepted (verified live); the driver sends the
+	// name alone regardless.
+	if req.DisplayName != nil && (req.OperatingSystem != nil || req.OperatingSystemVersion != nil || req.Shape != nil) {
 		return core.ListImagesResponse{}, invalid("Invalid filters: If you filter by displayName it must be the only filter.")
 	}
 	if !c.imageComps[deref(req.CompartmentId)] {
