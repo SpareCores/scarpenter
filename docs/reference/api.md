@@ -1092,7 +1092,7 @@ selector filters instance types by Spare Cores data.
 | `architectures` | array of string |  | architectures restricts the CPU architecture; intersected with a kubernetes.io/arch requirement of the template. One of `amd64`, `arm64`. At most 2 items. |
 | `benchmarks` | array of [object](#specselectionsselectorbenchmarks) |  | benchmarks are filters on benchmark scores; entries are AND-ed. At most 32 items. |
 | `cpu` | [object](#specselectionsselectorcpu) |  | CPUSelector selects on CPU facts. |
-| `families` | [object](#specselectionsselectorfamilies) |  | families include/exclude globs on the Spare Cores family string. |
+| `families` | [object](#specselectionsselectorfamilies) |  | families include/exclude globs on the instance family: the Spare Cores series (e.g. m7i) when set, otherwise the family (e.g. General Purpose). |
 | `instanceTypes` | [object](#specselectionsselectorinstancetypes) |  | instanceTypes include/exclude globs on the instance type name (server.api_reference). |
 | `memory` | [object](#specselectionsselectormemory) |  | MemorySelector selects on memory size, in GiB. |
 | `network` | [object](#specselectionsselectornetwork) |  | NetworkSelector selects on network bandwidth. Setting a field excludes every type without a value. |
@@ -1195,7 +1195,7 @@ flags filters on Linux /proc/cpuinfo flag names, lowercase.
 
 ### `spec.selections.*.selector.families`
 
-families include/exclude globs on the Spare Cores family string.
+families include/exclude globs on the instance family: the Spare Cores series (e.g. m7i) when set, otherwise the family (e.g. General Purpose).
 
 | Field | Type | Default | Description |
 |---|---|---|---|

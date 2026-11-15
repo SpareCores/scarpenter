@@ -2489,8 +2489,9 @@ spec:
                               type: array
                           type: object
                         families:
-                          description: families include/exclude globs on the Spare
-                            Cores family string.
+                          description: |-
+                            families include/exclude globs on the instance family: the Spare Cores series
+                            (e.g. m7i) when set, otherwise the family (e.g. General Purpose).
                           properties:
                             exclude:
                               items:
