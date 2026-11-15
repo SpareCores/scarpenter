@@ -25,9 +25,10 @@ reference is the [OCI driver](../reference/oci-driver.md#images) and
 3. Add the shapes the image may launch to its shape compatibility list: every shape SCarpenter may launch
    (`VM.Standard.E5.Flex` and so on).
 4. **arm64 only**: give the image an image capability schema (firmware `UEFI_64`, paravirtualized launch
-   mode, network attachment, boot volume and remote data volume types) and the compatibility entries of the
-   Arm shapes (`VM.Standard.A1.Flex` works; `A2` and `A4` are untested). SCarpenter launches arm64 nodes
-   with the matching launch options.
+   mode, network attachment, boot volume and remote data volume types) and the compatibility entry of
+   `VM.Standard.A1.Flex`, the only Arm shape the lane uses and the one Flatcar's own CI adds. `A2` and `A4`
+   are untested and not in the lane: add them only after a boot test of your own. SCarpenter launches arm64
+   nodes with the matching launch options.
 5. Keep the version a NodeClass pins (`spec.flatcar.version`); an old image can stay until its nodes are
    gone. Custom image storage is billed like Object Storage Standard on the image's billable size (about 1 GB
    for the amd64 image). The limit `custom-image-count` is 100 per region (25 on pay-as-you-go and trial).

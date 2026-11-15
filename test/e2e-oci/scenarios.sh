@@ -14,7 +14,7 @@
 # deadlines. Workloads of all selected scenarios are started together
 # (the prelude), so that the nodes boot in parallel; a scenario then only waits and checks.
 # A scenario that cannot run for want of cloud capacity ends with skip_scenario and is reported as SKIP
-# (the spot scenario when OCI has no preemptible capacity), never as PASS; report.txt ends with the totals.
+# (the spot scenario when OCI has no preemptible capacity, the arm64 one when A1 has no capacity), never as PASS; report.txt ends with the totals.
 # The exit status is 1 when a scenario failed; with E2E_FAIL_FAST=true (the default) the
 # scenarios after the first failure are reported as SKIP and not run, so that the
 # diagnostics and the teardown start at once. A failed scenario prints one redacted
@@ -65,29 +65,31 @@ settle() {
   note "${app}: pod ${pod}, node ${node}, claim ${claim}, instance ${iid}, ready after $(ready_seconds "${claim}" "${node}")s"
 }
 
-# spot_launch_failures: the failed launch attempts of spot offerings in the controller's log (it logs one line
-# per attempt, with the class of the vendor's error), as "<class><TAB><type><TAB><zone><TAB><error>".
-spot_launch_failures() {
-  kubectl -n "${ns}" logs deploy/scarpenter --tail=-1 2>/dev/null | jq -R -r '
-    fromjson? | select((.msg // .message) == "launch attempt failed" and .["capacity-type"] == "spot")
+# launch_failures <capacity type> <type regex>: the failed launch attempts of offerings of the capacity type
+# whose type matches the regex, in the controller's log (it logs one line per attempt, with the class of the
+# vendor's error), as "<class><TAB><type><TAB><zone><TAB><error>".
+launch_failures() {
+  kubectl -n "${ns}" logs deploy/scarpenter --tail=-1 2>/dev/null | jq -R -r --arg ct "$1" --arg re "$2" '
+    fromjson? | select((.msg // .message) == "launch attempt failed" and .["capacity-type"] == $ct and (.type | test($re)))
     | [.class, .type, .zone, ((.error // "") | gsub("[\\r\\n\\t]+"; " "))] | @tsv' || true
 }
 
-# settle_spot: like `settle e2e-spot`, but OCI having no preemptible capacity is not a failure: when no spot
-# NodeClaim launched within E2E_LAUNCH_TIMEOUT and every failed launch attempt of the spot offerings was
-# InsufficientCapacity, it records the reason (state e2e-spot.skipped), stops the spot Deployment and returns 0.
-# Any other failure ends the scenario. Settled once: a later call returns at once with the recorded result.
-# Call it plainly, never as `settle_spot || ...` or in an `if`: bash would switch errexit off inside it, and a
-# failing step of settle would no longer abort. The callers branch on the state e2e-spot.skipped.
-settle_spot() {
-  local f rc fails other types zones msg
-  [[ -z "$(getstate e2e-spot.skipped)" ]] || return 0
-  [[ -z "$(getstate e2e-spot.iid)" ]] || return 0
+# settle_or_skip <app> <capacity type> <type regex> <what> <stop function>: like `settle <app>`, but OCI having
+# no capacity is not a failure: when no NodeClaim launched within E2E_LAUNCH_TIMEOUT and every failed launch
+# attempt of the offerings (the capacity type, the types matching the regex) was InsufficientCapacity, it records
+# the reason ("OCI had no <what> for ..."; state <app>.skipped), calls the stop function and returns 0. Any
+# other failure ends the scenario. Settled once: a later call returns at once with the recorded result.
+# Call it (and the wrappers) plainly, never as `settle_spot || ...` or in an `if`: bash would switch errexit off
+# inside it, and a failing step of settle would no longer abort. The callers branch on the state <app>.skipped.
+settle_or_skip() {
+  local app="$1" ctype="$2" typere="$3" what="$4" stop="$5" f rc fails other types zones msg
+  [[ -z "$(getstate "${app}.skipped")" ]] || return 0
+  [[ -z "$(getstate "${app}.iid")" ]] || return 0
   f="$(mktemp)"
   set +e
   (
     set -e
-    settle e2e-spot
+    settle "${app}"
   ) 2>&1 | tee "${f}"
   rc="${PIPESTATUS[0]}"
   set -e
@@ -95,26 +97,35 @@ settle_spot() {
     rm -f "${f}"
     return 0
   fi
-  fails="$(spot_launch_failures)"
+  fails="$(launch_failures "${ctype}" "${typere}")"
   other="$(awk -F'\t' '$1 != "InsufficientCapacity"' <<<"${fails}")"
   if grep -q 'never launched' "${f}" && [[ -n "${fails}" && -z "${other}" ]]; then
     types="$(cut -f2 <<<"${fails}" | sort -u | sed 's/^oci\.//' | paste -sd, -)"
     zones="$(cut -f3 <<<"${fails}" | sort -u | paste -sd, -)"
     msg="$(head -n1 <<<"${fails}" | cut -f4 | redact | cut -c1-300)"
-    setstate e2e-spot.skipped "OCI had no preemptible capacity for ${types} in ${zones}: ${msg}"
+    setstate "${app}.skipped" "OCI had no ${what} for ${types} in ${zones}: ${msg}"
     rm -f "${f}"
-    stop_spot
+    "${stop}"
     return 0
   fi
   rm -f "${f}"
   exit "${rc}"
 }
 
-# stop_spot: removes the spot probe and its NodeClaims, so that Karpenter stops retrying spot launches during
+# settle_spot, settle_arm64: settle_or_skip for the spot probe (no preemptible capacity) and the arm64 probe
+# (no A1 capacity, which is often short in eu-frankfurt-1).
+settle_spot() { settle_or_skip e2e-spot spot . "preemptible capacity" stop_spot; }
+settle_arm64() { settle_or_skip e2e-arm64 on-demand "^${E2E_TYPE_ARM64//./\\.}\$" "on-demand capacity" stop_arm64; }
+
+# stop_spot, stop_arm64: remove the probe and its NodeClaims, so that Karpenter stops retrying launches during
 # the later scenarios (the quota scenario waits for the in-flight reservations to vanish).
 stop_spot() {
   kubectl delete deployment e2e-spot --ignore-not-found --wait=false >/dev/null || true
   kubectl delete nodeclaim -l karpenter.sh/nodepool=e2e-spot --ignore-not-found --wait=false >/dev/null || true
+}
+stop_arm64() {
+  kubectl delete deployment e2e-arm64 --ignore-not-found --wait=false >/dev/null || true
+  kubectl delete nodeclaim -l karpenter.sh/nodepool=e2e-arm64 --ignore-not-found --wait=false >/dev/null || true
 }
 
 # skip_scenario <reason>: ends the running scenario as skipped (the runner reports SKIP, not PASS).
@@ -193,7 +204,8 @@ start_spot() {
 }
 start_arm64() {
   [[ "${E2E_ARM64}" == true ]] || return 0
-  # The pool allows A1 and A2: the Pod selects the pool and takes whichever launches.
+  [[ -z "$(getstate e2e-arm64.skipped)" ]] || return 0
+  # The pool allows A1 only: the Pod selects the pool.
   NAME=e2e-arm64 POOL=e2e-arm64 render "${here}/manifests/probe-arm64.yaml" | kubectl apply -f -
 }
 start_described() { render "${here}/manifests/described.yaml" | kubectl apply -f -; }
@@ -276,10 +288,10 @@ scn_preflight() {
   for arch in amd64 arm64; do
     if [[ "${arch}" == arm64 ]]; then
       if [[ "${E2E_ARM64}" != true ]]; then
-        note "arm64: skipped (E2E_ARM64 is not true: the arm64 image needs a capability schema and the Arm shapes added, docs/how-to-guides/oci-images.md)"
+        note "arm64: skipped (E2E_ARM64 is not true)"
         continue
       fi
-      types+=("${E2E_TYPE_ARM64}" "${E2E_TYPE_ARM64_ALT}")
+      types+=("${E2E_TYPE_ARM64}")
     fi
     name="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-${arch}"
     img="$(oc compute image list --compartment-id "${image_compartment}" --display-name "${name}" --lifecycle-state AVAILABLE --all --output json |
@@ -516,14 +528,16 @@ scn_spot() {
   note "spot: launched as ${type}; claim ${claim}: ready after $(ready_seconds "${claim}" "${node}")s"
 }
 
-# scn_arm64: optional (E2E_ARM64=true): the arm64 image on A1, or on A2 where A1's capacity is short.
+# scn_arm64: optional (E2E_ARM64=true): the arm64 image on A1. A1 capacity is often short: when every launch
+# failure of the pool is InsufficientCapacity the scenario is skipped, not failed (settle_arm64).
 scn_arm64() {
   if [[ "${E2E_ARM64}" != true ]]; then
-    note "arm64: skipped (E2E_ARM64 is not true: the arm64 image needs a capability schema and the Arm shapes added)"
+    note "arm64: skipped (E2E_ARM64 is not true)"
     return 0
   fi
   start_arm64
-  settle e2e-arm64
+  settle_arm64
+  [[ -z "$(getstate e2e-arm64.skipped)" ]] || skip_scenario "$(getstate e2e-arm64.skipped)"
   local pod node claim iid uid j t
   pod="$(getstate e2e-arm64.pod)"
   node="$(getstate e2e-arm64.node)"
@@ -531,7 +545,7 @@ scn_arm64() {
   iid="$(getstate e2e-arm64.iid)"
   uid="$(getstate e2e-arm64.uid)"
   t="$(node_label "${node}" node.kubernetes.io/instance-type)"
-  assert_match "the type is one of the Arm types of the pool" "^(${E2E_TYPE_ARM64}|${E2E_TYPE_ARM64_ALT})\$" "${t}"
+  assert_eq "the type is the Arm type of the pool" "${E2E_TYPE_ARM64}" "${t}"
   note "arm64 got ${t}"
   check_node_labels "${node}" "${t}" on-demand arm64 e2e-arm64
   check_instance "${iid}" "${claim}" "${uid}" e2e-arm64 e2e-arm64

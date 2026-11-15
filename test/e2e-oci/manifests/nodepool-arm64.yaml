@@ -1,4 +1,4 @@
-# The pool of the arm64 scenario: A1 and, where its capacity is short, A2.
+# The pool of the arm64 scenario: A1 (A2 and A4 are untested).
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:

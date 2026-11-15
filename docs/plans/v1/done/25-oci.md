@@ -812,9 +812,9 @@ tailnet, nodes with the `tailscale` template).
    `E5`, `E4` and `E3` `.Flex.1-4` in order of preference and the node is whichever launches; OCI often has no
    preemptible capacity (`Out of host capacity`, a 500 the driver classes as `InsufficientCapacity`), and when none
    of the three launches the scenario is skipped, reported as SKIP, while `quota` and the other scenarios go on
-   without the spot node), `arm64` (`oci.VM.Standard.A1.Flex.1-2`; runs only
-   when the lane's arm64 image and capability schema exist: capacity of `A1` may be short, the scenario
-   retries `A2.Flex.1-8`), `scalezero`, `drift` (change `storage.root.sizeGb`), `quota` (the reported
+   without the spot node), `arm64` (`oci.VM.Standard.A1.Flex.1-2`; on
+   by default (`E2E_ARM64=false` turns it off), A1 only; capacity of `A1` may be short: when every launch failure
+   is `InsufficientCapacity` the scenario is skipped, reported as SKIP), `scalezero`, `drift` (change `storage.root.sizeGb`), `quota` (the reported
    buckets equal `GetResourceAvailability` for the lane's family, section 7), `described`
    (`oci.VM.Standard.E5.Flex.1-4`, `.1-8`, `.2-8`), `byo` (the workflow creates a VCN, subnet and group
    with the CLI; a NodeClass `use`s them by ids; SCarpenter leaves them), `create` (no `use`: the managed
@@ -1241,7 +1241,7 @@ is green. The first live run is the coordinator's.
 The list was written before the live runs; the "Verified facts" above settle some of its items (quota names, policy conditions), and
 the rest stays open unless noted. Added by the live runs:
 
-- **arm64**: needs the image's capability schema and the Arm shapes; the scenario skips.
+- **arm64**: enabled on `A1` only (the image's capability schema and the `VM.Standard.A1.Flex` compatibility entry are the operator's; `A2` and `A4` stay untested and are not in the lane); verification is pending a live run.
 - The error code (and status) of deleting a VCN's default route table or default security list.
 - Whether an internet gateway delete is refused while a route rule references it.
 - Other `displayName` list filters (beyond `ListImages`).

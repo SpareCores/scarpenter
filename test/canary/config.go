@@ -87,7 +87,7 @@ const typeAMD64 = "E2E_TYPE_AMD64"
 // readable quota (the vCPU pins are then not needed; Hetzner's limits cannot be read).
 var (
 	typeVars = map[string][]string{
-		vendorOCI:     {typeAMD64, "E2E_TYPE_ARM64", "E2E_TYPE_ARM64_ALT"},
+		vendorOCI:     {typeAMD64, "E2E_TYPE_ARM64"},
 		vendorOVH:     {typeAMD64, "E2E_TYPE_DB"},
 		vendorUpCloud: {typeAMD64},
 		vendorVultr:   {typeAMD64, "E2E_TYPE_SECOND"},

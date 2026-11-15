@@ -23,22 +23,21 @@ func ociTestConfig() *config {
 		vendor: "oci", region: fake.SeedRegion, compartment: fake.SeedCompartment, tenancy: fake.SeedTenancy,
 		flatcarChannel: "stable", flatcarVersion: fake.SeedVersion,
 		kubernetesVersion: "v1.37.1", tailscaleVersion: "v1.98.10", k3sVersion: "v1.37.2+k3s1",
-		types: []string{"oci.VM.Standard.E5.Flex.1-4", "oci.VM.Standard.A1.Flex.1-2", "oci.VM.Standard.A2.Flex.1-8",
+		types: []string{"oci.VM.Standard.E5.Flex.1-4", "oci.VM.Standard.A1.Flex.1-2",
 			"oci.VM.Standard.E5.Flex.1-4", "oci.VM.Standard.E5.Flex.1-8", "oci.VM.Standard.E5.Flex.2-8"},
 		armType: "oci.VM.Standard.A1.Flex.1-2", minOCPU: 8, minMemoryGB: 32,
 	}
 }
 
 // ociAccount is a fake tenancy that satisfies the lane: the region with its three availability
-// domains, the E5, A1 and A2 flexible shapes with their limits, and the Flatcar image of both
+// domains, the E5 and A1 flexible shapes with their limits, and the Flatcar image of both
 // architectures registered for them.
 func ociAccount() *fake.Cloud {
 	c := fake.NewSeeded()
 	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E5.Flex", 94, 1049, 1, 64, 0, 0, "standard-e5-core-count", "standard-e5-memory-count"))
 	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-count", "standard-a1-memory-count"))
-	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A2.Flex", 78, 946, 1, 64, 0, 0, "standard-a2-core-count", "standard-a2-memory-count"))
 	arm := fake.FlatcarImage("stable", fake.SeedVersion, "arm64")
-	c.AddImage(fake.SeedRegion, arm, "VM.Standard.A1.Flex", "VM.Standard.A2.Flex")
+	c.AddImage(fake.SeedRegion, arm, "VM.Standard.A1.Flex")
 	return c
 }
 
@@ -64,7 +63,7 @@ func TestOCICanaryPassesOnAHealthyWorld(t *testing.T) {
 		}
 	}
 	// The Arm types are not checked when the lane does not run arm64.
-	if strings.Contains(b.String(), "A1.Flex") || strings.Contains(b.String(), "A2.Flex") {
+	if strings.Contains(b.String(), "A1.Flex") {
 		t.Errorf("an Arm type was checked without E2E_ARM64:\n%s", b.String())
 	}
 	if r := a.refusals(); len(r) > 0 {
@@ -90,7 +89,6 @@ func TestOCICanaryChecksArm64WhenTheLaneRunsIt(t *testing.T) {
 	c2 := fake.NewSeeded() // no arm64 image at all
 	c2.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E5.Flex", 94, 1049, 1, 64, 0, 0, "standard-e5-core-count", "standard-e5-memory-count"))
 	c2.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-count", "standard-a1-memory-count"))
-	c2.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A2.Flex", 78, 946, 1, 64, 0, 0, "standard-a2-core-count", "standard-a2-memory-count"))
 	rep, _ = runOCICanary(t, c2, cfg)
 	f := failed(rep)
 	if !slices.Contains(f, "Flatcar stable 4757.2.3 arm64") || slices.Contains(f, "Flatcar stable 4757.2.3 amd64") {
@@ -157,11 +155,10 @@ func TestOCICanaryImageCompartment(t *testing.T) {
 	for _, arch := range []string{"amd64", "arm64"} {
 		img := fake.FlatcarImage("stable", "4800.0.0", arch)
 		img.CompartmentId = &[]string{imageComp}[0]
-		c.AddImage(fake.SeedRegion, img, "VM.Standard.E5.Flex", "VM.Standard.A1.Flex", "VM.Standard.A2.Flex")
+		c.AddImage(fake.SeedRegion, img, "VM.Standard.E5.Flex", "VM.Standard.A1.Flex")
 	}
 	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E5.Flex", 94, 1049, 1, 64, 0, 0, "standard-e5-core-count", "standard-e5-memory-count"))
 	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A1.Flex", 80, 512, 1, 64, 0, 0, "standard-a1-core-count", "standard-a1-memory-count"))
-	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.A2.Flex", 78, 946, 1, 64, 0, 0, "standard-a2-core-count", "standard-a2-memory-count"))
 	cfg := ociTestConfig()
 	cfg.flatcarVersion = "4800.0.0" // only in the image compartment (the seed has the pinned one)
 	rep, _ := runOCICanary(t, c, cfg)
@@ -190,8 +187,8 @@ func TestLoadConfigOCI(t *testing.T) {
 		"E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
 		"E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10", "E2E_K3S_VERSION": "v1.37.2+k3s1",
 		"E2E_TYPE_AMD64": "oci.VM.Standard.E5.Flex.1-4", "E2E_TYPE_ARM64": "oci.VM.Standard.A1.Flex.1-2",
-		"E2E_TYPE_ARM64_ALT": "oci.VM.Standard.A2.Flex.1-8", "E2E_TYPES_DESCRIBED": "oci.VM.Standard.E5.Flex.1-8, oci.VM.Standard.E5.Flex.2-8",
-		"E2E_MIN_OCPU": "8", "E2E_MIN_MEMORY_GB": "48", "E2E_ARM64": "true",
+		"E2E_TYPES_DESCRIBED": "oci.VM.Standard.E5.Flex.1-8, oci.VM.Standard.E5.Flex.2-8",
+		"E2E_MIN_OCPU":        "8", "E2E_MIN_MEMORY_GB": "48", "E2E_ARM64": "true",
 		"OCI_IMAGE_COMPARTMENT": " ocid1.compartment.oc1..img ",
 	}
 	get := func(k string) string { return env[k] }
@@ -200,10 +197,10 @@ func TestLoadConfigOCI(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.imageCompartment != "ocid1.compartment.oc1..img" || c.compartment != "ocid1.compartment.oc1..x" || c.tenancy != "ocid1.tenancy.oc1..y" || c.region != "eu-frankfurt-1" ||
-		c.minOCPU != 8 || c.minMemoryGB != 48 || !c.arm64 || len(c.types) != 5 || c.minOnDemand != 0 {
+		c.minOCPU != 8 || c.minMemoryGB != 48 || !c.arm64 || len(c.types) != 4 || c.minOnDemand != 0 {
 		t.Errorf("config %+v", c)
 	}
-	for _, missing := range []string{"OCI_COMPARTMENT", "OCI_TENANCY", "OCI_REGION", "E2E_MIN_OCPU", "E2E_MIN_MEMORY_GB", "E2E_TYPE_ARM64_ALT"} {
+	for _, missing := range []string{"OCI_COMPARTMENT", "OCI_TENANCY", "OCI_REGION", "E2E_MIN_OCPU", "E2E_MIN_MEMORY_GB"} {
 		saved := env[missing]
 		delete(env, missing)
 		if _, err := loadConfig("oci", get); err == nil || !strings.Contains(err.Error(), missing) {
@@ -223,7 +220,7 @@ func TestOCILaneTypes(t *testing.T) {
 		t.Errorf("ociLaneTypes = %v", got)
 	}
 	cfg.arm64 = true
-	if got := ociLaneTypes(cfg); !slices.Contains(got, "VM.Standard.A1.Flex.1-2") || !slices.Contains(got, "VM.Standard.A2.Flex.1-8") {
+	if got := ociLaneTypes(cfg); !slices.Contains(got, "VM.Standard.A1.Flex.1-2") {
 		t.Errorf("the Arm types are missing when arm64 runs: %v", got)
 	}
 }

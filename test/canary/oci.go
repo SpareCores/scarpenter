@@ -147,7 +147,7 @@ func (c *ociCheck) images() {
 	}
 	if !cfg.arm64 {
 		c.rep.check("Flatcar "+oci.ArchARM64, func() (string, error) {
-			return "not configured (E2E_ARM64 is not true: the arm64 image needs a capability schema and Arm shapes added)", nil
+			return "not configured (E2E_ARM64 is not true)", nil
 		})
 	}
 }
