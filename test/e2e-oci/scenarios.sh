@@ -608,6 +608,15 @@ scn_create() {
   assert_eq "the subnet is regional (no availability domain)" null "$(jq -c '."availability-domain"' <<<"${sn}")"
   assert_eq "the subnet is the first /20 of the VCN" 10.240.0.0/20 "$(jq -r '."cidr-block"' <<<"${sn}")"
   assert_eq "the instance is in the managed subnet" "$(jq -r .id <<<"${sn}")" "$(jq -r '."subnet-id"' <<<"${vnic}")"
+  # The subnet uses the managed route table (with the gateway route) and security list, not the VCN's defaults.
+  local rt sl
+  rt="$(jq -r '."route-table-id" // empty' <<<"${sn}")"
+  assert_nonempty "the subnet's route table" "${rt}"
+  assert_eq "the subnet's route table is not the VCN's default" false "$([[ "${rt}" == "$(jq -r '."default-route-table-id"' <<<"${vcn}")" ]] && echo true || echo false)"
+  assert_eq "the subnet's route table is the managed one" "$(managed_json route-table | jq -r --arg v "$(jq -r .id <<<"${vcn}")" '[.[] | select(."vcn-id" == $v)][0].id')" "${rt}"
+  sl="$(jq -r '."default-security-list-id"' <<<"${vcn}")"
+  assert_eq "the subnet's security lists do not include the VCN's default" false "$(jq -r --arg d "${sl}" '(."security-list-ids" // []) | index($d) != null' <<<"${sn}")"
+  assert_eq "the subnet's security list is the managed one" "$(managed_json security-list | jq -r --arg v "$(jq -r .id <<<"${vcn}")" '[.[] | select(."vcn-id" == $v)][0].id')" "$(jq -r '(."security-list-ids" // [])[0] // empty' <<<"${sn}")"
   g="$(managed_json nsg | jq -c '[.[] | select(."freeform-tags"["scarpenter-nodeclass"] == "e2e-create")] | first')"
   assert_nonempty "the managed group of e2e-create" "$(jq -r '.id // empty' <<<"${g}")"
   assert_eq "the group is in the managed VCN" "$(jq -r .id <<<"${vcn}")" "$(jq -r '."vcn-id"' <<<"${g}")"
