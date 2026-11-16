@@ -188,7 +188,13 @@ scn_preflight() {
     [[ "$(num "$(limit_of compute "${fam}")")" -ge "${E2E_MIN_VCPU_FAMILY}" ]] ||
       fail "the ${fam} vCPUs quota of ${AZURE_REGION} is '$(limit_of compute "${fam}")'; the suite needs ${E2E_MIN_VCPU_FAMILY}"
   done
-  [[ "$(num "$(limit_of network "${bucket_pip}")")" -ge 8 ]] || fail "the Standard public IPv4 address quota is below 8"
+  # Public IPs: 8 for the whole suite; a run of amd64 and scalezero only (the smoke) holds one node.
+  local pip need_pip=2 sc
+  for sc in "${selected[@]}"; do
+    [[ "${sc}" == amd64 || "${sc}" == scalezero ]] || need_pip=8
+  done
+  pip="$(limit_of network "${bucket_pip}")"
+  [[ "$(num "${pip:-0}")" -ge "${need_pip}" ]] || fail "the Standard public IPv4 address quota of ${AZURE_REGION} is '${pip}'; the selected scenarios need ${need_pip}"
 
   # 4. The sizes: offered in the region, no restriction for the subscription, Gen2 and
   # SCSI (the driver drops others), and the spot size is LowPriorityCapable, which the

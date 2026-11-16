@@ -154,11 +154,11 @@ func TestEnsureManagedResources(t *testing.T) {
 		got = append(got, rule{*r.Name, string(*r.Properties.Access), string(*r.Properties.Protocol), *r.Properties.DestinationPortRange, *r.Properties.Priority})
 	}
 	require.Equal(t, []rule{
-		{"allow-nodes", "Allow", "*", "*", 50},
-		{"inbound-1", "Allow", "Udp", "41641", 100},
-		{"inbound-2", "Allow", "Tcp", "8000-8010", 101},
-		{"inbound-3", "Allow", "Icmp", "*", 102},
-		{"inbound-4", "Allow", "*", "*", 103},
+		{"allow-nodes", "Allow", "*", "*", 100},
+		{"inbound-1", "Allow", "Udp", "41641", 110},
+		{"inbound-2", "Allow", "Tcp", "8000-8010", 111},
+		{"inbound-3", "Allow", "Icmp", "*", 112},
+		{"inbound-4", "Allow", "*", "*", 113},
 		{"deny-vnet-inbound", "Deny", "*", "*", 4000},
 	}, got)
 	require.Equal(t, "VirtualNetwork", *n.Properties.SecurityRules[5].Properties.SourceAddressPrefix)

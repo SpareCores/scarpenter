@@ -88,7 +88,7 @@ network security group. Selectors: [Resource selectors](resource-selectors.md#az
 
 The managed network security group has an allow rule between the nodes of its application security group (isolation
 `nodeclass`, or `run` without a run key; `-nodes` after the group's name, created and deleted with it), the inbound rules
-of `spec.networking.inbound` at priorities 100 and up, and a deny of the virtual network's traffic at 4000 (Azure's built-in
+of `spec.networking.inbound` at priorities 110 and up (the node allow is 100: Azure takes 100 to 4096), and a deny of the virtual network's traffic at 4000 (Azure's built-in
 `AllowVnetInBound` would let every node reach every other). Isolation `run` with a run key gets a group of its own per run.
 **A NIC takes one network security group, so a group brought with `use` decides alone and `networking.isolation` has no
 effect on it** (the vendor condition `ConfigurationWarning` says so, with one Warning event). A resource group is deleted only if it carries the marker and holds nothing
