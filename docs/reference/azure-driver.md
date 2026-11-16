@@ -52,7 +52,7 @@ asks for; a failed create deletes its VM, NIC and public IP, so the key stays un
 them only when a VM exists, for the replay). NICs and public IPs that an interrupted launch leaves without a VM are
 deleted by the garbage collector once their NodeClaim is gone (`CollectLeftovers`). The launch waits for the
 long-running operation up to 4 minutes (capacity and quota errors arrive inside it); a VM still `Creating` is
-returned pending. Disks, NIC and public IP carry `deleteOption: Delete`. The VM has `core` as admin user and one
+returned pending. Disks and NIC carry `deleteOption: Delete` and go with the VM. The public IP does not: Azure keeps no `deleteOption` on an address created on its own (seen live, 2026-11-16), so `Delete` deletes it after the VM, and the leftover collector catches one that a failed delete leaves. The VM has `core` as admin user and one
 public key (`adminSSHPublicKey`, else a key generated at start whose private half is discarded: access is
 Ignition's business). Spot: priority `Spot`, eviction `Delete`, `maxPrice: -1`. States: `Creating` pending,
 `running` running; stopped, deallocated, `Deleting` terminating (the stopped-node rule); a `Failed` VM that exists

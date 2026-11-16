@@ -387,7 +387,16 @@ func (c *Compute) Delete(ctx context.Context, ref vendors.InstanceRef) error {
 		return vendors.NewError(vendors.Fatal, codeNotOwned,
 			fmt.Errorf("VM %s/%s does not carry the tag of cluster %q: refusing to delete it", rg, name, c.Cluster))
 	}
-	return c.deleteVM(ctx, rg, name)
+	if err := c.deleteVM(ctx, rg, name); err != nil {
+		return err
+	}
+	// The NIC and the disks go with the VM (their deleteOption), the public IP does
+	// not: Azure keeps no deleteOption on an address created on its own. Best
+	// effort: what is left is the garbage collector's (CollectLeftovers).
+	cctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), callTimeout)
+	defer cancel()
+	_ = c.Clients.PIPs.Delete(cctx, rg, pipNameOf(name))
+	return nil
 }
 
 // instance converts a VM to the contract's instance, with its addresses.

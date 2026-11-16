@@ -303,7 +303,9 @@ scn_amd64() {
   pip="$(az network public-ip show --ids "$(jq -r '.ipConfigurations[0].publicIPAddress.id' <<<"${nic}")" --output json)"
   assert_eq "public IP SKU" Standard "$(jq -r '.sku.name' <<<"${pip}")"
   assert_eq "public IP allocation" Static "$(jq -r '.publicIPAllocationMethod' <<<"${pip}")"
-  assert_eq "public IP deleteOption" Delete "$(jq -r '.deleteOption' <<<"${pip}")"
+  # No deleteOption: Azure keeps none on an address created on its own; SCarpenter deletes it
+  # after the VM (scalezero checks that nothing of the node is left).
+  assert_eq "public IP name" "${vm}-pip" "$(jq -r '.name' <<<"${pip}")"
   assert_eq "tag cluster on the public IP" "${E2E_CLUSTER}" "$(tag_of "${pip}" "${ctag}")"
 
   log "the claim: price, bootstrap token, serving certificate"

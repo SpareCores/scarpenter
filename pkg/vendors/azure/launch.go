@@ -211,9 +211,13 @@ func (l LaunchSpec) NICName() string {
 }
 
 // PIPName is the public IP's name.
-func (l LaunchSpec) PIPName() string { return l.VMName() + "-pip" }
+func (l LaunchSpec) PIPName() string { return pipNameOf(l.VMName()) }
 
-// PIP is the Standard static public IPv4 address, deleted with the VM. It has
+// pipNameOf is the name of a VM's public IP.
+func pipNameOf(vm string) string { return vm + "-pip" }
+
+// PIP is the Standard static public IPv4 address. Azure keeps no deleteOption on
+// an address created on its own, so Compute.Delete deletes it after the VM. It has
 // no zones field (zone-redundant in a region with zones, which a VM of any zone
 // can use): its name does not carry the zone, and the zones of a public IP
 // cannot change, so a zonal address would make the attempt in the next zone
