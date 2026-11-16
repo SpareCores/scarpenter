@@ -535,7 +535,8 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 		transient error
 	)
 	arches := []string{archAMD64}
-	if _, given, err := selector.ImageUse(nc, d, "", archARM64); err != nil || given || owner != "" || SpareCoresImageProject != "" {
+	_, given, err := selector.ImageUse(nc, d, "", archARM64)
+	if err != nil || given || owner != "" || SpareCoresImageProject != "" {
 		arches = append(arches, archARM64)
 	}
 	for _, region := range regions {
