@@ -193,8 +193,20 @@ scn_preflight() {
   for sc in "${selected[@]}"; do
     [[ "${sc}" == amd64 || "${sc}" == scalezero ]] || need_pip=8
   done
-  pip="$(limit_of network "${bucket_pip}")"
-  [[ "$(num "${pip:-0}")" -ge "${need_pip}" ]] || fail "the Standard public IPv4 address quota of ${AZURE_REGION} is '${pip}'; the selected scenarios need ${need_pip}"
+  # The row has had more than one name (the driver's publicIPUsageNames, pkg/vendors/azure/quota.go).
+  local pname
+  pip=""
+  for pname in "${bucket_pip}" IPv4StandardSkuPublicIpAddresses PublicIPAddresses; do
+    pip="$(limit_of network "${pname}")"
+    [[ -z "${pip}" || "${pip}" == None ]] || break
+    pip=""
+  done
+  if [[ -z "${pip}" ]]; then
+    note "no public IPv4 usage row in ${AZURE_REGION}; the rows that name public IPs: $(az network list-usages --location "${AZURE_REGION}" --query "[?contains(name.value, 'ublic')].[name.value, limit]" --output tsv | tr -d '\r' | paste -sd ' ')"
+    [[ "${need_pip}" -le 2 ]] || fail "the public IPv4 address quota of ${AZURE_REGION} is unknown; the selected scenarios need ${need_pip}"
+  else
+    [[ "$(num "${pip}")" -ge "${need_pip}" ]] || fail "the Standard public IPv4 address quota of ${AZURE_REGION} (${pname}) is '${pip}'; the selected scenarios need ${need_pip}"
+  fi
 
   # 4. The sizes: offered in the region, no restriction for the subscription, Gen2 and
   # SCSI (the driver drops others), and the spot size is LowPriorityCapable, which the
