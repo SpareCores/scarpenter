@@ -70,7 +70,7 @@ func tags(cluster string, age time.Duration) map[string]*string {
 		m[azure.TagKey(vendors.TagCluster)] = &cluster
 	}
 	if age >= 0 {
-		m[azure.TagKey("ci-created-at")] = new(now.Add(-age).Format(time.RFC3339))
+		m[sweep.CreatedAtTag] = new(now.Add(-age).Format(time.RFC3339))
 	}
 	return m
 }

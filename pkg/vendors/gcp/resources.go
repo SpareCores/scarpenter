@@ -700,32 +700,67 @@ func rulesFor(kind vendors.ResourceKind, tag, network, desc string, p FirewallPa
 	// allows it): the NodeClass's firewall is never an empty object, so it can be
 	// found, held and deleted, and the intent shows in the console. The lowest
 	// priority lets every allow rule win.
-	deny := ruleName(tag, "deny")
-	dr := base(deny)
-	dr.Priority = new(int32(65534))
-	dr.SourceRanges = []string{"0.0.0.0/0", "::/0"}
-	dr.Denied = []*computepb.Denied{{IPProtocol: new("all")}}
-	out = append(out, firewallRule{deny, dr})
+	// GCE refuses a rule that mixes IPv4 and IPv6 source ranges, so each family has
+	// its own rule: the deny rule twice, an inbound rule with both families twice
+	// (the IPv6 one with the suffix "v6").
+	for _, fam := range []struct{ suffix, all string }{{"", "0.0.0.0/0"}, {"v6", "::/0"}} {
+		deny := ruleName(tag, "deny"+fam.suffix)
+		dr := base(deny)
+		dr.Priority = new(int32(65534))
+		dr.SourceRanges = []string{fam.all}
+		dr.Denied = []*computepb.Denied{{IPProtocol: new("all")}}
+		out = append(out, firewallRule{deny, dr})
+	}
 	for i, in := range p.Inbound {
-		n := ruleName(tag, "in"+strconv.Itoa(i))
-		r := base(n)
-		r.SourceRanges = slices.Clone(in.CIDRs)
-		al := &computepb.Allowed{IPProtocol: new(protocolName(in.Protocol))}
-		if in.FromPort != nil {
-			to := *in.FromPort
-			if in.ToPort != nil {
-				to = *in.ToPort
+		v4, v6 := splitFamilies(in.CIDRs)
+		for _, fam := range []struct {
+			suffix string
+			cidrs  []string
+		}{{"", v4}, {"v6", v6}} {
+			if len(fam.cidrs) == 0 {
+				continue
 			}
-			port := strconv.Itoa(int(*in.FromPort))
-			if to != *in.FromPort {
-				port += "-" + strconv.Itoa(int(to))
+			suffix := fam.suffix
+			if len(v4) == 0 {
+				suffix = "" // IPv6 only: the rule keeps the plain name
 			}
-			al.Ports = []string{port}
+			out = append(out, inboundRule(base, ruleName(tag, "in"+strconv.Itoa(i)+suffix), fam.cidrs, in))
 		}
-		r.Allowed = []*computepb.Allowed{al}
-		out = append(out, firewallRule{n, r})
 	}
 	return out
+}
+
+// splitFamilies splits CIDRs into IPv4 and IPv6 (a range that is not IPv6 counts
+// as IPv4; validation has refused the malformed ones).
+func splitFamilies(cidrs []string) (v4, v6 []string) {
+	for _, c := range cidrs {
+		if strings.Contains(c, ":") {
+			v6 = append(v6, c)
+		} else {
+			v4 = append(v4, c)
+		}
+	}
+	return v4, v6
+}
+
+// inboundRule is the allow rule of one inbound rule for one address family.
+func inboundRule(base func(string) *computepb.Firewall, n string, cidrs []string, in common.InboundRule) firewallRule {
+	r := base(n)
+	r.SourceRanges = slices.Clone(cidrs)
+	al := &computepb.Allowed{IPProtocol: new(protocolName(in.Protocol))}
+	if in.FromPort != nil {
+		to := *in.FromPort
+		if in.ToPort != nil {
+			to = *in.ToPort
+		}
+		port := strconv.Itoa(int(*in.FromPort))
+		if to != *in.FromPort {
+			port += "-" + strconv.Itoa(int(to))
+		}
+		al.Ports = []string{port}
+	}
+	r.Allowed = []*computepb.Allowed{al}
+	return firewallRule{n, r}
 }
 
 func protocolName(p common.Protocol) string {

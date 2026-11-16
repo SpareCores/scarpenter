@@ -33,11 +33,14 @@ ns="scarpenter-system"
 # Azure tag names are scarpenter-<logical key> (pkg/vendors/azure TagKey); the label
 # domain is the Kubernetes side of the same facts.
 ctag="scarpenter-cluster"
+# cluster_q: the JMESPath test of the cluster tag. az resource list refuses --tag with
+# --resource-group (and with --resource-type), so the tag is filtered in --query.
+cluster_q() { printf "tags.\"%s\"=='%s'" "${ctag}" "${E2E_CLUSTER}"; }
 tag_prefix="scarpenter-"
 label_domain="scarpenter.sparecores.com"
 # The tags the NodeClasses put on every resource of the run (the sweeper reads them): an
 # Azure resource has a creation time in no API the sweeper can rely on for every kind.
-created_tag="scarpenter-ci-created-at"
+created_tag="ci-created-at"
 # The sweeper reads the tag as RFC 3339 (pkg/vendors/azure/sweep), not as Unix seconds.
 if [[ -n "${E2E_CREATED_AT:-}" ]]; then
   E2E_CREATED_AT_RFC3339="$(date -u -d "@${E2E_CREATED_AT}" +%Y-%m-%dT%H:%M:%SZ)"
@@ -199,13 +202,13 @@ cluster_disks() {
 
 # cluster_resources: the IDs of every resource of the group tagged with the cluster.
 cluster_resources() {
-  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --tag "${ctag}=${E2E_CLUSTER}" --query '[].id' --output tsv | tr -d '\r' | sed '/^$/d'
+  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --query "[?$(cluster_q)].id" --output tsv | tr -d '\r' | sed '/^$/d'
 }
 
 # managed_resources: the ones SCarpenter created (the brought ones carry no managed-by tag).
 managed_resources() {
-  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --tag "${ctag}=${E2E_CLUSTER}" \
-    --query "[?tags.\"${tag_prefix}managed-by\"=='scarpenter'].id" --output tsv | tr -d '\r' | sed '/^$/d'
+  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --query "[?$(cluster_q) && tags.\"${tag_prefix}managed-by\"=='scarpenter'].id" --output tsv | tr -d '\r' | sed '/^$/d'
 }
 
 # usage_of compute|network <usage name>: currentValue of a usage row of the region, as the

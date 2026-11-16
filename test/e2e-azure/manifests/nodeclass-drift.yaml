@@ -18,7 +18,7 @@ spec:
       tags: ["${E2E_TAG_NODE}"]
   # The creation time on every resource of the run, which the sweeper needs (the tag name
   # is test/e2e-azure's created_tag).
-  tags: {scarpenter-ci-created-at: "${E2E_CREATED_AT_RFC3339}", scarpenter-ci-run: "${E2E_RUN_ID}"}
+  tags: {ci-created-at: "${E2E_CREATED_AT_RFC3339}", ci-run: "${E2E_RUN_ID}"}
   profiles:
     storage:
       scratch:

@@ -168,8 +168,17 @@ scn_preflight() {
   od="$(limit_of compute "${bucket_cores}")"
   spot="$(limit_of compute "${bucket_spot}")"
   [[ "$(num "${od:-0}")" -ge "${E2E_MIN_VCPU_OD}" ]] || fail "the Total Regional vCPUs quota of ${AZURE_REGION} is '${od}'; the suite needs ${E2E_MIN_VCPU_OD} (raise it, docs/how-to-guides/testing.md#the-l5-lane)"
-  [[ "$(num "${spot:-0}")" -ge "${E2E_MIN_VCPU_SPOT}" ]] || fail "the Total Regional Spot vCPUs quota of ${AZURE_REGION} is '${spot}'; the suite needs ${E2E_MIN_VCPU_SPOT}"
-  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_DB}"; do
+  # Spot and the arm64 and db families only when a selected scenario launches them (a
+  # smoke run is one amd64 node; a new subscription has 3 Spot vCPUs).
+  local types=("${E2E_TYPE_AMD64}")
+  if selected_has arm64; then
+    [[ "$(num "${spot:-0}")" -ge "${E2E_MIN_VCPU_SPOT}" ]] || fail "the Total Regional Spot vCPUs quota of ${AZURE_REGION} is '${spot}'; the suite needs ${E2E_MIN_VCPU_SPOT}"
+    types+=("${E2E_TYPE_ARM64}")
+  else
+    note "the Spot vCPUs quota of ${AZURE_REGION} is '${spot}' (not checked: no selected scenario launches Spot)"
+  fi
+  selected_has db && types+=("${E2E_TYPE_DB}")
+  for t in "${types[@]}"; do
     fam="$(sku_family "${t#azure.}")"
     assert_nonempty "the quota family of ${t}" "${fam}"
     [[ "$(num "$(limit_of compute "${fam}")")" -ge "${E2E_MIN_VCPU_FAMILY}" ]] ||
@@ -868,14 +877,14 @@ scn_scalezero() {
 
 # cluster_resources_of <resource type>: the IDs of the cluster's resources of a type.
 cluster_resources_of() {
-  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --tag "${ctag}=${E2E_CLUSTER}" --resource-type "$1" --query '[].id' --output tsv | tr -d '\r'
+  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --resource-type "$1" --query "[?$(cluster_q)].id" --output tsv | tr -d '\r'
 }
 
 # unbrought_resources: what is tagged with the cluster and is not the scenario's own brought
 # VNet and NSG (those carry scarpenter-e2e-byo and are deleted by the teardown).
 unbrought_resources() {
-  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --tag "${ctag}=${E2E_CLUSTER}" \
-    --query "[?tags.\"scarpenter-e2e-byo\"==null].id" --output tsv | tr -d '\r'
+  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --query "[?$(cluster_q) && tags.\"scarpenter-e2e-byo\"==null].id" --output tsv | tr -d '\r'
 }
 
 # uninstall: the procedure of docs/how-to-guides/install.md#uninstall, on the live subscription:
@@ -930,6 +939,9 @@ case "${E2E_FAIL_FAST}" in
     exit 2
     ;;
 esac
+
+# selected_has <scenario>: whether the run selected it.
+selected_has() { [[ " ${selected[*]} " == *" $1 "* ]]; }
 
 results=()
 failed=0

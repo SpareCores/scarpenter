@@ -383,6 +383,13 @@ func (c *Compute) InsertFirewall(_ context.Context, r *computepb.InsertFirewallR
 	if c.networks[last(in.GetNetwork())] == nil {
 		return nil, notFound(in.GetNetwork())
 	}
+	// As on Compute: one rule's source ranges are of one address family.
+	for i, r := range in.GetSourceRanges() {
+		if strings.Contains(r, ":") != strings.Contains(in.GetSourceRanges()[0], ":") {
+			return nil, invalid("Invalid value for field 'resource.sourceRanges[%d]': '%s'. "+
+				"Mixture of IPv4 and IPv6 in the same rule is not allowed.", i, r)
+		}
+	}
 	c.seq++
 	in.Id = new(c.seq)
 	in.SelfLink = new(c.url("global/firewalls/" + name))

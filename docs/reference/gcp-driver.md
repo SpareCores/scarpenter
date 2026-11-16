@@ -78,8 +78,10 @@ Rung 1 for amd64, rung 2 for arm64 ([ADR-021](../explanation/DECISIONS.md)).
 - **arm64**: Flatcar publishes no GCE arm64 image. Spare Cores publishes them from its own project
   (plan 22), named `flatcar-<channel>-<major>-<minor>-<patch>-arm64`. That project does not exist
   yet (`SpareCoresImageProject` is empty): until it does, arm64 resolves only from
-  `vendors.gcp.imageProject` or an `images` selector, and the NodeClass's `ImagesReady` reports it not
-  ready (ADR-017: no silent fallback, the arm64 offerings are unavailable).
+  `vendors.gcp.imageProject` or an `images` selector. Without either, `status.vendors.gcp.images`
+  lists amd64 only, so a NodeClass that names its regions can still be ready; an arm64 launch fails
+  with `ImageNotFound` and its offerings are unavailable (ADR-017: no silent fallback). With either,
+  arm64 is reported, and a missing image makes `ImagesReady` false.
 - `vendors.gcp.imageProject` replaces the default project for both architectures (rung 3: images the
   user made, with the same name pattern).
 - **Global**: an image serves every region; `ReportImages` resolves per region only because a
@@ -232,9 +234,10 @@ error (`Unsupported`).
   one critical section in the controller; when another controller deletes the VPC in between, the insert
   finds no VPC and it is made again.
 - **The managed firewall** is a set of rules for one network tag: a rule per inbound rule of
-  `spec.networking` (CIDR sources), a rule that lets the nodes of the tag reach each other for isolation
+  `spec.networking` (CIDR sources; Compute refuses a rule that mixes IPv4 and IPv6, so a rule with both
+  is two, the IPv6 one named `<tag>-in<n>v6`), a rule that lets the nodes of the tag reach each other for isolation
   `nodeclass` (and for isolation `run` without a run key), and a deny rule at the lowest priority that says
-  what the implied rule does, so the NodeClass's firewall is never an empty object. The run tag is one
+  what the implied rule does (`<tag>-deny` for IPv4, `<tag>-denyv6` for IPv6), so the NodeClass's firewall is never an empty object. The run tag is one
   rule, source tag and target tag the same. A rule that went missing is made again on the next `Ensure`.
   `Delete` removes the rules of the tag and is `Retryable` while an instance still carries the tag.
 - **Resolution without `use`** ([ADR-022](../explanation/DECISIONS.md)): GCP resources have no labels, so

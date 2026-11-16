@@ -21,7 +21,7 @@ spec:
       # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
       authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
       tags: ["${E2E_TAG_NODE}"]
-  tags: {scarpenter-ci-created-at: "${E2E_CREATED_AT_RFC3339}", scarpenter-ci-run: "${E2E_RUN_ID}"}
+  tags: {ci-created-at: "${E2E_CREATED_AT_RFC3339}", ci-run: "${E2E_RUN_ID}"}
   vendors:
     azure:
       regions: [${AZURE_REGION}]
@@ -45,7 +45,7 @@ spec:
       version: "${E2E_TAILSCALE_VERSION}"
       authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
       tags: ["${E2E_TAG_NODE}"]
-  tags: {scarpenter-ci-created-at: "${E2E_CREATED_AT_RFC3339}", scarpenter-ci-run: "${E2E_RUN_ID}"}
+  tags: {ci-created-at: "${E2E_CREATED_AT_RFC3339}", ci-run: "${E2E_RUN_ID}"}
   vendors:
     azure:
       regions: [${AZURE_REGION}]

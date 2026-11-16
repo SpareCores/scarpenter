@@ -216,15 +216,17 @@ func TestManagedFirewallRules(t *testing.T) {
 	name := "scarpenter-conformance-firewalls-europe-west3"
 	params := `{"network":"vpc","selfReference":true,"inbound":[` +
 		`{"protocol":"tcp","fromPort":22,"toPort":23,"cidrs":["10.0.0.0/8"]},` +
-		`{"protocol":"udp","fromPort":41641,"cidrs":["0.0.0.0/0"]},` +
+		`{"protocol":"udp","fromPort":41641,"cidrs":["0.0.0.0/0","::/0"]},` +
 		`{"protocol":"icmp","cidrs":["0.0.0.0/0"]},{"protocol":"any","cidrs":["192.168.0.0/16"]}]}`
 	ref, created, err := e.d.Ensure(t.Context(), gcp.KindFirewalls, testRegion, spec(name, params))
 	if err != nil || !created || ref.ID != name {
 		t.Fatalf("Ensure = %+v, %v, %v", ref, created, err)
 	}
 	rules := e.c.Firewalls()
-	if len(rules) != 6 {
-		t.Fatalf("%d rules, want 6 (self, deny and four inbound)", len(rules))
+	// One family per rule (Compute refuses a mixture): the deny rule and the
+	// dual-stack inbound rule are two rules each.
+	if len(rules) != 8 {
+		t.Fatalf("%d rules, want 8 (self, deny, denyv6 and five inbound)", len(rules))
 	}
 	ports := map[string]string{}
 	for _, r := range rules {
@@ -238,7 +240,7 @@ func TestManagedFirewallRules(t *testing.T) {
 			t.Errorf("the deny rule has the priority %d, it must lose to every allow", r.GetPriority())
 		}
 	}
-	for suffix, want := range map[string]string{"in0": "tcp:22-23", "in1": "udp:41641", "in2": "icmp:", "in3": "all:", "self": "all:"} {
+	for suffix, want := range map[string]string{"in0": "tcp:22-23", "in1": "udp:41641", "in1v6": "udp:41641", "in2": "icmp:", "in3": "all:", "self": "all:"} {
 		if ports[name+"-"+suffix] != want {
 			t.Errorf("rule %s allows %q, want %q", suffix, ports[name+"-"+suffix], want)
 		}
@@ -248,7 +250,7 @@ func TestManagedFirewallRules(t *testing.T) {
 	if _, created, err := e.d.Ensure(t.Context(), gcp.KindFirewalls, testRegion, spec(name, params)); err != nil || !created {
 		t.Errorf("repairing the rules: %v, %v", created, err)
 	}
-	if len(e.c.Firewalls()) != 6 {
+	if len(e.c.Firewalls()) != 8 {
 		t.Errorf("%d rules after the repair", len(e.c.Firewalls()))
 	}
 	if _, _, err := e.d.Ensure(t.Context(), gcp.KindFirewalls, testRegion, spec("x", `{}`)); vendors.ClassOf(err) != vendors.Fatal {

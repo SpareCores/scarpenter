@@ -60,11 +60,16 @@ name_prefix >/dev/null || {
 
 log "3. nothing of ${E2E_CLUSTER} may remain"
 leaks() { # leaks <what> <command printing the names>
-  local out
-  out="$("${@:2}" 2>&1)" || {
-    problem "could not list ${1}: ${out}"
+  # Only stdout holds names: gcloud warns on stderr when an empty list matches no key of the
+  # filter ("The following filter keys were not present in any resource"), which is no leak.
+  local out err
+  err="$(mktemp)"
+  out="$("${@:2}" 2>"${err}")" || {
+    problem "could not list ${1}: $(cat "${err}")"
+    rm -f "${err}"
     return
   }
+  rm -f "${err}"
   [[ -z "${out}" ]] || problem "${1} left: ${out}"
 }
 # Names: SCarpenter's managed resources and the lane's own byo resources.
@@ -82,7 +87,7 @@ deadline=$((SECONDS + 120))
 disks_left() { gc compute disks list --filter="labels.${ctag}=${E2E_CLUSTER}" --format='value(name,zone.basename())'; }
 until [[ -z "$(disks_left 2>/dev/null)" ]]; do
   if [[ "${SECONDS}" -ge "${deadline}" ]]; then
-    leaked="$(disks_left 2>&1)"
+    leaked="$(disks_left 2>/dev/null)"
     problem "disks left (deleting them now): ${leaked}"
     while read -r name zone; do
       [[ -z "${name}" ]] || gc compute disks delete "${name}" --zone "${zone}" >/dev/null 2>&1 || true

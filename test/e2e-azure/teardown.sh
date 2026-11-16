@@ -66,7 +66,7 @@ left="$(cluster_vms all 2>/dev/null | wc -l | tr -d ' ')"
 # if the resource is still there at the checks of step 3.
 delete_type() {
   local type="$1" id ids
-  ids="$(az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --tag "${ctag}=${E2E_CLUSTER}" --resource-type "${type}" --query '[].id' --output tsv 2>/dev/null | tr -d '\r')"
+  ids="$(az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --resource-type "${type}" --query "[?$(cluster_q)].id" --output tsv 2>/dev/null | tr -d '\r')"
   for id in ${ids}; do
     echo "deleting ${id##*/} (${type})"
     if [[ "${type}" == Microsoft.Compute/virtualMachines ]]; then

@@ -13,7 +13,7 @@
 #   - the "Allowed locations" policy and the CI role's scope (the lane's resource group
 #     only) keep the lane in its region;
 #   - every resource, the inline disks aside, carries scarpenter-cluster and
-#     scarpenter-ci-created-at, and the sweeper finds the disks by their name prefix;
+#     ci-created-at, and the sweeper finds the disks by their name prefix;
 #   - the sweeper (e2e-azure-sweeper.yml, every 3 hours, environment e2e-sweeper) deletes
 #     what a dead run left, with the lane's real role;
 #   - the vCPU quotas (regional 16, the lane's families 16, Spot 4, Standard public IPs)

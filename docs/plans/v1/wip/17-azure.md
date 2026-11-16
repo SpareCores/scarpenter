@@ -511,7 +511,7 @@ a budget alert; marketplace terms if any.
 |---|---|
 | CI role cannot create other sizes | Azure Policy "Allowed virtual machine size SKUs" assigned (deny) to the lane's resource group, from `defaults.sh` |
 | Only the lane's region | "Allowed locations" policy plus the role's scope: the lane's resource group only |
-| Run tag, attributable | `scarpenter-cluster=scarpenter-ci-<run id>` and `scarpenter-ci-created-at` on every resource (inline disks are covered by their name prefix) |
+| Run tag, attributable | `scarpenter-cluster=scarpenter-ci-<run id>` and `ci-created-at` on every resource (inline disks are covered by their name prefix) |
 | Sweeper | `e2e-azure-sweeper.yml`, every 3 hours, environment `e2e-sweeper`: resources of the resource group tagged `scarpenter-cluster=scarpenter-ci-*` older than 2 hours: VMs (force), NICs, public IPs, disks by name prefix, managed NSGs and VNets, empty managed resource groups |
 | Time limit, small types | 90/55 minutes as AWS; cheap sizes to be chosen from the canary's output: amd64 `Standard_B2ats_v2` (2 vCPU, 1 GiB), arm64 `Standard_B2pts_v2`; **B-series have no Spot**, so the spot scenarios use a small D or E size that reports `LowPriorityCapable` (for example a `Standard_D2ps_v6` or `Standard_D2as_v5`, to confirm) |
 | Quota as ceiling | the quotas above are the bound |

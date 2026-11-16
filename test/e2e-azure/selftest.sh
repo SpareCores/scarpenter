@@ -63,7 +63,7 @@ t_render_keeps_other_dollars() { # only the manifest's own ${NAME} are replaced
 }
 t_created_at() { # the sweeper reads the tag as RFC 3339
   [[ "${E2E_CREATED_AT_RFC3339}" == "2027-01-15T08:00:00Z" ]] &&
-    grep -q 'scarpenter-ci-created-at: "2027-01-15T08:00:00Z"' <(render "${here}/manifests/nodeclass-amd64.yaml")
+    grep -q 'ci-created-at: "2027-01-15T08:00:00Z"' <(render "${here}/manifests/nodeclass-amd64.yaml")
 }
 check "render fills every variable" t_render
 check_fails "render refuses an unset variable" t_render_unset
