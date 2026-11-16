@@ -1,0 +1,41 @@
+# Dependabot version updates (security updates are enabled in the repository
+# settings and need no entry here). Weekly, one grouped PR per ecosystem; every
+# PR runs the CI gates and needs a maintainer to merge it.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+    # Karpenter core is linked as a library, and the Kubernetes libraries and
+    # controller-runtime follow the versions core uses: a new minor of any of them
+    # changes core's behaviour and needs the conformance and L3/L5 lanes, so it is
+    # bumped by hand, together.
+    ignore:
+      - dependency-name: sigs.k8s.io/karpenter
+        update-types: [version-update:semver-minor, version-update:semver-major]
+      - dependency-name: sigs.k8s.io/controller-runtime
+        update-types: [version-update:semver-minor, version-update:semver-major]
+      - dependency-name: k8s.io/*
+        update-types: [version-update:semver-minor, version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directories: [/, /.github/actions/*]
+    schedule: {interval: weekly, day: monday}
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The base images. golang is left out: the Go version of go.mod and of both
+  # Dockerfiles moves together, by hand (docs/how-to-guides/testing.md).
+  - package-ecosystem: docker
+    directories: [/, /hack/devcontainer]
+    schedule: {interval: weekly, day: monday}
+    ignore:
+      - dependency-name: golang
+    groups:
+      base-images:
+        patterns: ["*"]

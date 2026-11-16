@@ -1212,9 +1212,27 @@ hack/dev.sh hack/release.sh dry-run v0.1.0-rc.1
 
 The dry run builds both images for amd64 and arm64 without pushing, checks that the
 production image has no development driver flags and reports the stamped version and
-commit, and packages and lints the chart. To put a human approval before the first
-publish, add required reviewers to the environment `release` (Settings, Environments);
-the publishing jobs run in it. Every action in the workflows is pinned by commit SHA.
+commit, and packages and lints the chart. Every action in the workflows is pinned by
+commit SHA.
+
+The repository settings the workflows rely on (they cannot be set from a work tree;
+check them before a release):
+
+- The environment `release`, where the publishing jobs run: required reviewers (the
+  maintainers), no administrator bypass, deployments from the tags `v*` only. A
+  dry run from a branch therefore stops at the publishing jobs.
+- A tag ruleset on `v*`: only maintainers create, move or delete release tags.
+- A ruleset on `main`: changes through pull requests, the checks `gates`,
+  `kwok (scenarios)`, `kwok (retention)` and `e2e-result` required, no force push or
+  deletion; administrators may bypass only when merging a pull request. A workflow
+  that commits (`refresh-sc-snapshot.yml`) is run on a branch and merged by a PR.
+- The environments `e2e` (required reviewers, no administrator bypass),
+  `e2e-sweeper` and `e2e-canary` (the branch `main` only). The cloud roles trust
+  exactly these environments' OIDC subjects.
+- Actions: default workflow permissions read-only, SHA pinning required, approval
+  required for the workflows of every outside contributor's pull request.
+- Secret scanning with push protection, Dependabot alerts and security updates, and
+  private vulnerability reporting ([SECURITY.md](../../SECURITY.md)).
 
 ## Troubleshooting
 
