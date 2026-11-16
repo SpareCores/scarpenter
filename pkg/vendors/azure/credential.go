@@ -28,7 +28,8 @@ const (
 
 // NewCredential builds the credential chain of plan 17 section 2: a
 // WorkloadIdentityCredential, an EnvironmentCredential in mode secret, the
-// Azure CLI only under the development flag, and a ManagedIdentityCredential. A member that cannot be configured from the environment is skipped, as
+// Azure CLI only under the development flag, and a ManagedIdentityCredential.
+// A member that cannot be configured from the environment is skipped, as
 // azidentity's own default chain does; no token is requested here.
 func NewCredential(mode string, development bool) (azcore.TokenCredential, error) {
 	var chain []azcore.TokenCredential
