@@ -159,7 +159,8 @@ cluster_vms() {
 }
 
 # vm_json <vm name>: the VM with its instance view's fields that az prints without -d.
-vm_json() { az vm show --resource-group "${AZURE_RESOURCE_GROUP}" --name "$1" --output json; }
+# --show-details adds powerState, publicIps and fqdns (one more call, to the instance view).
+vm_json() { az vm show --show-details --resource-group "${AZURE_RESOURCE_GROUP}" --name "$1" --output json; }
 
 # vm_exists <vm name>: the VM is there (a 404 is "gone"; any other failure is an error and
 # is not "gone": the caller's check fails instead of passing on a broken login).
