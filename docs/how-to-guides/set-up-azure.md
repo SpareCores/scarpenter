@@ -3,7 +3,8 @@
 The Azure driver launches Flatcar VMs from the Azure Marketplace in one subscription, and creates the
 resource group, virtual network and network security group the nodes need unless you bring your own.
 
-**Preview.** The driver is implemented and covered by unit and offline tests, but it has not run against the real cloud yet: expect rough edges and report them.
+**Preview.** A first real-cloud smoke run passed on 2026-11-16 (one amd64 node in centralus, then scale to zero); the
+full test lane has not run yet.
 
 ## What you need
 
