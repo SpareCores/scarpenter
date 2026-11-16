@@ -49,7 +49,7 @@ if command -v aliyun >/dev/null 2>&1 && ali_login 2> >(grep -v '^::add-mask::' |
   mapfile -t tag < <(cluster_tag_args)
   collect instances.json cluster_instances_json
   collect security-groups.json ecs DescribeSecurityGroups "${tag[@]}"
-  collect deployment-sets.json ecs DescribeDeploymentSets --PageSize 100
+  collect deployment-sets.json ecs DescribeDeploymentSets --PageSize 50
   collect vpcs.json vpc DescribeVpcs "${tag[@]}"
   collect vswitches.json vpc DescribeVSwitches "${tag[@]}"
   for id in $(cluster_instances 2>/dev/null); do

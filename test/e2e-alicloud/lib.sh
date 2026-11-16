@@ -217,10 +217,10 @@ cluster_instances() {
 cluster_security_groups() {
   local -a tag
   mapfile -t tag < <(cluster_tag_args)
-  ecs DescribeSecurityGroups "${tag[@]}" --PageSize 100 | jq -r '.SecurityGroups.SecurityGroup[]?.SecurityGroupId'
+  ecs DescribeSecurityGroups "${tag[@]}" --PageSize 50 | jq -r '.SecurityGroups.SecurityGroup[]?.SecurityGroupId'
 }
 cluster_deployment_sets() {
-  ecs DescribeDeploymentSets --PageSize 100 | jq -r --arg c "${E2E_CLUSTER}" '
+  ecs DescribeDeploymentSets --PageSize 50 | jq -r --arg c "${E2E_CLUSTER}" '
     .DeploymentSets.DeploymentSet[]? | select((.DeploymentSetDescription // "") | test("cluster=" + $c + "( |$)")) | .DeploymentSetId'
 }
 cluster_vswitches() {
