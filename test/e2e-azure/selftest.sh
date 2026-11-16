@@ -406,7 +406,7 @@ t_policy() {
       | .policyDefinitionId == "/providers/Microsoft.Authorization/policyDefinitions/cccc23c7-8427-4f53-ad12-b6a63eb452b3"
         and (.parameters.listOfAllowedSKUs.value | sort) == ["Standard_B2as_v2", "Standard_B2ats_v2", "Standard_B2pts_v2", "Standard_D2as_v5"]' "${p}" >/dev/null &&
     jq -e '.policyAssignments[] | select(.displayName == "Allowed locations")
-      | .parameters.listOfAllowedLocations.value == ["westeurope"]' "${p}" >/dev/null &&
+      | .parameters.listOfAllowedLocations.value == ["centralus"]' "${p}" >/dev/null &&
     # the lane role writes only compute, network, and reads resources and the activity log; the reads role only reads
     jq -e '(.roleDefinitions[] | select(.Name == "scarpenter-ci-lane") | .Actions | all(test("^Microsoft\\.(Compute|Network|Resources|Insights)/"))) and
       (.roleDefinitions[] | select(.Name == "scarpenter-ci-reads") | .Actions | all(test("/read$"))) and
