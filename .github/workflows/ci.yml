@@ -57,10 +57,20 @@ jobs:
         run: hack/dev.sh make image image-dev
 
   # L3: SCarpenter with the fake driver in kind, installed from the Helm chart
-  # (docs/how-to-guides/testing.md).
+  # (docs/how-to-guides/testing.md). Two shards, each with its own cluster: the
+  # billing retention scenarios (TestR01 to TestR09) wait out real 4-minute billing periods
+  # one after another (they share the fake vendor's billing rule, so they cannot
+  # run in parallel) and take about 35 minutes; the rest takes about 25.
   kwok:
+    name: kwok (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - {name: scenarios, run: "", skip: "^TestR[0-9]"}
+          - {name: retention, run: "^TestR[0-9]", skip: ""}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -69,12 +79,15 @@ jobs:
       - uses: ./.github/actions/dev-image
 
       - name: L3 (kind, kwok-controller, the controller with the fake driver)
+        env:
+          KWOK_SCENARIOS: ${{ matrix.shard.run }}
+          KWOK_SKIP: ${{ matrix.shard.skip }}
         run: hack/dev.sh make test-kwok
 
       - name: Upload the lane output
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: kwok-out
+          name: kwok-out-${{ matrix.shard.name }}
           path: test/kwok/.out/
           if-no-files-found: ignore

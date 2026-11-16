@@ -209,7 +209,8 @@ reached it (`awaitState`). The scenarios are `TestS01` to `TestS20` and, for bil
 | R09 | a pod created one second before the deadline never ends on a node being deleted; no boundary is missed |
 
 Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
-(`KWOK_SCENARIOS=TestS0[12]`), `KEEP_CLUSTER=1` keeps the cluster and
+(`KWOK_SCENARIOS=TestS0[12]`), `KWOK_SKIP=<go test -skip regexp>` leaves
+scenarios out, `KEEP_CLUSTER=1` keeps the cluster and
 `REUSE_CLUSTER=1` reuses it, `KIND_CLUSTER_NAME` renames it. `make kwok-up`
 leaves the lane running (`KUBECONFIG=test/kwok/.cache/scarpenter-kwok.kubeconfig`)
 and `make kwok-down` removes it. On failure the logs of the controller,

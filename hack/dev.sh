@@ -106,7 +106,7 @@ fi
 # the chart tests (UPDATE=1 rewrites their golden files) that pass through when
 # set in the caller's environment.
 env_args=()
-for name in UPDATE KWOK_SCENARIOS KWOK_SETUP_ONLY KEEP_CLUSTER REUSE_CLUSTER KIND_CLUSTER_NAME \
+for name in UPDATE KWOK_SCENARIOS KWOK_SKIP KWOK_SETUP_ONLY KEEP_CLUSTER REUSE_CLUSTER KIND_CLUSTER_NAME \
   QEMU_SCENARIOS QEMU_SETUP_ONLY SCARPENTER_QEMU_TAILSCALE_AUTHKEY SCARPENTER_QEMU_TAILSCALE_LOGIN_SERVER; do
   if [[ -n "${!name:-}" ]]; then
     # -e NAME copies the value from this environment: it does not show up in the
