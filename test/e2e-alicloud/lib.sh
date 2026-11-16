@@ -162,11 +162,14 @@ ali_login() {
   }
   echo "::add-mask::${token}" >&2
   # The token goes through the environment of jq, not its arguments (a process list shows those).
-  resp="$(OIDC_TOKEN="${token}" jq -rn --arg r "${ALIBABA_CLOUD_ROLE_ARN}" --arg p "${ALIBABA_CLOUD_OIDC_PROVIDER_ARN}" --arg s "scarpenter-ci-${E2E_RUN_ID:-local}" '
-      "Action=AssumeRoleWithOIDC&Format=JSON&Version=2015-04-01&DurationSeconds=7200"
+  # Timestamp is a common parameter STS wants even of an unsigned call (the SDKs send it).
+  resp="$(OIDC_TOKEN="${token}" jq -rn --arg r "${ALIBABA_CLOUD_ROLE_ARN}" --arg p "${ALIBABA_CLOUD_OIDC_PROVIDER_ARN}" --arg s "scarpenter-ci-${E2E_RUN_ID:-local}" \
+    --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+      "Action=AssumeRoleWithOIDC&Format=JSON&Version=2015-04-01&DurationSeconds=7200&Timestamp=\($t | @uri)"
       + "&RoleArn=\($r | @uri)&OIDCProviderArn=\($p | @uri)&OIDCToken=\(env.OIDC_TOKEN | @uri)&RoleSessionName=\($s | @uri)"' |
-    curl -fsS --retry 3 --data @- "${ALIBABA_CLOUD_STS_ENDPOINT:-https://sts.aliyuncs.com}/")" || {
-    echo "could not exchange the OIDC token for a RAM role session (AssumeRoleWithOIDC)" >&2
+    curl -sS --fail-with-body --retry 3 --data @- "${ALIBABA_CLOUD_STS_ENDPOINT:-https://sts.aliyuncs.com}/")" || {
+    # The error answer (Code, Message, RequestId) holds no credential.
+    echo "could not exchange the OIDC token for a RAM role session (AssumeRoleWithOIDC): $(jq -c '{Code, Message, RequestId}' <<<"${resp}" 2>/dev/null || echo "${resp:0:300}")" >&2
     return 1
   }
   key="$(jq -er '.Credentials.AccessKeyId' <<<"${resp}")" || return 1
