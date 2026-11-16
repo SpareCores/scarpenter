@@ -83,7 +83,7 @@ func TestIAMPolicyGrantsTheRolesOfTheDriver(t *testing.T) {
 		}
 	}
 	// The how-to names the same roles.
-	how, err := os.ReadFile(filepath.Join(testutil.RepoRoot(), "docs", "how-to-guides", "ovh-credentials.md"))
+	how, err := os.ReadFile(filepath.Join(testutil.RepoRoot(), "docs", "how-to-guides", "set-up-ovh.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestIAMPolicyGrantsTheRolesOfTheDriver(t *testing.T) {
 		}
 	}) {
 		if !strings.Contains(string(how), r) {
-			t.Errorf("ovh-credentials.md does not mention %s", r)
+			t.Errorf("set-up-ovh.md does not mention %s", r)
 		}
 	}
 }

@@ -8,13 +8,13 @@ service. Design: plan 25, overview section 11, ADR-020 to ADR-024. The contract 
 [driver contract](driver-contract.md); the settings it reads are in [node settings](node-settings.md);
 the resource engine around it is in [vendor resources](vendor-resources.md); the selector is in
 [resource selectors](resource-selectors.md#oci). How to make the images:
-[Flatcar images on OCI](../how-to-guides/oci-images.md). How to give the controller an identity:
-[OCI credentials](../how-to-guides/oci-credentials.md).
+[Set up OCI: the Flatcar image](../how-to-guides/set-up-oci.md#1-the-flatcar-image). How to give the controller an identity:
+[Set up OCI: credentials](../how-to-guides/set-up-oci.md#2-credentials).
 
 It is enabled with `--vendors=oci` and `--oci-compartment` (the chart: `vendors.oci.enabled`,
-`vendors.oci.compartment`, and optionally `vendors.oci.imageCompartment` for the images; see the [controller reference](controller.md)). Tests run against the in-memory
-API of `pkg/vendors/oci/fake` and the shared conformance suite; nothing in the repository's tests calls
-Oracle (the first live run is the L5 lane).
+`vendors.oci.compartment`, and optionally `vendors.oci.imageCompartment` for the images; see the [controller reference](controller.md)). The unit tests run against the in-memory
+API of `pkg/vendors/oci/fake` and the shared conformance suite; the real-cloud L5 lane (`test/e2e-oci/`) runs on
+pull requests that touch OCI code, nightly and before every release.
 
 ## Table of Contents
 
@@ -207,7 +207,8 @@ The Limits service: `GetResourceAvailability(compute, <limit name>, <tenancy>, <
 region's shapes list (`standard-e5-core-count`, `standard-e5-memory-count`, ...). A bucket is region-scoped
 with `Used` the sum over the ADs and `Limit` = `Used` plus the largest `available` of any AD, so a family is
 blocked only when no AD has room. Consumption: the OCPUs for `*-core-count`, the GB for `*-memory-count`, one
-for other names. A shape whose limit is not readable, and every spot type until the preemptible limit is
+for other names; a scope infix before `-count` (`standard-e3-core-ad-count`, `standard-a1-core-regional-count`)
+keeps the core or memory form. A shape whose limit is not readable, and every spot type until the preemptible limit is
 known, has unknown quota (reactive). The usage is read on the tenancy (the root compartment).
 
 ## Error mapping
@@ -242,10 +243,13 @@ import or Community Application, and a zone-aware quota (plan 25, open questions
 
 ## What is not verified against OCI yet
 
-Everything here comes from public documentation and the SDK source; the first live run settles it: the exact
-status, code and message of "Out of host capacity" and of each error row, that capacity and limit errors are
-synchronous on the launch call, the replay semantics of `opc-retry-token`, that the tenancy's
-`GetResourceAvailability` includes the compartments' usage and the scope of every compute limit, preemptible
-limits, that a node boots with the legacy IMDS endpoints disabled, the arm64 image on `A2` and `A4`, the
-policy verbs per call ([policy](oci-iam-policy.txt)), the freeform tag key charset, the token exchange
-parameters of the keyless credentials, and the minimum billing of OCI (billing retention is off).
+The L5 lane runs launches on demand and preemptible (preemptible "Out of host capacity" is seen and falls
+back to another shape), arm64 on `A1`, nodes with the legacy IMDS endpoints disabled, quotas, the managed
+network and its teardown, and the keyless exchange with a GitHub OIDC token in a file. Still from public
+documentation and the SDK source only: the exact status, code and message of each error row, that capacity
+and limit errors are synchronous on the launch call, the replay semantics of `opc-retry-token`, that the
+tenancy's `GetResourceAvailability` includes the compartments' usage and the scope of every compute limit,
+preemptible limits, the arm64 image on `A2` and `A4`, the policy verbs beyond what the lane exercises (its
+policy has `manage volume-family` where [the driver's](oci-iam-policy.txt) has `use`), the freeform tag key
+charset, the chart's projected ServiceAccount token with an identity domain, and the minimum billing of OCI
+(billing retention is off).

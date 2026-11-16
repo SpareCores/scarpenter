@@ -310,7 +310,7 @@ jobs:
           role-duration-seconds: 7200
 
       # The OVH lane's identity: a dedicated OpenStack user of the lane's own project (the
-      # five operator roles, docs/how-to-guides/ovh-credentials.md), from environment secrets;
+      # five operator roles, docs/how-to-guides/set-up-ovh.md), from environment secrets;
       # the openstack CLI and the controller read the standard OS_* variables. A newline in a
       # secret would add a variable to GITHUB_ENV: refused.
       - name: OpenStack credentials and CLI (ovh)

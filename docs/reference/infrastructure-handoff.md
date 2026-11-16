@@ -17,11 +17,10 @@ The design is ADR-018 (vendor resources), ADR-022 (resolution order), ADR-023 (t
 [Bring your own vendor resources](../how-to-guides/bring-your-own-resources.md);
 where the images come from is in [Flatcar images](../explanation/flatcar-images.md).
 
-Status of this page: only the `aws` driver is wired to a vendor today; every other vendor block
-is a plan ([`../plans/v1/wip/`](../plans/v1/wip/)), written from research on
-2026-11-10, and its kinds and fields may change when the driver is written. The core's
-resolution order, the `source` in the status and the published schema exist for every driver; what
-a vendor's section marks *planned* (its tagged discovery, its default) arrives with its driver.
+Status of this page: all nine drivers are implemented. The core's resolution order, the
+`source` in the status and the published schema apply to each of them; a kind without
+tags skips the tagged discovery step. Which drivers have run against their real cloud is
+in the [README](../../README.md#cloud-providers).
 
 ## Table of Contents
 
@@ -251,7 +250,7 @@ use the offers (SCarpenter never accepts marketplace terms). Credentials:
 | `securityGroups` (NSGs) | one NSG ID per region | `ids`, `name`, `tags`, `filters`, `expression`; a NIC takes one NSG, so with a brought NSG `isolation` has no effect |
 
 Egress: the subnet has no NAT, so nodes need `publicIPv4: true` (or you bring a NAT
-gateway). Without `use`: tagged resource groups, VNets and NSGs (*planned*); Azure has
+gateway). Without `use`: tagged resource groups, VNets and NSGs; Azure has
 no default network, so then a managed resource group (`retain`), VNet, subnet and NSG,
 else a stated failure.
 
@@ -272,16 +271,16 @@ its own read-write token in a Secret.
 
 A server needs no subnet reference: it gets an address from the network's subnet in
 its location. `sshKey` is optional (nodes use Ignition). Without `use`: labelled
-networks and firewalls (*planned*), no vendor default; a managed firewall, else a
+networks and firewalls, no vendor default; a managed firewall, else a
 stated failure. Public-only nodes need nothing.
 
 ## oci
 
 Images: rung 3, per region and architecture, in the controller's compartment (or the one `--oci-image-compartment` names), named `flatcar-<channel>-<version>-<arch>`
 with the freeform tags `flatcar-channel`, `flatcar-version`, `arch` and `os=flatcar`
-([how to](../how-to-guides/oci-images.md)); or their OCIDs in `resources.images.use.ids` per region. Credentials: the
+([how to](../how-to-guides/set-up-oci.md#1-the-flatcar-image)); or their OCIDs in `resources.images.use.ids` per region. Credentials: the
 controller's `--oci-compartment` (one for every NodeClass) and an API key or the keyless mode
-([how to](../how-to-guides/oci-credentials.md)).
+([how to](../how-to-guides/set-up-oci.md#2-credentials)).
 
 | Kind | Provide | `use` fields |
 |---|---|---|
@@ -299,11 +298,11 @@ VCN), else a stated failure.
 ## ovh
 
 Images: rung 3. Provide one Glance image per region and architecture (amd64 only in v1)
-from Flatcar's OpenStack image ([upload it](../how-to-guides/ovh-images.md)), named
+from Flatcar's OpenStack image ([upload it](../how-to-guides/set-up-ovh.md#1-the-flatcar-image)), named
 `flatcar-<channel>-<version>-<arch>` with the property `architecture` (`x86_64`) and the
 tags `flatcar` and `flatcar-<channel>-<version>`. Credentials: one Public Cloud project
 per controller; an OpenStack user of the project with the five operator roles
-([OVH credentials](../how-to-guides/ovh-credentials.md)); the OVH IAM service account
+([OVH credentials](../how-to-guides/set-up-ovh.md#2-credentials)); the OVH IAM service account
 (OAuth2) is a later mode.
 
 | Kind | Provide | `use` fields |
@@ -322,7 +321,7 @@ Images: rung 3. Provide one template per zone and storage tier from the images
 repository's `flatcar-upcloud-<channel>-<version>-amd64.img.gz` (import into a
 storage, then a template; delete the source storage), labelled as in
 [Flatcar images](../explanation/flatcar-images.md#upcloud) and
-[Import Flatcar templates into UpCloud](../how-to-guides/import-flatcar-templates-into-upcloud.md).
+[Import Flatcar templates into UpCloud](../how-to-guides/set-up-upcloud.md#1-the-flatcar-image).
 Credentials: none in the block; an API token (a Secret) of the account or a sub-account;
 tokens expire and have no scopes; the controller's token must see what your IaC created.
 
@@ -371,5 +370,5 @@ the others; name `Flatcar-<channel>-<version>-<arch>` with the tags `flatcar-cha
 | `securityGroups` | one group ID per region, in the vSwitches' VPC | `ids`, `name`, `tags`, `match.network`, `filters` |
 
 IPv6 is unsupported when the VPC has no IPv6 CIDR. Without `use`: tagged resources
-(*planned*), then the default VPC and its vSwitches where they exist, then managed
+(`scarpenter.sparecores.com/use=true`), then the default VPC and its vSwitches where they exist, then managed
 ones, else a stated failure.

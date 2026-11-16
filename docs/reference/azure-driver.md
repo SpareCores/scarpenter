@@ -21,10 +21,11 @@ design is [plan 17](../plans/v1/wip/17-azure.md); the contract it implements is 
 
 One controller works in one subscription: `AZURE_SUBSCRIPTION_ID` is required (the chart value
 `vendors.azure.subscriptionID`). `spec.vendors.azure.subscriptionID` is only a guard: a different value
-fails the NodeClass validation. The credential chain is workload identity (`AZURE_CLIENT_ID`,
-`AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`), then, in mode `secret`, the client secret of the
-environment, then the managed identity; the Azure CLI's login only under `SCARPENTER_AZURE_DEVELOPMENT=true`.
-How to set it up: [Azure credentials](../how-to-guides/azure-credentials.md). The custom role is
+fails the NodeClass validation. The credential chain (`SCARPENTER_AZURE_CREDENTIALS_MODE`) is workload identity (`AZURE_CLIENT_ID`,
+`AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`) in mode `workloadIdentity` (also the chart's mode `none`), or
+the client secret or certificate of the environment in mode `secret`; then the managed identity; the Azure CLI's
+login only under `SCARPENTER_AZURE_DEVELOPMENT=true`.
+How to set it up: [Set up Microsoft Azure](../how-to-guides/set-up-azure.md#2-credentials). The custom role is
 [`azure-role.json`](azure-role.json). The resource providers `Microsoft.Compute`, `Microsoft.Network` and
 `Microsoft.MarketplaceOrdering` must be registered (a `MissingSubscriptionRegistration` is `Fatal`).
 

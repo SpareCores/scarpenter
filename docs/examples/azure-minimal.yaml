@@ -1,0 +1,19 @@
+# The smallest Azure NodeClass: no vendor resources are named, so SCarpenter resolves them
+# itself in each region, in this order (ADR-022): resources you tagged scarpenter-use=true,
+# then a resource group, virtual network, subnet and network security group it creates and
+# owns (Azure has no default network), else ResourcesReady=False naming what it tried.
+# Add subscriptionID: <your subscription> as a guard: a different controller subscription fails validation.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: azure-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: direct
+  vendors:
+    azure:
+      regions: [westeurope, eastus]

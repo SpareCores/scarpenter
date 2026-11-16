@@ -113,7 +113,7 @@ scn_preflight() {
   for t in hcloud kubectl jq helm envsubst curl; do command -v "${t}" >/dev/null || fail "${t} is not installed"; done
   hc server list -o noheader >/dev/null || fail "the Hetzner token does not work"
 
-  # 1. The Flatcar snapshots (docs/how-to-guides/hcloud-images.md): exactly one per architecture.
+  # 1. The Flatcar snapshots (docs/how-to-guides/set-up-hcloud.md): exactly one per architecture.
   local arch n
   for arch in x86 arm; do
     n="$(hc image list -t snapshot -a "${arch}" \

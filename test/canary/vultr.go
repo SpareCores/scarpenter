@@ -71,7 +71,7 @@ func runVultr(ctx context.Context, cfg *config, rep *report, api vultr.API, a *a
 		img, err := drv.ResolveImage(ctx, vendors.ImageRequest{
 			Region: cfg.region, Arch: archAMD64, Channel: cfg.flatcarChannel, Version: cfg.flatcarVersion})
 		if err != nil {
-			return "", fmt.Errorf("%w (create it from the images repository's URL, docs/how-to-guides/vultr-credentials.md)",
+			return "", fmt.Errorf("%w (create it from the images repository's URL, docs/how-to-guides/set-up-vultr.md)",
 				err)
 		}
 		return img.Ref, nil

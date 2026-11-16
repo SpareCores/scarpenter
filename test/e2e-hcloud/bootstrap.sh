@@ -8,7 +8,7 @@
 #
 # The Hetzner part comes first: the tools (go install, checked by the module proxy's checksum
 # database), then one Flatcar snapshot per architecture for the pinned release when the project has
-# none (the label convention of docs/how-to-guides/hcloud-images.md), made in parallel. The control
+# none (the label convention of docs/how-to-guides/set-up-hcloud.md), made in parallel. The control
 # plane stays on the runner, as in the AWS lane: the nodes reach it over the tailnet, so no server of
 # the project is spent on it.
 #

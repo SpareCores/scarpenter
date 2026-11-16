@@ -3,9 +3,10 @@
 The OVHcloud Public Cloud driver (`pkg/vendors/ovh`, vendor ID `ovh`, registered as `ovh`), built on the
 OpenStack APIs (Nova, Neutron, Glance, Cinder) through gophercloud v2. Plan:
 `docs/plans/v1/wip/18-ovh.md`. It implements the [driver contract](driver-contract.md) and passes the
-shared conformance suite against an in-memory OpenStack cloud (`pkg/vendors/ovh/fake`); **nothing here has run
-against OVH yet**: the plan's spikes S1 to S8 and the live L5 run are still open, and every fact that
-depends on them is under [Not verified against OVH](#not-verified-against-ovh).
+shared conformance suite against an in-memory OpenStack cloud (`pkg/vendors/ovh/fake`). A first smoke run of the
+L5 lane passed against OVH on 2026-11-16 (one amd64 node in `GRA11`, then scale to zero); the full lane and most of
+the plan's spikes S1 to S8 are still open, and every fact that depends on them is under
+[Not verified against OVH](#not-verified-against-ovh).
 
 ## Table of Contents
 
@@ -80,7 +81,9 @@ adapter's tests cover paging with a test HTTP server.
 The controller authenticates to one Public Cloud project (the project is the account scope) with the
 standard OpenStack environment: `OS_AUTH_URL` (`https://auth.cloud.ovh.net/v3`), `OS_USERNAME`,
 `OS_PASSWORD`, `OS_PROJECT_ID` and `OS_USER_DOMAIN_NAME` (the `openstackUser` mode of the plan; the chart wires
-them from a Secret, see [Set up OVHcloud credentials](../how-to-guides/ovh-credentials.md)). `Init` checks that the variables are
+them from a Secret, see [Set up OVHcloud](../how-to-guides/set-up-ovh.md#2-credentials)). Gophercloud reads only
+`OS_DOMAIN_NAME` and `OS_DOMAIN_ID`, which win when set; otherwise the adapter takes the user's domain from
+`OS_USER_DOMAIN_NAME` or `OS_USER_DOMAIN_ID`, and a username without any domain is refused. `Init` checks that the variables are
 there and makes no call; the authentication happens with the first call, is retried by the next one after a
 failure, and gophercloud re-authenticates when the token expires. One credential covers every region (the catalog
 lists per-region endpoints). The OVH IAM service-account flow (OIDC client credentials, the plan's recommended
@@ -119,7 +122,7 @@ active region. The create call names the zone in multi-AZ regions only.
 ## Images
 
 SCarpenter never creates images (rung 3 of the ladder, ADR-021): the operator uploads Flatcar's OpenStack image to
-Glance once per region and architecture ([Upload the Flatcar image to OVH](../how-to-guides/ovh-images.md)).
+Glance once per region and architecture ([Set up OVHcloud](../how-to-guides/set-up-ovh.md#1-the-flatcar-image)).
 `ResolveImage` finds it in the region and requires exactly one match:
 
 - **By convention**, without an `images` selector: the project's own private image, `status` active, named
@@ -202,7 +205,7 @@ call go with the server.
 catalog loaded, handed to the driver after every refresh) divided by 730, for the boot volume and every data volume; incomplete where a price is missing. The
 public address is free. `Supported` removes the profiles that are invalid or ask for `localStorage`.
 `ValidateNodeClass` rejects, besides the above: `networking.publicIPv4: false` (a private-only node needs a billed gateway),
-region names that are not the catalog's, malformed `use` selectors and IDs (Neutron and Glance UUIDs), and tags that do not fit Nova metadata.
+region names not shaped like the catalog's (upper case; a well-formed name the catalog lacks is the core's `UnknownRegions`), malformed `use` selectors and IDs (Neutron and Glance UUIDs), and tags that do not fit Nova metadata.
 
 ## Resources
 
@@ -323,11 +326,14 @@ The exact least-privilege set is spike S6.
 - `vendors.Region` carrying the Keeper name (plan 14, A8): needed only for an alias row that differs from the Keeper name.
 - Private networks (a second NIC on a vRack network), gateways, IPv6-only nodes, GPU and Metal flavors, arm64, `localStorage`,
   Glance community publishing (S1), automatic image import (`ImageImporter`), flavor stock from the OVH API (`OfferingLister` over `flavor.available`).
-- The live L5 run, the spikes S1 to S8 and the OVH-side IaC (images, controller account), which are the maintainers'.
+- The full live L5 run (only its smoke run has passed), the spikes S1 to S8 and the OVH-side setup (images, controller account), which are the maintainers'.
 
 ## Not verified against OVH
 
-Everything in the plan's spikes: the Keystone catalog's region names and the Nova
+The smoke run of 2026-11-16 confirmed, for one amd64 server in `GRA11` with the `tailscale` template and the flavor's
+own disk: authentication with an OpenStack user and `OS_USER_DOMAIN_NAME`, the catalog name `GRA11`, the image found
+by the naming convention, the boot of Flatcar's OpenStack image with user data, the join, and the delete on scale to zero.
+Everything else in the plan's spikes is open: the Keystone catalog's region names and the Nova
 availability zone names; the microversions 2.26, 2.64 and 2.67; the exact texts and
 statuses of the errors above; whether a security group filters the `Ext-Net` port and
 whether the default group is open; the Neutron tag extension; Glance `community` visibility and image import;

@@ -77,7 +77,7 @@ func TestResolveImageByConvention(t *testing.T) {
 		t.Errorf("arm64: %+v %v", got, err)
 	}
 	_, err = d.ResolveImage(ctx, req(multiRegion, archAMD64, vendors.UseRef{}))
-	if !vendors.IsClass(err, vendors.NotFound) || !strings.Contains(err.Error(), "ovh-images.md") {
+	if !vendors.IsClass(err, vendors.NotFound) || !strings.Contains(err.Error(), "set-up-ovh.md") {
 		t.Errorf("no active image: %v", err)
 	}
 	if _, err := d.ResolveImage(ctx, req(testRegion, "s390x", vendors.UseRef{})); vendors.CodeOf(err) != CodeImageArch {

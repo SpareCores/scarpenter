@@ -1,6 +1,6 @@
 # The custom role of the SCarpenter controller in the project of its GCP nodes. Create it with
 #   gcloud iam roles create scarpenter --project=<project> --file=docs/reference/gcp-iam-role.yaml
-# and grant it to the controller's identity (docs/how-to-guides/gcp-credentials.md). It holds
+# and grant it to the controller's identity (docs/how-to-guides/set-up-gcp.md). It holds
 # exactly what the driver's calls need (pkg/vendors/gcp/iam_test.go keeps the file and the driver
 # in step) and nothing that changes IAM, images or secrets. It is deliberately not
 # roles/compute.instanceAdmin.v1, which is wider.

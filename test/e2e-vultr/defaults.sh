@@ -13,7 +13,7 @@
 : "${E2E_TAILSCALE_VERSION:=v1.98.10}"
 # The Flatcar release the account's snapshot holds, described
 # flatcar-<channel>-<version>-amd64 (the account's operator creates it once per pinned
-# version from the images repository's URL; docs/how-to-guides/vultr-credentials.md).
+# version from the images repository's URL; docs/how-to-guides/set-up-vultr.md).
 : "${E2E_FLATCAR_CHANNEL:=stable}"
 : "${E2E_FLATCAR_VERSION:=4757.2.3}"
 # Plans the suite launches (about a cent per hour each; plan 20, section 9). Vultr has no

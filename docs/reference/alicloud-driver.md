@@ -221,7 +221,7 @@ carry before retention can hold Alibaba nodes; the live check of plan 21 settles
 The controller authenticates through the default chain of `credentials-go`: `ALIBABA_CLOUD_ACCESS_KEY_ID`/`_SECRET`, the RAM role of
 an OIDC identity provider (`ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_TOKEN_FILE`: the projected
 ServiceAccount token, the analogue of AWS web identity; recommended), the shared credentials file, the instance RAM role and a
-credentials URI. [Set up Alibaba Cloud credentials](../how-to-guides/alicloud-credentials.md) covers the chart's three modes
+credentials URI. [Set up Alibaba Cloud](../how-to-guides/set-up-alicloud.md#2-credentials) covers the chart's three modes
 (`oidc`, `secret`, `none`). [`alicloud-ram-policy.json`](alicloud-ram-policy.json) is the policy: the `ecs:` and `vpc:` actions of the
 two API interfaces, reads for everything, creates under the request tag and mutations under the resource tag
 `scarpenter.sparecores.com/cluster` (a test ties the file to the interfaces; the condition keys' exact use with `RunInstances` is *unverified*).

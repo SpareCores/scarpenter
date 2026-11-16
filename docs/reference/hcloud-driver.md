@@ -10,7 +10,7 @@ the [driver contract](driver-contract.md); the settings it reads are in
 [node settings](node-settings.md); the resource engine around it is in
 [vendor resources](vendor-resources.md); the selector is in
 [resource selectors](resource-selectors.md#hcloud). How to make the images:
-[Flatcar snapshots on Hetzner Cloud](../how-to-guides/hcloud-images.md).
+[Set up Hetzner Cloud](../how-to-guides/set-up-hcloud.md#1-the-flatcar-image).
 
 It is enabled with `--vendors=hcloud` (the chart: `vendors.hcloud.enabled`). Tests run
 against the in-memory API of `pkg/vendors/hcloud/fake` and the shared conformance suite;
@@ -116,7 +116,7 @@ never guesses). `resources.images.use` replaces the lookup with the shared selec
 Whatever the lookup, the image's `flatcar-channel` and `flatcar-version` labels must say the
 pinned release or it is never booted (`ImageVersionMismatch`, `ImageVersionUnknown`). Answers are
 cached for an hour, a missing image for five minutes. How to make the snapshots:
-[the how-to](../how-to-guides/hcloud-images.md). The driver does not import images.
+[the how-to](../how-to-guides/set-up-hcloud.md#1-the-flatcar-image). The driver does not import images.
 
 ## Launch
 

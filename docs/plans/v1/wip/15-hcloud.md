@@ -82,7 +82,7 @@ checks):
   and keeps them. Some IaC tools (Pulumi among them) have no resource that uploads an
   image; a command step or CI job is needed. Looking them up in an IaC tool is possible
   with the provider's image data source (from memory, **unverified**).
-- Anyone else: the how-to `docs/how-to-guides/hcloud-images.md` (two commands, the
+- Anyone else: the how-to `docs/how-to-guides/set-up-hcloud.md#1-the-flatcar-image` (two commands, the
   Packer variant of the Flatcar docs, the label convention).
 - The L5 lane's `bootstrap.sh` creates them idempotently in the CI project when the pinned
   version has none (about 5 minutes, in parallel for both architectures).
@@ -545,7 +545,7 @@ report.
 3. `pkg/vendors/hcloud/fake` and the conformance fixtures.
 4. Docs: `docs/reference/hcloud-driver.md` (regions, images and the label convention,
    launch table, node settings, resources, network and firewall behaviour, labels, limits,
-   error table, deferred features, what is not verified), `docs/how-to-guides/hcloud-images.md`,
+   error table, deferred features, what is not verified), `docs/how-to-guides/set-up-hcloud.md#1-the-flatcar-image`,
    the L5 section of the testing how-to, the chart values for the token, the controller
    reference (flags `--hcloud-server-limit`, env `HCLOUD_TOKEN`, `SCARPENTER_HCLOUD_*`).
 5. The L5 lane, sweeper and canary as above, statically validated (selftests, `actionlint`,

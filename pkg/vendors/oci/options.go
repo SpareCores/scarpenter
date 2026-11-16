@@ -45,7 +45,7 @@ func (d *Driver) applyContextOptions(ctx context.Context) error {
 	if d.api.Compute == nil && d.provider == nil {
 		p, err := NewConfigurationProvider(CredentialConfigFromOptions(o))
 		if err != nil {
-			return fmt.Errorf("the OCI credentials (see docs/how-to-guides/oci-credentials.md): %w", err)
+			return fmt.Errorf("the OCI credentials (see docs/how-to-guides/set-up-oci.md): %w", err)
 		}
 		d.provider = p
 	}

@@ -27,38 +27,20 @@ Available:
   auth, CNI and kube-proxy that work on remote nodes), the Helm install, the values
   that matter, the k3s kubelet client CA, upgrade, uninstall and what it leaves
   behind.
-- [**Set up AWS credentials**](aws-credentials.md) (plan 09) — the IAM policy, web
-  identity federation from the cluster's ServiceAccount issuer, EKS Pod Identity,
-  static keys, the account's Spot service-linked role.
-- [**Set up Alibaba Cloud credentials**](alicloud-credentials.md) (plan 21) — the RAM policy, an OIDC role or an access
-  key, wired into the chart.
-- [**Flatcar snapshots on Hetzner Cloud**](hcloud-images.md) (plan 15) — make the
-  snapshots the `hcloud` driver boots, the label convention, and how the driver finds
-  and checks them.
 
-- [**Set up Vultr credentials**](vultr-credentials.md) (plan 20) — the API key and
-  its IP allowlist, the Secret and the chart values, and the snapshot of the pinned
-  Flatcar version each account creates itself.
+Providers: each guide takes an account to instances joining your cluster (the
+Flatcar image, credentials, the chart values, a first NodeClass and NodePool, checks
+and limits). Their status is in the [README](../../README.md#cloud-providers).
 
-- [**Set up OVHcloud credentials**](ovh-credentials.md) (plan 18) — a dedicated
-  OpenStack user of the Public Cloud project with the five operator roles, the
-  Secret and the chart values, and the IAM policy of the later service-account mode.
-- [**Upload the Flatcar image to OVH**](ovh-images.md) (plan 18) — one Glance image per
-  region from Flatcar's OpenStack release, the naming convention, the properties and the
-  tags the driver reads.
-
-- [**Import Flatcar templates into UpCloud**](import-flatcar-templates-into-upcloud.md)
-  (plan 19) — the per-zone, per-tier template and its labels, from the images
-  repository's release asset; what SCarpenter reports.
-- [**Set up Azure credentials**](azure-credentials.md) (plan 17) — the custom role, workload
-  identity federation, a client secret, AKS, the marketplace terms.
-- [**Flatcar images on OCI**](oci-images.md) (plan 25) — the image to import per region and architecture,
-  its name and tags, the arm64 steps.
-- [**Set up OCI credentials**](oci-credentials.md) (plan 25) — the API key, the keyless workload identity
-  federation, the policy, the chart values.
-- [**Set up GCP credentials**](gcp-credentials.md) (plan 16) — the custom roles,
-  workload identity federation, a service account key, the metadata server, the
-  chart values, egress for nodes without a public address.
+- [**Set up AWS**](set-up-aws.md)
+- [**Set up Oracle Cloud Infrastructure (OCI)**](set-up-oci.md)
+- [**Set up OVHcloud Public Cloud**](set-up-ovh.md)
+- [**Set up Google Cloud**](set-up-gcp.md)
+- [**Set up Microsoft Azure**](set-up-azure.md)
+- [**Set up Alibaba Cloud**](set-up-alicloud.md)
+- [**Set up Hetzner Cloud**](set-up-hcloud.md)
+- [**Set up UpCloud**](set-up-upcloud.md)
+- [**Set up Vultr**](set-up-vultr.md)
 
 Planned for v1:
 

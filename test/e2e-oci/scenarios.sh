@@ -296,7 +296,7 @@ scn_preflight() {
     name="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-${arch}"
     img="$(oc compute image list --compartment-id "${image_compartment}" --display-name "${name}" --lifecycle-state AVAILABLE --all --output json |
       jq '[(.data // [])[]] | first // empty')" || fail "the images of the image compartment cannot be listed"
-    [[ -n "${img}" ]] || fail "the image ${name} does not exist (or is not AVAILABLE) in the image compartment: import it (docs/how-to-guides/oci-images.md)"
+    [[ -n "${img}" ]] || fail "the image ${name} does not exist (or is not AVAILABLE) in the image compartment: import it (docs/how-to-guides/set-up-oci.md)"
     assert_eq "the ${arch} image's version tag" "${E2E_FLATCAR_VERSION}" "$(tag_of "${img}" flatcar-version)"
     assert_eq "the ${arch} image's arch tag" "${arch}" "$(tag_of "${img}" arch)"
     shapes="$(oc compute image-shape-compatibility-entry list --image-id "$(jq -r '.id' <<<"${img}")" --all --output json | jq -r '(.data // [])[].shape')" ||

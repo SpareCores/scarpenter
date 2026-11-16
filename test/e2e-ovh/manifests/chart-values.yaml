@@ -6,7 +6,7 @@
 # (the client CA of k3s, which `kubectl logs` and `exec` need).
 #
 # Credentials: the OpenStack user of the lane's project, as the Secret install.sh makes
-# (docs/how-to-guides/ovh-credentials.md). The OVH driver is the only vendor.
+# (docs/how-to-guides/set-up-ovh.md). The OVH driver is the only vendor.
 cluster:
   name: ${E2E_CLUSTER}
   # The API server's tailnet address: the nodes reach it over Tailscale.

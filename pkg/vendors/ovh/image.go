@@ -237,7 +237,7 @@ func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*v
 		if _, none := errors.AsType[*selector.NoMatchError](err); none && req.Use.IsDefault() {
 			err = vendors.NewError(vendors.NotFound, selector.CodeImageNotFound, fmt.Errorf(
 				"no active image named %q (%s) in %s: %w; upload the Flatcar image with the naming convention of "+
-					"docs/how-to-guides/ovh-images.md or name it in vendors.ovh.resources.images",
+					"docs/how-to-guides/set-up-ovh.md or name it in vendors.ovh.resources.images",
 				use.Name, req.Arch, req.Region, err))
 		} else {
 			err = selector.ImageError(err, req.Region, req.Arch)

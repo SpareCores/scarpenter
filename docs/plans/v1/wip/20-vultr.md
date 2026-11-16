@@ -82,7 +82,7 @@ Sources: [Flatcar on Vultr](https://www.flatcar.org/docs/latest/deploy/cloud/vul
 - **In-memory fake** (`pkg/vendors/vultr/fake`) and the conformance suite (section 8).
 - **L5 lane and sweeper** (section 9).
 - **Docs**: `docs/reference/vultr-driver.md` (regions, images, defaults, resources, tags,
-  limits, error mapping, deferred features) and `docs/how-to-guides/vultr-credentials.md`.
+  limits, error mapping, deferred features) and `docs/how-to-guides/set-up-vultr.md#2-credentials`.
 - **API**: `pkg/apis/v1alpha1/vultr` (the `Settings` type), one line in each of
   `VendorBlocks`, `StorageProfile`, `NetworkProfile`, `PlacementProfile`, `Names`, `Get`
   and the `For` methods of `vendors.go` (the profile types hold an empty block in v1: see

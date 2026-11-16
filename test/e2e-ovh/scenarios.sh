@@ -95,7 +95,7 @@ scn_preflight() {
   for t in openstack kubectl jq helm envsubst; do command -v "${t}" >/dev/null || fail "${t} is not installed"; done
   os token issue -f value -c project_id >/dev/null || fail "the OpenStack credentials do not work"
 
-  # 1. The Flatcar image (docs/how-to-guides/ovh-images.md): exactly one active private image of the name.
+  # 1. The Flatcar image (docs/how-to-guides/set-up-ovh.md): exactly one active private image of the name.
   local name n
   name="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64"
   n="$(os image list --name "${name}" --status active --private -f json | jq 'length')"

@@ -18,7 +18,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- $oci := .Values.vendors.oci }}
 {{- $amode := $ali.credentials.mode }}
 {{- if and $ali.enabled (eq $amode "oidc") (or (not $ali.credentials.oidc.roleArn) (not $ali.credentials.oidc.providerArn)) }}
-{{- fail "vendors.alicloud.credentials.oidc.roleArn and providerArn are required with credentials mode oidc (docs/how-to-guides/alicloud-credentials.md); use mode secret or none otherwise" }}
+{{- fail "vendors.alicloud.credentials.oidc.roleArn and providerArn are required with credentials mode oidc (docs/how-to-guides/set-up-alicloud.md); use mode secret or none otherwise" }}
 {{- end }}
 {{- if and $ali.enabled (eq $amode "secret") (not $ali.credentials.secret.existingSecret) }}
 {{- fail "vendors.alicloud.credentials.secret.existingSecret is required with credentials mode secret" }}
@@ -35,30 +35,30 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- fail "vendors.azure.subscriptionID is required when vendors.azure.enabled: one controller works in one subscription" }}
 {{- end }}
 {{- if and $azure.enabled (eq $azMode "workloadIdentity") (or (not $azure.credentials.workloadIdentity.clientId) (not $azure.credentials.workloadIdentity.tenantId)) }}
-{{- fail "vendors.azure.credentials.workloadIdentity.clientId and tenantId are required with credentials mode workloadIdentity (docs/how-to-guides/azure-credentials.md); use mode secret or none otherwise" }}
+{{- fail "vendors.azure.credentials.workloadIdentity.clientId and tenantId are required with credentials mode workloadIdentity (docs/how-to-guides/set-up-azure.md); use mode secret or none otherwise" }}
 {{- end }}
 {{- if and $azure.enabled (eq $azMode "secret") (not $azure.credentials.secret.existingSecret) }}
 {{- fail "vendors.azure.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
 {{- $mode := $aws.credentials.mode }}
 {{- if and $aws.enabled (eq $mode "webIdentity") (not $aws.credentials.webIdentity.roleArn) }}
-{{- fail "vendors.aws.credentials.webIdentity.roleArn is required with credentials mode webIdentity (docs/how-to-guides/aws-credentials.md); use mode secret or none otherwise" }}
+{{- fail "vendors.aws.credentials.webIdentity.roleArn is required with credentials mode webIdentity (docs/how-to-guides/set-up-aws.md); use mode secret or none otherwise" }}
 {{- end }}
 {{- if and $aws.enabled (eq $mode "secret") (not $aws.credentials.secret.existingSecret) }}
 {{- fail "vendors.aws.credentials.secret.existingSecret is required with credentials mode secret" }}
 {{- end }}
 {{- if and $ovh.enabled (eq $ovh.credentials.mode "secret") (not $ovh.credentials.secret.existingSecret) }}
-{{- fail "vendors.ovh.credentials.secret.existingSecret is required with credentials mode secret (docs/how-to-guides/ovh-credentials.md); use mode none to set the OS_* variables yourself" }}
+{{- fail "vendors.ovh.credentials.secret.existingSecret is required with credentials mode secret (docs/how-to-guides/set-up-ovh.md); use mode none to set the OS_* variables yourself" }}
 {{- end }}
 {{- if and $upcloud.enabled (eq $upcloud.credentials.mode "secret") (not $upcloud.credentials.secret.existingSecret) }}
 {{- fail "vendors.upcloud.credentials.secret.existingSecret is required with credentials mode secret (the API token of a sub-account); use mode none to supply UPCLOUD_TOKEN some other way" }}
 {{- end }}
 {{- if and $vultr.enabled (not $vultr.credentials.secret.existingSecret) }}
-{{- fail "vendors.vultr.credentials.secret.existingSecret is required when vultr is enabled: the API key of the account (docs/how-to-guides/vultr-credentials.md)" }}
+{{- fail "vendors.vultr.credentials.secret.existingSecret is required when vultr is enabled: the API key of the account (docs/how-to-guides/set-up-vultr.md)" }}
 {{- end }}
 {{- $gcpMode := $gcp.credentials.mode }}
 {{- if and $gcp.enabled (eq $gcpMode "workloadIdentity") (not $gcp.credentials.workloadIdentity.configMap) }}
-{{- fail "vendors.gcp.credentials.workloadIdentity.configMap is required with credentials mode workloadIdentity (docs/how-to-guides/gcp-credentials.md); use mode secret or none otherwise" }}
+{{- fail "vendors.gcp.credentials.workloadIdentity.configMap is required with credentials mode workloadIdentity (docs/how-to-guides/set-up-gcp.md); use mode secret or none otherwise" }}
 {{- end }}
 {{- if and $gcp.enabled (eq $gcpMode "workloadIdentity") (not $gcp.credentials.workloadIdentity.audience) }}
 {{- fail "vendors.gcp.credentials.workloadIdentity.audience is required with credentials mode workloadIdentity: the audience of the workload identity provider" }}
@@ -68,16 +68,16 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- end }}
 {{- $ociMode := $oci.credentials.mode }}
 {{- if and $oci.enabled (not $oci.compartment) }}
-{{- fail "vendors.oci.compartment is required when oci is enabled: the OCID of the compartment of the nodes (docs/how-to-guides/oci-credentials.md)" }}
+{{- fail "vendors.oci.compartment is required when oci is enabled: the OCID of the compartment of the nodes (docs/how-to-guides/set-up-oci.md)" }}
 {{- end }}
 {{- if and $oci.enabled (not (has $ociMode (list "apiKey" "workloadIdentityFederation" "none"))) }}
 {{- fail "vendors.oci.credentials.mode must be apiKey, workloadIdentityFederation or none (instancePrincipal and okeWorkloadIdentity are not supported yet)" }}
 {{- end }}
 {{- if and $oci.enabled (eq $ociMode "apiKey") (not $oci.credentials.apiKey.existingSecret) }}
-{{- fail "vendors.oci.credentials.apiKey.existingSecret is required with credentials mode apiKey: the Secret with the keys tenancy, user, fingerprint, region and key (docs/how-to-guides/oci-credentials.md); use mode none and extraEnv for the OCI_CLI_* variables" }}
+{{- fail "vendors.oci.credentials.apiKey.existingSecret is required with credentials mode apiKey: the Secret with the keys tenancy, user, fingerprint, region and key (docs/how-to-guides/set-up-oci.md); use mode none and extraEnv for the OCI_CLI_* variables" }}
 {{- end }}
 {{- if and $oci.enabled (eq $ociMode "workloadIdentityFederation") (or (not $oci.credentials.workloadIdentityFederation.region) (not $oci.credentials.workloadIdentityFederation.identityDomainURL) (not $oci.credentials.workloadIdentityFederation.clientId) (not $oci.credentials.workloadIdentityFederation.clientSecret.existingSecret) (not $oci.credentials.workloadIdentityFederation.audience)) }}
-{{- fail "vendors.oci.credentials.workloadIdentityFederation.region, identityDomainURL, clientId, audience and clientSecret.existingSecret are required with credentials mode workloadIdentityFederation (docs/how-to-guides/oci-credentials.md)" }}
+{{- fail "vendors.oci.credentials.workloadIdentityFederation.region, identityDomainURL, clientId, audience and clientSecret.existingSecret are required with credentials mode workloadIdentityFederation (docs/how-to-guides/set-up-oci.md)" }}
 {{- end }}
 {{- if and .Values.bootstrap.tokenTTL (lt (int (include "scarpenter.seconds" .Values.bootstrap.tokenTTL)) 1200) }}
 {{- fail "bootstrap.tokenTTL must be at least 20m: core gives a NodeClaim 15 minutes to register and the token must outlive that" }}
