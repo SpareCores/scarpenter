@@ -294,7 +294,7 @@ scn_amd64() {
   local disk nic pip
   disk="$(az disk show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${vm}-os" --output json)"
   assert_eq "OS disk SKU" Premium_LRS "$(jq -r '.sku.name' <<<"${disk}")"
-  assert_eq "OS disk size" 32 "$(jq -r '.diskSizeGb' <<<"${disk}")"
+  assert_eq "OS disk size" 32 "$(jq -r '.diskSizeGB' <<<"${disk}")"
   same_id "$(jq -r '.managedBy' <<<"${disk}")" "$(jq -r '.id' <<<"${j}")" || fail "the OS disk is not attached to the VM"
   nic="$(az network nic show --ids "$(jq -r '.networkProfile.networkInterfaces[0].id' <<<"${j}")" --output json)"
   assert_eq "tag cluster on the NIC" "${E2E_CLUSTER}" "$(tag_of "${nic}" "${ctag}")"
@@ -461,7 +461,7 @@ scn_db() {
   local disk src dev
   disk="$(az disk show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${dbvm}-pgdata" --output json)"
   assert_eq "data disk SKU" Premium_LRS "$(jq -r '.sku.name' <<<"${disk}")"
-  assert_eq "data disk size" 4 "$(jq -r '.diskSizeGb' <<<"${disk}")"
+  assert_eq "data disk size" 4 "$(jq -r '.diskSizeGB' <<<"${disk}")"
   same_id "$(jq -r '.managedBy' <<<"${disk}")" "$(jq -r '.id' <<<"${dbj}")" || fail "the data disk is not attached to the database's VM"
   # The device path is the spike: the udev rules of Flatcar's Azure OEM give the by-path name.
   dev="$(node_shell "${dbnode}" 'readlink -f /dev/disk/azure/scsi1/lun0' || true)"
@@ -721,7 +721,7 @@ scn_drift() {
   vm="$(vm_name "$(vm_of_claim "${claim}")")"
   [[ "${vm}" != "${old_vm}" ]] || fail "the replacement runs on the old VM"
   assert_eq "the replacement's OS disk (the new size)" 40 \
-    "$(az disk show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${vm}-os" --query diskSizeGb --output tsv | tr -d '\r')"
+    "$(az disk show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${vm}-os" --query diskSizeGB --output tsv | tr -d '\r')"
   wait_until "the old VM deleted" 300 is_empty vms_present "${old_vm}"
   wait_until "the old NodeClaim gone" 120 is_empty kubectl get nodeclaim "${old_claim}" -o name --ignore-not-found
   wait_until "the old Node gone" 120 is_empty kubectl get node "${old_node}" -o name --ignore-not-found

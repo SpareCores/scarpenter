@@ -59,7 +59,7 @@ if command -v az >/dev/null 2>&1; then
       --query "[?tags.\"${ctag}\"=='${E2E_CLUSTER}'].{name:name,size:hardwareProfile.vmSize,zones:zones,priority:priority,state:provisioningState,power:powerState,tags:tags}"
     collect network.json net_overview
     collect disks.json az disk list --resource-group "${rg}" \
-      --query "[?contains(name, '-$(cluster_hash)-')].{name:name,size:diskSizeGb,sku:sku.name,state:diskState,managedBy:managedBy}"
+      --query "[?contains(name, '-$(cluster_hash)-')].{name:name,size:diskSizeGB,sku:sku.name,state:diskState,managedBy:managedBy}"
     # The activity log of the group: why a create or a delete failed (policy denials, quota,
     # allocation) when the controller's own log is not enough.
     collect activity-log.json az monitor activity-log list --resource-group "${rg}" --offset 3h \
