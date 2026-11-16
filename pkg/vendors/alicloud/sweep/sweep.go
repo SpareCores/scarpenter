@@ -462,7 +462,7 @@ func (s *sweeper) waitReleased(ctx context.Context, region string, c alicloud.EC
 // deploymentSets deletes the sets whose description carries a selected cluster: a
 // deployment set takes no tags, the driver writes its marker into the description.
 func (s *sweeper) deploymentSets(ctx context.Context, region string, c alicloud.ECSAPI) error {
-	in := &ecs.DescribeDeploymentSetsRequest{RegionId: new(region), PageSize: dara.Int32(100)}
+	in := &ecs.DescribeDeploymentSetsRequest{RegionId: new(region), PageSize: dara.Int32(pageSize)}
 	for page := int32(1); ; page++ {
 		in.PageNumber = new(page)
 		out, err := c.DescribeDeploymentSets(ctx, in)
@@ -487,7 +487,7 @@ func (s *sweeper) deploymentSets(ctx context.Context, region string, c alicloud.
 				})
 			}
 		}
-		if n == 0 || int(page)*100 >= int(deref(out.TotalCount)) {
+		if n == 0 || int(page)*pageSize >= int(deref(out.TotalCount)) {
 			return nil
 		}
 	}

@@ -191,9 +191,11 @@ ali_login() {
 
 # The CLI of one product in the lane's region: ecs <Action> [flags]. The action comes
 # first (`aliyun <product> <Action> --Flag value`). The credentials are read from the
-# environment (ali_login); the output is JSON (the CLI's default).
-ecs() { aliyun ecs "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
-vpc() { aliyun vpc "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
+# environment (ali_login); the output is JSON (the CLI's default). The CLI refuses to run
+# without a region of its own profile ("region can't be empty"), whatever --RegionId says:
+# ALIBABA_CLOUD_REGION_ID is that region from the environment.
+ecs() { ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun ecs "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
+vpc() { ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun vpc "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
 
 # The cluster's tag as the CLI's filter flags.
 cluster_tag_args() { printf '%s\n' --Tag.1.Key "${ctag}" --Tag.1.Value "${E2E_CLUSTER}"; }
