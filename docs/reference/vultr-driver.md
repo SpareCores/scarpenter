@@ -8,7 +8,7 @@ the settings are in [node settings](node-settings.md); the resource engine aroun
 [vendor resources](vendor-resources.md); the selector is in [resource selectors](resource-selectors.md#vultr).
 
 It is enabled with `--vendors=vultr` (chart: `vendors.vultr.enabled`) and needs the API key of the account
-([credentials](../how-to-guides/vultr-credentials.md)). Tests run against the in-memory API of
+([set up Vultr](../how-to-guides/set-up-vultr.md#2-credentials)). Tests run against the in-memory API of
 `pkg/vendors/vultr/fake` and the shared conformance suite; nothing in the repository's tests calls Vultr
 (the first live run is the opt-in L5 lane, [testing](../how-to-guides/testing.md#the-l5-lane)). Everything
 marked **unverified** is a hypothesis from the public API documentation and the `govultr` source that a

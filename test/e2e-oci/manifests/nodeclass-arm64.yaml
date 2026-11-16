@@ -1,6 +1,6 @@
 # The NodeClass of the arm64 scenario (E2E_ARM64=true): the same, on the arm64 image
 # (flatcar-<channel>-<version>-arm64, with the capability schema and the Arm shapes added to its
-# compatibility, docs/how-to-guides/oci-images.md). The pool names the Arm shapes.
+# compatibility, docs/how-to-guides/set-up-oci.md). The pool names the Arm shapes.
 apiVersion: scarpenter.sparecores.com/v1alpha1
 kind: SCNodeClass
 metadata:

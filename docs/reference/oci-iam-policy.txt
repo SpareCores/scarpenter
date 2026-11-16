@@ -1,7 +1,8 @@
 # IAM policy of the SCarpenter OCI controller (plan 25, section 11): statements for
 # the group of the controller's identity. Replace <group> and <compartment>.
-# The verbs of each call are UNVERIFIED (spike S12): the first live run corrects
-# this file. iam_test.go maps every method of the driver's API interfaces to the
+# The L5 lane runs green with these statements, except that its own policy has
+# manage volume-family (for its sweeper) where this file has use: use alone is not
+# shown live. iam_test.go maps every method of the driver's API interfaces to the
 # statement that covers it.
 
 # The instances, their VNIC attachments and the shapes, in the compartment of the nodes.

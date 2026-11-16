@@ -544,7 +544,7 @@ read-only guard.
 - Core: nothing new expected; if the driver needs a **multi-bucket quota with an unknown
   second bucket**, the quota tracker already takes several (`Consumption` returns a list).
 - Docs in the same plan: `docs/reference/azure-driver.md`, `docs/reference/azure-role.json`
-  (JSON-validated in `make lint`), `docs/how-to-guides/azure-credentials.md` (workload
+  (JSON-validated in `make lint`), `docs/how-to-guides/set-up-azure.md#2-credentials` (workload
   identity, secret, AKS), the API reference for `spec.vendors.azure`, the L5 section of
   the testing how-to. `pkg/apis/v1alpha1/azure` and the one line per type of `vendors.go`.
 

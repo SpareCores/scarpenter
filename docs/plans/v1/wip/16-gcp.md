@@ -222,7 +222,7 @@ policies and run firewalls always.
   (whether Compute accepts the direct form for every method used: **unverified**; the
   impersonation form is the safe default). The cluster's OIDC issuer must be reachable by
   Google or its JWKS uploaded to the provider. This is the counterpart of AWS web identity
-  and of `docs/how-to-guides/aws-credentials.md`; a `gcp-credentials.md` how-to is part of
+  and of `docs/how-to-guides/set-up-aws.md#2-credentials`; a `set-up-gcp.md#2-credentials` how-to is part of
   the plan. Also supported by the chart: a service-account key Secret (`mode: secret`) and
   node credentials from the metadata server when the controller runs on GCE or GKE
   (`mode: none`).
@@ -591,7 +591,7 @@ full run is expected in the cents range (unverified; the first live run reports 
 status, launch table, node settings, resources and defaults including the description
 marker, network and egress, labels and tags, quotas and what is unverified, error mapping,
 metadata exposure, deferred), `docs/reference/gcp-iam-role.yaml`,
-`docs/how-to-guides/gcp-credentials.md` (workload identity federation for a cluster
+`docs/how-to-guides/set-up-gcp.md#2-credentials` (workload identity federation for a cluster
 outside GCP, the service-account key route, the metadata-server route), the lane section of
 `docs/how-to-guides/testing.md`, the vendor-resources and node-settings references' GCP
 rows; the image placement (GCP amd64 rung 1, arm64 rung 2) is ADR-021 and

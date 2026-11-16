@@ -189,7 +189,7 @@ tagged gateways. Run one region without a default VPC.
   keys (`mode: secret`). Confirm the "Missing Region" behaviour, and that the EKS pod
   identity webhook does not override the chart's explicit environment when
   `annotateServiceAccount` is on.
-- The self-managed OIDC issuer steps of `docs/how-to-guides/aws-credentials.md`
+- The self-managed OIDC issuer steps of `docs/how-to-guides/set-up-aws.md#2-credentials`
   (`--service-account-issuer`, publishing the discovery documents, the IAM provider and
   its thumbprint remark, trust-policy condition keys with a path, the Pod Identity trust
   policy) are untested: walk them once.

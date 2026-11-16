@@ -194,7 +194,7 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 		cred, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
 		if err != nil {
 			return fmt.Errorf("finding the Google credentials (set --gcp-project and the credentials, "+
-				"see docs/how-to-guides/gcp-credentials.md): %w", err)
+				"see docs/how-to-guides/set-up-gcp.md): %w", err)
 		}
 		d.project = cred.ProjectID
 	}

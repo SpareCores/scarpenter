@@ -4,7 +4,7 @@
 # other privately, which the direct template's pod network needs: SCarpenter creates an SDN
 # network and ruleset per zone (set networking.isolation: none for the public and utility
 # interfaces only).
-# The templates are yours to import: docs/how-to-guides/import-flatcar-templates-into-upcloud.md.
+# The templates are yours to import: docs/how-to-guides/set-up-upcloud.md.
 # UpCloud's regions are its zones.
 apiVersion: scarpenter.sparecores.com/v1alpha1
 kind: SCNodeClass

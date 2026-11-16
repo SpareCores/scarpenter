@@ -37,7 +37,7 @@ the controller reference.
 - **Docs**: `docs/how-to-guides/install.md` (prerequisites from plans 05 and 07:
   bootstrap-token auth, CNI/kube-proxy as DaemonSets reaching remote nodes,
   API endpoint reachable from nodes; values; upgrade; uninstall and what is
-  left behind), `docs/how-to-guides/aws-credentials.md` (publishing the
+  left behind), `docs/how-to-guides/set-up-aws.md#2-credentials` (publishing the
   cluster's ServiceAccount issuer for AWS OIDC federation, the role and the
   IAM policy, static keys as the fallback), `docs/reference/controller.md`
   (flags/env, Helm values, conditions and reasons, Events, metrics,

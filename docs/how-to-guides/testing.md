@@ -393,7 +393,7 @@ a Pod's environment. `selftest.sh` tests the redaction.
    `install.sh` puts the temporary credentials in a Secret (`vendors.aws.credentials.mode:
    secret` with a session token). Web identity from the cluster's own issuer needs a
    public issuer and EKS Pod Identity needs EKS: neither is testable on an ephemeral
-   runner, and both stay manual walks of [AWS credentials](aws-credentials.md).
+   runner, and both stay manual walks of [AWS credentials](set-up-aws.md#2-credentials).
 4. `install.sh` builds the controller image from the checkout (production build), imports
    it into k3s, applies the CRDs and the NodeClasses (they must exist before the controller
    starts, because the label keys of their metrics are registered at start-up), installs
@@ -523,7 +523,7 @@ cannot read is skipped with one warning (`skipping a region the credentials cann
 the other regions load). The role's maximum session duration must be at least **two hours**: the controller keeps
 the credentials of the first role assumption for the whole run (the workflow asks for 7200
 seconds). The account also needs the Spot service-linked role
-([AWS credentials](aws-credentials.md#account-setup-for-spot)) and **quotas that the new-account
+([AWS credentials](set-up-aws.md#what-you-need)) and **quotas that the new-account
 defaults do not give**: Standard on-demand 16 vCPUs and Standard spot 4 vCPUs in the region
 (`preflight` checks, and says so, before anything is launched).
 
@@ -788,7 +788,7 @@ releasing](testing-and-releasing.md)). What differs is the cloud:
 | | Hetzner Cloud |
 |---|---|
 | Credentials | no federation: the secret `HCLOUD_TOKEN` of the environment `e2e` (a **read-write** token of a dedicated CI project). The workflow puts it in the job's environment and masks it; `install.sh` makes the Secret `hcloud-credentials` the chart reads (`vendors.hcloud.credentials.secret.existingSecret`). |
-| Images | `bootstrap.sh` installs `hcloud` and `hcloud-upload-image` with `go install` (the module proxy's checksum database verifies them) and makes **one Flatcar snapshot per architecture** for the pinned version when the project has none, in parallel (about five minutes), with the [label convention](hcloud-images.md); the snapshots are kept. |
+| Images | `bootstrap.sh` installs `hcloud` and `hcloud-upload-image` with `go install` (the module proxy's checksum database verifies them) and makes **one Flatcar snapshot per architecture** for the pinned version when the project has none, in parallel (about five minutes), with the [label convention](set-up-hcloud.md#1-the-flatcar-image); the snapshots are kept. |
 | Control plane | on the runner, as in the AWS lane: no server of the project is spent on it. |
 | Variables | `E2E_HCLOUD_LOCATIONS` (default `fsn1,nbg1,hel1`: the arm and the cheap types are there; the NodeClasses' `regions`), `TS_OAUTH_CLIENT_ID`, `TS_AUDIENCE`. |
 | Types | `cx23` (amd64, the database and its client), `cax11` (arm64), and `cx23` or `cpx22` for the described-not-named scenario. All on-demand: Hetzner has no spot. |
@@ -867,7 +867,7 @@ leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific c
   client, and `d2-2`, `d2-4` and `b3-8` for the described scenario. No IAM condition limits flavors, so the guard is
   the lane's own types plus the project's core and instance quota as the ceiling.
 - **Identity**: a dedicated OpenStack user of the lane's own Public Cloud project with the five operator roles
-  ([OVH credentials](ovh-credentials.md)): the environment secrets `OVH_OS_USERNAME` and `OVH_OS_PASSWORD` (OVH
+  ([OVH credentials](set-up-ovh.md#2-credentials)): the environment secrets `OVH_OS_USERNAME` and `OVH_OS_PASSWORD` (OVH
   documents no GitHub OIDC trust, so the password is stored), the variables `OVH_PROJECT_ID`, `OVH_REGION` and
   optionally `OVH_AUTH_URL`. The lane's scripts use the `openstack` CLI (the workflow installs `python-openstackclient`
   pinned, with every dependency pinned by the OpenStack upper constraints of its release, 2025.2).
@@ -893,7 +893,7 @@ leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific c
   and the project's spending alert is unverified. The operator sets the quotas low, creates the alert and checks it fires (plan 18), and
   then adds `ovh` to `test/e2e-vendors.txt`.
 - **Provisioned outside this repository**: the project (one active region, low quotas, a spending alert), the two users, the
-  images of [Upload the Flatcar image to OVH](ovh-images.md) in the lane's region, the environment secrets and variables above.
+  images of [Upload the Flatcar image to OVH](set-up-ovh.md#1-the-flatcar-image) in the lane's region, the environment secrets and variables above.
 ### The L5 lane of Azure
 
 `test/e2e-azure/` has the same script names as `test/e2e-aws/`, with Azure's own scenarios (the proximity
@@ -1048,18 +1048,18 @@ hack/dev.sh make test-e2e-oci-dryrun                            # everything tha
   not public, so the chart's projected token could not be trusted by the domain: the lane sets the mode `none`, which renders no OCI credential flag, and passes
   the flags with `extraArgs`; the selftest renders the chart and checks that they are the only ones. The lane tests the driver's mode, not the chart's projected token). The sweeper and the canary (Go) exchange the same
   file through `test/e2e-oci/ocienv`. The one stored secret is the application's client secret (`OCI_CLIENT_SECRET`, an environment secret).
-  The audience the trust expects, the exact fields of the token endpoint's answer and that the CLI's `security_token` profile needs no fingerprint are **unverified**
-  until the first live run (spike S11).
+  The live lane proves the exchange (audience `oci-federation`, the token endpoint's answer, the CLI's `security_token` profile without a fingerprint);
+  the chart's projected ServiceAccount token remains untested.
 - **Images.** The lane's operator imports Flatcar's own `oraclecloud` image into the compartment (or into the compartment `OCI_IMAGE_COMPARTMENT` names, which the lane passes to the controller as `vendors.oci.imageCompartment` and to the preflight and the canary), per architecture, named
-  `flatcar-<channel>-<version>-<arch>` with the freeform tags of [Flatcar images on OCI](oci-images.md); the preflight and the canary read them
+  `flatcar-<channel>-<version>-<arch>` with the freeform tags of [Flatcar images on OCI](set-up-oci.md#1-the-flatcar-image); the preflight and the canary read them
   and their shape compatibility. arm64 runs unless `E2E_ARM64=false` (the image needs a capability schema and the compatibility entry of `VM.Standard.A1.Flex`; `A2` and `A4` are untested and not in the lane).
 - **Types.** `oci.VM.Standard.E5.Flex.1-4` (amd64, on demand and preemptible; 1 OCPU is 2 vCPUs, 4 GB), `VM.Standard.E5.Flex.1-8` and
   `VM.Standard.E5.Flex.2-8` (the described scenario), `VM.Standard.A1.Flex.1-2` (arm64, A1 only; `E2E_ARM64=false` turns it off).
   The pools of `test/e2e-oci/manifests/nodepools.yaml` name the same types, and a test keeps this page and them together. No bare metal (cost and boot time).
 - **Limits.** About 8 OCPUs and 48 GB of the E5 family in the region (`E2E_MIN_OCPU`, `E2E_MIN_MEMORY_GB`). The Limits service reports `used` and `available` per availability
   domain, so the `quota` scenario compares the controller's buckets (`standard-e5-core-count`, `standard-e5-memory-count`: usage is the sum over the domains,
-  the limit is that plus the largest availability) with what `oci limits resource-availability get` says; preemptible capacity is counted like any other until
-  the first live run says otherwise (spike S9); the Quotas service accepts `standard-e5-core-count`, `standard-e5-memory-count`, the E4 pair and `standard-e3-memory-count`, and the E3 cores are `standard-e3-core-ad-count`.
+  the limit is that plus the largest availability) with what `oci limits resource-availability get` says; preemptible capacity is counted like any other (whether
+  it has its own limit is still open, spike S9); the Quotas service accepts `standard-e5-core-count`, `standard-e5-memory-count`, the E4 pair and `standard-e3-memory-count`, and the E3 cores are `standard-e3-core-ad-count`.
 - **Ownership marker.** Instances carry the freeform tags `scarpenter-cluster=scarpenter-ci-<run id>` (and `ci-created-at`, `ci-run` from the NodeClass's `spec.tags`).
   The VCN, the internet gateway, the route table, the security list, the subnet and the groups SCarpenter creates carry `scarpenter-cluster`, `scarpenter-managed-by`,
   `scarpenter-nodeclass` and `scarpenter-resource-kind` **and** a name that starts with `scarpenter-<cluster>-`. What the workflow brings itself for `byo` is named
@@ -1087,7 +1087,7 @@ hack/dev.sh make test-e2e-oci-dryrun                            # everything tha
 
 - a **dedicated compartment** and nothing else in it, with a **compartment quota** (the Quotas service) that caps the E5 and Arm compute cores and memory at what the pins need, a budget alert, and the
   subscription of the lane's region;
-- the **Flatcar images** of the pinned release in the compartment of the lane's region ([oci-images.md](oci-images.md): imported, named, tagged, with their shape compatibility, and for arm64 the capability schema);
+- the **Flatcar images** of the pinned release in the compartment of the lane's region ([set-up-oci.md#1-the-flatcar-image](set-up-oci.md#1-the-flatcar-image): imported, named, tagged, with their shape compatibility, and for arm64 the capability schema);
 - an **IAM identity domain** with a **confidential application** (client credentials) and a **trust** for GitHub's OIDC issuer (`https://token.actions.githubusercontent.com`) that maps the subjects of this repository's environments
   `e2e`, `e2e-sweeper` and `e2e-canary` to identity domain users, in a CI group (the first two) and a canary group (the last); a second application for the canary is allowed;
 - the **policies**: `test/e2e-oci/ci-policy.sh policy <group> <compartment> [region] [image compartment]` prints the CI group's statements (the driver's, `manage volume-family` for the sweeper's boot volume deletion, and the region condition),

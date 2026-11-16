@@ -1,0 +1,25 @@
+# The smallest Hetzner Cloud NodeClass. The Flatcar snapshots are yours to make: one per
+# architecture in your own project, labelled os=flatcar, flatcar-channel=<channel> and
+# flatcar-version=<version> (docs/how-to-guides/set-up-hcloud.md#1-the-flatcar-image).
+# No network is named, so nodes have a public IPv4 only, and SCarpenter creates and owns
+# one deny-inbound firewall per location. The tailscale template needs outbound traffic
+# only, so it works behind that firewall; the auth key Secret is
+# docs/how-to-guides/choose-a-network-template.md#with-tailscale. A location is its own zone.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: hcloud-minimal
+spec:
+  flatcar:
+    version: "4757.2.3"
+  kubernetes:
+    version: "v1.37.1"
+  network:
+    template: tailscale
+    tailscale:
+      version: v1.98.10
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["tag:k8s-node"]
+  vendors:
+    hcloud:
+      regions: [fsn1, nbg1, hel1]

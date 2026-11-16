@@ -172,7 +172,7 @@ type Options struct {
 	GCPProject string
 	// OCICompartment is the compartment of the OCI driver's nodes (required with
 	// the oci vendor); OCIAuth the credentials mode; the other OCI fields are the
-	// sources of the identity (docs/how-to-guides/oci-credentials.md).
+	// sources of the identity (docs/how-to-guides/set-up-oci.md).
 	OCICompartment string
 	// OCIImageCompartment is the compartment the OCI driver lists images in; empty
 	// means OCICompartment.

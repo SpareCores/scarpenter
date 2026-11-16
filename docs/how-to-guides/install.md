@@ -43,15 +43,15 @@ flannel and kube-proxy; the flags of a k3s server are in
 
 **Outbound access for the controller** (not for your nodes): HTTPS to the Keeper API
 (`keeper.sparecores.net`: `/healthcheck`, the snapshot files of the catalog, the
-vendors' storage and IPv4 prices, and `/benchmark_configs`; it needs an [API key](#keeper-api-key)), to the vendor's APIs (for AWS: EC2, Service Quotas and STS), and to the
+vendors' storage and IPv4 prices, and `/benchmark_configs`; it needs an [API key](#keeper-api-key)), to the APIs of the vendors you enable (each provider's set-up guide lists them), and to the
 hosts of the node artifacts (the Flatcar release server and the sysext-bakery
 releases on GitHub; point `artifacts.sysextBaseURL` and `artifacts.flatcarBaseURL`
 at mirrors if the controller has no such access). Nodes download the same
 artifacts themselves; IPv6-only nodes need mirrors, because GitHub has no IPv6.
 
-**Vendor credentials** with the right permissions: [AWS credentials](aws-credentials.md).
-On AWS, the account also needs the service-linked role for Spot if you launch Spot
-capacity.
+**An account at one or more providers**, set up as its guide describes (the Flatcar
+image, credentials with the right permissions, the chart values): see
+[Credentials for the vendors](#credentials-for-the-vendors).
 
 **Helm** with OCI registry support (3.8 or newer; the chart and its tests are developed with Helm 4.3, and the templates use no Helm 4 feature, but Helm 3 is not tested) and permission to install CRDs and
 cluster-scoped RBAC.
@@ -115,8 +115,7 @@ refuses to start on any problem of its command line and logs all of them.
 | Value | Why |
 |---|---|
 | `cluster.name`, `cluster.apiServerEndpoint` | Required. |
-| `vendors.aws.credentials.*` | How the controller authenticates to AWS: [AWS credentials](aws-credentials.md). |
-| `vendors.aws.enabled` | Turn the AWS driver off or on (default on). |
+| `vendors.<vendor>.enabled`, `vendors.<vendor>.credentials.*` | Which drivers run and how each authenticates: the [provider guides](#credentials-for-the-vendors). AWS is on by default; set `vendors.aws.enabled=false` if you do not use it. |
 | `cluster.dns` | The kubelet's `clusterDNS` on nodes. Empty (default): the controller reads the DNS Service of `kube-system` itself (label `k8s-app=kube-dns`, the Service named `kube-dns` first; also with `helm template` and ArgoCD). If it finds none, SCNodeClasses are not valid (`ValidationSucceeded=False`, reason `ClusterDNSUnknown`, naming this value): set the IPs, or `[none]` to give the nodes no cluster DNS (their Pods then use the node's resolver). |
 | `cluster.domain` | The kubelet's `clusterDomain` (default `cluster.local`). |
 | `cluster.ca.*` | A CA bundle for the nodes other than the `kube-root-ca.crt` ConfigMap of the release namespace (which every namespace has, and which is the right one on kubeadm, k3s and EKS). |
@@ -126,7 +125,7 @@ refuses to start on any problem of its command line and logs all of them.
 | `bootstrap.tailnetPrefixes` | For a Headscale with other prefixes than Tailscale's. |
 | `rbac.authKeySecrets` | The tailscale auth key Secrets of other namespaces: the chart creates a Role that reads just that Secret and a RoleBinding there. The key Secret in the release namespace needs nothing. |
 | `managedResources.*`, `gc.*`, `quota.*`, `unavailable.*`, `catalog.*` | The tuning of the controller; the defaults suit most clusters. |
-| `resources` | Sized from the L3 scale measurement: the controller peaks at about 300 MiB with three regions and about 475 MiB with every AWS region in scope. Keep the memory limit above 700 MiB if you do not restrict regions in the NodeClass. |
+| `resources` | The defaults (request 640Mi, limit 2Gi) are sized from the L3 scale and catalog refresh measurements: AWS with three regions peaks at about 310 MiB, with every region at about 430 MiB, and every region of every vendor at about 1.1 GiB of heap. Scope the NodeClasses to the regions you use, or raise the limit ([memory sizing](../reference/controller.md#memory-sizing)). |
 | `extraArgs`, `extraEnv` | Core's other flags and anything else. |
 
 Everything is in `values.yaml` with comments, and `values.schema.json` rejects
@@ -221,10 +220,22 @@ the lease `<release>-leader-election` in the release namespace); add
 
 ## Credentials for the vendors
 
-[AWS credentials](aws-credentials.md) covers the three modes of the chart:
-`webIdentity` (the ServiceAccount's token exchanged for an IAM role; the
-recommendation), `secret` (static keys in a Secret you create) and `none` (EKS Pod
-Identity or the node's instance profile, which the SDK finds itself).
+Each provider has a set-up guide: the Flatcar image the driver boots, the
+credentials and their permissions, the chart values that enable the driver, a first
+NodeClass and NodePool, and the checks. Enable only the drivers you use (AWS is on by
+default).
+
+| Provider | Guide |
+|---|---|
+| Amazon Web Services | [Set up AWS](set-up-aws.md) |
+| Oracle Cloud Infrastructure | [Set up OCI](set-up-oci.md) |
+| OVHcloud Public Cloud | [Set up OVHcloud](set-up-ovh.md) |
+| Google Cloud | [Set up Google Cloud](set-up-gcp.md) |
+| Microsoft Azure | [Set up Azure](set-up-azure.md) |
+| Alibaba Cloud | [Set up Alibaba Cloud](set-up-alicloud.md) |
+| Hetzner Cloud | [Set up Hetzner Cloud](set-up-hcloud.md) |
+| UpCloud | [Set up UpCloud](set-up-upcloud.md) |
+| Vultr | [Set up Vultr](set-up-vultr.md) |
 
 ## Keeper API key
 
@@ -263,7 +274,8 @@ need no key.
 
 Nothing launches without an `SCNodeClass` and a Karpenter `NodePool` that
 references it. `--set examples.enabled=true` (with the versions and regions you
-want: `examples.*`) installs one pair per enabled vendor as a starting point; the
+want: `examples.*`) installs one pair per enabled vendor among AWS, Alibaba Cloud,
+OVHcloud and UpCloud as a starting point (for the others, use the guide's example); the
 files in `config/samples` show the whole API ([API reference](../reference/api.md)). A
 NodeClass pins the Flatcar and Kubernetes versions, so check that the Kubernetes
 version is within the skew of your API server. It is ready when `kubectl get
@@ -389,8 +401,8 @@ What an uninstall leaves behind:
 |---|---|
 | `helm install` fails with "is required" or a schema error | The message names the value. |
 | The controller is not ready | `kubectl -n scarpenter-system logs`: the usual causes are a missing CRD, an unreachable API server, or a flag the controller rejects (all problems are listed at once). |
-| `SCNodeClass` not `Ready` | `kubectl describe scnodeclass`: `CatalogReady` (Keeper unreachable or no snapshot yet), `ArtifactsReady` (the Flatcar or sysext hosts), `ValidationSucceeded` (a Secret or ConfigMap it references, the Kubernetes skew). |
+| `SCNodeClass` not `Ready` | `kubectl describe scnodeclass`: `CatalogReady` (Keeper unreachable or no snapshot yet), `ArtifactsReady` (the Flatcar or sysext hosts), `ValidationSucceeded` (a Secret or ConfigMap it references, the Kubernetes skew), and per vendor under `status.vendors.<vendor>`: `VendorReady` (`ValidationFailed` names what the driver refuses) and `ImagesReady` (the Flatcar image per region). |
 | Pods stay Pending, no NodeClaim | The NodePool's requirements (vendor, region, capacity type) against the NodeClass's regions; `QuotaAvailable=False` on the NodeClass; core's events on the pod. |
 | A node never joins | The instance's serial console. The API endpoint must be reachable from the vendor network, the CNI DaemonSets must run on the node, and the token lives for `bootstrap.tokenTTL`. |
 | `kubectl logs` and `exec` fail with 401 on a k3s node | [k3s: the kubelet client CA](#k3s-the-kubelet-client-ca). |
-| AWS calls fail with `AccessDenied`, `Missing Region` or `WebIdentityErr` | [AWS credentials](aws-credentials.md#troubleshooting). |
+| A vendor's calls fail with an authentication or permission error | The Troubleshooting section of that provider's guide, for example [Set up AWS](set-up-aws.md#troubleshooting). |

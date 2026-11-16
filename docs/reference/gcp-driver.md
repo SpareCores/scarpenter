@@ -44,7 +44,7 @@ the whole wait for an insert (5 minutes). A call that runs into its deadline is 
 
 Application Default Credentials through the Google client libraries, with the user agent
 `scarpenter/<version>`. The recommended setup for a cluster outside Google Cloud is workload identity
-federation ([credentials how-to](../how-to-guides/gcp-credentials.md)); a service account key and
+federation ([set up GCP](../how-to-guides/set-up-gcp.md#2-credentials)); a service account key and
 the metadata server (GKE, GCE) work too. The clients are created with the first call: an unreachable
 Google does not keep the controller from starting.
 
@@ -52,8 +52,8 @@ The controller targets **one project**: `--gcp-project` (`SCARPENTER_GCP_PROJECT
 `vendors.gcp.project`), else the project of the credentials (a service account key, the metadata
 server). Workload identity federation carries no project: the flag is then required, and the
 controller refuses to start without a project. The NodeClass field `vendors.gcp.project`, when set, must
-equal it (`ValidationSucceeded` is false otherwise, and a launch with another project is `Fatal`), so a
-rendered manifest says which project it is for and a mismatch is a visible condition.
+equal it (the vendor's `VendorReady` is false otherwise, reason `ValidationFailed`, and a launch with
+another project is `Fatal`), so a rendered manifest says which project it is for and a mismatch is a visible condition.
 
 Nodes carry no service account unless `vendors.gcp.serviceAccount` is set (it needs
 `iam.serviceAccounts.actAs` for the controller).

@@ -529,7 +529,7 @@ sc-inspector's code) are the second source to read at implementation.
 - **Docs**: `docs/reference/alicloud-driver.md` (regions, zones, images and the pipeline's
   contract, defaults, profiles, resources, network, tags, quotas, errors, the IMDS gap,
   deferred, not verified), `docs/reference/alicloud-ram-policy.json` (the `ecs:`/`vpc:` actions of the client layer's calls, mutations conditioned on the cluster tag as in the AWS policy; the CI policy of section 9 is a narrower variant; validated
-  as JSON in `make lint`), `docs/how-to-guides/alicloud-credentials.md` (OIDC provider and
+  as JSON in `make lint`), `docs/how-to-guides/set-up-alicloud.md#2-credentials` (OIDC provider and
   role for the controller, RAM user keys), the vendor line in the vendor table.
 - **Deferred**: IPv6, local-storage profiles, partition placement, dedicated hosts and
   capacity reservations (`PrivatePoolOptions`), multiple ENIs, eRDMA/`HighPerformance` traffic

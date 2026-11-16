@@ -99,7 +99,7 @@ vendors:
     credentials:
       # oidc: the ServiceAccount's projected token is exchanged for a RAM role
       #   through a RAM OIDC identity provider that trusts the cluster's issuer;
-      #   recommended (docs/how-to-guides/alicloud-credentials.md).
+      #   recommended (docs/how-to-guides/set-up-alicloud.md).
       # secret: an access key from an existing Secret (the fallback).
       # none: nothing is wired; the SDK's default chain finds the credentials.
       mode: oidc
@@ -206,7 +206,7 @@ vendors:
     credentials:
       # workloadIdentity: an external_account credential configuration (an existing
       #   ConfigMap) whose token file is the ServiceAccount's projected token
-      #   (workload identity federation, docs/how-to-guides/gcp-credentials.md);
+      #   (workload identity federation, docs/how-to-guides/set-up-gcp.md);
       #   recommended for a cluster outside Google Cloud.
       # secret: a service account key from an existing Secret (the fallback).
       # none: nothing is wired; Application Default Credentials find the identity
@@ -227,7 +227,7 @@ vendors:
         key: key.json
   hcloud:
     # Hetzner Cloud: servers of one project, from Flatcar snapshots in that
-    # project (docs/how-to-guides/hcloud-images.md, docs/reference/hcloud-driver.md).
+    # project (docs/how-to-guides/set-up-hcloud.md, docs/reference/hcloud-driver.md).
     enabled: false
     # The server limit of the project, as the Console shows it (the API does not
     # report it); with it the controller knows the headroom before a launch
@@ -248,7 +248,7 @@ vendors:
   oci:
     # Oracle Cloud Infrastructure (docs/reference/oci-driver.md): instances of one
     # compartment of the tenancy, from Flatcar images imported into it
-    # (docs/how-to-guides/oci-images.md). The embedded catalog serves OCI until
+    # (docs/how-to-guides/set-up-oci.md). The embedded catalog serves OCI until
     # Keeper does (catalog.embeddedVendors).
     enabled: false
     # OCID of the compartment of the nodes (--oci-compartment). REQUIRED when oci
@@ -258,14 +258,14 @@ vendors:
     # the default image and the images.use selectors by name, tags or OS. Empty (the
     # default): the compartment of the nodes. Set it when the Flatcar images are
     # imported into another compartment; the controller then needs
-    # `read instance-images` there (docs/how-to-guides/oci-credentials.md).
+    # `read instance-images` there (docs/how-to-guides/set-up-oci.md).
     imageCompartment: ""
     credentials:
       # apiKey: an API key from an existing Secret (keys tenancy, user,
       #   fingerprint, region, key; optional passphrase), mounted as a directory.
       # workloadIdentityFederation: the keyless token exchange: the
       #   ServiceAccount's projected token is exchanged at an IAM identity domain
-      #   for a short-lived session token (docs/how-to-guides/oci-credentials.md);
+      #   for a short-lived session token (docs/how-to-guides/set-up-oci.md);
       #   recommended where the cluster's issuer can be trusted by the domain.
       # none: nothing is wired, not even --oci-auth (the controller's default is
       #   apiKey); set the OCI_CLI_* variables with extraEnv, or the mode and its
@@ -292,8 +292,8 @@ vendors:
           existingSecret: ""
           key: client-secret
         # Audience of the projected token: what the domain's trust for the cluster's
-        # issuer expects. REQUIRED. (Whether the domain accepts it is settled by the
-        # first live run: plan 25, spike S11.)
+        # issuer expects. REQUIRED. (The token exchange is proven live with a GitHub
+        # token; this projected-token path is not tested yet.)
         audience: ""
         expirationSeconds: 3600
   # OVHcloud Public Cloud (docs/reference/ovh-driver.md): one Public Cloud
@@ -313,7 +313,7 @@ vendors:
     credentials:
       # secret: the OpenStack environment (OS_AUTH_URL, OS_USERNAME, OS_PASSWORD,
       #   OS_PROJECT_ID, OS_USER_DOMAIN_NAME) of a dedicated user of the project, from
-      #   an existing Secret (docs/how-to-guides/ovh-credentials.md).
+      #   an existing Secret (docs/how-to-guides/set-up-ovh.md).
       # none: nothing is wired; set the variables yourself (extraEnv).
       mode: secret
       secret:
@@ -349,7 +349,7 @@ vendors:
       # The API key of the account (VULTR_API_KEY), from an existing Secret.
       # Vultr has no workload identity for callers, so this is the only mode.
       # The key is bound to an IP allowlist that must contain the controller's
-      # egress address (docs/how-to-guides/vultr-credentials.md). REQUIRED when
+      # egress address (docs/how-to-guides/set-up-vultr.md). REQUIRED when
       # vultr is enabled.
       secret:
         existingSecret: ""
@@ -555,7 +555,7 @@ examples:
   ovh:
     regions: [GRA11]
   # The example NodeClass of UpCloud (vendors.upcloud.enabled): the zones it may
-  # use. Flatcar templates must exist in them (docs/how-to-guides/import-flatcar-templates-into-upcloud.md).
+  # use. Flatcar templates must exist in them (docs/how-to-guides/set-up-upcloud.md).
   upcloud:
     regions: [fi-hel1]
   nodePool:

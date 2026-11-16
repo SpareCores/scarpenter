@@ -84,7 +84,7 @@ a region the account cannot use is `RegionUnavailable`. The `regions` of the blo
 Rung 3 of ADR-021: UpCloud has no public Flatcar template and nothing can be shared across accounts, so the
 operator imports the Spare Cores images repository's `flatcar-upcloud-<channel>-<version>-amd64.img.gz` into a
 storage and makes a template of it in every zone and storage tier
-([how to](../how-to-guides/import-flatcar-templates-into-upcloud.md)). SCarpenter only resolves and reports them;
+([how to](../how-to-guides/set-up-upcloud.md#1-the-flatcar-image)). SCarpenter only resolves and reports them;
 it never imports. The LTS channel is unsupported until an LTS release ships Ignition 2.23 or later (the `upcloud`
 platform); `NodeClassValidator` refuses it.
 

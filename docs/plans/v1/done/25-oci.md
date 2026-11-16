@@ -1019,8 +1019,8 @@ vendors, no `use.ids` without a region key, rejected unknown fields), the `vendo
 `SCNodeClass` and the CRD, the registration (`cmd/controller/oci.go`), the controller flags
 (`--oci-compartment`, `--oci-auth`, the API-key sources and the identity-domain options; the modes `instancePrincipal` and `okeWorkloadIdentity` are not in this step) and the chart (`vendors.oci`,
 credentials modes, values schema, golden `helm template`), the published example NodeClasses and
-schema, `docs/reference/oci-driver.md`, `oci-iam-policy.txt`, `docs/how-to-guides/oci-credentials.md` and
-`oci-images.md` (the contract of section 3, as a how-to for a tool-neutral operator), rows in
+schema, `docs/reference/oci-driver.md`, `oci-iam-policy.txt`, `docs/how-to-guides/set-up-oci.md#2-credentials` and
+`set-up-oci.md#1-the-flatcar-image` (the contract of section 3, as a how-to for a tool-neutral operator), rows in
 `vendor-resources.md`, `node-settings.md`, `resource-selectors.md`, `infrastructure-handoff.md`, and the
 overview's quota table (this change adds the row), the lane section pointers. The coordinator updates
 ADR-021 and `docs/explanation/flatcar-images.md`.

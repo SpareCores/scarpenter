@@ -116,7 +116,7 @@ func (c *ociCheck) facts() {
 }
 
 // images: the Flatcar image the NodeClasses resolve (ImagesReady): the naming contract of
-// docs/how-to-guides/oci-images.md in the image compartment (OCI_IMAGE_COMPARTMENT, default the
+// docs/how-to-guides/set-up-oci.md in the image compartment (OCI_IMAGE_COMPARTMENT, default the
 // controller's compartment), per architecture (arm64 only
 // when the lane runs it), and its shape compatibility entries: every lane type of the
 // architecture must be one the image is registered for.

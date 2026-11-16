@@ -229,7 +229,7 @@ hash; the pinned version is.
 | Architectures | amd64, arm64 (A1 verified; A2 and A4 untested) |
 | Later | a Community Application per region and release would make the import unnecessary (rung 2) |
 
-The steps are in [Flatcar images on OCI](../how-to-guides/oci-images.md).
+The steps are in [Flatcar images on OCI](../how-to-guides/set-up-oci.md#1-the-flatcar-image).
 
 ## Later moves
 

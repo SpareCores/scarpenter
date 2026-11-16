@@ -186,7 +186,7 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 	}
 	if d.api.Compute == nil {
 		if d.provider == nil {
-			return fmt.Errorf("the OCI credentials are not set: see docs/how-to-guides/oci-credentials.md")
+			return fmt.Errorf("the OCI credentials are not set: see docs/how-to-guides/set-up-oci.md")
 		}
 		sdk := NewSDK(d.provider, "scarpenter/"+version.Version, WithSDKTimeout(d.callTimeout))
 		d.api = Clients{Compute: sdk, Network: sdk, Identity: sdk, Limits: sdk}

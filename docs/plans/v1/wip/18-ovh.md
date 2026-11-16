@@ -567,9 +567,9 @@ touches images.
 
 `docs/reference/ovh-driver.md` (the sections of the AWS reference: regions and zones, images and the
 naming convention, launch, node settings, resources, network and addresses, tags, quotas, error
-mapping, IAM actions, deferred, not verified), `docs/how-to-guides/ovh-credentials.md` (service
+mapping, IAM actions, deferred, not verified), `docs/how-to-guides/set-up-ovh.md#2-credentials` (service
 account and user modes; the IAM policy as JSON under `docs/reference/ovh-iam-policy.json`,
-validated in `make lint`), `docs/how-to-guides/ovh-images.md` (upload per region with
+validated in `make lint`), `docs/how-to-guides/set-up-ovh.md#1-the-flatcar-image` (upload per region with
 `openstack`, naming, tags, the IaC-neutral route), the OVH lane section of testing, the add-a-vendor
 checklist entries, the chart's `vendors.ovh` values. Deferred in the docs: private networks and
 gateways, IPv6-only, GPU and Metal flavors, arm64, `localStorage`, Glance community publishing
@@ -632,7 +632,7 @@ conservative option where the plan gave none):
 - **6** yes: `CreateAndWait`, 45 s, `SCARPENTER_OVH_SCHEDULE_WAIT`.
 - **7** Metal and GPU flavors are excluded.
 - **8** no flavor stock from the OVH API.
-- **9** operator's choice; both are documented in `ovh-images.md` (any tool).
+- **9** operator's choice; both are documented in `set-up-ovh.md#1-the-flatcar-image` (any tool).
 - **10** `osapi` (interfaces and types), `osapi/sdk` (gophercloud) and `fake` are the layers; they are not split further until a second OpenStack vendor exists.
 
 Not in the table, also taken by default:

@@ -11,9 +11,11 @@ ADR-013, ADR-018, ADR-020. The contract it implements is in the
 [vendor resources](vendor-resources.md). The IAM policy it needs is
 [`aws-iam-policy.json`](aws-iam-policy.json).
 
-It is enabled with `--vendors=aws` (the default). Tests run against the in-memory
-EC2 and Service Quotas of `pkg/vendors/aws/fake` and the shared conformance suite;
-nothing in the repository's tests calls AWS (the first live run is the L5 lane).
+It is enabled with `--vendors=aws` (the default). The unit tests run against the
+in-memory EC2 and Service Quotas of `pkg/vendors/aws/fake` and the shared conformance
+suite; the [L5 lane](../how-to-guides/testing.md#the-l5-lane) runs the driver against a
+real account on pull requests that touch AWS code, nightly and before every release.
+Setting it up: [Set up AWS](../how-to-guides/set-up-aws.md).
 
 ## Table of Contents
 
@@ -135,7 +137,8 @@ nothing in the repository's tests calls AWS (the first live run is the L5 lane).
   (for example `ap-northeast-3` in stable) reports the image not ready. The
   public lists carry AMI IDs only, not names: the name pattern follows overview
   section 11.3 and Flatcar's `Flatcar-<channel>-*` naming and is asserted in
-  `image_test.go`; plan 10 confirms it with a real `DescribeImages`.
+  `image_test.go`; the L5 lane's preflight confirms it with a real `DescribeImages`
+  (stable, both architectures).
 - `ReportImages` (`ImageReporter`): the image of the NodeClass's release in every
   region of its `aws` block (every region of the account without a list) for
   both architectures, cached like `ResolveImage`. A region or architecture
@@ -478,7 +481,7 @@ members before the call instead.
 
 [`aws-iam-policy.json`](aws-iam-policy.json) is the policy for the controller's
 role. Replace `CLUSTER_NAME` with `--cluster-name` and `123456789012` with the
-account ID.
+account ID, and `NODE_ROLE_NAME` and `KEY_ID` in the optional statements you keep.
 
 | Statement | Allows |
 |---|---|
@@ -511,12 +514,22 @@ snapshots, Capacity Blocks and Dedicated Host quotas.
 
 ## What is not verified against AWS yet
 
-Everything above runs against the in-memory fake only; plan 10 (L5, the workflow
-`e2e-cloud.yml`, see [the L5 lane](../how-to-guides/testing.md#the-l5-lane)) confirms
-it live. Specifically:
+The L5 lane (`e2e-cloud.yml`, see [the L5 lane](../how-to-guides/testing.md#the-l5-lane))
+runs in one region (`us-east-2`, which has a default VPC) with `credentials.mode: secret`
+and a role that carries this policy without the instance profile and KMS statements.
+It verifies the official stable AMIs of both architectures, on-demand and Spot launches
+(with the tagged Spot request) under the policy's conditions, the encrypted gp3 root
+volume made from the Flatcar snapshot, IMDSv2 with hop limit 1, a cluster placement
+group with an io2 data volume found by its `vol*` serial, `use` subnets and security
+groups, the quota usage against Service Quotas, drift, scale to zero and the uninstall.
+Not verified live:
 
-- the exact `Flatcar-<channel>-<version>[-arm64]-hvm` AMI names (the public
-  release lists carry AMI IDs, not names);
+- the lts AMI names;
+- the `webIdentity` and EKS Pod Identity modes and the self-managed issuer steps (the
+  lane has no public OIDC issuer);
+- the managed network (a region without a default VPC, IPv6) and its
+  `OptionalManagedNetwork*` statements; the KMS statements and `iam:PassRole` for an
+  instance profile;
 - the public IPv4 price of Keeper against a real bill;
 - the serving certificates of the `tailscale` template are approved against the
   Node's addresses (the tailnet IP cannot be verified without the Tailscale API);
@@ -524,6 +537,4 @@ it live. Specifically:
 - the real size of the user-data with an EKS cluster CA bundle (the budget is
   16 KiB, the default templates are about 5 KiB);
 - that `stopping`/`shutting-down` instances count against the quota, and the
-  unused capacity of On-Demand Capacity Reservations (from the documentation);
-- `RunInstances` with `Encrypted=true` on the root volume of a Flatcar AMI whose
-  snapshot is not encrypted, and the IAM conditions of the policy.
+  unused capacity of On-Demand Capacity Reservations (from the documentation).

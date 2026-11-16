@@ -22,8 +22,8 @@
 # instance on every verb, and cannot deny a shape. So there is no "only with the cluster tag" wall:
 # the compartment is the boundary (a dedicated one, with a compartment quota as the ceiling), and the
 # driver's own ownership check is the rest. The policy's condition `where request.region = '<region>'`
-# limits the compartment statements to the lane's region; which verbs accept it is UNVERIFIED, and the
-# first live run corrects this file (the audit log has the denials).
+# limits the compartment statements to the lane's region; the live lane's guards scenario runs with it
+# (the audit log has any denials).
 set -euo pipefail
 
 # <verb> <resource type> in compartment|tenancy
