@@ -15,6 +15,7 @@ and Flatcar were researched on 2026-11-10 (Flatcar stable 4757.2.3, LTS
 - [How a pinned version finds its image](#how-a-pinned-version-finds-its-image)
 - [Overview](#overview)
 - [Per vendor](#per-vendor)
+- [Publishing an image for everyone, and what it costs](#publishing-an-image-for-everyone-and-what-it-costs)
 - [Later moves](#later-moves)
 
 ## The ladder
@@ -46,9 +47,11 @@ read back from the image.
   what the vendor supports. Use it whenever the version can be pinned.
 - Where only our own build exists, publishing it once for everybody (rung 2)
   beats every user building it. It needs a vendor that allows public images.
-- Where nothing can be shared (Hetzner snapshots, UpCloud templates, Vultr
-  snapshots and OVH images cannot be made public), the copy is made in the
-  account by tooling that exists already, IaC. That keeps credentials that can
+- Where nothing can be made public (Hetzner snapshots, UpCloud templates and
+  Vultr snapshots document no sharing at all; OVH images are shared only with
+  projects that accept them), the copy is made in the account by tooling that
+  exists already, IaC. Which vendors could take a public image, and at what
+  cost, is [below](#publishing-an-image-for-everyone-and-what-it-costs). That keeps credentials that can
   write images out of the controller, which only reads them.
 - A vendor's own "Flatcar" entry whose version cannot be read back is not a rung:
   it would break ADR-012 and ADR-017 (never boot another version silently).
@@ -230,6 +233,59 @@ hash; the pinned version is.
 | Later | a Community Application per region and release would make the import unnecessary (rung 2) |
 
 The steps are in [Flatcar images on OCI](../how-to-guides/set-up-oci.md#1-the-flatcar-image).
+
+## Publishing an image for everyone, and what it costs
+
+Researched on 2026-11-16 from the vendors' public documentation. "Unverified" means the
+documentation did not confirm it; prices are list prices that change, so treat them as
+orders of magnitude.
+
+**In short:** where a vendor lets a third party publish an image to every customer, doing so
+costs Spare Cores the same as keeping the image private. The publisher pays the image's
+storage, once per region where the vendor's images are regional, and nobody pays a fee
+because the image is public. Consumers pay only for their own instances and disks. The
+differences between vendors are the gates (a verified business, a partner programme, a review)
+and the per-region work, not money. Where only private images exist, every user pays for and
+maintains their own copy.
+
+| Vendor | Public publishing (mechanism) | Gate | Extra cost of public vs private | Private route (per user) |
+|---|---|---|---|---|
+| AWS | yes: AMI launch permission `group=all` | "Block public access for AMIs" off in the region; no encrypted or product-code AMIs; public AMIs deprecate after two years by default | none: the publisher pays the EBS snapshots per region (about $0.05/GB-month, archive $0.0125) | not needed (Flatcar publishes) |
+| Azure | yes: Compute Gallery community sharing, or the Marketplace | community gallery prerequisites (public name prefix, EULA, contact) unverified | none for the gallery: storage per replica per region, plus egress of the first replication | direct shared gallery (preview) or RBAC; not needed (Flatcar publishes) |
+| GCP | yes: `allAuthenticatedUsers` with `roles/compute.imageUser` (`allUsers` is refused for images); public images cannot be listed, consumers name project and image | none documented | none documented; images are global (one copy serves every region), storage price unverified | an image in the user's project, imported from a Cloud Storage tarball |
+| Hetzner | no mechanism documented: snapshots move only between projects of one account (unverified, probably impossible) | n/a | n/a | rescue-mode `dd` to a temporary server, then a snapshot per project and architecture (`hcloud-upload-image` automates it); about €0.0143/GB-month on the compressed size (unofficial figure) |
+| OVHcloud | no public visibility for customers (unverified); an image can be shared, per region, with projects of any account that accept it | each target project accepts the share; revoking or deleting the image can break instances launched from it | no sharing fee documented; images are billed per GB (rate unverified) | `openstack image create --private` per region |
+| OCI | yes: a Marketplace community application made from the custom image, in the regions where it is published | an IAM policy in the publishing tenancy; whether Oracle reviews community applications is unverified (paid listings need approval and carry a publisher fee) | none documented for community applications; storage per region (Object Storage about $0.0255/GB-month; whether the custom image itself is billed is unverified) | import from an Object Storage URL (a pre-authenticated request of the exported QCOW2) per region |
+| UpCloud | no mechanism documented (unverified) | n/a | n/a | Storage Import of a raw image from a URL, or `dd` to an extra disk, then a custom template; €0.33/GB-month per user copy |
+| Vultr | only through the Marketplace vendor programme (snapshots cannot be shared) | a vendor account, an application profile, review; fees, commission and who pays storage unverified | unverified | `snapshot create-url` from a raw image URL; $0.05/GB-month on the compressed size |
+| Alibaba Cloud | yes: "Publish as Community Image", visible to every account in that region | an identity-verified enterprise account, by support ticket (US regions: by signing the terms); an image check; community images cannot be copied, shared or exported, so each region is imported and published on its own | no publishing fee documented; storage per region (snapshot about $0.017/GB-month, plus OSS during the import) | OSS upload and `ImportImage` per region, then `CopyImage` |
+
+What this means for the ladder:
+
+- **GCP arm64** (rung 2) stays the cheapest public image: one global copy per release.
+- **OCI and Alibaba Cloud** could move to rung 2 at no extra running cost. OCI needs a
+  community application per region; Alibaba Cloud needs a verified enterprise account and an
+  import per region, because its community images cannot be copied.
+- **Vultr** could move to rung 2 only through the Marketplace, whose terms are unverified.
+- **Hetzner, UpCloud and OVHcloud** stay at rung 3: no public route is documented, and an OVH
+  share needs every user's project to accept it.
+
+Sources: [AWS sharing AMIs](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/sharingamis-intro.html),
+[EBS snapshot archive pricing](https://docs.aws.amazon.com/ebs/latest/userguide/snapshot-archive-pricing.html),
+[Azure Compute Gallery](https://learn.microsoft.com/en-us/azure/virtual-machines/azure-compute-gallery),
+[GCP managing access to custom images](https://cloud.google.com/compute/docs/images/managing-access-custom-images),
+[Hetzner snapshot FAQ](https://docs.hetzner.com/cloud/servers/backups-snapshots/faq/),
+[hcloud-upload-image](https://pkg.go.dev/github.com/apricote/hcloud-upload-image/hcloudimages),
+[OVHcloud sharing images between projects](https://docs.ovhcloud.com/en/guides/public-cloud/compute/share-images-between-projects),
+[OVHcloud uploading your own image](https://docs.ovhcloud.com/en/guides/public-cloud/compute/upload-own-image),
+[OCI publishing community applications](https://docs.oracle.com/en-us/iaas/Content/Marketplace/Tasks/publishingcommunityapplications.htm),
+[OCI image import and export](https://docs.oracle.com/iaas/Content/Compute/Tasks/imageimportexport.htm),
+[UpCloud storage import](https://upcloud.com/docs/guides/storage-import/),
+[UpCloud pricing](https://www.upcloud.com/pricing/),
+[Vultr Marketplace vendors](https://docs.vultr.com/platform/marketplace-vendor),
+[Vultr snapshot FAQ](https://docs.vultr.com/products/storage/snapshots/faq),
+[Alibaba Cloud community images](https://www.alibabacloud.com/help/en/ecs/user-guide/overview-12),
+[Alibaba Cloud ImportImage](https://www.alibabacloud.com/help/en/ecs/developer-reference/api-ecs-2014-05-26-importimage).
 
 ## Later moves
 
