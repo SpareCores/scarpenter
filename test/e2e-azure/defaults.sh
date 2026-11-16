@@ -31,7 +31,7 @@
 # and NSG are made by SCarpenter or by the scenarios; the CI role is scoped to the group).
 # The subscription, the identity and the group have no default: the workflow sets them
 # from variables, a developer from their own account.
-: "${AZURE_REGION:=westeurope}"
+: "${AZURE_REGION:=centralus}"
 : "${E2E_K3S_VERSION:=v1.37.2+k3s1}"
 # The kubelet of the nodes (a sysext of the sysext-bakery): at most the API server's
 # version, at least three minors below it.
