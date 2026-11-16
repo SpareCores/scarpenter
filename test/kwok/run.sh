@@ -7,6 +7,8 @@
 #   hack/dev.sh make test-kwok
 #
 #   KWOK_SCENARIOS     a go test -run regexp selecting scenarios (default: all)
+#   KWOK_SKIP          a go test -skip regexp leaving scenarios out (CI runs the
+#                      retention scenarios, ^TestR[0-9], in a job of their own)
 #   KEEP_CLUSTER=1     keep the kind cluster (and reuse it with REUSE_CLUSTER=1)
 #   KWOK_SETUP_ONLY=1  stop once the cluster and the controller run, and keep
 #                      the cluster (make kwok-up)
@@ -217,7 +219,8 @@ fi
 # ----------------------------------------------------------------- tests ----
 log "running the scenarios"
 run_args=()
-[[ -z "${KWOK_SCENARIOS:-}" ]] || run_args=(-run "${KWOK_SCENARIOS}")
+[[ -z "${KWOK_SCENARIOS:-}" ]] || run_args+=(-run "${KWOK_SCENARIOS}")
+[[ -z "${KWOK_SKIP:-}" ]] || run_args+=(-skip "${KWOK_SKIP}")
 KWOK_OUT_DIR="${out}" \
   go test -tags kwok,scarpenter_dev -count=1 -timeout 60m -v "${run_args[@]}" ./test/kwok/e2e/ 2>&1 | tee "${out}/e2e.log"
 no_403 "after the scenarios"
