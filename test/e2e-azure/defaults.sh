@@ -27,8 +27,9 @@
 # the Prepare step checks the list) or from a fork's own list.
 # shellcheck disable=SC2034  # used by the scripts that source lib.sh
 
-# The region of the lane and the dedicated resource group inside it (its own VNet, subnet
-# and NSG are made by SCarpenter or by the scenarios; the CI role is scoped to the group).
+# The region of the lane and its dedicated resource group (its own VNet, subnet and NSG are
+# made in the region by SCarpenter or by the scenarios; the CI role is scoped to the group,
+# whose own location may be another region: it is only metadata).
 # The subscription, the identity and the group have no default: the workflow sets them
 # from variables, a developer from their own account.
 : "${AZURE_REGION:=centralus}"

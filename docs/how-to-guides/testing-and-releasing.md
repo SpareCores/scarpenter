@@ -563,8 +563,8 @@ straight to Azure (no secret), and it is **not yet a line of `test/e2e-vendors.t
 guards are Azure Policy assignments, a role scope and quotas that only a live subscription can
 show. In the subscription of the CI infrastructure, the operator provides:
 
-- **A dedicated resource group** in the lane's region (its own VNet, subnet and network security
-  group), with the Azure Policy assignments "Allowed virtual machine size SKUs" (deny, the sizes of
+- **A dedicated resource group** (in any location: the VMs, the VNet, the subnet and the network
+  security group are in the lane's region, the group's own location is only metadata), with the Azure Policy assignments "Allowed virtual machine size SKUs" (deny, the sizes of
   `test/e2e-azure/defaults.sh`, printed by `ci-policy.sh`) and "Allowed locations"; the resource
   providers `Microsoft.Compute` and `Microsoft.Network` registered; the vCPU quotas (Standard
   regional and the lane's families 16, Spot 4) and Standard public IPs; a budget alert on the

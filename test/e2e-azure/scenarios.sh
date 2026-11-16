@@ -142,8 +142,12 @@ scn_preflight() {
   for p in Microsoft.Compute Microsoft.Network; do
     assert_eq "the provider ${p} is registered" Registered "$(az provider show --namespace "${p}" --query registrationState --output tsv | tr -d '\r')"
   done
-  assert_eq "the lane's resource group is in the lane's region" "${AZURE_REGION}" \
-    "$(az group show --name "${AZURE_RESOURCE_GROUP}" --query location --output tsv | tr -d '\r')"
+  # The group must exist; its location is only metadata (a group cannot move, and its resources may be in
+  # any region), so the lane's region need not be the group's.
+  local group_loc
+  group_loc="$(az group show --name "${AZURE_RESOURCE_GROUP}" --query location --output tsv | tr -d '\r')"
+  assert_nonempty "the location of the lane's resource group ${AZURE_RESOURCE_GROUP}" "${group_loc}"
+  note "the lane's resource group is in ${group_loc}; the lane runs in ${AZURE_REGION}"
 
   # 2. The Flatcar images (plan 17 section 1): the marketplace offer of each architecture has
   # exactly the pinned release, and no terms are pending (SCarpenter never accepts terms).
