@@ -108,9 +108,13 @@ scn_preflight() {
   done
 
   # 3. The quota the suite needs (a new project's default is low: raise it, docs/how-to-guides/testing.md#the-l5-lane).
-  local cores_free inst_free
-  cores_free=$(($(limit_of maxTotalCores) - $(limit_of totalCoresUsed)))
-  inst_free=$(($(limit_of maxTotalInstances) - $(limit_of totalInstancesUsed)))
+  local cores_max cores_used inst_max inst_used cores_free inst_free
+  if ! { cores_max="$(limit_of maxTotalCores)" && cores_used="$(limit_of totalCoresUsed)" &&
+    inst_max="$(limit_of maxTotalInstances)" && inst_used="$(limit_of totalInstancesUsed)"; }; then
+    fail "the project's absolute limits in ${OS_REGION_NAME} are unreadable"
+  fi
+  cores_free=$((cores_max - cores_used))
+  inst_free=$((inst_max - inst_used))
   [[ "${cores_free}" -ge "${E2E_MIN_VCPU_OD}" ]] || fail "${cores_free} cores are free in ${OS_REGION_NAME}; the suite needs ${E2E_MIN_VCPU_OD}"
   [[ "${inst_free}" -ge "${E2E_MIN_INSTANCES}" ]] || fail "${inst_free} instances are free in ${OS_REGION_NAME}; the suite needs ${E2E_MIN_INSTANCES}"
   note "free quota in ${OS_REGION_NAME}: ${cores_free} cores, ${inst_free} instances"

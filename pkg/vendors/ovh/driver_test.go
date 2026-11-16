@@ -47,6 +47,10 @@ func TestInit(t *testing.T) {
 	t.Setenv("OS_PASSWORD", "")
 	t.Setenv("OS_PROJECT_ID", "")
 	t.Setenv("OS_PROJECT_NAME", "")
+	t.Setenv("OS_DOMAIN_ID", "")
+	t.Setenv("OS_DOMAIN_NAME", "")
+	t.Setenv("OS_USER_DOMAIN_ID", "")
+	t.Setenv("OS_USER_DOMAIN_NAME", "")
 	cfg := vendors.Config{ClusterName: "c", Log: logr.Discard()}
 	if err := New().Init(ctx, cfg); err == nil || !strings.Contains(err.Error(), "OS_AUTH_URL") {
 		t.Errorf("no credentials: %v", err)
@@ -55,6 +59,10 @@ func TestInit(t *testing.T) {
 	t.Setenv("OS_USERNAME", "u")
 	t.Setenv("OS_PASSWORD", "p")
 	t.Setenv("OS_PROJECT_ID", "0a1b")
+	if err := New().Init(ctx, cfg); err == nil || !strings.Contains(err.Error(), "OS_USER_DOMAIN_NAME") {
+		t.Errorf("no user domain: %v", err)
+	}
+	t.Setenv("OS_USER_DOMAIN_NAME", "Default")
 	d := New()
 	if err := d.Init(ctx, cfg); err != nil {
 		t.Fatalf("with credentials and no network: %v", err)

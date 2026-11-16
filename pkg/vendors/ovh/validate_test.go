@@ -55,8 +55,12 @@ func TestValidateNodeClass(t *testing.T) {
 			nc.Spec.Vendors.OVH.Storage = &ovhapi.Storage{Data: []ovhapi.DataVolume{v, v}}
 		}, "used twice"},
 		"profile storage": {func(nc *v1alpha1.SCNodeClass) {
-			nc.Spec.Profiles.Storage = map[string]v1alpha1.StorageProfile{"p": {OVH: &ovhapi.Storage{LocalStorage: &common.LocalStorage{}}}}
-		}, "profiles.storage.p.ovh"},
+			nc.Spec.Profiles.Storage = map[string]v1alpha1.StorageProfile{"p": {OVH: &ovhapi.Storage{
+				Root: &ovhapi.Root{BootFromVolume: &ovhapi.VolumeSpec{VolumeType: "nvme", Size: q("50Gi")}}}}}
+		}, "profiles.storage.p.ovh.root.bootFromVolume"},
+		"profile local storage": {func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Profiles.Storage = map[string]v1alpha1.StorageProfile{"p": {OVH: &ovhapi.Storage{LocalStorage: &common.LocalStorage{Policy: "mount"}}}}
+		}, ""},
 		"profile placement": {func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Profiles.Placement = map[string]v1alpha1.PlacementProfile{"p": {OVH: &ovhapi.Placement{ServerGroup: &ovhapi.ServerGroup{}}}}
 		}, "exactly one of policy and use"},

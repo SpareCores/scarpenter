@@ -142,8 +142,24 @@ meta_of() { jq -r --arg k "$2" '(.properties // {})[$k] // empty' <<<"$1"; }
 # flavor_of <server json>: the flavor name (the CLI shows "name (id)" or the embedded flavor).
 flavor_of() { jq -r '(if (.flavor | type) == "object" then (.flavor.original_name // .flavor.name // "") else (.flavor // "") end) | tostring | split(" ")[0]' <<<"$1"; }
 
-# limit_of <name>: a Nova absolute limit of the project in the region (maxTotalCores, totalCoresUsed, ...).
-limit_of() { os limits show --absolute -f json | jq -r --arg n "$1" '.[] | select(.Name == $n) | .Value'; }
+# limit_of <name>: a Nova absolute limit of the project in the region, by Nova's name
+# (maxTotalCores, totalCoresUsed, ...). The CLI names the rows after openstacksdk's attributes
+# since it reads limits through the SDK (total_cores, total_cores_used, ...; 8.x), Nova's own
+# names before: either is read. Fails when the row is missing, so that arithmetic on it does
+# not see an empty string.
+declare -gA limit_sdk_name=(
+  [maxTotalCores]=total_cores [totalCoresUsed]=total_cores_used
+  [maxTotalInstances]=instances [totalInstancesUsed]=instances_used
+  [maxTotalRAMSize]=total_ram [totalRAMUsed]=total_ram_used
+  [maxServerGroups]=server_groups [totalServerGroupsUsed]=server_groups_used
+)
+limit_of() {
+  local v
+  v="$(os limits show --absolute -f json |
+    jq -r --arg n "$1" --arg s "${limit_sdk_name[$1]:-$1}" 'first(.[] | select(.Name == $n or .Name == $s) | .Value) // empty')"
+  [[ -n "${v}" ]] || { echo "limit_of: no absolute limit ${1} (${limit_sdk_name[$1]:-$1}) in ${OS_REGION_NAME}" >&2; return 1; }
+  printf '%s\n' "${v}"
+}
 
 # ---------------------------------------------------------- Kubernetes ------
 
