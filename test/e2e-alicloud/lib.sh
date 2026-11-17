@@ -162,11 +162,14 @@ ali_login() {
   }
   echo "::add-mask::${token}" >&2
   # The token goes through the environment of jq, not its arguments (a process list shows those).
-  resp="$(OIDC_TOKEN="${token}" jq -rn --arg r "${ALIBABA_CLOUD_ROLE_ARN}" --arg p "${ALIBABA_CLOUD_OIDC_PROVIDER_ARN}" --arg s "scarpenter-ci-${E2E_RUN_ID:-local}" '
-      "Action=AssumeRoleWithOIDC&Format=JSON&Version=2015-04-01&DurationSeconds=7200"
+  # Timestamp is a common parameter STS wants even of an unsigned call (the SDKs send it).
+  resp="$(OIDC_TOKEN="${token}" jq -rn --arg r "${ALIBABA_CLOUD_ROLE_ARN}" --arg p "${ALIBABA_CLOUD_OIDC_PROVIDER_ARN}" --arg s "scarpenter-ci-${E2E_RUN_ID:-local}" \
+    --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+      "Action=AssumeRoleWithOIDC&Format=JSON&Version=2015-04-01&DurationSeconds=7200&Timestamp=\($t | @uri)"
       + "&RoleArn=\($r | @uri)&OIDCProviderArn=\($p | @uri)&OIDCToken=\(env.OIDC_TOKEN | @uri)&RoleSessionName=\($s | @uri)"' |
-    curl -fsS --retry 3 --data @- "${ALIBABA_CLOUD_STS_ENDPOINT:-https://sts.aliyuncs.com}/")" || {
-    echo "could not exchange the OIDC token for a RAM role session (AssumeRoleWithOIDC)" >&2
+    curl -sS --fail-with-body --retry 3 --data @- "${ALIBABA_CLOUD_STS_ENDPOINT:-https://sts.aliyuncs.com}/")" || {
+    # The error answer (Code, Message, RequestId) holds no credential.
+    echo "could not exchange the OIDC token for a RAM role session (AssumeRoleWithOIDC): $(jq -c '{Code, Message, RequestId}' <<<"${resp}" 2>/dev/null || echo "${resp:0:300}")" >&2
     return 1
   }
   key="$(jq -er '.Credentials.AccessKeyId' <<<"${resp}")" || return 1
@@ -188,9 +191,11 @@ ali_login() {
 
 # The CLI of one product in the lane's region: ecs <Action> [flags]. The action comes
 # first (`aliyun <product> <Action> --Flag value`). The credentials are read from the
-# environment (ali_login); the output is JSON (the CLI's default).
-ecs() { aliyun ecs "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
-vpc() { aliyun vpc "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
+# environment (ali_login); the output is JSON (the CLI's default). The CLI refuses to run
+# without a region of its own profile ("region can't be empty"), whatever --RegionId says:
+# ALIBABA_CLOUD_REGION_ID is that region from the environment.
+ecs() { ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun ecs "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
+vpc() { ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun vpc "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
 
 # The cluster's tag as the CLI's filter flags.
 cluster_tag_args() { printf '%s\n' --Tag.1.Key "${ctag}" --Tag.1.Value "${E2E_CLUSTER}"; }
@@ -212,10 +217,10 @@ cluster_instances() {
 cluster_security_groups() {
   local -a tag
   mapfile -t tag < <(cluster_tag_args)
-  ecs DescribeSecurityGroups "${tag[@]}" --PageSize 100 | jq -r '.SecurityGroups.SecurityGroup[]?.SecurityGroupId'
+  ecs DescribeSecurityGroups "${tag[@]}" --PageSize 50 | jq -r '.SecurityGroups.SecurityGroup[]?.SecurityGroupId'
 }
 cluster_deployment_sets() {
-  ecs DescribeDeploymentSets --PageSize 100 | jq -r --arg c "${E2E_CLUSTER}" '
+  ecs DescribeDeploymentSets --PageSize 50 | jq -r --arg c "${E2E_CLUSTER}" '
     .DeploymentSets.DeploymentSet[]? | select((.DeploymentSetDescription // "") | test("cluster=" + $c + "( |$)")) | .DeploymentSetId'
 }
 cluster_vswitches() {

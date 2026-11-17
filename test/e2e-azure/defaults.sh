@@ -13,7 +13,7 @@
 #   - the "Allowed locations" policy and the CI role's scope (the lane's resource group
 #     only) keep the lane in its region;
 #   - every resource, the inline disks aside, carries scarpenter-cluster and
-#     scarpenter-ci-created-at, and the sweeper finds the disks by their name prefix;
+#     ci-created-at, and the sweeper finds the disks by their name prefix;
 #   - the sweeper (e2e-azure-sweeper.yml, every 3 hours, environment e2e-sweeper) deletes
 #     what a dead run left, with the lane's real role;
 #   - the vCPU quotas (regional 16, the lane's families 16, Spot 4, Standard public IPs)
@@ -27,11 +27,12 @@
 # the Prepare step checks the list) or from a fork's own list.
 # shellcheck disable=SC2034  # used by the scripts that source lib.sh
 
-# The region of the lane and the dedicated resource group inside it (its own VNet, subnet
-# and NSG are made by SCarpenter or by the scenarios; the CI role is scoped to the group).
+# The region of the lane and its dedicated resource group (its own VNet, subnet and NSG are
+# made in the region by SCarpenter or by the scenarios; the CI role is scoped to the group,
+# whose own location may be another region: it is only metadata).
 # The subscription, the identity and the group have no default: the workflow sets them
 # from variables, a developer from their own account.
-: "${AZURE_REGION:=westeurope}"
+: "${AZURE_REGION:=centralus}"
 : "${E2E_K3S_VERSION:=v1.37.2+k3s1}"
 # The kubelet of the nodes (a sysext of the sysext-bakery): at most the API server's
 # version, at least three minors below it.
@@ -46,7 +47,11 @@
 # reports LowPriorityCapable: Standard_D2as_v5 (2 vCPUs, SCSI, Premium IO) is TO CONFIRM
 # from the canary's output (Standard_D2ps_v6 is the arm64 alternative, if it has a SCSI
 # disk controller).
-: "${E2E_TYPE_AMD64:=azure.Standard_B2ats_v2}"
+# A node needs more than 1 GiB: the kubelet's reserved memory for 110 pods is 1465 MiB
+# (pkg/catalog/overhead.go), so the 1 GiB sizes (B2ats_v2, B2pts_v2) offer no allocatable
+# memory and are never scheduled. Standard_B2as_v2 has 8 GiB (and is in the size policy
+# through E2E_TYPES_DESCRIBED). TODO: the arm64 size has the same problem.
+: "${E2E_TYPE_AMD64:=azure.Standard_B2as_v2}"
 : "${E2E_TYPE_ARM64:=azure.Standard_B2pts_v2}"
 : "${E2E_TYPE_SPOT:=azure.Standard_D2as_v5}"
 # The database and its client: on-demand, Premium IO (the Premium data disk), proximity

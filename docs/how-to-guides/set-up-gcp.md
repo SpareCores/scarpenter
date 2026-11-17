@@ -5,7 +5,8 @@ images, and creates (or uses) the network, subnetworks and firewall rules they n
 authenticates with workload identity federation, a service account key or the metadata server.
 Details are in the [GCP driver reference](../reference/gcp-driver.md).
 
-**Preview.** The driver is implemented and covered by unit and offline tests, but it has not run against the real cloud yet: expect rough edges and report them.
+**Preview.** A first real-cloud smoke run passed on 2026-11-16 (one amd64 node in us-central1, then scale to zero); the
+full test lane has not run yet.
 
 ## What you need
 

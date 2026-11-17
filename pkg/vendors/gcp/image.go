@@ -500,11 +500,14 @@ func (d *Driver) VendorArch(arch string) (string, bool) {
 const reportParallel = 8
 
 // ReportImages implements vendors.ImageReporter: the image of the NodeClass's
-// release for both architectures in every region of its vendor block (every
-// region of the project without a list). Images are global, so one lookup serves
-// every region unless the selector names region keys; resolutions are cached for
-// an hour. A region or architecture without an image is reported not ready with
-// the reason; it does not fail the report.
+// release for each architecture it can have in every region of its vendor block
+// (every region of the project without a list). Images are global, so one lookup
+// serves every region unless the selector names region keys; resolutions are
+// cached for an hour. A region or architecture without an image is reported not
+// ready with the reason; it does not fail the report. arm64 is reported only when
+// the NodeClass has a source for it (imageProject or an images selector) or Spare
+// Cores publishes one: Flatcar publishes no GCE arm64 image, and a gap that no
+// NodeClass can close would make every NodeClass that names a region not ready.
 func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]v1alpha1.ImageStatus, error) {
 	var regions []string
 	var owner string
@@ -531,8 +534,13 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 		sem       = make(chan struct{}, reportParallel)
 		transient error
 	)
+	arches := []string{archAMD64}
+	_, given, err := selector.ImageUse(nc, d, "", archARM64)
+	if err != nil || given || owner != "" || SpareCoresImageProject != "" {
+		arches = append(arches, archARM64)
+	}
 	for _, region := range regions {
-		for _, arch := range []string{archAMD64, archARM64} {
+		for _, arch := range arches {
 			wg.Add(1)
 			sem <- struct{}{}
 			go func() {

@@ -428,6 +428,10 @@ func (a *NSGs) CreateOrUpdate(ctx context.Context, rg, name string, nsg armnetwo
 		if r == nil || r.Properties == nil {
 			return armnetwork.SecurityGroup{}, Error(http.StatusBadRequest, "InvalidRequestFormat", "A security rule needs properties.")
 		}
+		if p := val(r.Properties.Priority); p < 100 || p > 4096 {
+			return armnetwork.SecurityGroup{}, Error(http.StatusBadRequest, "SecurityRuleInvalidPriority",
+				fmt.Sprintf("Security rule has invalid Priority %d. Value provided: %d Allowed range 100-4096.", p, p))
+		}
 		k := fmt.Sprintf("%s/%d", val(r.Properties.Direction), val(r.Properties.Priority))
 		if prios[k] {
 			return armnetwork.SecurityGroup{}, Error(http.StatusBadRequest, "SecurityRuleParametersPriorityNotUnique", "Two security rules have the same priority and direction.")

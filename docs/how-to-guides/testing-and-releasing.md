@@ -415,7 +415,7 @@ token cannot be read-only), and the environment `e2e`'s required reviewers appro
 "Allowed virtual machine size SKUs" (deny) on the lane's resource group, from the sizes of
 `test/e2e-azure/defaults.sh` (`ci-policy.sh` prints it), is the type deny; "Allowed locations" and the CI
 identity's scope (that resource group only) keep the lane in its region; the run tag is
-`scarpenter-cluster=scarpenter-ci-<run id>` with `scarpenter-ci-created-at` (inline disks by their name prefix);
+`scarpenter-cluster=scarpenter-ci-<run id>` with `ci-created-at` (inline disks by their name prefix);
 `e2e-azure-sweeper.yml` is the sweeper (environment `e2e-sweeper`); the run time limits and the failing teardown
 are AWS's; the vCPU quotas (regional and the lane's families 16, Spot 4, Standard public IPs) are the ceiling,
 with a budget alert on the subscription; the canary's identity has a read-only custom role
@@ -563,8 +563,8 @@ straight to Azure (no secret), and it is **not yet a line of `test/e2e-vendors.t
 guards are Azure Policy assignments, a role scope and quotas that only a live subscription can
 show. In the subscription of the CI infrastructure, the operator provides:
 
-- **A dedicated resource group** in the lane's region (its own VNet, subnet and network security
-  group), with the Azure Policy assignments "Allowed virtual machine size SKUs" (deny, the sizes of
+- **A dedicated resource group** (in any location: the VMs, the VNet, the subnet and the network
+  security group are in the lane's region, the group's own location is only metadata), with the Azure Policy assignments "Allowed virtual machine size SKUs" (deny, the sizes of
   `test/e2e-azure/defaults.sh`, printed by `ci-policy.sh`) and "Allowed locations"; the resource
   providers `Microsoft.Compute` and `Microsoft.Network` registered; the vCPU quotas (Standard
   regional and the lane's families 16, Spot 4) and Standard public IPs; a budget alert on the

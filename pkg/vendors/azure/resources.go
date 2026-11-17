@@ -36,8 +36,9 @@ const (
 	// Priorities of the rules of a managed network security group: the allow
 	// between the nodes of the group, then the inbound rules of the NodeClass, then
 	// the deny that closes the virtual network's built-in allow (priority 65000).
-	priorityNodes   = 50
-	priorityInbound = 100
+	// Azure takes 100 to 4096 for a rule of one's own (SecurityRuleInvalidPriority).
+	priorityNodes   = 100
+	priorityInbound = 110
 	priorityDeny    = 4000
 	// codeInUse is the code of the Retryable error of the deletion of a resource
 	// something still uses.

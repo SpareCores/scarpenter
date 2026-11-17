@@ -39,8 +39,8 @@ import (
 // createdAtTag is the tag the NodeClasses put on every resource of a run and the sweeper
 // (pkg/vendors/azure/sweep, e2e-azure-sweeper.yml) reads to age a resource. It is a literal
 // here, not an import, so that the lane's scripts stand on their own; the sweeper's constant
-// must have the same value (plan 17 section 9: scarpenter-ci-created-at).
-const createdAtTag = "scarpenter-ci-created-at"
+// must have the same value (plan 17 section 9: ci-created-at; a key with the prefix scarpenter- is SCarpenter's own).
+const createdAtTag = "ci-created-at"
 
 // The manifests of the L5 lane (test/e2e-azure/manifests) are templates for envsubst.
 // These tests render them with sample values and send every object to an envtest API
@@ -365,7 +365,7 @@ func TestLibAgreesWithTheDriver(t *testing.T) {
 			t.Errorf("%s is %q in lib.sh and %q in the driver", variable, got, want)
 		}
 	}
-	if got, want := libValue(t, `echo "${created_tag}"`), "scarpenter-ci-created-at"; got != want || got != createdAtTag {
+	if got, want := libValue(t, `echo "${created_tag}"`), "ci-created-at"; got != want || got != createdAtTag {
 		t.Errorf("created_tag is %q, want %q", got, want)
 	}
 	if string(azure.KindPlacement) != "proximityPlacementGroups" {

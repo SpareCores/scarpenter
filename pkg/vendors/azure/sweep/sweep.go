@@ -19,7 +19,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Selection is conservative on purpose. A resource is touched only when its
 // cluster tag (scarpenter-cluster) matches and, with an age limit, when the tag
-// scarpenter-ci-created-at (RFC 3339) says it is old enough: a resource without
+// ci-created-at (RFC 3339) says it is old enough: a resource without
 // the tag has no known age and is left alone. Inline disks carry no tags, so
 // they are matched by the name of their VM (<vm>-os, <vm>-<datadisk>), and only
 // for a VM of the run that was swept now or is already gone. The resource group
@@ -53,7 +53,7 @@ const (
 
 // CreatedAtTag is the tag that holds the creation time of a resource (RFC 3339),
 // put on every resource of the lane through spec.tags.
-var CreatedAtTag = azure.TagKey("ci-created-at")
+const CreatedAtTag = "ci-created-at"
 
 // ClusterTag is the tag every SCarpenter resource carries with the cluster name.
 var ClusterTag = azure.TagKey(vendors.TagCluster)

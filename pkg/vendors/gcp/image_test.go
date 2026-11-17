@@ -172,15 +172,24 @@ func TestReportImages(t *testing.T) {
 	nc.Spec.Flatcar.Version = "4757.2.3"
 	nc.Spec.Vendors.GCP = &gcpapi.Settings{Regions: []string{testRegion}}
 	got, err := e.d.ReportImages(t.Context(), nc)
-	if err != nil || len(got) != 2 {
+	// No arm64 source (no imageProject, no selector, no Spare Cores project):
+	// amd64 only, so that the NodeClass can be ready.
+	if err != nil || len(got) != 1 {
 		t.Fatalf("report = %+v, %v", got, err)
 	}
 	if got[0].Arch != "amd64" || !got[0].Ready || got[0].Ref == "" {
 		t.Errorf("amd64: %+v", got[0])
 	}
+	// An image project is a source for arm64: reported, not ready without the image.
+	nc.Spec.Vendors.GCP.ImageProject = "img-project"
+	got, err = e.d.ReportImages(t.Context(), nc)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("report with an image project = %+v, %v", got, err)
+	}
 	if got[1].Arch != "arm64" || got[1].Ready || got[1].Message == "" {
 		t.Errorf("arm64 (no image, not ready): %+v", got[1])
 	}
+	nc.Spec.Vendors.GCP.ImageProject = ""
 	// Without a region list every region of the project is reported, with an
 	// images selector of the block.
 	nc.Spec.Vendors.GCP.Regions = nil

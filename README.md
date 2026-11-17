@@ -31,8 +31,8 @@ NodeClass.
 | Amazon Web Services (AWS) | Supported | [Set up AWS](docs/how-to-guides/set-up-aws.md) |
 | Oracle Cloud Infrastructure (OCI) | Supported | [Set up OCI](docs/how-to-guides/set-up-oci.md) |
 | OVHcloud Public Cloud | Preview: first real-cloud smoke run passed | [Set up OVHcloud](docs/how-to-guides/set-up-ovh.md) |
-| Google Cloud (GCP) | Preview: not yet run against the real cloud | [Set up Google Cloud](docs/how-to-guides/set-up-gcp.md) |
-| Microsoft Azure | Preview: not yet run against the real cloud | [Set up Azure](docs/how-to-guides/set-up-azure.md) |
+| Google Cloud (GCP) | Preview: first real-cloud smoke run passed | [Set up Google Cloud](docs/how-to-guides/set-up-gcp.md) |
+| Microsoft Azure | Preview: first real-cloud smoke run passed | [Set up Azure](docs/how-to-guides/set-up-azure.md) |
 | Alibaba Cloud | Preview: not yet run against the real cloud | [Set up Alibaba Cloud](docs/how-to-guides/set-up-alicloud.md) |
 | Hetzner Cloud | Preview: not yet run against the real cloud | [Set up Hetzner Cloud](docs/how-to-guides/set-up-hcloud.md) |
 | UpCloud | Preview: not yet run against the real cloud | [Set up UpCloud](docs/how-to-guides/set-up-upcloud.md) |

@@ -142,8 +142,12 @@ scn_preflight() {
   for p in Microsoft.Compute Microsoft.Network; do
     assert_eq "the provider ${p} is registered" Registered "$(az provider show --namespace "${p}" --query registrationState --output tsv | tr -d '\r')"
   done
-  assert_eq "the lane's resource group is in the lane's region" "${AZURE_REGION}" \
-    "$(az group show --name "${AZURE_RESOURCE_GROUP}" --query location --output tsv | tr -d '\r')"
+  # The group must exist; its location is only metadata (a group cannot move, and its resources may be in
+  # any region), so the lane's region need not be the group's.
+  local group_loc
+  group_loc="$(az group show --name "${AZURE_RESOURCE_GROUP}" --query location --output tsv | tr -d '\r')"
+  assert_nonempty "the location of the lane's resource group ${AZURE_RESOURCE_GROUP}" "${group_loc}"
+  note "the lane's resource group is in ${group_loc}; the lane runs in ${AZURE_REGION}"
 
   # 2. The Flatcar images (plan 17 section 1): the marketplace offer of each architecture has
   # exactly the pinned release, and no terms are pending (SCarpenter never accepts terms).
@@ -168,14 +172,41 @@ scn_preflight() {
   od="$(limit_of compute "${bucket_cores}")"
   spot="$(limit_of compute "${bucket_spot}")"
   [[ "$(num "${od:-0}")" -ge "${E2E_MIN_VCPU_OD}" ]] || fail "the Total Regional vCPUs quota of ${AZURE_REGION} is '${od}'; the suite needs ${E2E_MIN_VCPU_OD} (raise it, docs/how-to-guides/testing.md#the-l5-lane)"
-  [[ "$(num "${spot:-0}")" -ge "${E2E_MIN_VCPU_SPOT}" ]] || fail "the Total Regional Spot vCPUs quota of ${AZURE_REGION} is '${spot}'; the suite needs ${E2E_MIN_VCPU_SPOT}"
-  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_DB}"; do
+  # Spot and the arm64 and db families only when a selected scenario launches them (a
+  # smoke run is one amd64 node; a new subscription has 3 Spot vCPUs).
+  local types=("${E2E_TYPE_AMD64}")
+  if selected_has arm64; then
+    [[ "$(num "${spot:-0}")" -ge "${E2E_MIN_VCPU_SPOT}" ]] || fail "the Total Regional Spot vCPUs quota of ${AZURE_REGION} is '${spot}'; the suite needs ${E2E_MIN_VCPU_SPOT}"
+    types+=("${E2E_TYPE_ARM64}")
+  else
+    note "the Spot vCPUs quota of ${AZURE_REGION} is '${spot}' (not checked: no selected scenario launches Spot)"
+  fi
+  selected_has db && types+=("${E2E_TYPE_DB}")
+  for t in "${types[@]}"; do
     fam="$(sku_family "${t#azure.}")"
     assert_nonempty "the quota family of ${t}" "${fam}"
     [[ "$(num "$(limit_of compute "${fam}")")" -ge "${E2E_MIN_VCPU_FAMILY}" ]] ||
       fail "the ${fam} vCPUs quota of ${AZURE_REGION} is '$(limit_of compute "${fam}")'; the suite needs ${E2E_MIN_VCPU_FAMILY}"
   done
-  [[ "$(num "$(limit_of network "${bucket_pip}")")" -ge 8 ]] || fail "the Standard public IPv4 address quota is below 8"
+  # Public IPs: 8 for the whole suite; a run of amd64 and scalezero only (the smoke) holds one node.
+  local pip need_pip=2 sc
+  for sc in "${selected[@]}"; do
+    [[ "${sc}" == amd64 || "${sc}" == scalezero ]] || need_pip=8
+  done
+  # The row has had more than one name (the driver's publicIPUsageNames, pkg/vendors/azure/quota.go).
+  local pname
+  pip=""
+  for pname in "${bucket_pip}" IPv4StandardSkuPublicIpAddresses PublicIPAddresses; do
+    pip="$(limit_of network "${pname}")"
+    [[ -z "${pip}" || "${pip}" == None ]] || break
+    pip=""
+  done
+  if [[ -z "${pip}" ]]; then
+    note "no public IPv4 usage row in ${AZURE_REGION}; the rows that name public IPs: $(az network list-usages --location "${AZURE_REGION}" --query "[?contains(name.value, 'ublic')].[name.value, limit]" --output tsv | tr -d '\r' | paste -sd ' ')"
+    [[ "${need_pip}" -le 2 ]] || fail "the public IPv4 address quota of ${AZURE_REGION} is unknown; the selected scenarios need ${need_pip}"
+  else
+    [[ "$(num "${pip}")" -ge "${need_pip}" ]] || fail "the Standard public IPv4 address quota of ${AZURE_REGION} (${pname}) is '${pip}'; the selected scenarios need ${need_pip}"
+  fi
 
   # 4. The sizes: offered in the region, no restriction for the subscription, Gen2 and
   # SCSI (the driver drops others), and the spot size is LowPriorityCapable, which the
@@ -263,7 +294,7 @@ scn_amd64() {
   local disk nic pip
   disk="$(az disk show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${vm}-os" --output json)"
   assert_eq "OS disk SKU" Premium_LRS "$(jq -r '.sku.name' <<<"${disk}")"
-  assert_eq "OS disk size" 32 "$(jq -r '.diskSizeGb' <<<"${disk}")"
+  assert_eq "OS disk size" 32 "$(jq -r '.diskSizeGB' <<<"${disk}")"
   same_id "$(jq -r '.managedBy' <<<"${disk}")" "$(jq -r '.id' <<<"${j}")" || fail "the OS disk is not attached to the VM"
   nic="$(az network nic show --ids "$(jq -r '.networkProfile.networkInterfaces[0].id' <<<"${j}")" --output json)"
   assert_eq "tag cluster on the NIC" "${E2E_CLUSTER}" "$(tag_of "${nic}" "${ctag}")"
@@ -272,7 +303,9 @@ scn_amd64() {
   pip="$(az network public-ip show --ids "$(jq -r '.ipConfigurations[0].publicIPAddress.id' <<<"${nic}")" --output json)"
   assert_eq "public IP SKU" Standard "$(jq -r '.sku.name' <<<"${pip}")"
   assert_eq "public IP allocation" Static "$(jq -r '.publicIPAllocationMethod' <<<"${pip}")"
-  assert_eq "public IP deleteOption" Delete "$(jq -r '.deleteOption' <<<"${pip}")"
+  # No deleteOption: Azure keeps none on an address created on its own; SCarpenter deletes it
+  # after the VM (scalezero checks that nothing of the node is left).
+  assert_eq "public IP name" "${vm}-pip" "$(jq -r '.name' <<<"${pip}")"
   assert_eq "tag cluster on the public IP" "${E2E_CLUSTER}" "$(tag_of "${pip}" "${ctag}")"
 
   log "the claim: price, bootstrap token, serving certificate"
@@ -430,7 +463,7 @@ scn_db() {
   local disk src dev
   disk="$(az disk show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${dbvm}-pgdata" --output json)"
   assert_eq "data disk SKU" Premium_LRS "$(jq -r '.sku.name' <<<"${disk}")"
-  assert_eq "data disk size" 4 "$(jq -r '.diskSizeGb' <<<"${disk}")"
+  assert_eq "data disk size" 4 "$(jq -r '.diskSizeGB' <<<"${disk}")"
   same_id "$(jq -r '.managedBy' <<<"${disk}")" "$(jq -r '.id' <<<"${dbj}")" || fail "the data disk is not attached to the database's VM"
   # The device path is the spike: the udev rules of Flatcar's Azure OEM give the by-path name.
   dev="$(node_shell "${dbnode}" 'readlink -f /dev/disk/azure/scsi1/lun0' || true)"
@@ -690,7 +723,7 @@ scn_drift() {
   vm="$(vm_name "$(vm_of_claim "${claim}")")"
   [[ "${vm}" != "${old_vm}" ]] || fail "the replacement runs on the old VM"
   assert_eq "the replacement's OS disk (the new size)" 40 \
-    "$(az disk show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${vm}-os" --query diskSizeGb --output tsv | tr -d '\r')"
+    "$(az disk show --resource-group "${AZURE_RESOURCE_GROUP}" --name "${vm}-os" --query diskSizeGB --output tsv | tr -d '\r')"
   wait_until "the old VM deleted" 300 is_empty vms_present "${old_vm}"
   wait_until "the old NodeClaim gone" 120 is_empty kubectl get nodeclaim "${old_claim}" -o name --ignore-not-found
   wait_until "the old Node gone" 120 is_empty kubectl get node "${old_node}" -o name --ignore-not-found
@@ -868,14 +901,14 @@ scn_scalezero() {
 
 # cluster_resources_of <resource type>: the IDs of the cluster's resources of a type.
 cluster_resources_of() {
-  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --tag "${ctag}=${E2E_CLUSTER}" --resource-type "$1" --query '[].id' --output tsv | tr -d '\r'
+  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --resource-type "$1" --query "[?$(cluster_q)].id" --output tsv | tr -d '\r'
 }
 
 # unbrought_resources: what is tagged with the cluster and is not the scenario's own brought
 # VNet and NSG (those carry scarpenter-e2e-byo and are deleted by the teardown).
 unbrought_resources() {
-  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" --tag "${ctag}=${E2E_CLUSTER}" \
-    --query "[?tags.\"scarpenter-e2e-byo\"==null].id" --output tsv | tr -d '\r'
+  az resource list --resource-group "${AZURE_RESOURCE_GROUP}" \
+    --query "[?$(cluster_q) && tags.\"scarpenter-e2e-byo\"==null].id" --output tsv | tr -d '\r'
 }
 
 # uninstall: the procedure of docs/how-to-guides/install.md#uninstall, on the live subscription:
@@ -930,6 +963,9 @@ case "${E2E_FAIL_FAST}" in
     exit 2
     ;;
 esac
+
+# selected_has <scenario>: whether the run selected it.
+selected_has() { [[ " ${selected[*]} " == *" $1 "* ]]; }
 
 results=()
 failed=0

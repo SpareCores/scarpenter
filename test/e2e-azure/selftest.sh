@@ -63,7 +63,7 @@ t_render_keeps_other_dollars() { # only the manifest's own ${NAME} are replaced
 }
 t_created_at() { # the sweeper reads the tag as RFC 3339
   [[ "${E2E_CREATED_AT_RFC3339}" == "2027-01-15T08:00:00Z" ]] &&
-    grep -q 'scarpenter-ci-created-at: "2027-01-15T08:00:00Z"' <(render "${here}/manifests/nodeclass-amd64.yaml")
+    grep -q 'ci-created-at: "2027-01-15T08:00:00Z"' <(render "${here}/manifests/nodeclass-amd64.yaml")
 }
 check "render fills every variable" t_render
 check_fails "render refuses an unset variable" t_render_unset
@@ -406,7 +406,7 @@ t_policy() {
       | .policyDefinitionId == "/providers/Microsoft.Authorization/policyDefinitions/cccc23c7-8427-4f53-ad12-b6a63eb452b3"
         and (.parameters.listOfAllowedSKUs.value | sort) == ["Standard_B2as_v2", "Standard_B2ats_v2", "Standard_B2pts_v2", "Standard_D2as_v5"]' "${p}" >/dev/null &&
     jq -e '.policyAssignments[] | select(.displayName == "Allowed locations")
-      | .parameters.listOfAllowedLocations.value == ["westeurope"]' "${p}" >/dev/null &&
+      | .parameters.listOfAllowedLocations.value == ["centralus"]' "${p}" >/dev/null &&
     # the lane role writes only compute, network, and reads resources and the activity log; the reads role only reads
     jq -e '(.roleDefinitions[] | select(.Name == "scarpenter-ci-lane") | .Actions | all(test("^Microsoft\\.(Compute|Network|Resources|Insights)/"))) and
       (.roleDefinitions[] | select(.Name == "scarpenter-ci-reads") | .Actions | all(test("/read$"))) and

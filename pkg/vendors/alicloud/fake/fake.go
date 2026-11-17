@@ -60,6 +60,8 @@ const (
 const (
 	DefaultPageSize = 10
 	MaxPageSize     = 100
+	// maxSetPage is DescribeDeploymentSets' own maximum PageSize.
+	maxSetPage = 50
 )
 
 // TypeSpec is an instance type.

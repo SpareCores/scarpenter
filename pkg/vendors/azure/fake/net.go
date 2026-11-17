@@ -186,6 +186,10 @@ func (a *PIPs) CreateOrUpdate(ctx context.Context, rg, name string, pip armnetwo
 	if stored.Properties == nil {
 		stored.Properties = &armnetwork.PublicIPAddressPropertiesFormat{}
 	}
+	// As on Azure (seen 2026-11-16): a public IP created on its own keeps no
+	// deleteOption, which only a VM's own network interface configuration sets; so
+	// it does not go with the VM that uses it.
+	stored.Properties.DeleteOption = nil
 	if old, ok := s.pips[k]; ok {
 		// The zones of a public IP cannot change (the exact ARM code is
 		// unverified).

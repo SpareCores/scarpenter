@@ -477,7 +477,7 @@ func imageFields(im *ecs.DescribeImagesResponseBodyImagesImage) selector.Fields 
 const (
 	vswitchPage = 50 // DescribeVSwitches takes at most 50 per page
 	groupPage   = 100
-	setPage     = 100
+	setPage     = 50 // DescribeDeploymentSets takes at most 50 per page
 )
 
 type vswitchInfo = vpc.DescribeVSwitchesResponseBodyVSwitchesVSwitch

@@ -526,7 +526,7 @@ managed_group_self_referencing() {
 managed_groups_ids() {
   local -a tag
   mapfile -t tag < <(cluster_tag_args)
-  ecs DescribeSecurityGroups "${tag[@]}" --PageSize 100 |
+  ecs DescribeSecurityGroups "${tag[@]}" --PageSize 50 |
     jq -r --arg k "${label_domain}/managed-by" '.SecurityGroups.SecurityGroup[]? | select(any(.Tags.Tag[]?; .TagKey == $k and .TagValue == "scarpenter")) | .SecurityGroupId'
 }
 

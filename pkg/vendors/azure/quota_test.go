@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
 	"github.com/stretchr/testify/require"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -129,4 +130,35 @@ func TestConsumptionMapsEverySizeOfTheTable(t *testing.T) {
 	require.False(t, ok)
 	_, ok = NewQuotaReader(e.clients.Usages).Consumption("Standard_D2s_v5", vendors.CapacityOnDemand)
 	require.False(t, ok, "before any SKU read")
+}
+
+// renamedPIPs serves the network usages with the Standard public IP row under
+// another name, as centralus did (2026-11-16).
+type renamedPIPs struct {
+	UsageAPI
+	name string
+}
+
+func (r renamedPIPs) NetworkUsages(ctx context.Context, loc string) ([]*armnetwork.Usage, error) {
+	us, err := r.UsageAPI.NetworkUsages(ctx, loc)
+	for _, u := range us {
+		if u.Name != nil && u.Name.Value != nil && *u.Name.Value == BucketPublicIPs {
+			u.Name.Value = new(r.name)
+		}
+	}
+	return us, err
+}
+
+func TestPublicIPBucketUnderAnotherName(t *testing.T) {
+	e := newEnv(t)
+	for _, name := range []string{"IPv4StandardSkuPublicIpAddresses", "PublicIPAddresses"} {
+		snap, err := NewQuotaReader(renamedPIPs{e.clients.Usages, name}).Quotas(context.Background(), testRegion)
+		require.NoError(t, err)
+		require.EqualValues(t, 10, bucket(t, snap, BucketPublicIPs).Limit, name)
+	}
+	snap, err := NewQuotaReader(renamedPIPs{e.clients.Usages, "SomethingElse"}).Quotas(context.Background(), testRegion)
+	require.NoError(t, err)
+	for _, b := range snap.Buckets {
+		require.NotEqual(t, BucketPublicIPs, b.ID, "an unknown name is no bucket")
+	}
 }

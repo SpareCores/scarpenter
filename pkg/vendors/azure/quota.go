@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
+
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -28,6 +30,11 @@ const (
 	unitAddresses         = "addresses"
 	publicIPsPerNodeLimit = 1
 )
+
+// publicIPUsageNames are the names the network Usages API gives the Standard public
+// IPv4 addresses, in order of preference; the bucket is BucketPublicIPs whatever
+// the row's name. PublicIPAddresses (every SKU) is the last resort: Basic is retired.
+var publicIPUsageNames = []string{BucketPublicIPs, "IPv4StandardSkuPublicIpAddresses", "PublicIPAddresses"}
 
 // QuotaReader reads the quota state of a subscription's regions and maps
 // instance types to the buckets they consume. It implements the
@@ -87,14 +94,23 @@ func (q *QuotaReader) Quotas(ctx context.Context, region string) (*vendors.Quota
 	if err != nil {
 		return nil, classify(err, errContext{})
 	}
+	// The Standard public IP row has had more than one name (a region without the
+	// first was seen in centralus, 2026-11-16): the first of publicIPUsageNames that
+	// the region reports is the bucket.
+	byName := map[string]*armnetwork.Usage{}
 	for _, u := range nu {
-		if u == nil || u.Name == nil || u.Name.Value == nil || *u.Name.Value != BucketPublicIPs {
-			continue
+		if u != nil && u.Name != nil && u.Name.Value != nil {
+			byName[*u.Name.Value] = u
 		}
-		snap.Buckets = append(snap.Buckets, vendors.Bucket{
-			ID: BucketPublicIPs, Scope: vendors.QuotaScopeRegion, Unit: unitAddresses,
-			Limit: deref(u.Limit), Used: deref(u.CurrentValue),
-		})
+	}
+	for _, name := range publicIPUsageNames {
+		if u, ok := byName[name]; ok {
+			snap.Buckets = append(snap.Buckets, vendors.Bucket{
+				ID: BucketPublicIPs, Scope: vendors.QuotaScopeRegion, Unit: unitAddresses,
+				Limit: deref(u.Limit), Used: deref(u.CurrentValue),
+			})
+			break
+		}
 	}
 	slices.SortFunc(snap.Buckets, func(a, b vendors.Bucket) int { return strings.Compare(a.ID, b.ID) })
 	return snap, nil

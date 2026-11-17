@@ -60,6 +60,9 @@ spec:
         karpenter.sh/capacity-type: on-demand
         topology.kubernetes.io/zone: "${E2E_PG_ZONE}"
         scarpenter.sparecores.com/placement-profile: colocated
+        # the client takes no storage profile: without this Karpenter may give it one of the
+        # database's offerings when both are scheduled together
+        scarpenter.sparecores.com/storage-profile: default
         scarpenter.sparecores.com/placement-group: pg-${E2E_RUN_ID}
       affinity:
         podAntiAffinity: # never on the database's node

@@ -625,6 +625,10 @@ func (e *ECS) DescribeDeploymentSets(ctx context.Context, in *ecs.DescribeDeploy
 	if err != nil {
 		return nil, err
 	}
+	// As on ECS: DescribeDeploymentSets pages at most 50 (DescribeImages, for one, 100).
+	if dara.Int32Value(in.PageSize) > maxSetPage {
+		return nil, badRequest("InvalidParameter", `The specified parameter "PageSize" is not valid.`)
+	}
 	ids := parseIDs(in.DeploymentSetIds)
 	var all []*setRec
 	for _, s := range r.sets {

@@ -52,7 +52,7 @@ asks for; a failed create deletes its VM, NIC and public IP, so the key stays un
 them only when a VM exists, for the replay). NICs and public IPs that an interrupted launch leaves without a VM are
 deleted by the garbage collector once their NodeClaim is gone (`CollectLeftovers`). The launch waits for the
 long-running operation up to 4 minutes (capacity and quota errors arrive inside it); a VM still `Creating` is
-returned pending. Disks, NIC and public IP carry `deleteOption: Delete`. The VM has `core` as admin user and one
+returned pending. Disks and NIC carry `deleteOption: Delete` and go with the VM. The public IP does not: Azure keeps no `deleteOption` on an address created on its own (seen live, 2026-11-16), so `Delete` deletes it after the VM, and the leftover collector catches one that a failed delete leaves. The VM has `core` as admin user and one
 public key (`adminSSHPublicKey`, else a key generated at start whose private half is discarded: access is
 Ignition's business). Spot: priority `Spot`, eviction `Delete`, `maxPrice: -1`. States: `Creating` pending,
 `running` running; stopped, deallocated, `Deleting` terminating (the stopped-node rule); a `Failed` VM that exists
@@ -88,7 +88,7 @@ network security group. Selectors: [Resource selectors](resource-selectors.md#az
 
 The managed network security group has an allow rule between the nodes of its application security group (isolation
 `nodeclass`, or `run` without a run key; `-nodes` after the group's name, created and deleted with it), the inbound rules
-of `spec.networking.inbound` at priorities 100 and up, and a deny of the virtual network's traffic at 4000 (Azure's built-in
+of `spec.networking.inbound` at priorities 110 and up (the node allow is 100: Azure takes 100 to 4096), and a deny of the virtual network's traffic at 4000 (Azure's built-in
 `AllowVnetInBound` would let every node reach every other). Isolation `run` with a run key gets a group of its own per run.
 **A NIC takes one network security group, so a group brought with `use` decides alone and `networking.isolation` has no
 effect on it** (the vendor condition `ConfigurationWarning` says so, with one Warning event). A resource group is deleted only if it carries the marker and holds nothing

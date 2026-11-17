@@ -354,6 +354,21 @@ jobs:
           ALICLOUD_OIDC_AUDIENCE: ${{ vars.ALICLOUD_OIDC_AUDIENCE || 'sts.aliyuncs.com' }}
           ALICLOUD_SESSION_NAME: scarpenter-ci-${{ github.run_id }}
         run: test/e2e-alicloud/oidc-token.sh
+      # The CLI of the lane's scripts (lib.sh: ecs, vpc), pinned by version and checksum (the
+      # release's SHASUMS256.txt). It reads the session that ali_login exports.
+      - name: Install the aliyun CLI (alicloud)
+        if: inputs.vendor == 'alicloud'
+        env:
+          ALIYUN_CLI_VERSION: 3.5.2
+          ALIYUN_CLI_SHA256: 8058cb91fa0e2d46a7c5fd47e44ab6a465be8477b28595d408dcc03a0ed5bd4e
+        run: |
+          tgz="${RUNNER_TEMP}/aliyun-cli.tgz"
+          curl -fsSL --retry 3 -o "${tgz}" \
+            "https://github.com/aliyun/aliyun-cli/releases/download/v${ALIYUN_CLI_VERSION}/aliyun-cli-linux-${ALIYUN_CLI_VERSION}-amd64.tgz"
+          echo "${ALIYUN_CLI_SHA256}  ${tgz}" | sha256sum -c -
+          sudo tar -xzf "${tgz}" -C /usr/local/bin aliyun
+          aliyun version
+
       # UpCloud has no OIDC federation and no workload identity: the credential is the API
       # token of a dedicated sub-account (scarpenter-ci), the environment secret UPCLOUD_TOKEN.
       # Its resource limits (set by the main account) are the cost guard, and the token expires
