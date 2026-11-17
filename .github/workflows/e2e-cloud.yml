@@ -105,6 +105,10 @@ jobs:
       E2E_MODE: ${{ inputs.mode }}
       E2E_CLUSTER: scarpenter-ci-${{ github.run_id }}
       E2E_RUN_ID: ${{ github.run_id }}
+      # The Flatcar release the operator of the CI account provides in the e2e clouds. An empty
+      # variable (a fork) falls back to the default of test/flatcar-pin.sh.
+      E2E_FLATCAR_CHANNEL: ${{ vars.FLATCAR_CHANNEL }}
+      E2E_FLATCAR_VERSION: ${{ vars.FLATCAR_VERSION }}
       # The vendor's region variable is read in the Prepare step.
       VAR_AWS_REGION: ${{ vars.AWS_REGION }}
       VAR_HCLOUD_LOCATIONS: ${{ vars.E2E_HCLOUD_LOCATIONS }}

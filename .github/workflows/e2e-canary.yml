@@ -80,6 +80,10 @@ jobs:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       E2E_VENDOR: ${{ matrix.vendor }}
+      # The Flatcar release the operator of the CI account provides in the e2e clouds. An empty
+      # variable (a fork) falls back to the default of test/flatcar-pin.sh.
+      E2E_FLATCAR_CHANNEL: ${{ vars.FLATCAR_CHANNEL }}
+      E2E_FLATCAR_VERSION: ${{ vars.FLATCAR_VERSION }}
       VAR_AWS_REGION: ${{ vars.AWS_REGION }}
       VAR_HCLOUD_LOCATIONS: ${{ vars.E2E_HCLOUD_LOCATIONS }}
       VAR_OVH_REGION: ${{ vars.OVH_REGION }}

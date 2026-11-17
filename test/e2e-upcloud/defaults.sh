@@ -21,8 +21,9 @@
 # version, at least three minors below it.
 : "${E2E_KUBERNETES_VERSION:=v1.37.1}"
 : "${E2E_TAILSCALE_VERSION:=v1.98.10}"
-: "${E2E_FLATCAR_CHANNEL:=stable}"
-: "${E2E_FLATCAR_VERSION:=4757.2.3}"
+# The Flatcar release: test/flatcar-pin.sh (CI sets it from the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION).
+# shellcheck source=test/flatcar-pin.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Plans the suite launches. Plan 19 names 1xCPU-1GB, but the committed Keeper snapshot lists
 # only the CLOUDNATIVE, PREMIUM, STARTER and GPU families as active: STARTER-1xCPU-1GB is the
 # smallest plan that is both offered and carries an included disk and a public IPv4 address.

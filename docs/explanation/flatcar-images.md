@@ -8,6 +8,11 @@ and Flatcar were researched on 2026-11-10 (Flatcar stable 4757.2.3, LTS
 4081.3.12) and go stale: the vendor plans in
 [`../plans/v1/wip/`](../plans/v1/wip/) list what is still unverified.
 
+The release the CI of this repository tests comes from the repository variables
+`FLATCAR_CHANNEL` and `FLATCAR_VERSION`, set by the operator of the CI account. A bump
+means updating the in-repo pins so that `hack/check-flatcar-pins.sh` passes (see
+[the e2e how-to](../how-to-guides/testing-and-releasing.md#the-flatcar-release-of-the-e2e-lanes)).
+
 ## Table of Contents
 
 - [The ladder](#the-ladder)

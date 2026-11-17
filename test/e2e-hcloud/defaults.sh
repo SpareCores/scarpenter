@@ -11,8 +11,9 @@
 # version, at least three minors below it.
 : "${E2E_KUBERNETES_VERSION:=v1.37.1}"
 : "${E2E_TAILSCALE_VERSION:=v1.98.10}"
-: "${E2E_FLATCAR_CHANNEL:=stable}"
-: "${E2E_FLATCAR_VERSION:=4757.2.3}"
+# The Flatcar release: test/flatcar-pin.sh (CI sets it from the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION).
+# shellcheck source=test/flatcar-pin.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # The tools of bootstrap.sh, installed with `go install` (the module proxy's checksum database
 # verifies them). hcloud-upload-image makes the Flatcar snapshots; the hcloud CLI is what the
 # scripts ask the API with. Pin the CLI after the first live run (latest until then).

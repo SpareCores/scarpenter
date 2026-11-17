@@ -133,7 +133,7 @@ Setting it up: [Set up AWS](../how-to-guides/set-up-aws.md).
 - **Published regions** (verified 2026-11-07 from `flatcar_production_ami_all.json`
   of the public release server, both architectures; no AWS call): the lists of the
   `amd64-usr` and `arm64-usr` releases name the same regions per channel: 20 for
-  stable (4757.2.3), 31 for lts (4081.3.12). A region without a published image
+  stable, 31 for lts (as of 2026-11-10: 4757.2.3 and 4081.3.12). A region without a published image
   (for example `ap-northeast-3` in stable) reports the image not ready. The
   public lists carry AMI IDs only, not names: the name pattern follows overview
   section 11.3 and Flatcar's `Flatcar-<channel>-*` naming and is asserted in
