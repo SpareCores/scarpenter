@@ -125,8 +125,12 @@ func TestVariablesAreDeclared(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	shared, err := os.ReadFile(filepath.Join(testutil.RepoRoot(), "test", "flatcar-pin.sh")) // the Flatcar pins defaults.sh sources
+	if err != nil {
+		t.Fatal(err)
+	}
 	pins := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^: "\$\{([A-Z0-9_]+):=`).FindAllStringSubmatch(string(defaults), -1) {
+	for _, m := range regexp.MustCompile(`(?m)^: "\$\{([A-Z0-9_]+):=`).FindAllStringSubmatch(string(defaults)+string(shared), -1) {
 		pins[m[1]] = true
 	}
 	pins["E2E_TYPES_DESCRIBED_YAML"] = true // derived in defaults.sh
