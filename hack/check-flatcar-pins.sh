@@ -13,14 +13,15 @@
 #     every test/e2e-*/defaults.sh sources it and pins nothing of its own;
 #   - charts/scarpenter/values.yaml (examples.nodeClass.flatcarChannel and
 #     flatcarVersion);
-#   - every release number and channel in config/samples, docs/examples and
-#     docs/how-to-guides: "4757.2.3", "flatcar-stable-4757-2-3" (dashes), and the channel
+#   - every release number and channel in README.md, config/samples, docs/examples,
+#     docs/how-to-guides and docs/tutorials (if present): "4757.2.3", "flatcar-stable-4757-2-3" (dashes), and the channel
 #     of "channel: stable", "channel=stable", "flatcar-stable-..." and "Flatcar-stable-...".
 #
 # Excluded on purpose:
 #   - docs/plans/: history;
 #   - docs/explanation/ and docs/reference/: dated research and illustrations of a driver's
-#     naming (they also name other releases, such as the LTS one);
+#     naming (they say "for example" or give a date, and name other releases, such as the LTS one);
+#   - test/chart/testdata/: golden output of the chart, rewritten by `make test-chart UPDATE=1`;
 #   - the CRD schema, the API reference and the chart's CRD copy: generated from the "e.g."
 #     of pkg/apis/v1alpha1/scnodeclass.go, an example and not a pin;
 #   - *_test.go and the fixtures of the Go tests: they pin a version on purpose, to test
@@ -33,9 +34,13 @@ if [[ $# -ne 2 ]]; then
 fi
 channel="$1"
 version="$2"
-if [[ -z "${channel}" || -z "${version}" ]]; then
+if [[ -z "${channel}" && -z "${version}" ]]; then
   echo "::notice::the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION are empty (a fork?): the Flatcar pins are not checked"
   exit 0
+fi
+if [[ -z "${channel}" || -z "${version}" ]]; then
+  echo "usage error: FLATCAR_CHANNEL and FLATCAR_VERSION must both be set or both be empty (channel='${channel}', version='${version}')" >&2
+  exit 2
 fi
 [[ "${channel}" =~ ^[a-z]+$ ]] || { echo "the channel '${channel}' is not a lowercase word" >&2; exit 2; }
 [[ "${version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]] || { echo "the version '${version}' is not <major>.<minor>.<patch>" >&2; exit 2; }
@@ -77,7 +82,9 @@ check_value "${values}" flatcarChannel "${channel}"
 check_value "${values}" flatcarVersion "${version}"
 
 # Samples, examples and guides.
-mapfile -t files < <(find config/samples docs/examples docs/how-to-guides -type f \( -name '*.yaml' -o -name '*.md' \) | sort)
+files=()
+while IFS= read -r f; do files+=("${f}"); done < <(
+  { echo README.md; find config/samples docs/examples docs/how-to-guides docs/tutorials -type f \( -name '*.yaml' -o -name '*.md' \) 2>/dev/null; } | sort)
 for f in "${files[@]}"; do
   while IFS=: read -r n found; do
     [[ "${found}" == "${version}" ]] || report "${f}:${n}" "${found}" "${version}"

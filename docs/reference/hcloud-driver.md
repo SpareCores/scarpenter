@@ -104,7 +104,7 @@ architecture, found by its labels:
 |---|---|
 | `os` | `flatcar` |
 | `flatcar-channel` | the channel (`stable`) |
-| `flatcar-version` | the pinned version (`4757.2.3`) |
+| `flatcar-version` | the pinned version (for example `4757.2.3`) |
 
 plus the snapshot's architecture (`x86`, `arm`). `GET /images?type=snapshot&status=available&
 architecture=...&label_selector=...` must return exactly one image; none is `ImageNotFound`

@@ -252,7 +252,8 @@ the images and templates of exactly that release in the e2e clouds. The workflow
 `E2E_FLATCAR_CHANNEL` and `E2E_FLATCAR_VERSION`. For local runs the default is
 [`test/flatcar-pin.sh`](../../test/flatcar-pin.sh), which every `test/e2e-<vendor>/defaults.sh` sources.
 A bump means updating the in-repo pins (that file, the chart's example values, `config/samples`,
-`docs/examples` and the how-to guides) so that `hack/check-flatcar-pins.sh` passes in CI
+`docs/examples` and the how-to guides, then `make test-chart UPDATE=1` for the golden files of
+`test/chart/testdata`) so that `hack/check-flatcar-pins.sh` passes in CI
 (`make check-flatcar-pins FLATCAR_CHANNEL=stable FLATCAR_VERSION=<version>` runs it locally).
 
 **Hetzner Cloud.** The canary of vendor `hcloud` (`test/canary/hcloud.go`) uses a **read-only token** of the
