@@ -2,8 +2,8 @@
 
 The `oci` driver launches Flatcar instances in one compartment of your tenancy, in the subscribed regions a
 NodeClass allows, as fixed sizes of the flexible shapes (on demand and preemptible), from a Flatcar image you
-import, on a network it creates or one you bring. Prices and sizes come from the catalog embedded in the
-controller. Details: [OCI driver](../reference/oci-driver.md).
+import, on a network it creates or one you bring. Prices and sizes come from Keeper, which needs an API key
+([Keeper API key](install.md#keeper-api-key)). Details: [OCI driver](../reference/oci-driver.md).
 
 **Supported** (amd64 and arm64). The real-cloud test lane runs on pull requests that touch OCI code,
 nightly, and before every release.
@@ -21,7 +21,7 @@ nightly, and before every release.
 - **Reachability.** Nodes reach `cluster.apiServerEndpoint`, `https://<channel>.release.flatcar-linux.net`
   and the sysext-bakery releases on GitHub (through the created network's internet gateway or your
   subnet's route). The controller reaches the OCI APIs and, in the keyless mode, the identity domain. It
-  needs no Keeper key for OCI: OCI is served from the embedded catalog (`catalog.embeddedVendors`).
+  also reaches Keeper, and needs its API key like every vendor (`keeper.apiKey.existingSecret`).
 
 ## 1. The Flatcar image
 
@@ -161,7 +161,7 @@ console.
 - One compartment per controller; no instance principal or OKE workload identity.
 - A created network has no NAT gateway and no IPv6: `publicIPv4: false` or `publicIPv6: true` needs a
   brought subnet.
-- No extended-memory sizes; A2 and A4 untested; no billing-period retention; static embedded prices.
+- No extended-memory sizes; A2 and A4 untested; no billing-period retention.
   More in the [reference](../reference/oci-driver.md#deferred).
 
 ## Troubleshooting

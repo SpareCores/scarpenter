@@ -11,8 +11,10 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package catalogtest
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,8 +55,24 @@ func SourceAt(url string) *catalog.KeeperSource {
 // their json tags.
 func Rows[T any](t testing.TB, path string) []T {
 	t.Helper()
+	return decodeRows[T](t, filepath.Join(SnapshotDir(), "snapshot"), path)
+}
+
+func decodeRows[T any](t testing.TB, dir, path string) []T {
+	t.Helper()
+	body := readFile(t, dir, path)
+	rows, err := columnar.DecodeRows[T](bytes.NewReader(body), -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+// readFile is the uncompressed JSON of one gzip file below dir.
+func readFile(t testing.TB, dir, path string) []byte {
+	t.Helper()
 	file := filepath.FromSlash(strings.ReplaceAll(path, ":", "_")) + ".json.gz"
-	f, err := os.Open(filepath.Join(SnapshotDir(), "snapshot", file))
+	f, err := os.Open(filepath.Join(dir, file))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,11 +81,56 @@ func Rows[T any](t testing.TB, path string) []T {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := columnar.DecodeRows[T](zr, -1)
+	body, err := io.ReadAll(zr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rows
+	return body
+}
+
+// OCIDir is the committed Keeper snapshot of the vendor oci (plan 25): the
+// eight files of the vendor's tables as Keeper's snapshot routes serve them
+// (gzip of columnar JSON, "<path>.json.gz"), read from a copy of the crawler's
+// database of 2026-11-17, when Keeper started to serve the vendor. The
+// recording of SnapshotDir does not hold it; this directory goes away when that
+// recording is refreshed with oci in its query list.
+func OCIDir() string {
+	return filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot-oci")
+}
+
+// OCIPaths are the files of OCIDir, as paths of Keeper's snapshot.
+var OCIPaths = []string{
+	"vendor", "region/oci", "zone/oci", "server/oci", "server_price/oci",
+	"storage/oci", "storage_price/oci", "ipv4_price/oci",
+}
+
+// OCIRows decodes one file of OCIDir (path as in OCIPaths) into rows of T,
+// matched to the columns by their json tags.
+func OCIRows[T any](t testing.TB, path string) []T {
+	t.Helper()
+	return decodeRows[T](t, OCIDir(), path)
+}
+
+// ServerWithOCI serves the committed snapshot with the files of OCIDir added,
+// in a second data version that /healthcheck pins. The vendor table is the one
+// of OCIDir: it has the row of oci only.
+func ServerWithOCI(t testing.TB) *keepertest.Server {
+	t.Helper()
+	h, err := keepertest.NewHandler(SnapshotDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	overrides := map[string][]byte{}
+	for _, path := range OCIPaths {
+		overrides[path] = readFile(t, OCIDir(), path)
+	}
+	if err := h.AddHash(NewHash, overrides); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.SetCurrent(NewHash); err != nil {
+		t.Fatal(err)
+	}
+	return keepertest.NewServer(t, h)
 }
 
 // VendorRow is a row of the vendor table with the billing fields, which are

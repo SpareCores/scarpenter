@@ -17,6 +17,15 @@ Flatcar-on-OCI investigation (2026-11-13). No cloud API was called. Everything m
 **unverified** was to be settled by the spike (section 12) or by the live runs; what the runs did not settle is listed in
 "Unverified facts and follow-ups".
 
+**Update 2026-11-17: Keeper serves OCI, and the swap and the cleanup are done.** The embedded catalog
+(`EmbeddedSource`, `pkg/catalog/embeddeddata/oci`, `hack/oci-catalog`), the `--embedded-catalog-vendors` flag,
+`catalog.embeddedVendors` and the gauge `scarpenter_catalog_embedded_vendor` are removed, so the text below on them
+is history. OCI is read from Keeper's snapshot (a Keeper API key is needed), the tests use a committed Keeper-shaped
+snapshot of OCI (`test/data/sc-snapshot-oci`), all 288 stub type names exist in Keeper unchanged, and Keeper added
+the unpriced `VM.Standard.E6-HM.Ax.Flex` sizes. Keeper's vendor row of OCI is now a one hour minimum with stopped
+servers charged, and the driver implements `BillingDescriber` (60 second minimum, stopped charge by family, from
+Oracle's documentation, not verified); see `docs/reference/oci-driver.md`.
+
 ## Goal
 
 Make OCI work end to end in SCarpenter soon: `pkg/vendors/oci`, a production driver (vendor ID

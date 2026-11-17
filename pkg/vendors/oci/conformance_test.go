@@ -53,7 +53,7 @@ func envOf(t *testing.T, d vendors.Driver) *env {
 	return e
 }
 
-// conformanceTypes returns the names of every active type of the embedded catalog
+// conformanceTypes returns the names of every active type of Keeper's snapshot of oci
 // and the ones whose quota is unknown by design: every spot type (whether
 // preemptible capacity has a limit of its own is unverified, spike S9).
 func conformanceTypes(t *testing.T) (all, unknown []string) {
@@ -223,9 +223,8 @@ func seed(t *testing.T, e *env, kind vendors.ResourceKind, region string, spec c
 	return vendors.ResourceRef{Kind: kind, Region: region, ID: id, Name: spec.Name}
 }
 
-// TestConformance runs the shared driver suite over the complete OCI type list of the embedded
-// catalog, once per resource kind the driver creates: the suite's managed-resource subtests take one
-// kind.
+// TestConformance runs the shared driver suite over the complete OCI type list of Keeper's snapshot,
+// once per resource kind the driver creates: the suite's managed-resource subtests take one kind.
 func TestConformance(t *testing.T) {
 	for _, kind := range []vendors.ResourceKind{driver.KindSubnets, driver.KindNetworkSecurityGroups,
 		driver.KindRunNetworkSecurityGroup} {

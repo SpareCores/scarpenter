@@ -420,10 +420,9 @@ func (r *refresh) copyFromPrevious(path string, mf keeper.ManifestFile) *keeper.
 	return body
 }
 
-// snapshotFiles is where the tables of a snapshot are read from: the network
-// refresh of KeeperSource, or the files embedded in the binary (EmbeddedSource).
-// Both are read by the same functions (loadVendorTable, loadVendor), so the
-// rows of either become the same model.Data.
+// snapshotFiles is where the tables of a snapshot are read from: the refresh
+// of KeeperSource. The functions that turn the tables into model.Data
+// (loadVendorTable, loadVendor) read through this interface.
 type snapshotFiles interface {
 	// lookup finds the path in the manifest.
 	lookup(path string) (keeper.ManifestFile, bool)

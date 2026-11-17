@@ -1,8 +1,8 @@
 # The values the OCI L5 lane installs the chart with (install.sh adds the image of the
 # build under test). What is left unset is the chart's own default on purpose: the
 # cluster DNS is found by the controller (kube-dns Service of the k3s cluster), the
-# sysexts come from the upstream releases, the OCI catalog is the one embedded in the binary
-# (catalog.embeddedVendors defaults to oci: no Keeper key is needed), and the kubelet client CA is
+# sysexts come from the upstream releases, the OCI catalog is Keeper's (install.sh adds the
+# Keeper API key of KEEPER_API_KEY_FILE, as the other lanes do), and the kubelet client CA is
 # copied from kube-system/extension-apiserver-authentication (the client CA of k3s, which
 # `kubectl logs` and `exec` need).
 #

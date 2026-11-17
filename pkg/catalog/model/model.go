@@ -175,7 +175,7 @@ type Data struct {
 	// (not from a development driver's static catalog).
 	SnapshotRead bool
 	// AuxPricesRead says that StoragePrices and IPv4Prices are the source's
-	// own rows (Keeper's snapshot, the embedded catalog of a vendor), which the
+	// own rows (Keeper's snapshot), which the
 	// drivers that price disks and addresses take from the catalog; false for
 	// a development driver's static catalog, which has none.
 	AuxPricesRead bool

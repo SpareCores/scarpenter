@@ -127,6 +127,14 @@ the variable is not set (a fork), the refresh workflow fails with a clear messag
 the L5 lanes skip the step and run against Keeper without a key. The committed
 recording is about 2.4 MB.
 
+`test/data/sc-snapshot-oci/` holds the same kind of files for the vendor `oci`,
+which the recording above does not have yet (eight files, 2026-11-17, converted
+from a copy of the crawler's database: the `vendor` row, `region`, `zone`, `server`,
+`server_price`, `storage`, `storage_price` and `ipv4_price`). `catalogtest.ServerWithOCI(t)`
+serves it added to the recording as a second data version, and `catalogtest.OCIRows`
+decodes a file. Remove the directory when the recording is refreshed with `oci` in
+its query list.
+
 ### The L3 lane
 
 `hack/dev.sh make test-kwok` builds the development image (the release `Dockerfile`

@@ -1,8 +1,8 @@
 # The described scenario: the pool allows three sizes of the E5 flexible shape; the workload asks
 # for 2 vCPUs (more than 1, fewer than 3: one OCPU) and more than 6000 MiB of memory, which rules
 # out the 4 GB size and the 4 vCPU size and leaves oci.VM.Standard.E5.Flex.1-8. Node affinity,
-# because Gt and Lt are not available to a nodeSelector. (The embedded OCI catalog has no benchmark
-# scores, so there is no percentile to ask for.)
+# because Gt and Lt are not available to a nodeSelector. (Keeper has no benchmark
+# scores of OCI, so there is no percentile to ask for.)
 apiVersion: apps/v1
 kind: Deployment
 metadata:

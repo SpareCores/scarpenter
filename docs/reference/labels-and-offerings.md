@@ -71,26 +71,25 @@ The raw reference is the `scarpenter.sparecores.com/api-reference` label. When
 it does not fit a label value that key is `DoesNotExist` on the type;
 `Catalog.Lookup(name)` still resolves the name to `(vendor, api_reference)`.
 
-### Embedded catalogs
+### OCI types
 
-A vendor Keeper does not serve yet can be served from a catalog compiled into
-the binary (`--embedded-catalog-vendors`, default `oci`; see
-[the controller reference](controller.md#catalog)). It is Keeper's snapshot
-layout read by the same code, so a real Keeper snapshot gives the same types:
+OCI is read from Keeper like the other vendors (it needs a Keeper API key):
 
 - OCI's names are `oci.<shape>` for the fixed shapes (`oci.BM.Standard3.64`) and
   `oci.<shape>.<ocpus>-<memory GB>` for the flexible ones
-  (`oci.VM.Standard.E5.Flex.2-16`), 256 sized types of 12 shapes in the data of
-  2026-11-13; the `api-reference` label is the same name without `oci.`.
+  (`oci.VM.Standard.E5.Flex.2-16`; the shape may contain a hyphen, as in
+  `oci.VM.Standard.E6-HM.Ax.Flex.2-32`): Keeper gives all the sizes of a flexible
+  shape one `api_reference`, so rule R names each size by its server ID (256 priced
+  sized types of 12 shapes in the data of 2026-11-17). The `api-reference` label is
+  the same name without `oci.`. A server Keeper lists without a price (the
+  `VM.Standard.E6-HM.Ax.Flex` sizes on that date) is not a type until it has one.
 - Zones are the zone table's: `topology.kubernetes.io/zone` is the zone's name
   as the driver reports it (`EU-FRANKFURT-1-AD-1`, `US-ASHBURN-AD-1`,
   `PHX-AD-1`) and the zone ID Keeper's (`eu-frankfurt-1-ad-1`). Prices are per
   availability domain in the data, the same in all of them.
-- There are no benchmark scores: the `metric-*` labels and selection profiles of
-  these types are `DoesNotExist`, so a NodeClass that pins a metric or a
-  selection finds no type of the vendor.
-- The data has no publication time and does not touch the Keeper data version
-  in the catalog status; `scarpenter_catalog_embedded_vendor{vendor}` is `1`.
+- Keeper has no benchmark scores of OCI yet: the `metric-*` labels and selection
+  profiles of these types are `DoesNotExist`, so a NodeClass that pins a metric or
+  a selection finds no type of the vendor.
 
 ### Capacity and overhead
 

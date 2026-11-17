@@ -602,7 +602,6 @@ spec:
           args:
             - "--api-server-endpoint=https://api.example.com"
             - "--cluster-name=lab"
-            - "--embedded-catalog-vendors=oci"
             - "--health-probe-port=8081"
             - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
             - "--metrics-port=8080"
