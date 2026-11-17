@@ -154,6 +154,7 @@ and that the controller's own parser accepts what the chart renders.
 | `keeper.apiKey.existingSecret`, `key` | `--keeper-api-key-file` | The Secret's key (default `api-key`) is mounted as a file and read at every refresh; [Keeper API key](../how-to-guides/install.md#keeper-api-key). |
 | `keeper.cacheDir.sizeLimit` | `--keeper-cache-dir` | Size limit (default `256Mi`) of the `emptyDir` at `/var/cache/scarpenter/keeper`; the flag is always set. |
 | `catalog.refreshInterval`, `maxAge` | `--catalog-refresh-interval`, `--catalog-max-age` | |
+| `artifacts.sysextBaseURL`, `flatcarBaseURL` | `--sysext-base-url`, `--flatcar-base-url` | |
 | `bootstrap.tokenTTL` | `--bootstrap-token-ttl` | At least 20m; the chart refuses less. |
 | `bootstrap.tailnetPrefixes` | `--tailnet-prefixes` | A list of CIDRs. |
 | `launch.maxAttempts` | `--max-launch-attempts` | |

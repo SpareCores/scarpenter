@@ -124,12 +124,15 @@ file under `$RUNNER_TEMP` (never to `$GITHUB_ENV`). The CI roles of the `e2e`
 and `e2e-canary` environments must therefore allow `ssm:GetParameter` on that
 parameter (and `kms:Decrypt` if it uses a customer-managed key). When the role or
 the variable is not set (a fork), the refresh workflow fails with a clear message;
-the L5 lanes skip the step and run against Keeper without a key. The committed
+the L5 lanes skip the step and install the chart without a key, which the public Keeper
+answers with `401` on its snapshot routes: the catalog stays empty and the lane fails
+(`CatalogReady=False`, `KeeperAPIKeyRequired`), for OCI too since its catalog is Keeper's. The committed
 recording is about 2.4 MB.
 
 `test/data/sc-snapshot-oci/` holds the same kind of files for the vendor `oci`,
 which the recording above does not have yet (eight files, 2026-11-17, converted
-from a copy of the crawler's database: the `vendor` row, `region`, `zone`, `server`,
+from a copy of the crawler's database, not recorded from Keeper (it has an extra
+`observed_at` column and no `price_monthly`; the decoders ignore both): the `vendor` row, `region`, `zone`, `server`,
 `server_price`, `storage`, `storage_price` and `ipv4_price`). `catalogtest.ServerWithOCI(t)`
 serves it added to the recording as a second data version, and `catalogtest.OCIRows`
 decodes a file. Remove the directory when the recording is refreshed with `oci` in

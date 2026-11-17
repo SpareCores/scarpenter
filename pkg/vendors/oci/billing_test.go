@@ -26,9 +26,9 @@ func TestBillingRule(t *testing.T) {
 		{"standard", new(false)},
 		{"Dense I/O", new(true)},
 		{"Dense-I-O", new(true)},
-		{"HPC", new(true)},
 		{"Optimized", nil}, // VM.Optimized3 pauses, BM.Optimized3 continues
-		{"GPU", nil},
+		{"GPU", nil},       // not a Keeper family of oci
+		{"HPC", nil},
 		{"", nil},
 		{"Other", nil},
 	} {

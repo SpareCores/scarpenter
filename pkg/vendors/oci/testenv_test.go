@@ -48,7 +48,8 @@ var (
 
 // catalogRows returns the active rows of the committed Keeper snapshot of oci
 // (catalogtest.OCIDir): the full type list of the vendor, the sizes that have no
-// price (VM.Standard.E6-HM.Ax.Flex) included.
+// price (VM.Standard.E6-HM.Ax.Flex) included: the conformance list has them, the
+// catalog never offers them.
 func catalogRows(t testing.TB) []row {
 	t.Helper()
 	rowsOnce.Do(func() {

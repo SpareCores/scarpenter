@@ -23,10 +23,11 @@ var _ vendors.BillingDescriber = (*Driver)(nil)
 // (https://docs.oracle.com/iaas/releasenotes/changes/20facdce-34bf-4648-a0a7-de5db73657ce/index.htm).
 // Keeper's vendor row has one value for the vendor, the bare metal hour. The
 // family Keeper gives a server (Standard, Optimized, Dense I/O) does not tell
-// a VM from bare metal, so the rule is the one of the VM shapes, which is what
-// the driver launches in practice: the minimum is under the hold floor of
-// billing retention, so nothing is held. A bare metal node is therefore not
-// held for its hour (it is deleted when idle, as without retention).
+// a VM from bare metal, so the rule is the one of the VM shapes. Today nothing
+// is held because the rule is unverified (Assess says Unverified first). Once
+// it is verified, 60 seconds is under the hold floor, so bare metal is not held
+// for its hour, which never costs more than retention off; Keeper's 3600
+// seconds would hold idle per-second VMs.
 //
 // A stopped instance is charged by family, from Oracle's page on billing for
 // stopped instances
@@ -35,10 +36,11 @@ var _ vendors.BillingDescriber = (*Driver)(nil)
 // continues for Dense I/O, HPC, BM.Optimized3 and the other GPU shapes. The page
 // does not name the Ampere (A1, A2, A4), burstable and standard bare metal
 // shapes; they are Standard in Keeper's data, and are treated as Standard (pause)
-// by inference from "Standard shapes". Optimized and GPU cover both a shape
-// that pauses and one that continues, and an unknown family is not described:
-// Keeper's row stands for them. The driver never stops an instance (it
-// terminates), so this only informs the status.
+// by inference from "Standard shapes". Keeper's OCI families are only Standard,
+// Optimized and Dense I/O. Optimized mixes VM.Optimized3 (pauses) and
+// BM.Optimized3 (continues), so it keeps Keeper's row, as does an unknown
+// family. The driver never stops an instance (it terminates) and nothing reads
+// StoppedCharged today.
 //
 // The rule comes from documentation, not from a live check: it is not
 // verified, and billing retention stays off for OCI.
@@ -46,13 +48,13 @@ func (d *Driver) BillingRule(_, family string) (vendors.BillingRule, bool) {
 	inc, minimum := time.Second, time.Minute
 	rule := vendors.BillingRule{
 		Increment: &inc, Minimum: &minimum, Verified: false,
-		Source: "Oracle docs: per second, 60 second minimum for VMs (one hour for bare metal, not held)",
+		Source: "Oracle documentation: per second, 60 second minimum for VMs (bare metal: one hour, not modelled)",
 	}
 	switch normalizeFamily(family) {
 	case "standard":
 		charged := false
 		rule.StoppedCharged = &charged
-	case "denseio", "hpc":
+	case "denseio":
 		charged := true
 		rule.StoppedCharged = &charged
 	}

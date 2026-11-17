@@ -175,9 +175,9 @@ type Data struct {
 	// (not from a development driver's static catalog).
 	SnapshotRead bool
 	// AuxPricesRead says that StoragePrices and IPv4Prices are the source's
-	// own rows (Keeper's snapshot), which the
-	// drivers that price disks and addresses take from the catalog; false for
-	// a development driver's static catalog, which has none.
+	// own rows (Keeper's snapshot), which the drivers that price disks and
+	// addresses take from the catalog; false for a development driver's static
+	// catalog, which has none.
 	AuxPricesRead bool
 	// PublishedAt is when the source published that version (Keeper's
 	// SC-Data-Published-At); zero when the source does not say.

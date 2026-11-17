@@ -240,10 +240,10 @@ implements `BillingDescriber` and overrides it by family, from Oracle's document
 the rule is not verified and billing retention stays off): per second with a 60 second minimum for VMs
 ([release note](https://docs.oracle.com/iaas/releasenotes/changes/20facdce-34bf-4648-a0a7-de5db73657ce/index.htm));
 bare metal has a one hour minimum, which Keeper's `family` (Standard, Optimized, Dense I/O) cannot tell from a
-VM, so it is not held either. A stopped server is not charged for Standard shapes and charged for Dense I/O and
-HPC ([Oracle](https://docs.oracle.com/iaas/Content/Compute/Tasks/resource-billing-stopped-instances.htm); the
-Ampere, burstable and standard bare metal shapes are not named there and count as Standard); Optimized and GPU
-mix both and keep Keeper's row. The driver terminates instances, never stops them.
+VM, so it is not held either. A stopped server is not charged for Standard shapes and charged for Dense I/O ([Oracle](https://docs.oracle.com/iaas/Content/Compute/Tasks/resource-billing-stopped-instances.htm); the
+Ampere, burstable and standard bare metal shapes are not named there and count as Standard); Optimized
+mixes both (VM.Optimized3 pauses, BM.Optimized3 continues) and keeps Keeper's row. Nothing reads the stopped charge
+today, and the driver terminates instances, never stops them.
 
 ## Deferred
 
