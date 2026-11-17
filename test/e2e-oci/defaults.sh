@@ -57,8 +57,8 @@
 # is often short; the scenario is then skipped, not failed.
 : "${E2E_TYPE_ARM64:=oci.VM.Standard.A1.Flex.1-2}"
 # The types the spot scenario may launch, in order of preference: the same size (1 OCPU, 4 GB) of the E5, E4
-# and E3 flexible shapes, all offered as preemptible in eu-frankfurt-1 by the embedded catalog
-# (pkg/catalog/embeddeddata/oci). OCI regularly has no preemptible E5 capacity ("Out of host capacity"); the
+# and E3 flexible shapes, all offered as preemptible in eu-frankfurt-1 by Keeper's catalog
+# (test/data/sc-snapshot-oci has the rows). OCI regularly has no preemptible E5 capacity ("Out of host capacity"); the
 # NodePool lists them all and the engine tries the others once an offering is unavailable. The
 # scenario takes whichever launches, and is skipped when none has capacity.
 : "${E2E_SPOT_TYPES:=oci.VM.Standard.E5.Flex.1-4,oci.VM.Standard.E4.Flex.1-4,oci.VM.Standard.E3.Flex.1-4}"

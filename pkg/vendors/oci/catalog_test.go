@@ -13,12 +13,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/SpareCores/scarpenter/pkg/catalog"
-	ocidata "github.com/SpareCores/scarpenter/pkg/catalog/embeddeddata/oci"
+	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/facts"
 )
 
-// The catalog built from the embedded data over the driver's own facts offers every type in every
+// The catalog built from Keeper's snapshot of oci over the driver's own facts offers every type in every
 // availability domain the tenancy lists for the region, whatever the crawler's AD numbering gave
 // each shape (24 shape and region pairs of the data lack one or two ADs of Phoenix, Frankfurt or
 // Ashburn): the prices are per region (decision of 2026-11-14), and the driver's check against
@@ -27,10 +27,7 @@ func TestCatalogOffersEveryTypeInEveryADOfTheTenancy(t *testing.T) {
 	e := newEnv(t)
 	// A Phoenix with the three ADs the crawler's tenancy had, named under this tenancy's prefix.
 	e.c.AddRegion("us-phoenix-1", identity.RegionSubscriptionStatusReady, "tEsT:PHX-AD-1", "tEsT:PHX-AD-2", "tEsT:PHX-AD-3")
-	src, err := catalog.NewEmbeddedSource("oci", ocidata.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := catalogtest.SourceAt(catalogtest.ServerWithOCI(t).URL)
 	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(e.d)})
 	if err := f.Load(t.Context()); err != nil {
 		t.Fatal(err)

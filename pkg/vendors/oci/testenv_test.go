@@ -20,7 +20,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/limits"
 	clocktesting "k8s.io/utils/clock/testing"
 
-	"github.com/SpareCores/scarpenter/pkg/catalog/embeddeddata/oci"
+	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	driver "github.com/SpareCores/scarpenter/pkg/vendors/oci"
 	"github.com/SpareCores/scarpenter/pkg/vendors/oci/fake"
@@ -33,7 +33,7 @@ const (
 	testCluster = "conformance"
 )
 
-// row is the part of an embedded server row the tests need.
+// row is the part of a server row of Keeper's snapshot the tests need.
 type row struct {
 	ID        string
 	VCPUs     int
@@ -46,31 +46,14 @@ var (
 	rowsAll  []row
 )
 
-// catalogRows returns the active rows of the committed embedded OCI catalog (the
-// files of step (a1)): the full type list of the vendor.
+// catalogRows returns the active rows of the committed Keeper snapshot of oci
+// (catalogtest.OCIDir): the full type list of the vendor, the sizes that have no
+// price (VM.Standard.E6-HM.Ax.Flex) included: the conformance list has them, the
+// catalog never offers them.
 func catalogRows(t testing.TB) []row {
 	t.Helper()
 	rowsOnce.Do(func() {
-		body := func(path string) *keeper.SnapshotBody {
-			b, err := oci.FS.ReadFile(path + ".json.gz")
-			if err != nil {
-				t.Fatal(err)
-			}
-			return &keeper.SnapshotBody{Gzip: b}
-		}
-		m, err := keeper.DecodeManifest(body("manifest"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		f, ok := m.Lookup("server/oci")
-		if !ok {
-			t.Fatal("server/oci is not in the manifest")
-		}
-		servers, err := keeper.DecodeSnapshotRows[keeper.TableServer](body("server/oci"), f.Rows)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, s := range servers {
+		for _, s := range catalogtest.OCIRows[keeper.TableServer](t, "server/oci") {
 			if s.Status == "active" {
 				rowsAll = append(rowsAll, row{ID: s.ServerID, VCPUs: s.VCPUs, MemoryMiB: s.MemoryAmount,
 					Arm: s.CPUArchitecture == "arm64"})
@@ -78,7 +61,7 @@ func catalogRows(t testing.TB) []row {
 		}
 	})
 	if len(rowsAll) == 0 {
-		t.Fatal("the embedded catalog has no active OCI servers")
+		t.Fatal("the committed snapshot has no active OCI servers")
 	}
 	return rowsAll
 }

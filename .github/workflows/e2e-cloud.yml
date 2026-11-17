@@ -34,7 +34,7 @@ name: L5 (cloud e2e)
 # OCI_IDENTITY_DOMAIN_URL, OCI_CLIENT_ID and OCI_OIDC_AUDIENCE (the identity domain and its confidential
 # application that trust GitHub's OIDC token), and the environment secret OCI_CLIENT_SECRET (the
 # application's client secret: the one stored secret; no API key exists). The identity is the keyless
-# token exchange of test/e2e-oci/oci-session.sh (the lane has not run yet).
+# token exchange of test/e2e-oci/oci-session.sh (the lane ran green on 2026-11-15).
 on:
   workflow_call:
     inputs:

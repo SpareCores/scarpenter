@@ -23,6 +23,9 @@ func TestParseType(t *testing.T) {
 		{"VM.Standard.E5.Flex.2-16", driver.InstanceType{Shape: "VM.Standard.E5.Flex", Sized: true, OCPUs: 2, GB: 16}},
 		{"VM.Standard.A1.Flex.80-320", driver.InstanceType{Shape: "VM.Standard.A1.Flex", Sized: true, OCPUs: 80, GB: 320}},
 		{"VM.Standard.E5.Flex.126-1008", driver.InstanceType{Shape: "VM.Standard.E5.Flex", Sized: true, OCPUs: 126, GB: 1008}},
+		// A hyphen in the shape (Keeper's VM.Standard.E6-HM.Ax.Flex): only the tail after the last dot is the size.
+		{"VM.Standard.E6-HM.Ax.Flex.2-32", driver.InstanceType{Shape: "VM.Standard.E6-HM.Ax.Flex", Sized: true, OCPUs: 2, GB: 32}},
+		{"VM.Standard.E6-HM.Ax.Flex.94-752", driver.InstanceType{Shape: "VM.Standard.E6-HM.Ax.Flex", Sized: true, OCPUs: 94, GB: 752}},
 		{"BM.Standard3.64", driver.InstanceType{Shape: "BM.Standard3.64"}},
 		{"VM.Standard2.1", driver.InstanceType{Shape: "VM.Standard2.1"}},
 		{"VM.Standard.E2.1.Micro", driver.InstanceType{Shape: "VM.Standard.E2.1.Micro"}},
@@ -60,6 +63,8 @@ func TestParseTypeRejects(t *testing.T) {
 		{"VM.", vendors.Fatal},
 		{"vm.Standard.E5.Flex.2-16", vendors.Fatal},
 		{"VM.Standard.E5.Flex.2-16 ", vendors.Fatal},
+		{"VM.Standard.E6-HM.Ax.Flex.2-0", vendors.Unsupported},
+		{"VM.Standard.E6-HM.Ax.Flex", vendors.Unsupported},
 		{"VM.Standard.E5.Flex.99999999999999999999-16", vendors.Unsupported},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -82,6 +87,7 @@ func TestFormatType(t *testing.T) {
 		roundTrips bool
 	}{
 		{"VM.Standard.E5.Flex", 2, 16, "VM.Standard.E5.Flex.2-16", true},
+		{"VM.Standard.E6-HM.Ax.Flex", 2, 32, "VM.Standard.E6-HM.Ax.Flex.2-32", true},
 		{"VM.Standard.A1.Flex", 80, 320, "VM.Standard.A1.Flex.80-320", true},
 		{"VM.Standard.E5.Flex", 1.5, 8, "VM.Standard.E5.Flex.1.5-8", false}, // foreign: %g, never ours
 	} {
@@ -123,7 +129,7 @@ func TestVCPUsPerOCPU(t *testing.T) {
 	}
 }
 
-// Every row of the embedded catalog parses, and for sized rows the vCPUs are the
+// Every row of Keeper's snapshot of oci parses, and for sized rows the vCPUs are the
 // OCPUs times the shape's k and the memory the GB times 1024 MiB (plan 25, section
 // 2): a row that fails is a data error the test names.
 func TestCatalogRowsParse(t *testing.T) {
@@ -157,9 +163,10 @@ func TestCatalogRowsParse(t *testing.T) {
 			t.Errorf("%s: %v MiB, want %d GB", r.ID, r.MemoryMiB, typ.GB)
 		}
 	}
-	// Plan 25, section 2: 287 active rows, 256 sized of 12 shapes, 31 fixed.
-	if sized != 256 || fixed != 31 {
-		t.Errorf("%d sized and %d fixed active rows; want 256 and 31", sized, fixed)
+	// 310 active rows: 256 sized of 12 shapes (plan 25, section 2), the 23 sizes
+	// of VM.Standard.E6-HM.Ax.Flex Keeper added (no price yet), 31 fixed.
+	if sized != 279 || fixed != 31 {
+		t.Errorf("%d sized and %d fixed active rows; want 279 and 31", sized, fixed)
 	}
 }
 

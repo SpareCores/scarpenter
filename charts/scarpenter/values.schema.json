@@ -763,13 +763,6 @@
         },
         "maxAge": {
           "$ref": "#/definitions/duration"
-        },
-        "embeddedVendors": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z0-9]+$"
-          }
         }
       }
     },
