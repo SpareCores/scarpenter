@@ -49,7 +49,7 @@ Execution protocol:
 | 21 | `wip/21-alicloud.md` | review; live verification pending | Alibaba Cloud driver, fake, conformance, L5 lane; images on rung 3 from the images repository | 14, 22 |
 | 22 | `wip/22-flatcar-images.md` | todo | the Flatcar images repository (proposed `SpareCores/flatcar-images`): OEM-patched images for vultr, upcloud and aliyun, the GCP arm64 image, signatures, release tracking, upstream proposals | — |
 | 23 | `done/23-billing-retention.md` | done | opt-in `spec.billing`: keep period-billed nodes (hcloud first, then UpCloud, Vultr; OVH US if hourly; Alibaba until the end of its minimum) until the end of their paid period and reuse them; Keeper vendor billing facts, `BillingStart`, the retention controller, metrics, fake-clock tests | 14 and the Keeper vendor table (live; plan 13 is not needed) |
-| 25 | `done/25-oci.md` | done (2026-11-15: the live lane is green, `oci` is in `test/e2e-vendors.txt`) | Oracle Cloud Infrastructure driver, fake, conformance, L5 lane; fixed named sizes per flexible shape (`VM.Standard.E5.Flex.2-16`), an embedded OCI catalog (Keeper did not serve OCI yet; swapped to Keeper 2026-11-17) behind the `catalog.Source` seam, images on rung 3 from Flatcar's own OCI image, managed VCN, subnet and network security groups; five steps: catalog data and rule R, driver foundation, embedded source, full driver and surfaces, L5 | 14, 23, 13 (part B, for the embedded-source step), 24 committed (cited) |
+| 25 | `done/25-oci.md` | done (2026-11-15: the live lane is green, `oci` is in `test/e2e-vendors.txt`) | Oracle Cloud Infrastructure driver, fake, conformance, L5 lane; fixed named sizes per flexible shape (`VM.Standard.E5.Flex.2-16`), an embedded OCI catalog (Keeper did not serve OCI yet; swapped to Keeper 2026-11-17) behind the `catalog.Source` seam, images on rung 3 from Flatcar's own OCI image, managed VCN, subnet and network security groups; five steps: catalog data and rule R, driver foundation, embedded source, full driver and surfaces, L5 | 14, 23, 13 (part B, for the embedded-source step) |
 
 Shared rules for every plan: [`CONVENTIONS.md`](CONVENTIONS.md).
 
@@ -73,8 +73,7 @@ Order:
 3. **15 (Hetzner)**: rung 3 with Flatcar's own image.
 4. **18 to 21** (OVH, UpCloud, Vultr, Alibaba); the order among them is open.
 5. **25 (OCI)**: rung 3 with Flatcar's own OCI image, no wait for 22; its catalog was embedded
-   (Keeper did not serve OCI then; it does since 2026-11-17) and its sizes are fixed named sizes per flexible shape, so it
-   does not wait for 24 either.
+   (Keeper did not serve OCI then; it does since 2026-11-17) and its sizes are fixed named sizes per flexible shape.
 
 **23**, billing-period retention, needs 14 only (its Keeper data is the live vendor table, not
 plan 13's snapshots) and is fully testable on the fake driver; it can be built as soon as 14 is done,

@@ -184,6 +184,9 @@ remains a later option (it would also serve GCP custom machine types). The data 
 is forward compatible: a size is a `Server` row either way, and the name `<shape>.<ocpus>-<gb>`
 is a subset of what plan 24 proposed (`3o-24g`).
 
+**2026-11-17:** plan 24 was rejected and dropped (never committed); the size grid is no longer a
+planned option, and the plan 24 sections cited here are not in the repository.
+
 ## 3. Images: the rung
 
 **Rung 3** (ADR-021): images created in the user's own tenancy, **per region and architecture**,
