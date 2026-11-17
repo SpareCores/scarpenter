@@ -65,7 +65,7 @@ done
 
 # ---- the pins ----------------------------------------------------------------
 t_pins() {
-  [[ "${E2E_FLATCAR_IMAGE}" == "flatcar-stable-4757-2-3" || "${E2E_FLATCAR_VERSION}" != 4757.2.3 ]] || { echo "image ${E2E_FLATCAR_IMAGE}"; return 1; }
+  [[ "${E2E_FLATCAR_IMAGE}" == "flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION//./-}" ]] || { echo "image ${E2E_FLATCAR_IMAGE}"; return 1; }
   [[ "$(env -u GCP_ZONE GCP_REGION=europe-west4 bash -c "source '${here}/defaults.sh'; echo \${GCP_ZONE}")" == europe-west4-a ]] || { echo "the zone does not follow the region"; return 1; }
   [[ "$(E2E_FLATCAR_VERSION=4081.3.12 E2E_FLATCAR_CHANNEL=lts bash -c "source '${here}/defaults.sh'; echo \${E2E_FLATCAR_IMAGE}")" == flatcar-lts-4081-3-12 ]] || { echo "the image name of another version"; return 1; }
   [[ "${E2E_TYPES_DESCRIBED_YAML}" == '"gcp.e2-small", "gcp.e2-medium", "gcp.e2-standard-2"' ]] || { echo "described: ${E2E_TYPES_DESCRIBED_YAML}"; return 1; }

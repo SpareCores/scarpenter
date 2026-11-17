@@ -32,6 +32,14 @@ jobs:
           git add -N .
           git diff --exit-code
 
+      # The in-repo Flatcar pins match the release the operator of the CI account provides
+      # (the repository variables). Skipped with a notice when the variables are empty (forks).
+      - name: Flatcar pins match the repository variables
+        env:
+          FLATCAR_CHANNEL: ${{ vars.FLATCAR_CHANNEL }}
+          FLATCAR_VERSION: ${{ vars.FLATCAR_VERSION }}
+        run: hack/check-flatcar-pins.sh "${FLATCAR_CHANNEL}" "${FLATCAR_VERSION}"
+
       - name: Lint (go vet, golangci-lint, actionlint, shellcheck, documentation links)
         run: hack/dev.sh make lint
 

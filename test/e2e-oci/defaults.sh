@@ -44,10 +44,9 @@
 # version, at least three minors below it.
 : "${E2E_KUBERNETES_VERSION:=v1.37.1}"
 : "${E2E_TAILSCALE_VERSION:=v1.98.10}"
-: "${E2E_FLATCAR_CHANNEL:=stable}"
-# The first release with the oraclecloud image. The image is imported into the compartment (or OCI_IMAGE_COMPARTMENT) by the
-# lane's operator, named flatcar-<channel>-<version>-<arch> (docs/how-to-guides/set-up-oci.md).
-: "${E2E_FLATCAR_VERSION:=4757.2.3}"
+# The Flatcar release: test/flatcar-pin.sh (CI sets it from the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION).
+# shellcheck source=test/flatcar-pin.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Instance types the suite launches; the NodePools name them. A flexible shape with a size:
 # 1 OCPU (2 vCPUs on x86) and 4 GB is the smallest node that boots Flatcar and joins.
 : "${E2E_TYPE_AMD64:=oci.VM.Standard.E5.Flex.1-4}"

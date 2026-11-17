@@ -95,7 +95,7 @@ check "every manifest renders with the variables its callers set" t_render_all
 
 # ---- the pins ----------------------------------------------------------------
 t_pins() {
-  [[ "${E2E_FLATCAR_IMAGE_AMD64}" == "flatcar-stable-4757.2.3-amd64" && "${E2E_FLATCAR_IMAGE_ARM64}" == "flatcar-stable-4757.2.3-arm64" ]] ||
+  [[ "${E2E_FLATCAR_IMAGE_AMD64}" == "flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64" && "${E2E_FLATCAR_IMAGE_ARM64}" == "flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-arm64" ]] ||
     { echo "images ${E2E_FLATCAR_IMAGE_AMD64} ${E2E_FLATCAR_IMAGE_ARM64}"; return 1; }
   [[ "$(E2E_FLATCAR_VERSION=4800.1.0 E2E_FLATCAR_CHANNEL=beta bash -c "source '${here}/defaults.sh'; echo \${E2E_FLATCAR_IMAGE_AMD64}")" == flatcar-beta-4800.1.0-amd64 ]] ||
     { echo "the image name of another version"; return 1; }

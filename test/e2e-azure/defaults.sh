@@ -38,10 +38,9 @@
 # version, at least three minors below it.
 : "${E2E_KUBERNETES_VERSION:=v1.37.1}"
 : "${E2E_TAILSCALE_VERSION:=v1.98.10}"
-: "${E2E_FLATCAR_CHANNEL:=stable}"
-# A marketplace version is a Flatcar release number. Whether the corevm offers carry this
-# release is on the live list of plan 17: the preflight and the canary check it.
-: "${E2E_FLATCAR_VERSION:=4757.2.3}"
+# The Flatcar release: test/flatcar-pin.sh (CI sets it from the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION).
+# shellcheck source=test/flatcar-pin.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Instance types the suite launches; the Azure Policy's size allow-list (ci-policy.sh) is
 # built from them. B-series have no Spot, so the spot scenario uses a small D size that
 # reports LowPriorityCapable: Standard_D2as_v5 (2 vCPUs, SCSI, Premium IO) is TO CONFIRM

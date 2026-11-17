@@ -18,8 +18,9 @@
 # The Flatcar release of the images. The images are the operator's own (rung 3 of plan 21):
 # the operator imports and copies them before the run, the lane's preflight only checks that
 # they resolve (docs/how-to-guides/testing-and-releasing.md#alibaba-cloud-provisioning).
-: "${E2E_FLATCAR_CHANNEL:=stable}"
-: "${E2E_FLATCAR_VERSION:=4757.2.3}"
+# The Flatcar release: test/flatcar-pin.sh (CI sets it from the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION).
+# shellcheck source=test/flatcar-pin.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Instance types the suite launches (ecs.<family>.<size>, with the vendor prefix); the
 # role's instance type deny must allow them. Availability per zone is unverified.
 #   amd64 on-demand: ecs.e-c1m2.large (2 vCPU, 4 GiB, shared)

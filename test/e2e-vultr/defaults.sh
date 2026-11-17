@@ -14,8 +14,9 @@
 # The Flatcar release the account's snapshot holds, described
 # flatcar-<channel>-<version>-amd64 (the account's operator creates it once per pinned
 # version from the images repository's URL; docs/how-to-guides/set-up-vultr.md).
-: "${E2E_FLATCAR_CHANNEL:=stable}"
-: "${E2E_FLATCAR_VERSION:=4757.2.3}"
+# The Flatcar release: test/flatcar-pin.sh (CI sets it from the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION).
+# shellcheck source=test/flatcar-pin.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Plans the suite launches (about a cent per hour each; plan 20, section 9). Vultr has no
 # Arm instances, no spot and no quota API, so there is no arm64, spot or quota pin.
 : "${E2E_TYPE_AMD64:=vultr.vc2-1c-1gb}"

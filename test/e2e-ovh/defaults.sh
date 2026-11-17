@@ -14,8 +14,9 @@
 # version, at least three minors below it.
 : "${E2E_KUBERNETES_VERSION:=v1.37.1}"
 : "${E2E_TAILSCALE_VERSION:=v1.98.10}"
-: "${E2E_FLATCAR_CHANNEL:=stable}"
-: "${E2E_FLATCAR_VERSION:=4757.2.3}"
+# The Flatcar release: test/flatcar-pin.sh (CI sets it from the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION).
+# shellcheck source=test/flatcar-pin.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Flavors the suite launches (the vendor prefix is the instance type's; the Nova flavor
 # name is Keeper's api_reference). d2-2 is the Discovery family (shared CPU, the cheapest);
 # the database and its client use two nodes of b3-8. The project's flavor quota is the

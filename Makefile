@@ -95,6 +95,10 @@ docs-api: manifests ## Generate docs/reference/api.md and the JSON Schema docs/r
 test-docs: ## Check that the relative links and anchors of the Markdown files resolve.
 	python3 hack/check-docs.py
 
+.PHONY: check-flatcar-pins
+check-flatcar-pins: ## Check the in-repo Flatcar pins against FLATCAR_CHANNEL and FLATCAR_VERSION (the repository variables).
+	hack/check-flatcar-pins.sh "$(FLATCAR_CHANNEL)" "$(FLATCAR_VERSION)"
+
 .PHONY: snapshot
 snapshot: ## Refresh test/data/sc-snapshot from Keeper's snapshot routes (needs an API key: KEEPER_API_KEY, or KEEPER_API_KEY_FILE; about 30 MB; -resume continues an interrupted run).
 	@# sc-snapshot replaces the output directory as a whole, the query list included.

@@ -238,10 +238,22 @@ other regions, and the policy refuses them; they are reported as skipped, as for
 labelled `e2e-canary` in this repository, with the table (redacted by `redact()` of
 `test/e2e-<vendor>/lib.sh`: the repository is public); a green night closes it. The
 run's step summary has the table too, and a manual run (never an issue) is read there.
-Read a failure by its row: a Flatcar image gone means moving the pin in `defaults.sh`
-(and the lane's manifests read it from there); a quota means a request to the cloud
+Read a failure by its row: a Flatcar image gone means the operator of the CI account moves the
+repository variables `FLATCAR_CHANNEL` and `FLATCAR_VERSION` (see
+[The Flatcar release of the e2e lanes](#the-flatcar-release-of-the-e2e-lanes)); a quota means a request to the cloud
 provider; a type means changing the types of `defaults.sh` and the CI policy's deny list
 (`ci-policy.sh` takes the allowed types from the same file).
+
+#### The Flatcar release of the e2e lanes
+
+The release the e2e lanes and the canary use in CI comes from the two repository variables
+`FLATCAR_CHANNEL` and `FLATCAR_VERSION`, set by the operator of the CI account, who also provides
+the images and templates of exactly that release in the e2e clouds. The workflows export them as
+`E2E_FLATCAR_CHANNEL` and `E2E_FLATCAR_VERSION`. For local runs the default is
+[`test/flatcar-pin.sh`](../../test/flatcar-pin.sh), which every `test/e2e-<vendor>/defaults.sh` sources.
+A bump means updating the in-repo pins (that file, the chart's example values, `config/samples`,
+`docs/examples` and the how-to guides) so that `hack/check-flatcar-pins.sh` passes in CI
+(`make check-flatcar-pins FLATCAR_CHANNEL=stable FLATCAR_VERSION=<version>` runs it locally).
 
 **Hetzner Cloud.** The canary of vendor `hcloud` (`test/canary/hcloud.go`) uses a **read-only token** of the
 CI project (the secret `HCLOUD_TOKEN` of the environment `e2e-canary`; the optional variable
