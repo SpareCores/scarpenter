@@ -62,8 +62,8 @@ func ToInstance(region string, in core.Instance) *vendors.Instance {
 		Tags: TagsOf(in.FreeformTags),
 	}
 	if in.TimeCreated != nil {
-		// Per second billing with a one minute minimum: retention never applies
-		// (plan 25, billing period); the stamp is the creation time for the record.
+		// Per second billing with a one minute minimum for VMs (BillingRule):
+		// retention does not hold them; the stamp is the creation time for the record.
 		out.CreatedAt = in.TimeCreated.Time
 		out.BillingStart = in.TimeCreated.Time
 	}
