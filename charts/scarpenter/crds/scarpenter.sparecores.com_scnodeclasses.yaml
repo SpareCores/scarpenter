@@ -397,6 +397,14 @@ spec:
                   tailscale:
                     description: tailscale configures the tailscale template.
                     properties:
+                      acceptRoutes:
+                        default: false
+                        description: |-
+                          acceptRoutes makes nodes accept the subnet routes other tailnet members
+                          advertise (tailscale up --accept-routes), so workloads can reach
+                          addresses behind a subnet router, e.g. a control plane's private
+                          addresses. The flag runs on every boot.
+                        type: boolean
                       authKeySecretRef:
                         description: |-
                           authKeySecretRef references the Secret key holding the auth key nodes

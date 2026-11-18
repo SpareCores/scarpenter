@@ -199,7 +199,7 @@ template that uses a variable that does not exist fails (strict). Functions: `q`
 | `.KubeletConfig` | the `KubeletConfiguration` YAML |
 | `.KubeletArgs` | `--provider-id`, `--hostname-override` and `--register-with-taints` |
 | `.Sysexts` | the kubernetes sysext and `spec.sysexts` of the architecture: `.Name`, `.URL`, `.SHA256`, `.Path`, `.Link` |
-| `.Tailscale.Version`, `.LoginServer`, `.AuthKey`, `.Tags` (comma separated), `.Sysext` | the tailscale settings; set with the `tailscale` template only |
+| `.Tailscale.Version`, `.LoginServer`, `.AuthKey`, `.Tags` (comma separated), `.AcceptRoutes`, `.Sysext` | the tailscale settings; set with the `tailscale` template only |
 | `.PoweroffAfter`, `.PoweroffAfterSeconds` | `spec.poweroffAfter` as a duration string and in seconds (0: not set) |
 
 ## The kubelet
@@ -233,7 +233,8 @@ compares them. What each renders:
   `/etc/scarpenter/tailscale-authkey` (mode 0600). The unit
   `scarpenter-tailscale-up.service` (oneshot, before the kubelet) runs
   `tailscale up --auth-key=file:... --hostname=<nodeclaim> --accept-dns=false`
-  plus `--login-server` (Headscale) and `--advertise-tags`, then
+  plus `--login-server` (Headscale), `--accept-routes` (`acceptRoutes: true`,
+  so the node uses the subnet routes advertised into the tailnet) and `--advertise-tags`, then
   `/opt/scarpenter/bin/wait-for-tailscale-ip` waits up to 120 s for the node's
   tailscale IPv4 and writes `/run/scarpenter/node-ip.env`
   (`SCARPENTER_NODE_IP_ARGS=--node-ip=<ip>`), which the kubelet drop-in reads. A

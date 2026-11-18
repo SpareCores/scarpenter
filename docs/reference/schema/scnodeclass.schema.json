@@ -369,6 +369,11 @@
               "additionalProperties": false,
               "description": "tailscale configures the tailscale template.",
               "properties": {
+                "acceptRoutes": {
+                  "default": false,
+                  "description": "acceptRoutes makes nodes accept the subnet routes other tailnet members\nadvertise (tailscale up --accept-routes), so workloads can reach\naddresses behind a subnet router, e.g. a control plane's private\naddresses. The flag runs on every boot.",
+                  "type": "boolean"
+                },
                 "authKeySecretRef": {
                   "additionalProperties": false,
                   "description": "authKeySecretRef references the Secret key holding the auth key nodes\njoin the tailnet with.",

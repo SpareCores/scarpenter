@@ -88,6 +88,8 @@ type TailscaleData struct {
 	// Tags are the ACL tags, comma separated.
 	Tags   string
 	Sysext Sysext
+	// AcceptRoutes adds --accept-routes to tailscale up.
+	AcceptRoutes bool
 }
 
 // TemplateData are the variables of the Butane templates (overview section
@@ -151,11 +153,12 @@ type Network struct {
 
 // TailscaleParams are the inputs of the tailscale template.
 type TailscaleParams struct {
-	Version     string
-	LoginServer string
-	AuthKey     string
-	Tags        []string
-	Sysext      artifacts.Artifact
+	Version      string
+	LoginServer  string
+	AuthKey      string
+	Tags         []string
+	Sysext       artifacts.Artifact
+	AcceptRoutes bool
 }
 
 // Params is everything the rendering of one node's user-data depends on. Render
@@ -402,7 +405,7 @@ func (p *Params) tailscaleData() (TailscaleData, error) {
 	}
 	return TailscaleData{
 		Version: ts.Version, LoginServer: ts.LoginServer, AuthKey: ts.AuthKey, Tags: strings.Join(ts.Tags, ","),
-		Sysext: builtinSysext("tailscale", ts.Sysext),
+		Sysext: builtinSysext("tailscale", ts.Sysext), AcceptRoutes: ts.AcceptRoutes,
 	}, nil
 }
 

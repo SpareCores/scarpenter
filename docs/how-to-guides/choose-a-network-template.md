@@ -35,6 +35,7 @@ plane and how the control plane reaches the node's kubelet (for `kubectl logs`,
          loginServer: ""                  # "" is Tailscale SaaS; a URL for Headscale
          authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
          tags: [tag:k8s-node]
+         acceptRoutes: false              # true: nodes use subnet routes advertised into the tailnet
    ```
 
 4. `--api-server-endpoint` must be an address the nodes reach **over the tailnet**

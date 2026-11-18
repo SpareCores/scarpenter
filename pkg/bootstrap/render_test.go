@@ -292,6 +292,34 @@ storage:
 	}
 }
 
+// TestGoldenTailscaleAcceptRoutes renders the tailscale template with
+// acceptRoutes set; the flag is part of the unit's ExecStart, so it runs on
+// every boot.
+func TestGoldenTailscaleAcceptRoutes(t *testing.T) {
+	for _, arch := range []string{"amd64", "arm64"} {
+		t.Run(arch, func(t *testing.T) {
+			p := baseParams(arch, v1alpha1.NetworkTemplateTailscale)
+			p.Network.Tailscale.AcceptRoutes = true
+			r, err := bootstrap.Render(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := goldenText(t, r)
+			if !strings.Contains(string(got), "--accept-dns=false --accept-routes") {
+				t.Error("tailscale up does not carry --accept-routes")
+			}
+			testutil.Golden(t, "render-tailscale-accept-routes-"+arch+".golden", got)
+			def, err := bootstrap.Render(baseParams(arch, v1alpha1.NetworkTemplateTailscale))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(goldenText(t, def)), "--accept-routes") {
+				t.Error("the default rendering carries --accept-routes")
+			}
+		})
+	}
+}
+
 func TestRenderIsDeterministic(t *testing.T) {
 	a, err := bootstrap.Render(baseParams("amd64", v1alpha1.NetworkTemplateTailscale))
 	if err != nil {

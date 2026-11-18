@@ -293,6 +293,7 @@ func (r *Renderer) params(nc *v1alpha1.SCNodeClass, arch, ca string, in Inputs) 
 		p.Network.Tailscale = TailscaleParams{
 			Version: ts.Version, LoginServer: ts.LoginServer, AuthKey: in.AuthKey,
 			Tags: slices.Clone(ts.Tags), Sysext: artifacts.Artifact{URL: a.URL, SHA256: a.SHA256},
+			AcceptRoutes: ts.AcceptRoutes,
 		}
 	case v1alpha1.NetworkTemplateCustom:
 		ref := spec.Network.Custom.ConfigMapRef

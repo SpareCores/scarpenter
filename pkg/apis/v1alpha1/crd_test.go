@@ -159,6 +159,7 @@ func TestValidSpecsAreAccepted(t *testing.T) {
 		"alicloud optional tokens and ignored local storage": `vendors: {alicloud: {metadataOptions: {httpTokens: optional}, storage: {localStorage: {policy: ignore}}}}`,
 		"template tailscale":                `network: {template: tailscale, tailscale: {version: v1.98.10, authKeySecretRef: {name: nm, namespace: ns, key: k}}}`,
 		"template custom":                   `network: {template: custom, custom: {configMapRef: {name: nm, namespace: ns, key: k}}}`,
+		"tailscale accept routes":           `network: {template: tailscale, tailscale: {version: v1.98.10, acceptRoutes: true, authKeySecretRef: {name: nm, namespace: ns, key: k}}}`,
 		"headscale login server":            `network: {template: tailscale, tailscale: {version: v1.98.10, loginServer: "https://hs.example.com", authKeySecretRef: {name: nm, namespace: ns, key: k}}}`,
 		"inbound rules":                     `networking: {inbound: {rules: [{protocol: tcp, fromPort: 8000, toPort: 8100, cidrs: [10.0.0.0/8, "2001:db8::/32"]}, {protocol: icmp, cidrs: [0.0.0.0/0]}]}}`,
 		"resource use ids":                  `vendors: {aws: {resources: {subnets: {use: {ids: {us-east-1: [subnet-0123]}}}}}}`,
@@ -260,6 +261,34 @@ profiles:
 	// Vendor blocks must not default anything the driver defaults itself.
 	if _, found, _ := nestedField(got.Object, "spec.vendors.qemu.storage"); found {
 		t.Error("spec.vendors.qemu.storage was defaulted")
+	}
+}
+
+func TestTailscaleAcceptRoutesDefaultsToFalseAndRoundTrips(t *testing.T) {
+	const ref = `authKeySecretRef: {name: nm, namespace: ns, key: k}`
+	for _, c := range []struct {
+		name, tailscale string
+		want            string
+	}{
+		{"absent", `{version: v1.98.10, ` + ref + `}`, "false"},
+		{"true", `{version: v1.98.10, acceptRoutes: true, ` + ref + `}`, "true"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			obj := parseObject(t, "accept-routes-"+c.name, withSpec(t, `
+vendors: {qemu: {}}
+network: {template: tailscale, tailscale: `+c.tailscale+`}
+`))
+			if err := create(t, obj); err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			g, found, err := nestedField(get(t, obj).Object, "spec.network.tailscale.acceptRoutes")
+			if err != nil || !found {
+				t.Fatalf("not found (err %v)", err)
+			}
+			if fmt.Sprint(g) != c.want {
+				t.Errorf("acceptRoutes = %v, want %s", g, c.want)
+			}
+		})
 	}
 }
 
