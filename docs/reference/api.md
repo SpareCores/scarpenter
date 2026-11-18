@@ -194,7 +194,7 @@ tailscale configures the tailscale template.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `acceptRoutes` | boolean | `false` | acceptRoutes makes nodes accept the subnet routes other tailnet members advertise (tailscale up --accept-routes), so workloads can reach addresses behind a subnet router, e.g. a control plane's private addresses. The flag runs on every boot. |
+| `acceptRoutes` | boolean | `false` | acceptRoutes makes nodes accept the subnet routes other tailnet members advertise (tailscale up --accept-routes), so workloads can reach addresses behind a subnet router, e.g. a control plane's private addresses. The flag runs on every boot. Changing it drifts nodes. |
 | `authKeySecretRef` (required) | [object](#specnetworktailscaleauthkeysecretref) |  | authKeySecretRef references the Secret key holding the auth key nodes join the tailnet with. |
 | `loginServer` | string |  | loginServer is the coordination server URL; empty means Tailscale SaaS, set it for Headscale. Pattern `^(https?://[^\s]+)?$`. |
 | `tags` | array of string |  | tags are the ACL tags nodes advertise. At most 16 items. Pattern `^tag:[a-zA-Z0-9][a-zA-Z0-9-]*$`. |
