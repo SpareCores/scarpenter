@@ -405,7 +405,7 @@ func (p *Params) tailscaleData() (TailscaleData, error) {
 	}
 	return TailscaleData{
 		Version: ts.Version, LoginServer: ts.LoginServer, AuthKey: ts.AuthKey, Tags: strings.Join(ts.Tags, ","),
-		Sysext: builtinSysext("tailscale", ts.Sysext),
+		Sysext:       builtinSysext("tailscale", ts.Sysext),
 		AcceptRoutes: ts.AcceptRoutes,
 	}, nil
 }
