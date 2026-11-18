@@ -239,6 +239,14 @@ type TailscaleSpec struct {
 	// +listType=set
 	// +optional
 	Tags []string `json:"tags,omitempty"`
+
+	// acceptRoutes makes nodes accept the subnet routes other tailnet members
+	// advertise (tailscale up --accept-routes), so workloads can reach
+	// addresses behind a subnet router, e.g. a control plane's private
+	// addresses. The flag runs on every boot. Changing it drifts nodes.
+	// +kubebuilder:default=false
+	// +optional
+	AcceptRoutes bool `json:"acceptRoutes,omitempty"`
 }
 
 // CustomNetworkSpec configures the custom network template.
