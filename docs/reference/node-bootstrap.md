@@ -146,20 +146,23 @@ override earlier ones):
    for the node's architecture, the kubelet drop-in, masked `update-engine` and
    `locksmithd`, and with `spec.poweroffAfter` a timer
    (`OnBootSec=<seconds>`) that runs `systemctl poweroff --force`.
-2. **volumes**, for nodes with extra volumes or local storage (the
+2. **lean**, with the [`Lean` footprint](node-settings.md#memory-footprint) only: memory
+   limits of the kubelet, containerd and (with the tailscale template) tailscaled, a
+   volatile journal and masked units a worker does not need.
+3. **volumes**, for nodes with extra volumes or local storage (the
    [first-boot volume unit](node-settings.md#extra-volumes-and-local-storage)).
-3. **vendor fragments**, one part per fragment the vendor's driver contributes
+4. **vendor fragments**, one part per fragment the vendor's driver contributes
    ([below](#vendor-fragments)); none unless a driver has an always-on fragment or the NodeClass
    enables a hardening.
-4. **network**: [`tailscale`, `direct` or `custom`](#network-templates).
-5. **user**, when `spec.butane` is set.
+5. **network**: [`tailscale`, `direct` or `custom`](#network-templates).
+6. **user**, when `spec.butane` is set.
 
 Each part is a Butane config (`variant: flatcar`, version `1.1.0`; `1.0.0` is
 accepted in custom and user configs, the experimental version is not), rendered
 with Go `text/template` and translated with the Butane library in **strict mode**
 (a warning is an error). Ignition's own merge combines the parts, so SCarpenter
 does no YAML merging. The templates are embedded
-(`pkg/bootstrap/templates/base.bu`, `tailscale.bu`, `direct.bu`).
+(`pkg/bootstrap/templates/base.bu`, `lean.bu`, `tailscale.bu`, `direct.bu`).
 
 **Kubernetes sysext contract.** The `kubernetes` sysext of the sysext-bakery
 (inspected for v1.37.1, 2026-11-06) ships `/usr/bin/kubelet`, `kubeadm`,
@@ -200,6 +203,7 @@ template that uses a variable that does not exist fails (strict). Functions: `q`
 | `.KubeletArgs` | `--provider-id`, `--hostname-override` and `--register-with-taints` |
 | `.Sysexts` | the kubernetes sysext and `spec.sysexts` of the architecture: `.Name`, `.URL`, `.SHA256`, `.Path`, `.Link` |
 | `.Tailscale.Version`, `.LoginServer`, `.AuthKey`, `.Tags` (comma separated), `.AcceptRoutes`, `.Sysext` | the tailscale settings; set with the `tailscale` template only |
+| `.Lean` | whether `spec.kubelet.footprint` is `Lean` |
 | `.PoweroffAfter`, `.PoweroffAfterSeconds` | `spec.poweroffAfter` as a duration string and in seconds (0: not set) |
 
 ## The kubelet
@@ -213,7 +217,8 @@ the API server's client certificate for `kubectl logs` and `exec` must verify
 against it) and anonymous access off, `resolvConf: /run/systemd/resolve/resolv.conf` (the stub resolver
 address does not work inside Pods). From the NodeClass: `maxPods` (default 110),
 `systemReserved`, `kubeReserved`, `evictionHard` (unset keeps the kubelet's
-defaults; quantities are validated). From the controller: `clusterDomain`
+defaults; quantities are validated); with `footprint: Lean` the defaults of these
+and a few more settings are the [preset's](node-settings.md#memory-footprint). From the controller: `clusterDomain`
 (`--cluster-domain`, default `cluster.local`) and `clusterDNS` (`--cluster-dns`; when it is not set the controller reads the cluster DNS Service itself, and `--cluster-dns=none` leaves it unset: Pods then use the node's resolver).
 
 The catalog assumes the AWS provider's kube-reserved formula for scheduling

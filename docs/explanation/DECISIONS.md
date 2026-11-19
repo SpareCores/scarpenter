@@ -829,3 +829,43 @@ Keeper client method and, with plan 13, the snapshot; one conformance scenario s
 minimum-only candidate, still gated on verified data; Azure bills per full minute with no documented minimum and is not one. Implemented by
 [plan 23](../plans/v1/done/23-billing-retention.md); the user-facing description is
 [Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md).
+
+## ADR-0NN: Node memory: a capped default reservation and a Lean footprint (accepted, 2026-11-19)
+
+The memory a node leaves to Pods is the instance's memory less the VM overhead, the kubelet's
+`kubeReserved`, `systemReserved` and the eviction threshold. The AWS formula the catalog used,
+`255Mi + 11Mi * maxPods`, is 1465Mi for the default 110 Pods: more than the memory of a 1 GiB instance and
+most of a 2 GiB one. Two settings follow.
+
+**The default `kubeReserved.memory` is `min(255Mi + 11Mi * maxPods, 25% of the node's memory)`**, the cap
+AKS applies, in the catalog (the allocatable the scheduler sees) and in the kubelet configuration the node
+gets. Both read one value, computed once per launch attempt for the instance type. It changes nodes below about
+6 GiB only. It applies to nodes launched after the change: running nodes keep their kubelet configuration, and the
+drift hash does not read the catalog.
+
+**`spec.kubelet.footprint: Lean`** (`Standard` when unset) is a preset for single-purpose nodes, such as
+benchmark runners, that makes 1 GiB instance types usable: `maxPods` 10, `kubeReserved.memory` 192Mi,
+`systemReserved.memory` 128Mi, `evictionHard` `memory.available` 50Mi, a kubelet that pulls images one at a time and
+keeps small container logs and few image records, and on the node `GOMEMLIMIT` and `GOGC` for the kubelet, containerd
+and tailscaled, `MemoryHigh` on containerd, a volatile journal and masked units a worker does not need
+(docker, userdbd, nsresourced, oomd, the `tty1` getty). Fields set in `spec.kubelet` override the preset key by key.
+The reservation is a field of `spec.kubelet`, so the catalog and the kubelet share one resolution of it
+(`KubeletSpec.Effective`); the node-level settings are a Butane part merged only with `Lean`. A NodeClass that does
+not set the field renders and hashes as before, which is why the field has no default value and `maxPods` has no
+default in the CRD (an unset `maxPods` is 110, or 10 with `Lean`).
+
+Why: the accounting is what makes a small instance type schedulable at all, and it is free; the node-level limits
+trim the Go daemons by an estimated tens of MiB, which matters on 1 GiB and not on 8. Both are limits of the
+node's own processes, never of the workload.
+
+Rejected: the AKS formula everywhere (`20Mi * maxPods + 50Mi` under the same cap: it lowers the reservation on large
+nodes too, where the AWS value is what operators of EKS expect and nothing is gained); lowering the default
+`maxPods` (it limits workloads, not the node's memory, and a lower default would stop a cluster that runs many
+DaemonSets); zram or swap in `Lean` (it makes a benchmark's memory use and timing depend on compression, so results
+are noisier; a NodeClass that wants swap adds it with `spec.butane`); changing the containerd configuration
+(Flatcar's is a version 2 file selected by the unit's `CONTAINERD_CONFIG`; replacing it means carrying a copy of it
+for a few MiB); enforcing `kubeReserved` and `systemReserved` in cgroups (`enforceNodeAllocatable`: the daemons could
+then be OOM-killed).
+
+Consequences: `spec.kubelet.footprint` in the API; `lean.bu` in the bootstrap templates; the catalog's
+`KubeReserved` takes the node's memory.

@@ -1,0 +1,52 @@
+# The NodePool for ../low-memory-benchmark.yaml: nodes of at most 4 GiB that only the benchmark
+# tolerates, so no other Pod takes their memory, and the Job below that runs one Pod per node.
+# The cluster's DaemonSets (the CNI, kube-proxy) run on these nodes too: with the Lean
+# footprint they have about 580Mi of a 1 GiB node's memory (947Mi after the VM overhead, less the
+# reservations); give each DaemonSet a small memory request and a GOMEMLIMIT of its own.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: low-memory-benchmark
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: low-memory-benchmark}
+      taints:
+        - {key: scarpenter.sparecores.com/benchmark, value: "true", effect: NoSchedule}
+      requirements:
+        - {key: scarpenter.sparecores.com/memory-mib, operator: Lt, values: ["4097"]}
+        - {key: scarpenter.sparecores.com/vcpus, operator: Lt, values: ["3"]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+  limits: {cpu: "16", memory: 32Gi}
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 1m
+---
+# One Pod per node: the Pods repel each other by hostname, and the toleration lets them
+# onto the tainted nodes. The memory request sizes the node (Karpenter picks the cheapest
+# type that fits it plus the DaemonSets).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inspector
+spec:
+  parallelism: 3
+  completions: 3
+  template:
+    metadata:
+      labels: {app: inspector}
+    spec:
+      restartPolicy: Never
+      tolerations:
+        - {key: scarpenter.sparecores.com/benchmark, operator: Exists, effect: NoSchedule}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: {matchLabels: {app: inspector}}
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: inspector
+          image: registry.example.com/inspector:latest
+          resources:
+            requests: {cpu: 500m, memory: 300Mi}
+            limits: {memory: 300Mi}
