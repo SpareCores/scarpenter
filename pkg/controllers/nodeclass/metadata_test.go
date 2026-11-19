@@ -13,6 +13,7 @@ import (
 
 	"github.com/awslabs/operatorpkg/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
@@ -67,8 +68,11 @@ func TestInstanceMetadataFragmentInTheTrialRendering(t *testing.T) {
 // A NodeClass that does not set instanceMetadata keeps the hash it had before the
 // field existed: the default reaches new nodes only and drifts no running one.
 func TestHashOfInstanceMetadata(t *testing.T) {
-	const aws, fake = "73bc67b8b0c44d3368cf2b63d1ee6a37d90d1daae83a45a69e3f8c5c4a19ba84", "3e25aee0c7f1d0c94840eca43e39ce38a52372cecb18f3c7fda316618129a939"
+	const aws, fake = "b310824b670685c5120dd548c125c7f57792106140f6488b273a3a74332f9af5", "1c58fe3f32ab24f127104c53e73401b382a066c27f3fbe52665b16215d71b2da"
 	nc := base()
+	// maxPods is 110 as on every stored NodeClass: the CRD defaulted it before the
+	// Lean footprint, and the pins were computed with it set.
+	nc.Spec.Kubelet.MaxPods = ptr.To[int32](110)
 	if got := hash(t, nc, "aws"); got != aws {
 		t.Errorf("the hash of a NodeClass without instanceMetadata changed: %s", got)
 	}

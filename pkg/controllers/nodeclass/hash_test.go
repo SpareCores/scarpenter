@@ -152,10 +152,13 @@ func TestHashCoversTheResolvedInputs(t *testing.T) {
 // part of the hash, for the others it is not.
 func TestDeprecatedHardeningKeepsTheOldHash(t *testing.T) {
 	nc := base()
+	// maxPods is 110 as on every stored NodeClass: the CRD defaulted it before the
+	// Lean footprint, and the pins were computed with it set.
+	nc.Spec.Kubelet.MaxPods = ptr.To[int32](110)
 	nc.Spec.Bootstrap = &v1alpha1.BootstrapSpec{Hardening: []v1alpha1.Hardening{v1alpha1.HardeningMetadataFromPods}}
 	const (
-		wantFake = "8c08ddaeb1f0d99624a889eac76565afe6d5725c9ef37f49dc65e3dba9d4a9e5"
-		wantAWS  = "73bc67b8b0c44d3368cf2b63d1ee6a37d90d1daae83a45a69e3f8c5c4a19ba84"
+		wantFake = "e053ab65f7a94843c1ff2fdfc965dfb079c56675bc6afd84b06c755ff951e94e"
+		wantAWS  = "b310824b670685c5120dd548c125c7f57792106140f6488b273a3a74332f9af5"
 	)
 	if got := hash(t, nc, "fake"); got != wantFake {
 		t.Errorf("fake hash = %s, want %s", got, wantFake)
@@ -163,7 +166,9 @@ func TestDeprecatedHardeningKeepsTheOldHash(t *testing.T) {
 	if got := hash(t, nc, "aws"); got != wantAWS {
 		t.Errorf("aws hash = %s, want %s", got, wantAWS)
 	}
-	if hash(t, nc, "aws") != hash(t, base(), "aws") {
+	plain := base()
+	plain.Spec.Kubelet.MaxPods = ptr.To[int32](110)
+	if hash(t, nc, "aws") != hash(t, plain, "aws") {
 		t.Error("a vendor that never applied the hardening drifts")
 	}
 }

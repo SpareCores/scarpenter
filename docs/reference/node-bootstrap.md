@@ -151,8 +151,7 @@ override earlier ones):
    volatile journal and masked units a worker does not need.
 3. **volumes**, for nodes with extra volumes or local storage (the
    [first-boot volume unit](node-settings.md#extra-volumes-and-local-storage)).
-4. **vendor fragments**, one part per fragment the vendor's driver contributes
-   ([below](#vendor-fragments)), among them the
+4. **vendor fragments**, one part per fragment the vendor's driver contributes, among them the
    [instance metadata access](#instance-metadata-access) part (`vendor-metadata-access`), unless the
    NodeClass says `Open` or the vendor has no metadata service.
 5. **network**: [`tailscale`, `direct` or `custom`](#network-templates).
