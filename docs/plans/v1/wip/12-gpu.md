@@ -230,6 +230,16 @@ NVIDIA type, a fractional one, a virtual one and an 8-GPU A100; an L3 (KWOK) sce
 `nvidia.com/gpu: 4` gets the 4-GPU type and its NodeClaim initializes [U: whether KWOK nodes take extended
 resources from the type's capacity; if not, the scenario sets them]; the docs. No bootstrap change.
 
+**Done (a).** `pkg/nvidia` (models, architectures, releases 4757.2.3 and 4865.0.0, `Select`, the generated docs
+table), `Class` Flatcar fields, drop rule and gauge, `nvidia.com/gpu` capacity, the three labels (registered),
+`vendors.GPUVirtualizer` and `catalog.VirtualGPUFacts`, L3 scenario S21, docs. Deviations from the text above: the
+fake driver has no catalog of its own (it impersonates a vendor from the Keeper snapshot), so S21 uses the snapshot's
+real AWS types (4-GPU types, fractional `g6f`, arm64 `g5g`, 8-GPU `p4d`, Blackwell) and a new steering key
+`virtualGPU` makes the fake's `Virtual` report a type; no synthetic types were added. The payload and `.raw`
+sha256 pins of D1, the beta release (driver versions unverified) and the older alpha branches are left to step (b);
+the table's Fabric Manager list is empty, so NVSwitch types stay dropped until (b2). `G59` (an Alibaba label) is the
+one NVIDIA model of the snapshots that is deliberately not classified.
+
 **(b) Node bootstrap.** The `nvidia` part (D7, D8) and the mirror path (D5) in `pkg/bootstrap`; the flag;
 the runtime sysext through `pkg/artifacts` with the table's pin; the trial-rendering variant; golden files
 (upstream and mirror; open and proprietary; with and without `Lean`; both network templates) and the budget test;
