@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"slices"
 	"time"
 
@@ -107,8 +108,30 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 			return nil, err
 		}
 		prep.Resources = append(prep.Resources, vpcs...)
+		// The VPC is a second interface, the default route is the public one: the
+		// direct template's kubelet takes the node's address inside the VPC's
+		// range. With several VPCs which one is the node's is not known: no hint.
+		if len(vpcs) == 1 {
+			if prep.NodeIPCIDR, err = d.vpcRange(ctx, vpcs[0]); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return prep, nil
+}
+
+// vpcRange is the IPv4 range of a VPC.
+func (d *Driver) vpcRange(ctx context.Context, ref vendors.ResourceRef) (string, error) {
+	v, err := d.api.GetVPC(ctx, ref.ID)
+	if err != nil {
+		return "", classify(err, opOther)
+	}
+	addr, perr := netip.ParseAddr(v.V4Subnet)
+	if perr != nil || !addr.Is4() || v.V4SubnetMask < 0 || v.V4SubnetMask > 32 {
+		return "", vendors.NewError(vendors.Fatal, codeInvalid, fmt.Errorf(
+			"the VPC %s has no IPv4 range (%q, mask %d)", ref.ID, v.V4Subnet, v.V4SubnetMask))
+	}
+	return netip.PrefixFrom(addr, v.V4SubnetMask).Masked().String(), nil
 }
 
 // launchOptions builds the launch from the request: the snapshot, the prepared

@@ -329,14 +329,33 @@ func TestPrepareRequiresTheGroupAndTheVPCOnlyForAnIsolationThatNeedsOne(t *testi
 	e := newDrvEnv(t)
 	ctx := context.Background()
 	grp := vendors.ResourceRef{Kind: vultr.KindFirewallGroups, ID: "g1"}
-	vpc := vendors.ResourceRef{Kind: vultr.KindNetworks, ID: "v1"}
+	made, err := e.acct.CreateVPC(ctx, &govultr.VPCReq{Region: "ewr", Description: "private-ewr", V4Subnet: "10.10.0.0", V4SubnetMask: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vpc := vendors.ResourceRef{Kind: vultr.KindNetworks, ID: made.ID}
 	res := provider{vultr.KindFirewallGroups: {grp}, vultr.KindNetworks: {vpc}}
 
 	for iso, want := range map[common.Isolation]int{common.IsolationNone: 1, common.IsolationNodeClass: 2, common.IsolationRun: 2, "": 2} {
 		got, err := e.d.Prepare(ctx, prepareReq(res, common.Networking{Isolation: iso}))
 		if err != nil || len(got.Resources) != want {
 			t.Errorf("isolation %q: %+v, %v; want %d resources", iso, got, err, want)
+			continue
 		}
+		// The node IP range is the VPC's, and only where the VPC is attached.
+		wantCIDR := "10.10.0.0/24"
+		if iso == common.IsolationNone {
+			wantCIDR = ""
+		}
+		if got.NodeIPCIDR != wantCIDR {
+			t.Errorf("isolation %q: node IP range %q, want %q", iso, got.NodeIPCIDR, wantCIDR)
+		}
+	}
+	// Two VPCs: which is the node's is not known, so no hint.
+	more, _ := e.acct.CreateVPC(ctx, &govultr.VPCReq{Region: "ewr", Description: "other", V4Subnet: "10.11.0.0", V4SubnetMask: 24})
+	both := provider{vultr.KindFirewallGroups: {grp}, vultr.KindNetworks: {vpc, {Kind: vultr.KindNetworks, ID: more.ID}}}
+	if got, err := e.d.Prepare(ctx, prepareReq(both, common.Networking{Isolation: common.IsolationNodeClass})); err != nil || got.NodeIPCIDR != "" {
+		t.Errorf("two VPCs: %+v, %v; want no node IP range", got, err)
 	}
 	// A missing resource reaches the caller with its code.
 	if _, err := e.d.Prepare(ctx, prepareReq(provider{}, common.Networking{})); vendors.CodeOf(err) != vendors.CodeResourceMissing {

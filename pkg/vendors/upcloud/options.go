@@ -364,6 +364,11 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		}
 		network = &refs[0]
 		prep.Resources = append(prep.Resources, refs[0])
+		// The private interface is not the default route's: the direct template's
+		// kubelet takes the node's address inside the network's range.
+		if prep.NodeIPCIDR, err = d.networkCIDR(ctx, network.ID); err != nil {
+			return nil, err
+		}
 	}
 	if network != nil && (cfg.wantsFirewall() || peers) {
 		params := FirewallParams{}
@@ -371,11 +376,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 			params.Inbound = net.Inbound.Rules
 		}
 		if peers {
-			cidr, err := d.networkCIDR(ctx, network.ID)
-			if err != nil {
-				return nil, err
-			}
-			params.CIDR = cidr
+			params.CIDR = prep.NodeIPCIDR
 		}
 		raw, err := json.Marshal(params)
 		if err != nil {

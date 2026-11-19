@@ -184,6 +184,9 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 			return nil, vendors.NewError(vendors.Fatal, CodeInvalidSettings, isolationError(iso))
 		}
 		prep.Resources = append(prep.Resources, nets[0])
+		if prep.NodeIPCIDR, err = d.networkRange(ctx, nets[0]); err != nil {
+			return nil, err
+		}
 	}
 
 	// The firewall: brought by `use`, discovered, or the managed deny-inbound one.
@@ -246,6 +249,25 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		})
 	}
 	return prep, nil
+}
+
+// networkRange is the IPv4 range of the private network a server joins: the
+// kubelet of the direct template takes the node's address inside it as its node
+// IP, because the server's default route is its public interface.
+func (d *Driver) networkRange(ctx context.Context, ref vendors.ResourceRef) (string, error) {
+	id, err := parseID(ref.ID)
+	if err != nil {
+		return "", err
+	}
+	n, err := d.api.GetNetwork(ctx, id)
+	if err != nil {
+		return "", classify(err)
+	}
+	if n == nil || n.IPRange == nil || n.IPRange.IP.To4() == nil {
+		return "", vendors.NewError(vendors.Fatal, CodeInvalidSettings,
+			fmt.Errorf("the network %s has no IPv4 range", ref.Name))
+	}
+	return n.IPRange.String(), nil
 }
 
 func (d *Driver) requirePlacementGroup(
