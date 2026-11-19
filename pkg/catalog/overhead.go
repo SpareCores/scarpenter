@@ -14,6 +14,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
+
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 )
 
 // DefaultMaxPods is the pods capacity when a NodeClass does not set
@@ -28,13 +30,25 @@ const DefaultVMMemoryOverheadPercent = 7.5
 // memory.available.
 const defaultEvictionMemory = "100Mi"
 
+// minKubeReservedMemoryMiB is the least the cap of the default kube-reserved
+// memory goes down to: what the Lean footprint reserves for the kubelet and
+// the system together (192Mi + 128Mi). A Standard node, whose daemons have no
+// memory limits, never reserves less than a Lean one, so Lean never leaves
+// Pods less memory than Standard.
+var minKubeReservedMemoryMiB = func() int64 {
+	kube := resource.MustParse(v1alpha1.LeanKubeReservedMemory)
+	system := resource.MustParse(v1alpha1.LeanSystemReservedMemory)
+	return (kube.Value() + system.Value()) >> 20
+}()
+
 // KubeReserved returns the resources reserved for Kubernetes daemons: the
 // formula of the AWS provider (pkg/providers/instancetype/types.go of
 // aws/karpenter-provider-aws at commit 30c236cafacb3a23fb3a50370d09d71750b56b29,
 // Apache-2.0), with the memory capped as AKS does: memory is 11 MiB per pod
 // plus 255 MiB, at most a quarter of the node's memory (memoryMiB, after the VM
-// overhead), which only matters below about 6 GiB, where the AWS formula would
-// leave 1 GiB nodes with no allocatable memory; CPU is 6% of the first
+// overhead) but not less than 320 MiB for that cap (minKubeReservedMemoryMiB).
+// The cap only matters below about 6 GiB, where the AWS formula would leave
+// 1 GiB nodes with no allocatable memory; CPU is 6% of the first
 // core, 1% of the second, 0.5% of the third and fourth and 0.25% of every core
 // above; ephemeral storage is 1 GiB (the kubelet's own default).
 func KubeReserved(cpus int, pods int64, memoryMiB int64) corev1.ResourceList {
@@ -58,9 +72,10 @@ func KubeReserved(cpus int, pods int64, memoryMiB int64) corev1.ResourceList {
 		}
 		cpuOverhead += span * r.share
 	}
+	memory := min(11*pods+255, max(memoryMiB/4, minKubeReservedMemoryMiB))
 	return corev1.ResourceList{
 		corev1.ResourceCPU:              *resource.NewMilliQuantity(int64(cpuOverhead), resource.DecimalSI),
-		corev1.ResourceMemory:           resource.MustParse(fmt.Sprintf("%dMi", min(11*pods+255, memoryMiB/4))),
+		corev1.ResourceMemory:           resource.MustParse(fmt.Sprintf("%dMi", memory)),
 		corev1.ResourceEphemeralStorage: resource.MustParse("1Gi"),
 	}
 }

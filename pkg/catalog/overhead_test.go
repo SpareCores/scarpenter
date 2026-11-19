@@ -18,9 +18,9 @@ import (
 )
 
 // TestKubeReservedMemoryCap pins the default kube-reserved memory,
-// min(255Mi + 11Mi * maxPods, 25% of the node's memory), and the resulting
-// allocatable at the sizes of the instance types, with 110 pods (the default)
-// and 10 pods, for a catalog memory of N GiB less the default VM overhead.
+// min(255Mi + 11Mi * maxPods, max(25% of the node's memory, 320Mi)), at the
+// sizes of the instance types, with 110 pods (the default) and 10 pods, for a
+// catalog memory of N GiB less the default VM overhead.
 func TestKubeReservedMemoryCap(t *testing.T) {
 	for _, tc := range []struct {
 		gib         float64
@@ -28,12 +28,13 @@ func TestKubeReservedMemoryCap(t *testing.T) {
 		pods        int64
 		reservedMiB int64
 	}{
-		{1, 947, 110, 236},     // 25% of 947Mi, not 1465Mi
+		{1, 947, 110, 320},     // 25% of 947Mi is 236Mi, below the Lean floor
 		{2, 1894, 110, 473},    // 25% of 1894Mi
 		{4, 3788, 110, 947},    // 25% of 3788Mi
 		{8, 7577, 110, 1465},   // the formula: below 25% (1894Mi)
 		{16, 15155, 110, 1465}, // the formula
-		{1, 947, 10, 236},      // 255Mi + 110Mi = 365Mi, over 25%
+		{1, 947, 10, 320},      // 255Mi + 110Mi = 365Mi, over the floor
+		{1, 947, 5, 310},       // 255Mi + 55Mi, below the floor: the formula
 		{4, 3788, 10, 365},     // the formula
 	} {
 		class := NewClass("c", Scope{"fake": nil})
@@ -100,5 +101,35 @@ func TestLeanOverhead(t *testing.T) {
 	if class.MaxPods != 20 || oh.KubeReserved.Memory().String() != "300Mi" ||
 		oh.EvictionThreshold.Memory().String() != "80Mi" || oh.SystemReserved.Memory().String() != "128Mi" {
 		t.Errorf("overrides: %d pods, %v, %v, %v", class.MaxPods, oh.KubeReserved, oh.EvictionThreshold, oh.SystemReserved)
+	}
+}
+
+// TestLeanNeverLeavesLessThanStandard pins the rule the floor of the default
+// reservation keeps: at every size, a Lean node leaves Pods at least as much
+// memory as a Standard one with the default maxPods.
+func TestLeanNeverLeavesLessThanStandard(t *testing.T) {
+	allocatable := func(footprint v1alpha1.Footprint, gib float64) int64 {
+		nc := &v1alpha1.SCNodeClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "c"},
+			Spec:       v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{Fake: &fake.Settings{}}},
+		}
+		nc.Spec.Kubelet.Footprint = footprint
+		class, err := ClassFromNodeClass(nc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rl := capacity(2, gib*1024, &class, 0, false)
+		oh := overhead(2, &class, rl)
+		m := rl[corev1.ResourceMemory]
+		m.Sub(*oh.KubeReserved.Memory())
+		m.Sub(*oh.SystemReserved.Memory())
+		m.Sub(*oh.EvictionThreshold.Memory())
+		return m.Value() >> 20
+	}
+	for _, gib := range []float64{0.5, 1, 1.5, 2, 4, 8, 16, 64} {
+		lean, standard := allocatable(v1alpha1.FootprintLean, gib), allocatable("", gib)
+		if lean < standard {
+			t.Errorf("%v GiB: Lean allocatable %dMi < Standard %dMi", gib, lean, standard)
+		}
 	}
 }
