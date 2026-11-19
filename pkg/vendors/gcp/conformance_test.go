@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package gcp_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -16,6 +17,12 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/compute/apiv1/computepb"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	apicommon "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	gcpapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/gcp"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/conformance"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp"
@@ -172,7 +179,102 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind) conformance.Fix
 	if kind != gcp.KindSubnets {
 		fx.SeedImage = nil // the image cases run once, in the subnets run
 	}
+	switch kind {
+	case gcp.KindSubnets:
+		// The project's default network gives the default of the subnets.
+		fx.SetDefault = setDefault
+		// No FailCreate: the creation is the network and then the subnetwork, so an
+		// interrupted one leaves the network, which List reports under its own ID and
+		// the case (a leftover that the next pass completes under the same ID) does not
+		// apply to; the driver's own tests cover the retry.
+	case gcp.KindFirewalls, gcp.KindResourcePolicies:
+		// Network tags and placement policies have no vendor default.
+	default:
+		return fx // the run firewalls have no selector declaration
+	}
+	fx.Seed = func(t *testing.T, d vendors.Driver, k vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+		t.Helper()
+		return seed(t, envOf(t, d), k, region, spec)
+	}
+	fx.SeedAttrs = []string{"created", "description", "cidr"}
+	fx.SeedCIDRs = [2]string{"10.201.0.0/24", "10.202.0.0/24"}
+	fx.SeedWithin = "10.0.0.0/8"
+	fx.OrderClass = orderClass
 	return fx
+}
+
+// setDefault arranges the default network of the project: the fake has it, and a
+// project without it has no default subnetwork. It has no IPv6 range, the fake's
+// default and the real one alike.
+func setDefault(t *testing.T, d vendors.Driver, _ vendors.ResourceKind, _ string, state conformance.DefaultState) {
+	t.Helper()
+	if state == conformance.DefaultAbsent {
+		envOf(t, d).c.RemoveDefaultNetwork()
+	}
+}
+
+func orderClass(
+	t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*apicommon.Resource, ipv6 bool,
+) *v1alpha1.SCNodeClass {
+	t.Helper()
+	r := &gcpapi.Resources{Firewalls: res[gcp.KindFirewalls], ResourcePolicies: res[gcp.KindResourcePolicies]}
+	if s := res[gcp.KindSubnets]; s != nil {
+		r.Subnets = &gcpapi.SubnetResource{Use: s.Use, Forbid: s.Forbid}
+		if s.Create != nil {
+			r.Subnets.Create = &gcpapi.SubnetCreate{ResourceCreate: *s.Create}
+		}
+	}
+	nc := &v1alpha1.SCNodeClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "class"},
+		Spec:       v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{GCP: &gcpapi.Settings{Resources: r}}},
+	}
+	nc.Spec.Networking.PublicIPv6 = &ipv6
+	return nc
+}
+
+var seedN atomic.Int32
+
+// seed makes a resource the way a user would: a subnetwork of the custom network
+// "vpc", a firewall rule that targets the network tag of the name (the tag is the
+// resource), or a placement policy. None of them has labels.
+func seed(t *testing.T, e *env, kind vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+	t.Helper()
+	ctx := context.Background()
+	if !spec.Created.IsZero() {
+		e.c.SetClock(func() time.Time { return spec.Created })
+		defer e.c.SetClock(time.Now)
+	}
+	n := seedN.Add(1)
+	ref := vendors.ResourceRef{Kind: kind, Region: region, Name: spec.Name}
+	var err error
+	switch kind {
+	case gcp.KindSubnets:
+		cidr := spec.CIDR
+		if cidr == "" {
+			cidr = fmt.Sprintf("10.230.%d.0/24", n)
+		}
+		_, err = e.c.InsertSubnetwork(ctx, &computepb.InsertSubnetworkRequest{Project: testProject, Region: region,
+			SubnetworkResource: &computepb.Subnetwork{Name: &spec.Name, Network: new("vpc"), IpCidrRange: &cidr,
+				Description: &spec.Description}})
+		ref.ID, ref.Network = gcp.SubnetworkURL(testProject, region, spec.Name), "vpc"
+	case gcp.KindFirewalls:
+		_, err = e.c.InsertFirewall(ctx, &computepb.InsertFirewallRequest{Project: testProject,
+			FirewallResource: &computepb.Firewall{Name: new(spec.Name + "-allow"), Network: new("vpc"),
+				Direction: new("INGRESS"), TargetTags: []string{spec.Name},
+				Allowed: []*computepb.Allowed{{IPProtocol: new("tcp")}}}})
+		ref.ID, ref.Network = spec.Name, "vpc"
+	case gcp.KindResourcePolicies:
+		_, err = e.c.InsertResourcePolicy(ctx, &computepb.InsertResourcePolicyRequest{Project: testProject, Region: region,
+			ResourcePolicyResource: &computepb.ResourcePolicy{Name: &spec.Name, Description: &spec.Description,
+				GroupPlacementPolicy: &computepb.ResourcePolicyGroupPlacementPolicy{Collocation: new("COLLOCATED")}}})
+		ref.ID = gcp.ProjectPrefix(testProject) + "regions/" + region + "/resourcePolicies/" + spec.Name
+	default:
+		t.Fatalf("seed: no kind %s", kind)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
 }
 
 // TestConformance runs the shared driver suite over the complete GCP type list of
