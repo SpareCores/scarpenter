@@ -100,12 +100,15 @@ OCI is read from Keeper like the other vendors (it needs a Keeper API key):
 | `memory` | Keeper `memory_amount` (MiB) less `kubelet.vmMemoryOverheadPercent` (default 7.5 %, rounded down) |
 | `pods` | `kubelet.maxPods` (default 110) |
 | `ephemeral-storage` | the root disk of the type under the vendor's resolved default settings: the driver's per-type answer where the type defines its root disk, else the settings' root disk, else Keeper's `storage_size` of the type; omitted when none says |
-
-| `nvidia.com/gpu` | the GPU count of an NVIDIA GPU type the catalog keeps ([GPU types](#gpu-types)); nothing is reserved. Other types have no GPU resource |
+| `nvidia.com/gpu` | the GPU count of an NVIDIA GPU type the catalog keeps ([GPU types](#gpu-types)), once nodes boot the driver (below); nothing is reserved. Other types have no GPU resource |
 
 The NVIDIA device plugin (shipped by the chart) registers the resource on the
 node; Karpenter initializes a NodeClaim that requests it only when the plugin
-has. Accelerators that are not GPUs (NPUs, FPGAs, VPUs, TPUs) have no extended
+has. The node bootstrap does not install the driver yet, so the catalog
+advertises neither `nvidia.com/gpu` nor the driver labels (the switch is
+`nvidia.NodeBootstrap`): a Pod that requests GPUs gets no node, rather than one
+that never initializes, and a supported GPU type is offered as a plain machine,
+selected by its `accelerator-*` labels. Accelerators that are not GPUs (NPUs, FPGAs, VPUs, TPUs) have no extended
 resource and are selected by label.
 
 Overhead (what the scheduler subtracts from capacity to get allocatable):
@@ -168,7 +171,9 @@ range, with the open kernel modules for Turing and later (Blackwell needs them)
 and the proprietary ones before. It is stamped as three labels on the type, and
 so on the NodeClaim and the Node: `nvidia-driver-branch` (`570`),
 `nvidia-driver-version` (`570.211.01`) and `nvidia-driver-flavor` (`open` or
-`proprietary`); `DoesNotExist` on every other type.
+`proprietary`); `DoesNotExist` on every other type. Like `nvidia.com/gpu`, the
+labels are set only once nodes boot the driver (above); until then they are
+`DoesNotExist` on every type, while the drop rules already apply.
 
 <!-- nvidia-table:4757.2.3 -->
 | Model | Architecture | Driver | NVSwitch from |

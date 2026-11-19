@@ -238,7 +238,12 @@ real AWS types (4-GPU types, fractional `g6f`, arm64 `g5g`, 8-GPU `p4d`, Blackwe
 `virtualGPU` makes the fake's `Virtual` report a type; no synthetic types were added. The payload and `.raw`
 sha256 pins of D1, the beta release (driver versions unverified) and the older alpha branches are left to step (b);
 the table's Fabric Manager list is empty, so NVSwitch types stay dropped until (b2). `G59` (an Alibaba label) is the
-one NVIDIA model of the snapshots that is deliberately not classified.
+one NVIDIA model of the snapshots that is deliberately not classified. Release guard: the const
+`nvidia.NodeBootstrap` (false) keeps `nvidia.com/gpu` and the driver labels off, since Karpenter initializes a
+NodeClaim only when every requested resource is registered, so a Pod requesting GPUs would get a node that never
+initializes (and is never liquidated: core's liveness checks registration only). Supported GPU types are offered
+as plain machines and the drops apply; S21 tests both settings. The step that ships the driver and the device
+plugin, and Azure's and Alibaba's `GPUVirtualizer` (their vGPU types would fail the driver check and churn), sets it.
 
 **(b) Node bootstrap.** The `nvidia` part (D7, D8) and the mirror path (D5) in `pkg/bootstrap`; the flag;
 the runtime sysext through `pkg/artifacts` with the table's pin; the trial-rendering variant; golden files
