@@ -149,7 +149,7 @@ server_json() { up GET "/server/$1" | jq -c '.server'; } # server_json <uuid>
 # label_of <json of a resource> <key>: the value of a label (the API spells them
 # {"labels":{"label":[{"key":..,"value":..}]}}; a request takes a plain array).
 label_of() {
-  jq -r --arg k "$2" '(.labels.label // .labels // [])[] | select(.key == $k) | .value' <<<"$1"
+  jq -r --arg k "$2" '(.labels | if type == "array" then . else (.label // []) end)[] | select(.key == $k) | .value' <<<"$1"
 }
 
 # storage_json <uuid>

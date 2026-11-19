@@ -34,7 +34,7 @@ template_labels() {
 matching_templates() {
   jq -r --arg z "$1" --argjson want "$(template_labels)" \
     '.storages.storage[]? | select(.type == "template" and .zone == $z)
-      | select(. as $s | all($want[]; . as $w | ($s.labels.label // []) | any(.key == $w.key and .value == $w.value)))
+      | select(. as $s | all($want[]; . as $w | ($s.labels | if type == "array" then . else (.label // []) end) | any(.key == $w.key and .value == $w.value)))
       | .uuid'
 }
 

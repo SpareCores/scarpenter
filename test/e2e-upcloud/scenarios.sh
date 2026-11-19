@@ -115,7 +115,7 @@ scn_preflight() {
   local tpls n tiers
   tpls="$(up GET "/storage/private?label=scarpenter-image=flatcar" | jq -c --arg z "${UPCLOUD_ZONE}" --arg v "${E2E_FLATCAR_VERSION}" --arg c "${E2E_FLATCAR_CHANNEL}" \
     '[.storages.storage[]? | select(.type == "template" and .zone == $z and .state == "online")
-      | select((.labels.label // []) | (map(select(.key == "flatcar-version" and .value == $v)) | length > 0)
+      | select((.labels | if type == "array" then . else (.label // []) end) | (map(select(.key == "flatcar-version" and .value == $v)) | length > 0)
         and (map(select(.key == "flatcar-channel" and .value == $c)) | length > 0))]')"
   n="$(jq 'length' <<<"${tpls}")"
   [[ "${n}" -ge 1 ]] || fail "no online Flatcar template ${E2E_FLATCAR_CHANNEL} ${E2E_FLATCAR_VERSION} in ${UPCLOUD_ZONE}: import the image of the images repository (plan 22) as a template with the labels of test/e2e-upcloud/defaults.sh"

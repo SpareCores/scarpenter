@@ -284,8 +284,9 @@ t_ensure_template() { # the template finder takes only same-zone templates with 
     def tpl($u; $z; $labels): {uuid: $u, type: "template", zone: $z, labels: {label: $labels}};
     {storages: {storage: [tpl("ok"; "fi-hel1"; $l), tpl("other-zone"; "de-fra1"; $l), tpl("no-use"; "fi-hel1"; $l[:5]),
       tpl("old"; "fi-hel1"; ($l | map(if .key == "flatcar-version" then .value = "0.0.1" else . end))),
-      (tpl("ok2"; "fi-hel1"; $l) | .state = "maintenance"), (tpl("disk"; "fi-hel1"; $l) | .type = "normal")]}}' | matching_templates fi-hel1 | tr '\n' ' ')"
-  [[ "${have}" == "ok ok2 " ]] || {
+      (tpl("ok2"; "fi-hel1"; $l) | .state = "maintenance"), (tpl("disk"; "fi-hel1"; $l) | .type = "normal"),
+      (tpl("flat"; "fi-hel1"; $l) | .labels = $l)]}}' | matching_templates fi-hel1 | tr '\n' ' ')"
+  [[ "${have}" == "ok ok2 flat " ]] || {
     echo "matched: ${have}"
     return 1
   }
