@@ -165,7 +165,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func() j
 			return seed(t, envOf(t, d), k, region, spec)
 		},
 		SeedImage: seedImage,
-		SeedKinds: []vendors.ResourceKind{hcloud.KindNetworks, hcloud.KindFirewalls, hcloud.KindPlacementGroups},
+		SeedKinds: []vendors.ResourceKind{hcloud.KindNetworks, hcloud.KindFirewalls},
 		SeedAttrs: []string{"created", "cidr"},
 		SeedCIDRs: [2]string{"10.201.0.0/24", "10.202.0.0/24"}, SeedWithin: "10.0.0.0/8",
 		PreCreate: func(t *testing.T, d vendors.Driver, k vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
@@ -180,14 +180,18 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func() j
 	if kind == hcloud.KindVolumes {
 		fx.PreCreate = nil // volumes are internal: no use form
 	}
-	if kind != hcloud.KindFirewalls {
-		// The selector and image cases cover every kind once, in the firewalls run.
-		fx.Seed, fx.SeedImage = nil, nil
-	} else {
-		// The resolution order on the firewalls (regional, with labels). Hetzner has no
-		// default resource of any kind: no SetDefault, the cases about it are skipped.
+	switch kind {
+	case hcloud.KindFirewalls:
 		fx.OrderClass = orderClass
+	case hcloud.KindPlacementGroups:
+		// The selector cases of the other kinds run in the firewalls run.
+		fx.SeedKinds, fx.SeedImage = nil, nil
+		fx.OrderClass = orderClass
+	default:
+		fx.Seed, fx.SeedImage = nil, nil // volumes are internal: no use form
 	}
+	// Hetzner has no default resource of any kind: no SetDefault, the cases about it
+	// are skipped.
 	return fx
 }
 
