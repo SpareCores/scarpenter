@@ -74,6 +74,14 @@ func TestHashKeepsNodeClassesWithoutFootprint(t *testing.T) {
 	if strings.Contains(string(raw), "footprint") {
 		t.Errorf("an unset footprint appears in the hashed kubelet block: %s", raw)
 	}
+	// maxPods lost its CRD default: an unset maxPods hashes as the 110 that
+	// NodeClasses stored before carry.
+	stored, unset := base(), base()
+	stored.Spec.Kubelet.MaxPods = ptr.To[int32](110)
+	unset.Spec.Kubelet.MaxPods = nil
+	if hash(t, stored, "aws") != hash(t, unset, "aws") {
+		t.Error("an unset maxPods hashes differently from the stored default 110")
+	}
 }
 
 func TestHashIgnoresWhatDoesNotChangeTheNode(t *testing.T) {
