@@ -2,6 +2,8 @@
 # 403 to the nodes' UpCloud addresses (the pause image and kube-proxy fail to pull), so
 # containerd pulls its images from the registry's backing Artifact Registry instead, which is
 # what registry.k8s.io redirects to elsewhere. The Flatcar defaults of containerd stay (imports).
+# Flatcar's containerd unit reads the file that CONTAINERD_CONFIG names (/usr/share/... by
+# default), so a drop-in points it at /etc/containerd/config.toml.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,6 +13,14 @@ data:
   butane.yaml: |
     variant: flatcar
     version: 1.0.0
+    systemd:
+      units:
+        - name: containerd.service
+          dropins:
+            - name: 20-e2e-registry-mirror.conf
+              contents: |
+                [Service]
+                Environment=CONTAINERD_CONFIG=/etc/containerd/config.toml
     storage:
       files:
         - path: /etc/containerd/config.toml
