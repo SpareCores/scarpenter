@@ -46,6 +46,9 @@ func (f *Fake) GetStorages(ctx context.Context, r *request.GetStoragesRequest) (
 		return nil, err
 	}
 	defer done()
+	if r.Access != "" && r.Type != "" {
+		return nil, notFound("NOT_FOUND") // the live API has no /storage/<access>/<type>
+	}
 	out := &upcloud.Storages{}
 	for _, id := range sortedKeys(f.storages) {
 		st := f.storages[id]
