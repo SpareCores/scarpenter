@@ -31,7 +31,7 @@ confirms ([plan 16](../plans/v1/wip/16-gcp.md)).
 
 `vendors.Driver` and `NodeClassValidator`, `ImageReporter`, `NodeOptions` (with `EpochReporter`),
 `ManagedResources` (with `ResourceDefaults` and `DefaultChecker`), `ArchNamer`, `QuotaReporter`,
-`OfferingLister`, `BillingDescriber` and `NodeHardener`. There is no `ZoneChecker`: subnetworks are
+`OfferingLister`, `BillingDescriber` and `InstanceMetadata`. There is no `ZoneChecker`: subnetworks are
 regional, so an IPv6 gap is the same in every zone and fails the launch's `Prepare` instead.
 
 The Compute API is reached through the narrow `ComputeAPI` interface of `api.go` (the `computepb`
@@ -306,14 +306,15 @@ by entry by `errors_test.go`; every entry is unverified live:
 
 ## Metadata exposure
 
-The GCE metadata server is reachable from any Pod and has no hop limit (AWS's hop limit 1 has no
-equivalent). It serves `user-data`: the bootstrap token (valid for at most an hour, deleted at registration)
-and the Tailscale key (ephemeral and tag-scoped, but reusable in v1). Nodes have no service account unless
-you attach one, so no cloud credentials are exposed. The driver offers the opt-in hardening
-`metadata-from-pods` (`spec.bootstrap.hardening`, off by default): the shared Butane fragment that drops
-the traffic Pods send to `169.254.169.254` (the node's own units and Pods in the host network are
-unaffected; a CNI that bypasses netfilter is not covered). Without it, keep service accounts off the
-nodes and treat the metadata as readable by Pods.
+The GCE metadata server has no hop limit (AWS's hop limit 1 has no equivalent). It serves `user-data`: the
+bootstrap token (valid for at most an hour, deleted at registration) and the Tailscale key (ephemeral and
+tag-scoped, but reusable in v1). Nodes have no service account unless you attach one, so no cloud credentials
+are exposed. By default (`spec.instanceMetadata.access: Restricted`) the driver's addresses `169.254.169.254`
+and `fd20:ce::254` are reachable only by Afterburn's units and `oem-gce.service` (the guest agent and its
+daemons); Pods in the Pod network and in the host network and every other host process are dropped, and DNS
+and NTP at the same addresses keep working ([instance metadata access](node-bootstrap.md#instance-metadata-access)).
+OS Login is off (`enable-oslogin=FALSE`), so no process outside the agent needs the metadata server. With `Open`,
+keep service accounts off the nodes and treat the metadata as readable by Pods.
 
 ## IAM
 

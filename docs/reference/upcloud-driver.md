@@ -46,7 +46,7 @@ lists every fact that is unverified.
 | `ManagedResources` | kinds `networks`, `firewalls`, `serverGroups`; `images` is `use`-only |
 | `QuotaReporter`, `OfferingLister` | account-wide buckets; every supported plan in every zone |
 | `BillingDescriber` | hourly, unverified: [billing retention](controller.md#billing-retention) stays off |
-| `ArchNamer`, `NodeHardener` | `{vendorArch}` (amd64 only); the hardening `metadata-from-pods` |
+| `ArchNamer`, `InstanceMetadata` | `{vendorArch}` (amd64 only); the metadata address `169.254.169.254` |
 
 ## Credentials
 

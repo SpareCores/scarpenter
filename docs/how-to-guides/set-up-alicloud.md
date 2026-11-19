@@ -147,7 +147,8 @@ problems in the instance's console output in the ECS console. Delete the Pod and
 - No IPv6 (`publicIPv6: true` is refused). Nodes without a public IPv4 are refused unless the
   NodeClass brings its own vSwitches (which then need a NAT gateway or a proxy).
 - `metadataOptions.httpTokens` is `optional` only. Pods can reach the metadata service and the user
-  data unless you set `spec.bootstrap.hardening: [metadata-from-pods]`.
+  data only if the NodeClass sets `spec.instanceMetadata.access: Open`: by default it is restricted to the
+  node's own components ([instance metadata access](../reference/node-bootstrap.md#instance-metadata-access)).
 - No local-disk families (`i`, `d`), bare metal (`ebm`), `scc`, dedicated hosts, EIPs or NAT gateways;
   no billing retention; at most 15 `spec.tags`. More in the [reference](../reference/alicloud-driver.md#deferred).
 

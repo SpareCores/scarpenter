@@ -830,6 +830,65 @@ minimum-only candidate, still gated on verified data; Azure bills per full minut
 [plan 23](../plans/v1/done/23-billing-retention.md); the user-facing description is
 [Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md).
 
+## ADR-025: Instance metadata reaches only the node's own components (accepted, 2026-11-19)
+
+The vendor's instance metadata service serves the node's user-data: the one-hour bootstrap token and, with the
+`tailscale` template, the Tailscale auth key; on some vendors also the credentials of an instance role. Only AWS
+has a hop limit that keeps Pods in the Pod network away (and not Pods in the host network); on every other vendor
+any Pod can read it. The earlier opt-in `spec.bootstrap.hardening: [metadata-from-pods]` dropped forwarded Pod
+traffic only: it missed Pods in the host network and every other host process, it was IPv4 only, and it was off by
+default.
+
+**Decision.** By default every node lets only listed host components reach the vendor's metadata addresses;
+everything else is dropped: other host processes, Pods in the Pod network and Pods in the host network. One
+mechanism on every vendor, in the node's own firewall. The metadata service stays on at the cloud, because
+Ignition reads the user-data from it in the initramfs and Afterburn and the vendors' agents read it afterwards.
+
+```yaml
+kind: SCNodeClass
+spec:
+  instanceMetadata:
+    access: Restricted   # the default when unset; Open leaves the service reachable by everything on the node
+```
+
+**How.** The allowed units (Afterburn's two, plus the vendor's OEM agents) run in `scarpenter-metadata.slice`. A
+oneshot unit ordered before `network-pre.target` loads iptables-nft rules (the `security` table, IPv4 and IPv6): in
+`OUTPUT`, TCP to the addresses except port 53 is dropped unless the socket's cgroup is below the slice
+(`-m cgroup --path`); in `FORWARD` it is dropped for everyone. DNS and NTP stay open because several of the addresses
+also serve them (GCP, OCI, Azure's WireServer). Each driver declares its addresses and units through the optional
+`InstanceMetadata` capability, and the core builds one Butane fragment from that (`vendors.RestrictMetadata`); the
+reference ([node bootstrap](../reference/node-bootstrap.md#instance-metadata-access)) has the per-vendor table, the
+debugging commands and what the mechanism cannot stop (root on the host, privileged Pods with `NET_ADMIN` or
+`CAP_SYS_ADMIN`, anything in the allowed slice). The mechanism was run on a Flatcar VM before it was adopted: the
+slice's cgroup stays while empty and across restarts, the rules load before `network-pre.target`, a unit in the slice
+reaches the address while one in another slice, in `kubepods` or in a network namespace behind a veth is dropped, a
+reboot keeps it, and a stopped and recreated slice fails closed (the allowed units are dropped too, until the unit
+that loads the rules runs again). The kubelet requires the unit, so a node whose rules did not load never joins.
+
+**New nodes only.** `instanceMetadata` is left out of the drift hash while it is unset, so the hash of a NodeClass that
+does not set it is unchanged and no running node drifts. Nodes launched after the upgrade are restricted; running
+nodes keep the open service they were launched with until the field is set. The
+`bootstrap.hardening` field of `v1alpha1` is removed, with the `NodeHardener` capability that only it used.
+
+**Consequences.** A component that runs as a Pod and needs the metadata service (a vendor's CSI driver or cloud
+controller, a benchmark tool that reads the instance's identity) needs `access: Open` on its NodeClass; the
+restriction cannot tell a trusted Pod from another. The fragment adds about 2 KiB to the user-data.
+
+Rejected:
+
+- **Switching the service off and on through the vendor's API** (AWS `HttpEndpoint`, Alibaba
+  `ModifyInstanceMetadataOptions`, UpCloud's `metadata` flag): most vendors have no switch at all (GCP, Azure, OCI,
+  Hetzner, Vultr, OVH), the ones that have one need a window between Ignition and the switch in which the node holds
+  its data open and a second call that can fail, and a different mechanism per vendor is more to maintain and debug.
+- **nftables `socket cgroupv2`**: Flatcar's kernel does not build `CONFIG_NFT_SOCKET`, so the rule does not load
+  (Flatcar issue 2172; its pull request was closed). `iptables -m cgroup` is shipped and does the same. The rules are
+  one file per family and can move to nftables when the kernel has the module.
+- **Dropping forwarded traffic only** (the earlier hardening): Pods in the host network and other host processes
+  reach the service through `OUTPUT`.
+- **systemd `IPAddressDeny=` with a per-service `IPAddressAllow=`**: the lists are address-only, so DNS and NTP at the
+  same address would break on GCP and OCI.
+- **A network namespace for the allowed units**: routing, DHCP and vendor quirks for a gain the cgroup match already gives.
+
 ## ADR-026: Node memory: a capped default reservation and a Lean footprint (accepted, 2026-11-19)
 
 The memory a node leaves to Pods is the instance's memory less the VM overhead, the kubelet's

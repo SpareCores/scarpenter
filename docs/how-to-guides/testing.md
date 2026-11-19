@@ -659,7 +659,7 @@ reads. The condition keys' exact use with `RunInstances` is unverified.
 | `amd64` | on-demand `ecs.e-c1m2.large`: Node Ready, Pod, `kubectl logs` and `exec`, the labels (the zone ID equals the zone name); the instance's tags and name (`DescribeInstances`), the metadata options (`DescribeInstanceAttribute`: `HttpTokens` stays `optional`, because Ignition's aliyun provider reads the user-data without a token), the system disk (cloud_essd PL0, 40 GiB, deleted with the instance); the bootstrap token is gone, the serving CSR approved, the L4 unit checks on the node; **the Ignition check**: `PLATFORM_ID=aliyun` and Ignition's aliyun provider fetched the user-data (the node's journal) |
 | `arm64` | spot `ecs.c8y.large`: the same on arm64, the instance's image is an arm64 image |
 | `spot` | `SpotStrategy=SpotAsPriceGo`, still running, a price annotation, the spot vCPUs counted |
-| `imds` | the gap of plan 21 section 5, recorded: what a Pod reads at `100.100.100.200` on the plain NodeClass (the instance ID and the size of the user-data, never its content); with `bootstrap.hardening: [metadata-from-pods]` on a second NodeClass a Pod reads nothing, while the node itself still does |
+| `imds` | the gap of plan 21 section 5, recorded: what a Pod reads at `100.100.100.200` on the `Open` NodeClass (the instance ID and the size of the user-data, never its content); with `instanceMetadata: {access: Restricted}` (the default) on a second NodeClass a Pod reads nothing, while a process in the allowed slice still does |
 | `db` | a LowLatency deployment set (`scarpenter-` name, the cluster in its description) holds a database and its client in one zone; the data disk is cloud_essd PL1, 20 GiB, mounted as xfs at `/var/lib/pgdata`; the managed security group allows its members; after the workloads go the instances, the set and the disk are gone |
 | `described` | a Deployment that selects by `vcpus`, `memory-mib` and `metric-single-core-pct` gets a type that satisfies all of them (checked against `DescribeInstanceTypes`) |
 | `byo` | the workflow creates a VPC, a vSwitch and a security group tagged with the run and `use`s them by tag; the node launches into them, and afterwards SCarpenter has touched none of them |
@@ -864,7 +864,7 @@ validated only until its first live run, and **not in `test/e2e-vendors.txt`** u
 public `Ext-Net` network) that join over Tailscale, in one region (`OVH_REGION`, a Keystone catalog
 name, default `GRA11`). The scenarios are `amd64` (an exact flavor, on-demand: node labels, server
 metadata and tags, the managed security group and its marker, config drive, `kubectl logs` and `exec`,
-the units on the node, the `metadata-from-pods` hardening), `db` (an anti-affinity server group and a
+the units on the node, the metadata restriction), `db` (an anti-affinity server group and a
 `high-speed` data volume mounted by the first-boot unit), `described` (the flavor picked from
 vCPU, memory and a benchmark percentile), `byo` (a security group the workflow creates is `use`d and
 SCarpenter never deletes it), `negative` (`publicIPv4: false` is not ready and refused by the API
