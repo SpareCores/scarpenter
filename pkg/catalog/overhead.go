@@ -31,10 +31,13 @@ const defaultEvictionMemory = "100Mi"
 // KubeReserved returns the resources reserved for Kubernetes daemons: the
 // formula of the AWS provider (pkg/providers/instancetype/types.go of
 // aws/karpenter-provider-aws at commit 30c236cafacb3a23fb3a50370d09d71750b56b29,
-// Apache-2.0): memory is 11 MiB per pod plus 255 MiB; CPU is 6% of the first
+// Apache-2.0), with the memory capped as AKS does: memory is 11 MiB per pod
+// plus 255 MiB, at most a quarter of the node's memory (memoryMiB, after the VM
+// overhead), which only matters below about 6 GiB, where the AWS formula would
+// leave 1 GiB nodes with no allocatable memory; CPU is 6% of the first
 // core, 1% of the second, 0.5% of the third and fourth and 0.25% of every core
 // above; ephemeral storage is 1 GiB (the kubelet's own default).
-func KubeReserved(cpus int, pods int64) corev1.ResourceList {
+func KubeReserved(cpus int, pods int64, memoryMiB int64) corev1.ResourceList {
 	millicores := float64(cpus) * 1000
 	var cpuOverhead float64
 	for _, r := range []struct {
@@ -57,7 +60,7 @@ func KubeReserved(cpus int, pods int64) corev1.ResourceList {
 	}
 	return corev1.ResourceList{
 		corev1.ResourceCPU:              *resource.NewMilliQuantity(int64(cpuOverhead), resource.DecimalSI),
-		corev1.ResourceMemory:           resource.MustParse(fmt.Sprintf("%dMi", 11*pods+255)),
+		corev1.ResourceMemory:           resource.MustParse(fmt.Sprintf("%dMi", min(11*pods+255, memoryMiB/4))),
 		corev1.ResourceEphemeralStorage: resource.MustParse("1Gi"),
 	}
 }
@@ -85,7 +88,8 @@ func capacity(vcpus int, memoryMiB float64, class *Class, rootDiskBytes int64, r
 // resource; the NodeClass's system-reserved; and the hard eviction thresholds
 // (memory.available defaults to 100Mi) for the resources they cover.
 func overhead(vcpus int, class *Class, capacity corev1.ResourceList) *cloudprovider.InstanceTypeOverhead {
-	kube := KubeReserved(vcpus, class.MaxPods)
+	memory := capacity[corev1.ResourceMemory]
+	kube := KubeReserved(vcpus, class.MaxPods, memory.Value()>>20)
 	maps.Copy(kube, class.KubeReserved)
 	return &cloudprovider.InstanceTypeOverhead{
 		KubeReserved:      kube,

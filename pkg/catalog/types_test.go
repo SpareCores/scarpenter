@@ -139,7 +139,7 @@ func TestKubeReservedFormula(t *testing.T) {
 		{96, 110, 310, 1465},
 		{2, 29, 70, 574},
 	} {
-		got := catalog.KubeReserved(tc.cpus, tc.pods)
+		got := catalog.KubeReserved(tc.cpus, tc.pods, 1<<20)
 		if got.Cpu().MilliValue() != tc.cpuMilli || got.Memory().Value() != tc.memoryMiB<<20 {
 			t.Errorf("KubeReserved(%d, %d) = cpu %dm memory %s, want %dm %dMi", tc.cpus, tc.pods, got.Cpu().MilliValue(), got.Memory(), tc.cpuMilli, tc.memoryMiB)
 		}

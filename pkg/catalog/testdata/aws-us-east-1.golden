@@ -1,7 +1,7 @@
 === aws.t3a.small
 name: aws.t3a.small
 capacity: cpu=2 ephemeral-storage=128Gi memory=1894Mi pods=110
-kubeReserved: cpu=70m ephemeral-storage=1Gi memory=1465Mi
+kubeReserved: cpu=70m ephemeral-storage=1Gi memory=473Mi
 systemReserved: 
 evictionThreshold: memory=100Mi
 requirements:
