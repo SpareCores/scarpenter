@@ -224,16 +224,17 @@ scn_amd64() {
   log "on the node: the unit-level checks of L4 scenarios Q09 and Q10, on a real node"
   node_unit_checks "${node}"
 
-  log "cluster DNS, and the metadata service (hardening metadata-from-pods)"
+  log "cluster DNS, and the metadata service (instanceMetadata Restricted)"
   local dns
   dns="$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')"
   assert_match "the kubelet's clusterDNS is the kube-dns Service" "${dns//./\\.}" "$(node_shell "${node}" "grep -A3 '^clusterDNS' /var/lib/kubelet/config.yaml" | tr '\n' ' ')"
   wait_until "a Pod resolves a cluster Service" 120 kubectl exec "${pod}" -- nslookup kubernetes.default.svc.cluster.local
-  # The NodeClass enables the hardening: a Pod's traffic to the metadata address is dropped
-  # in FORWARD, the node's own is not (unverified on OVH: the node's answer is a note).
+  # The NodeClass restricts the metadata service: a Pod's traffic to the metadata address is
+  # dropped in FORWARD, and so is the node shell's (a host-network Pod: dropped in OUTPUT); only
+  # the node's own units reach it (unverified on OVH: the node shell's answer is a note).
   local get='printf "GET /openstack/latest/meta_data.json HTTP/1.0\r\nHost: 169.254.169.254\r\n\r\n" | nc -w 4 169.254.169.254 80 | head -n1'
   note "the metadata service from the node itself: '$(node_pod_exec "${node}" "${get}" || true)'"
-  assert_eq "the metadata service from a Pod (dropped by the hardening)" "" "$(kubectl exec "${pod}" -- sh -c "${get}" || true)"
+  assert_eq "the metadata service from a Pod (dropped by the restriction)" "" "$(kubectl exec "${pod}" -- sh -c "${get}" || true)"
   drop_nodeshells
 }
 

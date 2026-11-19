@@ -292,9 +292,10 @@ scn_amd64() {
   assert_match "the kubelet's clusterDNS is the kube-dns Service" "${dns//./\\.}" "$(node_shell "${node}" "grep -A3 '^clusterDNS' /var/lib/kubelet/config.yaml" | tr '\n' ' ')"
   wait_until "a Pod resolves a cluster Service" 120 kubectl exec "${pod}" -- nslookup kubernetes.default.svc.cluster.local
   # The user-data is readable through the metadata server (from the node, whose own the
-  # data is). GCE has no hop limit: a Pod can read it too, which the reference documents
-  # (the vendor Butane fragment block-metadata-from-pods is off by default). The Pod's
-  # answer is recorded, not asserted: it depends on the pod network's masquerade.
+  # data is, read through the node shell, a host-network Pod: the NodeClass is Open). GCE has no
+  # hop limit: a Pod can read it too on an Open NodeClass, which the reference documents (the
+  # default, Restricted, drops it). The Pod's answer is recorded, not asserted: it depends on the
+  # pod network's masquerade.
   local mdq='wget -qO- -T 5 --header "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance'
   assert_eq "the metadata server answers on the node (instance name)" "${iid#*/}" "$(node_pod_exec "${node}" "${mdq}/name" || true)"
   assert_match "the user-data is the Ignition" '"ignition"' "$(node_pod_exec "${node}" "${mdq}/attributes/user-data" || true)"

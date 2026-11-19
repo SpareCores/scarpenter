@@ -39,6 +39,9 @@ spec:
             - {name: pgdata, category: cloud_essd, performanceLevel: PL1, size: 20Gi, filesystem: xfs, mountPath: /var/lib/pgdata}
     placement:
       colocated: {alicloud: {deploymentSet: {strategy: LowLatency}}}
+  # The scenarios read the metadata service from the node shell, a host-network Pod, which the
+  # default access (Restricted) drops.
+  instanceMetadata: {access: Open}
   vendors:
     alicloud:
       regions: [${ALICLOUD_REGION}]

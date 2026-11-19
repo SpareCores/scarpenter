@@ -3,7 +3,7 @@
 # profile with a small high-speed data volume, a storage profile that asks for local
 # storage (unsupported on OVH, for the negative scenario), the placement profile that
 # puts a database and its client into one anti-affinity server group, the metadata
-# hardening, and a benchmark metric for the described-not-named scenario.
+# restriction, and a benchmark metric for the described-not-named scenario.
 #
 # It must exist before the controller starts: the label keys of a NodeClass's
 # metrics are registered with Karpenter core at start-up (install.sh applies it
@@ -27,8 +27,8 @@ spec:
   # the scenarios read it back, and a person finds the run behind a leftover.
   tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
   # Pods must not reach the metadata service, where the user data (the bootstrap token
-  # and the Tailscale key) is readable.
-  bootstrap: {hardening: [metadata-from-pods]}
+  # and the Tailscale key) is readable: the default, spelled out.
+  instanceMetadata: {access: Restricted}
   metrics:
     single-core:
       benchmark: {id: "geekbench:score", config: {cores: single}}

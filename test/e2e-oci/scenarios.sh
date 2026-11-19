@@ -451,9 +451,10 @@ scn_amd64() {
   assert_match "the kubelet's clusterDNS is the kube-dns Service" "${dns//./\\.}" "$(node_shell "${node}" "grep -A3 '^clusterDNS' /var/lib/kubelet/config.yaml" | tr '\n' ' ')"
   wait_until "a Pod resolves a cluster Service" 120 kubectl exec "${pod}" -- nslookup kubernetes.default.svc.cluster.local
   # The user_data is readable through the metadata service (from the node, whose own the data is). OCI's
-  # service has no hop limit (IMDS v2 needs only a header): a Pod can read it too, which the reference
-  # documents (the hardening metadata-from-pods is opt-in). The Pod's answer is recorded, not asserted:
-  # it depends on the pod network's masquerade.
+  # service has no hop limit (IMDS v2 needs only a header): a Pod can read it too on an Open NodeClass
+  # (this lane's, because the node shell is a host-network Pod), which the reference documents (the
+  # default, Restricted, drops it). The Pod's answer is recorded, not asserted: it depends on the
+  # pod network's masquerade.
   mdq='wget -qO- -T 5 --header "Authorization: Bearer Oracle" http://169.254.169.254/opc/v2/instance'
   assert_eq "the metadata service answers on the node (instance OCID)" "${iid}" "$(node_pod_exec "${node}" "${mdq}/id" || true)"
   assert_match "the user_data is the base64 of the Ignition" '^eyJ' "$(node_pod_exec "${node}" "${mdq}/metadata/user_data" || true)"
