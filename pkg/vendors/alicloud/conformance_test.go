@@ -102,9 +102,10 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func(*te
 	switch kind {
 	case KindSubnets:
 	case KindDeploymentSets:
-		// A deployment set takes no tags: nothing to seed by tag.
-		fx.Seed, fx.SeedImage, fx.PreCreate = nil, nil, nil
-		fx.OrderClass, fx.SetDefault, fx.FailCreate = nil, nil, nil
+		// A deployment set takes no tags: the cases seed it by name. It has no vendor
+		// default and its creation is one call.
+		fx.SeedKinds, fx.SeedImage, fx.PreCreate = nil, nil, nil
+		fx.SetDefault, fx.FailCreate = nil, nil
 	default:
 		fx.Seed, fx.SeedImage = nil, nil // the selector cases cover every kind once, in the subnets run
 		fx.OrderClass, fx.SetDefault, fx.FailCreate = nil, nil, nil
@@ -180,7 +181,8 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 		},
 		OrderClass: func(t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*common.Resource, ipv6 bool) *v1alpha1.SCNodeClass {
 			t.Helper()
-			nc := classWith(&api.Resources{Subnets: res[KindSubnets], SecurityGroups: res[KindSecurityGroups]})
+			nc := classWith(&api.Resources{Subnets: res[KindSubnets], SecurityGroups: res[KindSecurityGroups],
+				DeploymentSets: res[KindDeploymentSets]})
 			nc.Spec.Networking.PublicIPv6 = &ipv6
 			return nc
 		},
@@ -259,6 +261,12 @@ func seed(t *testing.T, e *denv, kind vendors.ResourceKind, region string, spec 
 			t.Fatal(err)
 		}
 		id = *out.VSwitchId
+	case KindDeploymentSets:
+		out, err := e.acct.ECS(region).CreateDeploymentSet(ctx, &ecs.CreateDeploymentSetRequest{DeploymentSetName: &spec.Name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id = *out.DeploymentSetId
 	default:
 		desc := spec.Description
 		if desc == "" {
