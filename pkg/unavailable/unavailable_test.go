@@ -43,6 +43,18 @@ func TestKeysAndTTLs(t *testing.T) {
 			},
 		},
 		{
+			name:    "interrupted: (vendor, type, zone, capacity type), 10 minutes",
+			mark:    func(c *unavailable.Cache) { c.MarkInterrupted("aws", "aws.m7i.large", "us-east-1a", "spot") },
+			ttl:     10 * time.Minute,
+			covered: []unavailable.Offering{base},
+			free: []unavailable.Offering{
+				with(base, func(o *unavailable.Offering) { o.CapacityType = "on-demand" }),
+				with(base, func(o *unavailable.Offering) { o.Zone = "us-east-1b" }),
+				with(base, func(o *unavailable.Offering) { o.InstanceType = "aws.m7i.xlarge" }),
+				with(base, func(o *unavailable.Offering) { o.Vendor = "gcp" }),
+			},
+		},
+		{
 			name:    "unsupported: (vendor, type, zone) for both capacity types, 24 hours",
 			mark:    func(c *unavailable.Cache) { c.MarkUnsupported("aws", "aws.m7i.large", "us-east-1a") },
 			ttl:     24 * time.Hour,
@@ -161,5 +173,19 @@ func TestCustomTTLs(t *testing.T) {
 	clk.Step(time.Second)
 	if c.IsUnavailable(unavailable.Offering{Vendor: "aws", InstanceType: "t", Zone: "z", CapacityType: "spot"}) {
 		t.Error("custom TTL ignored")
+	}
+}
+
+func TestInterruptedTTLIsConfigurable(t *testing.T) {
+	clk := clocktesting.NewFakeClock(time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC))
+	c := unavailable.New(clk, unavailable.TTLs{Interrupted: time.Minute})
+	c.MarkInterrupted("aws", "aws.m7i.large", "us-east-1a", "spot")
+	clk.Step(59 * time.Second)
+	if !c.IsUnavailable(base) {
+		t.Fatal("expired before the configured TTL")
+	}
+	clk.Step(time.Second)
+	if c.IsUnavailable(base) {
+		t.Fatal("still unavailable after the configured TTL")
 	}
 }

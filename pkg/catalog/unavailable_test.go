@@ -118,3 +118,24 @@ func TestResultsAreCachedByTheUnavailableSequence(t *testing.T) {
 		t.Error("the cache survived a refresh")
 	}
 }
+
+// An interrupted spot offering leaves scheduling for its own TTL (ADR-027); the
+// on-demand offering of the same type and zone stays.
+func TestInterruptedSpotOfferingIsUnavailableUntilItsTTL(t *testing.T) {
+	clk := clocktesting.NewFakeClock(time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC))
+	un := unavailable.New(clk, unavailable.TTLs{})
+	c := catalog.New(catalog.Options{Source: &fakeSource{data: synthetic()}, Facts: syntheticFacts(), Clock: clk, Unavailable: un})
+	c.SetClasses([]catalog.Class{catalog.NewClass("c", catalog.Scope{"v": nil})})
+	if err := c.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	un.MarkInterrupted("v", "v.small", "zone-1", "spot")
+	got := availability(t, c, "v.small")
+	if got["zone-1/spot"] || !got["zone-1/on-demand"] {
+		t.Errorf("after an interruption: %v", got)
+	}
+	clk.Step(unavailable.DefaultInterruptedTTL)
+	if !availability(t, c, "v.small")["zone-1/spot"] {
+		t.Error("the interrupted spot offering did not come back after its TTL")
+	}
+}

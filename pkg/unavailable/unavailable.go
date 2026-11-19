@@ -13,6 +13,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // (pkg/cache/cache.go of aws/karpenter-provider-aws at commit
 // 30c236cafacb3a23fb3a50370d09d71750b56b29, Apache-2.0): three minutes for
 // insufficient capacity. The other TTLs are SCarpenter's own (overview 5.6).
+// The interrupted class is fed by the interruption controller, not by a launch.
 package unavailable
 
 import (
@@ -29,6 +30,9 @@ const (
 	DefaultUnsupportedTTL          = 24 * time.Hour
 	DefaultQuotaExceededTTL        = 30 * time.Minute
 	DefaultZoneUnusableTTL         = 10 * time.Minute
+	// DefaultInterruptedTTL: a spot type that was just reclaimed is likely to be
+	// reclaimed again (ADR-027).
+	DefaultInterruptedTTL = 10 * time.Minute
 )
 
 // TTLs are the lifetimes of the entries per error class. A zero field uses the
@@ -38,6 +42,7 @@ type TTLs struct {
 	Unsupported          time.Duration
 	QuotaExceeded        time.Duration
 	ZoneUnusable         time.Duration
+	Interrupted          time.Duration
 }
 
 func (t TTLs) withDefaults() TTLs {
@@ -53,6 +58,9 @@ func (t TTLs) withDefaults() TTLs {
 	if t.ZoneUnusable <= 0 {
 		t.ZoneUnusable = DefaultZoneUnusableTTL
 	}
+	if t.Interrupted <= 0 {
+		t.Interrupted = DefaultInterruptedTTL
+	}
 	return t
 }
 
@@ -63,6 +71,7 @@ const (
 	classUnsupported
 	classQuotaExceeded
 	classZoneUnusable
+	classInterrupted
 )
 
 // key identifies an entry; fields that a class does not use stay empty.
@@ -136,6 +145,15 @@ func (c *Cache) MarkZoneUnusable(vendor, zone string) {
 	c.mark(key{class: classZoneUnusable, vendor: vendor, zone: zone}, c.ttls.ZoneUnusable)
 }
 
+// MarkInterrupted records that the vendor reclaimed a node of the instance type
+// in the zone with the capacity type (a spot or preemptible interruption). It is
+// a class of its own, with its own TTL, but matches like insufficient capacity.
+func (c *Cache) MarkInterrupted(vendor, instanceType, zone, capacityType string) {
+	c.mark(key{
+		class: classInterrupted, vendor: vendor, instanceType: instanceType, zone: zone, capacityType: capacityType,
+	}, c.ttls.Interrupted)
+}
+
 // Offering identifies an offering the way the catalog builds it.
 type Offering struct {
 	Vendor       string
@@ -153,6 +171,10 @@ func (c *Cache) IsUnavailable(o Offering) bool {
 	for _, k := range [...]key{
 		{
 			class: classInsufficientCapacity, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
+			capacityType: o.CapacityType,
+		},
+		{
+			class: classInterrupted, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
 			capacityType: o.CapacityType,
 		},
 		{class: classUnsupported, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone},
