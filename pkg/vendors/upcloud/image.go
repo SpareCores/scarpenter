@@ -110,7 +110,9 @@ func (d *Driver) listTemplates(ctx context.Context) ([]upcloud.Storage, error) {
 	if err != nil {
 		return nil, Classify(err)
 	}
-	return slices.DeleteFunc(out.Storages, func(s upcloud.Storage) bool { return s.Type != upcloud.StorageTypeTemplate }), nil
+	return slices.DeleteFunc(out.Storages, func(s upcloud.Storage) bool {
+		return s.Type != upcloud.StorageTypeTemplate
+	}), nil
 }
 
 // templateFilters are the native filters of the images kind, evaluated on the
