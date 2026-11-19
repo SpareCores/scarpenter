@@ -282,16 +282,20 @@ reserves and what the node's own daemons use. Both are settings of
 change drifts the nodes of the NodeClass like any other `spec.kubelet` change).
 
 **Default reservation.** Without a setting, the kubelet reserves
-`min(255Mi + 11Mi * maxPods, 25% of the node's memory)` as `kubeReserved.memory`
-(`maxPods` is 110 unless set). The node's memory is the instance type's memory less
+`min(255Mi + 11Mi * maxPods, max(25% of the node's memory, 320Mi))` as
+`kubeReserved.memory` (`maxPods` is 110 unless set). The node's memory is the instance type's memory less
 `vmMemoryOverheadPercent` (7.5% by default), which is what the kubelet sees. The
 cap is the one AKS applies: the AWS formula alone, 1465Mi for 110 pods, is
 more than the memory of a 1 GiB instance. It only matters below about 6 GiB. The
+cap does not go below 320Mi, what `Lean` reserves for the kubelet and the system
+together: a node whose daemons have no memory limits never reserves less than a
+`Lean` one (the OS alone uses about 300 MiB of a 1 GiB node at idle, below), so
+`Lean` never leaves Pods less memory than the default. The
 catalog and the kubelet configuration use the same value, as above.
 
 | Instance memory | Node memory | kubeReserved.memory | Allocatable (evictionHard 100Mi) | Allocatable with `Lean` |
 |---|---|---|---|---|
-| 1 GiB | 947Mi | 236Mi (25%) | 611Mi | 577Mi |
+| 1 GiB | 947Mi | 320Mi (floor; 25% is 236Mi) | 527Mi | 577Mi |
 | 2 GiB | 1894Mi | 473Mi (25%) | 1321Mi | 1524Mi |
 | 4 GiB | 3788Mi | 947Mi (25%) | 2741Mi | 3418Mi |
 | 8 GiB | 7577Mi | 1465Mi | 6012Mi | 7207Mi |
@@ -319,7 +323,7 @@ you set overrides the preset's value, key by key, so a `kubeReserved` of
 | `maxPods` | 10 | 110 |
 | `kubeReserved.memory` | 192Mi (the kubelet and containerd) | the formula above |
 | `systemReserved.memory` | 128Mi (systemd, journald, resolved, networkd, udevd, tailscaled) | unset |
-| `evictionHard` | `memory.available` 50Mi, and the kubelet's defaults for the others (`nodefs.available` 10%, `nodefs.inodesFree` 5%, `imagefs.available` 15%) | the kubelet's defaults (100Mi of memory) |
+| `evictionHard` | `memory.available` 50Mi, and the kubelet's defaults for the others (`nodefs.available` 10%, `nodefs.inodesFree` 5%, `imagefs.available` 15%, `imagefs.inodesFree` 5%; the kubelet drops its defaults for every signal once `evictionHard` is set) | the kubelet's defaults (100Mi of memory) |
 | `serializeImagePulls` | `true` (one image pull at a time: less memory and page cache in containerd) | the kubelet's default (the same) |
 | `containerLogMaxSize`, `containerLogMaxFiles` | 5Mi, 2 | the kubelet's defaults (10Mi, 5) |
 | `nodeStatusMaxImages` | 10 | the kubelet's default (50) |
@@ -334,15 +338,16 @@ configuration (see [node bootstrap](node-bootstrap.md#the-user-data)), only with
 | What | Setting |
 |---|---|
 | kubelet | systemd drop-in with `GOMEMLIMIT=80MiB` and `GOGC=50` |
-| containerd | drop-in with `GOMEMLIMIT=64MiB`, `GOGC=50` and `MemoryHigh=192M`: the page cache of the image layers it reads is charged to its cgroup, and above the limit the kernel reclaims it instead of letting it count in the kubelet's `memory.available` |
+| containerd | drop-in with `GOMEMLIMIT=64MiB` and `GOGC=50` (the shims it starts inherit them) |
 | tailscaled | with the `tailscale` template, a drop-in with `GOMEMLIMIT=40MiB` and `GOGC=50` |
 | journald | `Storage=volatile`, `RuntimeMaxUse=16M`: the journal is in memory and gone with the node |
 | masked units | `docker.socket`, `docker.service`, `systemd-userdbd` (service and socket), `systemd-nsresourced` (service and socket), `systemd-oomd` (service and socket) and `getty@tty1`; the serial console (`serial-getty`) and sshd, resolved, networkd, udevd, timesyncd and logind stay |
 
 `GOMEMLIMIT` is a soft limit of the Go runtime: it makes the garbage collector work
 harder when the heap approaches it and never kills or fails anything; a daemon whose
-live memory is larger than the limit keeps running and collects more often. `MemoryHigh`
-is soft too: it throttles and reclaims, it does not kill. The containerd configuration
+live memory is larger than the limit keeps running and collects more often. There is no
+`MemoryHigh` on containerd: its cgroup also holds the shims, one per Pod (about 15 MiB
+each), and without swap a limit near their sum throttles the whole runtime. The containerd configuration
 itself (`/usr/share/containerd/config.toml` of Flatcar, a version 2 file) is not changed:
 replacing it means carrying a copy of Flatcar's file, which the settings above do not
 justify. To change more, use `spec.butane`, which merges last and overrides everything here.
@@ -351,7 +356,11 @@ Measured on the pinned Flatcar release in a 1 GiB VM at idle, without the kubele
 without tailscale (the Kubernetes and tailscale sysexts were not part of the check): the
 `Lean` units apply as listed above, and used memory was 296 to 302 MiB against 325 MiB
 with the Standard footprint. What the daemons themselves
-hold with the sysexts, and the effect of the limits on a node under load, is not measured.
+hold with the sysexts, and the effect of the limits on a node under load, is not measured. The
+kubelet (about 75 MiB) and a shim per Pod come on top of those 300 MiB, so on a 1 GiB node
+the reservations (370Mi with `Lean`, 420Mi by default, each with the eviction threshold)
+cover the node's own use with little to spare: keep the workload's memory limit well below
+the allocatable.
 
 ## Billing periods
 

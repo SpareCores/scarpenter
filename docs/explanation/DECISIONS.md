@@ -837,22 +837,31 @@ The memory a node leaves to Pods is the instance's memory less the VM overhead, 
 `255Mi + 11Mi * maxPods`, is 1465Mi for the default 110 Pods: more than the memory of a 1 GiB instance and
 most of a 2 GiB one. Two settings follow.
 
-**The default `kubeReserved.memory` is `min(255Mi + 11Mi * maxPods, 25% of the node's memory)`**, the cap
-AKS applies, in the catalog (the allocatable the scheduler sees) and in the kubelet configuration the node
-gets. Both read one value, computed once per launch attempt for the instance type. It changes nodes below about
-6 GiB only. It applies to nodes launched after the change: running nodes keep their kubelet configuration, and the
+**The default `kubeReserved.memory` is `min(255Mi + 11Mi * maxPods, max(25% of the node's memory, 320Mi))`**,
+the cap AKS applies with a floor, in the catalog (the allocatable the scheduler sees) and in the kubelet configuration the node
+gets. Both read one value, computed once per launch attempt for the instance type; the node's memory is the
+instance type's less `vmMemoryOverheadPercent`, the catalog's estimate of the capacity the kubelet reports. It
+changes nodes below about 6 GiB only. The floor is what `Lean` reserves for the kubelet and the system together
+(192Mi + 128Mi): a node whose daemons have no limits should not reserve less than one whose daemons do, and 25% of a
+1 GiB node (236Mi) is less than its OS uses at idle (about 300 MiB measured, before the kubelet). With the floor,
+`Lean` never leaves Pods less memory than the default, at any size (1 GiB: 577Mi against 527Mi). It applies to nodes launched after the change: running nodes keep their kubelet configuration, and the
 drift hash does not read the catalog.
 
 **`spec.kubelet.footprint: Lean`** (`Standard` when unset) is a preset for single-purpose nodes, such as
 benchmark runners, that makes 1 GiB instance types usable: `maxPods` 10, `kubeReserved.memory` 192Mi,
 `systemReserved.memory` 128Mi, `evictionHard` `memory.available` 50Mi, a kubelet that pulls images one at a time and
 keeps small container logs and few image records, and on the node `GOMEMLIMIT` and `GOGC` for the kubelet, containerd
-and tailscaled, `MemoryHigh` on containerd, a volatile journal and masked units a worker does not need
+and tailscaled, a volatile journal and masked units a worker does not need
 (docker, userdbd, nsresourced, oomd, the `tty1` getty). Fields set in `spec.kubelet` override the preset key by key.
 The reservation is a field of `spec.kubelet`, so the catalog and the kubelet share one resolution of it
 (`KubeletSpec.Effective`); the node-level settings are a Butane part merged only with `Lean`. A NodeClass that does
-not set the field renders and hashes as before, which is why the field has no default value and `maxPods` has no
-default in the CRD (an unset `maxPods` is 110, or 10 with `Lean`).
+not set the field renders and hashes as before, which is why the field has no default value. `maxPods` lost its CRD
+default (an unset `maxPods` is 110, or 10 with `Lean`), so that `Lean` can tell it is unset; stored NodeClasses keep
+the defaulted 110, and the drift hash reads an unset `maxPods` without `Lean` as 110, so neither those objects nor a
+replace that drops the field drifts nodes. The masked units are safe to lose on a worker: name lookups do not need
+userdbd (nss-systemd and the files databases answer them), containerd does not use nsresourced, and the kubelet's
+eviction and the kernel's OOM killer handle memory pressure without systemd-oomd, which would only be a second
+killer acting on pressure the kubelet does not see.
 
 Why: the accounting is what makes a small instance type schedulable at all, and it is free; the node-level limits
 trim the Go daemons by an estimated tens of MiB, which matters on 1 GiB and not on 8. Both are limits of the
@@ -865,7 +874,10 @@ DaemonSets); zram or swap in `Lean` (it makes a benchmark's memory use and timin
 are noisier; a NodeClass that wants swap adds it with `spec.butane`); changing the containerd configuration
 (Flatcar's is a version 2 file selected by the unit's `CONTAINERD_CONFIG`; replacing it means carrying a copy of it
 for a few MiB); enforcing `kubeReserved` and `systemReserved` in cgroups (`enforceNodeAllocatable`: the daemons could
-then be OOM-killed).
+then be OOM-killed); `MemoryHigh` on containerd to keep image page cache out of `memory.available` (its cgroup also
+holds a shim per Pod, so without swap a limit near their sum throttles the runtime, and `serializeImagePulls` already
+bounds the cache of a pull); lowering `Lean`'s reservations to match the 25% default on 1 GiB (the node's own use is
+not measured with the kubelet running; lower them only after measuring).
 
 Consequences: `spec.kubelet.footprint` in the API; `lean.bu` in the bootstrap templates; the catalog's
 `KubeReserved` takes the node's memory.
