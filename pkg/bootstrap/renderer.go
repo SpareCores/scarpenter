@@ -44,6 +44,9 @@ type RenderRequest struct {
 	Local        *LocalHint
 	// VendorFragments are the fragments of the vendor's driver for the node.
 	VendorFragments []Fragment
+	// NodeIPCIDR is the IPv4 range of the private network of the launch, from
+	// the driver's Prepared.NodeIPCIDR ("" for none).
+	NodeIPCIDR string
 	// Token is the bootstrap token of the NodeClaim.
 	Token string
 	// NodeName and ProviderID are the node name (the NodeClaim name) and the
@@ -127,6 +130,7 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 	p.Vendor, p.Region, p.Zone, p.InstanceType = req.Vendor, req.Region, req.Zone, req.InstanceType
 	p.KubeReserved, p.Volumes, p.Local = req.KubeReserved, req.Volumes, req.Local
 	p.VendorFragments = req.VendorFragments
+	p.NodeIPCIDR = req.NodeIPCIDR
 	if req.NodeClaim != nil {
 		p.Labels = req.NodeClaim.Labels
 	}

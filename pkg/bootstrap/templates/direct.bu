@@ -1,5 +1,9 @@
 # The direct network template (overview section 8.3): no VPN, the kubelet uses
-# the node's primary address. It only leaves a marker for debugging.
+# the node's primary address. It leaves a marker for debugging. When the node
+# joins a private network next to its public interface (NodeIPCIDR is set by the
+# driver), a oneshot unit picks the node's address inside that range before the
+# kubelet starts and hands it over as --node-ip, so that node-to-node and
+# control-plane traffic stays on the private network.
 variant: flatcar
 version: 1.1.0
 storage:
@@ -9,3 +13,34 @@ storage:
       contents:
         inline: |
           direct
+{{- if .NodeIPCIDR }}
+    - path: /opt/scarpenter/bin/scarpenter-node-ip
+      mode: 0755
+      contents:
+        inline: |
+{{ .NodeIPScript | indent 10 }}
+systemd:
+  units:
+    - name: scarpenter-node-ip.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Publish the node's private address as the kubelet node IP
+        After=network-online.target
+        Wants=network-online.target
+        Before=kubelet.service
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        TimeoutStartSec=150
+        ExecStart=/opt/scarpenter/bin/scarpenter-node-ip --cidr {{ .NodeIPCIDR }} --timeout 120
+        [Install]
+        WantedBy=multi-user.target
+    - name: kubelet.service
+      dropins:
+        - name: 30-node-ip.conf
+          contents: |
+            [Unit]
+            Requires=scarpenter-node-ip.service
+            After=scarpenter-node-ip.service
+{{- end }}

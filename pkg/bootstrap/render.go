@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"path"
 	"regexp"
 	"strings"
@@ -140,6 +141,13 @@ type TemplateData struct {
 	// MountPaths are the mount paths of the volumes and local storage, space
 	// separated, for the kubelet's RequiresMountsFor=.
 	MountPaths string
+	// NodeIPCIDR is the IPv4 range of the private network the node joins, empty
+	// when it has none: the node's local address inside it is the kubelet's
+	// --node-ip. The direct template renders the unit that finds it (with
+	// NodeIPScript); the tailscale template uses the tailnet address instead, and
+	// a custom template may use the variable.
+	NodeIPCIDR   string
+	NodeIPScript string
 }
 
 // Network is the network part of the node's configuration.
@@ -213,6 +221,10 @@ type Params struct {
 	// and the user's, so those override them; they are rendered with the same
 	// variables as the user's Butane and count in the budget.
 	VendorFragments []Fragment
+	// NodeIPCIDR is the IPv4 range of the private network of the launch (the
+	// driver's Prepared.NodeIPCIDR), empty for none. It derives from the
+	// resolved resources of a launch, never from the spec.
+	NodeIPCIDR string
 
 	// Budget is the size above which Render fails; 0 means MaxUserDataSize.
 	Budget int
@@ -300,6 +312,27 @@ func Render(p Params) (*Rendered, error) {
 	return &Rendered{UserData: userData, Parts: parts}, nil
 }
 
+// nodeIP validates the node IP range and returns it in canonical form, with the
+// script that finds the node's address inside it (the direct template installs
+// it; no range, no script).
+func (p *Params) nodeIP() (cidr, script string, err error) {
+	if p.NodeIPCIDR == "" {
+		return "", "", nil
+	}
+	prefix, err := netip.ParsePrefix(p.NodeIPCIDR)
+	if err != nil || !prefix.Addr().Is4() {
+		return "", "", fmt.Errorf("the node IP range %q is not an IPv4 prefix (IPv6 is not handled)", p.NodeIPCIDR)
+	}
+	if p.Network.Template != v1alpha1.NetworkTemplateDirect {
+		return prefix.Masked().String(), "", nil
+	}
+	b, err := templates.ReadFile("templates/scarpenter-node-ip.sh")
+	if err != nil {
+		return "", "", fmt.Errorf("reading the node IP script: %w", err)
+	}
+	return prefix.Masked().String(), string(b), nil
+}
+
 // argPattern is what may appear in a kubelet flag value: the flags go into a
 // systemd unit, where whitespace, quotes, $ and % are special.
 var argPattern = regexp.MustCompile(`^[A-Za-z0-9._:/=,@-]+$`)
@@ -385,6 +418,9 @@ func (p *Params) templateData() (*TemplateData, error) {
 			}
 			d.LocalScript = string(script)
 		}
+	}
+	if d.NodeIPCIDR, d.NodeIPScript, err = p.nodeIP(); err != nil {
+		return nil, err
 	}
 	if p.PoweroffAfter > 0 {
 		d.PoweroffAfter = p.PoweroffAfter.String()

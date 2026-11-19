@@ -552,6 +552,14 @@ type Prepared struct {
 	Resources []ResourceRef
 	Devices   []DeviceHint
 	Local     *LocalHint
+	// NodeIPCIDR is the IPv4 range of the private network the instance joins as
+	// a second interface next to its public one ("" for none): the direct
+	// bootstrap template makes the node's address inside it the kubelet's
+	// --node-ip. Only a driver whose private interface is not the default
+	// route's sets it (a vendor whose primary address is already private needs
+	// no hint). It derives from the resolved resources of the launch, never from
+	// the spec. IPv6 is not handled.
+	NodeIPCIDR string
 }
 
 // NodeOptions is the optional capability for vendor-native node settings
