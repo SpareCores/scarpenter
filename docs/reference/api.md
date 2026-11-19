@@ -37,6 +37,7 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `billing` | [object](#specbilling) |  | billing opts in to keeping nodes until the end of the billing period they have already paid for (ADR-024). Changing it is not drift. |
+| `bootstrap` | [object](#specbootstrap) |  | bootstrap is deprecated: no effect; instance metadata is restricted by spec.instanceMetadata; will be removed in a later API version. |
 | `butane` | [object](#specbutane) |  | butane references extra Butane configuration merged into every node's Ignition. |
 | `catalog` | [object](#speccatalog) |  | catalog configures the instance type catalog built from Keeper. |
 | `flatcar` (required) | [object](#specflatcar) |  | flatcar selects the Flatcar Container Linux release nodes boot. |
@@ -64,6 +65,14 @@ billing opts in to keeping nodes until the end of the billing period they have a
 | `maxRetainedNodes` | integer (int32) |  | maxRetainedNodes is an optional safety valve: it trims the held empty nodes of the NodeClass down to this number, nearest deadline first. Unset means no cap; a launch blocked by a NodePool limit or a vendor quota releases held empty nodes first either way. Minimum 1. |
 | `minPeriod` | string | `"10m"` | minPeriod is the shortest billing increment that is held to its end: shorter increments are not worth a hold. It does not gate the hold of a minimum (a minimum has its own 2 minute floor). Pattern `^([0-9]+(\.[0-9]+)?(s\|m\|h))+$`. Rule: minPeriod must be at least 1m (`duration(self) >= duration('1m')`). |
 | `retainUntilPeriodEnd` | boolean | `false` | retainUntilPeriodEnd keeps a node a vendor bills by the started period (an hour on hcloud, UpCloud, Vultr), or by a minimum and then per second (Alibaba), until its paid period is about to end, so that Karpenter reuses it for the next job, and deletes it before the next charge starts. Off by default. |
+
+### `spec.bootstrap`
+
+bootstrap is deprecated: no effect; instance metadata is restricted by spec.instanceMetadata; will be removed in a later API version.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `hardening` | array of string |  | hardening is deprecated: no effect; instance metadata is restricted by spec.instanceMetadata; will be removed in a later API version. One of `metadata-from-pods`. At most 8 items. |
 
 ### `spec.butane`
 

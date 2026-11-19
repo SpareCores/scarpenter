@@ -71,6 +71,26 @@
           },
           "type": "object"
         },
+        "bootstrap": {
+          "additionalProperties": false,
+          "description": "bootstrap is deprecated: no effect; instance metadata is restricted by\nspec.instanceMetadata; will be removed in a later API version.",
+          "properties": {
+            "hardening": {
+              "description": "hardening is deprecated: no effect; instance metadata is restricted by\nspec.instanceMetadata; will be removed in a later API version.",
+              "items": {
+                "description": "Hardening is a name of the deprecated spec.bootstrap.hardening.",
+                "enum": [
+                  "metadata-from-pods"
+                ],
+                "type": "string"
+              },
+              "maxItems": 8,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
         "butane": {
           "additionalProperties": false,
           "description": "butane references extra Butane configuration merged into every node's\nIgnition.",

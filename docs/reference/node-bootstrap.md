@@ -273,9 +273,9 @@ driver or cloud controller that runs as a Pod and takes its credentials from the
 It applies to nodes launched after it exists. `instanceMetadata` leaves the
 [drift hash](#the-nodeclass-controller) as it was while it is unset, so upgrading SCarpenter drifts no node:
 running nodes keep the (open) metadata service they were launched with until the NodeClass sets
-`access: Restricted` or `Open`, which replaces them like any other change of the hash. The exception is a
-NodeClass that set the removed `spec.bootstrap.hardening`: the field is pruned, its hash changes on the vendors that
-applied it, and its nodes are replaced by restricted ones (ADR-025).
+`access: Restricted` or `Open`, which replaces them like any other change of the hash. A NodeClass
+that sets the deprecated `spec.bootstrap.hardening` drifts no node either: the field has no effect, stays in the hash as
+before, and the controller publishes a `DeprecatedHardening` Event for it ([ADR-025](../explanation/DECISIONS.md)).
 
 ### What is restricted
 

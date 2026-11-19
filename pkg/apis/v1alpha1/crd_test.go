@@ -190,6 +190,8 @@ func TestValidSpecsAreAccepted(t *testing.T) {
 		"ovh block":                         `vendors: {ovh: {regions: [GRA11, EU-WEST-PAR], imageOwner: 0a1b2c3d4e5f60718293a4b5c6d7e8f9, configDrive: true, storage: {root: {bootFromVolume: {volumeType: high-speed, size: 64Gi}}, data: [{name: d, volumeType: classic, size: 100Gi, mountPath: /data}]}, networking: {publicIPv4: true}}}`,
 		"ovh images and groups":             `vendors: {ovh: {resources: {images: {use: {ids: {GRA11: ["9c1f0000-0000-0000-0000-000000000001"]}}}, securityGroups: {use: {name: nodes}}, serverGroups: {create: {lifecycle: {policy: perUse}}}}}}`,
 		"ovh server group profile":          `profiles: {storage: {db: {ovh: {data: [{name: d, volumeType: high-speed, size: 100Gi, mountPath: /data}]}}}, placement: {spread: {ovh: {serverGroup: {policy: anti-affinity}}}}}`,
+		"deprecated bootstrap hardening":    `bootstrap: {hardening: [metadata-from-pods]}`,
+		"bootstrap without hardening":       `bootstrap: {}`,
 		"instance metadata restricted":      `instanceMetadata: {access: Restricted}`,
 		"instance metadata open":            `instanceMetadata: {access: Open}`,
 		"billing retention":                 `billing: {retainUntilPeriodEnd: true, margin: 90s, minPeriod: 1m, maxRetainedNodes: 1}`,
@@ -551,7 +553,8 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		// instance metadata access (ADR-025)
 		{"unknown instance metadata access", `instanceMetadata: {access: Closed}`, "Unsupported value"},
 		{"instance metadata without access", `instanceMetadata: {}`, "access"},
-		{"the removed bootstrap hardening", `bootstrap: {hardening: [metadata-from-pods]}`, "unknown field"},
+		{"unknown hardening", `bootstrap: {hardening: [no-pods]}`, "Unsupported value"},
+		{"hardening twice", `bootstrap: {hardening: [metadata-from-pods, metadata-from-pods]}`, "Duplicate value"},
 		// fake and qemu
 		{"qemu unknown accelerator", `vendors: {qemu: {accelerator: hvf}}`, "Unsupported value"},
 		{"qemu unknown disk format", `profiles: {storage: {s: {qemu: {root: {format: vmdk}}}}}`, "Unsupported value"},

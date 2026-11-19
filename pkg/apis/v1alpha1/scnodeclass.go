@@ -50,6 +50,11 @@ type SCNodeClassSpec struct {
 	// +optional
 	Butane *ButaneSpec `json:"butane,omitempty"`
 
+	// bootstrap is deprecated: no effect; instance metadata is restricted by
+	// spec.instanceMetadata; will be removed in a later API version.
+	// +optional
+	Bootstrap *BootstrapSpec `json:"bootstrap,omitempty"`
+
 	// instanceMetadata controls which processes on a node can reach the
 	// vendor's instance metadata service. Unset means Restricted for new nodes
 	// (ADR-025); nodes launched before that keep what they have until the
@@ -118,6 +123,25 @@ type SCNodeClassSpec struct {
 	// SCNodeClass by having a block.
 	// +required
 	Vendors VendorBlocks `json:"vendors"`
+}
+
+// Hardening is a name of the deprecated spec.bootstrap.hardening.
+// +kubebuilder:validation:Enum=metadata-from-pods
+type Hardening string
+
+// HardeningMetadataFromPods is the only value of the deprecated hardening list.
+const HardeningMetadataFromPods Hardening = "metadata-from-pods"
+
+// BootstrapSpec is the deprecated bootstrap hardening of the node. It stays in
+// the API, and in the drift hash, so that a stored NodeClass that sets it does
+// not drift (ADR-025).
+type BootstrapSpec struct {
+	// hardening is deprecated: no effect; instance metadata is restricted by
+	// spec.instanceMetadata; will be removed in a later API version.
+	// +kubebuilder:validation:MaxItems=8
+	// +listType=set
+	// +optional
+	Hardening []Hardening `json:"hardening,omitempty"`
 }
 
 // InstanceMetadataAccess is who on a node can reach the vendor's instance

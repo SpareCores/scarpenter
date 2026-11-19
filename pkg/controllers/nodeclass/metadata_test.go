@@ -82,3 +82,16 @@ func TestHashOfInstanceMetadata(t *testing.T) {
 		t.Errorf("setting instanceMetadata must change the hash, once per value: unset %s, Restricted %s, Open %s", aws, restricted, open)
 	}
 }
+
+// A NodeClass that still sets the deprecated spec.bootstrap.hardening stays ready
+// and is told in an Event that the field has no effect.
+func TestDeprecatedHardeningIsWarnedAbout(t *testing.T) {
+	e := newEnv(t)
+	e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) {
+		nc.Spec.Bootstrap = &v1alpha1.BootstrapSpec{Hardening: []v1alpha1.Hardening{v1alpha1.HardeningMetadataFromPods}}
+	}))
+	wantCond(t, e.reconcile(e.name), status.ConditionReady, metav1.ConditionTrue, "")
+	if !contains(e.rec.reasons(), nodeclass.EventDeprecatedHardening) {
+		t.Errorf("events %v, want %s", e.rec.reasons(), nodeclass.EventDeprecatedHardening)
+	}
+}

@@ -85,8 +85,10 @@ const (
 	EventIPv6OnlyNeedsMirror  = "IPv6OnlyNeedsMirror"
 	EventRestartRequired      = "RestartRequired"
 	EventConfigurationWarning = "ConfigurationWarning"
-	EventMetricInvalid        = "MetricInvalid"
-	eventDedupe               = 10 * time.Minute
+	// EventDeprecatedHardening: the NodeClass still sets spec.bootstrap.hardening.
+	EventDeprecatedHardening = "DeprecatedHardening"
+	EventMetricInvalid       = "MetricInvalid"
+	eventDedupe              = 10 * time.Minute
 )
 
 // Defaults of the intervals.
@@ -488,6 +490,7 @@ func (c *Controller) vendor(
 		c.warn(desired, EventVendorNotReady, fmt.Sprintf("vendor %s: %s: %s", vendor, reason, msg), vendor)
 	}
 
+	c.warnDeprecatedHardening(desired, vendor)
 	if ready {
 		c.warnIPv6Only(desired, vendor)
 		if msg := c.configurationWarnings(desired, vendor); msg != "" {
@@ -775,6 +778,16 @@ func trim(s string) string {
 		return s[:maxMessage-3] + "..."
 	}
 	return s
+}
+
+// warnDeprecatedHardening says that the NodeClass still sets the deprecated
+// spec.bootstrap.hardening, which has no effect (deduplicated like every Event).
+func (c *Controller) warnDeprecatedHardening(nc *v1alpha1.SCNodeClass, vendor string) {
+	if nc.Spec.Bootstrap == nil || len(nc.Spec.Bootstrap.Hardening) == 0 {
+		return
+	}
+	c.warn(nc, EventDeprecatedHardening, "spec.bootstrap.hardening is deprecated and has no effect: "+
+		"instance metadata is restricted by spec.instanceMetadata; the field will be removed in a later API version", vendor)
 }
 
 // configurationWarnings returns what the driver says about settings that have no

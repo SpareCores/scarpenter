@@ -144,3 +144,26 @@ func TestHashCoversTheResolvedInputs(t *testing.T) {
 		}
 	}
 }
+
+// The deprecated spec.bootstrap.hardening stays in the hash as it was, so that a
+// stored NodeClass that sets it does not drift when SCarpenter is upgraded
+// (ADR-025). The values are the hashes the code before the deprecation computed
+// for this NodeClass: for the vendors whose drivers applied the hardening it is
+// part of the hash, for the others it is not.
+func TestDeprecatedHardeningKeepsTheOldHash(t *testing.T) {
+	nc := base()
+	nc.Spec.Bootstrap = &v1alpha1.BootstrapSpec{Hardening: []v1alpha1.Hardening{v1alpha1.HardeningMetadataFromPods}}
+	const (
+		wantFake = "8c08ddaeb1f0d99624a889eac76565afe6d5725c9ef37f49dc65e3dba9d4a9e5"
+		wantAWS  = "73bc67b8b0c44d3368cf2b63d1ee6a37d90d1daae83a45a69e3f8c5c4a19ba84"
+	)
+	if got := hash(t, nc, "fake"); got != wantFake {
+		t.Errorf("fake hash = %s, want %s", got, wantFake)
+	}
+	if got := hash(t, nc, "aws"); got != wantAWS {
+		t.Errorf("aws hash = %s, want %s", got, wantAWS)
+	}
+	if hash(t, nc, "aws") != hash(t, base(), "aws") {
+		t.Error("a vendor that never applied the hardening drifts")
+	}
+}

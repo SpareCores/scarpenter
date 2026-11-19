@@ -869,11 +869,11 @@ the unit, so a node whose rules did not load never joins.
 **New nodes only.** `instanceMetadata` is left out of the drift hash while it is unset, so the hash of a NodeClass that
 does not set it is unchanged and no running node drifts. Nodes launched after the upgrade are restricted; running
 nodes keep the open service they were launched with until the field is set. The
-`bootstrap.hardening` field of `v1alpha1` is removed, with the `NodeHardener` capability that only it used. A stored
-NodeClass that set it loses the field when the API server reads it (the CRD prunes unknown fields); on the vendors
-whose drivers offered the hardening (Alibaba, GCP, OCI, OVH, UpCloud, Vultr) its hash changes, so its nodes drift and are replaced by
-restricted ones. Applying a manifest that still has the field fails with `unknown field` under kubectl's default
-strict field validation: delete the field.
+`spec.bootstrap.hardening` field of `v1alpha1` stays as a deprecated field with no effect: nothing renders from it, the new
+restriction covers it. It stays in the drift hash exactly as before (on Alibaba, GCP, OCI, OVH, UpCloud and Vultr, the
+vendors whose drivers applied it), so a stored NodeClass that sets it keeps its hash and drifts nothing; the controller
+publishes a `DeprecatedHardening` Event for it. The field will be removed in a later API version. The `NodeHardener`
+driver capability that only it used is removed.
 
 **Consequences.** A component that runs as a Pod and needs the metadata service (a vendor's CSI driver or cloud
 controller, a benchmark tool that reads the instance's identity) needs `access: Open` on its NodeClass; the

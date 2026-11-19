@@ -105,6 +105,24 @@ spec:
                       Off by default.
                     type: boolean
                 type: object
+              bootstrap:
+                description: |-
+                  bootstrap is deprecated: no effect; instance metadata is restricted by
+                  spec.instanceMetadata; will be removed in a later API version.
+                properties:
+                  hardening:
+                    description: |-
+                      hardening is deprecated: no effect; instance metadata is restricted by
+                      spec.instanceMetadata; will be removed in a later API version.
+                    items:
+                      description: Hardening is a name of the deprecated spec.bootstrap.hardening.
+                      enum:
+                      - metadata-from-pods
+                      type: string
+                    maxItems: 8
+                    type: array
+                    x-kubernetes-list-type: set
+                type: object
               butane:
                 description: |-
                   butane references extra Butane configuration merged into every node's
