@@ -78,6 +78,23 @@ func TestRootDiskForTypeFollowsTheSteeredRules(t *testing.T) {
 	}
 }
 
+func TestVirtualGPUFollowsTheSteering(t *testing.T) {
+	h := newHarness(t, nil)
+	if h.d.Virtual("g6f.large") {
+		t.Error("without steering no GPU is virtual")
+	}
+	before := h.d.NodeOptionsEpoch()
+	h.setConfig(t, "virtualGPU", `[aws.g6f.large, g6f.xlarge]`)
+	if h.d.NodeOptionsEpoch() == before {
+		t.Error("the catalog must rebuild when the virtual GPU types change")
+	}
+	for ref, want := range map[string]bool{"g6f.large": true, "g6f.xlarge": true, "g6.large": false} {
+		if got := h.d.Virtual(ref); got != want {
+			t.Errorf("Virtual(%s) = %v, want %v", ref, got, want)
+		}
+	}
+}
+
 func TestSupportedHonoursTheTypeAndTheSteeredRules(t *testing.T) {
 	h := newHarness(t, nil)
 	profiles := vendors.Profiles{

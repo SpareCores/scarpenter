@@ -343,6 +343,8 @@ type offering struct {
 	Capacity     string
 	Price        float64
 	VCPUs        int64
+	// GPUs is the nvidia.com/gpu capacity (zero: none).
+	GPUs int64
 	// AllocMem is the memory pods can use (capacity minus overhead).
 	AllocMem int64
 }
@@ -363,6 +365,8 @@ func reference(t *testing.T, regions ...string) []offering {
 		return o
 	}
 	cl := catalog.NewClass("ref", catalog.Scope{vendor: regions})
+	cl.FlatcarVersion = catalogtest.FlatcarVersion
+	cl.Finalize()
 	cat := catalog.New(catalog.Options{Source: catalogtest.SourceAt(replay.URL), Facts: catalogtest.Facts(t, vendor)})
 	cat.SetClasses([]catalog.Class{cl})
 	if err := cat.Refresh(ctx()); err != nil {
@@ -375,13 +379,14 @@ func reference(t *testing.T, regions ...string) []offering {
 	var out []offering
 	for _, it := range its {
 		cpu := it.Capacity.Cpu().Value()
+		gpus := it.Capacity[catalog.ResourceNVIDIAGPU]
 		alloc := it.Allocatable()
 		mem := alloc.Memory().Value()
 		for _, o := range it.Offerings {
 			out = append(out, offering{
 				Type: it.Name, API: strings.TrimPrefix(it.Name, vendor+"."),
 				Region: o.Requirements.Get(labelRegion).Any(), Zone: o.Requirements.Get(labelZone).Any(),
-				Capacity: o.Requirements.Get(labelCapacity).Any(), Price: o.Price, VCPUs: cpu, AllocMem: mem,
+				Capacity: o.Requirements.Get(labelCapacity).Any(), Price: o.Price, VCPUs: cpu, GPUs: gpus.Value(), AllocMem: mem,
 			})
 		}
 	}
