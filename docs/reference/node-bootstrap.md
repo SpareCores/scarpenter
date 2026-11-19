@@ -280,10 +280,11 @@ With the `direct` template and a range, the user-data adds:
   addresses), so the node never registers with the wrong IP; Karpenter's
   registration timeout then replaces it.
 
-It costs about 2.8 KiB of user-data (the script and the unit; the `direct` default
-is 3.5 KiB without them, 6.3 KiB with). `Validate` does not count it, because only
-some vendors use it: a `direct` NodeClass close to the budget fails at the launch
-(`UserDataRender`, with the part sizes) on those vendors. IPv6 ranges are not
+It costs about 1.7 KiB of user-data (the script and the unit; the `direct` default
+is 3.2 KiB without them, 4.9 KiB with). Only some vendors use it, but `Validate`
+sizes its trial rendering with a range, so that a `direct` NodeClass close to the
+[budget](#size-budget) is rejected at validation and not when a node launches on
+such a vendor. IPv6 ranges are not
 handled: the range must be an IPv4 prefix, else the rendering fails. The
 `tailscale` template ignores the range (the tailnet address is the node IP), and a
 `custom` template can read it as `.NodeIPCIDR` (empty without one).
@@ -428,18 +429,23 @@ AWS accepts 16 KiB of user-data, the smallest limit of the vendors. A
 rendering over 16 384 bytes fails with an error naming the compressed size of
 each part, and the NodeClass reports it as `ValidationSucceeded=False`
 (`TemplateInvalid`) before any launch. The default templates are held to 12 KiB
-by golden tests, measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM): about
-4.9 KiB with `tailscale`, 3.5 KiB with `direct`. The CA is the largest fixed part and
+by golden tests, measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM). A
+plain rendering is 4.5 KiB with `tailscale` and 3.2 KiB with `direct`; with
+everything on (the node IP unit, two volumes, 24 local disks with one mount each,
+the Lean footprint, the metadata restriction) it is 10.6 KiB with `tailscale` and
+11.0 KiB with `direct`, and a unit test holds that worst case to the 12 KiB.
+The CA is the largest fixed part and
 it does not compress (a 4096-bit CA adds about 0.7 KiB, a rotation bundle of two
-CAs about 1 KiB); the NodeClass controller's trial rendering uses the real cluster
-CA, so what validates fits at launch. Nodes with extra volumes or local storage get a fourth part, the
-[first-boot volume unit](node-settings.md#extra-volumes-and-local-storage) (about
-2.5 KiB plus 0.3 KiB per volume: eight volumes and four local disks on the
-`tailscale` template measure about 11 KiB); the trial rendering of the NodeClass
-controller does not include it, so a NodeClass whose custom snippets take most of
-the budget can still fail at launch for a node with many volumes. Large
-payloads belong in sysexts, referenced by URL and sha256, not in snippets.
-(Compression helps repetitive content only: 20 KiB of random data does not fit.)
+CAs about 1 KiB). The NodeClass controller's trial rendering uses the real cluster
+CA, a node IP range, and the largest storage setup of each vendor, so what
+validates fits at launch.
+
+Two measures keep the user-data small. Each part is gzip-compressed on its own, and
+the scripts it installs are embedded as percent-encoded text without their comment
+lines, because gzip compresses that to a third, while the base64 data URL Butane
+prefers for a script compresses 30 % worse. Large payloads belong in sysexts,
+referenced by URL and sha256, not in snippets. (Compression helps repetitive
+content only: 20 KiB of random data does not fit.)
 
 ## The NodeClass controller
 

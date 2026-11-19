@@ -153,6 +153,10 @@ func (r *Renderer) Validate(ctx context.Context, nc *v1alpha1.SCNodeClass, arch 
 	return r.ValidateWith(ctx, nc, arch, in, nil)
 }
 
+// validationNodeIPCIDR stands in for the private network range of a launch in the
+// trial renderings: the longest text an IPv4 range has.
+const validationNodeIPCIDR = "255.255.255.255/32"
+
 // FragmentsFunc returns the fragments the core builds for the node of a NodeClass
 // on a vendor for the architecture (the metadata restriction, unless the NodeClass
 // says Open), for the trial rendering; nil or an empty result means none.
@@ -185,8 +189,13 @@ func (r *Renderer) ValidateWith(
 	p.NodeName, p.ProviderID = "validation-node", "scarpenter://validation/validation/validation-node"
 	p.Vendor, p.Region, p.BootstrapToken = "validation", "validation", "000000.0000000000000000"
 	p.Taints = []corev1.Taint{karpv1.UnregisteredNoExecuteTaint}
+	// Only some vendors report a private network range (and the direct template
+	// renders the node IP unit for it, about 1.9 KiB of user-data), the launch knows
+	// which: size every rendering with one, so that a NodeClass that only fits
+	// without it is rejected here and not when a node launches on such a vendor.
+	p.NodeIPCIDR = validationNodeIPCIDR
 	if _, err = Render(p); err != nil {
-		return err
+		return fmt.Errorf("the trial rendering (with a node IP range as on a vendor with a private network): %w", err)
 	}
 	byVendor := map[string][]Fragment{}
 	if fragments != nil {
