@@ -427,6 +427,16 @@ billingRetention:
   # turns the whole controller off.
   enabled: true
 
+interruption:
+  # Run the interruption controller (--interruption; true): when a vendor
+  # announces the reclaim of a spot or preemptible node, the node's Pods are
+  # force-deleted --interruption-margin (5s) before the vendor's deadline, the
+  # NodeClaim is deleted at once, and the spot offering stays out of scheduling
+  # for --interruption-unavailable-ttl (10m). Empty keeps the default.
+  enabled: true
+  margin: ""
+  unavailableTTL: ""
+
 unavailable:
   # Lifetimes of the unavailable-offerings cache per error class; empty or 0
   # keeps the class's default (3m, 24h, 30m, 10m).
