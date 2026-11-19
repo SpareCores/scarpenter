@@ -165,6 +165,7 @@ Details that matter:
 - **A group must be in the VPC of the vSwitch** (`InvalidSecurityGroup.VpcMismatch`): a brought group in another
   VPC skips the zone (`ResourceMissingInZone`). A vSwitch holds its addresses minus 4 reserved (*unverified* count):
   a /25 allows about 120 nodes per zone, then `QuotaExceeded.PrivateIpAddress` marks the zone unusable for ten minutes.
+- **Node IP.** The node's only interface has the subnet's private address (the public one is NAT'ed), which the kubelet of the `direct` template registers without a hint, so the driver reports no node IP range ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)).
 - **Markers.** `CreateVpc`, `CreateVSwitch` and `CreateSecurityGroup` take `Tag.N`, so the marker is atomic with the creation.
   `CreateDeploymentSet` takes no tags and `TagResources` has no deployment set type: the marker of a managed set is its
   **description** (`scarpenter.sparecores.com: cluster=... nodeclass=... managed-by=scarpenter resource-kind=deploymentSets`), and

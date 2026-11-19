@@ -143,7 +143,7 @@ States: `PROVISIONING`, `STARTING` are pending; `RUNNING`, `CREATING_IMAGE`, `MO
 still costs, so it is deleted); `TERMINATED` terminated (OCI lists it for about twelve hours; the driver's
 list drops it). Provider ID `scarpenter://oci/<region>/<nodeclaim>`, instance reference
 `<region>/<instance OCID>`. `GetInstance` reads the addresses from the VNIC attachments (the serving
-certificate approver needs them).
+certificate approver needs them). Node IP: The node's only interface has the subnet's private address (the public one is NAT'ed), which the kubelet of the `direct` template registers without a hint, so the driver reports no node IP range ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)).
 
 ## Node settings
 

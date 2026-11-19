@@ -102,7 +102,8 @@ Not part of any open plan; each needs an owner before the first release.
 - (a) Done (40bb0d9): the shared conformance suite runs each resolution-order and selector case whenever its
   preconditions hold, by name for kinds without tags (GCP, Vultr, OVH and Alibaba deployment sets now run them;
   so do the Hetzner placement groups, the UpCloud server groups and the qemu bridges).
-- (b) The `direct` bootstrap template does not pass `--node-ip` for a private network (any vendor).
+
+- (b) Done (`f14411b`, `2b72694`): the `direct` bootstrap template passes `--node-ip` from the private network on Hetzner, UpCloud and Vultr, the vendors whose private network is a second interface (the driver reports the range, `Prepared.NodeIPCIDR`; [node bootstrap](../../reference/node-bootstrap.md#the-node-ip-on-a-private-network)). AWS, GCP, Azure, OCI and Alibaba need none (the primary address is private); OVH has no private networks in v1.
 - (c) Alibaba: `InsufficientCapacity` after ECS releases an accepted instance never marks the offering unavailable
   (the core does not consume it from `GetInstance`).
 - (d) The core half of A8 is still needed: a `vendors.Region` field for Keeper's region name, once OVH's catalog

@@ -136,6 +136,11 @@ installs them). The response's `default_password` is never read, logged or store
   the backstop.
 - **Stock.** The plan must be in the region's `available_plans` (cached, see above) before the call; otherwise
   `InsufficientCapacity` without a call.
+- **Node IP.** An attached VPC is a second interface and the default route is the public one, so with the `direct`
+  template `Prepare` reports the VPC's IPv4 range (`v4_subnet`/`v4_subnet_mask`) as the node IP range and the kubelet
+  registers the node's address inside it ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)). With
+  more than one VPC resolved no range is reported (which one is the node's is not known). That the VPC interface gets
+  its address by DHCP in time on a Flatcar instance is unverified.
 - **State.** `status: pending` is `pending`; `suspended` or `power_status: stopped` is `terminating` (a stopped
   instance still bills, so the garbage collector deletes it); `active` with `running` and `server_status: ok`
   is `running`; anything else is `pending`. `main_ip` is `0.0.0.0` while pending and is then no address.

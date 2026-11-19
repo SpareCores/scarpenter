@@ -256,7 +256,7 @@ error (`Unsupported`).
 Addresses come from `networkInterfaces[]` (`networkIP`, `accessConfigs[].natIP`, `ipv6Address`,
 `ipv6AccessConfigs[].externalIpv6`), read after the insert. `publicIPv6` needs a subnetwork with
 `stackType: IPV4_IPV6` and an external IPv6 range (the managed one has them; a launch into another is
-`Unsupported`, `ResourceMissingInZone`).
+`Unsupported`, `ResourceMissingInZone`). Node IP: The node's only interface has the subnet's private address (the public one is NAT'ed), which the kubelet of the `direct` template registers without a hint, so the driver reports no node IP range ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)).
 
 `publicIPv4: false` is refused unless the NodeClass brings its own subnetworks
 (`resources.subnets.use`): the default and the managed network have no Cloud NAT, so the node would have no

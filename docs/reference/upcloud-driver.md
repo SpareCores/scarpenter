@@ -118,7 +118,10 @@ platform); `NodeClassValidator` refuses it.
   storage of a node exists unlabelled. The driver takes at most four storage devices per server (the API's table says
   16, an error text says "more than four"; S3 decides).
 - **Interfaces**: `public` with IPv4 (and IPv6 with `publicIPv6`), `utility` always, and `private` on the resolved SDN
-  network when the node has one.
+  network when the node has one. The default route is the public interface, so with the `direct` template the
+  driver reports the SDN network's first IPv4 range as the node IP range and the kubelet registers the node's
+  address inside it ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)); that the SDN interface
+  gets its DHCP address in time on a Flatcar server is unverified.
 - **Server labels**: the logical tags as `scarpenter-<key>`, `scarpenter-idempotency-key` (the NodeClaim UID),
   `scarpenter-created` (RFC 3339, the creation time) and the NodeClass's own tags.
 - **Group**: the server group of a placement profile is a field of the create call.

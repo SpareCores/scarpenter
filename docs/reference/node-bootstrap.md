@@ -203,6 +203,7 @@ template that uses a variable that does not exist fails (strict). Functions: `q`
 | `.KubeletArgs` | `--provider-id`, `--hostname-override` and `--register-with-taints` |
 | `.Sysexts` | the kubernetes sysext and `spec.sysexts` of the architecture: `.Name`, `.URL`, `.SHA256`, `.Path`, `.Link` |
 | `.Tailscale.Version`, `.LoginServer`, `.AuthKey`, `.Tags` (comma separated), `.AcceptRoutes`, `.Sysext` | the tailscale settings; set with the `tailscale` template only |
+| `.NodeIPCIDR` | the IPv4 range of the private network the node joins, from the driver; empty without one (the `direct` template turns it into `--node-ip`, see [network templates](#network-templates)) |
 | `.Lean` | whether `spec.kubelet.footprint` is `Lean` |
 | `.PoweroffAfter`, `.PoweroffAfterSeconds` | `spec.poweroffAfter` as a duration string and in seconds (0: not set) |
 
@@ -245,9 +246,51 @@ compares them. What each renders:
   (`SCARPENTER_NODE_IP_ARGS=--node-ip=<ip>`), which the kubelet drop-in reads. A
   second drop-in (`30-tailscale.conf`) makes the kubelet wait for the unit. Nodes
   need only outbound connectivity.
-- **`direct`**: nothing but a marker file; the kubelet uses the node's primary
-  address (no `--node-ip`).
+- **`direct`**: a marker file; the kubelet uses the node's primary address (no
+  `--node-ip`), unless the driver reports a private network range for the launch
+  (`Prepared.NodeIPCIDR`, see below).
 - **`custom`**: your Butane template (below).
+
+### The node IP on a private network
+
+A node whose private network is a second interface next to the public one
+(Hetzner private networks, UpCloud SDN, Vultr VPC) has its default route on the
+public interface, so a kubelet without `--node-ip` registers the public address
+and node-to-node and control-plane traffic leaves the private network. For
+these, the driver puts the IPv4 range of the network the launch attaches into
+`Prepared.NodeIPCIDR` ([driver contract](driver-contract.md)); the core passes it
+to the renderer as a hint of the launch, "the node IP is the node's local address
+inside this CIDR". It derives from the resolved resources (brought, discovered or
+created network), never from the spec, so it does not change the NodeClass hash:
+nodes launched before keep what they have, nodes launched after get the unit.
+
+With the `direct` template and a range, the user-data adds:
+
+- `/opt/scarpenter/bin/scarpenter-node-ip` (`templates/scarpenter-node-ip.sh`), which waits
+  up to 120 s for a global IPv4 address of the node inside the range (DHCP of the
+  private interface can take a moment after `network-online.target`) and writes
+  `/run/scarpenter/node-ip.env` (`SCARPENTER_NODE_IP_ARGS=--node-ip=<ip>`), the
+  same file the `tailscale` template writes. If several addresses are inside the range the
+  first one `ip` lists wins.
+- `scarpenter-node-ip.service` (oneshot, `Before=kubelet.service`, started with
+  `TimeoutStartSec=150`) and the kubelet drop-in `30-node-ip.conf` (`Requires=` and
+  `After=` the unit). **If no address shows up the unit fails and the kubelet does
+  not start** (the journal says `no IPv4 address inside <range>` and lists the
+  addresses), so the node never registers with the wrong IP; Karpenter's
+  registration timeout then replaces it.
+
+It costs about 2.8 KiB of user-data (the script and the unit; the `direct` default
+is 3.5 KiB without them, 6.3 KiB with). `Validate` does not count it, because only
+some vendors use it: a `direct` NodeClass close to the budget fails at the launch
+(`UserDataRender`, with the part sizes) on those vendors. IPv6 ranges are not
+handled: the range must be an IPv4 prefix, else the rendering fails. The
+`tailscale` template ignores the range (the tailnet address is the node IP), and a
+`custom` template can read it as `.NodeIPCIDR` (empty without one).
+
+Vendors whose instance has one interface with a private primary address and a
+NAT'ed public one (AWS, GCP, Azure, OCI, Alibaba Cloud) need no hint: the kubelet
+already registers the private address that the subnet gave the node, and they
+supply none. OVH does not support private networks in v1.
 
 ## Instance metadata access
 
