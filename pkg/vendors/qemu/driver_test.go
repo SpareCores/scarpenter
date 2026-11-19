@@ -21,7 +21,12 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/SpareCores/scarpenter/internal/testutil"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	qemuapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/static"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -48,6 +53,18 @@ func hostOf(d vendors.Driver) *fakeHost {
 	hostsMu.Lock()
 	defer hostsMu.Unlock()
 	return hosts[d.(*Driver)]
+}
+
+// setBridge adds a bridge of the user's to the machine, its alias the tags.
+func setBridge(h *fakeHost, name string, tags map[string]string) {
+	alias := make([]string, 0, len(tags))
+	for k, v := range tags {
+		alias = append(alias, k+"="+v)
+	}
+	slices.Sort(alias)
+	h.mu.Lock()
+	h.bridges[name] = strings.Join(alias, " ")
+	h.mu.Unlock()
 }
 
 func TestConformance(t *testing.T) {
@@ -99,16 +116,38 @@ func TestConformance(t *testing.T) {
 			{Vendor: Name, APIReference: "local", Family: "qemu", Arch: "amd64", VCPUs: 2, MemoryMiB: 4096, LocalStorageGB: 8, LocalStorageCount: 2},
 		},
 		ResourceKind: KindNetwork,
-		PreCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
+		// The selector and resolution-order cases: a bridge of the user's, its alias
+		// standing for tags; the default is the --qemu-bridge bridge.
+		Seed: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+			t.Helper()
+			setBridge(hostOf(d), spec.Name, spec.Tags)
+			return vendors.ResourceRef{Kind: kind, Region: region, ID: spec.Name, Name: spec.Name}
+		},
+		OrderClass: func(t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*common.Resource, ipv6 bool) *v1alpha1.SCNodeClass {
+			t.Helper()
+			nc := &v1alpha1.SCNodeClass{ObjectMeta: metav1.ObjectMeta{Name: "class"}, Spec: v1alpha1.SCNodeClassSpec{
+				Vendors: v1alpha1.VendorBlocks{QEMU: &qemuapi.Settings{Resources: &qemuapi.Resources{Networks: res[KindNetwork]}}},
+			}}
+			nc.Spec.Networking.PublicIPv6 = &ipv6
+			return nc
+		},
+		SetDefault: func(t *testing.T, d vendors.Driver, _ vendors.ResourceKind, _ string, state conformance.DefaultState) {
 			t.Helper()
 			h := hostOf(d)
-			alias := make([]string, 0, len(tags))
-			for k, v := range tags {
-				alias = append(alias, k+"="+v)
+			switch state {
+			case conformance.DefaultAbsent:
+				h.mu.Lock()
+				delete(h.bridges, DefaultBridge)
+				h.mu.Unlock()
+			case conformance.DefaultWithoutIPv6:
+				t.Skip("a bridge has no IPv6 property: the driver's default suits every request")
+			default:
+				setBridge(h, DefaultBridge, nil)
 			}
-			h.mu.Lock()
-			h.bridges["user-br"] = strings.Join(alias, " ")
-			h.mu.Unlock()
+		},
+		PreCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
+			t.Helper()
+			setBridge(hostOf(d), "user-br", tags)
 			return vendors.ResourceRef{Kind: kind, Region: region, ID: "user-br", Name: "user-br"}
 		},
 		Restart: func(t *testing.T, d vendors.Driver) vendors.Driver {
