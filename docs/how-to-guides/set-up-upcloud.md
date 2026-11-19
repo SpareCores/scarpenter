@@ -28,7 +28,8 @@ UpCloud has no public Flatcar template and templates cannot be shared between ac
 a clone of a **template in your account**: one per zone you use and per storage tier you boot from.
 SCarpenter never imports; it finds the templates by their labels and reports them. A clone keeps its
 template's tier: import MaxIOPS everywhere, and Standard too where you use Starter plans (their included
-disk is Standard) or set `storage.root.tier: standard`.
+disk is Standard) or set `storage.root.tier: standard`. With a Standard template, a Starter node clones it (the
+disk the plan's price includes), which takes minutes; without one it clones the MaxIOPS template.
 
 The image is the Spare Cores images repository's release asset
 `flatcar-upcloud-<channel>-<version>-amd64.img.gz` of the release you pin in `spec.flatcar.version`
@@ -175,3 +176,4 @@ NodeClaim (`kubectl describe nodeclaim`), in the controller's events and in its 
 | `QuotaAvailable=False`, or `SERVER_CORE_LIMIT_REACHED` and similar | The sub-account's resource limits: raise them in the main account. |
 | `NETWORK_LIMIT_REACHED` | Too many networks in the account: raise the limit or set `isolation: none`. |
 | The node never joins | The server's console in the control panel; with `direct`, the inbound rule for the kubelet. |
+| Pods on a new node stay in `ContainerCreating`, "failed to pull image registry.k8s.io/pause" | `registry.k8s.io` refused the node's address (seen in the CI lane). Pull through its Artifact Registry with `spec.butane`: a containerd drop-in and `hosts.toml` as in `test/e2e-upcloud/manifests/node-butane.yaml`. |
