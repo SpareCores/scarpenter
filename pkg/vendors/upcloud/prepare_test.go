@@ -263,6 +263,11 @@ func TestBroughtNetworksAndRulesetsAreUsedAsTheyAre(t *testing.T) {
 	if ids(p, uc.KindNetworks)[0] != n.UUID || ids(p, uc.KindFirewalls)[0] != r.UUID {
 		t.Errorf("resources %v, want the brought ones", p.Resources)
 	}
+	// The brought network has no DHCP: its interface gets no address on Flatcar,
+	// so there is no node IP range for the kubelet to wait for.
+	if p.NodeIPCIDR != "" {
+		t.Errorf("the node IP range = %q for a network without DHCP, want none", p.NodeIPCIDR)
+	}
 	for _, ref := range p.Resources {
 		if ref.Managed {
 			t.Errorf("%s is managed", ref.ID)
