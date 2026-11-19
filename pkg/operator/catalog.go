@@ -19,6 +19,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/static"
 	"github.com/SpareCores/scarpenter/pkg/controllers/catalogsync"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -59,6 +60,7 @@ func (o *Operator) WithCatalog(
 		RefreshInterval: o.Options.CatalogRefreshInterval,
 		MaxAge:          o.Options.CatalogMaxAge,
 		Registerer:      metrics.Registry,
+		NVIDIAGPUs:      nvidia.NodeBootstrap,
 	})
 	if err := o.Add(cat); err != nil {
 		return nil, fmt.Errorf("adding the catalog to the manager: %w", err)

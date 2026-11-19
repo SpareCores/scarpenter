@@ -139,6 +139,9 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			vb.dropped[reason]++
 			continue
 		}
+		if !c.opts.NVIDIAGPUs {
+			gpu = nil
+		}
 		name := InstanceTypeName(vendor, srv.APIReference)
 		offs := c.offeringsOf(vd, srv, prices, regions, zonesByRegion, hasZones, regionPriced, class, vendor)
 		if launchable != nil {

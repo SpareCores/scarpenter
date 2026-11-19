@@ -71,6 +71,10 @@ type Options struct {
 	Clock clock.Clock
 	// Registerer receives the catalog metrics; nil registers none.
 	Registerer prometheus.Registerer
+	// NVIDIAGPUs advertises nvidia.com/gpu and the driver labels on the
+	// supported NVIDIA GPU types (nvidia.NodeBootstrap); without it they are
+	// offered as plain machines. Unsupported GPU types are dropped either way.
+	NVIDIAGPUs bool
 }
 
 // Gate says whether an offering cannot be launched for a reason the catalog

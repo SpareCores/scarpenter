@@ -34,8 +34,15 @@ func (f virtualFacts) VirtualGPU(vendor, apiReference string) bool {
 }
 
 // gpuCatalog is a catalog of the vendors over the snapshot for a class pinning
-// the Flatcar version, with the gauges registered in reg.
+// the Flatcar version, with the gauges registered in reg and the NVIDIA GPU
+// resources advertised (as once nodes boot the driver).
 func gpuCatalog(t *testing.T, flatcar string, facts catalog.Facts, reg prometheus.Registerer,
+	vendors ...string) (*catalog.Catalog, []*cloudprovider.InstanceType) {
+	t.Helper()
+	return gpuCatalogWith(t, true, flatcar, facts, reg, vendors...)
+}
+
+func gpuCatalogWith(t *testing.T, nvidiaGPUs bool, flatcar string, facts catalog.Facts, reg prometheus.Registerer,
 	vendors ...string) (*catalog.Catalog, []*cloudprovider.InstanceType) {
 	t.Helper()
 	scope := catalog.Scope{}
@@ -45,7 +52,7 @@ func gpuCatalog(t *testing.T, flatcar string, facts catalog.Facts, reg prometheu
 	cl := catalog.NewClass("c", scope)
 	cl.FlatcarVersion = flatcar
 	cl.Finalize()
-	c := catalog.New(catalog.Options{Source: catalogtest.Source(t), Facts: facts, Registerer: reg})
+	c := catalog.New(catalog.Options{Source: catalogtest.Source(t), Facts: facts, Registerer: reg, NVIDIAGPUs: nvidiaGPUs})
 	c.SetClasses([]catalog.Class{cl})
 	if err := c.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
@@ -92,6 +99,40 @@ func TestSupportedGPUTypesHaveCapacityAndDriverLabels(t *testing.T) {
 	if gpuCapacity(p3dn) != 8 {
 		t.Errorf("p3dn capacity = %d", gpuCapacity(p3dn))
 	}
+}
+
+// TestWithoutNodeBootstrapGPUTypesArePlainMachines is the release guard of
+// plan 12: until nodes boot the driver, a supported type is offered with no
+// nvidia.com/gpu (a Pod requesting GPUs gets no node that never initializes)
+// and no driver labels, while unsupported types are still dropped.
+func TestWithoutNodeBootstrapGPUTypesArePlainMachines(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_, its := gpuCatalogWith(t, false, "4757.2.3", catalogtestFacts(t), reg, "aws")
+	g5 := byName(its, "aws.g5.24xlarge")
+	if g5 == nil {
+		t.Fatal("aws.g5.24xlarge is missing")
+	}
+	if _, ok := g5.Capacity[catalog.ResourceNVIDIAGPU]; ok {
+		t.Error("nvidia.com/gpu is advertised without the node bootstrap")
+	}
+	for _, key := range labelsNVIDIADriver {
+		if g5.Requirements.Get(key).Operator() != corev1.NodeSelectorOpDoesNotExist {
+			t.Errorf("%s is defined without the node bootstrap", key)
+		}
+	}
+	if got := g5.Requirements.Get(v1alpha1.LabelAcceleratorCount).Any(); got != "4" {
+		t.Errorf("accelerator-count = %q, want 4", got)
+	}
+	if byName(its, "aws.g6f.large") != nil {
+		t.Error("a fractional type is offered")
+	}
+	if got := droppedGauge(t, reg)["c/aws/GPUFractional"]; got < 1 {
+		t.Errorf("GPUFractional = %v", got)
+	}
+}
+
+var labelsNVIDIADriver = []string{
+	v1alpha1.LabelNVIDIADriverBranch, v1alpha1.LabelNVIDIADriverVersion, v1alpha1.LabelNVIDIADriverFlavor,
 }
 
 func TestNonGPUTypesHaveNoGPUResourceAndAbsentLabels(t *testing.T) {

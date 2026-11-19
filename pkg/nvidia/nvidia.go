@@ -25,6 +25,14 @@ import (
 // Manufacturer is Keeper's accelerator manufacturer of NVIDIA GPUs.
 const Manufacturer = "NVIDIA"
 
+// NodeBootstrap says that nodes of a supported type boot with the driver and
+// that the chart runs the device plugin (plan 12, steps (b) and (c)). Until
+// then the catalog advertises no nvidia.com/gpu and no driver labels: Karpenter
+// would launch a node for a Pod that requests GPUs, and the node would never
+// initialize because nothing registers the resource. The step that ships the
+// driver and the device plugin sets it.
+const NodeBootstrap = false
+
 // Architecture is a GPU architecture.
 type Architecture string
 

@@ -477,7 +477,7 @@ offerings: 10
     topology.kubernetes.io/zone In [us-east-1c]
 === aws.g5.24xlarge
 name: aws.g5.24xlarge
-capacity: cpu=96 ephemeral-storage=128Gi memory=363724Mi nvidia.com/gpu=4 pods=110
+capacity: cpu=96 ephemeral-storage=128Gi memory=363724Mi pods=110
 kubeReserved: cpu=310m ephemeral-storage=1Gi memory=1465Mi
 systemReserved: 
 evictionThreshold: memory=100Mi
@@ -512,9 +512,9 @@ requirements:
   scarpenter.sparecores.com/network-baseline-mbps In [50000]
   scarpenter.sparecores.com/network-peak-mbps In [50000]
   scarpenter.sparecores.com/network-profile In [default]
-  scarpenter.sparecores.com/nvidia-driver-branch In [570]
-  scarpenter.sparecores.com/nvidia-driver-flavor In [open]
-  scarpenter.sparecores.com/nvidia-driver-version In [570.211.01]
+  scarpenter.sparecores.com/nvidia-driver-branch DoesNotExist []
+  scarpenter.sparecores.com/nvidia-driver-flavor DoesNotExist []
+  scarpenter.sparecores.com/nvidia-driver-version DoesNotExist []
   scarpenter.sparecores.com/placement-profile In [default]
   scarpenter.sparecores.com/selection DoesNotExist []
   scarpenter.sparecores.com/storage-profile In [default]
