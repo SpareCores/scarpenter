@@ -10,13 +10,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/vultr/govultr/v3"
 	clocktesting "k8s.io/utils/clock/testing"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	apicommon "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	vultrapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/vultr"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/conformance"
 	"github.com/SpareCores/scarpenter/pkg/vendors/vultr"
@@ -73,7 +78,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind) conformance.Fix
 		all = append(all, r.APIReference)
 	}
 	clk := clocktesting.NewFakeClock(time.Now())
-	return conformance.Fixture{
+	fx := conformance.Fixture{
 		New: func(t *testing.T) vendors.Driver {
 			a, _ := newAccount(clk)
 			a.AddSnapshotAs(suiteImage, "flatcar-"+testRelease+"-amd64 suite", fake.SnapshotComplete, time.Time{})
@@ -101,6 +106,34 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind) conformance.Fix
 			{Vendor: "vultr", APIReference: "vx1-g-2c-8g", Family: "vx1", VCPUs: 2},
 		},
 		ResourceKind: kind,
+		// A group with a rule: the creation is the group and then its rules.
+		ResourceParams: func(*testing.T, vendors.Driver, string) json.RawMessage {
+			if kind != vultr.KindFirewallGroups {
+				return nil
+			}
+			return json.RawMessage(`{"inbound":{"rules":[{"protocol":"tcp","fromPort":22,"cidrs":["10.0.0.0/8"]}]}}`)
+		},
+		// Vultr's groups and networks have a description and no tags: the cases seed
+		// them by it (the name). There is no vendor default of any kind: no SetDefault.
+		Seed: func(t *testing.T, d vendors.Driver, k vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+			t.Helper()
+			return seed(t, accountOf(t, d), clk, k, region, spec)
+		},
+		SeedAttrs: []string{"created", "cidr"},
+		SeedCIDRs: [2]string{"172.20.1.0/24", "172.20.2.0/24"}, SeedWithin: "172.16.0.0/12",
+		OrderClass: func(t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*apicommon.Resource, ipv6 bool) *v1alpha1.SCNodeClass {
+			t.Helper()
+			nc := nodeClass(v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{Vultr: &vultrapi.Settings{
+				Resources: &vultrapi.Resources{FirewallGroups: res[vultr.KindFirewallGroups], Networks: res[vultr.KindNetworks]},
+			}}})
+			nc.Spec.Networking.PublicIPv6 = &ipv6
+			return nc
+		},
+		FailCreate: func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind) {
+			t.Helper()
+			// The group exists when its first rule fails (a network is one call).
+			accountOf(t, d).FailNext("CreateFirewallRule", 1, &fake.Error{Status: 400, Message: "Invalid rule."})
+		},
 		SeedImage: func(t *testing.T, d vendors.Driver, _ string, spec conformance.ImageSpec) string {
 			t.Helper()
 			// A snapshot has no tags: the release is in its description, and the
@@ -117,6 +150,47 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind) conformance.Fix
 			return conformanceDriver(t, accountOf(t, d), clk)
 		},
 	}
+	if kind != vultr.KindFirewallGroups {
+		fx.FailCreate = nil
+	}
+	return fx
+}
+
+// seed makes a resource the way a user would: a firewall group or a network with
+// the name as its description, created at the spec's time.
+func seed(
+	t *testing.T, a *fake.Account, clk *clocktesting.FakeClock, kind vendors.ResourceKind, region string,
+	spec conformance.SeedSpec,
+) vendors.ResourceRef {
+	t.Helper()
+	ctx := context.Background()
+	if !spec.Created.IsZero() {
+		a.SetClock(func() time.Time { return spec.Created })
+		defer a.SetClock(clk.Now)
+	}
+	ref := vendors.ResourceRef{Kind: kind, Region: region, Name: spec.Name}
+	switch kind {
+	case vultr.KindFirewallGroups:
+		g, err := a.CreateFirewallGroup(ctx, &govultr.FirewallGroupReq{Description: spec.Name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref.ID = g.ID
+	case vultr.KindNetworks:
+		req := &govultr.VPCReq{Region: region, Description: spec.Name}
+		if spec.CIDR != "" {
+			p := netip.MustParsePrefix(spec.CIDR)
+			req.V4Subnet, req.V4SubnetMask = p.Addr().String(), p.Bits()
+		}
+		v, err := a.CreateVPC(ctx, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref.ID, ref.Network = v.ID, v.ID
+	default:
+		t.Fatalf("seed: no kind %s", kind)
+	}
+	return ref
 }
 
 // TestConformance runs the shared driver suite over the complete Vultr type list
