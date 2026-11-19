@@ -830,7 +830,7 @@ minimum-only candidate, still gated on verified data; Azure bills per full minut
 [plan 23](../plans/v1/done/23-billing-retention.md); the user-facing description is
 [Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md).
 
-## ADR-0NN: Node memory: a capped default reservation and a Lean footprint (accepted, 2026-11-19)
+## ADR-026: Node memory: a capped default reservation and a Lean footprint (accepted, 2026-11-19)
 
 The memory a node leaves to Pods is the instance's memory less the VM overhead, the kubelet's
 `kubeReserved`, `systemReserved` and the eviction threshold. The AWS formula the catalog used,
