@@ -151,6 +151,26 @@ func (d *Driver) Resolve(ctx context.Context, kind vendors.ResourceKind, region 
 	return d.resolveFirewalls(ctx, api, region, ref)
 }
 
+// asGiven spells IDs the way the selector wrote them: the lookups expand an ID to
+// its URL (canonical[i] of given[i]), and the verdict names what the operator wrote.
+func asGiven(canonical, given, ids []string) []string {
+	out := slices.Clone(ids)
+	for i, id := range out {
+		if j := slices.Index(canonical, id); j >= 0 && j < len(given) {
+			out[i] = given[j]
+		}
+	}
+	return out
+}
+
+// namedAsGiven is asGiven for the IDs of a NoMatch verdict.
+func namedAsGiven(err error, canonical, given []string) error {
+	if nm, ok := errors.AsType[*selector.NoMatchError](err); ok {
+		nm.Missing, nm.Mismatched = asGiven(canonical, given, nm.Missing), asGiven(canonical, given, nm.Mismatched)
+	}
+	return err
+}
+
 func (d *Driver) subnetRef(region string, s *computepb.Subnetwork) vendors.ResourceRef {
 	return vendors.ResourceRef{Kind: KindSubnets, Region: region, ID: subnetID(s, d.project, region), Name: s.GetName(),
 		Network: lastSegment(s.GetNetwork()), CreatedAt: parseTime(s.GetCreationTimestamp())}
@@ -193,6 +213,7 @@ func subnetParts(url string) (project, region, name string, ok bool) {
 func (d *Driver) resolveSubnets(ctx context.Context, api ComputeAPI, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
 	var subs []*computepb.Subnetwork
+	given := ref.IDs
 	if len(ref.IDs) > 0 {
 		ids := make([]string, len(ref.IDs))
 		for i, id := range ref.IDs {
@@ -220,9 +241,10 @@ func (d *Driver) resolveSubnets(ctx context.Context, api ComputeAPI, region stri
 	res, err := selector.Apply(ref, d.Selectors()[KindSubnets], subs, func(s *computepb.Subnetwork) selector.Fields {
 		return subnetFields(s, d.project, region)
 	})
+	res.Missing = asGiven(ref.IDs, given, res.Missing)
 	d.noteMissing(KindSubnets, region, res.Missing)
 	if err != nil {
-		return nil, err
+		return nil, namedAsGiven(err, ref.IDs, given)
 	}
 	out := make([]vendors.ResourceRef, 0, len(res.Items))
 	for _, s := range res.Items {
@@ -260,6 +282,7 @@ func (d *Driver) listPolicies(ctx context.Context, api ComputeAPI, region, filte
 func (d *Driver) resolvePolicies(ctx context.Context, api ComputeAPI, region string, ref vendors.UseRef,
 ) ([]vendors.ResourceRef, error) {
 	var pols []*computepb.ResourcePolicy
+	given := ref.IDs
 	if len(ref.IDs) > 0 {
 		ids := make([]string, len(ref.IDs))
 		for i, id := range ref.IDs {
@@ -284,9 +307,10 @@ func (d *Driver) resolvePolicies(ctx context.Context, api ComputeAPI, region str
 	}
 	res, err := selector.Apply(ref, d.Selectors()[KindResourcePolicies], pols,
 		func(p *computepb.ResourcePolicy) selector.Fields { return policyFields(p, d.project, region) })
+	res.Missing = asGiven(ref.IDs, given, res.Missing)
 	d.noteMissing(KindResourcePolicies, region, res.Missing)
 	if err != nil {
-		return nil, err
+		return nil, namedAsGiven(err, ref.IDs, given)
 	}
 	out := make([]vendors.ResourceRef, 0, len(res.Items))
 	for _, p := range res.Items {
