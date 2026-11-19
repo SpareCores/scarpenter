@@ -219,13 +219,49 @@ type sel struct {
 	a, b, d vendors.ResourceRef
 }
 
-// tags are the tags of a seeded resource: the case's own tag and the pairs.
+func (s *sel) tagged() bool { return s.c.Tags != vendors.TagsNone }
+
+// tags are the tags of a seeded resource: the case's own tag and the pairs; nil
+// for a kind without tags.
 func (s *sel) tags(pairs ...string) map[string]string {
+	if !s.tagged() {
+		return nil
+	}
 	m := map[string]string{"scsel": s.tag}
 	for i := 0; i+1 < len(pairs); i += 2 {
 		m[pairs[i]] = pairs[i+1]
 	}
 	return m
+}
+
+// canScope says whether the cases can select a group of resources they seeded:
+// by tags, or for a kind without tags by name.
+func (s *sel) canScope() bool { return s.tagged() || s.c.Name != nil }
+
+// skipUnscoped skips a case that selects a group of resources the kind cannot
+// tell apart.
+func (s *sel) skipUnscoped() {
+	s.t.Helper()
+	if !s.canScope() {
+		s.t.Skip("the kind has neither tags nor a name to select what the case seeds")
+	}
+}
+
+// scoped selects the resources of a group, with the pairs where the kind has
+// tags: its tags, else (a kind without tags) the names "<group>-<tag>-*", which
+// is how the cases name what they seed.
+func (s *sel) scoped(group string, pairs ...string) common.ResourceUse {
+	if s.tagged() {
+		return common.ResourceUse{Tags: s.tags(pairs...)}
+	}
+	return common.ResourceUse{Name: group + "-" + s.tag + "-*"}
+}
+
+// scopedAll is scoped with every match.
+func (s *sel) scopedAll(group string, pairs ...string) common.ResourceUse {
+	u := s.scoped(group, pairs...)
+	u.Select = all
+	return u
 }
 
 func (s *sel) seed(spec SeedSpec) vendors.ResourceRef {
@@ -280,19 +316,25 @@ func (s *sel) ambiguous(name string, u common.ResourceUse) { _ = s.tooMany(name,
 func selectorCases(
 	t *testing.T, e *env, mr vendors.ManagedResources, kind vendors.ResourceKind, c vendors.SelectorCaps,
 ) {
-	if c.Tags == vendors.TagsNone {
-		t.Skip("the kind has no tags to seed")
-	}
 	s := &sel{t: t, e: e, mr: mr, kind: kind, c: c, tag: fmt.Sprintf("scsel%d", counter.Add(1))}
-	s.andedFields()
-	s.ids()
-	s.oneOrMany()
-	s.ordering()
-	s.created()
-	s.zone()
-	s.globs()
-	s.descriptions()
-	s.ranges()
+	s.a = s.seed(SeedSpec{Name: "sel-" + s.tag + "-a", Tags: s.tags("k", "1", "env", "prod")})
+	s.b = s.seed(SeedSpec{Name: "sel-" + s.tag + "-b", Tags: s.tags("k", "1")})
+	s.d = s.seed(SeedSpec{Name: "other-" + s.tag, Tags: s.tags("k", "2")})
+	// Each case group is a subtest that skips, with its reason, when the kind's
+	// declaration lacks what it needs.
+	for _, g := range []struct {
+		name string
+		run  func()
+	}{
+		{"fields", s.andedFields}, {"ids", s.ids}, {"one or many", s.oneOrMany}, {"ordering", s.ordering},
+		{"created", s.created}, {"zone", s.zone}, {"globs", s.globs}, {"descriptions", s.descriptions},
+		{"ranges", s.ranges},
+	} {
+		t.Run(g.name, func(t *testing.T) {
+			s.t = t
+			g.run()
+		})
+	}
 	if !(vendors.UseRef{Select: common.SelectAll}).IsDefault() {
 		t.Error("IsDefault: only nothing that selects is the vendor's default")
 	}
@@ -303,17 +345,21 @@ var (
 	useTags = func(m map[string]string) common.ResourceUse { return common.ResourceUse{Tags: m, Select: all} }
 )
 
-// andedFields: fields are ANDed, list values ORed.
+// andedFields: fields are ANDed, list values ORed. A kind without tags is selected
+// by name (a, b and "sel-<tag>-*" stand for the tags k=1).
 func (s *sel) andedFields() {
-	s.a = s.seed(SeedSpec{Name: "sel-" + s.tag + "-a", Tags: s.tags("k", "1", "env", "prod")})
-	s.b = s.seed(SeedSpec{Name: "sel-" + s.tag + "-b", Tags: s.tags("k", "1")})
-	s.d = s.seed(SeedSpec{Name: "other-" + s.tag, Tags: s.tags("k", "2")})
+	s.skipUnscoped()
 	a, b, d := s.a, s.b, s.d
-	s.expect("tags", useTags(s.tags()), a, b, d)
-	s.expect("tags and a value", useTags(s.tags("k", "1")), a, b)
-	s.expect("tags and a key that exists", useTags(s.tags("env", "*")), a)
-	s.expect("tags with two pairs", useTags(s.tags("k", "1", "env", "prod")), a)
-	nm := s.noMatch("a key nobody has", useTags(s.tags("nobody", "*")))
+	var nm *selector.NoMatchError
+	if s.tagged() {
+		s.expect("tags", useTags(s.tags()), a, b, d)
+		s.expect("tags and a value", useTags(s.tags("k", "1")), a, b)
+		s.expect("tags and a key that exists", useTags(s.tags("env", "*")), a)
+		s.expect("tags with two pairs", useTags(s.tags("k", "1", "env", "prod")), a)
+		nm = s.noMatch("a key nobody has", useTags(s.tags("nobody", "*")))
+	} else {
+		nm = s.noMatch("a name nobody has", common.ResourceUse{Name: "nobody-" + s.tag, Select: all})
+	}
 	if nm != nil && !strings.Contains(nm.Error(), "listed") {
 		s.t.Errorf("the stages are named: %v", nm)
 	}
@@ -321,10 +367,12 @@ func (s *sel) andedFields() {
 		pre := "sel-" + s.tag + "-"
 		s.expect("name glob", common.ResourceUse{Name: pre + "*", Select: all}, a, b)
 		s.expect("name exact", common.ResourceUse{Name: pre + "a", Select: all}, a)
-		s.expect("name and tags", common.ResourceUse{Name: pre + "*", Tags: s.tags("env", "prod"), Select: all}, a)
-		s.none("name and tags that exclude it",
-			common.ResourceUse{Name: "other-" + s.tag, Tags: s.tags("k", "1"), Select: all})
 		s.expect("name, a question mark", common.ResourceUse{Name: pre + "?", Select: all}, a, b)
+		if s.tagged() {
+			s.expect("name and tags", common.ResourceUse{Name: pre + "*", Tags: s.tags("env", "prod"), Select: all}, a)
+			s.none("name and tags that exclude it",
+				common.ResourceUse{Name: "other-" + s.tag, Tags: s.tags("k", "1"), Select: all})
+		}
 	}
 }
 
@@ -335,7 +383,14 @@ func (s *sel) ids() {
 	missing := "scsel-missing-" + s.tag
 	ids := func(l ...string) map[string]common.IDList { return map[string]common.IDList{region: l} }
 	s.expect("ids", common.ResourceUse{IDs: ids(a.ID, b.ID), Select: all}, a, b)
-	s.expect("ids and tags", common.ResourceUse{IDs: ids(a.ID, b.ID, d.ID), Tags: s.tags("k", "1"), Select: all}, a, b)
+	scope := func(u common.ResourceUse) common.ResourceUse {
+		g := s.scoped("sel", "k", "1")
+		u.Tags, u.Name = g.Tags, g.Name
+		return u
+	}
+	if s.canScope() {
+		s.expect("ids and the rest", scope(common.ResourceUse{IDs: ids(a.ID, b.ID, d.ID), Select: all}), a, b)
+	}
 	s.expect("a missing ID does not fail the others", common.ResourceUse{IDs: ids(a.ID, missing), Select: all}, a)
 	if nm := s.noMatch("only a missing ID", common.ResourceUse{IDs: ids(missing)}); nm != nil &&
 		!slices.Contains(nm.Missing, missing) {
@@ -343,10 +398,11 @@ func (s *sel) ids() {
 	}
 	// A vendor that filters on the server cannot tell a mismatch from a missing
 	// ID, so the ID is named in either list.
-	nm := s.noMatch("an ID that does not match", common.ResourceUse{IDs: ids(d.ID), Tags: s.tags("k", "1")})
-	if nm != nil &&
-		!strings.Contains(nm.Error(), d.ID) {
-		s.t.Errorf("the ID that does not match is named: %v", nm)
+	if s.canScope() {
+		nm := s.noMatch("an ID that does not match", scope(common.ResourceUse{IDs: ids(d.ID)}))
+		if nm != nil && !strings.Contains(nm.Error(), d.ID) {
+			s.t.Errorf("the ID that does not match is named: %v", nm)
+		}
 	}
 	global := map[string]common.IDList{selector.RegionAll: {a.ID}, region: {b.ID}}
 	s.expect("a global ID", common.ResourceUse{IDs: global, Select: all}, a, b)
@@ -355,19 +411,26 @@ func (s *sel) ids() {
 
 // oneOrMany: zero matches and too many are stated, never a guess.
 func (s *sel) oneOrMany() {
-	s.none("zero matches", common.ResourceUse{Tags: s.tags("k", "nobody")})
-	err := s.tooMany("two matches under exactlyOne",
-		common.ResourceUse{Tags: s.tags("k", "1"), Select: common.SelectExactlyOne})
+	s.skipUnscoped()
+	nobody, one := common.ResourceUse{Name: "nobody-" + s.tag}, common.ResourceUse{Name: "sel-" + s.tag + "-a"}
+	if s.tagged() {
+		nobody, one = common.ResourceUse{Tags: s.tags("k", "nobody")}, common.ResourceUse{Tags: s.tags("env", "prod")}
+	}
+	s.none("zero matches", nobody)
+	two := s.scoped("sel", "k", "1")
+	two.Select = common.SelectExactlyOne
+	err := s.tooMany("two matches under exactlyOne", two)
 	if err != nil && !strings.Contains(err.Error(), "2 match") {
 		s.t.Errorf("the Ambiguous error carries the count: %v", err)
 	}
-	s.expect("exactlyOne with one", common.ResourceUse{Tags: s.tags("env", "prod"), Select: common.SelectExactlyOne}, s.a)
+	one.Select = common.SelectExactlyOne
+	s.expect("exactlyOne with one", one, s.a)
 }
 
 // ordering: newest and oldest by name in natural order, by label, and a tie.
 func (s *sel) ordering() {
 	if s.c.Name == nil {
-		return
+		s.t.Skip("the kind has no name to order by")
 	}
 	pre := "nat-" + s.tag + "-"
 	n9 := s.seed(SeedSpec{Name: pre + "9", Tags: s.tags("v", "4081.3.1")})
@@ -375,11 +438,15 @@ func (s *sel) ordering() {
 	byName := func(sel common.Select) common.ResourceUse {
 		return common.ResourceUse{Name: pre + "*", Select: sel, OrderBy: "name"}
 	}
+	s.expect("newest by name is natural", byName(common.SelectNewest), n10)
+	s.expect("oldest by name is natural", byName(common.SelectOldest), n9)
+	if !s.tagged() {
+		s.t.Log("the kind has no tags: no order by label, and the tie is covered by the creation time")
+		return
+	}
 	byLabel := func(sel common.Select) common.ResourceUse {
 		return common.ResourceUse{Tags: s.tags("v", "*"), Select: sel, OrderBy: "label:v"}
 	}
-	s.expect("newest by name is natural", byName(common.SelectNewest), n10)
-	s.expect("oldest by name is natural", byName(common.SelectOldest), n9)
 	s.expect("newest by a label", byLabel(common.SelectNewest), n10)
 	s.expect("oldest by a label", byLabel(common.SelectOldest), n9)
 	s.ambiguous("a tie for newest",
@@ -388,19 +455,26 @@ func (s *sel) ordering() {
 
 // created: the creation time orders, bounds and ties.
 func (s *sel) created() {
-	if !s.c.HasCreated || !s.e.fx.seeds("created") {
-		return
+	switch {
+	case !s.c.HasCreated:
+		s.t.Skip("the kind has no creation time")
+	case !s.e.fx.seeds("created"):
+		s.t.Skip("the fixture cannot seed a creation time")
 	}
+	s.skipUnscoped()
 	base := time.Now().UTC().Truncate(time.Second).Add(-48 * time.Hour)
 	seed := func(n int, at time.Time) vendors.ResourceRef {
 		return s.seed(SeedSpec{Name: fmt.Sprintf("age-%s-%d", s.tag, n), Tags: s.tags("age", "y"), Created: at})
 	}
 	old, mid, young := seed(1, base), seed(2, base.Add(time.Hour)), seed(3, base.Add(2*time.Hour))
 	age := func(sel common.Select, m *common.ResourceMatch) common.ResourceUse {
-		return common.ResourceUse{Tags: s.tags("age", "y"), Select: sel, Match: m}
+		u := s.scoped("age", "age", "y")
+		u.Select, u.Match = sel, m
+		return u
 	}
 	s.expect("newest by created", age(common.SelectNewest, nil), young)
-	oldest := common.ResourceUse{Tags: s.tags("age", "y"), Select: common.SelectOldest, OrderBy: "created"}
+	oldest := age(common.SelectOldest, nil)
+	oldest.OrderBy = orderCreated
 	s.expect("oldest by created", oldest, old)
 	after, before := metav1.Time{Time: base.Add(30 * time.Minute)}, metav1.Time{Time: base.Add(90 * time.Minute)}
 	s.expect("createdAfter", age(all, &common.ResourceMatch{CreatedAfter: &after}), mid, young)
@@ -412,8 +486,13 @@ func (s *sel) created() {
 
 // zone: {zone} is expanded per zone.
 func (s *sel) zone() {
-	if !s.c.Zonal || s.c.Name == nil || s.e.zone == "" {
-		return
+	switch {
+	case !s.c.Zonal:
+		s.t.Skip("the kind is not zonal")
+	case s.c.Name == nil:
+		s.t.Skip("the kind has no name to expand {zone} in")
+	case s.e.zone == "":
+		s.t.Skip("the fixture has no zone")
 	}
 	z := s.seed(SeedSpec{Name: "zn-" + s.tag + "-" + s.e.zone, Tags: s.tags("zn", "y")})
 	u := common.ResourceUse{Name: "zn-" + s.tag + "-{zone}", Select: all}
@@ -428,8 +507,11 @@ func (s *sel) zone() {
 
 // globs: * and ? are wildcards, a backslash makes them literal.
 func (s *sel) globs() {
-	if s.c.Name == nil || !s.e.fx.seeds("specialNames") {
-		return
+	switch {
+	case s.c.Name == nil:
+		s.t.Skip("the kind has no name")
+	case !s.e.fx.seeds("specialNames"):
+		s.t.Skip("the fixture cannot seed names with glob characters")
 	}
 	star := s.seed(SeedSpec{Name: "gl-" + s.tag + "-a*b", Tags: s.tags("gl", "y")})
 	s.seed(SeedSpec{Name: "gl-" + s.tag + "-aXb", Tags: s.tags("gl", "y")})
@@ -440,25 +522,36 @@ func (s *sel) globs() {
 }
 
 func (s *sel) descriptions() {
-	if _, ok := s.c.Match[vendors.MatchDescription]; !ok || !s.e.fx.seeds("description") {
-		return
+	switch _, ok := s.c.Match[vendors.MatchDescription]; {
+	case !ok:
+		s.t.Skip("the kind has no match.description")
+	case !s.e.fx.seeds("description"):
+		s.t.Skip("the fixture cannot seed a description")
 	}
+	s.skipUnscoped()
 	x := s.seed(SeedSpec{Name: "ds-" + s.tag + "-x", Tags: s.tags("ds", "y"), Description: "alpha " + s.tag})
 	s.seed(SeedSpec{Name: "ds-" + s.tag + "-y", Tags: s.tags("ds", "y"), Description: "beta " + s.tag})
-	s.expect("description", common.ResourceUse{Tags: s.tags("ds", "y"), Select: all,
-		Match: &common.ResourceMatch{Description: "alpha*"}}, x)
+	u := s.scopedAll("ds", "ds", "y")
+	u.Match = &common.ResourceMatch{Description: "alpha*"}
+	s.expect("description", u, x)
 }
 
 // ranges: the range equals a CIDR, or lies inside one, for kinds that have one.
 func (s *sel) ranges() {
-	if _, ok := s.c.Match[vendors.MatchCIDR]; !ok || !s.e.fx.seeds("cidr") {
-		return
+	switch _, ok := s.c.Match[vendors.MatchCIDR]; {
+	case !ok:
+		s.t.Skip("the kind has no match.cidr")
+	case !s.e.fx.seeds("cidr"):
+		s.t.Skip("the fixture cannot seed a range")
 	}
+	s.skipUnscoped()
 	fx := s.e.fx
 	r1 := s.seed(SeedSpec{Name: "ip-" + s.tag + "-1", Tags: s.tags("ip", "y"), CIDR: fx.SeedCIDRs[0]})
 	r2 := s.seed(SeedSpec{Name: "ip-" + s.tag + "-2", Tags: s.tags("ip", "y"), CIDR: fx.SeedCIDRs[1]})
 	ip := func(m common.ResourceMatch) common.ResourceUse {
-		return common.ResourceUse{Tags: s.tags("ip", "y"), Select: all, Match: &m}
+		u := s.scopedAll("ip", "ip", "y")
+		u.Match = &m
+		return u
 	}
 	s.expect("cidr equals the first", ip(common.ResourceMatch{CIDR: fx.SeedCIDRs[0]}), r1)
 	s.expect("cidr equals the second", ip(common.ResourceMatch{CIDR: fx.SeedCIDRs[1]}), r2)

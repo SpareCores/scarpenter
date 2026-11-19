@@ -98,8 +98,9 @@ the main commits and what L5 must still verify. (Plan 08 went to `done/` because
 
 Not part of any open plan; each needs an owner before the first release.
 
-- (a) The shared conformance suite should run the resolution-order and selector cases that need no tags for kinds
-  without tags (GCP, UpCloud and Hetzner skip them today).
+- (a) Done (40bb0d9): the shared conformance suite runs each resolution-order and selector case whenever its
+  preconditions hold, by name for kinds without tags (GCP, Vultr, OVH and Alibaba deployment sets now run them;
+  so do the Hetzner placement groups, the UpCloud server groups and the qemu bridges).
 - (b) The `direct` bootstrap template does not pass `--node-ip` for a private network (any vendor).
 - (c) Alibaba: `InsufficientCapacity` after ECS releases an accepted instance never marks the offering unavailable
   (the core does not consume it from `GetInstance`).

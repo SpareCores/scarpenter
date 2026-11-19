@@ -18,8 +18,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/clock"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	apicommon "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	ovhapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/ovh"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/conformance"
 	"github.com/SpareCores/scarpenter/pkg/vendors/ovh/fake"
@@ -190,6 +194,69 @@ func sortedKeys(m map[string]string) []string {
 }
 
 func conformanceFixture(t *testing.T, kind vendors.ResourceKind, region, zone string) conformance.Fixture {
+	fx := conformanceFixture0(t, kind, region, zone)
+	if kind != KindSecurityGroups {
+		return fx // the run groups and the server groups have no run of their own
+	}
+	// Neutron's groups and Nova's server groups have a name and no tags: the cases seed
+	// them by name. OVH has no default of any kind: no SetDefault.
+	fx.ResourceParams = func(*testing.T, vendors.Driver, string) json.RawMessage {
+		return json.RawMessage(`{"selfReference":true}`)
+	}
+	fx.Seed = func(t *testing.T, d vendors.Driver, k vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+		t.Helper()
+		return seed(t, worldOf(t, d), k, region, spec)
+	}
+	fx.SeedKinds = []vendors.ResourceKind{KindSecurityGroups, KindServerGroups}
+	fx.SeedAttrs = []string{"description"}
+	fx.OrderClass = func(t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*apicommon.Resource, ipv6 bool) *v1alpha1.SCNodeClass {
+		t.Helper()
+		nc := &v1alpha1.SCNodeClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "class"},
+			Spec: v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{OVH: &ovhapi.Settings{
+				Resources: &ovhapi.Resources{SecurityGroups: res[KindSecurityGroups], ServerGroups: res[KindServerGroups]},
+			}}},
+		}
+		nc.Spec.Networking.PublicIPv6 = &ipv6
+		return nc
+	}
+	fx.FailCreate = func(t *testing.T, d vendors.Driver, _ vendors.ResourceKind) {
+		t.Helper()
+		// The group exists when its rule fails.
+		worldOf(t, d).cloud.InjectError(region, "CreateSecurityRule", &osapi.APIError{Service: "neutron", Status: 500, Message: "try again"}, 1)
+	}
+	return fx
+}
+
+// seed makes a resource the way a user would: a security group with the
+// description, or a server group, named as the spec says.
+func seed(t *testing.T, w *world, kind vendors.ResourceKind, region string, spec conformance.SeedSpec) vendors.ResourceRef {
+	t.Helper()
+	cl, err := w.cloud.Clients(context.Background(), region)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	switch kind {
+	case KindSecurityGroups:
+		g, err := cl.Network.CreateSecurityGroup(context.Background(), spec.Name, spec.Description)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id = g.ID
+	case KindServerGroups:
+		g, err := cl.Compute.CreateServerGroup(context.Background(), spec.Name, "anti-affinity")
+		if err != nil {
+			t.Fatal(err)
+		}
+		id = g.ID
+	default:
+		t.Fatalf("seed: no kind %s", kind)
+	}
+	return vendors.ResourceRef{Kind: kind, Region: region, ID: id, Name: spec.Name}
+}
+
+func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, region, zone string) conformance.Fixture {
 	all, unknown := conformanceTypes(t)
 	return conformance.Fixture{
 		New:    newConformanceDriver,

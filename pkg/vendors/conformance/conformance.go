@@ -120,7 +120,9 @@ type Fixture struct {
 	// The selector subtests (A10, `use`) run for drivers that implement
 	// vendors.ManagedResources, with Seed: it makes a resource the way a user
 	// would, with the given name, tags and attributes (see SeedSpec), for each of
-	// SeedKinds (default: ResourceKind). SeedAttrs says which of the optional
+	// SeedKinds (default: ResourceKind). The tags are nil for a kind whose
+	// declaration has none: the cases then select by name, which Seed must honour
+	// (the name of the resource, or what the vendor matches `name` against). SeedAttrs says which of the optional
 	// SeedSpec fields Seed honours: "created", "description", "zone", "cidr" (with
 	// two ranges in SeedCIDRs inside SeedWithin) and "specialNames" (a name with
 	// the glob characters * and ?).
@@ -148,7 +150,8 @@ type Fixture struct {
 	// default are skipped); and, optionally, FailCreate, which makes the next
 	// creation of the kind fail after its first call, so that a creation is
 	// interrupted midway (a vendor whose creation is one call has none). The
-	// subtests use ResourceKind as the order kind: a regional kind with tags.
+	// subtests use ResourceKind as the order kind; a kind without tags runs the
+	// cases that need none (seeded by name).
 	OrderClass OrderClassFunc
 	SetDefault SetDefaultFunc
 	FailCreate func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind)

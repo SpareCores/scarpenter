@@ -41,6 +41,19 @@ func (c *Compute) AddDefaultNetwork() {
 	}
 }
 
+// RemoveDefaultNetwork removes the network "default" and its subnetworks, like a
+// project that deleted them.
+func (c *Compute) RemoveDefaultNetwork() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, s := range c.subnets {
+		if last(s.GetNetwork()) == "default" {
+			delete(c.subnets, k)
+		}
+	}
+	delete(c.networks, "default")
+}
+
 // ----- networks -----
 
 func (c *Compute) subnetsOf(network string) []string {
