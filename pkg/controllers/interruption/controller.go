@@ -208,7 +208,9 @@ func (c *Controller) ignoreReason(claim *karpv1.NodeClaim, n notice) string {
 		return fmt.Sprintf("the node is not a spot node (capacity type %q): an interruption notice is only acted on for spot",
 			claim.Labels[karpv1.CapacityTypeLabelKey])
 	case n.reason != v1alpha1.ReasonSpotInterrupted:
-		return fmt.Sprintf("the interruption reason %q is not known (known: %s)", n.reason, v1alpha1.ReasonSpotInterrupted)
+		// The node writes the reason: keep the Event message short.
+		return fmt.Sprintf("the interruption reason %q is not known (known: %s)",
+			n.reason[:min(len(n.reason), 64)], v1alpha1.ReasonSpotInterrupted)
 	}
 	return ""
 }
@@ -219,8 +221,12 @@ func (c *Controller) ignoreReason(claim *karpv1.NodeClaim, n notice) string {
 func (c *Controller) deadline(
 	claim *karpv1.NodeClaim, vendor string, n notice, now time.Time,
 ) (t time.Time, assumed bool) {
-	if prev, err := time.Parse(time.RFC3339, claim.Annotations[v1alpha1.AnnotationInterruptionDeadline]); err == nil {
-		return prev, false
+	// The NodeClaim's deadline is only trusted once this controller marked the
+	// claim: before that it may come from a NodePool template.
+	if claim.StatusConditions().Get(v1alpha1.ConditionInterrupted).IsTrue() {
+		if prev, err := time.Parse(time.RFC3339, claim.Annotations[v1alpha1.AnnotationInterruptionDeadline]); err == nil {
+			return prev, false
+		}
 	}
 	window := vendors.DefaultNoticeWindow
 	if c.opts.Registry != nil {
@@ -255,8 +261,18 @@ func maxTime(a, b time.Time) time.Time {
 func (c *Controller) tighten(
 	ctx context.Context, claim *karpv1.NodeClaim, node *corev1.Node, n notice, deadline time.Time,
 ) error {
-	if err := nodeclaimutils.TightenTerminationTimestampAnnotation(ctx, c.opts.Client, claim,
-		deadline.Add(-c.opts.Margin)); err != nil {
+	termination := deadline.Add(-c.opts.Margin)
+	// Core derives the timestamp from the NodeClaim's terminationGracePeriod
+	// only when the claim has none, so setting ours first must keep that bound
+	// (the claim is deleted now, or already was).
+	if tgp := claim.Spec.TerminationGracePeriod; tgp != nil {
+		deleted := c.opts.Clock.Now()
+		if claim.DeletionTimestamp != nil {
+			deleted = claim.DeletionTimestamp.Time
+		}
+		termination = minTime(termination, deleted.Add(tgp.Duration))
+	}
+	if err := nodeclaimutils.TightenTerminationTimestampAnnotation(ctx, c.opts.Client, claim, termination); err != nil {
 		return fmt.Errorf("tightening the termination deadline of NodeClaim %s: %w", claim.Name, err)
 	}
 	want := map[string]string{

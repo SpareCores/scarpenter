@@ -964,7 +964,7 @@ reason, `SpotInterrupted`), `interruption-deadline` (RFC 3339) and `interruption
    broken node cannot claim more lead time than the vendor gives, and a notice with no usable deadline gets the vendor's
    shortest);
 2. it **tightens `karpenter.sh/nodeclaim-termination-timestamp`** to `deadline - margin` (5 s by default) with core's own
-   helper, which never extends a deadline. Core's termination controller then force-deletes, with the grace clamped to the time
+   helper, which never extends a deadline (a shorter NodeClaim `terminationGracePeriod` still bounds it). Core's termination controller then force-deletes, with the grace clamped to the time
    left, every Pod whose grace would outlast the deadline (PDBs and `do-not-disrupt` included) and stops waiting for the drain
    at the deadline. Interruption is forceful, as ADR-024 already says: it ignores billing retention holds;
 3. it records the reason: the condition `Interrupted` (SCarpenter's own, because core clears `DisruptionReason` on nodes it does

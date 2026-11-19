@@ -11,6 +11,7 @@ package interruption_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -159,6 +160,8 @@ type nodeOpts struct {
 	foreignClaim bool // the claim's provider ID is not the node's
 	noNodeClass  bool
 	termination  string // an existing termination timestamp
+	claimAnn     map[string]string
+	grace        *time.Duration // the NodeClaim's terminationGracePeriod
 }
 
 // add creates a NodeClaim (with a finalizer, as core's has, so that a delete
@@ -179,6 +182,10 @@ func (h *harness) add(o nodeOpts) {
 	}}
 	if o.termination != "" {
 		claim.Annotations[karpv1.NodeClaimTerminationTimestampAnnotationKey] = o.termination
+	}
+	maps.Copy(claim.Annotations, o.claimAnn)
+	if o.grace != nil {
+		claim.Spec.TerminationGracePeriod = &metav1.Duration{Duration: *o.grace}
 	}
 	claim.Spec.NodeClassRef = &karpv1.NodeClassReference{Group: v1alpha1.Group, Kind: "SCNodeClass", Name: "class"}
 	if o.noNodeClass {
@@ -369,6 +376,29 @@ func TestAnEarlierTerminationDeadlineIsKept(t *testing.T) {
 	h2.reconcile()
 	if got, want := terminationOf(t, h2.claim()), h2.clk.Now().Add(30*time.Second-margin); !got.Equal(want) {
 		t.Errorf("termination timestamp = %s, want it tightened to %s", got, want)
+	}
+}
+
+func TestTheTerminationGracePeriodStillBounds(t *testing.T) {
+	h := newHarness(t)
+	grace := 10 * time.Second
+	h.add(nodeOpts{annotations: h.notice(30 * time.Second), grace: &grace})
+	h.reconcile()
+	if got, want := terminationOf(t, h.claim()), h.clk.Now().Add(grace); !got.Equal(want) {
+		t.Errorf("termination timestamp = %s, want the NodeClaim's terminationGracePeriod from now, %s", got, want)
+	}
+}
+
+func TestADeadlineOnAnUnmarkedClaimIsNotTrusted(t *testing.T) {
+	h := newHarness(t)
+	// For example from a NodePool template: the Node's notice decides.
+	h.add(nodeOpts{
+		annotations: h.notice(30 * time.Second),
+		claimAnn:    map[string]string{v1alpha1.AnnotationInterruptionDeadline: h.clk.Now().Add(-time.Hour).Format(time.RFC3339)},
+	})
+	h.reconcile()
+	if got, want := terminationOf(t, h.claim()), h.clk.Now().Add(30*time.Second-margin); !got.Equal(want) {
+		t.Errorf("termination timestamp = %s, want %s from the Node's notice", got, want)
 	}
 }
 

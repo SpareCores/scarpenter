@@ -101,4 +101,4 @@ effective deadline. A Node or NodeClaim that has them was announced for reclaim;
 | `scarpenter.sparecores.com/interruption-source` | Who found the notice: `instance-metadata` (the node agent) or `vendor-api` (the controller's poller). Anything else is read as `instance-metadata`. |
 
 The controller also sets `karpenter.sh/nodeclaim-termination-timestamp` on the NodeClaim (Karpenter's own annotation) to the deadline less
-`--interruption-margin`.
+`--interruption-margin` (or earlier, when the NodeClaim's `terminationGracePeriod` ends first).

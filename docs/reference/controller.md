@@ -355,8 +355,10 @@ them is in the how-to guide "Handle spot interruptions" (added with the first ve
    on the Node and the NodeClaim.
 2. The deadline is clamped into `[now, now + the driver's longest notice]`; a missing or unparsable one is `now + the driver's shortest notice`
    ([notice window](driver-contract.md#interruption-notice-window); a driver that declares none gets 30 s and 5 min). The effective deadline is written
-   back to the Node and the NodeClaim, and a later reconcile keeps the NodeClaim's.
-3. The NodeClaim's `karpenter.sh/nodeclaim-termination-timestamp` is tightened to `deadline - --interruption-margin` (never extended: an earlier one is kept),
+   back to the Node and the NodeClaim, and a later reconcile keeps the NodeClaim's once it has the `Interrupted` condition (before that, a deadline
+   on the NodeClaim, for example from a NodePool template, is not trusted).
+3. The NodeClaim's `karpenter.sh/nodeclaim-termination-timestamp` is tightened to `deadline - --interruption-margin`, or to the deletion time plus the
+   NodeClaim's `terminationGracePeriod` when that is earlier (core sets the latter only on a claim without a timestamp); never extended: an earlier one is kept,
    and the three annotations are copied to the NodeClaim. Karpenter's termination controller then force-deletes, with the grace clamped to the time
    left (at least 1 s), every Pod whose grace would outlast the deadline, PDBs and `do-not-disrupt` included, and stops waiting for the drain at the
    deadline. This also applies to a NodeClaim that is already being deleted (for example by consolidation).
