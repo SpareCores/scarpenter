@@ -267,10 +267,10 @@ t_no_secrets_in_scripts() { # nothing that looks like a key, a token or a local 
 check "every scenario has a function" t_scenarios_defined
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
-t_in_the_vendor_list() { # branch only: lets the lane be dispatched; the merge is the maintainer's call after the cost guards
-  grep -qx 'upcloud' "${root}/test/e2e-vendors.txt"
+t_not_in_the_vendor_list() { # the sub-account's limits and the spending alert are not verified yet: the CI cost-guard policy is unmet
+  ! grep -qx 'upcloud' "${root}/test/e2e-vendors.txt"
 }
-check "upcloud is in test/e2e-vendors.txt" t_in_the_vendor_list
+check "upcloud is not in test/e2e-vendors.txt until its cost guards are verified" t_not_in_the_vendor_list
 t_ensure_template() { # the template finder takes only same-zone templates with every label
   # shellcheck source=test/e2e-upcloud/ensure-template.sh
   source "${here}/ensure-template.sh"
