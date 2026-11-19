@@ -136,7 +136,9 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params json.Raw
 			return seed(t, envOf(t, d), k, region, spec)
 		},
 		SeedImage: seedImage,
-		SeedKinds: []vendors.ResourceKind{uc.KindNetworks, uc.KindServerGroups, uc.KindFirewalls},
+		// The firewalls have no run of their own (see TestConformance): their selector
+		// cases run here.
+		SeedKinds: []vendors.ResourceKind{uc.KindNetworks, uc.KindFirewalls},
 		SeedAttrs: []string{"cidr", "specialNames", "created"},
 		SeedCIDRs: [2]string{"172.20.1.0/24", "172.20.2.0/24"}, SeedWithin: "172.20.0.0/16",
 		PreCreate: func(t *testing.T, d vendors.Driver, k vendors.ResourceKind, region string, tags map[string]string) vendors.ResourceRef {
@@ -144,8 +146,8 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params json.Raw
 			return seed(t, envOf(t, d), k, region, conformance.SeedSpec{Name: "user-" + string(k), Tags: tags})
 		},
 		// The resolution order (ADR-022) without a vendor default: UpCloud has none for
-		// any kind, so the cases that arrange a default are skipped and the others
-		// (nothing found creates, forbid, interruption, kinds in a network) run.
+		// any kind, so no SetDefault: the cases about the default are skipped and the
+		// others run.
 		OrderClass: func(t *testing.T, _ vendors.Driver, res map[vendors.ResourceKind]*common.Resource, ipv6 bool) *v1alpha1.SCNodeClass {
 			t.Helper()
 			nc := class(testVersion, nil, nil)
@@ -153,12 +155,6 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params json.Raw
 			r.Networks, r.Firewalls, r.ServerGroups = res[uc.KindNetworks], res[uc.KindFirewalls], res[uc.KindServerGroups]
 			nc.Spec.Networking.PublicIPv6 = &ipv6
 			return nc
-		},
-		SetDefault: func(t *testing.T, _ vendors.Driver, _ vendors.ResourceKind, _ string, state conformance.DefaultState) {
-			t.Helper()
-			if state != conformance.DefaultAbsent {
-				t.Skip("UpCloud has no vendor default for any kind")
-			}
 		},
 		Restart: func(t *testing.T, d vendors.Driver) vendors.Driver {
 			t.Helper()
@@ -169,7 +165,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params json.Raw
 		},
 	}
 	if kind != uc.KindNetworks {
-		fx.Seed, fx.SeedImage, fx.SeedKinds, fx.OrderClass, fx.SetDefault = nil, nil, nil, nil, nil
+		fx.SeedImage, fx.SeedKinds = nil, nil // the image cases run once, in the networks run
 	}
 	return fx
 }
