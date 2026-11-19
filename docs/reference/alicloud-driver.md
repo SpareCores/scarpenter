@@ -193,7 +193,7 @@ template) and the metadata (no RAM role is attached, so no credentials).
 The driver declares `100.100.100.200` as the address that nodes of a NodeClass with the default
 `spec.instanceMetadata.access: Restricted` drop for everything but the node's own units
 ([instance metadata access](node-bootstrap.md#instance-metadata-access)); `Open` leaves it reachable. The L5 `imds`
-scenario records what a Pod can reach with and without it.
+scenario checks that a Pod and a host-network Pod reach nothing and the allowed slice does.
 
 ## Quotas
 

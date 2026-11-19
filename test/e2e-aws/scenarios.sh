@@ -246,11 +246,18 @@ scn_amd64() {
   dns="$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')"
   assert_match "the kubelet's clusterDNS is the kube-dns Service" "${dns//./\\.}" "$(node_shell "${node}" "grep -A3 '^clusterDNS' /var/lib/kubelet/config.yaml" | tr '\n' ' ')"
   wait_until "a Pod resolves a cluster Service" 120 kubectl exec "${pod}" -- nslookup kubernetes.default.svc.cluster.local
-  # An IMDSv2 token request (PUT) from the node answers; from a Pod it needs one hop
-  # more than the limit of 1 and gets no answer.
+  # The metadata access is Restricted (the default): an IMDSv2 token request (PUT) from a process
+  # in scarpenter-metadata.slice, where the allowed units run, answers; from the node shell (a
+  # host-network Pod) and from a Pod (also one hop more than the limit of 1) it gets no answer.
   local put='printf "PUT /latest/api/token HTTP/1.1\r\nHost: 169.254.169.254\r\nX-aws-ec2-metadata-token-ttl-seconds: 60\r\nConnection: close\r\n\r\n" | nc -w 4 169.254.169.254 80 | head -n1'
-  assert_match "IMDSv2 from the node itself" " 200 " "$(node_pod_exec "${node}" "${put}" || true)"
-  assert_eq "IMDSv2 from a Pod (hop limit 1)" "" "$(kubectl exec "${pod}" -- sh -c "${put}" || true)"
+  assert_eq "the metadata firewall unit is active" active "$(node_shell "${node}" 'systemctl is-active scarpenter-metadata-firewall.service' || true)"
+  assert_eq "the SSM agent runs in the allowed slice" scarpenter-metadata.slice \
+    "$(node_shell "${node}" 'systemctl show -p Slice --value amazon-ssm-agent.service')"
+  note "the SSM agent: $(node_shell "${node}" 'systemctl is-active amazon-ssm-agent.service' || true)"
+  assert_eq "IMDSv2 from scarpenter-metadata.slice" 200 \
+    "$(node_shell "${node}" "systemd-run -q --slice=scarpenter-metadata.slice --pipe --wait curl -s -m 5 -o /dev/null -w '%{http_code}' -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token" || true)"
+  assert_eq "IMDSv2 from a host-network Pod (Restricted)" "" "$(node_pod_exec "${node}" "${put}" || true)"
+  assert_eq "IMDSv2 from a Pod (Restricted, hop limit 1)" "" "$(kubectl exec "${pod}" -- sh -c "${put}" || true)"
   drop_nodeshells
 }
 

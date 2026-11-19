@@ -36,9 +36,6 @@ spec:
             - {name: pgdata, volumeType: io2, volumeSize: 4Gi, iops: 100, filesystem: xfs, mountPath: /var/lib/pgdata}
     placement:
       colocated: {aws: {placementGroup: {strategy: cluster}}}
-  # The scenarios read the metadata service from the node shell, a host-network Pod, which the
-  # default access (Restricted) drops.
-  instanceMetadata: {access: Open}
   vendors:
     aws:
       regions: [${AWS_REGION}]

@@ -40,9 +40,6 @@ spec:
             - {name: pgdata, storageAccountType: Premium_LRS, diskSizeGB: 4, filesystem: xfs, mountPath: /var/lib/pgdata}
     placement:
       colocated: {azure: {proximityPlacementGroup: {strategy: cluster}}}
-  # The scenarios read the metadata service from the node shell, a host-network Pod, which the
-  # default access (Restricted) drops.
-  instanceMetadata: {access: Open}
   vendors:
     azure:
       regions: [${AZURE_REGION}]

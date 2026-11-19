@@ -38,9 +38,6 @@ spec:
             - {name: pgdata, diskType: hyperdisk-balanced, sizeGb: 10, filesystem: xfs, mountPath: /var/lib/pgdata}
     placement:
       colocated: {gcp: {resourcePolicy: {groupPlacement: {collocation: COLLOCATED}}}}
-  # The scenarios read the metadata service from the node shell, a host-network Pod, which the
-  # default access (Restricted) drops.
-  instanceMetadata: {access: Open}
   vendors:
     gcp:
       project: ${GCP_PROJECT}

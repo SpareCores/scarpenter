@@ -450,16 +450,20 @@ scn_amd64() {
   dns="$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')"
   assert_match "the kubelet's clusterDNS is the kube-dns Service" "${dns//./\\.}" "$(node_shell "${node}" "grep -A3 '^clusterDNS' /var/lib/kubelet/config.yaml" | tr '\n' ' ')"
   wait_until "a Pod resolves a cluster Service" 120 kubectl exec "${pod}" -- nslookup kubernetes.default.svc.cluster.local
-  # The user_data is readable through the metadata service (from the node, whose own the data is). OCI's
-  # service has no hop limit (IMDS v2 needs only a header): a Pod can read it too on an Open NodeClass
-  # (this lane's, because the node shell is a host-network Pod), which the reference documents (the
-  # default, Restricted, drops it). The Pod's answer is recorded, not asserted: it depends on the
-  # pod network's masquerade.
-  mdq='wget -qO- -T 5 --header "Authorization: Bearer Oracle" http://169.254.169.254/opc/v2/instance'
-  assert_eq "the metadata service answers on the node (instance OCID)" "${iid}" "$(node_pod_exec "${node}" "${mdq}/id" || true)"
-  assert_match "the user_data is the base64 of the Ignition" '^eyJ' "$(node_pod_exec "${node}" "${mdq}/metadata/user_data" || true)"
-  note "metadata service from a Pod (exposure, documented): '$(kubectl exec "${pod}" -- sh -c "${mdq}/id" 2>&1 | head -c 80 || true)'"
-  note "the legacy endpoint /opc/v1 on the node (areLegacyImdsEndpointsDisabled): '$(node_pod_exec "${node}" 'wget -qO- -T 5 http://169.254.169.254/opc/v1/instance/id' 2>&1 | head -c 80 || true)'"
+  # The metadata access is Restricted (the default): the metadata service answers a process in
+  # scarpenter-metadata.slice, where Afterburn's units run, and the user_data is the Ignition; the
+  # node shell (a host-network Pod) and a Pod (OCI has no hop limit: IMDS v2 needs only a header)
+  # get nothing.
+  local hdr='Authorization: Bearer Oracle' md=http://169.254.169.254/opc/v2/instance
+  mdq="wget -qO- -T 5 --header '${hdr}' ${md}"
+  assert_eq "the metadata firewall unit is active" active "$(node_shell "${node}" 'systemctl is-active scarpenter-metadata-firewall.service' || true)"
+  assert_eq "the metadata service answers scarpenter-metadata.slice (instance OCID)" "${iid}" \
+    "$(node_shell "${node}" "systemd-run -q --slice=scarpenter-metadata.slice --pipe --wait curl -s -m 5 -H '${hdr}' ${md}/id" || true)"
+  assert_match "the user_data is the base64 of the Ignition" '^eyJ' \
+    "$(node_shell "${node}" "systemd-run -q --slice=scarpenter-metadata.slice --pipe --wait curl -s -m 5 -H '${hdr}' ${md}/metadata/user_data" || true)"
+  assert_eq "the metadata service from a host-network Pod (Restricted)" "" "$(node_pod_exec "${node}" "${mdq}/id 2>/dev/null" || true)"
+  assert_eq "the metadata service from a Pod (Restricted)" "" "$(kubectl exec "${pod}" -- sh -c "${mdq}/id 2>/dev/null" || true)"
+  note "the legacy endpoint /opc/v1 from scarpenter-metadata.slice (areLegacyImdsEndpointsDisabled): '$(node_shell "${node}" 'systemd-run -q --slice=scarpenter-metadata.slice --pipe --wait curl -s -m 5 http://169.254.169.254/opc/v1/instance/id' 2>&1 | head -c 80 || true)'"
   assert_eq "no login users on the node (uid 1000 and up): the nodes carry no SSH keys" "" \
     "$(node_shell "${node}" "awk -F: '\$3 >= 1000 && \$3 < 65000 { print \$1 }' /etc/passwd" || true)"
   drop_nodeshells

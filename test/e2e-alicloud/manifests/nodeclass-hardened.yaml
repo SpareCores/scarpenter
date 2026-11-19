@@ -1,8 +1,7 @@
 # The NodeClass of the instance metadata scenario with the metadata service restricted (the
 # default, spelled out): only the node's own units reach 100.100.100.200 on its nodes
-# (spec.instanceMetadata). The scenario `imds` records what a Pod reaches on the open
-# NodeClass (e2e-amd64: the gap of plan 21 section 5) and asserts that it reaches nothing
-# here. Used by its own NodePool.
+# (spec.instanceMetadata). The scenario `imds` asserts that a Pod reaches nothing here and on
+# e2e-amd64 (the default), and that a process in the allowed slice does. Used by its own NodePool.
 apiVersion: scarpenter.sparecores.com/v1alpha1
 kind: SCNodeClass
 metadata:
