@@ -1254,7 +1254,7 @@ and refreshed only by its manually triggered workflow.
 | 09 | [Packaging](../done/09-packaging.md) | 08 |
 | 10 | [AWS e2e (L5) and sweeper](../done/10-aws-e2e.md) | 09 |
 | 11 | [Docs and v1 release](11-docs-and-release.md) | 07, 10 |
-| 12 | [GPU nodes on AWS (optional)](12-aws-gpu.md) | 10 + GPU spike |
+| 12 | [GPU nodes (NVIDIA, multi-vendor)](12-gpu.md) | 14, the vendor drivers + GPU spikes |
 
 07 and 08 are independent and can run in parallel (different files).
 
