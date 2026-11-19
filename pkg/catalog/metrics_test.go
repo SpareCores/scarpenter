@@ -37,6 +37,7 @@ func benchmark(id, config string) *selapi.BenchmarkRef {
 // selection profile.
 func metricClass() catalog.Class {
 	cl := catalog.NewClass("c", catalog.Scope{"aws": nil, "hcloud": {"fsn1"}, "gcp": {"europe-west3"}})
+	cl.FlatcarVersion = catalogtest.FlatcarVersion
 	two, scale := int32(2), int32(100)
 	three, six := int32(3), int32(6)
 	cl.Metrics = map[string]v1alpha1.Metric{

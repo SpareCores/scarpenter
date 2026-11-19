@@ -813,6 +813,9 @@ var (
 	offeringsDesc = prometheus.NewDesc("scarpenter_catalog_offerings",
 		"Priced offerings of the catalog snapshot (price rows in scope, before the driver's zone mapping).",
 		vendorLabel, nil)
+	droppedDesc = prometheus.NewDesc("scarpenter_catalog_dropped_types",
+		"GPU instance types with a price in scope that the NodeClass's catalog leaves out, by reason.",
+		[]string{"nodeclass", "vendor", "reason"}, nil)
 	publishedDesc = prometheus.NewDesc("scarpenter_catalog_data_published_timestamp_seconds",
 		"Unix time Keeper published the data version of the catalog snapshot (SC-Data-Published-At).", nil, nil)
 	unauthorizedDesc = prometheus.NewDesc("scarpenter_catalog_keeper_unauthorized",
@@ -825,6 +828,7 @@ func (k *collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- ageDesc
 	ch <- typesDesc
 	ch <- offeringsDesc
+	ch <- droppedDesc
 	ch <- publishedDesc
 	ch <- unauthorizedDesc
 }
@@ -833,6 +837,7 @@ func (k *collector) Describe(ch chan<- *prometheus.Desc) {
 func (k *collector) Collect(ch chan<- prometheus.Metric) {
 	k.c.mu.RLock()
 	snap, auth := k.c.snap, k.c.auth
+	classes := slices.Collect(maps.Values(k.c.classes))
 	var age float64
 	var published time.Time
 	if snap != nil {
@@ -857,5 +862,13 @@ func (k *collector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(ageDesc, prometheus.GaugeValue, age, vendor)
 		ch <- prometheus.MustNewConstMetric(typesDesc, prometheus.GaugeValue, float64(n[0]), vendor)
 		ch <- prometheus.MustNewConstMetric(offeringsDesc, prometheus.GaugeValue, float64(n[1]), vendor)
+	}
+	// Only builds that exist are counted: a NodeClass is built on its first query.
+	for _, cl := range classes {
+		for _, vendor := range cl.VendorNames() {
+			for reason, n := range snap.dropped(cl.Hash, vendor) {
+				ch <- prometheus.MustNewConstMetric(droppedDesc, prometheus.GaugeValue, float64(n), cl.Name, vendor, string(reason))
+			}
+		}
 	}
 }

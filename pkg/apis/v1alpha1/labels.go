@@ -37,6 +37,14 @@ const (
 	LabelAcceleratorModel        = Group + "/accelerator-model"
 	LabelAcceleratorType         = Group + "/accelerator-type"
 
+	// LabelNVIDIADriverBranch, LabelNVIDIADriverVersion and LabelNVIDIADriverFlavor
+	// say which driver an NVIDIA GPU type boots with (plan 12): the branch
+	// (570), the exact version (570.211.01) and the kernel modules (open or
+	// proprietary). DoesNotExist on every other type.
+	LabelNVIDIADriverBranch  = Group + "/nvidia-driver-branch"
+	LabelNVIDIADriverVersion = Group + "/nvidia-driver-version"
+	LabelNVIDIADriverFlavor  = Group + "/nvidia-driver-flavor"
+
 	// Attribute labels with integer or boolean values, for range selection (Gt, Lt).
 	LabelVCPUs               = Group + "/vcpus"
 	LabelCPUCores            = Group + "/cpu-cores"
@@ -177,6 +185,7 @@ var WellKnownLabels = []string{
 	LabelCPUManufacturer, LabelCPUFamily, LabelCPUAllocation,
 	LabelAcceleratorCount, LabelAcceleratorMemoryMiB, LabelAcceleratorManufacturer,
 	LabelAcceleratorModel, LabelAcceleratorType,
+	LabelNVIDIADriverBranch, LabelNVIDIADriverVersion, LabelNVIDIADriverFlavor,
 	LabelVCPUs, LabelCPUCores, LabelMemoryMiB, LabelMemoryPerVCPUMiB, LabelCPUClockMHz,
 	LabelCPUL2PerCoreKiB, LabelCPUL3MiB, LabelHyperthreading,
 	LabelNetworkBaselineMbps, LabelNetworkPeakMbps, LabelLocalStorageGB, LabelLocalStorageCount,

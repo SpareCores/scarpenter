@@ -18,6 +18,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
 	"github.com/SpareCores/scarpenter/pkg/catalog/model"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
 // builtType is an instance type of a vendor for a NodeClass, with what the
@@ -46,6 +47,8 @@ type offeringInfo struct {
 type vendorBuild struct {
 	types  []*builtType
 	byName map[string]*builtType
+	// dropped counts the priced GPU types left out of the catalog, by reason.
+	dropped map[nvidia.Reason]int
 }
 
 // vendorBuild returns the instance types of a vendor for a NodeClass, built
@@ -84,12 +87,13 @@ type regionInfo struct {
 // 5.3 to 5.5).
 func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vendorBuild {
 	vd := snap.vendors[vendor]
-	vb := &vendorBuild{byName: map[string]*builtType{}}
+	vb := &vendorBuild{byName: map[string]*builtType{}, dropped: map[nvidia.Reason]int{}}
 	if vd == nil {
 		return vb
 	}
 	facts := c.opts.Facts
 	launchable, _ := facts.(LaunchableFacts)
+	virtualGPU, _ := facts.(VirtualGPUFacts)
 	regionPriced := false
 	if rp, ok := facts.(RegionPricedFacts); ok {
 		regionPriced = rp.RegionPriced(vendor)
@@ -128,6 +132,11 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 	for _, srv := range vd.servers {
 		prices := vd.prices[srv.ID]
 		if len(prices) == 0 {
+			continue
+		}
+		gpu, reason := gpuSupport(srv, class, vendor, virtualGPU)
+		if reason != nvidia.Supported {
+			vb.dropped[reason]++
 			continue
 		}
 		name := InstanceTypeName(vendor, srv.APIReference)
@@ -234,6 +243,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			labels.In(karpv1.CapacityTypeLabelKey, uniq(capTypes)...),
 		}
 		reqs = append(reqs, labels.Attributes(srv, flags)...)
+		reqs = append(reqs, labels.NVIDIADriver(gpu)...)
 		for _, mname := range metricNames {
 			if mv := view.metrics[mname]; mv != nil {
 				reqs = append(reqs, mv.TypeRequirements(srv.Key())...)
@@ -246,7 +256,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 		it.Requirements = scheduling.NewRequirements(reqs...)
 
 		rootDisk, rootKnown := facts.RootDiskBytes(vendor, class, srv)
-		it.Capacity = capacity(srv.VCPUs, srv.MemoryMiB, class, rootDisk, rootKnown)
+		it.Capacity = capacity(srv.VCPUs, srv.MemoryMiB, class, rootDisk, rootKnown, gpu)
 		it.Overhead = overhead(srv.VCPUs, class, it.Capacity)
 		bt.it = it
 		vb.types = append(vb.types, bt)
@@ -379,4 +389,24 @@ func profilesKey(p map[labels.ProfileKind][]string) string {
 		b.WriteString(string(k) + "=" + strings.Join(uniq(p[k]), ",") + ";")
 	}
 	return b.String()
+}
+
+// gpuSupport applies the GPU rules of plan 12 (D2) to a server: for an NVIDIA
+// GPU type the driver selection (nil for every other type), and for a GPU type
+// the table cannot run the reason it is dropped. Accelerators that are not
+// GPUs (NPUs, FPGAs, TPUs) keep today's behaviour.
+func gpuSupport(srv *model.Server, class *Class, vendor string,
+	virtual VirtualGPUFacts) (*nvidia.Selection, nvidia.Reason) {
+	if srv.AcceleratorType != model.AcceleratorGPU || srv.AcceleratorCount <= 0 {
+		return nil, nvidia.Supported
+	}
+	sel, reason := nvidia.Select(nvidia.GPU{
+		Manufacturer: srv.AcceleratorManufacturer, Model: srv.AcceleratorModel, Count: srv.AcceleratorCount,
+		AMD64:   srv.Arch == model.ArchAMD64,
+		Virtual: virtual != nil && virtual.VirtualGPU(vendor, srv.APIReference),
+	}, class.FlatcarVersion)
+	if reason != nvidia.Supported {
+		return nil, reason
+	}
+	return &sel, nvidia.Supported
 }

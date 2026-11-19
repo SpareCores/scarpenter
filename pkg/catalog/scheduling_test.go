@@ -49,10 +49,10 @@ func typeCompatible(it *cloudprovider.InstanceType, reqs scheduling.Requirements
 func TestQ11GtLtAndDoesNotExist(t *testing.T) {
 	its := metricCatalog(t)
 
-	m7i := byName(its, "aws.m7i.large")    // 2 vCPUs, benchmarked
-	p4d := byName(its, "aws.p4d.24xlarge") // 96 vCPUs, 8 GPUs
+	m7i := byName(its, "aws.m7i.large")     // 2 vCPUs, benchmarked
+	gpu96 := byName(its, "aws.g5.24xlarge") // 96 vCPUs, 4 GPUs
 	single, _ := intValue(t, m7i, v1alpha1.MetricLabel("single-core"))
-	if m7i == nil || p4d == nil || single == 0 {
+	if m7i == nil || gpu96 == nil || single == 0 {
 		t.Fatal("test types are missing")
 	}
 	var unbenchmarked *cloudprovider.InstanceType
@@ -77,17 +77,17 @@ func TestQ11GtLtAndDoesNotExist(t *testing.T) {
 		{"vcpus Lt 3 matches 2", expr(v1alpha1.LabelVCPUs, corev1.NodeSelectorOpLt, "3"), m7i, true},
 		{"vcpus Lt 2 does not match 2", expr(v1alpha1.LabelVCPUs, corev1.NodeSelectorOpLt, "2"), m7i, false},
 		{"vcpus Gt 7 does not match 2", expr(v1alpha1.LabelVCPUs, corev1.NodeSelectorOpGt, "7"), m7i, false},
-		{"vcpus Gt 7 matches 96", expr(v1alpha1.LabelVCPUs, corev1.NodeSelectorOpGt, "7"), p4d, true},
+		{"vcpus Gt 7 matches 96", expr(v1alpha1.LabelVCPUs, corev1.NodeSelectorOpGt, "7"), gpu96, true},
 		{"memory-mib Gt 8191 matches 8192", expr(v1alpha1.LabelMemoryMiB, corev1.NodeSelectorOpGt, "8191"), m7i, true},
 		{"cpu-clock-mhz Gt 3199 matches 3200", expr(v1alpha1.LabelCPUClockMHz, corev1.NodeSelectorOpGt, "3199"), m7i, true},
 		{"metric score Gt below matches", expr(v1alpha1.MetricLabel("single-core"), corev1.NodeSelectorOpGt, itoa(single-1)), m7i, true},
 		{"metric score Gt itself does not match", expr(v1alpha1.MetricLabel("single-core"), corev1.NodeSelectorOpGt, itoa(single)), m7i, false},
 		{"metric percentile Lt 101 matches", expr(v1alpha1.MetricPercentileLabel("single-core"), corev1.NodeSelectorOpLt, "101"), m7i, true},
 		// 2 to 16 vCPUs, the example of 00a section 7.1.
-		{"2-16 vcpus excludes 96", expr(v1alpha1.LabelVCPUs, corev1.NodeSelectorOpLt, "17"), p4d, false},
+		{"2-16 vcpus excludes 96", expr(v1alpha1.LabelVCPUs, corev1.NodeSelectorOpLt, "17"), gpu96, false},
 		// accelerator-count is DoesNotExist on types without accelerators.
 		{"accelerator-count Gt 0 excludes a type without GPUs", expr(v1alpha1.LabelAcceleratorCount, corev1.NodeSelectorOpGt, "0"), m7i, false},
-		{"accelerator-count Gt 0 matches 8 GPUs", expr(v1alpha1.LabelAcceleratorCount, corev1.NodeSelectorOpGt, "0"), p4d, true},
+		{"accelerator-count Gt 0 matches 4 GPUs", expr(v1alpha1.LabelAcceleratorCount, corev1.NodeSelectorOpGt, "0"), gpu96, true},
 		{"accelerator-count Exists excludes a type without GPUs", expr(v1alpha1.LabelAcceleratorCount, corev1.NodeSelectorOpExists), m7i, false},
 		{"accelerator-model In L4 excludes a type without GPUs", expr(v1alpha1.LabelAcceleratorModel, corev1.NodeSelectorOpIn, "L4"), m7i, false},
 		// DoesNotExist semantics for unknown values: any threshold excludes

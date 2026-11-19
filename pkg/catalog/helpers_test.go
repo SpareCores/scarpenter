@@ -30,6 +30,8 @@ import (
 func refreshed(t testing.TB, scope catalog.Scope, vendorsWithZones ...string) (*catalog.Catalog, catalog.Class) {
 	t.Helper()
 	cl := catalog.NewClass("c", scope)
+	cl.FlatcarVersion = catalogtest.FlatcarVersion
+	cl.Finalize()
 	c := catalog.New(catalog.Options{Source: catalogtest.Source(t), Facts: catalogtest.Facts(t, vendorsWithZones...)})
 	c.SetClasses([]catalog.Class{cl})
 	if err := c.Refresh(context.Background()); err != nil {

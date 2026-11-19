@@ -13,6 +13,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog/model"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
 // attributeKeys are the fixed attribute label keys (00a section 7.1), in a
@@ -132,4 +133,24 @@ func positive(key string, v *float64, scale float64) *scheduling.Requirement {
 		return Int(key, 1)
 	}
 	return r
+}
+
+// NVIDIADriver returns the three driver label requirements of an NVIDIA GPU
+// type: the values of the selection, DoesNotExist for a type without one.
+func NVIDIADriver(sel *nvidia.Selection) []*scheduling.Requirement {
+	if sel == nil {
+		return []*scheduling.Requirement{
+			Absent(v1alpha1.LabelNVIDIADriverBranch), Absent(v1alpha1.LabelNVIDIADriverVersion),
+			Absent(v1alpha1.LabelNVIDIADriverFlavor),
+		}
+	}
+	return []*scheduling.Requirement{
+		In(v1alpha1.LabelNVIDIADriverBranch, sel.Branch), In(v1alpha1.LabelNVIDIADriverVersion, sel.Version),
+		In(v1alpha1.LabelNVIDIADriverFlavor, string(sel.Flavour)),
+	}
+}
+
+// NVIDIADriverKeys are the keys of NVIDIADriver.
+var NVIDIADriverKeys = []string{
+	v1alpha1.LabelNVIDIADriverBranch, v1alpha1.LabelNVIDIADriverVersion, v1alpha1.LabelNVIDIADriverFlavor,
 }

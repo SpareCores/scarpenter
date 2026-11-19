@@ -25,6 +25,7 @@ Prefix `scarpenter.sparecores.com/` omitted in the first column.
 | `cpu-manufacturer`, `cpu-family`, `cpu-allocation` | `AMD`, `EPYC`, `Dedicated` | enum |
 | `accelerator-count`, `accelerator-memory-mib` | `1`, `24576` | integer |
 | `accelerator-manufacturer`, `accelerator-model`, `accelerator-type` | `NVIDIA`, `L4`, `GPU` | enum |
+| `nvidia-driver-branch`, `nvidia-driver-version`, `nvidia-driver-flavor` | `570`, `570.211.01`, `open` | enum, on NVIDIA GPU types; the driver the node boots with ([GPU types](labels-and-offerings.md#gpu-types)) |
 | `vcpus`, `cpu-cores` | `8` | integer |
 | `memory-mib`, `memory-per-vcpu-mib` | `32768` | integer |
 | `cpu-clock-mhz`, `cpu-l2-per-core-kib`, `cpu-l3-mib` | `3700` | integer |
