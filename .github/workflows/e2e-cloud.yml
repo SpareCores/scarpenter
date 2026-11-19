@@ -386,6 +386,12 @@ jobs:
           [[ -n "${UPCLOUD_TOKEN_IN}" ]] || { echo "::error::the environment secret UPCLOUD_TOKEN is not set" >&2; exit 1; }
           echo "::add-mask::${UPCLOUD_TOKEN_IN}"
           echo "UPCLOUD_TOKEN=${UPCLOUD_TOKEN_IN}" >> "${GITHUB_ENV}"
+      # The Flatcar template of the pinned release in the sub-account (imported from the images
+      # repository on the first run of a release; the preflight needs it).
+      - name: Flatcar template (upcloud)
+        if: inputs.vendor == 'upcloud'
+        run: |
+          test/e2e-upcloud/ensure-template.sh
       # Azure: the CI identity through GitHub's OIDC (a federated credential on a
       # user-assigned managed identity: no secret). The runner's az session is for the scenarios
       # and the teardown; the controller in k3s reads a federated token file (next step).
