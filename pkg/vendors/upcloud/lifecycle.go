@@ -178,9 +178,23 @@ func StorageLabels(tags map[vendors.TagKey]string) []upcloud.Label {
 	return out
 }
 
-// PostCreate is what follows the create call, once the server has started (the
-// API refuses a firewall write while it is cloning its storage): write the Public
-// & Utility firewall, and, with a private interface and a ruleset, attach the
+// WaitStarted waits until the server has left maintenance: the API refuses a
+// firewall write while it clones its storage, which takes minutes on a Standard
+// tier disk. A failure leaves the server alone: the next attempt's idempotency
+// lookup finds it and replays the steps.
+func WaitStarted(ctx context.Context, a api.API, uuid string) error {
+	wctx, cancel := CallContext(ctx, StartTimeout)
+	defer cancel()
+	if _, err := a.WaitForServerState(wctx, &request.WaitForServerStateRequest{
+		UUID: uuid, DesiredState: upcloud.ServerStateStarted,
+	}); err != nil {
+		return fmt.Errorf("waiting for the server to start: %w", Classify(err))
+	}
+	return nil
+}
+
+// PostCreate is what follows the create call, once the server has started: write
+// the Public & Utility firewall, and, with a private interface and a ruleset, attach the
 // ruleset and switch the private firewall on. The server group and the storage
 // labels are part of the create call.
 type PostCreate struct {
@@ -192,15 +206,6 @@ type PostCreate struct {
 // Run applies the steps in order; the first failure is returned classified, and
 // the caller deletes the server (the idempotency lookup then finds nothing).
 func (p PostCreate) Run(ctx context.Context, a api.API, d *upcloud.ServerDetails) error {
-	// A server answers 409 SERVER_STATE_ILLEGAL to a firewall write while it is in
-	// maintenance (cloning its storage), so the steps start when it has started.
-	wctx, wcancel := CallContext(ctx, CreateTimeout)
-	defer wcancel()
-	if _, err := a.WaitForServerState(wctx, &request.WaitForServerStateRequest{
-		UUID: d.UUID, DesiredState: upcloud.ServerStateStarted,
-	}); err != nil {
-		return fmt.Errorf("waiting for the server to start: %w", Classify(err))
-	}
 	if err := WriteFirewall(ctx, a, d.UUID, p.Rules); err != nil {
 		return fmt.Errorf("writing the firewall: %w", err)
 	}

@@ -39,7 +39,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # A node's NodeClaim must be launched (the server created) this long after a wait began, or
 # the wait fails at once as "never launched". A progress block is printed to the job log
 # this often during a wait.
-: "${E2E_LAUNCH_TIMEOUT:=180}"
+# UpCloud launches only when the server has started (its firewall cannot be written while it
+# clones its disk), and a clone takes minutes, so the launch window is longer than elsewhere.
+: "${E2E_LAUNCH_TIMEOUT:=600}"
 : "${E2E_PROGRESS_INTERVAL:=30}"
 # After the first failed scenario the remaining ones are skipped and the run ends, so that
 # the diagnostics and the teardown start at once; false runs every scenario.

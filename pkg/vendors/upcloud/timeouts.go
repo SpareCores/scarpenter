@@ -17,6 +17,8 @@ import (
 const (
 	CallTimeout   = 45 * time.Second
 	CreateTimeout = 90 * time.Second
+	// StartTimeout bounds the wait of a new server for the end of its storage clone.
+	StartTimeout = 10 * time.Minute
 	// StopTimeout bounds the wait for a hard stop to finish before a delete.
 	StopTimeout = 2 * time.Minute
 )

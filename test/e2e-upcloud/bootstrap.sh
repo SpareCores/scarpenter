@@ -36,6 +36,8 @@ sudo install -m 0755 "${tmp}/k3s" /usr/local/bin/k3s
 rm -rf "${tmp}"
 
 log "starting the k3s server"
+# gateway-api-crd: its helm-install Job does not tolerate the taint below, so it would be the first
+# pod SCarpenter launches a server for (a launch is slow on UpCloud and blocks the others).
 # CriticalAddonsOnly: k3s's CoreDNS tolerates it, flannel and kube-proxy tolerate
 # everything, the chart gets the toleration from manifests/chart-values.yaml.
 sudo systemd-run --unit=k3s-e2e --collect \
@@ -43,7 +45,7 @@ sudo systemd-run --unit=k3s-e2e --collect \
   --node-ip "${tsip}" --advertise-address "${tsip}" --tls-san "${tsip}" \
   --node-taint CriticalAddonsOnly=true:NoSchedule \
   --flannel-backend=none --disable-kube-proxy --disable-network-policy --egress-selector-mode=disabled \
-  --disable=traefik,servicelb,metrics-server,local-storage \
+  --disable=traefik,servicelb,metrics-server,local-storage,gateway-api-crd \
   --write-kubeconfig /etc/rancher/k3s/k3s.yaml --write-kubeconfig-mode 0644
 wait_until "the k3s kubeconfig" 180 test -s /etc/rancher/k3s/k3s.yaml
 # Without its embedded flannel, k3s's containerd uses the default CNI paths
