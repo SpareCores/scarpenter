@@ -305,9 +305,10 @@ func explicitMatchesNothing(t *testing.T, o *order) {
 	if bad, why := rep.NotReady(); len(bad) != 1 || !strings.Contains(why[o.e.region], string(o.kind)) {
 		t.Errorf("the check: not ready %v %v; want the region failed on %s", bad, why, o.kind)
 	}
-	// (The other kinds of the NodeClass report what they found, a default included.)
+	// The other kinds of the NodeClass report their vendor default (nothing else is
+	// seeded for them); nothing is reported for the kind itself.
 	for _, r := range rep.Resources {
-		if r.Kind == string(o.kind) {
+		if r.Kind == string(o.kind) || r.Source != v1alpha1.ResourceSourceDefault {
 			t.Errorf("the check reports %+v although the explicit use matched nothing", r)
 		}
 	}

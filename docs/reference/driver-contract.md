@@ -338,8 +338,8 @@ runs whenever the kind's declaration and the fixture allow it and skips with its
 with tags is selected by its tags, a kind without tags by name (`Seed` gets no tags and the cases name what
 they seed `<group>-<id>-*`), the order by label and the tie by label need tags, the ordering by name and
 `{zone}` need `name`, the creation-time cases need `created` (and the fixture's `created` attribute), and a
-kind with neither tags nor `name` runs only the cases by ID. Every declaration is well formed and validation rejects
-what it does not support (unknown filter, attribute, placeholder, `{zone}` on a regional kind, `created` on
+kind with neither tags nor `name` runs only the cases by ID. Every declaration is well formed and validation
+rejects what it does not support (unknown filter, attribute, placeholder, `{zone}` on a regional kind, `created` on
 a kind without a creation time, an empty `use`); fields are ANDed; `ids` are ANDed with the rest, a
 missing ID does not fail the others and is named, an ID that does not match is named; `*` under `ids`
 is every region; zero matches and two matches under `exactlyOne` are `NoMatch` and `Ambiguous` with the
@@ -351,16 +351,18 @@ vendor evaluating the selector exactly, narrowing to a superset, or not at all
 For a driver that declares the `images` kind with a `SeedImage` hook the [image cases](#images) (explicit IDs, both
 architectures, the version check, ordering, placeholders, the default image).
 For `ManagedResources` with `Seed` and `OrderClass` hooks (and `SetDefault` where the vendor has a default of the kind;
-a vendor without one leaves it nil, never skips inside it), the resolution order behind the core's engine. Each
-case runs whenever its preconditions hold: the cases about the default need `SetDefault`, the opt-in tag needs
-a kind with tags (a kind without tags is discovered by nothing, and `forbid` names "discovery skipped"), and the
-others (nothing found creates, an explicit `use` that matches nothing, `forbid`, an interrupted creation, kinds
-in a network) run for every kind, seeding by name where there are no tags: explicit `use` beats the opt-in tag
-beats the default beats create (the explicit `use` beats the default alone for a kind without tags); an explicit `use` that matches nothing fails and
-does not fall through; an explicit `create` skips discovery and the default; a default that cannot honour
-`publicIPv6` is skipped; `forbid` ends at a failure that names the kind, the region and the steps; a creation
-interrupted midway (`FailCreate`) is adopted and completed by the next pass; a kind that lives in a network resolves
-only within it. `TagKey(TagUse)` must be non-empty for every driver (`identity`).
+a vendor without one leaves it nil, and `SetDefault` skips only a state the vendor cannot arrange, such as a default
+without IPv6), the resolution order behind the core's engine. Each case runs whenever its preconditions hold: the
+cases about the default need `SetDefault`, the opt-in tag needs a kind with tags (a kind without tags is discovered
+by nothing, and `forbid` names "discovery skipped"), an explicit `use` or `create` that beats the other steps needs
+tags or a default to beat, and the others (nothing found creates, an explicit `use` that matches nothing, `forbid`,
+an interrupted creation, kinds in a network) run for every kind, seeding by name where there are no tags: explicit
+`use` beats the opt-in tag beats the default beats create; an explicit `use` that matches nothing fails and
+does not fall through (the other kinds of the NodeClass report only their default); an explicit `create` skips
+discovery and the default; a default that cannot honour `publicIPv6` is skipped; `forbid` ends at a failure that
+names the kind, the region and the steps; a creation interrupted midway (`FailCreate`) is adopted and completed by
+the next pass; a kind that lives in a network resolves only within it. `TagKey(TagUse)` must be non-empty for every
+driver (`identity`).
 For `NodeOptions`: the defaults decode and match `RootDiskBytes`, and `RootDiskForType` is deterministic and positive when it answers; for the
 fixture's sample `Profiles` and `ProfileTypes`, `Supported` is deterministic,
 returns only defined profiles and nothing without profiles, and every supported
