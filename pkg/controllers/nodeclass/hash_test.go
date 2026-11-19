@@ -144,3 +144,31 @@ func TestHashCoversTheResolvedInputs(t *testing.T) {
 		}
 	}
 }
+
+// The deprecated spec.bootstrap.hardening stays in the hash as it was, so that a
+// stored NodeClass that sets it does not drift when SCarpenter is upgraded
+// (ADR-025). The values are the hashes the code before the deprecation computed
+// for this NodeClass: for the vendors whose drivers applied the hardening it is
+// part of the hash, for the others it is not.
+func TestDeprecatedHardeningKeepsTheOldHash(t *testing.T) {
+	nc := base()
+	// maxPods is 110 as on every stored NodeClass: the CRD defaulted it before the
+	// Lean footprint, and the pins were computed with it set.
+	nc.Spec.Kubelet.MaxPods = ptr.To[int32](110)
+	nc.Spec.Bootstrap = &v1alpha1.BootstrapSpec{Hardening: []v1alpha1.Hardening{v1alpha1.HardeningMetadataFromPods}}
+	const (
+		wantFake = "e053ab65f7a94843c1ff2fdfc965dfb079c56675bc6afd84b06c755ff951e94e"
+		wantAWS  = "b310824b670685c5120dd548c125c7f57792106140f6488b273a3a74332f9af5"
+	)
+	if got := hash(t, nc, "fake"); got != wantFake {
+		t.Errorf("fake hash = %s, want %s", got, wantFake)
+	}
+	if got := hash(t, nc, "aws"); got != wantAWS {
+		t.Errorf("aws hash = %s, want %s", got, wantAWS)
+	}
+	plain := base()
+	plain.Spec.Kubelet.MaxPods = ptr.To[int32](110)
+	if hash(t, nc, "aws") != hash(t, plain, "aws") {
+		t.Error("a vendor that never applied the hardening drifts")
+	}
+}

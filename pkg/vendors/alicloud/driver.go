@@ -63,7 +63,7 @@ func WithPrices(p PriceSource) Option { return func(d *Driver) { d.prices = p } 
 // Driver implements vendors.Driver and the capabilities NodeClassValidator,
 // ImageReporter, NodeOptions, EpochReporter, ManagedResources, ResourceDefaults,
 // ZoneChecker, ArchNamer, QuotaReporter, OfferingLister, BillingDescriber and
-// NodeHardener.
+// InstanceMetadata.
 type Driver struct {
 	cfg     vendors.Config
 	clock   clock.Clock
@@ -449,5 +449,5 @@ var (
 	_ vendors.QuotaReporter      = (*Driver)(nil)
 	_ vendors.OfferingLister     = (*Driver)(nil)
 	_ vendors.BillingDescriber   = (*Driver)(nil)
-	_ vendors.NodeHardener       = (*Driver)(nil)
+	_ vendors.InstanceMetadata   = (*Driver)(nil)
 )

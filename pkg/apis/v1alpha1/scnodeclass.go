@@ -50,10 +50,17 @@ type SCNodeClassSpec struct {
 	// +optional
 	Butane *ButaneSpec `json:"butane,omitempty"`
 
-	// bootstrap holds the opt-in changes to the node's boot configuration that
-	// a vendor's driver can contribute (plan 14 A7).
+	// bootstrap is deprecated: no effect; instance metadata is restricted by
+	// spec.instanceMetadata; will be removed in a later API version.
 	// +optional
 	Bootstrap *BootstrapSpec `json:"bootstrap,omitempty"`
+
+	// instanceMetadata controls which processes on a node can reach the
+	// vendor's instance metadata service. Unset means Restricted for new nodes
+	// (ADR-025); nodes launched before that keep what they have until the
+	// field is set.
+	// +optional
+	InstanceMetadata *InstanceMetadataSpec `json:"instanceMetadata,omitempty"`
 
 	// sysexts lists extra systemd sysexts installed on every node.
 	// +kubebuilder:validation:MaxItems=16
@@ -118,42 +125,56 @@ type SCNodeClassSpec struct {
 	Vendors VendorBlocks `json:"vendors"`
 }
 
-// Hardening is a named, opt-in hardening of the node's boot configuration. A
-// driver that offers it contributes a Butane fragment that the core merges into
-// the base config.
+// Hardening is a name of the deprecated spec.bootstrap.hardening.
 // +kubebuilder:validation:Enum=metadata-from-pods
 type Hardening string
 
-// Hardenings.
-const (
-	// HardeningMetadataFromPods drops Pod traffic that is forwarded to the
-	// vendor's metadata address (the user-data holds a bootstrap token and, with
-	// the tailscale template, the Tailscale key), on vendors with nothing like
-	// AWS's hop limit. The node's own units and host-network Pods are unaffected.
-	HardeningMetadataFromPods Hardening = "metadata-from-pods"
-)
+// HardeningMetadataFromPods is the only value of the deprecated hardening list.
+const HardeningMetadataFromPods Hardening = "metadata-from-pods"
 
-// BootstrapSpec is the optional bootstrap hardening of the node.
+// BootstrapSpec is the deprecated bootstrap hardening of the node. It stays in
+// the API, and in the drift hash, so that a stored NodeClass that sets it does
+// not drift (ADR-025).
 type BootstrapSpec struct {
-	// hardening lists the opt-in hardenings of the boot configuration. Off by
-	// default: they change what Pods on the node can reach. A vendor whose driver
-	// offers none of them (AWS) ignores the list and says so in an Event.
+	// hardening is deprecated: no effect; instance metadata is restricted by
+	// spec.instanceMetadata; will be removed in a later API version.
 	// +kubebuilder:validation:MaxItems=8
 	// +listType=set
 	// +optional
 	Hardening []Hardening `json:"hardening,omitempty"`
 }
 
-// HardeningNames returns the enabled hardenings as strings (nil when none).
-func (s *SCNodeClassSpec) HardeningNames() []string {
-	if s.Bootstrap == nil {
-		return nil
-	}
-	out := make([]string, len(s.Bootstrap.Hardening))
-	for i, h := range s.Bootstrap.Hardening {
-		out[i] = string(h)
-	}
-	return out
+// InstanceMetadataAccess is who on a node can reach the vendor's instance
+// metadata service.
+// +kubebuilder:validation:Enum=Restricted;Open
+type InstanceMetadataAccess string
+
+// Instance metadata access modes.
+const (
+	// InstanceMetadataRestricted lets only the node components the driver lists
+	// (Afterburn's units and the vendor's guest agents) reach the metadata
+	// service; every other host process and every Pod, in the Pod network or the
+	// host network, is dropped. The user-data it serves holds the bootstrap token
+	// and, with the tailscale template, the Tailscale key.
+	InstanceMetadataRestricted InstanceMetadataAccess = "Restricted"
+	// InstanceMetadataOpen leaves the metadata service open to every process and
+	// Pod on the node, for workloads that need it (a vendor's CSI driver or cloud
+	// controller, a benchmark that reads the instance's identity).
+	InstanceMetadataOpen InstanceMetadataAccess = "Open"
+)
+
+// InstanceMetadataSpec is the access to the vendor's instance metadata service.
+type InstanceMetadataSpec struct {
+	// access is Restricted (the default when instanceMetadata is unset) or Open.
+	// +required
+	Access InstanceMetadataAccess `json:"access"`
+}
+
+// RestrictsInstanceMetadata reports whether nodes of the NodeClass are launched
+// with the metadata service closed to everything but the node's own components:
+// the default, unless the NodeClass says Open.
+func (s *SCNodeClassSpec) RestrictsInstanceMetadata() bool {
+	return s.InstanceMetadata == nil || s.InstanceMetadata.Access != InstanceMetadataOpen
 }
 
 // ButaneSpec references extra Butane configuration.

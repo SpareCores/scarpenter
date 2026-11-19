@@ -37,17 +37,34 @@ type Inputs struct {
 	UserButane     string
 	// AuthKeyVersion is the resourceVersion of the tailscale auth key Secret.
 	AuthKeyVersion string
-	// Hardening are the hardenings of spec.bootstrap.hardening that the vendor's
-	// driver offers (vendors.OfferedHardenings): only those change its nodes'
-	// user-data, so a hardening a vendor ignores does not drift its nodes.
-	Hardening []string
+}
+
+// hardeningVendors are the vendors whose drivers applied spec.bootstrap.hardening
+// before it was deprecated (ADR-025). The field still counts in their hash, as it
+// did, so that a stored NodeClass that sets it does not drift. The list is closed:
+// it names what the field did, not what a driver offers now.
+var hardeningVendors = []string{"alicloud", "fake", "gcp", "oci", "ovh", "upcloud", "vultr"}
+
+// deprecatedHardening returns the sorted, deduplicated names of the deprecated
+// spec.bootstrap.hardening that count in the hash of the vendor; nil when none.
+func deprecatedHardening(nc *v1alpha1.SCNodeClass, vendor string) []string {
+	if nc.Spec.Bootstrap == nil || !slices.Contains(hardeningVendors, vendor) {
+		return nil
+	}
+	var names []string
+	for _, h := range nc.Spec.Bootstrap.Hardening {
+		names = append(names, string(h))
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // Hash is the drift hash of the NodeClass for one vendor: SHA-256 over the
 // canonical JSON of the shared fields that change what a node is (flatcar,
 // kubernetes, network, networking, kubelet, butane, sysexts, poweroffAfter,
-// tags), the hardenings the vendor applies, that vendor's block without regions
-// and resources, and HashVersion.
+// tags, the deprecated bootstrap.hardening on the vendors that applied it,
+// instanceMetadata), that vendor's block without regions and resources,
+// and HashVersion.
 // Changing another vendor's block never changes it; neither do regions,
 // resource references, metrics or selections. Besides the spec it covers what
 // the spec points at (Inputs): the contents of the custom template and the
@@ -67,14 +84,6 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 	delete(generic, "resources")
 
 	s := &nc.Spec
-	// The hardenings the vendor applies change the user-data, so they drift its
-	// nodes; they are left out when none applies, so that a NodeClass without
-	// them (or a vendor that offers none of them) keeps its hash. The list is a
-	// set: its order does not matter.
-	var hardening []string
-	if len(in.Hardening) > 0 {
-		hardening = slices.Sorted(slices.Values(in.Hardening))
-	}
 	// maxPods had a CRD default of 110 before the Lean footprint, so stored
 	// NodeClasses carry it and newer ones may not: an unset maxPods without Lean
 	// hashes as 110, the value the node gets either way, so that neither an old
@@ -95,11 +104,15 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 		Sysexts       any
 		PoweroffAfter any
 		Tags          any
-		Hardening     []string `json:",omitempty"`
-		Block         map[string]any
-		Inputs        hashInputs
+		// Left out when unset, as before the field was deprecated.
+		Hardening []string `json:",omitempty"`
+		// Left out when unset: a NodeClass that does not set it keeps its hash, so
+		// that the default (Restricted) reaches new nodes only and drifts no old one.
+		InstanceMetadata *v1alpha1.InstanceMetadataSpec `json:",omitempty"`
+		Block            map[string]any
+		Inputs           hashInputs
 	}{HashVersion, vendor, s.Flatcar, s.Kubernetes, s.Network, s.Networking, kubelet, s.Butane, s.Sysexts,
-		s.PoweroffAfter, s.Tags, hardening, generic, newHashInputs(in)})
+		s.PoweroffAfter, s.Tags, deprecatedHardening(nc, vendor), s.InstanceMetadata, generic, newHashInputs(in)})
 	if err != nil {
 		return "", fmt.Errorf("hashing the NodeClass: %w", err)
 	}

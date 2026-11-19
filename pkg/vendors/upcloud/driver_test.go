@@ -361,21 +361,11 @@ func TestInstanceStatesAndBillingStart(t *testing.T) {
 	}
 }
 
-func TestBillingRuleIsUnverifiedAndHardeningIsOffered(t *testing.T) {
+func TestBillingRuleIsUnverified(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	rule, ok := e.d.BillingRule("", "")
 	if !ok || rule.Verified || rule.Increment == nil || rule.Increment.Hours() != 1 || rule.DeleteLatency != uc.StopTimeout {
 		t.Errorf("BillingRule = %+v, %v", rule, ok)
-	}
-	if got := e.d.Hardenings(); len(got) != 1 || got[0] != vendors.HardeningMetadataFromPods {
-		t.Errorf("Hardenings = %v", got)
-	}
-	frags, err := vendors.BootFragmentsFor(e.d, []string{vendors.HardeningMetadataFromPods, "unknown"}, vendors.BootFragmentRequest{})
-	if err != nil || len(frags) != 1 || !strings.Contains(frags[0].Butane, uc.MetadataAddress) {
-		t.Errorf("BootFragmentsFor = %v, %v", frags, err)
-	}
-	if frags, err := vendors.BootFragmentsFor(e.d, nil, vendors.BootFragmentRequest{}); err != nil || len(frags) != 0 {
-		t.Errorf("nothing is always on: %v, %v", frags, err)
 	}
 	if name, ok := e.d.VendorArch("amd64"); !ok || name != "amd64" {
 		t.Errorf("VendorArch(amd64) = %q, %v", name, ok)

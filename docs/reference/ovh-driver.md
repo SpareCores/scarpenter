@@ -236,8 +236,9 @@ counts). `publicIPv4: true` is the only accepted value; `publicIPv6` is informat
 A group that admits everything only from private ranges drops node-to-node and control-plane traffic over public addresses: with
 it only the `tailscale` join works, not `direct`. A private (vRack) network can make OpenStack choose the private interface as
 the default route: private networks, gateways and IPv6-only nodes are not supported in v1. `Instance.Addresses` holds every address of
-the server, IPv4 first; under `direct` the node's address is the public IPv4. With the metadata service reachable from Pods
-(`169.254.169.254`, no hop limit as on AWS), the driver offers the hardening `metadata-from-pods` (`spec.bootstrap.hardening`).
+the server, IPv4 first; under `direct` the node's address is the public IPv4. The metadata service
+(`169.254.169.254` and the link-local `fe80::a9fe:a9fe`, no hop limit as on AWS) is closed to Pods and to every host
+process but Afterburn's by default ([instance metadata access](node-bootstrap.md#instance-metadata-access)).
 
 ## Tags
 

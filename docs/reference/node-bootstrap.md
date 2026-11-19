@@ -151,9 +151,9 @@ override earlier ones):
    volatile journal and masked units a worker does not need.
 3. **volumes**, for nodes with extra volumes or local storage (the
    [first-boot volume unit](node-settings.md#extra-volumes-and-local-storage)).
-4. **vendor fragments**, one part per fragment the vendor's driver contributes
-   ([below](#vendor-fragments)); none unless a driver has an always-on fragment or the NodeClass
-   enables a hardening.
+4. **vendor fragments**, one part per fragment the vendor's driver contributes, among them the
+   [instance metadata access](#instance-metadata-access) part (`vendor-metadata-access`), unless the
+   NodeClass says `Open` or the vendor has no metadata service.
 5. **network**: [`tailscale`, `direct` or `custom`](#network-templates).
 6. **user**, when `spec.butane` is set.
 
@@ -249,42 +249,114 @@ compares them. What each renders:
   address (no `--node-ip`).
 - **`custom`**: your Butane template (below).
 
-## Vendor fragments
+## Instance metadata access
 
-A vendor's driver can contribute Butane to the node through the optional
-[`NodeHardener`](driver-contract.md#boot-fragments) capability. Each fragment is a
-Butane config like the user's own (`variant: flatcar`, `1.0.0` or `1.1.0`, the template variables above,
-strict mode), merged as its own part named `vendor-<name>` after the base and volume
-configs and **before** the network template and the user's Butane, which can therefore override it.
-There are two kinds:
+The vendor's instance metadata service serves the node's user-data, which holds the one-hour bootstrap
+token and, with the `tailscale` template, the Tailscale auth key, and on some vendors credentials of the
+instance. A Pod that can reach it can read them. `spec.instanceMetadata.access` decides who can:
 
-- **Always on**: what the vendor's image needs to boot as the other vendors' do (for example the udev rules
-  of `/dev/disk/by-id/google-<name>` that the GCP arm64 image lacks). The NodeClass does not ask for them.
-- **Hardenings**, enabled per NodeClass with `spec.bootstrap.hardening`, off by default:
+```yaml
+spec:
+  instanceMetadata:
+    access: Restricted   # the default when instanceMetadata is unset; Open opens it to everything on the node
+```
 
-  ```yaml
-  spec:
-    bootstrap:
-      hardening: [metadata-from-pods]
-  ```
+With **`Restricted`** only the listed node components reach the metadata addresses; every other host process
+and every Pod, in the Pod network and in the host network, is dropped. The metadata service stays on at the
+cloud: Ignition reads the user-data in the initramfs, before the node's own rules exist, and no vendor API
+can switch the service off and on again without a window in which the node cannot boot or read its data.
+**`Open`** adds nothing to the node's configuration and leaves the service reachable by everything, for a
+NodeClass whose workloads need it, such as a benchmark that reads the instance's identity or a vendor's CSI
+driver or cloud controller that runs as a Pod and takes its credentials from the metadata service.
 
-  `metadata-from-pods` drops Pod traffic that is forwarded to the vendor's metadata address
-  (`169.254.169.254` on GCP, `100.100.100.200` on Alibaba Cloud), where, unlike on AWS (the metadata hop
-  limit keeps Pods away), nothing else stops a Pod reading the user-data, which holds the one-hour bootstrap
-  token and, with the `tailscale` template, the Tailscale auth key. It is a systemd unit
-  (`scarpenter-block-metadata.service`) that inserts `iptables -I FORWARD 1 -d <address> -j DROP` before the
-  network and the kubelet start. The trade-off is why it is opt-in: it changes what Pods can reach, so a
-  workload that uses the vendor's metadata service from a Pod (workload identity through the metadata server)
-  stops working. Only the forward path is dropped: the node's own units (Ignition, the kubelet, time sync) use the
-  output path and are unaffected, and Pods in the host network are not forwarded and can still reach it. A CNI that
-  bypasses netfilter for Pod traffic is not covered.
+It applies to nodes launched after it exists. `instanceMetadata` leaves the
+[drift hash](#the-nodeclass-controller) as it was while it is unset, so upgrading SCarpenter drifts no node:
+running nodes keep the (open) metadata service they were launched with until the NodeClass sets
+`access: Restricted` or `Open`, which replaces them like any other change of the hash. A NodeClass
+that sets the deprecated `spec.bootstrap.hardening` drifts no node either: the field has no effect, stays in the hash as
+before, and the controller publishes a `DeprecatedHardening` Event for it ([ADR-025](../explanation/DECISIONS.md)).
 
-A vendor whose driver offers no hardening ignores the list; the NodeClass controller records an Event
-(`HardeningNotOffered`) so that an opt-in is never silently dropped (AWS offers none). The fragments count in the
-[size budget](#size-budget) and in the trial rendering of the NodeClass controller, and the enabled hardenings
-a vendor offers are part of its [drift hash](#the-nodeclass-controller): changing them replaces that vendor's
-nodes, while a hardening a vendor ignores does not drift its nodes. No vendor
-driver uses the hook yet; the fake driver offers `metadata-from-pods` so that it is exercised without a cloud.
+### What is restricted
+
+Each driver declares its vendor's metadata addresses and the units of its image that need them (the optional
+`InstanceMetadata` capability, [driver contract](driver-contract.md#metadata-endpoints)); the core builds one
+Butane fragment from that. Only TCP connections the node opens (the `SYN`) are dropped, and not to port 53:
+several of these addresses also serve DNS and NTP (GCP, OCI, Azure's WireServer), which must keep working, and
+replies to connections that come from them (Azure's load balancer health probes come from `168.63.129.16`) must
+pass. UDP is not touched; no vendor serves its metadata over UDP. Addresses of other services, such as AWS's DNS
+(`169.254.169.253`) and NTP (`169.254.169.123`), are not listed.
+
+| Vendor | Addresses | Allowed units besides Afterburn's |
+|---|---|---|
+| `aws` | `169.254.169.254`, `fd00:ec2::254` | `amazon-ssm-agent.service` |
+| `gcp` | `169.254.169.254`, `fd20:ce::254` | `oem-gce.service` |
+| `azure` | `169.254.169.254`, `168.63.129.16` (the WireServer) | `waagent.service` |
+| `oci` | `169.254.169.254`, `fd00:c1::a9fe:a9fe` | none |
+| `alicloud` | `100.100.100.200` | none |
+| `hcloud` | `169.254.169.254`, `fe80::a9fe:a9fe` | none |
+| `upcloud`, `vultr` | `169.254.169.254` | none |
+| `ovh` | `169.254.169.254`, `fe80::a9fe:a9fe` | none |
+| `qemu` | no metadata service, nothing is added | none |
+
+Afterburn's `coreos-metadata.service` and `coreos-metadata-sshkeys@.service` are allowed on every vendor.
+The unit names are those of the Flatcar release's OEM images (`oem-ami`, `oem-gce`, `oem-azure`). The IPv6
+addresses of OCI and the link-local address of Hetzner and OpenStack are those Afterburn and cloud-init use;
+if a vendor's service is reachable under an address that is not listed (Azure hands out the WireServer's
+address by DHCP and `168.63.129.16` is its fixed value), it is not restricted. Alibaba's `100.100.0.0/16` holds
+other platform services and is left alone.
+
+### How it works
+
+- The allowed units run in the systemd slice `scarpenter-metadata.slice` (a `Slice=` drop-in each, so their
+  cgroup is below `scarpenter.slice/scarpenter-metadata.slice`). The slice stays active while it is empty.
+- `scarpenter-metadata-firewall.service`, a oneshot ordered before `network-pre.target`, loads iptables rules
+  (iptables-nft, the `security` table, for IPv4 and IPv6) from `/etc/scarpenter/metadata-iptables.rules` and
+  `/etc/scarpenter/metadata-ip6tables.rules` with `/opt/scarpenter/bin/scarpenter-metadata-firewall`. In
+  `OUTPUT`, a TCP connection to the addresses is dropped unless the socket's cgroup is below the slice
+  (`-m cgroup --path`): that covers host processes, Pods in the host network and what the kubelet or containerd
+  fetch for a Pod (an HTTP probe or an image at a metadata address). In `FORWARD`, which Pods in the Pod network
+  use, it is dropped for everyone; the CNI's masquerade comes later, in `POSTROUTING`. The `security` table runs after `filter`: a drop in one base chain is final, and an accept in another
+  (kube-proxy and the CNIs use `filter`) does not override it.
+- The kubelet requires the unit, so a node whose rules did not load does not join. The allowed units want the
+  unit and start after it.
+- Ignition runs in the initramfs and is not affected. `iptables -m cgroup` is used because the `socket cgroupv2`
+  expression of nftables needs `CONFIG_NFT_SOCKET`, which Flatcar's kernel does not build.
+- The rules are never removed. Stopping the unit or the slice leaves them in place, and a slice that is stopped
+  and started again is a new cgroup that the loaded rules no longer match, so even the allowed units would be
+  dropped (fail closed). Stopping the slice stops the unit (and with it the kubelet); the next allowed unit that
+  starts starts the unit again, which loads the rules for the new cgroup first, and `systemctl restart
+  scarpenter-metadata.slice` does the same. Restarting the unit restarts the kubelet, and after a stop the
+  kubelet needs `systemctl start kubelet`.
+
+### On a node
+
+```bash
+systemctl status scarpenter-metadata.slice scarpenter-metadata-firewall.service
+sudo iptables-nft -t security -vnL SCARPENTER-IMDS-OUTPUT     # the packet counters show what is dropped
+sudo ip6tables-nft -t security -vnL SCARPENTER-IMDS-OUTPUT
+sudo iptables-nft -t security -vnL SCARPENTER-IMDS-FORWARD
+systemctl show -p Slice,ControlGroup <unit>                    # is a unit in the slice?
+sudo systemd-run --slice=scarpenter-metadata.slice --pipe --wait curl -s http://<address>/   # allowed
+```
+
+A request to a metadata address that hangs and then times out comes from a process outside the slice.
+
+### What it cannot stop
+
+- Root on the host, and a privileged Pod with `NET_ADMIN` (it edits the rules) or `CAP_SYS_ADMIN` (it joins the
+  allowed cgroup). Keep such Pods out of the cluster, or in a NodeClass with `Open` for what needs it.
+- Anything in the allowed slice, such as the sessions of the SSM agent on AWS.
+- A Pod in the host network with `NET_RAW` (in containerd's default capabilities), which can send packets below
+  the IP layer past `OUTPUT`: drop the capability in the Pod's security context. A Pod in the Pod network with it
+  still goes through `FORWARD`.
+- A metadata service that is reachable under an address that is not in the table.
+- A CNI that routes Pod traffic without netfilter (eBPF host routing) does not pass `FORWARD`.
+- Components in the cluster that need the metadata service: a vendor's CSI driver or cloud controller as a
+  Pod, vendor workload identity, a benchmark tool that reads the instance's identity. Put their nodes in a
+  NodeClass with `access: Open`.
+
+The fragment counts in the [size budget](#size-budget) (about 2 KiB of the user-data) and in the trial rendering of
+the NodeClass controller. `spec.butane` and a custom template merge after it and can override it.
 
 ## Custom templates and extra Butane
 
@@ -350,8 +422,8 @@ makes its own offerings unavailable, and a `Create` fails with
 
 The **drift hash** of a vendor is the SHA-256 over the canonical JSON of the
 shared fields that change what a node is (`flatcar`, `kubernetes`, `network`,
-`networking`, `kubelet`, `butane`, `sysexts`, `poweroffAfter`, `tags`), the hardenings of `spec.bootstrap.hardening` that the
-vendor's driver offers (in any order; none leaves the hash as it was), that vendor's block without `regions` and `resources`, the contents the spec points at
+`networking`, `kubelet`, `butane`, `sysexts`, `poweroffAfter`, `tags`), `instanceMetadata` (left out while unset, so the
+hash of a NodeClass that does not set it is the one it had before the field existed), that vendor's block without `regions` and `resources`, the contents the spec points at
 (custom template, Butane, the auth key Secret's resourceVersion), the resolved
 artifact digests (not their URLs: switching to a mirror of the same release does
 not drift nodes), and `HashVersion`. When an input cannot be loaded (a reference
@@ -363,8 +435,7 @@ references, metrics and selections do not change it.
 
 Events (on the SCNodeClass, Warning, deduplicated for 10 minutes):
 `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `RestartRequired`,
-`MetricInvalid`, `HardeningNotOffered` (a hardening in `spec.bootstrap.hardening` that a vendor's driver does
-not offer).
+`MetricInvalid`.
 
 ## The serving certificate approver
 
@@ -447,7 +518,8 @@ principals that may describe the instance's attributes. What limits the damage:
   (`--tailnet-prefixes`) next to the instance's, so a leaked token cannot get a
   certificate for a VPC or any other non-tailnet address.
 - The AWS driver requires IMDSv2 with a hop limit of 1, so Pods without host
-  networking cannot reach the metadata service.
+  networking cannot reach the metadata service; every vendor's metadata service is, besides,
+  [restricted to the node's own components](#instance-metadata-access) unless the NodeClass says `Open`.
 - The tailscale auth key should be **ephemeral, pre-authorized and tagged**, with
   an ACL that limits the tag to what nodes need (the API server, other nodes). In
   v1 one reusable key per NodeClass is used; per-node keys are post-v1.

@@ -68,7 +68,7 @@ spec:
   disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
   limits: {cpu: "4"}
 ---
-# The hardened pool of the imds scenario: its NodeClass drops Pod traffic to the
+# The restricted pool of the imds scenario: its NodeClass drops Pod traffic to the
 # metadata address.
 apiVersion: karpenter.sh/v1
 kind: NodePool

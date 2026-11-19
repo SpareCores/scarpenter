@@ -14,17 +14,19 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 )
 
-// The hardening of the NodeClass reaches the render request as the fragments of the
-// driver; without it the request has none.
-func TestCreateGivesTheRendererTheDriversFragments(t *testing.T) {
+// The metadata restriction reaches the render request as the fragment the core builds
+// from the driver's declaration: on by default and with Restricted, off with Open.
+func TestCreateGivesTheRendererTheMetadataFragment(t *testing.T) {
+	access := func(a v1alpha1.InstanceMetadataAccess) func(*v1alpha1.SCNodeClass) {
+		return func(nc *v1alpha1.SCNodeClass) { nc.Spec.InstanceMetadata = &v1alpha1.InstanceMetadataSpec{Access: a} }
+	}
 	for name, tc := range map[string]struct {
 		mutate func(*v1alpha1.SCNodeClass)
 		want   []string
 	}{
-		"off": {nil, nil},
-		"on": {func(nc *v1alpha1.SCNodeClass) {
-			nc.Spec.Bootstrap = &v1alpha1.BootstrapSpec{Hardening: []v1alpha1.Hardening{v1alpha1.HardeningMetadataFromPods}}
-		}, []string{"block-metadata-from-pods"}},
+		"default":    {nil, []string{"metadata-access"}},
+		"restricted": {access(v1alpha1.InstanceMetadataRestricted), []string{"metadata-access"}},
+		"open":       {access(v1alpha1.InstanceMetadataOpen), nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t, envOptions{transform: tc.mutate})
@@ -35,7 +37,7 @@ func TestCreateGivesTheRendererTheDriversFragments(t *testing.T) {
 			got := make([]string, 0, len(frags))
 			for _, f := range frags {
 				got = append(got, f.Name)
-				if !strings.Contains(f.Butane, "169.254.169.254") {
+				if !strings.Contains(f.Butane, "169.254.169.254") || !strings.Contains(f.Butane, "fake-agent.service") {
 					t.Errorf("fragment %s: %s", f.Name, f.Butane)
 				}
 			}

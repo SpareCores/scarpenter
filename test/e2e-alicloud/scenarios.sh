@@ -386,12 +386,12 @@ scn_spot() {
     fail "the account's spot vCPU usage does not include the launched spot instance"
 }
 
-# imds (plan 21 section 5, the gap): what a Pod can reach at 100.100.100.200. On the plain
-# NodeClass the ECS metadata service is open to Pods (no hop limit exists): the scenario RECORDS what
-# a Pod reads (only the status and the size: the user-data holds the bootstrap token and the
-# tailscale key, so it is never printed). With bootstrap.hardening metadata-from-pods on
-# the second NodeClass the same Pod must reach nothing, while the node itself (a host-network Pod: its
-# traffic is not forwarded) still does. The patterns of the metadata paths are unverified.
+# imds (plan 21 section 5, the gap): what a Pod can reach at 100.100.100.200, where ECS has no hop
+# limit and the user-data holds the bootstrap token and the tailscale key. The metadata access is
+# Restricted on both NodeClasses: by default on e2e-amd64 (instanceMetadata unset) and spelled out on
+# e2e-hardened. A Pod on either and a host-network Pod reach nothing, while a process in
+# scarpenter-metadata.slice (where the allowed units run) still does. Only status and sizes are
+# printed, never the user-data. The patterns of the metadata paths are unverified.
 # pod_fetch_size <pod> <url>: how many bytes the Pod gets from the URL (0 when it gets nothing).
 # The content itself is never printed: the user-data holds secrets.
 pod_fetch_size() {
@@ -402,27 +402,27 @@ scn_imds() {
   settle_fixtures
   start_imds
   settle e2e-hardened
-  local plain_pod hard_pod hard_node hard_iid url id_plain
+  local plain_pod hard_pod hard_node hard_iid url
   plain_pod="$(getstate e2e-amd64.pod)"
   hard_pod="$(getstate e2e-hardened.pod)"
   hard_node="$(getstate e2e-hardened.node)"
   hard_iid="$(getstate e2e-hardened.iid)"
   url=http://100.100.100.200/latest
-  id_plain="$(kubectl exec "${plain_pod}" -- sh -c "wget -q -T 4 -O- ${url}/meta-data/instance-id 2>/dev/null" || true)"
-  if [[ -n "${id_plain}" ]]; then
-    note "IMDS GAP (plan 21 section 5): a Pod on the plain NodeClass reads the instance ID from 100.100.100.200 and $(pod_fetch_size "${plain_pod}" "${url}/user-data") bytes of the user-data (the bootstrap token and the tailnet key; TTL 1 h, deleted at registration)"
-  else
-    note "a Pod on the plain NodeClass reached nothing at 100.100.100.200: the gap is closed on this account (unverified why)"
-  fi
-  # The positive control: the node itself reads its metadata (instance ID equals the instance).
-  assert_eq "the node's own read of the metadata service on the hardened node" "${hard_iid}" \
-    "$(node_pod_exec "${hard_node}" "wget -q -T 4 -O- ${url}/meta-data/instance-id" || true)"
-  # With the hardening: a Pod reaches nothing.
-  assert_eq "a Pod on the hardened NodeClass reads no instance ID" "" \
+  assert_eq "a Pod on the default NodeClass (instanceMetadata unset) reads no instance ID" "" \
+    "$(kubectl exec "${plain_pod}" -- sh -c "wget -q -T 4 -O- ${url}/meta-data/instance-id 2>/dev/null" || true)"
+  assert_eq "a Pod on the default NodeClass reads no user-data (bytes)" 0 "$(pod_fetch_size "${plain_pod}" "${url}/user-data")"
+  # The positive control: a process in the allowed slice reads its metadata (instance ID equals the
+  # instance), where a host-network Pod, like the node shell, is dropped.
+  assert_eq "a process in scarpenter-metadata.slice reads the instance ID on the restricted node" "${hard_iid}" \
+    "$(node_shell "${hard_node}" "systemd-run -q --slice=scarpenter-metadata.slice --pipe --wait curl -s -m 4 ${url}/meta-data/instance-id" || true)"
+  assert_eq "a host-network Pod on the restricted node reads no instance ID" "" \
+    "$(node_pod_exec "${hard_node}" "wget -q -T 4 -O- ${url}/meta-data/instance-id 2>/dev/null" || true)"
+  # With the restriction: a Pod reaches nothing.
+  assert_eq "a Pod on the restricted NodeClass reads no instance ID" "" \
     "$(kubectl exec "${hard_pod}" -- sh -c "wget -q -T 4 -O- ${url}/meta-data/instance-id 2>/dev/null" || true)"
-  assert_eq "a Pod on the hardened NodeClass reads no user-data (bytes)" 0 "$(pod_fetch_size "${hard_pod}" "${url}/user-data")"
-  # The hardening is a rule that drops forwarded traffic to the address: its trace on the node.
-  note "rules naming 100.100.100.200 on the hardened node: $(node_shell "${hard_node}" '(nft list ruleset 2>/dev/null || iptables-save 2>/dev/null) | grep -c 100.100.100.200 || true' | tr -d ' ')"
+  assert_eq "a Pod on the restricted NodeClass reads no user-data (bytes)" 0 "$(pod_fetch_size "${hard_pod}" "${url}/user-data")"
+  # The restriction is rules that drop the traffic to the address: their trace on the node.
+  note "rules naming 100.100.100.200 on the restricted node: $(node_shell "${hard_node}" 'iptables-nft -t security -S 2>/dev/null | grep -c 100.100.100.200 || true' | tr -d ' ')"
   drop_nodeshells
 }
 

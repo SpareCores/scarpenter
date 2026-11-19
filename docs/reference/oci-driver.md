@@ -44,7 +44,7 @@ pull requests that touch OCI code, nightly and before every release.
 | `NodeOptions`, `EpochReporter`, `KeeperPriceConsumer` | defaults (64 GB `balanced` boot volume), `PriceDelta` from Keeper's storage rows, `Prepare` (subnet and groups); no profiles |
 | `ManagedResources`, `ZoneChecker` | kinds `subnets`, `networkSecurityGroups` and the internal `runNetworkSecurityGroups`; the use-only `images` selector; zones no brought subnet can serve |
 | `QuotaReporter` | region buckets per quota name from the Limits service (see [Quotas](#quotas-and-availability)) |
-| `NodeHardener` | the opt-in hardening `metadata-from-pods` |
+| `InstanceMetadata` | the metadata addresses `169.254.169.254` and `fd00:c1::a9fe:a9fe`, no allowed unit besides Afterburn's |
 | `RegionPriced` | prices are per region: the catalog offers every type in every availability domain of the region |
 
 No `OfferingLister` (the types are named sizes and the driver cannot list them without the catalog:
@@ -160,8 +160,9 @@ level's. IPv4 is free. `RootDiskBytes` is the volume's size. Validation also ref
 network cannot honour (`publicIPv4: false` needs a brought subnet with a NAT gateway, `publicIPv6: true`
 needs one with an IPv6 prefix) and the shapes of OCIDs, regions and tags.
 
-The opt-in hardening `metadata-from-pods` (`spec.bootstrap.hardening`) drops Pod traffic to the metadata
-service (169.254.169.254), which answers any process and holds the node's `user_data`.
+The metadata service (169.254.169.254 and `fd00:c1::a9fe:a9fe`) answers any process and holds the node's
+`user_data`; by default (`spec.instanceMetadata.access: Restricted`) only Afterburn's units reach it, and
+DNS and NTP at the address keep working ([instance metadata access](node-bootstrap.md#instance-metadata-access)).
 
 ## Resources and network
 

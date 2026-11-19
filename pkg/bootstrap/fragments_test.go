@@ -9,6 +9,7 @@ package bootstrap_test
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -32,17 +33,28 @@ storage:
           KERNEL=="nvme*", ENV{ID_SERIAL_SHORT}=="?*", SYMLINK+="disk/by-id/vendor-$env{ID_SERIAL_SHORT}"
 `
 
+// metadataDriver declares AWS's metadata addresses and the SSM agent.
+type metadataDriver struct{ vendors.Driver }
+
+func (metadataDriver) Vendor() string { return "example" }
+func (metadataDriver) MetadataEndpoints() vendors.MetadataEndpoints {
+	return vendors.MetadataEndpoints{
+		Addresses: []netip.Addr{netip.MustParseAddr("169.254.169.254"), netip.MustParseAddr("fd00:ec2::254")},
+		Units:     []string{"amazon-ssm-agent.service"},
+	}
+}
+
 func fragments(t *testing.T) []bootstrap.Fragment {
 	t.Helper()
-	meta, err := vendors.BlockMetadataFromPods("169.254.169.254")
-	if err != nil {
-		t.Fatal(err)
+	meta, ok, err := vendors.RestrictMetadata(metadataDriver{})
+	if err != nil || !ok {
+		t.Fatalf("the metadata fragment: %v, %v", ok, err)
 	}
 	return []bootstrap.Fragment{{Name: "udev", Butane: alwaysOn}, {Name: meta.Name, Butane: meta.Butane}}
 }
 
 // TestGoldenVendorFragments pins the Ignition of a node with an always-on vendor
-// fragment and the metadata hardening, merged after the base and before the
+// fragment and the metadata restriction, merged after the base and before the
 // network and the user's config; the base config itself is unchanged.
 func TestGoldenVendorFragments(t *testing.T) {
 	p := baseParams("arm64", v1alpha1.NetworkTemplateDirect)
@@ -58,7 +70,7 @@ func TestGoldenVendorFragments(t *testing.T) {
 	for _, part := range r.Parts {
 		names = append(names, part.Name)
 	}
-	if got, want := strings.Join(names, ","), "base,vendor-udev,vendor-block-metadata-from-pods,network,user"; got != want {
+	if got, want := strings.Join(names, ","), "base,vendor-udev,vendor-metadata-access,network,user"; got != want {
 		t.Errorf("parts = %s, want %s", got, want)
 	}
 	testutil.Golden(t, "render-vendor-fragments.golden", goldenText(t, r))
@@ -82,7 +94,7 @@ func TestGoldenVendorFragments(t *testing.T) {
 }
 
 // TestFragmentsStayWithinTheBudgetOfTheDefaultTemplates renders the largest default
-// template (tailscale) with the hardening, under the budget that leaves room for
+// template (tailscale) with the fragments, under the budget that leaves room for
 // custom snippets.
 func TestFragmentsStayWithinTheBudgetOfTheDefaultTemplates(t *testing.T) {
 	for _, arch := range []string{"amd64", "arm64"} {
@@ -159,16 +171,3 @@ type boom struct{}
 func (boom) Error() string { return "boom" }
 
 var errBoom error = boom{}
-
-func TestBlockMetadataFragment(t *testing.T) {
-	if _, err := vendors.BlockMetadataFromPods("not-an-address"); err == nil {
-		t.Error("a bad address was accepted")
-	}
-	if _, err := vendors.BlockMetadataFromPods("fd00:ec2::254"); err == nil {
-		t.Error("an IPv6 address was accepted by the IPv4 fragment")
-	}
-	f, err := vendors.BlockMetadataFromPods("100.100.100.200")
-	if err != nil || !strings.Contains(f.Butane, "-d 100.100.100.200 -j DROP") || strings.Contains(f.Butane, "ADDRESS") {
-		t.Errorf("fragment = %+v, %v", f, err)
-	}
-}

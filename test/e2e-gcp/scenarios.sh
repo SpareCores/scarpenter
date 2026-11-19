@@ -291,14 +291,22 @@ scn_amd64() {
   dns="$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')"
   assert_match "the kubelet's clusterDNS is the kube-dns Service" "${dns//./\\.}" "$(node_shell "${node}" "grep -A3 '^clusterDNS' /var/lib/kubelet/config.yaml" | tr '\n' ' ')"
   wait_until "a Pod resolves a cluster Service" 120 kubectl exec "${pod}" -- nslookup kubernetes.default.svc.cluster.local
-  # The user-data is readable through the metadata server (from the node, whose own the
-  # data is). GCE has no hop limit: a Pod can read it too, which the reference documents
-  # (the vendor Butane fragment block-metadata-from-pods is off by default). The Pod's
-  # answer is recorded, not asserted: it depends on the pod network's masquerade.
-  local mdq='wget -qO- -T 5 --header "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance'
-  assert_eq "the metadata server answers on the node (instance name)" "${iid#*/}" "$(node_pod_exec "${node}" "${mdq}/name" || true)"
-  assert_match "the user-data is the Ignition" '"ignition"' "$(node_pod_exec "${node}" "${mdq}/attributes/user-data" || true)"
-  note "metadata server from a Pod (exposure, documented): '$(kubectl exec "${pod}" -- sh -c "${mdq}/name" 2>&1 | head -c 80 || true)'"
+  # The metadata access is Restricted (the default): the metadata server answers a process in
+  # scarpenter-metadata.slice, where the allowed units (Afterburn's and oem-gce.service) run, and
+  # the user-data is the Ignition; the node shell (a host-network Pod) and a Pod (GCE has no hop
+  # limit) get nothing.
+  local hdr='Metadata-Flavor: Google' md=http://169.254.169.254/computeMetadata/v1/instance
+  local mdq="wget -qO- -T 5 --header '${hdr}' ${md}"
+  assert_eq "the metadata firewall unit and the guest agent are active" active,active \
+    "$(node_shell "${node}" 'systemctl is-active scarpenter-metadata-firewall.service oem-gce.service' | paste -sd, -)"
+  assert_eq "the guest agent runs in the allowed slice" scarpenter-metadata.slice \
+    "$(node_shell "${node}" 'systemctl show -p Slice --value oem-gce.service')"
+  assert_eq "the metadata server answers scarpenter-metadata.slice (instance name)" "${iid#*/}" \
+    "$(node_shell "${node}" "systemd-run -q --slice=scarpenter-metadata.slice --pipe --wait curl -s -m 5 -H '${hdr}' ${md}/name" || true)"
+  assert_match "the user-data is the Ignition" '"ignition"' \
+    "$(node_shell "${node}" "systemd-run -q --slice=scarpenter-metadata.slice --pipe --wait curl -s -m 5 -H '${hdr}' ${md}/attributes/user-data" || true)"
+  assert_eq "the metadata server from a host-network Pod (Restricted)" "" "$(node_pod_exec "${node}" "${mdq}/name 2>/dev/null" || true)"
+  assert_eq "the metadata server from a Pod (Restricted)" "" "$(kubectl exec "${pod}" -- sh -c "${mdq}/name 2>/dev/null" || true)"
   assert_eq "no login users on the node (uid 1000 and up): project SSH keys and OS Login are off" "" \
     "$(node_shell "${node}" "awk -F: '\$3 >= 1000 && \$3 < 65000 { print \$1 }' /etc/passwd" || true)"
   drop_nodeshells

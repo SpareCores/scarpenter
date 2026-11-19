@@ -190,8 +190,10 @@ func TestValidSpecsAreAccepted(t *testing.T) {
 		"ovh block":                         `vendors: {ovh: {regions: [GRA11, EU-WEST-PAR], imageOwner: 0a1b2c3d4e5f60718293a4b5c6d7e8f9, configDrive: true, storage: {root: {bootFromVolume: {volumeType: high-speed, size: 64Gi}}, data: [{name: d, volumeType: classic, size: 100Gi, mountPath: /data}]}, networking: {publicIPv4: true}}}`,
 		"ovh images and groups":             `vendors: {ovh: {resources: {images: {use: {ids: {GRA11: ["9c1f0000-0000-0000-0000-000000000001"]}}}, securityGroups: {use: {name: nodes}}, serverGroups: {create: {lifecycle: {policy: perUse}}}}}}`,
 		"ovh server group profile":          `profiles: {storage: {db: {ovh: {data: [{name: d, volumeType: high-speed, size: 100Gi, mountPath: /data}]}}}, placement: {spread: {ovh: {serverGroup: {policy: anti-affinity}}}}}`,
-		"bootstrap hardening":               `bootstrap: {hardening: [metadata-from-pods]}`,
+		"deprecated bootstrap hardening":    `bootstrap: {hardening: [metadata-from-pods]}`,
 		"bootstrap without hardening":       `bootstrap: {}`,
+		"instance metadata restricted":      `instanceMetadata: {access: Restricted}`,
+		"instance metadata open":            `instanceMetadata: {access: Open}`,
 		"billing retention":                 `billing: {retainUntilPeriodEnd: true, margin: 90s, minPeriod: 1m, maxRetainedNodes: 1}`,
 		"billing empty block":               `billing: {}`,
 		"billing composite durations":       `billing: {retainUntilPeriodEnd: true, margin: 1m30s, minPeriod: 1h}`,
@@ -548,7 +550,9 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		{"images orderBy without select", `vendors: {aws: {resources: {images: {use: {name: x, orderBy: created}}}}}`, "orderBy is only valid with select newest or oldest"},
 		{"images match architecture unknown", `vendors: {aws: {resources: {images: {use: {match: {architecture: [riscv]}}}}}}`, "Unsupported value"},
 		{"images unknown field", `vendors: {aws: {resources: {images: {use: {selector: {tags: {a: b}}}}}}}`, "unknown field"},
-		// bootstrap hardening (plan 14 A7)
+		// instance metadata access (ADR-025)
+		{"unknown instance metadata access", `instanceMetadata: {access: Closed}`, "Unsupported value"},
+		{"instance metadata without access", `instanceMetadata: {}`, "access"},
 		{"unknown hardening", `bootstrap: {hardening: [no-pods]}`, "Unsupported value"},
 		{"hardening twice", `bootstrap: {hardening: [metadata-from-pods, metadata-from-pods]}`, "Duplicate value"},
 		// fake and qemu

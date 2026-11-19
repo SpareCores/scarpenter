@@ -560,23 +560,6 @@ func TestNodeOptions(t *testing.T) {
 	}
 }
 
-func TestHardening(t *testing.T) {
-	d := driver.New()
-	if got := d.Hardenings(); !slices.Equal(got, []string{vendors.HardeningMetadataFromPods}) {
-		t.Errorf("Hardenings = %v", got)
-	}
-	frags, err := d.BootFragments(vendors.BootFragmentRequest{Hardening: []string{vendors.HardeningMetadataFromPods}})
-	if err != nil || len(frags) != 1 || !strings.Contains(frags[0].Butane, driver.MetadataAddress) {
-		t.Errorf("BootFragments = %+v, %v", frags, err)
-	}
-	if frags, err := d.BootFragments(vendors.BootFragmentRequest{}); err != nil || len(frags) != 0 {
-		t.Errorf("without hardening: %+v, %v", frags, err)
-	}
-	if _, err := d.BootFragments(vendors.BootFragmentRequest{Hardening: []string{"nope"}}); err == nil {
-		t.Error("an unknown hardening is accepted")
-	}
-}
-
 // ----- validation -----
 
 func TestValidateNodeClass(t *testing.T) {

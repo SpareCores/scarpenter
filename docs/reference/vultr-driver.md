@@ -42,7 +42,7 @@ live spike (plan 20, section 11) has to confirm.
 | `NodeOptions` | defaults, `RootDiskForType` (the plan's disk), `Supported` (nothing), `PriceDelta` (zero), `Prepare` (the firewall group and the VPC) |
 | `ManagedResources` | kinds `firewallGroups` and `networks` (VPC); the `images` kind accepts `use` only |
 | `OfferingLister` | the plans in stock per region |
-| `NodeHardener` | the hardening `metadata-from-pods` (drops Pod traffic to `169.254.169.254`, which serves the node's user-data) |
+| `InstanceMetadata` | the metadata address `169.254.169.254`, which serves the node's user-data |
 | `BillingDescriber` | hourly, one hour minimum, stopped servers charged: **reported unverified**, so [billing retention](controller.md#billing-retention) stays off (below) |
 
 There is no `QuotaReporter` (Vultr has no quota API: the account limits are shown in the console only) and no

@@ -90,7 +90,7 @@ func WithPrices(p PriceSource) Option { return func(d *Driver) { d.prices = p } 
 
 // Driver implements vendors.Driver and the capabilities NodeClassValidator,
 // ImageReporter, NodeOptions, EpochReporter, ManagedResources, QuotaReporter,
-// OfferingLister, BillingDescriber, ArchNamer and NodeHardener.
+// OfferingLister, BillingDescriber, ArchNamer and InstanceMetadata.
 type Driver struct {
 	cfg         vendors.Config
 	clock       clock.Clock
@@ -425,31 +425,8 @@ func (d *Driver) VendorArch(arch string) (string, bool) {
 	return "", false
 }
 
-// MetadataAddress is the address of the OpenStack metadata service, where the
-// node's user data (a bootstrap token, the Tailscale key) is readable from Pods:
-// OpenStack has nothing like AWS's hop limit.
-const MetadataAddress = "169.254.169.254"
-
-// Hardenings implements vendors.NodeHardener: metadata-from-pods, opt-in per
-// NodeClass (spec.bootstrap.hardening).
-func (d *Driver) Hardenings() []string { return []string{vendors.HardeningMetadataFromPods} }
-
-// BootFragments implements vendors.NodeHardener: the unit that drops Pod traffic
-// forwarded to the metadata address.
-func (d *Driver) BootFragments(req vendors.BootFragmentRequest) ([]vendors.BootFragment, error) {
-	var out []vendors.BootFragment
-	if slices.Contains(req.Hardening, vendors.HardeningMetadataFromPods) {
-		f, err := vendors.BlockMetadataFromPods(MetadataAddress)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, nil
-}
-
 var (
-	_ vendors.NodeHardener       = (*Driver)(nil)
+	_ vendors.InstanceMetadata   = (*Driver)(nil)
 	_ vendors.Driver             = (*Driver)(nil)
 	_ vendors.NodeClassValidator = (*Driver)(nil)
 	_ vendors.ImageReporter      = (*Driver)(nil)

@@ -1,7 +1,7 @@
-# The NodeClass of the instance metadata scenario with the hardening: Pod traffic to
-# 100.100.100.200 is dropped on its nodes (spec.bootstrap.hardening). The scenario
-# `imds` records what a Pod reaches on the plain NodeClass (e2e-amd64: the gap of plan 21
-# section 5) and asserts that it reaches nothing here. Used by its own NodePool.
+# The NodeClass of the instance metadata scenario with the metadata service restricted (the
+# default, spelled out): only the node's own units reach 100.100.100.200 on its nodes
+# (spec.instanceMetadata). The scenario `imds` asserts that a Pod reaches nothing here and on
+# e2e-amd64 (the default), and that a process in the allowed slice does. Used by its own NodePool.
 apiVersion: scarpenter.sparecores.com/v1alpha1
 kind: SCNodeClass
 metadata:
@@ -20,8 +20,7 @@ spec:
   # The creation time on every resource of the run, which the sweeper needs where the API
   # gives none (a security group, a vSwitch or a VPC created without it).
   tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
-  bootstrap:
-    hardening: [metadata-from-pods]
+  instanceMetadata: {access: Restricted}
   vendors:
     alicloud:
       regions: [${ALICLOUD_REGION}]

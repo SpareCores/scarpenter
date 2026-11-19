@@ -402,7 +402,7 @@ func TestCreateInstanceWithPreparedResourcesAndIPv6(t *testing.T) {
 	}
 }
 
-// ---- options, billing, hardening ----
+// ---- options, billing ----
 
 func TestNodeOptions(t *testing.T) {
 	d := vultr.New()
@@ -443,20 +443,6 @@ func TestBillingStartIsDateCreated(t *testing.T) {
 	inst, err := e.d.CreateInstance(context.Background(), req)
 	if err != nil || inst.BillingStart.IsZero() || !inst.BillingStart.Equal(inst.CreatedAt) {
 		t.Fatalf("%+v, %v", inst, err)
-	}
-}
-
-func TestHardeningBlocksTheMetadataAddress(t *testing.T) {
-	d := vultr.New()
-	if got := d.Hardenings(); len(got) != 1 || got[0] != vendors.HardeningMetadataFromPods {
-		t.Fatalf("hardenings: %v", got)
-	}
-	if frags, err := d.BootFragments(vendors.BootFragmentRequest{}); err != nil || len(frags) != 0 {
-		t.Fatalf("no hardening requested: %v, %v", frags, err)
-	}
-	frags, err := d.BootFragments(vendors.BootFragmentRequest{Hardening: []string{vendors.HardeningMetadataFromPods}})
-	if err != nil || len(frags) != 1 || !strings.Contains(frags[0].Butane, "169.254.169.254") {
-		t.Fatalf("fragments: %v, %v", frags, err)
 	}
 }
 

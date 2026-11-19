@@ -329,8 +329,20 @@ scn_amd64() {
   dns="$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')"
   assert_match "the kubelet's clusterDNS is the kube-dns Service" "${dns//./\\.}" "$(node_shell "${node}" "grep -A3 '^clusterDNS' /var/lib/kubelet/config.yaml" | tr '\n' ' ')"
   wait_until "a Pod resolves a cluster Service" 120 kubectl exec "${pod}" -- nslookup kubernetes.default.svc.cluster.local
-  assert_match "IMDS (Azure's, header Metadata: true) from the node says its size" "\"vmSize\":\"${E2E_TYPE_AMD64#azure.}\"" \
-    "$(node_shell "${node}" "curl -s --noproxy '*' -H Metadata:true 'http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01'" || true)"
+  # The metadata access is Restricted (the default): IMDS answers a process in
+  # scarpenter-metadata.slice, where the allowed units (Afterburn's and waagent.service) run; the
+  # node shell (a host-network Pod) and a Pod get nothing.
+  local imds='http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01'
+  assert_eq "the metadata firewall unit and the Azure agent are active" active,active \
+    "$(node_shell "${node}" 'systemctl is-active scarpenter-metadata-firewall.service waagent.service' | paste -sd, -)"
+  assert_eq "the Azure agent runs in the allowed slice" scarpenter-metadata.slice \
+    "$(node_shell "${node}" 'systemctl show -p Slice --value waagent.service')"
+  assert_match "IMDS (Azure's, header Metadata: true) from scarpenter-metadata.slice says the size" "\"vmSize\":\"${E2E_TYPE_AMD64#azure.}\"" \
+    "$(node_shell "${node}" "systemd-run -q --slice=scarpenter-metadata.slice --pipe --wait curl -s -m 5 --noproxy '*' -H Metadata:true '${imds}'" || true)"
+  assert_eq "IMDS from a host-network Pod (Restricted)" "" \
+    "$(node_pod_exec "${node}" "wget -qO- -T 5 --header 'Metadata: true' '${imds}' 2>/dev/null" || true)"
+  assert_eq "IMDS from a Pod (Restricted)" "" \
+    "$(kubectl exec "${pod}" -- sh -c "wget -qO- -T 5 --header 'Metadata: true' '${imds}' 2>/dev/null" || true)"
   drop_nodeshells
 }
 

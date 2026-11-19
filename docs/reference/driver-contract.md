@@ -41,8 +41,8 @@ returns the boot images of the NodeClass's release per region and architecture
 for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
 resolves images at launch with `ResolveImage` and counts as ready; the [AWS
 driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (below),
-`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker`, `BillingDescriber` (below), `NodeHardener` ([Boot
-fragments](#boot-fragments)), `LeftoverCollector` (the garbage collector asks it, per region after the
+`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker`, `BillingDescriber` (below), `InstanceMetadata` ([Metadata
+endpoints](#metadata-endpoints)), `LeftoverCollector` (the garbage collector asks it, per region after the
 instance sweep, to delete what a failed or interrupted launch made besides the instance; it lists first and
 asks `nodeClaimExists` after, so a launch in flight keeps its resources; see
 [garbage collection](controller.md#garbage-collection)), `NodeClassWarner` (settings that are valid but
@@ -97,28 +97,26 @@ kind: an explicit ID, both architectures in one list, an excluded architecture, 
 version, another channel, no version, `exactlyOne`, `newest` and `oldest`, placeholders, and the default
 image.
 
-## Boot fragments
+## Metadata endpoints
 
-A driver may add Butane to the node's configuration through the optional `NodeHardener`
-capability (plan 14 A7): the core must not branch on a vendor, and the user-data (a one-hour bootstrap
-token and the Tailscale key) is readable from Pods on vendors without something like AWS's metadata hop
-limit.
+A driver whose vendor serves instance metadata, and with it the node's user-data (a one-hour bootstrap token and
+the Tailscale key), to the node over the network declares where, through the optional `InstanceMetadata`
+capability. The core must not branch on a vendor, so it builds the node's configuration from the declaration.
 
 | Method | Meaning |
 |---|---|
-| `Hardenings()` | The names of the opt-in hardenings the driver offers (`metadata-from-pods`). |
-| `BootFragments(req)` | The `vendors.BootFragment{Name, Butane}` list for the node: the fragments that are always on (the vendor's image needs them: the udev rules of `/dev/disk/by-id/google-<name>` on GCP arm64) and those of the hardenings in `req.Hardening`, in a fixed order, depending only on the request (`Region`, `Zone`, `InstanceType`, `Arch`). |
+| `MetadataEndpoints()` | `vendors.MetadataEndpoints{Addresses, Units}`: the IPv4 and IPv6 addresses of the vendor's metadata services as the node reaches them (a second service such as Azure's WireServer included), and the systemd units of the vendor's Flatcar image, besides Afterburn's two, that must keep reaching them (`amazon-ssm-agent.service`, `oem-gce.service`, `waagent.service`). |
 
-`spec.bootstrap.hardening` lists the hardenings a NodeClass enables; off by default. The core passes a
-driver only the names it offers (`vendors.BootFragmentsFor`); a vendor that offers none of them ignores the
-list and the NodeClass controller says so in the Event `HardeningNotOffered`. The fragments are rendered like
-the user's own Butane and merged after the base and volume configs, before the network template and the
-user's Butane, which can override them ([node bootstrap](node-bootstrap.md#vendor-fragments)). They
-count in the size budget, and the trial rendering of the NodeClass controller includes them, so a fragment
-that does not translate or does not fit makes `ValidationSucceeded` false. `vendors.BlockMetadataFromPods(address)` is the fragment of
-`metadata-from-pods` for a vendor's metadata address. The enabled hardenings the vendor's driver
-offers are part of that vendor's drift hash. The fake driver offers `metadata-from-pods` so that the hook is tested without a cloud; no
-real vendor uses it yet.
+On nodes of a NodeClass whose `spec.instanceMetadata.access` is `Restricted` (the default), `vendors.RestrictMetadata`
+turns the declaration into one Butane fragment (the slice of the allowed units, the iptables rules for each address
+and the unit that loads them) that the core merges as the part `vendor-metadata-access`, after the base and volume
+configs and before the network template and the user's Butane, which can override it. Only TCP connections the node opens,
+except to port 53, are restricted, because some addresses also serve DNS and NTP; list the addresses of the metadata services only, never a
+range. The fragment counts in the size budget and in the trial rendering of the NodeClass controller, so an
+invalid declaration (a unit name that is not a service) makes `ValidationSucceeded` false. A driver without the
+capability, or one that declares no address (qemu: its VMs have no metadata service), leaves its nodes alone.
+[How it works and what it cannot stop](node-bootstrap.md#instance-metadata-access). The fake driver implements the
+capability so that the hook is tested without a cloud.
 
 ## The idempotency label
 
@@ -488,7 +486,7 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   version check resolve against. An image says its release in `channel` and `version` or in the
   tags `flatcar-channel` and `flatcar-version`; without either it says none (`ImageVersionUnknown`).
   Without an `images` selector in the NodeClass every release has a synthesised image. The fake
-  also implements `ImageReporter` and `NodeHardener`.
+  also implements `ImageReporter` and `InstanceMetadata`.
 - `existingResources`: the account's own resources, `{kind, region, id, name,
   tags, default, created, description, zone, network, cidr, state}`: what `use` selectors and the
   vendor's default resource (`default: true`) resolve to; the attributes feed `match` (state

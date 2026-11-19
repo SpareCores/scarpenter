@@ -64,7 +64,7 @@ func WithNetworkRange(cidr string) Option { return func(d *Driver) { d.networkRa
 
 // Driver implements vendors.Driver and the capabilities NodeClassValidator,
 // ImageReporter, NodeOptions, EpochReporter, ManagedResources, QuotaReporter,
-// OfferingLister, BillingDescriber, ArchNamer and NodeHardener.
+// OfferingLister, BillingDescriber, ArchNamer and InstanceMetadata.
 type Driver struct {
 	cfg          vendors.Config
 	clock        clock.Clock
@@ -270,5 +270,5 @@ var (
 	_ vendors.OfferingLister     = (*Driver)(nil)
 	_ vendors.BillingDescriber   = (*Driver)(nil)
 	_ vendors.ArchNamer          = (*Driver)(nil)
-	_ vendors.NodeHardener       = (*Driver)(nil)
+	_ vendors.InstanceMetadata   = (*Driver)(nil)
 )

@@ -24,7 +24,7 @@ what the live L5 run must settle. Enable the driver with `--vendors alicloud` (o
 - [Instances and idempotency](#instances-and-idempotency)
 - [Node settings](#node-settings)
 - [Resources and network](#resources-and-network)
-- [The metadata service and hardening](#the-metadata-service-and-hardening)
+- [The metadata service](#the-metadata-service)
 - [Quotas](#quotas)
 - [Billing](#billing)
 - [Credentials and the RAM policy](#credentials-and-the-ram-policy)
@@ -53,7 +53,7 @@ what the live L5 run must settle. Enable the driver with `--vendors alicloud` (o
 | Image resolution and `ImageReporter` | `images.go` |
 | The `use` selector of every kind (declarations, parameter cube, matcher fields) | `selectors.go` |
 | Managed resources, VPC and vSwitches, groups, deployment sets | `resources.go`, `network.go`, `groups.go` |
-| Node options (`Supported`, `PriceDelta`, `Prepare`, `ZoneGaps`), hardening | `options.go` |
+| Node options (`Supported`, `PriceDelta`, `Prepare`, `ZoneGaps`) | `options.go` |
 | NodeClass validation | `validate.go` |
 | Disk prices (Keeper) | `prices.go` |
 | Instance type table, quota reader | `typetable.go`, `quota.go` |
@@ -91,7 +91,7 @@ What the driver needs of the images, and checks:
 - **NVMe**: the 8th generation types and later need an image with `Features.NvmeSupport=supported`;
   a type that needs it with an image known not to have it is `Unsupported` before the call
   (`ImageNotSupportInstanceType`).
-- **`ImdsSupport` must stay `v1`**, see [the metadata service](#the-metadata-service-and-hardening).
+- **`ImdsSupport` must stay `v1`**, see [the metadata service](#the-metadata-service).
 
 `status.vendors.alicloud.images` and the condition `ImagesReady` come from `ReportImages`: the
 image per region and architecture, resolved at most once an hour (a miss is remembered for five
@@ -181,7 +181,7 @@ Details that matter:
 - **Nodes without a public IPv4** are refused unless the NodeClass brings its own vSwitches (the default VPC and the managed
   network have no NAT); `publicIPv6` is refused (IPv6 needs a gateway the driver does not manage).
 
-## The metadata service and hardening
+## The metadata service
 
 Ignition's `aliyun` provider reads the user data from `100.100.100.200` with a plain GET. ECS's hardened mode
 (`HttpTokens=required`) stops that with a 403, so `HttpTokens` stays `optional` at boot and the image's
@@ -190,9 +190,10 @@ Ignition's `aliyun` provider reads the user data from `100.100.100.200` with a p
 networking could therefore read the user data (the one-hour bootstrap token, the Tailscale key with the `tailscale`
 template) and the metadata (no RAM role is attached, so no credentials).
 
-The driver offers the **`metadata-from-pods` hardening** ([bootstrap hardenings](node-bootstrap.md)): a boot unit that drops
-forwarded traffic to `100.100.100.200`. It is off by default; enable it with `spec.bootstrap.hardening: [metadata-from-pods]`.
-The L5 `imds` scenario records what a Pod can reach with and without it.
+The driver declares `100.100.100.200` as the address that nodes of a NodeClass with the default
+`spec.instanceMetadata.access: Restricted` drop for everything but the node's own units
+([instance metadata access](node-bootstrap.md#instance-metadata-access)); `Open` leaves it reachable. The L5 `imds`
+scenario checks that a Pod and a host-network Pod reach nothing and the allowed slice does.
 
 ## Quotas
 

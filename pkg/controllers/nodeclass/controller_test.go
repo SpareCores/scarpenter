@@ -53,16 +53,11 @@ type driver struct {
 	images      []v1alpha1.ImageStatus
 	imagesErr   error
 	warnings    []string
-	// hardenings are the hardenings the driver offers, fragments what it
-	// contributes for them.
-	hardenings []string
-	fragments  []vendors.BootFragment
+	// metadata is what the driver declares about its metadata service.
+	metadata vendors.MetadataEndpoints
 }
 
-func (d *driver) Hardenings() []string { return d.hardenings }
-func (d *driver) BootFragments(vendors.BootFragmentRequest) ([]vendors.BootFragment, error) {
-	return d.fragments, nil
-}
+func (d *driver) MetadataEndpoints() vendors.MetadataEndpoints { return d.metadata }
 
 func (d *driver) Vendor() string                                    { return "aws" }
 func (d *driver) Init(context.Context, vendors.Config) error        { return nil }

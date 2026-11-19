@@ -107,19 +107,15 @@ spec:
                 type: object
               bootstrap:
                 description: |-
-                  bootstrap holds the opt-in changes to the node's boot configuration that
-                  a vendor's driver can contribute (plan 14 A7).
+                  bootstrap is deprecated: no effect; instance metadata is restricted by
+                  spec.instanceMetadata; will be removed in a later API version.
                 properties:
                   hardening:
                     description: |-
-                      hardening lists the opt-in hardenings of the boot configuration. Off by
-                      default: they change what Pods on the node can reach. A vendor whose driver
-                      offers none of them (AWS) ignores the list and says so in an Event.
+                      hardening is deprecated: no effect; instance metadata is restricted by
+                      spec.instanceMetadata; will be removed in a later API version.
                     items:
-                      description: |-
-                        Hardening is a named, opt-in hardening of the node's boot configuration. A
-                        driver that offers it contributes a Butane fragment that the core merges into
-                        the base config.
+                      description: Hardening is a name of the deprecated spec.bootstrap.hardening.
                       enum:
                       - metadata-from-pods
                       type: string
@@ -224,6 +220,23 @@ spec:
                     type: string
                 required:
                 - version
+                type: object
+              instanceMetadata:
+                description: |-
+                  instanceMetadata controls which processes on a node can reach the
+                  vendor's instance metadata service. Unset means Restricted for new nodes
+                  (ADR-025); nodes launched before that keep what they have until the
+                  field is set.
+                properties:
+                  access:
+                    description: access is Restricted (the default when instanceMetadata
+                      is unset) or Open.
+                    enum:
+                    - Restricted
+                    - Open
+                    type: string
+                required:
+                - access
                 type: object
               kubelet:
                 default: {}
@@ -2818,7 +2831,7 @@ spec:
                           metadataOptions configures the instance metadata service. Built-in
                           default: httpTokens optional, because Ignition's aliyun provider reads
                           the user data without a token (see the reference for the consequence and
-                          the hardening that closes it).
+                          spec.instanceMetadata, which closes it to Pods).
                         properties:
                           httpTokens:
                             description: |-

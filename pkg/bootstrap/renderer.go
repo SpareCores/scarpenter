@@ -149,9 +149,9 @@ func (r *Renderer) Validate(ctx context.Context, nc *v1alpha1.SCNodeClass, arch 
 	return r.ValidateWith(ctx, nc, arch, in, nil)
 }
 
-// FragmentsFunc returns the fragments a vendor's driver contributes to the node
-// of a NodeClass for the architecture (with every hardening the NodeClass
-// enabled), for the trial rendering; nil or an empty result means none.
+// FragmentsFunc returns the fragments the core builds for the node of a NodeClass
+// on a vendor for the architecture (the metadata restriction, unless the NodeClass
+// says Open), for the trial rendering; nil or an empty result means none.
 type FragmentsFunc func(vendor, arch string) ([]Fragment, error)
 
 // ValidateWith is Validate that also renders, per vendor, the user-data with the
