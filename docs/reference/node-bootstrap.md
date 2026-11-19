@@ -254,11 +254,12 @@ compares them. What each renders:
 ### The node IP on a private network
 
 A node whose private network is a second interface next to the public one
-(Hetzner private networks, UpCloud SDN, Vultr VPC) has its default route on the
+(Hetzner private networks, UpCloud SDN) has its default route on the
 public interface, so a kubelet without `--node-ip` registers the public address
 and node-to-node and control-plane traffic leaves the private network. For
 these, the driver puts the IPv4 range of the network the launch attaches into
-`Prepared.NodeIPCIDR` ([driver contract](driver-contract.md)); the core passes it
+`Prepared.NodeIPCIDR`, provided the network gives the interface its address by
+DHCP (Flatcar runs DHCP on every interface; nothing else configures it) ([driver contract](driver-contract.md)); the core passes it
 to the renderer as a hint of the launch, "the node IP is the node's local address
 inside this CIDR". It derives from the resolved resources (brought, discovered or
 created network), never from the spec, so it does not change the NodeClass hash:
@@ -290,7 +291,10 @@ handled: the range must be an IPv4 prefix, else the rendering fails. The
 Vendors whose instance has one interface with a private primary address and a
 NAT'ed public one (AWS, GCP, Azure, OCI, Alibaba Cloud) need no hint: the kubelet
 already registers the private address that the subnet gave the node, and they
-supply none. OVH does not support private networks in v1.
+supply none. OVH does not support private networks in v1. A Vultr VPC has no
+DHCP, so its interface has no address on Flatcar and the driver supplies no
+range; an UpCloud network brought without DHCP gets none either. Their nodes
+register the public address.
 
 ## Instance metadata access
 

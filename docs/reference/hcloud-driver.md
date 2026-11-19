@@ -266,7 +266,8 @@ Addresses are the public IPv4, `<prefix>::1` of the IPv6 /64 and the private
 network IPs. With a private network the server's default route is the public interface, so with the
 `direct` template the driver reports the network's IPv4 range (`ip_range`) as the node IP range and the
 kubelet registers the server's address inside it ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network));
-whether the private interface gets its address by DHCP in time on a Flatcar server is unverified.
+Hetzner hands out the private address by DHCP, which Flatcar runs on every interface; that it arrives in time on
+a Hetzner server is unverified.
 
 `Project.Delete` refuses a server that lacks this cluster's `managed-by` and
 `cluster` labels, treats `not_found` and an unparseable reference as gone, waits for

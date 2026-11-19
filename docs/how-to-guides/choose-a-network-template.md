@@ -8,7 +8,7 @@ plane and how the control plane reaches the node's kubelet (for `kubectl logs`,
 | | `tailscale` | `direct` | `custom` |
 |---|---|---|---|
 | Nodes need | outbound connectivity only | a route to the API server, and the control plane a route to the nodes | whatever your template sets up |
-| Node address (`--node-ip`) | the node's tailscale IPv4 | the primary address; on Hetzner, UpCloud and Vultr, the node's address in the private network when it has one | your template's |
+| Node address (`--node-ip`) | the node's tailscale IPv4 | the primary address; on Hetzner and UpCloud, the node's address in the private network when it has one | your template's |
 | Fits | control planes outside the vendor (home lab, another cloud), nodes in several vendors | control plane in the same VPC or network; vendors that put public IPs on the interface | WireGuard, a corporate VPN, anything else |
 | Needs besides | an auth key Secret; a tailnet or Headscale the API server is on | an API endpoint reachable from the nodes | a Butane template in a ConfigMap |
 
@@ -55,9 +55,8 @@ spec:
 
 Nothing but a marker is installed. The kubelet registers with the node's primary address, so
 the API server must reach it: on AWS that is the private address, which works
-inside one VPC or over a peering, not from outside. On Hetzner, UpCloud and Vultr
-a node that joins a private network (a brought network, or the managed SDN network
-or VPC) registers its address in that network instead of the public one, so node-to-node and
+inside one VPC or over a peering, not from outside. On Hetzner and UpCloud
+a node that joins a private network (a brought network, or the managed SDN network) registers its address in that network instead of the public one, so node-to-node and
 control-plane traffic stays on it
 ([details](../reference/node-bootstrap.md#the-node-ip-on-a-private-network)); the control plane must be able to
 reach that network.
