@@ -85,9 +85,51 @@ func (o *order) check(nc *v1alpha1.SCNodeClass) resources.Report {
 	return o.engine.Check(o.t.Context(), nc, o.e.d.Vendor(), []string{o.e.region})
 }
 
+// tagged says that the order kind has tags: the opt-in step discovers its resources.
+func (o *order) tagged() bool { return o.caps().Tags != vendors.TagsNone }
+
+func (o *order) scope() vendors.ResourceScope {
+	for _, k := range o.mr.Kinds() {
+		if k.Kind == o.kind {
+			return k.Scope
+		}
+	}
+	return vendors.ScopeRegion
+}
+
+func (o *order) caps() vendors.SelectorCaps { return o.mr.Selectors()[o.kind] }
+
+func (o *order) hasDefault() bool { return o.e.fx.SetDefault != nil }
+
+// seedTagged makes the resource the opt-in step discovers; a kind without tags has
+// none, and the cases that need it are skipped (needTags) or do without.
 func (o *order) seedTagged() vendors.ResourceRef {
 	o.t.Helper()
+	o.needTags()
 	return o.e.fx.Seed(o.t, o.e.d, o.kind, o.e.region, SeedSpec{Name: "order-tagged", Tags: o.optIn})
+}
+
+// seedNamed makes a resource of the user's, found by its name only (or by its ID for
+// a kind without a name).
+func (o *order) seedNamed(name string) (vendors.ResourceRef, *common.ResourceUse) {
+	o.t.Helper()
+	var tags map[string]string
+	if o.tagged() {
+		tags = map[string]string{"x": "y"}
+	}
+	ref := o.e.fx.Seed(o.t, o.e.d, o.kind, o.e.region, SeedSpec{Name: name, Tags: tags})
+	if o.caps().Name == nil {
+		return ref, &common.ResourceUse{IDs: map[string]common.IDList{o.e.region: {ref.ID}}}
+	}
+	return ref, &common.ResourceUse{Name: name}
+}
+
+// needTags skips a case that is about the opt-in tag.
+func (o *order) needTags() {
+	o.t.Helper()
+	if !o.tagged() {
+		o.t.Skip("the kind has no tags: the opt-in step is skipped")
+	}
 }
 
 // setDefault arranges the vendor's default. Without SetDefault the vendor has no
@@ -162,14 +204,20 @@ func resolutionOrder(t *testing.T, e *env) {
 }
 
 func explicitBeatsTaggedBeatsDefault(t *testing.T, o *order) {
+	if !o.tagged() && !o.hasDefault() {
+		t.Skip("the kind has no tags and the vendor no default: there is nothing for the explicit use to beat")
+	}
 	o.setDefault(DefaultPresent)
-	tagged := o.seedTagged()
-	named := o.e.fx.Seed(t, o.e.d, o.kind, o.e.region, SeedSpec{Name: "order-explicit", Tags: map[string]string{"x": "y"}})
-	nc := o.class(&common.Resource{Use: &common.ResourceUse{Name: "order-explicit"}}, false)
+	var beaten []string
+	if o.tagged() {
+		beaten = append(beaten, o.seedTagged().ID)
+	}
+	named, use := o.seedNamed("order-explicit")
+	nc := o.class(&common.Resource{Use: use}, false)
 	refs, err := o.require(nc, vendors.ResourceRequest{})
 	if err != nil || !slices.Equal(idsOf(refs), idsOf([]vendors.ResourceRef{named})) {
-		t.Fatalf("explicit use = %v, %v; want only %s (not the tagged %s, not the default)",
-			idsOf(refs), err, named.ID, tagged.ID)
+		t.Fatalf("explicit use = %v, %v; want only %s (not the tagged %v, not the default)",
+			idsOf(refs), err, named.ID, beaten)
 	}
 	rep := o.check(nc)
 	if got := sourceOf(rep, o.kind, named.ID); got != v1alpha1.ResourceSourceUse {
@@ -178,6 +226,7 @@ func explicitBeatsTaggedBeatsDefault(t *testing.T, o *order) {
 }
 
 func taggedBeatsDefaultBeatsCreate(t *testing.T, o *order) {
+	o.needTags()
 	o.needDefault()
 	o.setDefault(DefaultPresent)
 	nc := o.class(nil, false)
@@ -233,9 +282,18 @@ func (o *order) createParams() []byte {
 }
 
 func explicitMatchesNothing(t *testing.T, o *order) {
+	// Whatever the other steps could find is there, and is not what the use names.
 	o.setDefault(DefaultPresent)
-	o.seedTagged()
-	nc := o.class(&common.Resource{Use: &common.ResourceUse{Name: "order-absent"}}, false)
+	if o.tagged() {
+		o.seedTagged()
+	} else {
+		o.seedNamed("order-present")
+	}
+	use := &common.ResourceUse{Name: "order-absent"}
+	if o.caps().Name == nil {
+		use = &common.ResourceUse{IDs: map[string]common.IDList{o.e.region: {"order-absent"}}}
+	}
+	nc := o.class(&common.Resource{Use: use}, false)
 	refs, err := o.require(nc, vendors.ResourceRequest{})
 	if vendors.CodeOf(err) != vendors.CodeResourceMissing || len(refs) != 0 {
 		t.Fatalf("an explicit use that matches nothing = %v, %v; want ResourceMissing", refs, err)
@@ -247,18 +305,27 @@ func explicitMatchesNothing(t *testing.T, o *order) {
 	if bad, why := rep.NotReady(); len(bad) != 1 || !strings.Contains(why[o.e.region], string(o.kind)) {
 		t.Errorf("the check: not ready %v %v; want the region failed on %s", bad, why, o.kind)
 	}
-	if len(rep.Resources) != 0 {
-		t.Errorf("the check reports %+v although the explicit use matched nothing", rep.Resources)
+	// (The other kinds of the NodeClass report what they found, a default included.)
+	for _, r := range rep.Resources {
+		if r.Kind == string(o.kind) {
+			t.Errorf("the check reports %+v although the explicit use matched nothing", r)
+		}
 	}
 }
 
 func explicitCreateSkips(t *testing.T, o *order) {
+	if !o.tagged() && !o.hasDefault() {
+		t.Skip("the kind has no tags and the vendor no default: there is nothing for the create to skip")
+	}
 	o.setDefault(DefaultPresent)
-	tagged := o.seedTagged()
+	var skipped []string
+	if o.tagged() {
+		skipped = append(skipped, o.seedTagged().ID)
+	}
 	nc := o.class(&common.Resource{Create: &common.ResourceCreate{}}, false)
 	refs, err := o.require(nc, vendors.ResourceRequest{Params: o.createParams()})
-	if err != nil || len(refs) != 1 || !refs[0].Managed || refs[0].ID == tagged.ID {
-		t.Fatalf("an explicit create = %v, %v; want a created resource, not the tagged or the default", refs, err)
+	if err != nil || len(refs) != 1 || !refs[0].Managed || slices.Contains(skipped, refs[0].ID) {
+		t.Fatalf("an explicit create = %v, %v; want a created resource, not the tagged %v or the default", refs, err, skipped)
 	}
 }
 
@@ -294,7 +361,16 @@ func forbidFailure(t *testing.T, o *order) {
 	if vendors.CodeOf(err) != vendors.CodeResourceForbidden {
 		t.Fatalf("forbid with nothing found: %v, want ResourceForbidden", err)
 	}
-	for _, want := range []string{string(o.kind), o.e.region, "nothing is tagged", "forbidden"} {
+	// The steps the order took: discovery only for a kind that is one per region,
+	// and only when it has tags.
+	discovery := "nothing is tagged"
+	switch {
+	case o.scope() != vendors.ScopeRegion:
+		discovery = "default" // the step that found nothing: the vendor's default, or none
+	case !o.tagged():
+		discovery = "discovery skipped"
+	}
+	for _, want := range []string{string(o.kind), o.e.region, discovery, "forbidden"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the failure %q does not name %q", err, want)
 		}
@@ -348,15 +424,31 @@ func withinTheNetwork(t *testing.T, o *order) {
 		found = true
 		o2 := *o
 		o2.kind = k.Kind
-		tagged := o.e.fx.Seed(t, o.e.d, k.Kind, o.e.region, SeedSpec{Name: "order-in-network", Tags: o.optIn})
+		caps := o.mr.Selectors()[k.Kind]
+		spec := SeedSpec{Name: "order-in-network"}
+		if caps.Tags != vendors.TagsNone {
+			spec.Tags = o.optIn
+		}
+		tagged := o.e.fx.Seed(t, o.e.d, k.Kind, o.e.region, spec)
 		got, err := o.mr.Resolve(t.Context(), k.Kind, o.e.region, vendors.UseRef{IDs: []string{tagged.ID}})
 		if err != nil || len(got) != 1 || got[0].Network == "" {
 			t.Fatalf("%s: the driver does not report the network of %s: %v, %v", k.Kind, tagged.ID, got, err)
 		}
-		// Discovery and an explicit use alike stay within the network the launch is in.
-		for name, cfg := range map[string]*common.Resource{
-			"discovery": nil, "use": {Use: &common.ResourceUse{Tags: o.optIn}},
-		} {
+		// Discovery (a kind with tags) and an explicit use alike stay within the network
+		// the launch is in.
+		use := &common.ResourceUse{Tags: o.optIn}
+		switch {
+		case caps.Tags != vendors.TagsNone:
+		case caps.Name != nil:
+			use = &common.ResourceUse{Name: spec.Name}
+		default:
+			use = &common.ResourceUse{IDs: map[string]common.IDList{o.e.region: {tagged.ID}}}
+		}
+		uses := map[string]*common.Resource{"use": {Use: use}}
+		if caps.Tags != vendors.TagsNone {
+			uses["discovery"] = nil
+		}
+		for name, cfg := range uses {
 			var res map[vendors.ResourceKind]*common.Resource
 			if cfg != nil {
 				res = map[vendors.ResourceKind]*common.Resource{k.Kind: cfg}
