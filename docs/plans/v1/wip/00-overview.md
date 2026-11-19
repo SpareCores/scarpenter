@@ -66,7 +66,8 @@ Design principles (ADR-001 to ADR-003):
 Non-goals for v1: managed-cluster integrations (EKS/GKE/AKS node bootstrap,
 cloud-controller-manager features), Windows nodes, non-Flatcar operating
 systems, a cloud-controller-manager, load balancer or volume integrations,
-spot interruption queues, out-of-process plugins.
+spot interruption queues (interruption handling is plan 26, ADR-027: a node-side notice, no queues),
+out-of-process plugins.
 
 ## 2. v1 scope
 
@@ -96,7 +97,7 @@ each vendor's Flatcar image comes from is decided by the image ladder of ADR-021
 stays reserved).
 
 Deferred (designed for, not built in the plans so far): GPU sysexts (plan 12
-is optional and gated on the GPU spike), interruption handling,
+is optional and gated on the GPU spike),
 Headscale/Tailscale node cleanup through their APIs, per-node tailnet keys, a
 NodeClass-level instance-type pre-filter (only if §5.7 measurements need it),
 the annotation shorthand for workloads (ADR-016), dedicated hosts, EFA,
@@ -405,6 +406,7 @@ NodeRestriction admission plugin never sees a label the kubelet may not set.
 | `QuotaExceeded`, vendor **without** a quota API | (vendor, region, capacity type) | 30 min |
 | `QuotaExceeded`, vendor **with** a quota API | not cached here: triggers an immediate quota refresh; the tracker's view decides (§5.9) | — |
 | `ZoneUnusable` (no subnet, no free addresses) | (vendor, zone) | 10 min |
+| Spot interruption (set by the interruption controller, not by a launch; ADR-027) | (vendor, instance type, zone, capacity type `spot`) | 10 min (`--interruption-unavailable-ttl`) |
 
 A change of the cache or of the quota tracker's view bumps a sequence number
 that `GetInstanceTypes` uses as part of its cache key, so the next scheduling
@@ -1017,7 +1019,7 @@ policy statement); `iam:PassRole` only if an instance profile is used.
 
 Spot placement scores as an
 ordering signal (`GetSpotPlacementScores`), interruption handling
-(EventBridge/SQS or a node-side IMDS watcher), capacity reservations, EFA,
+(plan 26 and ADR-027: a node-side IMDS watcher; no EventBridge/SQS), capacity reservations, EFA,
 dedicated hosts, multiple network interfaces, attaching existing volumes or
 snapshots.
 

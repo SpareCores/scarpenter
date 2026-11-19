@@ -168,9 +168,10 @@ Flatcar images are preceded by an image-import plan (`SCImage`,
 [ADR-021](#adr-021-flatcar-images-the-image-ladder-accepted-2026-11-10): no
 image-import plan precedes any vendor; the image ladder decides where each
 vendor's images come from.*
-Not planned yet: spot interruption handling, per-node tailnet keys, GPU
-extended resources (an optional AWS GPU plan exists). These are designed for
-(capability interfaces, API room) but not built. Spot prices are not fetched
+Not planned yet: per-node tailnet keys, GPU extended resources (an optional
+AWS GPU plan exists). These are designed for (capability interfaces, API room)
+but not built. *Spot interruption handling is planned since
+[ADR-027](#adr-027-spot-interruption-the-notice-is-an-annotation-the-reaction-is-one-controller-accepted-2026-11-19).* Spot prices are not fetched
 from vendor APIs at all: Keeper's spot price database is kept up to date
 (overview §5.2).
 
@@ -945,3 +946,59 @@ not measured with the kubelet running; lower them only after measuring).
 
 Consequences: `spec.kubelet.footprint` in the API; `lean.bu` in the bootstrap templates; the catalog's
 `KubeReserved` takes the node's memory.
+
+## ADR-027: Spot interruption: the notice is an annotation, the reaction is one controller (accepted, 2026-11-19)
+
+A vendor reclaims a spot or preemptible instance with a notice that ranges from 30 seconds (Azure) to a few minutes, and
+sometimes with none. Left to Karpenter core, the node is noticed only when it goes NotReady and its NodeClaim is
+garbage-collected (up to about 3 minutes later), and the Pods get no SIGTERM in the window the vendor gave. The first
+workload (benchmarks) needs about 5 seconds to flush its results and sets `terminationGracePeriodSeconds` to about 20 s, so
+even Azure's 30 s must be enough.
+
+**Decision.** Finding the notice and reacting to it are separate. Whatever finds a notice (a small script on the node,
+or a poller of the vendor's API) writes three annotations on the **Node**: `scarpenter.sparecores.com/interruption` (the
+reason, `SpotInterrupted`), `interruption-deadline` (RFC 3339) and `interruption-source` (`instance-metadata` or
+`vendor-api`). One controller, `pkg/controllers/interruption`, reacts to the annotation, the same way whichever path wrote it:
+
+1. it clamps the deadline into the vendor's notice window (the optional driver capability `InterruptionWindow`; a lying or
+   broken node cannot claim more lead time than the vendor gives, and a notice with no usable deadline gets the vendor's
+   shortest);
+2. it **tightens `karpenter.sh/nodeclaim-termination-timestamp`** to `deadline - margin` (5 s by default) with core's own
+   helper, which never extends a deadline. Core's termination controller then force-deletes, with the grace clamped to the time
+   left, every Pod whose grace would outlast the deadline (PDBs and `do-not-disrupt` included) and stops waiting for the drain
+   at the deadline. Interruption is forceful, as ADR-024 already says: it ignores billing retention holds;
+3. it records the reason: the condition `Interrupted` (SCarpenter's own, because core clears `DisruptionReason` on nodes it does
+   not consider disrupting) and `DisruptionReason`, both `SpotInterrupted`, so core's eviction Events and
+   `karpenter_pods_drained_total` carry it; the annotations are copied to the NodeClaim; a `SpotInterrupted` Warning Event goes to
+   the Node and the NodeClaim; `scarpenter_interruptions_total{vendor,instance_type,zone,reason,source}` counts it (Events
+   expire after an hour, the counter does not);
+4. it marks the (vendor, instance type, zone, `spot`) offering unavailable in SCarpenter's own unavailable-offerings cache for 10 minutes
+   (`--interruption-unavailable-ttl`; a type that was just reclaimed is likely to be reclaimed again; the on-demand offering is
+   untouched);
+5. it deletes the NodeClaim, and core taints, drains and deletes the instance.
+
+Every step is idempotent, and what must happen once (cache entry, metrics, Events) is keyed on the NodeClaim's `Interrupted`
+condition, so a second reconcile or a restart changes nothing and never extends the TTL. The reaction to the Node update is one
+API round of a few calls, with a target under a second. Notices for on-demand nodes, or with a reason the controller does not
+know, are ignored with one `InterruptionIgnored` Event. A NodeClaim must name the node's provider ID and node name before the
+controller acts, so a node cannot cause the deletion of another node's claim; the worst a node that lies can do is delete
+itself and take its own type and zone out of scheduling for one TTL.
+
+Where the notice comes from is per vendor and is decided in plan 26: a shell script rendered into the user-data of spot nodes
+only, running in the metadata slice of ADR-025 and annotating its own Node with the kubelet's credentials (AWS, GCP, Azure,
+Alibaba), and a poller of the vendor's API in the controller (OCI, which has no in-VM signal). A reclaim with no notice is
+handled by core's garbage collection, with its reason recorded by SCarpenter.
+
+Rejected:
+
+- **Vendor event streams** (AWS EventBridge and SQS, Azure Event Grid, GCP log sinks, OCI Events, Alibaba CloudMonitor): a queue,
+  rules and permissions per vendor and per account that the operator's infrastructure code would own, with no lead time over
+  the in-VM poll. A later notice source may write the same annotations.
+- **Core's node repair** (`RepairPolicies`): alpha, off by default and paced by disruption budgets: too slow for a 30 s notice.
+- **A DaemonSet agent**: it needs the metadata service open to Pods, which ADR-025 closes, and RBAC to patch Nodes.
+- **Putting the reaction into the node agent**: the agent would need rights over NodeClaims and the cache, and a vendor-side poller
+  (OCI) would need a second implementation. One controller keeps one reaction.
+- **Marking only the `DisruptionReason` condition**: core clears it on nodes it does not consider disrupting, so a reason that
+  must survive until the node is gone needs a condition of its own.
+- **A TTL of three minutes like insufficient capacity** (AWS's cache): an interrupted type is likely to be reclaimed again
+  soon, so it stays out of scheduling longer; the TTL is a flag.

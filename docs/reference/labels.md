@@ -86,3 +86,19 @@ with `spec.billing.retainUntilPeriodEnd: true`:
 | `scarpenter.sparecores.com/hold-released-until` (annotation) | A release under pressure was blocked by the NodePool's disruption budget, so the node lost its hold until this time (the end of its current period, RFC 3339): it is an ordinary empty node for Karpenter's emptiness meanwhile. Removed with the next hold, or when the node stops qualifying. |
 | `scarpenter.sparecores.com/billing-start` (annotation) | Copied from the NodeClaim at registration (see above), or written by the controller from the cloud provider for a node whose NodeClaim has none. |
 | `scarpenter.sparecores.com/releasing` (taint, `NoSchedule`) | The node is being released at the end of its paid period (or under pressure: the taint's value is `period-end`, `limit`, `quota` or `max-retained`). Put on for the 5 seconds before the final check and left until the node is gone. |
+
+## Interruption annotations
+
+Written on the Node by whoever finds a spot or preemptible interruption notice (the node agent with the kubelet's credentials, or the
+controller's poller), and copied to the NodeClaim by the [interruption controller](controller.md#interruption), which writes back the
+effective deadline. A Node or NodeClaim that has them was announced for reclaim; the NodeClaim also has the conditions `Interrupted` and
+`DisruptionReason`, reason `SpotInterrupted`.
+
+| Annotation | Meaning |
+|---|---|
+| `scarpenter.sparecores.com/interruption` | The reason: `SpotInterrupted` (the vendor announced the reclaim). Another value is ignored, with an `InterruptionIgnored` Event. |
+| `scarpenter.sparecores.com/interruption-deadline` | When the vendor takes the instance away, RFC 3339. The controller clamps it into the driver's notice window (a missing or unparsable one is the vendor's shortest notice from now) and records the clamped value. |
+| `scarpenter.sparecores.com/interruption-source` | Who found the notice: `instance-metadata` (the node agent) or `vendor-api` (the controller's poller). Anything else is read as `instance-metadata`. |
+
+The controller also sets `karpenter.sh/nodeclaim-termination-timestamp` on the NodeClaim (Karpenter's own annotation) to the deadline less
+`--interruption-margin`.
