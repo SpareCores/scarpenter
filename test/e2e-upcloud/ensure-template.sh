@@ -47,6 +47,11 @@ source_uuid=""
 cleanup() {
   [[ -n "${source_uuid}" ]] || return 0
   echo "deleting the source storage ${source_uuid}"
+  # A storage being templatized is in maintenance and refuses the delete.
+  local deadline=$((SECONDS + 300))
+  while [[ "${SECONDS}" -lt "${deadline}" && "$(storage_state "${source_uuid}" 2>/dev/null)" == maintenance ]]; do
+    sleep 5
+  done
   up DELETE "/storage/${source_uuid}" >/dev/null || echo "::warning::the source storage ${source_uuid} is not deleted; the sweeper does not touch it" >&2
 }
 
@@ -70,9 +75,12 @@ import_template() {
   local upload
   upload="$(up_json POST "/storage/${source_uuid}/import" '{"storage_import":{"source":"direct_upload"}}' | jq -r '.storage_import.direct_upload_url')"
   [[ -n "${upload}" && "${upload}" != null ]] || fail "the import call answered no upload URL"
-  curl -fsS --retry 3 --max-time 1800 -X PUT -H 'Content-Type: application/octet-stream' --data-binary "@${tmp}/${image_file}" "${upload}"
+  # The importer decompresses by the Content-Type of the upload (plan 19; the Terraform
+  # provider sends application/gzip for a .gz): as octet-stream the gzip would be the disk.
+  # The upload URL takes no token (the SDK's direct upload sends none either).
+  curl -fsS --retry 3 --max-time 1800 -X PUT -H 'Content-Type: application/gzip' --data-binary "@${tmp}/${image_file}" "${upload}"
   rm -rf "${tmp}"
-  wait_until "the import to complete" 1200 import_completed "${source_uuid}"
+  wait_import "${source_uuid}" 1200
 
   log "templatizing and labelling"
   local tpl
@@ -88,18 +96,26 @@ import_template() {
   fi
 }
 
-import_completed() {
-  local j state
-  j="$(up GET "/storage/$1/import")"
-  state="$(jq -r '.storage_import.state' <<<"${j}")"
-  case "${state}" in
-    completed) ;;
-    failed | cancelled | cancelling)
-      echo "import ${state}: $(jq -r '.storage_import | "\(.error_code) \(.error_message)"' <<<"${j}")" >&2
-      fail "the import of ${image_file} ${state}"
-      ;;
-    *) echo "import ${state}"; return 1 ;;
-  esac
+# wait_import <storage uuid> <timeout seconds>: until the import completes; a failed import
+# ends the script at once (wait_until runs its command in a subshell, where fail cannot).
+wait_import() {
+  local deadline=$((SECONDS + $2)) j state
+  while true; do
+    j="$(up GET "/storage/$1/import")"
+    state="$(jq -r '.storage_import.state' <<<"${j}")"
+    case "${state}" in
+      completed)
+        echo "ok: the import completed"
+        return 0
+        ;;
+      failed | cancelled | cancelling)
+        echo "import ${state}: $(jq -r '.storage_import | "\(.error_code) \(.error_message)"' <<<"${j}")" >&2
+        fail "the import of ${image_file} ${state}"
+        ;;
+    esac
+    [[ "${SECONDS}" -lt "${deadline}" ]] || fail "timed out after $2s waiting for the import (${state})"
+    sleep 10
+  done
 }
 
 template_online() { [[ "$(storage_state "$1")" == online ]]; }
