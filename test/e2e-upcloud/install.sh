@@ -36,6 +36,7 @@ log "CRDs and NodeClasses"
 kubectl apply --server-side -f "${root}/charts/scarpenter/crds/"
 wait_condition Established 60 crd/scnodeclasses.scarpenter.sparecores.com \
   crd/nodepools.karpenter.sh crd/nodeclaims.karpenter.sh
+kubectl apply -f "${here}/manifests/node-butane.yaml"
 for f in nodeclass-amd64 nodeclass-drift; do
   render "${here}/manifests/${f}.yaml" | kubectl apply -f -
 done

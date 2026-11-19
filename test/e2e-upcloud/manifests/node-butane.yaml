@@ -1,0 +1,32 @@
+# Extra Butane of the lane's nodes (spec.butane of the NodeClasses). registry.k8s.io answers
+# 403 to the nodes' UpCloud addresses (the pause image and kube-proxy fail to pull), so
+# containerd pulls its images from the registry's backing Artifact Registry instead, which is
+# what registry.k8s.io redirects to elsewhere. The Flatcar defaults of containerd stay (imports).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-node-butane
+  namespace: scarpenter-system
+data:
+  butane.yaml: |
+    variant: flatcar
+    version: 1.0.0
+    storage:
+      files:
+        - path: /etc/containerd/config.toml
+          overwrite: true
+          mode: 0644
+          contents:
+            inline: |
+              version = 2
+              imports = ["/usr/share/containerd/config.toml"]
+              [plugins."io.containerd.grpc.v1.cri".registry]
+                config_path = "/etc/containerd/certs.d"
+        - path: /etc/containerd/certs.d/registry.k8s.io/hosts.toml
+          mode: 0644
+          contents:
+            inline: |
+              server = "https://registry.k8s.io"
+              [host."https://us-central1-docker.pkg.dev/v2/k8s-artifacts-prod/images"]
+                capabilities = ["pull", "resolve"]
+                override_path = true
