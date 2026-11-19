@@ -68,7 +68,7 @@ func WithCallTimeout(t time.Duration) Option { return func(d *Driver) { d.callTi
 
 // Driver implements vendors.Driver and the capabilities QuotaReporter,
 // ImageReporter, NodeOptions, ManagedResources, ZoneChecker, NodeClassValidator
-// and NodeHardener.
+// and InstanceMetadata.
 type Driver struct {
 	cfg         vendors.Config
 	clock       clock.Clock

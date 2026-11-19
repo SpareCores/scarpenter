@@ -54,8 +54,8 @@ type Part struct {
 	Ignition []byte
 }
 
-// Fragment is a Butane config a vendor's driver contributes (vendors.BootFragment):
-// always-on fragments and the ones of the enabled hardenings.
+// Fragment is a Butane config the core builds from a vendor's driver and merges
+// into the node's configuration (vendors.BootFragment).
 type Fragment struct {
 	Name   string
 	Butane string

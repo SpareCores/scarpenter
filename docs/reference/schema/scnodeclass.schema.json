@@ -71,26 +71,6 @@
           },
           "type": "object"
         },
-        "bootstrap": {
-          "additionalProperties": false,
-          "description": "bootstrap holds the opt-in changes to the node's boot configuration that\na vendor's driver can contribute (plan 14 A7).",
-          "properties": {
-            "hardening": {
-              "description": "hardening lists the opt-in hardenings of the boot configuration. Off by\ndefault: they change what Pods on the node can reach. A vendor whose driver\noffers none of them (AWS) ignores the list and says so in an Event.",
-              "items": {
-                "description": "Hardening is a named, opt-in hardening of the node's boot configuration. A\ndriver that offers it contributes a Butane fragment that the core merges into\nthe base config.",
-                "enum": [
-                  "metadata-from-pods"
-                ],
-                "type": "string"
-              },
-              "maxItems": 8,
-              "type": "array",
-              "uniqueItems": true
-            }
-          },
-          "type": "object"
-        },
         "butane": {
           "additionalProperties": false,
           "description": "butane references extra Butane configuration merged into every node's\nIgnition.",
@@ -198,6 +178,24 @@
           },
           "required": [
             "version"
+          ],
+          "type": "object"
+        },
+        "instanceMetadata": {
+          "additionalProperties": false,
+          "description": "instanceMetadata controls which processes on a node can reach the\nvendor's instance metadata service. Unset means Restricted for new nodes\n(ADR-025); nodes launched before that keep what they have until the\nfield is set.",
+          "properties": {
+            "access": {
+              "description": "access is Restricted (the default when instanceMetadata is unset) or Open.",
+              "enum": [
+                "Restricted",
+                "Open"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "access"
           ],
           "type": "object"
         },
@@ -2893,7 +2891,7 @@
                 },
                 "metadataOptions": {
                   "additionalProperties": false,
-                  "description": "metadataOptions configures the instance metadata service. Built-in\ndefault: httpTokens optional, because Ignition's aliyun provider reads\nthe user data without a token (see the reference for the consequence and\nthe hardening that closes it).",
+                  "description": "metadataOptions configures the instance metadata service. Built-in\ndefault: httpTokens optional, because Ignition's aliyun provider reads\nthe user data without a token (see the reference for the consequence and\nspec.instanceMetadata, which closes it to Pods).",
                   "properties": {
                     "httpTokens": {
                       "description": "httpTokens is the token requirement of the metadata service. Only\noptional is accepted: required (the hardened mode, IMDSv2 only) makes ECS\nanswer 403 to Ignition's aliyun provider, which reads the user data\nwithout a token, so the nodes would not boot. Built-in default optional.",

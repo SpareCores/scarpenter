@@ -92,17 +92,82 @@
     ]
   }
 }
-=== vendor-block-metadata-from-pods ===
+=== vendor-metadata-access ===
 {
   "ignition": {
     "version": "3.4.0"
   },
+  "storage": {
+    "files": [
+      {
+        "contents": {
+          "inline": "*security\n:SCARPENTER-IMDS-OUTPUT - [0:0]\n:SCARPENTER-IMDS-FORWARD - [0:0]\n-A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN\n-A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -j DROP\n-A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -j DROP\nCOMMIT\n"
+        },
+        "mode": 420,
+        "path": "/etc/scarpenter/metadata-iptables.rules"
+      },
+      {
+        "contents": {
+          "inline": "*security\n:SCARPENTER-IMDS-OUTPUT - [0:0]\n:SCARPENTER-IMDS-FORWARD - [0:0]\n-A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN\n-A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -j DROP\n-A SCARPENTER-IMDS-FORWARD -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -j DROP\nCOMMIT\n"
+        },
+        "mode": 420,
+        "path": "/etc/scarpenter/metadata-ip6tables.rules"
+      },
+      {
+        "contents": {
+          "inline": "#!/bin/sh\nset -eu\nload() {\n  cmd=$1 rules=$2\n  [ -f \"$rules\" ] || return 0\n  \"$cmd-restore\" -w --noflush \u003c \"$rules\"\n  for hook in OUTPUT FORWARD; do\n    \"$cmd\" -w -t security -C \"$hook\" -j \"SCARPENTER-IMDS-$hook\" 2\u003e/dev/null ||\n      \"$cmd\" -w -t security -I \"$hook\" 1 -j \"SCARPENTER-IMDS-$hook\"\n  done\n}\nload iptables /etc/scarpenter/metadata-iptables.rules\nload ip6tables /etc/scarpenter/metadata-ip6tables.rules\n"
+        },
+        "mode": 493,
+        "path": "/opt/scarpenter/bin/scarpenter-metadata-firewall"
+      }
+    ]
+  },
   "systemd": {
     "units": [
       {
-        "contents": "[Unit]\nDescription=Drop Pod traffic forwarded to the metadata address 169.254.169.254\nDefaultDependencies=no\nAfter=systemd-sysctl.service\nBefore=network-pre.target kubelet.service shutdown.target\nWants=network-pre.target\nConflicts=shutdown.target\n[Service]\nType=oneshot\nRemainAfterExit=yes\n# Position 1: nothing a CNI or kube-proxy appends later can accept it first.\nExecStart=/usr/sbin/iptables -w -I FORWARD 1 -d 169.254.169.254 -j DROP\nExecStop=/usr/sbin/iptables -w -D FORWARD -d 169.254.169.254 -j DROP\n[Install]\nWantedBy=multi-user.target\n",
+        "contents": "[Unit]\nDescription=Node components allowed to reach the instance metadata service\n",
+        "name": "scarpenter-metadata.slice"
+      },
+      {
+        "contents": "[Unit]\nDescription=Restrict the instance metadata service to the scarpenter-metadata slice\nDefaultDependencies=no\nRequires=scarpenter-metadata.slice\nAfter=scarpenter-metadata.slice\nBefore=network-pre.target\nWants=network-pre.target\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/opt/scarpenter/bin/scarpenter-metadata-firewall\n[Install]\nWantedBy=basic.target\n",
         "enabled": true,
-        "name": "scarpenter-block-metadata.service"
+        "name": "scarpenter-metadata-firewall.service"
+      },
+      {
+        "dropins": [
+          {
+            "contents": "[Unit]\nRequires=scarpenter-metadata-firewall.service\nAfter=scarpenter-metadata-firewall.service\n",
+            "name": "15-scarpenter-metadata.conf"
+          }
+        ],
+        "name": "kubelet.service"
+      },
+      {
+        "dropins": [
+          {
+            "contents": "[Service]\nSlice=scarpenter-metadata.slice\n",
+            "name": "10-scarpenter-metadata.conf"
+          }
+        ],
+        "name": "coreos-metadata.service"
+      },
+      {
+        "dropins": [
+          {
+            "contents": "[Service]\nSlice=scarpenter-metadata.slice\n",
+            "name": "10-scarpenter-metadata.conf"
+          }
+        ],
+        "name": "coreos-metadata-sshkeys@.service"
+      },
+      {
+        "dropins": [
+          {
+            "contents": "[Service]\nSlice=scarpenter-metadata.slice\n",
+            "name": "10-scarpenter-metadata.conf"
+          }
+        ],
+        "name": "amazon-ssm-agent.service"
       }
     ]
   }

@@ -50,7 +50,7 @@ func WithAPI(api API) Option { return func(d *Driver) { d.api = api } }
 func WithAvailabilityTTL(ttl time.Duration) Option { return func(d *Driver) { d.availTTL = ttl } }
 
 // Driver implements vendors.Driver and the capabilities NodeClassValidator,
-// ImageReporter, NodeOptions, ManagedResources, OfferingLister, NodeHardener and
+// ImageReporter, NodeOptions, ManagedResources, OfferingLister, InstanceMetadata and
 // BillingDescriber. It has no QuotaReporter (Vultr's limits are visible in the
 // console only) and no ResourceDefaults (Vultr has no default firewall group or
 // VPC to find).
@@ -257,27 +257,6 @@ func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string
 	return out, nil
 }
 
-// Hardenings implements vendors.NodeHardener: Pods can reach the metadata
-// service (169.254.169.254), which serves the node's user-data (Ignition,
-// with the join credentials) and has nothing like AWS's hop limit.
-func (d *Driver) Hardenings() []string { return []string{vendors.HardeningMetadataFromPods} }
-
-// metadataAddress is Vultr's metadata service (Ignition reads
-// /user-data/user-data from it).
-const metadataAddress = "169.254.169.254"
-
-// BootFragments implements vendors.NodeHardener.
-func (d *Driver) BootFragments(req vendors.BootFragmentRequest) ([]vendors.BootFragment, error) {
-	if !slices.Contains(req.Hardening, vendors.HardeningMetadataFromPods) {
-		return nil, nil
-	}
-	f, err := vendors.BlockMetadataFromPods(metadataAddress)
-	if err != nil {
-		return nil, err
-	}
-	return []vendors.BootFragment{f}, nil
-}
-
 // keyCheckOK and keyCheckFailed are how long the verdict on the API key is
 // trusted. A transient failure is no verdict and is never cached.
 const (
@@ -322,6 +301,6 @@ var (
 	_ vendors.NodeOptions        = (*Driver)(nil)
 	_ vendors.ManagedResources   = (*Driver)(nil)
 	_ vendors.OfferingLister     = (*Driver)(nil)
-	_ vendors.NodeHardener       = (*Driver)(nil)
+	_ vendors.InstanceMetadata   = (*Driver)(nil)
 	_ vendors.BillingDescriber   = (*Driver)(nil)
 )

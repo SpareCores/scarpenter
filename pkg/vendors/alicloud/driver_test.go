@@ -95,21 +95,11 @@ func TestUnknownRegionsAreNotFound(t *testing.T) {
 	}
 }
 
-func TestBillingRuleAndHardening(t *testing.T) {
+func TestBillingRule(t *testing.T) {
 	d := New()
 	r, ok := d.BillingRule("ap-southeast-1", "ecs.g7")
 	if !ok || r.Verified || r.Increment == nil || *r.Increment != time.Second || r.Minimum != nil || r.Source == "" {
 		t.Errorf("rule = %+v", r)
-	}
-	if h := d.Hardenings(); len(h) != 1 || h[0] != vendors.HardeningMetadataFromPods {
-		t.Error(h)
-	}
-	fr, err := vendors.BootFragmentsFor(d, []string{vendors.HardeningMetadataFromPods}, vendors.BootFragmentRequest{})
-	if err != nil || len(fr) != 1 || !strings.Contains(fr[0].Butane, "100.100.100.200") {
-		t.Errorf("fragments = %+v, %v", fr, err)
-	}
-	if fr, _ := d.BootFragments(vendors.BootFragmentRequest{}); len(fr) != 0 {
-		t.Error("a fragment without the hardening")
 	}
 }
 

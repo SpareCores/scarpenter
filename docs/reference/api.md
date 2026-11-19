@@ -37,10 +37,10 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `billing` | [object](#specbilling) |  | billing opts in to keeping nodes until the end of the billing period they have already paid for (ADR-024). Changing it is not drift. |
-| `bootstrap` | [object](#specbootstrap) |  | bootstrap holds the opt-in changes to the node's boot configuration that a vendor's driver can contribute (plan 14 A7). |
 | `butane` | [object](#specbutane) |  | butane references extra Butane configuration merged into every node's Ignition. |
 | `catalog` | [object](#speccatalog) |  | catalog configures the instance type catalog built from Keeper. |
 | `flatcar` (required) | [object](#specflatcar) |  | flatcar selects the Flatcar Container Linux release nodes boot. |
+| `instanceMetadata` | [object](#specinstancemetadata) |  | instanceMetadata controls which processes on a node can reach the vendor's instance metadata service. Unset means Restricted for new nodes (ADR-025); nodes launched before that keep what they have until the field is set. |
 | `kubelet` | [object](#speckubelet) | `{}` | kubelet configures the kubelet and the node capacity the scheduler assumes. |
 | `kubernetes` (required) | [object](#speckubernetes) |  | kubernetes selects the Kubernetes release (a sysext-bakery release) nodes run. |
 | `metrics` | map of [object](#specmetrics) |  | metrics define benchmark metric labels (metric-&lt;name&gt;, -pct and -per-usd) on instance types and offerings. |
@@ -64,14 +64,6 @@ billing opts in to keeping nodes until the end of the billing period they have a
 | `maxRetainedNodes` | integer (int32) |  | maxRetainedNodes is an optional safety valve: it trims the held empty nodes of the NodeClass down to this number, nearest deadline first. Unset means no cap; a launch blocked by a NodePool limit or a vendor quota releases held empty nodes first either way. Minimum 1. |
 | `minPeriod` | string | `"10m"` | minPeriod is the shortest billing increment that is held to its end: shorter increments are not worth a hold. It does not gate the hold of a minimum (a minimum has its own 2 minute floor). Pattern `^([0-9]+(\.[0-9]+)?(s\|m\|h))+$`. Rule: minPeriod must be at least 1m (`duration(self) >= duration('1m')`). |
 | `retainUntilPeriodEnd` | boolean | `false` | retainUntilPeriodEnd keeps a node a vendor bills by the started period (an hour on hcloud, UpCloud, Vultr), or by a minimum and then per second (Alibaba), until its paid period is about to end, so that Karpenter reuses it for the next job, and deletes it before the next charge starts. Off by default. |
-
-### `spec.bootstrap`
-
-bootstrap holds the opt-in changes to the node's boot configuration that a vendor's driver can contribute (plan 14 A7).
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `hardening` | array of string |  | hardening lists the opt-in hardenings of the boot configuration. Off by default: they change what Pods on the node can reach. A vendor whose driver offers none of them (AWS) ignores the list and says so in an Event. One of `metadata-from-pods`. At most 8 items. |
 
 ### `spec.butane`
 
@@ -107,6 +99,14 @@ flatcar selects the Flatcar Container Linux release nodes boot.
 |---|---|---|---|
 | `channel` | string | `"stable"` | channel of the release. One of `stable`, `beta`, `alpha`, `lts`. |
 | `version` (required) | string |  | version is the pinned release, e.g. 4757.2.3. Changing it drifts nodes. Pattern `^[0-9]+\.[0-9]+\.[0-9]+$`. |
+
+### `spec.instanceMetadata`
+
+instanceMetadata controls which processes on a node can reach the vendor's instance metadata service. Unset means Restricted for new nodes (ADR-025); nodes launched before that keep what they have until the field is set.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `access` (required) | string |  | access is Restricted (the default when instanceMetadata is unset) or Open. One of `Restricted`, `Open`. |
 
 ### `spec.kubelet`
 
@@ -1332,7 +1332,7 @@ alicloud configures Alibaba Cloud (ECS) nodes.
 | `imageOwner` | string |  | imageOwner is the account UID that owns the Flatcar images. Empty means the account of the controller's credentials (images created there with ImportImage or CopyImage, the supported path of v1); set it for images another account shares or publishes. Pattern `^([0-9]{1,20})?$`. |
 | `internetChargeType` | string |  | internetChargeType is how the public bandwidth is billed. Built-in default PayByTraffic. PayByBandwidth makes the offering's price incomplete. One of `PayByTraffic`, `PayByBandwidth`. |
 | `internetMaxBandwidthOut` | integer (int32) |  | internetMaxBandwidthOut is the peak public outbound bandwidth in Mbit/s; 0 means no public IPv4 address (the same as networking.publicIPv4: false). Built-in default 100. Minimum 0. Maximum 100. |
-| `metadataOptions` | [object](#specvendorsalicloudmetadataoptions) |  | metadataOptions configures the instance metadata service. Built-in default: httpTokens optional, because Ignition's aliyun provider reads the user data without a token (see the reference for the consequence and the hardening that closes it). |
+| `metadataOptions` | [object](#specvendorsalicloudmetadataoptions) |  | metadataOptions configures the instance metadata service. Built-in default: httpTokens optional, because Ignition's aliyun provider reads the user data without a token (see the reference for the consequence and spec.instanceMetadata, which closes it to Pods). |
 | `networking` | [object](#specvendorsalicloudnetworking) |  | networking overrides the generic spec.networking for Alibaba Cloud. |
 | `regions` | array of string |  | regions is the allow-list of Alibaba Cloud region IDs (ap-southeast-1, eu-central-1); empty means every region the account can use. At most 64 items. |
 | `resourceGroupId` | string |  | resourceGroupId is the enterprise resource group of the resources created for the nodes. Empty means the account's default group. At most 64 characters. |
@@ -1341,7 +1341,7 @@ alicloud configures Alibaba Cloud (ECS) nodes.
 
 ### `spec.vendors.alicloud.metadataOptions`
 
-metadataOptions configures the instance metadata service. Built-in default: httpTokens optional, because Ignition's aliyun provider reads the user data without a token (see the reference for the consequence and the hardening that closes it).
+metadataOptions configures the instance metadata service. Built-in default: httpTokens optional, because Ignition's aliyun provider reads the user data without a token (see the reference for the consequence and spec.instanceMetadata, which closes it to Pods).
 
 | Field | Type | Default | Description |
 |---|---|---|---|

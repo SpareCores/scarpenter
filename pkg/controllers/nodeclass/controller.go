@@ -85,11 +85,8 @@ const (
 	EventIPv6OnlyNeedsMirror  = "IPv6OnlyNeedsMirror"
 	EventRestartRequired      = "RestartRequired"
 	EventConfigurationWarning = "ConfigurationWarning"
-	// EventHardeningNotOffered: the NodeClass enables a hardening the vendor's
-	// driver does not offer; it applies to the vendors that do.
-	EventHardeningNotOffered = "HardeningNotOffered"
-	EventMetricInvalid       = "MetricInvalid"
-	eventDedupe              = 10 * time.Minute
+	EventMetricInvalid        = "MetricInvalid"
+	eventDedupe               = 10 * time.Minute
 )
 
 // Defaults of the intervals.
@@ -439,25 +436,19 @@ func (c *Controller) restartRequired(nc *v1alpha1.SCNodeClass, cs status.Conditi
 	}
 }
 
-// trialName stands for the region, zone and instance type of a trial rendering.
-const trialName = "validation"
-
-// bootFragments returns the fragments the drivers of the NodeClass's vendors
-// contribute, with every hardening the NodeClass enables, for the trial rendering.
+// bootFragments returns the fragments the core builds for the NodeClass's vendors
+// (the metadata restriction, unless the NodeClass says Open), for the trial rendering.
 func (c *Controller) bootFragments(nc *v1alpha1.SCNodeClass) bootstrap.FragmentsFunc {
 	return func(vendor, arch string) ([]bootstrap.Fragment, error) {
 		drv, ok := c.opts.Registry.Driver(vendor)
-		if !ok {
+		if !ok || !nc.Spec.RestrictsInstanceMetadata() {
 			return nil, nil
 		}
-		frags, err := vendors.BootFragmentsFor(drv, nc.Spec.HardeningNames(), vendors.BootFragmentRequest{
-			Region: trialName, Zone: trialName, InstanceType: trialName, Arch: arch,
-		})
-		out := make([]bootstrap.Fragment, 0, len(frags))
-		for _, f := range frags {
-			out = append(out, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
+		f, ok, err := vendors.RestrictMetadata(drv)
+		if err != nil || !ok {
+			return nil, err
 		}
-		return out, err
+		return []bootstrap.Fragment{{Name: f.Name, Butane: f.Butane}}, nil
 	}
 }
 
@@ -481,7 +472,7 @@ func (c *Controller) vendor(
 	} else {
 		hash, err := Hash(desired, vendor, Inputs{
 			Resolved: desired.Status.Resolved, CustomTemplate: inputs.CustomTemplate, UserButane: inputs.UserButane,
-			AuthKeyVersion: inputs.AuthKeyVersion, Hardening: c.appliedHardening(desired, vendor),
+			AuthKeyVersion: inputs.AuthKeyVersion,
 		})
 		if err != nil {
 			// The hash of a NodeClass that cannot be encoded is a programming
@@ -499,7 +490,6 @@ func (c *Controller) vendor(
 
 	if ready {
 		c.warnIPv6Only(desired, vendor)
-		c.warnHardening(desired, vendor)
 		if msg := c.configurationWarnings(desired, vendor); msg != "" {
 			w := vendorCondition(existing, v1alpha1.VendorConditionConfigurationWarning,
 				true, ReasonSettingHasNoEffect, msg, current.Generation, now)
@@ -787,24 +777,6 @@ func trim(s string) string {
 	return s
 }
 
-// warnHardening says that the NodeClass enables a hardening the vendor's driver
-// does not offer (AWS offers none: its metadata hop limit already keeps Pods off
-// the metadata service), so that an opt-in is never silently ignored.
-func (c *Controller) warnHardening(nc *v1alpha1.SCNodeClass, vendor string) {
-	enabled := nc.Spec.HardeningNames()
-	if len(enabled) == 0 {
-		return
-	}
-	drv, ok := c.opts.Registry.Driver(vendor)
-	if !ok {
-		return
-	}
-	if _, unoffered := vendors.OfferedHardenings(drv, enabled); len(unoffered) > 0 {
-		c.warn(nc, EventHardeningNotOffered, fmt.Sprintf("vendor %s offers no hardening %s: it is not applied to its nodes",
-			vendor, strings.Join(unoffered, ", ")), vendor)
-	}
-}
-
 // configurationWarnings returns what the driver says about settings that have no
 // effect for the vendor, sorted and joined (a stable message); empty when there
 // is none or the driver has no NodeClassWarner.
@@ -820,21 +792,6 @@ func (c *Controller) configurationWarnings(nc *v1alpha1.SCNodeClass, vendor stri
 	ws := slices.Clone(w.NodeClassWarnings(nc))
 	slices.Sort(ws)
 	return strings.Join(slices.Compact(ws), "; ")
-}
-
-// appliedHardening returns the hardenings of the NodeClass that the vendor's
-// driver offers: those that reach its nodes.
-func (c *Controller) appliedHardening(nc *v1alpha1.SCNodeClass, vendor string) []string {
-	enabled := nc.Spec.HardeningNames()
-	if len(enabled) == 0 {
-		return nil
-	}
-	drv, ok := c.opts.Registry.Driver(vendor)
-	if !ok {
-		return nil
-	}
-	offered, _ := vendors.OfferedHardenings(drv, enabled)
-	return offered
 }
 
 // warnIPv6Only warns about nodes with IPv6 only (publicIPv4 false, publicIPv6 true)

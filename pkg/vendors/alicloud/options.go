@@ -442,31 +442,6 @@ func (d *Driver) ZoneGaps(
 	return gaps, nil
 }
 
-// ---- hardening ----------------------------------------------------------------------
-
-// metadataAddress is the ECS instance metadata endpoint.
 // errIPv6Unsupported is the reason of the zones publicIPv6 makes unusable.
 const errIPv6Unsupported = "publicIPv6 is not supported on Alibaba Cloud yet: " +
 	"it needs an IPv6 gateway the driver does not manage"
-
-const metadataAddress = "100.100.100.200"
-
-// Hardenings implements vendors.NodeHardener: metadata-from-pods drops Pod
-// traffic forwarded to the metadata address. ECS's hardened mode (HttpTokens
-// required) would also keep Pods away, but it stops Ignition's aliyun provider
-// from reading the user data, so the driver keeps it optional and offers this
-// instead (plan 21 section 5; off by default, enabled per NodeClass).
-func (d *Driver) Hardenings() []string { return []string{vendors.HardeningMetadataFromPods} }
-
-// BootFragments implements vendors.NodeHardener.
-func (d *Driver) BootFragments(req vendors.BootFragmentRequest) ([]vendors.BootFragment, error) {
-	var out []vendors.BootFragment
-	if slices.Contains(req.Hardening, vendors.HardeningMetadataFromPods) {
-		f, err := vendors.BlockMetadataFromPods(metadataAddress)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, f)
-	}
-	return out, nil
-}

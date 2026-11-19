@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -349,23 +350,16 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 	return out, nil
 }
 
-// Hardenings implements vendors.NodeHardener: the fake offers the metadata
-// hardening so that the hook is exercised without a cloud (its address is the
-// one of AWS, GCP and Azure).
-func (d *Driver) Hardenings() []string { return []string{vendors.HardeningMetadataFromPods} }
-
-// BootFragments implements vendors.NodeHardener.
-func (d *Driver) BootFragments(req vendors.BootFragmentRequest) ([]vendors.BootFragment, error) {
-	var out []vendors.BootFragment
-	if slices.Contains(req.Hardening, vendors.HardeningMetadataFromPods) {
-		f, err := vendors.BlockMetadataFromPods("169.254.169.254")
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, f)
+// MetadataEndpoints implements vendors.InstanceMetadata so that the hook is exercised without a cloud:
+// the addresses of AWS's metadata service, and an OEM unit.
+func (d *Driver) MetadataEndpoints() vendors.MetadataEndpoints {
+	return vendors.MetadataEndpoints{
+		Addresses: []netip.Addr{netip.MustParseAddr("169.254.169.254"), netip.MustParseAddr("fd00:ec2::254")},
+		Units:     []string{"fake-agent.service"},
 	}
-	return out, nil
 }
+
+var _ vendors.InstanceMetadata = (*Driver)(nil)
 
 // ValidateNodeClass accepts every NodeClass.
 func (d *Driver) ValidateNodeClass(context.Context, *v1alpha1.SCNodeClass) error { return nil }

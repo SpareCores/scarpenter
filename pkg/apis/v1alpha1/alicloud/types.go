@@ -56,7 +56,7 @@ type Settings struct {
 	// metadataOptions configures the instance metadata service. Built-in
 	// default: httpTokens optional, because Ignition's aliyun provider reads
 	// the user data without a token (see the reference for the consequence and
-	// the hardening that closes it).
+	// spec.instanceMetadata, which closes it to Pods).
 	// +optional
 	MetadataOptions *MetadataOptions `json:"metadataOptions,omitempty"`
 

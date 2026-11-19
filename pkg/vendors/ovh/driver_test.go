@@ -157,16 +157,6 @@ func TestVendorArchAndBilling(t *testing.T) {
 	if r.Verified || *r.Increment != time.Hour {
 		t.Errorf("the US rule is hourly and unverified: %+v", r)
 	}
-	frags, err := d.BootFragments(vendors.BootFragmentRequest{Hardening: []string{vendors.HardeningMetadataFromPods}})
-	if err != nil || len(frags) != 1 || !strings.Contains(frags[0].Butane, MetadataAddress) {
-		t.Errorf("the hardening fragment: %v %v", frags, err)
-	}
-	if frags, _ := d.BootFragments(vendors.BootFragmentRequest{}); len(frags) != 0 {
-		t.Error("no hardening, no fragment")
-	}
-	if !slices.Equal(d.Hardenings(), []string{vendors.HardeningMetadataFromPods}) {
-		t.Error("the offered hardenings")
-	}
 }
 
 func TestCreateWaitsForTheScheduler(t *testing.T) {
