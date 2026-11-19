@@ -63,6 +63,16 @@ systemd:
         ExecStart=/opt/scarpenter/bin/wait-for-tailscale-ip
         [Install]
         WantedBy=multi-user.target
+{{- if .Lean }}
+    - name: tailscaled.service
+      dropins:
+        - name: 25-scarpenter-lean.conf
+          contents: |
+            # GOMEMLIMIT is a soft limit: see lean.bu.
+            [Service]
+            Environment=GOMEMLIMIT=40MiB
+            Environment=GOGC=50
+{{- end }}
     - name: kubelet.service
       dropins:
         - name: 30-tailscale.conf

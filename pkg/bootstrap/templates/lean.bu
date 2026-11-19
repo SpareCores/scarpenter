@@ -1,0 +1,63 @@
+# The Lean footprint (spec.kubelet.footprint: Lean): a node that keeps its own
+# memory use low, for single-purpose nodes with little memory. Merged after the
+# base config, only when Lean is set. The kubelet's own settings of the preset
+# are in the KubeletConfiguration (pkg/bootstrap/kubelet.go); the tailscaled
+# limit is in the tailscale template.
+#
+# GOMEMLIMIT is a soft limit of the Go runtime: it makes the garbage collector
+# run harder before the heap grows past it, it never kills or fails anything,
+# and a daemon whose live heap is larger just keeps collecting. MemoryHigh is
+# soft as well: it throttles and reclaims, it never kills.
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    # The journal stays in memory (and is lost with the node: ship logs off the
+    # node if they matter).
+    - path: /etc/systemd/journald.conf.d/10-scarpenter-lean.conf
+      mode: 0644
+      contents:
+        inline: |
+          [Journal]
+          Storage=volatile
+          RuntimeMaxUse=16M
+systemd:
+  units:
+    - name: kubelet.service
+      dropins:
+        - name: 25-scarpenter-lean.conf
+          contents: |
+            [Service]
+            Environment=GOMEMLIMIT=80MiB
+            Environment=GOGC=50
+    - name: containerd.service
+      dropins:
+        - name: 25-scarpenter-lean.conf
+          contents: |
+            # MemoryHigh: the page cache of the image layers containerd reads and writes is
+            # charged to its cgroup; above the limit the kernel reclaims it instead of
+            # leaving it to count in the kubelet's memory.available.
+            [Service]
+            Environment=GOMEMLIMIT=64MiB
+            Environment=GOGC=50
+            MemoryHigh=192M
+    # Units a worker does not need. The serial console (serial-getty) stays for
+    # the console log; sshd, resolved, networkd, udevd, timesyncd and logind stay.
+    - name: docker.socket
+      mask: true
+    - name: docker.service
+      mask: true
+    - name: systemd-userdbd.socket
+      mask: true
+    - name: systemd-userdbd.service
+      mask: true
+    - name: systemd-nsresourced.socket
+      mask: true
+    - name: systemd-nsresourced.service
+      mask: true
+    - name: systemd-oomd.socket
+      mask: true
+    - name: systemd-oomd.service
+      mask: true
+    - name: getty@tty1.service
+      mask: true
