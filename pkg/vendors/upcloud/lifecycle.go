@@ -181,7 +181,8 @@ func StorageLabels(tags map[vendors.TagKey]string) []upcloud.Label {
 // WaitStarted waits until the server has left maintenance: the API refuses a
 // firewall write while it clones its storage, which takes minutes on a Standard
 // tier disk. A failure leaves the server alone: the next attempt's idempotency
-// lookup finds it and replays the steps.
+// lookup finds it and replays the steps, or, once Karpenter has given up on the
+// NodeClaim, the garbage collector deletes it (StartTimeout).
 func WaitStarted(ctx context.Context, a api.API, uuid string) error {
 	wctx, cancel := CallContext(ctx, StartTimeout)
 	defer cancel()

@@ -17,7 +17,14 @@ import (
 const (
 	CallTimeout   = 45 * time.Second
 	CreateTimeout = 90 * time.Second
-	// StartTimeout bounds the wait of a new server for the end of its storage clone.
+	// StartTimeout bounds the wait of a new server for the end of its storage clone
+	// (minutes on a Standard tier disk). It is longer than Karpenter's launch
+	// timeout (5 minutes from the NodeClaim's creation), so a launch slower than
+	// that succeeds only within this one call: after a failure past those 5 minutes
+	// Karpenter deletes the NodeClaim, and SCarpenter's garbage collector deletes
+	// the server it leaves (labelled with the cluster and the NodeClaim). A launch
+	// that uses the whole window leaves about 3 minutes of Karpenter's 15 minute
+	// registration timeout for the boot and the join.
 	StartTimeout = 10 * time.Minute
 	// StopTimeout bounds the wait for a hard stop to finish before a delete.
 	StopTimeout = 2 * time.Minute

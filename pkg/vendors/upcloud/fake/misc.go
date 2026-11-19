@@ -383,7 +383,9 @@ func (f *Fake) GetFirewallRules(
 const MaxFirewallRules = 1000
 
 // CreateFirewallRules replaces the whole rule list of the server (the API's
-// "create rules" call does), numbering the positions from 1.
+// "create rules" call does), numbering the positions from 1. A server in
+// maintenance (cloning its storage, stopping) refuses, as the live API does (409
+// SERVER_STATE_ILLEGAL, seen in L5).
 func (f *Fake) CreateFirewallRules(ctx context.Context, r *request.CreateFirewallRulesRequest) error {
 	done, err := f.begin(ctx, "CreateFirewallRules")
 	if err != nil {
@@ -393,6 +395,9 @@ func (f *Fake) CreateFirewallRules(ctx context.Context, r *request.CreateFirewal
 	s, ok := f.servers[r.ServerUUID]
 	if !ok {
 		return notFound("SERVER_NOT_FOUND")
+	}
+	if s.d.State == upcloud.ServerStateMaintenance {
+		return conflict("SERVER_STATE_ILLEGAL")
 	}
 	if len(r.FirewallRules) > MaxFirewallRules {
 		return invalid("FIREWALL_RULE_LIMIT_REACHED")
