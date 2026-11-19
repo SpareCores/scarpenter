@@ -7,6 +7,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package v1alpha1
 
 import (
+	"maps"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	selapi "github.com/SpareCores/sc-keeper-go/selection/api"
@@ -293,8 +295,8 @@ type ConfigMapKeyRef struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.kubeReserved) || self.kubeReserved.all(k, k in ['cpu', 'memory', 'ephemeral-storage', 'pid'])",message="kubeReserved keys must be cpu, memory, ephemeral-storage or pid"
 // +kubebuilder:validation:XValidation:rule="!has(self.evictionHard) || self.evictionHard.all(k, k in ['memory.available', 'nodefs.available', 'nodefs.inodesFree', 'imagefs.available', 'imagefs.inodesFree', 'pid.available'])",message="evictionHard keys must be eviction signals"
 type KubeletSpec struct {
-	// maxPods is the maximum number of Pods per node.
-	// +kubebuilder:default=110
+	// maxPods is the maximum number of Pods per node. Unset means 110, or 10
+	// with footprint Lean.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=1000
 	// +optional
@@ -323,6 +325,90 @@ type KubeletSpec struct {
 	// +kubebuilder:validation:Maximum=50
 	// +optional
 	VMMemoryOverheadPercent *float64 `json:"vmMemoryOverheadPercent,omitempty"`
+
+	// footprint selects how much of the node's memory the node itself uses.
+	// Standard (the default when unset) keeps the kubelet and the OS as they
+	// are. Lean is for single-purpose nodes, such as benchmark runners, and
+	// makes 1 GiB instance types usable: it presets maxPods, kubeReserved,
+	// systemReserved, evictionHard and some more kubelet settings, and
+	// limits the memory of the node's daemons (see the node settings
+	// reference). Fields set in this block always override the preset.
+	// +kubebuilder:validation:Enum=Standard;Lean
+	// +optional
+	Footprint Footprint `json:"footprint,omitempty"`
+}
+
+// Footprint is the memory footprint preset of a node.
+type Footprint string
+
+// Footprints.
+const (
+	// FootprintStandard leaves the kubelet and the OS at their defaults.
+	FootprintStandard Footprint = "Standard"
+	// FootprintLean is the preset for single-purpose nodes with little memory.
+	FootprintLean Footprint = "Lean"
+)
+
+// The values the Lean footprint presets; fields of the KubeletSpec override
+// them. The catalog and the kubelet configuration both read them through
+// Effective, so the node's allocatable equals what the scheduler assumed.
+const (
+	// LeanMaxPods is maxPods with the Lean footprint.
+	LeanMaxPods = 10
+	// LeanKubeReservedMemory is kubeReserved.memory with the Lean footprint:
+	// the kubelet and containerd, with their memory limits of the Lean bootstrap
+	// settings.
+	LeanKubeReservedMemory = "192Mi"
+	// LeanSystemReservedMemory is systemReserved.memory with the Lean footprint:
+	// systemd, journald, resolved, networkd, udevd and tailscaled.
+	LeanSystemReservedMemory = "128Mi"
+	// LeanEvictionMemoryAvailable is evictionHard["memory.available"] with the
+	// Lean footprint.
+	LeanEvictionMemoryAvailable = "50Mi"
+)
+
+// leanEvictionHard is evictionHard with the Lean footprint: the kubelet's
+// defaults, but 50Mi of memory. The other signals are spelled out because the
+// kubelet applies its defaults only to an evictionHard that is not set at all.
+var leanEvictionHard = map[string]string{
+	"memory.available":  LeanEvictionMemoryAvailable,
+	"nodefs.available":  "10%",
+	"nodefs.inodesFree": "5%",
+	"imagefs.available": "15%",
+}
+
+// IsLean says whether the Lean footprint is selected.
+func (k KubeletSpec) IsLean() bool { return k.Footprint == FootprintLean }
+
+// Effective returns the kubelet settings with the footprint preset applied
+// under the fields the NodeClass sets, key by key. With the Standard footprint
+// it returns the spec unchanged.
+func (k KubeletSpec) Effective() KubeletSpec {
+	if !k.IsLean() {
+		return k
+	}
+	if k.MaxPods == nil {
+		maxPods := int32(LeanMaxPods)
+		k.MaxPods = &maxPods
+	}
+	k.KubeReserved = withDefaults(k.KubeReserved, "memory", LeanKubeReservedMemory)
+	k.SystemReserved = withDefaults(k.SystemReserved, "memory", LeanSystemReservedMemory)
+	merged := maps.Clone(leanEvictionHard)
+	maps.Copy(merged, k.EvictionHard)
+	k.EvictionHard = merged
+	return k
+}
+
+// withDefaults returns a copy of m that has key, set to value when m lacks it.
+func withDefaults(m map[string]string, key, value string) map[string]string {
+	out := maps.Clone(m)
+	if out == nil {
+		out = map[string]string{}
+	}
+	if _, ok := out[key]; !ok {
+		out[key] = value
+	}
+	return out
 }
 
 // Sysext is an extra systemd sysext installed on every node.

@@ -7,6 +7,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package nodeclass_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,6 +49,7 @@ func TestHashDependsOnWhatChangesTheNode(t *testing.T) {
 		"flatcar version":     func(nc *v1alpha1.SCNodeClass) { nc.Spec.Flatcar.Version = "4757.2.4" },
 		"kubernetes version":  func(nc *v1alpha1.SCNodeClass) { nc.Spec.Kubernetes.Version = "v1.37.2" },
 		"kubelet":             func(nc *v1alpha1.SCNodeClass) { nc.Spec.Kubelet.MaxPods = ptr.To[int32](50) },
+		"kubelet footprint":   func(nc *v1alpha1.SCNodeClass) { nc.Spec.Kubelet.Footprint = v1alpha1.FootprintLean },
 		"poweroff":            func(nc *v1alpha1.SCNodeClass) { nc.Spec.PoweroffAfter = &metav1.Duration{Duration: 3600} },
 		"tags":                func(nc *v1alpha1.SCNodeClass) { nc.Spec.Tags = map[string]string{"a": "b"} },
 		"the vendor's block":  func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.AWS.InstanceProfile = "b" },
@@ -57,6 +60,19 @@ func TestHashDependsOnWhatChangesTheNode(t *testing.T) {
 		if got := hash(t, nc, "aws"); got == ref {
 			t.Errorf("changing the %s does not change the hash", name)
 		}
+	}
+}
+
+// TestHashKeepsNodeClassesWithoutFootprint pins what the hash reads of the
+// kubelet block: a NodeClass that does not set the footprint hashes the same as
+// before the field existed, so that adding it drifts no node.
+func TestHashKeepsNodeClassesWithoutFootprint(t *testing.T) {
+	raw, err := json.Marshal(base().Spec.Kubelet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "footprint") {
+		t.Errorf("an unset footprint appears in the hashed kubelet block: %s", raw)
 	}
 }
 

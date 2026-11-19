@@ -38,14 +38,19 @@ const (
 // cluster CA as client CA, rotating client certificates, and systemd-resolved's
 // upstream resolv.conf (the stub address 127.0.0.53 does not work inside
 // Pods). What the NodeClass sets: maxPods (default 110), systemReserved,
-// kubeReserved and evictionHard (unset keeps the kubelet's defaults).
-// clusterDNS is only set with --cluster-dns. The output is deterministic.
+// kubeReserved and evictionHard (unset keeps the kubelet's defaults); with
+// the Lean footprint their defaults are the preset's (KubeletSpec.Effective)
+// and the kubelet also pulls images one at a time, keeps small container logs
+// and reports few images. clusterDNS is only set with --cluster-dns. The
+// output is deterministic.
 //
 // clientCAFile is the file with the CA of the API server's client certificates
 // (authentication.x509.clientCAFile); empty means the cluster CA.
 func KubeletConfiguration(
 	spec v1alpha1.KubeletSpec, clusterDNS []string, clusterDomain, clientCAFile string,
 ) (string, error) {
+	lean := spec.IsLean()
+	spec = spec.Effective()
 	if clientCAFile == "" {
 		clientCAFile = ClusterCAPath
 	}
@@ -74,6 +79,12 @@ func KubeletConfiguration(
 	}
 	if len(clusterDNS) > 0 {
 		cfg["clusterDNS"] = clusterDNS
+	}
+	if lean {
+		cfg["serializeImagePulls"] = true
+		cfg["containerLogMaxSize"] = "5Mi"
+		cfg["containerLogMaxFiles"] = 2
+		cfg["nodeStatusMaxImages"] = 10
 	}
 	for key, values := range map[string]map[string]string{
 		"systemReserved": spec.SystemReserved,
