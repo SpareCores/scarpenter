@@ -9,9 +9,9 @@ storage:
           *security
           :SCARPENTER-IMDS-OUTPUT - [0:0]
           :SCARPENTER-IMDS-FORWARD - [0:0]
-          -A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN
-          -A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -j DROP
-          -A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -j DROP
+          -A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN
+          -A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP
+          -A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP
           COMMIT
     - path: /etc/scarpenter/metadata-ip6tables.rules
       mode: 0644
@@ -20,9 +20,9 @@ storage:
           *security
           :SCARPENTER-IMDS-OUTPUT - [0:0]
           :SCARPENTER-IMDS-FORWARD - [0:0]
-          -A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN
-          -A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -j DROP
-          -A SCARPENTER-IMDS-FORWARD -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -j DROP
+          -A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN
+          -A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP
+          -A SCARPENTER-IMDS-FORWARD -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP
           COMMIT
     - path: /opt/scarpenter/bin/scarpenter-metadata-firewall
       mode: 0755
@@ -74,17 +74,26 @@ systemd:
       dropins:
         - name: 10-scarpenter-metadata.conf
           contents: |
+            [Unit]
+            Wants=scarpenter-metadata-firewall.service
+            After=scarpenter-metadata-firewall.service
             [Service]
             Slice=scarpenter-metadata.slice
     - name: coreos-metadata-sshkeys@.service
       dropins:
         - name: 10-scarpenter-metadata.conf
           contents: |
+            [Unit]
+            Wants=scarpenter-metadata-firewall.service
+            After=scarpenter-metadata-firewall.service
             [Service]
             Slice=scarpenter-metadata.slice
     - name: amazon-ssm-agent.service
       dropins:
         - name: 10-scarpenter-metadata.conf
           contents: |
+            [Unit]
+            Wants=scarpenter-metadata-firewall.service
+            After=scarpenter-metadata-firewall.service
             [Service]
             Slice=scarpenter-metadata.slice

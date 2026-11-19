@@ -853,8 +853,8 @@ spec:
 
 **How.** The allowed units (Afterburn's two, plus the vendor's OEM agents) run in `scarpenter-metadata.slice`. A
 oneshot unit ordered before `network-pre.target` loads iptables-nft rules (the `security` table, IPv4 and IPv6): in
-`OUTPUT`, TCP to the addresses except port 53 is dropped unless the socket's cgroup is below the slice
-(`-m cgroup --path`); in `FORWARD` it is dropped for everyone. DNS and NTP stay open because several of the addresses
+`OUTPUT`, a TCP connection to the addresses except to port 53 is dropped unless the socket's cgroup is below the
+slice (`-m cgroup --path`); in `FORWARD` it is dropped for everyone. DNS and NTP stay open because several of the addresses
 also serve them (GCP, OCI, Azure's WireServer). Each driver declares its addresses and units through the optional
 `InstanceMetadata` capability, and the core builds one Butane fragment from that (`vendors.RestrictMetadata`); the
 reference ([node bootstrap](../reference/node-bootstrap.md#instance-metadata-access)) has the per-vendor table, the
@@ -863,12 +863,17 @@ debugging commands and what the mechanism cannot stop (root on the host, privile
 slice's cgroup stays while empty and across restarts, the rules load before `network-pre.target`, a unit in the slice
 reaches the address while one in another slice, in `kubepods` or in a network namespace behind a veth is dropped, a
 reboot keeps it, and a stopped and recreated slice fails closed (the allowed units are dropped too, until the unit
-that loads the rules runs again). The kubelet requires the unit, so a node whose rules did not load never joins.
+that loads the rules runs again; the allowed units want it and start after it, so it does). The kubelet requires
+the unit, so a node whose rules did not load never joins.
 
 **New nodes only.** `instanceMetadata` is left out of the drift hash while it is unset, so the hash of a NodeClass that
 does not set it is unchanged and no running node drifts. Nodes launched after the upgrade are restricted; running
 nodes keep the open service they were launched with until the field is set. The
-`bootstrap.hardening` field of `v1alpha1` is removed, with the `NodeHardener` capability that only it used.
+`bootstrap.hardening` field of `v1alpha1` is removed, with the `NodeHardener` capability that only it used. A stored
+NodeClass that set it loses the field when the API server reads it (the CRD prunes unknown fields); on the vendors
+whose drivers offered the hardening (Alibaba, GCP, OCI, OVH, UpCloud, Vultr) its hash changes, so its nodes drift and are replaced by
+restricted ones. Applying a manifest that still has the field fails with `unknown field` under kubectl's default
+strict field validation: delete the field.
 
 **Consequences.** A component that runs as a Pod and needs the metadata service (a vendor's CSI driver or cloud
 controller, a benchmark tool that reads the instance's identity) needs `access: Open` on its NodeClass; the

@@ -273,15 +273,19 @@ driver or cloud controller that runs as a Pod and takes its credentials from the
 It applies to nodes launched after it exists. `instanceMetadata` leaves the
 [drift hash](#the-nodeclass-controller) as it was while it is unset, so upgrading SCarpenter drifts no node:
 running nodes keep the (open) metadata service they were launched with until the NodeClass sets
-`access: Restricted` or `Open`, which replaces them like any other change of the hash.
+`access: Restricted` or `Open`, which replaces them like any other change of the hash. The exception is a
+NodeClass that set the removed `spec.bootstrap.hardening`: the field is pruned, its hash changes on the vendors that
+applied it, and its nodes are replaced by restricted ones (ADR-025).
 
 ### What is restricted
 
 Each driver declares its vendor's metadata addresses and the units of its image that need them (the optional
 `InstanceMetadata` capability, [driver contract](driver-contract.md#metadata-endpoints)); the core builds one
-Butane fragment from that. Only TCP is dropped, and not port 53: several of these addresses also serve DNS and
-NTP (GCP, OCI, Azure's WireServer), which must keep working. UDP is not touched. Addresses of other
-services, such as AWS's DNS (`169.254.169.253`) and NTP (`169.254.169.123`), are not listed.
+Butane fragment from that. Only TCP connections the node opens (the `SYN`) are dropped, and not to port 53:
+several of these addresses also serve DNS and NTP (GCP, OCI, Azure's WireServer), which must keep working, and
+replies to connections that come from them (Azure's load balancer health probes come from `168.63.129.16`) must
+pass. UDP is not touched; no vendor serves its metadata over UDP. Addresses of other services, such as AWS's DNS
+(`169.254.169.253`) and NTP (`169.254.169.123`), are not listed.
 
 | Vendor | Addresses | Allowed units besides Afterburn's |
 |---|---|---|
@@ -309,16 +313,21 @@ other platform services and is left alone.
 - `scarpenter-metadata-firewall.service`, a oneshot ordered before `network-pre.target`, loads iptables rules
   (iptables-nft, the `security` table, for IPv4 and IPv6) from `/etc/scarpenter/metadata-iptables.rules` and
   `/etc/scarpenter/metadata-ip6tables.rules` with `/opt/scarpenter/bin/scarpenter-metadata-firewall`. In
-  `OUTPUT`, TCP to the addresses is dropped unless the socket's cgroup is below the slice (`-m cgroup --path`):
-  that covers host processes and Pods in the host network. In `FORWARD`, which Pods in the Pod network use,
-  it is dropped for everyone. The `security` table runs after `filter`: a drop in one base chain is final, and an accept in another
+  `OUTPUT`, a TCP connection to the addresses is dropped unless the socket's cgroup is below the slice
+  (`-m cgroup --path`): that covers host processes, Pods in the host network and what the kubelet or containerd
+  fetch for a Pod (an HTTP probe or an image at a metadata address). In `FORWARD`, which Pods in the Pod network
+  use, it is dropped for everyone; the CNI's masquerade comes later, in `POSTROUTING`. The `security` table runs after `filter`: a drop in one base chain is final, and an accept in another
   (kube-proxy and the CNIs use `filter`) does not override it.
-- The kubelet requires the unit, so a node whose rules did not load does not join.
+- The kubelet requires the unit, so a node whose rules did not load does not join. The allowed units want the
+  unit and start after it.
 - Ignition runs in the initramfs and is not affected. `iptables -m cgroup` is used because the `socket cgroupv2`
   expression of nftables needs `CONFIG_NFT_SOCKET`, which Flatcar's kernel does not build.
 - The rules are never removed. Stopping the unit or the slice leaves them in place, and a slice that is stopped
-  and started again is a new cgroup that the loaded rules no longer match, so even the allowed units are
-  dropped (fail closed) until `systemctl restart scarpenter-metadata-firewall` loads the rules again.
+  and started again is a new cgroup that the loaded rules no longer match, so even the allowed units would be
+  dropped (fail closed). Stopping the slice stops the unit (and with it the kubelet); the next allowed unit that
+  starts starts the unit again, which loads the rules for the new cgroup first, and `systemctl restart
+  scarpenter-metadata.slice` does the same. Restarting the unit restarts the kubelet, and after a stop the
+  kubelet needs `systemctl start kubelet`.
 
 ### On a node
 
@@ -338,7 +347,9 @@ A request to a metadata address that hangs and then times out comes from a proce
 - Root on the host, and a privileged Pod with `NET_ADMIN` (it edits the rules) or `CAP_SYS_ADMIN` (it joins the
   allowed cgroup). Keep such Pods out of the cluster, or in a NodeClass with `Open` for what needs it.
 - Anything in the allowed slice, such as the sessions of the SSM agent on AWS.
-- A Pod with `NET_RAW`, which writes below the IP layer: drop the capability in the Pod's security context.
+- A Pod in the host network with `NET_RAW` (in containerd's default capabilities), which can send packets below
+  the IP layer past `OUTPUT`: drop the capability in the Pod's security context. A Pod in the Pod network with it
+  still goes through `FORWARD`.
 - A metadata service that is reachable under an address that is not in the table.
 - A CNI that routes Pod traffic without netfilter (eBPF host routing) does not pass `FORWARD`.
 - Components in the cluster that need the metadata service: a vendor's CSI driver or cloud controller as a

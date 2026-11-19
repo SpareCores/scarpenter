@@ -29,10 +29,12 @@ type BootFragment struct {
 type MetadataEndpoints struct {
 	// Addresses are the IPv4 and IPv6 addresses of the metadata services as the
 	// node reaches them, including a second service such as Azure's WireServer.
-	// Only TCP is restricted, and not port 53: some of these addresses also serve
-	// DNS (GCP, OCI, Azure's WireServer) and a vendor's NTP, which must keep
-	// working. Addresses of other services (AWS's DNS and NTP at 169.254.169.253
-	// and 169.254.169.123) are not listed.
+	// Only TCP connections the node opens are restricted, and not to port 53: some
+	// of these addresses also serve DNS (GCP, OCI, Azure's WireServer) and a
+	// vendor's NTP, which must keep working, and the replies to connections that
+	// come from them (Azure's load balancer probes come from the WireServer's
+	// address) must pass. Addresses of other services (AWS's DNS and NTP at
+	// 169.254.169.253 and 169.254.169.123) are not listed.
 	Addresses []netip.Addr
 	// Units are the systemd units of the vendor's Flatcar image (its OEM agents)
 	// that must keep reaching the addresses. The units of Afterburn
@@ -56,6 +58,7 @@ type InstanceMetadata interface {
 const (
 	metadataSlice       = "scarpenter-metadata.slice"
 	metadataSliceCgroup = "scarpenter.slice/" + metadataSlice
+	metadataFirewall    = "scarpenter-metadata-firewall.service"
 )
 
 // afterburnUnits are the units that read the instance metadata on every Flatcar
@@ -70,9 +73,12 @@ var unitName = regexp.MustCompile(`^[A-Za-z0-9:_.@-]+\.service$`)
 //
 //   - the allowed units run in scarpenter-metadata.slice (a Slice= drop-in each);
 //   - a oneshot unit ordered before network-pre.target loads iptables rules into
-//     the security table: in OUTPUT, TCP to the addresses (but port 53) is dropped
-//     unless the socket's cgroup is below that slice; in FORWARD it is dropped for
-//     Pods in the Pod network. IPv4 and IPv6 alike;
+//     the security table: in OUTPUT, a TCP connection to the addresses (but to
+//     port 53) is dropped unless the socket's cgroup is below that slice; in
+//     FORWARD it is dropped for Pods in the Pod network. IPv4 and IPv6 alike;
+//   - the allowed units want the unit and start after it, so that rules for a
+//     slice that was stopped and started again (a new cgroup) are loaded again
+//     before they run;
 //   - kubelet requires the unit, so a node whose rules failed to load never joins.
 func RestrictMetadata(d Driver) (BootFragment, bool, error) {
 	im, ok := d.(InstanceMetadata)
@@ -112,7 +118,8 @@ func RestrictMetadata(d Driver) (BootFragment, bool, error) {
 	b.WriteString(sliceAndFirewallUnits)
 	for _, u := range units {
 		fmt.Fprintf(&b, "    - name: %s\n      dropins:\n        - name: 10-scarpenter-metadata.conf\n"+
-			"          contents: |\n            [Service]\n            Slice=%s\n", u, metadataSlice)
+			"          contents: |\n            [Unit]\n            Wants=%s\n            After=%s\n"+
+			"            [Service]\n            Slice=%s\n", u, metadataFirewall, metadataFirewall, metadataSlice)
 	}
 	return BootFragment{Name: "metadata-access", Butane: b.String()}, true, nil
 }
@@ -130,7 +137,7 @@ func writeRules(b *strings.Builder, path string, addrs []string, prefix string) 
 	b.WriteString("          :SCARPENTER-IMDS-OUTPUT - [0:0]\n")
 	b.WriteString("          :SCARPENTER-IMDS-FORWARD - [0:0]\n")
 	for _, a := range addrs {
-		match := "-d " + a + prefix + " -p tcp -m tcp ! --dport 53"
+		match := "-d " + a + prefix + " -p tcp -m tcp ! --dport 53 --syn"
 		fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -m cgroup --path %s -j RETURN\n", match, metadataSliceCgroup)
 		fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -j DROP\n", match)
 		fmt.Fprintf(b, "          -A SCARPENTER-IMDS-FORWARD %s -j DROP\n", match)
@@ -163,7 +170,9 @@ const firewallScript = `    - path: /opt/scarpenter/bin/scarpenter-metadata-fire
 // kubelet's dependency on it. The rules are never removed: stopping the unit or
 // the slice leaves them in place, and a slice that is recreated has a new cgroup
 // that the loaded rules no longer match, which blocks the allowed units too
-// (fail closed) until the unit runs again.
+// (fail closed) until the unit runs again. Stopping the slice stops the unit
+// (Requires=), and the next allowed unit that starts starts it again (Wants= in
+// its drop-in); the kubelet is stopped with it and needs a start.
 const sliceAndFirewallUnits = `    - name: scarpenter-metadata.slice
       contents: |
         [Unit]

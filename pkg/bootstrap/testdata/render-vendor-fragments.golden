@@ -101,14 +101,14 @@
     "files": [
       {
         "contents": {
-          "inline": "*security\n:SCARPENTER-IMDS-OUTPUT - [0:0]\n:SCARPENTER-IMDS-FORWARD - [0:0]\n-A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN\n-A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -j DROP\n-A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -j DROP\nCOMMIT\n"
+          "inline": "*security\n:SCARPENTER-IMDS-OUTPUT - [0:0]\n:SCARPENTER-IMDS-FORWARD - [0:0]\n-A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN\n-A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP\n-A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP\nCOMMIT\n"
         },
         "mode": 420,
         "path": "/etc/scarpenter/metadata-iptables.rules"
       },
       {
         "contents": {
-          "inline": "*security\n:SCARPENTER-IMDS-OUTPUT - [0:0]\n:SCARPENTER-IMDS-FORWARD - [0:0]\n-A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN\n-A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -j DROP\n-A SCARPENTER-IMDS-FORWARD -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -j DROP\nCOMMIT\n"
+          "inline": "*security\n:SCARPENTER-IMDS-OUTPUT - [0:0]\n:SCARPENTER-IMDS-FORWARD - [0:0]\n-A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN\n-A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP\n-A SCARPENTER-IMDS-FORWARD -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP\nCOMMIT\n"
         },
         "mode": 420,
         "path": "/etc/scarpenter/metadata-ip6tables.rules"
@@ -145,7 +145,7 @@
       {
         "dropins": [
           {
-            "contents": "[Service]\nSlice=scarpenter-metadata.slice\n",
+            "contents": "[Unit]\nWants=scarpenter-metadata-firewall.service\nAfter=scarpenter-metadata-firewall.service\n[Service]\nSlice=scarpenter-metadata.slice\n",
             "name": "10-scarpenter-metadata.conf"
           }
         ],
@@ -154,7 +154,7 @@
       {
         "dropins": [
           {
-            "contents": "[Service]\nSlice=scarpenter-metadata.slice\n",
+            "contents": "[Unit]\nWants=scarpenter-metadata-firewall.service\nAfter=scarpenter-metadata-firewall.service\n[Service]\nSlice=scarpenter-metadata.slice\n",
             "name": "10-scarpenter-metadata.conf"
           }
         ],
@@ -163,7 +163,7 @@
       {
         "dropins": [
           {
-            "contents": "[Service]\nSlice=scarpenter-metadata.slice\n",
+            "contents": "[Unit]\nWants=scarpenter-metadata-firewall.service\nAfter=scarpenter-metadata-firewall.service\n[Service]\nSlice=scarpenter-metadata.slice\n",
             "name": "10-scarpenter-metadata.conf"
           }
         ],

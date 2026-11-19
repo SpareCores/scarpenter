@@ -50,13 +50,15 @@ func TestRestrictMetadata(t *testing.T) {
 	}
 	for _, want := range []string{
 		// IPv4 and IPv6 in their own files; a v4-mapped address is a v4 address.
-		"/etc/scarpenter/metadata-iptables.rules", "-d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 -j DROP",
-		"-d 168.63.129.16/32 -p tcp -m tcp ! --dport 53 -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN",
-		"/etc/scarpenter/metadata-ip6tables.rules", "-d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 -j DROP",
+		"/etc/scarpenter/metadata-iptables.rules", "-d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP",
+		"-d 168.63.129.16/32 -p tcp -m tcp ! --dport 53 --syn -m cgroup --path scarpenter.slice/scarpenter-metadata.slice -j RETURN",
+		"/etc/scarpenter/metadata-ip6tables.rules", "-d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP",
 		// the forwarded Pod traffic is dropped for every address
 		"-A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32", "-A SCARPENTER-IMDS-FORWARD -d fd00:ec2::254/128",
 		// Afterburn's units and the driver's are in the slice
 		"- name: coreos-metadata.service", "- name: coreos-metadata-sshkeys@.service", "- name: agent.service", "- name: tmpl@.service",
+		// and start after the rules, which a recreated slice needs loaded again
+		"Wants=scarpenter-metadata-firewall.service\n            After=scarpenter-metadata-firewall.service\n",
 	} {
 		if !strings.Contains(f.Butane, want) {
 			t.Errorf("the fragment lacks %q:\n%s", want, f.Butane)

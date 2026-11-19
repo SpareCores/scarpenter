@@ -110,8 +110,8 @@ capability. The core must not branch on a vendor, so it builds the node's config
 On nodes of a NodeClass whose `spec.instanceMetadata.access` is `Restricted` (the default), `vendors.RestrictMetadata`
 turns the declaration into one Butane fragment (the slice of the allowed units, the iptables rules for each address
 and the unit that loads them) that the core merges as the part `vendor-metadata-access`, after the base and volume
-configs and before the network template and the user's Butane, which can override it. Only TCP except port 53 is
-restricted, because some addresses also serve DNS and NTP; list the addresses of the metadata services only, never a
+configs and before the network template and the user's Butane, which can override it. Only TCP connections the node opens,
+except to port 53, are restricted, because some addresses also serve DNS and NTP; list the addresses of the metadata services only, never a
 range. The fragment counts in the size budget and in the trial rendering of the NodeClass controller, so an
 invalid declaration (a unit name that is not a service) makes `ValidationSucceeded` false. A driver without the
 capability, or one that declares no address (qemu: its VMs have no metadata service), leaves its nodes alone.
