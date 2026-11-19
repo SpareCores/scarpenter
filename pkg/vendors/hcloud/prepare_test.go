@@ -154,6 +154,9 @@ func TestPrepareCreatesTheManagedFirewall(t *testing.T) {
 	if len(fws) != 1 || len(kindIDs(p, hcloud.KindNetworks)) != 0 || len(p.Devices) != 0 {
 		t.Fatalf("a default launch needs one firewall and nothing else: %+v", p)
 	}
+	if p.NodeIPCIDR != "" {
+		t.Errorf("a launch without a private network has the node IP range %q, want none", p.NodeIPCIDR)
+	}
 	again, err := e.prepare(t, nc, s, "fsn1", "")
 	if err != nil || kindIDs(again, hcloud.KindFirewalls)[0] != fws[0] {
 		t.Fatalf("Prepare is idempotent: %v, %v", again, err)
@@ -225,6 +228,9 @@ func TestBroughtFirewallAndNetwork(t *testing.T) {
 	if got := kindIDs(p, hcloud.KindNetworks); len(got) != 1 || got[0] != fmt.Sprint(nw.ID) {
 		t.Errorf("the brought network: %v", got)
 	}
+	if p.NodeIPCIDR != "10.8.0.0/21" {
+		t.Errorf("the node IP range = %q, want the range of the brought network", p.NodeIPCIDR)
+	}
 	if list, _ := e.d.List(context.Background(), nil, nil); len(list) != 0 {
 		t.Errorf("nothing is created when everything is brought: %v", list)
 	}
@@ -274,6 +280,9 @@ func TestANetworkWithTheOptInLabelIsAttached(t *testing.T) {
 	}
 	if got := kindIDs(p, hcloud.KindNetworks); len(got) != 1 || got[0] != fmt.Sprint(nw.ID) {
 		t.Errorf("the network with the opt-in label: %v", got)
+	}
+	if p.NodeIPCIDR != "10.8.0.0/21" {
+		t.Errorf("the node IP range = %q, want the range of the discovered network", p.NodeIPCIDR)
 	}
 	// ash is in another network zone: no network there, and no error.
 	p, err = e.prepare(t, nc, settingsOf(t, e.d, nc, options.Selection{}), "ash", "")

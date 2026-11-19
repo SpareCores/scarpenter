@@ -107,6 +107,9 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 			return nil, err
 		}
 		prep.Resources = append(prep.Resources, vpcs...)
+		// No node IP range (Prepared.NodeIPCIDR): the VPC interface has no DHCP and
+		// Flatcar has no cloud-init to configure it from the metadata, so it has
+		// no address and the kubelet keeps the public one.
 	}
 	return prep, nil
 }

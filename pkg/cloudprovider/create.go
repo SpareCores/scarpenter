@@ -326,6 +326,7 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	}
 	if prepared != nil {
 		rr.Volumes, rr.Local = volumeHints(prepared)
+		rr.NodeIPCIDR = prepared.NodeIPCIDR
 	}
 	if nc.Spec.RestrictsInstanceMetadata() {
 		f, ok, err := vendors.RestrictMetadata(drv)

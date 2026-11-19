@@ -172,3 +172,16 @@ func TestDeprecatedHardeningKeepsTheOldHash(t *testing.T) {
 		t.Error("a vendor that never applied the hardening drifts")
 	}
 }
+
+// TestHashIsPinned guards against drift by accident: the node IP hint of the
+// direct template derives from the resolved resources of a launch, not from the
+// spec, so a change of the rendering that does not bump HashVersion must leave
+// the hash of an existing NodeClass as it is. If this fails, either the hash
+// changed by mistake or HashVersion was bumped on purpose (and every node drifts
+// once): then update the value here.
+func TestHashIsPinned(t *testing.T) {
+	const want = "b310824b670685c5120dd548c125c7f57792106140f6488b273a3a74332f9af5"
+	if got := hash(t, base(), "aws"); got != want {
+		t.Errorf("hash of the base NodeClass = %s, want %s", got, want)
+	}
+}

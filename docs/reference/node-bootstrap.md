@@ -203,6 +203,7 @@ template that uses a variable that does not exist fails (strict). Functions: `q`
 | `.KubeletArgs` | `--provider-id`, `--hostname-override` and `--register-with-taints` |
 | `.Sysexts` | the kubernetes sysext and `spec.sysexts` of the architecture: `.Name`, `.URL`, `.SHA256`, `.Path`, `.Link` |
 | `.Tailscale.Version`, `.LoginServer`, `.AuthKey`, `.Tags` (comma separated), `.AcceptRoutes`, `.Sysext` | the tailscale settings; set with the `tailscale` template only |
+| `.NodeIPCIDR` | the IPv4 range of the private network the node joins, from the driver; empty without one (the `direct` template turns it into `--node-ip`, see [network templates](#network-templates)) |
 | `.Lean` | whether `spec.kubelet.footprint` is `Lean` |
 | `.PoweroffAfter`, `.PoweroffAfterSeconds` | `spec.poweroffAfter` as a duration string and in seconds (0: not set) |
 
@@ -245,9 +246,56 @@ compares them. What each renders:
   (`SCARPENTER_NODE_IP_ARGS=--node-ip=<ip>`), which the kubelet drop-in reads. A
   second drop-in (`30-tailscale.conf`) makes the kubelet wait for the unit. Nodes
   need only outbound connectivity.
-- **`direct`**: nothing but a marker file; the kubelet uses the node's primary
-  address (no `--node-ip`).
+- **`direct`**: a marker file; the kubelet uses the node's primary address (no
+  `--node-ip`), unless the driver reports a private network range for the launch
+  (`Prepared.NodeIPCIDR`, see below).
 - **`custom`**: your Butane template (below).
+
+### The node IP on a private network
+
+A node whose private network is a second interface next to the public one
+(Hetzner private networks, UpCloud SDN) has its default route on the
+public interface, so a kubelet without `--node-ip` registers the public address
+and node-to-node and control-plane traffic leaves the private network. For
+these, the driver puts the IPv4 range of the network the launch attaches into
+`Prepared.NodeIPCIDR`, provided the network gives the interface its address by
+DHCP (Flatcar runs DHCP on every interface; nothing else configures it) ([driver contract](driver-contract.md)); the core passes it
+to the renderer as a hint of the launch, "the node IP is the node's local address
+inside this CIDR". It derives from the resolved resources (brought, discovered or
+created network), never from the spec, so it does not change the NodeClass hash:
+nodes launched before keep what they have, nodes launched after get the unit.
+
+With the `direct` template and a range, the user-data adds:
+
+- `/opt/scarpenter/bin/scarpenter-node-ip` (`templates/scarpenter-node-ip.sh`), which waits
+  up to 120 s for a global IPv4 address of the node inside the range (DHCP of the
+  private interface can take a moment after `network-online.target`) and writes
+  `/run/scarpenter/node-ip.env` (`SCARPENTER_NODE_IP_ARGS=--node-ip=<ip>`), the
+  same file the `tailscale` template writes. If several addresses are inside the range the
+  first one `ip` lists wins.
+- `scarpenter-node-ip.service` (oneshot, `Before=kubelet.service`, started with
+  `TimeoutStartSec=150`) and the kubelet drop-in `30-node-ip.conf` (`Requires=` and
+  `After=` the unit). **If no address shows up the unit fails and the kubelet does
+  not start** (the journal says `no IPv4 address inside <range>` and lists the
+  addresses), so the node never registers with the wrong IP; Karpenter's
+  registration timeout then replaces it.
+
+It costs about 1.7 KiB of user-data (the script and the unit; the `direct` default
+is 3.2 KiB without them, 4.9 KiB with). Only some vendors use it, but `Validate`
+sizes its trial rendering with a range, so that a `direct` NodeClass close to the
+[budget](#size-budget) is rejected at validation and not when a node launches on
+such a vendor. IPv6 ranges are not
+handled: the range must be an IPv4 prefix, else the rendering fails. The
+`tailscale` template ignores the range (the tailnet address is the node IP), and a
+`custom` template can read it as `.NodeIPCIDR` (empty without one).
+
+Vendors whose instance has one interface with a private primary address and a
+NAT'ed public one (AWS, GCP, Azure, OCI, Alibaba Cloud) need no hint: the kubelet
+already registers the private address that the subnet gave the node, and they
+supply none. OVH does not support private networks in v1. A Vultr VPC has no
+DHCP, so its interface has no address on Flatcar and the driver supplies no
+range; an UpCloud network brought without DHCP gets none either. Their nodes
+register the public address.
 
 ## Instance metadata access
 
@@ -381,18 +429,23 @@ AWS accepts 16 KiB of user-data, the smallest limit of the vendors. A
 rendering over 16 384 bytes fails with an error naming the compressed size of
 each part, and the NodeClass reports it as `ValidationSucceeded=False`
 (`TemplateInvalid`) before any launch. The default templates are held to 12 KiB
-by golden tests, measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM): about
-4.9 KiB with `tailscale`, 3.5 KiB with `direct`. The CA is the largest fixed part and
+by golden tests, measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM). A
+plain rendering is 4.5 KiB with `tailscale` and 3.2 KiB with `direct`; with
+everything on (the node IP unit, two volumes, 24 local disks with one mount each,
+the Lean footprint, the metadata restriction) it is 10.6 KiB with `tailscale` and
+11.0 KiB with `direct`, and a unit test holds that worst case to the 12 KiB.
+The CA is the largest fixed part and
 it does not compress (a 4096-bit CA adds about 0.7 KiB, a rotation bundle of two
-CAs about 1 KiB); the NodeClass controller's trial rendering uses the real cluster
-CA, so what validates fits at launch. Nodes with extra volumes or local storage get a fourth part, the
-[first-boot volume unit](node-settings.md#extra-volumes-and-local-storage) (about
-2.5 KiB plus 0.3 KiB per volume: eight volumes and four local disks on the
-`tailscale` template measure about 11 KiB); the trial rendering of the NodeClass
-controller does not include it, so a NodeClass whose custom snippets take most of
-the budget can still fail at launch for a node with many volumes. Large
-payloads belong in sysexts, referenced by URL and sha256, not in snippets.
-(Compression helps repetitive content only: 20 KiB of random data does not fit.)
+CAs about 1 KiB). The NodeClass controller's trial rendering uses the real cluster
+CA, a node IP range, and the largest storage setup of each vendor, so what
+validates fits at launch.
+
+Two measures keep the user-data small. Each part is gzip-compressed on its own, and
+the scripts it installs are embedded as percent-encoded text without their comment
+lines, because gzip compresses that to a third, while the base64 data URL Butane
+prefers for a script compresses 30 % worse. Large payloads belong in sysexts,
+referenced by URL and sha256, not in snippets. (Compression helps repetitive
+content only: 20 KiB of random data does not fit.)
 
 ## The NodeClass controller
 

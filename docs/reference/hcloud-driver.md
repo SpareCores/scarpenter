@@ -263,7 +263,11 @@ bills and is no node, so it stays listed for the garbage collector and `Delete`
 removes it. The instance reference is `<location>/<server ID>`; the provider ID
 `scarpenter://hcloud/<location>/<nodeclaim>`. A location is its own (dummy) zone.
 Addresses are the public IPv4, `<prefix>::1` of the IPv6 /64 and the private
-network IPs.
+network IPs. With a private network the server's default route is the public interface, so with the
+`direct` template the driver reports the network's IPv4 range (`ip_range`) as the node IP range and the
+kubelet registers the server's address inside it ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network));
+Hetzner hands out the private address by DHCP, which Flatcar runs on every interface; that it arrives in time on
+a Hetzner server is unverified.
 
 `Project.Delete` refuses a server that lacks this cluster's `managed-by` and
 `cluster` labels, treats `not_found` and an unparseable reference as gone, waits for
@@ -332,7 +336,7 @@ through the real engine in the driver's own tests.
 
 Spot (does not exist), private-only servers, `networks.create`, per-run private networks and the isolation levels that
 need them, several projects per controller, Floating IPs, load balancers, snapshots as node roots, an `ImageImporter`
-(the label convention is its contract), a `direct`-template `--node-ip` from the private network.
+(the label convention is its contract).
 
 ## What is not verified against Hetzner yet
 

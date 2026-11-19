@@ -194,6 +194,8 @@ use and are never set).
   `--terminating-grace` ([driver contract](driver-contract.md#instance-states)). A guest
   `poweroff` already terminates the instance (`InstanceInitiatedShutdownBehavior:
   terminate`), so `stopped` arises only from a `StopInstances` call outside SCarpenter.
+- **Node IP.** The primary interface's address is the private one of the subnet (the public IP is NAT'ed), so the
+  kubelet of the `direct` template registers it without a hint: the driver reports no node IP range.
 - **Addresses.** `Instance.Addresses` lists the private and public IPv4 and the
   IPv6 addresses of every interface; the serving certificate approver checks the
   node's IP SANs against them.

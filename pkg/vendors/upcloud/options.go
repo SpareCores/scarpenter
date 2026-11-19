@@ -351,6 +351,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 
 	peers := peersReach(net.Isolation, req.RunKey)
 	var network *vendors.ResourceRef
+	var networkRange string // the first IPv4 range of the network
 	if cfg.wantsNetwork() || peers {
 		refs, err := req.Resources.Require(ctx, vendors.ResourceRequest{
 			Kind: KindNetworks, Zone: req.Zone, Settings: &req.Settings,
@@ -364,6 +365,17 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		}
 		network = &refs[0]
 		prep.Resources = append(prep.Resources, refs[0])
+		var dhcp bool
+		if networkRange, dhcp, err = d.networkCIDR(ctx, network.ID); err != nil {
+			return nil, err
+		}
+		// The private interface is not the default route's: the direct template's
+		// kubelet takes the node's address inside the network's range. Without
+		// DHCP on the range nothing gives the interface its address on Flatcar,
+		// so there is no node IP range and the kubelet keeps the public address.
+		if dhcp {
+			prep.NodeIPCIDR = networkRange
+		}
 	}
 	if network != nil && (cfg.wantsFirewall() || peers) {
 		params := FirewallParams{}
@@ -371,11 +383,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 			params.Inbound = net.Inbound.Rules
 		}
 		if peers {
-			cidr, err := d.networkCIDR(ctx, network.ID)
-			if err != nil {
-				return nil, err
-			}
-			params.CIDR = cidr
+			params.CIDR = networkRange
 		}
 		raw, err := json.Marshal(params)
 		if err != nil {
@@ -460,16 +468,16 @@ func (d *Driver) requireServerGroup(ctx context.Context, req vendors.PrepareRequ
 	return refs[0], nil
 }
 
-// networkCIDR is the first IPv4 range of a network.
-func (d *Driver) networkCIDR(ctx context.Context, uuid string) (string, error) {
+// networkCIDR is the first IPv4 range of a network and whether it has DHCP on.
+func (d *Driver) networkCIDR(ctx context.Context, uuid string) (cidr string, dhcp bool, err error) {
 	n, err := GetNetwork(ctx, d.api, uuid)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	for _, in := range n.IPNetworks {
 		if in.Family == "" || in.Family == "IPv4" {
-			return in.Address, nil
+			return in.Address, in.DHCP.Bool(), nil
 		}
 	}
-	return "", vendors.Errorf(vendors.Fatal, "the network %s has no IPv4 range", uuid)
+	return "", false, vendors.Errorf(vendors.Fatal, "the network %s has no IPv4 range", uuid)
 }

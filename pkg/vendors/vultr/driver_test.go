@@ -336,6 +336,11 @@ func TestPrepareRequiresTheGroupAndTheVPCOnlyForAnIsolationThatNeedsOne(t *testi
 		got, err := e.d.Prepare(ctx, prepareReq(res, common.Networking{Isolation: iso}))
 		if err != nil || len(got.Resources) != want {
 			t.Errorf("isolation %q: %+v, %v; want %d resources", iso, got, err, want)
+			continue
+		}
+		// The VPC interface gets no address on Flatcar (no DHCP): no node IP range.
+		if got.NodeIPCIDR != "" {
+			t.Errorf("isolation %q: node IP range %q, want none", iso, got.NodeIPCIDR)
 		}
 	}
 	// A missing resource reaches the caller with its code.

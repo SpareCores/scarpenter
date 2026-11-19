@@ -136,6 +136,10 @@ installs them). The response's `default_password` is never read, logged or store
   the backstop.
 - **Stock.** The plan must be in the region's `available_plans` (cached, see above) before the call; otherwise
   `InsufficientCapacity` without a call.
+- **Node IP.** An attached VPC is a second interface without DHCP: Vultr's own images configure it with cloud-init
+  from the metadata service, which Flatcar does not run, so on a node it has no address. `Prepare` reports no node IP
+  range ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)) and the kubelet of the `direct`
+  template registers the public address; node-to-node traffic does not use the VPC.
 - **State.** `status: pending` is `pending`; `suspended` or `power_status: stopped` is `terminating` (a stopped
   instance still bills, so the garbage collector deletes it); `active` with `running` and `server_status: ok`
   is `running`; anything else is `pending`. `main_ip` is `0.0.0.0` while pending and is then no address.

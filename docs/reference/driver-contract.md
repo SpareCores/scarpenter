@@ -175,6 +175,13 @@ extra volume (`Name`, `Filesystem`, `MountPath`, and either `ByID` or
 `SerialPattern` with `SizeBytes`) and a `LocalHint` for instance-local disks;
 the core renders them into the user-data
 ([first-boot volume unit](node-settings.md#extra-volumes-and-local-storage)).
+`Prepared.NodeIPCIDR` is the IPv4 range of the private network the instance joins
+as a second interface next to its public one (`""` for none, the default): the
+`direct` template then makes the node's address inside it the kubelet's
+`--node-ip` ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)).
+Set it only when the private interface is not the default route's; a vendor whose
+primary address is private already supplies none. It comes from the resolved
+network of the launch, not from the NodeClass spec, and must be IPv4.
 `Prepare` must be idempotent: a retry with the same request returns the same
 resources. A driver whose `Supported` or `PriceDelta` answers can change at
 runtime implements `EpochReporter` (`NodeOptionsEpoch()`), so that the catalog

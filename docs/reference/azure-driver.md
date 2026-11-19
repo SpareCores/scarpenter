@@ -93,7 +93,7 @@ of `spec.networking.inbound` at priorities 110 and up (the node allow is 100: Az
 **A NIC takes one network security group, so a group brought with `use` decides alone and `networking.isolation` has no
 effect on it** (the vendor condition `ConfigurationWarning` says so, with one Warning event). A resource group is deleted only if it carries the marker and holds nothing
 but SCarpenter's own leftovers; nothing brought is ever modified or deleted. Nodes are IPv4 only; without a public address
-nothing gives them egress, so `publicIPv4: false` needs `subnets.use`.
+nothing gives them egress, so `publicIPv4: false` needs `subnets.use`. Node IP: the node's only interface has the subnet's private address (the public one is NAT'ed), which the kubelet of the `direct` template registers without a hint, so the driver reports no node IP range ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)).
 
 ## Quotas, offerings and errors
 

@@ -44,6 +44,9 @@ type RenderRequest struct {
 	Local        *LocalHint
 	// VendorFragments are the fragments of the vendor's driver for the node.
 	VendorFragments []Fragment
+	// NodeIPCIDR is the IPv4 range of the private network of the launch, from
+	// the driver's Prepared.NodeIPCIDR ("" for none).
+	NodeIPCIDR string
 	// Token is the bootstrap token of the NodeClaim.
 	Token string
 	// NodeName and ProviderID are the node name (the NodeClaim name) and the
@@ -127,6 +130,7 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 	p.Vendor, p.Region, p.Zone, p.InstanceType = req.Vendor, req.Region, req.Zone, req.InstanceType
 	p.KubeReserved, p.Volumes, p.Local = req.KubeReserved, req.Volumes, req.Local
 	p.VendorFragments = req.VendorFragments
+	p.NodeIPCIDR = req.NodeIPCIDR
 	if req.NodeClaim != nil {
 		p.Labels = req.NodeClaim.Labels
 	}
@@ -148,6 +152,10 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 func (r *Renderer) Validate(ctx context.Context, nc *v1alpha1.SCNodeClass, arch string, in Inputs) error {
 	return r.ValidateWith(ctx, nc, arch, in, nil)
 }
+
+// validationNodeIPCIDR stands in for the private network range of a launch in the
+// trial renderings: the longest text an IPv4 range has.
+const validationNodeIPCIDR = "255.255.255.255/32"
 
 // FragmentsFunc returns the fragments the core builds for the node of a NodeClass
 // on a vendor for the architecture (the metadata restriction, unless the NodeClass
@@ -181,8 +189,13 @@ func (r *Renderer) ValidateWith(
 	p.NodeName, p.ProviderID = "validation-node", "scarpenter://validation/validation/validation-node"
 	p.Vendor, p.Region, p.BootstrapToken = "validation", "validation", "000000.0000000000000000"
 	p.Taints = []corev1.Taint{karpv1.UnregisteredNoExecuteTaint}
+	// Only some vendors report a private network range (and the direct template
+	// renders the node IP unit for it, about 1.9 KiB of user-data), the launch knows
+	// which: size every rendering with one, so that a NodeClass that only fits
+	// without it is rejected here and not when a node launches on such a vendor.
+	p.NodeIPCIDR = validationNodeIPCIDR
 	if _, err = Render(p); err != nil {
-		return err
+		return fmt.Errorf("the trial rendering (with a node IP range as on a vendor with a private network): %w", err)
 	}
 	byVendor := map[string][]Fragment{}
 	if fragments != nil {

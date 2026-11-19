@@ -243,9 +243,9 @@ The unit, rendered only for nodes that have volumes or local storage:
 Mount paths must be plain absolute paths (letters, digits, `.`, `_`, `-`, `/`)
 and are checked when the user-data is rendered. The scripts are
 `pkg/bootstrap/templates/scarpenter-volume.sh` and `scarpenter-local-storage.sh`.
-They add about 2.5 KiB (compressed and encoded) and 0.3 KiB per volume to the
-user-data: eight volumes and four local disks on the tailscale template are about
-11 KiB of the 16 KiB limit (the default templates themselves are held to 12 KiB).
+They add about 1.9 KiB (compressed and encoded) and 0.3 KiB per volume to the
+user-data (two volumes and 24 local disks with one mount each, on the tailscale template with
+everything else on, are 10.6 KiB of the 16 KiB limit; the default templates themselves are held to 12 KiB).
 The NodeClass controller's trial rendering includes every storage setup each
 vendor allows (the vendor block's `storage` and each storage profile on top of it,
 with local disks counted as 24, the most a type has), so a NodeClass whose user Butane leaves

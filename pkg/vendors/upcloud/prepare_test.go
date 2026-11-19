@@ -95,6 +95,9 @@ func TestPrepareGivesNoPrivateNetworkWithoutConfiguration(t *testing.T) {
 	if len(p.Resources) != 0 {
 		t.Errorf("resources %v, want none: there is no default network", p.Resources)
 	}
+	if p.NodeIPCIDR != "" {
+		t.Errorf("the node IP range = %q without a private network, want none", p.NodeIPCIDR)
+	}
 	if n := len(mustList(t, e.env)); n != 0 {
 		t.Errorf("%d managed resources created", n)
 	}
@@ -130,6 +133,9 @@ func TestPrepareCreatesTheNetworkWhereTheNodeClassConfiguresIt(t *testing.T) {
 		!strings.HasSuffix(nets.Networks[0].IPNetworks[0].Address, ".0/24") {
 		t.Errorf("networks %+v", nets.Networks)
 	}
+	if want := nets.Networks[0].IPNetworks[0].Address; first.NodeIPCIDR != want {
+		t.Errorf("the node IP range = %q, want the range of the network %q", first.NodeIPCIDR, want)
+	}
 }
 
 func TestIsolationNodeClassNeedsTheNetworkAndARulesetOfItsRange(t *testing.T) {
@@ -151,6 +157,9 @@ func isolationNeedsNetworkAndRuleset(t *testing.T, iso common.Isolation) {
 	rs := ids(p, uc.KindFirewalls)
 	if len(ids(p, uc.KindNetworks)) != 1 || len(rs) != 1 {
 		t.Fatalf("resources %v", p.Resources)
+	}
+	if !strings.HasPrefix(p.NodeIPCIDR, "10.241.") {
+		t.Errorf("the node IP range = %q, want the range of the SDN network", p.NodeIPCIDR)
 	}
 	sets, _ := e.f.GetFirewallRulesets(e.ctx())
 	full, err := e.f.GetFirewallRuleset(e.ctx(), rs[0])
@@ -253,6 +262,11 @@ func TestBroughtNetworksAndRulesetsAreUsedAsTheyAre(t *testing.T) {
 	}
 	if ids(p, uc.KindNetworks)[0] != n.UUID || ids(p, uc.KindFirewalls)[0] != r.UUID {
 		t.Errorf("resources %v, want the brought ones", p.Resources)
+	}
+	// The brought network has no DHCP: its interface gets no address on Flatcar,
+	// so there is no node IP range for the kubelet to wait for.
+	if p.NodeIPCIDR != "" {
+		t.Errorf("the node IP range = %q for a network without DHCP, want none", p.NodeIPCIDR)
 	}
 	for _, ref := range p.Resources {
 		if ref.Managed {
