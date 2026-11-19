@@ -17,7 +17,10 @@ import (
 	"fmt"
 	"slices"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 )
 
 // HashVersion is bumped when the rendering of a node changes in a
@@ -72,6 +75,14 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 	if len(in.Hardening) > 0 {
 		hardening = slices.Sorted(slices.Values(in.Hardening))
 	}
+	// maxPods had a CRD default of 110 before the Lean footprint, so stored
+	// NodeClasses carry it and newer ones may not: an unset maxPods without Lean
+	// hashes as 110, the value the node gets either way, so that neither an old
+	// object nor a replace that drops the field drifts nodes.
+	kubelet := s.Kubelet
+	if kubelet.MaxPods == nil && !kubelet.IsLean() {
+		kubelet.MaxPods = ptr.To[int32](bootstrap.DefaultMaxPods)
+	}
 	raw, err := json.Marshal(struct {
 		Version       string
 		Vendor        string
@@ -87,7 +98,7 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 		Hardening     []string `json:",omitempty"`
 		Block         map[string]any
 		Inputs        hashInputs
-	}{HashVersion, vendor, s.Flatcar, s.Kubernetes, s.Network, s.Networking, s.Kubelet, s.Butane, s.Sysexts,
+	}{HashVersion, vendor, s.Flatcar, s.Kubernetes, s.Network, s.Networking, kubelet, s.Butane, s.Sysexts,
 		s.PoweroffAfter, s.Tags, hardening, generic, newHashInputs(in)})
 	if err != nil {
 		return "", fmt.Errorf("hashing the NodeClass: %w", err)

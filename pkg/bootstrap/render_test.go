@@ -320,6 +320,44 @@ func TestGoldenTailscaleAcceptRoutes(t *testing.T) {
 	}
 }
 
+// TestGoldenLean renders the Lean footprint: the lean part with the daemons'
+// limits and the masks, the kubelet's preset settings and, with the tailscale
+// template only, the limit of tailscaled.
+func TestGoldenLean(t *testing.T) {
+	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateTailscale, v1alpha1.NetworkTemplateDirect} {
+		t.Run(string(template), func(t *testing.T) {
+			p := baseParams("amd64", template)
+			p.Kubelet = v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}
+			r, err := bootstrap.Render(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(goldenText(t, r))
+			testutil.Golden(t, "render-lean-"+string(template)+".golden", []byte(got))
+			if hasTailscaled := strings.Contains(got, `"name": "tailscaled.service"`); hasTailscaled != (template == v1alpha1.NetworkTemplateTailscale) {
+				t.Errorf("a tailscaled drop-in with the %s template: %v", template, hasTailscaled)
+			}
+			if n := len(r.UserData); n > bootstrap.DefaultBudgetBytes {
+				t.Errorf("the user-data is %d bytes, the budget of the default templates is %d", n, bootstrap.DefaultBudgetBytes)
+			}
+		})
+	}
+	standard, err := bootstrap.Render(baseParams("amd64", v1alpha1.NetworkTemplateTailscale))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range standard.Parts {
+		if part.Name == "lean" {
+			t.Error("the standard footprint renders the lean part")
+		}
+	}
+	for _, absent := range []string{"GOMEMLIMIT", "journald", "serializeImagePulls"} {
+		if strings.Contains(string(goldenText(t, standard)), absent) {
+			t.Errorf("the standard footprint carries %q", absent)
+		}
+	}
+}
+
 func TestRenderIsDeterministic(t *testing.T) {
 	a, err := bootstrap.Render(baseParams("amd64", v1alpha1.NetworkTemplateTailscale))
 	if err != nil {
@@ -457,6 +495,42 @@ func TestKubeletConfiguration(t *testing.T) {
 	for _, absent := range []string{"clusterDNS", "systemReserved", "kubeReserved", "evictionHard"} {
 		if strings.Contains(got, absent) {
 			t.Errorf("the default configuration has %q:\n%s", absent, got)
+		}
+	}
+}
+
+func TestKubeletConfigurationLean(t *testing.T) {
+	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"maxPods: 10", "memory: 192Mi", "memory: 128Mi", "memory.available: 50Mi", "nodefs.available: 10%", "imagefs.inodesFree: 5%",
+		"serializeImagePulls: true", "containerLogMaxSize: 5Mi", "containerLogMaxFiles: 2", "nodeStatusMaxImages: 10",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the lean configuration lacks %q:\n%s", want, got)
+		}
+	}
+
+	// What the NodeClass sets overrides the preset, key by key.
+	got, err = bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{
+		Footprint: v1alpha1.FootprintLean, MaxPods: new(int32(30)),
+		KubeReserved:   map[string]string{"memory": "256Mi", "cpu": "100m"},
+		SystemReserved: map[string]string{"memory": "64Mi"},
+		EvictionHard:   map[string]string{"memory.available": "80Mi"},
+	}, nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"maxPods: 30", "memory: 256Mi", "cpu: 100m", "memory: 64Mi", "memory.available: 80Mi", "nodefs.available: 10%"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the overridden lean configuration lacks %q:\n%s", want, got)
+		}
+	}
+	for _, absent := range []string{"192Mi", "128Mi", "maxPods: 10\n", "50Mi"} {
+		if strings.Contains(got, absent) {
+			t.Errorf("the overridden lean configuration has %q:\n%s", absent, got)
 		}
 	}
 }

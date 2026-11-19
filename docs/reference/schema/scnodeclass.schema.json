@@ -214,6 +214,14 @@
               "maxProperties": 6,
               "type": "object"
             },
+            "footprint": {
+              "description": "footprint selects how much of the node's memory the node itself uses.\nStandard (the default when unset) keeps the kubelet and the OS as they\nare. Lean is for single-purpose nodes, such as benchmark runners, and\nmakes 1 GiB instance types usable: it presets maxPods, kubeReserved,\nsystemReserved, evictionHard and some more kubelet settings, and\nlimits the memory of the node's daemons (see the node settings\nreference). Fields set in this block always override the preset.",
+              "enum": [
+                "Standard",
+                "Lean"
+              ],
+              "type": "string"
+            },
             "kubeReserved": {
               "additionalProperties": {
                 "type": "string"
@@ -223,8 +231,7 @@
               "type": "object"
             },
             "maxPods": {
-              "default": 110,
-              "description": "maxPods is the maximum number of Pods per node.",
+              "description": "maxPods is the maximum number of Pods per node. Unset means 110, or 10\nwith footprint Lean.",
               "format": "int32",
               "maximum": 1000,
               "minimum": 1,

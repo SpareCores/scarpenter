@@ -1,0 +1,64 @@
+# The Lean footprint (spec.kubelet.footprint: Lean): a node that keeps its own
+# memory use low, for single-purpose nodes with little memory. Merged after the
+# base config, only when Lean is set. The kubelet's own settings of the preset
+# are in the KubeletConfiguration (pkg/bootstrap/kubelet.go); the tailscaled
+# limit is in the tailscale template.
+#
+# GOMEMLIMIT is a soft limit of the Go runtime: it makes the garbage collector
+# run harder before the heap grows past it, it never kills or fails anything,
+# and a daemon whose live heap is larger just keeps collecting.
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    # The journal stays in memory (and is lost with the node: ship logs off the
+    # node if they matter).
+    - path: /etc/systemd/journald.conf.d/10-scarpenter-lean.conf
+      mode: 0644
+      contents:
+        inline: |
+          [Journal]
+          Storage=volatile
+          RuntimeMaxUse=16M
+systemd:
+  units:
+    - name: kubelet.service
+      dropins:
+        - name: 25-scarpenter-lean.conf
+          contents: |
+            [Service]
+            Environment=GOMEMLIMIT=80MiB
+            Environment=GOGC=50
+    # No MemoryHigh on containerd: its cgroup holds the shims (one per Pod, about
+    # 15 MiB each), and without swap a limit near their sum stalls the runtime.
+    - name: containerd.service
+      dropins:
+        - name: 25-scarpenter-lean.conf
+          contents: |
+            [Service]
+            Environment=GOMEMLIMIT=64MiB
+            Environment=GOGC=50
+    # Units a worker does not need. The serial console (serial-getty) stays for
+    # the console log; sshd, resolved, networkd, udevd, timesyncd and logind stay.
+    # Name lookups keep working without userdbd (nss-systemd and the files
+    # databases answer them); containerd does not use nsresourced; the kubelet's
+    # eviction and the kernel's OOM killer cover memory pressure, so oomd only
+    # adds a second killer that acts on pressure the kubelet does not see.
+    - name: docker.socket
+      mask: true
+    - name: docker.service
+      mask: true
+    - name: systemd-userdbd.socket
+      mask: true
+    - name: systemd-userdbd.service
+      mask: true
+    - name: systemd-nsresourced.socket
+      mask: true
+    - name: systemd-nsresourced.service
+      mask: true
+    - name: systemd-oomd.socket
+      mask: true
+    - name: systemd-oomd.service
+      mask: true
+    - name: getty@tty1.service
+      mask: true

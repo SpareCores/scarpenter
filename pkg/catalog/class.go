@@ -96,33 +96,34 @@ func (c *Class) Finalize() { c.Hash = c.hash() }
 // error says which.
 func ClassFromNodeClass(nc *v1alpha1.SCNodeClass) (Class, error) {
 	spec := &nc.Spec
+	kubelet := spec.Kubelet.Effective()
 	c := Class{
 		Name:                    nc.Name,
 		Vendors:                 map[string][]string{},
 		MaxPods:                 DefaultMaxPods,
 		VMMemoryOverheadPercent: DefaultVMMemoryOverheadPercent,
-		EvictionHard:            maps.Clone(spec.Kubelet.EvictionHard),
+		EvictionHard:            maps.Clone(kubelet.EvictionHard),
 		Metrics:                 maps.Clone(spec.Metrics),
 		Selections:              maps.Clone(spec.Selections),
 		Profiles:                map[string]labels.Profiles{},
 		Inputs:                  map[string]options.Input{},
 		AllowIncompletePrice:    spec.Pricing.AllowIncomplete == nil || *spec.Pricing.AllowIncomplete,
 	}
-	if spec.Kubelet.MaxPods != nil {
-		c.MaxPods = int64(*spec.Kubelet.MaxPods)
+	if kubelet.MaxPods != nil {
+		c.MaxPods = int64(*kubelet.MaxPods)
 	}
-	if spec.Kubelet.VMMemoryOverheadPercent != nil {
-		c.VMMemoryOverheadPercent = *spec.Kubelet.VMMemoryOverheadPercent
+	if kubelet.VMMemoryOverheadPercent != nil {
+		c.VMMemoryOverheadPercent = *kubelet.VMMemoryOverheadPercent
 	}
 	var errs []error
 	var err error
-	if c.KubeReserved, err = parseResources("kubeReserved", spec.Kubelet.KubeReserved); err != nil {
+	if c.KubeReserved, err = parseResources("kubeReserved", kubelet.KubeReserved); err != nil {
 		errs = append(errs, err)
 	}
-	if c.SystemReserved, err = parseResources("systemReserved", spec.Kubelet.SystemReserved); err != nil {
+	if c.SystemReserved, err = parseResources("systemReserved", kubelet.SystemReserved); err != nil {
 		errs = append(errs, err)
 	}
-	for signal, v := range spec.Kubelet.EvictionHard {
+	for signal, v := range kubelet.EvictionHard {
 		if _, _, _, err := parseThreshold(v); err != nil {
 			errs = append(errs, fmt.Errorf("evictionHard[%s]: %w", signal, err))
 		}

@@ -240,7 +240,6 @@ profiles:
 		"spec.networking.publicIPv4":                      true,
 		"spec.networking.publicIPv6":                      false,
 		"spec.networking.isolation":                       "run",
-		"spec.kubelet.maxPods":                            int64(110),
 		"spec.kubelet.vmMemoryOverheadPercent":            7.5,
 		"spec.pricing.allowIncomplete":                    true,
 		"spec.metrics.m.normalize":                        "None",
@@ -256,6 +255,14 @@ profiles:
 		}
 		if fmt.Sprint(g) != fmt.Sprint(w) {
 			t.Errorf("%s = %v, want %v", path, g, w)
+		}
+	}
+	// maxPods and footprint have no default in the object: an unset maxPods is
+	// the footprint's (110, or 10 with Lean), and an unset footprint keeps the
+	// hash of NodeClasses that predate it.
+	for _, path := range []string{"spec.kubelet.maxPods", "spec.kubelet.footprint"} {
+		if _, found, _ := nestedField(got.Object, path); found {
+			t.Errorf("%s is defaulted", path)
 		}
 	}
 	// Vendor blocks must not default anything the driver defaults itself.
@@ -319,7 +326,7 @@ func TestBillingDefaultsAreApplied(t *testing.T) {
 func TestExplicitValuesOverrideDefaults(t *testing.T) {
 	obj := parseObject(t, "explicit", withSpec(t, `
 networking: {publicIPv4: false, publicIPv6: true, isolation: none}
-kubelet: {maxPods: 30, vmMemoryOverheadPercent: 0}
+kubelet: {maxPods: 30, vmMemoryOverheadPercent: 0, footprint: Lean}
 pricing: {allowIncomplete: false}
 `))
 	if err := create(t, obj); err != nil {
@@ -331,6 +338,7 @@ pricing: {allowIncomplete: false}
 		"spec.networking.publicIPv6":           "true",
 		"spec.networking.isolation":            "none",
 		"spec.kubelet.maxPods":                 "30",
+		"spec.kubelet.footprint":               "Lean",
 		"spec.kubelet.vmMemoryOverheadPercent": "0",
 		"spec.pricing.allowIncomplete":         "false",
 	} {
@@ -418,6 +426,7 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		{"gcp pool bigger than a private range", `vendors: {gcp: {resources: {subnets: {create: {pool: 172.0.0.0/8}}}}}`, "pool must be an IPv4 CIDR"},
 		{"gcp subnets use and create", `vendors: {gcp: {resources: {subnets: {use: {name: a}, create: {}}}}}`, "at most one of use, create and forbid"},
 		{"kubelet maxPods zero", `kubelet: {maxPods: 0}`, "should be greater than or equal to 1"},
+		{"kubelet footprint unknown", `kubelet: {footprint: Tiny}`, "Unsupported value"},
 		{"kubelet overhead above 50", `kubelet: {vmMemoryOverheadPercent: 60}`, "should be less than or equal to 50"},
 		{"systemReserved unknown key", `kubelet: {systemReserved: {gpu: "1"}}`, "systemReserved keys must be"},
 		{"kubeReserved unknown key", `kubelet: {kubeReserved: {gpu: "1"}}`, "kubeReserved keys must be"},

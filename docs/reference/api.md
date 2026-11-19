@@ -121,8 +121,9 @@ Validation: evictionHard keys must be eviction signals (`!has(self.evictionHard)
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `evictionHard` | map of string values |  | evictionHard thresholds, e.g. memory.available: 100Mi. |
+| `footprint` | string |  | footprint selects how much of the node's memory the node itself uses. Standard (the default when unset) keeps the kubelet and the OS as they are. Lean is for single-purpose nodes, such as benchmark runners, and makes 1 GiB instance types usable: it presets maxPods, kubeReserved, systemReserved, evictionHard and some more kubelet settings, and limits the memory of the node's daemons (see the node settings reference). Fields set in this block always override the preset. One of `Standard`, `Lean`. |
 | `kubeReserved` | map of string values |  | kubeReserved overrides the computed resources reserved for Kubernetes daemons. |
-| `maxPods` | integer (int32) | `110` | maxPods is the maximum number of Pods per node. Minimum 1. Maximum 1000. |
+| `maxPods` | integer (int32) |  | maxPods is the maximum number of Pods per node. Unset means 110, or 10 with footprint Lean. Minimum 1. Maximum 1000. |
 | `systemReserved` | map of string values |  | systemReserved resources for system daemons. |
 | `vmMemoryOverheadPercent` | number | `7.5` | vmMemoryOverheadPercent is the share of the catalog memory a VM does not offer to the guest, subtracted from the instance type's capacity. Minimum 0. Maximum 50. |
 

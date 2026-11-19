@@ -48,7 +48,7 @@ const ignitionVersion = "3.4.0"
 
 // Part is one of the translated configs that the user-data merges.
 type Part struct {
-	// Name is base, network or user.
+	// Name is base, lean, network or user.
 	Name string
 	// Ignition is the translated config (JSON), before compression.
 	Ignition []byte
@@ -118,6 +118,8 @@ type TemplateData struct {
 	Labels map[string]string
 	// KubeletConfig is the KubeletConfiguration YAML.
 	KubeletConfig string
+	// Lean says that the Lean footprint is selected (lean template).
+	Lean bool
 	// KubeletArgs are the flags that identify the node: --provider-id,
 	// --hostname-override and --register-with-taints.
 	KubeletArgs string
@@ -231,6 +233,14 @@ func Render(p Params) (*Rendered, error) {
 	}
 	parts = append(parts, Part{Name: "base", Ignition: base})
 
+	if p.Kubelet.IsLean() {
+		lean, err := renderBuiltin("lean", "lean.bu", data)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, Part{Name: "lean", Ignition: lean})
+	}
+
 	if len(p.Volumes) > 0 || p.Local != nil {
 		volumes, err := renderBuiltin("volumes", "volumes.bu", data)
 		if err != nil {
@@ -341,7 +351,8 @@ func (p *Params) templateData() (*TemplateData, error) {
 		ClusterCA: strings.TrimSpace(p.ClusterCA) + "\n", BootstrapToken: p.BootstrapToken,
 		KubeletClientCA: strings.TrimSpace(p.KubeletClientCA),
 		Arch:            p.Arch, Vendor: p.Vendor, Region: p.Region, Zone: p.Zone, InstanceType: p.InstanceType,
-		Labels: p.Labels, KubeletConfig: kubeletConfig, KubeletArgs: strings.Join(args, " "), Sysexts: sysexts,
+		Labels: p.Labels, Lean: p.Kubelet.IsLean(),
+		KubeletConfig: kubeletConfig, KubeletArgs: strings.Join(args, " "), Sysexts: sysexts,
 	}
 	if d.Labels == nil {
 		d.Labels = map[string]string{}
