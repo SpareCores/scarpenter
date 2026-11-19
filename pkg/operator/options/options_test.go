@@ -177,6 +177,8 @@ func TestValidation(t *testing.T) {
 		{"zero resource ttl", append([]string{"--resource-default-ttl=0s"}, required...), "--resource-default-ttl must be positive"},
 		{"zero quota staleness", append([]string{"--quota-max-staleness=0s"}, required...), "--quota-max-staleness must be positive"},
 		{"max age below refresh interval", append([]string{"--catalog-max-age=10m"}, required...), "must not be shorter"},
+		{"negative interruption margin", append([]string{"--interruption-margin=-1s"}, required...), "--interruption-margin must not be negative"},
+		{"zero interruption ttl", append([]string{"--interruption-unavailable-ttl=0s"}, required...), "--interruption-unavailable-ttl must be positive"},
 		{"empty aws home region", append([]string{"--aws-home-region="}, required...), "--aws-home-region"},
 		{"unknown flag", append([]string{"--nope=1"}, required...), "parsing flags"},
 		{"bad duration", append([]string{"--gc-interval=soon"}, required...), "parsing flags"},
@@ -278,5 +280,24 @@ func TestOCIOptions(t *testing.T) {
 	// Without the oci vendor none of it is checked.
 	if o, err := parse(t, nil, required...); err != nil || o.OCIAuth != "apiKey" {
 		t.Errorf("without oci: %v, auth %q", err, o.OCIAuth)
+	}
+}
+
+func TestInterruptionOptions(t *testing.T) {
+	o, err := parse(t, nil, required...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !o.Interruption || o.InterruptionMargin != 5*time.Second || o.InterruptionUnavailableTTL != 10*time.Minute {
+		t.Errorf("defaults: interruption %v, margin %s, TTL %s; want on, 5s, 10m",
+			o.Interruption, o.InterruptionMargin, o.InterruptionUnavailableTTL)
+	}
+	o, err = parse(t, map[string]string{"SCARPENTER_INTERRUPTION": "false", "SCARPENTER_INTERRUPTION_MARGIN": "0s"},
+		append(required, "--interruption-unavailable-ttl=3m")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Interruption || o.InterruptionMargin != 0 || o.InterruptionUnavailableTTL != 3*time.Minute {
+		t.Errorf("overrides: interruption %v, margin %s, TTL %s", o.Interruption, o.InterruptionMargin, o.InterruptionUnavailableTTL)
 	}
 }

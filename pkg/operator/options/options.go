@@ -58,6 +58,8 @@ const (
 	DefaultResourceFullSweepEvery     = 10
 	DefaultAWSHomeRegion              = "us-east-1"
 	DefaultOCIAuth                    = "apiKey"
+	DefaultInterruptionMargin         = 5 * time.Second
+	DefaultInterruptionUnavailableTTL = 10 * time.Minute
 )
 
 // bootstrapTokenMinTTL is the shortest token lifetime (bootstrap.MinTokenTTL;
@@ -194,6 +196,13 @@ type Options struct {
 	// NodeClass's spec.billing is the real switch, this turns the whole
 	// controller off.
 	BillingRetention bool
+	// Interruption runs the interruption controller (ADR-027); false turns it
+	// off. InterruptionMargin is how long before a notice's deadline the Pods
+	// of the node are force-deleted; InterruptionUnavailableTTL how long an
+	// interrupted spot offering stays out of scheduling.
+	Interruption               bool
+	InterruptionMargin         time.Duration
+	InterruptionUnavailableTTL time.Duration
 
 	vendorsRaw    string
 	clusterDNSRaw string
@@ -237,6 +246,9 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.IntVar(&o.ResourceFullSweepEvery, "resource-full-sweep-every", env.WithDefaultInt("SCARPENTER_RESOURCE_FULL_SWEEP_EVERY", DefaultResourceFullSweepEvery), "Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed vendor resources of every region of the driver are swept, not only of the regions in use.")
 	fs.DurationVar(&o.ResourceDefaultTTL, "resource-default-ttl", env.WithDefaultDuration("SCARPENTER_RESOURCE_DEFAULT_TTL", DefaultResourceDefaultTTL), "idleTTL of managed shared vendor resources when an SCNodeClass does not set one.")
 	fs.BoolVar(&o.BillingRetention, "billing-retention", env.WithDefaultBool("SCARPENTER_BILLING_RETENTION", true), "Run the billing retention controller (it holds nodes until the end of their paid billing period for the SCNodeClasses that set spec.billing.retainUntilPeriodEnd). The NodeClass field is the real switch; false turns the controller off as a whole.")
+	fs.BoolVar(&o.Interruption, "interruption", env.WithDefaultBool("SCARPENTER_INTERRUPTION", true), "Run the interruption controller: a spot or preemptible node whose vendor announced its reclaim (the node agent annotates the Node) gets its termination deadline tightened, is marked Interrupted and has its NodeClaim deleted at once.")
+	fs.DurationVar(&o.InterruptionMargin, "interruption-margin", env.WithDefaultDuration("SCARPENTER_INTERRUPTION_MARGIN", DefaultInterruptionMargin), "How long before the vendor's deadline the Pods of an interrupted node are force-deleted: the time the instance needs after the kubelet stopped the containers.")
+	fs.DurationVar(&o.InterruptionUnavailableTTL, "interruption-unavailable-ttl", env.WithDefaultDuration("SCARPENTER_INTERRUPTION_UNAVAILABLE_TTL", DefaultInterruptionUnavailableTTL), "How long an interrupted spot offering (instance type and zone) stays out of scheduling.")
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 	fs.StringVar(&o.GCPProject, "gcp-project", env.WithDefaultString("SCARPENTER_GCP_PROJECT", ""), "Google Cloud project of the GCP driver's nodes; empty means the project of the credentials (a service account key or the metadata server; workload identity federation has none, so set it there).")
 	fs.StringVar(&o.OCICompartment, "oci-compartment", env.WithDefaultString("SCARPENTER_OCI_COMPARTMENT", ""), "[REQUIRED with the oci vendor] OCID of the OCI compartment of the nodes: instances, boot volumes, the managed network and the default image lookup live in it. The tenancy root is not a default.")
@@ -367,10 +379,22 @@ func (o *Options) Validate() error {
 			errs = append(errs, fmt.Errorf("%s must not be negative, got %s", name, d))
 		}
 	}
+	errs = append(errs, o.validateInterruption()...)
 	if o.AWSHomeRegion == "" {
 		errs = append(errs, errors.New("--aws-home-region must not be empty"))
 	}
 	return errors.Join(errs...)
+}
+
+func (o *Options) validateInterruption() []error {
+	var errs []error
+	if o.InterruptionMargin < 0 {
+		errs = append(errs, fmt.Errorf("--interruption-margin must not be negative, got %s", o.InterruptionMargin))
+	}
+	if o.InterruptionUnavailableTTL <= 0 {
+		errs = append(errs, fmt.Errorf("--interruption-unavailable-ttl must be positive, got %s", o.InterruptionUnavailableTTL))
+	}
+	return errs
 }
 
 // VendorEnabled reports whether a vendor driver is enabled.

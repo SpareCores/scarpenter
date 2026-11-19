@@ -74,13 +74,17 @@ func object(t *testing.T, doc string) *unstructured.Unstructured {
 	return obj
 }
 
-// startCore registers core's controllers and the billing retention controllers
-// and runs the manager, as main does.
+// startCore registers core's controllers and the billing retention and interruption
+// controllers and runs the manager, as main does.
 func startCore(ctx context.Context, t *testing.T, op *operator.Operator, c *operator.Components) {
 	t.Helper()
 	cp := op.NewCloudProvider(c)
 	op.WithCoreControllers(ctx, cp)
 	if err := op.WithRetentionControllers(ctx, c, cp); err != nil {
+		t.Error(err)
+		return
+	}
+	if err := op.WithInterruptionControllers(c); err != nil {
 		t.Error(err)
 		return
 	}

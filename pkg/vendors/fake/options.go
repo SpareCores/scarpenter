@@ -66,6 +66,10 @@ type Options struct {
 	// LaunchDelay is the simulated duration of CreateInstance, unless the
 	// ConfigMap sets launchDelay.
 	LaunchDelay time.Duration
+	// MinNotice and MaxNotice override the interruption notice window of the
+	// impersonated vendor (zero keeps it).
+	MinNotice time.Duration
+	MaxNotice time.Duration
 
 	// StateInterval debounces writes of the state ConfigMap and ConfigTTL
 	// caches the steering ConfigMap; not flags (tests shorten them).
@@ -90,6 +94,8 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.StateName, "fake-state-name", env.WithDefaultString("SCARPENTER_FAKE_STATE_NAME", DefaultStateName), "Name of the ConfigMap the fake driver publishes its calls and instances in.")
 	fs.StringVar(&o.ResourcesName, "fake-resources-name", env.WithDefaultString("SCARPENTER_FAKE_RESOURCES_NAME", DefaultResourcesName), "Name of the ConfigMap that holds the fake account's managed resources.")
 	fs.DurationVar(&o.LaunchDelay, "fake-launch-delay", env.WithDefaultDuration("SCARPENTER_FAKE_LAUNCH_DELAY", 0), "Simulated duration of a fake instance launch.")
+	fs.DurationVar(&o.MinNotice, "fake-min-notice", env.WithDefaultDuration("SCARPENTER_FAKE_MIN_NOTICE", 0), "Shortest interruption notice the fake driver declares, instead of the impersonated vendor's.")
+	fs.DurationVar(&o.MaxNotice, "fake-max-notice", env.WithDefaultDuration("SCARPENTER_FAKE_MAX_NOTICE", 0), "Longest interruption notice the fake driver declares, instead of the impersonated vendor's.")
 }
 
 // Parse parses the flags and validates the options.
@@ -106,6 +112,9 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 	}
 	if o.LaunchDelay < 0 {
 		return errors.New("--fake-launch-delay must not be negative")
+	}
+	if o.MinNotice < 0 || o.MaxNotice < 0 {
+		return errors.New("--fake-min-notice and --fake-max-notice must not be negative")
 	}
 	return nil
 }
