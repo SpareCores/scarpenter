@@ -505,7 +505,7 @@ func TestKubeletConfigurationLean(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"maxPods: 10", "memory: 192Mi", "memory: 128Mi", "memory.available: 50Mi", "nodefs.available: 10%",
+		"maxPods: 10", "memory: 192Mi", "memory: 128Mi", "memory.available: 50Mi", "nodefs.available: 10%", "imagefs.inodesFree: 5%",
 		"serializeImagePulls: true", "containerLogMaxSize: 5Mi", "containerLogMaxFiles: 2", "nodeStatusMaxImages: 10",
 	} {
 		if !strings.Contains(got, want) {

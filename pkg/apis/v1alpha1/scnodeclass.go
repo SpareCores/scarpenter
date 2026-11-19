@@ -368,13 +368,16 @@ const (
 )
 
 // leanEvictionHard is evictionHard with the Lean footprint: the kubelet's
-// defaults, but 50Mi of memory. The other signals are spelled out because the
-// kubelet applies its defaults only to an evictionHard that is not set at all.
+// defaults (DefaultEvictionHard of pkg/kubelet/eviction/defaults_linux.go), but
+// 50Mi of memory. The other signals are spelled out because the kubelet applies
+// its defaults only to an evictionHard that is not set at all (unless
+// mergeDefaultEvictionSettings is set, which SCarpenter does not set).
 var leanEvictionHard = map[string]string{
-	"memory.available":  LeanEvictionMemoryAvailable,
-	"nodefs.available":  "10%",
-	"nodefs.inodesFree": "5%",
-	"imagefs.available": "15%",
+	"memory.available":   LeanEvictionMemoryAvailable,
+	"nodefs.available":   "10%",
+	"nodefs.inodesFree":  "5%",
+	"imagefs.available":  "15%",
+	"imagefs.inodesFree": "5%",
 }
 
 // IsLean says whether the Lean footprint is selected.

@@ -29,7 +29,7 @@
       },
       {
         "contents": {
-          "inline": "apiVersion: kubelet.config.k8s.io/v1beta1\nauthentication:\n  anonymous:\n    enabled: false\n  webhook:\n    enabled: true\n  x509:\n    clientCAFile: /etc/kubernetes/pki/ca.crt\nauthorization:\n  mode: Webhook\ncgroupDriver: systemd\nclusterDomain: cluster.local\ncontainerLogMaxFiles: 2\ncontainerLogMaxSize: 5Mi\nevictionHard:\n  imagefs.available: 15%\n  memory.available: 50Mi\n  nodefs.available: 10%\n  nodefs.inodesFree: 5%\nkind: KubeletConfiguration\nkubeReserved:\n  memory: 192Mi\nmaxPods: 10\nnodeStatusMaxImages: 10\nresolvConf: /run/systemd/resolve/resolv.conf\nrotateCertificates: true\nserializeImagePulls: true\nserverTLSBootstrap: true\nsystemReserved:\n  memory: 128Mi\n"
+          "inline": "apiVersion: kubelet.config.k8s.io/v1beta1\nauthentication:\n  anonymous:\n    enabled: false\n  webhook:\n    enabled: true\n  x509:\n    clientCAFile: /etc/kubernetes/pki/ca.crt\nauthorization:\n  mode: Webhook\ncgroupDriver: systemd\nclusterDomain: cluster.local\ncontainerLogMaxFiles: 2\ncontainerLogMaxSize: 5Mi\nevictionHard:\n  imagefs.available: 15%\n  imagefs.inodesFree: 5%\n  memory.available: 50Mi\n  nodefs.available: 10%\n  nodefs.inodesFree: 5%\nkind: KubeletConfiguration\nkubeReserved:\n  memory: 192Mi\nmaxPods: 10\nnodeStatusMaxImages: 10\nresolvConf: /run/systemd/resolve/resolv.conf\nrotateCertificates: true\nserializeImagePulls: true\nserverTLSBootstrap: true\nsystemReserved:\n  memory: 128Mi\n"
         },
         "mode": 420,
         "path": "/var/lib/kubelet/config.yaml"
@@ -105,7 +105,7 @@
       {
         "dropins": [
           {
-            "contents": "# MemoryHigh: the page cache of the image layers containerd reads and writes is\n# charged to its cgroup; above the limit the kernel reclaims it instead of\n# leaving it to count in the kubelet's memory.available.\n[Service]\nEnvironment=GOMEMLIMIT=64MiB\nEnvironment=GOGC=50\nMemoryHigh=192M\n",
+            "contents": "[Service]\nEnvironment=GOMEMLIMIT=64MiB\nEnvironment=GOGC=50\n",
             "name": "25-scarpenter-lean.conf"
           }
         ],
