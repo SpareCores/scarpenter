@@ -338,7 +338,7 @@ vendor, AWS today; `mode` is `full` or `smoke`), called by `e2e.yml` and by `rel
 in the GitHub environment `e2e` whose required reviewers approve every run. **It does not run
 on a timer**: it runs for the pull requests that touch what it tests (a vendor's driver or
 lane: its full lane; code every node goes through: a smoke of two scenarios), on demand, and
-before every release; a free nightly canary watches the outside world. The tiers, the path
+before every release (full lanes, or smoke lanes when the repository variable `RELEASE_E2E_MODE` is `smoke`); a free nightly canary watches the outside world. The tiers, the path
 rules, the labels, the approval and the release gate are in
 [Testing and releasing](testing-and-releasing.md). Nothing in the repository runs it
 from a developer machine. A full run takes about 22 minutes (the job's limit is 90: the Scenarios step has its own

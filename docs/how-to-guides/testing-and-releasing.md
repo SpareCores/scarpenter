@@ -50,7 +50,7 @@ added to the list.
 | a pull request that touches a vendor's driver, its lane or the e2e workflows | that vendor's **full** L5 | cents (about 22 minutes) |
 | a pull request that touches code every vendor's nodes go through | a **smoke** L5 on every vendor | cents (a fraction of a full run: two scenarios) |
 | nightly (and on demand) | the **canary** of every vendor: no instances, no cluster, read-only credentials | about $0 |
-| a release tag | the **full** L5 of every vendor, a required gate before anything is published | cents on AWS, dollars on dearer vendors |
+| a release tag | the **full** L5 of every vendor (the **smoke** L5 when the repository variable `RELEASE_E2E_MODE` is `smoke`), a required gate before anything is published | cents on AWS, dollars on dearer vendors |
 | manual (`workflow_dispatch`) | any vendor, `full` or `smoke`, optionally a scenario list | as chosen |
 
 **Smoke** is the preflight (always first: the Flatcar images, the quotas, the
@@ -336,7 +336,8 @@ stamps the binary, the chart is packaged with the tag as `version` and `appVersi
      tag) and the highest of its minor; generated files are up to date; lint, tests and the
      chart tests pass; the vendors of the gate are read from `test/e2e-vendors.txt`.
    - **`e2e` (the release gate)**: the full L5 lane of **every** vendor against the tagged
-     commit, one job per vendor, in the environment `e2e`: the required reviewers approve it
+     commit (the smoke lane instead when the repository variable `RELEASE_E2E_MODE` is `smoke`;
+     unset or `full` is the full lane, any other value fails `verify`), one job per vendor, in the environment `e2e`: the required reviewers approve it
      like any L5 run, and it waits for each vendor's concurrency slot (so a run of a pull request
      that holds the slot delays it, and a newer pull request run replaces it while it waits:
      re-run the failed jobs; avoid starting L5 on pull requests while a release is pending). It builds the controller from the tagged checkout, so it

@@ -61,6 +61,9 @@ expect "dispatch refuses an unknown vendor" "refused" "$(dispatch gcp full 2>/de
 expect "dispatch refuses a bad mode" "refused" "$(dispatch aws weekly 2>/dev/null || echo refused)"
 expect "dispatch refuses a bad scenario list" "refused" "$(dispatch aws full 'a;b' 2>/dev/null || echo refused)"
 expect "release: every vendor, full" "aws:full oci:full" "$("${plan}" release | sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode] | join(" ")')"
+expect "release: an unset variable (empty) is full" "aws:full oci:full" "$("${plan}" release '' | sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode] | join(" ")')"
+expect "release: smoke on request" "aws:smoke oci:smoke" "$("${plan}" release smoke | sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode] | join(" ")')"
+expect "release refuses another mode" "refused" "$("${plan}" release weekly 2>/dev/null || echo refused)"
 expect "canary: every vendor" '[{"vendor":"aws"},{"vendor":"oci"}]' "$("${plan}" vendors | sed -n 's/^matrix=//p')"
 expect "any=false for an empty plan" "any=false" "$(printf '%s\n' docs/x.md | "${plan}" pr | grep '^any=')"
 
