@@ -276,7 +276,7 @@ t_ensure_template() { # the template finder takes only same-zone templates with 
   source "${here}/ensure-template.sh"
   local want have
   want="$(template_labels | jq -r '.[] | "\(.key)=\(.value)"' | sort | tr '\n' ' ')"
-  [[ "${want}" == "flatcar-arch=amd64 flatcar-channel=${E2E_FLATCAR_CHANNEL} flatcar-tier=maxiops flatcar-version=${E2E_FLATCAR_VERSION} scarpenter-image=flatcar scarpenter-lane=ci scarpenter-use=true " ]] || {
+  [[ "${want}" == "flatcar-arch=amd64 flatcar-channel=${E2E_FLATCAR_CHANNEL} flatcar-tier=maxiops flatcar-version=${E2E_FLATCAR_VERSION} scarpenter-image=flatcar scarpenter-lane=ci " ]] || {
     echo "labels: ${want}"
     return 1
   }
@@ -291,6 +291,23 @@ t_ensure_template() { # the template finder takes only same-zone templates with 
     return 1
   }
 }
+t_ensure_template_drops_use() { # only the lane's templates lose scarpenter-use
+  # shellcheck source=test/e2e-upcloud/ensure-template.sh
+  source "${here}/ensure-template.sh"
+  local out
+  out="$(jq -nc '
+    def tpl($u; $labels): {uuid: $u, type: "template", zone: "fi-hel1", labels: {label: $labels}};
+    {storages: {storage: [
+      tpl("lane"; [{key: "scarpenter-lane", value: "ci"}, {key: "scarpenter-use", value: "true"}, {key: "flatcar-arch", value: "amd64"}]),
+      tpl("clean"; [{key: "scarpenter-lane", value: "ci"}]),
+      tpl("foreign"; [{key: "scarpenter-use", value: "true"}]),
+      ({uuid: "disk", type: "normal", labels: [{key: "scarpenter-lane", value: "ci"}, {key: "scarpenter-use", value: "true"}]})]}}' | use_labelled_templates)"
+  [[ "${out}" == 'lane [{"key":"scarpenter-lane","value":"ci"},{"key":"flatcar-arch","value":"amd64"}]' ]] || {
+    echo "listed: ${out}"
+    return 1
+  }
+}
+check "ensure-template.sh removes scarpenter-use from the lane's templates only" t_ensure_template_drops_use
 check "ensure-template.sh labels the template and finds exactly the matching ones" t_ensure_template
 check "the sweeper's environment and the credentials steps name UpCloud" t_workflows_agree
 check "no key, token or local path in the lane's files" t_no_secrets_in_scripts

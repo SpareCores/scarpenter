@@ -420,7 +420,7 @@ unverified, see [UpCloud](#upcloud)): no type or zone deny is possible (the lane
 STARTER plans of `defaults.sh`, and `UPCLOUD_ZONE` is one zone), the `scarpenter-ci` sub-account's resource
 limits (cores and memory, which the canary compares with the lane's needs) are the ceiling, the run tag is the
 label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` (and `ci-created-at`), `e2e-upcloud-sweeper.yml`
-is the sweeper (environment `e2e-sweeper`; never the templates labelled `scarpenter-use`), the run time limits
+is the sweeper (environment `e2e-sweeper`; never the templates), the run time limits
 and the failing teardown are AWS's, the canary's read-only guard is `test/canary/upcloud_guard.go` (an UpCloud
 token cannot be read-only), and the environment `e2e`'s required reviewers approve every run.
 
@@ -662,7 +662,7 @@ provides:
   canary's `API token` row fails when it does, and the rotation is manual: create a token, replace the
   three secrets, delete the old one.
 - **The persistent Flatcar templates** of the pinned release in the lane's zone, labelled
-  `scarpenter-use=true` (the sweeper never touches them), built by the images repository; the lane's
+  `scarpenter-lane=ci` (not `scarpenter-use`: the sub-account is shared, see `docs/how-to-guides/testing.md`), built by the images repository; the lane's
   `ensure-template.sh` imports the MaxIOPS one when it is missing, a Standard one is the operator's.
 - **The tailnet** items above (tags, grants, the federated identity for `e2e`); the canary does not join it.
 - **Before `upcloud` is added to `test/e2e-vendors.txt`**, the operator checks: the sub-account's

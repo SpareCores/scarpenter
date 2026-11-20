@@ -7,10 +7,11 @@
 # lane's zone, persistent Flatcar templates of the pinned version, one per storage tier
 # (both, where the account can make a Standard one; MaxIOPS is the one the lane needs),
 # built by the images repository (plan 22) and imported by the operator, with the labels
-#   scarpenter-use=true           (never touched by the sweeper)
 #   scarpenter-lane=ci            (the lane's own: the sub-account is shared with production
 #                                  resources, so the lane's NodeClasses select this label and
-#                                  never another template; ensure-template.sh imports it)
+#                                  never another template; ensure-template.sh imports it. The
+#                                  generic scarpenter-use=true is not set: an operator's untagged
+#                                  selector would find the lane's templates)
 #   scarpenter-image=flatcar
 #   flatcar-channel=<channel>     flatcar-version=<version>
 #   flatcar-arch=amd64            flatcar-tier=maxiops|standard
