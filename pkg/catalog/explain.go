@@ -8,6 +8,7 @@ package catalog
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -187,10 +188,12 @@ const (
 	available = "Available"
 )
 
-// offeredLog remembers, per class, the last logged generation and its states.
+// offeredLog remembers, per class and NodePool, the last logged generation, the
+// class and NodePool it was computed for, and its states.
 type offeredLog struct {
 	mu     sync.Mutex
 	gen    map[string]string
+	inputs map[string]string
 	states map[string]map[stateKey]Reason
 }
 
@@ -234,15 +237,18 @@ func (c *Catalog) logChanges(ctx context.Context, snap *snapshot, class *Class, 
 	l := &c.offered
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if last, ok := l.gen[scope]; ok && (last == gen || genOlder(gen, last)) {
+	// An edit of the class or of the NodePool's requirements changes the report
+	// without a new generation.
+	input := class.Hash + "|" + requirementsKey(q.Requirements)
+	if last, ok := l.gen[scope]; ok && l.inputs[scope] == input && (last == gen || genOlder(gen, last)) {
 		return
 	}
 	cur := c.explain(snap, class, q).states(only)
 	prev, seen := l.states[scope]
 	if l.gen == nil {
-		l.gen, l.states = map[string]string{}, map[string]map[stateKey]Reason{}
+		l.gen, l.inputs, l.states = map[string]string{}, map[string]string{}, map[string]map[stateKey]Reason{}
 	}
-	l.gen[scope], l.states[scope] = gen, cur
+	l.gen[scope], l.inputs[scope], l.states[scope] = gen, input, cur
 
 	type change struct {
 		key      stateKey
@@ -313,4 +319,17 @@ func (c *Catalog) logChanges(ctx context.Context, snap *snapshot, class *Class, 
 
 func (k stateKey) String() string {
 	return strings.Join([]string{k.vendor, k.instanceType, k.region, k.zone, k.capacityType}, "/")
+}
+
+// requirementsKey is a canonical string of requirements with every value
+// (Requirements.String abbreviates long value lists).
+func requirementsKey(reqs scheduling.Requirements) string {
+	var b strings.Builder
+	for _, key := range slices.Sorted(maps.Keys(reqs)) {
+		r := reqs[key]
+		values := r.Values()
+		slices.Sort(values)
+		b.WriteString(r.String() + " " + strings.Join(values, ",") + ";")
+	}
+	return b.String()
 }

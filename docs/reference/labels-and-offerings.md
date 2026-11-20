@@ -373,7 +373,7 @@ when it is a valid label value that sanitising leaves unchanged, and is not
 vendor-qualified; a NodePool that pins it to a value matches nothing for any
 other type, with no message.
 
-**Logs.** At V(1) (core's `--log-level=debug`, or `LOG_LEVEL`) a restart logs, for each class, every type and offering that has a
+**Logs.** At V(1) (core's `--log-level=debug`: the chart value `karpenter.logLevel: debug`, or `LOG_LEVEL=debug`) a restart logs, for each class, every type and offering that has a
 reason, one line per vendor, reason and 50 types
 (`offered types changed`, with `nodeclass`, `vendor`, `reason`, `count` and
 `types` with the detail in parentheses). Afterwards a line appears when a

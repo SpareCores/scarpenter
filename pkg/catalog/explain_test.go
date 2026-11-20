@@ -212,6 +212,11 @@ func TestNodePoolReasonsAreLoggedOncePerGenerationAndNodePool(t *testing.T) {
 	if lines := l.take(); len(lines) != 0 {
 		t.Fatalf("a NodePool every type matches: %q", lines)
 	}
+	// An edit of the NodePool's requirements is reported without a new generation.
+	l.LogNodePool(l.ctx, "c", "other", pool("z9"))
+	if lines := l.take(); len(lines) != 2 || !strings.Contains(strings.Join(lines, "\n"), `"nodepool"="other"`) {
+		t.Fatalf("after an edit of the NodePool: %q", lines)
+	}
 	l.un.MarkInsufficientCapacity("v", "v.small", "zone-1", "on-demand")
 	l.LogNodePool(l.ctx, "c", "bench", pool("z9"))
 	if lines := l.take(); len(lines) != 0 {

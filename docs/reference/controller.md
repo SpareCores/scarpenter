@@ -468,7 +468,7 @@ Metrics (Prometheus, on the metrics port):
 | `scarpenter_catalog_data_published_timestamp_seconds` | gauge | | Unix time Keeper published the data version of the snapshot (`SC-Data-Published-At`): the age of the data, not of the read. |
 | `scarpenter_catalog_keeper_unauthorized` | gauge | | `1` after Keeper answered a refresh with 401, `0` after a successful snapshot read. |
 
-At V(1) the catalog logs every dropped type and unavailable offering with its
+At V(1) (`karpenter.logLevel: debug`) the catalog logs every dropped type and unavailable offering with its
 reason code after a restart and every change afterwards (`offered types changed`);
 see [why a type or an offering is not offered](labels-and-offerings.md#why-a-type-or-an-offering-is-not-offered).
 The `scarpenter_catalog_dropped_types` gauge stays GPU-only.

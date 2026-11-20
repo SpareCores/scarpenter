@@ -699,7 +699,7 @@ type evaluated struct {
 	vendor  string
 	keep    []int
 	avail   []bool
-	why     []Reason
+	why     []Reason // explain only
 	prices  []float64
 	changed bool
 	// filtered are the offerings the filter removed (explain only).
@@ -784,7 +784,10 @@ func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pric
 		}
 		ev.keep = append(ev.keep, i)
 		ev.avail = append(ev.avail, !down)
-		ev.why = append(ev.why, why)
+		if explain {
+			// Only a report reads the reasons; InstanceTypes is the hot path.
+			ev.why = append(ev.why, why)
+		}
 		ev.prices = append(ev.prices, price)
 		ev.changed = ev.changed || down || price != o.usd
 	}
