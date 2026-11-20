@@ -402,6 +402,46 @@ nvidia:
   # built by hack/nvidia-mirror.sh. Empty: GPU nodes download the driver from Flatcar's release server.
   driverBaseURL: ""
 
+  # The RuntimeClass "nvidia" (handler "nvidia", the containerd runtime that the
+  # driver step of the node's bootstrap registers on GPU nodes). GPU Pods and the
+  # device plugin set runtimeClassName: nvidia. Turn it off when another component
+  # (for example the NVIDIA GPU operator) provides the RuntimeClass.
+  runtimeClass:
+    create: true
+
+  # The NVIDIA device plugin: a DaemonSet that advertises nvidia.com/gpu on GPU
+  # nodes. Karpenter initializes a GPU node only once the resource is registered,
+  # so without a device plugin (this one or the GPU operator's) GPU nodes never
+  # become ready. The Pods run only on nodes that carry the driver labels
+  # (scarpenter.sparecores.com/nvidia-driver-branch) and take its 10m CPU and 64Mi
+  # memory out of the GPU node's allocatable, never out of other nodes. It uses
+  # the runtime handler of the node (environment variable strategy, no CDI).
+  devicePlugin:
+    enabled: true
+    image:
+      # NVIDIA's official registry. Pinned by digest (the multi-architecture
+      # index of the tag): a digest wins over the tag, which then only documents
+      # the version. Override the repository to pull through a mirror.
+      repository: nvcr.io/nvidia/k8s-device-plugin
+      tag: v0.20.2
+      digest: sha256:7673383d44a84bece724d9ca8feeadf4eee69cd46475fdff614cbbca6732d463
+      pullPolicy: IfNotPresent
+    imagePullSecrets: []
+    priorityClassName: system-node-critical
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+    # A NodePool's taints keep the DaemonSet's Pods off a node unless they are
+    # tolerated, and a GPU node whose device plugin cannot run never initializes.
+    # The default tolerates every taint, so any taint of a GPU NodePool works
+    # (the usual ones: nvidia.com/gpu, or your own key). Narrow it, for example to
+    # [{key: nvidia.com/gpu, operator: Exists}], if your NodePools only use that.
+    tolerations:
+      - operator: Exists
+    # Further constraints on top of the driver-label selection.
+    nodeSelector: {}
+
 bootstrap:
   # Lifetime of a node's bootstrap token (--bootstrap-token-ttl; 1h). At least
   # 20m: core gives a NodeClaim 15 minutes to register.

@@ -295,6 +295,15 @@ unit's file is verified and unpacked and that the check fails with a clear messa
 **(c) Chart.** The RuntimeClass and the DaemonSet (D6), values and schema, `make test-chart` golden files, the
 how-to.
 
+**Done (c).** `nvidia-runtimeclass.yaml` and `nvidia-device-plugin.yaml` in the chart, values and schema
+(`nvidia.runtimeClass.create`, `nvidia.devicePlugin.*`), golden files, `test/chart/nvidia_test.go`, the how-to
+`run-gpu-workloads.md`, install and node-bootstrap docs. The image is `nvcr.io/nvidia/k8s-device-plugin` v0.20.2,
+pinned by the digest of the multi-architecture index (read from the registry 2026-11-20). Tolerations default to
+every taint (D6; a GPU node whose plugin cannot run never initializes) and are a value. The plugin uses the
+environment variable strategy through the `nvidia` handler (no CDI, as step (b) configured). Not done:
+`nvidia.NodeBootstrap` stays false; the flip waits for Azure's and Alibaba's `GPUVirtualizer` ((g), (h)), and for
+(b2), the L4 boot of (d) and a real run to settle the device plugin's resources [U: S6].
+
 **(d) L4: boot without a GPU** (cheap, no GPU instance). A qemu scenario launches the fake NVIDIA type on a VM without a GPU, through the
 mirror path, against a local HTTP server that serves the release's driver payload (fetched once from Flatcar's
 public server, which CONVENTIONS rule 8 allows, and extracted by step (b)'s script). It asserts: both sysexts

@@ -1,0 +1,13 @@
+# The cluster runs the NVIDIA GPU operator: neither the RuntimeClass nor the device plugin.
+cluster:
+  name: my-cluster
+  apiServerEndpoint: https://api.example.com:6443
+  dns: [10.96.0.10]
+vendors:
+  aws:
+    credentials:
+      webIdentity:
+        roleArn: arn:aws:iam::123456789012:role/scarpenter-my-cluster
+nvidia:
+  runtimeClass: {create: false}
+  devicePlugin: {enabled: false}

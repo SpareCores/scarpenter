@@ -1,0 +1,73 @@
+{{- with .Values.nvidia.devicePlugin }}
+{{- if .enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "scarpenter.fullname" $ }}-nvidia-device-plugin
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "scarpenter.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: nvidia-device-plugin
+spec:
+  selector:
+    matchLabels:
+      {{- include "scarpenter.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: nvidia-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "scarpenter.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: nvidia-device-plugin
+    spec:
+      priorityClassName: {{ .priorityClassName | quote }}
+      runtimeClassName: nvidia
+      automountServiceAccountToken: false
+      {{- with .imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+        {{- with .nodeSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: scarpenter.sparecores.com/nvidia-driver-branch, operator: Exists}
+      {{- with .tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nvidia-device-plugin
+          image: {{ if .image.digest }}{{ printf "%s:%s@%s" .image.repository .image.tag .image.digest | quote }}{{ else }}{{ printf "%s:%s" .image.repository .image.tag | quote }}{{ end }}
+          imagePullPolicy: {{ .image.pullPolicy }}
+          env:
+            # The nvidia runtime handler injects the driver libraries into this
+            # container (utility only) and, for GPU Pods, the devices the plugin
+            # lists in NVIDIA_VISIBLE_DEVICES.
+            - {name: NVIDIA_VISIBLE_DEVICES, value: all}
+            - {name: NVIDIA_DRIVER_CAPABILITIES, value: utility}
+            - {name: DEVICE_LIST_STRATEGY, value: envvar}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          {{- with .resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: device-plugins
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+{{- end }}
+{{- end }}

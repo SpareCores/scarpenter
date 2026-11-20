@@ -141,6 +141,7 @@ refuses to start on any problem of its command line and logs all of them.
 | `bootstrap.tokenTTL` | Lifetime of a node's bootstrap token; at least 20m (core gives a NodeClaim 15 minutes to register). |
 | `bootstrap.tailnetPrefixes` | For a Headscale with other prefixes than Tailscale's. |
 | `rbac.authKeySecrets` | The tailscale auth key Secrets of other namespaces: the chart creates a Role that reads just that Secret and a RoleBinding there. The key Secret in the release namespace needs nothing. |
+| `nvidia.runtimeClass.create`, `nvidia.devicePlugin.*` | The RuntimeClass `nvidia` and the NVIDIA device plugin DaemonSet for GPU nodes, both on by default ([run GPU workloads](run-gpu-workloads.md)). Turn both off if the NVIDIA GPU operator runs in the cluster. |
 | `managedResources.*`, `gc.*`, `quota.*`, `unavailable.*`, `catalog.*` | The tuning of the controller; the defaults suit most clusters. |
 | `resources` | The defaults (request 640Mi, limit 2Gi) are sized from the L3 scale and catalog refresh measurements: AWS with three regions peaks at about 310 MiB, with every region at about 430 MiB, and every region of every vendor at about 1.1 GiB of heap. Scope the NodeClasses to the regions you use, or raise the limit ([memory sizing](../reference/controller.md#memory-sizing)). |
 | `extraArgs`, `extraEnv` | Core's other flags and anything else. |
