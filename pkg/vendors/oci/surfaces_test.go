@@ -126,6 +126,7 @@ func TestListImagesDisplayNameRejectsTheNativeFilters(t *testing.T) {
 	}
 	use.Filters[0].Values = []string{"Flatcar"}
 	use.Filters[2].Values = []string{"VM.Standard.A1.Flex"}
+	e.c.ReplaceImageShapes(fake.SeedImage, "VM.Standard.E5.Flex")
 	if _, err := e.d.ResolveImage(ctx, imageReq("amd64", use)); !vendors.IsClass(err, vendors.NotFound) {
 		t.Errorf("name with a shape the image does not run on: %v, want NotFound", err)
 	}
@@ -718,7 +719,7 @@ func TestLaunchWithAnImageOfTheImageCompartment(t *testing.T) {
 	c.AddImageCompartment(imageComp)
 	img := fake.FlatcarImage("stable", "4800.0.0", "amd64")
 	img.CompartmentId = new(imageComp)
-	id := c.AddImage(testRegion, img)
+	id := c.AddImage(testRegion, img, fake.AnyShape)
 	e := restart(t, c, testCluster, driver.WithImageCompartment(imageComp))
 	req := imageReq("amd64", vendors.UseRef{})
 	req.Version = "4800.0.0"

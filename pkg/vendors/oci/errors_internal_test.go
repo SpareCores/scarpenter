@@ -38,7 +38,7 @@ func TestClassify(t *testing.T) {
 		{"capacity, other case", kindLaunch, 500, "InternalError", "OUT OF HOST CAPACITY for shape x", vendors.InsufficientCapacity},
 		{"capacity for shape", kindLaunch, 500, "InternalError", "Out of capacity for shape VM.Standard.A1.Flex", vendors.InsufficientCapacity},
 		{"capacity text on a 503 is transient", kindLaunch, 503, "InternalError", "Out of host capacity.", vendors.Retryable},
-		{"capacity text on a 400 is fatal", kindLaunch, 400, "InvalidParameter", "Out of host capacity.", vendors.Fatal},
+		{"capacity text on a 400 is never capacity", kindLaunch, 400, "InvalidParameter", "Out of host capacity.", vendors.InvalidOffering},
 		{"internal error without the text", kindLaunch, 500, "InternalError", "An internal error occurred.", vendors.Retryable},
 		// QuotaExceeded.
 		{"limit", kindLaunch, 400, "LimitExceeded",
@@ -55,7 +55,9 @@ func TestClassify(t *testing.T) {
 			vendors.Unsupported},
 		{"shape cannot be preemptible", kindLaunch, 400, "InvalidParameter",
 			"Preemptible instances are not supported for shape VM.Standard2.1", vendors.Unsupported},
-		{"other invalid parameter", kindLaunch, 400, "InvalidParameter", "metadata is too large", vendors.Fatal},
+		{"other invalid parameter", kindLaunch, 400, "InvalidParameter", "metadata is too large", vendors.InvalidOffering},
+		{"invalid parameter without a message", kindLaunch, 400, "InvalidParameter", "", vendors.InvalidOffering},
+		{"invalid parameter on a read", kindRead, 400, "InvalidParameter", "bad page token", vendors.Fatal},
 		// ZoneUnusable.
 		{"subnet full", kindLaunch, 400, "InvalidParameter", "The subnet ocid1.subnet.oc1..x has no available IP addresses",
 			vendors.ZoneUnusable},

@@ -265,6 +265,59 @@ func TestCreateMarksUnsupportedAndUnusableZones(t *testing.T) {
 	}
 }
 
+// An InvalidOffering of one type is marked for the offerings tried (type, zone,
+// capacity type) and another type launches in the same Create, with an Event that
+// carries the vendor's message.
+func TestCreateMarksAnInvalidOfferingAndMovesOn(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 100})
+	types := []string{"aws.m7i.large", "aws.c7i.large"}
+	// The cheapest offering is tried first (offerings are sorted by price): make
+	// its type the invalid one.
+	bad, good := e.offerings(types...)[0].typeName, types[0]
+	if bad == good {
+		good = types[1]
+	}
+	before := len(e.offerings(bad))
+	e.setConfig("errors", "- match: {instanceType: "+bad+"}\n  error: InvalidOffering")
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", types))
+	if err != nil {
+		t.Fatalf("Create: %v, want the other type to launch", err)
+	}
+	if got := created.Labels[corev1.LabelInstanceTypeStable]; got != good {
+		t.Errorf("launched %q, want %s", got, good)
+	}
+	if after := len(e.offerings(bad)); after >= before {
+		t.Errorf("%d offerings of %s are available, were %d: none was marked", after, bad, before)
+	}
+	if !contains(e.events.reasons(), cloudprovider.EventOfferingRejected) {
+		t.Errorf("events = %v, want %s", e.events.reasons(), cloudprovider.EventOfferingRejected)
+	}
+}
+
+// A Create in which every attempt, of several types, was an InvalidOffering marks
+// every offering it tried and is InsufficientCapacity, so that core drops the
+// NodeClaim and the next one picks other types. Treating it as a global
+// misconfiguration (Fatal) would retry the same types forever when the types
+// share the cause (two sizes of one flexible shape).
+func TestCreateWhenEveryTypeIsInvalidMarksThemAll(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 100})
+	types := []string{"aws.m7i.large", "aws.c7i.large"}
+	offerings := e.offerings(types...)
+	e.setConfig("errors", "- {error: InvalidOffering}")
+	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", types))
+	if !karpcloudprovider.IsInsufficientCapacityError(err) {
+		t.Fatalf("Create error = %v, want InsufficientCapacity", err)
+	}
+	for _, o := range offerings {
+		if !e.un.IsUnavailable(unavailableOf(o)) {
+			t.Errorf("%+v was not marked", o)
+		}
+	}
+	if left := e.offerings(types...); len(left) != 0 {
+		t.Errorf("%d offerings are still available", len(left))
+	}
+}
+
 // Create returns the vendor's billing start as an annotation, which core copies
 // to the NodeClaim and the Node; Get and List return it too, so a NodeClaim
 // launched before the annotation existed can be given it.

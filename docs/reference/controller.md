@@ -669,6 +669,7 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 |---|---|---|---|
 | `LaunchFailed` | Warning | SCNodeClass | A `Fatal` vendor error ended a launch. |
 | `ImageResolutionFailed` | Warning | SCNodeClass | A boot image could not be resolved. |
+| `OfferingRejected` | Warning | SCNodeClass | The vendor rejected the launch of an offering (`InvalidOffering`, with the vendor's message); it is unavailable for an hour. |
 | `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `MetricInvalid`, `RestartRequired` | Warning / Normal | SCNodeClass | The NodeClass controller's findings ([conditions](#scnodeclass-status-conditions)). |
 | `IPv6OnlyNeedsMirror` | Warning | SCNodeClass | IPv6-only nodes and the default sysext source, which has no IPv6: set `--sysext-base-url`. |
 | `QuotaExhausted`, `QuotaZero` | Warning | SCNodeClass | No headroom in a quota bucket (deduplicated for 10 minutes). |

@@ -533,3 +533,27 @@ func TestLaunchErrorsFromTheFake(t *testing.T) {
 		}
 	})
 }
+
+// A shape that is not in the image's compatibility list is refused before the
+// launch call (OCI answers it with a bare 400 InvalidParameter).
+func TestCreateInstanceRefusesAShapeTheImageDoesNotRun(t *testing.T) {
+	e := newEnv(t)
+	e.c.ReplaceImageShapes(fake.SeedImage, "VM.Standard.A1.Flex")
+	before := e.c.Calls("LaunchInstance")
+	_, err := e.d.CreateInstance(t.Context(), request(testType))
+	if !vendors.IsClass(err, vendors.InvalidOffering) || vendors.CodeOf(err) != "ImageNotCompatible" {
+		t.Fatalf("CreateInstance = %v, want InvalidOffering ImageNotCompatible", err)
+	}
+	if e.c.Calls("LaunchInstance") != before {
+		t.Error("a launch call was made for a shape the image does not run")
+	}
+}
+
+// A 400 InvalidParameter without a known reason is the offering's: InvalidOffering.
+func TestCreateInstanceUnknownInvalidParameterIsInvalidOffering(t *testing.T) {
+	e := newEnv(t)
+	e.c.Inject("LaunchInstance", fake.Error(400, "InvalidParameter", "Invalid shapeConfig"), 1)
+	if _, err := e.d.CreateInstance(t.Context(), request(testType)); !vendors.IsClass(err, vendors.InvalidOffering) {
+		t.Fatalf("CreateInstance = %v, want InvalidOffering", err)
+	}
+}

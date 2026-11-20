@@ -32,6 +32,7 @@ const (
 	codeNoSuchZone = "UnknownZone"
 	codeNotReady   = "NotImplemented"
 	codeTokenClash = "RetryTokenConflict"
+	codeImageShape = "ImageNotCompatible"
 )
 
 // OCI's error codes the driver acts on (the Oracle API errors page).
@@ -155,6 +156,12 @@ func classifyService(status int, code, msg string, kind callKind, cause error) e
 			return vendors.NewError(vendors.Unsupported, code, cause)
 		case subnetFullRe.MatchString(msg):
 			return vendors.NewError(vendors.ZoneUnusable, code, cause)
+		}
+		if kind == kindLaunch {
+			// A 400 that names no known reason: the request was built for this
+			// offering (shape, size, capacity type, zone), so another type may
+			// launch. The core marks the offering for an hour.
+			return vendors.NewError(vendors.InvalidOffering, code, cause)
 		}
 		return vendors.NewError(vendors.Fatal, code, cause)
 	case status == http.StatusConflict && code == CodeConflict && subnetFullRe.MatchString(msg):
