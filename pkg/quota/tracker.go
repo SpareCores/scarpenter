@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/utils/clock"
 
+	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -573,12 +574,16 @@ func (t *Tracker) evalLocked(vendor, region, apiRef, capacityType string, now ti
 
 // Unavailable implements catalog.Gate: the quota is known and has no headroom
 // for one more instance.
-func (t *Tracker) Unavailable(vendor, apiReference, region, _, capacityType string) bool {
+func (t *Tracker) Unavailable(vendor, apiReference, region, _, capacityType string) (catalog.Reason, bool) {
 	now := t.opts.Clock.Now()
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	d, _ := t.evalLocked(vendor, region, apiReference, capacityType, now)
-	return d.Known && !d.Allowed
+	if !d.Known || d.Allowed {
+		return catalog.Reason{}, false
+	}
+	return catalog.Reason{Code: catalog.QuotaGate, Detail: fmt.Sprintf("bucket %s, headroom %d, need %d",
+		d.Bucket, d.Headroom, d.Need)}, true
 }
 
 // Headroom returns the smallest headroom over the buckets the instance

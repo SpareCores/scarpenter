@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	corev1 "k8s.io/api/core/v1"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	karpcloudprovider "sigs.k8s.io/karpenter/pkg/cloudprovider"
@@ -847,9 +849,19 @@ func TestCreateRequiresAReadyNodeClass(t *testing.T) {
 		if !karpcloudprovider.IsNodeClassNotReadyError(err) {
 			t.Errorf("Create error = %v: a vendor that is not ready is NodeClassNotReady", err)
 		}
-		its, err := e.cp.GetInstanceTypes(t.Context(), nodePool())
-		if err != nil || len(its) != 0 {
-			t.Errorf("GetInstanceTypes = %d types, %v for a vendor that is not ready", len(its), err)
+		var lines []string
+		ctx := logr.NewContext(t.Context(), funcr.New(func(_, args string) { lines = append(lines, args) },
+			funcr.Options{Verbosity: 1}))
+		for range 2 {
+			its, err := e.cp.GetInstanceTypes(ctx, nodePool())
+			if err != nil || len(its) != 0 {
+				t.Errorf("GetInstanceTypes = %d types, %v for a vendor that is not ready", len(its), err)
+			}
+		}
+		// The vendor is named once, with the code, without the condition's message.
+		lines = slices.DeleteFunc(lines, func(l string) bool { return !strings.Contains(l, "VendorNotReady") })
+		if len(lines) != 1 || !strings.Contains(lines[0], "aws (NoStatus)") {
+			t.Errorf("log lines %q, want one VendorNotReady line naming aws", lines)
 		}
 	})
 	// A vendor that is not ready must not turn the failures of another vendor's
@@ -1078,5 +1090,35 @@ func TestCreateResolvesTheImageOfTheNodeClassesOwner(t *testing.T) {
 	defer drv.mu.Unlock()
 	if len(drv.owners) == 0 || drv.owners[0] != "123456789012" {
 		t.Errorf("ResolveImage owners = %v, want the NodeClass's 123456789012", drv.owners)
+	}
+}
+
+// GetInstanceTypes logs, once per generation and NodePool, the types a
+// NodePool's requirements remove that the catalog offers (plan 28, step 2).
+func TestGetInstanceTypesLogsTheNodePoolReasonsOnce(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	var lines []string
+	ctx := logr.NewContext(t.Context(), funcr.New(func(_, args string) { lines = append(lines, args) },
+		funcr.Options{Verbosity: 1}))
+	pool := nodePool()
+	pool.Spec.Template.Spec.Requirements = []karpv1.NodeSelectorRequirementWithMinValues{
+		{Key: v1alpha1.LabelZoneID, Operator: corev1.NodeSelectorOpIn, Values: []string{"nowhere"}},
+	}
+	nodePoolLines := func() (n int) {
+		for _, l := range lines {
+			if strings.Contains(l, `"nodepool"="default"`) && strings.Contains(l, `"reason"="NodePoolRequirement"`) &&
+				strings.Contains(l, "aws.m7i.large") {
+				n++
+			}
+		}
+		return n
+	}
+	for range 2 {
+		if _, err := e.cp.GetInstanceTypes(ctx, pool); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := nodePoolLines(); n != 1 {
+		t.Errorf("%d NodePool lines naming aws.m7i.large after two calls, want 1", n)
 	}
 }

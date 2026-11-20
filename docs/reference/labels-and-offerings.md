@@ -21,6 +21,7 @@ and [00a](../plans/v1/wip/00a-node-options.md#7-instance-selection). The code is
   - [Zones and zone IDs](#zones-and-zone-ids)
   - [Prices](#prices)
   - [Availability](#availability)
+  - [Why a type or an offering is not offered](#why-a-type-or-an-offering-is-not-offered)
 - [Labels](#labels)
   - [Unknown values](#unknown-values)
   - [Scheduling and topology labels](#scheduling-and-topology-labels)
@@ -294,8 +295,13 @@ offerings are priced by the objective instead (see
 ### Availability
 
 An offering is unavailable (`Available=false`) while the
-[unavailable-offerings cache](#unavailable-offerings) has an entry for it.
-Quota headroom and launchable-type checks join in plan 04.
+[unavailable-offerings cache](#unavailable-offerings) has an entry for it, while
+the quota tracker knows the quota and it has no headroom for one more instance,
+while the class's vendor resources are not ready in the region
+(`ImageGap`, `RegionNotReady`, `ZoneMissingResource`), and, for a NodePool that
+pins a selection profile whose objective is not `Price`, when the type has no
+score under it (`Unrankable`). Each of these is a
+[reason](#why-a-type-or-an-offering-is-not-offered).
 
 #### Unavailable offerings
 
@@ -305,9 +311,77 @@ the sequence number the catalog's cache key uses are clock-injectable.
 | Error class | Key | Default TTL |
 |---|---|---|
 | `InsufficientCapacity` | (vendor, instance type, zone, capacity type) | 3 min |
-| `Unsupported` | (vendor, instance type, zone) | 24 h |
+| `Unsupported` | (vendor, instance type, zone) | 24 h; 10 min when the driver's own pre-launch check found it (`vendors.Error.PreLaunch`) |
 | `QuotaExceeded`, vendor without a quota API | (vendor, region, capacity type) | 30 min |
 | `ZoneUnusable` | (vendor, zone) | 10 min |
+
+### Why a type or an offering is not offered
+
+Every gate that removes a type, removes an offering or marks an offering
+unavailable gives one **reason**: a code naming the gate and a detail with the
+data it used (a quota bucket, a zone, a region, a cache class; never a driver
+message or an account identifier). The codes are API: they are only added, never
+renamed. `Catalog.Explain` returns them per type and offering from the same
+evaluation `InstanceTypes` uses, so a report cannot disagree with what Karpenter
+was given.
+
+| Code | Level | What removed it | Detail |
+|---|---|---|---|
+| `NoPrice` | type | no active USD price above zero in scope | |
+| `RegionNotAllowed` | type | every price row is in a region the class does not allow, or an inactive one | the regions with a row |
+| `ZoneNotAvailable` | offering | a price row's zone is not one of the account's, Keeper marked it inactive, or the driver lists no zones for the region (facts not loaded yet, or the credentials cannot read it) | the zone ID, or the region |
+| `IncompletePrice` | offering | the price delta is incomplete and `pricing.allowIncomplete` is false | zone ID, capacity type |
+| `GPUManufacturer`, `GPUModelUnknown`, `GPUFractional`, `GPUArch`, `GPUNoDriverBranch`, `GPUNVSwitch`, `GPUVirtual` | type | [GPU types](#gpu-types) | |
+| `NotLaunchable` | offering | the driver's offering lister says the type cannot launch in the zone | zone ID |
+| `NoOffering` | type | every offering of the type was removed above | the dominant earlier code |
+| `UnavailableCache` | offering | a live entry of the unavailable-offerings cache | its class (`InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `ZoneUnusable`, `InvalidOffering`) and its expiry |
+| `QuotaGate` | offering | the quota is known and has no headroom | the limiting bucket, the headroom and the need |
+| `ImageGap` | offering | the class has no ready boot image in the region; **region-level, not per architecture**: a region is marked only when no architecture's image is ready, so a type of an architecture without an image can still be offered there | the region |
+| `RegionNotReady` | offering | the class's vendor resources are not ready in the region | the region |
+| `ZoneMissingResource` | offering | a required resource is missing in the zone | the zone |
+| `Unrankable` | offering | the NodePool pins a selection profile and the type has no score | the profile |
+| `VendorNotReady` | type | `GetInstanceTypes` leaves out the types of a vendor without `VendorReady` | the condition's reason |
+| `NodePoolRequirement` | type | **Explain only**: the type's requirements do not intersect the NodePool's, by core's rule | the first label key that fails |
+| `NodePoolPreFilter` | type, offering | the NodePool's requirement on architecture, instance type, region, zone or capacity type; safe to drop, core would too | the key |
+
+`Unavailable*`, `QuotaGate`, the class gates and `Unrankable` are availability
+reasons, not removals: the type is returned, its offering has `Available=false`.
+The class-level report (logs, status) has no NodePool and so cannot show
+`Unrankable`, `NodePoolRequirement` or `NodePoolPreFilter`.
+
+What Karpenter's message does not tell: core drops a type that has no available
+offering compatible with the NodePool before it looks at a pod, and then says "no
+instance type met all requirements" for a type that was never returned, for one
+whose offerings are all unavailable and for one whose labels do not match the
+pod's or the NodePool's requirements alike. It does say "had the required
+resources" for a resource misfit. SCarpenter cannot see what Karpenter removes
+after `GetInstanceTypes` (requests that do not fit the allocatable, `minValues`,
+NodePool limits, NodeOverlays, reserved capacity); `Explain` reproduces the two
+that are pure functions of the type: the requirement intersection
+(`NodePoolRequirement`) and the resource fit for a request list
+(`TypeReport.FitsRequests`).
+
+**The label to key on** is the instance type name,
+`node.kubernetes.io/instance-type`: `<vendor>.<api_reference>` with characters
+outside the label charset replaced and a name over 63 characters cut to 56 plus a
+hash. Every type has it and it is unique across vendors. The
+`scarpenter.sparecores.com/api-reference` label carries the raw reference, only
+when it is a valid label value that sanitising leaves unchanged, and is not
+vendor-qualified; a NodePool that pins it to a value matches nothing for any
+other type, with no message.
+
+**Logs.** At V(1) (core's `--log-level=debug`: the chart value `karpenter.logLevel: debug`, or `LOG_LEVEL=debug`) a restart logs, for each class, every type and offering that has a
+reason, one line per vendor, reason and 50 types
+(`offered types changed`, with `nodeclass`, `vendor`, `reason`, `count` and
+`types` with the detail in parentheses). Afterwards a line appears when a
+type's or offering's code changes (`type`, `zone`, `capacityType`, `reason`,
+`detail`, `was`; the reason `Available` means the code cleared), at most 50 changes
+per report, and a larger burst is logged per reason again. Nothing is logged per
+query. `GetInstanceTypes` adds a line per NodePool for `Unrankable` and
+`NodePoolRequirement` (`nodepool` is set) and one for the vendors that are not
+ready (`VendorNotReady`), each once per change. Every `Unsupported` mark of the
+launch path is logged at V(0) (`marked the offering unsupported`, with the vendor's
+`code` and `preLaunch`).
 
 ## Labels
 
@@ -569,6 +643,12 @@ production: 138,970 price rows for AWS in the snapshot.
   controller log (`catalog refresh failed`).
 - *A pod requiring a metric label is never scheduled*: the type is unbenchmarked
   (`DoesNotExist`), or the metric was added after start-up (`RestartRequired`).
+- *A pinned type gets "no instance type met all requirements"*: raise the log
+  level to V(1) and restart; the log names the type and its
+  [reason](#why-a-type-or-an-offering-is-not-offered). A type that is not named was
+  returned with every offering available: check the pin (key on the instance type
+  name, not `api-reference`) and the NodePool's own requirements (a metric or
+  selection label the type lacks, a profile the type has no score under).
 - *An instance type is missing*: its Keeper status is not `active` or `planned-for-retirement`, its
   architecture is unsupported, it has no active Linux hourly USD price in the
   allowed regions, or the driver does not report its zones.

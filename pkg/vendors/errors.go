@@ -74,6 +74,11 @@ type Error struct {
 	// unavailable-offerings cache then marks the capacity type unavailable in
 	// every region of the vendor, not in the one the call was made in.
 	AccountWide bool
+	// PreLaunch is set by a driver on an Unsupported error found by its own
+	// check, before any vendor call, as opposed to the vendor's "not offered"
+	// answer. Such a check is deterministic from tables the driver read, so the
+	// unavailable-offerings cache keeps its mark for minutes, not a day.
+	PreLaunch bool
 }
 
 // Error implements error.
@@ -107,6 +112,26 @@ func (e *Error) AsAccountWide() *Error {
 	c := *e
 	c.AccountWide = true
 	return &c
+}
+
+// AsPreLaunch returns err marked as found by the driver's own check before the
+// vendor call (see Error.PreLaunch); an error that is not an *Error is returned
+// unchanged.
+func AsPreLaunch(err error) error {
+	if e, ok := errors.AsType[*Error](err); ok {
+		c := *e
+		c.PreLaunch = true
+		return &c
+	}
+	return err
+}
+
+// IsPreLaunch reports whether the first *Error in the chain is marked PreLaunch.
+func IsPreLaunch(err error) bool {
+	if e, ok := errors.AsType[*Error](err); ok {
+		return e.PreLaunch
+	}
+	return false
 }
 
 // IsAccountWide reports whether the first *Error in the chain is a QuotaExceeded

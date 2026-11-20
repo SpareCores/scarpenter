@@ -30,6 +30,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/controllers/resourcestatus"
 	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/resources/resourcestest"
@@ -178,8 +179,8 @@ func TestResourceStatus(t *testing.T) {
 		!strings.Contains(v.message, "subnets") || strings.Contains(v.message, "us-east-1") {
 		t.Errorf("condition %q: %q", v.reason, v.message)
 	}
-	if !engine.UnavailableFor(className, "aws", "m7i.large", "us-east-2", "z", "on-demand") ||
-		engine.UnavailableFor(className, "aws", "m7i.large", "us-east-1", "z", "on-demand") {
+	if !down(engine.UnavailableFor(className, "aws", "m7i.large", "us-east-2", "z", "on-demand")) ||
+		down(engine.UnavailableFor(className, "aws", "m7i.large", "us-east-1", "z", "on-demand")) {
 		t.Error("the engine must gate us-east-2 only")
 	}
 	kinds := map[string]bool{}
@@ -210,7 +211,7 @@ func TestResourceStatus(t *testing.T) {
 	if v.reason != resourcestatus.ReasonReady || v.message != "" || len(v.resources) != 3 {
 		t.Errorf("ready state: %+v", v)
 	}
-	if engine.UnavailableFor(className, "aws", "m7i.large", "us-east-2", "z", "on-demand") {
+	if down(engine.UnavailableFor(className, "aws", "m7i.large", "us-east-2", "z", "on-demand")) {
 		t.Error("the region is still gated")
 	}
 
@@ -317,3 +318,6 @@ func TestResourceStatusCountsPastTheCap(t *testing.T) {
 		t.Errorf("counts %+v, want 130 subnets in us-east-1", vs.ResourceCounts)
 	}
 }
+
+// down drops the reason of a gate's answer.
+func down(_ catalog.Reason, isDown bool) bool { return isDown }

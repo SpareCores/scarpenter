@@ -183,11 +183,11 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		return nil, err
 	}
 	if err := t.Check(shapes, ad.Full); err != nil {
-		return nil, err
+		return nil, vendors.AsPreLaunch(err)
 	}
 	if req.CapacityType == vendors.CapacitySpot && t.Sized && !IsFlexibleName(t.Shape) {
-		return nil, vendors.NewError(vendors.Unsupported, CodeInvalidInstanceType,
-			fmt.Errorf("%s is not a .Flex shape; preemptible capacity is for flexible VM shapes", t.Shape))
+		return nil, vendors.AsPreLaunch(vendors.NewError(vendors.Unsupported, CodeInvalidInstanceType,
+			fmt.Errorf("%s is not a .Flex shape; preemptible capacity is for flexible VM shapes", t.Shape)))
 	}
 	if err := d.checkImageShape(ctx, req, t.Shape); err != nil {
 		return nil, err

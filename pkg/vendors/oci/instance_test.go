@@ -179,6 +179,9 @@ func TestShapeOnlyInSomeADs(t *testing.T) {
 	if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != driver.CodeShapeNotInAD {
 		t.Fatalf("launch in an AD without the shape: %v", err)
 	}
+	if !vendors.IsPreLaunch(err) {
+		t.Error("the driver's own shape check is not marked PreLaunch")
+	}
 	if e.c.Calls("LaunchInstance") != 0 {
 		t.Error("a launch call was made")
 	}
