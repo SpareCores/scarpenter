@@ -95,6 +95,42 @@ const (
 	AnnotationPriceIncomplete = Group + "/price-incomplete"
 )
 
+// Interruption annotations (ADR-027). The node agent or the interruption poller
+// writes them on the Node; the interruption controller copies them to the
+// NodeClaim.
+const (
+	// AnnotationInterruption is the reason of an interruption notice (a
+	// Reason* value below).
+	AnnotationInterruption = Group + "/interruption"
+	// AnnotationInterruptionDeadline is when the vendor takes the instance away,
+	// RFC 3339.
+	AnnotationInterruptionDeadline = Group + "/interruption-deadline"
+	// AnnotationInterruptionSource says who found the notice (a Source* value
+	// below).
+	AnnotationInterruptionSource = Group + "/interruption-source"
+)
+
+// The reasons of an interruption, on the Interrupted condition of the NodeClaim
+// (as reason and as the DisruptionReason condition's reason) and in the
+// annotation of the Node.
+const (
+	// ConditionInterrupted is the NodeClaim condition that records an
+	// interruption. It is SCarpenter's own: core clears DisruptionReason on
+	// nodes it does not consider disrupting.
+	ConditionInterrupted = "Interrupted"
+	// ReasonSpotInterrupted: the vendor announced the reclaim of a spot or
+	// preemptible instance.
+	ReasonSpotInterrupted = "SpotInterrupted"
+)
+
+// The sources of an interruption notice.
+const (
+	// SourceInstanceMetadata: the node agent read the vendor's in-VM notice.
+	SourceInstanceMetadata = "instance-metadata"
+	// SourceVendorAPI: the controller found the notice through the vendor's API.
+	SourceVendorAPI = "vendor-api"
+)
+
 // MetricLabel is the label of a metric's score on an instance type.
 func MetricLabel(metric string) string { return LabelMetricPrefix + metric }
 

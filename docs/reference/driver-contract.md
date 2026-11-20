@@ -321,6 +321,16 @@ increment (or none), and minimum only (an increment shorter than `minPeriod`: on
 a held increment is `UnsupportedShape`. The AWS driver reports its per-second rule (1 s, 60 s minimum), verified, which is under
 the hold floor.
 
+## Interruption notice window
+
+`InterruptionWindow` is the optional capability of a driver whose vendor has spot or preemptible instances: `NoticeWindow()` returns
+`NoticeWindow{MinNotice, MaxNotice}`, the shortest and the longest lead time the vendor gives before it takes a reclaimed instance
+([plan 26](../plans/v1/wip/26-interruption.md)). The interruption controller clamps a node's claimed deadline into `[now, now +
+MaxNotice]`, and a notice without a usable deadline is `now + MinNotice`. A driver that declares none (or an invalid window: no minimum,
+or a maximum under the minimum) gets `vendors.DefaultNoticeWindow`, 30 s and 5 min. The fake declares the window of the vendor it
+impersonates (AWS and OCI 2 min, GCP 30 s to 2 min 30 s, Azure 30 s, Alibaba 5 min), which `--fake-min-notice` and `--fake-max-notice`
+override.
+
 ## Registry
 
 Drivers register in `init()` with `vendors.Register(name, factory)`.
@@ -465,7 +475,7 @@ servers from Keeper, so NodeClasses use `spec.vendors.aws` and types are
 `SCARPENTER_FAKE_*`, also listed in [the controller reference](controller.md#development-builds)): `--fake-catalog-vendor`, `--fake-config-namespace`
 (`scarpenter-system`), `--fake-config-name` (`scarpenter-fake`),
 `--fake-state-name` (`scarpenter-fake-state`), `--fake-resources-name`
-(`scarpenter-fake-resources`), `--fake-launch-delay`.
+(`scarpenter-fake-resources`), `--fake-launch-delay`, `--fake-min-notice`, `--fake-max-notice`.
 
 The fake's Go API has `PowerOff(ref)`, which stops an instance the way a guest
 poweroff would (it stays, reported `terminating`, until deleted); the conformance suite

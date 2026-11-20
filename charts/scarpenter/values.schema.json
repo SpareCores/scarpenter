@@ -836,6 +836,21 @@
         }
       }
     },
+    "interruption": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "margin": {
+          "$ref": "#/definitions/duration"
+        },
+        "unavailableTTL": {
+          "$ref": "#/definitions/duration"
+        }
+      }
+    },
     "gc": {
       "type": "object",
       "additionalProperties": false,

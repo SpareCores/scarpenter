@@ -94,6 +94,7 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		Unsupported:          opts.UnavailableUnsupportedTTL,
 		QuotaExceeded:        opts.UnavailableQuotaExceededTTL,
 		ZoneUnusable:         opts.UnavailableZoneUnusableTTL,
+		Interrupted:          opts.InterruptionUnavailableTTL,
 	})
 
 	c := &Components{Registry: reg, Unavailable: un, Signals: retention.NewSignals(o.Clock)}

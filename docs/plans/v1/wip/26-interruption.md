@@ -218,6 +218,20 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    timestamp kept, conditions, Events, delete, cache entry and its expiry, on-demand ignored once, unparsable and
    far-future deadlines clamped, restart idempotent. Write the ADR (next free number) and update ADR-011's "not
    planned" line and the overview. No vendor work.
+   **Done.** `pkg/controllers/interruption`, `unavailable.MarkInterrupted` (class `Interrupted`, 10 m, `--interruption-unavailable-ttl`),
+   flags `--interruption` and `--interruption-margin`, Helm values, the metrics `scarpenter_interruptions_total`,
+   `scarpenter_interruption_lead_seconds` and `scarpenter_interruption_reaction_seconds`, Events `SpotInterrupted` and
+   `InterruptionIgnored`, the `Interrupted` condition, ADR-027, the ADR-011 and overview updates; the fake declares the notice window of the
+   vendor it impersonates. Deviations from the text above: (a) the notice window comes from a small optional driver capability
+   `InterruptionWindow` (`NoticeWindow{MinNotice, MaxNotice}`), not from step 4's `NoticeCheck`, which can embed it and also serves
+   pollers; (b) the controller does not use `state.Cluster` (it finds the claim by the name in the provider ID and needs no
+   cluster state) and needs no new RBAC (core's role already patches and deletes NodeClaims, patches their status and creates Events;
+   SCarpenter's patches Nodes); (c) an unparsable or missing deadline is acted on with `now + MinNotice` and no `InterruptionIgnored` Event
+   (that Event is for a non-spot node or an unknown reason); (d) the effective (clamped) deadline is written back to the Node and the NodeClaim;
+   (e) the controller refuses a Node whose provider ID or name the NodeClaim does not confirm, and a source other than `instance-metadata` or
+   `vendor-api` is read as `instance-metadata`; (f) a NodeClaim already being deleted (consolidation) still gets the tightened deadline
+   and the condition. Not done here: the how-to "Handle spot interruptions" (it describes what a workload sees, which needs a notice
+   path: it comes with the first vendor step), and `scarpenter_interruption_poll_errors_total` (step 2).
 2. **Poller and silent reclaim.** `InterruptionPoller` in the contract and the core poller controller (section 4);
    `Instance.GoneReason` and the reasons of section 5; fake: `Interrupt(ref, deadline)` (poller path) and
    `Reclaim(ref)` (vanish). L3 KWOK scenarios (a) to (f) of section 10.

@@ -46,6 +46,9 @@ The last column names the plan that introduced the flag.
 | `--terminating-grace` | `SCARPENTER_TERMINATING_GRACE` | `10m` | How long an instance may be seen `terminating` before it is deleted again, by the garbage collector (no NodeClaim) and by `Delete`. The first sighting is kept in memory, so a restart restarts the clock. A stopped or powered-off instance is `terminating` for ever; one the vendor is deleting disappears well inside the grace. | plan 14 |
 | `--gc-dry-run` | `SCARPENTER_GC_DRY_RUN` | `false` | Log (and count, `result="dry-run"`) what the garbage collector would delete without deleting it. | plan 04 |
 | `--billing-retention` | `SCARPENTER_BILLING_RETENTION` | `true` | Run the [billing retention controller](#billing-retention). The NodeClass field `spec.billing.retainUntilPeriodEnd` is the real switch (off by default); `false` turns the whole controller off. | plan 23 |
+| `--interruption` | `SCARPENTER_INTERRUPTION` | `true` | Run the [interruption controller](#interruption). `false` turns it off. | plan 26 |
+| `--interruption-margin` | `SCARPENTER_INTERRUPTION_MARGIN` | `5s` | How long before the notice's deadline the Pods of an interrupted node are force-deleted: the time the instance needs after the kubelet stopped the containers. | plan 26 |
+| `--interruption-unavailable-ttl` | `SCARPENTER_INTERRUPTION_UNAVAILABLE_TTL` | `10m` | How long an interrupted spot offering (instance type and zone) stays unavailable. | plan 26 |
 | `--unavailable-insufficient-capacity-ttl` | `SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL` | `0` (3m) | How long an offering stays unavailable after `InsufficientCapacity`. | plan 04 |
 | `--unavailable-unsupported-ttl` | `SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL` | `0` (24h) | How long a type stays unavailable in a zone after `Unsupported`. | plan 04 |
 | `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (30m) | How long a region and capacity type stay unavailable after `QuotaExceeded` of a vendor without a quota API; every region of the vendor when the error is account-wide. | plan 04 |
@@ -161,6 +164,7 @@ and that the controller's own parser accepts what the chart renders.
 | `quota.refreshInterval`, `limitsRefreshInterval`, `maxStaleness`, `launchableRefreshInterval` | `--quota-*` | |
 | `gc.interval`, `gracePeriod`, `terminatingGrace`, `dryRun` | `--gc-interval`, `--gc-grace-period`, `--terminating-grace`, `--gc-dry-run` | |
 | `billingRetention.enabled` | `--billing-retention` | `true`; the chart passes the flag only when it is `false`. |
+| `interruption.enabled`, `margin`, `unavailableTTL` | `--interruption`, `--interruption-margin`, `--interruption-unavailable-ttl` | `enabled` is `true`; the chart passes `--interruption` only when it is `false`. |
 | `unavailable.insufficientCapacityTTL`, `unsupportedTTL`, `quotaExceededTTL`, `zoneUnusableTTL` | `--unavailable-*-ttl` | |
 | `managedResources.defaultTTL`, `perUseGrace`, `checkInterval`, `fullSweepEvery` | `--resource-default-ttl`, `--resource-per-use-grace`, `--resource-check-interval`, `--resource-full-sweep-every` | See the cost note of the full sweep. |
 | `karpenter.logLevel`, `batchMaxDuration`, `batchIdleDuration`, `featureGates`, `metricsPort`, `healthProbePort` | `--log-level`, `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, `--metrics-port`, `--health-probe-port` | Core's. |
@@ -181,7 +185,7 @@ objects, all bound to the controller's ServiceAccount:
 
 | Object | Grants | For |
 |---|---|---|
-| ClusterRole `scarpenter` | `scnodeclasses` get, list, watch, update, patch and `scnodeclasses/status` get, update, patch; `nodeclaims` get, list, watch, delete; `nodepools`, `pods`, `certificatesigningrequests` get, list, watch; `nodes` get, list, watch, patch; `update` on `certificatesigningrequests/approval`; `approve` on the signer `kubernetes.io/kubelet-serving` only; `get` on ConfigMaps (references name their namespace) | the NodeClass controllers (server-side apply of the status), the serving certificate approver (it reads the NodeClaims, the Nodes and, through the driver registry, the SCNodeClasses), ConfigMap references and the cluster CA, and the [billing retention controller](#billing-retention): it patches the Nodes (the hold annotations, the `billing-start` annotation of a node launched before it existed, the `releasing` taint), deletes the NodeClaim of an empty node at the end of its paid period, and reads the pods of a node and the NodePools (disruption budgets, limits) |
+| ClusterRole `scarpenter` | `scnodeclasses` get, list, watch, update, patch and `scnodeclasses/status` get, update, patch; `nodeclaims` get, list, watch, delete; `nodepools`, `pods`, `certificatesigningrequests` get, list, watch; `nodes` get, list, watch, patch; `update` on `certificatesigningrequests/approval`; `approve` on the signer `kubernetes.io/kubelet-serving` only; `get` on ConfigMaps (references name their namespace) | the NodeClass controllers (server-side apply of the status), the serving certificate approver (it reads the NodeClaims, the Nodes and, through the driver registry, the SCNodeClasses), ConfigMap references and the cluster CA, and the [billing retention controller](#billing-retention) and the [interruption controller](#interruption): they patch the Nodes (the hold annotations, the `billing-start` annotation of a node launched before it existed, the `releasing` taint, the interruption annotations), deletes the NodeClaim of an empty node at the end of its paid period, and reads the pods of a node and the NodePools (disruption budgets, limits) |
 | ClusterRole `scarpenter-core` | Karpenter core's: NodePools, NodeClaims and NodeOverlays (full), CapacityBuffers, pods, volumes, namespaces, services, events, storage classes, CSI nodes, volume attachments, workloads, PodDisruptionBudgets, CRDs (read), `pods/eviction` create, `pods` delete, Nodes get, list, watch, patch, update, delete, Events create and patch, leases get, list, watch | scheduling and disruption |
 | Role `scarpenter-bootstrap-tokens` in `kube-system` | Secrets get, list, create, delete | the bootstrap tokens (RBAC cannot limit `get` and `list` by label: the controller can read every Secret of `kube-system`) |
 | Role `scarpenter-cluster-dns` in `kube-system` | Services get, list | the cluster DNS Service, read when `--cluster-dns` is not set |
@@ -330,6 +334,57 @@ At start-up, and when it changes, the controller logs the resolved rule per vend
 | `scarpenter_billing_budget_overshoot_total` | counter | `vendor` | The recount after a mark found the budget exceeded (the race with Karpenter). |
 | `scarpenter_billing_boot_seconds` | histogram | `vendor` | Seconds from the billing start to Initialized: whether a short minimum leaves a window. |
 
+## Interruption
+
+The interruption controller ([ADR-027](../explanation/DECISIONS.md#adr-027-spot-interruption-the-notice-is-an-annotation-the-reaction-is-one-controller-accepted-2026-11-19),
+plan 26) reacts when a vendor announces that it will reclaim a spot or preemptible node, so that Karpenter drains the node
+as early in the notice window as possible and every Pod gets its SIGTERM with the time the vendor allows. It is the package
+`pkg/controllers/interruption`, started with `--interruption` (default on). How a workload sees an interruption and counts
+them is in the how-to guide "Handle spot interruptions" (added with the first vendor that can interrupt).
+
+**The notice** is three annotations on the Node (see [labels](labels.md#interruption-annotations)):
+`scarpenter.sparecores.com/interruption` (the reason, `SpotInterrupted`),
+`scarpenter.sparecores.com/interruption-deadline` (RFC 3339) and `scarpenter.sparecores.com/interruption-source`
+(`instance-metadata` for the node agent, `vendor-api` for the controller's own poller; anything else is read as
+`instance-metadata`). The paths that write them come with the vendor plans; the controller reads only the Node.
+
+**What it does**, per annotated Node whose NodeClaim belongs to an SCNodeClass and whose provider ID and node name match the claim's
+(a node cannot name another node's claim), in this order:
+
+1. A NodeClaim that is not spot (`karpenter.sh/capacity-type`) or a reason it does not know is ignored, with one `InterruptionIgnored` Warning Event
+   on the Node and the NodeClaim.
+2. The deadline is clamped into `[now, now + the driver's longest notice]`; a missing or unparsable one is `now + the driver's shortest notice`
+   ([notice window](driver-contract.md#interruption-notice-window); a driver that declares none gets 30 s and 5 min). The effective deadline is written
+   back to the Node and the NodeClaim, and a later reconcile keeps the NodeClaim's once it has the `Interrupted` condition (before that, a deadline
+   on the NodeClaim, for example from a NodePool template, is not trusted).
+3. The NodeClaim's `karpenter.sh/nodeclaim-termination-timestamp` is tightened to `deadline - --interruption-margin`, or to the deletion time plus the
+   NodeClaim's `terminationGracePeriod` when that is earlier (core sets the latter only on a claim without a timestamp); never extended: an earlier one is kept,
+   and the three annotations are copied to the NodeClaim. Karpenter's termination controller then force-deletes, with the grace clamped to the time
+   left (at least 1 s), every Pod whose grace would outlast the deadline, PDBs and `do-not-disrupt` included, and stops waiting for the drain at the
+   deadline. This also applies to a NodeClaim that is already being deleted (for example by consolidation).
+4. The NodeClaim gets the condition `Interrupted` and the condition `DisruptionReason`, both `True` with the reason `SpotInterrupted`. `Interrupted` is
+   SCarpenter's own (core clears `DisruptionReason` on nodes it does not consider disrupting; once the NodeClaim is deleting, it does not);
+   `DisruptionReason` makes core's eviction Events and `karpenter_pods_drained_total` carry the reason.
+5. The offering is marked unavailable in the unavailable-offerings cache: (vendor, instance type, zone, `spot`) for `--interruption-unavailable-ttl`;
+   on-demand offerings of the same type and zone stay. Metrics and the `SpotInterrupted` Warning Events (Node and NodeClaim) follow.
+6. The NodeClaim is deleted; Karpenter core taints the node `karpenter.sh/disrupted:NoSchedule`, drains it and deletes the instance.
+
+Every step is idempotent. What must happen once (the cache entry, the metrics, the Events) happens when the NodeClaim has no `Interrupted`
+condition yet, so a second reconcile or a restart changes nothing, and a repeat never extends the TTL. The target is under a second
+from the Node update to the NodeClaim delete (`scarpenter_interruption_reaction_seconds`).
+
+The controller needs no permissions beyond the ones in [Permissions](#permissions): it patches Nodes (SCarpenter's ClusterRole), and patches and deletes
+NodeClaims, patches `nodeclaims/status` and creates Events through Karpenter core's role.
+
+**Events**: `SpotInterrupted` (Warning, Node and NodeClaim) with the type, zone, deadline and lead time in the message; `InterruptionIgnored`
+(Warning, Node and NodeClaim, once per hour per object).
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `scarpenter_interruptions_total` | counter | `vendor`, `instance_type`, `zone`, `reason`, `source` | Interrupted nodes: the durable count a workload should use (Events expire after an hour). |
+| `scarpenter_interruption_lead_seconds` | histogram | `vendor`, `source` | The deadline minus the time the controller saw the notice. |
+| `scarpenter_interruption_reaction_seconds` | histogram | | From the controller seeing the notice to the NodeClaim delete. |
+
 ## Catalog
 
 The catalog reads Keeper for the vendors and regions of the SCNodeClasses
@@ -378,7 +433,8 @@ Binaries built with `-tags scarpenter_dev` add the fake driver and its flags
 `aws`: the Keeper vendor whose catalog the fake serves, under that vendor ID),
 `--fake-config-namespace` (`scarpenter-system`), `--fake-config-name`
 (`scarpenter-fake`), `--fake-state-name` (`scarpenter-fake-state`), `--fake-resources-name`
-(`scarpenter-fake-resources`) and `--fake-launch-delay` (`0`). Details: [the fake driver](driver-contract.md#the-fake-driver).
+(`scarpenter-fake-resources`), `--fake-launch-delay` (`0`) and `--fake-min-notice` and `--fake-max-notice` (empty: the
+[interruption notice window](driver-contract.md#interruption-notice-window) of the impersonated vendor). Details: [the fake driver](driver-contract.md#the-fake-driver).
 The qemu driver adds `--qemu-state-dir`, `--qemu-cache-dir`, `--qemu-log-dir`,
 `--qemu-bridge` and `--qemu-launch-delay` (below). The NodeClass controller is the same as in production. Development builds also
 expose the gauges `scarpenter_fake_state_revision` and
@@ -564,6 +620,7 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 | `ResourceCreated`, `ResourceAdopted`, `ResourceDeleted` | Normal | SCNodeClass, else the Deployment | A managed vendor resource was created, adopted after a restart, or deleted ([vendor resources](vendor-resources.md#metrics-and-events)). |
 | `ResourceCreateFailed`, `ResourceDeleteFailed` | Warning (deduplicated for 10 minutes) | SCNodeClass, else the Deployment | A creation or deletion failed; deletions retry with backoff. |
 | `ResourcesUnavailable` | Warning | SCNodeClass | A region lacks a resource the NodeClass needs, so its offerings are unavailable. |
+| `SpotInterrupted`, `InterruptionIgnored` | Warning | Node, NodeClaim | A spot node's reclaim was announced; a notice was ignored ([Interruption](#interruption)). |
 | `RetainedUntil`, `ReleasedAtPeriodEnd`, `ReleasedUnderPressure`, `ReleaseBlockedByBudget`, `RetentionSkipped`, `BillingStartUnknown` | Normal / Warning | Node | Billing retention ([Billing retention](#billing-retention)). |
 
 ## Metrics
@@ -576,6 +633,7 @@ Besides the metrics of Karpenter core, the controller serves, on the metrics por
 | `scarpenter_launches_total`, `scarpenter_launch_skipped_total`, `scarpenter_launch_attempts`, `scarpenter_create_duration_seconds` | [CloudProvider](#cloudprovider) |
 | `scarpenter_quota_limit`, `scarpenter_quota_used`, `scarpenter_quota_reserved`, `scarpenter_quota_refresh_age_seconds`, `scarpenter_quota_refresh_errors_total` | [Quota](#quota) |
 | `scarpenter_gc_deletions_total`, `scarpenter_gc_sweep_duration_seconds`, `scarpenter_gc_last_sweep_timestamp_seconds` | [Garbage collection](#garbage-collection) |
+| `scarpenter_interruptions_total`, `scarpenter_interruption_lead_seconds`, `scarpenter_interruption_reaction_seconds` | [Interruption](#interruption) |
 | `scarpenter_billing_*` (11 metrics) | [Billing retention](#billing-retention) |
 | `scarpenter_resource_operations_total` (`vendor`, `kind`, `region`, `operation` `create`, `adopt` or `delete`, `result` `ok`, `error` or `dry-run`) and `scarpenter_resources_managed` (`vendor`, `kind`, `region`: the managed resources the last sweep found) | [Vendor resources](vendor-resources.md#metrics-and-events) |
 
