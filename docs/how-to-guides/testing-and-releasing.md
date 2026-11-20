@@ -345,7 +345,8 @@ stamps the binary, the chart is packaged with the tag as `version` and `appVersi
      nothing. `images` runs in the environment `release` (add required reviewers there for a
      second approval before the first push): the controller and development images for
      both architectures, SBOM and provenance, cosign signatures by digest. `chart` packages
-     the chart with the version and pushes it to `oci://ghcr.io/sparecores/charts`, signed.
+     the charts `scarpenter` and `scarpenter-crd` (the CRDs as templates, so that Helm upgrades them)
+     with the version and pushes both to `oci://ghcr.io/sparecores/charts`, signed.
      `schema` packs the CRD, the JSON Schema of the `SCNodeClass` and the example
      NodeClasses (`hack/release.sh package-schema`; files only). `release` creates the GitHub
      release with notes, the chart package, the SBOMs and those files

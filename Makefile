@@ -75,7 +75,7 @@ golden: ## Rewrite the golden files under testdata/ (review the diff like code).
 	UPDATE_GOLDEN=1 go test -tags scarpenter_dev ./...
 
 .PHONY: chart-crds
-chart-crds: manifests ## Copy the generated CRD into the Helm chart.
+chart-crds: manifests ## Copy the CRDs into the Helm charts (crds/ of scarpenter, templates of scarpenter-crd).
 	hack/chart-sync.sh crds
 
 .PHONY: chart-rbac

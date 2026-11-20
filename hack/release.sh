@@ -10,8 +10,8 @@
 #                                       tag is the highest stable version: it may move "latest" and
 #                                       the major tag) and minor= (the highest of its minor: it may
 #                                       move the 0.1 tag), so that no tag ever moves backwards
-#   package-chart <version> <dir>       packages the chart with that version and appVersion
-#                                       into <dir> and checks the package
+#   package-chart <version> <dir>       packages the charts scarpenter and scarpenter-crd with that
+#                                       version and appVersion into <dir> and checks the packages
 #   package-schema <version> <dir>      copies the CRD (scnodeclass-crd.yaml) and the JSON Schema of the
 #                                       SCNodeClass (scnodeclass.schema.json) into <dir> and packs
 #                                       docs/examples as scarpenter-examples-<version>.tgz: the files an
@@ -76,7 +76,7 @@ cmd_latest() {
 
 cmd_package_chart() {
   [[ $# -eq 2 ]] || die "usage: package-chart <version> <dir>"
-  local version="$1" dir="$2" pkg values
+  local version="$1" dir="$2" pkg values rendered
   mkdir -p "${dir}"
   helm package charts/scarpenter --version "${version}" --app-version "${version}" --destination "${dir}"
   pkg="${dir}/scarpenter-${version}.tgz"
@@ -87,6 +87,16 @@ cmd_package_chart() {
   helm template scarpenter "${pkg}" -f "${values}" | grep -q "image: \"${IMAGE_REPO}:${version}\"" ||
     die "the packaged chart does not use ${IMAGE_REPO}:${version}"
   helm show chart "${pkg}" | grep -q "^appVersion: ${version}\$" || die "appVersion of the package is not ${version}"
+  echo "chart package ${pkg}"
+
+  # The CRD chart carries the same version, and every CRD it renders is kept on uninstall.
+  helm package charts/scarpenter-crd --version "${version}" --app-version "${version}" --destination "${dir}"
+  pkg="${dir}/scarpenter-crd-${version}.tgz"
+  [[ -f "${pkg}" ]] || die "helm did not produce ${pkg}"
+  helm lint --strict "${pkg}"
+  rendered="$(helm template scarpenter-crd "${pkg}")"
+  [[ "${rendered}" == *'helm.sh/resource-policy: keep'* ]] || die "the CRDs of ${pkg} lack helm.sh/resource-policy: keep"
+  helm show chart "${pkg}" | grep -q "^version: ${version}\$" || die "version of the package is not ${version}"
   echo "chart package ${pkg}"
 }
 
