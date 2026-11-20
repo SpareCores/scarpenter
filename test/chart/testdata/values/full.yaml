@@ -41,6 +41,8 @@ catalog: {refreshInterval: 30m, maxAge: 12h}
 artifacts:
   sysextBaseURL: https://mirror.example.com/sysext
   flatcarBaseURL: https://mirror.example.com/flatcar/{channel}
+nvidia:
+  driverBaseURL: https://mirror.example.com/nvidia-drivers
 bootstrap:
   tokenTTL: 45m
   tailnetPrefixes: [100.64.0.0/10, 10.1.0.0/16]

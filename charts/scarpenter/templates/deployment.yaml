@@ -96,6 +96,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "catalog-max-age" .Values.catalog.maxAge
   "sysext-base-url" .Values.artifacts.sysextBaseURL
   "flatcar-base-url" .Values.artifacts.flatcarBaseURL
+  "nvidia-driver-base-url" .Values.nvidia.driverBaseURL
   "bootstrap-token-ttl" .Values.bootstrap.tokenTTL
   "max-launch-attempts" .Values.launch.maxAttempts
   "quota-refresh-interval" .Values.quota.refreshInterval

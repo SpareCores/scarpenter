@@ -21,6 +21,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/artifacts"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
 // RenderRequest is what the user-data of a node depends on (overview section
@@ -47,6 +48,9 @@ type RenderRequest struct {
 	// NodeIPCIDR is the IPv4 range of the private network of the launch, from
 	// the driver's Prepared.NodeIPCIDR ("" for none).
 	NodeIPCIDR string
+	// NVIDIA is the driver of a supported NVIDIA GPU type (nil: none); the node
+	// boots with it (the nvidia part).
+	NVIDIA *nvidia.Selection
 	// Token is the bootstrap token of the NodeClaim.
 	Token string
 	// NodeName and ProviderID are the node name (the NodeClaim name) and the
@@ -71,6 +75,12 @@ type RendererOptions struct {
 	// API server's kubelet client certificates, when it is not the cluster CA.
 	// It is read at every rendering.
 	KubeletClientCAFile string
+	// SysextBaseURL is the mirror of the sysext-bakery releases the nvidia-runtime
+	// sysext is downloaded from (--sysext-base-url); empty: upstream.
+	SysextBaseURL string
+	// NVIDIADriverBaseURL is the mirror of the NVIDIA driver sysexts
+	// (--nvidia-driver-base-url); empty: nodes download them from Flatcar's server.
+	NVIDIADriverBaseURL string
 }
 
 // ClusterDNSError means the cluster DNS was neither given (--cluster-dns) nor
@@ -98,10 +108,26 @@ func (r *Renderer) clusterDNS(ctx context.Context) ([]string, error) {
 // CloudProvider.
 type Renderer struct {
 	opts RendererOptions
+	// urls builds the URL of the nvidia-runtime sysext.
+	urls *artifacts.Resolver
 }
 
 // NewRenderer returns a Renderer.
-func NewRenderer(opts RendererOptions) *Renderer { return &Renderer{opts: opts} }
+func NewRenderer(opts RendererOptions) *Renderer {
+	return &Renderer{opts: opts, urls: artifacts.New(artifacts.Config{SysextBase: opts.SysextBaseURL})}
+}
+
+// nvidiaParams are the inputs of the nvidia part for a driver selection.
+func (r *Renderer) nvidiaParams(nc *v1alpha1.SCNodeClass, sel nvidia.Selection) (*NVIDIAParams, error) {
+	url, err := r.urls.SysextURL("nvidia-runtime", sel.RuntimeVersion, artifacts.ArchAMD64)
+	if err != nil {
+		return nil, err
+	}
+	return &NVIDIAParams{
+		Selection: sel, FlatcarVersion: nc.Spec.Flatcar.Version, RuntimeURL: url,
+		DriverBaseURL: r.opts.NVIDIADriverBaseURL,
+	}, nil
+}
 
 // Render renders the user-data for the request.
 func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error) {
@@ -131,6 +157,11 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 	p.KubeReserved, p.Volumes, p.Local = req.KubeReserved, req.Volumes, req.Local
 	p.VendorFragments = req.VendorFragments
 	p.NodeIPCIDR = req.NodeIPCIDR
+	if req.NVIDIA != nil {
+		if p.NVIDIA, err = r.nvidiaParams(req.NodeClass, *req.NVIDIA); err != nil {
+			return nil, err
+		}
+	}
 	if req.NodeClaim != nil {
 		p.Labels = req.NodeClaim.Labels
 	}
@@ -194,8 +225,19 @@ func (r *Renderer) ValidateWith(
 	// which: size every rendering with one, so that a NodeClass that only fits
 	// without it is rejected here and not when a node launches on such a vendor.
 	p.NodeIPCIDR = validationNodeIPCIDR
+	// A node of a supported GPU type adds the nvidia part (and the driver file,
+	// when a mirror is set): size every rendering with the largest variant of the
+	// NodeClass's Flatcar release, which only a launch of a GPU type renders.
+	gpuNote := ""
+	if sel, ok := largestNVIDIA(nc.Spec.Flatcar.Version); ok && arch == artifacts.ArchAMD64 {
+		if p.NVIDIA, err = r.nvidiaParams(nc, sel); err != nil {
+			return err
+		}
+		gpuNote = " and the NVIDIA driver"
+	}
 	if _, err = Render(p); err != nil {
-		return fmt.Errorf("the trial rendering (with a node IP range as on a vendor with a private network): %w", err)
+		return fmt.Errorf("the trial rendering (with a node IP range as on a vendor with a private network%s): %w",
+			gpuNote, err)
 	}
 	byVendor := map[string][]Fragment{}
 	if fragments != nil {
@@ -231,6 +273,20 @@ func (r *Renderer) ValidateWith(
 		}
 	}
 	return nil
+}
+
+// largestNVIDIA is the driver selection of the release whose nvidia part is the
+// largest: the longest sysext name, and the most GPUs a type has (16, the
+// NVSwitch systems with the most).
+func largestNVIDIA(flatcarVersion string) (nvidia.Selection, bool) {
+	var best nvidia.Selection
+	for _, sel := range nvidia.Selections(flatcarVersion) {
+		if len(sel.Sysext) > len(best.Sysext) {
+			best = sel
+		}
+	}
+	best.Count = 16
+	return best, best.Sysext != ""
 }
 
 // kubeletClientCA reads --kubelet-client-ca-file ("" without the flag).

@@ -1,0 +1,106 @@
+# The NVIDIA driver of a GPU node (plan 12, D5, D7, D8): Flatcar's prebuilt driver sysext
+# of the release (fetched by the initrd because of enabled-sysext.conf, or written by
+# Ignition from a mirror), the nvidia-runtime sysext, containerd with `nvidia` as a
+# runtime handler only, the module settings, persistence mode, and the check the kubelet
+# requires. Rendered only for a launch of a supported NVIDIA type. Variables:
+# docs/reference/node-bootstrap.md.
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: /etc/flatcar/enabled-sysext.conf
+      mode: 0644
+      contents:
+        inline: |
+          {{ .NVIDIA.Sysext }}
+    - path: {{ .NVIDIA.Runtime.Path }}
+      mode: 0644
+      contents:
+        source: {{ .NVIDIA.Runtime.URL | q }}
+        verification:
+          hash: sha256-{{ .NVIDIA.Runtime.SHA256 }}
+{{- with .NVIDIA.Driver }}
+    - path: {{ .Path }}
+      mode: 0644
+      contents:
+        source: {{ .URL | q }}
+        compression: gzip
+        verification:
+          hash: sha256-{{ .SHA256 }}
+{{- end }}
+    - path: /etc/modprobe.d/scarpenter-nvidia.conf
+      mode: 0644
+      contents:
+        inline: |
+          blacklist nouveau
+          blacklist nova_core
+          options nvidia-drm modeset=0 fbdev=0
+          install nvidia-drm /bin/true
+          options nvidia NVreg_DynamicPowerManagement=0x00
+    - path: /opt/scarpenter/bin/scarpenter-nvidia-check
+      mode: 0755
+      contents:
+        inline: |
+{{ .NVIDIA.CheckScript | indent 10 }}
+  links:
+    - path: {{ .NVIDIA.Runtime.Link }}
+      target: {{ .NVIDIA.Runtime.Path }}
+      hard: false
+systemd:
+  units:
+    # The runtime sysext's containerd config makes nvidia the default runtime; this
+    # makes runc the default again (a Pod gets GPUs only with runtimeClassName: nvidia)
+    # and fails unless the line is there afterwards, so that a changed sysext stops the
+    # boot instead of silently changing the default.
+    - name: scarpenter-nvidia-containerd.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Make runc the default runtime of the nvidia containerd config
+        After=systemd-tmpfiles-setup.service
+        Before=containerd.service
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/sed -i 's/\(default_runtime_name = \)"nvidia"/\1"runc"/' /etc/containerd/config-nvidia.toml
+        ExecStart=/usr/bin/grep -qx 'default_runtime_name = "runc"' /etc/containerd/config-nvidia.toml
+        [Install]
+        RequiredBy=containerd.service
+    - name: scarpenter-nvidia-prepare.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Unload nouveau if the initrd loaded it
+        ConditionPathExists=/sys/module/nouveau
+        Before=nvidia.service
+        [Service]
+        Type=oneshot
+        ExecStart=-/usr/sbin/rmmod nouveau
+        [Install]
+        WantedBy=nvidia.service
+    - name: scarpenter-nvidia-check.service
+      contents: |
+        [Unit]
+        Description=Check the NVIDIA driver and the GPUs before the kubelet starts
+        Requires=nvidia.service
+        After=nvidia.service
+        Before=kubelet.service
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        TimeoutStartSec=120
+        ExecStart=/opt/scarpenter/bin/scarpenter-nvidia-check {{ .NVIDIA.Version }} {{ .NVIDIA.Count }}
+    # Persistence mode: the driver stays initialized between container starts.
+    - name: multi-user.target
+      dropins:
+        - name: 30-scarpenter-nvidia.conf
+          contents: |
+            [Unit]
+            Upholds=nvidia-persistenced.service
+    - name: kubelet.service
+      dropins:
+        - name: 30-scarpenter-nvidia.conf
+          contents: |
+            [Unit]
+            Requires=scarpenter-nvidia-check.service
+            After=scarpenter-nvidia-check.service

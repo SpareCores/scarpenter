@@ -780,6 +780,16 @@
         }
       }
     },
+    "nvidia": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "driverBaseURL": {
+          "type": "string",
+          "pattern": "^(https?://[^\\s]+)?$"
+        }
+      }
+    },
     "bootstrap": {
       "type": "object",
       "additionalProperties": false,

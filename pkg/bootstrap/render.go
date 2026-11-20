@@ -29,6 +29,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/artifacts"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
 //go:embed templates/*.bu templates/*.sh
@@ -40,6 +41,10 @@ var templates embed.FS
 const (
 	MaxUserDataSize    = 16 * 1024
 	DefaultBudgetBytes = 12 * 1024
+	// GPUBudgetBytes is the budget of the default templates on a GPU node: the
+	// nvidia part adds about 2 KiB to the worst case, which leaves a user's Butane
+	// the same 2 KiB under the limit of every vendor.
+	GPUBudgetBytes = 14 * 1024
 )
 
 // ignitionVersion is the version of the outer Ignition config. Flatcar 4757.2.3
@@ -50,7 +55,7 @@ const ignitionVersion = "3.4.0"
 
 // Part is one of the translated configs that the user-data merges.
 type Part struct {
-	// Name is base, lean, network or user.
+	// Name is base, lean, volumes, nvidia, vendor-<name>, network or user.
 	Name string
 	// Ignition is the translated config (JSON), before compression.
 	Ignition []byte
@@ -94,6 +99,48 @@ type TailscaleData struct {
 	AcceptRoutes bool
 }
 
+// NVIDIAData are the variables of the nvidia template; TemplateData.NVIDIA is
+// nil for a node without a GPU driver.
+type NVIDIAData struct {
+	// Version is the driver version the node must have loaded, Count the GPUs
+	// it must list.
+	Version string
+	Count   int64
+	// Sysext is the name of the driver sysext, the line of enabled-sysext.conf.
+	Sysext string
+	// Runtime is the nvidia-runtime sysext.
+	Runtime Sysext
+	// Driver is the driver image Ignition writes when a mirror is set; nil: the
+	// initrd downloads the sysext from Flatcar's server.
+	Driver *DriverFile
+	// CheckScript is the script of the check unit.
+	CheckScript string
+}
+
+// DriverFile is the extracted driver sysext, fetched by Ignition from a
+// mirror as a gzip file and pinned by the sha256 of the extracted image (the
+// hash covers the decompressed bytes).
+type DriverFile struct {
+	Path   string
+	URL    string
+	SHA256 string
+}
+
+// NVIDIAParams say that the node boots with the NVIDIA driver (plan 12).
+type NVIDIAParams struct {
+	// Selection is the driver the table chose for the instance type.
+	Selection nvidia.Selection
+	// FlatcarVersion is the release the NodeClass pins; the driver sysext is
+	// the one of that release.
+	FlatcarVersion string
+	// RuntimeURL is where the nvidia-runtime sysext of the selection is
+	// downloaded from.
+	RuntimeURL string
+	// DriverBaseURL is the mirror of the driver sysexts (--nvidia-driver-base-url,
+	// <base>/amd64-usr/<version>/flatcar-<sysext>.raw.gz); empty: Flatcar's server.
+	DriverBaseURL string
+}
+
 // TemplateData are the variables of the Butane templates (overview section
 // 8.2). Templates are strict: a variable that does not exist is an error.
 // Zone and InstanceType are the offering of the launch attempt: the user-data
@@ -129,6 +176,8 @@ type TemplateData struct {
 	// node's architecture.
 	Sysexts   []Sysext
 	Tailscale TailscaleData
+	// NVIDIA is set for a node of a supported NVIDIA GPU type (nvidia template).
+	NVIDIA *NVIDIAData
 	// PoweroffAfter is poweroffAfter as a duration string and in seconds (0:
 	// not set).
 	PoweroffAfter        string
@@ -217,6 +266,9 @@ type Params struct {
 	// Volumes and Local are the device hints of the launch (00a section 11).
 	Volumes []VolumeHint
 	Local   *LocalHint
+	// NVIDIA is set when the node boots with the NVIDIA driver; it adds the
+	// nvidia part, after the volumes and before the vendor fragments.
+	NVIDIA *NVIDIAParams
 	// VendorFragments are the fragments the vendor's driver contributes (plan 14
 	// A7). They merge after the base and volume configs and before the network
 	// and the user's, so those override them; they are rendered with the same
@@ -260,6 +312,14 @@ func Render(p Params) (*Rendered, error) {
 			return nil, err
 		}
 		parts = append(parts, Part{Name: "volumes", Ignition: volumes})
+	}
+
+	if data.NVIDIA != nil {
+		gpu, err := renderBuiltin("nvidia", "nvidia.bu", data)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, Part{Name: "nvidia", Ignition: gpu})
 	}
 
 	for _, f := range p.VendorFragments {
@@ -437,6 +497,9 @@ func (p *Params) templateData() (*TemplateData, error) {
 			d.LocalScript = script
 		}
 	}
+	if d.NVIDIA, err = p.nvidiaData(); err != nil {
+		return nil, err
+	}
 	if d.NodeIPCIDR, d.NodeIPScript, err = p.nodeIP(); err != nil {
 		return nil, err
 	}
@@ -447,6 +510,47 @@ func (p *Params) templateData() (*TemplateData, error) {
 	if p.Network.Template == v1alpha1.NetworkTemplateTailscale {
 		if d.Tailscale, err = p.tailscaleData(); err != nil {
 			return nil, err
+		}
+	}
+	return d, nil
+}
+
+// nvidiaData validates the driver selection and resolves what the nvidia template
+// writes; nil without a GPU driver.
+func (p *Params) nvidiaData() (*NVIDIAData, error) {
+	n := p.NVIDIA
+	if n == nil {
+		return nil, nil
+	}
+	sel := n.Selection
+	switch {
+	case p.Arch != artifacts.ArchAMD64:
+		return nil, fmt.Errorf("the NVIDIA driver sysexts are amd64 only, the node is %s", p.Arch)
+	case sel.Sysext == "" || sel.Version == "" || sel.RawSHA256 == "" || sel.RuntimeSHA256 == "" || sel.Count < 1:
+		return nil, errors.New("the NVIDIA driver selection is incomplete")
+	case sel.NVSwitch:
+		return nil, errors.New("NVSwitch systems need Fabric Manager, which the nvidia part does not ship yet")
+	case n.RuntimeURL == "" || n.FlatcarVersion == "":
+		return nil, errors.New("the nvidia-runtime URL or the Flatcar version is empty")
+	case !argPattern.MatchString(sel.Version) || !argPattern.MatchString(sel.Sysext):
+		return nil, fmt.Errorf("the NVIDIA driver %q of sysext %q has characters that cannot go on a command line",
+			sel.Version, sel.Sysext)
+	}
+	script, err := readScript("scarpenter-nvidia-check.sh")
+	if err != nil {
+		return nil, fmt.Errorf("reading the NVIDIA check script: %w", err)
+	}
+	d := &NVIDIAData{
+		Version: sel.Version, Count: sel.Count, Sysext: sel.Sysext, CheckScript: script,
+		Runtime: builtinSysext("nvidia-runtime", artifacts.Artifact{URL: n.RuntimeURL, SHA256: sel.RuntimeSHA256}),
+	}
+	if n.DriverBaseURL != "" {
+		d.Driver = &DriverFile{
+			// Where the initrd looks for the image before it downloads it.
+			Path: fmt.Sprintf("/etc/flatcar/sysext/flatcar-%s-%s.raw", sel.Sysext, n.FlatcarVersion),
+			URL: fmt.Sprintf("%s/amd64-usr/%s/flatcar-%s.raw.gz",
+				strings.TrimRight(n.DriverBaseURL, "/"), n.FlatcarVersion, sel.Sysext),
+			SHA256: sel.RawSHA256,
 		}
 	}
 	return d, nil
@@ -496,6 +600,9 @@ func (p *Params) sysexts() ([]Sysext, error) {
 	taken := map[string]bool{"kubernetes": true}
 	if p.Network.Template == v1alpha1.NetworkTemplateTailscale {
 		taken["tailscale"] = true
+	}
+	if p.NVIDIA != nil {
+		taken["nvidia-runtime"] = true
 	}
 	for _, s := range p.ExtraSysexts {
 		if s.Arch != p.Arch {

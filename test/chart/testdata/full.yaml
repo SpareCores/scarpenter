@@ -730,6 +730,7 @@ spec:
             - "--log-level=debug"
             - "--max-launch-attempts=5"
             - "--metrics-port=9090"
+            - "--nvidia-driver-base-url=https://mirror.example.com/nvidia-drivers"
             - "--quota-launchable-refresh-interval=2h"
             - "--quota-limits-refresh-interval=20m"
             - "--quota-max-staleness=30m"

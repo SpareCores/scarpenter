@@ -125,6 +125,7 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	rendererOpts := bootstrap.RendererOptions{
 		Refs: c.Refs, APIServerEndpoint: opts.APIServerEndpoint,
 		ClusterDNS: opts.ClusterDNS, ClusterDomain: opts.ClusterDomain, KubeletClientCAFile: opts.KubeletClientCAFile,
+		SysextBaseURL: opts.SysextBaseURL, NVIDIADriverBaseURL: opts.NVIDIADriverBaseURL,
 	}
 	if len(opts.ClusterDNS) == 0 && !opts.ClusterDNSNone {
 		// Not given and not switched off: the nodes get the DNS Service of the

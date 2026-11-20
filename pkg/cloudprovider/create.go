@@ -26,6 +26,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/quota"
 	"github.com/SpareCores/scarpenter/pkg/scope"
@@ -328,6 +329,9 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 		rr.Volumes, rr.Local = volumeHints(prepared)
 		rr.NodeIPCIDR = prepared.NodeIPCIDR
 	}
+	if rr.NVIDIA, err = nvidiaSelection(nc, cand.it); err != nil {
+		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
+	}
 	if nc.Spec.RestrictsInstanceMetadata() {
 		f, ok, err := vendors.RestrictMetadata(drv)
 		if err != nil {
@@ -359,6 +363,31 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	}
 	c.metrics.launches.WithLabelValues(cand.vendor, cand.region, cand.capacityType, resultSuccess).Inc()
 	return inst, nil
+}
+
+// nvidiaSelection is the NVIDIA driver of the candidate's type, read from the
+// driver labels and the nvidia.com/gpu capacity the catalog stamped on it (it
+// does so only for supported types, and only once nodes boot with the driver:
+// nvidia.NodeBootstrap); nil for every other type.
+func nvidiaSelection(nc *v1alpha1.SCNodeClass, it *cloudprovider.InstanceType) (*nvidia.Selection, error) {
+	label := func(key string) string {
+		r := it.Requirements.Get(key)
+		if r.Operator() == corev1.NodeSelectorOpIn && len(r.Values()) == 1 {
+			return r.Values()[0]
+		}
+		return ""
+	}
+	branch := label(v1alpha1.LabelNVIDIADriverBranch)
+	if branch == "" {
+		return nil, nil
+	}
+	count := it.Capacity[catalog.ResourceNVIDIAGPU]
+	sel, err := nvidia.FromLabels(nc.Spec.Flatcar.Version, branch, label(v1alpha1.LabelNVIDIADriverVersion),
+		nvidia.Flavour(label(v1alpha1.LabelNVIDIADriverFlavor)), count.Value())
+	if err != nil {
+		return nil, err
+	}
+	return &sel, nil
 }
 
 // catalogTypeOf describes the candidate's instance type for the driver from the

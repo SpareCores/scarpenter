@@ -151,18 +151,21 @@ override earlier ones):
    volatile journal and masked units a worker does not need.
 3. **volumes**, for nodes with extra volumes or local storage (the
    [first-boot volume unit](node-settings.md#extra-volumes-and-local-storage)).
-4. **vendor fragments**, one part per fragment the vendor's driver contributes, among them the
+4. **nvidia**, for a launch of a supported NVIDIA GPU type only (see [NVIDIA GPU nodes](#nvidia-gpu-nodes)):
+   the driver sysext, the `nvidia-runtime` sysext, containerd's `nvidia` handler, the module settings
+   and the driver check the kubelet requires.
+5. **vendor fragments**, one part per fragment the vendor's driver contributes, among them the
    [instance metadata access](#instance-metadata-access) part (`vendor-metadata-access`), unless the
    NodeClass says `Open` or the vendor has no metadata service.
-5. **network**: [`tailscale`, `direct` or `custom`](#network-templates).
-6. **user**, when `spec.butane` is set.
+6. **network**: [`tailscale`, `direct` or `custom`](#network-templates).
+7. **user**, when `spec.butane` is set.
 
 Each part is a Butane config (`variant: flatcar`, version `1.1.0`; `1.0.0` is
 accepted in custom and user configs, the experimental version is not), rendered
 with Go `text/template` and translated with the Butane library in **strict mode**
 (a warning is an error). Ignition's own merge combines the parts, so SCarpenter
 does no YAML merging. The templates are embedded
-(`pkg/bootstrap/templates/base.bu`, `lean.bu`, `tailscale.bu`, `direct.bu`).
+(`pkg/bootstrap/templates/base.bu`, `lean.bu`, `nvidia.bu`, `tailscale.bu`, `direct.bu`).
 
 **Kubernetes sysext contract.** The `kubernetes` sysext of the sysext-bakery
 (inspected for v1.37.1, 2026-11-06) ships `/usr/bin/kubelet`, `kubeadm`,
@@ -180,6 +183,53 @@ SCarpenter therefore writes the files at those paths and adds the drop-in
 tailscale template, `--node-ip`), so the unit does not depend on the variables of
 the kubeadm drop-in. `Upholds=` starts the kubelet; nothing enables it.
 The `tailscale` sysext likewise ships `tailscaled.service`, started by `Upholds=`.
+
+## NVIDIA GPU nodes
+
+A launch of a supported NVIDIA type ([GPU types](labels-and-offerings.md#gpu-types)) adds the
+`nvidia` part (`pkg/bootstrap/templates/nvidia.bu`); the catalog's driver table
+(`pkg/nvidia`) chooses the driver of the type, and the NodeClass's Flatcar release
+decides which builds exist. The part is not rendered for any other node, and
+nothing is compiled on a node: the driver is Flatcar's prebuilt sysext of the
+release (its modules are signed with the release's kernel key). The part holds:
+
+- `/etc/flatcar/enabled-sysext.conf` with the driver sysext (`nvidia-drivers-<branch>[-open]`):
+  the initrd downloads `<server>/amd64-usr/<version>/flatcar-<name>.gz` from Flatcar's release
+  server, a signed payload that it verifies against the OS's update key, unless the image is
+  already in `/etc/flatcar/sysext/`. A failed download fails the boot.
+- With `--nvidia-driver-base-url` (a mirror), Ignition writes the extracted image to
+  `/etc/flatcar/sysext/flatcar-<name>-<version>.raw` from
+  `<base>/amd64-usr/<version>/flatcar-<name>.raw.gz` (`compression: gzip`, pinned by the sha256 of
+  the extracted image, which Ignition checks over the decompressed bytes), so the initrd downloads
+  nothing and there is no kernel argument and no extra reboot. `hack/nvidia-mirror.sh <version> <dir>`
+  builds that tree (network and docker; it checks every payload against Flatcar's published sha256
+  and its signature, and prints the table's pins). The mirror URL is not part of the drift hash.
+- The `nvidia-runtime` sysext of the sysext-bakery (NVIDIA container toolkit and a containerd
+  config), pinned by sha256 like the kubernetes sysext (`--sysext-base-url` mirrors it); the version
+  and digest are the table's, and it replaces nothing of the NodeClass's `status.resolved`.
+- containerd with `nvidia` as a runtime handler only, `runc` stays the default: the runtime
+  sysext's config makes `nvidia` the default, so `scarpenter-nvidia-containerd.service`
+  (before `containerd.service`, after tmpfiles has copied the file) sets
+  `default_runtime_name = "runc"` and fails unless that line is there afterwards. A Pod gets GPUs
+  only with `runtimeClassName: nvidia`.
+- `/etc/modprobe.d/scarpenter-nvidia.conf`: `nouveau` and `nova_core` blacklisted, `nvidia-drm`
+  without modeset and never loaded (a headless node needs no DRM), no dynamic power management;
+  `scarpenter-nvidia-prepare.service` unloads `nouveau` before `nvidia.service` when the initrd
+  loaded it; `Upholds=nvidia-persistenced.service` on `multi-user.target` (persistence mode).
+- `scarpenter-nvidia-check.service`, which the kubelet `Requires=` and starts after: the loaded driver
+  (`/proc/driver/nvidia/version`) must be the version of the type's `nvidia-driver-version` label and
+  `nvidia-smi -L` must list every GPU of the type (retried for 30 s). A node that fails the check never
+  joins; Karpenter deletes the NodeClaim after the registration timeout and tries again, and the
+  unit's journal line says why.
+
+The part is about 2 KiB of the user-data. Its largest variant (the mirror, 16 GPUs) is part of the
+NodeClass controller's trial rendering for amd64, and a unit test holds the worst case of a GPU node
+(everything else on) to 14 KiB.
+
+Until the chart ships the device plugin, GPU types are offered as plain machines and the catalog
+advertises neither `nvidia.com/gpu` nor the driver labels (`nvidia.NodeBootstrap`), so no launch
+renders the part yet. NVSwitch systems (8 or more GPUs of HGX models) additionally need Fabric
+Manager, which the part does not ship yet: they stay dropped.
 
 ## Template variables
 
@@ -203,6 +253,7 @@ template that uses a variable that does not exist fails (strict). Functions: `q`
 | `.KubeletArgs` | `--provider-id`, `--hostname-override` and `--register-with-taints` |
 | `.Sysexts` | the kubernetes sysext and `spec.sysexts` of the architecture: `.Name`, `.URL`, `.SHA256`, `.Path`, `.Link` |
 | `.Tailscale.Version`, `.LoginServer`, `.AuthKey`, `.Tags` (comma separated), `.AcceptRoutes`, `.Sysext` | the tailscale settings; set with the `tailscale` template only |
+| `.NVIDIA.Version`, `.Count`, `.Sysext`, `.Runtime` (a sysext), `.Driver` (`.Path`, `.URL`, `.SHA256`; nil without a mirror), `.CheckScript` | the NVIDIA driver of the node; `.NVIDIA` is nil (and the `nvidia` part not rendered) on a node without a GPU driver |
 | `.NodeIPCIDR` | the IPv4 range of the private network the node joins, from the driver; empty without one (the `direct` template turns it into `--node-ip`, see [network templates](#network-templates)) |
 | `.Lean` | whether `spec.kubelet.footprint` is `Lean` |
 | `.PoweroffAfter`, `.PoweroffAfterSeconds` | `spec.poweroffAfter` as a duration string and in seconds (0: not set) |
@@ -416,7 +467,7 @@ custom template **replaces the network part only**; the base config stays. The
 user config is merged last and can override anything. Sysexts you add must be
 named like the `extension-release.<name>` file inside the image (the name is the
 link `/etc/extensions/<name>.raw`) and may not be called `kubernetes`
-(or `tailscale` with that template).
+(or `tailscale` with that template, or `nvidia-runtime` on a GPU node).
 
 The ConfigMaps are read through the API server at render time and by the NodeClass
 controller (about once a minute). Their content, and the resourceVersion of the
@@ -429,7 +480,7 @@ AWS accepts 16 KiB of user-data, the smallest limit of the vendors. A
 rendering over 16 384 bytes fails with an error naming the compressed size of
 each part, and the NodeClass reports it as `ValidationSucceeded=False`
 (`TemplateInvalid`) before any launch. The default templates are held to 12 KiB
-by golden tests, measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM). A
+by golden tests (14 KiB for a [GPU node](#nvidia-gpu-nodes)), measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM). A
 plain rendering is 4.5 KiB with `tailscale` and 3.2 KiB with `direct`; with
 everything on (the node IP unit, two volumes, 24 local disks with one mount each,
 the Lean footprint, the metadata restriction) it is 10.6 KiB with `tailscale` and
