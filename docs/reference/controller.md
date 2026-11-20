@@ -468,6 +468,16 @@ keys, with core (`Operator.RegisterLabelKeys`, logged as `registered the label
 keys of the SCNodeClasses`). The controller needs permission to list
 SCNodeClasses.
 
+Then, still before the manager (and with it the health endpoints and the leader
+election) starts, it loads the catalog for those SCNodeClasses
+(`Operator.WarmCatalog`, logged as `catalog loaded before the start`), so that
+core's cost tracking finds the prices of the existing NodeClaims when its
+controllers start; without it core logs `offering price unknown` for each one.
+It waits at most 30 s; on an error or the timeout it logs `the catalog did not
+load before the start, starting anyway` and the catalog's refresh loop takes
+over. Every replica does this, a standby too: its snapshot (and
+`scarpenter_catalog_age_seconds`) then ages until it becomes the leader.
+
 ## Development builds
 
 Binaries built with `-tags scarpenter_dev` add the fake driver and its flags

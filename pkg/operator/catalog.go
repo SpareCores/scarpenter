@@ -7,11 +7,15 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package operator
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	keeper "github.com/SpareCores/sc-keeper-go"
 
@@ -69,6 +73,38 @@ func (o *Operator) WithCatalog(
 		return nil, fmt.Errorf("registering the catalog controller: %w", err)
 	}
 	return cat, nil
+}
+
+// CatalogWarmTimeout bounds WarmCatalog. The health endpoints start with the
+// manager, after it: with the chart's liveness probe (first at 15 s, every
+// 20 s, three failures) the kubelet restarts the container about 55 s after
+// its start, which leaves the rest of the start-up some 25 s.
+const CatalogWarmTimeout = 30 * time.Second
+
+// WarmCatalog loads the catalog once, before the manager starts: it runs the
+// catalog-sync controller's reconcile with the API reader (the manager's cache
+// is not started yet), then refreshes the catalog. Karpenter core prices the
+// existing NodeClaims with GetInstanceTypes as soon as its controllers start;
+// without this the catalog is still empty then (it waits for the catalog-sync
+// controller and a refresh) and core logs "offering price unknown" for every
+// NodeClaim. Every replica warms, a standby too (its snapshot then ages until
+// it leads). On an error or the timeout it logs and returns: the manager starts
+// anyway and the catalog's own refresh loop keeps trying. The loop's first
+// refresh after a warm one costs one /healthcheck request.
+func (o *Operator) WarmCatalog(ctx context.Context, cat *catalog.Catalog, timeout time.Duration) {
+	logger := log.FromContext(ctx).WithName("catalog")
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if _, err := catalogsync.New(o.GetAPIReader(), cat).Reconcile(ctx, reconcile.Request{}); err != nil {
+		logger.Error(err, "the catalog did not load before the start, starting anyway")
+		return
+	}
+	if err := cat.Refresh(ctx); err != nil {
+		logger.Error(err, "the catalog did not load before the start, starting anyway",
+			"timeout", timeout.String())
+		return
+	}
+	logger.Info("catalog loaded before the start")
 }
 
 // keeperClient is the Keeper client the drivers get (the fake driver reads its
