@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # L5 setup: the Flatcar template of the pinned release exists in the CI sub-account (zone
-# UPCLOUD_ZONE, MaxIOPS tier), imported from the images repository when it is missing. The
+# UPCLOUD_ZONE, one per storage tier: MaxIOPS for the data disks, Standard for the root disk of
+# the STARTER plans), imported from the images repository when it is missing. The
 # lane's preflight and the driver need it (docs/how-to-guides/set-up-upcloud.md section 1).
 #
 # Idempotent: a template with the labels of defaults.sh (and scarpenter-use=true, which keeps
@@ -18,10 +19,10 @@ source "${here}/lib.sh"
 
 : "${E2E_UPCLOUD_IMAGE_RELEASE:=${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}}"
 : "${E2E_UPCLOUD_IMAGES_URL:=https://github.com/SpareCores/flatcar-images/releases/download}"
-tier=maxiops
+tier=maxiops # the tier being ensured (main loops over both)
 # The title and the scarpenter-lane=ci label are the lane's own: the CI sub-account is shared
 # with production resources, so the lane never uses (or counts) a template without the label.
-template_title="${E2E_UPCLOUD_TEMPLATE_TITLE:-flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64-${tier}-ci}"
+template_title() { echo "flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64-${tier}-ci"; }
 image_file="flatcar-upcloud-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64.img.gz"
 
 # template_labels: the labels of the template, as the request spells them.
@@ -71,7 +72,7 @@ import_template() {
   (cd "${tmp}" && echo "${sum}  ${image_file}" | sha256sum -c -)
 
   log "creating the source storage (${tier}, ${UPCLOUD_ZONE}) and uploading the image"
-  source_uuid="$(up_json POST /storage "$(jq -nc --arg z "${UPCLOUD_ZONE}" --arg t "${tier}" --arg n "${template_title}-import-${E2E_RUN_ID:-0}" \
+  source_uuid="$(up_json POST /storage "$(jq -nc --arg z "${UPCLOUD_ZONE}" --arg t "${tier}" --arg n "$(template_title)-import-${E2E_RUN_ID:-0}" \
     '{storage: {size: 10, tier: $t, title: $n, zone: $z}}')" | jq -r '.storage.uuid')"
   assert_nonempty "the source storage" "${source_uuid}"
   trap cleanup EXIT
@@ -89,14 +90,17 @@ import_template() {
 
   log "templatizing and labelling"
   local tpl
-  tpl="$(up_json POST "/storage/${source_uuid}/templatize" "$(jq -nc --arg t "${template_title}" '{storage: {title: $t}}')" | jq -r '.storage.uuid')"
+  tpl="$(up_json POST "/storage/${source_uuid}/templatize" "$(jq -nc --arg t "$(template_title)" '{storage: {title: $t}}')" | jq -r '.storage.uuid')"
   assert_nonempty "the template" "${tpl}"
   wait_until "the template to be online" 600 template_online "${tpl}"
   up_json PUT "/storage/${tpl}" "$(jq -nc --argjson l "$(template_labels)" '{storage: {labels: $l}}')" >/dev/null
 
+  cleanup
+  source_uuid=""
+
   # A concurrent run may have imported the same release: keep one (the driver wants exactly one match).
   if [[ "$(existing_templates | wc -l)" -gt 1 ]]; then
-    note "another template of ${template_title} appeared: deleting this run's ${tpl}"
+    note "another template of $(template_title) appeared: deleting this run's ${tpl}"
     up DELETE "/storage/${tpl}" >/dev/null
   fi
 }
@@ -127,17 +131,21 @@ source_online() { [[ "$(storage_state "${source_uuid}")" == online ]]; }
 
 template_online() { [[ "$(storage_state "$1")" == online ]]; }
 
-main() {
-  need UPCLOUD_TOKEN UPCLOUD_ZONE E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION
+ensure_tier() {
   local have
   have="$(existing_templates)"
   if [[ -n "${have}" ]]; then
-    echo "the template ${template_title} exists in ${UPCLOUD_ZONE}: ${have//$'\n'/ }"
+    echo "the template $(template_title) exists in ${UPCLOUD_ZONE}: ${have//$'\n'/ }"
     wait_until "the template to be online" 600 template_online "${have%%$'\n'*}"
     return 0
   fi
   import_template
-  echo "the template ${template_title} is ready in ${UPCLOUD_ZONE}"
+  echo "the template $(template_title) is ready in ${UPCLOUD_ZONE}"
+}
+
+main() {
+  need UPCLOUD_TOKEN UPCLOUD_ZONE E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION
+  for tier in maxiops standard; do ensure_tier; done
 }
 
 # Sourced by selftest.sh for the pure helpers; run by the workflow.

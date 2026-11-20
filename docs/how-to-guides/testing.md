@@ -714,9 +714,9 @@ Differences that matter:
   storage tier (MaxIOPS is required, Standard where the account can make one), labelled
   `scarpenter-use=true`, `scarpenter-lane=ci`, `scarpenter-image=flatcar`, `flatcar-channel`, `flatcar-version`,
   `flatcar-arch=amd64` and `flatcar-tier`. They are built by the images repository (plan 22). The
-  workflow step `test/e2e-upcloud/ensure-template.sh` imports the MaxIOPS one when it is missing (the
-  release asset, its SHA-256 checked, a direct upload, templatize, label, delete the source storage);
-  a Standard one is imported by the operator. With a Standard template the STARTER plans clone it, which
+  workflow step `test/e2e-upcloud/ensure-template.sh` imports the MaxIOPS and the Standard one when missing (the
+  release asset, its SHA-256 checked, a direct upload, templatize, label, delete the source storage).
+  The STARTER plans boot from the Standard one (they refuse a MaxIOPS root disk), and cloning it
   takes minutes, so `E2E_LAUNCH_TIMEOUT` is 600 s. The CI sub-account is shared with production resources, so the lane's
   NodeClasses select only its own template (`resources.images.use.tags` with `scarpenter-lane=ci`). The preflight fails, naming the missing template, when there is none.
 - **Node images.** The lane's NodeClasses add `spec.butane` (`manifests/node-butane.yaml`): containerd pulls
