@@ -15,6 +15,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 func devicePlugin(t *testing.T, manifest string) *appsv1.DaemonSet {
@@ -29,7 +30,8 @@ func devicePlugin(t *testing.T, manifest string) *appsv1.DaemonSet {
 
 // TestNVIDIADevicePluginDefaults: the device plugin and the RuntimeClass are on
 // by default; the DaemonSet runs on driver-labelled nodes only, with the nvidia
-// runtime, a digest-pinned image, lean requests and a toleration for every taint.
+// runtime, a digest-pinned image, lean requests and a toleration for every taint,
+// and the controller's selector (Deployment, PodDisruptionBudget, Service) does not match its Pods.
 func TestNVIDIADevicePluginDefaults(t *testing.T) {
 	out := mustHelm(t, "-f", filepath.Join("testdata", "values", "default.yaml"))
 	if !strings.Contains(out, "kind: RuntimeClass\nmetadata:\n  name: nvidia") || !strings.Contains(out, "handler: nvidia\n") {
@@ -38,6 +40,12 @@ func TestNVIDIADevicePluginDefaults(t *testing.T) {
 	ds := devicePlugin(t, out)
 	if ds == nil {
 		t.Fatal("the device plugin DaemonSet is not rendered by default")
+	}
+	podLabels := labels.Set(ds.Spec.Template.Labels)
+	for _, o := range decode(t, out) {
+		if d, ok := o.(*appsv1.Deployment); ok && labels.SelectorFromSet(d.Spec.Selector.MatchLabels).Matches(podLabels) {
+			t.Errorf("the controller's selector %v matches the device plugin's Pods %v", d.Spec.Selector.MatchLabels, podLabels)
+		}
 	}
 	spec := ds.Spec.Template.Spec
 	if spec.RuntimeClassName == nil || *spec.RuntimeClassName != "nvidia" || spec.PriorityClassName != "system-node-critical" {
