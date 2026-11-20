@@ -33,9 +33,9 @@ const (
 	QuotaExceeded Class = "QuotaExceeded"
 	// InvalidOffering: the vendor rejected the launch parameters of this offering
 	// (type, zone, capacity type) for a reason that is not known to be of the
-	// offering: an unrecognised 400. The offering is marked unavailable for an
-	// hour; if every type of a Create fails this way, the cause is taken to be
-	// global and the error is reported as Fatal instead.
+	// offering: an unrecognised 400, or a configuration the operator can fix
+	// (an image that does not list the shape). The offering is marked
+	// unavailable for an hour and the next candidate is tried.
 	InvalidOffering Class = "InvalidOffering"
 	// ZoneUnusable: the zone cannot be used at all (no subnet, no free
 	// addresses).

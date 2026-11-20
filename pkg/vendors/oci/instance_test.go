@@ -541,8 +541,8 @@ func TestCreateInstanceRefusesAShapeTheImageDoesNotRun(t *testing.T) {
 	e.c.ReplaceImageShapes(fake.SeedImage, "VM.Standard.A1.Flex")
 	before := e.c.Calls("LaunchInstance")
 	_, err := e.d.CreateInstance(t.Context(), request(testType))
-	if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != "ImageNotCompatible" {
-		t.Fatalf("CreateInstance = %v, want Unsupported ImageNotCompatible", err)
+	if !vendors.IsClass(err, vendors.InvalidOffering) || vendors.CodeOf(err) != "ImageNotCompatible" {
+		t.Fatalf("CreateInstance = %v, want InvalidOffering ImageNotCompatible", err)
 	}
 	if e.c.Calls("LaunchInstance") != before {
 		t.Error("a launch call was made for a shape the image does not run")

@@ -63,12 +63,6 @@ type launchState struct {
 	skipped  int
 	imageErr error
 	lastErr  error
-	// invalid are the candidates the vendor rejected as InvalidOffering during
-	// this Create; they are marked unavailable when the Create ends, unless every
-	// type failed that way (a global cause).
-	invalid []*candidate
-	// globalInvalid is set when they must not be marked.
-	globalInvalid bool
 	// keepToken is set when the failure may hide a launched instance.
 	keepToken bool
 	// prepared are the resources the last attempt launched with.
@@ -84,7 +78,6 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 	started := c.opts.Clock.Now()
 	st := &launchState{nodeClaim: nodeClaim, blocked: map[string]bool{}}
 	created, err := c.create(ctx, st)
-	c.markInvalid(st)
 	result := resultSuccess
 	if err != nil {
 		result = resultFailed
@@ -215,7 +208,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 			}
 			c.opts.Unavailable.MarkUnsupported(cand.vendor, cand.typeName, cand.zone)
 		case vendors.InvalidOffering:
-			st.invalid = append(st.invalid, cand)
+			c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 			c.publish(nc, EventOfferingRejected, fmt.Sprintf("%s in %s (%s) was rejected: %v",
 				cand.typeName, cand.zone, cand.capacityType, err), cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 		case vendors.ZoneUnusable:
@@ -239,51 +232,11 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		c.publish(nc, EventImageFailed, st.imageErr.Error(), "image")
 		return nil, cloudprovider.NewCreateError(st.imageErr, "ImageResolutionFailed", truncate(st.imageErr.Error()))
 	case st.lastErr != nil:
-		return nil, c.exhausted(nc, st)
+		return nil, cloudprovider.NewInsufficientCapacityError(
+			fmt.Errorf("every launch attempt failed (%d attempts), the last: %w", st.attempts, st.lastErr))
 	}
 	return nil, cloudprovider.NewInsufficientCapacityError(
 		fmt.Errorf("no candidate offering had quota headroom (%d skipped)", st.skipped))
-}
-
-// exhausted is the error of a Create whose every attempt failed.
-func (c *CloudProvider) exhausted(nc *v1alpha1.SCNodeClass, st *launchState) error {
-	if !st.allInvalid() {
-		return cloudprovider.NewInsufficientCapacityError(
-			fmt.Errorf("every launch attempt failed (%d attempts), the last: %w", st.attempts, st.lastErr))
-	}
-	// Every attempt, of several types, was rejected the same way: that is a
-	// misconfiguration, not a property of the offerings. Marking them would hide
-	// it behind "no capacity".
-	st.globalInvalid = true
-	c.publish(nc, EventLaunchFailed, fmt.Sprintf("every launch was rejected (%d attempts, %d types), the last: %v",
-		st.attempts, countTypes(st.invalid), st.lastErr), st.invalid[0].vendor, vendors.CodeOf(st.lastErr))
-	return cloudprovider.NewCreateError(fmt.Errorf("every launch was rejected: %w", st.lastErr),
-		"LaunchFailed", truncate(st.lastErr.Error()))
-}
-
-// allInvalid reports whether every attempt of this Create was an InvalidOffering
-// of at least two different types.
-func (st *launchState) allInvalid() bool {
-	return len(st.invalid) == st.attempts && countTypes(st.invalid) >= 2
-}
-
-func countTypes(cands []*candidate) int {
-	types := map[string]bool{}
-	for _, cand := range cands {
-		types[cand.typeName] = true
-	}
-	return len(types)
-}
-
-// markInvalid makes the rejected offerings unavailable (an hour), so that the
-// next Create picks another type.
-func (c *CloudProvider) markInvalid(st *launchState) {
-	if st.globalInvalid {
-		return
-	}
-	for _, cand := range st.invalid {
-		c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
-	}
 }
 
 // reportQuotaRefusal tells the OnQuotaRefusal hook that the candidate's launch

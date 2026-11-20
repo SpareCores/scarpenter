@@ -217,10 +217,11 @@ known, has unknown quota (reactive). The usage is read on the tenancy (the root 
 ## Error mapping
 
 Before a launch the driver reads the image's compatibility list
-(`ListImageShapeCompatibilityEntries`); a shape that is not in it is `Unsupported` (`ImageNotCompatible`) without a
-launch call. OCI itself answers that with a bare 400 `InvalidParameter`. Custom images are only compatible with the
-shapes you add: add every shape SCarpenter may launch, including `VM.Optimized3.Flex` (see
-[Set up OCI](../how-to-guides/set-up-oci.md)). A list the controller may not read does not stop the launch. When a
+(`ListImageShapeCompatibilityEntries`, one uncached read per launch, allowed by `read instance-images`, which the
+launch needs anyway); a shape that is not in it is `InvalidOffering` (`ImageNotCompatible`) without a launch call.
+OCI itself answers that with a bare 400 `InvalidParameter`. Custom images are only compatible with the shapes you
+add: add every shape SCarpenter may launch, including `VM.Optimized3.Flex` (see
+[Set up OCI](../how-to-guides/set-up-oci.md)). A list the controller cannot read does not stop the launch. When a
 launch is still rejected, find the `opc-request-id` of the error in the OCI audit log of the compartment
 for OCI's message.
 
@@ -229,7 +230,7 @@ for OCI's message.
 | `InsufficientCapacity` | HTTP 500 `InternalError` whose message says "Out of host capacity" |
 | `QuotaExceeded` | `LimitExceeded`, `QuotaExceeded` (not account-wide) |
 | `Unsupported` | 400 `InvalidParameter` for a shape not compatible with the image, not available in the AD or not available as preemptible; the driver's own `InvalidInstanceType`, `ShapeNotInAvailabilityDomain`, `ExtendedMemoryUnsupported` |
-| `InvalidOffering` | any other 400 `InvalidParameter` on a launch (OCI's text is in the Event `OfferingRejected`): the offering is unavailable for 1 h and the next type is tried; if every type of a Create fails so, it is `Fatal` |
+| `InvalidOffering` | any other 400 `InvalidParameter` on a launch, and the driver's own `ImageNotCompatible` (OCI's text is in the Event `OfferingRejected`): the offering is unavailable for 1 h and the next candidate is tried |
 | `ZoneUnusable` | a subnet with no free IP addresses |
 | `Retryable` | 429, 5xx, network errors, `IncorrectState`, `LockConflict`, a 409 on a delete, the driver's call timeout |
 | `NotFound` | 404 on get, terminate and the resource gets; a malformed instance reference |

@@ -160,8 +160,7 @@ func classifyService(status int, code, msg string, kind callKind, cause error) e
 		if kind == kindLaunch {
 			// A 400 that names no known reason: the request was built for this
 			// offering (shape, size, capacity type, zone), so another type may
-			// launch. The core marks the offering for an hour, and treats a Create in
-			// which every type failed so as Fatal.
+			// launch. The core marks the offering for an hour.
 			return vendors.NewError(vendors.InvalidOffering, code, cause)
 		}
 		return vendors.NewError(vendors.Fatal, code, cause)

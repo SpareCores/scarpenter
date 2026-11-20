@@ -211,15 +211,16 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 }
 
 // checkImageShape refuses a launch of a shape that is not in the image's
-// compatibility list: OCI answers it with a bare 400 InvalidParameter. A list
-// that cannot be read (a policy that allows the launch but not the read) does
-// not stop the launch.
+// compatibility list: OCI answers it with a bare 400 InvalidParameter. It is
+// InvalidOffering, not Unsupported: the operator fixes it by adding the shape,
+// and the hour of unavailability and the Event fit that. A list that cannot be
+// read does not stop the launch.
 func (d *Driver) checkImageShape(ctx context.Context, req vendors.CreateRequest, shape string) error {
 	ok, err := d.imageRunsOn(ctx, req.Region, core.Image{Id: &req.Image.Ref}, shape)
 	if err != nil || ok {
 		return nil
 	}
-	return vendors.NewError(vendors.Unsupported, codeImageShape, fmt.Errorf(
+	return vendors.NewError(vendors.InvalidOffering, codeImageShape, fmt.Errorf(
 		"the image %s is not compatible with the shape %s: add the shape to the image's compatibility list "+
 			"(oci compute image-shape-compatibility-entry add)", req.Image.Ref, shape))
 }

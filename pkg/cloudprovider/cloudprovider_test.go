@@ -271,14 +271,9 @@ func TestCreateMarksUnsupportedAndUnusableZones(t *testing.T) {
 func TestCreateMarksAnInvalidOfferingAndMovesOn(t *testing.T) {
 	e := newEnv(t, envOptions{attempts: 100})
 	types := []string{"aws.m7i.large", "aws.c7i.large"}
-	// The cheapest offering is tried first: make its type the invalid one.
-	cheapest := e.offerings(types...)[0]
-	for _, o := range e.offerings(types...) {
-		if o.price < cheapest.price {
-			cheapest = o
-		}
-	}
-	bad, good := cheapest.typeName, types[0]
+	// The cheapest offering is tried first (offerings are sorted by price): make
+	// its type the invalid one.
+	bad, good := e.offerings(types...)[0].typeName, types[0]
 	if bad == good {
 		good = types[1]
 	}
@@ -299,35 +294,27 @@ func TestCreateMarksAnInvalidOfferingAndMovesOn(t *testing.T) {
 	}
 }
 
-// A Create in which every attempt, of several types, was an InvalidOffering is a
-// misconfiguration: Fatal, and nothing is marked.
-func TestCreateWhenEveryTypeIsInvalidIsFatal(t *testing.T) {
+// A Create in which every attempt, of several types, was an InvalidOffering marks
+// every offering it tried and is InsufficientCapacity, so that core drops the
+// NodeClaim and the next one picks other types. Treating it as a global
+// misconfiguration (Fatal) would retry the same types forever when the types
+// share the cause (two sizes of one flexible shape).
+func TestCreateWhenEveryTypeIsInvalidMarksThemAll(t *testing.T) {
 	e := newEnv(t, envOptions{attempts: 100})
 	types := []string{"aws.m7i.large", "aws.c7i.large"}
+	offerings := e.offerings(types...)
 	e.setConfig("errors", "- {error: InvalidOffering}")
 	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", types))
-	if !isCreateError(err) {
-		t.Fatalf("Create error = %v, want a CreateError", err)
-	}
-	for _, o := range e.offerings(types...) {
-		if e.un.IsUnavailable(unavailableOf(o)) {
-			t.Errorf("%+v was marked although every type failed", o)
-		}
-	}
-}
-
-// A single type that is invalid has nothing to compare with: its offerings are marked.
-func TestCreateMarksALoneInvalidType(t *testing.T) {
-	e := newEnv(t, envOptions{attempts: 100})
-	e.setConfig("errors", "- {error: InvalidOffering}")
-	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
 	if !karpcloudprovider.IsInsufficientCapacityError(err) {
 		t.Fatalf("Create error = %v, want InsufficientCapacity", err)
 	}
-	for _, o := range e.offerings("aws.m7i.large") {
+	for _, o := range offerings {
 		if !e.un.IsUnavailable(unavailableOf(o)) {
 			t.Errorf("%+v was not marked", o)
 		}
+	}
+	if left := e.offerings(types...); len(left) != 0 {
+		t.Errorf("%d offerings are still available", len(left))
 	}
 }
 
