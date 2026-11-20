@@ -122,7 +122,7 @@ upcloud_api="${UPCLOUD_API:-https://api.upcloud.com/1.3}"
 up() {
   local method="$1" path="$2"
   shift 2
-  curl -fsS --retry 3 --max-time 60 -X "${method}" -K <(printf 'header = "Authorization: Bearer %s"\n' "${UPCLOUD_TOKEN}") \
+  curl --fail-with-body -sS --retry 3 --max-time 60 -X "${method}" -K <(printf 'header = "Authorization: Bearer %s"\n' "${UPCLOUD_TOKEN}") \
     -H 'Content-Type: application/json' "$@" "${upcloud_api}${path}"
 }
 

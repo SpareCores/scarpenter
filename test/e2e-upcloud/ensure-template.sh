@@ -84,6 +84,8 @@ import_template() {
   curl -fsS --retry 3 --max-time 1800 -X PUT -H 'Content-Type: application/gzip' --data-binary "@${tmp}/${image_file}" "${upload}"
   rm -rf "${tmp}"
   wait_import "${source_uuid}" 1200
+  # A storage is in maintenance for a while after its import, and refuses to be templatized (409).
+  wait_until "the source storage to be online" 600 source_online
 
   log "templatizing and labelling"
   local tpl
@@ -120,6 +122,8 @@ wait_import() {
     sleep 10
   done
 }
+
+source_online() { [[ "$(storage_state "${source_uuid}")" == online ]]; }
 
 template_online() { [[ "$(storage_state "$1")" == online ]]; }
 
