@@ -237,7 +237,7 @@ nothing, but an AD table read while a region was briefly unreadable blocks the t
    has none" class (section 3) by reproducing core's intersection. Live surface: `GetInstanceTypes` (which has the
    NodePool) logs the per-reason lines of step 1 for the NodePool-dependent codes (`Unrankable`,
    `NodePoolRequirement`) once per catalog generation and NodePool, at V(1). L1, plus an L2 case for the log.
-3. **Status summary (a).** The `offered` block of `VendorStatus` (counts, reason buckets, sample names, `observedAt`
+3. **Status summary (a). Done:** `status.vendors.<v>.offered`, the `offered-types` controller and `Report.Summaries` are in; the L3 scenario is not (see the plan's final report). Deviations: `dropped` and `unavailable` list type-level and offering-level codes separately, the left-out offerings (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) count under `unavailable`, `observedAt` is when the summary last changed (a rewrite per minute would be a write loop), and the controller waits for the driver facts. The `offered` block of `VendorStatus` (counts, reason buckets, sample names, `observedAt`
    rounded to the minute), the controller `pkg/controllers/offered` (SSA, field manager `scarpenter-offered`, writes on
    change, at most every 30 s, started with the leader), the CRD and `docs/reference/api.md`. L2 envtest: the block
    follows a quota block and an unavailable mark, no write loop (a quiet catalog causes no writes), the block's size

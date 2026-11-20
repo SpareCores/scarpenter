@@ -28,6 +28,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/controllers/garbagecollection"
 	"github.com/SpareCores/scarpenter/pkg/controllers/interruption"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
+	"github.com/SpareCores/scarpenter/pkg/controllers/offered"
 	"github.com/SpareCores/scarpenter/pkg/controllers/quotastatus"
 	"github.com/SpareCores/scarpenter/pkg/controllers/resourcestatus"
 	"github.com/SpareCores/scarpenter/pkg/controllers/retention"
@@ -302,6 +303,10 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	})
 	if err := qs.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the quota status controller: %w", err)
+	}
+	off := offered.New(offered.Options{Client: o.GetClient(), Catalog: c.Catalog, Clock: o.Clock})
+	if err := off.Register(o.Manager); err != nil {
+		return fmt.Errorf("registering the offered types controller: %w", err)
 	}
 	rs := resourcestatus.New(resourcestatus.Options{
 		Client: o.GetClient(), Engine: c.Resources, Regions: c.Facts, Recorder: o.EventRecorder, Clock: o.Clock,

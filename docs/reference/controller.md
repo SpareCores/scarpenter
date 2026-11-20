@@ -240,7 +240,10 @@ writes these conditions, the resolved artifacts and the per-vendor drift hash wi
 server-side apply under the field manager `scarpenter-nodeclass`; the quota status
 controller sets `QuotaAvailable` (see [Quota](#quota)) under `scarpenter-quota`, the
 resource status controller `ResourcesReady` and `resources` (see
-[vendor resources](vendor-resources.md#status)) under `scarpenter-resources`.
+[vendor resources](vendor-resources.md#status)) under `scarpenter-resources`, and the
+offered types controller `offered` (see
+[the offered summary](labels-and-offerings.md#the-offered-summary-in-the-status))
+under `scarpenter-offered`.
 `VendorReady` also requires that the vendor block and every profile merge with the
 driver's defaults (`ValidationFailed` otherwise).
 Development builds run the same controller; the stand-in of plan 04 is gone.

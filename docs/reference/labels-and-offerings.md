@@ -22,6 +22,7 @@ and [00a](../plans/v1/wip/00a-node-options.md#7-instance-selection). The code is
   - [Prices](#prices)
   - [Availability](#availability)
   - [Why a type or an offering is not offered](#why-a-type-or-an-offering-is-not-offered)
+  - [The offered summary in the status](#the-offered-summary-in-the-status)
 - [Labels](#labels)
   - [Unknown values](#unknown-values)
   - [Scheduling and topology labels](#scheduling-and-topology-labels)
@@ -382,6 +383,30 @@ query. `GetInstanceTypes` adds a line per NodePool for `Unrankable` and
 ready (`VendorNotReady`), each once per change. Every `Unsupported` mark of the
 launch path is logged at V(0) (`marked the offering unsupported`, with the vendor's
 `code` and `preLaunch`).
+
+### The offered summary in the status
+
+`kubectl describe scnodeclass` shows, per vendor, `status.vendors.<vendor>.offered`:
+a bounded summary of what the catalog hands to Karpenter for the class (no
+NodePool filter, no pinned selection profile, so the class-level codes only).
+
+| Field | Meaning |
+|---|---|
+| `types` | instance types offered |
+| `offerings`, `availableOfferings` | (region, zone, capacity type) offerings of the offered types, and how many are available now |
+| `dropped` | per reason code, how many types are not offered at all (`NoPrice`, `RegionNotAllowed`, the `GPU*` codes, `NoOffering`) |
+| `unavailable` | per reason code, how many offerings of the offered types are not available, listed unavailable (`UnavailableCache`, `QuotaGate`, `ImageGap`, `RegionNotReady`, `ZoneMissingResource`) or left out (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) |
+| `dropped[].types`, `unavailable[].types` | up to five instance type names with the code, in name order |
+| `observedAt` | when the summary last changed, to the minute |
+
+The block is at most a few KiB however large the catalog is: there is no
+per-type or per-offering data in it (the details of a reason, a quota bucket or
+a cache expiry, are in the logs and the listing). The controller `offered-types`
+evaluates a class at most every 30 s, writes with server-side apply under the
+field manager `scarpenter-offered` and only when a count or a name changed. It
+reports nothing until the driver facts are loaded (before that every offering
+would look like `ZoneNotAvailable`) and while the catalog has no data for the
+class. `VendorNotReady` is not in the block: the vendor's conditions say it.
 
 ## Labels
 
