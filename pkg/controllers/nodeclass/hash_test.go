@@ -245,3 +245,41 @@ func TestHashTreatsStaticAsUnset(t *testing.T) {
 		t.Error("switching to keySource PerNode does not change the hash")
 	}
 }
+
+// storedNodeClasses are NodeClasses as stored before keySource existed, with the
+// inputs the controller hashes with them: a tailscale template with every field
+// and the resourceVersion of its Secret, one with only the required fields, and
+// the direct template.
+var storedNodeClasses = []struct {
+	name, spec string
+	in         nodeclass.Inputs
+}{
+	{"tailscale-full", `network: {template: tailscale, tailscale: {version: v1.98.10, loginServer: "https://hs.example.com",
+  authKeySecretRef: {name: ts, namespace: scarpenter, key: authkey}, tags: ["tag:k8s-node", "tag:bench"], acceptRoutes: true}}`,
+		nodeclass.Inputs{AuthKeyVersion: "4711"}},
+	{"tailscale-minimal", `network: {template: tailscale, tailscale: {version: v1.98.10, authKeySecretRef: {name: ts, namespace: scarpenter, key: authkey}}}`,
+		nodeclass.Inputs{AuthKeyVersion: "1"}},
+	{"direct", `network: {template: direct}`, nodeclass.Inputs{}},
+}
+
+// TestHashOfStoredNodeClassesIsPinned pins the hash of the NodeClasses above, per
+// vendor: the golden values come from the code before keySource.
+func TestHashOfStoredNodeClassesIsPinned(t *testing.T) {
+	var out strings.Builder
+	for _, tc := range storedNodeClasses {
+		nc := &v1alpha1.SCNodeClass{}
+		doc := "spec: {flatcar: {version: \"4757.2.3\"}, kubernetes: {version: v1.37.1}, vendors: {aws: {regions: [us-east-1]}, hcloud: {regions: [fsn1]}}, " +
+			tc.spec + "}"
+		if err := yaml.UnmarshalStrict([]byte(doc), nc); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		for _, vendor := range nc.Spec.Vendors.Names() {
+			h, err := nodeclass.Hash(nc, vendor, tc.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprintf(&out, "%s %s %s\n", tc.name, vendor, h)
+		}
+	}
+	testutil.Golden(t, "stored-hashes.txt", []byte(out.String()))
+}
