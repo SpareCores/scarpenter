@@ -15,11 +15,11 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	keeper "github.com/SpareCores/sc-keeper-go"
 
 	"github.com/SpareCores/scarpenter/internal/version"
-	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/static"
 	"github.com/SpareCores/scarpenter/pkg/controllers/catalogsync"
@@ -75,44 +75,36 @@ func (o *Operator) WithCatalog(
 	return cat, nil
 }
 
-// CatalogWarmTimeout bounds WarmCatalog; the liveness probe starts to count
-// after 15 s plus its period, so the manager is up well before it gives up.
+// CatalogWarmTimeout bounds WarmCatalog. The health endpoints start with the
+// manager, after it: with the chart's liveness probe (first at 15 s, every
+// 20 s, three failures) the kubelet restarts the container about 55 s after
+// its start, which leaves the rest of the start-up some 25 s.
 const CatalogWarmTimeout = 30 * time.Second
 
-// WarmCatalog loads the catalog once, before the manager starts: it reads the
-// existing SCNodeClasses without the manager's cache and refreshes the catalog
-// for them. Karpenter core prices the existing NodeClaims with GetInstanceTypes
-// as soon as its controllers start; without this the catalog is still empty
-// then (it waits for the catalog-sync controller and a refresh) and core logs
-// "offering price unknown" for every NodeClaim. When Keeper does not answer
-// within the timeout, it logs a warning and returns: the manager starts anyway
-// and the catalog's own refresh loop keeps trying.
+// WarmCatalog loads the catalog once, before the manager starts: it runs the
+// catalog-sync controller's reconcile with the API reader (the manager's cache
+// is not started yet), then refreshes the catalog. Karpenter core prices the
+// existing NodeClaims with GetInstanceTypes as soon as its controllers start;
+// without this the catalog is still empty then (it waits for the catalog-sync
+// controller and a refresh) and core logs "offering price unknown" for every
+// NodeClaim. Every replica warms, a standby too (its snapshot then ages until
+// it leads). On an error or the timeout it logs and returns: the manager starts
+// anyway and the catalog's own refresh loop keeps trying. The loop's first
+// refresh after a warm one costs one /healthcheck request.
 func (o *Operator) WarmCatalog(ctx context.Context, cat *catalog.Catalog, timeout time.Duration) {
 	logger := log.FromContext(ctx).WithName("catalog")
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var list v1alpha1.SCNodeClassList
-	if err := o.GetAPIReader().List(ctx, &list); err != nil {
-		logger.Error(err, "listing the SCNodeClasses to warm the catalog, starting without a loaded catalog")
+	if _, err := catalogsync.New(o.GetAPIReader(), cat).Reconcile(ctx, reconcile.Request{}); err != nil {
+		logger.Error(err, "the catalog did not load before the start, starting anyway")
 		return
 	}
-	classes := make([]catalog.Class, 0, len(list.Items))
-	for i := range list.Items {
-		if !list.Items[i].DeletionTimestamp.IsZero() {
-			continue
-		}
-		// An invalid class is left out here as the catalog-sync controller does.
-		if class, err := catalog.ClassFromNodeClass(&list.Items[i]); err == nil {
-			classes = append(classes, class)
-		}
-	}
-	cat.SetClasses(classes)
 	if err := cat.Refresh(ctx); err != nil {
 		logger.Error(err, "the catalog did not load before the start, starting anyway",
 			"timeout", timeout.String())
 		return
 	}
-	logger.Info("catalog loaded before the start", "nodeClasses", len(classes))
+	logger.Info("catalog loaded before the start")
 }
 
 // keeperClient is the Keeper client the drivers get (the fake driver reads its
