@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	corev1 "k8s.io/api/core/v1"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	karpcloudprovider "sigs.k8s.io/karpenter/pkg/cloudprovider"
@@ -847,9 +849,19 @@ func TestCreateRequiresAReadyNodeClass(t *testing.T) {
 		if !karpcloudprovider.IsNodeClassNotReadyError(err) {
 			t.Errorf("Create error = %v: a vendor that is not ready is NodeClassNotReady", err)
 		}
-		its, err := e.cp.GetInstanceTypes(t.Context(), nodePool())
-		if err != nil || len(its) != 0 {
-			t.Errorf("GetInstanceTypes = %d types, %v for a vendor that is not ready", len(its), err)
+		var lines []string
+		ctx := logr.NewContext(t.Context(), funcr.New(func(_, args string) { lines = append(lines, args) },
+			funcr.Options{Verbosity: 1}))
+		for range 2 {
+			its, err := e.cp.GetInstanceTypes(ctx, nodePool())
+			if err != nil || len(its) != 0 {
+				t.Errorf("GetInstanceTypes = %d types, %v for a vendor that is not ready", len(its), err)
+			}
+		}
+		// The vendor is named once, with the code, without the condition's message.
+		lines = slices.DeleteFunc(lines, func(l string) bool { return !strings.Contains(l, "VendorNotReady") })
+		if len(lines) != 1 || !strings.Contains(lines[0], "aws (NoStatus)") {
+			t.Errorf("log lines %q, want one VendorNotReady line naming aws", lines)
 		}
 	})
 	// A vendor that is not ready must not turn the failures of another vendor's

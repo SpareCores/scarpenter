@@ -196,7 +196,14 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 				st.blocked[resourceKey(cand)+"/"+cand.zone] = true
 				continue
 			}
-			c.opts.Unavailable.MarkUnsupported(cand.vendor, cand.typeName, cand.zone)
+			if vendors.IsPreLaunch(err) {
+				c.opts.Unavailable.MarkUnsupportedPreLaunch(cand.vendor, cand.typeName, cand.zone)
+			} else {
+				c.opts.Unavailable.MarkUnsupported(cand.vendor, cand.typeName, cand.zone)
+			}
+			// Create skips an offering with a live mark, so this is once per mark.
+			logger.Info("marked the offering unsupported", "type", cand.typeName, "zone", cand.zone,
+				"code", vendors.CodeOf(err), "preLaunch", vendors.IsPreLaunch(err))
 		case vendors.InvalidOffering:
 			c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 			c.publish(nc, EventOfferingRejected, fmt.Sprintf("%s in %s (%s) was rejected: %v",

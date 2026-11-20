@@ -390,8 +390,11 @@ func TestPriceReportsInstanceDeltaAndCompleteness(t *testing.T) {
 // classGate marks the offerings of one class and region unavailable.
 type classGate struct{ class, region string }
 
-func (g classGate) UnavailableFor(class, _, _, region, _, _ string) bool {
-	return class == g.class && region == g.region
+func (g classGate) UnavailableFor(class, _, _, region, _, _ string) (catalog.Reason, bool) {
+	if class == g.class && region == g.region {
+		return catalog.Reason{Code: catalog.ImageGap, Detail: region}, true
+	}
+	return catalog.Reason{}, false
 }
 
 func TestClassGateMakesOfferingsOfOneClassUnavailable(t *testing.T) {

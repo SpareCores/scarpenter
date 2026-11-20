@@ -82,12 +82,14 @@ type Options struct {
 // (overview section 5.9). It is asked for every offering of a query, so it must
 // be cheap.
 type Gate interface {
-	Unavailable(vendor, apiReference, region, zone, capacityType string) bool
+	// Unavailable returns the reason the offering cannot launch, and true when it
+	// cannot.
+	Unavailable(vendor, apiReference, region, zone, capacityType string) (Reason, bool)
 }
 
 // ClassGate is a Gate for answers that differ between NodeClasses.
 type ClassGate interface {
-	UnavailableFor(class, vendor, apiReference, region, zone, capacityType string) bool
+	UnavailableFor(class, vendor, apiReference, region, zone, capacityType string) (Reason, bool)
 }
 
 // Catalog holds the last good snapshot of the Keeper data for the union of the
@@ -108,6 +110,7 @@ type Catalog struct {
 	results     resultCache
 	refreshErrs prometheus.Counter
 	auth        authState
+	offered     offeredLog
 }
 
 // authState is what the refreshes say about Keeper's API key: unknown until a
@@ -635,7 +638,7 @@ type Query struct {
 // nothing: pods stay pending with a clear reason instead of nodes being launched
 // blind. The result is cached by snapshot, class, scope, filter and the
 // sequence of the unavailable-offerings cache; callers must not modify it.
-func (c *Catalog) InstanceTypes(_ context.Context, q Query) ([]*cloudprovider.InstanceType, error) {
+func (c *Catalog) InstanceTypes(ctx context.Context, q Query) ([]*cloudprovider.InstanceType, error) {
 	c.mu.RLock()
 	snap := c.snap
 	class := c.classes[q.Class]
@@ -643,21 +646,11 @@ func (c *Catalog) InstanceTypes(_ context.Context, q Query) ([]*cloudprovider.In
 	if snap == nil || class == nil {
 		return nil, nil
 	}
-	var vendors []string
-	for _, v := range class.VendorNames() {
-		if q.Filter.allowsVendor(v) {
-			vendors = append(vendors, v)
-		}
-	}
-	var pin *pricedBy
-	if name := q.Filter.selection; name != "" {
-		if sel, ok := snap.view(class).selection[name]; ok && sel.objective != selapi.ObjectivePrice {
-			pin = &pricedBy{name: name, sel: sel}
-		}
-	}
+	vendors := vendorsOf(class, q.Filter)
 
 	gen := strconv.FormatUint(snap.id, 10) + "/" + strconv.FormatUint(c.opts.Facts.Epoch(), 10) + "/" +
 		strconv.FormatUint(c.opts.Unavailable.Sequence(), 10)
+	c.logOffered(ctx, snap, class, gen)
 	key := class.Hash + "|" + strings.Join(vendors, ",") + "|" + q.Filter.key()
 	if c.opts.ClassGate != nil {
 		// Availability then depends on the class's name, which the hash leaves out.
@@ -668,68 +661,137 @@ func (c *Catalog) InstanceTypes(_ context.Context, q Query) ([]*cloudprovider.In
 	}
 
 	var out []*cloudprovider.InstanceType
-	for _, vendor := range vendors {
-		vb := c.vendorBuild(snap, class, vendor)
-		for _, bt := range vb.types {
-			if it := c.apply(bt, vendor, q.Class, q.Filter, pin); it != nil {
-				out = append(out, it)
-			}
-		}
+	for _, ev := range c.evaluate(snap, class, q.Class, q.Filter).types {
+		out = append(out, ev.instanceType())
 	}
 	c.store(gen, key, out)
 	return out, nil
 }
 
-// apply pre-filters a type's offerings, marks the unavailable ones and reprices
-// by a pinned selection objective. It returns the shared type when nothing
-// changes, a copy otherwise, and nil when the filter leaves nothing.
-func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pricedBy) *cloudprovider.InstanceType {
+// vendorsOf are the vendors of the class the filter allows.
+func vendorsOf(class *Class, f Filter) []string {
+	var vendors []string
+	for _, v := range class.VendorNames() {
+		if f.allowsVendor(v) {
+			vendors = append(vendors, v)
+		}
+	}
+	return vendors
+}
+
+// evaluated is a built type under a query: the offerings the filter keeps, each
+// with its availability, the reason when it has none, and its price.
+type evaluated struct {
+	bt      *builtType
+	vendor  string
+	keep    []int
+	avail   []bool
+	why     []Reason
+	prices  []float64
+	changed bool
+}
+
+// evaluation is the result of a query before it becomes instance types.
+type evaluation struct {
+	types []*evaluated
+	drops []typeDrop
+}
+
+// evaluate is the single path from the built types to what a query offers: the
+// instance types and every reason (Explain) come from it, so a listing cannot
+// disagree with what Karpenter was given.
+func (c *Catalog) evaluate(snap *snapshot, class *Class, className string, f Filter) evaluation {
+	var pin *pricedBy
+	if name := f.selection; name != "" {
+		if sel, ok := snap.view(class).selection[name]; ok && sel.objective != selapi.ObjectivePrice {
+			pin = &pricedBy{name: name, sel: sel}
+		}
+	}
+	var out evaluation
+	for _, vendor := range vendorsOf(class, f) {
+		vb := c.vendorBuild(snap, class, vendor)
+		out.drops = append(out.drops, vb.drops...)
+		for _, bt := range vb.types {
+			if ev := c.apply(bt, vendor, className, f, pin); ev != nil {
+				out.types = append(out.types, ev)
+			}
+		}
+	}
+	return out
+}
+
+// apply pre-filters a type's offerings, marks the unavailable ones with their
+// reason and reprices by a pinned selection objective. It returns nil when the
+// filter leaves nothing.
+func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pricedBy) *evaluated {
 	if !f.allowsType(bt.it.Name, bt.server.Arch) {
 		return nil
 	}
-	keep := make([]int, 0, len(bt.offerings))
-	changed := false
-	var avail []bool
-	var prices []float64
+	ev := &evaluated{bt: bt, vendor: vendor, keep: make([]int, 0, len(bt.offerings))}
 	for i, o := range bt.offerings {
 		if !f.allowsOffering(o.region, o.zone, o.capacityType) {
-			changed = true
+			ev.changed = true
 			continue
 		}
-		keep = append(keep, i)
-		down := c.opts.Unavailable.IsUnavailable(unavailable.Offering{
-			Vendor: vendor, InstanceType: bt.it.Name, Region: o.region, Zone: o.zone, CapacityType: o.capacityType,
-		}) || (c.opts.Gate != nil &&
-			c.opts.Gate.Unavailable(vendor, bt.server.APIReference, o.region, o.zone, o.capacityType)) ||
-			(c.opts.ClassGate != nil &&
-				c.opts.ClassGate.UnavailableFor(class, vendor, bt.server.APIReference, o.region, o.zone, o.capacityType))
+		why, down := c.unavailableReason(bt, vendor, class, o)
 		price := o.usd
 		if pin != nil {
 			p, ok := pin.effectivePrice(bt.server.Key(), o.usd)
 			if !ok {
 				// Not rankable by the objective: it cannot be priced by it.
-				down = true
+				if !down {
+					why, down = Reason{Unrankable, pin.name}, true
+				}
 			} else {
 				price = p
 			}
 		}
-		avail = append(avail, !down)
-		prices = append(prices, price)
-		changed = changed || down || price != o.usd
+		ev.keep = append(ev.keep, i)
+		ev.avail = append(ev.avail, !down)
+		ev.why = append(ev.why, why)
+		ev.prices = append(ev.prices, price)
+		ev.changed = ev.changed || down || price != o.usd
 	}
-	if len(keep) == 0 {
+	if len(ev.keep) == 0 {
 		return nil
 	}
-	if !changed {
+	return ev
+}
+
+// unavailableReason asks the three gates in order and returns the first reason.
+func (c *Catalog) unavailableReason(bt *builtType, vendor, class string, o offeringInfo) (Reason, bool) {
+	if cls, expiry, ok := c.opts.Unavailable.Why(unavailable.Offering{
+		Vendor: vendor, InstanceType: bt.it.Name, Region: o.region, Zone: o.zone, CapacityType: o.capacityType,
+	}); ok {
+		return Reason{UnavailableCache, cls + " until " + expiry.UTC().Format(time.RFC3339)}, true
+	}
+	if c.opts.Gate != nil {
+		if why, ok := c.opts.Gate.Unavailable(vendor, bt.server.APIReference, o.region, o.zone, o.capacityType); ok {
+			return why, true
+		}
+	}
+	if c.opts.ClassGate != nil {
+		if why, ok := c.opts.ClassGate.UnavailableFor(class, vendor, bt.server.APIReference, o.region, o.zone,
+			o.capacityType); ok {
+			return why, true
+		}
+	}
+	return Reason{}, false
+}
+
+// instanceType returns the shared type when nothing changed, a copy otherwise.
+func (ev *evaluated) instanceType() *cloudprovider.InstanceType {
+	bt := ev.bt
+	if !ev.changed {
 		return bt.it
 	}
 	it := &cloudprovider.InstanceType{
 		Name: bt.it.Name, Requirements: bt.it.Requirements, Capacity: bt.it.Capacity, Overhead: bt.it.Overhead,
-		Offerings: make(cloudprovider.Offerings, len(keep)),
+		Offerings: make(cloudprovider.Offerings, len(ev.keep)),
 	}
-	for j, i := range keep {
+	for j, i := range ev.keep {
 		src := bt.it.Offerings[i]
-		it.Offerings[j] = &cloudprovider.Offering{Requirements: src.Requirements, Price: prices[j], Available: avail[j]}
+		it.Offerings[j] = &cloudprovider.Offering{Requirements: src.Requirements, Price: ev.prices[j], Available: ev.avail[j]}
 	}
 	return it
 }

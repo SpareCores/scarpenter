@@ -42,6 +42,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -675,18 +676,23 @@ func (e *Engine) RegionState(class, vendor, region string) (RegionState, bool) {
 
 // UnavailableFor implements catalog.ClassGate: the offerings of a region whose
 // required resources are missing or forbidden are unavailable.
-func (e *Engine) UnavailableFor(class, vendor, _, region, zone, _ string) bool {
+func (e *Engine) UnavailableFor(class, vendor, _, region, zone, _ string) (catalog.Reason, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, gap := e.imageGaps[regionKey{class, vendor, region}]; gap {
-		return true
+		return catalog.Reason{Code: catalog.ImageGap, Detail: region}, true
 	}
 	st, ok := e.regions[regionKey{class, vendor, region}]
 	if !ok {
-		return false
+		return catalog.Reason{}, false
 	}
-	_, zoneMissing := st.Zones[zone]
-	return !st.Ready || zoneMissing
+	if !st.Ready {
+		return catalog.Reason{Code: catalog.RegionNotReady, Detail: region}, true
+	}
+	if _, zoneMissing := st.Zones[zone]; zoneMissing {
+		return catalog.Reason{Code: catalog.ZoneMissingResource, Detail: zone}, true
+	}
+	return catalog.Reason{}, false
 }
 
 // SetImageGaps records the regions of the class and vendor that have no boot

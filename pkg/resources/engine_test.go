@@ -29,6 +29,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/resources/resourcestest"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
@@ -169,10 +170,10 @@ func TestMissingUseMakesTheRegionUnavailable(t *testing.T) {
 	if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != vendors.CodeResourceMissing {
 		t.Fatalf("a missing use resource: %v, want Unsupported/ResourceMissing", err)
 	}
-	if !e.engine.UnavailableFor("c", "aws", "m7i.large", region2, "z", "on-demand") {
+	if !down(e.engine.UnavailableFor("c", "aws", "m7i.large", region2, "z", "on-demand")) {
 		t.Error("the offerings of the region with the missing resource must be unavailable")
 	}
-	if e.engine.UnavailableFor("c", "aws", "m7i.large", region1, "z", "on-demand") {
+	if down(e.engine.UnavailableFor("c", "aws", "m7i.large", region1, "z", "on-demand")) {
 		t.Error("another region is unaffected")
 	}
 	if e.un.Sequence() == before {
@@ -604,7 +605,7 @@ func TestCheckReportsUseForbidAndPreCreate(t *testing.T) {
 	if st := rep.Regions[region2]; st.Ready || !strings.Contains(st.Reason, "subnets") {
 		t.Errorf("%s: %+v; the missing use resource must make it not ready", region2, st)
 	}
-	if !e.engine.UnavailableFor("c", "aws", "x", region1, "z", "spot") || !e.engine.UnavailableFor("c", "aws", "x", region2, "z", "spot") {
+	if !down(e.engine.UnavailableFor("c", "aws", "x", region1, "z", "spot")) || !down(e.engine.UnavailableFor("c", "aws", "x", region2, "z", "spot")) {
 		t.Error("the engine must gate the offerings of both regions")
 	}
 	kinds := map[string]bool{}
@@ -634,7 +635,7 @@ func TestCheckReportsUseForbidAndPreCreate(t *testing.T) {
 	if bad, why := rep.NotReady(); len(bad) != 0 {
 		t.Errorf("still not ready: %v %v", bad, why)
 	}
-	if e.engine.UnavailableFor("c", "aws", "x", region2, "z", "spot") {
+	if down(e.engine.UnavailableFor("c", "aws", "x", region2, "z", "spot")) {
 		t.Error("the region is still gated after its resource appeared")
 	}
 }
@@ -795,10 +796,10 @@ func TestZonePatternsResolvePerZone(t *testing.T) {
 	if vendors.CodeOf(err) != vendors.CodeResourceMissingInZone {
 		t.Fatalf("zone zb: %v, want ResourceMissingInZone", err)
 	}
-	if e.engine.UnavailableFor("c", "aws", "x", region1, "za", "on-demand") {
+	if down(e.engine.UnavailableFor("c", "aws", "x", region1, "za", "on-demand")) {
 		t.Error("a zone without its subnet made the whole region unavailable")
 	}
-	if !e.engine.UnavailableFor("c", "aws", "x", region1, "zb", "on-demand") {
+	if !down(e.engine.UnavailableFor("c", "aws", "x", region1, "zb", "on-demand")) {
 		t.Error("the zone without its subnet is still offered")
 	}
 	// The status check expands the pattern for every zone: one match is enough.
@@ -806,8 +807,8 @@ func TestZonePatternsResolvePerZone(t *testing.T) {
 	if st := rep.Regions[region1]; !st.Ready || st.Zones["zb"] == "" || len(st.Zones) != 1 {
 		t.Errorf("the region has a subnet in one zone: want ready with only zb unavailable, got %+v", st)
 	}
-	if e.engine.UnavailableFor("c", "aws", "x", region1, "za", "on-demand") ||
-		!e.engine.UnavailableFor("c", "aws", "x", region1, "zb", "on-demand") {
+	if down(e.engine.UnavailableFor("c", "aws", "x", region1, "za", "on-demand")) ||
+		!down(e.engine.UnavailableFor("c", "aws", "x", region1, "zb", "on-demand")) {
 		t.Error("the status check must gate zb only")
 	}
 	// No zone matches: the region is unavailable and the reason names the zones.
@@ -832,7 +833,7 @@ func TestAMissingProfileReferenceDoesNotGateTheRegion(t *testing.T) {
 	if vendors.CodeOf(err) != vendors.CodeResourceMissing {
 		t.Fatalf("%v", err)
 	}
-	if e.engine.UnavailableFor("c", "aws", "x", region1, "z", "on-demand") {
+	if down(e.engine.UnavailableFor("c", "aws", "x", region1, "z", "on-demand")) {
 		t.Error("a group a profile names made the region unavailable for every pod")
 	}
 }
@@ -941,13 +942,16 @@ func TestResourcesOfTheLastDeletedNodeClassAreCleanedUp(t *testing.T) {
 
 func TestImageGapsGateTheOfferingsOfARegion(t *testing.T) {
 	e := newEnv(t, envOpts{})
-	gap := func() bool { return e.engine.UnavailableFor("c", "aws", "", region1, "z", "on-demand") }
+	gap := func() bool { return down(e.engine.UnavailableFor("c", "aws", "", region1, "z", "on-demand")) }
 	if gap() {
 		t.Fatal("unavailable before any verdict")
 	}
 	e.engine.SetImageGaps("c", "aws", map[string]string{region1: "no image"})
-	if !gap() || e.engine.UnavailableFor("c", "aws", "", region2, "z", "on-demand") || e.engine.UnavailableFor("other", "aws", "", region1, "z", "on-demand") {
+	if !gap() || down(e.engine.UnavailableFor("c", "aws", "", region2, "z", "on-demand")) || down(e.engine.UnavailableFor("other", "aws", "", region1, "z", "on-demand")) {
 		t.Error("the gap gates its class, vendor and region only")
+	}
+	if why, _ := e.engine.UnavailableFor("c", "aws", "", region1, "z", "on-demand"); why != (catalog.Reason{Code: catalog.ImageGap, Detail: region1}) {
+		t.Errorf("reason = %+v, want ImageGap naming the region", why)
 	}
 	e.engine.SetImageGaps("c", "aws", nil)
 	if gap() {
@@ -957,5 +961,26 @@ func TestImageGapsGateTheOfferingsOfARegion(t *testing.T) {
 	e.engine.ForgetClass("c")
 	if gap() {
 		t.Error("a forgotten class still gates")
+	}
+}
+
+// down drops the reason of a gate's answer.
+func down(_ catalog.Reason, unavailable bool) bool { return unavailable }
+
+func TestRegionAndZoneGatesNameTheirReason(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	e.engine.SetRegionState("c", "aws", region1, resources.RegionState{Reason: "no subnet"})
+	e.engine.SetRegionState("c", "aws", region2, resources.RegionState{Ready: true, Zones: map[string]string{"za": "no subnet in the zone"}})
+	for _, tc := range []struct {
+		region, zone string
+		want         catalog.Reason
+	}{
+		{region1, "za", catalog.Reason{Code: catalog.RegionNotReady, Detail: region1}},
+		{region2, "za", catalog.Reason{Code: catalog.ZoneMissingResource, Detail: "za"}},
+		{region2, "zb", catalog.Reason{}},
+	} {
+		if got, _ := e.engine.UnavailableFor("c", "aws", "", tc.region, tc.zone, "on-demand"); got != tc.want {
+			t.Errorf("%s/%s: reason %+v, want %+v", tc.region, tc.zone, got, tc.want)
+		}
 	}
 }

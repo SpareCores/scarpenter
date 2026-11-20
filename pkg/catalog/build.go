@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package catalog
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 
@@ -30,6 +31,8 @@ type builtType struct {
 	server *model.Server
 	// offerings parallels it.Offerings.
 	offerings []offeringInfo
+	// removed are the offerings of the type the build left out, with the reason.
+	removed []offeringDrop
 }
 
 type offeringInfo struct {
@@ -47,8 +50,9 @@ type offeringInfo struct {
 type vendorBuild struct {
 	types  []*builtType
 	byName map[string]*builtType
-	// dropped counts the priced GPU types left out of the catalog, by reason.
-	dropped map[nvidia.Reason]int
+	// drops are the servers of the vendor left out of the catalog, with the
+	// reason, in server order.
+	drops []typeDrop
 }
 
 // vendorBuild returns the instance types of a vendor for a NodeClass, built
@@ -87,7 +91,7 @@ type regionInfo struct {
 // 5.3 to 5.5).
 func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vendorBuild {
 	vd := snap.vendors[vendor]
-	vb := &vendorBuild{byName: map[string]*builtType{}, dropped: map[nvidia.Reason]int{}}
+	vb := &vendorBuild{byName: map[string]*builtType{}}
 	if vd == nil {
 		return vb
 	}
@@ -130,32 +134,46 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 	}
 
 	for _, srv := range vd.servers {
+		drop := func(code Code, detail string) {
+			vb.drops = append(vb.drops, typeDrop{vendor, srv.APIReference, Reason{code, detail}})
+		}
 		prices := vd.prices[srv.ID]
 		if len(prices) == 0 {
+			drop(NoPrice, "")
 			continue
 		}
 		gpu, reason := gpuSupport(srv, class, vendor, virtualGPU)
 		if reason != nvidia.Supported {
-			vb.dropped[reason]++
+			drop(Code(reason), "")
 			continue
 		}
 		if !c.opts.NVIDIAGPUs {
 			gpu = nil
 		}
 		name := InstanceTypeName(vendor, srv.APIReference)
-		offs := c.offeringsOf(vd, srv, prices, regions, zonesByRegion, hasZones, regionPriced, class, vendor)
+		set := c.offeringsOf(vd, srv, prices, regions, zonesByRegion, hasZones, regionPriced, class, vendor)
+		offs, removed := set.offerings, set.removed
 		if launchable != nil {
 			offs = slices.DeleteFunc(offs, func(o resolvedOffering) bool {
 				ok, known := launchable.Launchable(vendor, srv.APIReference, o.zone.ID)
+				if known && !ok {
+					removed = append(removed, offeringDrop{o.region.region.Name, o.zone.ID, o.capacityType,
+						Reason{NotLaunchable, o.zone.ID}})
+				}
 				return known && !ok
 			})
 		}
 		if len(offs) == 0 {
+			if len(removed) == 0 {
+				drop(RegionNotAllowed, strings.Join(set.otherRegions, ","))
+			} else {
+				drop(NoOffering, string(dominant(removed)))
+			}
 			continue
 		}
 
 		// Offerings, their requirements and the type-level unions.
-		bt := &builtType{server: srv}
+		bt := &builtType{server: srv, removed: removed}
 		it := &cloudprovider.InstanceType{Name: name}
 		var regionNames, zoneNames, zoneIDs, capTypes []string
 		// What the driver supports per zone; the type's labels are the union.
@@ -285,37 +303,58 @@ func (o resolvedOffering) info() offeringInfo {
 	}
 }
 
+// offeringSet is what the price rows of a server resolve to.
+type offeringSet struct {
+	offerings []resolvedOffering
+	// removed are the offerings the rows named but the account, the zone list or
+	// the price settings do not allow.
+	removed []offeringDrop
+	// otherRegions are the regions of the rows the class does not use.
+	otherRegions []string
+}
+
 // offeringsOf resolves the price rows of a server to offerings: one per zone
 // and capacity type, in a deterministic order.
 func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.Price, regions map[string]*regionInfo,
-	zonesByRegion map[string][]Zone, hasZones, regionPriced bool, class *Class, vendor string) []resolvedOffering {
+	zonesByRegion map[string][]Zone, hasZones, regionPriced bool, class *Class, vendor string) offeringSet {
 	type key struct {
 		region, zone, capacityType string
 	}
 	best := map[key]resolvedOffering{}
+	// lost is the reason of a row that gave nothing; a key some other row
+	// resolved is not lost.
+	lost := map[key]offeringDrop{}
+	var otherRegions []string
 	for _, p := range prices {
 		ri := regions[p.RegionID]
 		if ri == nil {
+			otherRegions = append(otherRegions, p.RegionID)
 			continue
 		}
-		for _, z := range resolveZones(vd, ri.region, p, zonesByRegion, hasZones, regionPriced) {
+		zones, why := resolveZones(vd, ri.region, p, zonesByRegion, hasZones, regionPriced)
+		if len(zones) == 0 {
+			k := key{ri.region.ID, why, p.CapacityType}
+			lost[k] = offeringDrop{ri.region.Name, why, p.CapacityType, Reason{ZoneNotAvailable, why}}
+		}
+		for _, z := range zones {
 			delta, complete := c.opts.Facts.PriceDelta(vendor, class, srv, z.Name, p.CapacityType)
+			k := key{ri.region.ID, z.ID, p.CapacityType}
 			if !complete && !class.AllowIncompletePrice {
+				lost[k] = offeringDrop{ri.region.Name, z.ID, p.CapacityType, Reason{IncompletePrice, z.ID + " " + p.CapacityType}}
 				continue
 			}
 			usd := p.USDPerHour + delta
-			k := key{ri.region.ID, z.ID, p.CapacityType}
 			if old, ok := best[k]; !ok || usd < old.usd {
 				best[k] = resolvedOffering{region: ri, zone: z, capacityType: p.CapacityType, usd: usd,
 					base: p.USDPerHour, delta: delta, complete: complete}
 			}
 		}
 	}
-	out := make([]resolvedOffering, 0, len(best))
+	out := offeringSet{offerings: make([]resolvedOffering, 0, len(best)), otherRegions: uniq(otherRegions)}
 	for _, o := range best {
-		out = append(out, o)
+		out.offerings = append(out.offerings, o)
 	}
-	slices.SortFunc(out, func(a, b resolvedOffering) int {
+	slices.SortFunc(out.offerings, func(a, b resolvedOffering) int {
 		if d := strings.Compare(a.region.region.Name, b.region.region.Name); d != 0 {
 			return d
 		}
@@ -324,7 +363,32 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 		}
 		return strings.Compare(a.capacityType, b.capacityType)
 	})
+	for k, d := range lost {
+		if _, ok := best[k]; !ok {
+			out.removed = append(out.removed, d)
+		}
+	}
+	slices.SortFunc(out.removed, func(a, b offeringDrop) int {
+		return cmp.Or(strings.Compare(a.region, b.region), strings.Compare(a.zone, b.zone),
+			strings.Compare(a.capacityType, b.capacityType))
+	})
 	return out
+}
+
+// dominant is the reason code most of the dropped offerings share; a tie goes
+// to the code that sorts first.
+func dominant(drops []offeringDrop) Code {
+	n := map[Code]int{}
+	for _, d := range drops {
+		n[d.reason.Code]++
+	}
+	var best Code
+	for code, count := range n {
+		if count > n[best] || (count == n[best] && code < best) {
+			best = code
+		}
+	}
+	return best
 }
 
 // resolveZones maps a price row to the zones the driver's account has (ADR-009):
@@ -332,36 +396,40 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 // not have it; a region-level price to every zone of the region. Vendors without
 // zones are offered with zone = region. For a region-priced vendor (see
 // RegionPricedFacts) a zone-level price of an active zone is a region-level one;
-// where several rows price the same zone, the cheapest wins (offeringsOf).
+// where several rows price the same zone, the cheapest wins (offeringsOf). When
+// no zone results, why names what was lost: the zone ID, or the region when the
+// driver lists no zones for it.
 func resolveZones(vd *vendorData, region *model.Region, p model.Price,
-	zonesByRegion map[string][]Zone, hasZones, regionPriced bool) []Zone {
+	zonesByRegion map[string][]Zone, hasZones, regionPriced bool) (zones []Zone, why string) {
 	if !hasZones {
 		id := p.ZoneID
 		if id == "" {
 			id = region.Name
 		}
-		return []Zone{{ID: id, Name: region.Name}}
+		return []Zone{{ID: id, Name: region.Name}}, ""
 	}
-	zones := zonesByRegion[region.Name]
+	zones = zonesByRegion[region.Name]
 	if zones == nil {
 		zones = zonesByRegion[region.ID]
 	}
-	if p.ZoneID == "" {
-		return zones
+	if p.ZoneID != "" {
+		// Keeper marks retired zones inactive in its zone table.
+		if active, known := vd.zones[zoneKey{p.RegionID, p.ZoneID}]; known && !active {
+			return nil, p.ZoneID
+		}
 	}
-	// Keeper marks retired zones inactive in its zone table.
-	if active, known := vd.zones[zoneKey{p.RegionID, p.ZoneID}]; known && !active {
-		return nil
+	if len(zones) == 0 {
+		return nil, region.Name
 	}
-	if regionPriced {
-		return zones
+	if p.ZoneID == "" || regionPriced {
+		return zones, ""
 	}
 	for _, z := range zones {
 		if z.ID == p.ZoneID {
-			return []Zone{z}
+			return []Zone{z}, ""
 		}
 	}
-	return nil
+	return nil, p.ZoneID
 }
 
 func regionAllowed(r *model.Region, allowed []string) bool {

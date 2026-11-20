@@ -87,6 +87,17 @@ func vendorReady(nc *v1alpha1.SCNodeClass, vendor string) (bool, string) {
 	return false, "the SCNodeClass has no VendorReady condition for the vendor yet"
 }
 
+// vendorNotReadyReason is the reason of the VendorReady condition of a vendor
+// that is not ready, without its message.
+func vendorNotReadyReason(nc *v1alpha1.SCNodeClass, vendor string) string {
+	for _, cond := range nc.Status.Vendors[vendor].Conditions {
+		if cond.Type == v1alpha1.VendorConditionReady && cond.Reason != "" {
+			return cond.Reason
+		}
+	}
+	return "NoStatus"
+}
+
 // readyVendors returns the vendors of the NodeClass that are ready.
 func readyVendors(nc *v1alpha1.SCNodeClass) map[string]bool {
 	out := map[string]bool{}

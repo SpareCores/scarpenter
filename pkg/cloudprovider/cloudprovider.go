@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -145,6 +146,11 @@ type CloudProvider struct {
 
 	imageMu sync.Mutex
 	images  map[imageKey]cachedImage
+
+	// notReadyLogged is, per NodeClass, the vendors GetInstanceTypes last logged
+	// as not ready.
+	notReadyMu     sync.Mutex
+	notReadyLogged map[string]string
 }
 
 var _ cloudprovider.CloudProvider = (*CloudProvider)(nil)
@@ -223,6 +229,7 @@ func (c *CloudProvider) GetInstanceTypes(
 		return nil, err
 	}
 	ready := readyVendors(nc)
+	c.logNotReady(ctx, nc, ready)
 	if len(ready) == len(nc.Spec.Vendors.Names()) {
 		return its, nil
 	}
@@ -233,6 +240,32 @@ func (c *CloudProvider) GetInstanceTypes(
 		}
 	}
 	return out, nil
+}
+
+// logNotReady logs, at V(1), the vendors whose types GetInstanceTypes leaves out
+// (reason VendorNotReady, detail the VendorReady condition's reason), once per
+// change of that set.
+func (c *CloudProvider) logNotReady(ctx context.Context, nc *v1alpha1.SCNodeClass, ready map[string]bool) {
+	var notReady []string
+	for _, v := range nc.Spec.Vendors.Names() {
+		if !ready[v] {
+			notReady = append(notReady, v+" ("+vendorNotReadyReason(nc, v)+")")
+		}
+	}
+	line := strings.Join(notReady, ", ")
+	c.notReadyMu.Lock()
+	defer c.notReadyMu.Unlock()
+	if c.notReadyLogged[nc.Name] == line {
+		return
+	}
+	if c.notReadyLogged == nil {
+		c.notReadyLogged = map[string]string{}
+	}
+	c.notReadyLogged[nc.Name] = line
+	if line != "" {
+		log.FromContext(ctx).V(1).Info("not offering the types of vendors that are not ready",
+			"nodeclass", nc.Name, "reason", catalog.VendorNotReady, "vendors", notReady)
+	}
 }
 
 // IsDrifted reports NodeClassDrift when the hash the NodeClaim was launched with

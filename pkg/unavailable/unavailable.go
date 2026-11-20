@@ -82,6 +82,10 @@ const (
 	classInvalid
 )
 
+func (c class) String() string {
+	return [...]string{"InsufficientCapacity", "Unsupported", "QuotaExceeded", "ZoneUnusable", "Interrupted", "InvalidOffering"}[c]
+}
+
 // key identifies an entry; fields that a class does not use stay empty.
 type key struct {
 	class        class
@@ -130,6 +134,14 @@ func (c *Cache) MarkInsufficientCapacity(vendor, instanceType, zone, capacityTyp
 // either capacity type).
 func (c *Cache) MarkUnsupported(vendor, instanceType, zone string) {
 	c.mark(key{class: classUnsupported, vendor: vendor, instanceType: instanceType, zone: zone}, c.ttls.Unsupported)
+}
+
+// MarkUnsupportedPreLaunch is MarkUnsupported for a failure of the driver's own
+// check before any vendor call: it is deterministic from tables the driver may
+// have read while a region was briefly unreadable, so the mark is as short as a
+// zone-unusable one.
+func (c *Cache) MarkUnsupportedPreLaunch(vendor, instanceType, zone string) {
+	c.mark(key{class: classUnsupported, vendor: vendor, instanceType: instanceType, zone: zone}, c.ttls.ZoneUnusable)
 }
 
 // MarkQuotaExceeded records that the region has no quota left for the capacity
@@ -181,6 +193,14 @@ type Offering struct {
 
 // IsUnavailable reports whether any live entry covers the offering.
 func (c *Cache) IsUnavailable(o Offering) bool {
+	_, _, ok := c.Why(o)
+	return ok
+}
+
+// Why returns the error class and the expiry of the first live entry that
+// covers the offering. The class is one of InsufficientCapacity, Interrupted,
+// Unsupported, QuotaExceeded and ZoneUnusable.
+func (c *Cache) Why(o Offering) (class string, expiry time.Time, ok bool) {
 	now := c.clock.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -202,11 +222,11 @@ func (c *Cache) IsUnavailable(o Offering) bool {
 		{class: classQuotaExceeded, vendor: o.Vendor, capacityType: o.CapacityType}, // account-wide
 		{class: classZoneUnusable, vendor: o.Vendor, zone: o.Zone},
 	} {
-		if exp, ok := c.entries[k]; ok && now.Before(exp) {
-			return true
+		if exp, found := c.entries[k]; found && now.Before(exp) {
+			return k.class.String(), exp, true
 		}
 	}
-	return false
+	return "", time.Time{}, false
 }
 
 // Bump changes the sequence without changing the entries. Other components

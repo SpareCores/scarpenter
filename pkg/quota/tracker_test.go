@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	clocktesting "k8s.io/utils/clock/testing"
 
+	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/quota"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -169,7 +170,7 @@ func TestHeadroomAndAvailability(t *testing.T) {
 		{"unknown type", "r1", "x.huge", "on-demand", false, false, 0},
 		{"known type, other capacity type", "r1", "m.large", "spot", false, false, 0},
 	} {
-		if got := e.tr.Unavailable("stub", tc.typ, tc.region, "z", tc.ct); got != tc.blocked {
+		if got := down(e.tr.Unavailable("stub", tc.typ, tc.region, "z", tc.ct)); got != tc.blocked {
 			t.Errorf("%s: unavailable = %v", tc.name, got)
 		}
 		if h, k := e.tr.Headroom("stub", tc.region, tc.typ, tc.ct); k != tc.known || (k && h != tc.head) {
@@ -179,7 +180,7 @@ func TestHeadroomAndAvailability(t *testing.T) {
 	// Exactly enough room is allowed, one vCPU less is not.
 	e.drv.set(func() { e.drv.regional["r1"][0].Used = 12 })
 	e.refresh()
-	if e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand") {
+	if down(e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand")) {
 		t.Error("4 free vCPUs should fit a 4 vCPU instance")
 	}
 	e.drv.set(func() { e.drv.regional["r1"][0].Used = 13 })
@@ -188,13 +189,18 @@ func TestHeadroomAndAvailability(t *testing.T) {
 	if !blocked || b.ID != "std" || b.Limit != 16 || b.Used != 13 {
 		t.Errorf("blocked = %v %+v", blocked, b)
 	}
+	// The reason names the gate, the bucket, the headroom and the need.
+	why, ok := e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand")
+	if want := (catalog.Reason{Code: catalog.QuotaGate, Detail: "bucket std, headroom 3, need 4"}); !ok || why != want {
+		t.Errorf("reason = %+v %v, want %+v", why, ok, want)
+	}
 }
 
 func TestBucketMissingFromSnapshotIsUnknown(t *testing.T) {
 	e := setup(t, nil)
 	e.drv.set(func() { e.drv.consume["g.large/on-demand"] = []vendors.Consumption{{Bucket: "gpu", Amount: 4}} })
 	e.refresh()
-	if e.tr.Unavailable("stub", "g.large", "r1", "z", "on-demand") {
+	if down(e.tr.Unavailable("stub", "g.large", "r1", "z", "on-demand")) {
 		t.Error("a bucket the driver did not report must not block")
 	}
 	if _, known := e.tr.Headroom("stub", "r1", "g.large", "on-demand"); known {
@@ -347,19 +353,19 @@ func TestStalenessMakesTheRegionUnknown(t *testing.T) {
 	e := setup(t, nil)
 	e.drv.set(func() { e.drv.regional["r1"][0].Used = 16 })
 	e.refresh()
-	if !e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand") {
+	if !down(e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand")) {
 		t.Fatal("expected blocked")
 	}
 	e.drv.set(func() { e.drv.err = errors.New("api down") })
 	seq := e.un.Sequence()
 	e.clk.Step(14 * time.Minute)
 	e.tr.Tick(context.Background())
-	if !e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand") {
+	if !down(e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand")) {
 		t.Error("still within the staleness window")
 	}
 	e.clk.Step(2 * time.Minute)
 	e.tr.Tick(context.Background())
-	if e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand") {
+	if down(e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand")) {
 		t.Error("a stale region must count as unknown, not blocked")
 	}
 	if _, known := e.tr.Headroom("stub", "r1", "m.large", "on-demand"); known {
@@ -371,7 +377,7 @@ func TestStalenessMakesTheRegionUnknown(t *testing.T) {
 	// The API comes back.
 	e.drv.set(func() { e.drv.err = nil })
 	e.refresh()
-	if !e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand") {
+	if !down(e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand")) {
 		t.Error("fresh data blocks again")
 	}
 }
@@ -469,7 +475,7 @@ func TestScopeChangesDropAndAddRegions(t *testing.T) {
 			t.Errorf("r1 left the scope but its bucket stays: %+v", b)
 		}
 	}
-	if e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand") {
+	if down(e.tr.Unavailable("stub", "m.large", "r1", "z", "on-demand")) {
 		t.Error("a region out of scope has unknown quota")
 	}
 }
@@ -613,3 +619,6 @@ func TestMetrics(t *testing.T) {
 	// A second tracker replaces the collectors of the first.
 	setup(t, func(o *quota.Options) { o.Registerer = reg })
 }
+
+// down drops the reason of a gate's answer.
+func down(_ catalog.Reason, unavailable bool) bool { return unavailable }

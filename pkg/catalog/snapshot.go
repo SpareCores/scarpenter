@@ -184,10 +184,17 @@ func (s *snapshot) prune(classes []Class) {
 func (s *snapshot) dropped(classHash, vendor string) map[nvidia.Reason]int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if vb, ok := s.builds[buildKey{classHash, vendor}]; ok {
-		return vb.dropped
+	vb, ok := s.builds[buildKey{classHash, vendor}]
+	if !ok {
+		return nil
 	}
-	return nil
+	out := map[nvidia.Reason]int{}
+	for _, d := range vb.drops {
+		if slices.Contains(nvidia.Reasons, nvidia.Reason(d.reason.Code)) {
+			out[nvidia.Reason(d.reason.Code)]++
+		}
+	}
+	return out
 }
 
 func (s *snapshot) view(class *Class) *classView {

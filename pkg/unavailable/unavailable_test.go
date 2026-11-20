@@ -200,3 +200,26 @@ func TestInterruptedTTLIsConfigurable(t *testing.T) {
 		t.Fatal("still unavailable after the configured TTL")
 	}
 }
+
+func TestWhyNamesTheClassAndExpiryAndPreLaunchMarksAreShort(t *testing.T) {
+	clk := clocktesting.NewFakeClock(time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC))
+	c := unavailable.New(clk, unavailable.TTLs{})
+	o := unavailable.Offering{Vendor: "v", InstanceType: "v.t", Region: "r", Zone: "z", CapacityType: "on-demand"}
+	if _, _, ok := c.Why(o); ok {
+		t.Fatal("an empty cache has a reason")
+	}
+	c.MarkUnsupported("v", "v.t", "z")
+	class, expiry, ok := c.Why(o)
+	if !ok || class != "Unsupported" || !expiry.Equal(clk.Now().Add(unavailable.DefaultUnsupportedTTL)) {
+		t.Errorf("Why = %q, %v, %v", class, expiry, ok)
+	}
+	// The driver's own check keeps its mark for the zone-unusable TTL.
+	c.MarkUnsupportedPreLaunch("v", "v.t", "z")
+	if _, expiry, _ := c.Why(o); !expiry.Equal(clk.Now().Add(unavailable.DefaultZoneUnusableTTL)) {
+		t.Errorf("a pre-launch mark expires at %v", expiry)
+	}
+	clk.Step(unavailable.DefaultZoneUnusableTTL)
+	if c.IsUnavailable(o) {
+		t.Error("a pre-launch mark outlives its TTL")
+	}
+}

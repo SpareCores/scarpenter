@@ -24,6 +24,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	awsapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -612,8 +613,8 @@ func TestResourceCheckSkipsADefaultWithoutIPv6AndGatesTheZonesOfBroughtSubnets(t
 	if !st.Ready || st.Zones["us-east-1a"] == "" || st.Zones["us-east-1b"] != "" {
 		t.Errorf("region state %+v, want ready with only zone a gated", st)
 	}
-	if !e.engine.UnavailableFor("class", "aws", "", testRegion, "us-east-1a", "on-demand") ||
-		e.engine.UnavailableFor("class", "aws", "", testRegion, "us-east-1b", "on-demand") {
+	if !down(e.engine.UnavailableFor("class", "aws", "", testRegion, "us-east-1a", "on-demand")) ||
+		down(e.engine.UnavailableFor("class", "aws", "", testRegion, "us-east-1b", "on-demand")) {
 		t.Error("the gate does not follow the zones")
 	}
 	// A launch in zone b gets the IPv6 subnet (preferred although it is the one with
@@ -626,3 +627,6 @@ func TestResourceCheckSkipsADefaultWithoutIPv6AndGatesTheZonesOfBroughtSubnets(t
 		t.Errorf("zone a: %v, want %s", err, vendors.CodeResourceMissingInZone)
 	}
 }
+
+// down drops the reason of a gate's answer.
+func down(_ catalog.Reason, unavailable bool) bool { return unavailable }
