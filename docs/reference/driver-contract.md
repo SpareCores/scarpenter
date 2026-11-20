@@ -333,6 +333,29 @@ or a maximum under the minimum) gets `vendors.DefaultNoticeWindow`, 30 s and 5 m
 impersonates (AWS and OCI 2 min, GCP 30 s to 2 min 30 s, Azure 30 s, Alibaba 5 min), which `--fake-min-notice` and `--fake-max-notice`
 override.
 
+## Interruption poller and the reason an instance is gone
+
+`InterruptionPoller` is the optional capability of a driver whose vendor shows an interruption in its API instead of, or besides, the
+instance metadata ([plan 26](../plans/v1/wip/26-interruption.md) section 4): `PollInterruptions(ctx, region)` returns the `Notice{Ref,
+Reason, Deadline}` of the cluster's instances in the region that are announced or under way, and `PollInterval()` the time between two
+polls. The core runs one poller per (vendor, region) that has a spot NodeClaim, however many instances there are (so the driver makes a
+bounded number of calls per region, one paged list and not one call per instance), and stops it when the last one is gone. The poller maps
+a notice to its NodeClaim by the `instance-ref` annotation and writes the interruption annotations on the Node with source `vendor-api`; the
+[interruption controller](controller.md#interruption) reacts as it does to the node agent. A notice may be returned on every poll while the
+instance lives; one for an instance that is terminated must not be. `Reason` is `SpotInterrupted`; `Deadline` is zero when the API only
+shows that the instance is going (a terminating state), and the controller then assumes the vendor's shortest notice. Errors carry their
+class: any error backs the region's poller off (twice the interval, doubling up to 5 minutes), counted in
+`scarpenter_interruption_poll_errors_total`; a failed poll never stops the controller.
+
+`Instance.GoneReason` is set by a driver that can tell a vendor reclaim from a crash, on an instance that is gone (`terminating` or
+`terminated`): `SpotInterrupted` for a spot reclaim, empty otherwise (the AWS state reason, Alibaba's operation lock, GCP's
+preemption operation: the vendor steps of plan 26). `CloudProvider.Delete` passes it on when it finds the instance gone without having
+deleted it (see [silent reclaim](controller.md#silent-reclaim)).
+
+The conformance suite checks a driver that implements the capability (subtest `interruption poller`): a positive interval, no notice for an
+instance nobody announced and, with the fixture's `Interrupt` hook, the notice with its reason and deadline, no notice for a neighbour and none
+after the delete.
+
 ## Registry
 
 Drivers register in `init()` with `vendors.Register(name, factory)`.
@@ -480,8 +503,11 @@ servers from Keeper, so NodeClasses use `spec.vendors.aws` and types are
 (`scarpenter-fake-resources`), `--fake-launch-delay`, `--fake-min-notice`, `--fake-max-notice`.
 
 The fake's Go API has `PowerOff(ref)`, which stops an instance the way a guest
-poweroff would (it stays, reported `terminating`, until deleted); the conformance suite
-and the unit tests use it.
+poweroff would (it stays, reported `terminating`, until deleted), `Interrupt(ref, deadline)`, which
+announces the reclaim of a running instance (the fake is an `InterruptionPoller`, polled every second,
+and lists it from then on; it does not take the instance away at the deadline), and `Reclaim(ref)` and
+`ReclaimWithReason(ref, reason)`, which take an instance away without notice (terminated at once, its Node
+deleted, `GoneReason` the given one); the conformance suite and the unit tests use them.
 
 The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
 
@@ -504,6 +530,10 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
 - `powerOff`: a list of NodeClaim names; the running instance of each is powered off
   once (reported `terminating`, as `PowerOff` does) and its Node is deleted, the way a
   stopped node stops reporting (a KWOK Node would otherwise stay Ready).
+- `interrupt`: a list of `{nodeClaim, deadlineSeconds}`; the running instance of each NodeClaim is announced
+  once with a deadline the given seconds ahead (`Interrupt`), and the controller's poller finds it.
+- `reclaim`: a list of `{nodeClaim, reason}`; the instance of each NodeClaim is taken away once with no notice
+  (`ReclaimWithReason`: `reason` is the `GoneReason`, empty for a vendor that cannot tell), and its Node is deleted.
 - `unsupported`: rules `{kind, profile, instanceTypes, families, zones}` (empty
   lists match everything) that make a profile invalid for the matching types and
   zones. Besides, a storage profile with local storage is valid only on types

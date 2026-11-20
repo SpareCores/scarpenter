@@ -177,14 +177,14 @@ collection every 10 s with a 30 s grace period, managed resources checked every
 5 s and unused `perUse` resources kept for 20 s.
 
 Scenarios steer the fake driver through the ConfigMap `scarpenter-fake`
-(`errors`, `quota`, `orphans`, `launchDelay`, `unsupported`, `existingResources`, `images`, `billing`)
+(`errors`, `quota`, `orphans`, `launchDelay`, `unsupported`, `existingResources`, `images`, `billing`, `interrupt`, `reclaim`)
 and read what it did from the ConfigMap `scarpenter-fake-state` (`calls`,
 `instances`, `resources`, `revision`); the formats are in the
 [driver contract](../reference/driver-contract.md#the-fake-driver). The fake
 publishes its state debounced; the scenarios do not sleep for it: they read the
 fake's current revision from the controller's metrics
 (`scarpenter_fake_state_revision`) and wait until the ConfigMap's `revision` has
-reached it (`awaitState`). The scenarios are `TestS01` to `TestS21` and, for billing retention, `TestR01` to `TestR09`:
+reached it (`awaitState`). The scenarios are `TestS01` to `TestS21`, for billing retention `TestR01` to `TestR09` and, for spot interruptions, `TestI01` to `TestI06`:
 
 | Scenario | Proves |
 |---|---|
@@ -219,6 +219,12 @@ reached it (`awaitState`). The scenarios are `TestS01` to `TestS21` and, for bil
 | R07 | a budget of 1 with two empty nodes: never two releases at once, no overshoot |
 | R08 | a NodePool at its `limits` with a held empty node: the pending pod gets the capacity after the node is released under pressure |
 | R09 | a pod created one second before the deadline never ends on a node being deleted; no boundary is missed |
+| I01 | spot interruption (plan 26; the harness annotates the Node as the node agent would, a deadline 60 s ahead): the NodeClaim is `Interrupted` with `SpotInterrupted`, its termination timestamp is the deadline minus 5 s, both objects get the Event, and the Pod's `deletionTimestamp` is set within 5 s of the annotation |
+| I02 | a 30 s deadline and a Pod with `terminationGracePeriodSeconds: 20`: the drain deletes it with its 20 s grace |
+| I03 | the replacement avoids the interrupted type and zone as spot until the shortened TTL (30 s in the lane) ends, then uses it again (the NodePool allows one offering, so the Pod stays Pending meanwhile) |
+| I04 | the fake's `interrupt` key (the controller's poller finds it): the same record as I01 with source `vendor-api`, counted with that source |
+| I05 | the fake's `reclaim` key (the instance vanishes with no notice): the NodeClaim is collected, with a `ReclaimedWithoutNotice` Event and the count with source `gc` |
+| I06 | an on-demand Node that is annotated is ignored: one `InterruptionIgnored` Event, no condition, the NodeClaim stays |
 
 Knobs (environment): `KWOK_SCENARIOS=<go test -run regexp>` selects scenarios
 (`KWOK_SCENARIOS=TestS0[12]`), `KWOK_SKIP=<go test -skip regexp>` leaves

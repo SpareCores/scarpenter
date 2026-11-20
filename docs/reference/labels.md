@@ -101,5 +101,9 @@ effective deadline. A Node or NodeClaim that has them was announced for reclaim;
 | `scarpenter.sparecores.com/interruption-deadline` | When the vendor takes the instance away, RFC 3339. The controller clamps it into the driver's notice window (a missing or unparsable one is the vendor's shortest notice from now) and records the clamped value. |
 | `scarpenter.sparecores.com/interruption-source` | Who found the notice: `instance-metadata` (the node agent) or `vendor-api` (the controller's poller). Anything else is read as `instance-metadata`. |
 
+A spot instance that vanished without a notice has no annotations; its NodeClaim gets the `Interrupted` condition with the reason
+`ReclaimedWithoutNotice` (or `SpotInterrupted` when the driver says the vendor reclaimed it), and an on-demand one only an `InstanceVanished` Event
+([silent reclaim](controller.md#silent-reclaim)).
+
 The controller also sets `karpenter.sh/nodeclaim-termination-timestamp` on the NodeClaim (Karpenter's own annotation) to the deadline less
 `--interruption-margin` (or earlier, when the NodeClaim's `terminationGracePeriod` ends first).
