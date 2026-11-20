@@ -122,6 +122,22 @@ const (
 	Proprietary Flavour = "proprietary"
 )
 
+// Build pins one driver sysext of a release (nvidia-drivers-<branch>[-open]).
+// A build without a RawSHA256 is not usable: the type stays unsupported until
+// someone verifies the pins.
+type Build struct {
+	// PayloadSHA256 is the sha256 of Flatcar's signed payload, the .gz the
+	// release server publishes (its .gz.sha256 file); a mirror's script checks
+	// the download against it.
+	PayloadSHA256 string
+	// RawSHA256 is the sha256 of the extracted sysext image, the .raw: what
+	// Ignition verifies on the file it writes (the hash is over the
+	// decompressed bytes, so a mirror may serve it compressed).
+	RawSHA256 string
+}
+
+func (b Build) usable() bool { return b.RawSHA256 != "" }
+
 // Branch is a driver branch a Flatcar release builds.
 type Branch struct {
 	// Number is the branch (570).
@@ -129,9 +145,10 @@ type Branch struct {
 	// Version is the exact driver version of the release (570.211.01); the
 	// open and the proprietary build have the same one.
 	Version string
-	// Open and Proprietary say which sysexts the release builds
-	// (nvidia-drivers-<branch>-open and nvidia-drivers-<branch>).
-	Open, Proprietary bool
+	// Open and Proprietary are the sysexts the release builds
+	// (nvidia-drivers-<branch>-open and nvidia-drivers-<branch>); a flavour the
+	// release does not build, or whose pins are not verified, is the zero Build.
+	Open, Proprietary Build
 }
 
 // Release is what a Flatcar release builds.
@@ -140,23 +157,70 @@ type Release struct {
 	Version string
 	// Branches are the driver branches, highest first.
 	Branches []Branch
+	// RuntimeVersion and RuntimeSHA256 pin the nvidia-runtime sysext of the
+	// sysext-bakery (nvidia-runtime-<RuntimeVersion>-x86-64.raw) the release
+	// is used with; without them no GPU type is offered on the release.
+	RuntimeVersion, RuntimeSHA256 string
 	// FabricManager lists the driver versions with a pinned Fabric Manager
 	// archive (plan 12, D9); until a version is listed, NVSwitch systems are
 	// not offered on the release.
 	FabricManager []string
 }
 
+// runtime is the nvidia-runtime sysext of every release below: 1.17.9 is the
+// version Flatcar's own documentation uses (1.16 and older do not work with the
+// prebuilt driver sysexts). The sha256 is the line of the release's SHA256SUMS
+// and of the file itself.
+const (
+	runtimeVersion = "v1.17.9"
+	runtimeSHA256  = "7863300dc49b353b75ff0bbc835b8651d791832316890e040aa4002a36bdffc3"
+)
+
 // releases are the Flatcar releases SCarpenter knows driver sysexts of, the
-// pinned stable release first. Verified against the update server's listing
-// of each release; a release is added with its first NodeClass.
+// pinned stable release first. A release is added with its first NodeClass. The
+// versions come from the release's ebuilds and the update server's listing; the
+// pins were taken from the update server (the .gz.sha256 files) and by
+// extracting the verified payloads with Flatcar's download_sysext (hack/nvidia-mirror.sh
+// does both and prints these entries).
 var releases = []Release{
 	{
 		Version: "4757.2.3", // stable: no 580 yet
 		Branches: []Branch{
-			{Number: 570, Version: "570.211.01", Open: true, Proprietary: true},
-			{Number: 550, Version: "550.163.01", Open: true, Proprietary: true},
-			{Number: 535, Version: "535.309.01", Open: true, Proprietary: true},
+			{
+				Number: 570, Version: "570.211.01",
+				Open: Build{
+					PayloadSHA256: "a0dc6aec56b5e13734c206eff8dbc74b7fde2d44e3db11dac51ff5374f9b198a",
+					RawSHA256:     "bd02a246daced8f446fedd5d2d31e587adcfddca70b580ad379344f1e16fadc9",
+				},
+				Proprietary: Build{
+					PayloadSHA256: "331250c60796353f0e732a17ea2c7edf890514bab67566198f382142756242d2",
+					RawSHA256:     "e190e7ec96167d2ffa6039e45a67675d7db3674c2160c33f68ead09d39e47b7a",
+				},
+			},
+			{
+				Number: 550, Version: "550.163.01",
+				Open: Build{
+					PayloadSHA256: "a4ebb3eb43cd2317bfa949f123493f9d04bb568d555717169159a701cc01913b",
+					RawSHA256:     "522c18a095be12b2bda8357d3e713cc819c6c644763280b5b9f416f4ac8697df",
+				},
+				Proprietary: Build{
+					PayloadSHA256: "3c8f495cab4f43cecae765e7a388669938f43aef52cd1b03c2b0a40a00e49af6",
+					RawSHA256:     "9343da55f603b7becea296c8b6ac1e890f69a81ab049944362966e9574f06245",
+				},
+			},
+			{
+				Number: 535, Version: "535.309.01",
+				Open: Build{
+					PayloadSHA256: "733bc0ff4d385b0edc17e05f77a3f592c27804ca0e7d46703f234da156ada6a2",
+					RawSHA256:     "47dabfe4edadc8164a8d2e3e01094260a4c5fb50deb4f6b22fd4ffb33824cc71",
+				},
+				Proprietary: Build{
+					PayloadSHA256: "8e95b626900af8d8aa20ecdf41f6bf5163370a9ec445e59faa21989b87945fb1",
+					RawSHA256:     "645e718efd0335fa43d05bfe689263223f842b78bc682b3d8d7a335ca6e1e460",
+				},
+			},
 		},
+		RuntimeVersion: runtimeVersion, RuntimeSHA256: runtimeSHA256,
 	},
 	{
 		// Alpha, which adds 580 (and still builds the older branches, which
@@ -164,8 +228,19 @@ var releases = []Release{
 		// out until a NodeClass needs them).
 		Version: "4865.0.0",
 		Branches: []Branch{
-			{Number: 580, Version: "580.178.04", Open: true, Proprietary: true},
+			{
+				Number: 580, Version: "580.178.04",
+				Open: Build{
+					PayloadSHA256: "12c07de63768578cb685dd1f4e0bc89108779f73ebc06206cd931483b5d6edde",
+					RawSHA256:     "88d5c259b7bb006d382d40bfdf24ecc1c0d3293dbf1cd29bcc028c766b634cd9",
+				},
+				Proprietary: Build{
+					PayloadSHA256: "5405709d588271c154c4b89561b76757c878116e8befef45ef2e72c6452c9ed4",
+					RawSHA256:     "ce2db01735ead7e0af6d453f354156e9553b86e2d8dd6bdb641bff31cf1a5b72",
+				},
+			},
 		},
+		RuntimeVersion: runtimeVersion, RuntimeSHA256: runtimeSHA256,
 	},
 }
 
@@ -243,6 +318,14 @@ type Selection struct {
 	Architecture Architecture
 	// NVSwitch says the type is an NVSwitch system (it needs Fabric Manager).
 	NVSwitch bool
+	// Sysext is the name of the driver sysext ("nvidia-drivers-570-open"), the
+	// line of enabled-sysext.conf; its pins are the payload's sha256 (the .gz
+	// of the release server) and the extracted image's.
+	Sysext                   string
+	PayloadSHA256, RawSHA256 string
+	// RuntimeVersion and RuntimeSHA256 pin the nvidia-runtime sysext of the
+	// release (the version as the sysext-bakery spells it, "v1.17.9").
+	RuntimeVersion, RuntimeSHA256 string
 }
 
 // Select chooses the driver for a GPU type on a Flatcar release: the highest
@@ -283,25 +366,65 @@ func Select(g GPU, flatcarVersion string) (Selection, Reason) {
 	return sel, Supported
 }
 
-// pick returns the highest branch of the release within the architecture's range.
+// pick returns the highest branch of the release within the architecture's
+// range, with the sysext it needs. Only a build with verified pins counts, and
+// only on a release with a pinned runtime sysext.
 func (r Release) pick(arch Architecture) (Selection, bool) {
 	rule := architectures[arch]
+	if r.RuntimeVersion == "" || r.RuntimeSHA256 == "" {
+		return Selection{}, false
+	}
 	for _, b := range r.Branches {
 		if b.Number < rule.minBranch || (rule.maxBranch > 0 && b.Number > rule.maxBranch) {
 			continue
 		}
-		var flavour Flavour
+		flavour, build, name := Proprietary, b.Proprietary, "nvidia-drivers-"+strconv.Itoa(b.Number)
 		switch {
-		case rule.openAllowed && b.Open:
-			flavour = Open
-		case rule.openRequired || !b.Proprietary:
+		case rule.openAllowed && b.Open.usable():
+			flavour, build, name = Open, b.Open, name+"-open"
+		case rule.openRequired || !build.usable():
 			continue
-		default:
-			flavour = Proprietary
 		}
-		return Selection{Branch: strconv.Itoa(b.Number), Version: b.Version, Flavour: flavour}, true
+		return Selection{
+			Branch: strconv.Itoa(b.Number), Version: b.Version, Flavour: flavour,
+			Sysext: name, PayloadSHA256: build.PayloadSHA256, RawSHA256: build.RawSHA256,
+			RuntimeVersion: r.RuntimeVersion, RuntimeSHA256: r.RuntimeSHA256,
+		}, true
 	}
 	return Selection{}, false
+}
+
+// FromLabels rebuilds the selection of a type from its driver labels (branch,
+// exact version and flavour) and its GPU count, with the pins of the release:
+// what the launch of a node needs after the catalog stamped the labels. It
+// fails when the release has no such verified build.
+func FromLabels(flatcarVersion, branch, version string, flavour Flavour, count int64) (Selection, error) {
+	for _, sel := range Selections(flatcarVersion) {
+		if sel.Branch == branch && sel.Version == version && sel.Flavour == flavour {
+			sel.Count, sel.Architecture = count, ""
+			return sel, nil
+		}
+	}
+	return Selection{}, fmt.Errorf("release %s has no verified %s NVIDIA driver %s (branch %s)",
+		flatcarVersion, flavour, version, branch)
+}
+
+// Selections returns the distinct driver selections a release makes over every
+// model, for sizing trial renderings: one entry per branch and flavour in use.
+func Selections(flatcarVersion string) []Selection {
+	rel, ok := LookupRelease(flatcarVersion)
+	if !ok {
+		return nil
+	}
+	var out []Selection
+	for _, name := range Models() {
+		sel, ok := rel.pick(models[name].arch)
+		if ok && !slices.ContainsFunc(out, func(o Selection) bool { return o.Sysext == sel.Sysext }) {
+			sel.Count, sel.Architecture = 1, models[name].arch
+			out = append(out, sel)
+		}
+	}
+	return out
 }
 
 // SupportTable renders the supported models of a Flatcar release as a
