@@ -159,19 +159,9 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 			c.metrics.skipped.WithLabelValues(cand.vendor, cand.region, cand.capacityType, reason).Inc()
 			continue
 		}
-		var res *quota.Reservation
-		if c.opts.Quota != nil {
-			var d quota.Decision
-			res, d = c.opts.Quota.Reserve(cand.vendor, cand.region, cand.apiReference, cand.capacityType, nodeClaim.Name)
-			if !d.Allowed {
-				c.reportQuotaRefusal(st.nc, cand)
-				st.skipped++
-				c.metrics.skipped.WithLabelValues(cand.vendor, cand.region, cand.capacityType, skipNoQuota).Inc()
-				logger.V(1).Info("skipping an offering without quota headroom", "type", cand.typeName,
-					"region", cand.region, "capacity-type", cand.capacityType, "bucket", d.Bucket,
-					"headroom", d.Headroom, "needed", d.Need)
-				continue
-			}
+		res, ok := c.reserveQuota(ctx, st, cand)
+		if !ok {
+			continue
 		}
 		inst, err := c.launch(ctx, st, cand)
 		if err == nil {
@@ -237,6 +227,25 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 	}
 	return nil, cloudprovider.NewInsufficientCapacityError(
 		fmt.Errorf("no candidate offering had quota headroom (%d skipped)", st.skipped))
+}
+
+// reserveQuota reserves the quota of a launch of the candidate. It returns
+// false, after counting the candidate as skipped, when the quota has no headroom.
+func (c *CloudProvider) reserveQuota(ctx context.Context, st *launchState, cand *candidate) (*quota.Reservation, bool) {
+	if c.opts.Quota == nil {
+		return nil, true
+	}
+	res, d := c.opts.Quota.Reserve(cand.vendor, cand.region, cand.apiReference, cand.capacityType, st.nodeClaim.Name)
+	if !d.Allowed {
+		c.reportQuotaRefusal(st.nc, cand)
+		st.skipped++
+		c.metrics.skipped.WithLabelValues(cand.vendor, cand.region, cand.capacityType, skipNoQuota).Inc()
+		log.FromContext(ctx).V(1).Info("skipping an offering without quota headroom", "type", cand.typeName,
+			"region", cand.region, "capacity-type", cand.capacityType, "bucket", d.Bucket,
+			"headroom", d.Headroom, "needed", d.Need)
+		return nil, false
+	}
+	return res, true
 }
 
 // reportQuotaRefusal tells the OnQuotaRefusal hook that the candidate's launch
