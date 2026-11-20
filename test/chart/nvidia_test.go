@@ -28,14 +28,14 @@ func devicePlugin(t *testing.T, manifest string) *appsv1.DaemonSet {
 	return nil
 }
 
-// TestNVIDIADevicePluginDefaults: the device plugin and the RuntimeClass are on
-// by default; the DaemonSet runs on driver-labelled nodes only, with the nvidia
+// TestNVIDIADevicePluginDefaults: the device plugin is on by default and the
+// RuntimeClass is not (k3s and the GPU operator ship one); the DaemonSet runs on driver-labelled nodes only, with the nvidia
 // runtime, a digest-pinned image, lean requests and a toleration for every taint,
 // and the controller's selector (Deployment, PodDisruptionBudget, Service) does not match its Pods.
 func TestNVIDIADevicePluginDefaults(t *testing.T) {
 	out := mustHelm(t, "-f", filepath.Join("testdata", "values", "default.yaml"))
-	if !strings.Contains(out, "kind: RuntimeClass\nmetadata:\n  name: nvidia") || !strings.Contains(out, "handler: nvidia\n") {
-		t.Error("the RuntimeClass nvidia is not rendered by default")
+	if strings.Contains(out, "kind: RuntimeClass") {
+		t.Error("the RuntimeClass nvidia is rendered by default")
 	}
 	ds := devicePlugin(t, out)
 	if ds == nil {
@@ -72,18 +72,18 @@ func TestNVIDIADevicePluginDefaults(t *testing.T) {
 	}
 }
 
-// TestNVIDIAOff: each piece turns off on its own.
+// TestNVIDIAOff: the device plugin turns off on its own, the RuntimeClass turns on on its own.
 func TestNVIDIAOff(t *testing.T) {
 	out := mustHelm(t, "-f", filepath.Join("testdata", "values", "nvidia-off.yaml"))
 	if strings.Contains(out, "kind: RuntimeClass") || devicePlugin(t, out) != nil {
 		t.Error("nvidia-off.yaml still renders the RuntimeClass or the DaemonSet")
 	}
-	out = mustHelm(t, append([]string{"--set", "nvidia.runtimeClass.create=false"}, required...)...)
-	if strings.Contains(out, "kind: RuntimeClass") || devicePlugin(t, out) == nil {
-		t.Error("runtimeClass.create=false must drop only the RuntimeClass")
+	out = mustHelm(t, append([]string{"--set", "nvidia.runtimeClass.create=true"}, required...)...)
+	if !strings.Contains(out, "kind: RuntimeClass\nmetadata:\n  name: nvidia") || !strings.Contains(out, "handler: nvidia\n") || devicePlugin(t, out) == nil {
+		t.Error("runtimeClass.create=true must add the RuntimeClass and keep the DaemonSet")
 	}
 	out = mustHelm(t, append([]string{"--set", "nvidia.devicePlugin.enabled=false"}, required...)...)
-	if !strings.Contains(out, "kind: RuntimeClass") || devicePlugin(t, out) != nil {
+	if strings.Contains(out, "kind: RuntimeClass") || devicePlugin(t, out) != nil {
 		t.Error("devicePlugin.enabled=false must drop only the DaemonSet")
 	}
 }

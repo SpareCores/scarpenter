@@ -133,7 +133,7 @@ it downloads the payloads, extracts them with Flatcar's own `download_sysext` (u
 compresses them, writes `SHA256SUMS` and prints the table entries for the release. The compile path of
 `nvidia.service` never runs (the sysext is present).
 
-D6. **Device plugin and RuntimeClass in the Helm chart** (on by default, each can be disabled, decided 2026-11-19): values `nvidia.runtimeClass.create` (default `true`)
+D6. **Device plugin and RuntimeClass in the Helm chart** (the device plugin on by default, the RuntimeClass off by default because k3s and the GPU operator ship one, each switchable, decided 2026-11-20): values `nvidia.runtimeClass.create` (default `false`)
 and `nvidia.devicePlugin.enabled` (default `true`); the image pinned by digest, its repository overridable. The
 DaemonSet selects nodes with `nvidia-driver-branch` `Exists`, tolerates every taint, runs with
 `runtimeClassName: nvidia` and priority `system-node-critical`, and requests 10m CPU and 64Mi memory [U: S6].

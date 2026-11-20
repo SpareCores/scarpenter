@@ -35,5 +35,3 @@ tolerations:
 resources:
   requests: {cpu: 200m, memory: 640Mi}
   limits: {memory: 1536Mi}
-# k3s ships the RuntimeClass nvidia itself, which Helm cannot adopt.
-nvidia: {runtimeClass: {create: false}}

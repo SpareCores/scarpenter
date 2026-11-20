@@ -233,7 +233,7 @@ The part is about 2 KiB of the user-data. Its largest variant (the mirror, 16 GP
 NodeClass controller's trial rendering for amd64, and a unit test holds the worst case of a GPU node
 (everything else on) to 14 KiB.
 
-The chart ships the device plugin and the RuntimeClass `nvidia`, whose handler is the runtime this part
+The chart ships the device plugin and, on request (`nvidia.runtimeClass.create`), the RuntimeClass `nvidia`, whose handler is the runtime this part
 registers ([run GPU workloads](../how-to-guides/run-gpu-workloads.md)). Until the vendors' virtual-GPU
 checks exist, GPU types are offered as plain machines and the catalog
 advertises neither `nvidia.com/gpu` nor the driver labels (`nvidia.NodeBootstrap`), so no launch

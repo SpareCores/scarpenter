@@ -404,10 +404,12 @@ nvidia:
 
   # The RuntimeClass "nvidia" (handler "nvidia", the containerd runtime that the
   # driver step of the node's bootstrap registers on GPU nodes). GPU Pods and the
-  # device plugin set runtimeClassName: nvidia. Turn it off when another component
-  # (for example the NVIDIA GPU operator) provides the RuntimeClass.
+  # device plugin set runtimeClassName: nvidia. Off by default: k3s ships a
+  # RuntimeClass nvidia with the same handler, and so does a cluster with the
+  # NVIDIA GPU operator (Helm cannot adopt an object it did not create). Turn it
+  # on where the cluster has none.
   runtimeClass:
-    create: true
+    create: false
 
   # The NVIDIA device plugin: a DaemonSet that advertises nvidia.com/gpu on GPU
   # nodes. Karpenter initializes a GPU node only once the resource is registered,

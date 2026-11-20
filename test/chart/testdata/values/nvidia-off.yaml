@@ -1,4 +1,4 @@
-# The cluster runs the NVIDIA GPU operator: neither the RuntimeClass nor the device plugin.
+# The cluster runs the NVIDIA GPU operator: no device plugin (the RuntimeClass is off by default).
 cluster:
   name: my-cluster
   apiServerEndpoint: https://api.example.com:6443
@@ -9,5 +9,4 @@ vendors:
       webIdentity:
         roleArn: arn:aws:iam::123456789012:role/scarpenter-my-cluster
 nvidia:
-  runtimeClass: {create: false}
   devicePlugin: {enabled: false}

@@ -8,11 +8,11 @@ selected by their `accelerator-*` labels.
 
 ## What the chart installs
 
-Both are on by default and independent of each other.
+The device plugin is on by default, the RuntimeClass is off by default; they are independent of each other.
 
 | Value | Object | Purpose |
 |---|---|---|
-| `nvidia.runtimeClass.create` | RuntimeClass `nvidia` (handler `nvidia`) | The containerd runtime handler that GPU nodes register. `runc` stays the default there, so a Pod gets GPUs only with `runtimeClassName: nvidia`. |
+| `nvidia.runtimeClass.create` (default `false`) | RuntimeClass `nvidia` (handler `nvidia`) | The containerd runtime handler that GPU nodes register. k3s ships a RuntimeClass `nvidia` with the same handler, as does a cluster with the NVIDIA GPU operator, and Helm cannot adopt an existing object: set it to `true` only where the cluster has no RuntimeClass `nvidia`. The device plugin needs one to exist. `runc` stays the default there, so a Pod gets GPUs only with `runtimeClassName: nvidia`. |
 | `nvidia.devicePlugin.enabled` | DaemonSet `<release>-nvidia-device-plugin` | Advertises `nvidia.com/gpu`. Karpenter initializes a GPU node only after the resource is registered. |
 
 The DaemonSet:
@@ -42,7 +42,7 @@ list is your responsibility.
 
 ## Using another device plugin or the GPU operator
 
-Set `nvidia.runtimeClass.create=false` and `nvidia.devicePlugin.enabled=false`.
+Leave `nvidia.runtimeClass.create` at `false` and set `nvidia.devicePlugin.enabled=false`.
 Your RuntimeClass must be named `nvidia` with the handler `nvidia` for the
 Pods below, and your device plugin must register `nvidia.com/gpu`.
 
