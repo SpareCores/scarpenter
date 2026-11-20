@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
+	"sigs.k8s.io/karpenter/pkg/scheduling"
 
 	selapi "github.com/SpareCores/sc-keeper-go/selection/api"
 
@@ -631,6 +633,11 @@ type Query struct {
 	// query is the vendors the filter allows that the class configures, in the
 	// class's regions.
 	Filter Filter
+	// Requirements and Requests are for Explain only: a NodePool's requirements
+	// (they replace Filter, which they also give) and the resource requests of a
+	// pod. InstanceTypes ignores them.
+	Requirements scheduling.Requirements
+	Requests     corev1.ResourceList
 }
 
 // InstanceTypes returns the instance types for the NodeClass, pre-filtered
@@ -648,8 +655,7 @@ func (c *Catalog) InstanceTypes(ctx context.Context, q Query) ([]*cloudprovider.
 	}
 	vendors := vendorsOf(class, q.Filter)
 
-	gen := strconv.FormatUint(snap.id, 10) + "/" + strconv.FormatUint(c.opts.Facts.Epoch(), 10) + "/" +
-		strconv.FormatUint(c.opts.Unavailable.Sequence(), 10)
+	gen := c.generation(snap)
 	c.logOffered(ctx, snap, class, gen)
 	key := class.Hash + "|" + strings.Join(vendors, ",") + "|" + q.Filter.key()
 	if c.opts.ClassGate != nil {
@@ -661,11 +667,18 @@ func (c *Catalog) InstanceTypes(ctx context.Context, q Query) ([]*cloudprovider.
 	}
 
 	var out []*cloudprovider.InstanceType
-	for _, ev := range c.evaluate(snap, class, q.Class, q.Filter).types {
+	for _, ev := range c.evaluate(snap, class, q.Class, q.Filter, false).types {
 		out = append(out, ev.instanceType())
 	}
 	c.store(gen, key, out)
 	return out, nil
+}
+
+// generation names the state the instance types depend on: the snapshot, the
+// facts epoch and the sequence of the unavailable-offerings cache.
+func (c *Catalog) generation(snap *snapshot) string {
+	return strconv.FormatUint(snap.id, 10) + "/" + strconv.FormatUint(c.opts.Facts.Epoch(), 10) + "/" +
+		strconv.FormatUint(c.opts.Unavailable.Sequence(), 10)
 }
 
 // vendorsOf are the vendors of the class the filter allows.
@@ -689,6 +702,8 @@ type evaluated struct {
 	why     []Reason
 	prices  []float64
 	changed bool
+	// filtered are the offerings the filter removed (explain only).
+	filtered []offeringDrop
 }
 
 // evaluation is the result of a query before it becomes instance types.
@@ -700,7 +715,10 @@ type evaluation struct {
 // evaluate is the single path from the built types to what a query offers: the
 // instance types and every reason (Explain) come from it, so a listing cannot
 // disagree with what Karpenter was given.
-func (c *Catalog) evaluate(snap *snapshot, class *Class, className string, f Filter) evaluation {
+//
+// With explain, what the filter removes is kept as reasons; without it, it is
+// just gone.
+func (c *Catalog) evaluate(snap *snapshot, class *Class, className string, f Filter, explain bool) evaluation {
 	var pin *pricedBy
 	if name := f.selection; name != "" {
 		if sel, ok := snap.view(class).selection[name]; ok && sel.objective != selapi.ObjectivePrice {
@@ -712,8 +730,12 @@ func (c *Catalog) evaluate(snap *snapshot, class *Class, className string, f Fil
 		vb := c.vendorBuild(snap, class, vendor)
 		out.drops = append(out.drops, vb.drops...)
 		for _, bt := range vb.types {
-			if ev := c.apply(bt, vendor, className, f, pin); ev != nil {
+			ev, drop := c.apply(bt, vendor, className, f, pin, explain)
+			if ev != nil {
 				out.types = append(out.types, ev)
+			}
+			if drop != nil {
+				out.drops = append(out.drops, *drop)
 			}
 		}
 	}
@@ -721,16 +743,30 @@ func (c *Catalog) evaluate(snap *snapshot, class *Class, className string, f Fil
 }
 
 // apply pre-filters a type's offerings, marks the unavailable ones with their
-// reason and reprices by a pinned selection objective. It returns nil when the
-// filter leaves nothing.
-func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pricedBy) *evaluated {
-	if !f.allowsType(bt.it.Name, bt.server.Arch) {
-		return nil
+// reason and reprices by a pinned selection objective. It returns no type when
+// the filter leaves nothing, and with explain the drop that says why.
+func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pricedBy, explain bool,
+) (*evaluated, *typeDrop) {
+	dropped := func(key string) (*evaluated, *typeDrop) {
+		if !explain {
+			return nil, nil
+		}
+		return nil, &typeDrop{vendor, bt.server.APIReference, Reason{NodePoolPreFilter, key}}
+	}
+	if key := f.rejectType(bt.it.Name, bt.server.Arch); key != "" {
+		return dropped(key)
 	}
 	ev := &evaluated{bt: bt, vendor: vendor, keep: make([]int, 0, len(bt.offerings))}
+	firstRejected := ""
 	for i, o := range bt.offerings {
-		if !f.allowsOffering(o.region, o.zone, o.capacityType) {
+		if key := f.rejectOffering(o.region, o.zone, o.capacityType); key != "" {
 			ev.changed = true
+			if firstRejected == "" {
+				firstRejected = key
+			}
+			if explain {
+				ev.filtered = append(ev.filtered, offeringDrop{o.region, o.zone, o.capacityType, Reason{NodePoolPreFilter, key}})
+			}
 			continue
 		}
 		why, down := c.unavailableReason(bt, vendor, class, o)
@@ -753,9 +789,9 @@ func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pric
 		ev.changed = ev.changed || down || price != o.usd
 	}
 	if len(ev.keep) == 0 {
-		return nil
+		return dropped(firstRejected)
 	}
-	return ev
+	return ev, nil
 }
 
 // unavailableReason asks the three gates in order and returns the first reason.

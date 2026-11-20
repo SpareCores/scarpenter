@@ -1092,3 +1092,33 @@ func TestCreateResolvesTheImageOfTheNodeClassesOwner(t *testing.T) {
 		t.Errorf("ResolveImage owners = %v, want the NodeClass's 123456789012", drv.owners)
 	}
 }
+
+// GetInstanceTypes logs, once per generation and NodePool, the types a
+// NodePool's requirements remove that the catalog offers (plan 28, step 2).
+func TestGetInstanceTypesLogsTheNodePoolReasonsOnce(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	var lines []string
+	ctx := logr.NewContext(t.Context(), funcr.New(func(_, args string) { lines = append(lines, args) },
+		funcr.Options{Verbosity: 1}))
+	pool := nodePool()
+	pool.Spec.Template.Spec.Requirements = []karpv1.NodeSelectorRequirementWithMinValues{
+		{Key: v1alpha1.LabelZoneID, Operator: corev1.NodeSelectorOpIn, Values: []string{"nowhere"}},
+	}
+	nodePoolLines := func() (n int) {
+		for _, l := range lines {
+			if strings.Contains(l, `"nodepool"="default"`) && strings.Contains(l, `"reason"="NodePoolRequirement"`) &&
+				strings.Contains(l, "aws.m7i.large") {
+				n++
+			}
+		}
+		return n
+	}
+	for range 2 {
+		if _, err := e.cp.GetInstanceTypes(ctx, pool); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := nodePoolLines(); n != 1 {
+		t.Errorf("%d NodePool lines naming aws.m7i.large after two calls, want 1", n)
+	}
+}

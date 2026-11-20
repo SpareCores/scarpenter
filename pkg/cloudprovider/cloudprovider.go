@@ -228,6 +228,7 @@ func (c *CloudProvider) GetInstanceTypes(
 	if err != nil {
 		return nil, err
 	}
+	c.opts.Catalog.LogNodePool(ctx, nc.Name, nodePool.Name, reqs)
 	ready := readyVendors(nc)
 	c.logNotReady(ctx, nc, ready)
 	if len(ready) == len(nc.Spec.Vendors.Names()) {

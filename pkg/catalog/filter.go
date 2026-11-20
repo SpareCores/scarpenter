@@ -64,14 +64,30 @@ func (f Filter) allowsVendor(v string) bool {
 	return f.vendor == nil || f.vendor.Has(v)
 }
 
-func (f Filter) allowsType(name, arch string) bool {
-	return (f.instanceType == nil || f.instanceType.Has(name)) && (f.arch == nil || f.arch.Has(arch))
+// rejectType returns the key of the requirement that excludes the type, or ""
+// when the filter keeps it.
+func (f Filter) rejectType(name, arch string) string {
+	switch {
+	case f.instanceType != nil && !f.instanceType.Has(name):
+		return corev1.LabelInstanceTypeStable
+	case f.arch != nil && !f.arch.Has(arch):
+		return corev1.LabelArchStable
+	}
+	return ""
 }
 
-func (f Filter) allowsOffering(region, zone, capacityType string) bool {
-	return (f.region == nil || f.region.Has(region)) &&
-		(f.zone == nil || f.zone.Has(zone)) &&
-		(f.capacityType == nil || f.capacityType.Has(capacityType))
+// rejectOffering returns the key of the requirement that excludes the offering,
+// or "" when the filter keeps it.
+func (f Filter) rejectOffering(region, zone, capacityType string) string {
+	switch {
+	case f.region != nil && !f.region.Has(region):
+		return corev1.LabelTopologyRegion
+	case f.zone != nil && !f.zone.Has(zone):
+		return corev1.LabelTopologyZone
+	case f.capacityType != nil && !f.capacityType.Has(capacityType):
+		return karpv1.CapacityTypeLabelKey
+	}
+	return ""
 }
 
 // key is a canonical string of the filter, for cache keys.
