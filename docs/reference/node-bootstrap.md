@@ -212,8 +212,10 @@ release (its modules are signed with the release's kernel key). The part holds:
   (before `containerd.service`, after tmpfiles has copied the file) sets
   `default_runtime_name = "runc"` and fails unless that line is there afterwards. A Pod gets GPUs
   only with `runtimeClassName: nvidia`.
-- `/etc/modprobe.d/scarpenter-nvidia.conf`: `nouveau` and `nova_core` blacklisted, `nvidia-drm`
-  without modeset and never loaded (a headless node needs no DRM), no dynamic power management;
+- `/etc/modprobe.d/00-scarpenter-nvidia.conf`: `nouveau` and `nova_core` blacklisted, `nvidia-drm`
+  without modeset and never loaded (a headless node needs no DRM), no dynamic power management (the
+  name sorts before the driver sysext's own `10-flatcar-nvidia-drivers-*.conf`, because modprobe uses
+  the first `install` line of a module);
   `scarpenter-nvidia-prepare.service` unloads `nouveau` before `nvidia.service` when the initrd
   loaded it; `Upholds=nvidia-persistenced.service` on `multi-user.target` (persistence mode).
 - `scarpenter-nvidia-check.service`, which the kubelet `Requires=` and starts after: the loaded driver

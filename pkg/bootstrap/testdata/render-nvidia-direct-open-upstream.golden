@@ -104,7 +104,7 @@
           "inline": "blacklist nouveau\nblacklist nova_core\noptions nvidia-drm modeset=0 fbdev=0\ninstall nvidia-drm /bin/true\noptions nvidia NVreg_DynamicPowerManagement=0x00\n"
         },
         "mode": 420,
-        "path": "/etc/modprobe.d/scarpenter-nvidia.conf"
+        "path": "/etc/modprobe.d/00-scarpenter-nvidia.conf"
       },
       {
         "contents": {

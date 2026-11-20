@@ -109,6 +109,9 @@ func TestNVIDIAPartAcrossVariants(t *testing.T) {
 							"sha256-" + sel.RuntimeSHA256,
 							"scarpenter-nvidia-check " + sel.Version + " 2",
 							"Upholds=nvidia-persistenced.service",
+							// Before the driver sysext's 10-flatcar-nvidia-drivers-*.conf:
+							// modprobe uses the first install line of a module.
+							"/etc/modprobe.d/00-scarpenter-nvidia.conf",
 						} {
 							if !strings.Contains(text, want) {
 								t.Errorf("the nvidia part lacks %q", want)

@@ -28,7 +28,10 @@ storage:
         verification:
           hash: sha256-{{ .SHA256 }}
 {{- end }}
-    - path: /etc/modprobe.d/scarpenter-nvidia.conf
+    # 00-: modprobe takes the first install line of a module in the order of the
+    # file names, and the driver sysext's 10-flatcar-nvidia-drivers-*.conf has
+    # one for nvidia-drm.
+    - path: /etc/modprobe.d/00-scarpenter-nvidia.conf
       mode: 0644
       contents:
         inline: |
