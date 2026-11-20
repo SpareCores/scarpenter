@@ -157,7 +157,7 @@ D8. **Node-side pieces: one Butane part `nvidia`**, merged after `volumes` and b
 rendered only for a launch attempt of an NVIDIA type (the user-data is rendered per attempt since plan 06; the
 NodeClass controller's trial rendering includes its largest variant, so the 16 KiB budget is checked; estimate
 1.5 KiB). It holds: `enabled-sysext.conf`; the runtime sysext file and link; D5's file when a mirror is set; D7's
-unit; `/etc/modprobe.d/scarpenter-nvidia.conf` (`blacklist nouveau`, `blacklist nova_core`,
+unit; `/etc/modprobe.d/00-scarpenter-nvidia.conf` (`blacklist nouveau`, `blacklist nova_core`,
 `options nvidia-drm modeset=0 fbdev=0`, `install nvidia-drm /bin/true`, since a headless compute node needs no
 DRM and this also prevents the udev reload loop the benchmark's earlier setup hit [U: the loop on Flatcar];
 `options nvidia NVreg_DynamicPowerManagement=0x00`); `scarpenter-nvidia-prepare.service`
@@ -267,10 +267,21 @@ the extracted `.raw` (`RawSHA256`) and, for the script, the payload (`PayloadSHA
 `.gz.sha256` files and by extracting each payload with ue-rs `download_sysext` (rev 94d40218, update key
 pinned): every build of 4757.2.3 (535, 550, 570, each open and proprietary) and of 4865.0.0's 580 and 580-open;
 nvidia-runtime v1.17.9 (sha256 equal in the bakery release's `SHA256SUMS` and the file; its containerd config has
-exactly one `default_runtime_name = "nvidia"` line). Not done: the beta release (driver versions
-unverified) and the driver versions inside the images (taken from the ebuilds). Unverified until L4 (d)/S1:
-that `rmmod` is at `/usr/sbin/rmmod` on Flatcar (the unit ignores failure), Ignition's streaming of a 500 MB
-file from a mirror, and that `Upholds=nvidia-persistenced.service` starts it.
+exactly one `default_runtime_name = "nvidia"` line). The driver version in each image's
+`extension-release` equals the table (535.309.01, 550.163.01, 570.211.01, 580.178.04). Every driver sysext
+ships `/usr/lib/modprobe.d/10-flatcar-nvidia-drivers-535-kmod-sysext.conf` with an `install` line for
+`nvidia-drm`, and modprobe uses the first `install` line in file-name order, so the part's file is
+`00-scarpenter-nvidia.conf`. A GPU-less QEMU boot of 4757.2.3 with the part (mirror variant, 570-open,
+served locally) showed: Ignition writes the 430 MB image from the `.raw.gz` straight to the root disk (a
+temporary file next to the target, not RAM) and verifies the hash over the decompressed bytes; the initrd
+then downloads nothing and merges both sysexts; containerd runs `config-nvidia.toml` with
+`defaultRuntimeName: runc` and the handler `nvidia`; `nvidia.service` succeeds without a GPU; the check fails
+after 30 s with its message, the kubelet never starts (multi-user.target's `Upholds=` retries the kubelet,
+so the check reruns every 30 s); `nvidia-persistenced` fails without a GPU; modprobe resolves `nvidia-drm` to
+`/bin/true`; Flatcar's kernel has no `nouveau` module (the blacklist and the prepare unit are a guard only).
+A mirror file with the wrong content fails Ignition's files stage (no retry on a hash mismatch) and the node
+stops in the initrd. Not done: the beta release (driver versions unverified). Unverified until S1/S5: that
+`Upholds=nvidia-persistenced.service` keeps it running on a GPU.
 
 **(b2) Fabric Manager (D9).** The table's NVSwitch thresholds, per-model flags and Fabric Manager pins (URL and
 sha256 per driver version of each release; a test fails on a release entry without them for a model that needs
@@ -410,9 +421,7 @@ S9. Fabric Manager on one 8-GPU NVSwitch type (the costly one; a real benchmark 
 
 - The initrd takes another server only from the kernel argument (no file-based override); Ignition's kernel
   arguments stage reboots on Flatcar (S3).
-- Ignition's hash semantics with `compression: gzip`; the size of the extracted `.raw` (S3).
 - `nvidia-persistenced.service` is present and works; udev does or does not load `nvidia-drm` on Flatcar (S5).
-- `nvidia.service` is harmless without a GPU (step (d), S7).
 - `mode = "auto"` hands containers without NVIDIA variables to `runc` unchanged (moot with D7; S1).
 - KWOK nodes carry extended resources from the type's capacity (step (a)).
 - HGX slices below 8 GPUs need no Fabric Manager; the NVSwitch threshold per model (S8); the Fabric Manager archive
