@@ -48,6 +48,20 @@ Pods below, and your device plugin must register `nvidia.com/gpu`.
 
 ## A GPU Pod
 
+A GPU Pod needs both `runtimeClassName: nvidia` and an `nvidia.com/gpu` request:
+
+- With both, the device plugin passes the GPUs it chose in the container's
+  `NVIDIA_VISIBLE_DEVICES`, and the `nvidia` handler's hook mounts exactly those
+  devices and the driver libraries.
+- With the request but without the runtime class, the Pod lands on a GPU node and
+  holds the GPUs, but `runc` ignores the variable: the container sees no GPU and no
+  driver library, and nothing warns about it.
+- With the runtime class but without a request, nothing places the Pod on a GPU
+  node (elsewhere its sandbox fails: the handler does not exist there), and on a
+  GPU node an image that sets `NVIDIA_VISIBLE_DEVICES=all` (every CUDA base image)
+  sees every GPU of the node, outside the device plugin's accounting. Use the
+  runtime class only together with a request.
+
 ```yaml
 apiVersion: v1
 kind: Pod
