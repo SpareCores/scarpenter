@@ -442,7 +442,7 @@ func TestTailscaleArtifactsAndAuthKeyHash(t *testing.T) {
 	e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) {
 		nc.Spec.Network = v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateTailscale, Tailscale: &v1alpha1.TailscaleSpec{
 			Version: "v1.98.10", Tags: []string{"tag:k8s-node"},
-			AuthKeySecretRef: v1alpha1.SecretKeyRef{Name: "ts-node-key", Namespace: "scarpenter", Key: "authkey"},
+			AuthKeySecretRef: &v1alpha1.SecretKeyRef{Name: "ts-node-key", Namespace: "scarpenter", Key: "authkey"},
 		}}
 	}))
 	nc := e.reconcile(e.name)
@@ -827,7 +827,7 @@ func TestUnloadableInputsKeepTheHash(t *testing.T) {
 	e.refs.set("secret", "scarpenter", "ts-node-key", "authkey", "tskey-auth-EXAMPLE", "100")
 	e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) {
 		nc.Spec.Network = v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateTailscale, Tailscale: &v1alpha1.TailscaleSpec{
-			Version: "v1.98.10", AuthKeySecretRef: v1alpha1.SecretKeyRef{Name: "ts-node-key", Namespace: "scarpenter", Key: "authkey"},
+			Version: "v1.98.10", AuthKeySecretRef: &v1alpha1.SecretKeyRef{Name: "ts-node-key", Namespace: "scarpenter", Key: "authkey"},
 		}}
 	}))
 	hash := e.reconcile(e.name).Status.Vendors["aws"].Hash

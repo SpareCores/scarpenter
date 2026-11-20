@@ -554,7 +554,7 @@ func TestQ06SecretsThroughTheNamespacedRole(t *testing.T) {
 	tailscale := func(namespace, name string) nodeClassOpts {
 		return func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Network = v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateTailscale, Tailscale: &v1alpha1.TailscaleSpec{
-				Version: "v1.98.10", AuthKeySecretRef: v1alpha1.SecretKeyRef{Namespace: namespace, Name: name, Key: "key"},
+				Version: "v1.98.10", AuthKeySecretRef: &v1alpha1.SecretKeyRef{Namespace: namespace, Name: name, Key: "key"},
 			}}
 		}
 	}
@@ -774,7 +774,7 @@ func tailscaleNode(t *testing.T, name, key, loginServer string, overTailnet bool
 	createNodeClass(t, name, func(nc *v1alpha1.SCNodeClass) {
 		nc.Spec.Network = v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateTailscale, Tailscale: &v1alpha1.TailscaleSpec{
 			Version: "v1.98.10", LoginServer: loginServer,
-			AuthKeySecretRef: v1alpha1.SecretKeyRef{Namespace: ns, Name: name + "-auth-key", Key: "key"},
+			AuthKeySecretRef: &v1alpha1.SecretKeyRef{Namespace: ns, Name: name + "-auth-key", Key: "key"},
 		}}
 	})
 	createNodePool(t, name, name)
@@ -840,7 +840,7 @@ func TestQ10TailscaleTemplateWithoutATailnet(t *testing.T) {
 	createNodeClass(t, "q10", func(nc *v1alpha1.SCNodeClass) {
 		nc.Spec.Network = v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateTailscale, Tailscale: &v1alpha1.TailscaleSpec{
 			Version: "v1.98.10", LoginServer: "http://" + laneHost(t) + ":9",
-			AuthKeySecretRef: v1alpha1.SecretKeyRef{Namespace: ns, Name: "q10-auth-key", Key: "key"},
+			AuthKeySecretRef: &v1alpha1.SecretKeyRef{Namespace: ns, Name: "q10-auth-key", Key: "key"},
 		}}
 	})
 	createNodePool(t, "q10", "q10")

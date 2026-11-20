@@ -60,13 +60,15 @@ const (
 	ReasonReferenceNotFound   = "ReferenceNotFound"
 	ReasonReferenceUnreadable = "ReferenceUnreadable"
 	ReasonTemplateInvalid     = "TemplateInvalid"
-	ReasonClusterDNSUnknown   = "ClusterDNSUnknown"
-	ReasonVendorNotEnabled    = "VendorNotEnabled"
-	ReasonVendorInvalid       = "ValidationFailed"
-	ReasonUnknownRegions      = "UnknownRegions"
-	ReasonImagesNotReady      = "ImagesNotReady"
-	ReasonImagesFailed        = "ImageResolutionFailed"
-	ReasonImagesNotReported   = "NotReported"
+	// ReasonTailnetKeysNotConfigured: keySource PerNode without a usable backend.
+	ReasonTailnetKeysNotConfigured = "TailnetKeysNotConfigured"
+	ReasonClusterDNSUnknown        = "ClusterDNSUnknown"
+	ReasonVendorNotEnabled         = "VendorNotEnabled"
+	ReasonVendorInvalid            = "ValidationFailed"
+	ReasonUnknownRegions           = "UnknownRegions"
+	ReasonImagesNotReady           = "ImagesNotReady"
+	ReasonImagesFailed             = "ImageResolutionFailed"
+	ReasonImagesNotReported        = "NotReported"
 	// ReasonImagesPartial: some regions the NodeClass does not name have no image;
 	// their offerings are unavailable, the condition stays True.
 	ReasonImagesPartial        = "ImagesPartial"
@@ -133,7 +135,9 @@ type Options struct {
 	// SysextMirror says --sysext-base-url points at a mirror: the default source
 	// (GitHub releases) has no IPv6, so IPv6-only nodes need one.
 	SysextMirror bool
-	ImageGate    interface {
+	// Tailnet is the backend of per-node tailnet keys; the zero value is none.
+	Tailnet   TailnetOptions
+	ImageGate interface {
 		SetImageGaps(class, vendor string, gaps map[string]string)
 	}
 	// ServerVersion returns the API server's version, for example v1.37.1; nil
@@ -335,6 +339,10 @@ func (c *Controller) validate(
 	}
 	if err := c.checkSkew(ctx, desired); err != nil {
 		fail(ReasonVersionSkew, err)
+		return inputs, false
+	}
+	if err := c.checkTailnetKeys(desired); err != nil {
+		fail(ReasonTailnetKeysNotConfigured, err)
 		return inputs, false
 	}
 	inputs, err := bootstrap.LoadInputs(ctx, c.opts.Refs, desired)

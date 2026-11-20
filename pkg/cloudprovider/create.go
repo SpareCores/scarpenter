@@ -112,6 +112,11 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 	if err := checkNodeClassReady(nc); err != nil {
 		return nil, err
 	}
+	// The key manager that mints a node's key is not wired in yet.
+	if nc.Spec.Network.Tailscale.PerNode() {
+		return nil, cloudprovider.NewNodeClassNotReadyError(
+			errors.New("keySource PerNode is not implemented in the launch path yet"))
+	}
 
 	st.settings = newSettingsResolver(nc, c.opts.Registry)
 	claimReqs := scheduling.NewNodeSelectorRequirementsWithMinValues(nodeClaim.Spec.Requirements...)

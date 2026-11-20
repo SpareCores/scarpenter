@@ -242,7 +242,8 @@ type Inputs struct {
 	// UserButane is spec.butane.
 	UserButane string
 	// AuthKey is the tailscale auth key; AuthKeyVersion the resourceVersion of
-	// its Secret (the hash includes the version, never the key).
+	// its Secret (the hash includes the version, never the key). Both are empty
+	// with keySource PerNode: the launch brings the key of the node.
 	AuthKey        string
 	AuthKeyVersion string
 }
@@ -262,8 +263,9 @@ func LoadInputs(ctx context.Context, refs References, nc *v1alpha1.SCNodeClass) 
 			return in, fmt.Errorf("butane: %w", err)
 		}
 	}
-	if spec.Network.Template == v1alpha1.NetworkTemplateTailscale && spec.Network.Tailscale != nil {
-		if in.AuthKey, in.AuthKeyVersion, err = refs.SecretKey(ctx, spec.Network.Tailscale.AuthKeySecretRef); err != nil {
+	if ts := spec.Network.Tailscale; spec.Network.Template == v1alpha1.NetworkTemplateTailscale && ts != nil &&
+		!ts.PerNode() && ts.AuthKeySecretRef != nil {
+		if in.AuthKey, in.AuthKeyVersion, err = refs.SecretKey(ctx, *ts.AuthKeySecretRef); err != nil {
 			return in, fmt.Errorf("network.tailscale.authKeySecretRef: %w", err)
 		}
 	}

@@ -184,6 +184,10 @@ func (r *Renderer) Validate(ctx context.Context, nc *v1alpha1.SCNodeClass, arch 
 	return r.ValidateWith(ctx, nc, arch, in, nil)
 }
 
+// placeholderTailnetKey stands in for the per-node key in the trial renderings: 128
+// characters, against about 60 of a Tailscale key and 90 of a Headscale one.
+var placeholderTailnetKey = strings.Repeat("k", 128)
+
 // validationNodeIPCIDR stands in for the private network range of a launch in the
 // trial renderings: the longest text an IPv4 range has.
 const validationNodeIPCIDR = "255.255.255.255/32"
@@ -234,6 +238,11 @@ func (r *Renderer) ValidateWith(
 			return err
 		}
 		gpuNote = " and the NVIDIA driver"
+	}
+	if nc.Spec.Network.Tailscale.PerNode() {
+		// The key of a node is minted at its launch: size the rendering with a
+		// placeholder longer than any vendor's key.
+		p.Network.Tailscale.AuthKey = placeholderTailnetKey
 	}
 	if _, err = Render(p); err != nil {
 		return fmt.Errorf("the trial rendering (with a node IP range as on a vendor with a private network%s): %w",

@@ -8,12 +8,17 @@ package nodeclass_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/yaml"
 
+	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
@@ -183,5 +188,60 @@ func TestHashIsPinned(t *testing.T) {
 	const want = "b310824b670685c5120dd548c125c7f57792106140f6488b273a3a74332f9af5"
 	if got := hash(t, base(), "aws"); got != want {
 		t.Errorf("hash of the base NodeClass = %s, want %s", got, want)
+	}
+}
+
+// TestHashOfTheExamplesIsPinned pins the hash of every NodeClass of docs/examples
+// per vendor, with the inputs left empty: an API change that does not set a new
+// field must not drift the nodes of a stored NodeClass. Update the golden file only
+// when HashVersion is bumped on purpose.
+func TestHashOfTheExamplesIsPinned(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join(testutil.RepoRoot(), "docs", "examples", "*.yaml"))
+	if err != nil || len(files) < 4 {
+		t.Fatalf("expected the examples under docs/examples, got %v (err %v)", files, err)
+	}
+	var out strings.Builder
+	for _, f := range files {
+		data, err := os.ReadFile(f) //nolint:gosec // the repository's own examples
+		if err != nil {
+			t.Fatal(err)
+		}
+		nc := &v1alpha1.SCNodeClass{}
+		if err := yaml.UnmarshalStrict(data, nc); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		for _, vendor := range nc.Spec.Vendors.Names() {
+			fmt.Fprintf(&out, "%s %s %s\n", filepath.Base(f), vendor, hash(t, nc, vendor))
+		}
+	}
+	testutil.Golden(t, "example-hashes.txt", []byte(out.String()))
+}
+
+func tailscaleBase() *v1alpha1.SCNodeClass {
+	nc := base()
+	nc.Spec.Network = v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateTailscale, Tailscale: &v1alpha1.TailscaleSpec{
+		Version:          "v1.98.10",
+		AuthKeySecretRef: &v1alpha1.SecretKeyRef{Name: "ts", Namespace: "scarpenter", Key: "authkey"},
+		Tags:             []string{"tag:node"},
+	}}
+	return nc
+}
+
+// TestHashTreatsStaticAsUnset: writing the default keySource drifts nothing, and
+// switching to PerNode drifts the nodes once.
+func TestHashTreatsStaticAsUnset(t *testing.T) {
+	unset, static := tailscaleBase(), tailscaleBase()
+	static.Spec.Network.Tailscale.KeySource = v1alpha1.TailnetKeyStatic
+	if hash(t, unset, "aws") != hash(t, static, "aws") {
+		t.Error("an explicit keySource Static changes the hash")
+	}
+	if static.Spec.Network.Tailscale.KeySource != v1alpha1.TailnetKeyStatic {
+		t.Error("hashing changed the NodeClass")
+	}
+	perNode := tailscaleBase()
+	perNode.Spec.Network.Tailscale.KeySource = v1alpha1.TailnetKeyPerNode
+	perNode.Spec.Network.Tailscale.AuthKeySecretRef = nil
+	if hash(t, unset, "aws") == hash(t, perNode, "aws") {
+		t.Error("switching to keySource PerNode does not change the hash")
 	}
 }

@@ -59,6 +59,18 @@ func deprecatedHardening(nc *v1alpha1.SCNodeClass, vendor string) []string {
 	return slices.Compact(names)
 }
 
+// hashedNetwork is the network settings as the hash sees them: an explicit
+// keySource Static is the same as none, so that writing the default drifts
+// nothing (the field is omitempty, as is every NodeClass stored before it).
+func hashedNetwork(n v1alpha1.NetworkSpec) v1alpha1.NetworkSpec {
+	if ts := n.Tailscale; ts != nil && ts.KeySource == v1alpha1.TailnetKeyStatic {
+		c := *ts
+		c.KeySource = ""
+		n.Tailscale = &c
+	}
+	return n
+}
+
 // Hash is the drift hash of the NodeClass for one vendor: SHA-256 over the
 // canonical JSON of the shared fields that change what a node is (flatcar,
 // kubernetes, network, networking, kubelet, butane, sysexts, poweroffAfter,
@@ -92,6 +104,7 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 	if kubelet.MaxPods == nil && !kubelet.IsLean() {
 		kubelet.MaxPods = ptr.To[int32](bootstrap.DefaultMaxPods)
 	}
+	network := hashedNetwork(s.Network)
 	raw, err := json.Marshal(struct {
 		Version       string
 		Vendor        string
@@ -111,7 +124,7 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 		InstanceMetadata *v1alpha1.InstanceMetadataSpec `json:",omitempty"`
 		Block            map[string]any
 		Inputs           hashInputs
-	}{HashVersion, vendor, s.Flatcar, s.Kubernetes, s.Network, s.Networking, kubelet, s.Butane, s.Sysexts,
+	}{HashVersion, vendor, s.Flatcar, s.Kubernetes, network, s.Networking, kubelet, s.Butane, s.Sysexts,
 		s.PoweroffAfter, s.Tags, deprecatedHardening(nc, vendor), s.InstanceMetadata, generic, newHashInputs(in)})
 	if err != nil {
 		return "", fmt.Errorf("hashing the NodeClass: %w", err)

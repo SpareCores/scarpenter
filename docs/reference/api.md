@@ -202,17 +202,22 @@ configMapRef references the ConfigMap key holding the Butane template.
 
 tailscale configures the tailscale template.
 
+Validation: authKeySecretRef is required unless keySource is PerNode, and invalid with it (`has(self.keySource) && self.keySource == 'PerNode' ? !has(self.authKeySecretRef) : has(self.authKeySecretRef)`).
+
+Validation: tags must not be empty with keySource PerNode (`!(has(self.keySource) && self.keySource == 'PerNode') \|\| (has(self.tags) && size(self.tags) > 0)`).
+
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `acceptRoutes` | boolean | `false` | acceptRoutes makes nodes accept the subnet routes other tailnet members advertise (tailscale up --accept-routes), so workloads can reach addresses behind a subnet router, e.g. a control plane's private addresses. The flag runs on every boot. Changing it drifts nodes. |
-| `authKeySecretRef` (required) | [object](#specnetworktailscaleauthkeysecretref) |  | authKeySecretRef references the Secret key holding the auth key nodes join the tailnet with. |
-| `loginServer` | string |  | loginServer is the coordination server URL; empty means Tailscale SaaS, set it for Headscale. Pattern `^(https?://[^\s]+)?$`. |
-| `tags` | array of string |  | tags are the ACL tags nodes advertise. At most 16 items. Pattern `^tag:[a-zA-Z0-9][a-zA-Z0-9-]*$`. |
+| `authKeySecretRef` | [object](#specnetworktailscaleauthkeysecretref) |  | authKeySecretRef references the Secret key holding the auth key nodes join the tailnet with. Required with keySource Static, invalid with PerNode. |
+| `keySource` | string |  | keySource is Static (the default when unset: every node joins with the key of authKeySecretRef) or PerNode (the controller mints a single-use, pre-authorised, ephemeral key per node, tagged with tags). PerNode needs the controller's --tailnet-backend; switching to it drifts the nodes once. One of `Static`, `PerNode`. |
+| `loginServer` | string |  | loginServer is the coordination server URL; empty means Tailscale SaaS, set it for Headscale. With keySource PerNode it must match the controller's tailnet backend (empty for tailscale, --tailnet-api-url for headscale). Pattern `^(https?://[^\s]+)?$`. |
+| `tags` | array of string |  | tags are the ACL tags nodes advertise (and, with keySource PerNode, the tags of their keys; required then). At most 16 items. Pattern `^tag:[a-zA-Z0-9][a-zA-Z0-9-]*$`. |
 | `version` (required) | string |  | version of the Tailscale sysext, e.g. v1.98.10. Pattern `^v[0-9]+\.[0-9]+\.[0-9]+$`. |
 
 ### `spec.network.tailscale.authKeySecretRef`
 
-authKeySecretRef references the Secret key holding the auth key nodes join the tailnet with.
+authKeySecretRef references the Secret key holding the auth key nodes join the tailnet with. Required with keySource Static, invalid with PerNode.
 
 | Field | Type | Default | Description |
 |---|---|---|---|

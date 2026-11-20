@@ -64,7 +64,7 @@ func nodeClass(mutate func(*v1alpha1.SCNodeClass)) *v1alpha1.SCNodeClass {
 func tailscaleClass(nc *v1alpha1.SCNodeClass) {
 	nc.Spec.Network = v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateTailscale, Tailscale: &v1alpha1.TailscaleSpec{
 		Version: "v1.98.10", Tags: []string{"tag:k8s-node"},
-		AuthKeySecretRef: v1alpha1.SecretKeyRef{Name: "ts-node-key", Namespace: "scarpenter", Key: "authkey"},
+		AuthKeySecretRef: &v1alpha1.SecretKeyRef{Name: "ts-node-key", Namespace: "scarpenter", Key: "authkey"},
 	}}
 }
 
@@ -197,6 +197,33 @@ func TestRendererErrors(t *testing.T) {
 	noCA := bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: kubeRefs(t), APIServerEndpoint: "https://api.example.com:6443"})
 	if _, err := noCA.Render(t.Context(), req(nodeClass(nil), "amd64")); err == nil || !strings.Contains(err.Error(), "kube-root-ca.crt") {
 		t.Errorf("error = %v, want the CA to be named", err)
+	}
+}
+
+// A PerNode NodeClass has no Secret: the key of a node comes with its launch, and
+// the trial rendering is sized with a placeholder.
+func TestPerNodeKeyNeedsNoSecret(t *testing.T) {
+	perNode := func(nc *v1alpha1.SCNodeClass) {
+		tailscaleClass(nc)
+		nc.Spec.Network.Tailscale.AuthKeySecretRef = nil
+		nc.Spec.Network.Tailscale.KeySource = v1alpha1.TailnetKeyPerNode
+	}
+	in, err := bootstrap.LoadInputs(t.Context(), kubeRefs(t), nodeClass(perNode))
+	if err != nil || in != (bootstrap.Inputs{}) {
+		t.Fatalf("LoadInputs = %+v, %v; want nothing read for a PerNode NodeClass", in, err)
+	}
+	r := bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: kubeRefs(t), APIServerEndpoint: "https://api.example.com:6443"})
+	for _, arch := range []string{"amd64", "arm64"} {
+		if err := r.Validate(t.Context(), nodeClass(perNode), arch, in); err != nil {
+			t.Errorf("Validate(%s): %v", arch, err)
+		}
+	}
+	// A real rendering needs the key of the node.
+	real := bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: kubeRefs(t, rootCA()), APIServerEndpoint: "https://api.example.com:6443"})
+	_, err = real.Render(t.Context(), bootstrap.RenderRequest{NodeClass: nodeClass(perNode), Vendor: "aws", Region: "r",
+		Arch: "amd64", Token: testToken, NodeName: "n1", ProviderID: "scarpenter://aws/r/n1"})
+	if err == nil || !strings.Contains(err.Error(), "auth key is empty") {
+		t.Errorf("Render of a PerNode NodeClass without a key: %v, want the empty key refused", err)
 	}
 }
 
