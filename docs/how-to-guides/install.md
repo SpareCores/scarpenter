@@ -1,6 +1,7 @@
 # Install SCarpenter
 
-SCarpenter installs with one Helm chart, `oci://ghcr.io/sparecores/charts/scarpenter`.
+SCarpenter installs with one Helm chart, `oci://ghcr.io/sparecores/charts/scarpenter`
+(and a second, `scarpenter-crd`, that keeps the CRDs up to date: see [Upgrade](#upgrade)).
 This guide lists what the cluster needs first, the install, the values that
 matter, upgrades, and what an uninstall leaves behind. The values and flags
 one by one are in the [controller reference](../reference/controller.md#helm-values).
@@ -70,8 +71,21 @@ helm install scarpenter oci://ghcr.io/sparecores/charts/scarpenter \
   --set vendors.aws.credentials.webIdentity.roleArn=arn:aws:iam::123456789012:role/scarpenter-my-cluster
 ```
 
-The images and the chart are signed with cosign (keyless); the release notes of
-every version show the `cosign verify` command and attach the SBOMs.
+That is the one-step install: the chart's `crds/` directory creates the CRDs, and
+**Helm never upgrades them afterwards**. If you want Helm (or Argo CD, or an
+infrastructure tool) to keep the CRDs current, install the CRD chart first and skip
+the CRDs of the main chart; the same two commands upgrade both later (`scarpenter-crd` exists from 0.3.0, with the
+version of the `scarpenter` chart):
+
+```bash
+helm upgrade --install scarpenter-crd oci://ghcr.io/sparecores/charts/scarpenter-crd \
+  --version 0.3.0 --namespace scarpenter-system --create-namespace
+helm upgrade --install scarpenter oci://ghcr.io/sparecores/charts/scarpenter --skip-crds \
+  --version 0.3.0 --namespace scarpenter-system ...   # the values of the install above
+```
+
+The images and the charts are signed with cosign (keyless); the release notes of
+every version show the `cosign verify` commands and attach the SBOMs.
 
 Check the controller:
 
@@ -93,7 +107,9 @@ refuses to start on any problem of its command line and logs all of them.
   gates that are off, are not shipped). Helm installs them first, **skips CRDs
   that exist** and **never upgrades or deletes them** ([upgrade](#upgrade);
   [a cluster that already runs Karpenter](#a-cluster-that-already-runs-karpenter)).
-  `helm install --skip-crds` leaves them out.
+  `helm install --skip-crds` leaves them out. The chart `scarpenter-crd` has the
+  same files as templates, which `helm upgrade` does update (version always equal to
+  the `scarpenter` chart; `karpenterCore=false` leaves out Karpenter core's two).
 - A **Deployment** with one replica (leader election on, so a second replica is a
   warm standby; set `replicaCount: 2` for it), a read-only root file system, no
   privilege escalation, a non-root user and the `RuntimeDefault` seccomp profile;
@@ -142,7 +158,8 @@ whose `nodeClassRef` names a node class of its own provider. What you must do:
   them. They must be **at least the version of Karpenter core that SCarpenter
   links** (v1.15.1 for the 0.1 releases, see the release notes): an older schema
   prunes fields that SCarpenter's core writes. Upgrade them through the other
-  Karpenter's own chart (`karpenter-crd`), and **never apply this chart's
+  Karpenter's own chart (`karpenter-crd`), install `scarpenter-crd` with
+  `--set karpenterCore=false` (only the SCNodeClass CRD), and **never apply this chart's
   `karpenter.sh_*` files over them** (the [upgrade](#upgrade) step applies only the
   SCNodeClass CRD there). If you pass `--skip-crds` to be sure, it also leaves out
   the SCNodeClass CRD: apply `crds/scarpenter.sparecores.com_scnodeclasses.yaml` of
@@ -284,28 +301,17 @@ scnodeclass` shows `Ready=True`; otherwise `kubectl describe` names the conditio
 
 ## Upgrade
 
-```bash
-helm upgrade scarpenter oci://ghcr.io/sparecores/charts/scarpenter \
-  --version 0.2.0 --namespace scarpenter-system --reuse-values
-```
-
-Helm does not upgrade CRDs. Before an upgrade that changes the API (the release
-notes say so; `SCNodeClass` is `v1alpha1`), apply the SCNodeClass CRD of the new
-version:
+From 0.3.0 on, upgrade the **CRDs first, then the controller**: the controller of a new version
+writes fields that the old CRD silently prunes.
+Up to 0.2.0 there is no CRD chart: apply the CRD of the release as in
+[Without Helm for the CRDs](#without-helm-for-the-crds) before upgrading the controller.
 
 ```bash
-helm pull oci://ghcr.io/sparecores/charts/scarpenter --version 0.2.0 --untar
-kubectl apply --server-side -f scarpenter/crds/scarpenter.sparecores.com_scnodeclasses.yaml
+helm upgrade --install scarpenter-crd oci://ghcr.io/sparecores/charts/scarpenter-crd \
+  --version 0.3.0 --namespace scarpenter-system
+helm upgrade scarpenter oci://ghcr.io/sparecores/charts/scarpenter --skip-crds \
+  --version 0.3.0 --namespace scarpenter-system -f your-values.yaml
 ```
-
-Apply the two `karpenter.sh_*` files of the chart **only when SCarpenter is the
-only Karpenter in the cluster** and its chart created them (`kubectl get crd
-nodepools.karpenter.sh -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}'`
-prints nothing, and the CRD was not installed by another chart): then do the same
-with `scarpenter/crds/karpenter.sh_nodepools.yaml` and `..._nodeclaims.yaml`. On a
-cluster that runs another Karpenter they belong to it: applying core v1.15's schema
-over a newer one prunes fields, and over its own release's ownership produces
-conflicts that `--force-conflicts` would only paper over.
 
 Check `values.yaml` of the new version for values that were added (`--reuse-values`
 keeps your old ones and misses new defaults; prefer `-f your-values.yaml`). The
@@ -313,6 +319,73 @@ controller keeps no state outside the cluster and the vendor, so a restart loses
 nothing: instances are found again by their tags, resources are adopted by their
 names and ownership markers. Nodes keep running while the controller is down;
 nothing new launches and nothing is cleaned up.
+
+A skipped CRD upgrade does not fail loudly: the API server prunes the fields it
+does not know. That happened from 0.1.0 to 0.2.0, where `spec.kubelet.footprint` and
+`spec.instanceMetadata` vanished from NodeClasses (check with `kubectl get crd
+scnodeclasses.scarpenter.sparecores.com -o yaml | grep -c footprint`, which prints 0 on
+a stale CRD).
+
+### Moving CRDs installed by the main chart to `scarpenter-crd`
+
+CRDs that the `crds/` directory of the `scarpenter` chart created belong to no Helm
+release, so Helm refuses to take them into `scarpenter-crd`
+(`exists and cannot be imported into the current release`). Adopt them once, with
+Helm 3.17 or newer:
+
+```bash
+helm upgrade --install scarpenter-crd oci://ghcr.io/sparecores/charts/scarpenter-crd \
+  --version 0.3.0 --namespace scarpenter-system --take-ownership
+```
+
+or with any Helm, by giving the CRDs the metadata Helm checks, before that command
+(without `--take-ownership`). Name only the CRDs that exist; skip the two `karpenter.sh`
+CRDs if another Karpenter owns them, and install with `--set karpenterCore=false`:
+
+```bash
+for crd in scnodeclasses.scarpenter.sparecores.com nodepools.karpenter.sh nodeclaims.karpenter.sh; do
+  kubectl label crd "$crd" app.kubernetes.io/managed-by=Helm --overwrite
+  kubectl annotate crd "$crd" meta.helm.sh/release-name=scarpenter-crd \
+    meta.helm.sh/release-namespace=scarpenter-system --overwrite
+done
+```
+
+From then on `--skip-crds` on the `scarpenter` chart and the upgrade above are all
+there is. The CRDs carry `helm.sh/resource-policy: keep`: `helm uninstall
+scarpenter-crd` leaves them, and with them every object of the kinds.
+
+### Without Helm for the CRDs
+
+Apply the CRD of the release with server-side apply (client-side `kubectl apply`
+fails: the CRD is too large for the last-applied annotation):
+
+```bash
+kubectl apply --server-side -f https://github.com/SpareCores/scarpenter/releases/download/v0.3.0/scnodeclass-crd.yaml
+```
+
+`scnodeclass-crd.yaml` holds the SCNodeClass CRD only. Karpenter core's two are in
+`crds/` of the `scarpenter` chart package (also a release asset): apply them only when
+SCarpenter is the only Karpenter in the cluster and its chart created them. On a
+cluster that runs another Karpenter they belong to it, and applying core v1.15's
+schema over a newer one prunes fields.
+
+### NodeClasses created under a CRD older than 0.2.0
+
+The CRD of 0.1.0 defaulted `spec.kubelet.maxPods` to `110`, so the API server stored
+`maxPods: 110` on every NodeClass created under it, even when you never wrote it. From
+0.2.0 an unset `maxPods` means 110, or 10 with `footprint: Lean`; the stored `110` now
+looks like your own choice and **overrides the Lean preset**. After the CRD upgrade,
+remove it from the NodeClasses where it was only the old default and the Lean
+preset should apply:
+
+```bash
+kubectl get scnodeclass -o json | jq -r '.items[]
+  | select(.spec.kubelet.footprint == "Lean" and .spec.kubelet.maxPods == 110) | .metadata.name'
+kubectl patch scnodeclass <name> --type=json -p '[{"op": "remove", "path": "/spec/kubelet/maxPods"}]'
+```
+
+Keep a `maxPods: 110` that you did choose. Fields set after the CRD upgrade are not
+affected: nothing is defaulted any more.
 
 ## Uninstall
 
@@ -382,7 +455,7 @@ resources the names `scarpenter-<cluster>-...`); the bootstrap token Secrets in
 
 What an uninstall leaves behind:
 
-- the **CRDs** (Helm never deletes them) and with them every SCNodeClass and
+- the **CRDs** (Helm never deletes those of `crds/`, and those of `scarpenter-crd` carry `helm.sh/resource-policy: keep`) and with them every SCNodeClass and
   NodePool. Delete them yourself to remove the data:
   `kubectl delete crd scnodeclasses.scarpenter.sparecores.com`;
 - **Nodes** whose NodeClaims were not deleted first: the instances keep running
