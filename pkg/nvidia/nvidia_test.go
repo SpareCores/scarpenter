@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package nvidia_test
 
 import (
+	"regexp"
 	"slices"
 	"testing"
 
@@ -14,6 +15,11 @@ import (
 )
 
 const stable = "4757.2.3"
+
+var (
+	sha256Pattern         = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	runtimeVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+)
 
 func gpu(model string, count float64) nvidia.GPU {
 	return nvidia.GPU{Manufacturer: "NVIDIA", Model: model, Count: count, AMD64: true}
@@ -149,9 +155,26 @@ func TestReleaseEntries(t *testing.T) {
 			t.Errorf("%s: branches are not highest first", r.Version)
 		}
 		for _, b := range r.Branches {
-			if b.Version == "" || (!b.Open && !b.Proprietary) {
-				t.Errorf("%s: branch %d: %+v", r.Version, b.Number, b)
+			if b.Version == "" {
+				t.Errorf("%s: branch %d has no version", r.Version, b.Number)
 			}
+			for flavour, build := range map[string]nvidia.Build{"open": b.Open, "proprietary": b.Proprietary} {
+				// A half-pinned build would be a build that looks verified and is not.
+				if (build.RawSHA256 == "") != (build.PayloadSHA256 == "") {
+					t.Errorf("%s: branch %d %s: only one of the two pins is set", r.Version, b.Number, flavour)
+				}
+				for _, sum := range []string{build.RawSHA256, build.PayloadSHA256} {
+					if sum != "" && !sha256Pattern.MatchString(sum) {
+						t.Errorf("%s: branch %d %s: %q is not a sha256", r.Version, b.Number, flavour, sum)
+					}
+				}
+			}
+			if b.Open.RawSHA256 == "" && b.Proprietary.RawSHA256 == "" {
+				t.Errorf("%s: branch %d has no verified build", r.Version, b.Number)
+			}
+		}
+		if !runtimeVersionPattern.MatchString(r.RuntimeVersion) || !sha256Pattern.MatchString(r.RuntimeSHA256) {
+			t.Errorf("%s: the nvidia-runtime pin is %q %q", r.Version, r.RuntimeVersion, r.RuntimeSHA256)
 		}
 		got, ok := nvidia.LookupRelease(r.Version)
 		if !ok || got.Version != r.Version {
@@ -170,7 +193,7 @@ func TestStableBuilds535550And570(t *testing.T) {
 		t.Fatalf("branches = %+v", rel.Branches)
 	}
 	for _, b := range rel.Branches {
-		if want[b.Number] != b.Version || !b.Open || !b.Proprietary {
+		if want[b.Number] != b.Version || b.Open.RawSHA256 == "" || b.Proprietary.RawSHA256 == "" {
 			t.Errorf("branch %+v", b)
 		}
 	}
@@ -191,5 +214,64 @@ func TestModels(t *testing.T) {
 	}
 	if a, _ := nvidia.ModelArchitecture("L40S"); a != nvidia.Ada {
 		t.Errorf("L40S = %s", a)
+	}
+}
+
+// The selection carries what the node needs: the sysext name and the pins of
+// its image, and the runtime sysext.
+func TestSelectionCarriesTheSysextAndItsPins(t *testing.T) {
+	tests := []struct {
+		model, sysext, raw string
+	}{
+		{"T4", "nvidia-drivers-570-open", "bd02a246daced8f446fedd5d2d31e587adcfddca70b580ad379344f1e16fadc9"},
+		{"V100", "nvidia-drivers-570", "e190e7ec96167d2ffa6039e45a67675d7db3674c2160c33f68ead09d39e47b7a"},
+	}
+	for _, tc := range tests {
+		sel, reason := nvidia.Select(gpu(tc.model, 1), stable)
+		if reason != nvidia.Supported {
+			t.Fatalf("%s: dropped: %s", tc.model, reason)
+		}
+		if sel.Sysext != tc.sysext || sel.RawSHA256 != tc.raw || !sha256Pattern.MatchString(sel.PayloadSHA256) {
+			t.Errorf("%s: %+v", tc.model, sel)
+		}
+		if sel.RuntimeVersion != "v1.17.9" || sel.RuntimeSHA256 != "7863300dc49b353b75ff0bbc835b8651d791832316890e040aa4002a36bdffc3" {
+			t.Errorf("%s: runtime %s %s", tc.model, sel.RuntimeVersion, sel.RuntimeSHA256)
+		}
+	}
+}
+
+func TestFromLabelsRebuildsTheSelection(t *testing.T) {
+	want, _ := nvidia.Select(gpu("T4", 2), stable)
+	got, err := nvidia.FromLabels(stable, want.Branch, want.Version, want.Flavour, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want.Architecture = ""
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	for name, args := range map[string][]string{
+		"unknown release": {"4000.0.0", "570", "570.211.01", "open"},
+		"wrong version":   {stable, "570", "570.1.1", "open"},
+		"no 580":          {stable, "580", "580.178.04", "open"},
+		"wrong flavour":   {stable, "570", "570.211.01", "gold"},
+	} {
+		if _, err := nvidia.FromLabels(args[0], args[1], args[2], nvidia.Flavour(args[3]), 1); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
+func TestSelectionsAreDistinctPerSysext(t *testing.T) {
+	sels := nvidia.Selections(stable)
+	names := map[string]bool{}
+	for _, s := range sels {
+		names[s.Sysext] = true
+	}
+	if len(sels) != 2 || !names["nvidia-drivers-570-open"] || !names["nvidia-drivers-570"] {
+		t.Errorf("selections = %+v", sels)
+	}
+	if nvidia.Selections("4000.0.0") != nil {
+		t.Error("an unknown release has selections")
 	}
 }

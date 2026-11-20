@@ -35,6 +35,7 @@ The last column names the plan that introduced the flag.
 | `--catalog-max-age` | `SCARPENTER_CATALOG_MAX_AGE` | `24h` | Snapshot age after which SCNodeClasses report `CatalogReady=False`. Must not be shorter than the refresh interval. | plan 03 |
 | `--sysext-base-url` | `SCARPENTER_SYSEXT_BASE_URL` | empty (upstream) | Mirror of the Flatcar sysext-bakery releases: `<base>/<name>-<version>/...` as upstream. | plan 05 |
 | `--flatcar-base-url` | `SCARPENTER_FLATCAR_BASE_URL` | empty (upstream) | Mirror of the Flatcar release files (`<base>/<arch>-usr/<version>/...`; `{channel}` in the base is replaced by the channel). | plan 05 |
+| `--nvidia-driver-base-url` | `SCARPENTER_NVIDIA_DRIVER_BASE_URL` | empty (Flatcar's release server) | Mirror of the NVIDIA driver sysexts of the Flatcar releases: `<base>/amd64-usr/<version>/flatcar-nvidia-drivers-<branch>[-open].raw.gz`, built by `hack/nvidia-mirror.sh`. When set, GPU nodes get the image through Ignition (pinned by sha256) and download nothing from Flatcar's server. See [NVIDIA GPU nodes](node-bootstrap.md#nvidia-gpu-nodes). | plan 12 |
 | `--bootstrap-token-ttl` | `SCARPENTER_BOOTSTRAP_TOKEN_TTL` | `1h` | Lifetime of a node's bootstrap token; at least `20m`, because core gives a NodeClaim 15 minutes to register and the token must outlive that. | plan 05 |
 | `--max-launch-attempts` | `SCARPENTER_MAX_LAUNCH_ATTEMPTS` | `3` | Vendor calls one NodeClaim creation may make; candidates skipped for lack of quota headroom do not count. | plan 04 |
 | `--quota-refresh-interval` | `SCARPENTER_QUOTA_REFRESH_INTERVAL` | `2m` | How often quota usage is refreshed per vendor and region in scope. | plan 04 |
@@ -158,6 +159,7 @@ and that the controller's own parser accepts what the chart renders.
 | `keeper.cacheDir.sizeLimit` | `--keeper-cache-dir` | Size limit (default `256Mi`) of the `emptyDir` at `/var/cache/scarpenter/keeper`; the flag is always set. |
 | `catalog.refreshInterval`, `maxAge` | `--catalog-refresh-interval`, `--catalog-max-age` | |
 | `artifacts.sysextBaseURL`, `flatcarBaseURL` | `--sysext-base-url`, `--flatcar-base-url` | |
+| `nvidia.driverBaseURL` | `--nvidia-driver-base-url` | The mirror of the NVIDIA driver sysexts ([NVIDIA GPU nodes](node-bootstrap.md#nvidia-gpu-nodes)). |
 | `bootstrap.tokenTTL` | `--bootstrap-token-ttl` | At least 20m; the chart refuses less. |
 | `bootstrap.tailnetPrefixes` | `--tailnet-prefixes` | A list of CIDRs. |
 | `launch.maxAttempts` | `--max-launch-attempts` | |

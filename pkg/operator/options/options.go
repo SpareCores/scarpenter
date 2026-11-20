@@ -107,6 +107,9 @@ type Options struct {
 	// hosts; empty means upstream.
 	SysextBaseURL  string
 	FlatcarBaseURL string
+	// NVIDIADriverBaseURL is the mirror of the NVIDIA driver sysexts of Flatcar
+	// releases; empty means nodes download them from Flatcar's server.
+	NVIDIADriverBaseURL string
 	// BootstrapTokenTTL is the lifetime of a node's bootstrap token.
 	BootstrapTokenTTL time.Duration
 	// ClusterDNS are the cluster DNS service IPs and ClusterDomain the cluster
@@ -223,6 +226,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.CatalogMaxAge, "catalog-max-age", env.WithDefaultDuration("SCARPENTER_CATALOG_MAX_AGE", DefaultCatalogMaxAge), "Age of the last good catalog snapshot after which SCNodeClasses report CatalogReady=False.")
 	fs.StringVar(&o.SysextBaseURL, "sysext-base-url", env.WithDefaultString("SCARPENTER_SYSEXT_BASE_URL", ""), "Mirror of the Flatcar sysext-bakery releases. Empty means upstream.")
 	fs.StringVar(&o.FlatcarBaseURL, "flatcar-base-url", env.WithDefaultString("SCARPENTER_FLATCAR_BASE_URL", ""), "Mirror of the Flatcar release files. Empty means upstream.")
+	fs.StringVar(&o.NVIDIADriverBaseURL, "nvidia-driver-base-url", env.WithDefaultString("SCARPENTER_NVIDIA_DRIVER_BASE_URL", ""), "Mirror of the NVIDIA driver sysexts of the Flatcar releases: <base>/amd64-usr/<version>/flatcar-nvidia-drivers-<branch>[-open].raw.gz (hack/nvidia-mirror.sh builds the tree). Empty means GPU nodes download the driver from Flatcar's release server.")
 	fs.DurationVar(&o.BootstrapTokenTTL, "bootstrap-token-ttl", env.WithDefaultDuration("SCARPENTER_BOOTSTRAP_TOKEN_TTL", DefaultBootstrapTokenTTL), "Lifetime of a node's bootstrap token; at least 20m, because core gives a NodeClaim 15 minutes to register.")
 	fs.StringVar(&o.tailnetRaw, "tailnet-prefixes", env.WithDefaultString("SCARPENTER_TAILNET_PREFIXES", ""), "Comma-separated CIDRs of the tailnet (default 100.64.0.0/10 and fd7a:115c:a1e0::/48): with the tailscale template a serving certificate may name a node address only inside them (set it for a Headscale with other prefixes).")
 	fs.StringVar(&o.clusterDNSRaw, "cluster-dns", env.WithDefaultString("SCARPENTER_CLUSTER_DNS", ""), "Comma-separated IPs of the cluster DNS service, for the kubelet of the nodes (clusterDNS). Empty: the controller reads the ClusterIP of the DNS Service of kube-system (label k8s-app=kube-dns, else the Service kube-dns), and a NodeClass is not valid while it finds none. \"none\" leaves clusterDNS unset: Pods then use the node's resolver.")
@@ -301,7 +305,7 @@ func (o *Options) Validate() error {
 	if err := validateURL("--keeper-url", o.KeeperURL, "http", "https"); err != nil {
 		errs = append(errs, err)
 	}
-	for name, v := range map[string]string{"--sysext-base-url": o.SysextBaseURL, "--flatcar-base-url": o.FlatcarBaseURL} {
+	for name, v := range map[string]string{"--sysext-base-url": o.SysextBaseURL, "--flatcar-base-url": o.FlatcarBaseURL, "--nvidia-driver-base-url": o.NVIDIADriverBaseURL} {
 		if v == "" {
 			continue
 		}

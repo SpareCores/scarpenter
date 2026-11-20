@@ -392,6 +392,12 @@ artifacts:
   sysextBaseURL: ""
   flatcarBaseURL: ""
 
+nvidia:
+  # Mirror of the NVIDIA driver sysexts of the Flatcar releases
+  # (--nvidia-driver-base-url): <base>/amd64-usr/<version>/flatcar-nvidia-drivers-<branch>[-open].raw.gz,
+  # built by hack/nvidia-mirror.sh. Empty: GPU nodes download the driver from Flatcar's release server.
+  driverBaseURL: ""
+
 bootstrap:
   # Lifetime of a node's bootstrap token (--bootstrap-token-ttl; 1h). At least
   # 20m: core gives a NodeClaim 15 minutes to register.
