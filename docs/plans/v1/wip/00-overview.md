@@ -98,7 +98,8 @@ stays reserved).
 
 Deferred (designed for, not built in the plans so far): GPU sysexts (plan 12
 is optional and gated on the GPU spike),
-Headscale/Tailscale node cleanup through their APIs, per-node tailnet keys, a
+Headscale/Tailscale node cleanup through their APIs beyond the device deletion of
+per-node tailnet keys (plan 27), a
 NodeClass-level instance-type pre-filter (only if §5.7 measurements need it),
 the annotation shorthand for workloads (ADR-016), dedicated hosts, EFA,
 attaching existing volumes or snapshots, and changes to the Spare Cores data
@@ -824,8 +825,9 @@ primary address is the private one.)
 
 The tailscale auth key should be **ephemeral, pre-authorized and tagged**, and
 the tailnet ACL should limit the tag to what nodes need (API server, other
-nodes). In v1 one reusable key per NodeClass is used; per-node keys minted
-through the Tailscale/Headscale API are post-v1.
+nodes). The default is one reusable key per NodeClass (`keySource: Static`);
+`keySource: PerNode` has the controller mint a single-use, ephemeral key per node
+through the Tailscale or Headscale API (ADR-028, plan 27).
 
 ### 8.4 Artifacts
 
@@ -869,7 +871,8 @@ User-data is readable by anything that can query the instance metadata
 service and by principals with `ec2:DescribeInstanceAttribute`. Mitigations:
 the bootstrap token lives for at most an hour and is deleted at registration;
 the AWS driver requires IMDSv2 with a hop limit of 1 (Pods without host
-networking cannot reach IMDS); the tailscale key is ephemeral and tag-scoped;
+networking cannot reach IMDS); the tailscale key is ephemeral and tag-scoped
+(with `keySource: PerNode`: one key per node, single use, revoked at registration);
 nodes get no cloud credentials. Documented in the security section of the
 reference.
 
@@ -1271,7 +1274,7 @@ and refreshed only by its manually triggered workflow.
 | Q5 | Flatcar AMI names for arm64 and the LTS channel | plan 08 |
 | Q6 | KVM and bridge networking on GitHub-hosted runners: **decided 2026-11-07, pending three green runs** (plan 07): `ubuntu-latest` with KVM through the udev rule and the bridge in the privileged container's own network namespace; `.github/workflows/qemu.yml` is `continue-on-error` until three green `workflow_dispatch` runs under 20 minutes; self-hosted only as a fallback for schedule/dispatch, never for pull requests | plan 07 |
 | Q7 | Karpenter scheduling latency and memory with the full AWS catalog | plan 04 |
-| Q8 | Where Spare Cores' own deployment uses Headscale, the auth-key model (reusable vs. per node) | post-v1 |
+| Q8 | Where Spare Cores' own deployment uses Headscale, the auth-key model (reusable vs. per node): **decided 2026-11-20**, per node as an option (`keySource: PerNode`, ADR-028), the shared static key stays the default | plan 27 |
 | Q9 | Karpenter core re-evaluates pending pods when offerings become available without any cluster event (quota freed elsewhere in the account); if not, how SCarpenter triggers a new scheduling round | plan 04 |
 | Q10 | AWS quota codes, classes, defaults, family rule, API shapes, and the counting rules (custom CPU options, stopped instances, spot requests vs. instances): **verified 2026-11-05** (§11.8). Still from docs only: `stopping`/`shutting-down` (counted conservatively) and unused capacity reservations | plan 10 (real account), opportunistically |
 | Q11 | **Confirmed 2026-11-07** (plan 06, L3 scenario S13 with real core v1.15.1): Karpenter matches pod `Gt`/`Lt` against numeric instance-type and offering requirements, and `DoesNotExist` on a type excludes it for pods that require the key | plans 03, 06 (L3) |

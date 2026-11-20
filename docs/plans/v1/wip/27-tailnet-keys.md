@@ -260,7 +260,10 @@ to the node's own `tailscale up`, typically under two minutes, and it admits one
 
 ## 4. Steps (one agent each, each ending green)
 
-1. **API, configuration, ADR.** `keySource`, optional `authKeySecretRef`, the CEL rules and CRD tests; the hash
+1. **Done: API, configuration, ADR.** (Done: `keySource` and the optional `authKeySecretRef` with their CEL rules, the hash
+   normalisation and golden test of the example NodeClasses, the four flags and the chart values and schema, the
+   `TailnetKeysNotConfigured` check and the placeholder trial rendering, `Create` refusing `PerNode` with `NodeClassNotReady`,
+   ADR-028 and the docs. The step needed no backend interface, so none was defined.) `keySource`, optional `authKeySecretRef`, the CEL rules and CRD tests; the hash
    normalisation and a golden test that every stored example NodeClass keeps its hash; flags, chart values and schema,
    the mount; the NodeClass controller's `TailnetKeysNotConfigured` checks and the trial rendering with the
    placeholder (a `PerNode` NodeClass validates, nothing mints yet; Create refuses `PerNode` with `NodeClassNotReady`

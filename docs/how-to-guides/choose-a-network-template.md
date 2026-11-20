@@ -46,6 +46,21 @@ plane and how the control plane reaches the node's kubelet (for `kubectl logs`,
 Rotating the Secret (a new resourceVersion) drifts the nodes of the NodeClass
 (they are replaced); the key's value is not part of any hash.
 
+To give every node a key of its own instead, set `keySource: PerNode`, omit
+`authKeySecretRef` and run the controller with a tailnet backend
+([Per-node tailnet keys](../reference/node-bootstrap.md#per-node-tailnet-keys)):
+
+```yaml
+spec:
+  network:
+    template: tailscale
+    tailscale:
+      version: v1.98.10
+      loginServer: https://headscale.example.com   # must be the controller's --tailnet-api-url; "" with tailscale
+      keySource: PerNode
+      tags: [tag:k8s-node]                          # required
+```
+
 ## With `direct`
 
 ```yaml
