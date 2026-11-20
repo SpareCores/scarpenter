@@ -9,7 +9,9 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package chart
 
 import (
+	"compress/gzip"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,23 +101,13 @@ func helmTemplateCRDs(t *testing.T, args ...string) string {
 }
 
 // TestCRDUpgradeKeepsNewFields is the upgrade of the 0.1.0 -> 0.2.0 report: an
-// API server that has the CRD of an older release (no spec.kubelet.footprint, no
-// spec.instanceMetadata, the default maxPods: 110) gets the CRD that
-// scarpenter-crd renders, and a new NodeClass then keeps the new fields and no
-// stored maxPods. The old CRD is derived from the current one by removing
-// exactly those, so no old release has to be stored.
+// API server that has the SCNodeClass CRD of release 0.1.0 (stored in testdata:
+// no spec.kubelet.footprint, no spec.instanceMetadata, the default maxPods: 110)
+// gets the CRD that scarpenter-crd renders, and a new NodeClass then keeps the
+// new fields and no stored maxPods.
 func TestCRDUpgradeKeepsNewFields(t *testing.T) {
 	current := nodeClassCRDFromChart(t)
-	old := current.DeepCopy()
-	spec := old.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
-	delete(spec.Properties, "instanceMetadata")
-	kubelet := spec.Properties["kubelet"]
-	delete(kubelet.Properties, "footprint")
-	maxPods := kubelet.Properties["maxPods"]
-	maxPods.Default = &apiextensionsv1.JSON{Raw: []byte("110")}
-	kubelet.Properties["maxPods"] = maxPods
-	spec.Properties["kubelet"] = kubelet
-	old.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"] = spec
+	old := oldNodeClassCRD(t, filepath.Join("testdata", "scnodeclass-crd-v0.1.0.yaml.gz"))
 
 	env := &envtest.Environment{CRDs: []*apiextensionsv1.CustomResourceDefinition{old}}
 	cfg, err := env.Start()
@@ -163,10 +155,10 @@ func TestCRDUpgradeKeepsNewFields(t *testing.T) {
 	}
 	before := fetch("before")
 	if _, found, _ := unstructured.NestedString(before.Object, "spec", "kubelet", "footprint"); found {
-		t.Fatal("the simulated old CRD keeps spec.kubelet.footprint: the test does not model the problem")
+		t.Fatal("the old CRD keeps spec.kubelet.footprint: the test does not model the problem")
 	}
 	if v, _, _ := unstructured.NestedInt64(before.Object, "spec", "kubelet", "maxPods"); v != 110 {
-		t.Fatalf("the simulated old CRD does not default maxPods to 110: %v", before.Object["spec"])
+		t.Fatalf("the old CRD does not default maxPods to 110: %v", before.Object["spec"])
 	}
 
 	// The upgrade: the CRD of the chart replaces the stored one.
@@ -192,6 +184,32 @@ func TestCRDUpgradeKeepsNewFields(t *testing.T) {
 	if _, found, _ := unstructured.NestedFieldNoCopy(after.Object, "spec", "kubelet", "maxPods"); found {
 		t.Errorf("spec.kubelet.maxPods is stored although nobody set it: %v", after.Object["spec"])
 	}
+}
+
+// oldNodeClassCRD reads the gzipped SCNodeClass CRD of an earlier release.
+func oldNodeClassCRD(t *testing.T, path string) *apiextensionsv1.CustomResourceDefinition {
+	t.Helper()
+	f, err := os.Open(path) //nolint:gosec // repository file
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := yaml.Unmarshal(data, crd); err != nil {
+		t.Fatal(err)
+	}
+	if crd.Name != nodeClassCRD {
+		t.Fatalf("%s holds %s, want %s", path, crd.Name, nodeClassCRD)
+	}
+	return crd
 }
 
 // nodeClassCRDFromChart is the SCNodeClass CRD as scarpenter-crd renders it.
