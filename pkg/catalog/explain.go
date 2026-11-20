@@ -333,3 +333,18 @@ func requirementsKey(reqs scheduling.Requirements) string {
 	}
 	return b.String()
 }
+
+// forget drops what was logged for classes that no longer exist, with their
+// NodePools. (A deleted NodePool of a live class keeps a small entry.)
+func (l *offeredLog) forget(live map[string]*Class) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for scope := range l.gen {
+		class, _, _ := strings.Cut(scope, "/")
+		if _, ok := live[class]; !ok {
+			delete(l.gen, scope)
+			delete(l.inputs, scope)
+			delete(l.states, scope)
+		}
+	}
+}

@@ -188,6 +188,7 @@ func (c *Catalog) SetClasses(classes []Class) {
 	c.classes = m
 	snap := c.snap
 	c.mu.Unlock()
+	c.offered.forget(m)
 	if snap != nil {
 		snap.prune(classes)
 	}

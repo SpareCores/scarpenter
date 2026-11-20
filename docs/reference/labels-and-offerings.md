@@ -327,7 +327,6 @@ was given.
 
 | Code | Level | What removed it | Detail |
 |---|---|---|---|
-| `NotInCatalog` | server | Keeper status other than active or retiring, or an architecture other than `x86_64` and `arm64`; never listed per type | |
 | `NoPrice` | type | no active USD price above zero in scope | |
 | `RegionNotAllowed` | type | every price row is in a region the class does not allow, or an inactive one | the regions with a row |
 | `ZoneNotAvailable` | offering | a price row's zone is not one of the account's, Keeper marked it inactive, or the driver lists no zones for the region (facts not loaded yet, or the credentials cannot read it) | the zone ID, or the region |
@@ -342,10 +341,8 @@ was given.
 | `ZoneMissingResource` | offering | a required resource is missing in the zone | the zone |
 | `Unrankable` | offering | the NodePool pins a selection profile and the type has no score | the profile |
 | `VendorNotReady` | type | `GetInstanceTypes` leaves out the types of a vendor without `VendorReady` | the condition's reason |
-| `DriverNotEnabled`, `ProfileMismatch`, `SettingsFailed`, `IncompleteSettingsPrice` | offering | only Create decides these | |
 | `NodePoolRequirement` | type | **Explain only**: the type's requirements do not intersect the NodePool's, by core's rule | the first label key that fails |
 | `NodePoolPreFilter` | type, offering | the NodePool's requirement on architecture, instance type, region, zone or capacity type; safe to drop, core would too | the key |
-| `CatalogNotReady` | class | no snapshot, an unknown class, or a scope not refreshed | |
 
 `Unavailable*`, `QuotaGate`, the class gates and `Unrankable` are availability
 reasons, not removals: the type is returned, its offering has `Available=false`.

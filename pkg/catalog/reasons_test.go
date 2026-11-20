@@ -515,3 +515,19 @@ func TestABurstOfChangesIsLoggedPerReason(t *testing.T) {
 		t.Error("a type is not named")
 	}
 }
+
+// A deleted class is forgotten: when it comes back its first report is logged
+// again in full.
+func TestLogStateIsDroppedWithTheClass(t *testing.T) {
+	data := synthetic()
+	data.Servers = append(data.Servers, model.Server{Vendor: "v", ID: "9", APIReference: "unpriced", VCPUs: 1, Arch: "amd64"})
+	l := newLogCatalog(t, data)
+	l.query(t, catalog.Filter{})
+	if got := l.take(); len(got) != 1 {
+		t.Fatalf("first report: %q", got)
+	}
+	l.SetClasses(nil)
+	l.SetClasses([]catalog.Class{catalog.NewClass("c", catalog.Scope{"v": nil})})
+	l.query(t, catalog.Filter{})
+	wantLine(t, l.take(), `v.unpriced`)
+}

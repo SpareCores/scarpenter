@@ -14,9 +14,6 @@ type Code string
 
 // The reason codes. The GPU* codes are the nvidia.Reasons.
 const (
-	// NotInCatalog: Keeper's status or the architecture keeps a server out of
-	// the data; it is never listed per type.
-	NotInCatalog Code = "NotInCatalog"
 	// NoPrice: no active USD price above zero in scope.
 	NoPrice Code = "NoPrice"
 	// RegionNotAllowed: every price row is in a region the class does not allow.
@@ -48,21 +45,12 @@ const (
 	// VendorNotReady: GetInstanceTypes leaves out the types of a vendor that is
 	// not ready.
 	VendorNotReady Code = "VendorNotReady"
-	// DriverNotEnabled: no driver for the vendor (Create only).
-	DriverNotEnabled Code = "DriverNotEnabled"
 	// NodePoolRequirement: the type's requirements do not intersect the
 	// NodePool's (Explain with a NodePool only).
 	NodePoolRequirement Code = "NodePoolRequirement"
 	// NodePoolPreFilter: the NodePool's requirements on architecture, instance
 	// type, region, zone or capacity type exclude it.
 	NodePoolPreFilter Code = "NodePoolPreFilter"
-	// ProfileMismatch, SettingsFailed and IncompleteSettingsPrice happen at
-	// Create only.
-	ProfileMismatch         Code = "ProfileMismatch"
-	SettingsFailed          Code = "SettingsFailed"
-	IncompleteSettingsPrice Code = "IncompleteSettingsPrice"
-	// CatalogNotReady: no snapshot, unknown class, or the scope not refreshed.
-	CatalogNotReady Code = "CatalogNotReady"
 )
 
 // Reason is a code with the data the gate used. A detail is a quota bucket, a
