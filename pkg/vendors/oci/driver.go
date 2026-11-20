@@ -66,9 +66,14 @@ func WithTenancy(ocid string) Option { return func(d *Driver) { d.tenancy = ocid
 // DefaultCallTimeout. It applies to the adapter the driver builds itself.
 func WithCallTimeout(t time.Duration) Option { return func(d *Driver) { d.callTimeout = t } }
 
+// WithInterruptionPoll sets the time between two polls of a region for
+// preempted instances (--oci-interruption-poll); the default is
+// DefaultInterruptionPoll.
+func WithInterruptionPoll(t time.Duration) Option { return func(d *Driver) { d.interruptionPoll = t } }
+
 // Driver implements vendors.Driver and the capabilities QuotaReporter,
-// ImageReporter, NodeOptions, ManagedResources, ZoneChecker, NodeClassValidator
-// and InstanceMetadata.
+// ImageReporter, NodeOptions, ManagedResources, ZoneChecker, NodeClassValidator,
+// InstanceMetadata, InterruptionWindow and InterruptionPoller.
 type Driver struct {
 	cfg         vendors.Config
 	clock       clock.Clock
@@ -80,6 +85,8 @@ type Driver struct {
 	imageCompartment string
 	tenancy          string
 	callTimeout      time.Duration
+	// interruptionPoll is the interval of PollInterruptions; zero is the default.
+	interruptionPoll time.Duration
 	// epochID is random per process start; with the attempt counters it makes
 	// the retry tokens of launches.
 	epochID string
@@ -94,8 +101,11 @@ type Driver struct {
 	// for: the shapes that consume them have unknown quota.
 	noQuota  map[string]bool
 	attempts map[string]int
-	prices   keeperPrices
-	epoch    atomic.Uint64
+	// deleted holds the instances this driver terminated and when: their
+	// TERMINATING state is not a preemption (see PollInterruptions).
+	deleted map[vendors.InstanceRef]time.Time
+	prices  keeperPrices
+	epoch   atomic.Uint64
 	// images caches the resolved images (and the misses) by request; archs the
 	// architecture of an image that has no arch tag, read from its shape
 	// compatibility entries.
@@ -130,7 +140,8 @@ func New(opts ...Option) *Driver {
 		ads:         map[string]cached[[]availabilityDomain]{}, shapes: map[adKey]cached[map[string]*shapeInfo]{},
 		index: map[string]*shapeInfo{}, limits: map[string]cached[map[string]limitDef]{},
 		attempts: map[string]int{}, noQuota: map[string]bool{}, images: map[imageKey]cachedImage{},
-		archs: map[string]cachedArch{}, subnets: map[string]cached[subnetInfo]{},
+		deleted: map[vendors.InstanceRef]time.Time{},
+		archs:   map[string]cachedArch{}, subnets: map[string]cached[subnetInfo]{},
 	}
 	var b [6]byte
 	_, _ = rand.Read(b[:])

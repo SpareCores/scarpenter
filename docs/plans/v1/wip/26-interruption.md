@@ -252,6 +252,20 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
 3. **OCI.** Spike S1 (credentials from the coordinator), then the driver's `InterruptionPoller` on what S1 found (plus a
    `scarpenter_check` script when S1 finds an in-VM signal),
    its fake, conformance, the OCI reference; L5 scenario if S1 found a way to trigger a preemption (S1).
+   **Done** (unverified until the first real preemption in a real run). Maintainer decisions 2026-11-20: spike S1 is skipped (OCI cannot
+   simulate a preemption); OCI preemption is found by polling the OCI API; accepted for now that the poller sees a preemption only once the
+   instance is `STOPPING`, `STOPPED` or `TERMINATING`, with no lead time (the two-minute notice exists only as an OCI Events message); the next
+   step (not this one) is an in-VM instance metadata check, verified on the first real preemption. So OCI today: the reason is recorded, the
+   node is cleaned up fast, and there is no graceful drain window yet. What exists: one paged `ListInstances` of the compartment per region and
+   interval (`--oci-interruption-poll`, chart `vendors.oci.interruptionPoll`, 10 s; the SDK's `Instance` has no preemption field and no work
+   request or maintenance event is documented for one); a preemptible instance of the cluster in one of those states is a `SpotInterrupted`
+   notice without a deadline, except SCarpenter's own terminations (the driver remembers them for an hour in memory; the core poller skips a
+   NodeClaim with core's stored `InstanceTerminating` condition, which survives a restart); `NoticeWindow` 5 s to 2 min, so the controller's
+   deadline is now + 5 s and, with the 5 s margin, Pods are deleted at once with a 1 s grace; `GoneReason` `SpotInterrupted` for a preemptible
+   instance that is terminating or terminated; the fake's `Preempt(id)`; the conformance fixture launches preemptible instances in the fake
+   (the live lane is unchanged: on-demand, plus its existing preemptible probe); the how-to "Handle spot interruptions" and the OCI reference.
+   Deviation from section 4: no deadline "signal time + 120 s", only the state after the Events message is visible. No L5 scenario (no way to
+   trigger a preemption).
 4. **Node agent (core).** `InterruptionNotices` capability, `vendors.InterruptionAgent`, rendering for spot
    attempts only, the kubelet shutdown settings for spot, golden and size tests; the qemu driver implements the
    capability against a notice server the L4 harness runs on the host bridge, so L4 checks the real path: agent in
@@ -323,6 +337,11 @@ than OCI (core's GC is the backstop).
 
 All six open questions were answered by taking the recommendation. Also decided: OCI preemption is found by polling
 the OCI API (section 1).
+
+2026-11-20 (OCI, step 3): spike S1 is skipped; the poller sees a preemption only once the instance is `STOPPING`,
+`STOPPED` or `TERMINATING` (no lead time: the two-minute notice exists only as an OCI Events message), accepted for now:
+the reason is recorded and the node cleaned up fast, with no graceful drain window yet. The next step is an in-VM
+instance metadata check, verified on the first real preemption; decision 1 below applies to it instead of S1.
 
 1. **OCI in-VM signal.** Decided by the maintainer 2026-11-19: if S1 finds a preemption signal in the instance
    metadata, OCI uses the node agent for the lead time and the API poller stays as a backstop for `TERMINATING`

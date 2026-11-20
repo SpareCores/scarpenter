@@ -511,6 +511,9 @@
               "type": "string",
               "pattern": "^(ocid1\\.(compartment|tenancy)\\.[a-z0-9]+\\.[a-z0-9-]*\\.[a-z0-9]+)?$"
             },
+            "interruptionPoll": {
+              "$ref": "#/definitions/duration"
+            },
             "credentials": {
               "type": "object",
               "additionalProperties": false,

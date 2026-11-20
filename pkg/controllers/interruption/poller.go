@@ -207,7 +207,8 @@ func managed(claim *karpv1.NodeClaim) bool {
 }
 
 // report writes each pending notice to the Node of its NodeClaim and drops the
-// notices that are done: written, the Node has a notice already, or the
+// notices that are done: written, the Node has a notice already, the
+// NodeClaim's instance was deleted already (InstanceTerminating), or the
 // NodeClaim is not SCarpenter's (gone, or another cluster's instance).
 func (p *Poller) report(ctx context.Context, pending map[vendors.InstanceRef]vendors.Notice) error {
 	if len(pending) == 0 {
@@ -226,7 +227,12 @@ func (p *Poller) report(ctx context.Context, pending map[vendors.InstanceRef]ven
 	var firstErr error
 	for ref, n := range pending {
 		claim, ok := byRef[ref.String()]
-		if !ok {
+		// Core sets InstanceTerminating once a Delete of the instance went
+		// through: the drain is over, and a terminating instance is most likely
+		// SCarpenter's own delete. The condition is stored on the NodeClaim, so
+		// this holds after a restart, when a driver no longer remembers what it
+		// deleted.
+		if !ok || claim.StatusConditions().Get(karpv1.ConditionTypeInstanceTerminating).IsTrue() {
 			delete(pending, ref)
 			continue
 		}

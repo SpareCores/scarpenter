@@ -23,6 +23,9 @@ Available:
 - [**Reuse nodes within the billing period**](reuse-nodes-within-billing-period.md)
   (plan 23, ADR-024) — keep hourly-billed nodes until the period they paid for is
   about to end, and when that helps and where it stops.
+- [**Handle spot interruptions**](handle-spot-interruptions.md) (plan 26, ADR-027) —
+  what a workload sees when a vendor reclaims a spot or preemptible node, how to count
+  interruptions per instance type, and `terminationGracePeriodSeconds` against each vendor's notice.
 - [**Install SCarpenter**](install.md) (plan 09) — prerequisites (bootstrap-token
   auth, CNI and kube-proxy that work on remote nodes), the Helm install, the values
   that matter, the k3s kubelet client CA, upgrade, uninstall and what it leaves

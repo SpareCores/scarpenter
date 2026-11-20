@@ -249,6 +249,21 @@ func (c *Cloud) SetState(id string, state core.InstanceLifecycleStateEnum) bool 
 	return ok
 }
 
+// Preempt models OCI taking a preemptible instance away: the instance goes
+// TERMINATING (its state after the Events notice; the fake has no field for
+// the time of the preemption, like the API). It reports whether the instance
+// exists, is preemptible and is not gone yet.
+func (c *Cloud) Preempt(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	in, ok := c.instances[id]
+	if !ok || in.PreemptibleInstanceConfig == nil || in.LifecycleState == core.InstanceLifecycleStateTerminated {
+		return false
+	}
+	in.LifecycleState = core.InstanceLifecycleStateTerminating
+	return true
+}
+
 // Inject makes the next n calls of the operation (the method's name) fail with
 // err.
 func (c *Cloud) Inject(op string, err error, n int) {

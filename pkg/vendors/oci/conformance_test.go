@@ -97,9 +97,9 @@ func fixture(t *testing.T, kind vendors.ResourceKind) conformance.Fixture {
 	fx := conformance.Fixture{
 		New:    newDriver,
 		Region: testRegion, Zone: testZone, InstanceType: testType, MaxUserData: driver.MaxUserData,
-		StoresIdempotencyKey: true,
-		Now:                  time.Now,
-		InstanceTypes:        all, UnknownQuotaTypes: unknown,
+		StoresIdempotencyKey: true, CapacityType: vendors.CapacitySpot,
+		Now:           time.Now,
+		InstanceTypes: all, UnknownQuotaTypes: unknown,
 		Inject: func(t *testing.T, d vendors.Driver, class vendors.Class, _ vendors.CreateRequest) {
 			t.Helper()
 			envOf(t, d).c.Inject("LaunchInstance", injected[class], 1)
@@ -108,6 +108,12 @@ func fixture(t *testing.T, kind vendors.ResourceKind) conformance.Fixture {
 			t.Helper()
 			if !envOf(t, d).c.SetState(ref.ID(), core.InstanceLifecycleStateStopped) {
 				t.Fatalf("cannot stop %s", ref)
+			}
+		},
+		Interrupt: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef, _ time.Time) {
+			t.Helper()
+			if !envOf(t, d).c.Preempt(ref.ID()) {
+				t.Fatalf("cannot preempt %s", ref)
 			}
 		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
