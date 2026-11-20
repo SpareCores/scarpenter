@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -196,14 +197,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 				st.blocked[resourceKey(cand)+"/"+cand.zone] = true
 				continue
 			}
-			if vendors.IsPreLaunch(err) {
-				c.opts.Unavailable.MarkUnsupportedPreLaunch(cand.vendor, cand.typeName, cand.zone)
-			} else {
-				c.opts.Unavailable.MarkUnsupported(cand.vendor, cand.typeName, cand.zone)
-			}
-			// Create skips an offering with a live mark, so this is once per mark.
-			logger.Info("marked the offering unsupported", "type", cand.typeName, "zone", cand.zone,
-				"code", vendors.CodeOf(err), "preLaunch", vendors.IsPreLaunch(err))
+			c.markUnsupported(logger, cand, err)
 		case vendors.InvalidOffering:
 			c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 			c.publish(nc, EventOfferingRejected, fmt.Sprintf("%s in %s (%s) was rejected: %v",
@@ -694,4 +688,18 @@ func (c *CloudProvider) notReadyVendor(nc *v1alpha1.SCNodeClass, nodeClaim *karp
 		}
 	}
 	return notReady, reason
+}
+
+// markUnsupported marks the offering's type and zone unsupported: for minutes
+// when the driver's own pre-launch check found it, for a day when the vendor said
+// so. Create skips an offering with a live mark, so the line is once per mark.
+func (c *CloudProvider) markUnsupported(logger logr.Logger, cand *candidate, err error) {
+	preLaunch := vendors.IsPreLaunch(err)
+	if preLaunch {
+		c.opts.Unavailable.MarkUnsupportedPreLaunch(cand.vendor, cand.typeName, cand.zone)
+	} else {
+		c.opts.Unavailable.MarkUnsupported(cand.vendor, cand.typeName, cand.zone)
+	}
+	logger.Info("marked the offering unsupported", "type", cand.typeName, "zone", cand.zone,
+		"code", vendors.CodeOf(err), "preLaunch", preLaunch)
 }

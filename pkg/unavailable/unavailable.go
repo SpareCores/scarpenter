@@ -83,7 +83,9 @@ const (
 )
 
 func (c class) String() string {
-	return [...]string{"InsufficientCapacity", "Unsupported", "QuotaExceeded", "ZoneUnusable", "Interrupted", "InvalidOffering"}[c]
+	return [...]string{
+		"InsufficientCapacity", "Unsupported", "QuotaExceeded", "ZoneUnusable", "Interrupted", "InvalidOffering",
+	}[c]
 }
 
 // key identifies an entry; fields that a class does not use stay empty.

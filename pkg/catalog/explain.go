@@ -86,7 +86,9 @@ func reportOf(e evaluation, q Query) Report {
 	}
 	for _, ev := range e.types {
 		it := ev.bt.it
-		tr := TypeReport{Vendor: ev.vendor, InstanceType: it.Name, APIReference: ev.bt.server.APIReference, FitsRequests: true}
+		tr := TypeReport{
+			Vendor: ev.vendor, InstanceType: it.Name, APIReference: ev.bt.server.APIReference, FitsRequests: true,
+		}
 		if q.Requests != nil {
 			tr.FitsRequests = resources.Fits(q.Requests, it.Allocatable())
 		}

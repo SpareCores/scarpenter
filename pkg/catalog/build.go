@@ -152,23 +152,10 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 		}
 		name := InstanceTypeName(vendor, srv.APIReference)
 		set := c.offeringsOf(vd, srv, prices, regions, zonesByRegion, hasZones, regionPriced, class, vendor)
-		offs, removed := set.offerings, set.removed
-		if launchable != nil {
-			offs = slices.DeleteFunc(offs, func(o resolvedOffering) bool {
-				ok, known := launchable.Launchable(vendor, srv.APIReference, o.zone.ID)
-				if known && !ok {
-					removed = append(removed, offeringDrop{o.region.region.Name, o.zone.ID, o.capacityType,
-						Reason{NotLaunchable, o.zone.ID}})
-				}
-				return known && !ok
-			})
-		}
+		offs, removed := withoutUnlaunchable(vendor, srv, set, launchable)
 		if len(offs) == 0 {
-			if len(removed) == 0 {
-				drop(RegionNotAllowed, strings.Join(set.otherRegions, ","))
-			} else {
-				drop(NoOffering, string(dominant(removed)))
-			}
+			code, detail := emptyReason(set, removed)
+			drop(code, detail)
 			continue
 		}
 
@@ -373,6 +360,34 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 			strings.Compare(a.capacityType, b.capacityType))
 	})
 	return out
+}
+
+// withoutUnlaunchable removes the offerings the driver says cannot launch, and
+// returns what is left with everything removed so far.
+func withoutUnlaunchable(vendor string, srv *model.Server, set offeringSet, launchable LaunchableFacts,
+) ([]resolvedOffering, []offeringDrop) {
+	offs, removed := set.offerings, set.removed
+	if launchable == nil {
+		return offs, removed
+	}
+	offs = slices.DeleteFunc(offs, func(o resolvedOffering) bool {
+		ok, known := launchable.Launchable(vendor, srv.APIReference, o.zone.ID)
+		if known && !ok {
+			removed = append(removed, offeringDrop{o.region.region.Name, o.zone.ID, o.capacityType,
+				Reason{NotLaunchable, o.zone.ID}})
+		}
+		return known && !ok
+	})
+	return offs, removed
+}
+
+// emptyReason is why a type is left with no offering: every price row was in a
+// region the class does not use, or the dominant reason the offerings went.
+func emptyReason(set offeringSet, removed []offeringDrop) (Code, string) {
+	if len(removed) == 0 {
+		return RegionNotAllowed, strings.Join(set.otherRegions, ",")
+	}
+	return NoOffering, string(dominant(removed))
 }
 
 // dominant is the reason code most of the dropped offerings share; a tie goes

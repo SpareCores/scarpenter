@@ -313,7 +313,7 @@ func TestExplainAgreesWithInstanceTypes(t *testing.T) {
 				t.Fatal(err)
 			}
 			its := all(t, c, catalog.Filter{})
-			for i := 0; i < 40; i++ {
+			for range 40 {
 				it := its[rng.IntN(len(its))]
 				o := it.Offerings[rng.IntN(len(it.Offerings))]
 				if rng.IntN(2) == 0 {

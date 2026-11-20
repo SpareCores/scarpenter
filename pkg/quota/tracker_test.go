@@ -621,4 +621,4 @@ func TestMetrics(t *testing.T) {
 }
 
 // down drops the reason of a gate's answer.
-func down(_ catalog.Reason, unavailable bool) bool { return unavailable }
+func down(_ catalog.Reason, isDown bool) bool { return isDown }
