@@ -591,7 +591,8 @@ func TestTailnetBackend(t *testing.T) {
 		}
 	})
 	t.Run("none mounts nothing and sets no flag", func(t *testing.T) {
-		d := deployment(t, mustHelm(t, required...))
+		// A Secret named without a backend is not mounted either.
+		d := deployment(t, mustHelm(t, base...))
 		if args := strings.Join(d.Spec.Template.Spec.Containers[0].Args, " "); strings.Contains(args, "tailnet") && !strings.Contains(args, "tailnet-prefixes") {
 			t.Errorf("args %s", args)
 		}

@@ -468,9 +468,9 @@ tailnet:
   # Expiry of a minted key (--tailnet-key-ttl; 1h). At least 30m.
   keyTTL: ""
   credentials:
-    # Required with a backend. tailscale: an OAuth client (scopes auth_keys and
-    # devices:core) in clientIdKey and clientSecretKey; headscale: an API key in
-    # apiKeyKey (--tailnet-credentials-dir).
+    # Required with a backend, not mounted with none. tailscale: an OAuth client
+    # (scopes auth_keys and devices:core) in clientIdKey and clientSecretKey;
+    # headscale: an API key in apiKeyKey (--tailnet-credentials-dir).
     existingSecret: ""
     clientIdKey: client-id
     clientSecretKey: client-secret

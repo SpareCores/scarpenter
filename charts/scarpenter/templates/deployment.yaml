@@ -150,7 +150,7 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- if ne $kca "none" }}
 {{- $_ := set $flags "kubelet-client-ca-file" (printf "/etc/scarpenter/kubelet-client-ca/%s" (include "scarpenter.kubeletClientCAKey" .)) }}
 {{- end }}
-{{- if .Values.tailnet.credentials.existingSecret }}
+{{- if and (ne .Values.tailnet.backend "none") .Values.tailnet.credentials.existingSecret }}
 {{- $_ := set $flags "tailnet-credentials-dir" "/etc/scarpenter/tailnet" }}
 {{- end }}
 {{- if .Values.keeper.apiKey.existingSecret }}
@@ -460,7 +460,7 @@ spec:
               mountPath: /etc/scarpenter/kubelet-client-ca
               readOnly: true
             {{- end }}
-            {{- if .Values.tailnet.credentials.existingSecret }}
+            {{- if and (ne .Values.tailnet.backend "none") .Values.tailnet.credentials.existingSecret }}
             - name: tailnet-credentials
               mountPath: /etc/scarpenter/tailnet
               readOnly: true
@@ -574,7 +574,7 @@ spec:
         - name: keeper-cache
           emptyDir:
             sizeLimit: {{ .Values.keeper.cacheDir.sizeLimit | default "256Mi" | quote }}
-        {{- if .Values.tailnet.credentials.existingSecret }}
+        {{- if and (ne .Values.tailnet.backend "none") .Values.tailnet.credentials.existingSecret }}
         - name: tailnet-credentials
           secret:
             secretName: {{ .Values.tailnet.credentials.existingSecret | quote }}
