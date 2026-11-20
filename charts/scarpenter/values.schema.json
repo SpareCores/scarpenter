@@ -1310,6 +1310,104 @@
           ]
         }
       }
+    },
+    "tailnet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "none",
+            "tailscale",
+            "headscale"
+          ]
+        },
+        "apiURL": {
+          "type": "string",
+          "pattern": "^(https?://[^\\s]+)?$"
+        },
+        "keyTTL": {
+          "$ref": "#/definitions/duration"
+        },
+        "credentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string"
+            },
+            "clientIdKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "clientSecretKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "apiKeyKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "backend": {
+                "enum": [
+                  "tailscale",
+                  "headscale"
+                ]
+              }
+            },
+            "required": [
+              "backend"
+            ]
+          },
+          "then": {
+            "required": [
+              "credentials"
+            ],
+            "properties": {
+              "credentials": {
+                "required": [
+                  "existingSecret"
+                ],
+                "properties": {
+                  "existingSecret": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "backend": {
+                "const": "headscale"
+              }
+            },
+            "required": [
+              "backend"
+            ]
+          },
+          "then": {
+            "required": [
+              "apiURL"
+            ],
+            "properties": {
+              "apiURL": {
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

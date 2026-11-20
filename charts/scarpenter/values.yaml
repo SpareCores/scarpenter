@@ -452,6 +452,30 @@ bootstrap:
   # (--tailnet-prefixes); empty: Tailscale's 100.64.0.0/10 and fd7a:115c:a1e0::/48.
   tailnetPrefixes: []
 
+# Per-node tailnet auth keys (SCNodeClass network.tailscale.keySource PerNode):
+# the controller mints one single-use, ephemeral key per node through one backend.
+# A NodeClass's loginServer must match it (empty for tailscale, apiURL for
+# headscale). Credentials are mounted from an existing Secret in the release
+# namespace, into the controller only, and read at every call (rotate by updating
+# the Secret). A Headscale API key can administer the whole server.
+tailnet:
+  # none (PerNode NodeClasses are not valid), tailscale or headscale
+  # (--tailnet-backend).
+  backend: none
+  # --tailnet-api-url. tailscale: https://api.tailscale.com when empty.
+  # headscale: required, the server URL (Headscale 0.28 or newer).
+  apiURL: ""
+  # Expiry of a minted key (--tailnet-key-ttl; 1h). At least 30m.
+  keyTTL: ""
+  credentials:
+    # Required with a backend, not mounted with none. tailscale: an OAuth client
+    # (scopes auth_keys and devices:core) in clientIdKey and clientSecretKey;
+    # headscale: an API key in apiKeyKey (--tailnet-credentials-dir).
+    existingSecret: ""
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+    apiKeyKey: api-key
+
 launch:
   # Vendor calls one NodeClaim creation may make (--max-launch-attempts; 3).
   maxAttempts: null

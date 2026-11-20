@@ -233,6 +233,10 @@ func TestFullValuesReachTheController(t *testing.T) {
 		{"sysext base URL", o.SysextBaseURL, "https://mirror.example.com/sysext"},
 		{"Flatcar base URL", o.FlatcarBaseURL, "https://mirror.example.com/flatcar/{channel}"},
 		{"bootstrap token TTL", o.BootstrapTokenTTL, 45 * time.Minute},
+		{"tailnet backend", o.TailnetBackend, "headscale"},
+		{"tailnet API URL", o.TailnetAPIURL, "https://headscale.example.com"},
+		{"tailnet credentials dir", o.TailnetCredentialsDir, "/etc/scarpenter/tailnet"},
+		{"tailnet key TTL", o.TailnetKeyTTL, 45 * time.Minute},
 		{"tailnet prefixes", o.TailnetPrefixes, []string{"100.64.0.0/10", "10.1.0.0/16"}},
 		{"max launch attempts", o.MaxLaunchAttempts, 5},
 		{"quota refresh", o.QuotaRefreshInterval, 90 * time.Second},
@@ -555,6 +559,61 @@ func TestUpCloudCredentialModes(t *testing.T) {
 			t.Errorf("args %s", args)
 		}
 	})
+}
+
+// TestTailnetBackend checks the credentials mount of the per-node tailnet keys:
+// the files the controller reads, per backend, and the refusals of the schema.
+func TestTailnetBackend(t *testing.T) {
+	base := append(slices.Clone(required), "--set", "tailnet.credentials.existingSecret=creds")
+	files := func(t *testing.T, args ...string) []string {
+		t.Helper()
+		d := deployment(t, mustHelm(t, append(slices.Clone(base), args...)...))
+		var paths []string
+		for _, v := range d.Spec.Template.Spec.Volumes {
+			if v.Name == "tailnet-credentials" {
+				for _, it := range v.Secret.Items {
+					paths = append(paths, it.Key+">"+it.Path)
+				}
+			}
+		}
+		return paths
+	}
+	t.Run("tailscale", func(t *testing.T) {
+		got := files(t, "--set", "tailnet.backend=tailscale", "--set", "tailnet.credentials.clientIdKey=id")
+		if want := []string{"id>client-id", "client-secret>client-secret"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("files = %v, want %v", got, want)
+		}
+	})
+	t.Run("headscale", func(t *testing.T) {
+		got := files(t, "--set", "tailnet.backend=headscale", "--set", "tailnet.apiURL=https://hs.example.com")
+		if want := []string{"api-key>api-key"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("files = %v, want %v", got, want)
+		}
+	})
+	t.Run("none mounts nothing and sets no flag", func(t *testing.T) {
+		// A Secret named without a backend is not mounted either.
+		d := deployment(t, mustHelm(t, base...))
+		if args := strings.Join(d.Spec.Template.Spec.Containers[0].Args, " "); strings.Contains(args, "tailnet") && !strings.Contains(args, "tailnet-prefixes") {
+			t.Errorf("args %s", args)
+		}
+		for _, v := range d.Spec.Template.Spec.Volumes {
+			if v.Name == "tailnet-credentials" {
+				t.Errorf("volume %s mounted without a backend", v.Name)
+			}
+		}
+	})
+	for name, args := range map[string][]string{
+		"a backend without credentials":    {"--set", "tailnet.backend=tailscale"},
+		"headscale without a URL":          {"--set", "tailnet.backend=headscale", "--set", "tailnet.credentials.existingSecret=creds"},
+		"an unknown backend":               {"--set", "tailnet.backend=zerotier", "--set", "tailnet.credentials.existingSecret=creds"},
+		"a key TTL that is not a duration": {"--set", "tailnet.keyTTL=soon"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := helm(t, append(slices.Clone(required), args...)...); err == nil || !strings.Contains(err.Error(), "tailnet") {
+				t.Errorf("helm accepted %v: %v", args, err)
+			}
+		})
+	}
 }
 
 // TestRBACMatchesConfig is the drift check: the rules and bindings the chart

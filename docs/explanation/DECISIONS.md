@@ -1002,3 +1002,47 @@ Rejected:
   must survive until the node is gone needs a condition of its own.
 - **A TTL of three minutes like insufficient capacity** (AWS's cache): an interrupted type is likely to be reclaimed again
   soon, so it stays out of scheduling longer; the TTL is a flag.
+
+## ADR-028: Per-node tailnet keys: minted by the controller, one backend per controller, ephemeral (accepted, 2026-11-20)
+
+With the tailscale network template every node of a NodeClass carries the same reusable auth key, on its disk, in its
+user-data and in a Secret. ADR-025 keeps Pods away from the metadata service, but a leaked reusable key still lets anyone
+join the tailnet with the NodeClass's tags until it expires, and the first workload (benchmarks) runs untrusted code on
+nodes.
+
+**Decision.** `network.tailscale.keySource` is `Static` (the default when unset: today's shared key, no change to the
+rendering or the drift hash) or `PerNode`. With `PerNode` the controller mints one key per node when it launches it:
+single use, pre-authorised, tagged with the NodeClass's tags, **ephemeral** and expiring after `--tailnet-key-ttl` (1 h).
+The key is never stored in a Kubernetes object (the NodeClaim records its ID only), is present only in that node's
+user-data, is revoked once the node registered, and the node's tailnet device is deleted with its NodeClaim.
+
+- **The backend belongs to the controller, not to a NodeClass.** `--tailnet-backend` (`none`, `tailscale`, `headscale`),
+  `--tailnet-api-url` and `--tailnet-credentials-dir` are controller flags (chart values `tailnet.*`, credentials from one
+  mounted Secret). A NodeClass editor must never be able to send the controller's tailnet credentials to a URL of their
+  choosing, so a `PerNode` NodeClass whose `loginServer` does not match the backend (empty for `tailscale`, the API URL for
+  `headscale`) is invalid, as is one with no backend or no credentials directory. Validation calls no API; bad credentials
+  show at the first launch.
+- **Ephemeral, fixed, no field.** The coordination server removes an ephemeral device that stayed offline for a while,
+  which covers what the delete path misses (a controller that was down, a force-removed NodeClaim). The cost, a node cut off
+  for longer than the server's timeout cannot rejoin with its used key, is acceptable for job-sized nodes.
+- **No device sweeper.** Nothing on a device says it belongs to this cluster (tags may be shared with other clusters or
+  hosts), so a sweep could delete what is not SCarpenter's.
+- **Headscale 0.28 or newer only**: pre-auth keys are expired and deleted by ID, need no user, and tags are the node's
+  identity. A Headscale API key is not scoped and can administer the whole server: it lives in one Secret that is mounted
+  into the controller only.
+- The tailnet API is called with plain `net/http`, four calls per backend, behind one small interface; the controller needs
+  no new RBAC (the credentials are a mounted Secret).
+- The L5 lanes keep their static keys; the Tailscale backend is checked live at most once, in a test tailnet.
+
+Rejected:
+
+- **A backend, URL or credentials Secret on the NodeClass**: lets a NodeClass editor redirect the controller's credentials.
+- **Reusable keys with a short expiry**: the window is minutes either way, but a reusable key admits any number of devices.
+- **A field for ephemeral or the expiry**: more API for a choice the benchmark use case does not need; `ephemeral: false`
+  can be added later and changes the hash only when set.
+- **A cluster-wide credential check in the NodeClass controller**: an API call per reconcile; the first launch reports it.
+- **The Tailscale client library**: four calls do not justify the dependency.
+
+Consequences: a node's key stops being a long-lived secret, at the price of a tailnet API credential in the controller
+(stronger than the static key for Headscale) and an outage dependency on the tailnet API at launch (`Launched=Unknown`, retried
+by core; a tailnet outage never blocks a NodeClaim's termination). Plan 27.

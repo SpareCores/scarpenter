@@ -401,7 +401,7 @@
                 },
                 "authKeySecretRef": {
                   "additionalProperties": false,
-                  "description": "authKeySecretRef references the Secret key holding the auth key nodes\njoin the tailnet with.",
+                  "description": "authKeySecretRef references the Secret key holding the auth key nodes\njoin the tailnet with. Required with keySource Static, invalid with PerNode.",
                   "properties": {
                     "key": {
                       "maxLength": 253,
@@ -426,13 +426,21 @@
                   ],
                   "type": "object"
                 },
+                "keySource": {
+                  "description": "keySource is Static (the default when unset: every node joins with the key\nof authKeySecretRef) or PerNode (the controller mints a single-use,\npre-authorised, ephemeral key per node, tagged with tags). PerNode needs the\ncontroller's --tailnet-backend; switching to it drifts the nodes once.",
+                  "enum": [
+                    "Static",
+                    "PerNode"
+                  ],
+                  "type": "string"
+                },
                 "loginServer": {
-                  "description": "loginServer is the coordination server URL; empty means Tailscale SaaS,\nset it for Headscale.",
+                  "description": "loginServer is the coordination server URL; empty means Tailscale SaaS,\nset it for Headscale. With keySource PerNode it must match the controller's\ntailnet backend (empty for tailscale, --tailnet-api-url for headscale).",
                   "pattern": "^(https?://[^\\s]+)?$",
                   "type": "string"
                 },
                 "tags": {
-                  "description": "tags are the ACL tags nodes advertise.",
+                  "description": "tags are the ACL tags nodes advertise (and, with keySource PerNode, the tags\nof their keys; required then).",
                   "items": {
                     "pattern": "^tag:[a-zA-Z0-9][a-zA-Z0-9-]*$",
                     "type": "string"
@@ -448,7 +456,6 @@
                 }
               },
               "required": [
-                "authKeySecretRef",
                 "version"
               ],
               "type": "object"

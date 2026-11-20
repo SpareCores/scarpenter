@@ -130,7 +130,7 @@ func (e *env) class(name string, template v1alpha1.NetworkTemplateName) {
 	case v1alpha1.NetworkTemplateTailscale:
 		nc.Spec.Network.Tailscale = &v1alpha1.TailscaleSpec{
 			Version:          "v1.80.0",
-			AuthKeySecretRef: v1alpha1.SecretKeyRef{Name: "ts", Namespace: "default", Key: "key"},
+			AuthKeySecretRef: &v1alpha1.SecretKeyRef{Name: "ts", Namespace: "default", Key: "key"},
 		}
 	case v1alpha1.NetworkTemplateCustom:
 		nc.Spec.Network.Custom = &v1alpha1.CustomNetworkSpec{

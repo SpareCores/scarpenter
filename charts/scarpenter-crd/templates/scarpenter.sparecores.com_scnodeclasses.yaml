@@ -436,7 +436,7 @@ spec:
                       authKeySecretRef:
                         description: |-
                           authKeySecretRef references the Secret key holding the auth key nodes
-                          join the tailnet with.
+                          join the tailnet with. Required with keySource Static, invalid with PerNode.
                         properties:
                           key:
                             maxLength: 253
@@ -455,14 +455,27 @@ spec:
                         - name
                         - namespace
                         type: object
+                      keySource:
+                        description: |-
+                          keySource is Static (the default when unset: every node joins with the key
+                          of authKeySecretRef) or PerNode (the controller mints a single-use,
+                          pre-authorised, ephemeral key per node, tagged with tags). PerNode needs the
+                          controller's --tailnet-backend; switching to it drifts the nodes once.
+                        enum:
+                        - Static
+                        - PerNode
+                        type: string
                       loginServer:
                         description: |-
                           loginServer is the coordination server URL; empty means Tailscale SaaS,
-                          set it for Headscale.
+                          set it for Headscale. With keySource PerNode it must match the controller's
+                          tailnet backend (empty for tailscale, --tailnet-api-url for headscale).
                         pattern: ^(https?://[^\s]+)?$
                         type: string
                       tags:
-                        description: tags are the ACL tags nodes advertise.
+                        description: |-
+                          tags are the ACL tags nodes advertise (and, with keySource PerNode, the tags
+                          of their keys; required then).
                         items:
                           pattern: ^tag:[a-zA-Z0-9][a-zA-Z0-9-]*$
                           type: string
@@ -474,9 +487,16 @@ spec:
                         pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
                         type: string
                     required:
-                    - authKeySecretRef
                     - version
                     type: object
+                    x-kubernetes-validations:
+                    - message: authKeySecretRef is required unless keySource is PerNode,
+                        and invalid with it
+                      rule: 'has(self.keySource) && self.keySource == ''PerNode''
+                        ? !has(self.authKeySecretRef) : has(self.authKeySecretRef)'
+                    - message: tags must not be empty with keySource PerNode
+                      rule: '!(has(self.keySource) && self.keySource == ''PerNode'')
+                        || (has(self.tags) && size(self.tags) > 0)'
                   template:
                     description: |-
                       template: tailscale joins nodes through a tailnet, direct has nodes

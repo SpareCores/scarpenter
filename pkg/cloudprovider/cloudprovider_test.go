@@ -768,6 +768,18 @@ func TestCreateRequiresAReadyNodeClass(t *testing.T) {
 			t.Errorf("%d vendor calls for a NodeClass that is not ready", n)
 		}
 	})
+	// Until the launch mints a key per node, a PerNode NodeClass launches nothing.
+	t.Run("per-node tailnet keys are not launchable yet", func(t *testing.T) {
+		e := newEnv(t, envOptions{transform: func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Network = v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateTailscale, Tailscale: &v1alpha1.TailscaleSpec{
+				Version: "v1.98.10", KeySource: v1alpha1.TailnetKeyPerNode, Tags: []string{"tag:bench"},
+			}}
+		}})
+		_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+		if !karpcloudprovider.IsNodeClassNotReadyError(err) {
+			t.Errorf("Create error = %v, want NodeClassNotReady", err)
+		}
+	})
 	t.Run("vendor not ready", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		nc := &v1alpha1.SCNodeClass{}

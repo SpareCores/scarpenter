@@ -238,7 +238,23 @@ type NetworkSpec struct {
 	Custom *CustomNetworkSpec `json:"custom,omitempty"`
 }
 
+// TailnetKeySource says where the auth key of a node comes from.
+// +kubebuilder:validation:Enum=Static;PerNode
+type TailnetKeySource string
+
+// Tailnet key sources.
+const (
+	// TailnetKeyStatic: every node joins with the key of authKeySecretRef (the default).
+	TailnetKeyStatic TailnetKeySource = "Static"
+	// TailnetKeyPerNode: the controller mints one single-use, ephemeral key per
+	// node when it launches it, through the tailnet backend it is configured with
+	// (--tailnet-backend).
+	TailnetKeyPerNode TailnetKeySource = "PerNode"
+)
+
 // TailscaleSpec configures the tailscale network template.
+// +kubebuilder:validation:XValidation:rule="has(self.keySource) && self.keySource == 'PerNode' ? !has(self.authKeySecretRef) : has(self.authKeySecretRef)",message="authKeySecretRef is required unless keySource is PerNode, and invalid with it"
+// +kubebuilder:validation:XValidation:rule="!(has(self.keySource) && self.keySource == 'PerNode') || (has(self.tags) && size(self.tags) > 0)",message="tags must not be empty with keySource PerNode"
 type TailscaleSpec struct {
 	// version of the Tailscale sysext, e.g. v1.98.10.
 	// +kubebuilder:validation:Pattern=`^v[0-9]+\.[0-9]+\.[0-9]+$`
@@ -246,17 +262,26 @@ type TailscaleSpec struct {
 	Version string `json:"version"`
 
 	// loginServer is the coordination server URL; empty means Tailscale SaaS,
-	// set it for Headscale.
+	// set it for Headscale. With keySource PerNode it must match the controller's
+	// tailnet backend (empty for tailscale, --tailnet-api-url for headscale).
 	// +kubebuilder:validation:Pattern=`^(https?://[^\s]+)?$`
 	// +optional
 	LoginServer string `json:"loginServer,omitempty"`
 
-	// authKeySecretRef references the Secret key holding the auth key nodes
-	// join the tailnet with.
-	// +required
-	AuthKeySecretRef SecretKeyRef `json:"authKeySecretRef"`
+	// keySource is Static (the default when unset: every node joins with the key
+	// of authKeySecretRef) or PerNode (the controller mints a single-use,
+	// pre-authorised, ephemeral key per node, tagged with tags). PerNode needs the
+	// controller's --tailnet-backend; switching to it drifts the nodes once.
+	// +optional
+	KeySource TailnetKeySource `json:"keySource,omitempty"`
 
-	// tags are the ACL tags nodes advertise.
+	// authKeySecretRef references the Secret key holding the auth key nodes
+	// join the tailnet with. Required with keySource Static, invalid with PerNode.
+	// +optional
+	AuthKeySecretRef *SecretKeyRef `json:"authKeySecretRef,omitempty"`
+
+	// tags are the ACL tags nodes advertise (and, with keySource PerNode, the tags
+	// of their keys; required then).
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:items:Pattern=`^tag:[a-zA-Z0-9][a-zA-Z0-9-]*$`
 	// +listType=set
@@ -270,6 +295,11 @@ type TailscaleSpec struct {
 	// +kubebuilder:default=false
 	// +optional
 	AcceptRoutes bool `json:"acceptRoutes,omitempty"`
+}
+
+// PerNode reports whether the nodes get an auth key each (keySource PerNode).
+func (t *TailscaleSpec) PerNode() bool {
+	return t != nil && t.KeySource == TailnetKeyPerNode
 }
 
 // CustomNetworkSpec configures the custom network template.

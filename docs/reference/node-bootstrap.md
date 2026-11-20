@@ -329,6 +329,46 @@ compares them. What each renders:
   (`Prepared.NodeIPCIDR`, see below).
 - **`custom`**: your Butane template (below).
 
+### Per-node tailnet keys
+
+`network.tailscale.keySource` is `Static` (the default when unset: every node
+joins with the key of `authKeySecretRef`) or `PerNode`: the controller mints one
+key per node when it launches it. A per-node key is single use, pre-authorised,
+tagged with the NodeClass's `tags`, **ephemeral** (always, there is no field) and
+expires after `--tailnet-key-ttl` (1 h). It is in that node's user-data only, is
+revoked after the node registered, and the node's tailnet device is deleted with
+its NodeClaim. A key read after the node joined is worthless; a key read before it
+joined admits one device with the NodeClass's tags for at most the expiry.
+
+The rules of a `PerNode` NodeClass:
+
+- `authKeySecretRef` must be absent (it is required with `Static`), and `tags`
+  must not be empty: Tailscale requires tags on keys an OAuth client mints, and
+  tagged devices have no node key expiry.
+- The backend, its URL and its credentials belong to the **controller**, never to
+  a NodeClass (`--tailnet-backend`, `--tailnet-api-url`,
+  `--tailnet-credentials-dir`, [controller reference](controller.md)): a NodeClass
+  editor must not be able to send the controller's credentials to a URL of their
+  choosing. The NodeClass is `ValidationSucceeded=False`
+  (`TailnetKeysNotConfigured`) when the controller has no backend (`none`) or no
+  credentials directory, or when `loginServer` does not match the backend: empty
+  for `tailscale`, equal to `--tailnet-api-url` for `headscale` (scheme, host,
+  port and path; case of scheme and host, a default port and a trailing slash are
+  ignored; a URL with user information, a query, a fragment or a host that is not
+  ASCII never matches). Validation calls no API; bad credentials
+  show at the first launch.
+- Headscale 0.28 or newer only. A Headscale API key is not scoped: it can
+  administer the whole server, so it lives in one Secret that is mounted into the
+  controller only. A Tailscale OAuth client needs the scopes `auth_keys` (write)
+  and `devices:core` (write) and the NodeClass's tags.
+- Switching a NodeClass from `Static` to `PerNode` drifts its nodes once; writing
+  `keySource: Static` changes nothing. The trial rendering uses a 128-character
+  placeholder key, so the key needs no room beyond the [size budget](#size-budget)
+  as it is.
+
+A `PerNode` NodeClass validates, but the launch path does not mint keys yet:
+`Create` refuses it with `NodeClassNotReady` until it does.
+
 ### The node IP on a private network
 
 A node whose private network is a second interface next to the public one
@@ -536,7 +576,7 @@ writes the status with server-side apply under the field manager
 | Condition | `True` when | Reasons when not |
 |---|---|---|
 | `ArtifactsReady` | the sysexts of both architectures are resolved | `ReleaseNotFound`, `ResolutionFailed` |
-| `ValidationSucceeded` | kubelet quantities parse; the Kubernetes version is within the skew; the referenced ConfigMaps and the Secret exist; a trial rendering for both architectures succeeds within the budget | `InvalidKubeletSettings`, `KubernetesVersionNotSupported`, `ReferenceNotFound`, `ReferenceUnreadable`, `TemplateInvalid` |
+| `ValidationSucceeded` | kubelet quantities parse; the Kubernetes version is within the skew; a `PerNode` NodeClass matches the controller's tailnet backend; the referenced ConfigMaps and the Secret exist; a trial rendering for both architectures succeeds within the budget | `InvalidKubeletSettings`, `KubernetesVersionNotSupported`, `TailnetKeysNotConfigured`, `ReferenceNotFound`, `ReferenceUnreadable`, `TemplateInvalid` |
 | `CatalogReady` | the catalog covers the NodeClass and is not stale | the catalog's: `NoSnapshot`, `ScopePending`, `Stale`, `UnknownClass` |
 | `Ready` | all three above | derived |
 | `RestartRequired` | (set only when) metric labels were added after start-up | `MetricLabelsNotRegistered` |

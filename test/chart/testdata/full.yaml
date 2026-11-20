@@ -810,6 +810,10 @@ spec:
             - "--resource-full-sweep-every=20"
             - "--resource-per-use-grace=3m"
             - "--sysext-base-url=https://mirror.example.com/sysext"
+            - "--tailnet-api-url=https://headscale.example.com"
+            - "--tailnet-backend=headscale"
+            - "--tailnet-credentials-dir=/etc/scarpenter/tailnet"
+            - "--tailnet-key-ttl=45m"
             - "--tailnet-prefixes=100.64.0.0/10,10.1.0.0/16"
             - "--terminating-grace=15m"
             - "--unavailable-insufficient-capacity-ttl=4m"
@@ -893,6 +897,9 @@ spec:
             - name: kubelet-client-ca
               mountPath: /etc/scarpenter/kubelet-client-ca
               readOnly: true
+            - name: tailnet-credentials
+              mountPath: /etc/scarpenter/tailnet
+              readOnly: true
             - name: keeper-api-key
               mountPath: /etc/scarpenter/keeper
               readOnly: true
@@ -921,6 +928,11 @@ spec:
         - name: keeper-cache
           emptyDir:
             sizeLimit: "512Mi"
+        - name: tailnet-credentials
+          secret:
+            secretName: "tailnet-creds"
+            items:
+              - {key: "headscale-key", path: api-key}
         - name: keeper-api-key
           secret:
             secretName: "keeper-key"
