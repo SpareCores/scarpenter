@@ -227,7 +227,9 @@ func (c *Catalog) LogNodePool(ctx context.Context, class, nodePool string, reqs 
 func (c *Catalog) logChanges(ctx context.Context, snap *snapshot, class *Class, gen, nodePool string, q Query,
 	only func(Code) bool) {
 	logger := log.FromContext(ctx)
-	if !logger.V(1).Enabled() {
+	// Before the facts load every offering is "ZoneNotAvailable": not a state to
+	// log. The load changes the facts epoch, so the first report follows it.
+	if !logger.V(1).Enabled() || !c.FactsLoaded() {
 		return
 	}
 	if nodePool != "" {
