@@ -124,7 +124,13 @@ func classify(err error, kind callKind) error {
 		return vendors.NewError(vendors.Retryable, codeCanceled, err)
 	}
 	if se, ok := serviceError(err); ok {
-		return classifyService(se.GetHTTPStatusCode(), se.GetCode(), se.GetMessage(), kind, err)
+		cause := err
+		if kind == kindLaunch {
+			// The message and the request id (what OCI support asks for) let a capacity
+			// classification be confirmed from the logs; the SDK's own text is long.
+			cause = fmt.Errorf("%w (OCI message: %q, opc-request-id: %s)", err, se.GetMessage(), se.GetOpcRequestID())
+		}
+		return classifyService(se.GetHTTPStatusCode(), se.GetCode(), se.GetMessage(), kind, cause)
 	}
 	if _, ok := errors.AsType[net.Error](err); ok {
 		return vendors.NewError(vendors.Retryable, codeTransport, err)

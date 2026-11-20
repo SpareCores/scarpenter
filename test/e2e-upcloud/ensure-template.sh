@@ -4,8 +4,12 @@
 # the STARTER plans), imported from the images repository when it is missing. The
 # lane's preflight and the driver need it (docs/how-to-guides/set-up-upcloud.md section 1).
 #
-# Idempotent: a template with the labels of defaults.sh (and scarpenter-use=true, which keeps
-# the sweeper off it, and scarpenter-lane=ci, which marks it as the lane's own) in the zone ends the script at once. Otherwise: download the release's
+# Idempotent: a template with the labels of defaults.sh (and scarpenter-lane=ci, which marks it
+# as the lane's own) in the zone ends the script at once. The lane's templates never carry the
+# generic discovery label scarpenter-use=true: an operator's untagged selector in the shared
+# account would find them too (ImageAmbiguous). The script removes that label from the lane's
+# templates labelled so by an earlier version, and touches no template without the lane label.
+# Otherwise: download the release's
 # image and SHA256SUMS, check the hash, create a 10 GB MaxIOPS storage, upload the image
 # (direct_upload: UpCloud decompresses it), templatize, label, and delete the source
 # storage (it is billed until deleted, and goes on failure too).
@@ -29,7 +33,7 @@ image_file="flatcar-upcloud-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64.
 template_labels() {
   jq -nc --arg c "${E2E_FLATCAR_CHANNEL}" --arg v "${E2E_FLATCAR_VERSION}" --arg t "${tier}" \
     '[{key: "scarpenter-image", value: "flatcar"}, {key: "flatcar-channel", value: $c}, {key: "flatcar-version", value: $v},
-      {key: "flatcar-arch", value: "amd64"}, {key: "flatcar-tier", value: $t}, {key: "scarpenter-use", value: "true"},
+      {key: "flatcar-arch", value: "amd64"}, {key: "flatcar-tier", value: $t},
       {key: "scarpenter-lane", value: "ci"}]'
 }
 
@@ -40,6 +44,27 @@ matching_templates() {
     '.storages.storage[]? | select(.type == "template" and .zone == $z)
       | select(. as $s | all($want[]; . as $w | ($s.labels | if type == "array" then . else (.label // []) end) | any(.key == $w.key and .value == $w.value)))
       | .uuid'
+}
+
+# use_labelled_templates: stdin is the private storage list; prints "<uuid> <labels without
+# scarpenter-use as the request spells them>" for each template that carries both
+# scarpenter-lane=ci and scarpenter-use (any value).
+use_labelled_templates() {
+  jq -r '.storages.storage[]? | select(.type == "template")
+    | (.labels | if type == "array" then . else (.label // []) end) as $l
+    | select(any($l[]; .key == "scarpenter-lane" and .value == "ci") and any($l[]; .key == "scarpenter-use"))
+    | "\(.uuid) \([$l[] | select(.key != "scarpenter-use")] | tojson)"'
+}
+
+# drop_use_label: removes scarpenter-use from the lane's existing templates (a PUT of the labels
+# without it; a template without the lane label is never listed, so never touched).
+drop_use_label() {
+  local uuid labels
+  while read -r uuid labels; do
+    [[ -n "${uuid}" ]] || continue
+    note "removing scarpenter-use from the lane's template ${uuid}"
+    up_json PUT "/storage/${uuid}" "$(jq -nc --argjson l "${labels}" '{storage: {labels: $l}}')" >/dev/null
+  done < <(up GET "/storage/private?label=scarpenter-lane=ci" | use_labelled_templates)
 }
 
 # existing_templates: the matching templates of the zone now.
@@ -145,6 +170,7 @@ ensure_tier() {
 
 main() {
   need UPCLOUD_TOKEN UPCLOUD_ZONE E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION
+  drop_use_label
   for tier in maxiops standard; do ensure_tier; done
 }
 

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -96,6 +97,27 @@ func TestClassify(t *testing.T) {
 				t.Errorf("code %q, want %q", code, tc.code)
 			}
 		})
+	}
+}
+
+// TestClassifyLaunchKeepsOCIDetails: a classified launch error carries OCI's message and
+// opc-request-id, so a capacity classification can be confirmed from the logs; the
+// calls that only read do not repeat them.
+func TestClassifyLaunchKeepsOCIDetails(t *testing.T) {
+	err := classify(fake.Error(500, "InternalError", "Out of host capacity."), kindLaunch)
+	if got := vendors.ClassOf(err); got != vendors.InsufficientCapacity {
+		t.Fatalf("classified %q, want InsufficientCapacity", got)
+	}
+	for _, want := range []string{"Out of host capacity.", "opc-request-id: fake-request-id"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%q does not contain %q", err.Error(), want)
+		}
+	}
+	if _, ok := serviceError(err); !ok {
+		t.Error("the service error is no longer in the chain")
+	}
+	if strings.Contains(classify(fake.Error(500, "InternalError", "oops"), kindRead).Error(), "opc-request-id") {
+		t.Error("a read error carries the launch detail")
 	}
 }
 

@@ -51,6 +51,11 @@ templates instead, set `vendors.upcloud.resources.images.use` (both tiers may go
 [the bring-your-own example](../examples/upcloud-bring-your-own.yaml)); the chosen template's labels must
 still say the pinned release.
 
+In an account shared with other users of SCarpenter (for example a CI lane that labels its templates for
+itself), do not rely on the generic `scarpenter-use=true` label: select your production templates by a label
+specific to you, such as `resources.images.use.tags: {my-team-image: prod, flatcar-version: <version>}`, so
+that templates of others never match your selector.
+
 To upgrade Flatcar, import the new release's templates everywhere first, then change
 `spec.flatcar.version` (the nodes drift); keep the old templates until no NodeClass pins them.
 
