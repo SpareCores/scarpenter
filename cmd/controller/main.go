@@ -42,5 +42,6 @@ func main() {
 	op.WithCoreControllers(ctx, cp)
 	lo.Must0(op.WithRetentionControllers(ctx, components, cp), "registering the billing retention controllers")
 	lo.Must0(op.WithInterruptionControllers(components), "registering the interruption controller")
+	op.WarmCatalog(ctx, components.Catalog, operator.CatalogWarmTimeout)
 	op.Start(ctx)
 }

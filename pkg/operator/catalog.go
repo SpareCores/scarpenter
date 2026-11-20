@@ -7,15 +7,19 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package operator
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	keeper "github.com/SpareCores/sc-keeper-go"
 
 	"github.com/SpareCores/scarpenter/internal/version"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/static"
 	"github.com/SpareCores/scarpenter/pkg/controllers/catalogsync"
@@ -69,6 +73,46 @@ func (o *Operator) WithCatalog(
 		return nil, fmt.Errorf("registering the catalog controller: %w", err)
 	}
 	return cat, nil
+}
+
+// CatalogWarmTimeout bounds WarmCatalog; the liveness probe starts to count
+// after 15 s plus its period, so the manager is up well before it gives up.
+const CatalogWarmTimeout = 30 * time.Second
+
+// WarmCatalog loads the catalog once, before the manager starts: it reads the
+// existing SCNodeClasses without the manager's cache and refreshes the catalog
+// for them. Karpenter core prices the existing NodeClaims with GetInstanceTypes
+// as soon as its controllers start; without this the catalog is still empty
+// then (it waits for the catalog-sync controller and a refresh) and core logs
+// "offering price unknown" for every NodeClaim. When Keeper does not answer
+// within the timeout, it logs a warning and returns: the manager starts anyway
+// and the catalog's own refresh loop keeps trying.
+func (o *Operator) WarmCatalog(ctx context.Context, cat *catalog.Catalog, timeout time.Duration) {
+	logger := log.FromContext(ctx).WithName("catalog")
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var list v1alpha1.SCNodeClassList
+	if err := o.GetAPIReader().List(ctx, &list); err != nil {
+		logger.Error(err, "listing the SCNodeClasses to warm the catalog, starting without a loaded catalog")
+		return
+	}
+	classes := make([]catalog.Class, 0, len(list.Items))
+	for i := range list.Items {
+		if !list.Items[i].DeletionTimestamp.IsZero() {
+			continue
+		}
+		// An invalid class is left out here as the catalog-sync controller does.
+		if class, err := catalog.ClassFromNodeClass(&list.Items[i]); err == nil {
+			classes = append(classes, class)
+		}
+	}
+	cat.SetClasses(classes)
+	if err := cat.Refresh(ctx); err != nil {
+		logger.Error(err, "the catalog did not load before the start, starting anyway",
+			"timeout", timeout.String())
+		return
+	}
+	logger.Info("catalog loaded before the start", "nodeClasses", len(classes))
 }
 
 // keeperClient is the Keeper client the drivers get (the fake driver reads its
