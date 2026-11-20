@@ -179,8 +179,14 @@ quota metrics and a static read say they are offered.
 **Ruled out: the unavailable cache.** The cache is in memory and only Create marks `Unsupported`, `QuotaExceeded`,
 `InsufficientCapacity` and `ZoneUnusable` (`create.go:196`, `:209`, `:211`, `:293`, `:296`); the only other writer is
 the interruption controller, for spot offerings (`interruption/controller.go:343`, `gone.go:67`). Without a Create in
-the controller's lifetime there is no entry, so the earlier hypothesis (a 24 hour `Unsupported` mark from the OCI
-driver's pre-launch shape check) cannot explain this incident.
+the controller's lifetime there is no entry, so the 24 hour `Unsupported` mark from the OCI driver's pre-launch shape
+check cannot explain this incident.
+
+**Ruled out: the capacity type.** Checked live: the bench class's anchor allows both capacity types, and other
+on-demand-only types launch from the same class and regions, so a spot or capacity-type mismatch is not the cause.
+
+**The cause is unknown.** That is why step 1 exists: it names every class-level reason in the log, and step 2's
+`Explain` shows the NodePool-dependent ones.
 
 **What the message allows** (section 2): the pinned type was not returned, was returned with no available offering
 compatible with the NodePool, or does not match the pod's or the NodePool's requirements; not a resource misfit.
@@ -210,7 +216,7 @@ full listing (step 4). Step 6 settles which one it is.
 Independent of this incident, **marking `Unsupported` for 24 hours on a driver's pre-launch check is questionable**
 (`pkg/vendors/oci/shapes.go:111`: `ShapeNotInAvailabilityDomain`, `ExtendedMemoryUnsupported`; `create.go:209`,
 `unavailable.go:30`): the check makes no cloud call and is deterministic per shape table and AD, so retrying it costs
-nothing, but an AD table read while a region was briefly unreadable blocks the type for a day, silently. Decision 5.
+nothing, but an AD table read while a region was briefly unreadable blocks the type for a day, silently. Decision 5 shortens it.
 
 ## 6. Steps (one agent each, each ending green)
 
@@ -270,32 +276,17 @@ between data versions.
 
 ## Decisions of the maintainer
 
-Open; each with the recommendation.
+Answered by the maintainer on 2026-11-20:
 
-1. **Scope of the first merge.** Options: step 1 alone (reasons and logs, no new API surface) now and the rest later;
-   or steps 1 to 3 together. Recommendation: steps 1 and 2 first (both
-   without new API surface; step 2 is what shows the NodePool-dependent causes of section 5), then 3.
-2. **ConfigMap: opt-in or always.** Options: always per class and vendor; opt-in by annotation; opt-in by a controller
-   flag. Recommendation: opt-in by annotation on the SCNodeClass, so the cost is a choice per class and a class needs
-   no spec change (no drift hash change).
-3. **Per-offering gauges.** Options: never; a flag, default off; default on with a cap. Recommendation: a flag, default
-   off; the reason-count gauge is always on.
-4. **Which label automation keys on.** Options: `api-reference` (today's habit, not vendor-qualified, absent for an
-   invalid reference); the instance type name. Recommendation: the instance type name, printed with a ready-made `pin`
-   in the listing; `api-reference` stays valid where the listing says its label exists.
-5. **The 24 hour `Unsupported` TTL for pre-launch checks.** Options: keep (`DefaultUnsupportedTTL`); shorten it to the
-   `ZoneUnusable` 10 minutes for entries that come from a driver's own pre-launch check and keep 24 hours for the
-   vendor's explicit "not offered" answer; stop marking on a pre-launch check whose verdict is a pure function of the
-   shape table (the catalog could drop the type instead). Recommendation: shorten it for pre-launch checks now (the
-   incident of section 5 is not this, so there is nothing to wait for: a pre-launch check makes no cloud call, so a
-   retry every 10 minutes costs nothing) and log every `Unsupported` mark at V(0) with its code, once per (type, zone)
-   per TTL (a silent block is the real fault). It is a small change in `create.go` and belongs to step 1.
-6. **`ImageGap` per architecture.** The gate is region-level, so an Arm type is offered in a region that has only an
-   amd64 image and an amd64 type is blocked by an Arm-only gap. Options: leave; make the gate architecture-aware
-   (`ClassGate` gets the type's architecture). Recommendation: make it architecture-aware in a follow-up plan; this plan
-   reports the reason as it is today and names the limitation in the reference.
-7. **Reason code stability.** Options: codes are API (documented, additions only); codes are internal. Recommendation:
-   API, since automation will key on them; a new gate adds a code, a code is never renamed.
+| # | Question | Decision |
+|---|---|---|
+| 1 | Scope of the first merge | steps 1 and 2 (reasons and logs, then `Explain`) merge first, both without new API surface; step 3 follows |
+| 2 | ConfigMap listing | opt-in by the annotation `scarpenter.sparecores.com/publish-offered: "true"` on the SCNodeClass (no spec change, no drift hash change) |
+| 3 | Per-offering gauges | behind a flag (`--metrics-offering-detail`), default off; the reason-count gauge is always on |
+| 4 | Label automation keys on | the instance type name, printed with a ready-made `pin` in the listing; `api-reference` stays valid where the listing says its label exists |
+| 5 | 24 hour `Unsupported` TTL for pre-launch checks | shortened now, in step 1: entries from a driver's own pre-launch check use the `ZoneUnusable` 10 minutes; the vendor's explicit "not offered" answer keeps 24 hours; every `Unsupported` mark is logged at V(0) with its code, once per (type, zone) per TTL |
+| 6 | `ImageGap` per architecture | a follow-up plan makes the gate architecture-aware (`ClassGate` gets the type's architecture); this plan reports the reason as it is today and names the limitation in the reference |
+| 7 | Reason code stability | codes are API: documented, additions only; a new gate adds a code, a code is never renamed |
 
 ## Gates
 
