@@ -11,7 +11,7 @@
 #                                                labels of the pull request as a JSON array
 #                                                in $E2E_LABELS (l5:skip, l5:full)
 #   test/e2e-plan.sh dispatch <vendor|all> <full|smoke> [scenarios]
-#   test/e2e-plan.sh release                     every vendor, full
+#   test/e2e-plan.sh release [full|smoke]        every vendor, full by default
 #   test/e2e-plan.sh vendors [vendor]            the vendors as {"vendor":...} entries (the
 #                                                canary); one vendor or all
 #
@@ -141,8 +141,9 @@ cmd_dispatch() {
 }
 
 cmd_release() {
-  local v
-  while read -r v; do entry "${v}" full ""; done < <(vendor_list) | emit
+  local mode="${1:-full}" v
+  [[ "${mode}" == full || "${mode}" == smoke ]] || die "RELEASE_E2E_MODE must be unset, full or smoke, not '${mode}'"
+  while read -r v; do entry "${v}" "${mode}" ""; done < <(vendor_list) | emit
 }
 
 cmd_vendors() {
