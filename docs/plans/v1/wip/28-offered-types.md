@@ -50,10 +50,10 @@ the gate; the detail carries its data. Lines are at `origin/main` of 2026-11-20.
 
 | Code | Level | Where it happens | Detail |
 |---|---|---|---|
-| `NotInCatalog` | server | Keeper server with a status other than active or retiring is not loaded (`pkg/catalog/keeper.go:523`); sources that cannot decode a server skip it | none (not listed per type) |
+| `NotInCatalog` | server | Keeper server with a status other than active or retiring is not loaded (`pkg/catalog/keeper.go:523`), or with a CPU architecture other than `x86_64` or `arm64` (`serverFromTable`, `keeper.go:879`); sources that cannot decode a server skip it | none (not listed per type) |
 | `NoPrice` | type | no active USD price above zero in scope: filtered when the rows are read (`appendPrice`, `keeper.go:932`), then `len(prices) == 0` (`build.go:134`) | none |
 | `RegionNotAllowed` | type | every price row is in a region the class does not allow or an inactive one (`build.go:117`; row skipped at `:297`) | regions with a row |
-| `ZoneNotAvailable` | offering | a zone-level price row whose zone the driver's account does not have (`resolveZones`, `build.go:361`) or that Keeper marked inactive (`:353`) | zone ID |
+| `ZoneNotAvailable` | offering | a zone-level price row whose zone the driver's account does not have (`resolveZones`, `build.go:361`) or that Keeper marked inactive (`:353`); also every row of a region for which the driver lists no zones: the driver facts are not loaded yet (`Facts.Zones` returns an empty map, `pkg/vendors/facts/facts.go:323`) or the credentials cannot read the region (`SkippedRegions`) | zone ID, or the region when it has no zones |
 | `IncompletePrice` | offering | the default settings' price delta is incomplete and `pricing.allowIncomplete` is false (`build.go:303`) | zone, capacity type |
 | `GPU*` | type | `gpuSupport` (`build.go:137`, `:401`): `GPUManufacturer`, `GPUModelUnknown`, `GPUFractional`, `GPUArch`, `GPUNoDriverBranch`, `GPUNVSwitch`, `GPUVirtual` (the existing `nvidia.Reason`s) | the reason |
 | `NotLaunchable` | offering | the driver's `OfferingLister` says the type cannot launch in the zone (`build.go:147`, `Tracker.Launchable`, `pkg/quota/tracker.go:487`) | zone ID |
@@ -70,6 +70,22 @@ the gate; the detail carries its data. Lines are at `origin/main` of 2026-11-20.
 | `NodePoolPreFilter` | type, offering | `Filter.allowsType` (architecture, instance type, `filter.go:67`) and `allowsOffering` (region, zone, capacity type, `filter.go:71`): safe to drop, core would too | the key |
 | `ProfileMismatch`, `SettingsFailed`, `IncompleteSettingsPrice` | offering | Create's `settle` (`candidates.go:140`, `:146`, `:151`): a profile no offering supports, unresolvable settings, an incomplete price under the selected profiles | profile, error class |
 | `CatalogNotReady` | class | no snapshot, unknown class (`catalog.go:643`), or the class's scope not yet refreshed (`Status`, `catalog.go:429`: `NoSnapshot`, `ScopePending`, `Stale`) | the catalog's reason |
+
+**Which codes a surface can carry.** `Unrankable`, `NodePoolRequirement` and `NodePoolPreFilter` depend on the
+NodePool (its pinned selection profile, its requirements), and `DriverNotEnabled`, `ProfileMismatch`, `SettingsFailed`
+and `IncompleteSettingsPrice` happen only at Create. The class-level surfaces (status, ConfigMap, metrics, the
+transition log) evaluate the class with the zero `Filter` and no pin, so they carry only the other codes; the
+NodePool-dependent ones exist only in an `Explain` that is given a NodePool (step 2). The offering-level codes a
+class-level surface can show are `ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`, `UnavailableCache`,
+`QuotaGate`, `ImageGap`, `RegionNotReady` and `ZoneMissingResource`.
+
+**What Karpenter's message does and does not tell.** Core v1.15.1 filters each NodePool's types before it looks at
+a pod (`NewScheduler`, `pkg/controllers/provisioning/scheduling/scheduler.go:181`, with empty resource requests):
+a type with no `Available` offering compatible with the NodePool's requirements is gone from the NodePool's
+options. A pod that then pins it (for example by `api-reference`) gets "no instance type met all requirements",
+the same message as for a type that was never returned or whose labels do not match the pin. The message
+therefore does not separate "not offered" from "offered but unavailable"; it does rule out a resource misfit of
+the pinned type (that gives "... had the required resources" instead, `nodeclaim.go:588`).
 
 Not knowable by SCarpenter, and said so in the reference: Karpenter-side removals after `GetInstanceTypes` (resource
 requests that do not fit the allocatable, `minValues`, NodePool limits, NodeOverlays, reserved capacity). Explain
@@ -105,7 +121,7 @@ class). One code path means a listing can never disagree with what Karpenter was
 | | (a) status summary | (b) per-class ConfigMap or CR | (c) Prometheus gauges | (d) log and debug endpoint |
 |---|---|---|---|---|
 | Serves | humans, `kubectl describe` | automation, debugging | dashboards, alerts | debugging |
-| Size | bounded: counts, reasons, at most 8 sample types per reason (about 2 KiB per vendor) | one type per line, offerings compacted: about 60 KiB per vendor for 286 types, 400 KiB for AWS | per-type series: 286 per class and vendor without zones, 3661 with | none stored |
+| Size | bounded: counts, reasons, at most 5 sample types per non-zero reason (about 1 KiB per vendor typically; worst case 20 class-level codes x 5 names x 63 bytes, about 7 KiB per vendor) | one type per line, offerings compacted: about 60 KiB per vendor for 286 types, 400 KiB for AWS | per-type series: 286 per class and vendor without zones, 3661 with | none stored |
 | Cost | one status write on change | one write on change, rate limited | scrape size | none until asked |
 | Fresh | within the interval | within the interval | scrape | exact |
 | Risk | churn of the status; owner conflicts (own field manager, like quotastatus) | the 1 MiB ConfigMap limit for a very large vendor; a CR adds an API and versioning | cardinality | an open port: reasons only, no driver messages |
@@ -127,65 +143,94 @@ Assessment:
   `scarpenter.sparecores.com/publish-offered: "true"`, decision 2): not every cluster wants 400 KiB of derived data
   rewritten every minute.
 - **(c) A small, fixed set only.** `scarpenter_catalog_offerings_by_state{nodeclass,vendor,state}` (`state`: `available`
-  or a reason code; about 20 series per class and vendor) and a drop counter (`scarpenter_catalog_dropped_total{nodeclass,
-  vendor,reason}`, incremented when a type enters a reason, not per query). **Not** the per-offering gauge
+  or one of the eight class-level offering codes of section 2: at most 9 series per class and vendor) and the existing
+  `scarpenter_catalog_dropped_types{nodeclass,vendor,reason}` widened from the GPU reasons to every type-level build
+  reason (at most 12 more series; the GPU reason values are unchanged, so dashboards survive). No new drop counter:
+  a counter "incremented when a type enters a reason" needs the transition tracking of (d) and says nothing the
+  gauge and the log do not. **Not** the per-offering gauge
   `scarpenter_instance_type_offering_available{nodeclass,instance_type,zone,capacity_type}` by default: 3661 series per
   OCI vendor and class, an order of magnitude more for AWS, for data the ConfigMap already holds. It stays a flag
-  (`--metrics-offering-detail`, default off) for operators who run Prometheus for it (decision 3). The existing
-  `scarpenter_catalog_dropped_types` becomes the `dropped` view of the new gauge with the same reason labels (it is
-  kept, not renamed, so dashboards survive).
+  (`--metrics-offering-detail`, default off) for operators who run Prometheus for it (decision 3).
 - **(d) Log on transition; endpoint deferred.** At V(1) one line per type when its reason **changes** (entering or
   leaving a reason, recorded from the previous report per class), never per query: `offered types changed`, with
   `nodeclass`, `vendor`, `type`, `zone`, `capacityType`, `reason`, `detail`. A burst of more than 50 changes in one
-  report is one line with the counts and the first 10 types (a refresh that touches 300 types must not flood). A debug
+  report, and the first report of a class after start, are one line **per reason** with the count and the type
+  names (at most 50 per line): raising the log level means a restart, after which every
+  state is a "change", and a type that never changes again would otherwise never be named. The report is the
+  class-level one (zero filter, no pin), computed once per catalog generation (snapshot, facts epoch, unavailable
+  sequence) when `InstanceTypes` first sees the new generation, so no new loop or controller is needed. A debug
   HTTP endpoint or CLI: not in this plan. The runtime gates (quota, unavailable cache, image gaps) live in the running
   controller, so an offline CLI could explain only the catalog reasons, which the existing catalog harness already
   does; an endpoint needs a port, a Service and an answer to "who may read it" that the ConfigMap's RBAC already gives.
 
 **Recommendation: (a) + (b) as an opt-in ConfigMap + (d) logging on transition + the small (c) set, in that order of
-steps;** per-offering gauges and an endpoint only on demand. The common mechanism is step 1, and it is the part that
-makes incidents diagnosable by itself, with the log line alone.
+steps;** per-offering gauges and an endpoint only on demand. The common mechanism is step 1; with the per-reason
+lines it names every class-level reason in the log. It does not show NodePool-dependent causes (a pinned selection
+profile, labels that do not match a pin, section 2) or a pod-level pin that matches nothing: those need step 2's
+`Explain` with a NodePool, or a full listing (b) to check the pin against.
 
 ## 5. The live incident, and what would have shown it
 
 On OCI, every `VM.Standard4.Ax.Flex.*` type and the `VM.Standard.E3.Flex.114-*` sizes get "no instance type met all
-requirements" for the bench class: no NodeClaim, no launch attempt. The Keeper data, a harness class, the quota metrics
-and a static read say they are offered.
+requirements" for the bench class, which pins `scarpenter.sparecores.com/api-reference`: no NodeClaim was created and
+no launch attempt was logged by a controller that had been running for 3 hours. The Keeper data, a harness class, the
+quota metrics and a static read say they are offered.
 
-**Hypothesis (from reading the code, unverified against the live cluster): a 24 hour `Unsupported` entry of the
-unavailable cache.** What a harness, Keeper and the quota metrics do not model is the in-memory cache of failed launches.
-Create checks a type against the availability domain's shape table before any cloud call
-(`pkg/vendors/oci/shapes.go:111`): a shape the AD does not offer is `Unsupported` with `ShapeNotInAvailabilityDomain`
-(the crawler's AD table said `Standard4.Ax.Flex` is missing in places, plan 25 §2), and a size beyond one NUMA node is
-`Unsupported` with `ExtendedMemoryUnsupported` (the `E3.Flex.114-*` sizes exactly, plan 25 §2). `Create` marks every
-`Unsupported` attempt for the (type, zone) with `MarkUnsupported` (`create.go:209`) for **24 hours**
-(`unavailable.go:30`). After one broad Create (for example a cheapest-first NodePool that tried those types first, or an
-earlier probe) the NodeClaim is deleted and the entries remain, with no log line and no event: later requests that pin
-those types see `Available=false` on every offering, and Karpenter reports the generic message. The cache is in memory,
-so a controller restart clears it, which is also the quickest check. A second candidate, the quota gate (`Tracker.Unavailable`
-on a bucket with zero headroom) is less likely, because the quota metrics show headroom for those buckets.
+**Ruled out: the unavailable cache.** The cache is in memory and only Create marks `Unsupported`, `QuotaExceeded`,
+`InsufficientCapacity` and `ZoneUnusable` (`create.go:196`, `:209`, `:211`, `:293`, `:296`); the only other writer is
+the interruption controller, for spot offerings (`interruption/controller.go:343`, `gone.go:67`). Without a Create in
+the controller's lifetime there is no entry, so the earlier hypothesis (a 24 hour `Unsupported` mark from the OCI
+driver's pre-launch shape check) cannot explain this incident.
 
-Step 1's `UnavailableCache` reason with its class (`Unsupported`), expiry and the entry's origin would have shown it on
-the first look; the V(1) transition line (or the `Unsupported` count in the status) would have shown it when it began.
-Independent of the cause, **marking `Unsupported` for 24 hours on a driver's pre-launch check is itself questionable**:
-the check is deterministic per shape table and AD, but an AD table that was read while a region was briefly unreadable
-poisons a day. Decision 5.
+**What the message allows** (section 2): the pinned type was not returned, was returned with no available offering
+compatible with the NodePool, or does not match the pod's or the NodePool's requirements; not a resource misfit.
+The candidates that need no Create, from reading the code (unverified against the live cluster):
+
+1. **A NodePool-dependent requirement on benchmark data.** The family and the largest sizes are plausibly not
+   benchmarked. With a NodePool that pins one selection profile whose objective is not price, an unscored type has
+   every offering unavailable (`Unrankable`, `catalog.go:707`; the pin is read at `filter.go:57`); with a requirement
+   on a metric or selection label, an unscored type has the key `DoesNotExist` (`build.go:250` to `:257`) and fails
+   intersection. A harness class without the bench NodePool sees neither. Check: the bench NodePool's requirements and
+   whether Keeper has scores for these types.
+2. **The quota gate, for the `E3.Flex.114-*` sizes.** A sized type needs its OCPUs and GB (`oci/quota.go:259`), here
+   114 OCPUs, against the headroom of the AD with the most room (`bucketOf`, `oci/quota.go:149`). Quota metrics that
+   show headroom do not rule this out unless the headroom is at least the need, for the core and the memory bucket.
+   It does not explain the small `Standard4.Ax` sizes unless that family's limit is 0.
+3. **The region-level class gates** (`ImageGap`, `RegionNotReady`, `ZoneMissingResource`) would block every type of a
+   region, not one family; unlikely given that `E5.Flex.2-8` launches in the same regions.
+
+Nothing in SCarpenter caps or truncates the list: `GetInstanceTypes` removes only the types of vendors that are not
+ready, offerings are deduplicated per (region, zone ID, capacity type) keeping the cheapest row (`build.go:308`), and
+core's `MaxInstanceTypes` (600 in v1.15.1) truncates only the options of a NodeClaim that is being created.
+
+Step 1's per-reason log lines show candidates 2 and 3 (`QuotaGate` with bucket, headroom and need). Candidate 1 is
+NodePool-dependent and shows only in step 2's `Explain` with the bench NodePool, or by checking the pin against a
+full listing (step 4). Step 6 settles which one it is.
+
+Independent of this incident, **marking `Unsupported` for 24 hours on a driver's pre-launch check is questionable**
+(`pkg/vendors/oci/shapes.go:111`: `ShapeNotInAvailabilityDomain`, `ExtendedMemoryUnsupported`; `create.go:209`,
+`unavailable.go:30`): the check makes no cloud call and is deterministic per shape table and AD, so retrying it costs
+nothing, but an AD table read while a region was briefly unreadable blocks the type for a day, silently. Decision 5.
 
 ## 6. Steps (one agent each, each ending green)
 
 1. **Reasons in the catalog (the diagnosis step).** The reason enum (section 2) in `pkg/catalog`; the gates return a
-   reason (`Gate`, `ClassGate`, `unavailable.Cache.Why`, `Engine.WhyUnavailableFor`, `Tracker.Blocked` reused); build
+   reason (`Gate.Unavailable` and `ClassGate.UnavailableFor` change their result, no second method;
+   `unavailable.Cache.Why`; `Tracker.Blocked` reused for the bucket); build
    drops kept in `vendorBuild`; `Catalog.Explain` and `InstanceTypes` rewritten over one path, with the existing
    results unchanged (golden: the instance types of the existing catalog test fixtures are byte-identical before and
    after); the V(1) transition log with the burst rule; the ADR (next free number) and the reference docs (reasons,
    the label to key on, the logs). L1: every reason in the table has a test that produces it, `Explain` and
    `InstanceTypes` agree on every offering of a randomised fixture, the log fires once per transition and not per
    query. L2: the cloudprovider's `GetInstanceTypes` with a vendor not ready. No new metric, no new API.
-   **With this step an operator who raises the log level, or reads one `Explain` in a test, sees the Standard4.Ax
-   reason.**
+   **With this step an operator who raises the log level sees every class-level reason, including a quota or
+   class gate on the Standard4.Ax and E3.Flex.114 types; a NodePool-dependent cause (section 5, candidate 1) needs
+   step 2.**
 2. **The NodePool view in Explain.** `NodePoolRequirement` and `NodePoolPreFilter` with the failing key, and the
-   resource-fit check for a request list; used by the tests and by step 4. L1 only; catches the "label pinned but the
-   type has none" class (section 3) by reproducing core's intersection.
+   resource-fit check for a request list; used by the tests and by step 4; catches the "label pinned but the type
+   has none" class (section 3) by reproducing core's intersection. Live surface: `GetInstanceTypes` (which has the
+   NodePool) logs the per-reason lines of step 1 for the NodePool-dependent codes (`Unrankable`,
+   `NodePoolRequirement`) once per catalog generation and NodePool, at V(1). L1, plus an L2 case for the log.
 3. **Status summary (a).** The `offered` block of `VendorStatus` (counts, reason buckets, sample names, `observedAt`
    rounded to the minute), the controller `pkg/controllers/offered` (SSA, field manager `scarpenter-offered`, writes on
    change, at most every 30 s, started with the leader), the CRD and `docs/reference/api.md`. L2 envtest: the block
@@ -198,12 +243,13 @@ poisons a day. Decision 5.
    ConfigMaps in the release namespace only, Helm values and `docs/reference/controller.md` updated. L1 for the encoder
    (round trip, size for the 286-type and a 3000-type fixture, truncation); L2 for ownership and the cap. L3: a scale-up
    test reads the ConfigMap, picks an `available` type from it and pins its `pin` requirement: the NodeClaim launches.
-5. **Metrics (c).** `scarpenter_catalog_offerings_by_state`, `scarpenter_catalog_dropped_total`, the flag
+5. **Metrics (c).** `scarpenter_catalog_offerings_by_state`, `scarpenter_catalog_dropped_types` widened to every build reason, the flag
    `--metrics-offering-detail` and its per-offering gauge; the metric tables in the controller reference. L1: series
    counts for the fixtures (fail the test if the default set exceeds 30 series per class and vendor).
 6. **Live check (optional, needs the maintainer's approval per run, no GPU or other costly type).** On the live OCI
-   cluster with the step 1 logs and the status block: read the reason of the Standard4.Ax and E3.Flex.114 types. No
-   launch is needed to read it. Record the result in the decision on the `Unsupported` TTL.
+   cluster with the step 1 logs and the status block: read the reason of the Standard4.Ax and E3.Flex.114 types, including step 2's
+   NodePool lines for the bench NodePool. No launch is needed. Record the cause in the
+   plan.
 
 Each step updates in the same change: the reference docs of the surfaces it adds (SCNodeClass, controller: flags,
 Helm values, metrics, RBAC, Events) and, from step 3, the labels reference where a label or annotation is added.
@@ -227,8 +273,8 @@ between data versions.
 Open; each with the recommendation.
 
 1. **Scope of the first merge.** Options: step 1 alone (reasons and logs, no new API surface) now and the rest later;
-   or steps 1 to 3 together. Recommendation: step 1 alone first, so the live incident can be diagnosed from logs on
-   the next release, then 2 and 3.
+   or steps 1 to 3 together. Recommendation: steps 1 and 2 first (both
+   without new API surface; step 2 is what shows the NodePool-dependent causes of section 5), then 3.
 2. **ConfigMap: opt-in or always.** Options: always per class and vendor; opt-in by annotation; opt-in by a controller
    flag. Recommendation: opt-in by annotation on the SCNodeClass, so the cost is a choice per class and a class needs
    no spec change (no drift hash change).
@@ -240,9 +286,10 @@ Open; each with the recommendation.
 5. **The 24 hour `Unsupported` TTL for pre-launch checks.** Options: keep (`DefaultUnsupportedTTL`); shorten it to the
    `ZoneUnusable` 10 minutes for entries that come from a driver's own pre-launch check and keep 24 hours for the
    vendor's explicit "not offered" answer; stop marking on a pre-launch check whose verdict is a pure function of the
-   shape table (the catalog could drop the type instead). Recommendation: decide after step 6 shows the live cause;
-   until then keep it and log every `Unsupported` mark at V(0) with its code, once per (type, zone) per TTL (a
-   24 hour silent block is the real fault).
+   shape table (the catalog could drop the type instead). Recommendation: shorten it for pre-launch checks now (the
+   incident of section 5 is not this, so there is nothing to wait for: a pre-launch check makes no cloud call, so a
+   retry every 10 minutes costs nothing) and log every `Unsupported` mark at V(0) with its code, once per (type, zone)
+   per TTL (a silent block is the real fault). It is a small change in `create.go` and belongs to step 1.
 6. **`ImageGap` per architecture.** The gate is region-level, so an Arm type is offered in a region that has only an
    amd64 image and an amd64 type is blocked by an Arm-only gap. Options: leave; make the gate architecture-aware
    (`ClassGate` gets the type's architecture). Recommendation: make it architecture-aware in a follow-up plan; this plan
