@@ -250,6 +250,28 @@ the runtime sysext through `pkg/artifacts` with the table's pin; the trial-rende
 (upstream and mirror; open and proprietary; with and without `Lean`; both network templates) and the budget test;
 `hack/nvidia-mirror.sh` (shellcheck-clean, not run by the gates); the docs.
 
+**Done (b).** The `nvidia` part (`templates/nvidia.bu`, `scarpenter-nvidia-check.sh`), `NVIDIAParams` and
+`RenderRequest.NVIDIA`, the flag, the table's pins (below), `hack/nvidia-mirror.sh`, golden files (open and
+proprietary, upstream and mirror, both templates, Lean), the worst-case size test and the trial rendering's
+largest variant, the docs. Deviations from the text above: (1) the runtime sysext is not resolved into
+`status.resolved` (a new field, and hashed digests, would drift every NodeClass); the table pins version and
+sha256, the URL comes from `--sysext-base-url`, and Ignition verifies it. (2) The cloud provider rebuilds
+the selection from the type's driver labels and `nvidia.com/gpu` capacity (`nvidia.FromLabels`), so the part is
+rendered exactly when the catalog advertises the labels: nothing renders it while `nvidia.NodeBootstrap` is
+false, and **(b) does not flip it** (D6 and step (a) tie it to the device plugin of (c) and to Azure's and
+Alibaba's `GPUVirtualizer` of (g) and (h)); the flip is the last of these. (3) Ignition's hash with
+`compression: gzip` is over the decompressed bytes (Ignition's `decompressCopyHashAndVerify`), so the table pins
+the extracted `.raw` (`RawSHA256`) and, for the script, the payload (`PayloadSHA256`); the extracted images are
+430 to 570 MB and gzip barely shrinks them (squashfs inside). (4) The worst-case budget of a GPU node is
+14 KiB (`GPUBudgetBytes`): the part is about 2 KiB, not 1.5. Pins, verified 2026-11-20 against the update server's
+`.gz.sha256` files and by extracting each payload with ue-rs `download_sysext` (rev 94d40218, update key
+pinned): every build of 4757.2.3 (535, 550, 570, each open and proprietary) and of 4865.0.0's 580 and 580-open;
+nvidia-runtime v1.17.9 (sha256 equal in the bakery release's `SHA256SUMS` and the file; its containerd config has
+exactly one `default_runtime_name = "nvidia"` line). Not done: the beta release (driver versions
+unverified) and the driver versions inside the images (taken from the ebuilds). Unverified until L4 (d)/S1:
+that `rmmod` is at `/usr/sbin/rmmod` on Flatcar (the unit ignores failure), Ignition's streaming of a 500 MB
+file from a mirror, and that `Upholds=nvidia-persistenced.service` starts it.
+
 **(b2) Fabric Manager (D9).** The table's NVSwitch thresholds, per-model flags and Fabric Manager pins (URL and
 sha256 per driver version of each release; a test fails on a release entry without them for a model that needs
 them); the Ignition file, the unit and the check's fabric assertion in the `nvidia` part for NVSwitch types only; the
