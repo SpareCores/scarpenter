@@ -9,6 +9,7 @@ package oci
 import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -60,6 +61,14 @@ func ToInstance(region string, in core.Instance) *vendors.Instance {
 		Ref: NewRef(region, deref(in.Id)), Region: region, Zone: ADName(deref(in.AvailabilityDomain)),
 		Type: TypeOf(in), CapacityType: CapacityTypeOf(in), State: StateOf(in.LifecycleState),
 		Tags: TagsOf(in.FreeformTags),
+	}
+	if out.CapacityType == vendors.CapacitySpot && out.State != vendors.StateRunning && out.State != vendors.StatePending {
+		// A preemptible instance cannot be stopped, started or rebooted by anyone
+		// (OCI documents it) and a termination that was ordered through
+		// SCarpenter is not reported as gone, so what is gone here was preempted
+		// or terminated by a person in the console (indistinguishable without
+		// the Audit service).
+		out.GoneReason = v1alpha1.ReasonSpotInterrupted
 	}
 	if in.TimeCreated != nil {
 		// Per second billing with a one minute minimum for VMs (BillingRule):

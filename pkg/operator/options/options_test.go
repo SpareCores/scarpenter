@@ -258,6 +258,8 @@ func TestOCIOptions(t *testing.T) {
 		"compartment from env":   {map[string]string{"SCARPENTER_OCI_COMPARTMENT": compartment}, nil, ""},
 		"no compartment":         {nil, nil, "--oci-compartment"},
 		"compartment of a kind":  {nil, []string{"--oci-compartment=ocid1.subnet.oc1..aaaa"}, "--oci-compartment"},
+		"interruption poll":      {nil, []string{"--oci-compartment=" + compartment, "--oci-interruption-poll=5s"}, ""},
+		"interruption poll fast": {nil, []string{"--oci-compartment=" + compartment, "--oci-interruption-poll=100ms"}, "--oci-interruption-poll must be at least 1s"},
 		"image compartment":      {nil, []string{"--oci-compartment=" + compartment, "--oci-image-compartment=ocid1.compartment.oc1..bbbb"}, ""},
 		"image compartment env":  {map[string]string{"SCARPENTER_OCI_IMAGE_COMPARTMENT": "ocid1.compartment.oc1..bbbb"}, []string{"--oci-compartment=" + compartment}, ""},
 		"image compartment kind": {nil, []string{"--oci-compartment=" + compartment, "--oci-image-compartment=ocid1.subnet.oc1..bbbb"}, "--oci-image-compartment"},

@@ -59,6 +59,7 @@ const (
 	DefaultAWSHomeRegion              = "us-east-1"
 	DefaultOCIAuth                    = "apiKey"
 	DefaultInterruptionMargin         = 5 * time.Second
+	DefaultOCIInterruptionPoll        = 10 * time.Second
 	DefaultInterruptionUnavailableTTL = 10 * time.Minute
 )
 
@@ -178,6 +179,9 @@ type Options struct {
 	// means OCICompartment.
 	OCIImageCompartment string
 	OCIAuth             string
+	// OCIInterruptionPoll is the interval at which the OCI driver lists the
+	// compartment's instances for preempted ones.
+	OCIInterruptionPoll time.Duration
 	// OCICredentialsDir is a directory with one file per key of the API-key
 	// Secret (tenancy, user, fingerprint, region, key); OCIConfigFile and
 	// OCIConfigProfile an OCI config file; none of them: OCI_CLI_* variables.
@@ -256,6 +260,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 	fs.StringVar(&o.GCPProject, "gcp-project", env.WithDefaultString("SCARPENTER_GCP_PROJECT", ""), "Google Cloud project of the GCP driver's nodes; empty means the project of the credentials (a service account key or the metadata server; workload identity federation has none, so set it there).")
 	fs.StringVar(&o.OCICompartment, "oci-compartment", env.WithDefaultString("SCARPENTER_OCI_COMPARTMENT", ""), "[REQUIRED with the oci vendor] OCID of the OCI compartment of the nodes: instances, boot volumes, the managed network and the default image lookup live in it. The tenancy root is not a default.")
+	fs.DurationVar(&o.OCIInterruptionPoll, "oci-interruption-poll", env.WithDefaultDuration("SCARPENTER_OCI_INTERRUPTION_POLL", DefaultOCIInterruptionPoll), "How often the OCI driver lists a region's instances to find preempted ones: one paged list call per region per interval, whatever the number of nodes.")
 	fs.StringVar(&o.OCIImageCompartment, "oci-image-compartment", env.WithDefaultString("SCARPENTER_OCI_IMAGE_COMPARTMENT", ""), "OCID of the OCI compartment the default image lookup and the images.use selectors (name, tags, OS) list images in, for images an operator keeps apart from the nodes. Default (empty): --oci-compartment. images.use.ids is not affected; launches stay in --oci-compartment.")
 	fs.StringVar(&o.OCIAuth, "oci-auth", env.WithDefaultString("SCARPENTER_OCI_AUTH", DefaultOCIAuth), "OCI credentials mode: apiKey (a credentials directory, an OCI config file or the OCI_CLI_* variables) or workloadIdentityFederation (a token file exchanged at an identity domain for a short-lived session token).")
 	fs.StringVar(&o.OCICredentialsDir, "oci-credentials-dir", env.WithDefaultString("SCARPENTER_OCI_CREDENTIALS_DIR", ""), "apiKey: directory with one file per key of the OCI API-key Secret (tenancy, user, fingerprint, region, key; optional passphrase). Wins over --oci-config-file.")
@@ -392,6 +397,9 @@ func (o *Options) Validate() error {
 
 func (o *Options) validateInterruption() []error {
 	var errs []error
+	if o.OCIInterruptionPoll < time.Second {
+		errs = append(errs, fmt.Errorf("--oci-interruption-poll must be at least 1s, got %s", o.OCIInterruptionPoll))
+	}
 	if o.InterruptionMargin < 0 {
 		errs = append(errs, fmt.Errorf("--interruption-margin must not be negative, got %s", o.InterruptionMargin))
 	}

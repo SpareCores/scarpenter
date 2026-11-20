@@ -447,6 +447,9 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 		return vendors.NewError(vendors.Fatal, codeNotOurs, fmt.Errorf(
 			"the instance %s does not carry the tag of cluster %q", ref, d.cfg.ClusterName))
 	}
+	// Also for an instance that is going already: a preempted one is being handled
+	// by now, and the poller stops reporting it.
+	d.noteDeleted(ref)
 	if s := StateOf(in.LifecycleState); s == vendors.StateTerminated ||
 		in.LifecycleState == core.InstanceLifecycleStateTerminating {
 		return nil
