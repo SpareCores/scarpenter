@@ -252,6 +252,15 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
 3. **OCI.** Spike S1 (credentials from the coordinator), then the driver's `InterruptionPoller` on what S1 found (plus a
    `scarpenter_check` script when S1 finds an in-VM signal),
    its fake, conformance, the OCI reference; L5 scenario if S1 found a way to trigger a preemption (S1).
+   **Done.** The maintainer skipped S1 (2026-11-20: OCI cannot simulate a preemption, and running it needed workflow changes), so the step follows
+   the documentation only and is **unverified until the first real preemption in a real run**. What the SDK shows (module cache, v65.130.0): `Instance` has no
+   preemption field, the Compute service has no documented work request or maintenance event for a preemption, so the poller reads the cheapest signal: the
+   lifecycle state in one paged `ListInstances` per region and interval (`--oci-interruption-poll`, 10 s). A preemptible instance of the cluster that is
+   `STOPPING`, `STOPPED` or `TERMINATING` (nobody can stop a preemptible instance; the driver's own terminations are skipped) is a `SpotInterrupted` notice with no
+   deadline; `NoticeWindow` is 5 s to 2 min. Deviation from section 4: the two minutes of the Events message are not used, because only the state after it is
+   visible, so there is no deadline "signal time + 120 s". `GoneReason` is `SpotInterrupted` for a preemptible instance that is terminating or terminated. No node
+   agent for OCI: whether the instance metadata carries `instancePreemptionAction` is unverified. The fake has `Preempt(id)`, the conformance fixture launches
+   preemptible instances and uses it, the how-to "Handle spot interruptions" and the OCI reference are written. No L5 scenario (no way to trigger a preemption).
 4. **Node agent (core).** `InterruptionNotices` capability, `vendors.InterruptionAgent`, rendering for spot
    attempts only, the kubelet shutdown settings for spot, golden and size tests; the qemu driver implements the
    capability against a notice server the L4 harness runs on the host bridge, so L4 checks the real path: agent in
