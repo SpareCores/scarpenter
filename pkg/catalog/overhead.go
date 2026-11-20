@@ -16,7 +16,12 @@ import (
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
+
+// ResourceNVIDIAGPU is the extended resource of NVIDIA GPUs, which the NVIDIA
+// device plugin registers.
+const ResourceNVIDIAGPU corev1.ResourceName = "nvidia.com/gpu"
 
 // DefaultMaxPods is the pods capacity when a NodeClass does not set
 // kubelet.maxPods.
@@ -82,9 +87,11 @@ func KubeReserved(cpus int, pods int64, memoryMiB int64) corev1.ResourceList {
 
 // capacity returns the resources of a server for a NodeClass: cpu, memory
 // reduced by the VM overhead, pods and the root disk of the vendor's default
-// settings as ephemeral storage (omitted when the driver does not say). No GPU
-// resources: without a device plugin they would never appear on the node.
-func capacity(vcpus int, memoryMiB float64, class *Class, rootDiskBytes int64, rootDiskKnown bool) corev1.ResourceList {
+// settings as ephemeral storage (omitted when the driver does not say), and
+// nvidia.com/gpu for a type with a driver selection (the device plugin the
+// chart ships makes it appear on the node).
+func capacity(vcpus int, memoryMiB float64, class *Class, rootDiskBytes int64, rootDiskKnown bool,
+	gpu *nvidia.Selection) corev1.ResourceList {
 	overhead := class.VMMemoryOverheadPercent
 	memory := math.Floor(memoryMiB * (1 - overhead/100))
 	rl := corev1.ResourceList{
@@ -94,6 +101,9 @@ func capacity(vcpus int, memoryMiB float64, class *Class, rootDiskBytes int64, r
 	}
 	if rootDiskKnown && rootDiskBytes > 0 {
 		rl[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(rootDiskBytes, resource.BinarySI)
+	}
+	if gpu != nil {
+		rl[ResourceNVIDIAGPU] = *resource.NewQuantity(gpu.Count, resource.DecimalSI)
 	}
 	return rl
 }

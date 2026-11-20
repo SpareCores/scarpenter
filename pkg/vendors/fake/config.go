@@ -46,6 +46,9 @@ const (
 	// keyRootDisks lists instance types whose root disk the type defines
 	// (RootDiskForType), as a vendor with fixed plan disks does.
 	keyRootDisks = "rootDisks"
+	// keyVirtualGPU lists instance types whose GPU is virtual (vendors.GPUVirtualizer):
+	// the catalog drops them.
+	keyVirtualGPU = "virtualGPU"
 	// keyBilling sets the vendor's billing rule (BillingDescriber) and the
 	// billing-start stamp new instances get (billingConfig).
 	keyBilling = "billing"
@@ -151,6 +154,7 @@ type orphanConfig struct {
 // steeringKeys are the keys of the steering ConfigMap.
 var steeringKeys = []string{
 	keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting, keyRootDisks, keyImages,
+	keyVirtualGPU,
 	keyBilling,
 }
 
@@ -173,6 +177,7 @@ type config struct {
 	powerOff    []string
 	rules       []unsupportedRule
 	rootDisks   []rootDiskRule
+	virtualGPU  []string
 	existing    []existingResource
 	images      []existingResource
 	billing     *billingConfig
@@ -401,6 +406,28 @@ func (d *Driver) parseProfileRules(
 		if prev != nil {
 			next.rootDisks = prev.rootDisks
 		}
+	})
+	parse(keyVirtualGPU, func(raw string) error {
+		var types []string
+		if err := yaml.UnmarshalStrict([]byte(raw), &types); err != nil {
+			return err
+		}
+		next.virtualGPU = types
+		if prev == nil || prev.raw[keyVirtualGPU] != raw {
+			d.unsupportedEpoch.Add(1)
+		}
+		return nil
+	}, func() {
+		if prev != nil {
+			next.virtualGPU = prev.virtualGPU
+		}
+	})
+}
+
+// isVirtualGPU reports whether the steering lists the type as having a virtual GPU.
+func (c *config) isVirtualGPU(vendor, apiReference string) bool {
+	return slices.ContainsFunc(c.virtualGPU, func(t string) bool {
+		return strings.TrimPrefix(t, vendor+".") == apiReference
 	})
 }
 

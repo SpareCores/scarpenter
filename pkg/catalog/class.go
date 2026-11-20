@@ -42,6 +42,11 @@ type Class struct {
 	// (empty: every active region).
 	Vendors map[string][]string
 
+	// FlatcarChannel and FlatcarVersion are the Flatcar release the nodes boot:
+	// the release decides which NVIDIA driver branches a GPU type can use.
+	FlatcarChannel string
+	FlatcarVersion string
+
 	MaxPods                 int64
 	VMMemoryOverheadPercent float64
 	KubeReserved            corev1.ResourceList
@@ -99,6 +104,8 @@ func ClassFromNodeClass(nc *v1alpha1.SCNodeClass) (Class, error) {
 	kubelet := spec.Kubelet.Effective()
 	c := Class{
 		Name:                    nc.Name,
+		FlatcarChannel:          string(spec.Flatcar.Channel),
+		FlatcarVersion:          spec.Flatcar.Version,
 		Vendors:                 map[string][]string{},
 		MaxPods:                 DefaultMaxPods,
 		VMMemoryOverheadPercent: DefaultVMMemoryOverheadPercent,

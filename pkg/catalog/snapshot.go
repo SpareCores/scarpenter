@@ -21,6 +21,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
 	"github.com/SpareCores/scarpenter/pkg/catalog/model"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
 // snapshot is one successful refresh: the data, indexed by vendor, and the
@@ -176,6 +177,17 @@ func (s *snapshot) prune(classes []Class) {
 			delete(s.builds, k)
 		}
 	}
+}
+
+// dropped returns the GPU drop counts of the build of a class and vendor, nil
+// when it was not built.
+func (s *snapshot) dropped(classHash, vendor string) map[nvidia.Reason]int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if vb, ok := s.builds[buildKey{classHash, vendor}]; ok {
+		return vb.dropped
+	}
+	return nil
 }
 
 func (s *snapshot) view(class *Class) *classView {

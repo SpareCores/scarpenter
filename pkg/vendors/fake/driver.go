@@ -130,6 +130,7 @@ var (
 	_ vendors.OfferingLister     = (*Driver)(nil)
 	_ vendors.NodeClassValidator = (*Driver)(nil)
 	_ vendors.BillingDescriber   = (*Driver)(nil)
+	_ vendors.GPUVirtualizer     = (*Driver)(nil)
 )
 
 // New returns a driver with the given options (for tests; the registry's

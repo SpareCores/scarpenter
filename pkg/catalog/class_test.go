@@ -67,6 +67,18 @@ func TestClassFromNodeClass(t *testing.T) {
 	}
 }
 
+func TestClassTakesTheFlatcarRelease(t *testing.T) {
+	nc := nodeClass("f")
+	nc.Spec.Flatcar = v1alpha1.FlatcarSpec{Channel: "stable", Version: "4757.2.3"}
+	cl, err := catalog.ClassFromNodeClass(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cl.FlatcarChannel != "stable" || cl.FlatcarVersion != "4757.2.3" {
+		t.Errorf("flatcar = %q %q", cl.FlatcarChannel, cl.FlatcarVersion)
+	}
+}
+
 func TestClassDefaults(t *testing.T) {
 	cl, err := catalog.ClassFromNodeClass(nodeClass("d"))
 	if err != nil {
@@ -95,6 +107,9 @@ func TestClassHashCoversWhatChangesTheTypes(t *testing.T) {
 		"reserved":   func(nc *v1alpha1.SCNodeClass) { nc.Spec.Kubelet.SystemReserved = map[string]string{"cpu": "1"} },
 		"vendors":    func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.Fake = nil },
 		"incomplete": func(nc *v1alpha1.SCNodeClass) { f := false; nc.Spec.Pricing.AllowIncomplete = &f },
+		// The release decides which NVIDIA driver branches GPU types can use.
+		"flatcar version": func(nc *v1alpha1.SCNodeClass) { nc.Spec.Flatcar.Version = "4865.0.0" },
+		"flatcar channel": func(nc *v1alpha1.SCNodeClass) { nc.Spec.Flatcar.Channel = "alpha" },
 		"metrics": func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Metrics = map[string]v1alpha1.Metric{"m": {Benchmark: benchmark("geekbench:score", `{"cores":"single"}`)}}
 		},

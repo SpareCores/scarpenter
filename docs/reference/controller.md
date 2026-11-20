@@ -417,6 +417,7 @@ Metrics (Prometheus, on the metrics port):
 | `scarpenter_catalog_refresh_errors_total` | counter | | Failed refreshes; the last good snapshot stays in use. |
 | `scarpenter_catalog_instance_types` | gauge | `vendor` | Instance types with a price in scope. |
 | `scarpenter_catalog_offerings` | gauge | `vendor` | Priced offerings (price rows in scope, before the driver's zone mapping). |
+| `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | Priced GPU instance types the NodeClass's catalog leaves out; reasons `GPUManufacturer`, `GPUModelUnknown`, `GPUFractional`, `GPUArch`, `GPUNoDriverBranch`, `GPUNVSwitch`, `GPUVirtual` ([GPU types](labels-and-offerings.md#gpu-types)). |
 | `scarpenter_catalog_data_published_timestamp_seconds` | gauge | | Unix time Keeper published the data version of the snapshot (`SC-Data-Published-At`): the age of the data, not of the read. |
 | `scarpenter_catalog_keeper_unauthorized` | gauge | | `1` after Keeper answered a refresh with 401, `0` after a successful snapshot read. |
 
@@ -629,7 +630,7 @@ Besides the metrics of Karpenter core, the controller serves, on the metrics por
 
 | Metric | Section |
 |---|---|
-| `scarpenter_catalog_age_seconds`, `scarpenter_catalog_refresh_errors_total`, `scarpenter_catalog_instance_types`, `scarpenter_catalog_offerings`, `scarpenter_catalog_data_published_timestamp_seconds`, `scarpenter_catalog_keeper_unauthorized` | [Catalog](#catalog) |
+| `scarpenter_catalog_age_seconds`, `scarpenter_catalog_refresh_errors_total`, `scarpenter_catalog_instance_types`, `scarpenter_catalog_offerings`, `scarpenter_catalog_dropped_types`, `scarpenter_catalog_data_published_timestamp_seconds`, `scarpenter_catalog_keeper_unauthorized` | [Catalog](#catalog) |
 | `scarpenter_launches_total`, `scarpenter_launch_skipped_total`, `scarpenter_launch_attempts`, `scarpenter_create_duration_seconds` | [CloudProvider](#cloudprovider) |
 | `scarpenter_quota_limit`, `scarpenter_quota_used`, `scarpenter_quota_reserved`, `scarpenter_quota_refresh_age_seconds`, `scarpenter_quota_refresh_errors_total` | [Quota](#quota) |
 | `scarpenter_gc_deletions_total`, `scarpenter_gc_sweep_duration_seconds`, `scarpenter_gc_last_sweep_timestamp_seconds` | [Garbage collection](#garbage-collection) |

@@ -16,6 +16,7 @@ and [00a](../plans/v1/wip/00a-node-options.md#7-instance-selection). The code is
   - [Names](#names)
   - [Capacity and overhead](#capacity-and-overhead)
   - [Which servers become instance types](#which-servers-become-instance-types)
+  - [GPU types](#gpu-types)
 - [Offerings](#offerings)
   - [Zones and zone IDs](#zones-and-zone-ids)
   - [Prices](#prices)
@@ -99,10 +100,16 @@ OCI is read from Keeper like the other vendors (it needs a Keeper API key):
 | `memory` | Keeper `memory_amount` (MiB) less `kubelet.vmMemoryOverheadPercent` (default 7.5 %, rounded down) |
 | `pods` | `kubelet.maxPods` (default 110) |
 | `ephemeral-storage` | the root disk of the type under the vendor's resolved default settings: the driver's per-type answer where the type defines its root disk, else the settings' root disk, else Keeper's `storage_size` of the type; omitted when none says |
+| `nvidia.com/gpu` | the GPU count of an NVIDIA GPU type the catalog keeps ([GPU types](#gpu-types)), once nodes boot the driver (below); nothing is reserved. Other types have no GPU resource |
 
-There are no GPU extended resources: without a device plugin they would never
-appear on the node and pods requesting them would loop. GPU types are selected
-by label.
+The NVIDIA device plugin (shipped by the chart) registers the resource on the
+node; Karpenter initializes a NodeClaim that requests it only when the plugin
+has. The node bootstrap does not install the driver yet, so the catalog
+advertises neither `nvidia.com/gpu` nor the driver labels (the switch is
+`nvidia.NodeBootstrap`): a Pod that requests GPUs gets no node, rather than one
+that never initializes, and a supported GPU type is offered as a plain machine,
+selected by its `accelerator-*` labels. Accelerators that are not GPUs (NPUs, FPGAs, VPUs, TPUs) have no extended
+resource and are selected by label.
 
 Overhead (what the scheduler subtracts from capacity to get allocatable):
 
@@ -125,7 +132,8 @@ A server type is offered when all of these hold:
   with `instanceTypeNotFound`);
 - its CPU architecture is `x86_64` (`amd64`) or `arm64`; `i386` and the `*_mac`
   architectures have no Kubernetes equivalent;
-- it has at least one usable price in scope (below).
+- it has at least one usable price in scope (below);
+- if it has GPUs, the rules of [GPU types](#gpu-types) hold.
 
 Servers of a vendor that share an `api_reference` take their server ID as the
 name (rule R, applied by every source before scores and selections key by the
@@ -133,6 +141,109 @@ name): the sized types of OCI (`VM.Standard.E5.Flex.2-16`, one per OCPU and
 memory size) share the name of their shape in Keeper's rows and so get one type
 each. Where the references are unique, which is every other vendor's data, the
 reference is kept.
+
+### GPU types
+
+A type whose `accelerator_type` is `GPU` is offered only when SCarpenter can run
+it: it boots with Flatcar's prebuilt NVIDIA driver sysext of the NodeClass's
+Flatcar release (`spec.flatcar.version`), so what the release builds decides.
+The table is `pkg/nvidia`; all of these must hold, checked in this order, and the
+first that fails is the drop reason:
+
+| Reason | The type is dropped when |
+|---|---|
+| `GPUManufacturer` | the manufacturer is not NVIDIA (AMD GPUs, or no manufacturer) |
+| `GPUModelUnknown` | the model is not in the table (a test over the committed snapshots fails on a new NVIDIA model) |
+| `GPUFractional` | the GPU count is not a whole number: a slice of a GPU |
+| `GPUArch` | the CPU is not amd64 |
+| `GPUNoDriverBranch` | the release builds no driver branch for the model's architecture |
+| `GPUNVSwitch` | the type has the model's NVSwitch GPU count (8 or more A100, H100, H200, B200, B300) and the release has no pinned Fabric Manager for its driver |
+| `GPUVirtual` | the driver says the GPU is virtual (a vGPU that needs a GRID driver; the optional [`GPUVirtualizer`](driver-contract.md) capability) |
+
+Dropped types are not offered and never launched; they are counted per NodeClass
+in `scarpenter_catalog_dropped_types` (below). Dropping, not marking
+unavailable: an offering that can never become ready would be retried as
+unavailable for ever, and a node whose GPUs cannot be used is a silent degrade.
+NPUs, FPGAs, VPUs and TPUs are not GPUs here and keep their behaviour.
+
+The driver is the highest branch the release builds within the architecture's
+range, with the open kernel modules for Turing and later (Blackwell needs them)
+and the proprietary ones before. It is stamped as three labels on the type, and
+so on the NodeClaim and the Node: `nvidia-driver-branch` (`570`),
+`nvidia-driver-version` (`570.211.01`) and `nvidia-driver-flavor` (`open` or
+`proprietary`); `DoesNotExist` on every other type. Like `nvidia.com/gpu`, the
+labels are set only once nodes boot the driver (above); until then they are
+`DoesNotExist` on every type, while the drop rules already apply.
+
+<!-- nvidia-table:4757.2.3 -->
+| Model | Architecture | Driver | NVSwitch from |
+|---|---|---|---|
+| `A10` | Ampere | 570 (570.211.01, open) | - |
+| `A100` | Ampere | 570 (570.211.01, open) | 8 GPUs |
+| `A10G` | Ampere | 570 (570.211.01, open) | - |
+| `A16` | Ampere | 570 (570.211.01, open) | - |
+| `A30` | Ampere | 570 (570.211.01, open) | - |
+| `A40` | Ampere | 570 (570.211.01, open) | - |
+| `B200` | Blackwell | none | 8 GPUs |
+| `B300` | Blackwell | none | 8 GPUs |
+| `GB200` | Blackwell | none | - |
+| `GB300` | Blackwell | none | - |
+| `H100` | Hopper | 570 (570.211.01, open) | 8 GPUs |
+| `H200` | Hopper | 570 (570.211.01, open) | 8 GPUs |
+| `K80` | Kepler | none | - |
+| `L20` | Ada | 570 (570.211.01, open) | - |
+| `L4` | Ada | 570 (570.211.01, open) | - |
+| `L40` | Ada | 570 (570.211.01, open) | - |
+| `L40S` | Ada | 570 (570.211.01, open) | - |
+| `M60` | Maxwell | 570 (570.211.01, proprietary) | - |
+| `P100` | Pascal | 570 (570.211.01, proprietary) | - |
+| `P4` | Pascal | 570 (570.211.01, proprietary) | - |
+| `P40` | Pascal | 570 (570.211.01, proprietary) | - |
+| `RTX 5000` | Turing | 570 (570.211.01, open) | - |
+| `RTX PRO 4500` | Blackwell | none | - |
+| `RTX PRO 6000` | Blackwell | none | - |
+| `T4` | Turing | 570 (570.211.01, open) | - |
+| `T4G` | Turing | 570 (570.211.01, open) | - |
+| `V100` | Volta | 570 (570.211.01, proprietary) | - |
+| `V100S` | Volta | 570 (570.211.01, proprietary) | - |
+<!-- /nvidia-table -->
+
+The table covers the models; the CPU architecture is checked separately, so
+`T4G` (arm64) is never offered. Stable 4757.2.3 builds the branches 535, 550 and 570, no 580, so Blackwell is not
+offered on it. The same table on an alpha release that has 580 (4865.0.0):
+
+<!-- nvidia-table:4865.0.0 -->
+| Model | Architecture | Driver | NVSwitch from |
+|---|---|---|---|
+| `A10` | Ampere | 580 (580.178.04, open) | - |
+| `A100` | Ampere | 580 (580.178.04, open) | 8 GPUs |
+| `A10G` | Ampere | 580 (580.178.04, open) | - |
+| `A16` | Ampere | 580 (580.178.04, open) | - |
+| `A30` | Ampere | 580 (580.178.04, open) | - |
+| `A40` | Ampere | 580 (580.178.04, open) | - |
+| `B200` | Blackwell | 580 (580.178.04, open) | 8 GPUs |
+| `B300` | Blackwell | 580 (580.178.04, open) | 8 GPUs |
+| `GB200` | Blackwell | 580 (580.178.04, open) | - |
+| `GB300` | Blackwell | 580 (580.178.04, open) | - |
+| `H100` | Hopper | 580 (580.178.04, open) | 8 GPUs |
+| `H200` | Hopper | 580 (580.178.04, open) | 8 GPUs |
+| `K80` | Kepler | none | - |
+| `L20` | Ada | 580 (580.178.04, open) | - |
+| `L4` | Ada | 580 (580.178.04, open) | - |
+| `L40` | Ada | 580 (580.178.04, open) | - |
+| `L40S` | Ada | 580 (580.178.04, open) | - |
+| `M60` | Maxwell | 580 (580.178.04, proprietary) | - |
+| `P100` | Pascal | 580 (580.178.04, proprietary) | - |
+| `P4` | Pascal | 580 (580.178.04, proprietary) | - |
+| `P40` | Pascal | 580 (580.178.04, proprietary) | - |
+| `RTX 5000` | Turing | 580 (580.178.04, open) | - |
+| `RTX PRO 4500` | Blackwell | 580 (580.178.04, open) | - |
+| `RTX PRO 6000` | Blackwell | 580 (580.178.04, open) | - |
+| `T4` | Turing | 580 (580.178.04, open) | - |
+| `T4G` | Turing | 580 (580.178.04, open) | - |
+| `V100` | Volta | 580 (580.178.04, proprietary) | - |
+| `V100S` | Volta | 580 (580.178.04, proprietary) | - |
+<!-- /nvidia-table -->
 
 ## Offerings
 
@@ -214,6 +325,7 @@ Labels are stamped on the NodeClaim and copied to the Node by core.
 | `cpu-cores`, `hyperthreading` | the core count is unknown |
 | `cpu-flag-<flag>` | the type's flag list is empty (not inspected); a measured type without the flag is `false` |
 | `accelerator-*` | the type has no accelerator |
+| `nvidia-driver-*` | the type is not an NVIDIA GPU type the catalog keeps |
 | `local-storage-count` | the type has a disk of unknown count; no disk is `0` |
 | metric labels | the type has no score |
 | `selection` | the type is in no profile |
@@ -257,6 +369,7 @@ Type-level. Integers are rounded to the nearest; use `Gt` and `Lt` for ranges
 | `accelerator-count` | `accelerator_count` | |
 | `accelerator-memory-mib` | `accelerator_memory_total` | MiB |
 | `accelerator-manufacturer`, `accelerator-model`, `accelerator-type` | `accelerator_manufacturer`, `accelerator_model`, `accelerator_type` | |
+| `nvidia-driver-branch`, `nvidia-driver-version`, `nvidia-driver-flavor` | `pkg/nvidia` table | the driver of the NodeClass's Flatcar release for the model ([GPU types](#gpu-types)) |
 | `network-baseline-mbps`, `network-peak-mbps` | `network_speed_baseline`, `network_speed_max` (Gbps) | x 1000 |
 | `local-storage-gb` | `storage_size` | GB |
 | `local-storage-count` | number of `storages` | |
@@ -431,6 +544,7 @@ modified.
 | `scarpenter_catalog_refresh_errors_total` | counter | | failed refreshes |
 | `scarpenter_catalog_instance_types` | gauge | `vendor` | types with a price in scope |
 | `scarpenter_catalog_offerings` | gauge | `vendor` | price rows in scope, before the driver's zone mapping |
+| `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | priced GPU types a NodeClass's catalog leaves out, by [reason](#gpu-types); exported for the NodeClasses the catalog has built, only for reasons that occur |
 
 ### Scale
 

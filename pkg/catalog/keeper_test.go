@@ -104,7 +104,7 @@ func TestUnusableServersAreDropped(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"aws.t3a.small", "aws.m7i.large", "aws.c7g.xlarge", "aws.p4d.24xlarge"} {
+	for _, name := range []string{"aws.t3a.small", "aws.m7i.large", "aws.c7g.xlarge", "aws.g5.24xlarge"} {
 		if byName(its, name) == nil {
 			t.Errorf("%s is missing", name)
 		}

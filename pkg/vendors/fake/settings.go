@@ -155,6 +155,11 @@ func (d *Driver) RootDiskForType(_ vendors.VendorSettings, it vendors.CatalogTyp
 	return d.current().rootDisk(it)
 }
 
+// Virtual implements vendors.GPUVirtualizer: the steering's virtualGPU list.
+func (d *Driver) Virtual(apiReference string) bool {
+	return d.current().isVirtualGPU(d.Vendor(), apiReference)
+}
+
 // Supported implements vendors.NodeOptions: every defined profile is valid
 // except where it cannot be honoured (ADR-017): local storage needs a type with
 // local disks, and the ConfigMap's unsupported rules (steering, for the

@@ -91,6 +91,7 @@ var (
 	_ catalog.Facts             = (*Facts)(nil)
 	_ catalog.LaunchableFacts   = (*Facts)(nil)
 	_ catalog.RegionPricedFacts = (*Facts)(nil)
+	_ catalog.VirtualGPUFacts   = (*Facts)(nil)
 	_ catalog.PriceSink         = (*Facts)(nil)
 )
 
@@ -505,6 +506,17 @@ func (f *Facts) RegionPriced(vendor string) bool {
 	if drv, ok := f.opts.Registry.Driver(vendor); ok {
 		if rp, ok := drv.(vendors.RegionPriced); ok {
 			return rp.PricesPerRegion()
+		}
+	}
+	return false
+}
+
+// VirtualGPU implements catalog.VirtualGPUFacts: the driver says which types
+// carry a virtual GPU (vendors.GPUVirtualizer).
+func (f *Facts) VirtualGPU(vendor, apiReference string) bool {
+	if drv, ok := f.opts.Registry.Driver(vendor); ok {
+		if v, ok := drv.(vendors.GPUVirtualizer); ok {
+			return v.Virtual(apiReference)
 		}
 	}
 	return false

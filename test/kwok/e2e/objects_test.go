@@ -11,6 +11,7 @@ package e2e
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +30,7 @@ import (
 	awsapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
+	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
 const (
@@ -343,6 +345,8 @@ type offering struct {
 	Capacity     string
 	Price        float64
 	VCPUs        int64
+	// GPUs is the GPU count of a GPU type the catalog keeps (zero: none).
+	GPUs int64
 	// AllocMem is the memory pods can use (capacity minus overhead).
 	AllocMem int64
 }
@@ -363,7 +367,10 @@ func reference(t *testing.T, regions ...string) []offering {
 		return o
 	}
 	cl := catalog.NewClass("ref", catalog.Scope{vendor: regions})
-	cat := catalog.New(catalog.Options{Source: catalogtest.SourceAt(replay.URL), Facts: catalogtest.Facts(t, vendor)})
+	cl.FlatcarVersion = catalogtest.FlatcarVersion
+	cl.Finalize()
+	cat := catalog.New(catalog.Options{Source: catalogtest.SourceAt(replay.URL), Facts: catalogtest.Facts(t, vendor),
+		NVIDIAGPUs: nvidia.NodeBootstrap})
 	cat.SetClasses([]catalog.Class{cl})
 	if err := cat.Refresh(ctx()); err != nil {
 		t.Fatal(err)
@@ -375,13 +382,17 @@ func reference(t *testing.T, regions ...string) []offering {
 	var out []offering
 	for _, it := range its {
 		cpu := it.Capacity.Cpu().Value()
+		var gpus int64
+		if it.Requirements.Get(v1alpha1.LabelAcceleratorType).Has("GPU") {
+			gpus, _ = strconv.ParseInt(it.Requirements.Get(v1alpha1.LabelAcceleratorCount).Any(), 10, 64)
+		}
 		alloc := it.Allocatable()
 		mem := alloc.Memory().Value()
 		for _, o := range it.Offerings {
 			out = append(out, offering{
 				Type: it.Name, API: strings.TrimPrefix(it.Name, vendor+"."),
 				Region: o.Requirements.Get(labelRegion).Any(), Zone: o.Requirements.Get(labelZone).Any(),
-				Capacity: o.Requirements.Get(labelCapacity).Any(), Price: o.Price, VCPUs: cpu, AllocMem: mem,
+				Capacity: o.Requirements.Get(labelCapacity).Any(), Price: o.Price, VCPUs: cpu, GPUs: gpus, AllocMem: mem,
 			})
 		}
 	}

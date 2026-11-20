@@ -76,6 +76,14 @@ type LaunchableFacts interface {
 	Launchable(vendor, apiReference, zoneID string) (launchable, known bool)
 }
 
+// VirtualGPUFacts is an optional extension of Facts: the vendors that sell
+// virtual GPUs (vGPU slices that need a GRID driver) say which of their types
+// they are. Such a type is dropped from the catalog (reason GPUVirtual).
+type VirtualGPUFacts interface {
+	// VirtualGPU reports whether the GPU of the type is virtual.
+	VirtualGPU(vendor, apiReference string) bool
+}
+
 // PriceSink is an optional extension of Facts: the drivers that price the
 // disks and the public IPv4 address of an offering from the source's data.
 // The catalog calls SetKeeperPrices with the rows of the data it has loaded,

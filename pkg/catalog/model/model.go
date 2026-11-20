@@ -24,6 +24,10 @@ const (
 	ArchARM64 = "arm64"
 )
 
+// AcceleratorGPU is the accelerator type of GPUs (upper case, as the catalog
+// reads Keeper's accelerator_type).
+const AcceleratorGPU = "GPU"
+
 // Server is one instance type of a vendor, with the hardware facts Keeper has.
 // Nullable facts are pointers; units are Spare Cores' own.
 type Server struct {

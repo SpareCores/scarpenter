@@ -32,6 +32,10 @@ func SnapshotDir() string {
 	return filepath.Join(testutil.RepoRoot(), "test", "data", "sc-snapshot")
 }
 
+// FlatcarVersion is the release the test classes pin: the stable one of the
+// repository's lanes, which builds NVIDIA driver sysexts up to branch 570.
+const FlatcarVersion = "4757.2.3"
+
 // Server starts the replay server of the snapshot; it stops with the test.
 func Server(t testing.TB) *keepertest.Server {
 	t.Helper()

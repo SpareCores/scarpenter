@@ -47,7 +47,9 @@ instance sweep, to delete what a failed or interrupted launch made besides the i
 asks `nodeClaimExists` after, so a launch in flight keeps its resources; see
 [garbage collection](controller.md#garbage-collection)), `NodeClassWarner` (settings that are valid but
 have no effect for the vendor, from the NodeClass alone: the vendor condition `ConfigurationWarning`),
-`ImageImporter` (reserved) and
+`ImageImporter` (reserved), `GPUVirtualizer` (`Virtual(apiReference) bool`: the type's GPU is a
+virtual one that needs a GRID driver, so the catalog drops it with the reason `GPUVirtual`; see
+[GPU types](labels-and-offerings.md#gpu-types)) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
 
@@ -509,6 +511,8 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
 - `rootDisks`: rules `{instanceTypes, families, size}` (empty lists match everything; the
   first match wins) that make matching types define their own root disk, answered by
   `RootDiskForType`.
+- `virtualGPU`: a list of instance types (with or without the vendor prefix) whose GPU is virtual,
+  answered by `GPUVirtualizer`; the catalog drops them (reason `GPUVirtual`). A change rebuilds the catalog.
 - `images`: the account's boot images, `{id, region (or "*": every region), name, arch (amd64 or arm64),
   channel, version, owner, deprecated, tags, created, description, state}`: what the `images` selector and the
   version check resolve against. An image says its release in `channel` and `version` or in the

@@ -39,7 +39,7 @@ func TestKubeReservedMemoryCap(t *testing.T) {
 	} {
 		class := NewClass("c", Scope{"fake": nil})
 		class.MaxPods = tc.pods
-		rl := capacity(2, tc.gib*1024, &class, 0, false)
+		rl := capacity(2, tc.gib*1024, &class, 0, false, nil)
 		if got := rl.Memory().Value() >> 20; got != tc.capacityMiB {
 			t.Fatalf("%v GiB: capacity = %dMi, want %dMi", tc.gib, got, tc.capacityMiB)
 		}
@@ -66,7 +66,7 @@ func TestLeanOverhead(t *testing.T) {
 	if class.MaxPods != 10 {
 		t.Errorf("lean maxPods = %d, want 10", class.MaxPods)
 	}
-	rl := capacity(1, 1024, &class, 0, false)
+	rl := capacity(1, 1024, &class, 0, false, nil)
 	oh := overhead(1, &class, rl)
 	for name, want := range map[string]struct {
 		got  resource.Quantity
@@ -118,7 +118,7 @@ func TestLeanNeverLeavesLessThanStandard(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		rl := capacity(2, gib*1024, &class, 0, false)
+		rl := capacity(2, gib*1024, &class, 0, false, nil)
 		oh := overhead(2, &class, rl)
 		m := rl[corev1.ResourceMemory]
 		m.Sub(*oh.KubeReserved.Memory())

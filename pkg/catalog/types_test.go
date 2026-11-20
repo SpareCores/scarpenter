@@ -16,6 +16,7 @@ import (
 	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
 	"github.com/SpareCores/scarpenter/pkg/catalog/model"
 )
@@ -27,6 +28,8 @@ func TestGoldenAWSTypes(t *testing.T) {
 	facts := catalogtestFacts(t)
 	facts.RootDisk = map[string]int64{"aws": 128 << 30}
 	cl := catalog.NewClass("c", catalog.Scope{"aws": {"us-east-1"}})
+	cl.FlatcarVersion = catalogtest.FlatcarVersion
+	cl.Finalize()
 	c := catalog.New(catalog.Options{Source: sourceFor(t), Facts: facts})
 	c.SetClasses([]catalog.Class{cl})
 	if err := c.Refresh(t.Context()); err != nil {
@@ -34,7 +37,7 @@ func TestGoldenAWSTypes(t *testing.T) {
 	}
 	its := all(t, c, catalog.Filter{})
 	var b strings.Builder
-	for _, name := range []string{"aws.t3a.small", "aws.m7i.large", "aws.c7g.xlarge", "aws.p4d.24xlarge"} {
+	for _, name := range []string{"aws.t3a.small", "aws.m7i.large", "aws.c7g.xlarge", "aws.g5.24xlarge"} {
 		it := byName(its, name)
 		if it == nil {
 			t.Fatalf("%s is not in the catalog", name)
