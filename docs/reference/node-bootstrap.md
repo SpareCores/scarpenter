@@ -229,16 +229,32 @@ release (its modules are signed with the release's kernel key). The part holds:
   joins; Karpenter deletes the NodeClaim after the registration timeout and tries again, and the
   unit's journal line says why.
 
-The part is about 2 KiB of the user-data. Its largest variant (the mirror, 16 GPUs) is part of the
-NodeClass controller's trial rendering for amd64, and a unit test holds the worst case of a GPU node
-(everything else on) to 14 KiB.
+- **NVSwitch systems** (8 or more GPUs of A100, H100 and H200 HGX models) additionally get Fabric
+  Manager, which no Flatcar sysext ships and without which CUDA does not initialize on them. NVIDIA's
+  Fabric Manager archive of the driver's exact version (the daemon aborts on a mismatch) is pinned by
+  sha256 in the table; Ignition writes it to `/opt/nvidia-fabricmanager/` from NVIDIA's driver
+  redistributables (`developer.download.nvidia.com/.../redist/fabricmanager/linux-x86_64/`), or from
+  `<--nvidia-driver-base-url>/fabricmanager/<driver version>/` with a mirror, and verifies the hash.
+  `scarpenter-nvidia-fabricmanager.service` (after `nvidia.service`, started by the check unit that
+  wants it, so before the kubelet and the device plugin) unpacks the archive, copies its
+  `fabricmanager.cfg` with the foreground, syslog (journal) and topology-path settings changed, and
+  runs `nv-fabricmanager -c` (`Restart=on-failure`). The check unit then also waits (3 minutes) for
+  Fabric Manager's log line (read from the journal of the unit's current run) that it configured the NVSwitches, so the device plugin never advertises
+  GPUs that cannot initialize. `hack/nvidia-mirror.sh <version> <dir> fabricmanager-<driver version>`
+  copies an archive into the mirror tree and prints its pin. Smaller slices of the same hardware (four
+  GPUs and fewer) and 8-GPU V100 systems (NVLink without NVSwitch) get none of this. B200 and B300 (NVLink5)
+  are not offered: NVIDIA's start script also runs the NVLink subnet manager (`nvlsm`) there, which needs
+  the `ib_umad` module and `ibstat`, and Flatcar has neither.
+
+The part is about 2 KiB of the user-data, and Fabric Manager adds about 0.7 KiB of the compressed user-data (the worst case of a GPU node is 14161 of the 14336 bytes of the budget). Its largest variant (the
+mirror, 16 GPUs, Fabric Manager) is part of the NodeClass controller's trial rendering for amd64, and a
+unit test holds the worst case of a GPU node (everything else on) to 14 KiB.
 
 The chart ships the device plugin and, on request (`nvidia.runtimeClass.create`), the RuntimeClass `nvidia`, whose handler is the runtime this part
 registers ([run GPU workloads](../how-to-guides/run-gpu-workloads.md)). Until the vendors' virtual-GPU
 checks exist, GPU types are offered as plain machines and the catalog
 advertises neither `nvidia.com/gpu` nor the driver labels (`nvidia.NodeBootstrap`), so no launch
-renders the part yet. NVSwitch systems (8 or more GPUs of HGX models) additionally need Fabric
-Manager, which the part does not ship yet: they stay dropped.
+renders the part yet.
 
 ## Template variables
 

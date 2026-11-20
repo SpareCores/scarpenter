@@ -138,7 +138,8 @@ func TestS21GPUType(t *testing.T) {
 			reasons = append(reasons, strings.SplitN(r, `"`, 2)[0])
 		}
 	}
-	for _, r := range []string{"GPUVirtual", "GPUFractional", "GPUArch", "GPUNVSwitch", "GPUNoDriverBranch"} {
+	// 8-GPU NVSwitch systems are no longer dropped: Fabric Manager is part of the node (S21b).
+	for _, r := range []string{"GPUVirtual", "GPUFractional", "GPUArch", "GPUNoDriverBranch"} {
 		if m[fmt.Sprintf(`%s%s",vendor="%s"}`, prefix, r, vendor)] < 1 {
 			t.Errorf("scarpenter_catalog_dropped_types for %s is missing; exported reasons: %v", r, reasons)
 		}
@@ -149,4 +150,54 @@ func TestS21GPUType(t *testing.T) {
 
 	deletePodAndWaitNode(t, "s21", node)
 	waitNoClaims(t, "s21", long)
+}
+
+// S21b: an 8-GPU NVSwitch system (A100 HGX) is offered, because the table pins a Fabric
+// Manager archive for the driver of the release, and a Pod that asks for it gets its
+// NodeClaim, which initializes. Before nodes boot the driver (nvidia.NodeBootstrap) the
+// Pod selects the type by its labels and the type has neither the GPU resource nor the
+// driver labels.
+func TestS21bNVSwitchType(t *testing.T) {
+	a100 := byPrice(filterOfferings(reference(t, us1), func(o offering) bool {
+		return isOnDemand(o) && o.GPUs == 8 && strings.HasPrefix(o.API, "p4d")
+	}))
+	if len(a100) == 0 {
+		t.Fatalf("the snapshot has no 8-GPU A100 offering in %s: the NVSwitch type was dropped", us1)
+	}
+	want := a100[0]
+
+	createNodeClass(t, "s21b", us1)
+	createNodePool(t, "s21b", "s21b", in(labelRegion, us1), in(labelCapacity, "on-demand"))
+	selector := map[string]string{v1alpha1.LabelAcceleratorModel: "A100", v1alpha1.LabelAcceleratorCount: "8"}
+	var wantGPUs int64
+	if nvidia.NodeBootstrap {
+		gpuPod(t, "s21b", 8)
+		wantGPUs = 8
+	} else {
+		createPod(t, "s21b", selector, "100m")
+	}
+	node := waitPodRunning(t, "s21b", long)
+	waitClaims(t, "s21b", 1, time.Minute)
+	eventually(t, time.Minute, time.Second, "node initialized", func() (bool, string) {
+		return nodeLabels(t, node)[karpv1.NodeInitializedLabelKey] == "true", "not initialized yet"
+	})
+	l := nodeLabels(t, node)
+	if l[labelType] != want.Type {
+		t.Errorf("launched %s, want %s (the cheapest 8-GPU A100 type)", l[labelType], want.Type)
+	}
+	if l[v1alpha1.LabelAcceleratorCount] != "8" || l[v1alpha1.LabelAcceleratorModel] != "A100" {
+		t.Errorf("accelerator labels = %q x %q", l[v1alpha1.LabelAcceleratorCount], l[v1alpha1.LabelAcceleratorModel])
+	}
+	if got := l[v1alpha1.LabelNVIDIADriverBranch] != ""; got != nvidia.NodeBootstrap {
+		t.Errorf("driver branch label set = %v, want %v", got, nvidia.NodeBootstrap)
+	}
+	n := &corev1.Node{}
+	if err := k8s.Get(ctx(), client.ObjectKey{Name: node}, n); err != nil {
+		t.Fatal(err)
+	}
+	if q := n.Status.Allocatable[gpuResource]; q.Value() != wantGPUs {
+		t.Errorf("node allocatable nvidia.com/gpu = %v, want %d", q.Value(), wantGPUs)
+	}
+	deletePodAndWaitNode(t, "s21b", node)
+	waitNoClaims(t, "s21b", long)
 }
