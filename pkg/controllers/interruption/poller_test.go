@@ -143,7 +143,7 @@ func TestPollerReportsANoticeThroughTheNode(t *testing.T) {
 	}
 }
 
-func TestPollerKeepsTheAgentsNoticeAndSkipsUnregisteredClaims(t *testing.T) {
+func TestPollerKeepsTheAgentsNotice(t *testing.T) {
 	h := newHarness(t)
 	d := &pollDriver{}
 	p := h.pollerWith(d)
@@ -159,6 +159,59 @@ func TestPollerKeepsTheAgentsNoticeAndSkipsUnregisteredClaims(t *testing.T) {
 	if got := h.node().Annotations; got[v1alpha1.AnnotationInterruptionDeadline] != agent[v1alpha1.AnnotationInterruptionDeadline] ||
 		got[v1alpha1.AnnotationInterruptionSource] != v1alpha1.SourceInstanceMetadata {
 		t.Errorf("the agent's notice was overwritten: %v", got)
+	}
+}
+
+// A notice for a NodeClaim whose Node is not registered yet is kept and
+// written once the Node is, even if the vendor no longer shows it.
+func TestPollerKeepsANoticeUntilTheNodeIsRegistered(t *testing.T) {
+	h := newHarness(t)
+	d := &pollDriver{}
+	p := h.pollerWith(d)
+	ref := h.refOf("i-" + h.name)
+	h.addPolled(ref, nodeOpts{})
+	claim := h.claim()
+	claim.Status.NodeName = ""
+	h.must(h.c.Status().Update(t.Context(), claim))
+	d.set([]vendors.Notice{{Ref: ref, Reason: v1alpha1.ReasonSpotInterrupted}}, nil)
+
+	h.must(p.Sync(t.Context()))
+	eventually(t, "the first poll", func() bool { return d.count("westeurope") > 0 })
+	d.set(nil, nil)
+	h.tick(pollEvery)
+	eventually(t, "the second poll", func() bool { return d.count("westeurope") > 1 })
+	if _, ok := h.node().Annotations[v1alpha1.AnnotationInterruption]; ok {
+		t.Fatal("the poller annotated a Node its NodeClaim does not name yet")
+	}
+
+	claim = h.claim()
+	claim.Status.NodeName = h.name
+	h.must(h.c.Status().Update(t.Context(), claim))
+	h.tick(pollEvery)
+	eventually(t, "the Node has the kept notice", func() bool {
+		return h.node().Annotations[v1alpha1.AnnotationInterruptionSource] == v1alpha1.SourceVendorAPI
+	})
+}
+
+// A node cannot hide the vendor's notice behind a value of its own that the
+// controller ignores: the poller replaces it, deadline included.
+func TestPollerReplacesANoticeTheControllerWouldIgnore(t *testing.T) {
+	h := newHarness(t)
+	d := &pollDriver{}
+	p := h.pollerWith(d)
+	ref := h.refOf("i-" + h.name)
+	h.addPolled(ref, nodeOpts{annotations: map[string]string{
+		v1alpha1.AnnotationInterruption:         "Nothing",
+		v1alpha1.AnnotationInterruptionDeadline: h.clk.Now().Add(time.Hour).Format(time.RFC3339),
+	}})
+	d.set([]vendors.Notice{{Ref: ref, Reason: v1alpha1.ReasonSpotInterrupted}}, nil)
+
+	h.must(p.Sync(t.Context()))
+	eventually(t, "the Node has the vendor's notice", func() bool {
+		return h.node().Annotations[v1alpha1.AnnotationInterruption] == v1alpha1.ReasonSpotInterrupted
+	})
+	if dl, ok := h.node().Annotations[v1alpha1.AnnotationInterruptionDeadline]; ok {
+		t.Errorf("the node's deadline %s was kept for a notice without one", dl)
 	}
 }
 

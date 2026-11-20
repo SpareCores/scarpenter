@@ -382,8 +382,11 @@ NodeClaims, patches `nodeclaims/status` and creates Events through Karpenter cor
 For a vendor whose driver implements [`InterruptionPoller`](driver-contract.md#interruption-poller-and-the-reason-an-instance-is-gone)
 the controller runs one poll loop per (vendor, region) that has a spot NodeClaim of an SCNodeClass, shared by all its instances, and stops
 it when the last one is gone (the set is checked every 5 seconds; the poll interval is the driver's). A notice is matched to its NodeClaim by the
-`instance-ref` annotation and written to the Node as the three interruption annotations with source `vendor-api` (a Node that has a notice
-already is left alone, and a NodeClaim without a Node yet is retried at the next poll); the controller then reacts exactly as it does to the node
+`instance-ref` annotation and written to the Node as the three interruption annotations with source `vendor-api`. A Node that has a
+`SpotInterrupted` notice already (the node agent's) is left alone; any other value there is replaced, so that a node cannot hide the vendor's
+notice behind one the controller ignores. A notice for a NodeClaim without a Node yet is kept in memory and written once the Node exists, even if
+the vendor no longer shows it, and dropped when the NodeClaim is gone. The source grants nothing: a node can write `vendor-api` itself, and both
+sources get the same checks (reason, spot only, the deadline clamped to the vendor's window); it only labels the record. The controller then reacts exactly as it does to the node
 agent's annotation, so the record looks the same whichever path found it. A failed poll is counted in
 `scarpenter_interruption_poll_errors_total` and the loop waits twice the interval, doubling per failure up to 5 minutes (throttling
 included); it never fails the controller. `--interruption=false` turns the poller off with the controller.
@@ -392,9 +395,11 @@ included); it never fails the controller. `--interruption=false` turns the polle
 
 A vendor may take an instance without a notice, or the notice may be missed. Core's NodeClaim garbage collection deletes a Registered NodeClaim
 whose instance is gone once its Node is not Ready (about a minute after the node monitor notices, plus up to two minutes); `Get` and `List`
-already treat `terminating` and `terminated` as gone. When `CloudProvider.Delete` then finds the instance gone and SCarpenter did not delete it
-(it keeps the provider IDs it deleted in memory) and core is not disrupting the NodeClaim on purpose (core sets `DisruptionReason` first), the
-controller records it, once, for a NodeClaim that has no interruption annotation:
+already treat `terminating` and `terminated` as gone. When the first `CloudProvider.Delete` of a NodeClaim finds the instance gone (terminating or
+terminated) and core is not disrupting the NodeClaim on purpose (core sets `DisruptionReason` first), the instance went without SCarpenter: core
+sets the `InstanceTerminating` condition after every `Delete` that did not fail, so a later `Delete` (after SCarpenter deleted the instance, also
+across a restart) does not report it; SCarpenter also remembers the instances it deleted for an hour, for the moment before core stores the
+condition. The controller records it, once, for a NodeClaim that has no interruption annotation:
 
 | NodeClaim | Reason | Source | What is recorded |
 |---|---|---|---|

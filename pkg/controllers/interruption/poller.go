@@ -158,9 +158,13 @@ func (p *Poller) stopAll() {
 }
 
 // loop polls the region until ctx ends. The wait doubles from the poll interval
-// on each failed poll, up to the maximum, and resets on a success.
+// on each failed poll, up to the maximum, and resets on a success. A notice that
+// cannot be written yet (its NodeClaim has no Node) is kept and written once the
+// Node exists, even if the vendor no longer shows it; it is dropped when its
+// NodeClaim is gone.
 func (p *Poller) loop(ctx context.Context, key pollKey, poller vendors.InterruptionPoller) {
 	logger := log.FromContext(ctx).WithValues("vendor", key.vendor, "region", key.region)
+	pending := map[vendors.InstanceRef]vendors.Notice{}
 	var backoff time.Duration
 	for {
 		interval := poller.PollInterval()
@@ -179,9 +183,12 @@ func (p *Poller) loop(ctx context.Context, key pollKey, poller vendors.Interrupt
 			logger.Error(err, "polling for interruption notices failed", "retry-in", wait.String())
 		default:
 			backoff = 0
-			if err := p.report(ctx, notices); err != nil {
-				logger.Error(err, "reporting interruption notices")
+			for _, n := range notices {
+				pending[n.Ref] = n
 			}
+		}
+		if err := p.report(ctx, pending); err != nil {
+			logger.Error(err, "reporting interruption notices")
 		}
 		timer := p.c.opts.Clock.NewTimer(wait)
 		select {
@@ -199,10 +206,11 @@ func managed(claim *karpv1.NodeClaim) bool {
 	return ref != nil && ref.Group == v1alpha1.Group && ref.Kind == nodeClassKind
 }
 
-// report writes each notice to the Node of its NodeClaim, unless the Node has a
-// notice already.
-func (p *Poller) report(ctx context.Context, notices []vendors.Notice) error {
-	if len(notices) == 0 {
+// report writes each pending notice to the Node of its NodeClaim and drops the
+// notices that are done: written, the Node has a notice already, or the
+// NodeClaim is not SCarpenter's (gone, or another cluster's instance).
+func (p *Poller) report(ctx context.Context, pending map[vendors.InstanceRef]vendors.Notice) error {
+	if len(pending) == 0 {
 		return nil
 	}
 	claims := &karpv1.NodeClaimList{}
@@ -216,30 +224,38 @@ func (p *Poller) report(ctx context.Context, notices []vendors.Notice) error {
 		}
 	}
 	var firstErr error
-	for _, n := range notices {
-		claim, ok := byRef[n.Ref.String()]
+	for ref, n := range pending {
+		claim, ok := byRef[ref.String()]
 		if !ok {
+			delete(pending, ref)
 			continue
 		}
-		if err := p.annotate(ctx, claim, n); err != nil && firstErr == nil {
+		done, err := p.annotate(ctx, claim, n)
+		if err != nil && firstErr == nil {
 			firstErr = err
+		}
+		if done {
+			delete(pending, ref)
 		}
 	}
 	return firstErr
 }
 
-// annotate writes the notice on the Node. A NodeClaim without a Node (not
-// registered yet) is skipped: the notice is still there at the next poll.
-func (p *Poller) annotate(ctx context.Context, claim *karpv1.NodeClaim, n vendors.Notice) error {
+// annotate writes the notice on the Node and reports whether the notice is
+// done. A NodeClaim without a Node (not registered yet) is not done. A Node
+// that has a SpotInterrupted notice already (the node agent's) keeps it; any
+// other value is the node's own, which the controller ignores, and is
+// overwritten so that it cannot hide the vendor's notice.
+func (p *Poller) annotate(ctx context.Context, claim *karpv1.NodeClaim, n vendors.Notice) (bool, error) {
 	if claim.Status.NodeName == "" {
-		return nil
+		return false, nil
 	}
 	node := &corev1.Node{}
 	if err := p.c.opts.Client.Get(ctx, types.NamespacedName{Name: claim.Status.NodeName}, node); err != nil {
-		return client.IgnoreNotFound(err)
+		return false, client.IgnoreNotFound(err)
 	}
-	if _, ok := node.Annotations[v1alpha1.AnnotationInterruption]; ok {
-		return nil
+	if node.Annotations[v1alpha1.AnnotationInterruption] == v1alpha1.ReasonSpotInterrupted {
+		return true, nil
 	}
 	reason := n.Reason
 	if reason == "" {
@@ -249,18 +265,20 @@ func (p *Poller) annotate(ctx context.Context, claim *karpv1.NodeClaim, n vendor
 		v1alpha1.AnnotationInterruption:       reason,
 		v1alpha1.AnnotationInterruptionSource: v1alpha1.SourceVendorAPI,
 	}
-	if !n.Deadline.IsZero() {
-		want[v1alpha1.AnnotationInterruptionDeadline] = n.Deadline.UTC().Format(time.RFC3339)
-	}
 	stored := node.DeepCopy()
 	if node.Annotations == nil {
 		node.Annotations = map[string]string{}
 	}
+	// A deadline the node wrote must not stand in for the vendor's.
+	delete(node.Annotations, v1alpha1.AnnotationInterruptionDeadline)
+	if !n.Deadline.IsZero() {
+		want[v1alpha1.AnnotationInterruptionDeadline] = n.Deadline.UTC().Format(time.RFC3339)
+	}
 	maps.Copy(node.Annotations, want)
 	if err := p.c.opts.Client.Patch(ctx, node, client.MergeFrom(stored)); err != nil {
-		return fmt.Errorf("annotating Node %s with the interruption notice: %w", node.Name, err)
+		return false, fmt.Errorf("annotating Node %s with the interruption notice: %w", node.Name, err)
 	}
 	log.FromContext(ctx).WithValues("node", node.Name, "nodeclaim", claim.Name, "reason", reason).
 		Info("found an interruption notice through the vendor API")
-	return nil
+	return true, nil
 }

@@ -647,6 +647,15 @@ func TestDeleteReportsAnInstanceThatIsGoneWithoutSCarpenterDeletingIt(t *testing
 			},
 			want: nil,
 		},
+		"seen by an earlier Delete, before a restart": {
+			// Core sets InstanceTerminating after a Delete that did not fail: the
+			// earlier Delete deleted the instance, the memory of it is gone.
+			reclaim: func(e *env, ref vendors.InstanceRef) { e.driver.Reclaim(ref) },
+			claim: func(_, claim *karpv1.NodeClaim) {
+				claim.StatusConditions().SetTrue(karpv1.ConditionTypeInstanceTerminating)
+			},
+			want: nil,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var got goneReports
@@ -670,6 +679,30 @@ func TestDeleteReportsAnInstanceThatIsGoneWithoutSCarpenterDeletingIt(t *testing
 				t.Errorf("OnInstanceGone was told %q, want %q", got.list(), tc.want)
 			}
 		})
+	}
+}
+
+// A stopped (terminating) instance that SCarpenter did not stop is reported by
+// the first Delete, without a reason from the driver.
+func TestDeleteReportsATerminatingInstanceItDidNotDelete(t *testing.T) {
+	var got goneReports
+	e := newEnv(t, envOptions{onInstanceGone: got.hook})
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := &karpv1.NodeClaim{}
+	claim.Name = "claim-1"
+	claim.Status.ProviderID = created.Status.ProviderID
+	claim.Annotations = created.Annotations
+	if !e.driver.PowerOff(vendors.InstanceRef(created.Annotations[v1alpha1.AnnotationInstanceRef])) {
+		t.Fatal("PowerOff found no running instance")
+	}
+	if err := e.cp.Delete(t.Context(), claim); err != nil {
+		t.Fatalf("Delete of a terminating instance = %v, want nil (core asks again)", err)
+	}
+	if reports := got.list(); !slices.Equal(reports, []string{""}) {
+		t.Errorf("OnInstanceGone was told %q, want one report without a reason", reports)
 	}
 }
 

@@ -137,8 +137,9 @@ type CloudProvider struct {
 	// deleteIssued are the provider IDs whose instance Delete asked the driver
 	// to delete, with the time: an instance found gone afterwards (core calls
 	// Delete several times) is the expected end, not a loss. Entries are dropped
-	// after an hour. In memory only; reportGone also skips NodeClaims that core
-	// disrupts on purpose, which covers a restart in between.
+	// after an hour. In memory only; the durable signal is core's
+	// InstanceTerminating condition (see reportGone), this covers the moment
+	// before core has stored it.
 	issuedMu     sync.Mutex
 	deleteIssued map[string]time.Time
 
@@ -380,11 +381,7 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("instance of %s is terminated", providerID))
 	}
 	if inst.State == vendors.StateTerminating {
-		// Only a driver that can tell a reclaim from a stop gives a reason for a
-		// terminating instance.
-		if inst.GoneReason != "" {
-			c.reportGone(ctx, nodeClaim, vendor, inst.GoneReason)
-		}
+		c.reportGone(ctx, nodeClaim, vendor, inst.GoneReason)
 		// The vendor is probably deleting it and core asks again. One that stays
 		// terminating (a stopped instance never goes away by itself) is deleted
 		// again after the grace; DeleteInstance is idempotent.
@@ -421,11 +418,17 @@ func (c *CloudProvider) noteDeleteIssued(providerID string) {
 	c.deleteIssued[providerID] = now
 }
 
-// reportGone tells OnInstanceGone that the NodeClaim's instance is gone, unless
-// SCarpenter deleted it or core is disrupting the NodeClaim on purpose
-// (consolidation, drift, expiry: core sets DisruptionReason first). What is left
-// is an instance the vendor reclaimed or that was deleted outside SCarpenter
-// (plan 26 section 5).
+// reportGone tells OnInstanceGone that the NodeClaim's instance is gone
+// (terminating or terminated), unless SCarpenter deleted it or core is
+// disrupting the NodeClaim on purpose (consolidation, drift, expiry: core sets
+// DisruptionReason first). What is left is an instance the vendor reclaimed or
+// that was deleted outside SCarpenter (plan 26 section 5).
+//
+// Only the first Delete of a NodeClaim reports: core sets the InstanceTerminating
+// condition after any Delete that did not fail, so a NodeClaim that has it was
+// seen by Delete before, which deleted the instance or found it gone already.
+// The condition is stored on the NodeClaim, so a restart of SCarpenter between
+// two Deletes does not turn its own delete into a reported loss.
 func (c *CloudProvider) reportGone(ctx context.Context, nodeClaim *karpv1.NodeClaim, vendor, goneReason string) {
 	if c.opts.OnInstanceGone == nil {
 		return
@@ -433,7 +436,9 @@ func (c *CloudProvider) reportGone(ctx context.Context, nodeClaim *karpv1.NodeCl
 	c.issuedMu.Lock()
 	_, issued := c.deleteIssued[nodeClaim.Status.ProviderID]
 	c.issuedMu.Unlock()
-	if issued || nodeClaim.StatusConditions().Get(karpv1.ConditionTypeDisruptionReason) != nil {
+	conds := nodeClaim.StatusConditions()
+	if issued || conds.Get(karpv1.ConditionTypeDisruptionReason) != nil ||
+		conds.Get(karpv1.ConditionTypeInstanceTerminating).IsTrue() {
 		return
 	}
 	c.opts.OnInstanceGone(ctx, nodeClaim, vendor, goneReason)

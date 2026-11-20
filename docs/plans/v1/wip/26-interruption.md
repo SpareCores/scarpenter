@@ -241,9 +241,10 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    `InstanceVanished`, and `SpotInterrupted` from `GoneReason`; source `gc` or `vendor-api`), `scarpenter_interruption_poll_errors_total`,
    the fake's `Interrupt`, `Reclaim`, `ReclaimWithReason` and the `interrupt` and `reclaim` steering keys, a conformance subtest, L2 tests, and the
    L3 scenarios I01 to I06 for (a) to (f). Deviations from the text above: (a) the silent-reclaim record is made in `CloudProvider.Delete` only, not in
-   `Get` (core's termination calls `Get` with a provider ID and no NodeClaim to record on); `Delete` runs after the drain, so the reason appears late, and it
-   skips an instance SCarpenter deleted (provider IDs kept in memory for an hour) and a NodeClaim with a `DisruptionReason` (core disrupting on
-   purpose, which covers a restart in between); (b) `InstanceGone` is wired through `CloudProvider.Options.OnInstanceGone`, and the controller
+   `Get` (core's termination calls `Get` with a provider ID and no NodeClaim to record on); `Delete` runs after the drain, so the reason appears late; only
+   the first `Delete` of a NodeClaim reports (core's `InstanceTerminating` condition, stored on the NodeClaim, marks a later one, so a restart does
+   not turn SCarpenter's own delete into a loss; provider IDs it deleted are also kept in memory for an hour), and a NodeClaim with a
+   `DisruptionReason` (core disrupting on purpose) is skipped; a terminating instance is reported too, with or without a `GoneReason`; (b) `InstanceGone` is wired through `CloudProvider.Options.OnInstanceGone`, and the controller
    is built in `NewComponents` (`Components.Interruption`); (c) the poller adds no flag: it checks the regions every 5 s, backs off from twice the poll
    interval to 5 minutes on errors (any error class, 429 included, drivers give no retry-after); (d) a notice without a deadline is written without one
    and the controller assumes the vendor's shortest notice; (e) the scenarios are named I01 to I06 (S22 may be taken by plan 12) and a finalizer on the

@@ -342,7 +342,7 @@ polls. The core runs one poller per (vendor, region) that has a spot NodeClaim, 
 bounded number of calls per region, one paged list and not one call per instance), and stops it when the last one is gone. The poller maps
 a notice to its NodeClaim by the `instance-ref` annotation and writes the interruption annotations on the Node with source `vendor-api`; the
 [interruption controller](controller.md#interruption) reacts as it does to the node agent. A notice may be returned on every poll while the
-instance lives; one for an instance that is terminated must not be. `Reason` is `SpotInterrupted`; `Deadline` is zero when the API only
+instance lives (the poller keeps one it cannot write yet until the Node exists); one for an instance that is terminated must not be. `Reason` is `SpotInterrupted`; `Deadline` is zero when the API only
 shows that the instance is going (a terminating state), and the controller then assumes the vendor's shortest notice. Errors carry their
 class: any error backs the region's poller off (twice the interval, doubling up to 5 minutes), counted in
 `scarpenter_interruption_poll_errors_total`; a failed poll never stops the controller.
