@@ -31,3 +31,5 @@ spec:
       regions: [${UPCLOUD_ZONE}]
       storage:
         root: {size: 25Gi}
+      resources:
+        images: {use: {tags: {scarpenter-lane: ci, flatcar-channel: "${E2E_FLATCAR_CHANNEL}", flatcar-version: "${E2E_FLATCAR_VERSION}", flatcar-arch: amd64}}}

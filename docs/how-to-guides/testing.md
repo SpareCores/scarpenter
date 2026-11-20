@@ -712,13 +712,13 @@ Differences that matter:
   the canary reads `GET /account` every night and says so, the rotation is manual.
 - **Prerequisite.** In the lane's zone, persistent Flatcar **templates** of the pinned release, one per
   storage tier (MaxIOPS is required, Standard where the account can make one), labelled
-  `scarpenter-use=true`, `scarpenter-image=flatcar`, `flatcar-channel`, `flatcar-version`,
+  `scarpenter-use=true`, `scarpenter-lane=ci`, `scarpenter-image=flatcar`, `flatcar-channel`, `flatcar-version`,
   `flatcar-arch=amd64` and `flatcar-tier`. They are built by the images repository (plan 22). The
   workflow step `test/e2e-upcloud/ensure-template.sh` imports the MaxIOPS one when it is missing (the
   release asset, its SHA-256 checked, a direct upload, templatize, label, delete the source storage);
   a Standard one is imported by the operator. With a Standard template the STARTER plans clone it, which
-  takes minutes, so `E2E_LAUNCH_TIMEOUT` is 600 s. The lane's NodeClasses leave `resources.images` unset,
-  so the driver finds them by that label convention. The preflight fails, naming the missing template, when there is none.
+  takes minutes, so `E2E_LAUNCH_TIMEOUT` is 600 s. The CI sub-account is shared with production resources, so the lane's
+  NodeClasses select only its own template (`resources.images.use.tags` with `scarpenter-lane=ci`). The preflight fails, naming the missing template, when there is none.
 - **Node images.** The lane's NodeClasses add `spec.butane` (`manifests/node-butane.yaml`): containerd pulls
   `registry.k8s.io` images through `us-central1-docker.pkg.dev/k8s-artifacts-prod/images`, because the nodes
   failed to pull `registry.k8s.io/pause` from UpCloud addresses. k3s's `gateway-api-crd` is disabled: its

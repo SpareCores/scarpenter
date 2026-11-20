@@ -4,7 +4,7 @@
 # lane's preflight and the driver need it (docs/how-to-guides/set-up-upcloud.md section 1).
 #
 # Idempotent: a template with the labels of defaults.sh (and scarpenter-use=true, which keeps
-# the sweeper off it) in the zone ends the script at once. Otherwise: download the release's
+# the sweeper off it, and scarpenter-lane=ci, which marks it as the lane's own) in the zone ends the script at once. Otherwise: download the release's
 # image and SHA256SUMS, check the hash, create a 10 GB MaxIOPS storage, upload the image
 # (direct_upload: UpCloud decompresses it), templatize, label, and delete the source
 # storage (it is billed until deleted, and goes on failure too).
@@ -19,14 +19,17 @@ source "${here}/lib.sh"
 : "${E2E_UPCLOUD_IMAGE_RELEASE:=${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}}"
 : "${E2E_UPCLOUD_IMAGES_URL:=https://github.com/SpareCores/flatcar-images/releases/download}"
 tier=maxiops
-template_title="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64-${tier}"
+# The title and the scarpenter-lane=ci label are the lane's own: the CI sub-account is shared
+# with production resources, so the lane never uses (or counts) a template without the label.
+template_title="${E2E_UPCLOUD_TEMPLATE_TITLE:-flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64-${tier}-ci}"
 image_file="flatcar-upcloud-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}-amd64.img.gz"
 
 # template_labels: the labels of the template, as the request spells them.
 template_labels() {
   jq -nc --arg c "${E2E_FLATCAR_CHANNEL}" --arg v "${E2E_FLATCAR_VERSION}" --arg t "${tier}" \
     '[{key: "scarpenter-image", value: "flatcar"}, {key: "flatcar-channel", value: $c}, {key: "flatcar-version", value: $v},
-      {key: "flatcar-arch", value: "amd64"}, {key: "flatcar-tier", value: $t}, {key: "scarpenter-use", value: "true"}]'
+      {key: "flatcar-arch", value: "amd64"}, {key: "flatcar-tier", value: $t}, {key: "scarpenter-use", value: "true"},
+      {key: "scarpenter-lane", value: "ci"}]'
 }
 
 # matching_templates <zone>: stdin is the private storage list; prints the UUIDs of the
@@ -39,7 +42,7 @@ matching_templates() {
 }
 
 # existing_templates: the matching templates of the zone now.
-existing_templates() { up GET "/storage/private?label=scarpenter-image=flatcar" | matching_templates "${UPCLOUD_ZONE}"; }
+existing_templates() { up GET "/storage/private?label=scarpenter-lane=ci" | matching_templates "${UPCLOUD_ZONE}"; }
 
 storage_state() { up GET "/storage/$1" | jq -r '.storage.state'; }
 
