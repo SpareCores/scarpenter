@@ -496,8 +496,10 @@ func TestOnDemandNodeIsIgnoredOnce(t *testing.T) {
 	if h.un.Len() != 0 {
 		t.Error("an on-demand node marked an offering unavailable")
 	}
-	if n := h.rec.count(interruption.EventIgnored, "Node"); n != 1 {
-		t.Errorf("%d InterruptionIgnored Events on the Node, want 1", n)
+	for _, kind := range []string{"Node", "NodeClaim"} {
+		if n := h.rec.count(interruption.EventIgnored, kind); n != 1 {
+			t.Errorf("%d InterruptionIgnored Events on the %s, want 1", n, kind)
+		}
 	}
 	if n := h.rec.count(interruption.EventSpotInterrupted, "Node") + h.rec.count(interruption.EventSpotInterrupted, "NodeClaim"); n != 0 {
 		t.Errorf("%d SpotInterrupted Events for an ignored notice", n)

@@ -363,7 +363,9 @@ func (c *Controller) publish(dedupe time.Duration, typ, reason, message string, 
 	for _, o := range objs {
 		ev := events.Event{InvolvedObject: o, Type: typ, Reason: reason, Message: message}
 		if dedupe > 0 {
-			ev.DedupeValues, ev.DedupeTimeout = []string{o.GetName(), reason}, dedupe
+			// A Node and its NodeClaim have the same name: the kind keeps the
+			// Event of one from suppressing the Event of the other.
+			ev.DedupeValues, ev.DedupeTimeout = []string{fmt.Sprintf("%T", o), o.GetName(), reason}, dedupe
 		}
 		c.opts.Recorder.Publish(ev)
 	}

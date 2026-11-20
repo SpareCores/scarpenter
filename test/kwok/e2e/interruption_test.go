@@ -149,24 +149,40 @@ func objEvents(t *testing.T, kind, name, reason string) []corev1.Event {
 	return evs.Items
 }
 
-// waitPodTerminating waits for the pod to have a deletionTimestamp and returns
-// it with the time the wait saw it.
-func waitPodTerminating(t *testing.T, name string, timeout time.Duration) (*corev1.Pod, time.Time) {
+// watchPodDeletion starts watching the Pod; the returned function waits for the
+// first state of the Pod that has a deletionTimestamp and returns it with the
+// time it was seen. A poll would read the state kwok-controller leaves after it
+// finished the termination (grace period 0), not the one the drain asked for.
+func watchPodDeletion(t *testing.T, name string) func(timeout time.Duration) (*corev1.Pod, time.Time) {
 	t.Helper()
-	var pod *corev1.Pod
-	var seen time.Time
-	eventually(t, timeout, 50*time.Millisecond, "pod "+name+" deleted by the drain", func() (bool, string) {
-		p := &corev1.Pod{}
-		if err := k8s.Get(ctx(), client.ObjectKey{Namespace: "default", Name: name}, p); err != nil {
-			return false, err.Error()
+	w, err := clientset.CoreV1().Pods("default").Watch(ctx(), metav1.ListOptions{FieldSelector: "metadata.name=" + name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.Stop)
+	type seen struct {
+		pod *corev1.Pod
+		at  time.Time
+	}
+	first := make(chan seen, 1)
+	go func() {
+		for ev := range w.ResultChan() {
+			if p, ok := ev.Object.(*corev1.Pod); ok && !p.DeletionTimestamp.IsZero() {
+				first <- seen{p, time.Now()}
+				return
+			}
 		}
-		if p.DeletionTimestamp.IsZero() {
-			return false, "not deleted yet"
+	}()
+	return func(timeout time.Duration) (*corev1.Pod, time.Time) {
+		t.Helper()
+		select {
+		case s := <-first:
+			return s.pod, s.at
+		case <-time.After(timeout):
+			t.Fatalf("pod %s was not deleted by the drain within %s", name, timeout)
+			return nil, time.Time{}
 		}
-		pod, seen = p, time.Now()
-		return true, ""
-	})
-	return pod, seen
+	}
 }
 
 // interruptedMetric is the key of scarpenter_interruptions_total for an offering.
@@ -231,11 +247,12 @@ func checkInterrupted(t *testing.T, node, claim, source string) (deadline time.T
 // the annotation.
 func TestI01NoticeDrainsAtOnce(t *testing.T) {
 	node, claim, _ := spotNode(t, "i01", 30)
+	deleted := watchPodDeletion(t, "i01")
 	deadline := time.Now().Add(60 * time.Second).UTC().Truncate(time.Second)
 	annotated := time.Now()
 	annotateNode(t, node, deadline)
 
-	_, seen := waitPodTerminating(t, "i01", 30*time.Second)
+	_, seen := deleted(30 * time.Second)
 	if took := seen.Sub(annotated); took > 5*time.Second {
 		t.Errorf("the Pod's deletionTimestamp was set %s after the annotation, want within 5 s", took.Round(100*time.Millisecond))
 	} else {
@@ -252,11 +269,12 @@ func TestI01NoticeDrainsAtOnce(t *testing.T) {
 // (25 s ahead).
 func TestI02ShortNoticeKeepsThePodsGrace(t *testing.T) {
 	node, claim, _ := spotNode(t, "i02", 20)
+	deleted := watchPodDeletion(t, "i02")
 	deadline := time.Now().Add(30 * time.Second).UTC().Truncate(time.Second)
 	annotated := time.Now()
 	annotateNode(t, node, deadline)
 
-	pod, seen := waitPodTerminating(t, "i02", 30*time.Second)
+	pod, seen := deleted(30 * time.Second)
 	if took := seen.Sub(annotated); took > 5*time.Second {
 		t.Errorf("the Pod's deletionTimestamp was set %s after the annotation, want within 5 s", took.Round(100*time.Millisecond))
 	}
@@ -341,6 +359,7 @@ func TestI04PollerNoticeIsTheSameRecord(t *testing.T) {
 	node, claim, o := spotNode(t, "i04", 30)
 	key := interruptedMetric(o, v1alpha1.ReasonSpotInterrupted, v1alpha1.SourceVendorAPI)
 	before := metrics(t)[key]
+	deleted := watchPodDeletion(t, "i04")
 	annotated := time.Now()
 	setFake(t, map[string]string{"interrupt": fmt.Sprintf("- {nodeClaim: %s, deadlineSeconds: 60}\n", claim)})
 
@@ -356,7 +375,7 @@ func TestI04PollerNoticeIsTheSameRecord(t *testing.T) {
 	if lead := time.Until(deadline); lead < 30*time.Second || lead > 60*time.Second {
 		t.Errorf("the recorded deadline is %s ahead, want about 60 s", lead.Round(time.Second))
 	}
-	waitPodTerminating(t, "i04", 30*time.Second)
+	deleted(30 * time.Second)
 	eventually(t, 30*time.Second, 500*time.Millisecond, "the interruption counted with source vendor-api", func() (bool, string) {
 		got := metrics(t)[key]
 		return got == before+1, fmt.Sprintf("%v, want %v", got, before+1)
