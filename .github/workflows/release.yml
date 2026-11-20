@@ -118,13 +118,14 @@ jobs:
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: git tag --list 'v*' | hack/release.sh latest "${TAG}" "${PRERELEASE}" >>"${GITHUB_OUTPUT}"
 
-      # Every vendor of the list, full unless the repository variable RELEASE_E2E_MODE is smoke: the matrix of the L5 gate below.
+      # Every vendor of the list, full unless the repository variable RELEASE_E2E_MODE is smoke
+      # (unset is empty, which the planner reads as full): the matrix of the L5 gate below.
       - name: The vendors of the L5 gate
         id: e2e
         env:
           RELEASE_E2E_MODE: ${{ vars.RELEASE_E2E_MODE }}
         run: |
-          plan="$(test/e2e-plan.sh release "${RELEASE_E2E_MODE:-full}")"
+          plan="$(test/e2e-plan.sh release "${RELEASE_E2E_MODE}")"
           echo "${plan}" | tee -a "${GITHUB_OUTPUT}"
           [[ "${plan}" == *$'\nany=true' ]] || { echo "no vendor in test/e2e-vendors.txt: the release gate would be empty" >&2; exit 1; }
 
