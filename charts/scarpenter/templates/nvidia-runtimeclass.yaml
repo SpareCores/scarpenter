@@ -1,0 +1,10 @@
+{{- if .Values.nvidia.runtimeClass.create }}
+# The handler is the runtime that GPU nodes register in containerd (plan 12, D7).
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+  labels:
+    {{- include "scarpenter.labels" . | nindent 4 }}
+handler: nvidia
+{{- end }}

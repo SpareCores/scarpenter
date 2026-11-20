@@ -26,6 +26,8 @@ Available:
 - [**Handle spot interruptions**](handle-spot-interruptions.md) (plan 26, ADR-027) —
   what a workload sees when a vendor reclaims a spot or preemptible node, how to count
   interruptions per instance type, and `terminationGracePeriodSeconds` against each vendor's notice.
+- [**Run GPU workloads**](run-gpu-workloads.md) (plan 12) — the RuntimeClass and device
+  plugin the chart ships, how to turn them off, taints and the Pod spec of a GPU workload.
 - [**Install SCarpenter**](install.md) (plan 09) — prerequisites (bootstrap-token
   auth, CNI and kube-proxy that work on remote nodes), the Helm install, the values
   that matter, the k3s kubelet client CA, upgrade, uninstall and what it leaves

@@ -790,6 +790,65 @@
         "driverBaseURL": {
           "type": "string",
           "pattern": "^(https?://[^\\s]+)?$"
+        },
+        "runtimeClass": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "boolean"
+            }
+          }
+        },
+        "devicePlugin": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "repository": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "tag": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^(sha256:[0-9a-f]{64})?$"
+                },
+                "pullPolicy": {
+                  "enum": ["Always", "IfNotPresent", "Never"]
+                }
+              }
+            },
+            "imagePullSecrets": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "priorityClassName": {
+              "type": "string"
+            },
+            "resources": {
+              "type": "object"
+            },
+            "tolerations": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "nodeSelector": {
+              "$ref": "#/definitions/labels"
+            }
+          }
         }
       }
     },

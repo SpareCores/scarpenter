@@ -133,7 +133,7 @@ it downloads the payloads, extracts them with Flatcar's own `download_sysext` (u
 compresses them, writes `SHA256SUMS` and prints the table entries for the release. The compile path of
 `nvidia.service` never runs (the sysext is present).
 
-D6. **Device plugin and RuntimeClass in the Helm chart** (on by default, each can be disabled, decided 2026-11-19): values `nvidia.runtimeClass.create` (default `true`)
+D6. **Device plugin and RuntimeClass in the Helm chart** (the device plugin on by default, the RuntimeClass off by default because k3s and the GPU operator ship one, each switchable, decided 2026-11-20): values `nvidia.runtimeClass.create` (default `false`)
 and `nvidia.devicePlugin.enabled` (default `true`); the image pinned by digest, its repository overridable. The
 DaemonSet selects nodes with `nvidia-driver-branch` `Exists`, tolerates every taint, runs with
 `runtimeClassName: nvidia` and priority `system-node-critical`, and requests 10m CPU and 64Mi memory [U: S6].
@@ -294,6 +294,15 @@ unit's file is verified and unpacked and that the check fails with a clear messa
 
 **(c) Chart.** The RuntimeClass and the DaemonSet (D6), values and schema, `make test-chart` golden files, the
 how-to.
+
+**Done (c).** `nvidia-runtimeclass.yaml` and `nvidia-device-plugin.yaml` in the chart, values and schema
+(`nvidia.runtimeClass.create`, `nvidia.devicePlugin.*`), golden files, `test/chart/nvidia_test.go`, the how-to
+`run-gpu-workloads.md`, install and node-bootstrap docs. The image is `nvcr.io/nvidia/k8s-device-plugin` v0.20.2,
+pinned by the digest of the multi-architecture index (read from the registry 2026-11-20). Tolerations default to
+every taint (D6; a GPU node whose plugin cannot run never initializes) and are a value. The plugin uses the
+environment variable strategy through the `nvidia` handler (no CDI, as step (b) configured). Not done:
+`nvidia.NodeBootstrap` stays false; the flip waits for Azure's and Alibaba's `GPUVirtualizer` ((g), (h)), and for
+(b2), the L4 boot of (d) and a real run to settle the device plugin's resources [U: S6].
 
 **(d) L4: boot without a GPU** (cheap, no GPU instance). A qemu scenario launches the fake NVIDIA type on a VM without a GPU, through the
 mirror path, against a local HTTP server that serves the release's driver payload (fetched once from Flatcar's
