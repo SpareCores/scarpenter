@@ -313,15 +313,43 @@ func TestTailscaleDescriptionIsShortened(t *testing.T) {
 		Tags: testTags, Expiry: time.Hour, Description: strings.Repeat("d", 120),
 	})
 	require.NoError(t, err)
+	// The API allows alphanumerics, hyphens and spaces only.
+	_, err = r.backend.MintKey(t.Context(), tailnet.KeyRequest{
+		Tags: testTags, Expiry: time.Hour, Description: "scarpenter pool.a/b_c-x7",
+	})
+	require.NoError(t, err)
+}
+
+func TestTailscaleSkipsExternalDevices(t *testing.T) {
+	// The fake lists the shared-in "hello" device with an empty created date.
+	r := newTailscaleRig(t, tailnet.Config{})
+	_, err := r.backend.FindDevice(t.Context(), tailnet.DeviceQuery{Hostname: "hello"})
+	requireClass(t, err, tailnet.NotFound)
 }
 
 func TestHeadscaleOldServerHint(t *testing.T) {
-	// A server before 0.28 refuses a key without a user.
-	r := newHeadscaleRig(t, tailnet.Config{})
-	r.failNext(1, 400, "")
-	_, err := r.backend.MintKey(t.Context(), tailnet.KeyRequest{Tags: testTags, Expiry: time.Hour})
+	// Headscale 0.27 looks up user 0 and answers gRPC Unknown (HTTP 500) "record not found".
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"code":2,"message":"record not found","details":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	b, err := tailnet.NewHeadscale(tailnet.HeadscaleConfig{
+		Config: tailnet.Config{BaseURL: srv.URL, MaxAttempts: 1},
+		APIKey: func() (tailnet.Secret, error) { return "k", nil },
+	})
+	require.NoError(t, err)
+	_, err = b.MintKey(t.Context(), tailnet.KeyRequest{Tags: testTags, Expiry: time.Hour})
 	e := requireError(t, err, tailnet.Fatal)
 	require.Contains(t, e.Error(), "0.28")
+
+	// A bad request is Fatal without the hint (a tag Headscale refuses, say).
+	r := newHeadscaleRig(t, tailnet.Config{})
+	r.failNext(1, 400, "")
+	_, err = r.backend.MintKey(t.Context(), tailnet.KeyRequest{Tags: testTags, Expiry: time.Hour})
+	e = requireError(t, err, tailnet.Fatal)
+	require.NotContains(t, e.Error(), "0.28")
 }
 
 func TestMalformedResponseQuotesNothing(t *testing.T) {

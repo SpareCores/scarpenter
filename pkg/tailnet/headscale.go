@@ -114,11 +114,22 @@ func (h *Headscale) MintKey(ctx context.Context, r KeyRequest) (Key, error) {
 	return Key{ID: string(pak.ID), Secret: Secret(pak.Key), Expires: pak.Expiration}, nil
 }
 
-// mintError adds the version hint: servers before 0.28 reject a key without a user.
+// mintError adds the version hint. Servers before 0.28 look the key's user up even when
+// none is given and answer the missing user with gRPC Unknown, which the gateway sends as
+// HTTP 500 "record not found" (0.26, 0.27) or "user not found" (0.23 to 0.25); retrying
+// cannot help, so that answer is Fatal.
 func (h *Headscale) mintError(err error) error {
-	if e, ok := errors.AsType[*Error](err); ok && (e.Class == NotFound || e.Status == http.StatusBadRequest) {
+	e, ok := errors.AsType[*Error](err)
+	if !ok {
+		return err
+	}
+	switch {
+	case e.Status == http.StatusInternalServerError && strings.Contains(e.Message, "not found"):
 		e.Class = Fatal
-		e.Message += " (per-node keys need Headscale 0.28 or newer)"
+		e.Message += " (per-node keys need Headscale 0.28 or newer, which mints keys without a user)"
+	case e.Class == NotFound:
+		e.Class = Fatal
+		e.Message += " (is the URL a Headscale 0.28 or newer?)"
 	}
 	return err
 }

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -186,8 +187,11 @@ func (f *Tailscale) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(req.Description) > 50 {
-		apiError(w, http.StatusBadRequest, "description too long")
+	// "A maximum of 50 alphanumeric characters. Hyphens and spaces are also allowed."
+	if len(req.Description) > 50 || strings.ContainsFunc(req.Description, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != ' '
+	}) {
+		apiError(w, http.StatusBadRequest, "invalid description")
 		return
 	}
 	if req.ExpirySeconds <= 0 {
@@ -220,7 +224,14 @@ func (f *Tailscale) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *Tailscale) handleListDevices(w http.ResponseWriter, _ *http.Request) {
-	out := make([]map[string]any, 0, len(f.devices))
+	// Every tailnet lists Tailscale's shared-in "hello" device: external, with an empty
+	// created date.
+	out := make([]map[string]any, 0, 1+len(f.devices))
+	out = append(out, map[string]any{
+		"id": "50052", "nodeId": "nHELLO0CNTRL", "hostname": "hello", "name": "hello.ts.net",
+		"addresses": []string{"100.101.102.103"}, "tags": nil, "created": "", "authorized": true,
+		"isExternal": true,
+	})
 	for _, d := range f.devices {
 		out = append(out, map[string]any{
 			"id": d.NodeID[1:len(d.NodeID)-5] + "0000", "nodeId": d.NodeID,

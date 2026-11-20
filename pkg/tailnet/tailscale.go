@@ -147,8 +147,7 @@ func (t *Tailscale) MintKey(ctx context.Context, r KeyRequest) (Key, error) {
 	var req tailscaleKeyRequest
 	req.Capabilities.Devices.Create = tailscaleCreate{Ephemeral: true, Preauthorized: true, Tags: r.Tags}
 	req.ExpirySeconds = int64((r.Expiry + time.Second - 1) / time.Second)
-	desc := []rune(strings.TrimSpace(r.Description))
-	req.Description = string(desc[:min(len(desc), tailscaleDescriptionMax)])
+	req.Description = tailscaleDescription(r.Description)
 
 	var resp struct {
 		ID      string    `json:"id"`
@@ -180,13 +179,42 @@ func (t *Tailscale) RevokeKey(ctx context.Context, id string) error {
 	return t.c.do(ctx, cl, nil)
 }
 
+// tailscaleDescription keeps what the API allows in a key's description: at most 50
+// alphanumeric characters, hyphens and spaces. Anything else becomes a hyphen.
+func tailscaleDescription(s string) string {
+	r := []rune(strings.TrimSpace(s))
+	r = r[:min(len(r), tailscaleDescriptionMax)]
+	for i, c := range r {
+		if !allowedInDescription(c) {
+			r[i] = '-'
+		}
+	}
+	return string(r)
+}
+
+func allowedInDescription(c rune) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == ' '
+}
+
 type tailscaleDevice struct {
-	NodeID    string    `json:"nodeId"`
-	ID        string    `json:"id"`
-	Hostname  string    `json:"hostname"`
-	Addresses []string  `json:"addresses"`
-	Tags      []string  `json:"tags"`
-	Created   time.Time `json:"created"`
+	NodeID     string        `json:"nodeId"`
+	ID         string        `json:"id"`
+	Hostname   string        `json:"hostname"`
+	Addresses  []string      `json:"addresses"`
+	Tags       []string      `json:"tags"`
+	Created    tailscaleTime `json:"created"`
+	IsExternal bool          `json:"isExternal"`
+}
+
+// tailscaleTime is a timestamp that may be "": the API leaves created empty for external
+// (shared-in) devices.
+type tailscaleTime struct{ time.Time }
+
+func (t *tailscaleTime) UnmarshalJSON(b []byte) error {
+	if string(b) == `""` || string(b) == "null" {
+		return nil
+	}
+	return t.Time.UnmarshalJSON(b)
 }
 
 // FindDevice lists the devices and picks the match. Tailscale does not say which key
@@ -209,12 +237,15 @@ func (t *Tailscale) FindDevice(ctx context.Context, q DeviceQuery) (Device, erro
 	}
 	devs := make([]device, 0, len(resp.Devices))
 	for _, d := range resp.Devices {
+		if d.IsExternal {
+			continue // shared in from another tailnet: never ours, and it cannot be deleted
+		}
 		id := d.NodeID
 		if id == "" {
 			id = d.ID
 		}
 		devs = append(devs, device{Device: Device{
-			ID: id, Hostname: d.Hostname, Addresses: parseAddrs(d.Addresses), Tags: d.Tags, Created: d.Created,
+			ID: id, Hostname: d.Hostname, Addresses: parseAddrs(d.Addresses), Tags: d.Tags, Created: d.Created.Time,
 		}})
 	}
 	return pickDevice(op, devs, q)

@@ -60,7 +60,14 @@ prefixes:
   v6: fd7a:115c:a1e0::/48
 derp:
   server:
-    enabled: false
+    enabled: true
+    region_id: 999
+    region_code: test
+    region_name: test
+    private_key_path: %[1]s/derp_private.key
+    stun_listen_addr: 127.0.0.1:%[6]d
+    verify_clients: false
+    ipv4: 127.0.0.1
   urls: []
   paths: []
   auto_update_enabled: false
@@ -71,10 +78,11 @@ database:
 dns:
   magic_dns: false
   base_domain: example.com
+  override_local_dns: false
   nameservers:
     global: []
 unix_socket: %[1]s/headscale.sock
-`, dir, url, port, freePort(t), freePort(t)), 0o600))
+`, dir, url, port, freePort(t), freePort(t), freePort(t)), 0o600))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	srv := exec.CommandContext(ctx, bin, "serve", "-c", cfg)
@@ -112,12 +120,20 @@ unix_socket: %[1]s/headscale.sock
 	require.True(t, strings.HasPrefix(k.Secret.Reveal(), "hskey-auth-"))
 	require.WithinDuration(t, time.Now().Add(time.Hour), k.Expires, time.Minute)
 
+	// The REST listing, so that the gateway's JSON names are checked too.
 	listed := func() map[string]any {
-		out, err := exec.Command(bin, "-c", cfg, "preauthkeys", "list", "-o", "json").Output()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url+"/api/v1/preauthkey", nil)
 		require.NoError(t, err)
-		var keys []map[string]any
-		require.NoError(t, json.Unmarshal(out, &keys))
-		for _, key := range keys {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var doc struct {
+			PreAuthKeys []map[string]any `json:"preAuthKeys"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&doc))
+		for _, key := range doc.PreAuthKeys {
 			if fmt.Sprint(key["id"]) == k.ID {
 				return key
 			}
@@ -128,7 +144,8 @@ unix_socket: %[1]s/headscale.sock
 	key := listed()
 	require.Equal(t, true, key["ephemeral"])
 	require.Equal(t, false, key["reusable"])
-	require.Equal(t, []any{testTags[0]}, key["acl_tags"])
+	require.Equal(t, []any{testTags[0]}, key["aclTags"])
+	require.Nil(t, key["user"], "a tagged key has no user")
 
 	require.NoError(t, b.RevokeKey(t.Context(), k.ID))
 	exp, err := time.Parse(time.RFC3339, fmt.Sprint(listed()["expiration"]))
@@ -139,4 +156,56 @@ unix_socket: %[1]s/headscale.sock
 	_, err = b.FindDevice(t.Context(), tailnet.DeviceQuery{KeyIDs: []string{k.ID}})
 	requireClass(t, err, tailnet.NotFound)
 	require.NoError(t, b.DeleteDevice(t.Context(), "99999"), "an unknown node is success")
+
+	headscaleJoin(t, b, url)
+}
+
+// headscaleJoin joins a userspace tailscaled with a minted key when TAILSCALE_DIR names a
+// directory with the tailscale and tailscaled binaries (the L4 lane caches them), and checks
+// that FindDevice finds the node by its key and DeleteDevice removes it.
+func headscaleJoin(t *testing.T, b *tailnet.Headscale, url string) {
+	t.Helper()
+	tsDir := os.Getenv("TAILSCALE_DIR")
+	if tsDir == "" {
+		t.Log("TAILSCALE_DIR is not set: no node joins")
+		return
+	}
+	k, err := b.MintKey(t.Context(), tailnet.KeyRequest{Tags: testTags, Expiry: time.Hour})
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "tailscaled.sock")
+	ctx, cancel := context.WithCancel(t.Context())
+	tsd := exec.CommandContext(ctx, filepath.Join(tsDir, "tailscaled"),
+		"--tun=userspace-networking", "--state=mem:", "--statedir="+dir, "--socket="+sock, "--port=0")
+	var tsdLog bytes.Buffer
+	tsd.Stdout, tsd.Stderr = &tsdLog, &tsdLog
+	require.NoError(t, tsd.Start())
+	t.Cleanup(func() {
+		cancel()
+		_ = tsd.Wait()
+		if t.Failed() {
+			t.Log(tsdLog.String())
+		}
+	})
+	start := time.Now().Add(-time.Minute)
+	up := exec.CommandContext(t.Context(), filepath.Join(tsDir, "tailscale"), "--socket="+sock, "up",
+		"--login-server="+url, "--auth-key="+k.Secret.Reveal(), "--hostname=hs-join-test", "--timeout=60s")
+	out, err := up.CombinedOutput()
+	require.NoError(t, err, "tailscale up: %s", out)
+
+	d, err := b.FindDevice(t.Context(), tailnet.DeviceQuery{KeyIDs: []string{k.ID}})
+	require.NoError(t, err)
+	require.Equal(t, "hs-join-test", d.Hostname)
+	require.Equal(t, testTags, d.Tags)
+	require.NotEmpty(t, d.Addresses)
+	require.True(t, d.Created.After(start), "created %s", d.Created)
+
+	byIP, err := b.FindDevice(t.Context(), tailnet.DeviceQuery{IP: d.Addresses[0], Hostname: "hs-join-test"})
+	require.NoError(t, err)
+	require.Equal(t, d.ID, byIP.ID)
+
+	require.NoError(t, b.DeleteDevice(t.Context(), d.ID))
+	_, err = b.FindDevice(t.Context(), tailnet.DeviceQuery{KeyIDs: []string{k.ID}})
+	requireClass(t, err, tailnet.NotFound)
 }
