@@ -260,6 +260,10 @@ vendors:
     # imported into another compartment; the controller then needs
     # `read instance-images` there (docs/how-to-guides/set-up-oci.md).
     imageCompartment: ""
+    # How often a region's instances are listed to find preempted ones
+    # (--oci-interruption-poll; 10s, at least 1s): one list call per region per
+    # interval. Empty keeps the default.
+    interruptionPoll: ""
     credentials:
       # apiKey: an API key from an existing Secret (keys tenancy, user,
       #   fingerprint, region, key; optional passphrase), mounted as a directory.

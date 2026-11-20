@@ -139,8 +139,9 @@ func New(opts ...Option) *Driver {
 		callTimeout: DefaultCallTimeout,
 		ads:         map[string]cached[[]availabilityDomain]{}, shapes: map[adKey]cached[map[string]*shapeInfo]{},
 		index: map[string]*shapeInfo{}, limits: map[string]cached[map[string]limitDef]{},
-		attempts: map[string]int{}, deleted: map[vendors.InstanceRef]time.Time{}, noQuota: map[string]bool{}, images: map[imageKey]cachedImage{},
-		archs: map[string]cachedArch{}, subnets: map[string]cached[subnetInfo]{},
+		attempts: map[string]int{}, noQuota: map[string]bool{}, images: map[imageKey]cachedImage{},
+		deleted: map[vendors.InstanceRef]time.Time{},
+		archs:   map[string]cachedArch{}, subnets: map[string]cached[subnetInfo]{},
 	}
 	var b [6]byte
 	_, _ = rand.Read(b[:])
