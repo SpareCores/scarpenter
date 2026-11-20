@@ -42,9 +42,11 @@ const (
 	MaxUserDataSize    = 16 * 1024
 	DefaultBudgetBytes = 12 * 1024
 	// GPUBudgetBytes is the budget of the default templates on a GPU node: the
-	// nvidia part adds about 2 KiB to the worst case, which leaves a user's Butane
-	// the same 2 KiB under the limit of every vendor.
-	GPUBudgetBytes = 14 * 1024
+	// nvidia part with Fabric Manager adds about 2.8 KiB to the worst case (every
+	// other feature on), which stays 1 KiB under this budget and leaves a user's
+	// Butane at least 1 KiB under the limit of every vendor. The NodeClass's trial
+	// rendering checks the limit itself, with the user's Butane.
+	GPUBudgetBytes = 15 * 1024
 )
 
 // ignitionVersion is the version of the outer Ignition config. Flatcar 4757.2.3

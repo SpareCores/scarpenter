@@ -7,9 +7,12 @@
 # deletes the NodeClaim after its registration timeout and tries again.
 #
 # With "fabric" (NVSwitch systems, plan 12, D9) the check then also waits for Fabric Manager
-# to report that it configured the NVSwitches (its log line, which every driver version of the
-# table has, read from the journal of the current run of its unit), so that the device plugin
-# never advertises GPUs that cannot initialize CUDA.
+# to report that it configured the fabric, read from the journal of the current run of its
+# unit, so that the device plugin never advertises GPUs that cannot initialize CUDA. Its
+# success lines differ by GPU generation ("... all the available NVSwitches to route GPU
+# NVLink traffic." on A100, "... all the available GPUs and NVSwitches to route NVLink
+# traffic." where it also trains the GPUs' links, as on H100) and share this prefix in every
+# pinned version; its failure lines start with "failed to".
 #
 # The GPUs may need a moment after the modules load, so the check is retried: for 30 s, and
 # for 3 more minutes for the fabric.
@@ -51,7 +54,7 @@ check_gpus() {
 }
 
 check_fabric() {
-  if ! fm_journal | grep -qF "Successfully configured all the available NVSwitches"; then
+  if ! fm_journal | grep -qF "Successfully configured all the available "; then
     echo "Fabric Manager has not configured the NVSwitches ($(fm_journal | tail -n 1))"
   fi
 }

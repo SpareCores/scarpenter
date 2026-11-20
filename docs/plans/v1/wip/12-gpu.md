@@ -186,15 +186,18 @@ rejected: it needs a build, a signing question and a publishing pipeline per dri
 needs none of. Ignition writes the archive (an xz tarball, which Ignition cannot decompress, so as it is) with
 `verification.hash` (the NVIDIA URL, or `<--nvidia-driver-base-url>/fabricmanager/<version>/` on a mirror;
 `hack/nvidia-mirror.sh` copies it), and
-`scarpenter-nvidia-fabricmanager.service` (`ExecStartPre` unpacks to `/opt/nvidia-fabricmanager` and copies the shipped
-config with `DAEMONIZE=0`, `LOG_USE_SYSLOG=1` (the journal; with syslog the daemon writes no log file) and the topology path of the unpacked tree; `ExecStart` runs
+`scarpenter-nvidia-fabricmanager.service` (`ExecStartPre` unpacks to `/opt/nvidia-fabricmanager` at every start and sets the shipped
+config to `DAEMONIZE=0`, `LOG_USE_SYSLOG=1` (the journal; with syslog the daemon writes no log file) and every
+`/usr/share/nvidia/nvswitch` (the topology path, and in 535 also `DATABASE_PATH`) to the unpacked tree; `ExecStart` runs
 `nv-fabricmanager -c <config>` in the foreground (no `LD_LIBRARY_PATH`: the binary does not link `libnvfm`); `Restart=on-failure`;
 `After=nvidia.service`, `Before=scarpenter-nvidia-check.service`, started by the check unit's `Wants=` (`Requires=` would stop the check at every restart of the daemon and hide its message), so before the kubelet and
 the device plugin) runs **only on NVSwitch types**. The check unit, on these types, also waits up to 3 minutes for
-Fabric Manager's log line `Successfully configured all the available NVSwitches to route GPU NVLink traffic.` in the journal of the unit's current run (present in
-the binaries of all four pinned versions) before the kubelet
+Fabric Manager's success line in the journal of the unit's current run, matched by its prefix `Successfully configured all
+the available ` (the binaries of all four pinned versions have `... NVSwitches to route GPU NVLink traffic.` and
+`... GPUs and NVSwitches to route NVLink traffic.`, the latter where Fabric Manager also trains the GPUs' links, as on
+H100; failure lines start with `failed to`) before the kubelet
 starts, so the device plugin never advertises GPUs that cannot initialize. (`nvidia-smi -q`'s fabric state exists on
-Hopper only; the log line is the same on A100 and H100.) The unit's order against
+Hopper only.) The unit's order against
 `nvidia-persistenced` is settled by S9. **Catalog:** until this step lands the NVSwitch types stay dropped
 (`GPUNVSwitch`); once it lands they stay in the catalog for every release whose table entry has the Fabric Manager
 pin, and `GPUNVSwitch` remains only for a release without it or a model that needs more (`nvlsm`).
@@ -271,7 +274,7 @@ Alibaba's `GPUVirtualizer` of (g) and (h)); the flip is the last of these. (3) I
 `compression: gzip` is over the decompressed bytes (Ignition's `decompressCopyHashAndVerify`), so the table pins
 the extracted `.raw` (`RawSHA256`) and, for the script, the payload (`PayloadSHA256`); the extracted images are
 430 to 570 MB and gzip barely shrinks them (squashfs inside). (4) The worst-case budget of a GPU node is
-14 KiB (`GPUBudgetBytes`): the part is about 2 KiB, not 1.5. Pins, verified 2026-11-20 against the update server's
+15 KiB (`GPUBudgetBytes`, raised from 14 KiB by (b2)): the part is about 2 KiB, not 1.5, and Fabric Manager adds 0.6 KiB. Pins, verified 2026-11-20 against the update server's
 `.gz.sha256` files and by extracting each payload with ue-rs `download_sysext` (rev 94d40218, update key
 pinned): every build of 4757.2.3 (535, 550, 570, each open and proprietary) and of 4865.0.0's 580 and 580-open;
 nvidia-runtime v1.17.9 (sha256 equal in the bakery release's `SHA256SUMS` and the file; its containerd config has
@@ -311,10 +314,11 @@ mirror), `hack/nvidia-mirror.sh` copies and verifies archives (`fabricmanager-<d
 the docs. Deviations: (1) `Wants=`, not `Requires=`, of the unit from the check (see D9); (2) no
 `LD_LIBRARY_PATH` (the binary needs only glibc and zlib); (3) the fabric assertion is Fabric Manager's log line in the
 journal, not `nvidia-smi -q` (Hopper only); (4) B200/B300 are not offered, the plan expected them to stay in; (5) no
-Fabric Manager table flag per model beyond `needsNVLSM`: the threshold was already there. The GPU worst case of the
-user-data is 14161 of 14336 bytes. Verified on a GPU-less QEMU boot of Flatcar 4757.2.3 (the rendered unit and file, the
+Fabric Manager table flag per model beyond `needsNVLSM`: the threshold was already there. (6) The GPU budget is 15 KiB, not 14: the worst case
+of the user-data is 14053 bytes, 1.3 KiB under it and 2.3 KiB under the 16 KiB limit; shrinking the part by 1 KiB
+would have meant dropping function. Verified on a GPU-less QEMU boot of Flatcar 4757.2.3 (the rendered unit and file, the
 archive served locally): Ignition verifies the 8 MB archive by hash, the unit unpacks it (xz is on the image), the
-copied config has the expected settings, `nv-fabricmanager` runs (all libraries resolve) and exits with `failed to
+config has the expected settings, `nv-fabricmanager` runs (all libraries resolve) and exits with `failed to
 allocate handle (client) to NVIDIA GPU driver` in the journal, the unit restarts every 5 s, and the check, which wants the
 unit, fails after 30 s with its driver message (the fabric stage needs a loaded driver). Unverified (no GPU): that Fabric Manager reaches the success line on real HGX hardware, the
 time to a ready fabric, the order against `nvidia-persistenced` (S9), whether H200 and the 4757.2.3 `550`/`535`
