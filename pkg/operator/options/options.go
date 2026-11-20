@@ -442,6 +442,9 @@ func (o *Options) validateTailnet() []error {
 	if o.TailnetAPIURL != "" {
 		if err := validateURL("--tailnet-api-url", o.TailnetAPIURL, "http", "https"); err != nil {
 			errs = append(errs, err)
+		} else if u, _ := url.Parse(o.TailnetAPIURL); u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+			// The URL shows in NodeClass conditions: it must carry no credentials.
+			errs = append(errs, errors.New("--tailnet-api-url must have no user information, query or fragment"))
 		}
 	}
 	if o.TailnetKeyTTL < tailnetKeyMinTTL {

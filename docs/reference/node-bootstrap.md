@@ -352,8 +352,10 @@ The rules of a `PerNode` NodeClass:
   choosing. The NodeClass is `ValidationSucceeded=False`
   (`TailnetKeysNotConfigured`) when the controller has no backend (`none`) or no
   credentials directory, or when `loginServer` does not match the backend: empty
-  for `tailscale`, equal to `--tailnet-api-url` for `headscale` (scheme, host and
-  port; a trailing slash is ignored). Validation calls no API; bad credentials
+  for `tailscale`, equal to `--tailnet-api-url` for `headscale` (scheme, host,
+  port and path; case of scheme and host, a default port and a trailing slash are
+  ignored; a URL with user information, a query, a fragment or a host that is not
+  ASCII never matches). Validation calls no API; bad credentials
   show at the first launch.
 - Headscale 0.28 or newer only. A Headscale API key is not scoped: it can
   administer the whole server, so it lives in one Secret that is mounted into the

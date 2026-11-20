@@ -68,28 +68,40 @@ func matchLoginServer(t TailnetOptions, loginServer string) error {
 		}
 		return nil
 	}
-	if loginServer == "" || normalizeURL(loginServer) != normalizeURL(t.APIURL) {
+	want, _ := normalizeURL(t.APIURL)
+	if got, ok := normalizeURL(loginServer); !ok || got != want {
 		return fmt.Errorf("keySource PerNode: loginServer %q does not match the controller's tailnet backend "+
 			"(headscale at %s)", loginServer, t.APIURL)
 	}
 	return nil
 }
 
-// normalizeURL reduces a URL to scheme, host, port and path in a comparable form:
-// lower-case scheme and host, the default port dropped, no trailing slash. An
-// unparsable URL stays as it is.
-func normalizeURL(raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || u.Host == "" {
-		return raw
+// normalizeURL reduces an http or https URL to scheme, host, port and path in a
+// comparable form: lower-case scheme and host, the default port dropped, no
+// trailing slash. It refuses (false) what could make two different servers look
+// alike or carry more than an address: no host, a host that is not ASCII, user
+// information, a query or a fragment.
+func normalizeURL(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || !isASCII(u.Host) {
+		return "", false
 	}
 	host := strings.ToLower(u.Hostname())
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	port := u.Port()
-	if port == "" || (u.Scheme == "http" && port == "80") || (u.Scheme == "https" && port == "443") {
-		return strings.ToLower(u.Scheme) + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
+	if port := u.Port(); port != "" && !(u.Scheme == "http" && port == "80") && !(u.Scheme == "https" && port == "443") {
+		host += ":" + port
 	}
-	return strings.ToLower(u.Scheme) + "://" + host + ":" + port + strings.TrimRight(u.EscapedPath(), "/")
+	return u.Scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/"), true
+}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] > 0x7f {
+			return false
+		}
+	}
+	return true
 }

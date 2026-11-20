@@ -183,6 +183,7 @@ func TestValidation(t *testing.T) {
 		{"unknown tailnet backend", append([]string{"--tailnet-backend=zerotier"}, required...), "--tailnet-backend must be"},
 		{"headscale without a url", append([]string{"--tailnet-backend=headscale"}, required...), "--tailnet-api-url is required"},
 		{"tailnet url invalid", append([]string{"--tailnet-backend=headscale", "--tailnet-api-url=headscale"}, required...), "--tailnet-api-url"},
+		{"tailnet url with user information", append([]string{"--tailnet-backend=headscale", "--tailnet-api-url=https://u:p@hs.example.com"}, required...), "no user information"},
 		{"tailnet key ttl too short", append([]string{"--tailnet-key-ttl=10m"}, required...), "--tailnet-key-ttl must be at least 30m0s"},
 		{"unknown flag", append([]string{"--nope=1"}, required...), "parsing flags"},
 		{"bad duration", append([]string{"--gc-interval=soon"}, required...), "parsing flags"},
