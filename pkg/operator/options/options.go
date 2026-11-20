@@ -38,11 +38,15 @@ func init() {
 
 // Defaults of the flags that have one.
 const (
-	DefaultVendors                    = "aws"
-	DefaultKeeperURL                  = "https://keeper.sparecores.net"
-	DefaultCatalogRefreshInterval     = time.Hour
-	DefaultCatalogMaxAge              = 24 * time.Hour
-	DefaultBootstrapTokenTTL          = time.Hour
+	DefaultVendors                = "aws"
+	DefaultKeeperURL              = "https://keeper.sparecores.net"
+	DefaultCatalogRefreshInterval = time.Hour
+	DefaultCatalogMaxAge          = 24 * time.Hour
+	DefaultBootstrapTokenTTL      = time.Hour
+	DefaultTailnetKeyTTL          = time.Hour
+	// DefaultTailscaleAPIURL is the API of Tailscale SaaS, the default of
+	// --tailnet-api-url with --tailnet-backend tailscale.
+	DefaultTailscaleAPIURL            = "https://api.tailscale.com"
 	DefaultClusterDomain              = "cluster.local"
 	DefaultMaxLaunchAttempts          = 3
 	DefaultQuotaRefreshInterval       = 2 * time.Minute
@@ -62,6 +66,17 @@ const (
 	DefaultOCIInterruptionPoll        = 10 * time.Second
 	DefaultInterruptionUnavailableTTL = 10 * time.Minute
 )
+
+// Tailnet backends of --tailnet-backend.
+const (
+	TailnetBackendNone      = "none"
+	TailnetBackendTailscale = "tailscale"
+	TailnetBackendHeadscale = "headscale"
+)
+
+// tailnetKeyMinTTL is the shortest per-node key lifetime: core gives a NodeClaim
+// 15 minutes to register and retries come within it (as for the bootstrap token).
+const tailnetKeyMinTTL = 30 * time.Minute
 
 // bootstrapTokenMinTTL is the shortest token lifetime (bootstrap.MinTokenTTL;
 // not imported, to keep the options free of the bootstrap package's
@@ -113,6 +128,14 @@ type Options struct {
 	NVIDIADriverBaseURL string
 	// BootstrapTokenTTL is the lifetime of a node's bootstrap token.
 	BootstrapTokenTTL time.Duration
+	// TailnetBackend is who mints the per-node tailnet keys: none, tailscale or
+	// headscale. TailnetAPIURL is the backend's base URL, TailnetCredentialsDir the
+	// directory with its credentials (client-id and client-secret, or api-key),
+	// read at every call. TailnetKeyTTL is the expiry of a minted key.
+	TailnetBackend        string
+	TailnetAPIURL         string
+	TailnetCredentialsDir string
+	TailnetKeyTTL         time.Duration
 	// ClusterDNS are the cluster DNS service IPs and ClusterDomain the cluster
 	// domain the kubelets of the nodes are configured with; with no ClusterDNS
 	// the Pods of the nodes use the node's resolver.
@@ -232,6 +255,10 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.FlatcarBaseURL, "flatcar-base-url", env.WithDefaultString("SCARPENTER_FLATCAR_BASE_URL", ""), "Mirror of the Flatcar release files. Empty means upstream.")
 	fs.StringVar(&o.NVIDIADriverBaseURL, "nvidia-driver-base-url", env.WithDefaultString("SCARPENTER_NVIDIA_DRIVER_BASE_URL", ""), "Mirror of the NVIDIA driver sysexts of the Flatcar releases: <base>/amd64-usr/<version>/flatcar-nvidia-drivers-<branch>[-open].raw.gz (hack/nvidia-mirror.sh builds the tree). Empty means GPU nodes download the driver from Flatcar's release server.")
 	fs.DurationVar(&o.BootstrapTokenTTL, "bootstrap-token-ttl", env.WithDefaultDuration("SCARPENTER_BOOTSTRAP_TOKEN_TTL", DefaultBootstrapTokenTTL), "Lifetime of a node's bootstrap token; at least 20m, because core gives a NodeClaim 15 minutes to register.")
+	fs.StringVar(&o.TailnetBackend, "tailnet-backend", env.WithDefaultString("SCARPENTER_TAILNET_BACKEND", TailnetBackendNone), "Who mints per-node tailnet auth keys (SCNodeClass network.tailscale.keySource PerNode): none (such NodeClasses are not valid), tailscale (Tailscale SaaS, OAuth client) or headscale (self-hosted, 0.28 or newer, API key). One backend per controller; a NodeClass's loginServer must match it.")
+	fs.StringVar(&o.TailnetAPIURL, "tailnet-api-url", env.WithDefaultString("SCARPENTER_TAILNET_API_URL", ""), "Base URL of the tailnet backend's API. Default with tailscale: "+DefaultTailscaleAPIURL+". Required with headscale: the server URL, which the NodeClasses' loginServer must equal.")
+	fs.StringVar(&o.TailnetCredentialsDir, "tailnet-credentials-dir", env.WithDefaultString("SCARPENTER_TAILNET_CREDENTIALS_DIR", ""), "Directory with one file per key of the tailnet credentials Secret: client-id and client-secret (a Tailscale OAuth client with the scopes auth_keys and devices:core), or api-key (a Headscale API key). Read at every call, so a rotated Secret takes effect without a restart.")
+	fs.DurationVar(&o.TailnetKeyTTL, "tailnet-key-ttl", env.WithDefaultDuration("SCARPENTER_TAILNET_KEY_TTL", DefaultTailnetKeyTTL), "Expiry of a minted per-node tailnet key; at least 30m, because core gives a NodeClaim 15 minutes to register and retries come within it.")
 	fs.StringVar(&o.tailnetRaw, "tailnet-prefixes", env.WithDefaultString("SCARPENTER_TAILNET_PREFIXES", ""), "Comma-separated CIDRs of the tailnet (default 100.64.0.0/10 and fd7a:115c:a1e0::/48): with the tailscale template a serving certificate may name a node address only inside them (set it for a Headscale with other prefixes).")
 	fs.StringVar(&o.clusterDNSRaw, "cluster-dns", env.WithDefaultString("SCARPENTER_CLUSTER_DNS", ""), "Comma-separated IPs of the cluster DNS service, for the kubelet of the nodes (clusterDNS). Empty: the controller reads the ClusterIP of the DNS Service of kube-system (label k8s-app=kube-dns, else the Service kube-dns), and a NodeClass is not valid while it finds none. \"none\" leaves clusterDNS unset: Pods then use the node's resolver.")
 	fs.StringVar(&o.ClusterDomain, "cluster-domain", env.WithDefaultString("SCARPENTER_CLUSTER_DOMAIN", DefaultClusterDomain), "Cluster domain of the kubelet of the nodes (clusterDomain).")
@@ -288,6 +315,9 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 		o.ClusterDNS, o.ClusterDNSNone = nil, true
 	}
 	o.TailnetPrefixes = splitList(o.tailnetRaw)
+	if o.TailnetBackend == TailnetBackendTailscale && o.TailnetAPIURL == "" {
+		o.TailnetAPIURL = DefaultTailscaleAPIURL
+	}
 	if err := o.Validate(); err != nil {
 		return fmt.Errorf("validating options: %w", err)
 	}
@@ -335,6 +365,7 @@ func (o *Options) Validate() error {
 		errs = append(errs, fmt.Errorf("--bootstrap-token-ttl must be at least %s (core gives a NodeClaim 15 minutes to register), got %s",
 			bootstrapTokenMinTTL, o.BootstrapTokenTTL))
 	}
+	errs = append(errs, o.validateTailnet()...)
 	for _, ip := range o.ClusterDNS {
 		if net.ParseIP(ip) == nil {
 			errs = append(errs, fmt.Errorf("--cluster-dns: %q is not an IP address", ip))
@@ -393,6 +424,31 @@ func (o *Options) Validate() error {
 		errs = append(errs, errors.New("--aws-home-region must not be empty"))
 	}
 	return errors.Join(errs...)
+}
+
+// validateTailnet checks the per-node tailnet key options. The credentials
+// directory may be empty: a PerNode NodeClass is then not valid, which says so.
+func (o *Options) validateTailnet() []error {
+	var errs []error
+	switch o.TailnetBackend {
+	case TailnetBackendNone:
+	case TailnetBackendTailscale, TailnetBackendHeadscale:
+		if o.TailnetAPIURL == "" {
+			errs = append(errs, fmt.Errorf("--tailnet-api-url is required with --tailnet-backend %s", o.TailnetBackend))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("--tailnet-backend must be none, tailscale or headscale, got %q", o.TailnetBackend))
+	}
+	if o.TailnetAPIURL != "" {
+		if err := validateURL("--tailnet-api-url", o.TailnetAPIURL, "http", "https"); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if o.TailnetKeyTTL < tailnetKeyMinTTL {
+		errs = append(errs, fmt.Errorf("--tailnet-key-ttl must be at least %s (core gives a NodeClaim 15 minutes to register), got %s",
+			tailnetKeyMinTTL, o.TailnetKeyTTL))
+	}
+	return errs
 }
 
 func (o *Options) validateInterruption() []error {

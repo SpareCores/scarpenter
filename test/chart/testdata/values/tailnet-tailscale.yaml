@@ -1,0 +1,13 @@
+# Per-node tailnet keys through Tailscale SaaS: an OAuth client in a Secret.
+cluster:
+  name: my-cluster
+  apiServerEndpoint: https://api.example.com:6443
+  dns: [10.96.0.10]
+vendors:
+  aws:
+    credentials:
+      mode: webIdentity
+      webIdentity: {roleArn: "arn:aws:iam::123456789012:role/scarpenter"}
+tailnet:
+  backend: tailscale
+  credentials: {existingSecret: tailnet-creds}

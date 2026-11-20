@@ -37,6 +37,11 @@ keeper:
   url: https://keeper.example.com
   apiKey: {existingSecret: keeper-key, key: token}
   cacheDir: {sizeLimit: 512Mi}
+tailnet:
+  backend: headscale
+  apiURL: https://headscale.example.com
+  keyTTL: 45m
+  credentials: {existingSecret: tailnet-creds, apiKeyKey: headscale-key}
 catalog: {refreshInterval: 30m, maxAge: 12h}
 artifacts:
   sysextBaseURL: https://mirror.example.com/sysext

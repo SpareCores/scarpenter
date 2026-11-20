@@ -180,6 +180,10 @@ func TestValidation(t *testing.T) {
 		{"negative interruption margin", append([]string{"--interruption-margin=-1s"}, required...), "--interruption-margin must not be negative"},
 		{"zero interruption ttl", append([]string{"--interruption-unavailable-ttl=0s"}, required...), "--interruption-unavailable-ttl must be positive"},
 		{"empty aws home region", append([]string{"--aws-home-region="}, required...), "--aws-home-region"},
+		{"unknown tailnet backend", append([]string{"--tailnet-backend=zerotier"}, required...), "--tailnet-backend must be"},
+		{"headscale without a url", append([]string{"--tailnet-backend=headscale"}, required...), "--tailnet-api-url is required"},
+		{"tailnet url invalid", append([]string{"--tailnet-backend=headscale", "--tailnet-api-url=headscale"}, required...), "--tailnet-api-url"},
+		{"tailnet key ttl too short", append([]string{"--tailnet-key-ttl=10m"}, required...), "--tailnet-key-ttl must be at least 30m0s"},
 		{"unknown flag", append([]string{"--nope=1"}, required...), "parsing flags"},
 		{"bad duration", append([]string{"--gc-interval=soon"}, required...), "parsing flags"},
 	}
@@ -301,5 +305,30 @@ func TestInterruptionOptions(t *testing.T) {
 	}
 	if o.Interruption || o.InterruptionMargin != 0 || o.InterruptionUnavailableTTL != 3*time.Minute {
 		t.Errorf("overrides: interruption %v, margin %s, TTL %s", o.Interruption, o.InterruptionMargin, o.InterruptionUnavailableTTL)
+	}
+}
+
+func TestTailnetOptions(t *testing.T) {
+	o, err := parse(t, nil, required...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.TailnetBackend != "none" || o.TailnetAPIURL != "" || o.TailnetCredentialsDir != "" || o.TailnetKeyTTL != time.Hour {
+		t.Errorf("defaults: backend %q, URL %q, credentials %q, TTL %s; want none, empty, empty, 1h",
+			o.TailnetBackend, o.TailnetAPIURL, o.TailnetCredentialsDir, o.TailnetKeyTTL)
+	}
+	o, err = parse(t, map[string]string{"SCARPENTER_TAILNET_BACKEND": "tailscale", "SCARPENTER_TAILNET_CREDENTIALS_DIR": "/c"}, required...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.TailnetAPIURL != "https://api.tailscale.com" || o.TailnetCredentialsDir != "/c" {
+		t.Errorf("tailscale: URL %q, credentials %q; want the SaaS API and /c", o.TailnetAPIURL, o.TailnetCredentialsDir)
+	}
+	o, err = parse(t, nil, append([]string{"--tailnet-backend=headscale", "--tailnet-api-url=https://hs.example.com", "--tailnet-key-ttl=45m"}, required...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.TailnetBackend != "headscale" || o.TailnetAPIURL != "https://hs.example.com" || o.TailnetKeyTTL != 45*time.Minute {
+		t.Errorf("headscale: backend %q, URL %q, TTL %s", o.TailnetBackend, o.TailnetAPIURL, o.TailnetKeyTTL)
 	}
 }

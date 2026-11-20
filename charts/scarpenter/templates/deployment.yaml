@@ -98,6 +98,9 @@ checks that every flag of pkg/operator/options can be set from here.
   "flatcar-base-url" .Values.artifacts.flatcarBaseURL
   "nvidia-driver-base-url" .Values.nvidia.driverBaseURL
   "bootstrap-token-ttl" .Values.bootstrap.tokenTTL
+  "tailnet-backend" (ternary .Values.tailnet.backend "" (ne .Values.tailnet.backend "none"))
+  "tailnet-api-url" .Values.tailnet.apiURL
+  "tailnet-key-ttl" .Values.tailnet.keyTTL
   "max-launch-attempts" .Values.launch.maxAttempts
   "quota-refresh-interval" .Values.quota.refreshInterval
   "quota-limits-refresh-interval" .Values.quota.limitsRefreshInterval
@@ -146,6 +149,9 @@ checks that every flag of pkg/operator/options can be set from here.
 {{- end }}
 {{- if ne $kca "none" }}
 {{- $_ := set $flags "kubelet-client-ca-file" (printf "/etc/scarpenter/kubelet-client-ca/%s" (include "scarpenter.kubeletClientCAKey" .)) }}
+{{- end }}
+{{- if .Values.tailnet.credentials.existingSecret }}
+{{- $_ := set $flags "tailnet-credentials-dir" "/etc/scarpenter/tailnet" }}
 {{- end }}
 {{- if .Values.keeper.apiKey.existingSecret }}
 {{- $_ := set $flags "keeper-api-key-file" "/etc/scarpenter/keeper/api-key" }}
@@ -454,6 +460,11 @@ spec:
               mountPath: /etc/scarpenter/kubelet-client-ca
               readOnly: true
             {{- end }}
+            {{- if .Values.tailnet.credentials.existingSecret }}
+            - name: tailnet-credentials
+              mountPath: /etc/scarpenter/tailnet
+              readOnly: true
+            {{- end }}
             {{- if .Values.keeper.apiKey.existingSecret }}
             - name: keeper-api-key
               mountPath: /etc/scarpenter/keeper
@@ -563,6 +574,18 @@ spec:
         - name: keeper-cache
           emptyDir:
             sizeLimit: {{ .Values.keeper.cacheDir.sizeLimit | default "256Mi" | quote }}
+        {{- if .Values.tailnet.credentials.existingSecret }}
+        - name: tailnet-credentials
+          secret:
+            secretName: {{ .Values.tailnet.credentials.existingSecret | quote }}
+            items:
+              {{- if eq .Values.tailnet.backend "headscale" }}
+              - {key: {{ .Values.tailnet.credentials.apiKeyKey | quote }}, path: api-key}
+              {{- else }}
+              - {key: {{ .Values.tailnet.credentials.clientIdKey | quote }}, path: client-id}
+              - {key: {{ .Values.tailnet.credentials.clientSecretKey | quote }}, path: client-secret}
+              {{- end }}
+        {{- end }}
         {{- if .Values.keeper.apiKey.existingSecret }}
         - name: keeper-api-key
           secret:
