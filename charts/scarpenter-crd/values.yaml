@@ -1,0 +1,3 @@
+# Also manage Karpenter core's NodePool and NodeClaim CRDs. Set false on a
+# cluster where another Karpenter's chart (karpenter-crd) owns them.
+karpenterCore: true

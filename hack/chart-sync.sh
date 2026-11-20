@@ -12,6 +12,9 @@
 #        API) and NodeOverlay are not shipped: both are behind core feature gates
 #        that are off, and a stray copy of a CRD another Karpenter's chart manages
 #        would break that chart's upgrades. Add them when a gate is turned on.
+#        The same files, with the annotation helm.sh/resource-policy: keep
+#        added, are also the templates of charts/scarpenter-crd, which Helm
+#        upgrades (the core ones sit behind the value karpenterCore).
 # rbac:  the rules of config/rbac and config/rbac-core and the node-join
 #        bindings -> charts/scarpenter/files/rbac.yaml. The templates add names
 #        and namespaces; test/chart/run.sh renders the chart and compares the
@@ -20,6 +23,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 chart="${root}/charts/scarpenter"
+crdchart="${root}/charts/scarpenter-crd"
 
 crds() {
   mkdir -p "${chart}/crds"
@@ -31,6 +35,16 @@ crds() {
   for f in karpenter.sh_nodeclaims karpenter.sh_nodepools; do
     cp "${core}/pkg/apis/crds/${f}.yaml" "${chart}/crds/${f}.yaml"
     chmod u+w "${chart}/crds/${f}.yaml"
+  done
+
+  mkdir -p "${crdchart}/templates"
+  find "${crdchart}/templates" -name '*.yaml' -delete
+  for f in "${chart}"/crds/*.yaml; do
+    {
+      if [[ "${f}" == */karpenter.sh_* ]]; then echo '{{- if .Values.karpenterCore }}'; fi
+      awk '{print} /^  annotations:$/ && !done {print "    helm.sh/resource-policy: keep"; done=1}' "${f}"
+      if [[ "${f}" == */karpenter.sh_* ]]; then echo '{{- end }}'; fi
+    } >"${crdchart}/templates/$(basename "${f}")"
   done
 }
 

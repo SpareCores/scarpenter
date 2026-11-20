@@ -10,7 +10,9 @@
 # 2. the Go tests of this directory (build tag chart): golden `helm template`
 #    output, the values schema and the template checks against bad values,
 #    every controller flag settable and accepted by the controller's own flag
-#    parser, the chart's RBAC and CRDs equal to config/ and Karpenter core's.
+#    parser, the chart's RBAC and CRDs equal to config/ and Karpenter core's,
+#    the scarpenter-crd chart equal to them, and an upgrade of the SCNodeClass
+#    CRD in envtest that keeps the fields of newer releases.
 # The install into a kind cluster is part of the L3 lane (make test-kwok).
 set -euo pipefail
 
@@ -23,6 +25,8 @@ echo "==> helm lint"
 for f in "${here}"/testdata/values/*.yaml; do
   helm lint --strict "${chart}" -f "${f}"
 done
+
+helm lint --strict "${root}/charts/scarpenter-crd"
 
 echo "==> go test (golden output, schema, flags, RBAC and CRD sync)"
 if [[ "${UPDATE:-}" == "1" ]]; then
