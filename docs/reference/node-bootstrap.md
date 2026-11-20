@@ -212,6 +212,11 @@ release (its modules are signed with the release's kernel key). The part holds:
   (before `containerd.service`, after tmpfiles has copied the file) sets
   `default_runtime_name = "runc"` and fails unless that line is there afterwards. A Pod gets GPUs
   only with `runtimeClassName: nvidia`.
+  The runtime sysext's drop-in starts containerd with `--config /etc/containerd/config-nvidia.toml`,
+  so on a GPU node a user-supplied `/etc/containerd/config.toml` is ignored (it is not read at all).
+  Adding containerd settings on GPU nodes is not supported yet: the config has no drop-in directory
+  that SCarpenter uses, and a file of your own at the `config-nvidia.toml` path would have to be a
+  full copy of the sysext's file, which the unit above then edits and checks.
 - `/etc/modprobe.d/00-scarpenter-nvidia.conf`: `nouveau` and `nova_core` blacklisted, `nvidia-drm`
   without modeset and never loaded (a headless node needs no DRM), no dynamic power management (the
   name sorts before the driver sysext's own `10-flatcar-nvidia-drivers-*.conf`, because modprobe uses
