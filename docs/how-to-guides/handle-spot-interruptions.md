@@ -5,9 +5,10 @@ their SIGTERM with the time the vendor still gives, the reason is recorded on th
 (instance type and zone) is kept out of scheduling for a while. Design: [ADR-027](../explanation/DECISIONS.md#adr-027-spot-interruption-the-notice-is-an-annotation-the-reaction-is-one-controller-accepted-2026-11-19),
 [plan 26](../plans/v1/wip/26-interruption.md); mechanics: [the controller reference](../reference/controller.md#interruption).
 
-Status: **OCI only so far** (preemptible instances, found by polling the OCI API). The other spot vendors follow in the plan's order
-(AWS, GCP, Azure, Alibaba). The OCI path follows the vendor's documentation and is unverified until the first real preemption:
-see [OCI interruption](../reference/oci-driver.md#interruption).
+Status: **OCI only so far** (preemptible instances, found by polling the OCI API): the reason is recorded and the node is cleaned up fast,
+but there is no graceful drain window yet, because the poll sees the preemption only once the instance is stopping or terminating. The other
+spot vendors follow in the plan's order (AWS, GCP, Azure, Alibaba). The OCI path follows the vendor's documentation and is unverified until
+the first real preemption: see [OCI interruption](../reference/oci-driver.md#interruption).
 
 ## What your workload sees
 
@@ -38,13 +39,13 @@ the time from seeing a notice to the NodeClaim delete.
 
 ## Set `terminationGracePeriodSeconds`
 
-The grace a Pod gets is at most the lead time the vendor gives, and on OCI it is shorter than that: the poller sees the termination, not the
-two-minute notice before it, so assume a few seconds.
+The grace a Pod gets is at most the lead time SCarpenter sees, and on OCI that is none yet: the poller sees the instance already stopping
+or terminating, not the two-minute notice before it.
 
 | Vendor | Lead time at the node | Assume for the grace period |
 |---|---|---|
-| OCI (preemptible) | about 2 minutes documented; the API poll sees only `TERMINATING`, so the controller assumes 5 s | 5 s, plus whatever the instance's shutdown allows |
+| OCI (preemptible) | none seen: about 2 minutes are documented, but only as an Events message; the API poll sees `STOPPING`, `STOPPED` or `TERMINATING` | none: the reason is recorded and the node cleaned up fast, Pods are deleted at once (1 s grace); no graceful drain window yet |
 
-A workload that needs about 5 s to flush (benchmarks) sets `terminationGracePeriodSeconds` to about 20 s: on OCI it is cut to the time left
-and the Pod still gets its SIGTERM at once. Write progress early and make the Pod's work restartable: a reclaimed node can cut a longer
-shutdown short.
+A workload that needs about 5 s to flush (benchmarks) sets `terminationGracePeriodSeconds` to about 20 s for the vendors that give a notice.
+On OCI, until the in-VM check (plan 26) gives the node the two minutes, write progress early and make the Pod's work restartable: a preempted
+node is gone before a flush can finish.

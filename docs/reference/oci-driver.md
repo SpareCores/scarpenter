@@ -262,20 +262,27 @@ service's work requests and maintenance events are not documented for it, and th
 the lifecycle state in the list the driver makes anyway: `PollInterruptions(region)` is one paged `ListInstances` of the compartment
 (`--oci-interruption-poll`, default 10 s, about six calls a minute per region whatever the number of nodes, no new IAM statement) and
 reports every preemptible instance of this cluster (the cluster tag) that is `STOPPING`, `STOPPED` or `TERMINATING` as a
-`SpotInterrupted` notice. Nobody can stop a preemptible instance, so these states mean the preemption has begun, except for the instances the driver
-terminated itself: it remembers them (for an hour, in memory) and does not report them. The notice has no deadline (the instance has no time of
-the state change), so the controller assumes the window's minimum, 5 s, from the moment it sees the notice; the window's maximum is the
-documented 2 minutes. The lead time of the Events message is **not used**: the poll sees the termination that follows it. It still beats
-garbage collection, which waits for the Node to be NotReady and then up to two minutes. The notice has `source=vendor-api`; a throttled
-poll (429) is retryable and backs the region's poller off.
+`SpotInterrupted` notice. Nobody can stop a preemptible instance, so these states mean the preemption has begun, except for the instances
+SCarpenter terminated itself: the driver remembers its own terminations (for an hour, in memory), and the poller skips every NodeClaim with
+core's `InstanceTerminating` condition, which is stored on the NodeClaim and so also covers a restart. The list is of the whole compartment
+(the Compute API has no tag filter); instances without this cluster's tag are dropped client-side.
+
+**What it gives (decided by the maintainer 2026-11-20).** The poller sees a preemption only once the instance is `STOPPING`, `STOPPED` or
+`TERMINATING`: there is **no lead time**, because the two-minute notice exists only as the Events message. The notice has no deadline, so the
+controller takes the window's minimum, 5 s, from the moment it sees it; with the default `--interruption-margin` of 5 s the termination
+deadline is that moment, and core deletes the Pods at once with a 1 s grace. So on OCI today: the reason is recorded (`SpotInterrupted`,
+`source=vendor-api`), the node is cleaned up fast (well before garbage collection, which waits for the Node to be NotReady and then up to two
+minutes) and the offering is marked unavailable, but there is **no graceful drain window yet**. A throttled poll (429) is retryable and backs
+the region's poller off.
 
 **The reason an instance is gone.** `Instance.GoneReason` is `SpotInterrupted` for a preemptible instance in a terminating or terminated state,
 so a reclaim the poller missed (the instance gone between two polls, or SCarpenter restarted) is still recorded as `SpotInterrupted` with
 `source=vendor-api` instead of `ReclaimedWithoutNotice`. A person who terminates a preemptible instance in the console is indistinguishable
 from a preemption without the Audit service.
 
-**Node agent.** None for OCI yet. Whether the instance metadata carries a preemption key (`instancePreemptionAction`; sources disagree) is
-unverified; if it does, a node agent can give the full two minutes (plan 26, steps 4 onwards).
+**Next step: an in-VM check.** None for OCI yet. The next step (plan 26) is a node agent check of the instance metadata for a preemption key
+(`instancePreemptionAction`; sources disagree), verified on the first real preemption; if it holds, the node gets the two minutes as a drain
+window and the poller stays as the backstop.
 
 The fake models the signal: `fake.Cloud.Preempt(id)` puts a preemptible instance into `TERMINATING`; the conformance fixture's `Interrupt`
 hook uses it, and the fixture launches preemptible instances.
