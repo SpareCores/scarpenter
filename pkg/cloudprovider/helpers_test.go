@@ -113,6 +113,8 @@ type envOptions struct {
 	wrap func(*fakedriver.Driver) vendors.Driver
 	// onQuotaRefusal is the CloudProvider's OnQuotaRefusal hook.
 	onQuotaRefusal func(cloudprovider.QuotaRefusal)
+	// onInstanceGone is the CloudProvider's OnInstanceGone hook.
+	onInstanceGone func(ctx context.Context, nodeClaim *karpv1.NodeClaim, vendor, goneReason string)
 }
 
 func newEnv(t *testing.T, o envOptions) *env {
@@ -187,7 +189,7 @@ func (e *env) build(kube client.Client, f *facts.Facts, reg *vendors.Registry, o
 		Client: kube, Catalog: e.cat, Registry: reg, Unavailable: e.un, Quota: e.tracker, Resources: e.resources,
 		Scope:    &scope.Resolver{Reader: kube, Registry: reg, Regions: f},
 		Recorder: e.events, Tokens: e.tokens, UserData: e.renderer, ClusterName: cluster, MaxLaunchAttempts: o.attempts, Clock: e.clock,
-		OnQuotaRefusal: o.onQuotaRefusal,
+		OnQuotaRefusal: o.onQuotaRefusal, OnInstanceGone: o.onInstanceGone,
 	})
 	return e
 }

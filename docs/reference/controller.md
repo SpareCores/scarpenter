@@ -346,7 +346,8 @@ them is in the how-to guide "Handle spot interruptions" (added with the first ve
 `scarpenter.sparecores.com/interruption` (the reason, `SpotInterrupted`),
 `scarpenter.sparecores.com/interruption-deadline` (RFC 3339) and `scarpenter.sparecores.com/interruption-source`
 (`instance-metadata` for the node agent, `vendor-api` for the controller's own poller; anything else is read as
-`instance-metadata`). The paths that write them come with the vendor plans; the controller reads only the Node.
+`instance-metadata`). The poller is described [below](#the-poller); the node agent comes with the vendor plans. The controller reads
+only the Node.
 
 **What it does**, per annotated Node whose NodeClaim belongs to an SCNodeClass and whose provider ID and node name match the claim's
 (a node cannot name another node's claim), in this order:
@@ -376,14 +377,50 @@ from the Node update to the NodeClaim delete (`scarpenter_interruption_reaction_
 The controller needs no permissions beyond the ones in [Permissions](#permissions): it patches Nodes (SCarpenter's ClusterRole), and patches and deletes
 NodeClaims, patches `nodeclaims/status` and creates Events through Karpenter core's role.
 
+### The poller
+
+For a vendor whose driver implements [`InterruptionPoller`](driver-contract.md#interruption-poller-and-the-reason-an-instance-is-gone)
+the controller runs one poll loop per (vendor, region) that has a spot NodeClaim of an SCNodeClass, shared by all its instances, and stops
+it when the last one is gone (the set is checked every 5 seconds; the poll interval is the driver's). A notice is matched to its NodeClaim by the
+`instance-ref` annotation and written to the Node as the three interruption annotations with source `vendor-api`. A Node that has a
+`SpotInterrupted` notice already (the node agent's) is left alone; any other value there is replaced, so that a node cannot hide the vendor's
+notice behind one the controller ignores. A notice for a NodeClaim without a Node yet is kept in memory and written once the Node exists, even if
+the vendor no longer shows it, and dropped when the NodeClaim is gone. The source grants nothing: a node can write `vendor-api` itself, and both
+sources get the same checks (reason, spot only, the deadline clamped to the vendor's window); it only labels the record. The controller then reacts exactly as it does to the node
+agent's annotation, so the record looks the same whichever path found it. A failed poll is counted in
+`scarpenter_interruption_poll_errors_total` and the loop waits twice the interval, doubling per failure up to 5 minutes (throttling
+included); it never fails the controller. `--interruption=false` turns the poller off with the controller.
+
+### Silent reclaim
+
+A vendor may take an instance without a notice, or the notice may be missed. Core's NodeClaim garbage collection deletes a Registered NodeClaim
+whose instance is gone once its Node is not Ready (about a minute after the node monitor notices, plus up to two minutes); `Get` and `List`
+already treat `terminating` and `terminated` as gone. When the first `CloudProvider.Delete` of a NodeClaim finds the instance gone (terminating or
+terminated) and core is not disrupting the NodeClaim on purpose (core sets `DisruptionReason` first), the instance went without SCarpenter: core
+sets the `InstanceTerminating` condition after every `Delete` that did not fail, so a later `Delete` (after SCarpenter deleted the instance, also
+across a restart) does not report it; SCarpenter also remembers the instances it deleted for an hour, for the moment before core stores the
+condition. The controller records it, once, for a NodeClaim that has no interruption annotation:
+
+| NodeClaim | Reason | Source | What is recorded |
+|---|---|---|---|
+| spot, the driver says the vendor reclaimed it (`Instance.GoneReason`) | `SpotInterrupted` | `vendor-api` | the `Interrupted` condition, the offering marked unavailable, the count, the Event |
+| spot, no word from the driver | `ReclaimedWithoutNotice` | `gc` | the same, with that reason |
+| on-demand | `InstanceVanished` | `gc` | an Event and the count only (the condition is for spot) |
+
+`DisruptionReason` is not set: the node is already drained when this runs. A spot instance that crashed but still exists is not touched
+(node repair is core's). The record is made when `Delete` runs, after the drain, so it appears late; the Event and the count last after the
+NodeClaim is gone.
+
 **Events**: `SpotInterrupted` (Warning, Node and NodeClaim) with the type, zone, deadline and lead time in the message; `InterruptionIgnored`
-(Warning, Node and NodeClaim, once per hour per object).
+(Warning, Node and NodeClaim, once per hour per object); `ReclaimedWithoutNotice` and `InstanceVanished` (Warning, NodeClaim; a reclaim the driver
+names is a `SpotInterrupted` Event on the NodeClaim).
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `scarpenter_interruptions_total` | counter | `vendor`, `instance_type`, `zone`, `reason`, `source` | Interrupted nodes: the durable count a workload should use (Events expire after an hour). |
+| `scarpenter_interruptions_total` | counter | `vendor`, `instance_type`, `zone`, `reason`, `source` | Interrupted nodes (`reason` `SpotInterrupted`, `ReclaimedWithoutNotice` or `InstanceVanished`; `source` `instance-metadata`, `vendor-api` or `gc`): the durable count a workload should use (Events expire after an hour). |
 | `scarpenter_interruption_lead_seconds` | histogram | `vendor`, `source` | The deadline minus the time the controller saw the notice. |
 | `scarpenter_interruption_reaction_seconds` | histogram | | From the controller seeing the notice to the NodeClaim delete. |
+| `scarpenter_interruption_poll_errors_total` | counter | `vendor`, `region` | Failed polls of a vendor's API for interruption notices. |
 
 ## Catalog
 

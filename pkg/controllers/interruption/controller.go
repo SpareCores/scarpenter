@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -80,6 +81,10 @@ type Options struct {
 type Controller struct {
 	opts    Options
 	metrics *metrics
+
+	// vanished are the on-demand NodeClaims already recorded by InstanceGone.
+	vanishedMu sync.Mutex
+	vanished   map[types.UID]time.Time
 }
 
 // New returns the controller; Register adds it to a manager.
@@ -91,7 +96,7 @@ func New(o Options) *Controller {
 		o.Margin = DefaultMargin
 	}
 	o.Margin = max(o.Margin, 0)
-	return &Controller{opts: o, metrics: newMetrics(o.Registerer)}
+	return &Controller{opts: o, metrics: newMetrics(o.Registerer), vanished: map[types.UID]time.Time{}}
 }
 
 // Register watches the Nodes that have the interruption annotation, and the
@@ -358,7 +363,9 @@ func (c *Controller) publish(dedupe time.Duration, typ, reason, message string, 
 	for _, o := range objs {
 		ev := events.Event{InvolvedObject: o, Type: typ, Reason: reason, Message: message}
 		if dedupe > 0 {
-			ev.DedupeValues, ev.DedupeTimeout = []string{o.GetName(), reason}, dedupe
+			// A Node and its NodeClaim have the same name: the kind keeps the
+			// Event of one from suppressing the Event of the other.
+			ev.DedupeValues, ev.DedupeTimeout = []string{fmt.Sprintf("%T", o), o.GetName(), reason}, dedupe
 		}
 		c.opts.Recorder.Publish(ev)
 	}

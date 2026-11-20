@@ -6,7 +6,10 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 package vendors
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // NoticeWindow is how far ahead a vendor announces the loss of a spot or
 // preemptible instance. The interruption controller clamps a node's claimed
@@ -39,4 +42,33 @@ func NoticeWindowOf(d Driver) NoticeWindow {
 		}
 	}
 	return DefaultNoticeWindow
+}
+
+// Notice is the vendor's announcement that it will take an instance away.
+type Notice struct {
+	Ref InstanceRef
+	// Reason is v1alpha1.ReasonSpotInterrupted; another value is ignored by
+	// the interruption controller, with an Event.
+	Reason string
+	// Deadline is when the vendor takes the instance. Zero when the API only
+	// shows that the instance is going (a terminating state): the controller
+	// then assumes the vendor's shortest notice from now.
+	Deadline time.Time
+}
+
+// InterruptionPoller is the optional capability of a driver whose vendor shows
+// an interruption in its API instead of (or besides) the instance metadata
+// (plan 26 section 4). The core runs one poller per (vendor, region) that has a
+// spot NodeClaim, however many instances there are, so PollInterruptions makes a
+// bounded number of calls per region: one paged list, not one call per
+// instance.
+type InterruptionPoller interface {
+	// PollInterruptions returns the notices of the cluster's instances in the
+	// region that are announced or under way; an instance that is already
+	// terminated is not one. It may return the same notice on every poll while
+	// the instance lives. Errors carry their class (ClassOf): Retryable ones
+	// (throttling included) back the poller off.
+	PollInterruptions(ctx context.Context, region string) ([]Notice, error)
+	// PollInterval is the time between two polls of a region.
+	PollInterval() time.Duration
 }

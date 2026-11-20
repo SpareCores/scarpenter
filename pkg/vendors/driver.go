@@ -260,6 +260,11 @@ type Instance struct {
 	Tags         map[TagKey]string
 	// Addresses are the instance's IP addresses, if known.
 	Addresses []string
+	// GoneReason is set by a driver that can tell a vendor reclaim from a crash,
+	// on an instance that is gone (terminating or terminated): the reason the
+	// vendor gives, v1alpha1.ReasonSpotInterrupted for a spot reclaim. Empty
+	// when the instance is not gone or the driver cannot tell (plan 26).
+	GoneReason string
 }
 
 // Gone reports whether Karpenter must treat the instance as not existing.

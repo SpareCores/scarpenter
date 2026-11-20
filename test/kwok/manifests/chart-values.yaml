@@ -26,6 +26,8 @@ quota:
 unavailable:
   insufficientCapacityTTL: 20s
   quotaExceededTTL: 20s
+# A short TTL for an interrupted spot offering (I03).
+interruption: {unavailableTTL: 30s}
 gc: {interval: 10s, gracePeriod: 30s, terminatingGrace: 30s}
 # Managed resources: a short perUse grace and a quick status check make the
 # lifecycle scenarios (S15, S16) fast.

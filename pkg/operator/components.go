@@ -17,6 +17,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 
 	"github.com/SpareCores/scarpenter/pkg/artifacts"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
@@ -25,6 +26,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/controllers/bootstraptoken"
 	"github.com/SpareCores/scarpenter/pkg/controllers/csr"
 	"github.com/SpareCores/scarpenter/pkg/controllers/garbagecollection"
+	"github.com/SpareCores/scarpenter/pkg/controllers/interruption"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/controllers/quotastatus"
 	"github.com/SpareCores/scarpenter/pkg/controllers/resourcestatus"
@@ -60,6 +62,10 @@ type Components struct {
 	// Signals carries what the cloud provider tells the billing retention
 	// controller (launches refused for quota).
 	Signals *retention.Signals
+	// Interruption is the interruption controller (nil with --interruption=false):
+	// the CloudProvider tells it of instances found gone, and its poller asks
+	// the drivers for notices.
+	Interruption *interruption.Controller
 
 	scopeMu   sync.Mutex
 	lastScope map[string][]string
@@ -98,6 +104,17 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	})
 
 	c := &Components{Registry: reg, Unavailable: un, Signals: retention.NewSignals(o.Clock)}
+	if opts.Interruption {
+		c.Interruption = interruption.New(interruption.Options{
+			Client:      o.GetClient(),
+			Registry:    reg,
+			Unavailable: un,
+			Clock:       o.Clock,
+			Recorder:    o.EventRecorder,
+			Margin:      opts.InterruptionMargin,
+			Registerer:  metrics.Registry,
+		})
+	}
 	// The tracker needs the regions in scope, which need the driver facts, which
 	// need the tracker's launchable view: close the loop with the resolver.
 	c.Tracker = quota.New(quota.Options{
@@ -203,8 +220,13 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 			c.Signals.ReportQuotaRefusal(r.Vendor, r.Region, r.CapacityType, r.CPU)
 		}
 	}
+	var onGone func(context.Context, *karpv1.NodeClaim, string, string)
+	if c.Interruption != nil {
+		onGone = c.Interruption.InstanceGone
+	}
 	return cloudprovider.New(cloudprovider.Options{
 		OnQuotaRefusal:    onRefusal,
+		OnInstanceGone:    onGone,
 		Client:            o.GetClient(),
 		Catalog:           c.Catalog,
 		Registry:          c.Registry,

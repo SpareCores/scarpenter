@@ -129,6 +129,14 @@ const (
 	// ReasonSpotInterrupted: the vendor announced the reclaim of a spot or
 	// preemptible instance.
 	ReasonSpotInterrupted = "SpotInterrupted"
+	// ReasonReclaimedWithoutNotice: a spot or preemptible instance was gone with
+	// no notice seen and no vendor word on why (a silent reclaim, or a crash the
+	// vendor does not tell apart).
+	ReasonReclaimedWithoutNotice = "ReclaimedWithoutNotice"
+	// ReasonInstanceVanished: an on-demand instance was gone without SCarpenter
+	// deleting it. It is an Event reason only; the Interrupted condition is for
+	// spot.
+	ReasonInstanceVanished = "InstanceVanished"
 )
 
 // The sources of an interruption notice.
@@ -137,6 +145,8 @@ const (
 	SourceInstanceMetadata = "instance-metadata"
 	// SourceVendorAPI: the controller found the notice through the vendor's API.
 	SourceVendorAPI = "vendor-api"
+	// SourceGC: no notice was seen; the instance was found gone.
+	SourceGC = "gc"
 )
 
 // MetricLabel is the label of a metric's score on an instance type.

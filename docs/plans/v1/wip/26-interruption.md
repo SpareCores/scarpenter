@@ -235,6 +235,20 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
 2. **Poller and silent reclaim.** `InterruptionPoller` in the contract and the core poller controller (section 4);
    `Instance.GoneReason` and the reasons of section 5; fake: `Interrupt(ref, deadline)` (poller path) and
    `Reclaim(ref)` (vanish). L3 KWOK scenarios (a) to (f) of section 10.
+   **Done.** `vendors.InterruptionPoller` and `Notice`, `Instance.GoneReason`, the poller (`interruption.Controller.Poller`, a manager
+   runnable: one loop per (vendor, region) with a spot NodeClaim, it writes the Node annotations with source `vendor-api` and the controller
+   reacts as to the agent's annotation), `Controller.InstanceGone` called from `CloudProvider.Delete` (reasons `ReclaimedWithoutNotice`,
+   `InstanceVanished`, and `SpotInterrupted` from `GoneReason`; source `gc` or `vendor-api`), `scarpenter_interruption_poll_errors_total`,
+   the fake's `Interrupt`, `Reclaim`, `ReclaimWithReason` and the `interrupt` and `reclaim` steering keys, a conformance subtest, L2 tests, and the
+   L3 scenarios I01 to I06 for (a) to (f). Deviations from the text above: (a) the silent-reclaim record is made in `CloudProvider.Delete` only, not in
+   `Get` (core's termination calls `Get` with a provider ID and no NodeClaim to record on); `Delete` runs after the drain, so the reason appears late; only
+   the first `Delete` of a NodeClaim reports (core's `InstanceTerminating` condition, stored on the NodeClaim, marks a later one, so a restart does
+   not turn SCarpenter's own delete into a loss; provider IDs it deleted are also kept in memory for an hour), and a NodeClaim with a
+   `DisruptionReason` (core disrupting on purpose) is skipped; a terminating instance is reported too, with or without a `GoneReason`; (b) `InstanceGone` is wired through `CloudProvider.Options.OnInstanceGone`, and the controller
+   is built in `NewComponents` (`Components.Interruption`); (c) the poller adds no flag: it checks the regions every 5 s, backs off from twice the poll
+   interval to 5 minutes on errors (any error class, 429 included, drivers give no retry-after); (d) a notice without a deadline is written without one
+   and the controller assumes the vendor's shortest notice; (e) the scenarios are named I01 to I06 (S22 may be taken by plan 12) and a finalizer on the
+   Pod keeps the drained Pod visible. The silent-reclaim condition is only visible until the NodeClaim is gone; the Event and the count last.
 3. **OCI.** Spike S1 (credentials from the coordinator), then the driver's `InterruptionPoller` on what S1 found (plus a
    `scarpenter_check` script when S1 finds an in-VM signal),
    its fake, conformance, the OCI reference; L5 scenario if S1 found a way to trigger a preemption (S1).
