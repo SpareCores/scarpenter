@@ -82,6 +82,10 @@ linters:
       - linters:
           - goconst
         path: pkg/vendors/gcp/(series|launch|quota|quotas)\.go
+      # The tailnet fakes build JSON documents with the real APIs' field names.
+      - linters:
+          - goconst
+        path: pkg/tailnet/tailnettest/
       # API types carry long kubebuilder markers and CEL rules.
       - linters:
           - lll
