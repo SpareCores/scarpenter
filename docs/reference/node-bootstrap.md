@@ -229,16 +229,34 @@ release (its modules are signed with the release's kernel key). The part holds:
   joins; Karpenter deletes the NodeClaim after the registration timeout and tries again, and the
   unit's journal line says why.
 
-The part is about 2 KiB of the user-data. Its largest variant (the mirror, 16 GPUs) is part of the
-NodeClass controller's trial rendering for amd64, and a unit test holds the worst case of a GPU node
-(everything else on) to 14 KiB.
+- **NVSwitch systems** (8 or more GPUs of A100, H100 and H200 HGX models) additionally get Fabric
+  Manager, which no Flatcar sysext ships and without which CUDA does not initialize on them. NVIDIA's
+  Fabric Manager archive of the driver's exact version (the daemon aborts on a mismatch) is pinned by
+  sha256 in the table; Ignition writes it to `/opt/nvidia-fabricmanager/` from NVIDIA's driver
+  redistributables (`developer.download.nvidia.com/.../redist/fabricmanager/linux-x86_64/`), or from
+  `<--nvidia-driver-base-url>/fabricmanager/<driver version>/` with a mirror, and verifies the hash.
+  `scarpenter-nvidia-fabricmanager.service` (after `nvidia.service`, started by the check unit that
+  wants it, so before the kubelet and the device plugin) unpacks the archive at every start, sets its
+  `fabricmanager.cfg` to run in the foreground, to log to syslog (the journal) and to take the topology
+  and database files from the archive, and runs `nv-fabricmanager -c` (`Restart=on-failure`). The check
+  unit then also waits (3 minutes) for Fabric Manager's success line (`Successfully configured all the
+  available ...`, which names NVSwitches on A100 and GPUs and NVSwitches on H100; read from the journal
+  of the unit's current run), so the device plugin never advertises GPUs that cannot initialize. `hack/nvidia-mirror.sh <version> <dir> fabricmanager-<driver version>`
+  copies an archive into the mirror tree and prints its pin. Smaller slices of the same hardware (four
+  GPUs and fewer) and 8-GPU V100 systems (NVLink without NVSwitch) get none of this. B200 and B300 (NVLink5)
+  are not offered: NVIDIA's start script also runs the NVLink subnet manager (`nvlsm`) there, which needs
+  the `ib_umad` module and `ibstat`, and Flatcar has neither.
+
+The part is about 2 KiB of the user-data, and Fabric Manager adds about 0.6 KiB (the worst case of a GPU
+node is 14053 of the 15360 bytes of the budget). Its largest variant (the mirror, 16 GPUs, Fabric Manager)
+is part of the NodeClass controller's trial rendering for amd64, and a unit test holds the worst case of a
+GPU node (everything else on) to 15 KiB, which leaves a user's Butane at least 1 KiB.
 
 The chart ships the device plugin and, on request (`nvidia.runtimeClass.create`), the RuntimeClass `nvidia`, whose handler is the runtime this part
 registers ([run GPU workloads](../how-to-guides/run-gpu-workloads.md)). Until the vendors' virtual-GPU
 checks exist, GPU types are offered as plain machines and the catalog
 advertises neither `nvidia.com/gpu` nor the driver labels (`nvidia.NodeBootstrap`), so no launch
-renders the part yet. NVSwitch systems (8 or more GPUs of HGX models) additionally need Fabric
-Manager, which the part does not ship yet: they stay dropped.
+renders the part yet.
 
 ## Template variables
 
@@ -489,7 +507,7 @@ AWS accepts 16 KiB of user-data, the smallest limit of the vendors. A
 rendering over 16 384 bytes fails with an error naming the compressed size of
 each part, and the NodeClass reports it as `ValidationSucceeded=False`
 (`TemplateInvalid`) before any launch. The default templates are held to 12 KiB
-by golden tests (14 KiB for a [GPU node](#nvidia-gpu-nodes)), measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM). A
+by golden tests (15 KiB for a [GPU node](#nvidia-gpu-nodes)), measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM). A
 plain rendering is 4.5 KiB with `tailscale` and 3.2 KiB with `direct`; with
 everything on (the node IP unit, two volumes, 24 local disks with one mount each,
 the Lean footprint, the metadata restriction) it is 10.6 KiB with `tailscale` and

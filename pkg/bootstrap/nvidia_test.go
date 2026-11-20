@@ -53,9 +53,11 @@ func part(r *bootstrap.Rendered, name string) (string, bool) {
 }
 
 // The golden files: a T4 (open modules) with the driver downloaded by the
-// initrd, a V100 (proprietary) from a mirror on the tailscale template, and a
-// 4-GPU Lean node from a mirror. Together with the matrix test below they cover
-// both flavours, both sources, both templates, with and without Lean.
+// initrd, a V100 (proprietary) from a mirror on the tailscale template, a
+// 4-GPU Lean node from a mirror, and two NVSwitch systems (8 H100 with NVIDIA's
+// server, 8 A100 from a mirror on the tailscale template) with Fabric Manager.
+// Together with the matrix test below they cover both flavours, both sources,
+// both templates, with and without Lean.
 func TestGoldenNVIDIA(t *testing.T) {
 	lean := gpuParams(t, v1alpha1.NetworkTemplateDirect, gpuSelection(t, "A100", 4), gpuMirror)
 	lean.Kubelet.Footprint = v1alpha1.FootprintLean
@@ -63,6 +65,8 @@ func TestGoldenNVIDIA(t *testing.T) {
 		"nvidia-direct-open-upstream":          gpuParams(t, v1alpha1.NetworkTemplateDirect, gpuSelection(t, "T4", 1), ""),
 		"nvidia-tailscale-proprietary-mirror":  gpuParams(t, v1alpha1.NetworkTemplateTailscale, gpuSelection(t, "V100", 1), gpuMirror),
 		"nvidia-lean-direct-open-mirror-4gpus": lean,
+		"nvidia-direct-nvswitch-upstream":      gpuParams(t, v1alpha1.NetworkTemplateDirect, gpuSelection(t, "H100", 8), ""),
+		"nvidia-tailscale-nvswitch-mirror":     gpuParams(t, v1alpha1.NetworkTemplateTailscale, gpuSelection(t, "A100", 8), gpuMirror),
 	} {
 		t.Run(name, func(t *testing.T) {
 			r, err := bootstrap.Render(p)
@@ -139,6 +143,46 @@ func TestNVIDIAPartAcrossVariants(t *testing.T) {
 	}
 }
 
+// An NVSwitch system gets Fabric Manager: the archive of the driver's exact version,
+// pinned by sha256, from NVIDIA's server or from the mirror, its unit, and the check
+// with the fabric assertion; every other type gets none of it.
+func TestFabricManagerOnNVSwitchSystemsOnly(t *testing.T) {
+	sel := gpuSelection(t, "H100", 8)
+	file := nvidia.FabricManagerFile(sel.Version)
+	for mirror, wantURL := range map[string]string{
+		"":              nvidia.FabricManagerURL(sel.Version),
+		gpuMirror:       gpuMirror + "/fabricmanager/" + sel.Version + "/" + file,
+		gpuMirror + "/": gpuMirror + "/fabricmanager/" + sel.Version + "/" + file,
+	} {
+		r, err := bootstrap.Render(gpuParams(t, v1alpha1.NetworkTemplateDirect, sel, mirror))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, _ := part(r, "nvidia")
+		for _, want := range []string{
+			"/opt/nvidia-fabricmanager/" + file, wantURL, "sha256-" + sel.FabricManagerSHA256,
+			"scarpenter-nvidia-fabricmanager.service", "nv-fabricmanager -c",
+			"scarpenter-nvidia-check " + sel.Version + " 8 fabric",
+		} {
+			if !strings.Contains(strings.ReplaceAll(text, " ", ""), strings.ReplaceAll(want, " ", "")) {
+				t.Errorf("mirror %q: the nvidia part lacks %q", mirror, want)
+			}
+		}
+	}
+	for _, sel := range []nvidia.Selection{gpuSelection(t, "H100", 4), gpuSelection(t, "V100", 8)} {
+		r, err := bootstrap.Render(gpuParams(t, v1alpha1.NetworkTemplateDirect, sel, gpuMirror))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, _ := part(r, "nvidia")
+		for _, banned := range []string{"nv-fabricmanager", "/opt/nvidia-fabricmanager", " fabric"} {
+			if strings.Contains(strings.ToLower(text), banned) {
+				t.Errorf("%d GPUs of %s: the nvidia part mentions %q", sel.Count, sel.Architecture, banned)
+			}
+		}
+	}
+}
+
 // Without a driver selection nothing of the nvidia part is rendered: the output is
 // the one of a node without it.
 func TestNoNVIDIAPartWithoutSelection(t *testing.T) {
@@ -160,12 +204,12 @@ func TestNVIDIARejectsWhatItCannotRender(t *testing.T) {
 		"arm64": func(p *bootstrap.Params) {
 			p.Arch, p.Kubernetes = "arm64", k8sArtifact("arm64")
 		},
-		"no pin":     func(p *bootstrap.Params) { p.NVIDIA.Selection.RawSHA256 = "" },
-		"no runtime": func(p *bootstrap.Params) { p.NVIDIA.Selection.RuntimeSHA256 = "" },
-		"no count":   func(p *bootstrap.Params) { p.NVIDIA.Selection.Count = 0 },
-		"nvswitch":   func(p *bootstrap.Params) { p.NVIDIA.Selection.NVSwitch = true },
-		"no url":     func(p *bootstrap.Params) { p.NVIDIA.RuntimeURL = "" },
-		"bad name":   func(p *bootstrap.Params) { p.NVIDIA.Selection.Sysext = "nvidia drivers" },
+		"no pin":                 func(p *bootstrap.Params) { p.NVIDIA.Selection.RawSHA256 = "" },
+		"no runtime":             func(p *bootstrap.Params) { p.NVIDIA.Selection.RuntimeSHA256 = "" },
+		"no count":               func(p *bootstrap.Params) { p.NVIDIA.Selection.Count = 0 },
+		"nvswitch without a pin": func(p *bootstrap.Params) { p.NVIDIA.Selection.NVSwitch = true },
+		"no url":                 func(p *bootstrap.Params) { p.NVIDIA.RuntimeURL = "" },
+		"bad name":               func(p *bootstrap.Params) { p.NVIDIA.Selection.Sysext = "nvidia drivers" },
 		"collision": func(p *bootstrap.Params) {
 			p.ExtraSysexts = []v1alpha1.Sysext{{Name: "nvidia-runtime", Arch: "amd64", URL: "https://example.com/x.raw", SHA256: strings.Repeat("a", 64)}}
 		},
@@ -188,7 +232,7 @@ func TestWorstCaseGPUUserDataStaysInTheBudget(t *testing.T) {
 	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
 		t.Run(string(template), func(t *testing.T) {
 			p := worstCaseParams(t, template)
-			sel := gpuSelection(t, "T4", 16)
+			sel := gpuSelection(t, "A100", 16) // NVSwitch: with Fabric Manager
 			p.NVIDIA = &bootstrap.NVIDIAParams{
 				Selection: sel, FlatcarVersion: gpuFlatcar, RuntimeURL: gpuRuntimeURL, DriverBaseURL: gpuMirror,
 			}

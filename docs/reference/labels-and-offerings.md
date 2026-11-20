@@ -157,7 +157,7 @@ first that fails is the drop reason:
 | `GPUFractional` | the GPU count is not a whole number: a slice of a GPU |
 | `GPUArch` | the CPU is not amd64 |
 | `GPUNoDriverBranch` | the release builds no driver branch for the model's architecture |
-| `GPUNVSwitch` | the type has the model's NVSwitch GPU count (8 or more A100, H100, H200, B200, B300) and the release has no pinned Fabric Manager for its driver |
+| `GPUNVSwitch` | the type has the model's NVSwitch GPU count (8 or more A100, H100, H200, B200, B300) and either the release has no pinned [Fabric Manager](node-bootstrap.md#nvidia-gpu-nodes) archive for its driver, or the model needs more than Fabric Manager (B200 and B300, the NVLink5 systems, which also need NVIDIA's NVLink subnet manager, `nvlsm`) |
 | `GPUVirtual` | the driver says the GPU is virtual (a vGPU that needs a GRID driver; the optional [`GPUVirtualizer`](driver-contract.md) capability) |
 
 Dropped types are not offered and never launched; they are counted per NodeClass
@@ -179,17 +179,17 @@ labels are set only once nodes boot the driver (above); until then they are
 | Model | Architecture | Driver | NVSwitch from |
 |---|---|---|---|
 | `A10` | Ampere | 570 (570.211.01, open) | - |
-| `A100` | Ampere | 570 (570.211.01, open) | 8 GPUs |
+| `A100` | Ampere | 570 (570.211.01, open) | 8 GPUs, with Fabric Manager |
 | `A10G` | Ampere | 570 (570.211.01, open) | - |
 | `A16` | Ampere | 570 (570.211.01, open) | - |
 | `A30` | Ampere | 570 (570.211.01, open) | - |
 | `A40` | Ampere | 570 (570.211.01, open) | - |
-| `B200` | Blackwell | none | 8 GPUs |
-| `B300` | Blackwell | none | 8 GPUs |
+| `B200` | Blackwell | none | 8 GPUs, not offered (needs nvlsm) |
+| `B300` | Blackwell | none | 8 GPUs, not offered (needs nvlsm) |
 | `GB200` | Blackwell | none | - |
 | `GB300` | Blackwell | none | - |
-| `H100` | Hopper | 570 (570.211.01, open) | 8 GPUs |
-| `H200` | Hopper | 570 (570.211.01, open) | 8 GPUs |
+| `H100` | Hopper | 570 (570.211.01, open) | 8 GPUs, with Fabric Manager |
+| `H200` | Hopper | 570 (570.211.01, open) | 8 GPUs, with Fabric Manager |
 | `K80` | Kepler | none | - |
 | `L20` | Ada | 570 (570.211.01, open) | - |
 | `L4` | Ada | 570 (570.211.01, open) | - |
@@ -216,17 +216,17 @@ offered on it. The same table on an alpha release that has 580 (4865.0.0):
 | Model | Architecture | Driver | NVSwitch from |
 |---|---|---|---|
 | `A10` | Ampere | 580 (580.178.04, open) | - |
-| `A100` | Ampere | 580 (580.178.04, open) | 8 GPUs |
+| `A100` | Ampere | 580 (580.178.04, open) | 8 GPUs, with Fabric Manager |
 | `A10G` | Ampere | 580 (580.178.04, open) | - |
 | `A16` | Ampere | 580 (580.178.04, open) | - |
 | `A30` | Ampere | 580 (580.178.04, open) | - |
 | `A40` | Ampere | 580 (580.178.04, open) | - |
-| `B200` | Blackwell | 580 (580.178.04, open) | 8 GPUs |
-| `B300` | Blackwell | 580 (580.178.04, open) | 8 GPUs |
+| `B200` | Blackwell | 580 (580.178.04, open) | 8 GPUs, not offered (needs nvlsm) |
+| `B300` | Blackwell | 580 (580.178.04, open) | 8 GPUs, not offered (needs nvlsm) |
 | `GB200` | Blackwell | 580 (580.178.04, open) | - |
 | `GB300` | Blackwell | 580 (580.178.04, open) | - |
-| `H100` | Hopper | 580 (580.178.04, open) | 8 GPUs |
-| `H200` | Hopper | 580 (580.178.04, open) | 8 GPUs |
+| `H100` | Hopper | 580 (580.178.04, open) | 8 GPUs, with Fabric Manager |
+| `H200` | Hopper | 580 (580.178.04, open) | 8 GPUs, with Fabric Manager |
 | `K80` | Kepler | none | - |
 | `L20` | Ada | 580 (580.178.04, open) | - |
 | `L4` | Ada | 580 (580.178.04, open) | - |

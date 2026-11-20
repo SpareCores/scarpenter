@@ -20,8 +20,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
-func gpuType(sel *nvidia.Selection, count int64) *cloudprovider.InstanceType {
+func gpuType(sel *nvidia.Selection, model string, count int64) *cloudprovider.InstanceType {
 	reqs := scheduling.NewRequirements(labels.NVIDIADriver(sel)...)
+	reqs.Add(labels.Enum(v1alpha1.LabelAcceleratorModel, model))
 	capacity := corev1.ResourceList{}
 	if sel != nil {
 		capacity[catalog.ResourceNVIDIAGPU] = *resource.NewQuantity(count, resource.DecimalSI)
@@ -42,20 +43,29 @@ func TestNVIDIASelectionFromTheTypeLabels(t *testing.T) {
 	if reason != nvidia.Supported {
 		t.Fatal(reason)
 	}
-	got, err := nvidiaSelection(nodeClassOn("4757.2.3"), gpuType(&want, 4))
+	got, err := nvidiaSelection(nodeClassOn("4757.2.3"), gpuType(&want, "V100", 4))
 	if err != nil || got == nil {
 		t.Fatalf("selection = %v, %v", got, err)
 	}
-	want.Architecture = "" // the labels do not carry it, the node does not need it
 	if *got != want {
 		t.Errorf("selection = %+v, want %+v", *got, want)
 	}
 
-	if got, err := nvidiaSelection(nodeClassOn("4757.2.3"), gpuType(nil, 0)); got != nil || err != nil {
+	// The model label tells an NVSwitch system, which the launch needs for Fabric Manager.
+	hgx, reason := nvidia.Select(nvidia.GPU{Manufacturer: "NVIDIA", Model: "H100", Count: 8, AMD64: true}, "4757.2.3")
+	if reason != nvidia.Supported || !hgx.NVSwitch {
+		t.Fatalf("H100 x8: %+v, %q", hgx, reason)
+	}
+	got, err = nvidiaSelection(nodeClassOn("4757.2.3"), gpuType(&hgx, "H100", 8))
+	if err != nil || got == nil || *got != hgx {
+		t.Errorf("NVSwitch selection = %v, %v, want %+v", got, err, hgx)
+	}
+
+	if got, err := nvidiaSelection(nodeClassOn("4757.2.3"), gpuType(nil, "", 0)); got != nil || err != nil {
 		t.Errorf("a type without driver labels: %v, %v", got, err)
 	}
 	// Labels the table of the NodeClass's release cannot back stop the launch.
-	if _, err := nvidiaSelection(nodeClassOn("4000.0.0"), gpuType(&want, 4)); err == nil {
+	if _, err := nvidiaSelection(nodeClassOn("4000.0.0"), gpuType(&want, "V100", 4)); err == nil {
 		t.Error("a release without a table launched")
 	}
 }

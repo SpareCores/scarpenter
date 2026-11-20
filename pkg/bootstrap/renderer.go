@@ -277,7 +277,7 @@ func (r *Renderer) ValidateWith(
 
 // largestNVIDIA is the driver selection of the release whose nvidia part is the
 // largest: the longest sysext name, and the most GPUs a type has (16, the
-// NVSwitch systems with the most).
+// NVSwitch systems with the most), with Fabric Manager when the release pins it.
 func largestNVIDIA(flatcarVersion string) (nvidia.Selection, bool) {
 	var best nvidia.Selection
 	for _, sel := range nvidia.Selections(flatcarVersion) {
@@ -286,6 +286,8 @@ func largestNVIDIA(flatcarVersion string) (nvidia.Selection, bool) {
 		}
 	}
 	best.Count = 16
+	best.FabricManagerSHA256 = nvidia.FabricManagerPin(flatcarVersion, best.Version)
+	best.NVSwitch = best.FabricManagerSHA256 != ""
 	return best, best.Sysext != ""
 }
 

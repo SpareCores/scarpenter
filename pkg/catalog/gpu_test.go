@@ -167,6 +167,30 @@ func TestNonGPUTypesHaveNoGPUResourceAndAbsentLabels(t *testing.T) {
 	}
 }
 
+// The 8-GPU HGX types of A100, H100 and H200 are offered with the Fabric Manager pin of their
+// driver; the NVLink5 B200 needs more than Fabric Manager and stays dropped.
+func TestNVSwitchTypesAreOfferedWithFabricManager(t *testing.T) {
+	_, its := gpuCatalog(t, "4757.2.3", catalogtestFacts(t), nil, "aws")
+	for _, name := range []string{"aws.p4d.24xlarge", "aws.p5.48xlarge"} {
+		it := byName(its, name)
+		if it == nil {
+			t.Errorf("%s is dropped", name)
+			continue
+		}
+		if got := gpuCapacity(it); got != 8 {
+			t.Errorf("%s: nvidia.com/gpu = %d, want 8", name, got)
+		}
+	}
+	reg := prometheus.NewRegistry()
+	_, its = gpuCatalog(t, "4865.0.0", catalogtestFacts(t), reg, "aws")
+	if byName(its, "aws.p6-b200.48xlarge") != nil {
+		t.Error("the 8-GPU B200 is offered without nvlsm")
+	}
+	if got := droppedGauge(t, reg)["c/aws/GPUNVSwitch"]; got < 1 {
+		t.Errorf("GPUNVSwitch = %v, want at least 1", got)
+	}
+}
+
 func TestUnsupportedGPUTypesAreDroppedWithTheirReason(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	facts := virtualFacts{StaticFacts: catalogtestFacts(t), virtual: map[string]bool{"aws.g5.xlarge": true}}
@@ -175,8 +199,6 @@ func TestUnsupportedGPUTypesAreDroppedWithTheirReason(t *testing.T) {
 		"aws.g6f.large":        nvidia.ReasonFractional,
 		"aws.gr6f.4xlarge":     nvidia.ReasonFractional,
 		"aws.g5g.xlarge":       nvidia.ReasonArch,
-		"aws.p4d.24xlarge":     nvidia.ReasonNVSwitch,
-		"aws.p5.48xlarge":      nvidia.ReasonNVSwitch,
 		"aws.p6-b200.48xlarge": nvidia.ReasonNoDriverBranch,
 		"aws.g5.xlarge":        nvidia.ReasonVirtual,
 	} {
@@ -186,7 +208,7 @@ func TestUnsupportedGPUTypesAreDroppedWithTheirReason(t *testing.T) {
 	}
 	got := droppedGauge(t, reg)
 	for key, min := range map[string]float64{
-		"c/aws/GPUFractional": 1, "c/aws/GPUArch": 1, "c/aws/GPUNVSwitch": 1, "c/aws/GPUNoDriverBranch": 1,
+		"c/aws/GPUFractional": 1, "c/aws/GPUArch": 1, "c/aws/GPUNoDriverBranch": 1,
 		"c/aws/GPUVirtual": 1,
 	} {
 		if got[key] < min {

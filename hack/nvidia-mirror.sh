@@ -3,11 +3,16 @@
 # prints the pkg/nvidia table entries of the release. Needs network, docker and curl; it is
 # not part of any gate.
 #
-#   hack/nvidia-mirror.sh <flatcar version> <output dir> [sysext name...]
-#   hack/nvidia-mirror.sh 4757.2.3 ./mirror nvidia-drivers-570 nvidia-drivers-570-open
+#   hack/nvidia-mirror.sh <flatcar version> <output dir> [sysext name | fabricmanager-<driver version>...]
+#   hack/nvidia-mirror.sh 4757.2.3 ./mirror nvidia-drivers-570 nvidia-drivers-570-open fabricmanager-570.211.01
 #
 # Without names it takes every branch Flatcar builds: nvidia-drivers-{535,550,570,580}[-open]
-# (a branch the release does not build is skipped). For each sysext it
+# (a branch the release does not build is skipped). A name fabricmanager-<driver version> (the
+# exact version of a driver of the release, from its ebuild) adds the Fabric Manager archive of
+# NVSwitch systems (plan 12, D9): it is downloaded from NVIDIA's driver redistributables, checked
+# against the sha256 of NVIDIA's redistrib_<version>.json, copied to
+# <output dir>/fabricmanager/<driver version>/ (the layout of --nvidia-driver-base-url) and its
+# FabricManager pin is printed. For each sysext it
 #   1. downloads the payload (<server>/amd64-usr/<version>/flatcar-<name>.gz) and checks it
 #      against the .gz.sha256 the server publishes;
 #   2. extracts and verifies it with Flatcar's download_sysext (ue-rs, built in a container from
@@ -32,8 +37,16 @@ fi
 version="$1"
 out="$(mkdir -p "$2" && cd "$2" && pwd)"
 shift 2
-names=("$@")
-if [[ ${#names[@]} -eq 0 ]]; then
+names=()
+fabricmanagers=()
+for arg in "$@"; do
+  if [[ "${arg}" =~ ^fabricmanager-([0-9]+\.[0-9]+(\.[0-9]+)?)$ ]]; then
+    fabricmanagers+=("${BASH_REMATCH[1]}")
+  else
+    names+=("${arg}")
+  fi
+done
+if [[ ${#names[@]} -eq 0 && ${#fabricmanagers[@]} -eq 0 ]]; then
   for branch in 535 550 570 580; do
     names+=("nvidia-drivers-${branch}" "nvidia-drivers-${branch}-open")
   done
@@ -47,7 +60,7 @@ cache="${out}/.cache"
 tree="${out}/amd64-usr/${version}"
 mkdir -p "${cache}" "${tree}"
 
-if [[ ! -x "${cache}/download_sysext" ]]; then
+if [[ ${#names[@]} -gt 0 && ! -x "${cache}/download_sysext" ]]; then
   echo "building download_sysext (ue-rs ${UE_RS_REV})" >&2
   docker run --rm -v "${cache}:/out" "${RUST_IMAGE}" bash -ec "
     apt-get update -qq && apt-get install -y -qq protobuf-compiler >/dev/null
@@ -55,10 +68,12 @@ if [[ ! -x "${cache}/download_sysext" ]]; then
     cp /tmp/ue/bin/download_sysext /out/
     chown $(id -u):$(id -g) /out/download_sysext"
 fi
-if [[ ! -f "${cache}/update-key.pub.pem" ]]; then
-  curl -fsSL -o "${cache}/update-key.pub.pem" "${KEY_URL}"
+if [[ ${#names[@]} -gt 0 ]]; then
+  if [[ ! -f "${cache}/update-key.pub.pem" ]]; then
+    curl -fsSL -o "${cache}/update-key.pub.pem" "${KEY_URL}"
+  fi
+  echo "${KEY_SHA256}  ${cache}/update-key.pub.pem" | sha256sum -c --quiet -
 fi
-echo "${KEY_SHA256}  ${cache}/update-key.pub.pem" | sha256sum -c --quiet -
 
 sums=()
 entries=()
@@ -89,7 +104,29 @@ for name in "${names[@]}"; do
   rm -rf "${work}"
 done
 
-printf '%s\n' "${sums[@]}" >"${tree}/SHA256SUMS"
+REDIST="${NVIDIA_REDIST_URL:-https://developer.download.nvidia.com/compute/nvidia-driver/redist}"
+for driver in "${fabricmanagers[@]}"; do
+  file="fabricmanager-linux-x86_64-${driver}-archive.tar.xz"
+  # NVIDIA's manifest of the driver release lists the sha256 of the archive.
+  expected="$(curl -fsSL "${REDIST}/redistrib_${driver}.json" |
+    sed -n '/"fabricmanager": {/,/"linux-sbsa"/p' | sed -n 's/.*"sha256": "\([0-9a-f]\{64\}\)".*/\1/p' | head -n 1)"
+  if [[ -z "${expected}" ]]; then
+    echo "fabricmanager-${driver}: NVIDIA publishes no manifest or archive for it" >&2
+    exit 1
+  fi
+  mkdir -p "${out}/fabricmanager/${driver}"
+  curl -fsSL -o "${out}/fabricmanager/${driver}/${file}" "${REDIST}/fabricmanager/linux-x86_64/${file}"
+  actual="$(sha256sum "${out}/fabricmanager/${driver}/${file}" | awk '{print $1}')"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "fabricmanager-${driver}: the archive's sha256 ${actual} differs from the manifest's ${expected}" >&2
+    exit 1
+  fi
+  entries+=("FabricManager[\"${driver}\"]: \"${actual}\"")
+done
+
+if [[ ${#sums[@]} -gt 0 ]]; then
+  printf '%s\n' "${sums[@]}" >"${tree}/SHA256SUMS"
+fi
 echo "mirror tree: ${out}/amd64-usr/${version} (serve ${out} as --nvidia-driver-base-url)" >&2
 echo "table entries of Flatcar ${version}:"
 printf '  %s\n' "${entries[@]}"

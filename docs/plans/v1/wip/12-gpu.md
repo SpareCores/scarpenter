@@ -53,10 +53,12 @@ spikes show that boot is too slow).
    sets `fbdev=0`. `nvidia-persistenced.service` is shipped but nothing starts it [U].
 5. **Fabric Manager** is in no Flatcar sysext: 8- and 16-GPU NVSwitch systems (HGX A100/H100/H200/B200) cannot
    initialize CUDA without it. Its version must equal the driver's exactly (the daemon aborts on a mismatch).
-   NVIDIA publishes it as an archive per driver version (`fabricmanager-linux-x86_64-<driver version>-archive`,
-   in the driver redistributables tree under `developer.download.nvidia.com/compute/nvidia-driver/redist/` with a
-   JSON index of URLs and sha256 [U: current path]) holding `nv-fabricmanager`, `libnvfm`, the per-topology config
-   files and a systemd unit; the distribution packages (`nvidia-fabricmanager-<major>`) wrap the same files.
+   NVIDIA publishes it as an archive per driver version
+   (`developer.download.nvidia.com/compute/nvidia-driver/redist/fabricmanager/linux-x86_64/fabricmanager-linux-x86_64-<driver version>-archive.tar.xz`,
+   with the sha256 in the driver release's `redist/redistrib_<driver version>.json`; verified 2026-11-20 for 535.309.01,
+   550.163.01, 570.211.01 and 580.178.04, whose downloaded files hash to the manifests) holding `bin/nv-fabricmanager` (dynamic, needs
+   only glibc and zlib), `lib/libnvfm`, `etc/fabricmanager.cfg`, the topology files in `share/nvidia/nvswitch/` and, from 570, the start
+   script; the distribution packages (`nvidia-fabricmanager-<major>`) wrap the same files.
 6. **Karpenter** initializes a NodeClaim only when every resource the claim requested is non-zero in the Node's
    allocatable, so a `nvidia.com/gpu` request needs a registered device plugin. The NVIDIA device plugin
    (v0.20.2) with a non-default `nvidia` runtime needs a RuntimeClass `nvidia` and `runtimeClassName: nvidia` on
@@ -174,19 +176,28 @@ p5en, p6; GCP a2-highgpu-8g, a2-megagpu-16g, a2-ultragpu-8g, a3-*-8g, a4; Azure 
 h200 8x). At or above it the `nvidia` part adds Fabric Manager. Smaller slices of the same hardware (a2-highgpu-1g/2g/4g,
 a3-highgpu-1g/2g/4g, p5.4xlarge) are offered without it [U: no Fabric Manager on a slice; whether the hypervisor
 exposes NVSwitches to a 4-GPU slice]. 8-GPU V100 systems (AWS p3dn, Azure ND40rs_v2) use NVLink without NVSwitch and
-are offered without it. NVLink5 systems (B200/B300 HGX) may also need the NVLink subnet manager (`nvlsm`) [U]; the
-table gets a per-model flag, and a model that needs more than Fabric Manager stays dropped (`GPUNVSwitch`) until its
-step adds it. **What is shipped:** NVIDIA's Fabric Manager archive for the **exact driver version** of the selected
+are offered without it. NVLink5 systems (B200/B300 HGX) need the NVLink subnet manager (`nvlsm`) too: from 570 NVIDIA's
+`nvidia-fabricmanager-start.sh` detects them (an InfiniBand device whose VPD says `SW_MNG`) and then requires the
+`ib_umad` module, `ibstat` and `/opt/nvidia/nvlsm/sbin/nvlsm` (a separate archive in the same redistributables tree), and the
+archives hold no HGX B200 topology file, only GB200/GB300 ones. Flatcar has neither `ib_umad` nor `ibstat`, so the table has
+a per-model flag `needsNVLSM` and B200/B300 stay dropped (`GPUNVSwitch`) until a step ships that. **What is shipped:** NVIDIA's Fabric Manager archive for the **exact driver version** of the selected
 branch (the table pins its URL and sha256 per driver version; the flavour does not change the version). A sysext was
 rejected: it needs a build, a signing question and a publishing pipeline per driver release, which the archive
-needs none of. Ignition writes the archive as a file with `verification.hash` (the NVIDIA URL, or
-`<--nvidia-driver-base-url>/fabricmanager/<version>/` on a mirror; `hack/nvidia-mirror.sh` copies it), and
-`scarpenter-nvidia-fabricmanager.service` (`ExecStartPre` unpacks to `/opt/nvidia-fabricmanager`; `ExecStart` runs
-`nv-fabricmanager -c <config>` in the foreground with `LD_LIBRARY_PATH` set to its `lib`; `Restart=on-failure`;
-`After=nvidia.service`, `Before=scarpenter-nvidia-check.service` and `containerd.target`, so before the kubelet and
-the device plugin) runs **only on NVSwitch types**. The check unit `Requires=` it and, on these types, also asserts
-that the fabric reports ready (`nvidia-smi -q` fabric state, or a one-shot CUDA device query [U]) before the kubelet
-starts, so the device plugin never advertises GPUs that cannot initialize. The unit's order against
+needs none of. Ignition writes the archive (an xz tarball, which Ignition cannot decompress, so as it is) with
+`verification.hash` (the NVIDIA URL, or `<--nvidia-driver-base-url>/fabricmanager/<version>/` on a mirror;
+`hack/nvidia-mirror.sh` copies it), and
+`scarpenter-nvidia-fabricmanager.service` (`ExecStartPre` unpacks to `/opt/nvidia-fabricmanager` at every start and sets the shipped
+config to `DAEMONIZE=0`, `LOG_USE_SYSLOG=1` (the journal; with syslog the daemon writes no log file) and every
+`/usr/share/nvidia/nvswitch` (the topology path, and in 535 also `DATABASE_PATH`) to the unpacked tree; `ExecStart` runs
+`nv-fabricmanager -c <config>` in the foreground (no `LD_LIBRARY_PATH`: the binary does not link `libnvfm`); `Restart=on-failure`;
+`After=nvidia.service`, `Before=scarpenter-nvidia-check.service`, started by the check unit's `Wants=` (`Requires=` would stop the check at every restart of the daemon and hide its message), so before the kubelet and
+the device plugin) runs **only on NVSwitch types**. The check unit, on these types, also waits up to 3 minutes for
+Fabric Manager's success line in the journal of the unit's current run, matched by its prefix `Successfully configured all
+the available ` (the binaries of all four pinned versions have `... NVSwitches to route GPU NVLink traffic.` and
+`... GPUs and NVSwitches to route NVLink traffic.`, the latter where Fabric Manager also trains the GPUs' links, as on
+H100; failure lines start with `failed to`) before the kubelet
+starts, so the device plugin never advertises GPUs that cannot initialize. (`nvidia-smi -q`'s fabric state exists on
+Hopper only.) The unit's order against
 `nvidia-persistenced` is settled by S9. **Catalog:** until this step lands the NVSwitch types stay dropped
 (`GPUNVSwitch`); once it lands they stay in the catalog for every release whose table entry has the Fabric Manager
 pin, and `GPUNVSwitch` remains only for a release without it or a model that needs more (`nvlsm`).
@@ -263,7 +274,7 @@ Alibaba's `GPUVirtualizer` of (g) and (h)); the flip is the last of these. (3) I
 `compression: gzip` is over the decompressed bytes (Ignition's `decompressCopyHashAndVerify`), so the table pins
 the extracted `.raw` (`RawSHA256`) and, for the script, the payload (`PayloadSHA256`); the extracted images are
 430 to 570 MB and gzip barely shrinks them (squashfs inside). (4) The worst-case budget of a GPU node is
-14 KiB (`GPUBudgetBytes`): the part is about 2 KiB, not 1.5. Pins, verified 2026-11-20 against the update server's
+15 KiB (`GPUBudgetBytes`, raised from 14 KiB by (b2)): the part is about 2 KiB, not 1.5, and Fabric Manager adds 0.6 KiB. Pins, verified 2026-11-20 against the update server's
 `.gz.sha256` files and by extracting each payload with ue-rs `download_sysext` (rev 94d40218, update key
 pinned): every build of 4757.2.3 (535, 550, 570, each open and proprietary) and of 4865.0.0's 580 and 580-open;
 nvidia-runtime v1.17.9 (sha256 equal in the bakery release's `SHA256SUMS` and the file; its containerd config has
@@ -291,6 +302,27 @@ the gauge reason `GPUNVSwitch` kept for the rest; golden files for an NVSwitch t
 16 KiB budget test with the largest variant; an L3 scenario where the fake catalog's 8-GPU A100 is now offered and
 its NodeClaim initializes; the docs. The L4 GPU-less boot (d) also renders an NVSwitch variant and checks that the
 unit's file is verified and unpacked and that the check fails with a clear message.
+
+**Done (b2).** `pkg/nvidia`: per-model `needsNVLSM`, `Release.FabricManager` (driver version to archive sha256),
+`Selection.FabricManagerSHA256`, `FabricManagerFile`/`FabricManagerURL`/`FabricManagerPin`; `FromLabels` takes the
+accelerator-model label (the cloud provider passes it) and so carries `NVSwitch` and the pin, and fails like `Select`
+does; A100, H100 and H200 with 8 or more GPUs are offered on every release (pins for 535.309.01, 550.163.01,
+570.211.01 and 580.178.04, taken from NVIDIA's `redistrib_<version>.json` and equal to the downloaded files' hashes,
+2026-11-20); B200 and B300 stay dropped (`GPUNVSwitch`, they need `nvlsm`: see D9). The `nvidia` part writes the
+archive, the unit and the fabric wait of the check (golden files for an H100 from NVIDIA's server and an A100 from a
+mirror), `hack/nvidia-mirror.sh` copies and verifies archives (`fabricmanager-<driver version>`), the L3 scenario S21b,
+the docs. Deviations: (1) `Wants=`, not `Requires=`, of the unit from the check (see D9); (2) no
+`LD_LIBRARY_PATH` (the binary needs only glibc and zlib); (3) the fabric assertion is Fabric Manager's log line in the
+journal, not `nvidia-smi -q` (Hopper only); (4) B200/B300 are not offered, the plan expected them to stay in; (5) no
+Fabric Manager table flag per model beyond `needsNVLSM`: the threshold was already there. (6) The GPU budget is 15 KiB, not 14: the worst case
+of the user-data is 14053 bytes, 1.3 KiB under it and 2.3 KiB under the 16 KiB limit; shrinking the part by 1 KiB
+would have meant dropping function. Verified on a GPU-less QEMU boot of Flatcar 4757.2.3 (the rendered unit and file, the
+archive served locally): Ignition verifies the 8 MB archive by hash, the unit unpacks it (xz is on the image), the
+config has the expected settings, `nv-fabricmanager` runs (all libraries resolve) and exits with `failed to
+allocate handle (client) to NVIDIA GPU driver` in the journal, the unit restarts every 5 s, and the check, which wants the
+unit, fails after 30 s with its driver message (the fabric stage needs a loaded driver). Unverified (no GPU): that Fabric Manager reaches the success line on real HGX hardware, the
+time to a ready fabric, the order against `nvidia-persistenced` (S9), whether H200 and the 4757.2.3 `550`/`535`
+branches (not selected by any supported model today) need other settings.
 
 **(c) Chart.** The RuntimeClass and the DaemonSet (D6), values and schema, `make test-chart` golden files, the
 how-to.
