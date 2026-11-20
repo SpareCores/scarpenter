@@ -113,6 +113,9 @@ type NVIDIAData struct {
 	// Driver is the driver image Ignition writes when a mirror is set; nil: the
 	// initrd downloads the sysext from Flatcar's server.
 	Driver *DriverFile
+	// FabricManager is NVIDIA's Fabric Manager archive of an NVSwitch system;
+	// nil for every other type.
+	FabricManager *FabricManagerData
 	// CheckScript is the script of the check unit.
 	CheckScript string
 }
@@ -124,6 +127,16 @@ type DriverFile struct {
 	Path   string
 	URL    string
 	SHA256 string
+}
+
+// FabricManagerData is the Fabric Manager archive Ignition writes and the
+// unit unpacks (plan 12, D9).
+type FabricManagerData struct {
+	// Dir is where the archive is unpacked, Archive the file Ignition writes
+	// (inside Dir).
+	Dir, Archive string
+	URL          string
+	SHA256       string
 }
 
 // NVIDIAParams say that the node boots with the NVIDIA driver (plan 12).
@@ -528,8 +541,8 @@ func (p *Params) nvidiaData() (*NVIDIAData, error) {
 		return nil, fmt.Errorf("the NVIDIA driver sysexts are amd64 only, the node is %s", p.Arch)
 	case sel.Sysext == "" || sel.Version == "" || sel.RawSHA256 == "" || sel.RuntimeSHA256 == "" || sel.Count < 1:
 		return nil, errors.New("the NVIDIA driver selection is incomplete")
-	case sel.NVSwitch:
-		return nil, errors.New("NVSwitch systems need Fabric Manager, which the nvidia part does not ship yet")
+	case sel.NVSwitch && sel.FabricManagerSHA256 == "":
+		return nil, errors.New("the NVIDIA driver selection is an NVSwitch system without a Fabric Manager pin")
 	case n.RuntimeURL == "" || n.FlatcarVersion == "":
 		return nil, errors.New("the nvidia-runtime URL or the Flatcar version is empty")
 	case !argPattern.MatchString(sel.Version) || !argPattern.MatchString(sel.Sysext):
@@ -551,6 +564,17 @@ func (p *Params) nvidiaData() (*NVIDIAData, error) {
 			URL: fmt.Sprintf("%s/amd64-usr/%s/flatcar-%s.raw.gz",
 				strings.TrimRight(n.DriverBaseURL, "/"), n.FlatcarVersion, sel.Sysext),
 			SHA256: sel.RawSHA256,
+		}
+	}
+	if sel.NVSwitch {
+		const dir = "/opt/nvidia-fabricmanager"
+		file := nvidia.FabricManagerFile(sel.Version)
+		d.FabricManager = &FabricManagerData{
+			Dir: dir, Archive: dir + "/" + file, URL: nvidia.FabricManagerURL(sel.Version), SHA256: sel.FabricManagerSHA256,
+		}
+		if n.DriverBaseURL != "" {
+			d.FabricManager.URL = fmt.Sprintf("%s/fabricmanager/%s/%s",
+				strings.TrimRight(n.DriverBaseURL, "/"), sel.Version, file)
 		}
 	}
 	return d, nil
