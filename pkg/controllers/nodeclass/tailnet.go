@@ -91,7 +91,8 @@ func normalizeURL(raw string) (string, bool) {
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	if port := u.Port(); port != "" && !(u.Scheme == "http" && port == "80") && !(u.Scheme == "https" && port == "443") {
+	defaultPort := map[string]string{"http": "80", "https": "443"}[u.Scheme]
+	if port := u.Port(); port != "" && port != defaultPort {
 		host += ":" + port
 	}
 	return u.Scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/"), true
