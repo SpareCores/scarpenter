@@ -220,7 +220,7 @@ nothing, but an AD table read while a region was briefly unreadable blocks the t
 
 ## 6. Steps (one agent each, each ending green)
 
-1. **Reasons in the catalog (the diagnosis step).** The reason enum (section 2) in `pkg/catalog`; the gates return a
+1. **Reasons in the catalog (the diagnosis step). Done:** the reasons, gates, `Explain`, the V(1) transition log, ADR-029 and the reference are in; the decision 5 TTL change is in too. Deviations: `NotInCatalog` is defined but not produced (sources skip those servers before the catalog sees them); the burst line is chunked at 50 types per line instead of truncated, so every type is named; `ZoneMissingResource` carries the zone only (the engine's reason can hold a driver message); a driver's pre-launch check is marked with a new `vendors.Error.PreLaunch` flag, set by the OCI driver for its shape check. The reason enum (section 2) in `pkg/catalog`; the gates return a
    reason (`Gate.Unavailable` and `ClassGate.UnavailableFor` change their result, no second method;
    `unavailable.Cache.Why`; `Tracker.Blocked` reused for the bucket); build
    drops kept in `vendorBuild`; `Catalog.Explain` and `InstanceTypes` rewritten over one path, with the existing
@@ -232,7 +232,7 @@ nothing, but an AD table read while a region was briefly unreadable blocks the t
    **With this step an operator who raises the log level sees every class-level reason, including a quota or
    class gate on the Standard4.Ax and E3.Flex.114 types; a NodePool-dependent cause (section 5, candidate 1) needs
    step 2.**
-2. **The NodePool view in Explain.** `NodePoolRequirement` and `NodePoolPreFilter` with the failing key, and the
+2. **The NodePool view in Explain. Done:** `Query` takes the NodePool's `Requirements` and a pod's `Requests`; `Explain` reports `NodePoolPreFilter` and `NodePoolRequirement` with the key, `TypeReport.FitsRequests` is the resource-fit check (a flag, not a reason code, as core's message for it differs), and `GetInstanceTypes` logs `Unrankable` and `NodePoolRequirement` once per generation and NodePool. `NodePoolRequirement` is type-level only; an offering that core's compatibility check rejects is not reported separately. Vendors a NodePool excludes are not listed. `NodePoolRequirement` and `NodePoolPreFilter` with the failing key, and the
    resource-fit check for a request list; used by the tests and by step 4; catches the "label pinned but the type
    has none" class (section 3) by reproducing core's intersection. Live surface: `GetInstanceTypes` (which has the
    NodePool) logs the per-reason lines of step 1 for the NodePool-dependent codes (`Unrankable`,

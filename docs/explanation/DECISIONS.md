@@ -1046,3 +1046,40 @@ Rejected:
 Consequences: a node's key stops being a long-lived secret, at the price of a tailnet API credential in the controller
 (stronger than the static key for Headscale) and an outage dependency on the tailnet API at launch (`Launched=Unknown`, retried
 by core; a tailnet outage never blocks a NodeClaim's termination). Plan 27.
+
+## ADR-029: One reason code for every type and offering that is not offered (accepted, 2026-11-20)
+
+SCarpenter drops servers when it builds a class's types, removes offerings, and marks others unavailable in eight
+places, and recorded none of it except a GPU-only gauge. A pod that pins a type Karpenter never received got "no
+instance type met all requirements", which does not say whether the type was never offered or offered with no available
+offering; the operator had nothing to read.
+
+**Decision.** One closed set of CamelCase reason codes names the gate that removed a type, removed an offering or made
+an offering unavailable (`NoPrice`, `RegionNotAllowed`, `ZoneNotAvailable`, `QuotaGate`, `UnavailableCache`,
+`ImageGap`, and so on; the table is in [Labels and offerings](../reference/labels-and-offerings.md#why-a-type-or-an-offering-is-not-offered)).
+A reason is the code plus a detail that is only a quota bucket, a zone, a region or a cache class, never a driver
+message or an account identifier. Codes are API: additions only, never renamed.
+
+- **One code path.** `Catalog.Explain` and `Catalog.InstanceTypes` share one evaluation, so a report cannot disagree with
+  what Karpenter was given. The three availability gates (`Gate`, `ClassGate`, the unavailable cache) return a reason
+  with their data instead of a `bool`; the build keeps the types and offerings it leaves out.
+- **Logged on transition, at V(1).** A controller restart logs every dropped or unavailable type with its reason, one
+  line per vendor, reason and 50 types; afterwards a line per change, never per query. NodePool-dependent reasons
+  (`Unrankable`, `NodePoolRequirement`) are logged by `GetInstanceTypes`, once per catalog generation and NodePool.
+- **The label to key on is the instance type name** (`node.kubernetes.io/instance-type`, `<vendor>.<api_reference>`),
+  which every type has and which is unique across vendors; `scarpenter.sparecores.com/api-reference` is absent where the
+  reference is not a valid label value.
+- **A driver's own pre-launch check marks `Unsupported` for 10 minutes, not a day.** The check is deterministic from
+  tables the driver read, which may have been read while a region was briefly unreadable; retrying costs nothing. The
+  vendor's explicit "not offered" answer keeps 24 hours. A driver says which it is with `vendors.Error.PreLaunch`.
+  Every `Unsupported` mark is logged at V(0) with its code.
+
+Rejected:
+
+- **A reason per query in the log**: the scheduler asks every few seconds.
+- **A boolean per gate with a separate "explain" function**: two code paths that drift.
+- **Driver messages as the detail**: they carry account data and change between SDK versions.
+
+Consequences: the gates' interfaces changed (`catalog.Reason`); `ImageGap` is region-level, not per architecture, and the
+reference says so. Plan 28; the status block, the listing and the metrics are its later steps.
+

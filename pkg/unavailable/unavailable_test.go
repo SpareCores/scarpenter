@@ -222,4 +222,19 @@ func TestWhyNamesTheClassAndExpiryAndPreLaunchMarksAreShort(t *testing.T) {
 	if c.IsUnavailable(o) {
 		t.Error("a pre-launch mark outlives its TTL")
 	}
+	// Every class has a name, for the reason's detail.
+	for mark, do := range map[string]func(){
+		"InsufficientCapacity": func() { c.MarkInsufficientCapacity("v", "v.t", "z", "on-demand") },
+		"Interrupted":          func() { c.MarkInterrupted("v", "v.t", "z", "on-demand") },
+		"InvalidOffering":      func() { c.MarkInvalid("v", "v.t", "z", "on-demand") },
+		"QuotaExceeded":        func() { c.MarkQuotaExceeded("v", "r", "on-demand") },
+		"ZoneUnusable":         func() { c.MarkZoneUnusable("v", "z") },
+	} {
+		fresh := unavailable.New(clk, unavailable.TTLs{})
+		c = fresh
+		do()
+		if class, _, ok := c.Why(o); !ok || class != mark {
+			t.Errorf("Why = %q, %v, want %q", class, ok, mark)
+		}
+	}
 }
