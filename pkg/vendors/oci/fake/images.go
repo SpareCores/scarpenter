@@ -9,6 +9,7 @@ package fake
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 
@@ -106,7 +107,7 @@ func (c *Cloud) ListImages(ctx context.Context, regionName string, req core.List
 		case req.OperatingSystem != nil && deref(i.OperatingSystem) != *req.OperatingSystem:
 		case req.OperatingSystemVersion != nil && deref(i.OperatingSystemVersion) != *req.OperatingSystemVersion:
 		case req.LifecycleState != "" && i.LifecycleState != req.LifecycleState:
-		case req.Shape != nil && !slices.Contains(r.shapes, *req.Shape):
+		case req.Shape != nil && !r.compatible(*req.Shape):
 		default:
 			all = append(all, i)
 		}
@@ -142,9 +143,39 @@ func (c *Cloud) ListImageShapeCompatibilityEntries(ctx context.Context, regionNa
 		return core.ListImageShapeCompatibilityEntriesResponse{}, notFound("image " + deref(req.ImageId))
 	}
 	var all []core.ImageShapeCompatibilitySummary
-	for _, s := range r.shapes {
+	for _, s := range c.compatibleShapes(r) {
 		all = append(all, core.ImageShapeCompatibilitySummary{ImageId: r.img.Id, Shape: new(s)})
 	}
 	page, next := paged(all, c.pageSize, req.Page)
 	return core.ListImageShapeCompatibilityEntriesResponse{Items: page, OpcNextPage: next}, nil
+}
+
+// AnyShape as the shape of AddImage makes the image compatible with every shape of the fake.
+const AnyShape = "*"
+
+func (r *imageRec) compatible(shape string) bool {
+	return slices.Contains(r.shapes, AnyShape) || slices.Contains(r.shapes, shape)
+}
+
+// compatibleShapes lists the compatibility entries of an image; c.mu is held.
+func (c *Cloud) compatibleShapes(r *imageRec) []string {
+	if !slices.Contains(r.shapes, AnyShape) {
+		return r.shapes
+	}
+	set := map[string]bool{}
+	for _, reg := range c.regions {
+		for _, byName := range reg.shapes {
+			for name := range byName {
+				set[name] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+// ReplaceImageShapes sets the compatibility entries of an image.
+func (c *Cloud) ReplaceImageShapes(id string, shapes ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.images[id].shapes = shapes
 }

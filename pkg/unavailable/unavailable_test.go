@@ -55,6 +55,17 @@ func TestKeysAndTTLs(t *testing.T) {
 			},
 		},
 		{
+			name:    "invalid: (vendor, type, zone, capacity type), 1 hour",
+			mark:    func(c *unavailable.Cache) { c.MarkInvalid("aws", "aws.m7i.large", "us-east-1a", "spot") },
+			ttl:     time.Hour,
+			covered: []unavailable.Offering{base},
+			free: []unavailable.Offering{
+				with(base, func(o *unavailable.Offering) { o.CapacityType = "on-demand" }),
+				with(base, func(o *unavailable.Offering) { o.Zone = "us-east-1b" }),
+				with(base, func(o *unavailable.Offering) { o.InstanceType = "aws.m7i.xlarge" }),
+			},
+		},
+		{
 			name:    "unsupported: (vendor, type, zone) for both capacity types, 24 hours",
 			mark:    func(c *unavailable.Cache) { c.MarkUnsupported("aws", "aws.m7i.large", "us-east-1a") },
 			ttl:     24 * time.Hour,

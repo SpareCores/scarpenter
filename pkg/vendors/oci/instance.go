@@ -189,6 +189,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		return nil, vendors.NewError(vendors.Unsupported, CodeInvalidInstanceType,
 			fmt.Errorf("%s is not a .Flex shape; preemptible capacity is for flexible VM shapes", t.Shape))
 	}
+	if err := d.checkImageShape(ctx, req, t.Shape); err != nil {
+		return nil, err
+	}
 	key := attemptKey(req)
 	spec, err := d.launchSpec(ctx, req, t, ad)
 	if err != nil {
@@ -205,6 +208,20 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	}
 	d.forgetAttempt(key)
 	return ToInstance(req.Region, res.Instance), nil
+}
+
+// checkImageShape refuses a launch of a shape that is not in the image's
+// compatibility list: OCI answers it with a bare 400 InvalidParameter. A list
+// that cannot be read (a policy that allows the launch but not the read) does
+// not stop the launch.
+func (d *Driver) checkImageShape(ctx context.Context, req vendors.CreateRequest, shape string) error {
+	ok, err := d.imageRunsOn(ctx, req.Region, core.Image{Id: &req.Image.Ref}, shape)
+	if err != nil || ok {
+		return nil
+	}
+	return vendors.NewError(vendors.Unsupported, codeImageShape, fmt.Errorf(
+		"the image %s is not compatible with the shape %s: add the shape to the image's compatibility list "+
+			"(oci compute image-shape-compatibility-entry add)", req.Image.Ref, shape))
 }
 
 // launchFailed classifies the error of the launch call and keeps the attempt

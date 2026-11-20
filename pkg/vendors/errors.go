@@ -31,6 +31,12 @@ const (
 	// QuotaExceeded: a limit is reached: the region's, or with Error.AccountWide
 	// the account's.
 	QuotaExceeded Class = "QuotaExceeded"
+	// InvalidOffering: the vendor rejected the launch parameters of this offering
+	// (type, zone, capacity type) for a reason that is not known to be of the
+	// offering: an unrecognised 400. The offering is marked unavailable for an
+	// hour; if every type of a Create fails this way, the cause is taken to be
+	// global and the error is reported as Fatal instead.
+	InvalidOffering Class = "InvalidOffering"
 	// ZoneUnusable: the zone cannot be used at all (no subnet, no free
 	// addresses).
 	ZoneUnusable Class = "ZoneUnusable"
@@ -48,7 +54,8 @@ const (
 
 // Classes lists every class.
 var Classes = []Class{
-	InsufficientCapacity, Unsupported, QuotaExceeded, ZoneUnusable, RegionUnavailable, Retryable, NotFound, Fatal,
+	InsufficientCapacity, Unsupported, QuotaExceeded, InvalidOffering, ZoneUnusable, RegionUnavailable, Retryable,
+	NotFound, Fatal,
 }
 
 // Valid reports whether c is one of the classes.

@@ -20,6 +20,10 @@ const (
 	// EventLaunchFailed: a vendor call failed with a Fatal error; the NodeClaim
 	// is retried until core's launch timeout.
 	EventLaunchFailed = "LaunchFailed"
+	// EventOfferingRejected: the vendor rejected the launch of an offering with
+	// an error that is not known to be fatal for every type; the offering is
+	// unavailable for an hour. The message is the vendor's.
+	EventOfferingRejected = "OfferingRejected"
 	// EventImageFailed: no candidate could be launched because its image could
 	// not be resolved.
 	EventImageFailed = "ImageResolutionFailed"

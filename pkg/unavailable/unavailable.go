@@ -30,6 +30,9 @@ const (
 	DefaultUnsupportedTTL          = 24 * time.Hour
 	DefaultQuotaExceededTTL        = 30 * time.Minute
 	DefaultZoneUnusableTTL         = 10 * time.Minute
+	// DefaultInvalidTTL: the vendor rejected the offering's launch parameters;
+	// retrying the same request cannot succeed, only an operator change can.
+	DefaultInvalidTTL = time.Hour
 	// DefaultInterruptedTTL: a spot type that was just reclaimed is likely to be
 	// reclaimed again (ADR-027).
 	DefaultInterruptedTTL = 10 * time.Minute
@@ -42,6 +45,7 @@ type TTLs struct {
 	Unsupported          time.Duration
 	QuotaExceeded        time.Duration
 	ZoneUnusable         time.Duration
+	Invalid              time.Duration
 	Interrupted          time.Duration
 }
 
@@ -58,6 +62,9 @@ func (t TTLs) withDefaults() TTLs {
 	if t.ZoneUnusable <= 0 {
 		t.ZoneUnusable = DefaultZoneUnusableTTL
 	}
+	if t.Invalid <= 0 {
+		t.Invalid = DefaultInvalidTTL
+	}
 	if t.Interrupted <= 0 {
 		t.Interrupted = DefaultInterruptedTTL
 	}
@@ -72,6 +79,7 @@ const (
 	classQuotaExceeded
 	classZoneUnusable
 	classInterrupted
+	classInvalid
 )
 
 // key identifies an entry; fields that a class does not use stay empty.
@@ -145,6 +153,14 @@ func (c *Cache) MarkZoneUnusable(vendor, zone string) {
 	c.mark(key{class: classZoneUnusable, vendor: vendor, zone: zone}, c.ttls.ZoneUnusable)
 }
 
+// MarkInvalid records that the vendor rejected the launch parameters of the
+// instance type in the zone with the capacity type.
+func (c *Cache) MarkInvalid(vendor, instanceType, zone, capacityType string) {
+	c.mark(key{
+		class: classInvalid, vendor: vendor, instanceType: instanceType, zone: zone, capacityType: capacityType,
+	}, c.ttls.Invalid)
+}
+
 // MarkInterrupted records that the vendor reclaimed a node of the instance type
 // in the zone with the capacity type (a spot or preemptible interruption). It is
 // a class of its own, with its own TTL, but matches like insufficient capacity.
@@ -175,6 +191,10 @@ func (c *Cache) IsUnavailable(o Offering) bool {
 		},
 		{
 			class: classInterrupted, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
+			capacityType: o.CapacityType,
+		},
+		{
+			class: classInvalid, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
 			capacityType: o.CapacityType,
 		},
 		{class: classUnsupported, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone},

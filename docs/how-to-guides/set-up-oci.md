@@ -45,6 +45,9 @@ OCI has no public Flatcar image and custom images cannot be shared across tenanc
 
 3. Add each shape SCarpenter may launch to the image's compatibility list
    (`oci compute image-shape-compatibility-entry add --image-id <image OCID> --shape-name VM.Standard.E5.Flex`).
+   A custom image has only the shapes you add, also for `VM.Optimized3.Flex`, `VM.Standard3.Flex` and every
+   other family: a launch of a shape that is missing is refused as `ImageNotCompatible`, and OCI itself
+   answers a bare 400 `InvalidParameter`.
 4. **arm64 only**: add an image capability schema (firmware `UEFI_64`, paravirtualized launch mode, network,
    boot and remote data volume types) and the entry `VM.Standard.A1.Flex` (A2 and A4 are untested).
 

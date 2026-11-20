@@ -61,7 +61,7 @@ func NewSeeded() *Cloud {
 	c.AddRegion(SeedRegionOne, identity.RegionSubscriptionStatusReady, "qRsT:UK-LONDON-1-AD-1")
 	c.AddRegion(SeedRegionUnsubscribed, identity.RegionSubscriptionStatusInProgress, "mNoP:AP-SYDNEY-1-AD-1")
 	// The network and image of the constants: a regional subnet in a VCN of Frankfurt and
-	// the Flatcar image of the convention, which is compatible with the E5 flexible shape.
+	// the Flatcar image of the convention, which is compatible with every shape.
 	vcn := c.SeedVcn(SeedRegion, "seed-vcn", "10.0.0.0/16", nil)
 	c.seedVCN = vcn
 	c.mu.Lock()
@@ -81,7 +81,7 @@ func NewSeeded() *Cloud {
 	c.mu.Unlock()
 	img := FlatcarImage("stable", SeedVersion, "amd64")
 	img.Id = new(SeedImage)
-	c.AddImage(SeedRegion, img, "VM.Standard.E5.Flex")
+	c.AddImage(SeedRegion, img, AnyShape)
 	return c
 }
 
