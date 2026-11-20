@@ -383,7 +383,7 @@ func nvidiaSelection(nc *v1alpha1.SCNodeClass, it *cloudprovider.InstanceType) (
 	}
 	count := it.Capacity[catalog.ResourceNVIDIAGPU]
 	sel, err := nvidia.FromLabels(nc.Spec.Flatcar.Version, branch, label(v1alpha1.LabelNVIDIADriverVersion),
-		nvidia.Flavour(label(v1alpha1.LabelNVIDIADriverFlavor)), count.Value())
+		nvidia.Flavour(label(v1alpha1.LabelNVIDIADriverFlavor)), label(v1alpha1.LabelAcceleratorModel), count.Value())
 	if err != nil {
 		return nil, err
 	}

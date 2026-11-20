@@ -76,6 +76,11 @@ type model struct {
 	// nvswitchGPUs is the GPU count from which the type is an NVSwitch system
 	// (HGX baseboards), which needs Fabric Manager; zero: never.
 	nvswitchGPUs int
+	// needsNVLSM: the NVSwitch system is NVLink5 (HGX B200 and B300), where
+	// Fabric Manager alone is not enough: NVIDIA's start script also runs the
+	// NVLink subnet manager (nvlsm), which needs ib_umad and ibstat, and
+	// Flatcar has neither. Such a model stays dropped (ReasonNVSwitch).
+	needsNVLSM bool
 }
 
 // models maps Keeper's accelerator_model to what the table knows of it. A new
@@ -91,7 +96,8 @@ var models = map[string]model{
 	"A100": {arch: Ampere, nvswitchGPUs: 8},
 	"L4":   {arch: Ada}, "L20": {arch: Ada}, "L40": {arch: Ada}, "L40S": {arch: Ada},
 	"H100": {arch: Hopper, nvswitchGPUs: 8}, "H200": {arch: Hopper, nvswitchGPUs: 8},
-	"B200": {arch: Blackwell, nvswitchGPUs: 8}, "B300": {arch: Blackwell, nvswitchGPUs: 8},
+	"B200":  {arch: Blackwell, nvswitchGPUs: 8, needsNVLSM: true},
+	"B300":  {arch: Blackwell, nvswitchGPUs: 8, needsNVLSM: true},
 	"GB200": {arch: Blackwell}, "GB300": {arch: Blackwell},
 	"RTX PRO 4500": {arch: Blackwell}, "RTX PRO 6000": {arch: Blackwell},
 }
@@ -161,10 +167,10 @@ type Release struct {
 	// sysext-bakery (nvidia-runtime-<RuntimeVersion>-x86-64.raw) the release
 	// is used with; without them no GPU type is offered on the release.
 	RuntimeVersion, RuntimeSHA256 string
-	// FabricManager lists the driver versions with a pinned Fabric Manager
-	// archive (plan 12, D9); until a version is listed, NVSwitch systems are
-	// not offered on the release.
-	FabricManager []string
+	// FabricManager maps a driver version to the sha256 of NVIDIA's Fabric
+	// Manager archive of that version (plan 12, D9); until a version is
+	// listed, NVSwitch systems are not offered on the release.
+	FabricManager map[string]string
 }
 
 // runtime is the nvidia-runtime sysext of every release below: 1.17.9 is the
@@ -181,7 +187,9 @@ const (
 // versions come from the release's ebuilds and the update server's listing; the
 // pins were taken from the update server (the .gz.sha256 files) and by
 // extracting the verified payloads with Flatcar's download_sysext (hack/nvidia-mirror.sh
-// does both and prints these entries).
+// does both and prints these entries). The Fabric Manager pins are the sha256 of
+// NVIDIA's archives, equal to the sha256 of the driver release's redistrib_<version>.json
+// manifest and to the hash of the downloaded file (2026-11-20).
 var releases = []Release{
 	{
 		Version: "4757.2.3", // stable: no 580 yet
@@ -221,6 +229,11 @@ var releases = []Release{
 			},
 		},
 		RuntimeVersion: runtimeVersion, RuntimeSHA256: runtimeSHA256,
+		FabricManager: map[string]string{
+			"570.211.01": "ca18525b22546e26e26687637b87e492c6dab6477df681abbb6be942f9e5e944",
+			"550.163.01": "6517bab21f7f9e8c366bae219d45c0be01c59cbcf9b307689deab3a074f92b44",
+			"535.309.01": "8d1e281e11fcf3469a7c4fa5aac431deb5a070f684082bb367d056e5cd3cd1e5",
+		},
 	},
 	{
 		// Alpha, which adds 580 (and still builds the older branches, which
@@ -241,6 +254,9 @@ var releases = []Release{
 			},
 		},
 		RuntimeVersion: runtimeVersion, RuntimeSHA256: runtimeSHA256,
+		FabricManager: map[string]string{
+			"580.178.04": "c599d3418672fee3eb4cb0fa98009f946196b5a601e25bb3874005c53b2d348c",
+		},
 	},
 }
 
@@ -257,8 +273,37 @@ func LookupRelease(flatcarVersion string) (Release, bool) {
 	return Release{}, false
 }
 
-func (r Release) hasFabricManager(driverVersion string) bool {
-	return slices.Contains(r.FabricManager, driverVersion)
+// FabricManagerFile is the file name of NVIDIA's Fabric Manager archive of a
+// driver version.
+func FabricManagerFile(driverVersion string) string {
+	return "fabricmanager-linux-x86_64-" + driverVersion + "-archive.tar.xz"
+}
+
+// FabricManagerURL is where NVIDIA publishes the Fabric Manager archive of a
+// driver version (the driver redistributables tree).
+func FabricManagerURL(driverVersion string) string {
+	return "https://developer.download.nvidia.com/compute/nvidia-driver/redist/fabricmanager/linux-x86_64/" +
+		FabricManagerFile(driverVersion)
+}
+
+// FabricManagerPin returns the sha256 of the Fabric Manager archive of a driver
+// version on a Flatcar release; empty without a pin.
+func FabricManagerPin(flatcarVersion, driverVersion string) string {
+	rel, _ := LookupRelease(flatcarVersion)
+	return rel.FabricManager[driverVersion]
+}
+
+// withFabricManager marks the selection as an NVSwitch system when the model
+// and the GPU count say so and adds the release's Fabric Manager pin; it
+// returns false when the type then cannot be offered (no pin, or a model that
+// needs more than Fabric Manager).
+func (r Release) withFabricManager(sel *Selection, m model) bool {
+	sel.NVSwitch = m.nvswitchGPUs > 0 && sel.Count >= int64(m.nvswitchGPUs)
+	if !sel.NVSwitch {
+		return true
+	}
+	sel.FabricManagerSHA256 = r.FabricManager[sel.Version]
+	return sel.FabricManagerSHA256 != "" && !m.needsNVLSM
 }
 
 // Reason is why a GPU type is not offered; it is the reason label of the
@@ -318,6 +363,9 @@ type Selection struct {
 	Architecture Architecture
 	// NVSwitch says the type is an NVSwitch system (it needs Fabric Manager).
 	NVSwitch bool
+	// FabricManagerSHA256 is the sha256 of the Fabric Manager archive of
+	// Version (FabricManagerFile); set for an NVSwitch system.
+	FabricManagerSHA256 string
 	// Sysext is the name of the driver sysext ("nvidia-drivers-570-open"), the
 	// line of enabled-sysext.conf; its pins are the payload's sha256 (the .gz
 	// of the release server) and the extracted image's.
@@ -356,8 +404,7 @@ func Select(g GPU, flatcarVersion string) (Selection, Reason) {
 	}
 	sel.Count = int64(g.Count)
 	sel.Architecture = m.arch
-	sel.NVSwitch = m.nvswitchGPUs > 0 && sel.Count >= int64(m.nvswitchGPUs)
-	if sel.NVSwitch && !rel.hasFabricManager(sel.Version) {
+	if !rel.withFabricManager(&sel, m) {
 		return Selection{}, ReasonNVSwitch
 	}
 	if g.Virtual {
@@ -395,13 +442,29 @@ func (r Release) pick(arch Architecture) (Selection, bool) {
 }
 
 // FromLabels rebuilds the selection of a type from its driver labels (branch,
-// exact version and flavour) and its GPU count, with the pins of the release:
-// what the launch of a node needs after the catalog stamped the labels. It
-// fails when the release has no such verified build.
-func FromLabels(flatcarVersion, branch, version string, flavour Flavour, count int64) (Selection, error) {
+// exact version and flavour), its accelerator model label and its GPU count, with
+// the pins of the release: what the launch of a node needs after the catalog
+// stamped the labels. The model decides whether the type is an NVSwitch
+// system. It fails when the release has no such verified build, or no Fabric
+// Manager pin for an NVSwitch system.
+func FromLabels(flatcarVersion, branch, version string, flavour Flavour, modelLabel string,
+	count int64) (Selection, error) {
+	// The label value is the model with the characters a label cannot hold
+	// replaced by "-" (RTX-5000); no model name has a hyphen of its own.
+	model := strings.ReplaceAll(modelLabel, "-", " ")
+	m, ok := models[model]
+	if !ok {
+		return Selection{}, fmt.Errorf("NVIDIA model %q is not in the table", modelLabel)
+	}
+	rel, _ := LookupRelease(flatcarVersion)
 	for _, sel := range Selections(flatcarVersion) {
 		if sel.Branch == branch && sel.Version == version && sel.Flavour == flavour {
-			sel.Count, sel.Architecture = count, ""
+			sel.Count, sel.Architecture = count, m.arch
+			if !rel.withFabricManager(&sel, m) {
+				return Selection{}, fmt.Errorf(
+					"release %s cannot run the NVSwitch system %s with driver %s: no Fabric Manager pin, or the model needs more",
+					flatcarVersion, model, version)
+			}
 			return sel, nil
 		}
 	}
@@ -411,6 +474,7 @@ func FromLabels(flatcarVersion, branch, version string, flavour Flavour, count i
 
 // Selections returns the distinct driver selections a release makes over every
 // model, for sizing trial renderings: one entry per branch and flavour in use.
+// None is an NVSwitch system (see FabricManagerPin).
 func Selections(flatcarVersion string) []Selection {
 	rel, ok := LookupRelease(flatcarVersion)
 	if !ok {
@@ -430,7 +494,7 @@ func Selections(flatcarVersion string) []Selection {
 // SupportTable renders the supported models of a Flatcar release as a
 // Markdown table (the one in the reference docs): per model its architecture,
 // the driver the release gives it and the GPU count from which the type is an
-// NVSwitch system. It is empty for an unknown release.
+// NVSwitch system, and whether such a type is offered. It is empty for an unknown release.
 func SupportTable(flatcarVersion string) string {
 	rel, ok := LookupRelease(flatcarVersion)
 	if !ok {
@@ -446,7 +510,10 @@ func SupportTable(flatcarVersion string) string {
 		}
 		switchFrom := "-"
 		if m.nvswitchGPUs > 0 {
-			switchFrom = fmt.Sprintf("%d GPUs", m.nvswitchGPUs)
+			switchFrom = fmt.Sprintf("%d GPUs, with Fabric Manager", m.nvswitchGPUs)
+			if m.needsNVLSM {
+				switchFrom = fmt.Sprintf("%d GPUs, not offered (needs nvlsm)", m.nvswitchGPUs)
+			}
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", name, m.arch, driver, switchFrom)
 	}

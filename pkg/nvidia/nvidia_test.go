@@ -9,12 +9,16 @@ package nvidia_test
 import (
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
-const stable = "4757.2.3"
+const (
+	stable = "4757.2.3"
+	alpha  = "4865.0.0"
+)
 
 var (
 	sha256Pattern         = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -112,8 +116,12 @@ func TestDropReasons(t *testing.T) {
 		{"arm64", arm, stable, nvidia.ReasonArch},
 		{"unknown release", gpu("T4", 1), "1.0.0", nvidia.ReasonNoDriverBranch},
 		{"virtual", virtual, stable, nvidia.ReasonVirtual},
-		{"nvswitch", gpu("A100", 8), stable, nvidia.ReasonNVSwitch},
-		{"nvswitch 16", gpu("A100", 16), stable, nvidia.ReasonNVSwitch},
+		{"nvswitch", gpu("A100", 8), stable, nvidia.Supported},
+		{"nvswitch 16", gpu("A100", 16), stable, nvidia.Supported},
+		{"h200", gpu("H200", 8), stable, nvidia.Supported},
+		{"nvlink5 needs nvlsm", gpu("B200", 8), alpha, nvidia.ReasonNVSwitch},
+		{"b300 needs nvlsm", gpu("B300", 8), alpha, nvidia.ReasonNVSwitch},
+		{"blackwell slice", gpu("B200", 4), alpha, nvidia.Supported},
 		{"4 of an nvswitch model", gpu("A100", 4), stable, nvidia.Supported},
 		{"8 volta is not nvswitch", gpu("V100", 8), stable, nvidia.Supported},
 		{"fraction before arch", func() nvidia.GPU { g := gpu("L4", 0.5); g.AMD64 = false; return g }(), stable, nvidia.ReasonFractional},
@@ -242,23 +250,75 @@ func TestSelectionCarriesTheSysextAndItsPins(t *testing.T) {
 
 func TestFromLabelsRebuildsTheSelection(t *testing.T) {
 	want, _ := nvidia.Select(gpu("T4", 2), stable)
-	got, err := nvidia.FromLabels(stable, want.Branch, want.Version, want.Flavour, 2)
+	got, err := nvidia.FromLabels(stable, want.Branch, want.Version, want.Flavour, "T4", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want.Architecture = ""
 	if got != want {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 	for name, args := range map[string][]string{
-		"unknown release": {"4000.0.0", "570", "570.211.01", "open"},
-		"wrong version":   {stable, "570", "570.1.1", "open"},
-		"no 580":          {stable, "580", "580.178.04", "open"},
-		"wrong flavour":   {stable, "570", "570.211.01", "gold"},
+		"unknown release": {"4000.0.0", "570", "570.211.01", "open", "T4"},
+		"wrong version":   {stable, "570", "570.1.1", "open", "T4"},
+		"no 580":          {stable, "580", "580.178.04", "open", "T4"},
+		"wrong flavour":   {stable, "570", "570.211.01", "gold", "T4"},
+		"unknown model":   {stable, "570", "570.211.01", "open", "X999"},
 	} {
-		if _, err := nvidia.FromLabels(args[0], args[1], args[2], nvidia.Flavour(args[3]), 1); err == nil {
+		if _, err := nvidia.FromLabels(args[0], args[1], args[2], nvidia.Flavour(args[3]), args[4], 1); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+	// A label value spells RTX 5000 as RTX-5000.
+	if _, err := nvidia.FromLabels(stable, "570", "570.211.01", nvidia.Open, "RTX-5000", 1); err != nil {
+		t.Errorf("RTX-5000: %v", err)
+	}
+}
+
+// The renderer's NVSwitch guard needs the flag and the pin from the labels.
+func TestFromLabelsCarriesTheNVSwitchFlagAndPin(t *testing.T) {
+	want, reason := nvidia.Select(gpu("H100", 8), stable)
+	if reason != nvidia.Supported || !want.NVSwitch || want.FabricManagerSHA256 == "" {
+		t.Fatalf("Select: %+v, %q", want, reason)
+	}
+	got, err := nvidia.FromLabels(stable, want.Branch, want.Version, want.Flavour, "H100", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	slice, err := nvidia.FromLabels(stable, want.Branch, want.Version, want.Flavour, "H100", 4)
+	if err != nil || slice.NVSwitch || slice.FabricManagerSHA256 != "" {
+		t.Errorf("4 GPUs: %+v, %v", slice, err)
+	}
+	// NVLink5 systems need more than Fabric Manager.
+	if _, err := nvidia.FromLabels(alpha, "580", "580.178.04", nvidia.Open, "B200", 8); err == nil {
+		t.Error("an 8-GPU B200 was rebuilt")
+	}
+}
+
+// A release entry must pin Fabric Manager for the driver of every NVSwitch
+// model it offers: an 8-GPU type of a model that needs nothing more than Fabric
+// Manager is supported on every release that has a driver for it.
+func TestEveryReleaseHasFabricManagerPinsForItsNVSwitchModels(t *testing.T) {
+	for _, r := range nvidia.Releases() {
+		for _, model := range []string{"A100", "H100", "H200"} {
+			sel, reason := nvidia.Select(gpu(model, 8), r.Version)
+			if reason != nvidia.Supported || !sel.NVSwitch || !sha256Pattern.MatchString(sel.FabricManagerSHA256) {
+				t.Errorf("%s on %s: %+v, %q", model, r.Version, sel, reason)
+			}
+		}
+		for version, sum := range r.FabricManager {
+			if !sha256Pattern.MatchString(sum) || !slices.ContainsFunc(r.Branches, func(b nvidia.Branch) bool { return b.Version == version }) {
+				t.Errorf("%s: Fabric Manager pin %q %q matches no driver version of the release", r.Version, version, sum)
+			}
+		}
+	}
+	if got := nvidia.FabricManagerFile("570.211.01"); got != "fabricmanager-linux-x86_64-570.211.01-archive.tar.xz" {
+		t.Errorf("file = %s", got)
+	}
+	if got := nvidia.FabricManagerURL("570.211.01"); !strings.HasSuffix(got, "/redist/fabricmanager/linux-x86_64/fabricmanager-linux-x86_64-570.211.01-archive.tar.xz") {
+		t.Errorf("URL = %s", got)
 	}
 }
 
