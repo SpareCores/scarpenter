@@ -31,6 +31,7 @@ pull requests that touch OCI code, nightly and before every release.
 - [Quotas and availability](#quotas-and-availability)
 - [Error mapping](#error-mapping)
 - [The catalog and billing](#the-catalog-and-billing)
+- [Interruption](#interruption)
 - [Deferred](#deferred)
 - [What is not verified against OCI yet](#what-is-not-verified-against-oci-yet)
 
@@ -45,6 +46,7 @@ pull requests that touch OCI code, nightly and before every release.
 | `ManagedResources`, `ZoneChecker` | kinds `subnets`, `networkSecurityGroups` and the internal `runNetworkSecurityGroups`; the use-only `images` selector; zones no brought subnet can serve |
 | `QuotaReporter` | region buckets per quota name from the Limits service (see [Quotas](#quotas-and-availability)) |
 | `InstanceMetadata` | the metadata addresses `169.254.169.254` and `fd00:c1::a9fe:a9fe`, no allowed unit besides Afterburn's |
+| `InterruptionPoller`, `InterruptionWindow` | preempted preemptible instances found by polling the compartment's instances ([Interruption](#interruption)); notice window 5 s to 2 min |
 | `RegionPriced` | prices are per region: the catalog offers every type in every availability domain of the region |
 
 No `OfferingLister` (the types are named sizes and the driver cannot list them without the catalog:
@@ -246,6 +248,38 @@ Ampere, burstable and standard bare metal shapes are not named there and count a
 mixes both (VM.Optimized3 pauses, BM.Optimized3 continues) and keeps Keeper's row. Nothing reads the stopped charge
 today, and the driver terminates instances, never stops them.
 
+## Interruption
+
+A preemptible instance is spot on OCI (`preemptibleInstanceConfig` with the `TERMINATE` action, boot volume not preserved). OCI documents
+that it cannot be stopped, started or rebooted, that it is reclaimed with an Events message of type
+`com.oraclecloud.computeapi.instancepreemptionaction` (`data.additionalDetails.preemptionAction` `TERMINATE`) about two minutes before the
+termination begins, and that a preemption cannot be simulated. SCarpenter does not read the Events service (no queue, rule or
+permission to set up); the [interruption controller](controller.md#interruption) reacts to what the driver's poller sees through the
+Compute API.
+
+**The signal.** The Compute SDK shows nothing of a preemption before the termination: `Instance` has no preemption field, the Compute
+service's work requests and maintenance events are not documented for it, and the Audit service lags. The cheapest reliable signal is
+the lifecycle state in the list the driver makes anyway: `PollInterruptions(region)` is one paged `ListInstances` of the compartment
+(`--oci-interruption-poll`, default 10 s, about six calls a minute per region whatever the number of nodes, no new IAM statement) and
+reports every preemptible instance of this cluster (the cluster tag) that is `STOPPING`, `STOPPED` or `TERMINATING` as a
+`SpotInterrupted` notice. Nobody can stop a preemptible instance, so these states mean the preemption has begun, except for the instances the driver
+terminated itself: it remembers them (for an hour, in memory) and does not report them. The notice has no deadline (the instance has no time of
+the state change), so the controller assumes the window's minimum, 5 s, from the moment it sees the notice; the window's maximum is the
+documented 2 minutes. The lead time of the Events message is **not used**: the poll sees the termination that follows it. It still beats
+garbage collection, which waits for the Node to be NotReady and then up to two minutes. The notice has `source=vendor-api`; a throttled
+poll (429) is retryable and backs the region's poller off.
+
+**The reason an instance is gone.** `Instance.GoneReason` is `SpotInterrupted` for a preemptible instance in a terminating or terminated state,
+so a reclaim the poller missed (the instance gone between two polls, or SCarpenter restarted) is still recorded as `SpotInterrupted` with
+`source=vendor-api` instead of `ReclaimedWithoutNotice`. A person who terminates a preemptible instance in the console is indistinguishable
+from a preemption without the Audit service.
+
+**Node agent.** None for OCI yet. Whether the instance metadata carries a preemption key (`instancePreemptionAction`; sources disagree) is
+unverified; if it does, a node agent can give the full two minutes (plan 26, steps 4 onwards).
+
+The fake models the signal: `fake.Cloud.Preempt(id)` puts a preemptible instance into `TERMINATING`; the conformance fixture's `Interrupt`
+hook uses it, and the fixture launches preemptible instances.
+
 ## Deferred
 
 Instance principal and OKE workload identity credentials, data volumes and local storage, profiles, a
@@ -253,6 +287,11 @@ per-NodeClass compartment, NAT gateways and IPv6 on a managed VCN, bare metal's 
 import or Community Application, and a zone-aware quota (plan 25, open questions).
 
 ## What is not verified against OCI yet
+
+**Preemption, until the first real preemption in a real run:** that the instance goes `TERMINATING` (and not `STOPPING`) when OCI
+reclaims it, how long that takes after the Events message, and that nothing before it shows in the API. No spike simulated a preemption
+(OCI offers no way to; plan 26, spike S1 was skipped); the poller follows the documented behaviour only. The instance metadata's
+preemption key is unverified too.
 
 The L5 lane runs launches on demand and preemptible (preemptible "Out of host capacity" is seen and falls
 back to another shape), arm64 on `A1`, nodes with the legacy IMDS endpoints disabled, quotas, the managed
