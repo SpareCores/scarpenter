@@ -290,6 +290,13 @@ func TestPostCreate(t *testing.T) {
 	}
 	rules, _ := PublicFirewallRules(FirewallOptions{})
 	pc := PostCreate{Rules: rules, PrivateRuleset: rs.UUID}
+	// The firewall cannot be written while the storage clones (409 live).
+	if err := pc.Run(e.ctx, e.f, d); !vendors.IsClass(err, vendors.Retryable) {
+		t.Errorf("the steps while the server clones: %v", err)
+	}
+	if err := WaitStarted(e.ctx, e.f, d.UUID); err != nil {
+		t.Fatal(err)
+	}
 	if err := pc.Run(e.ctx, e.f, d); err != nil {
 		t.Fatal(err)
 	}

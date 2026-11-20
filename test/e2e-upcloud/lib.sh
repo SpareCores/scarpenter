@@ -122,7 +122,7 @@ upcloud_api="${UPCLOUD_API:-https://api.upcloud.com/1.3}"
 up() {
   local method="$1" path="$2"
   shift 2
-  curl -fsS --retry 3 --max-time 60 -X "${method}" -K <(printf 'header = "Authorization: Bearer %s"\n' "${UPCLOUD_TOKEN}") \
+  curl --fail-with-body -sS --retry 3 --max-time 60 -X "${method}" -K <(printf 'header = "Authorization: Bearer %s"\n' "${UPCLOUD_TOKEN}") \
     -H 'Content-Type: application/json' "$@" "${upcloud_api}${path}"
 }
 
@@ -149,7 +149,7 @@ server_json() { up GET "/server/$1" | jq -c '.server'; } # server_json <uuid>
 # label_of <json of a resource> <key>: the value of a label (the API spells them
 # {"labels":{"label":[{"key":..,"value":..}]}}; a request takes a plain array).
 label_of() {
-  jq -r --arg k "$2" '(.labels.label // .labels // [])[] | select(.key == $k) | .value' <<<"$1"
+  jq -r --arg k "$2" '(.labels | if type == "array" then . else (.label // []) end)[] | select(.key == $k) | .value' <<<"$1"
 }
 
 # storage_json <uuid>

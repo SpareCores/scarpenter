@@ -271,6 +271,27 @@ t_not_in_the_vendor_list() { # the sub-account's limits and the spending alert a
   ! grep -qx 'upcloud' "${root}/test/e2e-vendors.txt"
 }
 check "upcloud is not in test/e2e-vendors.txt until its cost guards are verified" t_not_in_the_vendor_list
+t_ensure_template() { # the template finder takes only same-zone templates with every label
+  # shellcheck source=test/e2e-upcloud/ensure-template.sh
+  source "${here}/ensure-template.sh"
+  local want have
+  want="$(template_labels | jq -r '.[] | "\(.key)=\(.value)"' | sort | tr '\n' ' ')"
+  [[ "${want}" == "flatcar-arch=amd64 flatcar-channel=${E2E_FLATCAR_CHANNEL} flatcar-tier=maxiops flatcar-version=${E2E_FLATCAR_VERSION} scarpenter-image=flatcar scarpenter-lane=ci scarpenter-use=true " ]] || {
+    echo "labels: ${want}"
+    return 1
+  }
+  have="$(jq -nc --argjson l "$(template_labels)" '
+    def tpl($u; $z; $labels): {uuid: $u, type: "template", zone: $z, labels: {label: $labels}};
+    {storages: {storage: [tpl("ok"; "fi-hel1"; $l), tpl("other-zone"; "de-fra1"; $l), tpl("no-lane"; "fi-hel1"; ($l | map(select(.key != "scarpenter-lane")))),
+      tpl("old"; "fi-hel1"; ($l | map(if .key == "flatcar-version" then .value = "0.0.1" else . end))),
+      (tpl("ok2"; "fi-hel1"; $l) | .state = "maintenance"), (tpl("disk"; "fi-hel1"; $l) | .type = "normal"),
+      (tpl("flat"; "fi-hel1"; $l) | .labels = $l)]}}' | matching_templates fi-hel1 | tr '\n' ' ')"
+  [[ "${have}" == "ok ok2 flat " ]] || {
+    echo "matched: ${have}"
+    return 1
+  }
+}
+check "ensure-template.sh labels the template and finds exactly the matching ones" t_ensure_template
 check "the sweeper's environment and the credentials steps name UpCloud" t_workflows_agree
 check "no key, token or local path in the lane's files" t_no_secrets_in_scripts
 

@@ -110,12 +110,12 @@ scn_preflight() {
   acct="$(up GET /account)" || fail "the UpCloud API token does not work (expired? rotate UPCLOUD_TOKEN, docs/how-to-guides/testing-and-releasing.md)"
   note "the sub-account's resource limits: $(jq -c '.account.resource_limits' <<<"${acct}")"
 
-  # 1. The Flatcar templates (plan 19, "Images"): private templates of the lane's zone,
+  # 1. The Flatcar templates (plan 19, "Images"): the lane's own (scarpenter-lane=ci) private templates of the zone,
   # online, labelled with the pinned release. The driver needs one; both tiers are reported.
   local tpls n tiers
-  tpls="$(up GET "/storage/private?label=scarpenter-image=flatcar" | jq -c --arg z "${UPCLOUD_ZONE}" --arg v "${E2E_FLATCAR_VERSION}" --arg c "${E2E_FLATCAR_CHANNEL}" \
+  tpls="$(up GET "/storage/private?label=scarpenter-lane=ci" | jq -c --arg z "${UPCLOUD_ZONE}" --arg v "${E2E_FLATCAR_VERSION}" --arg c "${E2E_FLATCAR_CHANNEL}" \
     '[.storages.storage[]? | select(.type == "template" and .zone == $z and .state == "online")
-      | select((.labels.label // []) | (map(select(.key == "flatcar-version" and .value == $v)) | length > 0)
+      | select((.labels | if type == "array" then . else (.label // []) end) | (map(select(.key == "flatcar-version" and .value == $v)) | length > 0)
         and (map(select(.key == "flatcar-channel" and .value == $c)) | length > 0))]')"
   n="$(jq 'length' <<<"${tpls}")"
   [[ "${n}" -ge 1 ]] || fail "no online Flatcar template ${E2E_FLATCAR_CHANNEL} ${E2E_FLATCAR_VERSION} in ${UPCLOUD_ZONE}: import the image of the images repository (plan 22) as a template with the labels of test/e2e-upcloud/defaults.sh"

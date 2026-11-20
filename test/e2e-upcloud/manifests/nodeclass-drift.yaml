@@ -8,6 +8,7 @@ metadata:
 spec:
   flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
   kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  butane: {configMapRef: {name: e2e-node-butane, namespace: scarpenter-system, key: butane.yaml}}
   network:
     template: tailscale
     tailscale:
@@ -30,3 +31,5 @@ spec:
       regions: [${UPCLOUD_ZONE}]
       storage:
         root: {size: 25Gi}
+      resources:
+        images: {use: {tags: {scarpenter-lane: ci, flatcar-channel: "${E2E_FLATCAR_CHANNEL}", flatcar-version: "${E2E_FLATCAR_VERSION}", flatcar-arch: amd64}}}

@@ -8,11 +8,14 @@
 # (both, where the account can make a Standard one; MaxIOPS is the one the lane needs),
 # built by the images repository (plan 22) and imported by the operator, with the labels
 #   scarpenter-use=true           (never touched by the sweeper)
+#   scarpenter-lane=ci            (the lane's own: the sub-account is shared with production
+#                                  resources, so the lane's NodeClasses select this label and
+#                                  never another template; ensure-template.sh imports it)
 #   scarpenter-image=flatcar
 #   flatcar-channel=<channel>     flatcar-version=<version>
 #   flatcar-arch=amd64            flatcar-tier=maxiops|standard
-# The lane's NodeClasses leave resources.images unset: the driver finds them by this label
-# convention. The preflight fails, naming the template to import, when there is none.
+# The lane's NodeClasses select them with resources.images.use.tags (the lane label, the
+# pinned channel and version, arch). The preflight fails, naming the template to import, when there is none.
 
 # UpCloud's regions are its zones; the lane runs in one.
 : "${UPCLOUD_ZONE:=fi-hel1}"
@@ -39,7 +42,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # A node's NodeClaim must be launched (the server created) this long after a wait began, or
 # the wait fails at once as "never launched". A progress block is printed to the job log
 # this often during a wait.
-: "${E2E_LAUNCH_TIMEOUT:=180}"
+# UpCloud launches only when the server has started (its firewall cannot be written while it
+# clones its disk), and a clone takes minutes, so the launch window is longer than elsewhere.
+: "${E2E_LAUNCH_TIMEOUT:=600}"
 : "${E2E_PROGRESS_INTERVAL:=30}"
 # After the first failed scenario the remaining ones are skipped and the run ends, so that
 # the diagnostics and the teardown start at once; false runs every scenario.

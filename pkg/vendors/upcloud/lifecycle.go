@@ -178,10 +178,26 @@ func StorageLabels(tags map[vendors.TagKey]string) []upcloud.Label {
 	return out
 }
 
-// PostCreate is what follows the create call, while the server is still in
-// maintenance: write the Public & Utility firewall, and, with a private
-// interface and a ruleset, attach the ruleset and switch the private firewall
-// on. The server group and the storage labels are part of the create call.
+// WaitStarted waits until the server has left maintenance: the API refuses a
+// firewall write while it clones its storage, which takes minutes on a Standard
+// tier disk. A failure leaves the server alone: the next attempt's idempotency
+// lookup finds it and replays the steps, or, once Karpenter has given up on the
+// NodeClaim, the garbage collector deletes it (StartTimeout).
+func WaitStarted(ctx context.Context, a api.API, uuid string) error {
+	wctx, cancel := CallContext(ctx, StartTimeout)
+	defer cancel()
+	if _, err := a.WaitForServerState(wctx, &request.WaitForServerStateRequest{
+		UUID: uuid, DesiredState: upcloud.ServerStateStarted,
+	}); err != nil {
+		return fmt.Errorf("waiting for the server to start: %w", Classify(err))
+	}
+	return nil
+}
+
+// PostCreate is what follows the create call, once the server has started: write
+// the Public & Utility firewall, and, with a private interface and a ruleset, attach the
+// ruleset and switch the private firewall on. The server group and the storage
+// labels are part of the create call.
 type PostCreate struct {
 	Rules []upcloud.FirewallRule
 	// PrivateRuleset is the SDN ruleset UUID to attach to the private interface.

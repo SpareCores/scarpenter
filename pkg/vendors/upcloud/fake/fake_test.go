@@ -506,8 +506,11 @@ func TestStorageModifyAndListing(t *testing.T) {
 		t.Fatal(err)
 	}
 	priv, _ := f.GetStorages(ctx, &request.GetStoragesRequest{Access: "private"})
-	tmpl, _ := f.GetStorages(ctx, &request.GetStoragesRequest{Access: "private", Type: "template"})
-	disks, _ := f.GetStorages(ctx, &request.GetStoragesRequest{Access: "private", Type: "normal"})
+	tmpl, _ := f.GetStorages(ctx, &request.GetStoragesRequest{Type: "template"})
+	disks, _ := f.GetStorages(ctx, &request.GetStoragesRequest{Type: "normal"})
+	if _, err := f.GetStorages(ctx, &request.GetStoragesRequest{Access: "private", Type: "template"}); code(err) != "NOT_FOUND" {
+		t.Errorf("access and type together: %v", err)
+	}
 	byLabel, _ := f.GetStorages(ctx, &request.GetStoragesRequest{Access: "private", Filters: []request.QueryFilter{
 		request.FilterLabel{Label: upcloud.Label{Key: "scarpenter-cluster", Value: "c1"}},
 	}})

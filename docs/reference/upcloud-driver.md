@@ -14,8 +14,9 @@ It is enabled with `--vendors=upcloud` (the chart's `vendors.upcloud.enabled`). 
 in-memory UpCloud of `pkg/vendors/upcloud/fake` and the shared conformance suite over the UpCloud
 plans of the committed Keeper snapshot; nothing in the repository's tests calls UpCloud (the first
 live run is the L5 lane, [the UpCloud lane](../how-to-guides/testing.md#the-upcloud-lane)).
-**Nothing in this driver has run against UpCloud yet**; the [last section](#what-is-not-verified-against-upcloud-yet)
-lists every fact that is unverified.
+The L5 smoke (preflight, `amd64`, `scalezero`) has passed once, in `fi-hel1` with `STARTER-1xCPU-1GB` (GitHub run
+44637995771): a node booted from the template, joined, ran a Pod and was deleted. The rest of the lane has not run; the
+[last section](#what-is-not-verified-against-upcloud-yet) lists every fact that is still unverified.
 
 ## Table of Contents
 
@@ -97,7 +98,8 @@ platform); `NodeClassValidator` refuses it.
   MaxIOPS one is the resolved image, and the launch takes the sibling of the same release in the root tier it needs
   (`storage.root.tier`, else the plan's included tier where such a template exists, else the resolved template's tier).
   A tier with no template is `Unsupported` with the label to import. Two templates of one tier under the default
-  select are ambiguous.
+  select are ambiguous. So a Starter plan (included disk Standard) clones the Standard template when one exists, at
+  the plan's price, and the MaxIOPS one otherwise; a Standard clone takes minutes (L5), which is the launch time.
 - `ReportImages` lists the account's templates once and applies the selector per zone: a zone without a template is
   not ready, with the zone named and "import the Flatcar template for <version>".
 - The template's size is the image's root disk size. amd64 only (UpCloud has x86_64 plans only): an `arm64` request is `Unsupported` with or
@@ -127,9 +129,17 @@ platform); `NodeClassValidator` refuses it.
   `scarpenter-created` (RFC 3339, the creation time) and the NodeClass's own tags.
 - **Group**: the server group of a placement profile is a field of the create call.
 
-After the call returns (the server is in `maintenance` while its storage is cloned) the driver writes the Public &
-Utility firewall and, with a private interface and a ruleset, attaches the ruleset and switches the private firewall
-on. A server whose steps fail is deleted, so the key stays unused.
+After the call returns the server is in `maintenance` while its storage is cloned, and the API refuses a firewall
+write then (409 `SERVER_STATE_ILLEGAL`). The driver waits for `started` (at most `StartTimeout`, 10 minutes), then
+writes the Public & Utility firewall and, with a private interface and a ruleset, attaches the ruleset and switches the
+private firewall on. A server whose steps fail is deleted, so the key stays unused; a server whose wait times out is
+kept, and the next attempt with the key finds it and finishes the steps.
+
+The wait is inside `CreateInstance`, which is one call of Karpenter's launch. Karpenter deletes a NodeClaim that is not
+launched 5 minutes after its creation, so a launch slower than that succeeds only within that one call: a timed-out
+wait past 5 minutes ends with the NodeClaim deleted and its server deleted by the garbage collector (it carries the
+cluster and NodeClaim labels). A launch that uses the whole window leaves about 3 minutes of Karpenter's 15 minute
+registration timeout for the boot and the join.
 
 - **Idempotency.** UpCloud has no create token. The server carries `scarpenter-idempotency-key=<NodeClaim UID>`; before
   a create, and after a failure that may have lost the response, the driver looks the label up (one list call across zones)
@@ -268,7 +278,7 @@ the driver uses, so that you can judge it:
 
 - servers: list (with label filters), get, create, stop, modify (the private firewall switch), delete with storages and backups,
   the Public & Utility firewall rules (create, get);
-- storages: list private templates, get;
+- storages: list the private storages (the templates among them: the API has no private-template list), get;
 - networks: list, get, create, delete; server groups: list, get, create, delete;
 - firewall rulesets: list, get, create, delete, attach and detach to a server's private interfaces (v9 endpoints);
 - account (the limits), zones, plans, IP addresses.
@@ -283,12 +293,19 @@ firewall's rollout, `SCImage` (rung 4: SCarpenter importing the template itself)
 
 ## What is not verified against UpCloud yet
 
-Everything here was written from documentation and the SDK source; no UpCloud call was made. The spikes of plan 19 settle
-these before the first live run:
+The L5 smoke verified: the patched image boots with OEM id `upcloud` and Ignition finds its user-data; a Standard-tier
+template exists and clones (minutes); the plan list carries `storage_tier`; a
+firewall write while the server clones is refused with 409 `SERVER_STATE_ILLEGAL`; `GET /storage/private/template` is a
+404 (the private list is filtered by type instead); the stop and delete of `scalezero`. The rest was written from
+documentation and the SDK source, and the spikes of plan 19 and the full lane settle it:
 
-- **Images (S1, S2)**: that the patched generic image boots with OEM id `upcloud`, imports as raw gzip, and that Ignition
-  finds its user-data; the Content-Type behaviour of the importer; whether a Standard-tier clone of a MaxIOPS template is refused;
-  whether a template carries `created`; the by-id name of a data disk.
+- **Images (S1)**: the import by the lane's `ensure-template.sh` (direct upload as `application/gzip`; the CI template
+  was already there when the lane first ran); whether a Standard-tier clone of a MaxIOPS template is refused; whether a
+  template carries `created`; the by-id name of a data disk.
+- **Registry**: the lane's nodes failed to pull `registry.k8s.io/pause` (the cause was read as a 403 to UpCloud addresses;
+  the event text in the job log is cut short), so the lane's NodeClasses pull `registry.k8s.io` images through its
+  Artifact Registry with `spec.butane` (`test/e2e-upcloud/manifests/node-butane.yaml`). Whether production nodes need
+  the same is open.
 - **Limits (S3)**: the user-data size limit, the 4 versus 16 storage devices, the firewall rollout window and the default rules,
   whether the written rules keep a node working (DNS, DHCP, sysext downloads), whether the utility network reaches the internet.
 - **Billing (S4)**: from creation or from first start, the clock hour, a disk larger than the plan's included storage, Standard

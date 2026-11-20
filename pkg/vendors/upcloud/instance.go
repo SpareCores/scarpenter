@@ -141,8 +141,8 @@ func (d *Driver) launchSpec(ctx context.Context, req vendors.CreateRequest) (Lau
 // CreateInstance implements vendors.Driver: one create call with the NodeClaim's
 // UID as a label (UpCloud has no create token), looked up before every create and
 // after a failure that may have lost the response. A replay of the key returns the
-// original server whatever zone or plan it asks for. After the call, while the
-// server is still cloning its storage, the Public and Utility firewall is written
+// original server whatever zone or plan it asks for. After the call, once the
+// server has finished cloning its storage, the Public and Utility firewall is written
 // (and the SDN ruleset attached when there is a private interface); a server whose
 // steps fail is deleted, so that the key stays unused.
 func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) (*vendors.Instance, error) {
@@ -174,6 +174,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		}
 		return nil, err
 	}
+	if err := WaitStarted(ctx, d.api, detail.UUID); err != nil {
+		return nil, err // the server stays; the retry finds it by its key
+	}
 	if err := post.Run(ctx, d.api, detail); err != nil {
 		d.discard(ctx, detail.UUID)
 		return nil, err
@@ -198,6 +201,9 @@ func (d *Driver) replay(
 		return nil, Classify(err)
 	}
 	if have == nil || len(have.FirewallRules) != len(rules) {
+		if err := WaitStarted(ctx, d.api, found.UUID); err != nil {
+			return nil, err
+		}
 		if err := WriteFirewall(ctx, d.api, found.UUID, rules); err != nil {
 			return nil, err
 		}

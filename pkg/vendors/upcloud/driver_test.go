@@ -253,6 +253,38 @@ func TestAServerWhoseFirewallFailsIsDeletedAndTheKeyStaysUnused(t *testing.T) {
 	}
 }
 
+func TestAServerStillCloningIsKeptAndTheRetryFinishesIt(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	req := e.request("n1", testType)
+	// The wait for the end of the clone times out: the server stays, without its
+	// firewall, and the next attempt with the same key finds it and writes it.
+	e.f.Inject("WaitForServerState", context.DeadlineExceeded, 1)
+	if _, err := e.d.CreateInstance(e.ctx(), req); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("a timed-out wait for the start: %v", err)
+	}
+	servers := e.f.Servers()
+	if len(servers) != 1 {
+		t.Fatalf("%d servers after a timed-out wait, want the one kept", len(servers))
+	}
+	uuid := servers[0].UUID
+	if n := len(e.f.ServerFirewall(uuid)); n != 0 {
+		t.Errorf("%d firewall rules written before the server started", n)
+	}
+	again, err := e.d.CreateInstance(e.ctx(), req)
+	if err != nil {
+		t.Fatalf("the retry: %v", err)
+	}
+	if _, got, _ := uc.ParseRef(again.Ref); got != uuid {
+		t.Errorf("the retry returned %s, want the kept server %s", again.Ref, uuid)
+	}
+	if len(e.f.ServerFirewall(uuid)) == 0 {
+		t.Error("the retry left the server without its firewall")
+	}
+	if n := len(e.f.Servers()); n != 1 {
+		t.Errorf("%d servers after the retry", n)
+	}
+}
+
 func TestALostCreateResponseIsFoundByItsLabel(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	req := e.request("n1", testType)

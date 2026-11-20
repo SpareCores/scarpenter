@@ -413,7 +413,7 @@ the canary uses a read-only OpenStack user behind `test/canary/ovh_guard.go`, an
 (`e2e`, `e2e-canary`, `e2e-sweeper`) with the secrets and variables of [the OVH lane](testing.md#the-l5-lane-of-ovhcloud). The account-level
 budget alert (OVH has per-project consumption alerts: unverified) is in the CI project's own infrastructure.
 
-**The UpCloud lane's guards** (plan 19; statically validated, not yet run live; **not yet a line of
+**The UpCloud lane's guards** (plan 19; its smoke has passed from a branch that listed it; **not yet a line of
 `test/e2e-vendors.txt`**: the token can deny nothing, and the sub-account's limits and the spending alert are
 unverified, see [UpCloud](#upcloud)): no type or zone deny is possible (the lane's NodePools name the
 STARTER plans of `defaults.sh`, and `UPCLOUD_ZONE` is one zone), the `scarpenter-ci` sub-account's resource
@@ -661,8 +661,8 @@ provides:
   canary's `API token` row fails when it does, and the rotation is manual: create a token, replace the
   three secrets, delete the old one.
 - **The persistent Flatcar templates** of the pinned release in the lane's zone, labelled
-  `scarpenter-use=true` (the sweeper never touches them), built by the images repository and imported
-  by the operator.
+  `scarpenter-use=true` (the sweeper never touches them), built by the images repository; the lane's
+  `ensure-template.sh` imports the MaxIOPS one when it is missing, a Standard one is the operator's.
 - **The tailnet** items above (tags, grants, the federated identity for `e2e`); the canary does not join it.
 - **Before `upcloud` is added to `test/e2e-vendors.txt`**, the operator checks: the sub-account's
   limits are set and no higher than the lane needs (`E2E_MIN_CORES` and `E2E_MIN_MEMORY_MB` of

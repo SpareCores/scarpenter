@@ -100,17 +100,19 @@ func templateFields(s upcloud.Storage) selector.Fields {
 	return selector.Fields{ID: s.UUID, Name: s.Title, Tags: l, Created: s.Created, Attrs: attrs}
 }
 
-// listTemplates lists the account's private templates of every zone in one call.
+// listTemplates lists the account's private templates of every zone in one call. The API
+// has no /storage/private/template (a 404): it lists the private storages and the templates
+// are the ones of type template.
 func (d *Driver) listTemplates(ctx context.Context) ([]upcloud.Storage, error) {
 	cctx, cancel := CallContext(ctx, CallTimeout)
 	defer cancel()
-	out, err := d.api.GetStorages(cctx, &request.GetStoragesRequest{
-		Access: upcloud.StorageAccessPrivate, Type: upcloud.StorageTypeTemplate,
-	})
+	out, err := d.api.GetStorages(cctx, &request.GetStoragesRequest{Access: upcloud.StorageAccessPrivate})
 	if err != nil {
 		return nil, Classify(err)
 	}
-	return out.Storages, nil
+	return slices.DeleteFunc(out.Storages, func(s upcloud.Storage) bool {
+		return s.Type != upcloud.StorageTypeTemplate
+	}), nil
 }
 
 // templateFilters are the native filters of the images kind, evaluated on the

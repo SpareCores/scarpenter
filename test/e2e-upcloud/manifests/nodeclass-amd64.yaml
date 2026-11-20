@@ -2,8 +2,8 @@
 # versions, a 25 GB root disk (the template's tier), a storage profile with a small
 # MaxIOPS data disk, the placement profile that puts the nodes of a run into one
 # anti-affinity server group, and a benchmark metric for the described-not-named
-# scenario. resources.images is unset: the driver finds the Flatcar template of the
-# pinned release by its labels (defaults.sh lists them).
+# scenario. resources.images selects the lane's own Flatcar template (label
+# scarpenter-lane=ci, defaults.sh): the account is shared with production resources.
 #
 # It must exist before the controller starts: the label keys of a NodeClass's
 # metrics are registered with Karpenter core at start-up (install.sh applies it
@@ -15,6 +15,7 @@ metadata:
 spec:
   flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
   kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  butane: {configMapRef: {name: e2e-node-butane, namespace: scarpenter-system, key: butane.yaml}}
   network:
     template: tailscale
     tailscale:
@@ -49,4 +50,5 @@ spec:
       # A short idle lifetime, so that the uninstall scenario sees the NodeClass's
       # server groups go (the default is 24 hours).
       resources:
+        images: {use: {tags: {scarpenter-lane: ci, flatcar-channel: "${E2E_FLATCAR_CHANNEL}", flatcar-version: "${E2E_FLATCAR_VERSION}", flatcar-arch: amd64}}}
         serverGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

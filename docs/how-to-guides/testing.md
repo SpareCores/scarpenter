@@ -698,7 +698,8 @@ the scripts `bootstrap.sh`, `mint-authkey.sh`, `install.sh`, `scenarios.sh`, `di
 (`lib.sh`: `up`, the label filters of the list calls). It is **not in `test/e2e-vendors.txt`** until
 the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified
 (the sub-account's limits and a spending alert, see [UpCloud](testing-and-releasing.md#upcloud)), so the
-workflows do not run it by themselves; `make test-e2e-upcloud-dryrun` checks it without a cloud.
+workflows do not run it by themselves; `make test-e2e-upcloud-dryrun` checks it without a cloud. To run it
+before then, dispatch `e2e.yml` (vendor `upcloud`) on a branch that adds the line; its smoke has passed that way.
 Differences that matter:
 
 - **Credential.** UpCloud has no OIDC federation and no workload identity. The lane uses the API
@@ -711,10 +712,17 @@ Differences that matter:
   the canary reads `GET /account` every night and says so, the rotation is manual.
 - **Prerequisite.** In the lane's zone, persistent Flatcar **templates** of the pinned release, one per
   storage tier (MaxIOPS is required, Standard where the account can make one), labelled
-  `scarpenter-use=true`, `scarpenter-image=flatcar`, `flatcar-channel`, `flatcar-version`,
-  `flatcar-arch=amd64` and `flatcar-tier`. They are built by the images repository (plan 22) and
-  imported by the operator; the lane's NodeClasses leave `resources.images` unset, so the driver finds
-  them by that label convention. The preflight fails, naming the missing template, when there is none.
+  `scarpenter-use=true`, `scarpenter-lane=ci`, `scarpenter-image=flatcar`, `flatcar-channel`, `flatcar-version`,
+  `flatcar-arch=amd64` and `flatcar-tier`. They are built by the images repository (plan 22). The
+  workflow step `test/e2e-upcloud/ensure-template.sh` imports the MaxIOPS and the Standard one when missing (the
+  release asset, its SHA-256 checked, a direct upload, templatize, label, delete the source storage).
+  The STARTER plans boot from the Standard one (they refuse a MaxIOPS root disk), and cloning it
+  takes minutes, so `E2E_LAUNCH_TIMEOUT` is 600 s. The CI sub-account is shared with production resources, so the lane's
+  NodeClasses select only its own template (`resources.images.use.tags` with `scarpenter-lane=ci`). The preflight fails, naming the missing template, when there is none.
+- **Node images.** The lane's NodeClasses add `spec.butane` (`manifests/node-butane.yaml`): containerd pulls
+  `registry.k8s.io` images through `us-central1-docker.pkg.dev/k8s-artifacts-prod/images`, because the nodes
+  failed to pull `registry.k8s.io/pause` from UpCloud addresses. k3s's `gateway-api-crd` is disabled: its
+  install Job does not tolerate the control plane's taint and would wait for a node of its own.
 - **Plans.** `STARTER-1xCPU-1GB` (`upcloud.STARTER-1xCPU-1GB`) for every scenario, and
   `STARTER-2xCPU-4GB` and `STARTER-2xCPU-8GB` for the described-not-named one. Plan 19 names `1xCPU-1GB`,
   but the committed Keeper snapshot lists only the CLOUDNATIVE, PREMIUM, STARTER and GPU families as
