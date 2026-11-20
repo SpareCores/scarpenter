@@ -193,6 +193,29 @@ func TestPollerKeepsANoticeUntilTheNodeIsRegistered(t *testing.T) {
 	})
 }
 
+// A terminating instance whose NodeClaim core already deleted it for
+// (InstanceTerminating) is SCarpenter's own delete, also after a restart that
+// cleared the driver's memory: no notice is written.
+func TestPollerSkipsAnInstanceCoreDeleted(t *testing.T) {
+	h := newHarness(t)
+	d := &pollDriver{}
+	p := h.pollerWith(d)
+	ref := h.refOf("i-" + h.name)
+	h.addPolled(ref, nodeOpts{})
+	claim := h.claim()
+	claim.StatusConditions().SetTrue(karpv1.ConditionTypeInstanceTerminating)
+	h.must(h.c.Status().Update(t.Context(), claim))
+	d.set([]vendors.Notice{{Ref: ref, Reason: v1alpha1.ReasonSpotInterrupted}}, nil)
+
+	h.must(p.Sync(t.Context()))
+	eventually(t, "the first poll", func() bool { return d.count("westeurope") > 0 })
+	h.tick(pollEvery)
+	eventually(t, "the second poll", func() bool { return d.count("westeurope") > 1 })
+	if _, ok := h.node().Annotations[v1alpha1.AnnotationInterruption]; ok {
+		t.Fatal("the poller reported the instance of a NodeClaim core already deleted")
+	}
+}
+
 // A node cannot hide the vendor's notice behind a value of its own that the
 // controller ignores: the poller replaces it, deadline included.
 func TestPollerReplacesANoticeTheControllerWouldIgnore(t *testing.T) {
