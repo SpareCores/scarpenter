@@ -103,6 +103,11 @@ type Options struct {
 	// retention controller releases held empty nodes of the scope on it. Nil
 	// tells nobody.
 	OnQuotaRefusal func(QuotaRefusal)
+	// OnInstanceGone is told, from Delete, of a NodeClaim whose instance is gone
+	// and which SCarpenter did not delete (a silent reclaim, a crash, a delete
+	// outside SCarpenter): the interruption controller records the reason. goneReason
+	// is the driver's Instance.GoneReason ("" when it cannot tell). Nil tells nobody.
+	OnInstanceGone func(ctx context.Context, nodeClaim *karpv1.NodeClaim, vendor, goneReason string)
 }
 
 // QuotaRefusal is a launch of a NodeClass that was refused for a vendor quota
@@ -128,6 +133,14 @@ type CloudProvider struct {
 	// terminating keeps the first sighting of each terminating instance by
 	// Delete, keyed by the NodeClaim's provider ID.
 	terminating *vendors.TerminatingTracker
+
+	// deleteIssued are the provider IDs whose instance Delete asked the driver
+	// to delete, with the time: an instance found gone afterwards (core calls
+	// Delete several times) is the expected end, not a loss. Entries are dropped
+	// after an hour. In memory only; reportGone also skips NodeClaims that core
+	// disrupts on purpose, which covers a restart in between.
+	issuedMu     sync.Mutex
+	deleteIssued map[string]time.Time
 
 	imageMu sync.Mutex
 	images  map[imageKey]cachedImage
@@ -157,7 +170,8 @@ func New(opts Options) *CloudProvider {
 	}
 	return &CloudProvider{
 		opts: opts, metrics: newMetrics(opts.Registerer), images: map[imageKey]cachedImage{},
-		terminating: vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
+		terminating:  vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
+		deleteIssued: map[string]time.Time{},
 	}
 }
 
@@ -354,16 +368,23 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 	}
 	if err != nil {
 		if vendors.IsClass(err, vendors.NotFound) {
+			c.reportGone(ctx, nodeClaim, vendor, "")
 			c.forget(ctx, vendor, region, providerID, name)
 			return cloudprovider.NewNodeClaimNotFoundError(err)
 		}
 		return fmt.Errorf("looking up the instance of %s: %w", providerID, err)
 	}
 	if inst.State == vendors.StateTerminated {
+		c.reportGone(ctx, nodeClaim, vendor, inst.GoneReason)
 		c.forget(ctx, vendor, region, providerID, name)
 		return cloudprovider.NewNodeClaimNotFoundError(fmt.Errorf("instance of %s is terminated", providerID))
 	}
 	if inst.State == vendors.StateTerminating {
+		// Only a driver that can tell a reclaim from a stop gives a reason for a
+		// terminating instance.
+		if inst.GoneReason != "" {
+			c.reportGone(ctx, nodeClaim, vendor, inst.GoneReason)
+		}
 		// The vendor is probably deleting it and core asks again. One that stays
 		// terminating (a stopped instance never goes away by itself) is deleted
 		// again after the grace; DeleteInstance is idempotent.
@@ -379,12 +400,43 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 		}
 		return fmt.Errorf("deleting the instance of %s: %w", providerID, err)
 	}
+	c.noteDeleteIssued(providerID)
 	if c.opts.Quota != nil {
 		c.opts.Quota.ReleaseInstance(vendor, inst.Ref)
 		c.opts.Quota.NotifyChanged(vendor, region)
 	}
 	c.dropInstance(providerID)
 	return nil
+}
+
+func (c *CloudProvider) noteDeleteIssued(providerID string) {
+	now := c.opts.Clock.Now()
+	c.issuedMu.Lock()
+	defer c.issuedMu.Unlock()
+	for id, at := range c.deleteIssued {
+		if now.Sub(at) > time.Hour {
+			delete(c.deleteIssued, id)
+		}
+	}
+	c.deleteIssued[providerID] = now
+}
+
+// reportGone tells OnInstanceGone that the NodeClaim's instance is gone, unless
+// SCarpenter deleted it or core is disrupting the NodeClaim on purpose
+// (consolidation, drift, expiry: core sets DisruptionReason first). What is left
+// is an instance the vendor reclaimed or that was deleted outside SCarpenter
+// (plan 26 section 5).
+func (c *CloudProvider) reportGone(ctx context.Context, nodeClaim *karpv1.NodeClaim, vendor, goneReason string) {
+	if c.opts.OnInstanceGone == nil {
+		return
+	}
+	c.issuedMu.Lock()
+	_, issued := c.deleteIssued[nodeClaim.Status.ProviderID]
+	c.issuedMu.Unlock()
+	if issued || nodeClaim.StatusConditions().Get(karpv1.ConditionTypeDisruptionReason) != nil {
+		return
+	}
+	c.opts.OnInstanceGone(ctx, nodeClaim, vendor, goneReason)
 }
 
 // forget cleans up after an instance that is gone: the cache entry and the

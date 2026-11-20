@@ -45,8 +45,10 @@ type instance struct {
 	vendors.Instance
 	claim    string
 	nodeName string
-	vcpus    int64
-	key      string
+	// noticeDeadline is set by Interrupt: the deadline PollInterruptions reports.
+	noticeDeadline time.Time
+	vcpus          int64
+	key            string
 	// userData is the size of the user-data the instance was launched with
 	// (the fake boots nothing; the L3 lane checks the rendering by its size).
 	userData int
@@ -110,10 +112,13 @@ type Driver struct {
 	orphaned  map[string]bool
 	// poweredOff are the NodeClaims of the powerOff key already handled.
 	poweredOff map[string]bool
-	ruleHits   map[int]int
-	calls      []callRecord
-	dirty      bool
-	flushing   bool
+	// handled are the steering rules of the interrupt and reclaim keys already
+	// applied, "key/NodeClaim".
+	handled  map[string]bool
+	ruleHits map[int]int
+	calls    []callRecord
+	dirty    bool
+	flushing bool
 	// revision counts the changes of the published state; published is the
 	// revision the state ConfigMap holds; failures counts the failed writes in
 	// a row (the retry backoff).
@@ -175,6 +180,7 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 	d.revision = uint64(d.clock.Now().UnixMilli()) //nolint:gosec // a time, not a security value
 	d.registerMetrics()
 	d.orphaned, d.poweredOff, d.ruleHits = map[string]bool{}, map[string]bool{}, map[int]int{}
+	d.handled = map[string]bool{}
 	return nil
 }
 

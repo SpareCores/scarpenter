@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -80,6 +81,10 @@ type Options struct {
 type Controller struct {
 	opts    Options
 	metrics *metrics
+
+	// vanished are the on-demand NodeClaims already recorded by InstanceGone.
+	vanishedMu sync.Mutex
+	vanished   map[types.UID]time.Time
 }
 
 // New returns the controller; Register adds it to a manager.
@@ -91,7 +96,7 @@ func New(o Options) *Controller {
 		o.Margin = DefaultMargin
 	}
 	o.Margin = max(o.Margin, 0)
-	return &Controller{opts: o, metrics: newMetrics(o.Registerer)}
+	return &Controller{opts: o, metrics: newMetrics(o.Registerer), vanished: map[types.UID]time.Time{}}
 }
 
 // Register watches the Nodes that have the interruption annotation, and the

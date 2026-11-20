@@ -41,6 +41,7 @@ const (
 	DefaultResourcesName   = "scarpenter-fake-resources"
 	defaultStateInterval   = 500 * time.Millisecond
 	defaultConfigTTL       = time.Second
+	defaultPollInterval    = time.Second
 )
 
 func init() {
@@ -75,6 +76,8 @@ type Options struct {
 	// caches the steering ConfigMap; not flags (tests shorten them).
 	StateInterval time.Duration
 	ConfigTTL     time.Duration
+	// PollInterval is PollInterval() of vendors.InterruptionPoller, not a flag.
+	PollInterval time.Duration
 }
 
 // DefaultOptions returns the options with every default.

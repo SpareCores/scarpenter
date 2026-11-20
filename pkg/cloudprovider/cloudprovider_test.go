@@ -601,6 +601,97 @@ func TestDeleteFindsTheInstanceByTagWithoutTheAnnotation(t *testing.T) {
 	}
 }
 
+// goneReports collects what the CloudProvider tells OnInstanceGone.
+type goneReports struct {
+	mu      sync.Mutex
+	reasons []string
+}
+
+func (g *goneReports) hook(_ context.Context, _ *karpv1.NodeClaim, _, goneReason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.reasons = append(g.reasons, goneReason)
+}
+
+func (g *goneReports) list() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.reasons)
+}
+
+// An instance that is gone before SCarpenter deleted it is reported, with the
+// driver's reason; one SCarpenter deleted, or one core disrupts on purpose, is not.
+func TestDeleteReportsAnInstanceThatIsGoneWithoutSCarpenterDeletingIt(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reclaim func(e *env, ref vendors.InstanceRef)
+		claim   func(created *karpv1.NodeClaim, claim *karpv1.NodeClaim)
+		want    []string // what OnInstanceGone is told by the first Delete
+	}{
+		"silent reclaim": {
+			reclaim: func(e *env, ref vendors.InstanceRef) { e.driver.Reclaim(ref) },
+			want:    []string{""},
+		},
+		"reclaim the vendor names": {
+			reclaim: func(e *env, ref vendors.InstanceRef) { e.driver.ReclaimWithReason(ref, v1alpha1.ReasonSpotInterrupted) },
+			want:    []string{v1alpha1.ReasonSpotInterrupted},
+		},
+		"found by tag, without the instance reference": {
+			reclaim: func(e *env, ref vendors.InstanceRef) { e.driver.Reclaim(ref) },
+			claim:   func(_, claim *karpv1.NodeClaim) { claim.Annotations = nil },
+			want:    []string{""},
+		},
+		"disrupted on purpose by core": {
+			reclaim: func(e *env, ref vendors.InstanceRef) { e.driver.Reclaim(ref) },
+			claim: func(_, claim *karpv1.NodeClaim) {
+				claim.StatusConditions().SetTrueWithReason(karpv1.ConditionTypeDisruptionReason, "Drifted", "Drifted")
+			},
+			want: nil,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got goneReports
+			e := newEnv(t, envOptions{onInstanceGone: got.hook})
+			created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			claim := &karpv1.NodeClaim{}
+			claim.Name = "claim-1"
+			claim.Status.ProviderID = created.Status.ProviderID
+			claim.Annotations = created.Annotations
+			if tc.claim != nil {
+				tc.claim(created, claim)
+			}
+			tc.reclaim(e, vendors.InstanceRef(created.Annotations[v1alpha1.AnnotationInstanceRef]))
+			if err := e.cp.Delete(t.Context(), claim); !karpcloudprovider.IsNodeClaimNotFoundError(err) {
+				t.Fatalf("Delete of a reclaimed instance = %v, want NodeClaimNotFound", err)
+			}
+			if !slices.Equal(got.list(), tc.want) {
+				t.Errorf("OnInstanceGone was told %q, want %q", got.list(), tc.want)
+			}
+		})
+	}
+}
+
+func TestDeleteDoesNotReportTheInstanceItDeleted(t *testing.T) {
+	var got goneReports
+	e := newEnv(t, envOptions{onInstanceGone: got.hook})
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := &karpv1.NodeClaim{}
+	claim.Name = "claim-1"
+	claim.Status.ProviderID = created.Status.ProviderID
+	claim.Annotations = created.Annotations
+	for range 3 { // core calls Delete until it hears NotFound, and again from another controller
+		_ = e.cp.Delete(t.Context(), claim)
+	}
+	if reports := got.list(); len(reports) != 0 {
+		t.Errorf("OnInstanceGone was told %q about an instance SCarpenter deleted", reports)
+	}
+}
+
 func TestIsDriftedComparesTheHashOfTheVendor(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))

@@ -34,6 +34,13 @@ const (
 	// keyPowerOff lists NodeClaims whose instances are powered off once (as
 	// PowerOff does) and lose their Node, the way a stopped node goes away.
 	keyPowerOff = "powerOff"
+	// keyInterrupt lists NodeClaims whose running instance is announced for
+	// reclaim once (Driver.Interrupt) with a deadline the given seconds ahead:
+	// the interruption poller finds it through PollInterruptions. keyReclaim
+	// lists NodeClaims whose instance is taken away at once without notice
+	// (Driver.Reclaim), with the GoneReason the driver gives.
+	keyInterrupt = "interrupt"
+	keyReclaim   = "reclaim"
 	// keyUnsupported lists profiles that instance types cannot host, and
 	// keyExisting the resources the account had before SCarpenter (what `use`
 	// references and the vendor's default resources resolve to).
@@ -151,9 +158,24 @@ type orphanConfig struct {
 	PoweredOff bool `json:"poweredOff,omitempty"`
 }
 
+// interruptRule announces the reclaim of a NodeClaim's instance.
+type interruptRule struct {
+	NodeClaim       string `json:"nodeClaim"`
+	DeadlineSeconds int64  `json:"deadlineSeconds"`
+}
+
+// reclaimRule reclaims a NodeClaim's instance without notice.
+type reclaimRule struct {
+	NodeClaim string `json:"nodeClaim"`
+	// Reason is the Instance.GoneReason: set to impersonate a vendor that tells a
+	// reclaim from a crash, empty for one that does not.
+	Reason string `json:"reason,omitempty"`
+}
+
 // steeringKeys are the keys of the steering ConfigMap.
 var steeringKeys = []string{
-	keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyUnsupported, keyExisting, keyRootDisks, keyImages,
+	keyErrors, keyQuota, keyLaunchDelay, keyOrphans, keyPowerOff, keyInterrupt, keyReclaim, keyUnsupported, keyExisting,
+	keyRootDisks, keyImages,
 	keyVirtualGPU,
 	keyBilling,
 }
@@ -175,6 +197,8 @@ type config struct {
 	launchDelay *time.Duration
 	orphans     []orphanConfig
 	powerOff    []string
+	interrupt   []interruptRule
+	reclaim     []reclaimRule
 	rules       []unsupportedRule
 	rootDisks   []rootDiskRule
 	virtualGPU  []string
@@ -337,6 +361,10 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	})
 	parse(keyPowerOff, func(raw string) error { return yaml.UnmarshalStrict([]byte(raw), &next.powerOff) },
 		func() { next.powerOff = orEmpty(prev).powerOff })
+	parse(keyInterrupt, func(raw string) error { return yaml.UnmarshalStrict([]byte(raw), &next.interrupt) },
+		func() { next.interrupt = orEmpty(prev).interrupt })
+	parse(keyReclaim, func(raw string) error { return yaml.UnmarshalStrict([]byte(raw), &next.reclaim) },
+		func() { next.reclaim = orEmpty(prev).reclaim })
 	d.parseProfileRules(parse, next, prev)
 	parseBilling(parse, next, prev)
 	parse(keyExisting, func(raw string) error {
@@ -369,6 +397,8 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 	d.conf = next
 	d.createOrphans(ctx, next.orphans)
 	d.powerOffClaims(ctx, next.powerOff)
+	d.interruptClaims(next.interrupt)
+	d.reclaimClaims(next.reclaim)
 }
 
 // parseProfileRules parses the keys that change what the catalog says about a

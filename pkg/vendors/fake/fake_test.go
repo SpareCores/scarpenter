@@ -277,6 +277,12 @@ func TestConformance(t *testing.T) {
 				t.Fatalf("PowerOff(%s): no such instance", ref)
 			}
 		},
+		Interrupt: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef, deadline time.Time) {
+			t.Helper()
+			if !d.(*fakedriver.Driver).Interrupt(ref, deadline) {
+				t.Fatalf("Interrupt(%s): no such running instance", ref)
+			}
+		},
 		Inject: func(t *testing.T, d vendors.Driver, class vendors.Class, req vendors.CreateRequest) {
 			t.Helper()
 			h := &harness{d: d.(*fakedriver.Driver)}
@@ -677,6 +683,77 @@ func TestPowerOffKeyStopsTheInstanceAndRemovesItsNode(t *testing.T) {
 	}
 	if got, _ := h.d.GetInstance(t.Context(), other.Ref); got == nil || got.State != vendors.StateRunning {
 		t.Errorf("the other instance: %+v, want running", got)
+	}
+}
+
+// The interrupt key announces the running instance of each NodeClaim once, the
+// deadline the given seconds ahead; Interrupt does the same for one instance.
+func TestInterruptKeyAnnouncesTheInstance(t *testing.T) {
+	h := newHarness(t, nil)
+	zone := h.zone(t)
+	inst, err := h.d.CreateInstance(t.Context(), h.req("claim-1", testType, zone, "spot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.d.CreateInstance(t.Context(), h.req("claim-2", testType, zone, "spot")); err != nil {
+		t.Fatal(err)
+	}
+	h.setConfig(t, "interrupt", "[{nodeClaim: claim-1, deadlineSeconds: 90}, {nodeClaim: no-such-claim, deadlineSeconds: 5}]")
+	before := time.Now()
+	notices, err := h.d.PollInterruptions(t.Context(), testRegion)
+	if err != nil || len(notices) != 1 {
+		t.Fatalf("notices: %v, %v; want the one of claim-1", notices, err)
+	}
+	n := notices[0]
+	if n.Ref != inst.Ref || n.Reason != "SpotInterrupted" {
+		t.Errorf("notice %+v, want %s SpotInterrupted", n, inst.Ref)
+	}
+	if d := n.Deadline.Sub(before); d < 89*time.Second || d > 91*time.Second {
+		t.Errorf("the deadline is %s from now, want 90 s", d)
+	}
+	if other, _ := h.d.PollInterruptions(t.Context(), "elsewhere"); len(other) != 0 {
+		t.Errorf("notices of another region: %v", other)
+	}
+	if h.d.Interrupt(vendors.NewInstanceRef(testRegion, "i-none"), time.Now()) {
+		t.Error("Interrupt of an unknown instance reported success")
+	}
+}
+
+// Reclaim terminates the instance at once and removes its Node; the reason is
+// what a vendor that can tell would say, empty for one that cannot.
+func TestReclaimTakesTheInstanceAway(t *testing.T) {
+	h := newHarness(t, nil)
+	zone := h.zone(t)
+	inst, err := h.d.CreateInstance(t.Context(), h.req("claim-1", testType, zone, "spot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.d.Reclaim(inst.Ref) {
+		t.Fatal("Reclaim reported no instance")
+	}
+	got, err := h.d.GetInstance(t.Context(), inst.Ref)
+	if err != nil || got.State != vendors.StateTerminated || got.GoneReason != "" {
+		t.Errorf("after Reclaim: %+v, %v; want terminated without a reason", got, err)
+	}
+	if err := h.c.Get(t.Context(), types.NamespacedName{Name: "claim-1"}, &corev1.Node{}); !apierrors.IsNotFound(err) {
+		t.Errorf("the Node of the reclaimed instance: %v, want NotFound", err)
+	}
+	if h.d.Reclaim(inst.Ref) {
+		t.Error("a second Reclaim reported success")
+	}
+
+	tells, err := h.d.CreateInstance(t.Context(), h.req("claim-2", testType, zone, "spot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.setConfig(t, "reclaim", "[{nodeClaim: claim-2, reason: SpotInterrupted}]")
+	// Any call re-reads the configuration.
+	if _, err := h.d.ListInstances(t.Context(), []string{testRegion}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = h.d.GetInstance(t.Context(), tells.Ref)
+	if err != nil || got.State != vendors.StateTerminated || got.GoneReason != "SpotInterrupted" {
+		t.Errorf("after the reclaim key: %+v, %v; want terminated, SpotInterrupted", got, err)
 	}
 }
 

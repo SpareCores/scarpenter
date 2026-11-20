@@ -75,6 +75,12 @@ type Fixture struct {
 	// stopped-node rule is skipped without it.
 	PowerOff func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef)
 
+	// Interrupt makes the vendor announce the reclaim of the instance at the
+	// deadline, as far as the vendor's API shows it (what a driver's
+	// vendors.InterruptionPoller reports); the interruption poller subtest is
+	// limited to the no-notice checks without it.
+	Interrupt func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef, deadline time.Time)
+
 	// The quota subtests run for drivers that implement vendors.QuotaReporter.
 	//
 	// InstanceTypes are the API references of the vendor's catalog (or a
@@ -290,6 +296,7 @@ func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 	sub("list by tags", listByTags)
 	sub("delete is idempotent", deleteIdempotent)
 	sub("powered-off instance", poweredOff)
+	sub("interruption poller", interruptionPoller)
 	sub("billing start", billingStart)
 	sub("tag round trip", tagRoundTrip)
 	sub("user-data limit", userDataLimit)
