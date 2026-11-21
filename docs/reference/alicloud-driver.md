@@ -220,10 +220,11 @@ carry before retention can hold Alibaba nodes; the live check of plan 21 settles
 
 ## Credentials and the RAM policy
 
-The controller authenticates through the default chain of `credentials-go`: `ALIBABA_CLOUD_ACCESS_KEY_ID`/`_SECRET`, the RAM role of
-an OIDC identity provider (`ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_TOKEN_FILE`: the projected
-ServiceAccount token, the analogue of AWS web identity; recommended), the shared credentials file, the instance RAM role and a
-credentials URI. [Set up Alibaba Cloud](../how-to-guides/set-up-alicloud.md#2-credentials) covers the chart's three modes
+When `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_ROLE_ARN` and `ALIBABA_CLOUD_OIDC_TOKEN_FILE` are all set (the projected
+ServiceAccount token, the analogue of AWS web identity; recommended), the controller uses that RAM role alone, session name
+`ALIBABA_CLOUD_ROLE_SESSION_NAME` or `scarpenter`; its errors are returned as they are (the default chain of `credentials-go` would fall
+through to the instance metadata and stay there). Otherwise it authenticates through the default chain of `credentials-go`:
+`ALIBABA_CLOUD_ACCESS_KEY_ID`/`_SECRET`, the shared credentials file, the instance RAM role and a credentials URI. [Set up Alibaba Cloud](../how-to-guides/set-up-alicloud.md#2-credentials) covers the chart's three modes
 (`oidc`, `secret`, `none`). [`alicloud-ram-policy.json`](alicloud-ram-policy.json) is the policy: the `ecs:` and `vpc:` actions of the
 two API interfaces, reads for everything, creates under the request tag and mutations under the resource tag
 `scarpenter.sparecores.com/cluster` (a test ties the file to the interfaces; the condition keys' exact use with `RunInstances` is *unverified*).
@@ -237,11 +238,10 @@ flag was added).
 The driver calls the generated SDKs (`ecs-20140526/v7`, `vpc-20160428/v7`) only
 through `ECSAPI` and `VPCAPI`. The generated clients take no context and return a
 response wrapper; the adapters call the `...WithContext` variants and return the
-response body. Credentials come from the default chain of
-`github.com/aliyun/credentials-go` (access key variables, the OIDC role of
-`ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_ROLE_ARN` and
-`ALIBABA_CLOUD_OIDC_TOKEN_FILE`, the shared file, the instance RAM role, a
-credentials URI). The endpoint is `ecs.<region>.aliyuncs.com` and
+response body. Credentials are the OIDC role of the `ALIBABA_CLOUD_OIDC_*`
+variables when set (see Credentials above), else the default chain of
+`github.com/aliyun/credentials-go` (access key variables, the shared file, the
+instance RAM role, a credentials URI). The endpoint is `ecs.<region>.aliyuncs.com` and
 `vpc.<region>.aliyuncs.com` unless overridden; the user agent is
 `scarpenter/<version>`.
 
