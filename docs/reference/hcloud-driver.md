@@ -375,7 +375,6 @@ L5 lane settles each of these (plan 15, "Unverified facts"):
 - that a firewall without rules drops all inbound traffic (the deny-inbound default is the plan's reading);
 - whether Primary IPs created with a server are deleted with it (`auto_delete`); the cleanup after the delete is the safety net;
 - the address Flatcar uses on the IPv6 /64 (`::1`), and IPv6 provisioning by the Flatcar image;
-- root partition expansion on the first boot of the snapshot;
 - whether Ignition's metadata fetch works on a server without a public interface (the reason private-only is deferred);
 - whether a placement group may have members in two locations;
 - whether Keeper's server prices exclude the Primary IPv4, and the unit of `storage_size`;

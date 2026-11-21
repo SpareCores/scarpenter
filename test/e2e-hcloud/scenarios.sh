@@ -187,12 +187,14 @@ scn_amd64() {
   assert_eq "no private network (none configured)" 0 "$(jq -r '.private_net | length' <<<"${j}")"
   assert_eq "one firewall applied (the managed deny-inbound firewall)" 1 "$(jq -r '.public_net.firewalls | length' <<<"${j}")"
   assert_eq "no placement group" null "$(jq -r '.placement_group // "null"' <<<"${j}")"
-  # Unverified until this run (plan 15): the first boot expands the root partition to the type's disk.
+  # Flatcar's first boot grows ROOT to the end of the disk. ROOT starts behind about 2.4 GiB of boot
+  # and /usr partitions and the filesystem keeps some for metadata, so a grown one is about 31 GiB
+  # on a 40 GB (37.3 GiB) disk; an unexpanded one is a few GiB. Compare in bytes against 70% of the disk.
   local disk size
   disk="$(jq -r '.primary_disk_size' <<<"${j}")"
-  size="$(node_shell "${node}" 'df -B1G --output=size / | tail -n1' | tr -d ' G')"
-  note "root filesystem ${size} GB of the type's ${disk} GB disk"
-  [[ "${size}" -ge $((disk * 8 / 10)) ]] || fail "the root filesystem (${size} GB) was not expanded to the type's disk (${disk} GB)"
+  size="$(node_shell "${node}" 'df -B1 --output=size / | tail -n1' | tr -d ' ')"
+  note "root filesystem ${size} bytes of the type's ${disk} GB disk"
+  [[ "${size}" -ge $((disk * 700000000)) ]] || fail "the root filesystem (${size} bytes) was not expanded to the type's disk (${disk} GB)"
 
   log "the claim: price, bootstrap token, serving certificate"
   local price
