@@ -167,6 +167,10 @@ func (l LaunchSpec) validate() error {
 		return nil
 	}
 	if l.Confidential() {
+		if l.SKU.GPUs > 0 {
+			return vendors.NewError(vendors.Unsupported, codeConfidentialGPU, fmt.Errorf(
+				"%s is a confidential size with GPUs: Azure Container Linux has no NVIDIA driver", l.Size))
+		}
 		if root.Ephemeral != nil {
 			return unsupported("%s is a confidential size: its OS disk is encrypted, not ephemeral", l.Size)
 		}

@@ -83,13 +83,18 @@ systemd:
             # that the unit does not depend on the variables of that drop-in. Azure
             # Container Linux has a kubelet.service of its own in /etc that needs
             # /opt/bin/kubelet and /etc/default/kubelet and runs its own scripts first:
-            # the empty assignments clear those settings.
+            # the empty assignments clear those settings. ExecStartPre= also clears the
+            # sysext's steps (the CNI plugins into /opt/cni/bin), which follow verbatim.
             [Unit]
             ConditionPathExists=
             [Service]
             EnvironmentFile=
             EnvironmentFile=-/run/scarpenter/node-ip.env
             ExecStartPre=
+            ExecStartPre=/usr/bin/mkdir -p /opt/cni/bin
+            ExecStartPre=/usr/bin/cp -r /usr/local/bin/cni/. /opt/cni/bin/
+            ExecStartPre=/usr/bin/cp /usr/local/share/kubernetes-version /etc/kubernetes-version
+            ExecStartPre=/usr/bin/mkdir -p /var/kubernetes/kubelet-plugins/volume/exec/
             ExecStart=
             ExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml {{ .KubeletArgs }} $SCARPENTER_NODE_IP_ARGS
 {{- if .PoweroffAfterSeconds }}

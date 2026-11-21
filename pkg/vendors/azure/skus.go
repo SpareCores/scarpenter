@@ -31,6 +31,7 @@ const (
 	// capConfidential is SNP or TDX on a confidential VM size and absent on
 	// the others (SGX sizes included).
 	capConfidential = "ConfidentialComputingType"
+	capGPUs         = "GPUs"
 )
 
 // Confidential computing types of a size.
@@ -68,6 +69,8 @@ type SKU struct {
 	// size (it boots Azure Container Linux, see ConfidentialImage), "" for the
 	// others. SGX sizes (DCsv2, DCsv3) report no type and stay plain.
 	Confidential string
+	// GPUs is the number of GPUs of the size.
+	GPUs int
 }
 
 // capabilities indexes the capability list of a SKU.
@@ -120,6 +123,7 @@ func ParseSKU(r *armcompute.ResourceSKU, location string) (SKU, bool) {
 		MaxDataDisks:       int(capInt(c, capMaxDataDisks)),
 		CachedDiskBytes:    capInt(c, capCachedDisk),
 		ResourceDiskMB:     capInt(c, capResourceDisk),
+		GPUs:               int(capInt(c, capGPUs)),
 	}
 	switch strings.ToUpper(strings.TrimSpace(c[capConfidential])) {
 	case ConfidentialSNP:

@@ -309,6 +309,8 @@ type SKU struct {
 	// Confidential is the ConfidentialComputingType capability (SNP or TDX); empty
 	// leaves it out.
 	Confidential string
+	// GPUs is the GPUs capability; zero leaves it out.
+	GPUs int
 }
 
 // AddSKU adds a size to the location's SKU table.
@@ -359,6 +361,9 @@ func (s *Subscription) AddSKU(loc string, k SKU) error {
 	}
 	if k.Confidential != "" {
 		r.Capabilities = append(r.Capabilities, capab("ConfidentialComputingType", k.Confidential))
+	}
+	if k.GPUs > 0 {
+		r.Capabilities = append(r.Capabilities, capab("GPUs", fmt.Sprint(k.GPUs)))
 	}
 	info := &armcompute.ResourceSKULocationInfo{Location: new(loc)}
 	for _, z := range zones {

@@ -32,6 +32,7 @@ func confidentialEnv(t *testing.T) *env {
 		for _, k := range []fake.SKU{
 			{Name: snpSize, Family: "standardDCASv5Family", VCPUs: 2, NoAcceleratedNet: true, Confidential: "SNP"},
 			{Name: tdxSize, Family: "standardDCEV6Family", VCPUs: 2, Confidential: "TDX"},
+			{Name: "Standard_NCC40ads_H100_v5", Family: "StandardNCCads2023Family", VCPUs: 40, Confidential: "SNP", GPUs: 1},
 			{Name: "Standard_DC2s_v3", Family: "standardDCSv3Family", VCPUs: 2},
 		} {
 			require.NoError(t, e.sub.AddSKU(loc, k))
@@ -134,4 +135,14 @@ func TestConfidentialSizeIsUnsupportedWhereTheImageIsMissing(t *testing.T) {
 	_, err = d.CreateInstance(context.Background(), req)
 	require.True(t, vendors.IsClass(err, vendors.Unsupported))
 	require.Equal(t, 1, e.sub.Calls("image.community"))
+}
+
+func TestConfidentialSizeWithGPUsIsUnsupported(t *testing.T) {
+	e := confidentialEnv(t)
+	d := e.driver(t)
+	req := e.launchReq(t, "cvm-gpu")
+	req.InstanceType = "Standard_NCC40ads_H100_v5"
+	_, err := d.CreateInstance(context.Background(), req)
+	require.True(t, vendors.IsClass(err, vendors.Unsupported), "%v", err)
+	require.Equal(t, codeConfidentialGPU, vendors.CodeOf(err))
 }

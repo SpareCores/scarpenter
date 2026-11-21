@@ -589,3 +589,24 @@ func TestKubeletClientCA(t *testing.T) {
 		t.Errorf("without a client CA the kubelet must trust the cluster CA:\n%s", s)
 	}
 }
+
+// TestKubeletDropInKeepsTheSysextSteps: the drop-in clears ExecStartPre (the
+// image of Azure Container Linux has steps of its own) and must write the
+// sysext's steps back, or the CNI plugins never reach /opt/cni/bin.
+func TestKubeletDropInKeepsTheSysextSteps(t *testing.T) {
+	r, err := bootstrap.Render(baseParams("amd64", v1alpha1.NetworkTemplateDirect))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, parts := decode(t, r.UserData)
+	base := string(parts[0])
+	for _, want := range []string{
+		"ExecStartPre=\\nExecStartPre=/usr/bin/mkdir -p /opt/cni/bin\\nExecStartPre=/usr/bin/cp -r /usr/local/bin/cni/. /opt/cni/bin/\\n",
+		"ExecStartPre=/usr/bin/cp /usr/local/share/kubernetes-version /etc/kubernetes-version\\n",
+		"ExecStartPre=/usr/bin/mkdir -p /var/kubernetes/kubelet-plugins/volume/exec/\\nExecStart=\\n",
+	} {
+		if !strings.Contains(base, want) {
+			t.Errorf("the kubelet drop-in lacks %q", want)
+		}
+	}
+}

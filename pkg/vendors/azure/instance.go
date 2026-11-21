@@ -43,6 +43,8 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		plan      *ImagePlan
 		community string
 	)
+	// A size missing from the SKU table (sku nil) takes the Flatcar path: the
+	// table is read for the region first, so this is a size Azure does not list.
 	if sku != nil && sku.Confidential != "" {
 		// A confidential size boots Azure Container Linux, whatever image the
 		// request names.

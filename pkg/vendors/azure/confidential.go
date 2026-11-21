@@ -17,6 +17,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
+// codeConfidentialGPU is the code of the Unsupported error of a confidential size with GPUs.
+const codeConfidentialGPU = "ConfidentialGPUNotSupported"
+
 // codeConfidentialImageNotFound is the code of the Unsupported error of a
 // region without the confidential VM image.
 const codeConfidentialImageNotFound = "ConfidentialImageNotFound"

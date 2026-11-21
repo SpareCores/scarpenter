@@ -75,7 +75,8 @@ report no type and stay on Flatcar like every other size.
 - **Launch fields**: `securityProfile.securityType: ConfidentialVM` with secure boot and vTPM on, OS disk
   `securityEncryptionType: VMGuestStateOnly`, the image by `communityGalleryImageId`, accelerated networking off. The user-data
   (Ignition) is the custom data as for Flatcar. Ephemeral OS disks, encryption at host and accelerated networking `"true"` are
-  `Unsupported` on these sizes.
+  `Unsupported` on these sizes, and so is a confidential size with GPUs (`ConfidentialGPUNotSupported`: the image has no
+  NVIDIA driver, e.g. NCC40ads_H100_v5).
 - **Intel TDX**: launched with the same image and fields on a DC2es_v6; it boots, Ignition runs and the kubelet sysext is
   active, like on SEV-SNP.
 - **Differences from Flatcar** the user-data accounts for: the image has its own `kubelet.service` in `/etc` (it needs
@@ -84,6 +85,11 @@ report no type and stay on Flatcar like every other size.
   The other units of the templates are pulled in by the kubelet (`Requires`, `RequiresMountsFor`), not by their `[Install]`
   section. `waagent` provisions the `core` user and an SSH key that nobody holds (the generated key, or `adminSSHPublicKey`);
   Ignition configures neither.
+- **Instance metadata**: the `Restricted` firewall (`scarpenter-metadata-firewall.service`) loads on the image: `iptables` and
+  the cgroup match exist, `waagent.service` is the agent's unit name, and both the kubelet (`Requires=`) and waagent (`Wants=`)
+  pull the firewall in. A connection to the metadata service or the WireServer from outside `scarpenter-metadata.slice` is
+  dropped, from inside it succeeds, and waagent runs in the slice. The image's own rules (root-owned processes only on the
+  WireServer) stay in place next to it.
 
 ## Node settings
 
@@ -151,7 +157,8 @@ verified on a live account: [Per-vendor cost guards](../how-to-guides/testing-an
 ## What is not verified against Azure yet
 
 Everything, except that a VM of a confidential size (SEV-SNP and TDX, westeurope) boots from the community gallery image with
-the launch fields above, runs Ignition and starts the kubelet of the kubernetes sysext (no join to a cluster was tried). In particular: the marketplace SKUs and versions per channel and architecture and whether the arm64
+the launch fields above, runs Ignition and starts the kubelet of the kubernetes sysext (no join to a cluster was tried).
+In particular: the marketplace SKUs and versions per channel and architecture and whether the arm64
 offer has terms; that a VM with custom data and a throwaway key is accepted; the Compute and Network usage names, the
 SKU capability names and the family mapping; whether a failed allocation leaves a `Failed` VM; the `deleteOption`
 cascade; the codes of capacity, quota, zone and in-use errors (the zonal `SkuNotAvailable` wording and the in-use codes
