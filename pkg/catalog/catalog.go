@@ -675,6 +675,15 @@ func (c *Catalog) InstanceTypes(ctx context.Context, q Query) ([]*cloudprovider.
 	return out, nil
 }
 
+// Loaded reports whether the catalog has a snapshot and knows the class: before
+// that InstanceTypes returns nothing, which is not the same as the class
+// offering nothing.
+func (c *Catalog) Loaded(class string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.snap != nil && c.classes[class] != nil
+}
+
 // FactsLoaded reports whether the driver facts of the vendor are loaded (true
 // for facts that do not say). Until then the vendor has no zones and nothing of
 // it is really offered, so what it offers must not be reported as a state.
