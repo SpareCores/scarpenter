@@ -11,4 +11,5 @@ vendors:
     enabled: true
     credentials: {secret: {existingSecret: hcloud-token, key: token}}
     serverLimit: 25
+    buildImages: false
     ipv4Price: "0.0008"

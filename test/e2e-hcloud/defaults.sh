@@ -14,10 +14,9 @@
 # The Flatcar release: test/flatcar-pin.sh (CI sets it from the repository variables FLATCAR_CHANNEL and FLATCAR_VERSION).
 # shellcheck source=test/flatcar-pin.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
-# The tools of bootstrap.sh, installed with `go install` (the module proxy's checksum database
-# verifies them). hcloud-upload-image makes the Flatcar snapshots; the hcloud CLI is what the
-# scripts ask the API with. Pin the CLI after the first live run (latest until then).
-: "${E2E_HCLOUD_UPLOAD_IMAGE_VERSION:=v1.5.0}"
+# The tool of bootstrap.sh, installed with `go install` (the module proxy's checksum database
+# verifies it): the hcloud CLI is what the scripts ask the API with. Pin it after the first live
+# run (latest until then). The Flatcar snapshots are built by the controller (ADR-030).
 : "${E2E_HCLOUD_CLI_VERSION:=latest}"
 # Server types the suite launches (the lane's NodePools list them: the token cannot deny others).
 : "${E2E_TYPE_AMD64:=hcloud.cx23}"
@@ -60,7 +59,7 @@ E2E_BYO_LOCATION="${_locations[0]}"
 
 # envsubst (manifests) and the child processes read exported variables.
 export E2E_HCLOUD_LOCATIONS E2E_HCLOUD_LOCATIONS_YAML E2E_BYO_LOCATION E2E_NEGATIVE_LOCATION E2E_HCLOUD_SERVER_LIMIT \
-  E2E_HCLOUD_UPLOAD_IMAGE_VERSION E2E_HCLOUD_CLI_VERSION \
+  E2E_HCLOUD_CLI_VERSION \
   E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION \
   E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
   E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE \

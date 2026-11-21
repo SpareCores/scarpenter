@@ -337,6 +337,15 @@ func (f *Fake) AddImage(arch hc.Architecture, labels map[string]string) *hc.Imag
 	return im
 }
 
+// SetImageStatus sets an image's status (for example creating).
+func (f *Fake) SetImageStatus(id int64, st hc.ImageStatus) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if im := f.images[id]; im != nil {
+		im.Status = st
+	}
+}
+
 // AddFlatcarImages adds the two snapshots of a Flatcar release with the label
 // convention (os, flatcar-channel, flatcar-version) and returns x86 and arm.
 func (f *Fake) AddFlatcarImages(channel, version string) (x86, arm *hc.Image) {
@@ -344,11 +353,14 @@ func (f *Fake) AddFlatcarImages(channel, version string) (x86, arm *hc.Image) {
 	return f.AddImage(hc.ArchitectureX86, l), f.AddImage(hc.ArchitectureARM, l)
 }
 
-// AddSSHKey adds a key.
-func (f *Fake) AddSSHKey(name string) *hc.SSHKey {
+// AddSSHKey adds a key with optional labels.
+func (f *Fake) AddSSHKey(name string, labels ...map[string]string) *hc.SSHKey {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	k := &hc.SSHKey{ID: f.id(), Name: name}
+	k := &hc.SSHKey{ID: f.id(), Name: name, Created: f.clock.Now()}
+	if len(labels) > 0 {
+		k.Labels = cloneMap(labels[0])
+	}
 	f.sshKeys[k.ID] = k
 	return k
 }
@@ -585,4 +597,42 @@ func (f *Fake) SSHKey(_ context.Context, idOrName string) (*hc.SSHKey, error) {
 		}
 	}
 	return nil, nil
+}
+
+// SSHKeys implements hcloud.API: the label selector is honoured.
+func (f *Fake) SSHKeys(_ context.Context, o hc.SSHKeyListOpts) ([]*hc.SSHKey, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sel, err := ParseSelector(o.LabelSelector)
+	if err != nil {
+		f.calls["SSHKeys"]++
+		return nil, APIError(hc.ErrorCodeInvalidInput, err.Error(), "label_selector")
+	}
+	var out []*hc.SSHKey
+	for _, k := range f.sshKeys {
+		if sel.Matches(k.Labels) {
+			c := *k
+			c.Labels = cloneMap(k.Labels)
+			out = append(out, &c)
+		}
+	}
+	slices.SortFunc(out, func(a, b *hc.SSHKey) int { return int(a.ID - b.ID) })
+	if err := f.call("SSHKeys", pagesFor(len(out))); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteSSHKey implements hcloud.API.
+func (f *Fake) DeleteSSHKey(_ context.Context, k *hc.SSHKey) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.call("DeleteSSHKey", 1); err != nil {
+		return err
+	}
+	if f.sshKeys[k.ID] == nil {
+		return APIError(hc.ErrorCodeNotFound, "ssh key not found")
+	}
+	delete(f.sshKeys, k.ID)
+	return nil
 }

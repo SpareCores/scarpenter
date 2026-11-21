@@ -90,7 +90,14 @@ const (
 	// EventDeprecatedHardening: the NodeClass still sets spec.bootstrap.hardening.
 	EventDeprecatedHardening = "DeprecatedHardening"
 	EventMetricInvalid       = "MetricInvalid"
-	eventDedupe              = 10 * time.Minute
+	// EventImageBuilding (Normal) and EventImageBuildFailed (Warning): a driver
+	// builds a missing boot image (ADR-030).
+	EventImageBuilding    = vendors.CodeImageBuilding
+	EventImageBuildFailed = vendors.CodeImageBuildFailed
+	// imageBuildDedupe is how long the event of one build is not repeated: the
+	// longest build.
+	imageBuildDedupe = 30 * time.Minute
+	eventDedupe      = 10 * time.Minute
 )
 
 // Defaults of the intervals.
@@ -531,6 +538,7 @@ func (c *Controller) vendor(
 		c.opts.ImageGate.SetImageGaps(desired.Name, vendor, imageGaps(images))
 	}
 	vs.Images = images
+	c.imageBuildEvents(desired, vendor, images)
 	cond(v1alpha1.VendorConditionImagesReady, ok, reason, msg)
 	return vs
 }
@@ -647,6 +655,32 @@ func (c *Controller) images(
 	}
 	return images, true, ReasonImagesPartial, trim("no usable image for " + strings.Join(notReady, ", ") +
 		"; the offerings of those regions are unavailable")
+}
+
+// imageBuildEvents publishes the image builds a driver reports: one Event per
+// architecture and outcome, not one per region or reconcile.
+func (c *Controller) imageBuildEvents(nc *v1alpha1.SCNodeClass, vendor string, images []v1alpha1.ImageStatus) {
+	if c.opts.Recorder == nil {
+		return
+	}
+	for _, img := range images {
+		typ := corev1.EventTypeNormal
+		switch img.Reason {
+		case EventImageBuilding:
+		case EventImageBuildFailed:
+			typ = corev1.EventTypeWarning
+		default:
+			continue
+		}
+		c.opts.Recorder.Publish(events.Event{
+			InvolvedObject: nc,
+			Type:           typ,
+			Reason:         img.Reason,
+			Message:        trim(fmt.Sprintf("vendor %s: %s", vendor, img.Message)),
+			DedupeValues:   []string{nc.Name, vendor, img.Arch, img.Reason},
+			DedupeTimeout:  imageBuildDedupe,
+		})
+	}
 }
 
 // conditionReason is the format the API server accepts for a condition's reason

@@ -58,6 +58,9 @@ read back from the image.
   exists already, IaC. Which vendors could take a public image, and at what
   cost, is [below](#publishing-an-image-for-everyone-and-what-it-costs). That keeps credentials that can
   write images out of the controller, which only reads them.
+- Hetzner is the exception (rung 4, ADR-030): it has no import API and no IaC resource
+  for one, and its token is read-write for the whole project anyway, so the hcloud
+  driver builds the snapshot itself.
 - A vendor's own "Flatcar" entry whose version cannot be read back is not a rung:
   it would break ADR-012 and ADR-017 (never boot another version silently).
 - The OEM id is the one thing a generic Flatcar image lacks on a platform
@@ -104,7 +107,7 @@ hash; the pinned version is.
 | azure | 1 | Marketplace offers of publisher `kinvolk` | global offer, per-region versions | Flatcar |
 | gcp, amd64 | 1 | public project `kinvolk-public` | global | Flatcar |
 | gcp, arm64 | 2 | Spare Cores GCP project, shared with `allAuthenticatedUsers` | global | images repository |
-| hcloud | 3 | Flatcar's `hetzner` image as a snapshot | global in the project | your IaC |
+| hcloud | 4 | Flatcar's `hetzner` image as a snapshot | global in the project | the hcloud driver (or you, with building off) |
 | ovh | 3 | Flatcar's `openstack` image in Glance | regional | your IaC |
 | oci | 3 | Flatcar's `oraclecloud` image, imported as a custom image | regional | your IaC |
 | upcloud | 3 | images repository, OEM id `upcloud` | per zone and storage tier | your IaC |
@@ -168,13 +171,12 @@ hash; the pinned version is.
 
 | | |
 |---|---|
-| Rung | 3 (Hetzner offers no Flatcar image, and its snapshots cannot be shared or made public) |
-| Source | Flatcar's official `flatcar_production_hetzner_image.bin.bz2`, uploaded as a snapshot with `hcloud-upload-image` (Hetzner has no import API) |
+| Rung | 4 (ADR-030): Hetzner offers no Flatcar image, its snapshots cannot be shared or made public, and it has no import API |
+| Source | Flatcar's official `flatcar_production_hetzner_image.bin.bz2` from `<channel>.release.flatcar-linux.net`, written by a temporary server in rescue mode and snapshotted (the procedure and library of `hcloud-upload-image`) |
 | Scope | global in the project, bound to an architecture; a snapshot boots in any location |
-| Created by | your IaC or a CI job next to it (some IaC tools have no upload resource, Pulumi among them); the L5 lane's bootstrap does it for the CI project |
+| Created by | the hcloud driver, when the label lookup finds none (one build at a time, leader only); with `--hcloud-build-images=false` or an `images` selector, you (`hcloud-upload-image`, [the how-to](../how-to-guides/set-up-hcloud.md#1-the-flatcar-image)) |
 | Pinned version | snapshot labels `os=flatcar`, `flatcar-channel=<channel>`, `flatcar-version=<version>` and the architecture; exactly one match |
 | Architectures | amd64, arm64 |
-| Later | an `ImageImporter` with the same upload library stays possible (rung 4) |
 
 ### ovh
 
@@ -272,8 +274,9 @@ What this means for the ladder:
   community application per region; Alibaba Cloud needs a verified enterprise account and an
   import per region, because its community images cannot be copied.
 - **Vultr** could move to rung 2 only through the Marketplace, whose terms are unverified.
-- **Hetzner, UpCloud and OVHcloud** stay at rung 3: no public route is documented, and an OVH
-  share needs every user's project to accept it.
+- **UpCloud and OVHcloud** stay at rung 3: no public route is documented, and an OVH
+  share needs every user's project to accept it. **Hetzner** has no public route either; its
+  driver builds the snapshot in the user's project (rung 4, ADR-030).
 
 Sources: [AWS sharing AMIs](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/sharingamis-intro.html),
 [EBS snapshot archive pricing](https://docs.aws.amazon.com/ebs/latest/userguide/snapshot-archive-pricing.html),

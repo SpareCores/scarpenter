@@ -222,6 +222,9 @@ type Options struct {
 	// HCloudServerLimit is the server limit of the Hetzner Cloud project, which
 	// the API does not report (0 unknown: no headroom is known before a launch).
 	HCloudServerLimit int
+	// HCloudBuildImages lets the hcloud driver build a missing Flatcar snapshot
+	// (ADR-030); false for operators who pre-create them.
+	HCloudBuildImages bool
 	// BillingRetention runs the billing retention controller (ADR-024); the
 	// NodeClass's spec.billing is the real switch, this turns the whole
 	// controller off.
@@ -304,6 +307,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.OCIIdentityDomain, "oci-identity-domain-url", env.WithDefaultString("SCARPENTER_OCI_IDENTITY_DOMAIN_URL", ""), "workloadIdentityFederation: URL of the IAM identity domain whose token endpoint does the exchange.")
 	fs.StringVar(&o.OCIClientID, "oci-client-id", env.WithDefaultString("SCARPENTER_OCI_CLIENT_ID", ""), "workloadIdentityFederation: client ID of the identity domain's confidential application.")
 	fs.StringVar(&o.OCIClientSecretFile, "oci-client-secret-file", env.WithDefaultString("SCARPENTER_OCI_CLIENT_SECRET_FILE", ""), "workloadIdentityFederation: file with the confidential application's client secret.")
+	fs.BoolVar(&o.HCloudBuildImages, "hcloud-build-images", env.WithDefaultBool("SCARPENTER_HCLOUD_BUILD_IMAGES", true), "Let the hcloud driver build the Flatcar snapshot of the pinned release when the project has none (a temporary server writes Flatcar's hetzner image and is snapshotted, as hcloud-upload-image does). Only NodeClasses without resources.images.use; false for operators who pre-create the snapshots.")
 	fs.IntVar(&o.HCloudServerLimit, "hcloud-server-limit", env.WithDefaultInt("SCARPENTER_HCLOUD_SERVER_LIMIT", 0), "Server limit of the Hetzner Cloud project (shown in its Console; the API does not report it). 0 means unknown: only the API's own refusal ends a launch.")
 }
 

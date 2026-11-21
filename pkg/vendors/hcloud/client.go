@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apricote/hcloud-upload-image/hcloudimages/v2"
 	hc "github.com/hetznercloud/hcloud-go/v2/hcloud"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -326,3 +327,21 @@ func (c *Client) SSHKey(ctx context.Context, idOrName string) (*hc.SSHKey, error
 	k, _, err := c.c.SSHKey.Get(ctx, idOrName)
 	return k, err
 }
+
+// SSHKeys implements API.
+func (c *Client) SSHKeys(ctx context.Context, opts hc.SSHKeyListOpts) ([]*hc.SSHKey, error) {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+	return c.c.SSHKey.AllWithOpts(ctx, opts)
+}
+
+// DeleteSSHKey implements API.
+func (c *Client) DeleteSSHKey(ctx context.Context, k *hc.SSHKey) error {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+	_, err := c.c.SSHKey.Delete(ctx, k)
+	return err
+}
+
+// Uploader is hcloud-upload-image's library over the same SDK client (ADR-030).
+func (c *Client) Uploader() Uploader { return hcloudimages.NewClient(c.c) }

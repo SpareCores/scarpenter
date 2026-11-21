@@ -467,6 +467,9 @@
               "type": "integer",
               "minimum": 0
             },
+            "buildImages": {
+              "type": "boolean"
+            },
             "ipv4Price": {
               "type": [
                 "string",

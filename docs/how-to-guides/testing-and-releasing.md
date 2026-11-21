@@ -264,7 +264,7 @@ CI project (the secret `HCLOUD_TOKEN` of the environment `e2e-canary`; the optio
 |---|---|---|
 | locations | `Driver.Regions` (`GET /locations`) | a lane location gone |
 | Flatcar snapshot, amd64 and arm64 | `Driver.ResolveImage` (exactly one labelled snapshot of the pinned release, the path the NodeClass condition `ImagesReady` uses) | a snapshot deleted or doubled in the project |
-| Flatcar release, amd64 and arm64 | HEAD of `flatcar_production_hetzner_image.bin.bz2` and GET of its `.DIGESTS` on the release server (shared artifact checks) | the image `hcloud-upload-image` makes snapshots from moved or removed |
+| Flatcar release, amd64 and arm64 | HEAD of `flatcar_production_hetzner_image.bin.bz2` and GET of its `.DIGESTS` on the release server (shared artifact checks) | the image the driver builds snapshots from (ADR-030) moved or removed |
 | server types | `GET /server_types`: every type of the lane exists in a lane location and is not past `deprecation.unavailable_after`; a temporarily unavailable entry is noted, not a failure | a type retired or no longer offered |
 | API rate limit | the `RateLimit-*` headers of the last response, at least 1000 of 3600 left | another run using the project |
 | read-only guard | the audit | a check that tried a write |
@@ -400,8 +400,8 @@ infrastructure provides](#what-the-ci-accounts-infrastructure-provides)); then a
 | Budget alert to a person | the project's usage alert (Console) |
 | Type deny | **none possible** in the token: the lane's NodePools list the types (`cx23`, `cax11`, `cpx22`), and the project's server limit (at least 10, requested low) bounds a bug |
 | Region restriction | `E2E_HCLOUD_LOCATIONS` (default `fsn1,nbg1,hel1`); not enforceable by the token |
-| Run tag | label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` on every resource |
-| Sweeper | `e2e-hcloud-sweeper.yml` every three hours, environment `e2e-sweeper`: servers, volumes, placement groups, firewalls and unassigned Primary IPs older than two hours; never the Flatcar snapshots |
+| Run tag | label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` on every resource; the controller's snapshot builds label their temporary server and SSH key `scarpenter.sparecores.com/image-build=scarpenter-ci-<run id>` |
+| Sweeper | `e2e-hcloud-sweeper.yml` every three hours, environment `e2e-sweeper`: servers, volumes, placement groups, firewalls and unassigned Primary IPs older than two hours, and the build servers and SSH keys of CI clusters; never the Flatcar snapshots |
 | Run time limit, teardown | as AWS (90 minutes, 55 for the scenarios, `if: always()`) |
 | Teardown that fails on leftovers | `teardown.sh` |
 | Read-only canary | a read-only token, a transport guard that refuses every method but GET, with a test |

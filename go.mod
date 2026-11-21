@@ -18,6 +18,7 @@ require (
 	github.com/alibabacloud-go/tea v1.5.4
 	github.com/alibabacloud-go/vpc-20160428/v7 v7.3.1
 	github.com/aliyun/credentials-go v1.4.14
+	github.com/apricote/hcloud-upload-image/hcloudimages/v2 v2.0.1
 	github.com/aws/aws-sdk-go-v2 v1.48.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.18
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.346.0
