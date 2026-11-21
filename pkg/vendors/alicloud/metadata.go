@@ -23,32 +23,28 @@ func (d *Driver) MetadataEndpoints() vendors.MetadataEndpoints {
 	}
 }
 
-// dnsFragment makes the node resolve through Alibaba's public resolvers. The
-// DHCP resolvers (100.100.2.136 and 100.100.2.138) lie inside 100.64.0.0/10,
-// Tailscale's CGNAT range. Once the node joins the tailnet, tailscaled drops
-// the packets from that range that arrive outside tailscale0 (its ts-input
-// chain), and the replies of Alibaba's 100.100.x services arrive on eth0: the
-// node could no longer resolve the API server's name. The metadata service
-// (100.100.100.200) is unreachable after the join as well, which nothing in the
-// node bootstrap uses by then, and time sync uses public NTP. So this moves
-// only DNS. A drop-in of the image's default network unit sets the public
-// resolvers and ignores the DHCP ones.
-const dnsFragment = `variant: flatcar
+// tailnetFragment keeps the node's access to Alibaba's 100.100.0.0/16 services
+// (the metadata service at 100.100.100.200 and the DHCP resolvers 100.100.2.136
+// and 100.100.2.138) after it joins the tailnet. They lie inside 100.64.0.0/10,
+// Tailscale's CGNAT range: tailscaled's ts-input chain drops packets from that
+// range that arrive outside tailscale0, and their replies arrive on eth0 (the
+// routes are fine). --netfilter-mode=nodivert makes tailscaled create its
+// chains without jumping to them from INPUT and FORWARD, so the drop never
+// applies. The drop-in hands the flag to the tailscale template's
+// scarpenter-tailscale-up.service; without that template it does nothing.
+const tailnetFragment = `variant: flatcar
 version: 1.1.0
-storage:
-  files:
-    - path: /etc/systemd/network/zz-default.network.d/10-scarpenter-dns.conf
-      mode: 0644
-      contents:
-        inline: |
-          [Network]
-          DNS=223.5.5.5
-          DNS=223.6.6.6
-          [DHCPv4]
-          UseDNS=false
+systemd:
+  units:
+    - name: scarpenter-tailscale-up.service
+      dropins:
+        - name: 20-alicloud-netfilter.conf
+          contents: |
+            [Service]
+            Environment=SCARPENTER_TAILSCALE_UP_ARGS=--netfilter-mode=nodivert
 `
 
 // BootFragments implements vendors.VendorBootFragments.
 func (d *Driver) BootFragments() []vendors.BootFragment {
-	return []vendors.BootFragment{{Name: "dns", Butane: dnsFragment}}
+	return []vendors.BootFragment{{Name: "tailnet", Butane: tailnetFragment}}
 }

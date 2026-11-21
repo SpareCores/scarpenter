@@ -66,15 +66,15 @@ func TestMetadataFragmentOfEachVendor(t *testing.T) {
 	}
 }
 
-// TestAlicloudDNSFragment pins the Butane of the Alibaba Cloud DNS fragment (the
-// DHCP resolvers are inside the CGNAT range that tailscaled routes into the
-// tailnet) and renders it into the user-data of a tailscale node.
-func TestAlicloudDNSFragment(t *testing.T) {
+// TestAlicloudTailnetFragment pins the Butane of the Alibaba Cloud tailnet fragment
+// (tailscaled's CGNAT drop must not apply to the 100.100.0.0/16 services) and
+// renders it into the user-data of a tailscale node, whose unit passes the flag.
+func TestAlicloudTailnetFragment(t *testing.T) {
 	frags := (&alicloud.Driver{}).BootFragments()
 	if len(frags) != 1 {
 		t.Fatalf("%d fragments, want 1", len(frags))
 	}
-	testutil.Golden(t, "dns-alicloud.golden", []byte(frags[0].Butane))
+	testutil.Golden(t, "tailnet-alicloud.golden", []byte(frags[0].Butane))
 
 	p := baseParams("amd64", v1alpha1.NetworkTemplateTailscale)
 	p.VendorFragments = []bootstrap.Fragment{{Name: frags[0].Name, Butane: frags[0].Butane}}
@@ -82,14 +82,12 @@ func TestAlicloudDNSFragment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var vendor, network bool
 	for _, part := range r.Parts {
-		if part.Name != "vendor-dns" {
-			continue
-		}
-		if !strings.Contains(string(part.Ignition), "zz-default.network.d/10-scarpenter-dns.conf") {
-			t.Error("the Ignition of the fragment lacks the drop-in")
-		}
-		return
+		vendor = vendor || (part.Name == "vendor-tailnet" && strings.Contains(string(part.Ignition), "20-alicloud-netfilter.conf"))
+		network = network || (part.Name == "network" && strings.Contains(string(part.Ignition), "SCARPENTER_TAILSCALE_UP_ARGS"))
 	}
-	t.Error("no vendor-dns part")
+	if !vendor || !network {
+		t.Errorf("vendor drop-in present: %v, the tailscale unit passes the variable: %v", vendor, network)
+	}
 }

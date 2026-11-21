@@ -125,7 +125,7 @@
   "systemd": {
     "units": [
       {
-        "contents": "[Unit]\nDescription=Join the tailnet and publish the kubelet node IP\nRequires=tailscaled.service\nAfter=tailscaled.service network-online.target\nWants=network-online.target\nBefore=kubelet.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/tailscale up --auth-key=file:/etc/scarpenter/tailscale-authkey --hostname=default-abc12 --accept-dns=false --accept-routes --advertise-tags=tag:k8s-node\nExecStart=/opt/scarpenter/bin/wait-for-tailscale-ip\n[Install]\nWantedBy=multi-user.target\n",
+        "contents": "[Unit]\nDescription=Join the tailnet and publish the kubelet node IP\nRequires=tailscaled.service\nAfter=tailscaled.service network-online.target\nWants=network-online.target\nBefore=kubelet.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/tailscale up --auth-key=file:/etc/scarpenter/tailscale-authkey --hostname=default-abc12 --accept-dns=false --accept-routes --advertise-tags=tag:k8s-node $SCARPENTER_TAILSCALE_UP_ARGS\nExecStart=/opt/scarpenter/bin/wait-for-tailscale-ip\n[Install]\nWantedBy=multi-user.target\n",
         "enabled": true,
         "name": "scarpenter-tailscale-up.service"
       },

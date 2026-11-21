@@ -318,7 +318,7 @@ compares them. What each renders:
   `scarpenter-tailscale-up.service` (oneshot, before the kubelet) runs
   `tailscale up --auth-key=file:... --hostname=<nodeclaim> --accept-dns=false`
   plus `--login-server` (Headscale), `--accept-routes` (`acceptRoutes: true`,
-  so the node uses the subnet routes advertised into the tailnet) and `--advertise-tags`, then
+  so the node uses the subnet routes advertised into the tailnet) and `--advertise-tags`, plus the flags a vendor's fragment sets in `SCARPENTER_TAILSCALE_UP_ARGS` (Alibaba Cloud: `--netfilter-mode=nodivert`), then
   `/opt/scarpenter/bin/wait-for-tailscale-ip` waits up to 120 s for the node's
   tailscale IPv4 and writes `/run/scarpenter/node-ip.env`
   (`SCARPENTER_NODE_IP_ARGS=--node-ip=<ip>`), which the kubelet drop-in reads. A

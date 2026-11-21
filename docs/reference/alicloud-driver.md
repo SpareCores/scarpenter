@@ -25,7 +25,7 @@ what the live L5 run must settle. Enable the driver with `--vendors alicloud` (o
 - [Node settings](#node-settings)
 - [Resources and network](#resources-and-network)
 - [The metadata service](#the-metadata-service)
-- [DNS and the tailnet](#dns-and-the-tailnet)
+- [Tailnet and the service addresses](#tailnet-and-the-service-addresses)
 - [Quotas](#quotas)
 - [Billing](#billing)
 - [Credentials and the RAM policy](#credentials-and-the-ram-policy)
@@ -197,21 +197,27 @@ The driver declares `100.100.100.200` as the address that nodes of a NodeClass w
 ([instance metadata access](node-bootstrap.md#instance-metadata-access)); `Open` leaves it reachable. The L5 `imds`
 scenario checks that a Pod and a host-network Pod reach nothing and the allowed slice does.
 
-## DNS and the tailnet
+## Tailnet and the service addresses
 
-ECS hands out the resolvers `100.100.2.136` and `100.100.2.138` over DHCP. Both lie inside `100.64.0.0/10`, Tailscale's CGNAT
-range. Once the node joins the tailnet, tailscaled drops the packets from that range that arrive outside `tailscale0` (its
-`ts-input` chain), and the replies of Alibaba's `100.100.x` services arrive on `eth0`. With the `tailscale` network template the
-node could therefore not resolve the API server's name and never registered. The metadata service (`100.100.100.200`) is
-unreachable from a tailnet node after the join as well; nothing in the node bootstrap uses it by then. Time sync uses public NTP
-and is unaffected.
+Alibaba serves the metadata service (`100.100.100.200`) and the DHCP resolvers (`100.100.2.136`, `100.100.2.138`) from
+`100.100.0.0/16`, which lies inside `100.64.0.0/10`, Tailscale's CGNAT range. The routes to them (through the `eth0` gateway)
+are fine, but once the node joins the tailnet, tailscaled's `ts-input` chain drops the packets from that range that arrive
+outside `tailscale0`, and the replies of those services arrive on `eth0`. Without a fix the node could not resolve the API
+server's name and never registered, and the metadata service timed out.
 
-The driver contributes a fragment (`vendors.VendorBootFragments`, always on, whatever `spec.instanceMetadata.access` says): a
-drop-in of the image's default network unit (`zz-default.network`) that sets Alibaba's public resolvers `223.5.5.5` and
-`223.6.6.6` and ignores the DHCP ones (`UseDNS=false`). They are outside the CGNAT range, so they are reached through the VPC
-gateway before and after the node joins the tailnet. The node resolves public names with them, which is all it needs: the
-tailscale template starts tailscaled with `--accept-dns=false`, and the API server is an address or a public name. A name that only a VPC's private DNS
-zone answers does not resolve on the node.
+The driver contributes a fragment (`vendors.VendorBootFragments`, always on, whatever `spec.instanceMetadata.access` says) that
+runs tailscaled with `--netfilter-mode=nodivert`: tailscaled still creates its chains, but nothing in `INPUT` or `FORWARD` jumps
+to them, so the drop never applies. The fragment is a drop-in that sets `SCARPENTER_TAILSCALE_UP_ARGS` for the tailscale
+template's `scarpenter-tailscale-up.service`. The DHCP resolvers and the metadata service work as on a node without a tailnet;
+operators need no workaround of their own.
+
+What `nodivert` leaves out is the rest of tailscaled's firewall integration: the accept rule for `tailscale0` in `INPUT`, the
+forwarding and masquerade rules for subnet routers and exit nodes, and the CGNAT drop itself. Flatcar's `INPUT` policy is
+`ACCEPT`, and SCarpenter nodes are neither subnet routers nor exit nodes; the CNI and kube-proxy install their own rules.
+
+The default `spec.instanceMetadata.access: Restricted` still drops every connection to `100.100.100.200` except from the node's own
+units, Pods included ([above](#the-metadata-service)). A workload that reads the instance metadata needs a NodeClass with
+`access: Open`.
 
 ## Quotas
 
