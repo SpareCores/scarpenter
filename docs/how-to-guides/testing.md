@@ -807,7 +807,7 @@ against the driver's in-memory Vultr API, and `selftest.sh`.
 
 ### The L5 lane of Hetzner Cloud
 
-The second vendor lane (`test/e2e-hcloud/`, `e2e-cloud.yml` with `vendor: hcloud`; plan 15) is not in `test/e2e-vendors.txt` until the project's server limit and usage alert are set (see [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards)), so the workflows do not run it by themselves. It has the
+The second vendor lane (`test/e2e-hcloud/`, `e2e-cloud.yml` with `vendor: hcloud`; plan 15) is a line of `test/e2e-vendors.txt`, with the project's server limit and usage alert set (see [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards)). It has the
 same shape as the AWS one: a k3s control plane on the runner, nodes that join over the tailnet, the
 same scripts and the same tiers, mode, approval and release gate ([Testing and
 releasing](testing-and-releasing.md)). What differs is the cloud:

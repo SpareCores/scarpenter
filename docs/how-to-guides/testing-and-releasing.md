@@ -390,10 +390,10 @@ unverified, so the operator checks the type deny bites and the budget alert fire
 | A read-only role for the canary | `canary-policy.sh`, a role of its own, environment `e2e-canary` | `canary-policy.sh`, a role of its own, environment `e2e-canary` |
 | Approval for every run of pull request or release code that reaches the account | the environment `e2e`'s required reviewers (the sweeper runs only the code of `main`, environment `e2e-sweeper`) | the environment `e2e`'s required reviewers, the same |
 
-**The Hetzner lane's guards** (plan 15), against the table above. The lane is **not yet a line
+**The Hetzner lane's guards** (plan 15), against the table above. The lane is **a line
 of `test/e2e-vendors.txt`**: a token cannot deny types, so the project's server limit and usage alert
-are the ceiling, and the operator sets and checks both first (see [What the CI account's
-infrastructure provides](#what-the-ci-accounts-infrastructure-provides)); then adds `hcloud` to the file.
+are the ceiling, and both are set and checked (see [What the CI account's
+infrastructure provides](#what-the-ci-accounts-infrastructure-provides)).
 
 | Guard | hcloud lane |
 |---|---|
@@ -528,7 +528,7 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
   [GCP](#gcp).
 - **OCI** (vendor `oci`): a dedicated compartment with a compartment quota and a budget alert, the imported Flatcar images, the identity domain with its confidential application and trust, the CI and
   canary groups with the policies of `ci-policy.sh` and `canary-policy.sh`, all set and checked for `oci` (a line of `test/e2e-vendors.txt`). Details in [OCI](#oci).
-- **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, both set and checked before `hcloud` is added to `test/e2e-vendors.txt`, and the secret
+- **Hetzner Cloud** (vendor `hcloud`): a dedicated project with a low server limit and a usage alert, both set and checked for `hcloud` (a line of `test/e2e-vendors.txt`), and the secret
   `HCLOUD_TOKEN` in the environments `e2e` and `e2e-sweeper` (read-write) and `e2e-canary` (read-only); the optional
   variable `E2E_HCLOUD_LOCATIONS`. Details in [Test and develop](testing.md#the-l5-lane-of-hetzner-cloud).
 - **Environment `e2e`**: the secret `AWS_ROLE_ARN` (the CI role) and the variables
