@@ -17,6 +17,7 @@ import (
 	"net/netip"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -448,7 +449,11 @@ func (p *Params) templateData() (*TemplateData, error) {
 		}
 	}
 	args := []string{"--provider-id=" + p.ProviderID, "--hostname-override=" + p.NodeName}
-	if taints := formatTaints(p.Taints); taints != "" {
+	taints := p.Taints
+	if p.NVIDIA != nil {
+		taints = withGPUPending(taints)
+	}
+	if taints := formatTaints(taints); taints != "" {
 		if !argPattern.MatchString(taints) {
 			return nil, fmt.Errorf("the taints %q have characters that cannot go on a kubelet command line", taints)
 		}
@@ -642,6 +647,16 @@ func (p *Params) sysexts() ([]Sysext, error) {
 			Path: "/opt/extensions/" + s.Name + "/" + s.Name + ".raw", Link: "/etc/extensions/" + s.Name + ".raw"})
 	}
 	return out, nil
+}
+
+// withGPUPending adds the GPU pending taint (ADR-031) unless the list has it
+// already, as a NodePool's startup taint.
+func withGPUPending(taints []corev1.Taint) []corev1.Taint {
+	pending := corev1.Taint{Key: v1alpha1.TaintGPUPending, Effect: corev1.TaintEffectNoSchedule}
+	if slices.ContainsFunc(taints, func(t corev1.Taint) bool { return t.MatchTaint(&pending) }) {
+		return taints
+	}
+	return append(slices.Clone(taints), pending)
 }
 
 // formatTaints formats taints the way --register-with-taints takes them:

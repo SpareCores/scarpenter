@@ -1,10 +1,13 @@
 #!/bin/bash
-# Usage: scarpenter-nvidia-check <driver version> <GPU count> [fabric]
+# Usage: scarpenter-nvidia-check <driver version> <GPU count> <node name> [fabric]
 #
 # The node's proof for its driver labels (plan 12, D4): the loaded NVIDIA driver is the
 # version the type's labels name, and nvidia-smi lists every GPU of the type. The kubelet
-# requires this unit, so a node that fails it never joins the cluster; Karpenter then
-# deletes the NodeClaim after its registration timeout and tries again.
+# does not wait for this unit (ADR-031): the node registers with the taint
+# scarpenter.sparecores.com/gpu-pending, and on success this script labels the Node
+# scarpenter.sparecores.com/gpu-ready=true with the kubelet's credentials, which makes the
+# controller remove the taint (a node may label itself but not change its taints). A node
+# that fails keeps the taint, so nothing schedules there.
 #
 # With "fabric" (NVSwitch systems, plan 12, D9) the check then also waits for Fabric Manager
 # to report that it configured the fabric, read from the journal of the current run of its
@@ -19,7 +22,8 @@
 set -u
 want_version=$1
 want_gpus=$2
-fabric=${3:-}
+node=$3
+fabric=${4:-}
 fm_unit=scarpenter-nvidia-fabricmanager.service
 
 # The lines of the unit's current run: the fabric state, and why it is not ready.
@@ -37,7 +41,7 @@ retry() {
     [ -z "$fail" ] && return 0
     sleep 3
   done
-  echo "scarpenter-nvidia-check: $fail; the node does not join the cluster" >&2
+  echo "scarpenter-nvidia-check: $fail; the node keeps its gpu-pending taint" >&2
   return 1
 }
 
@@ -63,3 +67,15 @@ retry 10 check_gpus || exit 1
 if [ -n "$fabric" ]; then
   retry 60 check_fabric || exit 1
 fi
+
+# The kubelet registers the Node once its certificate is approved, which can take minutes.
+label_node() {
+  kubectl --kubeconfig /etc/kubernetes/kubelet.conf label node "$node" \
+    scarpenter.sparecores.com/gpu-ready=true --overwrite 2>&1
+}
+for _ in $(seq 100); do
+  label_node && exit 0
+  sleep 3
+done
+echo "scarpenter-nvidia-check: the checks passed, but the node could not be labelled gpu-ready: $(label_node)" >&2
+exit 1

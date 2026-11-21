@@ -279,6 +279,13 @@ The chart's default limit is 2Gi (request 640Mi), which covers every region of
 all eight vendors; scope the NodeClasses' `regions` to what you use to need less.
 The refresh itself reads each file as a stream and holds no uncompressed body.
 
+## GPU pending taint
+
+The GPU pending controller removes the taint `scarpenter.sparecores.com/gpu-pending` from a Node that has the label
+`scarpenter.sparecores.com/gpu-ready=true` ([ADR-031](../explanation/DECISIONS.md#adr-031-gpu-nodes-register-before-the-driver-work-is-done-accepted-2026-11-22)).
+The node's own check sets the label with the kubelet's credentials, because NodeRestriction forbids a node to change its taints.
+It needs `patch` on Nodes, which the controller has; other taints are left alone.
+
 ## Billing retention
 
 The billing retention controller ([ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10),

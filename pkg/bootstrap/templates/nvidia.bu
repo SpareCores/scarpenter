@@ -1,8 +1,8 @@
 # The NVIDIA driver of a GPU node (plan 12, D5, D7, D8): Flatcar's prebuilt driver sysext
 # of the release (fetched by the initrd because of enabled-sysext.conf, or written by
 # Ignition from a mirror), the nvidia-runtime sysext, containerd with `nvidia` as a
-# runtime handler only, the module settings, persistence mode, and the check the kubelet
-# requires. Rendered only for a launch of a supported NVIDIA type. Variables:
+# runtime handler only, the module settings, persistence mode, and the check that lets the node take
+# GPU Pods (the kubelet does not wait for it, ADR-031). Rendered only for a launch of a supported NVIDIA type. Variables:
 # docs/reference/node-bootstrap.md.
 variant: flatcar
 version: 1.1.0
@@ -92,26 +92,23 @@ systemd:
         [Install]
         WantedBy=nvidia.service
     - name: scarpenter-nvidia-check.service
+      enabled: true
       contents: |
         [Unit]
-        Description=Check the NVIDIA driver and the GPUs before the kubelet starts
+        Description=Check the NVIDIA driver and the GPUs, then let the node take GPU Pods
         Requires=nvidia.service
         After=nvidia.service
 {{- if .NVIDIA.FabricManager }}
         Wants=scarpenter-nvidia-fabricmanager.service
         After=scarpenter-nvidia-fabricmanager.service
 {{- end }}
-        Before=kubelet.service
         [Service]
         Type=oneshot
         RemainAfterExit=yes
-{{- if .NVIDIA.FabricManager }}
-        TimeoutStartSec=300
-        ExecStart=/opt/scarpenter/bin/scarpenter-nvidia-check {{ .NVIDIA.Version }} {{ .NVIDIA.Count }} fabric
-{{- else }}
-        TimeoutStartSec=120
-        ExecStart=/opt/scarpenter/bin/scarpenter-nvidia-check {{ .NVIDIA.Version }} {{ .NVIDIA.Count }}
-{{- end }}
+        TimeoutStartSec=900
+        ExecStart=/opt/scarpenter/bin/scarpenter-nvidia-check {{ .NVIDIA.Version }} {{ .NVIDIA.Count }} {{ .NodeName }}{{ if .NVIDIA.FabricManager }} fabric{{ end }}
+        [Install]
+        WantedBy=multi-user.target
 {{- with .NVIDIA.FabricManager }}
     # Fabric Manager of NVSwitch systems: the daemon version equals the driver's. Every
     # start unpacks the archive again, which restores the shipped config, and sets it to
@@ -140,10 +137,3 @@ systemd:
           contents: |
             [Unit]
             Upholds=nvidia-persistenced.service
-    - name: kubelet.service
-      dropins:
-        - name: 30-scarpenter-nvidia.conf
-          contents: |
-            [Unit]
-            Requires=scarpenter-nvidia-check.service
-            After=scarpenter-nvidia-check.service

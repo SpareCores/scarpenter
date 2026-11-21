@@ -223,11 +223,22 @@ release (its modules are signed with the release's kernel key). The part holds:
   the first `install` line of a module);
   `scarpenter-nvidia-prepare.service` unloads `nouveau` before `nvidia.service` when the initrd
   loaded it; `Upholds=nvidia-persistenced.service` on `multi-user.target` (persistence mode).
-- `scarpenter-nvidia-check.service`, which the kubelet `Requires=` and starts after: the loaded driver
-  (`/proc/driver/nvidia/version`) must be the version of the type's `nvidia-driver-version` label and
-  `nvidia-smi -L` must list every GPU of the type (retried for 30 s). A node that fails the check never
-  joins; Karpenter deletes the NodeClaim after the registration timeout and tries again, and the
-  unit's journal line says why.
+- `scarpenter-nvidia-check.service`, enabled on its own: the kubelet does not wait for it or for the driver
+  ([ADR-031](../explanation/DECISIONS.md#adr-031-gpu-nodes-register-before-the-driver-work-is-done-accepted-2026-11-22)),
+  so the driver download and its later on-node build do not count against Karpenter's 15 minute registration
+  timeout. The node registers with the taint `scarpenter.sparecores.com/gpu-pending:NoSchedule`
+  (`--register-with-taints`, added to the NodeClaim's taints on every launch of a NVIDIA type). The check:
+  the loaded driver (`/proc/driver/nvidia/version`) must be the version of the type's `nvidia-driver-version`
+  label and `nvidia-smi -L` must list every GPU of the type (retried for 30 s). On success it labels the Node
+  `scarpenter.sparecores.com/gpu-ready=true` with `kubectl` and the kubelet's credentials (retried for 5 minutes
+  until the kubelet has registered the Node), and the controller removes the taint. A node cannot remove
+  its own taint (NodeRestriction), hence the label. A node that fails keeps the taint, so nothing schedules
+  there; it is never deleted by Karpenter, because it has registered, and the unit's journal line says why.
+  **A NodePool that offers GPU types must list the taint in `spec.template.spec.startupTaints`**, because Karpenter
+  takes startup taints only from the NodePool: with it the scheduler plans pods onto the node and `Initialized` waits for the
+  taint's removal; without it the scheduler sees a permanent taint and may launch extra nodes for the same pods.
+  `Ready` is the kubelet's and does not depend on the driver. `Initialized` also needs `nvidia.com/gpu`
+  registered by the device plugin. DaemonSets that the node needs for Ready (the CNI) must tolerate `NoSchedule` taints.
 
 - **NVSwitch systems** (8 or more GPUs of A100, H100 and H200 HGX models) additionally get Fabric
   Manager, which no Flatcar sysext ships and without which CUDA does not initialize on them. NVIDIA's
