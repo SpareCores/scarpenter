@@ -43,6 +43,15 @@ func TestClassify(t *testing.T) {
 		// QuotaExceeded.
 		{"limit", kindLaunch, 400, "LimitExceeded",
 			"The following service limits were exceeded: standard-e5-core-count", vendors.QuotaExceeded},
+		// DailyLimit: only the daily resource creation limit text of a LimitExceeded.
+		{"daily limit", kindLaunch, 400, "LimitExceeded", "You have reached your daily resource creation limit.",
+			vendors.DailyLimit},
+		{"daily limit, other case", kindLaunch, 400, "LimitExceeded",
+			"YOU HAVE REACHED YOUR DAILY RESOURCE CREATION LIMIT", vendors.DailyLimit},
+		{"daily text on another code is not a daily limit", kindLaunch, 400, "QuotaExceeded",
+			"daily resource creation limit", vendors.QuotaExceeded},
+		{"resource creation limit without daily", kindLaunch, 400, "LimitExceeded",
+			"Your resource creation limit has been reached.", vendors.QuotaExceeded},
 		{"compartment quota", kindLaunch, 400, "QuotaExceeded", "A compartment quota was exceeded: standard-e5-core-count",
 			vendors.QuotaExceeded},
 		// Unsupported.

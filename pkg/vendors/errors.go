@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 )
 
 // Class is the class of a driver error (overview section 7.2). Drivers wrap
@@ -31,6 +32,11 @@ const (
 	// QuotaExceeded: a limit is reached: the region's, or with Error.AccountWide
 	// the account's.
 	QuotaExceeded Class = "QuotaExceeded"
+	// DailyLimit: the vendor refuses to create more resources in the region until
+	// a daily limit resets (OCI's daily resource creation limit). Deleting nodes
+	// does not help. The region is unavailable until Error.ResetAt, or the next
+	// 00:00 UTC when the driver does not set it.
+	DailyLimit Class = "DailyLimit"
 	// InvalidOffering: the vendor rejected the launch parameters of this offering
 	// (type, zone, capacity type) for a reason that is not known to be of the
 	// offering: an unrecognised 400, or a configuration the operator can fix
@@ -54,8 +60,8 @@ const (
 
 // Classes lists every class.
 var Classes = []Class{
-	InsufficientCapacity, Unsupported, QuotaExceeded, InvalidOffering, ZoneUnusable, RegionUnavailable, Retryable,
-	NotFound, Fatal,
+	InsufficientCapacity, Unsupported, QuotaExceeded, DailyLimit, InvalidOffering, ZoneUnusable, RegionUnavailable,
+	Retryable, NotFound, Fatal,
 }
 
 // Valid reports whether c is one of the classes.
@@ -79,6 +85,9 @@ type Error struct {
 	// answer. Such a check is deterministic from tables the driver read, so the
 	// unavailable-offerings cache keeps its mark for minutes, not a day.
 	PreLaunch bool
+	// ResetAt is when the limit of a DailyLimit error resets, when the vendor
+	// documents it; zero means the next 00:00 UTC.
+	ResetAt time.Time
 }
 
 // Error implements error.

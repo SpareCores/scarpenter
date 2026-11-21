@@ -86,7 +86,10 @@ var (
 	// subnetFullRe: the subnet has no free IP addresses.
 	subnetFullRe = regexp.MustCompile(`(?i)subnet.*(no (more )?(free |available )?ip|not enough (free )?ip|` +
 		`ip (addresses )?(are )?exhausted|out of ip)`)
-	limitNameRe = regexp.MustCompile(`(?i)(?:limits? exceeded:|limits were exceeded:)\s*([a-z0-9-]+)`)
+	// dailyLimitRe: "You have reached your daily resource creation limit" on a
+	// LimitExceeded, the tenancy's cap on resources created per day.
+	dailyLimitRe = regexp.MustCompile(`(?i)daily resource creation limit`)
+	limitNameRe  = regexp.MustCompile(`(?i)(?:limits? exceeded:|limits were exceeded:)\s*([a-z0-9-]+)`)
 )
 
 // LimitNameOf extracts the limit name from the message of a LimitExceeded error
@@ -147,9 +150,7 @@ func classifyService(status int, code, msg string, kind callKind, cause error) e
 	case status == http.StatusInternalServerError && code == CodeInternalError && capacityRe.MatchString(msg):
 		return vendors.NewError(vendors.InsufficientCapacity, code, cause)
 	case code == CodeLimitExceeded || code == CodeQuotaExceeded:
-		// The limits of the Compute service are per availability domain or region,
-		// not account-wide.
-		return vendors.NewError(vendors.QuotaExceeded, code, cause)
+		return classifyLimit(code, msg, cause)
 	case status == http.StatusBadRequest && code == CodeInvalidParameter:
 		switch {
 		case unsupportedRe.MatchString(msg):
@@ -188,6 +189,19 @@ func classifyService(status int, code, msg string, kind callKind, cause error) e
 		return vendors.NewError(vendors.Retryable, codeOf(code, status), cause)
 	}
 	return vendors.NewError(vendors.Fatal, codeOf(code, status), cause)
+}
+
+// classifyLimit classifies a LimitExceeded or QuotaExceeded error. The daily
+// resource creation limit is DailyLimit: Oracle documents no reset time for it
+// (its API errors page only says to request an increase or delete resources), so
+// ResetAt stays zero and the core waits until the next 00:00 UTC. Every other
+// limit is QuotaExceeded; the limits of the Compute service are per availability
+// domain or region, not account-wide.
+func classifyLimit(code, msg string, cause error) error {
+	if code == CodeLimitExceeded && dailyLimitRe.MatchString(msg) {
+		return vendors.NewError(vendors.DailyLimit, code, cause)
+	}
+	return vendors.NewError(vendors.QuotaExceeded, code, cause)
 }
 
 func codeOf(code string, status int) string {

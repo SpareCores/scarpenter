@@ -41,7 +41,6 @@ const (
 	skipNoQuota     = "no-quota"
 	skipUnavailable = "unavailable"
 	skipImage       = "image"
-	skipRegionFull  = "quota-exceeded"
 	skipResources   = "resources"
 )
 
@@ -54,9 +53,8 @@ type launchState struct {
 	// placement run key of the NodeClaim (overview section 4.1).
 	settings *settingsResolver
 	runKey   string
-	// blocked holds the (vendor, region, capacity type) that returned a quota
-	// error during this Create, and the (vendor, region) whose vendor resources
-	// are missing: the others of them are skipped.
+	// blocked holds the (vendor, region) whose vendor resources are missing, and
+	// the zone of one: the other candidates of them are skipped.
 	blocked map[string]bool
 	// attempts counts vendor calls; skipped counts candidates passed over
 	// because of quota; imageErr is the last image failure.
@@ -200,21 +198,20 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 			c.markUnsupported(logger, cand, err)
 		case vendors.InvalidOffering:
 			c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
-			c.publish(nc, EventOfferingRejected, fmt.Sprintf("%s in %s (%s) was rejected: %v",
-				cand.typeName, cand.zone, cand.capacityType, err), cand.vendor, cand.typeName, cand.zone, cand.capacityType)
+			c.publish(nc, EventOfferingRejected, launchMessage(err),
+				cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 		case vendors.ZoneUnusable:
 			c.opts.Unavailable.MarkZoneUnusable(cand.vendor, cand.zone)
-		case vendors.QuotaExceeded:
-			c.reportQuotaRefusal(st.nc, cand)
-			c.onQuotaExceeded(st, cand, vendors.IsAccountWide(err))
+		case vendors.QuotaExceeded, vendors.DailyLimit:
+			c.onLimitExceeded(st, cand, err)
 		case vendors.Retryable:
 			st.keepToken = true
-			return nil, fmt.Errorf("launching %s: %w", cand.typeName, err)
-		default: // Fatal, NotFound
-			c.publish(nc, EventLaunchFailed, fmt.Sprintf("launching %s in %s failed: %v", cand.typeName, cand.zone, err),
-				cand.vendor, vendors.CodeOf(err))
 			return nil, cloudprovider.NewCreateError(fmt.Errorf("launching %s: %w", cand.typeName, err),
-				"LaunchFailed", truncate(err.Error()))
+				"LaunchFailed", truncate(launchMessage(err)))
+		default: // Fatal, NotFound
+			c.publish(nc, EventLaunchFailed, launchMessage(err), cand.vendor, vendors.CodeOf(err))
+			return nil, cloudprovider.NewCreateError(fmt.Errorf("launching %s: %w", cand.typeName, err),
+				"LaunchFailed", truncate(launchMessage(err)))
 		}
 	}
 
@@ -223,8 +220,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		c.publish(nc, EventImageFailed, st.imageErr.Error(), "image")
 		return nil, cloudprovider.NewCreateError(st.imageErr, "ImageResolutionFailed", truncate(st.imageErr.Error()))
 	case st.lastErr != nil:
-		return nil, cloudprovider.NewInsufficientCapacityError(
-			fmt.Errorf("every launch attempt failed (%d attempts), the last: %w", st.attempts, st.lastErr))
+		return nil, cloudprovider.NewInsufficientCapacityError(launchFailure{st.lastErr})
 	}
 	return nil, cloudprovider.NewInsufficientCapacityError(
 		fmt.Errorf("no candidate offering had quota headroom (%d skipped)", st.skipped))
@@ -265,14 +261,12 @@ func (c *CloudProvider) reportQuotaRefusal(nc *v1alpha1.SCNodeClass, cand *candi
 // became unavailable since the types were computed (another Create's failure),
 // or a quota error in its region and capacity type came earlier in this Create.
 func (c *CloudProvider) skipReason(st *launchState, cand *candidate) string {
-	if st.blocked[regionKey(cand)] {
-		return skipRegionFull
-	}
 	if st.blocked[resourceKey(cand)] || st.blocked[resourceKey(cand)+"/"+cand.zone] {
 		return skipResources
 	}
 	if c.opts.Unavailable.IsUnavailable(unavailable.Offering{
-		Vendor: cand.vendor, InstanceType: cand.typeName, Region: cand.region, Zone: cand.zone,
+		Vendor: cand.vendor, APIReference: cand.apiReference, InstanceType: cand.typeName, Region: cand.region,
+		Zone:         cand.zone,
 		CapacityType: cand.capacityType,
 	}) {
 		return skipUnavailable
@@ -280,34 +274,88 @@ func (c *CloudProvider) skipReason(st *launchState, cand *candidate) string {
 	return ""
 }
 
-func regionKey(c *candidate) string { return c.vendor + "/" + c.region + "/" + c.capacityType }
-
 // resourceKey identifies the vendor resources of a region, which all offerings
 // of the region share.
 func resourceKey(c *candidate) string { return "resources/" + c.vendor + "/" + c.region }
 
-// onQuotaExceeded records a quota error (overview sections 4.1 and 5.6): a
-// vendor with a fresh quota view for the type refreshes its view of the region
-// and the tracker decides from then on; a vendor without one (no quota API, or a
-// stale or missing view) has the region and capacity type skipped for the TTL. Either way the other candidates of the
-// region and capacity type are not tried by this Create. A quota error of a vendor
-// whose limits are account-wide (vendors.Error.AccountWide) has the capacity type
-// skipped in every region of the vendor instead of the one region.
-func (c *CloudProvider) onQuotaExceeded(st *launchState, cand *candidate, accountWide bool) {
-	st.blocked[regionKey(cand)] = true
-	if c.opts.Quota != nil && c.opts.Quota.HasQuotaInfo(cand.vendor, cand.apiReference, cand.capacityType) {
-		// A refresh is worth trying either way; a fresh view decides from then
-		// on. A stale or missing view (unknown) falls to the reactive path.
+// onLimitExceeded records a QuotaExceeded or DailyLimit error.
+func (c *CloudProvider) onLimitExceeded(st *launchState, cand *candidate, err error) {
+	if vendors.IsClass(err, vendors.DailyLimit) {
+		c.onDailyLimit(cand, err)
+		return
+	}
+	c.reportQuotaRefusal(st.nc, cand)
+	c.onQuotaExceeded(cand, vendors.IsAccountWide(err))
+}
+
+// onQuotaExceeded records a quota error (overview sections 4.1 and 5.6): the
+// quota tracker refreshes its view of the region, and the bucket the vendor
+// counts the launch against is marked unavailable for the TTL, whatever the
+// tracker showed before (a view with headroom is stale). The bucket is the one
+// the tracker finds limiting, else every bucket the type consumes; a vendor
+// without a bucket mapping has the region and capacity type marked. A quota
+// error of a vendor whose limits are account-wide (vendors.Error.AccountWide)
+// has the capacity type marked in every region of the vendor instead. A deleted
+// NodeClaim of the vendor and region clears the marks (CloudProvider.Delete).
+func (c *CloudProvider) onQuotaExceeded(cand *candidate, accountWide bool) {
+	if c.opts.Quota != nil {
 		c.opts.Quota.NotifyQuotaError(cand.vendor, cand.region)
-		if _, known := c.opts.Quota.Headroom(cand.vendor, cand.region, cand.apiReference, cand.capacityType); known {
-			return
-		}
 	}
 	if accountWide {
 		c.opts.Unavailable.MarkQuotaExceededAccountWide(cand.vendor, cand.capacityType)
 		return
 	}
-	c.opts.Unavailable.MarkQuotaExceeded(cand.vendor, cand.region, cand.capacityType)
+	buckets := c.quotaBuckets(cand)
+	if len(buckets) == 0 {
+		c.opts.Unavailable.MarkQuotaExceeded(cand.vendor, cand.region, cand.capacityType)
+		return
+	}
+	for _, b := range buckets {
+		c.opts.Unavailable.MarkQuotaBucket(cand.vendor, cand.region, b)
+	}
+}
+
+// quotaBuckets returns the quota buckets a quota error of the candidate may
+// have counted against; none when the vendor has no bucket mapping.
+func (c *CloudProvider) quotaBuckets(cand *candidate) []string {
+	if c.opts.Quota == nil {
+		return nil
+	}
+	if b, known := c.opts.Quota.LimitingBucket(cand.vendor, cand.region, cand.apiReference, cand.capacityType); known {
+		return []string{b}
+	}
+	return c.opts.Quota.BucketsOf(cand.vendor, cand.apiReference, cand.capacityType)
+}
+
+// onDailyLimit marks the vendor's region unavailable until the limit resets:
+// the vendor's reset time when the driver knows it, else the next 00:00 UTC.
+// Deleting NodeClaims does not clear it.
+func (c *CloudProvider) onDailyLimit(cand *candidate, err error) {
+	resetAt := time.Time{}
+	if e, ok := errors.AsType[*vendors.Error](err); ok {
+		resetAt = e.ResetAt
+	}
+	if resetAt.IsZero() {
+		now := c.opts.Clock.Now().UTC()
+		resetAt = time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+	}
+	c.opts.Unavailable.MarkDailyLimit(cand.vendor, cand.region, resetAt)
+}
+
+// launchFailure is a launch error whose text is launchMessage.
+type launchFailure struct{ err error }
+
+func (f launchFailure) Error() string { return launchMessage(f.err) }
+func (f launchFailure) Unwrap() error { return f.err }
+
+// launchMessage is the text of a launch failure on the NodeClaim's launch
+// condition and in events: "<Class> (<Code>): <vendor message>". k8s-inspector
+// reads the class from it.
+func launchMessage(err error) string {
+	if e, ok := errors.AsType[*vendors.Error](err); ok {
+		return e.Error()
+	}
+	return vendors.NewError(vendors.Fatal, "", err).Error()
 }
 
 // launch prepares the resources of the candidate and makes the vendor call.

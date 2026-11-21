@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
@@ -57,12 +58,16 @@ type ListingType struct {
 	Offerings []ListingOffering `json:"offerings"`
 }
 
-// ListingOffering is the zones that share a capacity type and a state.
+// ListingOffering is the zones that share a capacity type, a state and an
+// expiry. For an offering the unavailable-offerings cache marked, Reason is the
+// launch-error class (InsufficientCapacity, QuotaExceeded, DailyLimit, ...) and
+// Until the RFC3339 time the mark expires.
 type ListingOffering struct {
 	CapacityType string   `json:"capacityType"`
 	Zones        []string `json:"zones"`
 	Available    bool     `json:"available"`
 	Reason       string   `json:"reason,omitempty"`
+	Until        string   `json:"until,omitempty"`
 }
 
 // encode builds the listing of one class and vendor from the types of the
@@ -116,8 +121,8 @@ func listingType(t catalog.TypeReport) ListingType {
 		return lt
 	}
 	type group struct {
-		capacityType, reason string
-		available            bool
+		capacityType, reason, until string
+		available                   bool
 	}
 	groups := map[group][]string{}
 	counts := map[catalog.Code]int{}
@@ -131,7 +136,10 @@ func listingType(t catalog.TypeReport) ListingType {
 	})
 	for _, o := range t.Offerings {
 		available := o.Available && !o.Removed
-		g := group{o.CapacityType, string(o.Reason.Code), available}
+		g := group{capacityType: o.CapacityType, reason: string(o.Reason.Code), available: available}
+		if o.Reason.Code == catalog.UnavailableCache && !available {
+			g.reason, g.until = o.Reason.Class, o.Reason.Until.UTC().Format(time.RFC3339)
+		}
 		groups[g] = append(groups[g], o.Zone)
 		if available {
 			lt.Available = true
@@ -152,11 +160,12 @@ func listingType(t catalog.TypeReport) ListingType {
 		slices.Sort(zones)
 		lt.Offerings = append(lt.Offerings, ListingOffering{
 			CapacityType: g.capacityType, Zones: slices.Compact(zones), Available: g.available, Reason: g.reason,
+			Until: g.until,
 		})
 	}
 	slices.SortFunc(lt.Offerings, func(a, b ListingOffering) int {
 		return cmp.Or(cmp.Compare(a.CapacityType, b.CapacityType), cmp.Compare(b2i(b.Available), b2i(a.Available)),
-			cmp.Compare(a.Reason, b.Reason))
+			cmp.Compare(a.Reason, b.Reason), cmp.Compare(a.Until, b.Until))
 	})
 	if !lt.Available {
 		// The dominant reason: the most offerings, the first code on a tie.

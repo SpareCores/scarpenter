@@ -606,6 +606,32 @@ func (t *Tracker) HasQuotaInfo(vendor, apiReference, capacityType string) bool {
 	return ok
 }
 
+// BucketsOf returns the IDs of the buckets an instance of the type consumes; nil
+// when the driver reports no quotas or cannot map the type.
+func (t *Tracker) BucketsOf(vendor, apiReference, capacityType string) []string {
+	rep := t.reporters[vendor]
+	if rep == nil {
+		return nil
+	}
+	cons, _ := rep.Consumption(apiReference, capacityType)
+	ids := make([]string, len(cons))
+	for i, c := range cons {
+		ids[i] = c.Bucket
+	}
+	return ids
+}
+
+// LimitingBucket returns the bucket with the least headroom for the instance,
+// the one a vendor's quota error most likely counted against; known is false
+// when the quota of the type is unknown.
+func (t *Tracker) LimitingBucket(vendor, region, apiReference, capacityType string) (bucket string, known bool) {
+	now := t.opts.Clock.Now()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	d, _ := t.evalLocked(vendor, region, apiReference, capacityType, now)
+	return d.Bucket, d.Known
+}
+
 // Blocked is Unavailable with the limiting bucket.
 func (t *Tracker) Blocked(vendor, region, apiReference, capacityType string) (blocked bool, limiting BucketView) {
 	now := t.opts.Clock.Now()

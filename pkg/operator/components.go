@@ -129,6 +129,7 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		LaunchableInterval: opts.QuotaLaunchableInterval,
 		Registerer:         metrics.Registry,
 	})
+	un.SetBucketsOf(c.Tracker.BucketsOf)
 	c.Facts = facts.New(facts.Options{Registry: reg, Launchable: c.Tracker, Clock: o.Clock})
 	c.Scope = &scope.Resolver{Reader: o.GetClient(), Registry: reg, Regions: c.Facts}
 	c.Artifacts = artifacts.New(artifacts.Config{

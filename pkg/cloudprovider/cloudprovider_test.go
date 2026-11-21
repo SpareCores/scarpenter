@@ -227,7 +227,7 @@ func TestCreateMapsErrorClasses(t *testing.T) {
 		event bool
 	}{
 		{vendors.Retryable, func(err error) bool {
-			return err != nil && !karpcloudprovider.IsInsufficientCapacityError(err) && !isCreateError(err)
+			return err != nil && !karpcloudprovider.IsInsufficientCapacityError(err) && isCreateError(err)
 		}, false},
 		{vendors.Fatal, isCreateError, true},
 	} {
