@@ -298,7 +298,7 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	if err := approver.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the serving certificate controller: %w", err)
 	}
-	if err := gpupending.New(o.GetClient()).Register(o.Manager); err != nil {
+	if err := gpupending.New(o.GetClient(), o.EventRecorder, o.Clock).Register(o.Manager); err != nil {
 		return err
 	}
 	c.checkClusterCA(ctx)

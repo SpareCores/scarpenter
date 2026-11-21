@@ -45,9 +45,11 @@ spec:
         - {key: scarpenter.sparecores.com/gpu-pending, effect: NoSchedule}
 ```
 
-Without it Karpenter treats the taint as permanent and may launch more nodes than the Pods need. A node whose
-check fails keeps the taint and never takes a Pod; Karpenter does not delete it, so put a deadline on the Pods that
-wait for it ([node bootstrap](../reference/node-bootstrap.md#nvidia-gpu-nodes)).
+Without it Karpenter treats the taint as permanent and may launch more nodes than the Pods need, so SCarpenter does not offer the
+NVIDIA types to a NodePool that lacks it (the controller logs it once per NodePool). Adding the startup taint to an existing NodePool
+changes its hash: the pool's nodes drift and are replaced, within its disruption budgets. A node whose
+check fails keeps the taint and never takes a Pod; the controller deletes its NodeClaim at once (or 30 minutes after the node's creation if
+the check never reports), and Karpenter replaces the node ([node bootstrap](../reference/node-bootstrap.md#nvidia-gpu-nodes)).
 
 ## Taints
 

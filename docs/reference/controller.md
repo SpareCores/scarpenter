@@ -282,10 +282,11 @@ The refresh itself reads each file as a stream and holds no uncompressed body.
 ## GPU pending taint
 
 The GPU pending controller removes the taint `scarpenter.sparecores.com/gpu-pending` from a Node that has the label
-`scarpenter.sparecores.com/gpu-ready=true` ([ADR-031](../explanation/DECISIONS.md#adr-031-gpu-nodes-register-before-the-driver-work-is-done-accepted-2026-11-22)).
+`scarpenter.sparecores.com/gpu-ready=true` ([ADR-031](../explanation/DECISIONS.md#adr-031-gpu-nodes-register-before-the-check-and-fabric-manager-work-are-done-accepted-2026-11-22)).
 The node's own check sets the label with the kubelet's credentials, because NodeRestriction forbids a node to change its taints.
 It also removes the taint at once from every Node of a SCarpenter NodeClaim without the `nvidia-driver-branch` label (a CPU
-node of a pool that lists the taint in `startupTaints`, as every pool that can launch GPU types must). It needs `patch` on Nodes, which the controller has; other taints are left alone.
+node of a pool that lists the taint in `startupTaints`, as every pool that can launch GPU types must). A GPU node labelled `gpu-ready=false`, or still tainted 30 minutes after its creation, loses its NodeClaim (Event `GPUCheckFailed`).
+The controller already has `patch` on Nodes and `delete` on NodeClaims; other taints are left alone.
 
 ## Billing retention
 

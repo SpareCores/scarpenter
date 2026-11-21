@@ -7,7 +7,7 @@
 # scarpenter.sparecores.com/gpu-pending, and on success this script labels the Node
 # scarpenter.sparecores.com/gpu-ready=true with the kubelet's credentials, which makes the
 # controller remove the taint (a node may label itself but not change its taints). A node
-# that fails keeps the taint, so nothing schedules there.
+# that fails labels the Node gpu-ready=false, and the controller deletes its NodeClaim.
 #
 # With "fabric" (NVSwitch systems, plan 12, D9) the check then also waits for Fabric Manager
 # to report that it configured the fabric, read from the journal of the current run of its
@@ -18,7 +18,7 @@
 # pinned version; its failure lines start with "failed to".
 #
 # The GPUs may need a moment after the modules load, so the check is retried: for 30 s, and
-# for 3 more minutes for the fabric.
+# for 10 more minutes for the fabric (which includes the download of its archive).
 set -u
 want_version=$1
 want_gpus=$2
@@ -41,7 +41,7 @@ retry() {
     [ -z "$fail" ] && return 0
     sleep 3
   done
-  echo "scarpenter-nvidia-check: $fail; the node keeps its gpu-pending taint" >&2
+  echo "scarpenter-nvidia-check: $fail; the node is labelled gpu-ready=false" >&2
   return 1
 }
 
@@ -63,19 +63,17 @@ check_fabric() {
   fi
 }
 
-retry 10 check_gpus || exit 1
-if [ -n "$fabric" ]; then
-  retry 60 check_fabric || exit 1
-fi
-
-# The kubelet registers the Node once its certificate is approved, which can take minutes.
-label_node() {
-  kubectl --kubeconfig /etc/kubernetes/kubelet.conf label node "$node" \
-    scarpenter.sparecores.com/gpu-ready=true --overwrite 2>&1
+# The kubelet registers the Node once its certificate is approved, which can take minutes:
+# retry until the unit's timeout stops the script.
+set_ready() {
+  until kubectl --kubeconfig /etc/kubernetes/kubelet.conf --request-timeout=10s label node "$node" \
+    "scarpenter.sparecores.com/gpu-ready=$1" --overwrite; do
+    sleep 3
+  done
 }
-for _ in $(seq 100); do
-  label_node && exit 0
-  sleep 3
-done
-echo "scarpenter-nvidia-check: the checks passed, but the node could not be labelled gpu-ready: $(label_node)" >&2
-exit 1
+
+if ! { retry 10 check_gpus && { [ -z "$fabric" ] || retry 200 check_fabric; }; }; then
+  set_ready false
+  exit 1
+fi
+set_ready true

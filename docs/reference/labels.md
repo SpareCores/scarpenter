@@ -93,7 +93,7 @@ with `spec.billing.retainUntilPeriodEnd: true`:
 | `scarpenter.sparecores.com/hold-released-until` (annotation) | A release under pressure was blocked by the NodePool's disruption budget, so the node lost its hold until this time (the end of its current period, RFC 3339): it is an ordinary empty node for Karpenter's emptiness meanwhile. Removed with the next hold, or when the node stops qualifying. |
 | `scarpenter.sparecores.com/billing-start` (annotation) | Copied from the NodeClaim at registration (see above), or written by the controller from the cloud provider for a node whose NodeClaim has none. |
 | `scarpenter.sparecores.com/gpu-pending` (taint, `NoSchedule`) | On every NVIDIA GPU node from registration until its driver check passed (ADR-031). Removed by the controller when the Node has the label below, or at once from a node without `nvidia-driver-branch`. List it in the NodePool's `startupTaints`. |
-| `scarpenter.sparecores.com/gpu-ready` (label) | `true`, set by the node's own check with the kubelet's credentials. |
+| `scarpenter.sparecores.com/gpu-ready` (label) | `true` or `false`, set by the node's own check with the kubelet's credentials; `false` makes the controller delete the NodeClaim. |
 | `scarpenter.sparecores.com/releasing` (taint, `NoSchedule`) | The node is being released at the end of its paid period (or under pressure: the taint's value is `period-end`, `limit`, `quota` or `max-retained`). Put on for the 5 seconds before the final check and left until the node is gone. |
 
 ## Interruption annotations

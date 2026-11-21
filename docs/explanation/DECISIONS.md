@@ -1132,18 +1132,31 @@ server needs HTTPS to `*.release.flatcar-linux.net`. A build costs one started h
 and the snapshot's storage. The image is not verified beyond HTTPS from Flatcar's release server, as with
 `hcloud-upload-image`. The how-to's manual step becomes optional.
 
-## ADR-031: GPU nodes register before the driver work is done (accepted, 2026-11-22)
+## ADR-031: GPU nodes register before the check and Fabric Manager work are done (accepted, 2026-11-22)
 
 Karpenter's registration timeout is a fixed 15 minutes counted from the NodeClaim's creation (nodeclaim liveness, v1.15.1).
-The kubelet used to `Requires=` the GPU check, so the node registered only after the driver download (430 to 570 MB),
-the Fabric Manager wait and, later, an on-node driver build (5 to 10 minutes). A slow GPU node was deleted before it
-registered.
+The kubelet used to `Requires=` the GPU check, so the node registered only after the driver was loaded, the Fabric Manager
+download and wait were done and, later, an on-node driver build (5 to 10 minutes) had run. A slow GPU node was deleted before
+it registered.
 
-**Decision.** The kubelet does not wait for the driver or the check. A GPU node registers with the taint
-`scarpenter.sparecores.com/gpu-pending:NoSchedule` (added by the bootstrap to `--register-with-taints` on every launch of a
-NVIDIA type), and the taint is removed once the check passed.
+**Decision.** The kubelet does not wait for the check, Fabric Manager or the driver loader (`nvidia.service`). A GPU node
+registers with the taint `scarpenter.sparecores.com/gpu-pending:NoSchedule` and the label
+`scarpenter.sparecores.com/nvidia-driver-branch=<branch>` (both from the kubelet's `--register-with-taints` and
+`--node-labels`, on every launch of an NVIDIA type; the domain is not restricted by NodeRestriction for a node's own labels,
+and the label must exist from the first moment so that the controller does not take the node for a CPU node), and the taint is
+removed once the check passed.
 
-- **Who removes it.** The check unit (`scarpenter-nvidia-check`) labels the node `scarpenter.sparecores.com/gpu-ready=true`
+- **What moved out of the 15 minutes, and what did not.** Moved: the Fabric Manager archive (small next to the driver), which
+  `scarpenter-nvidia-fabricmanager.service` downloads after the boot with `curl` and checks against the pinned sha256
+  (`sha256sum -c`; Ignition did the same before), then Fabric Manager's start and wait, the check, and the future on-node build.
+  **Not moved: the driver sysext download (430 to 570 MB).** It stays in the initrd (`enabled-sysext.conf`, the signed update
+  payload of Flatcar's release server, which only the initrd's download tool unpacks and verifies) or, with a mirror, in
+  Ignition's `/etc/flatcar/sysext/` file. Moving the mirror path to a unit after the boot is possible in principle (download, check
+  the pin, link to `/etc/extensions`, `systemd-sysext refresh`) but Flatcar's `nvidia.service` is ordered `Before=containerd.target`
+  and runs its compile path when the sysext is not merged at its start, so it needs ordering overrides that cannot be verified
+  without a node: it is not done, and the default path cannot move at all. With the driver in the initrd a slow download still
+  counts against the 15 minutes. Mirror the driver (`--nvidia-driver-base-url`) to keep it short.
+- **Who removes the taint.** The check unit (`scarpenter-nvidia-check`) labels the node `scarpenter.sparecores.com/gpu-ready=true`
   with `kubectl` and the kubelet's own credentials (`/etc/kubernetes/kubelet.conf`); the controller's GPU pending controller removes
   the taint from a Node that carries the label. The node cannot remove the taint itself: the NodeRestriction admission
   plugin rejects an update of a node's own Node that changes `spec.taints` (`node %q is not allowed to modify taints`,
@@ -1154,33 +1167,36 @@ NVIDIA type), and the taint is removed once the check passed.
   Fabric Manager is ready and without the version and count check).
 - **Karpenter learns about the taint from the NodePool, not from the provider.** Core copies `spec.startupTaints` from the NodePool's
   template into the NodeClaim. `Create` returns a NodeClaim, but core takes only labels, annotations, provider ID, image ID,
-  capacity and allocatable from it (`PopulateNodeClaimDetails`), and the NodeClaim spec is immutable. So a **NodePool that offers
-  GPU types must list the taint in `spec.template.spec.startupTaints`**. With it, the scheduler ignores the taint while the node is
-  uninitialized (pods need no toleration to be planned onto it) and `Initialized` waits for its removal. Without it, the node still
-  registers with the taint and the controller still removes it, but core treats the taint as permanent while the node is
-  uninitialized: a pending pod cannot be placed on the new node, so core can launch another NodeClaim for it (with the same
-  taint) in its next scheduling pass, until the first node's taint is gone. That wastes nodes (a bounded number, not a loop: every node
-  that passes its check frees the pod), and if the check fails everywhere the pods stay pending.
+  capacity and allocatable from it (`PopulateNodeClaimDetails`), and the NodeClaim spec is immutable. So a **NodePool that can launch
+  GPU types (a mixed CPU and GPU pool too) must list the taint in `spec.template.spec.startupTaints`**. With it, the scheduler ignores the
+  taint while the node is uninitialized (pods need no toleration to be planned onto it) and `Initialized` waits for its removal. Without
+  it core treats the taint of a registered node as permanent while the node is uninitialized: a pending pod cannot be placed on the new
+  node, so core can launch another NodeClaim for it in its next scheduling pass, until the first node's taint is gone. **`GetInstanceTypes`
+  therefore fails closed**: it leaves the NVIDIA types out of a NodePool that does not list the taint, and logs it once per NodePool.
+  Adding the startup taint to an existing NodePool changes its hash, so that the nodes of the pool drift and are replaced (subject to
+  the pool's disruption budgets).
 - **Mixed pools.** Core merges `startupTaints` onto every Node of the pool at registration (unless the Node has
   `karpenter.sh/do-not-sync-taints=true`), and `Initialized` waits for the taint on each of them. The GPU pending controller
   therefore also removes the taint at once from every Node of a SCarpenter NodeClaim (provider ID `scarpenter://`) that needs no
-  driver check, which is a Node without the `scarpenter.sparecores.com/nvidia-driver-branch` label (the label only types that boot
-  the NVIDIA driver carry, synced by core in the same update as the taints). CPU nodes and GPU types without the NVIDIA
-  path are cleared right after registration without any `gpu-ready` label.
+  driver check, which is a Node without the `scarpenter.sparecores.com/nvidia-driver-branch` label. CPU nodes and GPU types without
+  the NVIDIA path are cleared right after registration without any `gpu-ready` label.
 - **Ready and Initialized.** `Ready` is the kubelet's: it reports Ready once the runtime and the CNI are up, whether or not the driver
   works. `Initialized` needs Ready, every startup taint of the NodeClaim removed (the taint, when the NodePool lists it) and the
   extended resources the NodeClaim requests (`nvidia.com/gpu`) registered, which the device plugin does only with a working driver.
-- **Failure.** A failed check leaves the taint, so nothing schedules there. The node has registered, so core's liveness no longer
-  applies and core never deletes an uninitialized node itself: the consumer's own deadline for the pending pod
-  handles it (for a Spare Cores runner, its post-registration deadline).
+- **Failure.** A failed check leaves the taint, so nothing schedules there, and labels the Node `gpu-ready=false`. The node has
+  registered, so core's liveness no longer applies and core never deletes an uninitialized node itself, which would leave it running at
+  GPU prices until `expireAfter` while pending Pods stay planned onto it. The GPU pending controller therefore **deletes the
+  NodeClaim** (core then replaces the node) at once on `gpu-ready=false`, and when the taint is still there 30 minutes after the
+  Node's creation (`gpupending.Timeout`); it logs the reason and emits a `GPUCheckFailed` Event on the NodeClaim. A consumer's own
+  deadline for the pending pod still applies.
 
 Why: registration is the only part of node startup with a fixed clock; everything after it can take as long as the work needs,
 and the taint keeps GPU pods off a node until the GPUs are proven.
 
-**Required before on-node driver builds** (plan 12): a build of 5 to 10 minutes on top of the boot and the download does not fit
-the 15 minutes.
+**Required before on-node driver builds** (plan 12): a build of 5 to 10 minutes on top of the boot does not fit the 15 minutes if
+it runs before the kubelet. The build must run in a unit after the boot, in front of the check, like the Fabric Manager download.
 
-Consequences: the check unit starts in parallel with the kubelet and runs for up to 15 minutes (`TimeoutStartSec=900`; the label
-step retries for 5 minutes until the Node exists); the device plugin starts on the node while the driver may still load and
-restarts until it can (it already tolerates every taint); DaemonSets the node needs for Ready (the CNI) must tolerate `NoSchedule`
-taints.
+Consequences: the check unit starts in parallel with the kubelet and runs for up to 20 minutes (`TimeoutStartSec=1200`: the GPU
+check 30 s, Fabric Manager up to 10 minutes; the label step retries until the Node exists); the device plugin starts on the node while the
+driver may still load and restarts until it can (it already tolerates every taint); DaemonSets the node needs for Ready (the CNI) must tolerate
+`NoSchedule` taints; the controller needs `delete` on NodeClaims, which it has.

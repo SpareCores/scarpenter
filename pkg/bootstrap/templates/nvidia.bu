@@ -29,14 +29,15 @@ storage:
           hash: sha256-{{ .SHA256 }}
 {{- end }}
 {{- with .NVIDIA.FabricManager }}
-    # NVSwitch systems only: NVIDIA's Fabric Manager archive of the driver's exact
-    # version (an xz tarball, which Ignition writes as it is and verifies by hash).
-    - path: {{ .Archive }}
+    # NVSwitch systems only: the pin of NVIDIA's Fabric Manager archive of the driver's
+    # exact version. The archive itself (an xz tarball) is downloaded by
+    # scarpenter-nvidia-fabricmanager.service after the boot, so that the download does
+    # not count against Karpenter's registration timeout.
+    - path: {{ .Archive }}.sha256
       mode: 0644
       contents:
-        source: {{ .URL | q }}
-        verification:
-          hash: sha256-{{ .SHA256 }}
+        inline: |
+          {{ .SHA256 }}  {{ .Archive }}
 {{- end }}
     # 00-: modprobe takes the first install line of a module in the order of the
     # file names, and the driver sysext's 10-flatcar-nvidia-drivers-*.conf has
@@ -105,13 +106,14 @@ systemd:
         [Service]
         Type=oneshot
         RemainAfterExit=yes
-        TimeoutStartSec=900
+        TimeoutStartSec=1200
         ExecStart=/opt/scarpenter/bin/scarpenter-nvidia-check {{ .NVIDIA.Version }} {{ .NVIDIA.Count }} {{ .NodeName }}{{ if .NVIDIA.FabricManager }} fabric{{ end }}
         [Install]
         WantedBy=multi-user.target
 {{- with .NVIDIA.FabricManager }}
-    # Fabric Manager of NVSwitch systems: the daemon version equals the driver's. Every
-    # start unpacks the archive again, which restores the shipped config, and sets it to
+    # Fabric Manager of NVSwitch systems: the daemon version equals the driver's. The
+    # first start downloads the archive (a retry of a failed start finds it) and checks
+    # its sha256; every start unpacks the archive again, which restores the shipped config, and sets it to
     # run in the foreground, to log to the journal (the check reads it there) and to take
     # the topology and database files (535 has the latter) from the archive.
     # It is started by the check unit that wants it (not requires: a restart of the daemon would
@@ -124,6 +126,8 @@ systemd:
         After=nvidia.service
         Before=scarpenter-nvidia-check.service
         [Service]
+        TimeoutStartSec=600
+        ExecStartPre=/usr/bin/bash -c 'sha256sum -c --quiet {{ .Archive }}.sha256 || { curl -fsSL --retry 5 -o {{ .Archive }} {{ .URL }} && sha256sum -c --quiet {{ .Archive }}.sha256; }'
         ExecStartPre=/usr/bin/tar -xJf {{ .Archive }} --strip-components=1 -C {{ .Dir }}
         ExecStartPre=/usr/bin/sed -i -e 's/^DAEMONIZE=.*/DAEMONIZE=0/' -e 's/^LOG_USE_SYSLOG=.*/LOG_USE_SYSLOG=1/' -e 's#/usr/share/nvidia/nvswitch#{{ .Dir }}/share/nvidia/nvswitch#' {{ .Dir }}/etc/fabricmanager.cfg
         ExecStart={{ .Dir }}/bin/nv-fabricmanager -c {{ .Dir }}/etc/fabricmanager.cfg

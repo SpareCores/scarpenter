@@ -431,6 +431,33 @@ func readScript(name string) (string, error) {
 // systemd unit, where whitespace, quotes, $ and % are special.
 var argPattern = regexp.MustCompile(`^[A-Za-z0-9._:/=,@-]+$`)
 
+// registrationArgs are the kubelet flags of the node's identity, taints and labels.
+func (p *Params) registrationArgs() ([]string, error) {
+	args := []string{"--provider-id=" + p.ProviderID, "--hostname-override=" + p.NodeName}
+	taints := p.Taints
+	if p.NVIDIA != nil {
+		taints = withGPUPending(taints)
+	}
+	if taints := formatTaints(taints); taints != "" {
+		if !argPattern.MatchString(taints) {
+			return nil, fmt.Errorf("the taints %q have characters that cannot go on a kubelet command line", taints)
+		}
+		args = append(args, "--register-with-taints="+taints)
+	}
+
+	if p.NVIDIA != nil {
+		// From the first moment, not only when core syncs the NodeClaim's labels: the GPU
+		// pending controller tells a GPU node by this label (ADR-031). The domain is not one
+		// that NodeRestriction forbids a kubelet to label itself with.
+		branch := p.NVIDIA.Selection.Branch
+		if !argPattern.MatchString(branch) {
+			return nil, fmt.Errorf("the NVIDIA driver branch %q has characters that cannot go on a kubelet command line", branch)
+		}
+		args = append(args, "--node-labels="+v1alpha1.LabelNVIDIADriverBranch+"="+branch)
+	}
+	return args, nil
+}
+
 func (p *Params) templateData() (*TemplateData, error) {
 	for name, v := range map[string]string{
 		"node name": p.NodeName, "provider ID": p.ProviderID, "API server endpoint": p.APIServerEndpoint,
@@ -448,16 +475,9 @@ func (p *Params) templateData() (*TemplateData, error) {
 			return nil, fmt.Errorf("the %s %q has characters that cannot go on a kubelet command line", name, v)
 		}
 	}
-	args := []string{"--provider-id=" + p.ProviderID, "--hostname-override=" + p.NodeName}
-	taints := p.Taints
-	if p.NVIDIA != nil {
-		taints = withGPUPending(taints)
-	}
-	if taints := formatTaints(taints); taints != "" {
-		if !argPattern.MatchString(taints) {
-			return nil, fmt.Errorf("the taints %q have characters that cannot go on a kubelet command line", taints)
-		}
-		args = append(args, "--register-with-taints="+taints)
+	args, err := p.registrationArgs()
+	if err != nil {
+		return nil, err
 	}
 
 	kubelet := p.Kubelet

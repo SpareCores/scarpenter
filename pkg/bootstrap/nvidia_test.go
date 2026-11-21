@@ -162,7 +162,7 @@ func TestFabricManagerOnNVSwitchSystemsOnly(t *testing.T) {
 		}
 		text, _ := part(r, "nvidia")
 		for _, want := range []string{
-			"/opt/nvidia-fabricmanager/" + file, wantURL, "sha256-" + sel.FabricManagerSHA256,
+			"/opt/nvidia-fabricmanager/" + file, wantURL, sel.FabricManagerSHA256,
 			"scarpenter-nvidia-fabricmanager.service", "nv-fabricmanager -c",
 			"scarpenter-nvidia-check " + sel.Version + " 8 default-abc12 fabric",
 		} {
@@ -359,6 +359,9 @@ func TestGPUNodeRegistersWithPendingTaint(t *testing.T) {
 					t.Errorf("the nvidia part has %q: the kubelet must not wait for the check", banned)
 				}
 			}
+			if want := "--node-labels=" + v1alpha1.LabelNVIDIADriverBranch + "=" + sel.Branch; !strings.Contains(text, want) {
+				t.Errorf("the kubelet lacks %q: the driver label must exist from registration", want)
+			}
 			if !strings.Contains(text, "WantedBy=multi-user.target") {
 				t.Error("the check unit is not enabled")
 			}
@@ -368,7 +371,33 @@ func TestGPUNodeRegistersWithPendingTaint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(goldenText(t, r)), v1alpha1.TaintGPUPending) {
-		t.Error("a node without a GPU registers with the gpu-pending taint")
+	if text := string(goldenText(t, r)); strings.Contains(text, v1alpha1.TaintGPUPending) ||
+		strings.Contains(text, "--node-labels") {
+		t.Error("a node without a GPU registers with the gpu-pending taint or the driver label")
+	}
+}
+
+// The Fabric Manager archive is not an Ignition file: the unit downloads it after the boot
+// and checks the pin, so that the download does not count against the registration timeout.
+func TestFabricManagerArchiveIsDownloadedAfterTheBoot(t *testing.T) {
+	sel := gpuSelection(t, "H100", 8)
+	r, err := bootstrap.Render(gpuParams(t, v1alpha1.NetworkTemplateDirect, sel, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := part(r, "nvidia")
+	file := nvidia.FabricManagerFile(sel.Version)
+	for _, want := range []string{
+		"/opt/nvidia-fabricmanager/" + file + ".sha256",
+		"curl -fsSL --retry 5 -o /opt/nvidia-fabricmanager/" + file,
+		"sha256sum -c --quiet /opt/nvidia-fabricmanager/" + file + ".sha256",
+		"TimeoutStartSec=600",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the nvidia part lacks %q", want)
+		}
+	}
+	if n := strings.Count(text, nvidia.FabricManagerURL(sel.Version)); n != 1 {
+		t.Errorf("the archive URL appears %d times, want once (in the unit, not as an Ignition file)", n)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -156,6 +157,8 @@ type CloudProvider struct {
 	// factsWarned is, per NodeClass, the vendors warnMissingFacts last named
 	// (under notReadyMu).
 	factsWarned map[string]string
+	// gpuUnguarded are the NodePools withoutUnguardedGPUs has logged (under notReadyMu).
+	gpuUnguarded map[string]bool
 }
 
 var _ cloudprovider.CloudProvider = (*CloudProvider)(nil)
@@ -250,7 +253,7 @@ func (c *CloudProvider) GetInstanceTypes(
 	c.opts.Catalog.LogNodePool(ctx, nc.Name, nodePool.Name, reqs)
 	c.logNotReady(ctx, nc, ready)
 	if len(ready) == len(nc.Spec.Vendors.Names()) {
-		return its, nil
+		return c.withoutUnguardedGPUs(ctx, nodePool, its), nil
 	}
 	out := make([]*cloudprovider.InstanceType, 0, len(its))
 	for _, it := range its {
@@ -258,7 +261,41 @@ func (c *CloudProvider) GetInstanceTypes(
 			out = append(out, it)
 		}
 	}
-	return out, nil
+	return c.withoutUnguardedGPUs(ctx, nodePool, out), nil
+}
+
+// withoutUnguardedGPUs leaves out the NVIDIA types when the NodePool does not list the
+// gpu-pending taint in its startupTaints (ADR-031): without it core treats the taint of a
+// registered GPU node as permanent and may launch more nodes than the Pods need. It
+// fails closed, and logs once per NodePool until the taint is listed.
+func (c *CloudProvider) withoutUnguardedGPUs(
+	ctx context.Context, nodePool *karpv1.NodePool, its []*cloudprovider.InstanceType,
+) []*cloudprovider.InstanceType {
+	pending := corev1.Taint{Key: v1alpha1.TaintGPUPending, Effect: corev1.TaintEffectNoSchedule}
+	guarded := slices.ContainsFunc(nodePool.Spec.Template.Spec.StartupTaints,
+		func(t corev1.Taint) bool { return t.MatchTaint(&pending) })
+	c.notReadyMu.Lock()
+	defer c.notReadyMu.Unlock()
+	if guarded {
+		delete(c.gpuUnguarded, nodePool.Name)
+		return its
+	}
+	out := make([]*cloudprovider.InstanceType, 0, len(its))
+	for _, it := range its {
+		if it.Requirements.Get(v1alpha1.LabelNVIDIADriverBranch).Operator() != corev1.NodeSelectorOpIn {
+			out = append(out, it)
+		}
+	}
+	if len(out) < len(its) && !c.gpuUnguarded[nodePool.Name] {
+		if c.gpuUnguarded == nil {
+			c.gpuUnguarded = map[string]bool{}
+		}
+		c.gpuUnguarded[nodePool.Name] = true
+		log.FromContext(ctx).Info("the NVIDIA GPU types are not offered: the NodePool does not list the taint "+
+			v1alpha1.TaintGPUPending+":NoSchedule in spec.template.spec.startupTaints (ADR-031)",
+			"nodepool", nodePool.Name)
+	}
+	return out
 }
 
 // FactsStartupGrace is how long after the start GetInstanceTypes reports an
