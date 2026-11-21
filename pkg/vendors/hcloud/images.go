@@ -213,50 +213,77 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 	if channel == "" {
 		channel = selector.DefaultChannel
 	}
+	// The lookups run in parallel; missing snapshots of the label convention are
+	// then built one architecture at a time, amd64 first (ADR-030). A selector
+	// names images the operator makes: never built.
+	type lookup struct {
+		region, arch string
+		img          *vendors.Image
+		err          error
+		build        bool
+	}
 	var (
-		mu        sync.Mutex
-		out       []v1alpha1.ImageStatus
-		transient error
-		wg        sync.WaitGroup
+		mu      sync.Mutex
+		lookups []lookup
+		wg      sync.WaitGroup
 	)
 	for _, region := range regions {
 		for _, arch := range []string{ArchAMD64, ArchARM64} {
 			wg.Go(func() {
-				st := v1alpha1.ImageStatus{Region: region, Arch: arch}
+				l := lookup{region: region, arch: arch}
 				use, _, err := selector.ImageUse(nc, d, region, arch)
-				var img *vendors.Image
 				if err == nil {
-					img, err = d.ResolveImage(ctx, vendors.ImageRequest{
+					l.img, err = d.ResolveImage(ctx, vendors.ImageRequest{
 						Region: region, Arch: arch, Channel: channel, Version: nc.Spec.Flatcar.Version, Use: use,
 					})
 				}
+				l.err = err
+				l.build = vendors.CodeOf(err) == CodeImageNotFound && use.IsDefault() && d.canBuild()
 				mu.Lock()
-				defer mu.Unlock()
-				switch {
-				case err == nil:
-					st.Ref, st.Ready = img.Ref, true
-				case !vendors.IsClass(err, vendors.Retryable):
-					st.Message = err.Error()
-					if code := vendors.CodeOf(err); vendors.IsImageVersionCode(code) {
-						st.Reason = code
-					}
-				default:
-					transient = errors.Join(transient, fmt.Errorf("%s/%s: %w", region, arch, err))
-					return
-				}
-				out = append(out, st)
+				lookups = append(lookups, l)
+				mu.Unlock()
 			})
 		}
 	}
 	wg.Wait()
+	slices.SortFunc(lookups, func(a, b lookup) int {
+		if a.region != b.region {
+			return strings.Compare(a.region, b.region)
+		}
+		return strings.Compare(a.arch, b.arch)
+	})
+	builds := map[string]error{}
+	for _, arch := range []string{ArchAMD64, ArchARM64} {
+		if slices.ContainsFunc(lookups, func(l lookup) bool { return l.build && l.arch == arch }) {
+			builds[arch] = d.ensureImage(ctx, buildKey{channel, nc.Spec.Flatcar.Version, arch})
+		}
+	}
+	var (
+		out       []v1alpha1.ImageStatus
+		transient error
+	)
+	for _, l := range lookups {
+		if l.build {
+			l.err = builds[l.arch]
+		}
+		st := v1alpha1.ImageStatus{Region: l.region, Arch: l.arch}
+		switch {
+		case l.err == nil:
+			st.Ref, st.Ready = l.img.Ref, true
+		case !vendors.IsClass(l.err, vendors.Retryable):
+			st.Message = l.err.Error()
+			if code := vendors.CodeOf(l.err); vendors.IsImageVersionCode(code) ||
+				code == vendors.CodeImageBuilding || code == vendors.CodeImageBuildFailed {
+				st.Reason = code
+			}
+		default:
+			transient = errors.Join(transient, fmt.Errorf("%s/%s: %w", l.region, l.arch, l.err))
+			continue
+		}
+		out = append(out, st)
+	}
 	if transient != nil {
 		return nil, transient
 	}
-	slices.SortFunc(out, func(a, b v1alpha1.ImageStatus) int {
-		if a.Region != b.Region {
-			return strings.Compare(a.Region, b.Region)
-		}
-		return strings.Compare(a.Arch, b.Arch)
-	})
 	return out, nil
 }

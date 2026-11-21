@@ -33,10 +33,16 @@ needs exactly one match:
 | `flatcar-channel` | the NodeClass's `flatcar.channel` (default `stable`) |
 | `flatcar-version` | the NodeClass's `flatcar.version`, for example `4757.2.3` |
 
-Make them with the community tool
-[`hcloud-upload-image`](https://github.com/apricote/hcloud-upload-image) (it boots a
-temporary server in rescue mode, writes Flatcar's Hetzner image, snapshots it and deletes
-the server: a few minutes and one started hour of a small server):
+**The driver makes them for you** (ADR-030): when a NodeClass pins a release that has no
+snapshot, the leader boots a temporary server in rescue mode, writes Flatcar's Hetzner
+image, snapshots it with these labels and deletes the server: a few minutes and one
+started hour of a small server per architecture. While it runs, the NodeClass's
+`ImagesReady` says `ImageBuilding`. It needs outbound TCP 22 from the controller to the
+temporary server ([details](../reference/hcloud-driver.md#building-the-snapshot)).
+
+To make them yourself instead, set `vendors.hcloud.buildImages: false` in the chart and use
+the community tool [`hcloud-upload-image`](https://github.com/apricote/hcloud-upload-image),
+which does the same:
 
 ```sh
 export HCLOUD_TOKEN=...   # a read-write token of the project

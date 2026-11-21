@@ -8,7 +8,9 @@
 #      before the controller starts: the label keys of their metrics are registered
 #      with Karpenter core at start-up), then the NodeClasses;
 #   4. the chart (not manifests), with the cluster name scarpenter-ci-<run id>;
-#   5. the NodePools, and the wait for the NodeClasses to be Ready.
+#   5. the NodePools, and the wait for the NodeClasses to be Ready and their images ready:
+#      on a new Flatcar pin the controller builds the CI project's snapshots first (ADR-030,
+#      one architecture after the other, a few minutes each).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/e2e-hcloud/lib.sh
@@ -54,6 +56,15 @@ for nc in e2e-amd64 e2e-arm64 e2e-drift; do
   wait_condition Ready 600 "scnodeclass/${nc}" ||
     {
       kubectl get scnodeclass "${nc}" -o yaml
+      exit 1
+    }
+done
+for nc in e2e-amd64 e2e-arm64; do
+  wait_until "ImagesReady on ${nc} (the controller builds missing snapshots)" 1800 is_value True \
+    kubectl get scnodeclass "${nc}" -o jsonpath='{.status.vendors.hcloud.conditions[?(@.type=="ImagesReady")].status}' ||
+    {
+      kubectl get scnodeclass "${nc}" -o yaml
+      kubectl get events -A --field-selector reason=ImageBuildFailed
       exit 1
     }
 done

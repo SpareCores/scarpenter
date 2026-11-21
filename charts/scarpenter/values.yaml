@@ -233,6 +233,11 @@ vendors:
     # report it); with it the controller knows the headroom before a launch
     # (--hcloud-server-limit). 0: unknown.
     serverLimit: 0
+    # Build the Flatcar snapshot of the pinned release when the project has none
+    # (--hcloud-build-images; true): a temporary server writes Flatcar's hetzner
+    # image and is snapshotted (ADR-030). Only for NodeClasses without
+    # resources.images.use. false: you pre-create the snapshots.
+    buildImages: true
     # Price of a Primary IPv4 address per hour in USD, used in the price of
     # Hetzner offerings (SCARPENTER_HCLOUD_IPV4_PRICE). An explicit override that
     # wins over Keeper's ipv4_price rows; empty: Keeper's price of the region. "0":

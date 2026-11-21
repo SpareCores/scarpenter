@@ -6,7 +6,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package sweep finds and deletes what a test cluster of the Hetzner Cloud L5 lane left in a
 // project: servers, volumes, placement groups, firewalls and unassigned Primary IPs, selected by
-// the label scarpenter.sparecores.com/cluster. It is the sweeper
+// the label scarpenter.sparecores.com/cluster, and the servers and SSH keys of the controller's
+// Flatcar snapshot builds (ADR-030), selected by scarpenter.sparecores.com/image-build. It is the sweeper
 // workflow's engine (every three hours, everything of a cluster named scarpenter-ci-* older
 // than two hours) and the lane's last line of defence (one cluster, no age limit).
 //
@@ -19,8 +20,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // a resource is touched only when its cluster label matches (exactly, or by prefix) and, with an
 // age limit, when it is old enough (every kind has a creation time). A resource without the
 // label is never listed. Images (the Flatcar snapshots, which every run needs) are never
-// listed at all, so they cannot be deleted. Deletion order: servers (waited for), volumes,
-// placement groups, firewalls, Primary IPs. The network of the bring-your-own scenario is not here:
+// listed at all, so they cannot be deleted. Deletion order: servers (waited for), build SSH keys,
+// volumes, placement groups, firewalls, Primary IPs. The network of the bring-your-own scenario is not here:
 // the API interface of the driver cannot delete one, so the lane's teardown deletes it with the CLI.
 package sweep
 
@@ -132,7 +133,7 @@ func Run(ctx context.Context, api hcloud.API, ips IPLister, o Options) (*Report,
 	s := &sweeper{api: api, ips: ips, o: o, rep: &Report{}}
 	var errs []error
 	for _, step := range []func(context.Context) error{
-		s.servers, s.volumes, s.placementGroups, s.firewalls, s.primaryIPs,
+		s.servers, s.buildKeys, s.volumes, s.placementGroups, s.firewalls, s.primaryIPs,
 	} {
 		if err := step(ctx); err != nil {
 			errs = append(errs, err)
@@ -143,7 +144,7 @@ func Run(ctx context.Context, api hcloud.API, ips IPLister, o Options) (*Report,
 
 // matches says whether a resource with these labels and creation time is the sweep's, and why not.
 func (s *sweeper) matches(labels map[string]string, created time.Time) (cluster string, ok bool, why string) {
-	cluster, has := labels[ClusterLabel]
+	cluster, has := clusterOf(labels)
 	switch {
 	case !has:
 		return "", false, "no cluster label"
@@ -163,13 +164,23 @@ func (s *sweeper) matches(labels map[string]string, created time.Time) (cluster 
 	return cluster, true, ""
 }
 
+// clusterOf is the cluster a resource belongs to: its cluster label, or for the servers and keys of
+// a snapshot build its build label.
+func clusterOf(labels map[string]string) (string, bool) {
+	if c, ok := labels[ClusterLabel]; ok {
+		return c, true
+	}
+	c, ok := labels[hcloud.LabelImageBuild]
+	return c, ok
+}
+
 // handle records and performs one deletion.
 func (s *sweeper) handle(
 	kind string, id int64, name string, labels map[string]string, created time.Time, del func() error,
 ) {
 	cluster, ok, why := s.matches(labels, created)
 	if !ok {
-		if _, has := labels[ClusterLabel]; has && why != "another cluster" && !strings.HasPrefix(why, "not a cluster") {
+		if _, has := clusterOf(labels); has && why != "another cluster" && !strings.HasPrefix(why, "not a cluster") {
 			s.add(Item{Kind: kind, ID: id, Name: name, Cluster: cluster, Outcome: Skipped, Reason: why})
 		}
 		return
@@ -207,6 +218,11 @@ func (s *sweeper) servers(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listing servers: %w", err)
 	}
+	builds, err := s.api.Servers(ctx, hc.ServerListOpts{ListOpts: hc.ListOpts{LabelSelector: hcloud.LabelImageBuild}})
+	if err != nil {
+		return fmt.Errorf("listing image build servers: %w", err)
+	}
+	list = append(list, builds...)
 	var deleted []int64
 	for _, sv := range list {
 		before := len(s.rep.Items)
@@ -257,6 +273,18 @@ func (s *sweeper) waitGone(ctx context.Context, ids []int64) error {
 		case <-time.After(s.o.PollInterval):
 		}
 	}
+}
+
+// buildKeys deletes the SSH keys of the controller's snapshot builds.
+func (s *sweeper) buildKeys(ctx context.Context) error {
+	list, err := s.api.SSHKeys(ctx, hc.SSHKeyListOpts{ListOpts: hc.ListOpts{LabelSelector: hcloud.LabelImageBuild}})
+	if err != nil {
+		return fmt.Errorf("listing image build SSH keys: %w", err)
+	}
+	for _, k := range list {
+		s.handle("ssh-key", k.ID, k.Name, k.Labels, k.Created, func() error { return s.api.DeleteSSHKey(ctx, k) })
+	}
+	return nil
 }
 
 func (s *sweeper) volumes(ctx context.Context) error {

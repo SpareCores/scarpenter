@@ -64,6 +64,8 @@ type API interface {
 
 	// SSHKey finds a key by name or ID.
 	SSHKey(ctx context.Context, idOrName string) (*hc.SSHKey, error)
+	SSHKeys(ctx context.Context, opts hc.SSHKeyListOpts) ([]*hc.SSHKey, error)
+	DeleteSSHKey(ctx context.Context, k *hc.SSHKey) error
 
 	// RateLimit is the last RateLimit-* headers the API sent (zero before the
 	// first call).

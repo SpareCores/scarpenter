@@ -108,6 +108,8 @@ github.com/aliyun/credentials-go v1.4.14 h1:1gyVmYSCUjiAhB8xKZVFCwztx2l7iHAJmdHR
 github.com/aliyun/credentials-go v1.4.14/go.mod h1:G8iT166kPGHQUmO86LyIC+Qeb7Wak9SzTNO9isIHZbs=
 github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYWrPrQ=
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
+github.com/apricote/hcloud-upload-image/hcloudimages/v2 v2.0.1 h1:IX6IfhGIfA7gw51KlyBCU25dJuDEWIAtkWM9/F8aHC4=
+github.com/apricote/hcloud-upload-image/hcloudimages/v2 v2.0.1/go.mod h1:OBnyHwXlvUFZPqptHRGjDTPM0DWHOOhym2RVp8X+q5s=
 github.com/aws/aws-sdk-go-v2 v1.48.0 h1:tFU7EJVm7MfyaXLsXdYTZ0Vd6vwt9OljCyqq0gqk0Mc=
 github.com/aws/aws-sdk-go-v2 v1.48.0/go.mod h1:oeKU5p+TQBnpeLmU42WZLWvzv+ORLn+74n4QVLnm/Z0=
 github.com/aws/aws-sdk-go-v2/config v1.33.18 h1:WC0C4jM/tewXG8DWXnoxXnusJPZTryPazqk2k/zgd2s=

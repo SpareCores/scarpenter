@@ -42,7 +42,7 @@ nothing in the repository's tests calls Hetzner (the first live run is the L5 la
 |---|---|
 | `Driver` | regions (locations), zones (the location itself), `ResolveImage`, `CreateInstance`, `GetInstance`, `FindInstance`, `ListInstances`, `DeleteInstance`, `TagKey` |
 | `NodeClassValidator` | syntax of the `hcloud` block and of the hcloud blocks of the profiles, the isolation rule for a brought network |
-| `ImageReporter` | `status.vendors.hcloud.images`, condition `ImagesReady`: one snapshot per architecture, reported for every location of the NodeClass |
+| `ImageReporter` | `status.vendors.hcloud.images`, condition `ImagesReady`: one snapshot per architecture, reported for every location of the NodeClass; a missing one is built ([building](#building-the-snapshot)) |
 | `NodeOptions`, `EpochReporter` | defaults, `RootDiskForType`, `Supported`, `PriceDelta`, `Prepare` with device hints; the epoch changes when the server type table or the volume prices load |
 | `ManagedResources` | kinds `volumes`, `placementGroups`, `firewalls`, `networks` (use only) and the `images` selector |
 | `QuotaReporter`, `OfferingLister` | one global bucket `servers` when `--hcloud-server-limit` is set; launchable types by location from `GET /server_types` |
@@ -51,9 +51,9 @@ nothing in the repository's tests calls Hetzner (the first live run is the L5 la
 
 ## What is different on Hetzner
 
-- **No public Flatcar image.** The image rung is 3: snapshots in your own project, made
-  with `hcloud-upload-image`, found by labels. They are global in the project, per
-  architecture, not per location.
+- **No public Flatcar image.** Snapshots in your own project, found by labels, global in
+  the project, per architecture, not per location. The driver builds a missing one itself
+  (rung 4, ADR-030), [below](#building-the-snapshot).
 - **No spot, no instance profiles, no IAM.** Every server is on-demand; the token is the
   whole credential and it is bound to one project.
 - **The root disk belongs to the server type** (20 to 960 GB): the scheduler's ephemeral
@@ -97,7 +97,7 @@ matters for private networks.
 
 ## Images
 
-Rung 3 of ADR-021: the Flatcar snapshot of the pinned release in your own project, one per
+Rung 4 of ADR-021 (ADR-030): the Flatcar snapshot of the pinned release in your own project, one per
 architecture, found by its labels:
 
 | Label | Value |
@@ -115,8 +115,34 @@ never guesses). `resources.images.use` replaces the lookup with the shared selec
 `filters` `type`, `status`, `bound_to`; `name` matches system images only, snapshots have none).
 Whatever the lookup, the image's `flatcar-channel` and `flatcar-version` labels must say the
 pinned release or it is never booted (`ImageVersionMismatch`, `ImageVersionUnknown`). Answers are
-cached for an hour, a missing image for five minutes. How to make the snapshots:
-[the how-to](../how-to-guides/set-up-hcloud.md#1-the-flatcar-image). The driver does not import images.
+cached for an hour, a missing image for five minutes.
+
+### Building the snapshot
+
+When the label lookup finds no snapshot for an architecture, the driver builds it (ADR-030), the way
+[`hcloud-upload-image`](https://github.com/apricote/hcloud-upload-image) does and with its library:
+
+1. A temporary `cx23` (amd64) or `cax11` (arm64) server in `fsn1`, with a temporary SSH key, boots the rescue system.
+2. The controller connects over SSH to its public IPv4 and has it download
+   `https://<channel>.release.flatcar-linux.net/<arch>-usr/<version>/flatcar_production_hetzner_image.bin.bz2`
+   and write it to the disk.
+3. The server is snapshotted with the labels `os=flatcar`, `flatcar-channel`, `flatcar-version`, the description
+   `Flatcar <channel> <version> <arch>`, and is deleted with its key.
+
+| | |
+|---|---|
+| When | a NodeClass without `resources.images.use` pins a release that has no snapshot for an architecture, and `--hcloud-build-images` is on (the default) |
+| Who | the leader (the image report of the NodeClass controller) |
+| How many | one build at a time per controller, amd64 first; a snapshot of the release in any status, or another cluster's build server for the release, is waited for |
+| Labels | the server, its SSH key and the snapshot carry `scarpenter.sparecores.com/image-build=<cluster>` (and `apricote.de/created-by=hcloud-upload-image`) |
+| Leftovers | the first build of a controller process and every failed build first delete this cluster's servers and keys with that label |
+| Timeout | 30 minutes per build; a failed build is retried after 15 minutes |
+| Status | the architecture's image says `ImageBuilding` (or `ImageBuildFailed` with the error); so does `ImagesReady` where the region's images block; Events `ImageBuilding` (Normal) and `ImageBuildFailed` (Warning) on the NodeClass, once per architecture and outcome |
+| Cost | one started hour of a small server and the snapshot's storage |
+| Network | the controller needs outbound TCP 22 to the temporary server; the server needs HTTPS to Flatcar's release server |
+
+The image is checked by HTTPS only, as with `hcloud-upload-image`. To make the snapshots yourself instead:
+[the how-to](../how-to-guides/set-up-hcloud.md#1-the-flatcar-image) and `--hcloud-build-images=false`.
 
 ## Launch
 
@@ -231,7 +257,8 @@ A storage profile is supported in a location only when Keeper has a `block` row 
 
 ## What your IaC provides
 
-1. The Flatcar snapshots (both architectures, the three labels) or a CI job that makes them.
+1. Nothing for the Flatcar snapshots: the driver builds them. Only with `--hcloud-build-images=false` or an
+   `images` selector: the snapshots (both architectures, the three labels).
 2. Optionally a private network and a firewall per location (`networks.use`, `firewalls.use`).
 3. The controller's own read-write token, in a Secret.
 
@@ -335,8 +362,8 @@ through the real engine in the driver's own tests.
 ## Deferred
 
 Spot (does not exist), private-only servers, `networks.create`, per-run private networks and the isolation levels that
-need them, several projects per controller, Floating IPs, load balancers, snapshots as node roots, an `ImageImporter`
-(the label convention is its contract).
+need them, several projects per controller, Floating IPs, load balancers, snapshots as node roots, image import for any other vendor (ADR-030 is
+Hetzner only).
 
 ## What is not verified against Hetzner yet
 

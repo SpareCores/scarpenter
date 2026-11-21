@@ -256,16 +256,19 @@ else a stated failure.
 
 ## hcloud
 
-Images: rung 3. Provide one snapshot per architecture and pinned version, labelled
-`os=flatcar`, `flatcar-channel=<channel>`, `flatcar-version=<version>`; they are global
-in the project (list the IDs under the key `*`). Create them with
-`hcloud-upload-image` from Flatcar's `hetzner` image, in a CI job or a step of your IaC.
+Images: nothing to provide. The driver builds the snapshot of the pinned release itself
+(rung 4, ADR-030; [building](hcloud-driver.md#building-the-snapshot)); allow the controller
+outbound TCP 22 to the project's servers. If you pre-create the snapshots instead, set
+`--hcloud-build-images=false` (chart `vendors.hcloud.buildImages: false`) and provide one per
+architecture and pinned version, labelled `os=flatcar`, `flatcar-channel=<channel>`,
+`flatcar-version=<version>`; they are global in the project (list the IDs under the key `*`
+if you name them). `hcloud-upload-image` makes them from Flatcar's `hetzner` image.
 Credentials: none in the block; the token is bound to one project; give the controller
 its own read-write token in a Secret.
 
 | Kind | Provide | `use` fields |
 |---|---|---|
-| `images` | the snapshots, by the label convention (default) or IDs per location | `ids` (under `*`: global), `tags` (labels, `expression` for a full label selector), `match.architecture` |
+| `images` | nothing (built); with building off, the snapshots, by the label convention (default) or IDs | `ids` (under `*`: global), `tags` (labels, `expression` for a full label selector), `match.architecture` |
 | `networks` | optional: a private network per location (without one nodes have a public address only) | `ids`, `name` (exact), `tags`, `expression`, `match` (`cidr`, `within`, `zone`); no `create` in v1 |
 | `firewalls` | optional: a firewall ID (the same in every location) | `ids`, `name` (exact), `tags`, `expression`; with it `networking.inbound` rules do not apply |
 

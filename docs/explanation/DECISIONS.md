@@ -373,6 +373,8 @@ Rejected: generic storage classes and numeric hints resolved per vendor
 
 ## ADR-021: Flatcar images: the image ladder (accepted, 2026-11-10)
 
+Rung 4 is superseded for hcloud only by ADR-030: the hcloud driver builds its snapshot.
+
 Every node boots the Flatcar version pinned in its NodeClass (ADR-012) from an
 image the vendor can boot. Where that image comes from is decided per vendor by
 the **first rung of this ladder that works**; "works" means the pinned channel
@@ -1083,3 +1085,49 @@ Rejected:
 Consequences: the gates' interfaces changed (`catalog.Reason`); `ImageGap` is region-level, not per architecture, and the
 reference says so. Plan 28; the status block, the listing and the metrics are its later steps.
 
+## ADR-030: The hcloud driver builds its Flatcar snapshot (accepted, 2026-11-21)
+
+Supersedes ADR-021's rung 4 ("reserved, not built") **for hcloud only**. Every other vendor keeps the ladder as it is.
+
+ADR-021 kept image writes out of the controller for two reasons: the operator's IaC can make the image, and the
+controller should not hold credentials that can write images. On Hetzner neither holds. The API has no image import
+and no IaC tool has a resource for one, so operators ran `hcloud-upload-image` by hand after every Flatcar bump. And a
+Hetzner token is either read-only or read-write for the whole project: the controller's token must create servers,
+so it can already create snapshots.
+
+**Decision.** When the label lookup (`os=flatcar`, `flatcar-channel`, `flatcar-version`, the architecture) finds no
+snapshot, the hcloud driver makes it, with the procedure of `hcloud-upload-image` and its Go library
+(`github.com/apricote/hcloud-upload-image/hcloudimages`, MIT): a temporary server boots the rescue system, writes
+Flatcar's `hetzner` image from Flatcar's release server, is snapshotted with the three labels and is deleted.
+
+- **Only without a selector.** A NodeClass with `resources.images.use` names its images; the driver never builds for it.
+  `--hcloud-build-images=false` (chart `vendors.hcloud.buildImages`) turns building off for the whole controller,
+  for operators who pre-create snapshots.
+- **Leader only.** Builds start from the image report of the NodeClass controller, which runs on the leader.
+- **One build at a time** per controller, which also means one per (channel, version, architecture). A snapshot of
+  the release that is still `creating`, or another controller's build server for the same release in the project, is
+  waited for, not duplicated.
+- **Temporary servers carry `scarpenter.sparecores.com/image-build=<cluster>`** (so do their SSH keys and the
+  snapshot). The first build of a controller process, and every failed build, first deletes this cluster's leftover
+  build servers and keys.
+- **A timeout of 30 minutes**; a failed build is retried after 15 minutes.
+- **Visible.** While a build runs, the image status of the architecture says `ImageBuilding` and, where the region's
+  images block, so does `ImagesReady`; a failed build says `ImageBuildFailed` with the error. The NodeClass gets an
+  `ImageBuilding` Event (Normal) and an `ImageBuildFailed` Event (Warning).
+
+Why: the flow is per project and per Flatcar release, needs nothing the token does not already allow, and replaces a
+manual step after every version bump. The upstream library is the code `hcloud-upload-image` runs, maintained by a
+Hetzner engineer; its dependencies (hcloud-go, `x/crypto`) are already ours.
+
+Rejected:
+
+- **A generic `ImageImporter` for every vendor**: no other vendor needs one (ADR-021), and the credential argument
+  still holds elsewhere.
+- **Our own rescue-and-`dd` code**: the same steps as the library, plus SSH handling to maintain.
+- **Parallel builds per architecture**: two at once save a few minutes once per Flatcar release, and serial builds
+  let a failed build sweep every leftover of this cluster without hitting a running one.
+
+Consequences: the controller needs outbound SSH (port 22) to the temporary server's public IPv4, and the temporary
+server needs HTTPS to `*.release.flatcar-linux.net`. A build costs one started hour of a `cx23` or `cax11` in `fsn1`
+and the snapshot's storage. The image is not verified beyond HTTPS from Flatcar's release server, as with
+`hcloud-upload-image`. The how-to's manual step becomes optional.
