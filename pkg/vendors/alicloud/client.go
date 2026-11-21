@@ -9,6 +9,7 @@ package alicloud
 import (
 	"context"
 	"fmt"
+	"os"
 
 	openapimodels "github.com/alibabacloud-go/darabonba-openapi/v2/models"
 	ecs "github.com/alibabacloud-go/ecs-20140526/v7/client"
@@ -20,10 +21,11 @@ import (
 type ClientOptions struct {
 	// UserAgent is sent on every call ("scarpenter/<version>").
 	UserAgent string
-	// Credential overrides the default credential chain (tests; the chain is
-	// ALIBABA_CLOUD_ACCESS_KEY_ID/_SECRET, the OIDC role of
-	// ALIBABA_CLOUD_OIDC_PROVIDER_ARN/_ROLE_ARN/_OIDC_TOKEN_FILE, the shared
-	// credentials file, the ECS instance RAM role and a credentials URI).
+	// Credential overrides the environment's credential (tests). By default
+	// it is the OIDC role of ALIBABA_CLOUD_OIDC_PROVIDER_ARN, _ROLE_ARN and
+	// _OIDC_TOKEN_FILE when all three are set, else the default chain of
+	// credentials-go (access key variables, the shared credentials file, the
+	// ECS instance RAM role and a credentials URI).
 	Credential credentials.Credential
 	// ECSEndpoint and VPCEndpoint give the endpoint of a region; nil is the
 	// pattern ecs.<region>.aliyuncs.com and vpc.<region>.aliyuncs.com (whether
@@ -40,6 +42,27 @@ func DefaultEndpoint(service, region string) string {
 	return service + "." + region + ".aliyuncs.com"
 }
 
+// defaultCredential is the credential of the environment. When the OIDC role
+// variables are all set it is the OIDC role alone: the default chain of
+// credentials-go would also try the ECS instance metadata after an OIDC
+// failure, stick to it from then on and report only its timeout, hiding the
+// OIDC error. Otherwise it is the default chain.
+func defaultCredential() (credentials.Credential, error) {
+	if os.Getenv("ALIBABA_CLOUD_ROLE_ARN") == "" ||
+		os.Getenv("ALIBABA_CLOUD_OIDC_PROVIDER_ARN") == "" ||
+		os.Getenv("ALIBABA_CLOUD_OIDC_TOKEN_FILE") == "" {
+		return credentials.NewCredential(nil)
+	}
+	sessionName := os.Getenv("ALIBABA_CLOUD_ROLE_SESSION_NAME")
+	if sessionName == "" {
+		sessionName = "scarpenter"
+	}
+	// The unset fields are read from the same variables by the provider.
+	return credentials.NewCredential(new(credentials.Config).
+		SetType("oidc_role_arn").
+		SetRoleSessionName(sessionName))
+}
+
 // NewClientFactory returns the factory of the real clients. It makes no call:
 // the SDK clients are built here and reach out only when a method is called,
 // and the factory is meant to be wrapped by the driver in a per-region cache
@@ -52,7 +75,7 @@ func NewClientFactory(o ClientOptions) ClientFactory {
 		cred := o.Credential
 		if cred == nil {
 			var err error
-			cred, err = credentials.NewCredential(nil)
+			cred, err = defaultCredential()
 			if err != nil {
 				return Clients{}, fmt.Errorf("alicloud: credentials: %w", err)
 			}
