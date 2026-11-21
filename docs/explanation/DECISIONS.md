@@ -916,12 +916,15 @@ drift hash does not read the catalog.
 
 **`spec.kubelet.footprint: Lean`** (`Standard` when unset) is a preset for single-purpose nodes, such as
 benchmark runners, that makes 1 GiB instance types usable: `maxPods` 10, `kubeReserved.memory` 192Mi,
-`systemReserved.memory` 128Mi, `evictionHard` `memory.available` 50Mi, a kubelet that pulls images one at a time and
+`systemReserved.memory` 128Mi, `evictionHard` `memory.available` 50Mi (these are the values for 1-2 GiB; below 768Mi of node
+memory they are 144Mi, 96Mi and 16Mi, so that a 0.5 GiB node leaves a benchmark about 190 MiB, and above 2 GiB
+`systemReserved` grows by 1/16 of the memory beyond 2 GiB, up to 256Mi more, so that a runaway Pod hits the kubepods limit
+before a global OOM; `LeanMemory` computes them for the catalog and the kubelet configuration), a kubelet that pulls images one at a time and
 keeps small container logs and few image records, and on the node `GOMEMLIMIT` and `GOGC` for the kubelet, containerd
 and tailscaled, a volatile journal and masked units a worker does not need
 (docker, userdbd, nsresourced, oomd, the `tty1` getty). Fields set in `spec.kubelet` override the preset key by key.
 The reservation is a field of `spec.kubelet`, so the catalog and the kubelet share one resolution of it
-(`KubeletSpec.Effective`); the node-level settings are a Butane part merged only with `Lean`. A NodeClass that does
+(`KubeletSpec.EffectiveFor`); the node-level settings are a Butane part merged only with `Lean`. A NodeClass that does
 not set the field renders and hashes as before, which is why the field has no default value. `maxPods` lost its CRD
 default (an unset `maxPods` is 110, or 10 with `Lean`), so that `Lean` can tell it is unset; stored NodeClasses keep
 the defaulted 110, and the drift hash reads an unset `maxPods` without `Lean` as 110, so neither those objects nor a

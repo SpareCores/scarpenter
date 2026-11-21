@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
+	"sigs.k8s.io/yaml"
 
 	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
@@ -480,7 +481,7 @@ func TestSizeBudget(t *testing.T) {
 }
 
 func TestKubeletConfiguration(t *testing.T) {
-	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{}, nil, "", "")
+	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{}, 0, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +501,7 @@ func TestKubeletConfiguration(t *testing.T) {
 }
 
 func TestKubeletConfigurationLean(t *testing.T) {
-	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}, nil, "", "")
+	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}, 0, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,7 +520,7 @@ func TestKubeletConfigurationLean(t *testing.T) {
 		KubeReserved:   map[string]string{"memory": "256Mi", "cpu": "100m"},
 		SystemReserved: map[string]string{"memory": "64Mi"},
 		EvictionHard:   map[string]string{"memory.available": "80Mi"},
-	}, nil, "", "")
+	}, 0, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +529,7 @@ func TestKubeletConfigurationLean(t *testing.T) {
 			t.Errorf("the overridden lean configuration lacks %q:\n%s", want, got)
 		}
 	}
-	for _, absent := range []string{"192Mi", "128Mi", "maxPods: 10\n", "50Mi"} {
+	for _, absent := range []string{"192Mi", "128Mi", "maxPods: 10\n", "50Mi"} { // the 1-2 GiB values
 		if strings.Contains(got, absent) {
 			t.Errorf("the overridden lean configuration has %q:\n%s", absent, got)
 		}
@@ -587,5 +588,50 @@ func TestKubeletClientCA(t *testing.T) {
 	}
 	if s := string(goldenText(t, plain)); strings.Contains(s, "kubelet-client-ca") || !strings.Contains(s, "clientCAFile: /etc/kubernetes/pki/ca.crt") {
 		t.Errorf("without a client CA the kubelet must trust the cluster CA:\n%s", s)
+	}
+}
+
+// TestKubeletConfigurationLeanBySize pins the Lean memory values of the
+// kubelet configuration at every size, and the allocatable they leave (the
+// node's memory less kubeReserved, systemReserved and the threshold). The
+// catalog's table in pkg/catalog/overhead_test.go has the same rows.
+func TestKubeletConfigurationLeanBySize(t *testing.T) {
+	for _, tc := range []struct {
+		nodeMiB                          int64
+		kube, system, eviction, allocMiB int64
+	}{
+		{448, 144, 96, 16, 192},
+		{951, 192, 128, 50, 581},
+		{1957, 192, 128, 50, 1587},
+		{3905, 192, 244, 50, 3419},
+		{65536, 192, 384, 50, 64910},
+	} {
+		t.Run(fmt.Sprintf("%dMi", tc.nodeMiB), func(t *testing.T) {
+			got, err := bootstrap.KubeletConfiguration(
+				v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}, tc.nodeMiB, nil, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg struct {
+				KubeReserved   map[string]string `json:"kubeReserved"`
+				SystemReserved map[string]string `json:"systemReserved"`
+				EvictionHard   map[string]string `json:"evictionHard"`
+			}
+			if err := yaml.Unmarshal([]byte(got), &cfg); err != nil {
+				t.Fatal(err)
+			}
+			want := func(mib int64) string { return fmt.Sprintf("%dMi", mib) }
+			if cfg.KubeReserved["memory"] != want(tc.kube) || cfg.SystemReserved["memory"] != want(tc.system) ||
+				cfg.EvictionHard["memory.available"] != want(tc.eviction) {
+				t.Errorf("kube %s, system %s, eviction %s; want %d, %d, %d",
+					cfg.KubeReserved["memory"], cfg.SystemReserved["memory"], cfg.EvictionHard["memory.available"],
+					tc.kube, tc.system, tc.eviction)
+			}
+			if alloc := tc.nodeMiB - tc.kube - tc.system - tc.eviction; alloc != tc.allocMiB {
+				t.Errorf("allocatable %dMi, want %dMi", alloc, tc.allocMiB)
+			} else if tc.nodeMiB == 448 && (alloc < 150 || alloc > 200) {
+				t.Errorf("a 0.5 GiB node leaves %dMi, want 150-200Mi", alloc)
+			}
+		})
 	}
 }

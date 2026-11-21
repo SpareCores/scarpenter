@@ -342,7 +342,7 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	rr := RenderRequest{
 		NodeClass: nc, NodeClaim: nodeClaim, Vendor: cand.vendor, Region: cand.region, Zone: cand.zone,
 		InstanceType: cand.apiReference, Arch: arch, Token: st.token, NodeName: nodeClaim.Name, ProviderID: providerID,
-		KubeReserved: kubeReserved(cand.it),
+		KubeReserved: kubeReserved(cand.it), NodeMemoryMiB: cand.it.Capacity.Memory().Value() >> 20,
 	}
 	if prepared != nil {
 		rr.Volumes, rr.Local = volumeHints(prepared)

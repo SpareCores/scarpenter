@@ -7,11 +7,14 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package catalog
 
 import (
+	"fmt"
+	"math"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/karpenter/pkg/cloudprovider"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/fake"
@@ -81,11 +84,7 @@ func TestLeanOverhead(t *testing.T) {
 		}
 	}
 	// 1 GiB: 947Mi - 192Mi - 128Mi - 50Mi.
-	allocatable := rl[corev1.ResourceMemory]
-	allocatable.Sub(*oh.KubeReserved.Memory())
-	allocatable.Sub(*oh.SystemReserved.Memory())
-	allocatable.Sub(*oh.EvictionThreshold.Memory())
-	if got := allocatable.Value() >> 20; got != 577 {
+	if got := leanAllocatableMiB(oh, 947); got != 577 {
 		t.Errorf("lean allocatable memory on 1 GiB = %dMi, want 577Mi", got)
 	}
 
@@ -101,6 +100,61 @@ func TestLeanOverhead(t *testing.T) {
 	if class.MaxPods != 20 || oh.KubeReserved.Memory().String() != "300Mi" ||
 		oh.EvictionThreshold.Memory().String() != "80Mi" || oh.SystemReserved.Memory().String() != "128Mi" {
 		t.Errorf("overrides: %d pods, %v, %v, %v", class.MaxPods, oh.KubeReserved, oh.EvictionThreshold, oh.SystemReserved)
+	}
+}
+
+func leanAllocatableMiB(oh *cloudprovider.InstanceTypeOverhead, nodeMiB int64) int64 {
+	return nodeMiB - oh.KubeReserved.Memory().Value()>>20 - oh.SystemReserved.Memory().Value()>>20 -
+		oh.EvictionThreshold.Memory().Value()>>20
+}
+
+// TestLeanOverheadBySize pins the Lean memory values at every size and the
+// allocatable they leave, against the fixed 192Mi, 128Mi and 50Mi that were
+// measured on nodes of 448, 951, 1957 and 3905 MiB. The kubelet
+// configuration test in pkg/bootstrap has the same rows.
+func TestLeanOverheadBySize(t *testing.T) {
+	nc := &v1alpha1.SCNodeClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "lean"},
+		Spec:       v1alpha1.SCNodeClassSpec{Vendors: v1alpha1.VendorBlocks{Fake: &fake.Settings{}}},
+	}
+	nc.Spec.Kubelet.Footprint = v1alpha1.FootprintLean
+	class, err := ClassFromNodeClass(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		nodeMiB, kube, system, eviction, allocMiB int64
+		// before is the allocatable of the fixed 192Mi, 128Mi and 50Mi.
+		before int64
+	}{
+		{448, 144, 96, 16, 192, 78},
+		{951, 192, 128, 50, 581, 581},
+		{1957, 192, 128, 50, 1587, 1587},
+		{3905, 192, 244, 50, 3419, 3535},
+		{65536, 192, 384, 50, 64910, 65166},
+	} {
+		t.Run(fmt.Sprintf("%dMi", tc.nodeMiB), func(t *testing.T) {
+			rl := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", tc.nodeMiB))}
+			oh := overhead(2, &class, rl)
+			got := [3]int64{
+				oh.KubeReserved.Memory().Value() >> 20, oh.SystemReserved.Memory().Value() >> 20,
+				oh.EvictionThreshold.Memory().Value() >> 20,
+			}
+			if got != [3]int64{tc.kube, tc.system, tc.eviction} {
+				t.Errorf("kube, system, eviction = %v, want %d, %d, %d", got, tc.kube, tc.system, tc.eviction)
+			}
+			alloc := leanAllocatableMiB(oh, tc.nodeMiB)
+			if alloc != tc.allocMiB {
+				t.Errorf("allocatable %dMi, want %dMi", alloc, tc.allocMiB)
+			}
+			switch {
+			case tc.nodeMiB == 448 && (alloc < 150 || alloc > 200):
+				t.Errorf("a 0.5 GiB node leaves %dMi, want 150-200Mi", alloc)
+			case tc.nodeMiB >= 951 && tc.nodeMiB <= 1957 &&
+				math.Abs(float64(alloc-tc.before)) > 0.1*float64(tc.before):
+				t.Errorf("allocatable %dMi is not within 10%% of %dMi", alloc, tc.before)
+			}
+		})
 	}
 }
 
