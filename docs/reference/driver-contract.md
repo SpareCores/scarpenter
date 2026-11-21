@@ -62,13 +62,12 @@ accept a NodeClass configuration, that leaves the node without a path to them: t
 while no mirror (`--sysext-base-url`, `--flatcar-base-url`, `--nvidia-driver-base-url`) is configured.
 
 - **A type** that has no IPv4 is `NotLaunchable` in the offered-types listing (the Vultr `-v6` plans).
-- **A configuration** is refused with `VendorReady=False`, reason `VendorInvalid`. The NodeClass controller refuses
-  `publicIPv4: false` with `publicIPv6: true` for every vendor unless `--sysext-base-url` is set, and the driver
-  refuses `publicIPv4: false` where nothing gives the nodes IPv4 egress (the vendor documents where a brought
-  network is the user's job).
+- **A configuration** is refused with `VendorReady=False`, reason `ValidationFailed`. The NodeClass controller refuses
+  `publicIPv4: false` with `publicIPv6: true` for every vendor unless `--sysext-base-url` is set (it covers the
+  sysexts only) or the NodeClass brings its own subnets or networks (`resources.subnets.use`,
+  `resources.networks.use`), whose IPv4 egress is the user's job: that case gets the Warning Event `IPv6OnlyEgress`.
+  The driver refuses `publicIPv4: false` where nothing gives the nodes IPv4 egress.
 - **With a mirror** reachable over IPv6 both are fine; the mirror is the operator's job.
-
-Long term the sysext and NVIDIA URLs should point at dual-stack hosts or a mirror, which makes the rule moot.
 
 ## Images
 

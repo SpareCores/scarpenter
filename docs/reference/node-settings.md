@@ -181,10 +181,11 @@ public addresses; a vendor block may override them. Generic meaning:
   an IPv6 block; a zone whose subnets have none is unavailable with the reason, it
   does not fail launches. A network SCarpenter creates has IPv6.
 - **IPv6-only** (`publicIPv4: false`, `publicIPv6: true`) is accepted with brought
-  subnets only. The sysext-bakery's release host (GitHub) has no IPv6: a NodeClass
-  with IPv6-only nodes and the default sysext source is refused (`VendorReady=False`,
-  `VendorInvalid`); set `--sysext-base-url` to a mirror reachable over IPv6. Behind a
-  NAT gateway of your own, leave `publicIPv6` off.
+  subnets only. The sysext hosts (github.com, objects.githubusercontent.com) have no IPv6: a NodeClass
+  with IPv6-only nodes, the default sysext source and no network of its own is refused
+  (`VendorReady=False`, reason `ValidationFailed`); set `--sysext-base-url` to a mirror reachable over IPv6.
+  With brought subnets the IPv4 egress of that network is used and the Warning Event `IPv6OnlyEgress` says
+  that egress is your job.
 
 The AWS specifics are in [the AWS driver](aws-driver.md#network-addresses-and-egress).
 

@@ -38,6 +38,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
 	"github.com/SpareCores/scarpenter/pkg/artifacts"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
@@ -927,11 +928,16 @@ func TestIPv6OnlyNodesNeedASysextMirror(t *testing.T) {
 		mutate func(*v1alpha1.SCNodeClass)
 		mirror bool
 		ready  metav1.ConditionStatus
+		warn   bool
 	}{
-		"ipv6 only":             {ipv6Only, false, metav1.ConditionFalse},
-		"ipv6 only with mirror": {ipv6Only, true, metav1.ConditionTrue},
-		"default":               {nil, false, metav1.ConditionTrue},
-		"dual stack":            {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Networking.PublicIPv6 = new(true) }, false, metav1.ConditionTrue},
+		"ipv6 only":             {ipv6Only, false, metav1.ConditionFalse, false},
+		"ipv6 only with mirror": {ipv6Only, true, metav1.ConditionTrue, false},
+		"ipv6 only with use": {func(nc *v1alpha1.SCNodeClass) {
+			ipv6Only(nc)
+			nc.Spec.Vendors.AWS.Resources = &aws.Resources{Subnets: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{"*": {"subnet-0123456789abcdef0"}}}}}
+		}, false, metav1.ConditionTrue, true},
+		"default":    {nil, false, metav1.ConditionTrue, false},
+		"dual stack": {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Networking.PublicIPv6 = new(true) }, false, metav1.ConditionTrue, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t)
@@ -946,6 +952,9 @@ func TestIPv6OnlyNodesNeedASysextMirror(t *testing.T) {
 			c := vcond(nc, "aws", v1alpha1.VendorConditionReady)
 			if c == nil || c.Status != tc.ready {
 				t.Errorf("VendorReady = %+v, want %s", c, tc.ready)
+			}
+			if got := contains(e.rec.reasons(), nodeclass.EventIPv6OnlyEgress); got != tc.warn {
+				t.Errorf("warned = %v, want %v", got, tc.warn)
 			}
 			if tc.ready == metav1.ConditionFalse && !strings.Contains(c.Message, "--sysext-base-url") {
 				t.Errorf("the message does not name the fix: %q", c.Message)

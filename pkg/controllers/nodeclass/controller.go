@@ -8,6 +8,7 @@ package nodeclass
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -79,9 +80,12 @@ const (
 
 // Event reasons (on the SCNodeClass); Warning Events are deduplicated.
 const (
-	EventArtifactsFailed      = "ArtifactsNotResolved"
-	EventValidationFailed     = "ValidationFailed"
-	EventVendorNotReady       = "VendorNotReady"
+	EventArtifactsFailed  = "ArtifactsNotResolved"
+	EventValidationFailed = "ValidationFailed"
+	EventVendorNotReady   = "VendorNotReady"
+	// EventIPv6OnlyEgress: IPv6-only nodes in a network the user brings, with the
+	// default sysext source (no IPv6): the egress is the user's job.
+	EventIPv6OnlyEgress       = "IPv6OnlyEgress"
 	EventRestartRequired      = "RestartRequired"
 	EventConfigurationWarning = "ConfigurationWarning"
 	// EventDeprecatedHardening: the NodeClass still sets spec.bootstrap.hardening.
@@ -593,10 +597,11 @@ func (c *Controller) vendorReady(
 }
 
 // checkBootstrapReachable refuses a NodeClass whose nodes have no IPv4 (publicIPv4
-// false, publicIPv6 true) while the sysexts come from the default source: GitHub
-// releases have no AAAA record, so the nodes could not fetch them. A sysext mirror
-// reachable over IPv6 lifts the refusal. With publicIPv4 false and no IPv6 the
-// driver decides (it needs brought subnets, whose NAT is the user's job).
+// false, publicIPv6 true) while the sysexts come from the default source: github.com
+// and objects.githubusercontent.com have no AAAA record, so the nodes could not
+// fetch them. A sysext mirror reachable over IPv6 lifts the refusal. A NodeClass that
+// brings its own subnets or networks keeps the IPv4 egress of that network (a NAT
+// gateway is the user's job): it gets a Warning Event instead.
 func (c *Controller) checkBootstrapReachable(nc *v1alpha1.SCNodeClass, vendor string) error {
 	if c.opts.SysextMirror {
 		return nil
@@ -605,12 +610,36 @@ func (c *Controller) checkBootstrapReachable(nc *v1alpha1.SCNodeClass, vendor st
 	if err != nil || !ok {
 		return nil
 	}
-	if n := in.Networking; n.PublicIPv4 != nil && !*n.PublicIPv4 && n.PublicIPv6 != nil && *n.PublicIPv6 {
-		return errors.New("networking: the nodes would have IPv6 only, and the node bootstrap artifacts " +
-			"(github.com, objects.githubusercontent.com, ghcr.io) have no IPv6 address: set --sysext-base-url to a " +
-			"mirror reachable over IPv6, or keep publicIPv4 on")
+	n := in.Networking
+	if n.PublicIPv4 == nil || *n.PublicIPv4 || n.PublicIPv6 == nil || !*n.PublicIPv6 {
+		return nil
 	}
-	return nil
+	if bringsNetwork(in.Resources) {
+		c.warn(nc, EventIPv6OnlyEgress, fmt.Sprintf("vendor %s: the nodes have no public IPv4 address and the sysexts "+
+			"come from github.com, which has no IPv6: the IPv4 egress of your own network must reach it (egress is your job)",
+			vendor), vendor)
+		return nil
+	}
+	return errors.New("networking: the nodes would have IPv6 only, and the sysexts come from github.com and " +
+		"objects.githubusercontent.com, which have no IPv6 address: set --sysext-base-url (it covers the sysexts " +
+		"only) to a mirror reachable over IPv6, bring your own subnets or networks with IPv4 egress, or keep publicIPv4 on")
+}
+
+// bringsNetwork says the vendor block's resources use a subnet or a network of the
+// user's (resources.subnets.use or resources.networks.use).
+func bringsNetwork(raw json.RawMessage) bool {
+	var r map[string]struct {
+		Use json.RawMessage `json:"use"`
+	}
+	if json.Unmarshal(raw, &r) != nil {
+		return false
+	}
+	for _, kind := range []string{"subnets", "networks"} {
+		if u := r[kind].Use; len(u) > 0 && string(u) != "null" {
+			return true
+		}
+	}
+	return false
 }
 
 // images asks the driver for its boot images; a driver without the capability
