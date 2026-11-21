@@ -562,6 +562,20 @@ karpenter:
   metricsPort: 8080
   healthProbePort: 8081
 
+# Run the controller in the node's network namespace, so its outbound calls use
+# the node's addresses (IPv4 and IPv6) instead of the pod network's. Use it when
+# the pods have no IPv6 egress and a vendor API has to be reached over the host's
+# IPv6 (for example because it blocks the node's IPv4). The ports below
+# (karpenter.metricsPort and healthProbePort) then listen on every node the
+# controller runs on, on IPv4 and IPv6, and the metrics are unauthenticated (so
+# is pprof if ENABLE_PROFILING is set in extraEnv: keep it off): pick ports that
+# no other process on those nodes uses, and make sure the nodes' firewall drops
+# them from the internet for IPv4 and IPv6. NetworkPolicies do not apply to the
+# pod. Two replicas never share a node (the same host ports make the scheduler
+# keep them apart), so a node is needed per replica; a rollout stops the old pod
+# before it starts the new one.
+hostNetwork: false
+
 # Only one replica reconciles at a time; a Lease in the release namespace.
 leaderElection:
   enabled: true

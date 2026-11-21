@@ -42,6 +42,9 @@
       "type": "integer",
       "minimum": 0
     },
+    "hostNetwork": {
+      "type": "boolean"
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,

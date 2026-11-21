@@ -182,6 +182,7 @@ and that the controller's own parser accepts what the chart renders.
 | `managedResources.defaultTTL`, `perUseGrace`, `checkInterval`, `fullSweepEvery` | `--resource-default-ttl`, `--resource-per-use-grace`, `--resource-check-interval`, `--resource-full-sweep-every` | See the cost note of the full sweep. |
 | `karpenter.logLevel`, `batchMaxDuration`, `batchIdleDuration`, `featureGates`, `metricsPort`, `healthProbePort` | `--log-level`, `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, `--metrics-port`, `--health-probe-port` | Core's. |
 | `leaderElection.enabled` | `DISABLE_LEADER_ELECTION` | With more than one replica leave it on. |
+| `hostNetwork` | | Runs the pod in the node's network namespace (see [Host network](../how-to-guides/install.md#host-network)); `metricsPort` and `healthProbePort` are then host ports. |
 | `replicaCount`, `podDisruptionBudget.*` | | The PodDisruptionBudget is rendered with more than one replica. |
 | `image.repository`, `tag`, `digest`, `pullPolicy`, `imagePullSecrets` | | `ghcr.io/sparecores/scarpenter` (production drivers only), tag = the chart's `appVersion`. The development image is `ghcr.io/sparecores/scarpenter-dev`. The chart needs Kubernetes 1.31 or newer. |
 | `serviceAccount.*`, `rbac.*` | | `rbac.authKeySecrets`: a Role (`get` on that one Secret) and a RoleBinding for tailscale auth key Secrets in other namespaces; `rbac.extraRules` are appended to the controller's ClusterRole. |
