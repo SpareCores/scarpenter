@@ -304,7 +304,10 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	if err := qs.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the quota status controller: %w", err)
 	}
-	off := offered.New(offered.Options{Client: o.GetClient(), Catalog: c.Catalog, Clock: o.Clock})
+	off := offered.New(offered.Options{
+		Client: o.GetClient(), Reader: o.GetAPIReader(), Catalog: c.Catalog, Clock: o.Clock,
+		Namespace: os.Getenv("POD_NAMESPACE"),
+	})
 	if err := off.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the offered types controller: %w", err)
 	}

@@ -26,6 +26,9 @@ Available:
 - [**Handle spot interruptions**](handle-spot-interruptions.md) (plan 26, ADR-027) —
   what a workload sees when a vendor reclaims a spot or preemptible node, how to count
   interruptions per instance type, and `terminationGracePeriodSeconds` against each vendor's notice.
+- [**Which types does a class offer**](which-types-does-a-class-offer.md) (plan 28) — read the
+  offered instance types and why the others are not from the status, an opt-in ConfigMap listing
+  and the logs; `jq` recipes and the ready-made pin.
 - [**Run GPU workloads**](run-gpu-workloads.md) (plan 12) — the RuntimeClass and device
   plugin the chart ships, how to turn them off, taints and the Pod spec of a GPU workload.
 - [**Install SCarpenter**](install.md) (plan 09) — prerequisites (bootstrap-token

@@ -63,6 +63,12 @@ operator at start-up (`Operator.RegisterLabelKeys`, plan 03):
   instance types until then, and the SCNodeClass reports a `RestartRequired`
   condition naming the keys.
 
+## Annotations on SCNodeClasses
+
+| Annotation | Meaning |
+|---|---|
+| `scarpenter.sparecores.com/publish-offered` | `"true"` makes the controller publish the offered instance types of the class as ConfigMaps in its namespace ([the listing](labels-and-offerings.md#the-offered-listing)). Not part of the spec, no drift. |
+
 ## Annotations on NodeClaims
 
 | Annotation | Meaning |

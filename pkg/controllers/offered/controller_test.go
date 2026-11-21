@@ -10,12 +10,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -61,7 +64,7 @@ type env struct {
 	scheme *runtime.Scheme
 }
 
-func start(t *testing.T, annotations map[string]string, tune func(*offered.Options)) *env {
+func start(t *testing.T, annotations map[string]string, tune func(*offered.Options, *env)) *env {
 	t.Helper()
 	cfg, stop, err := testutil.StartEnv()
 	if err != nil {
@@ -111,7 +114,7 @@ func start(t *testing.T, annotations map[string]string, tune func(*offered.Optio
 	}
 	opts := offered.Options{Client: mgr.GetClient(), Catalog: e.cat, Interval: 200 * time.Millisecond}
 	if tune != nil {
-		tune(&opts)
+		tune(&opts, e)
 	}
 	if err := offered.New(opts).Register(mgr); err != nil {
 		t.Fatal(err)
@@ -225,5 +228,150 @@ func TestOfferedStatusFollowsTheGatesAndSettles(t *testing.T) {
 		return mf.Manager == offered.FieldManager && mf.Subresource == "status"
 	}) {
 		t.Errorf("no managed fields for %s: %+v", offered.FieldManager, final.ManagedFields)
+	}
+}
+
+const namespace = "default"
+
+func (e *env) listing(name string) (*offered.Listing, *corev1.ConfigMap, error) {
+	var cm corev1.ConfigMap
+	if err := e.c.Get(e.ctx, client.ObjectKey{Namespace: namespace, Name: name}, &cm); err != nil {
+		return nil, nil, err
+	}
+	var l offered.Listing
+	if err := json.Unmarshal([]byte(cm.Data[offered.ListingKey]), &l); err != nil {
+		return nil, nil, err
+	}
+	return &l, &cm, nil
+}
+
+func TestListingConfigMapLifecycle(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	e := start(t, annotated, func(o *offered.Options, _ *env) {
+		o.Reader, o.Namespace = o.Client, namespace
+	})
+	name := offered.ConfigMapName(className, "aws")
+
+	var l *offered.Listing
+	var cm *corev1.ConfigMap
+	eventually(t, "the listing", func() (err error) {
+		l, cm, err = e.listing(name)
+		return err
+	})
+	if l.Class != className || l.Vendor != "aws" || l.Truncated || len(l.Types) < 100 || l.GeneratedAt == "" {
+		t.Fatalf("listing: %q %q truncated=%v types=%d", l.Class, l.Vendor, l.Truncated, len(l.Types))
+	}
+	t.Logf("%d types, %d bytes", len(l.Types), len(cm.Data[offered.ListingKey]))
+	if len(cm.Data[offered.ListingKey]) > offered.MaxListingBytes {
+		t.Errorf("%d bytes, over the cap", len(cm.Data[offered.ListingKey]))
+	}
+	wantLabels := map[string]string{
+		offered.LabelManagedBy: "scarpenter", offered.LabelClass: className, offered.LabelVendor: "aws",
+	}
+	if len(cm.OwnerReferences) != 1 || cm.OwnerReferences[0].Kind != "SCNodeClass" || cm.OwnerReferences[0].Name != className ||
+		!reflect.DeepEqual(cm.Labels, wantLabels) {
+		t.Errorf("owner or labels: %+v %+v", cm.OwnerReferences, cm.Labels)
+	}
+	if !slices.ContainsFunc(cm.ManagedFields, func(mf metav1.ManagedFieldsEntry) bool { return mf.Manager == offered.FieldManager }) {
+		t.Errorf("no managed fields for %s", offered.FieldManager)
+	}
+	var first string
+	for name, lt := range l.Types {
+		if strings.HasPrefix(name, "aws.") && lt.Available && len(lt.CapacityTypes) > 0 {
+			first = name
+			break
+		}
+	}
+	if first == "" {
+		t.Fatal("no available aws type")
+	}
+
+	// A gate shows in the listing.
+	e.gate.region.Store(regions[0])
+	eventually(t, "the gate in the listing", func() error {
+		l, _, err := e.listing(name)
+		if err != nil {
+			return err
+		}
+		for _, lt := range l.Types {
+			if !lt.Available && lt.Reason == "QuotaGate" {
+				return nil
+			}
+		}
+		return fmt.Errorf("no type is gated yet")
+	})
+	e.gate.region.Store("")
+	eventually(t, "the gate clears", func() error {
+		l, _, err := e.listing(name)
+		if err != nil {
+			return err
+		}
+		for _, lt := range l.Types {
+			if !lt.Available && lt.Reason == "QuotaGate" {
+				return fmt.Errorf("still gated")
+			}
+		}
+		return nil
+	})
+
+	// A quiet catalog does not rewrite it before the heartbeat.
+	_, cm, _ = e.listing(name)
+	time.Sleep(time.Second)
+	if _, again, _ := e.listing(name); again.ResourceVersion != cm.ResourceVersion {
+		t.Errorf("the ConfigMap was written again while nothing changed")
+	}
+
+	// Without the annotation it goes.
+	var nc v1alpha1.SCNodeClass
+	if err := e.c.Get(e.ctx, client.ObjectKey{Name: className}, &nc); err != nil {
+		t.Fatal(err)
+	}
+	delete(nc.Annotations, v1alpha1.AnnotationPublishOffered)
+	if err := e.c.Update(e.ctx, &nc); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the ConfigMap is deleted", func() error {
+		if _, _, err := e.listing(name); !apierrors.IsNotFound(err) {
+			return fmt.Errorf("still there: %v", err)
+		}
+		return nil
+	})
+}
+
+// The listing is written again after ten minutes without a change, with a new
+// generatedAt.
+func TestListingHeartbeat(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	e := start(t, annotated, func(o *offered.Options, e *env) {
+		o.Reader, o.Namespace, o.Clock = o.Client, namespace, e.clk
+	})
+	name := offered.ConfigMapName(className, "aws")
+	var first *offered.Listing
+	eventually(t, "the listing", func() (err error) {
+		first, _, err = e.listing(name)
+		return err
+	})
+	e.clk.Step(11 * time.Minute)
+	eventually(t, "the heartbeat", func() error {
+		l, _, err := e.listing(name)
+		if err != nil {
+			return err
+		}
+		if l.GeneratedAt == first.GeneratedAt {
+			return fmt.Errorf("generatedAt %s", l.GeneratedAt)
+		}
+		return nil
+	})
+}
+
+func TestNoListingWithoutTheAnnotation(t *testing.T) {
+	e := start(t, nil, func(o *offered.Options, _ *env) { o.Reader, o.Namespace = o.Client, namespace })
+	e.expect(t, "the summary", func(o *v1alpha1.OfferedStatus) bool { return o.Types > 0 })
+	var list corev1.ConfigMapList
+	if err := e.c.List(e.ctx, &list, client.InNamespace(namespace), client.MatchingLabels{offered.LabelManagedBy: "scarpenter"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 0 {
+		t.Errorf("%d ConfigMaps without the annotation", len(list.Items))
 	}
 }

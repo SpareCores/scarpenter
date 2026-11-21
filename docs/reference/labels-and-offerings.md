@@ -23,6 +23,7 @@ and [00a](../plans/v1/wip/00a-node-options.md#7-instance-selection). The code is
   - [Availability](#availability)
   - [Why a type or an offering is not offered](#why-a-type-or-an-offering-is-not-offered)
   - [The offered summary in the status](#the-offered-summary-in-the-status)
+  - [The offered listing](#the-offered-listing)
 - [Labels](#labels)
   - [Unknown values](#unknown-values)
   - [Scheduling and topology labels](#scheduling-and-topology-labels)
@@ -407,6 +408,43 @@ field manager `scarpenter-offered` and only when a count or a name changed. It
 reports nothing until the driver facts are loaded (before that every offering
 would look like `ZoneNotAvailable`) and while the catalog has no data for the
 class. `VendorNotReady` is not in the block: the vendor's conditions say it.
+
+### The offered listing
+
+For a class with the annotation `scarpenter.sparecores.com/publish-offered: "true"` the controller writes one ConfigMap per vendor,
+`scarpenter-offered-<class>-<vendor>` (cut to 253 characters with a hash), in its own namespace (`POD_NAMESPACE`), owned by the
+SCNodeClass, with the labels `app.kubernetes.io/managed-by: scarpenter`, `scarpenter.sparecores.com/scnodeclass: <class>` (left out when
+the class name is longer than a label value) and `scarpenter.sparecores.com/vendor: <vendor>`. The annotation is not part of the spec:
+it changes no hash. Without the annotation, or when the vendor leaves the class, the ConfigMap is deleted. The key `types.json` holds:
+
+```json
+{
+  "generatedAt": "2026-11-21T00:00:00Z", "class": "bench", "vendor": "oci", "truncated": false,
+  "types": {
+    "oci.VM.Standard4.Ax.Flex.16-64": {
+      "apiReference": "VM.Standard4.Ax.Flex.16-64", "available": false, "capacityTypes": [],
+      "reason": "QuotaGate", "detail": "bucket standard-x12-ax-core-count, headroom 6, need 16",
+      "offerings": [{"capacityType": "on-demand", "zones": ["eu-frankfurt-1-AD-2"], "available": false, "reason": "QuotaGate"}]
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `generatedAt` | when the listing was written: on every change and at least every 10 minutes, so it trails by about 10 minutes at most while the controller runs; treat one older than 30 minutes as stale |
+| `truncated` | the 800 KiB cap was hit: the types that are not available are kept first, so the available ones may be incomplete (OCI is about 60 KiB) |
+| `types` | by instance type name (`node.kubernetes.io/instance-type`, `<vendor>.<server id>`): every type of the catalog, offered or dropped at build time |
+| `apiReference` | the value of the `scarpenter.sparecores.com/api-reference` label; omitted when the type has no such label |
+| `available`, `capacityTypes` | at least one offering is available; the capacity types that have one |
+| `reason`, `detail` | only when `available` is false: the dominant class-level [reason code](#why-a-type-or-an-offering-is-not-offered) and its data as text for humans, never to be parsed |
+| `offerings` | grouped by capacity type, state and reason, with the zones that share them; empty for a type dropped at build time (its `reason` is the build's) |
+
+Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is
+available in some zones is `available: true`; its blocked zones are in `offerings`. The class-level view has no NodePool, so no
+`Unrankable`, `NodePoolRequirement` or `NodePoolPreFilter`. How to read it:
+[Which types does a class offer](../how-to-guides/which-types-does-a-class-offer.md). A reader needs `get`, `list` and `watch` on the
+ConfigMaps in a Role of the release namespace (optionally with `resourceNames`) bound to its ServiceAccount; the chart grants nothing to readers.
 
 ## Labels
 

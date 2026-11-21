@@ -60,6 +60,11 @@ clusterDNS:
     - apiGroups: [""]
       resources: ["services"]
       verbs: ["get", "list"]
+offeredTypes:
+  rules:
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["list", "create", "patch", "delete"]
 core:
   rules:
     - apiGroups: ["karpenter.sh"]

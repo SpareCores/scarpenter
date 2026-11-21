@@ -78,6 +78,12 @@ const (
 	metricPerUSDSuffix     = "-per-usd"
 )
 
+// AnnotationPublishOffered on an SCNodeClass set to "true" makes the controller
+// publish the full list of offered instance types of the class as one ConfigMap
+// per vendor in its namespace (plan 28). It is not part of the spec and not of
+// the drift hash.
+const AnnotationPublishOffered = Group + "/publish-offered"
+
 // Annotations SCarpenter puts on NodeClaims (overview section 4.1).
 const (
 	// AnnotationInstanceRef is the driver-opaque instance reference, for

@@ -37,16 +37,22 @@ import (
 
 const (
 	// FieldManager owns status.vendors.<v>.offered.
-	FieldManager = "scarpenter-offered"
+	FieldManager    = "scarpenter-offered"
+	kindSCNodeClass = "SCNodeClass"
 	// DefaultInterval is the shortest time between two evaluations of a class.
 	DefaultInterval = 30 * time.Second
 )
 
 // Options configures the controller.
 type Options struct {
-	Client  client.Client
+	Client client.Client
+	// Reader reads without the cache: the listing ConfigMaps found at start.
+	Reader  client.Reader
 	Catalog *catalog.Catalog
 	Clock   clock.Clock
+	// Namespace is where the listing ConfigMaps go (the controller's own); empty
+	// turns the listing off.
+	Namespace string
 	// Interval defaults to DefaultInterval.
 	Interval time.Duration
 }
@@ -58,6 +64,11 @@ type Controller struct {
 	mu sync.Mutex
 	// last is when each class was last evaluated.
 	last map[string]time.Time
+	// listings is what this controller knows about the ConfigMaps it wrote: the
+	// class each belongs to and the digest of its last content, with the
+	// owner's UID. found says that the ConfigMaps of an earlier run were read.
+	listings map[string]listing
+	found    bool
 }
 
 // New returns the controller; Register adds it to a manager.
@@ -68,7 +79,7 @@ func New(o Options) *Controller {
 	if o.Interval <= 0 {
 		o.Interval = DefaultInterval
 	}
-	return &Controller{opts: o, last: map[string]time.Time{}}
+	return &Controller{opts: o, last: map[string]time.Time{}, listings: map[string]listing{}}
 }
 
 // Register watches SCNodeClasses with the manager; every reconcile requeues
@@ -113,6 +124,9 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			return reconcile.Result{}, err
 		}
 	}
+	if err := c.publish(ctx, &nc, report); err != nil {
+		return reconcile.Result{}, err
+	}
 	return reconcile.Result{RequeueAfter: c.opts.Interval}, nil
 }
 
@@ -132,6 +146,13 @@ func (c *Controller) forget(class string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.last, class)
+	// The class owns its ConfigMaps, so they go with it; a class of the same name
+	// that comes back gets them written again.
+	for name, l := range c.listings {
+		if l.class == class {
+			delete(c.listings, name)
+		}
+	}
 }
 
 // statusOf converts a summary to the status block, without the time.
@@ -195,7 +216,7 @@ func (c *Controller) applyStatus(ctx context.Context, nc *v1alpha1.SCNodeClass, 
 	}
 	u := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": v1alpha1.GroupVersion.String(),
-		"kind":       "SCNodeClass",
+		"kind":       kindSCNodeClass,
 		"metadata":   map[string]any{"name": nc.Name},
 		"status":     map[string]any{"vendors": map[string]any{vendor: map[string]any{"offered": block}}},
 	}}
