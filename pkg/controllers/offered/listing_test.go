@@ -25,7 +25,7 @@ func fixture(n int) catalog.Report {
 		ref := fmt.Sprintf("VM.Standard.E5.Flex.%d-%d", i+1, (i+1)*8)
 		tr := catalog.TypeReport{
 			Vendor: "oci", InstanceType: "oci." + ref, APIReference: ref, APIReferenceLabel: ref,
-			Arch: "amd64", VCPUs: int64(i + 1), MemoryMiB: int64(i+1) * 8192, FitsRequests: true,
+			FitsRequests: true,
 		}
 		for _, region := range []string{"eu-frankfurt-1", "us-ashburn-1"} {
 			for _, ct := range []string{"on-demand", "spot"} {

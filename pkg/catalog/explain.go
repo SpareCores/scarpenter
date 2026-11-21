@@ -39,9 +39,6 @@ type TypeReport struct {
 	// APIReferenceLabel is the value of the api-reference label of the type,
 	// empty when it has none (the reference is not a valid label value).
 	APIReferenceLabel string
-	Arch              string
-	VCPUs             int64
-	MemoryMiB         int64
 	Dropped           Reason
 	Offerings         []OfferingReport
 	// FitsRequests is false when the query has resource requests the type's
@@ -97,8 +94,6 @@ func reportOf(e evaluation, q Query) Report {
 		it := ev.bt.it
 		tr := TypeReport{
 			Vendor: ev.vendor, InstanceType: it.Name, APIReference: ev.bt.server.APIReference, FitsRequests: true,
-			Arch: it.Requirements.Get(corev1.LabelArchStable).Any(), VCPUs: int64(ev.bt.server.VCPUs),
-			MemoryMiB: int64(ev.bt.server.MemoryMiB),
 		}
 		if r := it.Requirements.Get(v1alpha1.LabelAPIReference); r.Operator() == corev1.NodeSelectorOpIn {
 			tr.APIReferenceLabel = r.Any()
