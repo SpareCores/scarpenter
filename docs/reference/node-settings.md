@@ -328,17 +328,18 @@ you set overrides the preset's value, key by key, so a `kubeReserved` of
 | `containerLogMaxSize`, `containerLogMaxFiles` | 5Mi, 2 | the kubelet's defaults (10Mi, 5) |
 | `nodeStatusMaxImages` | 10 | the kubelet's default (50) |
 
-The memory values scale with the node's memory (the instance type's less
-`vmMemoryOverheadPercent`; the catalog and the kubelet configuration both read
-`v1alpha1.LeanMemory`, so the scheduler's allocatable is the node's):
+The memory values scale with the node's memory as the catalog estimates it (the
+instance type's less `vmMemoryOverheadPercent`; the catalog and the kubelet
+configuration both read `v1alpha1.LeanMemory`, so the scheduler's allocatable is
+the node's):
 
-| Node memory | kubeReserved | systemReserved | memory.available | Allocatable | Fixed 192Mi, 128Mi, 50Mi |
+| Instance type | Node memory | kubeReserved | systemReserved | memory.available | Allocatable |
 |---|---|---|---|---|---|
-| 448Mi (0.5 GiB instance) | 144Mi | 96Mi | 16Mi | 192Mi | 78Mi |
-| 951Mi (1 GiB) | 192Mi | 128Mi | 50Mi | 581Mi | 581Mi |
-| 1957Mi (2 GiB) | 192Mi | 128Mi | 50Mi | 1587Mi | 1587Mi |
-| 3905Mi (4 GiB) | 192Mi | 244Mi | 50Mi | 3419Mi | 3535Mi |
-| 65536Mi | 192Mi | 384Mi | 50Mi | 64910Mi | 65166Mi |
+| 0.5 GiB | 448Mi | 144Mi | 96Mi | 16Mi | 192Mi |
+| 1 GiB | 947Mi | 192Mi | 128Mi | 50Mi | 577Mi |
+| 2 GiB | 1894Mi | 192Mi | 128Mi | 50Mi | 1524Mi |
+| 4 GiB | 3788Mi | 192Mi | 236Mi | 50Mi | 3310Mi |
+| 64 GiB | 60620Mi | 192Mi | 384Mi | 50Mi | 59994Mi |
 
 - Below 768Mi, the reservations are sized to what the node uses and cannot
   give back, about 220-230 MiB with the daemons and the DaemonSet Pods, and the
@@ -353,10 +354,10 @@ The memory values scale with the node's memory (the instance type's less
   4 GiB node, more than the fixed 320Mi, and a Pod that grows must hit the
   kubepods limit before the node runs out of memory.
 
-The catalog expects the node's memory from `vmMemoryOverheadPercent`, 7.5% by
-default: 473Mi for a 0.5 GiB instance, where the kubelet reports 448Mi (12.5%).
-Set 12.5 for a NodeClass of 0.5 GiB instance types, or the scheduler's allocatable
-is 25Mi above the node's.
+With the default `vmMemoryOverheadPercent` (7.5), the catalog takes at least
+64Mi off an instance type's memory: a 0.5 GiB VM reports 448Mi (12.5% less), where
+7.5% alone would say 473Mi and overstate the allocatable. From 1 GiB up the percentage
+is the larger and decides.
 
 The image garbage collection thresholds stay at the kubelet's defaults. `maxPods`
 does not use memory by itself; it limits how many Pods (and containerd shims, about

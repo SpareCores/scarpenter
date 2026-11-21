@@ -431,13 +431,14 @@ const (
 )
 
 // LeanMemory returns the Lean footprint's memory reservations for a node with
-// nodeMiB of memory (what the kubelet reports as capacity; 0 or less means
-// unknown and gives the 1-2 GiB values), in MiB: kubeReserved, systemReserved
+// nodeMiB of memory (the catalog's estimate of the node's memory, the instance
+// type's less the VM overhead; 0 or less means unknown and gives the 1-2 GiB
+// values), in MiB: kubeReserved, systemReserved
 // and the memory.available eviction threshold. The catalog and the kubelet
 // configuration both call it (KubeletSpec.EffectiveFor), so the node's
 // allocatable equals what the scheduler assumed.
 //
-//   - Below 768 MiB (a 0.5 GiB instance type, 448 MiB measured): 144 + 96 MiB
+//   - Below 768 MiB (a 0.5 GiB instance type, estimated at 448 MiB): 144 + 96 MiB
 //     reserved and 16 MiB eviction. The node's non-reclaimable use is about
 //     220-230 MiB with the daemons and DaemonSet Pods, so a Pod that requests
 //     nothing gets 192 MiB of allocatable and the kubepods cgroup limit is

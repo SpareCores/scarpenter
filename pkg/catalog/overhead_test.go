@@ -108,10 +108,11 @@ func leanAllocatableMiB(oh *cloudprovider.InstanceTypeOverhead, nodeMiB int64) i
 		oh.EvictionThreshold.Memory().Value()>>20
 }
 
-// TestLeanOverheadBySize pins the Lean memory values at every size and the
-// allocatable they leave, against the fixed 192Mi, 128Mi and 50Mi that were
-// measured on nodes of 448, 951, 1957 and 3905 MiB. The kubelet
-// configuration test in pkg/bootstrap has the same rows.
+// TestLeanOverheadBySize pins the Lean memory values at every size, from the
+// instance type's memory to the estimated node memory (the default VM overhead,
+// at least 64 MiB) and the allocatable they leave; 581 and 1587 MiB were
+// measured on the nodes of the 1 and 2 GiB types. The kubelet configuration
+// test in pkg/bootstrap has the same rows.
 func TestLeanOverheadBySize(t *testing.T) {
 	nc := &v1alpha1.SCNodeClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "lean"},
@@ -123,18 +124,20 @@ func TestLeanOverheadBySize(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		nodeMiB, kube, system, eviction, allocMiB int64
-		// before is the allocatable of the fixed 192Mi, 128Mi and 50Mi.
-		before int64
+		instanceMiB, estimateMiB, kube, system, eviction, allocMiB int64
+		measured                                                   int64 // allocatable of the real node, 0 if not measured
 	}{
-		{448, 144, 96, 16, 192, 78},
-		{951, 192, 128, 50, 581, 581},
-		{1957, 192, 128, 50, 1587, 1587},
-		{3905, 192, 244, 50, 3419, 3535},
-		{65536, 192, 384, 50, 64910, 65166},
+		{512, 448, 144, 96, 16, 192, 0},
+		{1024, 947, 192, 128, 50, 577, 581},
+		{2048, 1894, 192, 128, 50, 1524, 1587},
+		{4096, 3788, 192, 236, 50, 3310, 0},
+		{65536, 60620, 192, 384, 50, 59994, 0},
 	} {
-		t.Run(fmt.Sprintf("%dMi", tc.nodeMiB), func(t *testing.T) {
-			rl := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", tc.nodeMiB))}
+		t.Run(fmt.Sprintf("%dMi", tc.instanceMiB), func(t *testing.T) {
+			rl := capacity(2, float64(tc.instanceMiB), &class, 0, false, nil)
+			if got := rl.Memory().Value() >> 20; got != tc.estimateMiB {
+				t.Fatalf("estimated node memory %dMi, want %dMi", got, tc.estimateMiB)
+			}
 			oh := overhead(2, &class, rl)
 			got := [3]int64{
 				oh.KubeReserved.Memory().Value() >> 20, oh.SystemReserved.Memory().Value() >> 20,
@@ -143,16 +146,15 @@ func TestLeanOverheadBySize(t *testing.T) {
 			if got != [3]int64{tc.kube, tc.system, tc.eviction} {
 				t.Errorf("kube, system, eviction = %v, want %d, %d, %d", got, tc.kube, tc.system, tc.eviction)
 			}
-			alloc := leanAllocatableMiB(oh, tc.nodeMiB)
+			alloc := leanAllocatableMiB(oh, tc.estimateMiB)
 			if alloc != tc.allocMiB {
 				t.Errorf("allocatable %dMi, want %dMi", alloc, tc.allocMiB)
 			}
-			switch {
-			case tc.nodeMiB == 448 && (alloc < 150 || alloc > 200):
+			if tc.estimateMiB == 448 && (alloc < 150 || alloc > 200) {
 				t.Errorf("a 0.5 GiB node leaves %dMi, want 150-200Mi", alloc)
-			case tc.nodeMiB >= 951 && tc.nodeMiB <= 1957 &&
-				math.Abs(float64(alloc-tc.before)) > 0.1*float64(tc.before):
-				t.Errorf("allocatable %dMi is not within 10%% of %dMi", alloc, tc.before)
+			}
+			if tc.measured > 0 && math.Abs(float64(alloc-tc.measured)) > 0.1*float64(tc.measured) {
+				t.Errorf("allocatable %dMi is not within 10%% of the measured %dMi", alloc, tc.measured)
 			}
 		})
 	}

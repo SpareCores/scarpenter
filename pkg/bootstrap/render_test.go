@@ -594,17 +594,18 @@ func TestKubeletClientCA(t *testing.T) {
 // TestKubeletConfigurationLeanBySize pins the Lean memory values of the
 // kubelet configuration at every size, and the allocatable they leave (the
 // node's memory less kubeReserved, systemReserved and the threshold). The
-// catalog's table in pkg/catalog/overhead_test.go has the same rows.
+// catalog's table in pkg/catalog/overhead_test.go has the same rows, by the
+// catalog's estimate of the node's memory.
 func TestKubeletConfigurationLeanBySize(t *testing.T) {
 	for _, tc := range []struct {
 		nodeMiB                          int64
 		kube, system, eviction, allocMiB int64
 	}{
 		{448, 144, 96, 16, 192},
-		{951, 192, 128, 50, 581},
-		{1957, 192, 128, 50, 1587},
-		{3905, 192, 244, 50, 3419},
-		{65536, 192, 384, 50, 64910},
+		{947, 192, 128, 50, 577},
+		{1894, 192, 128, 50, 1524},
+		{3788, 192, 236, 50, 3310},
+		{60620, 192, 384, 50, 59994},
 	} {
 		t.Run(fmt.Sprintf("%dMi", tc.nodeMiB), func(t *testing.T) {
 			got, err := bootstrap.KubeletConfiguration(

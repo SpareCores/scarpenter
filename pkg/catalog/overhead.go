@@ -31,6 +31,10 @@ const DefaultMaxPods = 110
 // not offer to the guest (the default of the AWS provider's vmMemoryOverhead).
 const DefaultVMMemoryOverheadPercent = 7.5
 
+// minVMMemoryOverheadMiB is the least the default overhead takes from a VM:
+// a 0.5 GiB VM reports 448 MiB, 12.5% less, where 7.5% would say 473.
+const minVMMemoryOverheadMiB = 64
+
 // defaultEvictionMemory is the kubelet's default hard eviction threshold for
 // memory.available.
 const defaultEvictionMemory = "100Mi"
@@ -82,7 +86,9 @@ func KubeReserved(cpus int, pods int64, memoryMiB int64) corev1.ResourceList {
 }
 
 // capacity returns the resources of a server for a NodeClass: cpu, memory
-// reduced by the VM overhead, pods and the root disk of the vendor's default
+// reduced by the VM overhead (with the default percentage, by at least 64 MiB:
+// below 0.85 GiB the percentage alone overestimates what the guest reports),
+// pods and the root disk of the vendor's default
 // settings as ephemeral storage (omitted when the driver does not say), and
 // nvidia.com/gpu for a type with a driver selection (the device plugin the
 // chart ships makes it appear on the node).
@@ -90,6 +96,9 @@ func capacity(vcpus int, memoryMiB float64, class *Class, rootDiskBytes int64, r
 	gpu *nvidia.Selection) corev1.ResourceList {
 	overhead := class.VMMemoryOverheadPercent
 	memory := math.Floor(memoryMiB * (1 - overhead/100))
+	if overhead == DefaultVMMemoryOverheadPercent {
+		memory = min(memory, memoryMiB-minVMMemoryOverheadMiB)
+	}
 	rl := corev1.ResourceList{
 		corev1.ResourceCPU:    *resource.NewQuantity(int64(vcpus), resource.DecimalSI),
 		corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", int64(memory))),
