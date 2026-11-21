@@ -13,6 +13,7 @@ design is [plan 17](../plans/v1/wip/17-azure.md); the contract it implements is 
 - [Node settings](#node-settings)
 - [Resources and network](#resources-and-network)
 - [Quotas, offerings and errors](#quotas-offerings-and-errors)
+- [Confidential VM sizes](#confidential-vm-sizes)
 - [Billing](#billing)
 - [Tests and the L5 lane](#tests-and-the-l5-lane)
 - [What is not verified against Azure yet](#what-is-not-verified-against-azure-yet)
@@ -105,6 +106,23 @@ by ARM code (never message text, except `OperationNotAllowed`, `InvalidParameter
 `SkuNotAvailable` is `InsufficientCapacity` for Spot, `ZoneUnusable` on demand when ARM names the zones (the size is
 not offered in that zone for the subscription) and `Unsupported` otherwise; 429 is always `Retryable`. The table is in
 `errors.go` and tested against an independent copy.
+
+## Confidential VM sizes
+
+Confidential VM sizes are not supported: DCas, DCads, DCes, DCeds, ECas, ECads, ECes and ECeds (v5 and v6) and the
+`_cc` variants. Intel SGX sizes (DCsv2, DCsv3) are ordinary VMs and work. Flatcar cannot run as a confidential VM
+yet (tested 2026-11-21 in `westeurope` on `Standard_DC2as_v5` with Flatcar 4757.2.3):
+
+- The Flatcar marketplace images (`kinvolk`, `corevm`, Gen2) carry no `SecurityType` feature, so Azure rejects
+  `securityType=ConfidentialVM` with "Use of ConfidentialVM setting is not supported for the provided image", with or
+  without Secure Boot.
+- A Compute Gallery copy flagged `ConfidentialVMSupported` is accepted, but the Flatcar kernel cannot reach Hyper-V
+  VMBus under SEV-SNP (`hv_vmbus: Unable to connect to host`), finds no disk and never reaches Ignition.
+- Flatcar's shim is not yet Microsoft-signed ([flatcar/Flatcar#501](https://github.com/flatcar/Flatcar/issues/501)).
+
+The driver sets no security type. Azure's launch error for these sizes ("VM size not supported for creation of VMs and
+Virtual Machine Scale Set with '<NULL>' security type") is `Unsupported`, so the offering is marked per instance type
+and zone and is not retried. This is revisited when Flatcar ships CVM-capable images.
 
 ## Billing
 
