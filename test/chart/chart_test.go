@@ -1130,6 +1130,11 @@ func TestHostNetwork(t *testing.T) {
 	if !pod.HostNetwork || pod.DNSPolicy != corev1.DNSClusterFirstWithHostNet {
 		t.Errorf("hostNetwork = %v, dnsPolicy = %q", pod.HostNetwork, pod.DNSPolicy)
 	}
+	for _, port := range d.Spec.Template.Spec.Containers[0].Ports {
+		if port.HostPort != port.ContainerPort {
+			t.Errorf("port %s: hostPort %d, containerPort %d", port.Name, port.HostPort, port.ContainerPort)
+		}
+	}
 	if ru := d.Spec.Strategy.RollingUpdate; ru == nil || ru.MaxSurge.IntValue() != 0 {
 		t.Errorf("rollout strategy %+v: the new pod would need the old pod's host ports", d.Spec.Strategy)
 	}

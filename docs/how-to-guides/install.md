@@ -243,8 +243,12 @@ Pods usually have IPv4 only, and the node's IPv4 may be one a vendor API blocks.
 `hostNetwork: true` runs the controller in the node's network namespace
 (`dnsPolicy: ClusterFirstWithHostNet`), so its API calls use the node's dual stack and
 reach the vendor over IPv6. `karpenter.metricsPort` and `karpenter.healthProbePort`
-(8080 and 8081) become ports of the node: set ports that nothing else on the nodes
-listens on and that the nodes' firewall does not open to the internet. Each replica
+(8080 and 8081) become ports of the node, on IPv4 and IPv6, and the metrics are
+unauthenticated (so is pprof if `ENABLE_PROFILING` is set in `extraEnv`: keep it off).
+Set ports that nothing else on the nodes listens on, and make sure the nodes'
+firewall drops them from the internet for IPv4 and IPv6. NetworkPolicies selecting
+the controller pod do not apply under host networking, and a Prometheus egress
+policy with a `podSelector` does not match the node's address. Each replica
 needs its own node (the host ports keep two replicas apart), and a rollout replaces
 the pods one at a time. A vendor API with an IP allowlist (Vultr's) then sees the
 nodes' IPv6 addresses as well as their IPv4 ones: allow both.

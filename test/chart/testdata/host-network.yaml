@@ -778,9 +778,11 @@ spec:
           ports:
             - name: health
               containerPort: 8091
+              hostPort: 8091
               protocol: TCP
             - name: metrics
               containerPort: 8090
+              hostPort: 8090
               protocol: TCP
           livenessProbe:
             httpGet:
