@@ -105,6 +105,8 @@ func TestClassifyMessageExceptions(t *testing.T) {
 		{"size not available", "InvalidParameter", "The requested VM size Standard_X1 is not available in the current region.", errContext{size: "Standard_X1"}, vendors.Unsupported},
 		{"size not supported", "InvalidParameter", "VM size Standard_X1 is not supported in this zone.", errContext{size: "Standard_X1"}, vendors.Unsupported},
 		{"another size", "InvalidParameter", "The requested VM size Standard_X2 is not available.", errContext{size: "Standard_X1"}, vendors.Fatal},
+		{"security type invalid parameter", "InvalidParameter", "VM size not supported for creation of VMs and Virtual Machine Scale Set with '<NULL>' security type", errContext{size: "Standard_DC32ads_v5"}, vendors.Unsupported},
+		{"security type bad request", "BadRequest", "VM size not supported for creation of VMs and Virtual Machine Scale Set with '<NULL>' security type", errContext{size: "Standard_DC32ads_v5"}, vendors.Unsupported},
 		{"plain invalid", "InvalidParameter", "Parameter x is wrong.", errContext{size: "Standard_X1"}, vendors.Fatal},
 	}
 	for _, c := range cases {

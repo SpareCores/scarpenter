@@ -119,7 +119,8 @@ func responseError(err error) (*azcore.ResponseError, bool) {
 // classify wraps an error of an ARM call into the driver's error classes. The
 // code decides, never the message text, with the exceptions the plan names:
 // OperationNotAllowed (quota and "operation in progress" are only texts) and
-// InvalidParameter naming an unavailable size. Errors that are already
+// InvalidParameter naming an unavailable size, and a size that does not
+// support the default security type. Errors that are already
 // classified pass through. Everything not listed is Fatal.
 func classify(err error, ec errContext) error {
 	if err == nil {
@@ -142,6 +143,12 @@ func classify(err error, ec errContext) error {
 			// 429 with OperationNotAllowed ("too many requests"), ARM with
 			// SubscriptionRequestsThrottled. azcore has already retried.
 			return vendors.NewError(vendors.Retryable, code, err)
+		}
+		// Confidential sizes (DC*, EC*) need securityType ConfidentialVM, which
+		// the driver does not set: the size can never launch, whatever the code
+		// (BadRequest or InvalidParameter) says.
+		if strings.Contains(msg, "security type") && strings.Contains(msg, "not supported") {
+			return vendors.NewError(vendors.Unsupported, code, err)
 		}
 		switch code {
 		case codeSkuNotAvailable:
