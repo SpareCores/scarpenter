@@ -533,12 +533,17 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
   variable `E2E_HCLOUD_LOCATIONS`. Details in [Test and develop](testing.md#the-l5-lane-of-hetzner-cloud).
 - **Environment `e2e`**: the secret `AWS_ROLE_ARN` (the CI role) and the variables
   `AWS_REGION`, `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`, **required reviewers** (the
-  maintainers who approve runs) with "Prevent self-review" on and administrators not allowed
+  maintainers who approve runs) with "Prevent self-review" off and administrators not allowed
   to bypass them, and no branch restriction to `main`: pull request runs
   are on `refs/pull/<n>/merge`, and the release gate's on the tag `refs/tags/v*`. A
   deployment-branch policy, if any, must allow those refs (a `v*` tag policy and the
   merge refs of pull requests), so the controls that matter are the reviewers, the fork
-  rule and the role's own limits.
+  rule and the role's own limits. Self-review is allowed because the maintainers' own pull
+  requests (and changes agents push under a maintainer's account) are approved by that
+  maintainer; the reviewer still approves every run, and whoever approves reviews the diff
+  of the lane's files and shared code. A reviewer may approve a waiting run from the CLI
+  (`gh api -X POST repos/SpareCores/scarpenter/actions/runs/<run>/pending_deployments` with
+  the environment id and `state=approved`).
 - **Environment `e2e-canary`**: the secret `AWS_ROLE_ARN` (the read-only role) and
   optionally `AWS_REGION`; no reviewers (it runs on a schedule); deployments limited to
   `main` (a scheduled run is on the default branch, and a manual run from another branch must
