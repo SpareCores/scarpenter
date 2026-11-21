@@ -22,6 +22,8 @@ and [00a](../plans/v1/wip/00a-node-options.md#7-instance-selection). The code is
   - [Prices](#prices)
   - [Availability](#availability)
   - [Why a type or an offering is not offered](#why-a-type-or-an-offering-is-not-offered)
+  - [The offered summary in the status](#the-offered-summary-in-the-status)
+  - [The offered listing](#the-offered-listing)
 - [Labels](#labels)
   - [Unknown values](#unknown-values)
   - [Scheduling and topology labels](#scheduling-and-topology-labels)
@@ -383,6 +385,68 @@ ready (`VendorNotReady`), each once per change. Every `Unsupported` mark of the
 launch path is logged at V(0) (`marked the offering unsupported`, with the vendor's
 `code` and `preLaunch`).
 
+### The offered summary in the status
+
+`kubectl describe scnodeclass` shows, per vendor, `status.vendors.<vendor>.offered`:
+a bounded summary of what the catalog hands to Karpenter for the class (no
+NodePool filter, no pinned selection profile, so the class-level codes only).
+
+| Field | Meaning |
+|---|---|
+| `types` | instance types offered |
+| `offerings`, `availableOfferings` | (region, zone, capacity type) offerings of the offered types, and how many are available now |
+| `dropped` | per reason code, how many types are not offered at all (`NoPrice`, `RegionNotAllowed`, the `GPU*` codes, `NoOffering`) |
+| `unavailable` | per reason code, how many offerings of the offered types are not available, listed unavailable (`UnavailableCache`, `QuotaGate`, `ImageGap`, `RegionNotReady`, `ZoneMissingResource`) or left out (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) |
+| `dropped[].types`, `unavailable[].types` | up to five instance type names with the code, in name order |
+| `observedAt` | when the summary last changed, to the minute |
+
+The block is at most a few KiB however large the catalog is: there is no
+per-type or per-offering data in it (the details of a reason, a quota bucket or
+a cache expiry, are in the logs and the listing). The controller `offered-types`
+evaluates a class at most every 30 s, writes with server-side apply under the
+field manager `scarpenter-offered`, the blocks of all vendors in one apply,
+and only when a count or a name changed. It reports nothing for a vendor until
+its driver facts are loaded (before that every offering of it would look like
+`ZoneNotAvailable`; a vendor whose facts keep failing holds back no other), and
+nothing while the catalog has no data for the class. `VendorNotReady` is not in the block: the vendor's conditions say it.
+
+### The offered listing
+
+For a class with the annotation `scarpenter.sparecores.com/publish-offered: "true"` the controller writes one ConfigMap per vendor,
+`scarpenter-offered-<class>-<vendor>` (cut to 253 characters with a hash), in its own namespace (`POD_NAMESPACE`), owned by the
+SCNodeClass, with the labels `app.kubernetes.io/managed-by: scarpenter`, `scarpenter.sparecores.com/scnodeclass: <class>` (left out when
+the class name is longer than a label value) and `scarpenter.sparecores.com/vendor: <vendor>`. The annotation is not part of the spec:
+it changes no hash. Without the annotation, or when the vendor leaves the class, the ConfigMap is deleted. The key `types.json` holds:
+
+```json
+{
+  "generatedAt": "2026-11-21T00:00:00Z", "class": "bench", "vendor": "oci", "truncated": false,
+  "types": {
+    "oci.VM.Standard4.Ax.Flex.16-64": {
+      "apiReference": "VM.Standard4.Ax.Flex.16-64", "available": false, "capacityTypes": [],
+      "reason": "QuotaGate", "detail": "bucket standard-x12-ax-core-count, headroom 6, need 16",
+      "offerings": [{"capacityType": "on-demand", "zones": ["eu-frankfurt-1-AD-2"], "available": false, "reason": "QuotaGate"}]
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `generatedAt` | when the listing was written: on every change and at least every 10 minutes, so it trails by about 10 minutes at most while the controller runs and has the vendor's driver facts; treat one older than 30 minutes as stale |
+| `truncated` | the 800 KiB cap was hit: the types that are not available are kept first, so the available ones may be incomplete (OCI is about 60 KiB) |
+| `types` | by instance type name (`node.kubernetes.io/instance-type`, `<vendor>.<server id>`): every type of the catalog, offered or dropped at build time |
+| `apiReference` | the value of the `scarpenter.sparecores.com/api-reference` label; omitted when the type has no such label |
+| `available`, `capacityTypes` | at least one offering is available; the capacity types that have one |
+| `reason`, `detail` | only when `available` is false: the dominant class-level [reason code](#why-a-type-or-an-offering-is-not-offered) (the one of the most offerings, those Karpenter is given before the left-out ones, so a gated type says `QuotaGate`) and its data as text for humans, never to be parsed |
+| `offerings` | grouped by capacity type, state and reason, with the zones that share them; empty for a type dropped at build time (its `reason` is the build's) |
+
+Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is
+available in some zones is `available: true`; its blocked zones are in `offerings`. The class-level view has no NodePool, so no
+`Unrankable`, `NodePoolRequirement` or `NodePoolPreFilter`. How to read it:
+[Which types does a class offer](../how-to-guides/which-types-does-a-class-offer.md). A reader needs `get`, `list` and `watch` on the
+ConfigMaps in a Role of the release namespace (optionally with `resourceNames`) bound to its ServiceAccount; the chart grants nothing to readers.
+
 ## Labels
 
 Every key is defined on every instance type or, for the offering-level keys, on every offering, with `DoesNotExist` where the value
@@ -618,7 +682,9 @@ modified.
 | `scarpenter_catalog_refresh_errors_total` | counter | | failed refreshes |
 | `scarpenter_catalog_instance_types` | gauge | `vendor` | types with a price in scope |
 | `scarpenter_catalog_offerings` | gauge | `vendor` | price rows in scope, before the driver's zone mapping |
-| `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | priced GPU types a NodeClass's catalog leaves out, by [reason](#gpu-types); exported for the NodeClasses the catalog has built, only for reasons that occur |
+| `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | types a NodeClass's catalog leaves out at build time (`NoPrice`, `RegionNotAllowed`, `NoOffering`, the [GPU reasons](#gpu-types)), by [reason](#why-a-type-or-an-offering-is-not-offered); exported for the NodeClasses the catalog has built, only for reasons that occur |
+| `scarpenter_catalog_offerings_by_state` | gauge | `nodeclass`, `vendor`, `state` | offerings of the offered types: `available`, or the offering-level reason code (at most nine series); written by the offered types controller |
+| `scarpenter_instance_type_offering_available` | gauge | `nodeclass`, `instance_type`, `zone`, `capacity_type` | 1 available, 0 unavailable; only with `--metrics-offering-detail` (thousands of series per class and vendor) |
 
 ### Scale
 

@@ -102,11 +102,10 @@ so a "no instance type met all requirements" can be reproduced offline against a
 - `scarpenter.sparecores.com/api-reference` carries the **raw API reference**, only when it is a valid label value and
   unchanged by sanitising; otherwise the key is `DoesNotExist` on the type (`labels/attributes.go:51`). A NodePool that
   pins it to a value matches nothing for such a type, with no message. It is also not vendor-qualified.
-- **Recommendation: key on the instance type name.** The listing prints, per type, `instanceType`, `apiReference`,
-  `apiReferenceLabel` (the label's value or `null`) and `pin`: the requirement a NodePool must carry to select exactly
-  this type (`node.kubernetes.io/instance-type In [<name>]`, always valid). Automation that already pins `api-reference`
-  keeps working where `apiReferenceLabel` is not `null` and adds the vendor label; the listing tells it which types
-  those are. OCI sized types have unique, valid references (rule R), so the two coincide there apart from the `oci.`
+- **Recommendation: key on the instance type name.** The listing is a map keyed by it, and each type carries
+  `apiReference` only when the label exists. The requirement a NodePool must carry to select exactly this type is
+  `node.kubernetes.io/instance-type In [<name>]`, always valid. Automation that already pins `api-reference` keeps working
+  where `apiReference` is present and adds the vendor label. OCI sized types have unique, valid references (rule R), so the two coincide there apart from the `oci.`
   prefix.
 
 ## 4. Options
@@ -136,10 +135,11 @@ Assessment:
 - **(b) ConfigMap, not a CR.** A read-only CR would need a CRD, a schema, a version and a conversion story for what is
   derived data; a ConfigMap is one object, no API surface and readable with the RBAC the operator already knows. One
   ConfigMap per class and vendor (`scarpenter-offered-<class>-<vendor>`, owned by the SCNodeClass so it is garbage
-  collected), one key `types.json`. Compact encoding: per type `{n, ref, label, arch, vcpus, memMiB, o: [{z, c, ok,
-  r?}]}`, offerings grouped per capacity type with the zones that share a state (`zones: [...]`, `down: {zone: reason}`)
-  so a 12-zone type is two entries, not 24. A hard cap (800 KiB) fails closed: the ConfigMap keeps counts, lists
-  the types that are not available first and says `truncated: true`. It is **opt-in per class** (annotation
+  collected), one key `types.json`: a map of the types by instance type name with `apiReference` (the label's value, omitted when
+  there is none), `available`, `capacityTypes`, the dominant `reason` and `detail`, and the offerings grouped by capacity type and
+  state with the zones that share it (the binding layout is in `docs/reference/labels-and-offerings.md`, "The offered
+  listing"). A hard cap (800 KiB) fails closed: the ConfigMap keeps the types that are not available first and says
+  `truncated: true`; it is written on change and at least every 10 minutes (`generatedAt`). It is **opt-in per class** (annotation
   `scarpenter.sparecores.com/publish-offered: "true"`, decision 2): not every cluster wants 400 KiB of derived data
   rewritten every minute.
 - **(c) A small, fixed set only.** `scarpenter_catalog_offerings_by_state{nodeclass,vendor,state}` (`state`: `available`
@@ -237,22 +237,26 @@ nothing, but an AD table read while a region was briefly unreadable blocks the t
    has none" class (section 3) by reproducing core's intersection. Live surface: `GetInstanceTypes` (which has the
    NodePool) logs the per-reason lines of step 1 for the NodePool-dependent codes (`Unrankable`,
    `NodePoolRequirement`) once per catalog generation and NodePool, at V(1). L1, plus an L2 case for the log.
-3. **Status summary (a).** The `offered` block of `VendorStatus` (counts, reason buckets, sample names, `observedAt`
+3. **Status summary (a). Done:** `status.vendors.<v>.offered`, the `offered-types` controller and `Report.Summaries` are in; the L3 KWOK scenario of the plan was not written (L2 envtest covers the block, the gates and the TTL on a fake clock). Deviations: `dropped` and `unavailable` list type-level and offering-level codes separately, the left-out offerings (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) count under `unavailable`, `observedAt` is when the summary last changed (a rewrite per minute would be a write loop), the controller waits for each vendor's driver facts (a vendor whose facts keep failing holds back no other) and writes the blocks of all vendors in one apply (an apply per vendor would drop the others' blocks). The `offered` block of `VendorStatus` (counts, reason buckets, sample names, `observedAt`
    rounded to the minute), the controller `pkg/controllers/offered` (SSA, field manager `scarpenter-offered`, writes on
    change, at most every 30 s, started with the leader), the CRD and `docs/reference/api.md`. L2 envtest: the block
    follows a quota block and an unavailable mark, no write loop (a quiet catalog causes no writes), the block's size
    under 3 KiB for the 286-type fixture. L3 KWOK: the fake driver's capacity error shows as `UnavailableCache`
    `InsufficientCapacity` in the status and clears after the TTL on the fake clock.
-4. **The ConfigMap listing (b), opt-in.** The same controller writes the ConfigMap for annotated classes (compact
-   encoding, cap, owner reference, deleted when the annotation or the vendor goes); `pin` and `apiReferenceLabel` per type;
-   a `jq` recipe per consumer in a how-to ("Which types does a class offer"). RBAC: create, update, delete on
-   ConfigMaps in the release namespace only, Helm values and `docs/reference/controller.md` updated. L1 for the encoder
-   (round trip, size for the 286-type and a 3000-type fixture, truncation); L2 for ownership and the cap. L3: a scale-up
-   test reads the ConfigMap, picks an `available` type from it and pins its `pin` requirement: the NodeClaim launches.
-5. **Metrics (c).** `scarpenter_catalog_offerings_by_state`, `scarpenter_catalog_dropped_types` widened to every build reason, the flag
-   `--metrics-offering-detail` and its per-offering gauge; the metric tables in the controller reference. L1: series
-   counts for the fixtures (fail the test if the default set exceeds 30 series per class and vendor).
-6. **Live check (optional, needs the maintainer's approval per run, no GPU or other costly type).** On the live OCI
+4. **The ConfigMap listing (b), opt-in. Done:** the same controller writes the ConfigMap for annotated classes (layout of the
+   coordinator's consumer contract: a map by instance type name, written on change and every 10 minutes, labels
+   `managed-by`, `scnodeclass` and `vendor`, owner reference, deleted when the annotation or the vendor goes), the Role in the
+   release namespace, the how-to "Which types does a class offer" and the reference. Deviations: the per-type `pin`,
+   `arch`, `vcpus` and `memoryMiB` of the first draft are not in the listing (the map key is the instance type name, and
+   a consumer builds the requirement); RBAC is list, create, patch, delete (server-side apply needs patch; the start-up
+   search needs list); the L3 scale-up scenario is not done. L1 for the encoder (round trip, the 286-type fixture, the cap, the
+   dominant reason); L2 for ownership, labels, the layout decoded as a reader does, agreement with `InstanceTypes` on every offering, the gate in the listing (per region), no rewrite when quiet, the heartbeat and the delete; that agreement stands in for the L3 scenario.
+5. **Metrics (c). Done:** `scarpenter_catalog_offerings_by_state` and the widened `scarpenter_catalog_dropped_types` (every build
+   reason), the flag `--metrics-offering-detail` (chart value `metrics.offeringDetail`) with the per-offering gauge, the
+   metric tables in the controller reference. L1: series counts (nine by-state series, none per offering without the flag).
+   Deviation: the by-state gauge comes from the offered types controller's last evaluation (not from a scrape-time
+   `Explain`), so it needs the controller, which runs with the leader.
+6. **Live check (optional, not done; needs the maintainer's approval per run, no GPU or other costly type).** On the live OCI
    cluster with the step 1 logs and the status block: read the reason of the Standard4.Ax and E3.Flex.114 types, including step 2's
    NodePool lines for the bench NodePool. No launch is needed. Record the cause in the
    plan.
@@ -283,7 +287,7 @@ Answered by the maintainer on 2026-11-20:
 | 1 | Scope of the first merge | steps 1 and 2 (reasons and logs, then `Explain`) merge first, both without new API surface; step 3 follows |
 | 2 | ConfigMap listing | opt-in by the annotation `scarpenter.sparecores.com/publish-offered: "true"` on the SCNodeClass (no spec change, no drift hash change) |
 | 3 | Per-offering gauges | behind a flag (`--metrics-offering-detail`), default off; the reason-count gauge is always on |
-| 4 | Label automation keys on | the instance type name, printed with a ready-made `pin` in the listing; `api-reference` stays valid where the listing says its label exists |
+| 4 | Label automation keys on | the instance type name, the key of the listing's `types` map (no per-type `pin`: the requirement is `node.kubernetes.io/instance-type In [<name>]`); `api-reference` stays valid where the listing says its label exists |
 | 5 | 24 hour `Unsupported` TTL for pre-launch checks | shortened now, in step 1: entries from a driver's own pre-launch check use the `ZoneUnusable` 10 minutes; the vendor's explicit "not offered" answer keeps 24 hours; every `Unsupported` mark is logged at V(0) with its code, once per (type, zone) per TTL |
 | 6 | `ImageGap` per architecture | a follow-up plan makes the gate architecture-aware (`ClassGate` gets the type's architecture); this plan reports the reason as it is today and names the limitation in the reference |
 | 7 | Reason code stability | codes are API: documented, additions only; a new gate adds a code, a code is never renamed |

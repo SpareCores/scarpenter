@@ -87,7 +87,7 @@ func TestADeniedRegionIsSkippedAndTheOthersLoad(t *testing.T) {
 	if err := f.Load(ctx); err != nil {
 		t.Fatalf("a denied region failed the load: %v", err)
 	}
-	if !f.Loaded() {
+	if !f.Loaded("aws") {
 		t.Error("not loaded")
 	}
 	if got := f.Regions("aws"); !slices.Equal(got, []string{"eu-west-1", "us-east-2"}) {
@@ -150,7 +150,7 @@ func TestLoadFailsWhenNoRegionCanBeRead(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no region could be read") {
 		t.Fatalf("err %v", err)
 	}
-	if f.Loaded() {
+	if f.Loaded("aws") {
 		t.Error("loaded")
 	}
 }
@@ -170,7 +170,7 @@ func TestATransientRegionErrorKeepsTheLastKnownZones(t *testing.T) {
 	if len(zones["eu-west-1"]) != 1 || len(f.Regions("aws")) != 3 {
 		t.Errorf("the last-known zones were dropped: %v", zones)
 	}
-	if !f.Loaded() {
+	if !f.Loaded("aws") {
 		t.Error("a transient region error must not unload the facts")
 	}
 }

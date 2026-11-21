@@ -418,6 +418,32 @@ rules:
 
 ---
 # Source: scarpenter/templates/rbac.yaml
+# The listings of the offered instance types are ConfigMaps of the release
+# namespace (config/rbac/controller.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scarpenter-offered-types
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    verbs:
+    - list
+    - create
+    - patch
+    - delete
+
+---
+# Source: scarpenter/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -477,6 +503,28 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: scarpenter-auth-key
+subjects:
+  - kind: ServiceAccount
+    name: scarpenter
+    namespace: scarpenter-system
+
+---
+# Source: scarpenter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scarpenter-offered-types
+  namespace: scarpenter-system
+  labels:
+    helm.sh/chart: scarpenter-0.0.0-dev
+    app.kubernetes.io/name: scarpenter
+    app.kubernetes.io/instance: scarpenter
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scarpenter-offered-types
 subjects:
   - kind: ServiceAccount
     name: scarpenter

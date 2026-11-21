@@ -246,6 +246,7 @@ func TestFullValuesReachTheController(t *testing.T) {
 		{"GC interval", o.GCInterval, 3 * time.Minute},
 		{"GC grace", o.GCGracePeriod, 10 * time.Minute},
 		{"GC dry run", o.GCDryRun, true},
+		{"metrics offering detail", o.MetricsOfferingDetail, true},
 		{"billing retention (default true)", o.BillingRetention, false},
 		{"interruption (default true)", o.Interruption, false},
 		{"interruption margin", o.InterruptionMargin, 8 * time.Second},

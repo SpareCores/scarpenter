@@ -59,10 +59,11 @@ rbac() {
   yq 'select(.kind == "Role" and .metadata.name == "scarpenter-bootstrap-tokens") | .rules' "${ctl}" >"${tmp}/bootstrap-tokens.yaml"
   yq 'select(.kind == "Role" and .metadata.name == "scarpenter-auth-key") | .rules' "${ctl}" >"${tmp}/auth-key.yaml"
   yq 'select(.kind == "Role" and .metadata.name == "scarpenter-cluster-dns") | .rules' "${ctl}" >"${tmp}/cluster-dns.yaml"
+  yq 'select(.kind == "Role" and .metadata.name == "scarpenter-offered-types") | .rules' "${ctl}" >"${tmp}/offered-types.yaml"
   yq 'select(.kind == "ClusterRole" and .metadata.name == "scarpenter-core") | .rules' "${core}" >"${tmp}/core.yaml"
   yq 'select(.kind == "Role" and .metadata.name == "scarpenter-leader-election") | .rules' "${core}" >"${tmp}/leader-election.yaml"
   yq ea '[select(.kind == "ClusterRoleBinding") | {"name": .metadata.name, "roleRef": .roleRef, "subjects": .subjects}]' "${join}" >"${tmp}/node-join.yaml"
-  for f in controller bootstrap-tokens auth-key cluster-dns core leader-election node-join; do
+  for f in controller bootstrap-tokens auth-key cluster-dns offered-types core leader-election node-join; do
     [[ "$(yq 'length' "${tmp}/${f}.yaml")" -gt 0 ]] || { echo "no ${f} rules found in config/" >&2; exit 1; }
   done
   mkdir -p "${chart}/files"
@@ -73,6 +74,7 @@ rbac() {
       "bootstrapTokens": {"rules": load("'"${tmp}"'/bootstrap-tokens.yaml")},
       "authKey": {"rules": load("'"${tmp}"'/auth-key.yaml")},
       "clusterDNS": {"rules": load("'"${tmp}"'/cluster-dns.yaml")},
+      "offeredTypes": {"rules": load("'"${tmp}"'/offered-types.yaml")},
       "core": {"rules": load("'"${tmp}"'/core.yaml")},
       "leaderElection": {"rules": load("'"${tmp}"'/leader-election.yaml")},
       "nodeJoin": load("'"${tmp}"'/node-join.yaml")

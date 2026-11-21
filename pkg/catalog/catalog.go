@@ -675,6 +675,14 @@ func (c *Catalog) InstanceTypes(ctx context.Context, q Query) ([]*cloudprovider.
 	return out, nil
 }
 
+// FactsLoaded reports whether the driver facts of the vendor are loaded (true
+// for facts that do not say). Until then the vendor has no zones and nothing of
+// it is really offered, so what it offers must not be reported as a state.
+func (c *Catalog) FactsLoaded(vendor string) bool {
+	lf, ok := c.opts.Facts.(LoadedFacts)
+	return !ok || lf.Loaded(vendor)
+}
+
 // generation names the state the instance types depend on: the snapshot, the
 // facts epoch and the sequence of the unavailable-offerings cache.
 func (c *Catalog) generation(snap *snapshot) string {
@@ -920,7 +928,8 @@ var (
 		"Priced offerings of the catalog snapshot (price rows in scope, before the driver's zone mapping).",
 		vendorLabel, nil)
 	droppedDesc = prometheus.NewDesc("scarpenter_catalog_dropped_types",
-		"GPU instance types with a price in scope that the NodeClass's catalog leaves out, by reason.",
+		"Instance types the NodeClass's catalog leaves out at build time "+
+			"(NoPrice, RegionNotAllowed, the GPU reasons, NoOffering), by reason code.",
 		[]string{"nodeclass", "vendor", "reason"}, nil)
 	publishedDesc = prometheus.NewDesc("scarpenter_catalog_data_published_timestamp_seconds",
 		"Unix time Keeper published the data version of the catalog snapshot (SC-Data-Published-At).", nil, nil)

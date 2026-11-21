@@ -5953,6 +5953,7 @@ VendorStatus is the observed state of one vendor of the SCNodeClass.
 | `conditions` | array of [object](#statusvendorsconditions) |  | conditions of the vendor: VendorReady, ImagesReady, ResourcesReady, QuotaAvailable, and ConfigurationWarning when set. |
 | `hash` | string |  | hash is the drift hash of the shared fields that change what a node is plus this vendor's block (overview section 6.3). |
 | `images` | array of [object](#statusvendorsimages) |  | images are the resolved boot images per region and architecture. |
+| `offered` | [object](#statusvendorsoffered) |  | offered summarises what the catalog hands to Karpenter for this vendor and why the rest is left out or unavailable (reference: labels and offerings). |
 | `quota` | array of [object](#statusvendorsquota) |  | quota is the quota view per region and capacity type. |
 | `resourceCounts` | array of [object](#statusvendorsresourcecounts) |  | resourceCounts is the number of resources per region and kind, only when there are more than resources can list. At most 512 items. |
 | `resources` | array of [object](#statusvendorsresources) |  | resources are the vendor resources referenced or managed, per region, up to 128 entries. Past that, resources is cut at 128 and resourceCounts says how many resources there are per region and kind. At most 128 items. |
@@ -5982,6 +5983,39 @@ ImageStatus is the boot image of a region and architecture.
 | `reason` | string |  | reason says why an image is not ready when the cause is the image itself: ImageVersionMismatch (it is another Flatcar release than the pinned one), ImageVersionUnknown (it does not say which) or a driver's own reason (for example MarketplaceTermsNotAccepted). It becomes the reason of the ImagesReady condition. |
 | `ref` (required) | string |  | ref is the vendor's image reference (for example an AMI ID). |
 | `region` (required) | string |  |  |
+
+### `status.vendors.*.offered`
+
+offered summarises what the catalog hands to Karpenter for this vendor and why the rest is left out or unavailable (reference: labels and offerings).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `availableOfferings` (required) | integer (int32) |  | availableOfferings is how many of the offerings are available now. |
+| `dropped` | array of [object](#statusvendorsoffereddropped) |  | dropped counts the instance types that are not offered at all, per reason code (NoPrice, RegionNotAllowed, GPU reasons, NoOffering). At most 32 items. |
+| `observedAt` (required) | string (date-time) |  | observedAt is when this summary last changed, to the minute: an unchanged summary is not written again. |
+| `offerings` (required) | integer (int32) |  | offerings is the number of (region, zone, capacity type) offerings of the offered types, available or not. |
+| `types` (required) | integer (int32) |  | types is the number of instance types offered to Karpenter. |
+| `unavailable` | array of [object](#statusvendorsofferedunavailable) |  | unavailable counts the offerings of the offered types that are not available, per reason code (for example QuotaGate, UnavailableCache, ZoneNotAvailable). At most 32 items. |
+
+### `status.vendors.*.offered.dropped[]`
+
+OfferedReason is how many types (dropped) or offerings (unavailable) a reason code covers.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `count` (required) | integer (int32) |  | count is the number of types or offerings. |
+| `reason` (required) | string |  | reason is the code of the gate, for example QuotaGate. |
+| `types` | array of string |  | types are up to five instance type names with the reason, in name order. At most 5 items. |
+
+### `status.vendors.*.offered.unavailable[]`
+
+OfferedReason is how many types (dropped) or offerings (unavailable) a reason code covers.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `count` (required) | integer (int32) |  | count is the number of types or offerings. |
+| `reason` (required) | string |  | reason is the code of the gate, for example QuotaGate. |
+| `types` | array of string |  | types are up to five instance type names with the reason, in name order. At most 5 items. |
 
 ### `status.vendors.*.quota[]`
 

@@ -1,0 +1,179 @@
+/*
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at https://mozilla.org/MPL/2.0/.
+*/
+
+package offered
+
+import (
+	"cmp"
+	"encoding/json"
+	"fmt"
+	"slices"
+
+	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
+)
+
+// ListingKey is the key of the ConfigMap that holds the listing.
+const ListingKey = "types.json"
+
+// MaxListingBytes caps the listing: a ConfigMap holds at most 1 MiB. Past the
+// cap the listing is cut (Listing.Truncated) rather than the write failing.
+const MaxListingBytes = 800 << 10
+
+// Listing is the content of the ConfigMap of one class and vendor: what the
+// catalog offers Karpenter and why the rest is not offered. The layout is a
+// contract with automation (how-to: which types does a class offer).
+type Listing struct {
+	// GeneratedAt is when the listing was written; it is rewritten at least
+	// every ten minutes, so readers can tell a stale listing.
+	GeneratedAt string `json:"generatedAt"`
+	Class       string `json:"class"`
+	Vendor      string `json:"vendor"`
+	// Truncated says that the cap was hit: the types that are not available are
+	// kept first, so the available ones may be incomplete.
+	Truncated bool `json:"truncated"`
+	// Types are keyed by the instance type name.
+	Types map[string]ListingType `json:"types"`
+}
+
+// ListingType is a type of the catalog, offered or not.
+type ListingType struct {
+	// APIReference is the value of the api-reference label, omitted when the type
+	// has no such label.
+	APIReference string `json:"apiReference,omitempty"`
+	// Available is true when at least one offering is available.
+	Available bool `json:"available"`
+	// CapacityTypes are the capacity types with an available offering.
+	CapacityTypes []string `json:"capacityTypes"`
+	// Reason is the dominant reason code and Detail its data as text for humans;
+	// both only when the type is not available.
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	// Offerings are grouped by capacity type and state; empty for a type that
+	// is not in the catalog at all.
+	Offerings []ListingOffering `json:"offerings"`
+}
+
+// ListingOffering is the zones that share a capacity type and a state.
+type ListingOffering struct {
+	CapacityType string   `json:"capacityType"`
+	Zones        []string `json:"zones"`
+	Available    bool     `json:"available"`
+	Reason       string   `json:"reason,omitempty"`
+}
+
+// encode builds the listing of one class and vendor from the types of the
+// report, cut at limit bytes.
+func encode(class, vendor, generatedAt string, types []catalog.TypeReport, limit int) ([]byte, error) {
+	type entry struct {
+		name string
+		lt   ListingType
+	}
+	var down, up []entry
+	for _, t := range types {
+		lt := listingType(t)
+		if lt.Available {
+			up = append(up, entry{t.InstanceType, lt})
+		} else {
+			down = append(down, entry{t.InstanceType, lt})
+		}
+	}
+	l := Listing{GeneratedAt: generatedAt, Class: class, Vendor: vendor, Types: map[string]ListingType{}}
+	base, err := json.Marshal(l)
+	if err != nil {
+		return nil, fmt.Errorf("encoding the listing: %w", err)
+	}
+	budget := limit - len(base) - len(`"truncated":true`)
+	for _, e := range slices.Concat(down, up) {
+		raw, err := json.Marshal(e.lt)
+		if err != nil {
+			return nil, fmt.Errorf("encoding the listing: %w", err)
+		}
+		if budget -= len(raw) + len(e.name) + 4; budget < 0 {
+			l.Truncated = true
+			break
+		}
+		l.Types[e.name] = e.lt
+	}
+	out, err := json.Marshal(l)
+	if err != nil {
+		return nil, fmt.Errorf("encoding the listing: %w", err)
+	}
+	return out, nil
+}
+
+// listingType converts a type, grouping its offerings by capacity type and state.
+func listingType(t catalog.TypeReport) ListingType {
+	lt := ListingType{APIReference: t.APIReferenceLabel, CapacityTypes: []string{}, Offerings: []ListingOffering{}}
+	if t.Dropped.Code != "" {
+		if v, ok := labels.Value(t.APIReference); ok && v == t.APIReference {
+			lt.APIReference = t.APIReference
+		}
+		lt.Reason, lt.Detail = string(t.Dropped.Code), t.Dropped.Detail
+		return lt
+	}
+	type group struct {
+		capacityType, reason string
+		available            bool
+	}
+	groups := map[group][]string{}
+	counts := map[catalog.Code]int{}
+	details := map[catalog.Code]string{}
+	// The dominant reason is taken from the offerings Karpenter is given, when
+	// any is unavailable: one left out (its zone, price or launchability) cannot
+	// become available, so a gated type with more left-out zones still says
+	// QuotaGate.
+	listedDown := slices.ContainsFunc(t.Offerings, func(o catalog.OfferingReport) bool {
+		return !o.Available && !o.Removed
+	})
+	for _, o := range t.Offerings {
+		available := o.Available && !o.Removed
+		g := group{o.CapacityType, string(o.Reason.Code), available}
+		groups[g] = append(groups[g], o.Zone)
+		if available {
+			lt.Available = true
+			if !slices.Contains(lt.CapacityTypes, o.CapacityType) {
+				lt.CapacityTypes = append(lt.CapacityTypes, o.CapacityType)
+			}
+			continue
+		}
+		if o.Removed && listedDown {
+			continue
+		}
+		if counts[o.Reason.Code]++; details[o.Reason.Code] == "" {
+			details[o.Reason.Code] = o.Reason.Detail
+		}
+	}
+	slices.Sort(lt.CapacityTypes)
+	for g, zones := range groups {
+		slices.Sort(zones)
+		lt.Offerings = append(lt.Offerings, ListingOffering{
+			CapacityType: g.capacityType, Zones: slices.Compact(zones), Available: g.available, Reason: g.reason,
+		})
+	}
+	slices.SortFunc(lt.Offerings, func(a, b ListingOffering) int {
+		return cmp.Or(cmp.Compare(a.CapacityType, b.CapacityType), cmp.Compare(b2i(b.Available), b2i(a.Available)),
+			cmp.Compare(a.Reason, b.Reason))
+	})
+	if !lt.Available {
+		// The dominant reason: the most offerings, the first code on a tie.
+		best := catalog.Code("")
+		for code, n := range counts {
+			if n > counts[best] || (n == counts[best] && code < best) {
+				best = code
+			}
+		}
+		lt.Reason, lt.Detail = string(best), details[best]
+	}
+	return lt
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

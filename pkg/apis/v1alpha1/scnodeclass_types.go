@@ -179,6 +179,62 @@ type VendorStatus struct {
 	// quota is the quota view per region and capacity type.
 	// +optional
 	Quota []QuotaStatus `json:"quota,omitempty"`
+
+	// offered summarises what the catalog hands to Karpenter for this vendor and
+	// why the rest is left out or unavailable (reference: labels and offerings).
+	// +optional
+	Offered *OfferedStatus `json:"offered,omitempty"`
+}
+
+// OfferedStatus is a bounded summary of the instance types and offerings of one
+// vendor of the SCNodeClass: counts, and per reason code a count with up to five
+// sample instance type names. The full per-type listing is the opt-in ConfigMap.
+type OfferedStatus struct {
+	// types is the number of instance types offered to Karpenter.
+	// +required
+	Types int32 `json:"types"`
+	// offerings is the number of (region, zone, capacity type) offerings of the
+	// offered types, available or not.
+	// +required
+	Offerings int32 `json:"offerings"`
+	// availableOfferings is how many of the offerings are available now.
+	// +required
+	AvailableOfferings int32 `json:"availableOfferings"`
+	// dropped counts the instance types that are not offered at all, per reason
+	// code (NoPrice, RegionNotAllowed, GPU reasons, NoOffering).
+	// +listType=map
+	// +listMapKey=reason
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	Dropped []OfferedReason `json:"dropped,omitempty"`
+	// unavailable counts the offerings of the offered types that are not
+	// available, per reason code (for example QuotaGate, UnavailableCache,
+	// ZoneNotAvailable).
+	// +listType=map
+	// +listMapKey=reason
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	Unavailable []OfferedReason `json:"unavailable,omitempty"`
+	// observedAt is when this summary last changed, to the minute: an unchanged
+	// summary is not written again.
+	// +required
+	ObservedAt metav1.Time `json:"observedAt"`
+}
+
+// OfferedReason is how many types (dropped) or offerings (unavailable) a reason
+// code covers.
+type OfferedReason struct {
+	// reason is the code of the gate, for example QuotaGate.
+	// +required
+	Reason string `json:"reason"`
+	// count is the number of types or offerings.
+	// +required
+	Count int32 `json:"count"`
+	// types are up to five instance type names with the reason, in name order.
+	// +kubebuilder:validation:MaxItems=5
+	// +listType=atomic
+	// +optional
+	Types []string `json:"types,omitempty"`
 }
 
 // ImageStatus is the boot image of a region and architecture.

@@ -182,6 +182,34 @@ subjects:
     name: {{ $sa }}
     namespace: {{ $ns }}
 {{- end }}
+---
+# The listings of the offered instance types are ConfigMaps of the release
+# namespace (config/rbac/controller.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-offered-types
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  {{- toYaml $rbac.offeredTypes.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-offered-types
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-offered-types
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $ns }}
 {{- if .Values.leaderElection.enabled }}
 ---
 # Leader election: the lease of the controller (config/rbac-core/core.yaml).

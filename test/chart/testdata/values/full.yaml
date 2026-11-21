@@ -66,6 +66,7 @@ karpenter:
   metricsPort: 9090
   healthProbePort: 9091
 metrics:
+  offeringDetail: true
   service: {annotations: {example.com/scrape: "true"}}
 serviceMonitor:
   enabled: true

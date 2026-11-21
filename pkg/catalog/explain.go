@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/karpenter/pkg/scheduling"
 	"sigs.k8s.io/karpenter/pkg/utils/resources"
+
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 )
 
 // Report says, for every server of a query's vendors, whether it is offered
@@ -34,8 +36,11 @@ type TypeReport struct {
 	Vendor       string
 	InstanceType string
 	APIReference string
-	Dropped      Reason
-	Offerings    []OfferingReport
+	// APIReferenceLabel is the value of the api-reference label of the type,
+	// empty when it has none (the reference is not a valid label value).
+	APIReferenceLabel string
+	Dropped           Reason
+	Offerings         []OfferingReport
 	// FitsRequests is false when the query has resource requests the type's
 	// allocatable cannot hold (core then answers "had the required resources"
 	// instead of "met all requirements").
@@ -89,6 +94,9 @@ func reportOf(e evaluation, q Query) Report {
 		it := ev.bt.it
 		tr := TypeReport{
 			Vendor: ev.vendor, InstanceType: it.Name, APIReference: ev.bt.server.APIReference, FitsRequests: true,
+		}
+		if r := it.Requirements.Get(v1alpha1.LabelAPIReference); r.Operator() == corev1.NodeSelectorOpIn {
+			tr.APIReferenceLabel = r.Any()
 		}
 		if q.Requests != nil {
 			tr.FitsRequests = resources.Fits(q.Requests, it.Allocatable())
@@ -243,7 +251,12 @@ func (c *Catalog) logChanges(ctx context.Context, snap *snapshot, class *Class, 
 	if last, ok := l.gen[scope]; ok && l.inputs[scope] == input && (last == gen || genOlder(gen, last)) {
 		return
 	}
-	cur := c.explain(snap, class, q).states(only)
+	// Before a vendor's facts load every offering of it is "ZoneNotAvailable":
+	// not a state to log. The load changes the facts epoch, so the first report
+	// of the vendor follows it.
+	report := c.explain(snap, class, q)
+	report.Types = slices.DeleteFunc(report.Types, func(t TypeReport) bool { return !c.FactsLoaded(t.Vendor) })
+	cur := report.states(only)
 	prev, seen := l.states[scope]
 	if l.gen == nil {
 		l.gen, l.inputs, l.states = map[string]string{}, map[string]string{}, map[string]map[stateKey]Reason{}

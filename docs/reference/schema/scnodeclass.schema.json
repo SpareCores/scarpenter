@@ -15237,6 +15237,107 @@
                 },
                 "type": "array"
               },
+              "offered": {
+                "additionalProperties": false,
+                "description": "offered summarises what the catalog hands to Karpenter for this vendor and\nwhy the rest is left out or unavailable (reference: labels and offerings).",
+                "properties": {
+                  "availableOfferings": {
+                    "description": "availableOfferings is how many of the offerings are available now.",
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  "dropped": {
+                    "description": "dropped counts the instance types that are not offered at all, per reason\ncode (NoPrice, RegionNotAllowed, GPU reasons, NoOffering).",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "OfferedReason is how many types (dropped) or offerings (unavailable) a reason\ncode covers.",
+                      "properties": {
+                        "count": {
+                          "description": "count is the number of types or offerings.",
+                          "format": "int32",
+                          "type": "integer"
+                        },
+                        "reason": {
+                          "description": "reason is the code of the gate, for example QuotaGate.",
+                          "type": "string"
+                        },
+                        "types": {
+                          "description": "types are up to five instance type names with the reason, in name order.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 5,
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "count",
+                        "reason"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "observedAt": {
+                    "description": "observedAt is when this summary last changed, to the minute: an unchanged\nsummary is not written again.",
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "offerings": {
+                    "description": "offerings is the number of (region, zone, capacity type) offerings of the\noffered types, available or not.",
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  "types": {
+                    "description": "types is the number of instance types offered to Karpenter.",
+                    "format": "int32",
+                    "type": "integer"
+                  },
+                  "unavailable": {
+                    "description": "unavailable counts the offerings of the offered types that are not\navailable, per reason code (for example QuotaGate, UnavailableCache,\nZoneNotAvailable).",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "OfferedReason is how many types (dropped) or offerings (unavailable) a reason\ncode covers.",
+                      "properties": {
+                        "count": {
+                          "description": "count is the number of types or offerings.",
+                          "format": "int32",
+                          "type": "integer"
+                        },
+                        "reason": {
+                          "description": "reason is the code of the gate, for example QuotaGate.",
+                          "type": "string"
+                        },
+                        "types": {
+                          "description": "types are up to five instance type names with the reason, in name order.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 5,
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "count",
+                        "reason"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 32,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "availableOfferings",
+                  "observedAt",
+                  "offerings",
+                  "types"
+                ],
+                "type": "object"
+              },
               "quota": {
                 "description": "quota is the quota view per region and capacity type.",
                 "items": {

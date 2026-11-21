@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -410,6 +411,11 @@ type logCatalog struct {
 
 func newLogCatalog(t *testing.T, data *model.Data) *logCatalog {
 	t.Helper()
+	return newLogCatalogFacts(t, data, syntheticFacts())
+}
+
+func newLogCatalogFacts(t *testing.T, data *model.Data, facts catalog.Facts) *logCatalog {
+	t.Helper()
 	l := &logCatalog{clk: clocktesting.NewFakeClock(time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC))}
 	l.un = unavailable.New(l.clk, unavailable.TTLs{})
 	logger := funcr.New(func(prefix, args string) {
@@ -418,7 +424,7 @@ func newLogCatalog(t *testing.T, data *model.Data) *logCatalog {
 		l.lines = append(l.lines, args)
 	}, funcr.Options{Verbosity: 1})
 	l.ctx = logr.NewContext(t.Context(), logger)
-	l.Catalog = catalog.New(catalog.Options{Source: &fakeSource{data: data}, Facts: syntheticFacts(),
+	l.Catalog = catalog.New(catalog.Options{Source: &fakeSource{data: data}, Facts: facts,
 		Clock: clock.Clock(l.clk), Unavailable: l.un})
 	l.SetClasses([]catalog.Class{catalog.NewClass("c", catalog.Scope{"v": nil})})
 	if err := l.Refresh(t.Context()); err != nil {
@@ -530,4 +536,43 @@ func TestLogStateIsDroppedWithTheClass(t *testing.T) {
 	l.SetClasses([]catalog.Class{catalog.NewClass("c", catalog.Scope{"v": nil})})
 	l.query(t, catalog.Filter{})
 	wantLine(t, l.take(), `v.unpriced`)
+}
+
+// loadingFacts are facts that are not loaded until load is called: no zones
+// before, as with the driver facts right after a start.
+type loadingFacts struct {
+	catalog.StaticFacts
+	loaded atomic.Bool
+	epoch  atomic.Uint64
+}
+
+func (f *loadingFacts) Zones(vendor string) (map[string][]catalog.Zone, bool) {
+	if !f.loaded.Load() {
+		return map[string][]catalog.Zone{}, true
+	}
+	return f.StaticFacts.Zones(vendor)
+}
+
+func (f *loadingFacts) Loaded(string) bool { return f.loaded.Load() }
+func (f *loadingFacts) Epoch() uint64      { return f.epoch.Load() }
+func (f *loadingFacts) load() {
+	f.loaded.Store(true)
+	f.epoch.Add(1)
+}
+
+// Right after a start the facts are not loaded and every type would be reported
+// as ZoneNotAvailable: nothing is logged until they are, and then the first
+// report has nothing to say for a healthy catalog.
+func TestNothingIsLoggedBeforeTheFactsLoad(t *testing.T) {
+	facts := &loadingFacts{StaticFacts: syntheticFacts()}
+	l := newLogCatalogFacts(t, synthetic(), facts)
+	l.query(t, catalog.Filter{})
+	if lines := l.take(); len(lines) != 0 {
+		t.Fatalf("lines before the facts are loaded: %q", lines)
+	}
+	facts.load()
+	l.query(t, catalog.Filter{})
+	if lines := l.take(); len(lines) != 0 {
+		t.Fatalf("lines for a healthy catalog after the load: %q", lines)
+	}
 }

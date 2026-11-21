@@ -75,9 +75,8 @@ type vendorFacts struct {
 type Facts struct {
 	opts Options
 
-	mu     sync.RWMutex
-	data   map[string]*vendorFacts
-	loaded bool
+	mu   sync.RWMutex
+	data map[string]*vendorFacts
 	// skippedSeen remembers the skipped regions already warned about
 	// (vendor/region -> class and code of the error).
 	skippedSeen map[string]string
@@ -116,7 +115,8 @@ func New(opts Options) *Facts {
 //     last-known zones, or is left out when it has none, and Load returns the
 //     error so that Start retries soon, but the other regions' facts are used;
 //   - only a vendor with no readable region at all fails as a whole: it keeps
-//     its previous facts, the error is returned and Loaded is false.
+//     its previous facts (Loaded stays false until it has some) and the error
+//     is returned.
 func (f *Facts) Load(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("driver-facts")
 	var hard, soft []error
@@ -137,7 +137,7 @@ func (f *Facts) Load(ctx context.Context) error {
 		next[vendor] = vf
 	}
 	f.mu.Lock()
-	changed := !f.loaded
+	changed := false
 	for vendor, vf := range next {
 		if old, ok := f.data[vendor]; !ok || !sameFacts(old, vf) {
 			changed = true
@@ -145,7 +145,6 @@ func (f *Facts) Load(ctx context.Context) error {
 		f.data[vendor] = vf
 		f.logSkipped(logger, vendor, vf)
 	}
-	f.loaded = len(hard) == 0
 	f.mu.Unlock()
 	if changed {
 		f.epoch.Add(1)
@@ -263,11 +262,12 @@ func sameFacts(a, b *vendorFacts) bool {
 	return true
 }
 
-// Loaded reports whether every vendor has been read at least once.
-func (f *Facts) Loaded() bool {
+// Loaded reports whether the vendor has been read at least once. It is per
+// vendor so that one whose facts keep failing does not hold back the others.
+func (f *Facts) Loaded(vendor string) bool {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	return f.loaded
+	return f.data[vendor] != nil
 }
 
 // Start loads the facts until the context ends: retrying every ten seconds
