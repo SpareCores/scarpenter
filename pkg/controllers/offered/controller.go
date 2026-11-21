@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -53,6 +54,10 @@ type Options struct {
 	// Namespace is where the listing ConfigMaps go (the controller's own); empty
 	// turns the listing off.
 	Namespace string
+	// OfferingDetail adds one gauge per offering (--metrics-offering-detail).
+	OfferingDetail bool
+	// Registerer receives the metrics; nil registers none.
+	Registerer prometheus.Registerer
 	// Interval defaults to DefaultInterval.
 	Interval time.Duration
 }
@@ -69,6 +74,8 @@ type Controller struct {
 	// owner's UID. found says that the ConfigMaps of an earlier run were read.
 	listings map[string]listing
 	found    bool
+
+	metrics *metrics
 }
 
 // New returns the controller; Register adds it to a manager.
@@ -79,7 +86,13 @@ func New(o Options) *Controller {
 	if o.Interval <= 0 {
 		o.Interval = DefaultInterval
 	}
-	return &Controller{opts: o, last: map[string]time.Time{}, listings: map[string]listing{}}
+	c := &Controller{
+		opts: o, last: map[string]time.Time{}, listings: map[string]listing{}, metrics: newMetrics(o.OfferingDetail),
+	}
+	if o.Registerer != nil {
+		o.Registerer.MustRegister(c.metrics)
+	}
+	return c
 }
 
 // Register watches SCNodeClasses with the manager; every reconcile requeues
@@ -118,6 +131,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	c.last[nc.Name] = c.opts.Clock.Now()
 	c.mu.Unlock()
 
+	c.metrics.record(nc.Name, report)
 	summaries := report.Summaries()
 	for _, vendor := range nc.Spec.Vendors.Names() {
 		if err := c.applyStatus(ctx, &nc, vendor, summaries[vendor]); err != nil {
@@ -146,6 +160,7 @@ func (c *Controller) forget(class string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.last, class)
+	c.metrics.forget(class)
 	// The class owns its ConfigMaps, so they go with it; a class of the same name
 	// that comes back gets them written again.
 	for name, l := range c.listings {

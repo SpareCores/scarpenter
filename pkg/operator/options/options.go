@@ -234,6 +234,11 @@ type Options struct {
 	InterruptionMargin         time.Duration
 	InterruptionUnavailableTTL time.Duration
 
+	// MetricsOfferingDetail adds the gauge
+	// scarpenter_instance_type_offering_available, one series per offering of
+	// every NodeClass: off by default (thousands of series per class and vendor).
+	MetricsOfferingDetail bool
+
 	vendorsRaw    string
 	clusterDNSRaw string
 	tailnetRaw    string
@@ -284,6 +289,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.BoolVar(&o.Interruption, "interruption", env.WithDefaultBool("SCARPENTER_INTERRUPTION", true), "Run the interruption controller: a spot or preemptible node whose vendor announced its reclaim (the node agent annotates the Node) gets its termination deadline tightened, is marked Interrupted and has its NodeClaim deleted at once.")
 	fs.DurationVar(&o.InterruptionMargin, "interruption-margin", env.WithDefaultDuration("SCARPENTER_INTERRUPTION_MARGIN", DefaultInterruptionMargin), "How long before the vendor's deadline the Pods of an interrupted node are force-deleted: the time the instance needs after the kubelet stopped the containers.")
 	fs.DurationVar(&o.InterruptionUnavailableTTL, "interruption-unavailable-ttl", env.WithDefaultDuration("SCARPENTER_INTERRUPTION_UNAVAILABLE_TTL", DefaultInterruptionUnavailableTTL), "How long an interrupted spot offering (instance type and zone) stays out of scheduling.")
+	fs.BoolVar(&o.MetricsOfferingDetail, "metrics-offering-detail", env.WithDefaultBool("SCARPENTER_METRICS_OFFERING_DETAIL", false), "Export scarpenter_instance_type_offering_available, one gauge per offering (instance type, zone, capacity type) of every NodeClass: thousands of series per class and vendor, so off by default. The listing ConfigMap (annotation scarpenter.sparecores.com/publish-offered) has the same data without the cardinality.")
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 	fs.StringVar(&o.GCPProject, "gcp-project", env.WithDefaultString("SCARPENTER_GCP_PROJECT", ""), "Google Cloud project of the GCP driver's nodes; empty means the project of the credentials (a service account key or the metadata server; workload identity federation has none, so set it there).")
 	fs.StringVar(&o.OCICompartment, "oci-compartment", env.WithDefaultString("SCARPENTER_OCI_COMPARTMENT", ""), "[REQUIRED with the oci vendor] OCID of the OCI compartment of the nodes: instances, boot volumes, the managed network and the default image lookup live in it. The tenancy root is not a default.")

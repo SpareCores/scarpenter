@@ -306,7 +306,7 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	}
 	off := offered.New(offered.Options{
 		Client: o.GetClient(), Reader: o.GetAPIReader(), Catalog: c.Catalog, Clock: o.Clock,
-		Namespace: os.Getenv("POD_NAMESPACE"),
+		Namespace: os.Getenv("POD_NAMESPACE"), OfferingDetail: opts.MetricsOfferingDetail, Registerer: metrics.Registry,
 	})
 	if err := off.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the offered types controller: %w", err)

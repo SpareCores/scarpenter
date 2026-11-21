@@ -928,7 +928,8 @@ var (
 		"Priced offerings of the catalog snapshot (price rows in scope, before the driver's zone mapping).",
 		vendorLabel, nil)
 	droppedDesc = prometheus.NewDesc("scarpenter_catalog_dropped_types",
-		"GPU instance types with a price in scope that the NodeClass's catalog leaves out, by reason.",
+		"Instance types the NodeClass's catalog leaves out at build time "+
+			"(NoPrice, RegionNotAllowed, the GPU reasons, NoOffering), by reason code.",
 		[]string{"nodeclass", "vendor", "reason"}, nil)
 	publishedDesc = prometheus.NewDesc("scarpenter_catalog_data_published_timestamp_seconds",
 		"Unix time Keeper published the data version of the catalog snapshot (SC-Data-Published-At).", nil, nil)

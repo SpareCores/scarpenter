@@ -847,6 +847,7 @@ spec:
             - "--kubelet-client-ca-file=/etc/scarpenter/kubelet-client-ca/client-ca.crt"
             - "--log-level=debug"
             - "--max-launch-attempts=5"
+            - "--metrics-offering-detail=true"
             - "--metrics-port=9090"
             - "--nvidia-driver-base-url=https://mirror.example.com/nvidia-drivers"
             - "--quota-launchable-refresh-interval=2h"

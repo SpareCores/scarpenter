@@ -11,7 +11,7 @@ available now, and why not the others" has three places to look, from cheap to d
 
 The reason codes, and which gate each one names, are in
 [Why a type or an offering is not offered](../reference/labels-and-offerings.md#why-a-type-or-an-offering-is-not-offered).
-Design: [plan 28](../plans/v1/wip/28-offered-types.md).
+Design: [plan 28](../plans/v1/done/28-offered-types.md).
 
 ## Read the summary
 

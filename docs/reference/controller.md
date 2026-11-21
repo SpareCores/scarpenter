@@ -50,6 +50,7 @@ The last column names the plan that introduced the flag.
 | `--gc-grace-period` | `SCARPENTER_GC_GRACE_PERIOD` | `5m` | Age an instance (or bootstrap token) without a NodeClaim must have before it is deleted. | plan 04 |
 | `--terminating-grace` | `SCARPENTER_TERMINATING_GRACE` | `10m` | How long an instance may be seen `terminating` before it is deleted again, by the garbage collector (no NodeClaim) and by `Delete`. The first sighting is kept in memory, so a restart restarts the clock. A stopped or powered-off instance is `terminating` for ever; one the vendor is deleting disappears well inside the grace. | plan 14 |
 | `--gc-dry-run` | `SCARPENTER_GC_DRY_RUN` | `false` | Log (and count, `result="dry-run"`) what the garbage collector would delete without deleting it. | plan 04 |
+| `--metrics-offering-detail` | `SCARPENTER_METRICS_OFFERING_DETAIL` | `false` | Export `scarpenter_instance_type_offering_available`, one gauge per offering of every NodeClass (thousands of series per class and vendor). | plan 28 |
 | `--billing-retention` | `SCARPENTER_BILLING_RETENTION` | `true` | Run the [billing retention controller](#billing-retention). The NodeClass field `spec.billing.retainUntilPeriodEnd` is the real switch (off by default); `false` turns the whole controller off. | plan 23 |
 | `--interruption` | `SCARPENTER_INTERRUPTION` | `true` | Run the [interruption controller](#interruption). `false` turns it off. | plan 26 |
 | `--interruption-margin` | `SCARPENTER_INTERRUPTION_MARGIN` | `5s` | How long before the notice's deadline the Pods of an interrupted node are force-deleted: the time the instance needs after the kubelet stopped the containers. | plan 26 |
@@ -182,6 +183,7 @@ and that the controller's own parser accepts what the chart renders.
 | `replicaCount`, `podDisruptionBudget.*` | | The PodDisruptionBudget is rendered with more than one replica. |
 | `image.repository`, `tag`, `digest`, `pullPolicy`, `imagePullSecrets` | | `ghcr.io/sparecores/scarpenter` (production drivers only), tag = the chart's `appVersion`. The development image is `ghcr.io/sparecores/scarpenter-dev`. The chart needs Kubernetes 1.31 or newer. |
 | `serviceAccount.*`, `rbac.*` | | `rbac.authKeySecrets`: a Role (`get` on that one Secret) and a RoleBinding for tailscale auth key Secrets in other namespaces; `rbac.extraRules` are appended to the controller's ClusterRole. |
+| `metrics.offeringDetail` | `--metrics-offering-detail` | `false`; the chart passes the flag only when it is `true`. |
 | `metrics.*`, `serviceMonitor.*` | | A Service for the metrics port and an optional ServiceMonitor (needs the Prometheus Operator CRD). |
 | `examples.*` | | An example `SCNodeClass` and `NodePool` per enabled vendor. |
 | `resources`, `affinity`, `nodeSelector`, `tolerations`, `topologySpreadConstraints`, `priorityClassName`, `podSecurityContext`, `securityContext`, probes, `podAnnotations`, `podLabels`, `extraArgs`, `extraEnv`, `extraVolumes`, `extraVolumeMounts` | | The default affinity prefers nodes without the `karpenter.sh/nodepool` label (the controller must not run on a node it manages). The default resources come from the L3 scale measurement: about 310 MiB peak with three AWS regions and 430 MiB with every AWS region; the chart limit is 2Gi (see [Memory sizing](#memory-sizing)). |
@@ -468,14 +470,14 @@ Metrics (Prometheus, on the metrics port):
 | `scarpenter_catalog_refresh_errors_total` | counter | | Failed refreshes; the last good snapshot stays in use. |
 | `scarpenter_catalog_instance_types` | gauge | `vendor` | Instance types with a price in scope. |
 | `scarpenter_catalog_offerings` | gauge | `vendor` | Priced offerings (price rows in scope, before the driver's zone mapping). |
-| `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | Priced GPU instance types the NodeClass's catalog leaves out; reasons `GPUManufacturer`, `GPUModelUnknown`, `GPUFractional`, `GPUArch`, `GPUNoDriverBranch`, `GPUNVSwitch`, `GPUVirtual` ([GPU types](labels-and-offerings.md#gpu-types)). |
+| `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | Instance types the NodeClass's catalog leaves out at build time, by [reason code](labels-and-offerings.md#why-a-type-or-an-offering-is-not-offered): `NoPrice`, `RegionNotAllowed`, `NoOffering` and the GPU reasons ([GPU types](labels-and-offerings.md#gpu-types)); at most a dozen series per class and vendor. |
 | `scarpenter_catalog_data_published_timestamp_seconds` | gauge | | Unix time Keeper published the data version of the snapshot (`SC-Data-Published-At`): the age of the data, not of the read. |
 | `scarpenter_catalog_keeper_unauthorized` | gauge | | `1` after Keeper answered a refresh with 401, `0` after a successful snapshot read. |
 
 At V(1) (`karpenter.logLevel: debug`) the catalog logs every dropped type and unavailable offering with its
 reason code after a restart and every change afterwards (`offered types changed`);
 see [why a type or an offering is not offered](labels-and-offerings.md#why-a-type-or-an-offering-is-not-offered).
-The `scarpenter_catalog_dropped_types` gauge stays GPU-only.
+The offered types controller adds `scarpenter_catalog_offerings_by_state` and, with a flag, a per-offering gauge ([Metrics](#metrics)).
 
 At start-up, before core's controllers are built, the controller lists the
 SCNodeClasses and registers their `metric-<m>` keys, and all `cpu-flag-<flag>`
@@ -704,5 +706,8 @@ Besides the metrics of Karpenter core, the controller serves, on the metrics por
 | `scarpenter_interruptions_total`, `scarpenter_interruption_lead_seconds`, `scarpenter_interruption_reaction_seconds` | [Interruption](#interruption) |
 | `scarpenter_billing_*` (11 metrics) | [Billing retention](#billing-retention) |
 | `scarpenter_resource_operations_total` (`vendor`, `kind`, `region`, `operation` `create`, `adopt` or `delete`, `result` `ok`, `error` or `dry-run`) and `scarpenter_resources_managed` (`vendor`, `kind`, `region`: the managed resources the last sweep found) | [Vendor resources](vendor-resources.md#metrics-and-events) |
+
+| `scarpenter_catalog_offerings_by_state` (`nodeclass`, `vendor`, `state`: `available` or an offering-level reason code, at most nine series per class and vendor) | [the offered summary](labels-and-offerings.md#the-offered-summary-in-the-status) |
+| `scarpenter_instance_type_offering_available` (`nodeclass`, `instance_type`, `zone`, `capacity_type`; 1 available, 0 listed unavailable), only with `--metrics-offering-detail` | one series per offering: thousands per class and vendor; the [listing](labels-and-offerings.md#the-offered-listing) has the same data |
 
 Development builds add the `scarpenter_fake_state_*` gauges.

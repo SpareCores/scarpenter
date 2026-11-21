@@ -237,7 +237,7 @@ nothing, but an AD table read while a region was briefly unreadable blocks the t
    has none" class (section 3) by reproducing core's intersection. Live surface: `GetInstanceTypes` (which has the
    NodePool) logs the per-reason lines of step 1 for the NodePool-dependent codes (`Unrankable`,
    `NodePoolRequirement`) once per catalog generation and NodePool, at V(1). L1, plus an L2 case for the log.
-3. **Status summary (a). Done:** `status.vendors.<v>.offered`, the `offered-types` controller and `Report.Summaries` are in; the L3 scenario is not (see the plan's final report). Deviations: `dropped` and `unavailable` list type-level and offering-level codes separately, the left-out offerings (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) count under `unavailable`, `observedAt` is when the summary last changed (a rewrite per minute would be a write loop), and the controller waits for the driver facts. The `offered` block of `VendorStatus` (counts, reason buckets, sample names, `observedAt`
+3. **Status summary (a). Done:** `status.vendors.<v>.offered`, the `offered-types` controller and `Report.Summaries` are in; the L3 KWOK scenario of the plan was not written (L2 envtest covers the block, the gates and the TTL on a fake clock). Deviations: `dropped` and `unavailable` list type-level and offering-level codes separately, the left-out offerings (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) count under `unavailable`, `observedAt` is when the summary last changed (a rewrite per minute would be a write loop), and the controller waits for the driver facts. The `offered` block of `VendorStatus` (counts, reason buckets, sample names, `observedAt`
    rounded to the minute), the controller `pkg/controllers/offered` (SSA, field manager `scarpenter-offered`, writes on
    change, at most every 30 s, started with the leader), the CRD and `docs/reference/api.md`. L2 envtest: the block
    follows a quota block and an unavailable mark, no write loop (a quiet catalog causes no writes), the block's size
@@ -251,10 +251,12 @@ nothing, but an AD table read while a region was briefly unreadable blocks the t
    a consumer builds the requirement); RBAC is list, create, patch, delete (server-side apply needs patch; the start-up
    search needs list); the L3 scale-up scenario is not done. L1 for the encoder (round trip, the 286-type fixture, the cap, the
    dominant reason); L2 for ownership, labels, the gate in the listing, no rewrite when quiet, the heartbeat and the delete.
-5. **Metrics (c).** `scarpenter_catalog_offerings_by_state`, `scarpenter_catalog_dropped_types` widened to every build reason, the flag
-   `--metrics-offering-detail` and its per-offering gauge; the metric tables in the controller reference. L1: series
-   counts for the fixtures (fail the test if the default set exceeds 30 series per class and vendor).
-6. **Live check (optional, needs the maintainer's approval per run, no GPU or other costly type).** On the live OCI
+5. **Metrics (c). Done:** `scarpenter_catalog_offerings_by_state` and the widened `scarpenter_catalog_dropped_types` (every build
+   reason), the flag `--metrics-offering-detail` (chart value `metrics.offeringDetail`) with the per-offering gauge, the
+   metric tables in the controller reference. L1: series counts (nine by-state series, none per offering without the flag).
+   Deviation: the by-state gauge comes from the offered types controller's last evaluation (not from a scrape-time
+   `Explain`), so it needs the controller, which runs with the leader.
+6. **Live check (optional, not done; needs the maintainer's approval per run, no GPU or other costly type).** On the live OCI
    cluster with the step 1 logs and the status block: read the reason of the Standard4.Ax and E3.Flex.114 types, including step 2's
    NodePool lines for the bench NodePool. No launch is needed. Record the cause in the
    plan.

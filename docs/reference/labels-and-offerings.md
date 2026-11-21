@@ -681,7 +681,9 @@ modified.
 | `scarpenter_catalog_refresh_errors_total` | counter | | failed refreshes |
 | `scarpenter_catalog_instance_types` | gauge | `vendor` | types with a price in scope |
 | `scarpenter_catalog_offerings` | gauge | `vendor` | price rows in scope, before the driver's zone mapping |
-| `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | priced GPU types a NodeClass's catalog leaves out, by [reason](#gpu-types); exported for the NodeClasses the catalog has built, only for reasons that occur |
+| `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | types a NodeClass's catalog leaves out at build time (`NoPrice`, `RegionNotAllowed`, `NoOffering`, the [GPU reasons](#gpu-types)), by [reason](#why-a-type-or-an-offering-is-not-offered); exported for the NodeClasses the catalog has built, only for reasons that occur |
+| `scarpenter_catalog_offerings_by_state` | gauge | `nodeclass`, `vendor`, `state` | offerings of the offered types: `available`, or the offering-level reason code (at most nine series); written by the offered types controller |
+| `scarpenter_instance_type_offering_available` | gauge | `nodeclass`, `instance_type`, `zone`, `capacity_type` | 1 available, 0 unavailable; only with `--metrics-offering-detail` (thousands of series per class and vendor) |
 
 ### Scale
 

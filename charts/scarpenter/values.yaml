@@ -563,6 +563,10 @@ leaderElection:
 
 metrics:
   enabled: true
+  # One gauge per offering (scarpenter_instance_type_offering_available,
+  # --metrics-offering-detail; false): thousands of series per NodeClass and
+  # vendor. The always-on set is a handful of series per class and vendor.
+  offeringDetail: false
   service:
     type: ClusterIP
     annotations: {}
