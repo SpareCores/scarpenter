@@ -53,6 +53,7 @@ var quotaCodes = []string{
 	codeStandardStorageLimit,
 	codeHDDStorageLimit,
 	upcloud.ErrCodeServerIPLimitReached,
+	upcloud.ErrCodeIpAddressLimitReached,
 	codeNetworkLimit,
 	codeFloatingIPLimit,
 }

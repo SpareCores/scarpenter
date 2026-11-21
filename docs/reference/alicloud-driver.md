@@ -307,12 +307,12 @@ copy in `errors_test.go`; every code is tested.
 
 | Class | Codes |
 |---|---|
-| `InsufficientCapacity` | `OperationDenied.NoStock`, `Zone.NotOnSale`, `InvalidOperation.PublicIpAddressNoStock`, `QuotaExceed.DeploymentSetInstanceQuotaFull`, `LackResource` |
-| `Unsupported` | `InvalidInstanceType.ZoneNotSupported`, `InstanceType.Offline`, `InvalidInstanceType.ValueNotSupported`, `ImageNotSupportInstanceType`, `InvalidDiskCategory.NotSupported`, `CategoryNotSupported`, `InvalidInstanceType.NotSupportDiskCategory`, `OperationDenied.CloudSSDNotSupported`, `OperationDenied.ZoneSystemCategoryNotMatch`, `InvalidAccount.NotSupportSpot` |
-| `QuotaExceeded` | `QuotaExceed.ElasticQuota`, `QuotaExceed.AfterpayInstance`, `QuotaExceeded`, `QuotaExceed.PostPaidDisk`, `QuotaExceeded.PostpaidDataDiskCapacity`, `QuotaExceeded.InternetBandwidth`, `InstanceDiskNumLimitExceed`, `InstanceDiskLimitExceeded` |
+| `InsufficientCapacity` | `OperationDenied.NoStock`, `Zone.NotOnSale`, `InvalidOperation.PublicIpAddressNoStock`, `OperationDenied.PublicIpAddressNoStock`, `QuotaExceed.DeploymentSetInstanceQuotaFull`, `LackResource`, `ResourceNotAvailable` |
+| `Unsupported` | `InvalidInstanceType.ZoneNotSupported`, `InstanceType.Offline`, `InvalidInstanceType.ValueNotSupported`, `InvalidInstanceType.NotSupported`, `InvalidInstanceType.ValueUnauthorized`, `OperationDenied`, `ImageNotSupportInstanceType`, `InvalidDiskCategory.NotSupported`, `CategoryNotSupported`, `InvalidInstanceType.NotSupportDiskCategory`, `OperationDenied.CloudSSDNotSupported`, `OperationDenied.ZoneSystemCategoryNotMatch`, `InvalidAccount.NotSupportSpot` |
+| `QuotaExceeded` | `QuotaExceed.ElasticQuota`, `QuotaExceed.AfterpayInstance`, `QuotaExceeded`, `QuotaExceed.DiskCapacity`, `QuotaExceed.PostPaidDisk`, `QuotaExceeded.PostpaidDataDiskCapacity`, `QuotaExceeded.InternetBandwidth`, `InstanceDiskNumLimitExceed`, `InstanceDiskLimitExceeded` |
 | `ZoneUnusable` | `QuotaExceeded.PrivateIpAddress`, `OperationDenied.ZoneNotAllowed`, `Zone.NotOpen`, `SecurityGroupInstanceLimitExceed` |
 | `RegionUnavailable` (zone reads) | `RegionUnauthorized`, `InvalidRegion.NotSupport`, `RealNameAuthenticationError` |
-| `Retryable` | `Throttling`, `Throttling.*`, HTTP 429, `ServiceUnavailable`, `InternalError`, HTTP 5xx, `IdempotentProcessing`, `IncorrectInstanceStatus`, `DependencyViolation.*` |
+| `Retryable` | `Throttling`, `Throttling.*`, HTTP 429, `ServiceUnavailable`, `InternalError`, `Mayi.InternalError`, `NodeControllerUnavailable`, HTTP 5xx, `IdempotentProcessing`, `IncorrectInstanceStatus`, `DependencyViolation.*` |
 | `NotFound` | `InvalidInstanceId.NotFound` |
 | `Fatal` | everything else, for example `InvalidImageId.NotFound`, `InvalidVSwitchId.NotFound`, `InvalidSecurityGroup.VpcMismatch`, `Account.Arrearage`, `Forbidden.RAM`, `QuotaExceed.Tags`, `NumberExceed.Tags`; `IdempotentParameterMismatch` is resolved by the create path and never classified |
 

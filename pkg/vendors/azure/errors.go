@@ -56,6 +56,8 @@ var errorClasses = map[string]vendors.Class{
 	"ZonalAllocationFailed":                 vendors.InsufficientCapacity,
 	"OverconstrainedAllocationRequest":      vendors.InsufficientCapacity,
 	"OverconstrainedZonalAllocationRequest": vendors.InsufficientCapacity,
+	// The spot price is above the offering's max price: clears with the price.
+	"SpotPriceGreaterThanProvidedMaxPrice": vendors.InsufficientCapacity,
 	// The size is not offered, or cannot be spot.
 	"AzureSpotIsNotSupportedForThisVMSize": vendors.Unsupported,
 	// A zone the subscription cannot use for the size. ARM reports it as
@@ -67,6 +69,7 @@ var errorClasses = map[string]vendors.Class{
 	// Quotas.
 	"QuotaExceeded":             vendors.QuotaExceeded,
 	"PublicIPCountLimitReached": vendors.QuotaExceeded,
+	"ResourceQuotaExceeded":     vendors.QuotaExceeded,
 	// Transient.
 	"TooManyRequests":                  vendors.Retryable,
 	"InternalServerError":              vendors.Retryable,
@@ -154,7 +157,8 @@ func classify(err error, ec errContext) error {
 			return vendors.NewError(vendors.Unsupported, code, err)
 		case codeOperationNotAllowed:
 			switch {
-			case strings.Contains(msg, "exceeding approved") && strings.Contains(msg, "quota"):
+			case strings.Contains(msg, "exceeding approved") && strings.Contains(msg, "quota"),
+				strings.Contains(msg, "exceeding quota limits"):
 				return vendors.NewError(vendors.QuotaExceeded, code, err)
 			case strings.Contains(msg, "another operation") && strings.Contains(msg, "progress"):
 				return vendors.NewError(vendors.Retryable, code, err)

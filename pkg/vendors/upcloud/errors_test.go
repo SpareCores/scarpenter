@@ -41,6 +41,7 @@ var wantClasses = map[string]vendors.Class{
 	"STANDARD_STORAGE_LIMIT_REACHED":     vendors.QuotaExceeded,
 	"HDD_STORAGE_LIMIT_REACHED":          vendors.QuotaExceeded,
 	"SERVER_IP_LIMIT_REACHED":            vendors.QuotaExceeded,
+	"IP_ADDRESS_LIMIT_REACHED":           vendors.QuotaExceeded,
 	"NETWORK_LIMIT_REACHED":              vendors.QuotaExceeded,
 	"DETACHED_FLOATING_IP_LIMIT_REACHED": vendors.QuotaExceeded,
 

@@ -227,16 +227,16 @@ for OCI's message.
 
 | Class | OCI |
 |---|---|
-| `InsufficientCapacity` | HTTP 500 `InternalError` whose message says "Out of host capacity" |
+| `InsufficientCapacity` | HTTP 500 `InternalError` (or `InternalServerError`, the code on Oracle's API errors page) whose message says "Out of host capacity" |
 | `DailyLimit` | `LimitExceeded` whose message says "daily resource creation limit" (matched case-insensitively on that phrase only). Oracle documents no reset time for it (its [API errors page](https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm) only says to request an increase or delete resources), so the region is unavailable until the next 00:00 UTC |
 | `QuotaExceeded` | any other `LimitExceeded`, and `QuotaExceeded` (not account-wide) |
 | `Unsupported` | 400 `InvalidParameter` for a shape not compatible with the image, not available in the AD or not available as preemptible; the driver's own `InvalidInstanceType`, `ShapeNotInAvailabilityDomain`, `ExtendedMemoryUnsupported` |
 | `InvalidOffering` | any other 400 `InvalidParameter` on a launch, and the driver's own `ImageNotCompatible` (OCI's text is in the Event `OfferingRejected`): the offering is unavailable for 1 h and the next candidate is tried |
-| `ZoneUnusable` | a subnet with no free IP addresses |
-| `Retryable` | 429, 5xx, network errors, `IncorrectState`, `LockConflict`, a 409 on a delete, the driver's call timeout |
+| `ZoneUnusable` | a subnet with no free IP addresses (on a launch) |
+| `Retryable` | 429, 5xx, network errors, `IncorrectState`, `ExternalServerIncorrectState`, `LockConflict`, a 409 on a delete, the driver's call timeout |
 | `NotFound` | 404 on get, terminate and the resource gets; a malformed instance reference |
 | `RegionUnavailable` | a region that is not subscribed or readable |
-| `Fatal` | everything else: 404 on a launch (a missing subnet, image or compartment, or no permission), 401, 403, other 400 on a call that is not a launch, a token conflict with a foreign instance |
+| `Fatal` | everything else: 404 on a launch (a missing subnet, image or compartment, or no permission), 401, 403, other 400 on a call that is not a launch (a read's `InvalidParameter` is a malformed request of ours, never an offering's: its text is not matched), a token conflict with a foreign instance |
 
 Every SDK call runs under a 45 second deadline; reads and deletes are retried by the adapter (not by the
 SDK, whose retry loop cannot run under a deadline without a data race), a launch never.

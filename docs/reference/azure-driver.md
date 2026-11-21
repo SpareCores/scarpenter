@@ -102,7 +102,9 @@ hand; the buckets are `cores` (total regional), the size's family (from the SKU 
 `lowPriorityCores` (Spot) and `StandardPublicIPAddresses`. `Counted` lists this cluster's VMs so the in-flight ledger
 releases its reservations. Offerings come from the SKU table (zones, restrictions, Gen2, SCSI). Errors are classified
 by ARM code (never message text, except `OperationNotAllowed`, `InvalidParameter` and the zones of `SkuNotAvailable`);
-`SkuNotAvailable` is `InsufficientCapacity` for Spot, `ZoneUnusable` on demand when ARM names the zones (the size is
+`AllocationFailed`, `ZonalAllocationFailed`, the `Overconstrained*` codes and `SpotPriceGreaterThanProvidedMaxPrice` are
+`InsufficientCapacity`; `QuotaExceeded`, `ResourceQuotaExceeded` and `OperationNotAllowed` with a "exceeding approved ... quota" or
+"exceeding quota limits" text are `QuotaExceeded`; `SkuNotAvailable` is `InsufficientCapacity` for Spot, `ZoneUnusable` on demand when ARM names the zones (the size is
 not offered in that zone for the subscription) and `Unsupported` otherwise; 429 is always `Retryable`. The table is in
 `errors.go` and tested against an independent copy.
 

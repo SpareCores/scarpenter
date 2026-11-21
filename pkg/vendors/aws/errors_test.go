@@ -32,11 +32,13 @@ func apiErr(code, msg string) error {
 // places.
 var wantClasses = map[string]vendors.Class{
 	// 11.5: InsufficientCapacity
-	"InsufficientInstanceCapacity":         vendors.InsufficientCapacity,
-	"InsufficientHostCapacity":             vendors.InsufficientCapacity,
-	"InsufficientReservedInstanceCapacity": vendors.InsufficientCapacity,
-	"InsufficientCapacity":                 vendors.InsufficientCapacity,
-	"SpotMaxPriceTooLow":                   vendors.InsufficientCapacity,
+	"InsufficientInstanceCapacity":          vendors.InsufficientCapacity,
+	"InsufficientHostCapacity":              vendors.InsufficientCapacity,
+	"InsufficientReservedInstanceCapacity":  vendors.InsufficientCapacity,
+	"InsufficientReservedInstancesCapacity": vendors.InsufficientCapacity,
+	"InsufficientCapacityOnHost":            vendors.InsufficientCapacity,
+	"InsufficientCapacity":                  vendors.InsufficientCapacity,
+	"SpotMaxPriceTooLow":                    vendors.InsufficientCapacity,
 	// AWS provider's unfulfillable capacity codes that are stock, not quota
 	"UnfulfillableCapacity":       vendors.InsufficientCapacity,
 	"ReservationCapacityExceeded": vendors.InsufficientCapacity,
@@ -44,6 +46,8 @@ var wantClasses = map[string]vendors.Class{
 	"InsufficientVolumeCapacity":  vendors.InsufficientCapacity,
 	// 11.5: Unsupported (InvalidParameterCombination is tested separately)
 	"Unsupported": vendors.Unsupported,
+	// UnsupportedOperation on a launch: the type is not supported by the AMI
+	"UnsupportedOperation": vendors.InvalidOffering,
 	// 11.5: QuotaExceeded
 	"VcpuLimitExceeded":            vendors.QuotaExceeded,
 	"MaxSpotInstanceCountExceeded": vendors.QuotaExceeded,
@@ -60,11 +64,14 @@ var wantClasses = map[string]vendors.Class{
 	"AddressLimitExceeded":               vendors.QuotaExceeded,
 	"VolumeLimitExceeded":                vendors.QuotaExceeded,
 	"MaxIOPSLimitExceeded":               vendors.QuotaExceeded,
+	"ResourceLimitExceeded":              vendors.QuotaExceeded,
+	"NetworkInterfaceLimitExceeded":      vendors.QuotaExceeded,
 	// 11.5: ZoneUnusable
 	"InsufficientFreeAddressesInSubnet": vendors.ZoneUnusable,
 	// 11.5: Retryable (throttling and server errors), and dependencies
 	"RequestLimitExceeded":        vendors.Retryable,
 	"InternalError":               vendors.Retryable,
+	"ServerInternal":              vendors.Retryable,
 	"ServiceUnavailable":          vendors.Retryable,
 	"Unavailable":                 vendors.Retryable,
 	"Throttling":                  vendors.Retryable,
