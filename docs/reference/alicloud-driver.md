@@ -157,7 +157,7 @@ Decisions that differ from AWS (each an open question of the plan, decided by de
 | Kind | `use` | Without `use` (ADR-022) | Created by SCarpenter |
 |---|---|---|---|
 | `subnets` | vSwitches by ID, name (`{zone}`), tags, `match` (zone, network, cidr, within, state, creation time), filters | tagged vSwitches, else the default VPC's default vSwitches (never modified), else create | one VPC (`10.240.0.0/16`) with a `/20` vSwitch per zone, `idleTTL` 24 h. No gateway or route table: the public IPv4 is a bandwidth |
-| `securityGroups` | groups by ID, name, tags, `match.network`, filters | tagged groups, else create | one normal group per (NodeClass, VPC): inbound only `spec.networking.inbound`, a self rule for `isolation: nodeclass`, outbound open by default; one more per run key for `isolation: run` (`runSecurityGroups`, `perUse`) |
+| `securityGroups` | groups by ID, name, tags, `match.network`, filters | tagged groups, else create | one normal group per (NodeClass, VPC): inbound only `spec.networking.inbound`, members reach each other by the normal group's default (`InnerAccessPolicy` Accept; no self rule: ECS refuses `SourceGroupId` equal to the group), outbound open by default; one more per run key for `isolation: run` (`runSecurityGroups`, `perUse`) |
 | `deploymentSets` | sets by ID or name (no tags) | none | one per (profile, run key), `perUse` |
 | `images` | see [Images](#images) | the name convention | never (rung 3) |
 

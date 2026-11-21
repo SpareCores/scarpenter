@@ -469,7 +469,7 @@ func TestSecurityGroupRulesAreBroughtInLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules, _, _ := e.d.rulesOf(bg(), testRegion, ref.ID)
-	if len(rules) != 5 {
+	if len(rules) != 4 {
 		t.Fatalf("rules = %+v", rules)
 	}
 	// Fewer rules: the extra ones are revoked.

@@ -462,6 +462,10 @@ func (e *ECS) AuthorizeSecurityGroup(ctx context.Context, in *ecs.AuthorizeSecur
 	if !ok {
 		return nil, badRequest("InvalidSecurityGroupId.NotFound", "the security group does not exist")
 	}
+	if in.SourceGroupId != nil && *in.SourceGroupId == dara.StringValue(in.SecurityGroupId) {
+		return nil, APIError("InvalidParamter.Conflict", 403,
+			"The specified SecurityGroupId should be different from the SourceGroupId.")
+	}
 	nr := rule{
 		direction: "ingress", protocol: dara.StringValue(in.IpProtocol), portRange: dara.StringValue(in.PortRange),
 		cidr: dara.StringValue(in.SourceCidrIp), sourceGroup: dara.StringValue(in.SourceGroupId), policy: dara.StringValue(in.Policy),
