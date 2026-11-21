@@ -255,7 +255,9 @@ NodeClass itself stays `Ready`. Regions are checked every
 `--resource-check-interval` (30 seconds); the engine trusts a recent answer for
 30 seconds (`use`) or one minute (ensured resources). The status is written
 with server-side apply under the field manager `scarpenter-resources`, which
-owns only these fields.
+owns only these fields. One apply per class carries the fields of every vendor of
+the class, and nothing is written while they are unchanged; a vendor that leaves
+the class loses its resource fields.
 
 ## Garbage collection
 

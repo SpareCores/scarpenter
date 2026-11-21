@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awslabs/operatorpkg/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/alicloud"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
@@ -317,6 +319,126 @@ func TestResourceStatusCountsPastTheCap(t *testing.T) {
 	if len(vs.ResourceCounts) != 1 || vs.ResourceCounts[0] != (v1alpha1.ResourceCount{Kind: "subnets", Region: "us-east-1", Count: 130}) {
 		t.Errorf("counts %+v, want 130 subnets in us-east-1", vs.ResourceCounts)
 	}
+}
+
+// TestResourceStatusOfTwoVendors: the status of every vendor of a class goes in
+// one apply, so both vendors keep their condition and resources; a quiet
+// reconcile writes nothing; a vendor that leaves the class loses its entries and
+// the other keeps its own.
+func TestResourceStatusOfTwoVendors(t *testing.T) {
+	cfg, stop, err := testutil.StartEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stop() })
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{clientgoscheme.AddToScheme, v1alpha1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const className = "rs2"
+	nc := &v1alpha1.SCNodeClass{
+		ObjectMeta: metav1.ObjectMeta{Name: className},
+		Spec: v1alpha1.SCNodeClassSpec{
+			Flatcar:    v1alpha1.FlatcarSpec{Version: "4757.2.3"},
+			Kubernetes: v1alpha1.KubernetesSpec{Version: "v1.37.1"},
+			Network:    v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateDirect},
+			Vendors: v1alpha1.VendorBlocks{
+				AWS: &aws.Settings{Regions: []string{"us-east-1"}, Resources: &aws.Resources{
+					Subnets: &common.Resource{Use: &common.ResourceUse{
+						Tags: map[string]string{"scarpenter.sparecores.com/use": "true"}}},
+				}},
+				Alicloud: &alicloud.Settings{Regions: []string{"cn-hangzhou"}, Resources: &alicloud.Resources{
+					Subnets: &common.Resource{Use: &common.ResourceUse{
+						Tags: map[string]string{"scarpenter.sparecores.com/use": "true"}}},
+				}},
+			},
+		},
+	}
+	if err := c.Create(t.Context(), nc); err != nil {
+		t.Fatal(err)
+	}
+
+	clk := clocktesting.NewFakeClock(time.Now())
+	awsDrv := resourcestest.New("aws", clk)
+	awsDrv.Existing = []resourcestest.Existing{{
+		Kind: resourcestest.Subnets, Region: "us-east-1", ID: "subnet-a",
+		Tags: map[string]string{"scarpenter.sparecores.com/use": "true"},
+	}}
+	aliDrv := resourcestest.New("alicloud", clk)
+	aliDrv.Existing = []resourcestest.Existing{{
+		Kind: resourcestest.Subnets, Region: "cn-hangzhou", ID: "vsw-a",
+		Tags: map[string]string{"scarpenter.sparecores.com/use": "true"},
+	}}
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"},
+		Controller: config.Controller{SkipNameValidation: new(true)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	engine := resources.New(resources.Options{
+		Registry: vendors.NewRegistryFrom(awsDrv, aliDrv), Reader: mgr.GetClient(), Clock: clk,
+		ClusterName: "my-cluster", Recorder: rec,
+	})
+	if err := resourcestatus.New(resourcestatus.Options{
+		Client: mgr.GetClient(), Engine: engine, Recorder: rec, Interval: 100 * time.Millisecond,
+	}).Register(mgr); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = mgr.Start(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	get := func() v1alpha1.SCNodeClass {
+		var got v1alpha1.SCNodeClass
+		if err := c.Get(ctx, client.ObjectKey{Name: className}, &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	ready := func(got v1alpha1.SCNodeClass, vendor string) bool {
+		vs := got.Status.Vendors[vendor]
+		return len(vs.Resources) > 0 && slices.ContainsFunc(vs.Conditions, func(c status.Condition) bool {
+			return c.Type == v1alpha1.VendorConditionResourcesReady && c.Status == metav1.ConditionTrue
+		})
+	}
+	waitFor := func(what string, ok func(v1alpha1.SCNodeClass) bool) v1alpha1.SCNodeClass {
+		t.Helper()
+		var got v1alpha1.SCNodeClass
+		err := wait.PollUntilContextTimeout(ctx, 50*time.Millisecond, 60*time.Second, true, func(context.Context) (bool, error) {
+			got = get()
+			return ok(got), nil
+		})
+		if err != nil {
+			t.Fatalf("%s: timed out; vendors %+v", what, got.Status.Vendors)
+		}
+		return got
+	}
+
+	got := waitFor("both vendors", func(got v1alpha1.SCNodeClass) bool { return ready(got, "aws") && ready(got, "alicloud") })
+	time.Sleep(time.Second)
+	if again := get(); again.ResourceVersion != got.ResourceVersion {
+		t.Errorf("the object was written again while nothing changed: %s -> %s", got.ResourceVersion, again.ResourceVersion)
+	}
+
+	cur := get()
+	cur.Spec.Vendors.Alicloud = nil
+	if err := c.Update(ctx, &cur); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("alicloud removed", func(got v1alpha1.SCNodeClass) bool {
+		as := got.Status.Vendors["alicloud"]
+		return len(as.Resources) == 0 && len(as.Conditions) == 0 && ready(got, "aws")
+	})
 }
 
 // down drops the reason of a gate's answer.
