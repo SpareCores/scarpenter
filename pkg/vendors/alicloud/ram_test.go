@@ -84,12 +84,16 @@ func TestRAMPolicyAllowsEveryCallOfTheDriver(t *testing.T) {
 			}
 		}
 	}
+	// Read-only calls for boot diagnosis by an operator, which the driver does not make.
+	called["ecs:GetInstanceConsoleOutput"], called["ecs:GetInstanceScreenshot"] = true, true
 	for a := range allowed {
 		if !called[a] {
 			t.Errorf("%s is allowed and the driver does not call it", a)
 		}
 	}
-	if !slices.Contains(doc.Statement[0].Action, "ecs:DescribeAccountAttributes") {
-		t.Error("the quota read")
+	for _, a := range []string{"ecs:DescribeAccountAttributes", "ecs:GetInstanceConsoleOutput", "ecs:GetInstanceScreenshot"} {
+		if !slices.Contains(doc.Statement[0].Action, a) {
+			t.Errorf("%s is not in the unconditioned read statement", a)
+		}
 	}
 }

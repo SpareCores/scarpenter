@@ -22,3 +22,30 @@ func (d *Driver) MetadataEndpoints() vendors.MetadataEndpoints {
 		},
 	}
 }
+
+// dnsFragment makes the node resolve through Alibaba's public resolvers. The
+// DHCP resolvers (100.100.2.136 and 100.100.2.138) lie inside 100.64.0.0/10,
+// the range tailscaled routes into tailscale0 through its policy-routing table
+// (consulted before the main table, so a more specific route there cannot win):
+// once the node joins the tailnet it could no longer resolve the API server's
+// name and would never register. A drop-in of the image's default network
+// unit sets the public resolvers and ignores the DHCP ones.
+const dnsFragment = `variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: /etc/systemd/network/zz-default.network.d/10-scarpenter-dns.conf
+      mode: 0644
+      contents:
+        inline: |
+          [Network]
+          DNS=223.5.5.5
+          DNS=223.6.6.6
+          [DHCPv4]
+          UseDNS=false
+`
+
+// BootFragments implements vendors.VendorBootFragments.
+func (d *Driver) BootFragments() []vendors.BootFragment {
+	return []vendors.BootFragment{{Name: "dns", Butane: dnsFragment}}
+}
