@@ -221,6 +221,9 @@ var planFamilies = map[string]struct {
 // freePlan is dropped: no stock guarantee.
 const freePlan = "vc2-1c-0.5gb-free"
 
+// ipv6OnlySuffix ends the ID of Vultr's IPv6-only plans (vc2-1c-0.5gb-v6).
+const ipv6OnlySuffix = "-v6"
+
 // ClassifyPlan says whether the driver launches a Vultr plan, and why not.
 // diskGB is the plan's local disk in GB (Keeper's storage_size, which is 1 for
 // a diskless plan; govultr's Plan has no storage_type field, so the plan's
@@ -229,6 +232,10 @@ const freePlan = "vc2-1c-0.5gb-free"
 func ClassifyPlan(id string, diskGB int) (ok bool, reason string) {
 	if id == freePlan {
 		return false, "the free plan has no stock guarantee"
+	}
+	if strings.HasSuffix(id, ipv6OnlySuffix) {
+		return false, "IPv6-only plan: the node bootstrap needs IPv4 " +
+			"(github.com and the Flatcar release server have no AAAA record)"
 	}
 	family, _, _ := strings.Cut(id, "-")
 	f, known := planFamilies[family]
