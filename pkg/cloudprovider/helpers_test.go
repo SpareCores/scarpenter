@@ -80,6 +80,7 @@ type env struct {
 	tracker   *quota.Tracker
 	resources *resources.Engine
 	cat       *catalog.Catalog
+	facts     *facts.Facts
 	registry  *vendors.Registry
 	tokens    *recordingTokens
 	renderer  *recordingRenderer
@@ -105,6 +106,8 @@ type envOptions struct {
 	config   map[string]string
 	regions  []string
 	attempts int
+	// skipFacts leaves the driver facts unloaded, as right after a start.
+	skipFacts bool
 	// ready=false leaves the vendor not ready.
 	notReady bool
 	// transform edits the NodeClass before it is created.
@@ -160,8 +163,11 @@ func newEnv(t *testing.T, o envOptions) *env {
 		Debounce: time.Millisecond,
 	})
 	f := facts.New(facts.Options{Registry: reg, Launchable: e.tracker})
-	if err := f.Load(ctx); err != nil {
-		t.Fatal(err)
+	e.facts = f
+	if !o.skipFacts {
+		if err := f.Load(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	e.cat = catalog.New(catalog.Options{
 		Source: catalogtest.SourceAt(keeperURL), Facts: f, Unavailable: un, Gate: e.tracker, ClassGate: e.resources, Clock: clk,

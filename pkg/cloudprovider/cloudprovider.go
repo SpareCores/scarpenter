@@ -127,6 +127,8 @@ type QuotaRefusal struct {
 type CloudProvider struct {
 	opts    Options
 	metrics *metrics
+	// started is when New ran: the start of FactsStartupGrace.
+	started time.Time
 
 	listMu sync.Mutex
 	cache  instanceCache
@@ -151,6 +153,9 @@ type CloudProvider struct {
 	// as not ready.
 	notReadyMu     sync.Mutex
 	notReadyLogged map[string]string
+	// factsWarned is, per NodeClass, the vendors warnMissingFacts last named
+	// (under notReadyMu).
+	factsWarned map[string]string
 }
 
 var _ cloudprovider.CloudProvider = (*CloudProvider)(nil)
@@ -176,7 +181,7 @@ func New(opts Options) *CloudProvider {
 		opts.Clock = clock.RealClock{}
 	}
 	return &CloudProvider{
-		opts: opts, metrics: newMetrics(opts.Registerer), images: map[imageKey]cachedImage{},
+		opts: opts, metrics: newMetrics(opts.Registerer), started: opts.Clock.Now(), images: map[imageKey]cachedImage{},
 		terminating:  vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
 		deleteIssued: map[string]time.Time{},
 	}
@@ -223,13 +228,26 @@ func (c *CloudProvider) GetInstanceTypes(
 		}
 		return nil, fmt.Errorf("resolving the NodeClass: %w", err)
 	}
+	// While the catalog and the driver facts load after a start the list is
+	// incomplete. Core reads an incomplete list as "instance type not found" and
+	// marks every NodeClaim Drifted, so report an error instead.
+	if !c.opts.Catalog.Loaded(nc.Name) {
+		return nil, fmt.Errorf("the catalog of the NodeClass %s is not loaded yet", nc.Name)
+	}
+	ready := readyVendors(nc)
+	if missing := c.missingFacts(nc, ready); len(missing) > 0 {
+		if c.opts.Clock.Since(c.started) < FactsStartupGrace {
+			return nil, fmt.Errorf("the driver facts of %s are not loaded yet", strings.Join(missing, ", "))
+		}
+		// Facts that keep failing must not stop the other vendors: offer what there is.
+		c.warnMissingFacts(ctx, nc.Name, missing)
+	}
 	reqs := scheduling.NewNodeSelectorRequirementsWithMinValues(nodePool.Spec.Template.Spec.Requirements...)
 	its, err := c.opts.Catalog.InstanceTypes(ctx, catalog.Query{Class: nc.Name, Filter: catalog.NewFilter(reqs)})
 	if err != nil {
 		return nil, err
 	}
 	c.opts.Catalog.LogNodePool(ctx, nc.Name, nodePool.Name, reqs)
-	ready := readyVendors(nc)
 	c.logNotReady(ctx, nc, ready)
 	if len(ready) == len(nc.Spec.Vendors.Names()) {
 		return its, nil
@@ -241,6 +259,41 @@ func (c *CloudProvider) GetInstanceTypes(
 		}
 	}
 	return out, nil
+}
+
+// FactsStartupGrace is how long after the start GetInstanceTypes reports an
+// error while the facts of a ready vendor are not loaded. Afterwards it offers
+// the types it has, so that a vendor whose driver keeps failing does not stop
+// the others.
+const FactsStartupGrace = 10 * time.Minute
+
+// missingFacts returns the ready vendors of the NodeClass whose driver facts
+// are not loaded.
+func (c *CloudProvider) missingFacts(nc *v1alpha1.SCNodeClass, ready map[string]bool) []string {
+	var missing []string
+	for _, v := range nc.Spec.Vendors.Names() {
+		if ready[v] && !c.opts.Catalog.FactsLoaded(v) {
+			missing = append(missing, v)
+		}
+	}
+	return missing
+}
+
+// warnMissingFacts logs once per change of the set that the NodeClass's list
+// goes without the types of vendors whose facts are still not loaded.
+func (c *CloudProvider) warnMissingFacts(ctx context.Context, class string, missing []string) {
+	line := strings.Join(missing, ", ")
+	c.notReadyMu.Lock()
+	defer c.notReadyMu.Unlock()
+	if c.factsWarned[class] == line {
+		return
+	}
+	if c.factsWarned == nil {
+		c.factsWarned = map[string]string{}
+	}
+	c.factsWarned[class] = line
+	log.FromContext(ctx).Info("the driver facts are still not loaded, offering the types without them",
+		"nodeclass", class, "vendors", missing)
 }
 
 // logNotReady logs, at V(1), the vendors whose types GetInstanceTypes leaves out
