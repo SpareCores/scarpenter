@@ -1161,6 +1161,12 @@ NVIDIA type), and the taint is removed once the check passed.
   uninitialized: a pending pod cannot be placed on the new node, so core can launch another NodeClaim for it (with the same
   taint) in its next scheduling pass, until the first node's taint is gone. That wastes nodes (a bounded number, not a loop: every node
   that passes its check frees the pod), and if the check fails everywhere the pods stay pending.
+- **Mixed pools.** Core merges `startupTaints` onto every Node of the pool at registration (unless the Node has
+  `karpenter.sh/do-not-sync-taints=true`), and `Initialized` waits for the taint on each of them. The GPU pending controller
+  therefore also removes the taint at once from every Node of a SCarpenter NodeClaim (provider ID `scarpenter://`) that needs no
+  driver check, which is a Node without the `scarpenter.sparecores.com/nvidia-driver-branch` label (the label only types that boot
+  the NVIDIA driver carry, synced by core in the same update as the taints). CPU nodes and GPU types without the NVIDIA
+  path are cleared right after registration without any `gpu-ready` label.
 - **Ready and Initialized.** `Ready` is the kubelet's: it reports Ready once the runtime and the CNI are up, whether or not the driver
   works. `Initialized` needs Ready, every startup taint of the NodeClaim removed (the taint, when the NodePool lists it) and the
   extended resources the NodeClaim requests (`nvidia.com/gpu`) registered, which the device plugin does only with a working driver.

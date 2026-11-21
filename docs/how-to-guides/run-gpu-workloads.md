@@ -34,8 +34,8 @@ The DaemonSet:
 
 A GPU node registers with the taint `scarpenter.sparecores.com/gpu-pending:NoSchedule` and keeps it until its
 driver check passed, so that Pods land only on a node whose GPUs work and the driver work does not count against
-Karpenter's 15 minute registration timeout. List it in the NodePool, so that Karpenter plans Pods onto the new
-node and waits for the taint's removal:
+Karpenter's 15 minute registration timeout. A NodePool that can launch GPU types, a mixed CPU and GPU pool too, lists it, so that Karpenter plans Pods onto the new
+node and waits for the taint's removal (the controller clears it at once from the pool's CPU nodes):
 
 ```yaml
 spec:

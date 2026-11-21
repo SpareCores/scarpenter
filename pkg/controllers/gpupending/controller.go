@@ -4,15 +4,19 @@ License, v. 2.0. If a copy of the MPL was not distributed with this
 file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
-// Package gpupending removes the gpu-pending taint of a GPU node (ADR-031) once
-// the node's own check labelled it gpu-ready. A node may label itself but
-// NodeRestriction forbids it to change its taints, so the controller does it.
+// Package gpupending removes the gpu-pending taint (ADR-031) from the Nodes of
+// SCarpenter's NodeClaims: from a GPU node once its own check labelled it
+// gpu-ready (a node may label itself but NodeRestriction forbids it to change
+// its taints), and at once from a node that needs no driver check. The latter
+// are the CPU nodes of a NodePool that lists the taint in startupTaints, which
+// core puts on every node of the pool.
 package gpupending
 
 import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -21,9 +25,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/scope"
 )
 
-// Controller removes the taint from the Nodes that carry the ready label.
+// Controller removes the taint from the Nodes that carry the ready label or need no check.
 type Controller struct {
 	client client.Client
 }
@@ -44,13 +49,20 @@ func (c *Controller) Register(mgr ctrl.Manager) error {
 	return nil
 }
 
-// Reconcile removes the taint of a node whose check passed.
+// Reconcile removes the taint of a node whose check passed or that needs none.
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	node := &corev1.Node{}
 	if err := c.client.Get(ctx, req.NamespacedName, node); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
-	if node.Labels[v1alpha1.LabelGPUReady] != "true" {
+	if !strings.HasPrefix(node.Spec.ProviderID, scope.ProviderIDPrefix) {
+		return reconcile.Result{}, nil
+	}
+	// Only the types that boot the NVIDIA driver carry the driver branch label (core
+	// syncs it at registration, together with the startup taints); the others need
+	// no check.
+	needsCheck := node.Labels[v1alpha1.LabelNVIDIADriverBranch] != ""
+	if needsCheck && node.Labels[v1alpha1.LabelGPUReady] != "true" {
 		return reconcile.Result{}, nil
 	}
 	kept := slices.DeleteFunc(slices.Clone(node.Spec.Taints), func(t corev1.Taint) bool {

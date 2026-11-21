@@ -234,9 +234,9 @@ release (its modules are signed with the release's kernel key). The part holds:
   until the kubelet has registered the Node), and the controller removes the taint. A node cannot remove
   its own taint (NodeRestriction), hence the label. A node that fails keeps the taint, so nothing schedules
   there; it is never deleted by Karpenter, because it has registered, and the unit's journal line says why.
-  **A NodePool that offers GPU types must list the taint in `spec.template.spec.startupTaints`**, because Karpenter
+  **A NodePool that can launch GPU types (a mixed CPU and GPU pool too) must list the taint in `spec.template.spec.startupTaints`**, because Karpenter
   takes startup taints only from the NodePool: with it the scheduler plans pods onto the node and `Initialized` waits for the
-  taint's removal; without it the scheduler sees a permanent taint and may launch extra nodes for the same pods.
+  taint's removal; the controller clears it at once from the pool's nodes that need no check (no `nvidia-driver-branch` label), because core puts a startup taint on every node of the pool; without it the scheduler sees a permanent taint and may launch extra nodes for the same pods.
   `Ready` is the kubelet's and does not depend on the driver. `Initialized` also needs `nvidia.com/gpu`
   registered by the device plugin. DaemonSets that the node needs for Ready (the CNI) must tolerate `NoSchedule` taints.
 

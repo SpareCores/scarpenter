@@ -19,26 +19,29 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/controllers/gpupending"
+	"github.com/SpareCores/scarpenter/pkg/scope"
 )
 
 func TestReconcile(t *testing.T) {
 	pending := corev1.Taint{Key: v1alpha1.TaintGPUPending, Effect: corev1.TaintEffectNoSchedule}
 	other := corev1.Taint{Key: "example.com/other", Effect: corev1.TaintEffectNoSchedule}
-	ready := map[string]string{v1alpha1.LabelGPUReady: "true"}
+	driver := map[string]string{v1alpha1.LabelNVIDIADriverBranch: "570"}
+	ready := map[string]string{v1alpha1.LabelNVIDIADriverBranch: "570", v1alpha1.LabelGPUReady: "true"}
 	for name, tc := range map[string]struct {
 		labels map[string]string
 		taints []corev1.Taint
 		want   []corev1.Taint
 	}{
 		"ready: the taint goes, others stay": {ready, []corev1.Taint{other, pending}, []corev1.Taint{other}},
-		"not labelled: the taint stays":      {nil, []corev1.Taint{pending}, []corev1.Taint{pending}},
-		"label is not true: the taint stays": {map[string]string{v1alpha1.LabelGPUReady: "false"}, []corev1.Taint{pending}, []corev1.Taint{pending}},
+		"GPU node not labelled: stays":       {driver, []corev1.Taint{pending}, []corev1.Taint{pending}},
+		"label is not true: the taint stays": {map[string]string{v1alpha1.LabelNVIDIADriverBranch: "570", v1alpha1.LabelGPUReady: "false"}, []corev1.Taint{pending}, []corev1.Taint{pending}},
 		"ready without the taint: unchanged": {ready, []corev1.Taint{other}, []corev1.Taint{other}},
+		"CPU node: cleared without a label":  {nil, []corev1.Taint{other, pending}, []corev1.Taint{other}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			node := &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: tc.labels},
-				Spec:       corev1.NodeSpec{Taints: tc.taints},
+				Spec:       corev1.NodeSpec{Taints: tc.taints, ProviderID: scope.ProviderIDPrefix + "aws/us-east-1/n1"},
 			}
 			c := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(node).Build()
 			ctl := gpupending.New(c)
@@ -60,6 +63,26 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A node that is not SCarpenter's is left alone, labelled or not.
+func TestForeignNodeIsLeftAlone(t *testing.T) {
+	pending := corev1.Taint{Key: v1alpha1.TaintGPUPending, Effect: corev1.TaintEffectNoSchedule}
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n1"},
+		Spec:       corev1.NodeSpec{Taints: []corev1.Taint{pending}, ProviderID: "aws:///us-east-1a/i-1"},
+	}
+	c := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(node).Build()
+	if _, err := gpupending.New(c).Reconcile(t.Context(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "n1"}}); err != nil {
+		t.Fatal(err)
+	}
+	var got corev1.Node
+	if err := c.Get(t.Context(), client.ObjectKeyFromObject(node), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Spec.Taints) != 1 {
+		t.Errorf("taints = %v, want the taint kept", got.Spec.Taints)
 	}
 }
 
