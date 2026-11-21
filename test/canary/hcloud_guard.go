@@ -179,3 +179,12 @@ func (g *roAPI) SSHKey(ctx context.Context, idOrName string) (*hc.SSHKey, error)
 	g.audit.read("hcloud:SSHKey")
 	return g.API.SSHKey(ctx, idOrName)
 }
+
+func (g *roAPI) SSHKeys(ctx context.Context, opts hc.SSHKeyListOpts) ([]*hc.SSHKey, error) {
+	g.audit.read("hcloud:SSHKeys")
+	return g.API.SSHKeys(ctx, opts)
+}
+
+func (g *roAPI) DeleteSSHKey(context.Context, *hc.SSHKey) error {
+	return g.audit.deny("hcloud:DeleteSSHKey")
+}

@@ -47,6 +47,8 @@ func TestClientAdapterRoutes(t *testing.T) {
 		"GET /primary_ips/10":        `{"primary_ip":{"id":10}}`,
 		"DELETE /primary_ips/10":     `{}`,
 		"GET /ssh_keys/11":           `{"ssh_key":{"id":11,"name":"k"}}`,
+		"GET /ssh_keys":              `{"ssh_keys":[{"id":11,"name":"k"}]` + page + `}`,
+		"DELETE /ssh_keys/11":        `{}`,
 		"GET /locations":             `{"locations":[{"id":1,"name":"fsn1"}]` + page + `}`,
 	}
 	var seen []string
@@ -118,11 +120,17 @@ func TestClientAdapterRoutes(t *testing.T) {
 	if k == nil || k.ID != 11 {
 		t.Errorf("SSHKey: %+v", k)
 	}
+	keys, err := c.SSHKeys(ctx, hc.SSHKeyListOpts{})
+	check("SSHKeys", err)
+	if len(keys) != 1 {
+		t.Errorf("SSHKeys: %+v", keys)
+	}
+	check("DeleteSSHKey", c.DeleteSSHKey(ctx, &hc.SSHKey{ID: 11}))
 	// A failed delete returns no action and the error.
 	if _, err := c.DeleteServer(ctx, &hc.Server{ID: 99}); err == nil {
 		t.Errorf("DeleteServer of an unknown server: %v", err)
 	}
-	if len(seen) < 22 {
+	if len(seen) < 24 {
 		t.Errorf("only %d calls reached the stub: %v", len(seen), seen)
 	}
 }

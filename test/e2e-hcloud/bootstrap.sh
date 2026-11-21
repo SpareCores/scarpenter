@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# L5 step 1: the Flatcar snapshots of the CI project and a k3s control plane on the CI runner that nodes reach over the tailnet
+# L5 step 1: a k3s control plane on the CI runner that nodes reach over the tailnet
 # (overview section 13.4): the server bound to the runner's tailscale address (TLS
 # SAN, node IP, advertise address), configured like a production k3s for remote
 # workers (no embedded flannel, kube-proxy or network policy controller, no egress
 # selector), flannel over tailscale0 and kube-proxy as DaemonSets. The runner has
 # joined the tailnet already (tailscale/github-action, tag tag:scarpenter-ci).
 #
-# The Hetzner part comes first: the tools (go install, checked by the module proxy's checksum
-# database), then one Flatcar snapshot per architecture for the pinned release when the project has
-# none (the label convention of docs/how-to-guides/set-up-hcloud.md), made in parallel. The control
-# plane stays on the runner, as in the AWS lane: the nodes reach it over the tailnet, so no server of
-# the project is spent on it.
+# The Hetzner part comes first: the hcloud CLI (go install, checked by the module proxy's checksum
+# database) and a check of the token. The Flatcar snapshots are not made here: the controller builds
+# the pinned release's snapshots when the CI project has none (ADR-030), and install.sh waits for
+# them. The control plane stays on the runner, as in the AWS lane: the nodes reach it over the
+# tailnet, so no server of the project is spent on it.
 #
 # The runner's own node is the server's agent: the controller Pod needs one. It is
 # tainted CriticalAddonsOnly, so that test workloads only land on SCarpenter's nodes.
@@ -21,52 +21,17 @@ source "${here}/lib.sh"
 need E2E_OUT KUBECONFIG HCLOUD_TOKEN
 mkdir -p "${E2E_OUT}"
 
-log "installing hcloud and hcloud-upload-image"
+log "installing hcloud"
 tools="${RUNNER_TEMP:-${E2E_OUT}}/bin"
 mkdir -p "${tools}"
 export GOBIN="${tools}"
 export PATH="${tools}:${PATH}"
 [[ -z "${GITHUB_PATH:-}" ]] || echo "${tools}" >>"${GITHUB_PATH}"
-go install "github.com/apricote/hcloud-upload-image@${E2E_HCLOUD_UPLOAD_IMAGE_VERSION}"
 go install "github.com/hetznercloud/cli/cmd/hcloud@${E2E_HCLOUD_CLI_VERSION}"
 hc server list -o noheader >/dev/null || {
   echo "the Hetzner token does not work (HCLOUD_TOKEN)" >&2
   exit 1
 }
-
-# snapshot <arch of the Flatcar image: amd64|arm64>: idempotent, exactly one per release.
-snapshot() {
-  local arch="$1" hcarch dir sel n
-  case "${arch}" in
-    amd64) hcarch=x86 dir=amd64-usr ;;
-    arm64) hcarch=arm dir=arm64-usr ;;
-  esac
-  sel="os=flatcar,flatcar-channel=${E2E_FLATCAR_CHANNEL},flatcar-version=${E2E_FLATCAR_VERSION}"
-  n="$(hc image list -t snapshot -a "${hcarch}" -l "${sel}" -o noheader -o columns=id | sed '/^$/d' | wc -l | tr -d ' ')"
-  case "${n}" in
-    1) echo "the ${arch} snapshot of ${E2E_FLATCAR_CHANNEL} ${E2E_FLATCAR_VERSION} exists" ;;
-    0)
-      echo "making the ${arch} snapshot of ${E2E_FLATCAR_CHANNEL} ${E2E_FLATCAR_VERSION} (a few minutes)"
-      hcloud-upload-image upload \
-        --image-url "https://${E2E_FLATCAR_CHANNEL}.release.flatcar-linux.net/${dir}/${E2E_FLATCAR_VERSION}/flatcar_production_hetzner_image.bin.bz2" \
-        --architecture "${hcarch}" --compression bz2 --labels "${sel}" \
-        --description "Flatcar ${E2E_FLATCAR_CHANNEL} ${E2E_FLATCAR_VERSION} ${arch}"
-      ;;
-    *)
-      echo "${n} snapshots carry the labels ${sel} for ${arch}: exactly one is required" >&2
-      return 1
-      ;;
-  esac
-}
-log "the Flatcar snapshots"
-snapshot amd64 &
-pid_amd64=$!
-snapshot arm64 &
-pid_arm64=$!
-rc=0
-wait "${pid_amd64}" || rc=1
-wait "${pid_arm64}" || rc=1
-[[ "${rc}" -eq 0 ]] || exit 1
 
 tsip="$(tailscale ip -4 | head -n1)"
 [[ -n "${tsip}" ]] || {

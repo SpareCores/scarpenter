@@ -18,6 +18,13 @@ const (
 	CodeImageVersionUnknown  = "ImageVersionUnknown"
 )
 
+// Codes of an image a driver is building (ADR-030: the hcloud driver) or whose
+// build failed. They are reasons of the image status and of ImagesReady.
+const (
+	CodeImageBuilding    = "ImageBuilding"
+	CodeImageBuildFailed = "ImageBuildFailed"
+)
+
 // IsImageVersionCode says whether an error code is one of the version check.
 func IsImageVersionCode(code string) bool {
 	return code == CodeImageVersionMismatch || code == CodeImageVersionUnknown

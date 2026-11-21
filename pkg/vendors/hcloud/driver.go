@@ -55,6 +55,16 @@ func WithHCloudServerLimit(n int) Option {
 	return func(d *Driver) { d.serverLimit, d.limitSet = n, true }
 }
 
+// WithUploader replaces the snapshot builder (tests: a fake); without it Init
+// uses hcloud-upload-image's library over the real client.
+func WithUploader(u Uploader) Option { return func(d *Driver) { d.uploader = u } }
+
+// WithBuildImages turns building missing snapshots on or off, instead of
+// --hcloud-build-images.
+func WithBuildImages(b bool) Option {
+	return func(d *Driver) { d.buildImages, d.buildSet = b, true }
+}
+
 // WithRegisterer receives the rate-limit gauges (default: the controller's
 // metrics registry).
 func WithRegisterer(r prometheus.Registerer) Option { return func(d *Driver) { d.registerer = r } }
@@ -73,6 +83,10 @@ type Driver struct {
 	serverLimit int
 	limitSet    bool
 	registerer  prometheus.Registerer
+	uploader    Uploader
+	buildImages bool
+	buildSet    bool
+	builds      builds
 
 	// epoch counts price loads (the server type table's changes are the
 	// Project's).
@@ -86,7 +100,8 @@ type Driver struct {
 
 // New returns an uninitialised driver.
 func New(opts ...Option) *Driver {
-	d := &Driver{images: map[imageKey]cachedImage{}, sshKeys: map[string]int64{}}
+	d := &Driver{images: map[imageKey]cachedImage{}, sshKeys: map[string]int64{}, buildImages: true}
+	d.builds.failed = map[buildKey]buildFailure{}
 	for _, o := range opts {
 		o(d)
 	}
@@ -108,9 +123,12 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 		d.clock = clock.RealClock{}
 	}
 	d.log = cfg.Log
-	if !d.limitSet {
-		if o := operatoroptions.FromContext(ctx); o != nil {
+	if o := operatoroptions.FromContext(ctx); o != nil {
+		if !d.limitSet {
 			d.serverLimit = o.HCloudServerLimit
+		}
+		if !d.buildSet {
+			d.buildImages = o.HCloudBuildImages
 		}
 	}
 	if d.serverLimit < 0 {
@@ -124,9 +142,13 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 		if token == "" {
 			return fmt.Errorf("%s is not set: the hcloud driver needs the API token of the Hetzner Cloud project", TokenEnv)
 		}
-		d.api = NewClient(ClientConfig{
+		c := NewClient(ClientConfig{
 			Token: token, Endpoint: os.Getenv(EndpointEnv), Version: version.Version, Registry: d.registerer,
 		})
+		d.api = c
+		if d.uploader == nil {
+			d.uploader = c.Uploader()
+		}
 	}
 	d.p = NewProject(d.api, cfg.ClusterName, WithClock(d.clock), WithServerLimit(d.serverLimit))
 	if d.prices == nil {

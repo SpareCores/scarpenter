@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/awslabs/operatorpkg/status"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -610,6 +611,35 @@ func TestAFailedImageLookupWithoutAPreviousVerdictIsReported(t *testing.T) {
 	c := vcond(e.reconcile(e.name), "aws", v1alpha1.VendorConditionImagesReady)
 	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != nodeclass.ReasonImagesFailed {
 		t.Errorf("ImagesReady = %+v", c)
+	}
+}
+
+func TestImageBuildsAreConditionsAndEvents(t *testing.T) {
+	e := newEnv(t)
+	e.drv.images = []v1alpha1.ImageStatus{
+		{Region: testRegion, Arch: "amd64", Reason: vendors.CodeImageBuilding, Message: "building amd64: started"},
+		{Region: testRegion, Arch: "arm64", Reason: vendors.CodeImageBuildFailed, Message: "building arm64 failed"},
+	}
+	e.create(e.newNodeClass(nil))
+	nc := e.reconcile(e.name)
+	c := vcond(nc, "aws", v1alpha1.VendorConditionImagesReady)
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != vendors.CodeImageBuilding {
+		t.Errorf("ImagesReady = %+v", c)
+	}
+	e.reconcile(e.name)
+	e.rec.mu.Lock()
+	defer e.rec.mu.Unlock()
+	got := map[string]string{}
+	for _, ev := range e.rec.list {
+		if ev.Reason == nodeclass.EventImageBuilding || ev.Reason == nodeclass.EventImageBuildFailed {
+			got[ev.Reason] = ev.Type
+			if !slices.Contains(ev.DedupeValues, ev.Reason) || ev.DedupeTimeout < 30*time.Minute {
+				t.Errorf("an Event per build, not per reconcile: %+v", ev)
+			}
+		}
+	}
+	if got[nodeclass.EventImageBuilding] != corev1.EventTypeNormal || got[nodeclass.EventImageBuildFailed] != corev1.EventTypeWarning {
+		t.Errorf("events: %v", got)
 	}
 }
 

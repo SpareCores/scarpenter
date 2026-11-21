@@ -15,6 +15,7 @@ import (
 	hc "github.com/hetznercloud/hcloud-go/v2/hcloud"
 	clocktesting "k8s.io/utils/clock/testing"
 
+	"github.com/SpareCores/scarpenter/pkg/vendors/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/vendors/hcloud/fake"
 	"github.com/SpareCores/scarpenter/test/e2e-hcloud/sweeper/sweep"
 )
@@ -218,5 +219,32 @@ func TestAFailedDeletionIsReportedAndTheRestGoOn(t *testing.T) {
 	rep := e.run(sweep.Options{MaxAge: 2 * time.Hour})
 	if rep.Count(sweep.Failed) != 1 || rep.Count(sweep.Deleted) != 3 {
 		t.Errorf("%+v", rep.Items)
+	}
+}
+
+func TestImageBuildLeftoversAreSwept(t *testing.T) {
+	e := newEnv(t)
+	build := func(cluster string) map[string]string {
+		return map[string]string{hcloud.LabelImageBuild: cluster, "os": "flatcar"}
+	}
+	e.f.AddForeignServer("fsn1", "cx23", build("scarpenter-ci-1"))
+	e.f.AddSSHKey("build-1", build("scarpenter-ci-1"))
+	e.f.AddForeignServer("fsn1", "cx23", build("production"))
+	e.f.AddSSHKey("build-prod", build("production"))
+	e.f.AddImage(hc.ArchitectureX86, build("scarpenter-ci-1")) // the snapshot every run needs
+	e.clk.Step(3 * time.Hour)
+	rep := e.run(sweep.Options{MaxAge: 2 * time.Hour})
+	if rep.Count(sweep.Deleted) != 2 || rep.Count(sweep.Failed) != 0 {
+		t.Fatalf("the build server and key of the CI cluster: %+v", rep.Items)
+	}
+	if s, _, _, _ := e.counts(); s != 1 {
+		t.Errorf("the other cluster's build server stays: %d", s)
+	}
+	keys, _ := e.f.SSHKeys(context.Background(), hc.SSHKeyListOpts{})
+	if len(keys) != 1 || keys[0].Name != "build-prod" {
+		t.Errorf("the other cluster's key stays: %v", keys)
+	}
+	if imgs, _ := e.f.Images(context.Background(), hc.ImageListOpts{}); len(imgs) != 1 {
+		t.Errorf("the snapshot stays: %v", imgs)
 	}
 }

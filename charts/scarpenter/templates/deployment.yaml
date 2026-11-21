@@ -138,6 +138,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "oci-client-id" (ternary $oci.credentials.workloadIdentityFederation.clientId "" (and $oci.enabled (eq $ociMode "workloadIdentityFederation")))
   "oci-client-secret-file" (ternary (printf "/etc/scarpenter/oci-client/%s" $oci.credentials.workloadIdentityFederation.clientSecret.key) "" (and $oci.enabled (eq $ociMode "workloadIdentityFederation")))
   "hcloud-server-limit" (ternary $hcloud.serverLimit "" (and $hcloud.enabled (gt (int $hcloud.serverLimit) 0)))
+  "hcloud-build-images" (ternary "false" "" (and $hcloud.enabled (eq (toString $hcloud.buildImages) "false")))
   "log-level" .Values.karpenter.logLevel
   "batch-max-duration" .Values.karpenter.batchMaxDuration
   "batch-idle-duration" .Values.karpenter.batchIdleDuration
