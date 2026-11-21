@@ -48,7 +48,7 @@ var wantClasses = map[string]vendors.Class{
 	"OperationDenied.ZoneSystemCategoryNotMatch": vendors.Unsupported,
 	"InvalidInstanceType.NotSupported":           vendors.Unsupported,
 	"InvalidInstanceType.ValueUnauthorized":      vendors.Unsupported,
-	"OperationDenied":                            vendors.Unsupported,
+	"OperationDenied":                            vendors.InvalidOffering, // bare code: no documented reason
 	"InvalidAccount.NotSupportSpot":              vendors.Unsupported,
 
 	"QuotaExceed.ElasticQuota":               vendors.QuotaExceeded,

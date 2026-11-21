@@ -17,7 +17,9 @@ import (
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	karpcloudprovider "sigs.k8s.io/karpenter/pkg/cloudprovider"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
 const launchType = "aws.m7i.large"
@@ -100,18 +102,63 @@ func TestQuotaErrorWithHeadroomRefreshesTheTrackerAndMarksTheBucket(t *testing.T
 	}
 }
 
-func TestDeletingANodeClaimClearsTheQuotaMarkOfItsRegion(t *testing.T) {
+func TestAConfirmedGoneNodeClaimClearsTheQuotaMarkOfItsRegion(t *testing.T) {
 	e := newEnv(t, envOptions{attempts: 1})
 	claim, target := launchedInTheCheapestRegion(e)
 	e.failNextLaunch(target, "QuotaExceeded", "claim-2")
 	if !e.un.IsUnavailable(unavailableOfRegion(target)) {
 		t.Fatal("the quota mark is missing")
 	}
+	// The delete call only starts the termination; the vendor still counts the quota.
 	if err := e.cp.Delete(t.Context(), claim); err != nil {
 		t.Fatal(err)
 	}
+	if !e.un.IsUnavailable(unavailableOfRegion(target)) {
+		t.Error("the quota mark was cleared before the instance was confirmed gone")
+	}
+	if err := e.cp.Delete(t.Context(), claim); !karpcloudprovider.IsNodeClaimNotFoundError(err) {
+		t.Fatalf("second Delete = %v, want NodeClaimNotFound", err)
+	}
 	if e.un.IsUnavailable(unavailableOfRegion(target)) {
-		t.Error("the quota mark survived the deletion of a NodeClaim of the region")
+		t.Error("the quota mark survived a NodeClaim that is gone")
+	}
+}
+
+func TestATerminatingNodeClaimKeepsTheQuotaMark(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 1})
+	claim, target := launchedInTheCheapestRegion(e)
+	e.driver.PowerOff(vendors.InstanceRef(claim.Annotations[v1alpha1.AnnotationInstanceRef]))
+	e.failNextLaunch(target, "QuotaExceeded", "claim-2")
+	for range 3 { // core asks every few seconds
+		if err := e.cp.Delete(t.Context(), claim); err != nil {
+			t.Fatalf("Delete of a terminating instance = %v, want nil", err)
+		}
+		if !e.un.IsUnavailable(unavailableOfRegion(target)) {
+			t.Fatal("the quota mark was cleared while the instance is still terminating")
+		}
+	}
+}
+
+func TestClearingQuotaMarksLeavesTheOtherClassesAlone(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 1})
+	claim, target := launchedInTheCheapestRegion(e)
+	o := unavailableOf(target)
+	e.un.MarkInsufficientCapacity("aws", o.InstanceType, o.Zone, o.CapacityType)
+	e.un.MarkInvalid("aws", o.InstanceType, o.Zone, o.CapacityType)
+	if err := e.cp.Delete(t.Context(), claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.cp.Delete(t.Context(), claim); !karpcloudprovider.IsNodeClaimNotFoundError(err) {
+		t.Fatalf("second Delete = %v", err)
+	}
+	if cls, _, ok := e.un.Why(o); !ok || cls != "InsufficientCapacity" {
+		t.Errorf("Why = %q, %v, want the capacity mark to stay", cls, ok)
+	}
+	e.un.MarkZoneUnusable("aws", o.Zone)
+	e.un.ClearQuotaExceeded("aws", target.region)
+	e.advance(time.Minute) // the capacity mark ends, the others stay
+	if cls, _, ok := e.un.Why(o); !ok || (cls != "InvalidOffering" && cls != "ZoneUnusable") {
+		t.Errorf("Why = %q, %v, want InvalidOffering or ZoneUnusable to stay", cls, ok)
 	}
 }
 
@@ -187,6 +234,29 @@ func TestLaunchFailuresCarryTheClassInTheDocumentedFormat(t *testing.T) {
 				if strings.Contains(p.Message, tc.class) && !strings.HasPrefix(p.Message, tc.prefix) {
 					t.Errorf("event message %q, want the prefix %q", p.Message, tc.prefix)
 				}
+			}
+		})
+	}
+}
+
+func TestDailyLimitAfterMidnightKeepsOnlyTheQuotaTTL(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		now    time.Time
+		expiry time.Time
+	}{
+		{"just after midnight", time.Date(2026, 11, 21, 0, 3, 0, 0, time.UTC), time.Date(2026, 11, 21, 0, 8, 0, 0, time.UTC)},
+		{"at midnight", time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC), time.Date(2026, 11, 21, 0, 5, 0, 0, time.UTC)},
+		{"5 minutes after midnight", time.Date(2026, 11, 21, 0, 5, 0, 0, time.UTC), time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)},
+		{"just before midnight", time.Date(2026, 11, 21, 23, 59, 0, 0, time.UTC), time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t, envOptions{attempts: 1})
+			e.clock.SetTime(tc.now)
+			target := e.offerings(launchType)[0]
+			e.failNextLaunch(target, "DailyLimit", "claim-1")
+			if _, expiry, ok := e.un.Why(unavailableOfRegion(target)); !ok || !expiry.Equal(tc.expiry) {
+				t.Errorf("expiry = %v, %v, want %v", expiry, ok, tc.expiry)
 			}
 		})
 	}

@@ -308,7 +308,8 @@ copy in `errors_test.go`; every code is tested.
 | Class | Codes |
 |---|---|
 | `InsufficientCapacity` | `OperationDenied.NoStock`, `Zone.NotOnSale`, `InvalidOperation.PublicIpAddressNoStock`, `OperationDenied.PublicIpAddressNoStock`, `QuotaExceed.DeploymentSetInstanceQuotaFull`, `LackResource`, `ResourceNotAvailable` |
-| `Unsupported` | `InvalidInstanceType.ZoneNotSupported`, `InstanceType.Offline`, `InvalidInstanceType.ValueNotSupported`, `InvalidInstanceType.NotSupported`, `InvalidInstanceType.ValueUnauthorized`, `OperationDenied`, `ImageNotSupportInstanceType`, `InvalidDiskCategory.NotSupported`, `CategoryNotSupported`, `InvalidInstanceType.NotSupportDiskCategory`, `OperationDenied.CloudSSDNotSupported`, `OperationDenied.ZoneSystemCategoryNotMatch`, `InvalidAccount.NotSupportSpot` |
+| `Unsupported` | `InvalidInstanceType.ZoneNotSupported`, `InstanceType.Offline`, `InvalidInstanceType.ValueNotSupported`, `InvalidInstanceType.NotSupported`, `InvalidInstanceType.ValueUnauthorized`, `ImageNotSupportInstanceType`, `InvalidDiskCategory.NotSupported`, `CategoryNotSupported`, `InvalidInstanceType.NotSupportDiskCategory`, `OperationDenied.CloudSSDNotSupported`, `OperationDenied.ZoneSystemCategoryNotMatch`, `InvalidAccount.NotSupportSpot` |
+| `InvalidOffering` | the bare `OperationDenied`, which names no reason (the offering is unavailable for 1 h and the next candidate is tried) |
 | `QuotaExceeded` | `QuotaExceed.ElasticQuota`, `QuotaExceed.AfterpayInstance`, `QuotaExceeded`, `QuotaExceed.DiskCapacity`, `QuotaExceed.PostPaidDisk`, `QuotaExceeded.PostpaidDataDiskCapacity`, `QuotaExceeded.InternetBandwidth`, `InstanceDiskNumLimitExceed`, `InstanceDiskLimitExceeded` |
 | `ZoneUnusable` | `QuotaExceeded.PrivateIpAddress`, `OperationDenied.ZoneNotAllowed`, `Zone.NotOpen`, `SecurityGroupInstanceLimitExceed` |
 | `RegionUnavailable` (zone reads) | `RegionUnauthorized`, `InvalidRegion.NotSupport`, `RealNameAuthenticationError` |

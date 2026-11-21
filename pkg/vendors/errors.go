@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// CodeUnknown is the code of an error whose vendor gave none, so that the text
+// of every error is "<Class> (<Code>): <message>".
+const CodeUnknown = "Unknown"
+
 // Class is the class of a driver error (overview section 7.2). Drivers wrap
 // every vendor error into one of them by the vendor's error codes, never by
 // message text, with one exception: a vendor whose API has no error codes (the
@@ -92,10 +96,11 @@ type Error struct {
 
 // Error implements error.
 func (e *Error) Error() string {
-	if e.Code != "" {
-		return fmt.Sprintf("%s (%s): %v", e.Class, e.Code, e.Err)
+	code := e.Code
+	if code == "" {
+		code = CodeUnknown
 	}
-	return fmt.Sprintf("%s: %v", e.Class, e.Err)
+	return fmt.Sprintf("%s (%s): %v", e.Class, code, e.Err)
 }
 
 // Unwrap returns the vendor's error.

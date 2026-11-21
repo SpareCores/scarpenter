@@ -67,7 +67,7 @@ var errorClasses = map[string]vendors.Class{
 	"OperationDenied.ZoneSystemCategoryNotMatch": vendors.Unsupported,
 	"InvalidInstanceType.NotSupported":           vendors.Unsupported,
 	"InvalidInstanceType.ValueUnauthorized":      vendors.Unsupported,
-	"OperationDenied":                            vendors.Unsupported,
+	"OperationDenied":                            vendors.InvalidOffering, // bare code: no documented reason
 	"InvalidAccount.NotSupportSpot":              vendors.Unsupported,
 	// Region-wide limits (none of the codes is known to be account-wide: the
 	// vCPU quotas and the instance limits are per region).

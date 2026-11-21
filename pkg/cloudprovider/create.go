@@ -184,26 +184,18 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		case vendors.InsufficientCapacity:
 			c.opts.Unavailable.MarkInsufficientCapacity(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 		case vendors.Unsupported:
-			if code := vendors.CodeOf(err); code == vendors.CodeResourceMissing || code == vendors.CodeResourceForbidden {
-				// A vendor resource of the region is missing: the engine made the
-				// region's offerings unavailable, and nothing of this type or zone is
-				// wrong. The other candidates of the region are not tried.
-				st.blocked[resourceKey(cand)] = true
-				continue
-			} else if code == vendors.CodeResourceMissingInZone {
-				// Only the zone lacks it: the other zones of the region are tried.
-				st.blocked[resourceKey(cand)+"/"+cand.zone] = true
-				continue
-			}
-			c.markUnsupported(logger, cand, err)
+			c.onUnsupported(logger, st, cand, err)
 		case vendors.InvalidOffering:
 			c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 			c.publish(nc, EventOfferingRejected, launchMessage(err),
 				cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 		case vendors.ZoneUnusable:
 			c.opts.Unavailable.MarkZoneUnusable(cand.vendor, cand.zone)
-		case vendors.QuotaExceeded, vendors.DailyLimit:
-			c.onLimitExceeded(st, cand, err)
+		case vendors.QuotaExceeded:
+			c.reportQuotaRefusal(st.nc, cand)
+			c.onQuotaExceeded(cand, vendors.IsAccountWide(err))
+		case vendors.DailyLimit:
+			c.onDailyLimit(cand, err)
 		case vendors.Retryable:
 			st.keepToken = true
 			return nil, cloudprovider.NewCreateError(fmt.Errorf("launching %s: %w", cand.typeName, err),
@@ -245,6 +237,22 @@ func (c *CloudProvider) reserveQuota(ctx context.Context, st *launchState, cand 
 	return res, true
 }
 
+// onUnsupported records an Unsupported error. A vendor resource of the region
+// that is missing has the engine make the region's offerings unavailable, and
+// nothing of this type or zone is wrong: the other candidates of the region are
+// skipped, or only those of the zone when only the zone lacks it. Otherwise the
+// type in the zone is marked.
+func (c *CloudProvider) onUnsupported(logger logr.Logger, st *launchState, cand *candidate, err error) {
+	switch vendors.CodeOf(err) {
+	case vendors.CodeResourceMissing, vendors.CodeResourceForbidden:
+		st.blocked[resourceKey(cand)] = true
+	case vendors.CodeResourceMissingInZone:
+		st.blocked[resourceKey(cand)+"/"+cand.zone] = true
+	default:
+		c.markUnsupported(logger, cand, err)
+	}
+}
+
 // reportQuotaRefusal tells the OnQuotaRefusal hook that the candidate's launch
 // was refused for quota.
 func (c *CloudProvider) reportQuotaRefusal(nc *v1alpha1.SCNodeClass, cand *candidate) {
@@ -277,16 +285,6 @@ func (c *CloudProvider) skipReason(st *launchState, cand *candidate) string {
 // resourceKey identifies the vendor resources of a region, which all offerings
 // of the region share.
 func resourceKey(c *candidate) string { return "resources/" + c.vendor + "/" + c.region }
-
-// onLimitExceeded records a QuotaExceeded or DailyLimit error.
-func (c *CloudProvider) onLimitExceeded(st *launchState, cand *candidate, err error) {
-	if vendors.IsClass(err, vendors.DailyLimit) {
-		c.onDailyLimit(cand, err)
-		return
-	}
-	c.reportQuotaRefusal(st.nc, cand)
-	c.onQuotaExceeded(cand, vendors.IsAccountWide(err))
-}
 
 // onQuotaExceeded records a quota error (overview sections 4.1 and 5.6): the
 // quota tracker refreshes its view of the region, and the bucket the vendor
@@ -336,10 +334,22 @@ func (c *CloudProvider) onDailyLimit(cand *candidate, err error) {
 		resetAt = e.ResetAt
 	}
 	if resetAt.IsZero() {
-		now := c.opts.Clock.Now().UTC()
-		resetAt = time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+		resetAt = nextMidnightUTC(c.opts.Clock.Now())
 	}
 	c.opts.Unavailable.MarkDailyLimit(cand.vendor, cand.region, resetAt)
+}
+
+// nextMidnightUTC is when a daily limit that the vendor gives no reset time for
+// is assumed to reset. Within the quota TTL after midnight the limit may be
+// the previous day's count that has not been reset yet, so the mark then lasts
+// the TTL, and the offerings are tried again soon.
+func nextMidnightUTC(now time.Time) time.Time {
+	now = now.UTC()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	if now.Sub(midnight) < unavailable.DefaultQuotaExceededTTL {
+		return now.Add(unavailable.DefaultQuotaExceededTTL)
+	}
+	return midnight.AddDate(0, 0, 1)
 }
 
 // launchFailure is a launch error whose text is launchMessage.
@@ -351,11 +361,20 @@ func (f launchFailure) Unwrap() error { return f.err }
 // launchMessage is the text of a launch failure on the NodeClaim's launch
 // condition and in events: "<Class> (<Code>): <vendor message>". k8s-inspector
 // reads the class from it.
+//
+// Only the documented classes appear: an error without a class, and a class that
+// is not a launch outcome (NotFound, RegionUnavailable), is Fatal.
 func launchMessage(err error) string {
-	if e, ok := errors.AsType[*vendors.Error](err); ok {
+	e, ok := errors.AsType[*vendors.Error](err)
+	if !ok {
+		e = vendors.NewError(vendors.Fatal, "", err)
+	}
+	switch e.Class {
+	case vendors.InsufficientCapacity, vendors.ZoneUnusable, vendors.QuotaExceeded, vendors.DailyLimit,
+		vendors.Retryable, vendors.Unsupported, vendors.InvalidOffering, vendors.Fatal:
 		return e.Error()
 	}
-	return vendors.NewError(vendors.Fatal, "", err).Error()
+	return vendors.NewError(vendors.Fatal, e.Code, e.Err).Error()
 }
 
 // launch prepares the resources of the candidate and makes the vendor call.

@@ -1078,7 +1078,7 @@ message or an account identifier. Codes are API: additions only, never renamed.
 - **The listing names the launch-error class and the expiry of a cache mark.** In the offered listing an offering
   with the code `UnavailableCache` carries the class of the launch error (`InsufficientCapacity`, `QuotaExceeded`,
   `DailyLimit`, `Unsupported`, `ZoneUnusable`, `InvalidOffering`, `Interrupted`) as its `reason` and the RFC3339 expiry
-  as `until`, so automation that plans launches skips it without launching. The other codes are listed as before.
+  as `until`, so automation that plans launches skips it without launching. Every other unavailable offering carries its reason code.
 
 Rejected:
 
