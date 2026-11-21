@@ -223,6 +223,17 @@ func (c *CloudProvider) GetInstanceTypes(
 		}
 		return nil, fmt.Errorf("resolving the NodeClass: %w", err)
 	}
+	// While the catalog and the driver facts load after a start the list is
+	// incomplete. Core reads an incomplete list as "instance type not found" and
+	// marks every NodeClaim Drifted, so report an error instead.
+	if !c.opts.Catalog.Loaded(nc.Name) {
+		return nil, fmt.Errorf("the catalog of the NodeClass %s is not loaded yet", nc.Name)
+	}
+	for v := range readyVendors(nc) {
+		if !c.opts.Catalog.FactsLoaded(v) {
+			return nil, fmt.Errorf("the driver facts of %s are not loaded yet", v)
+		}
+	}
 	reqs := scheduling.NewNodeSelectorRequirementsWithMinValues(nodePool.Spec.Template.Spec.Requirements...)
 	its, err := c.opts.Catalog.InstanceTypes(ctx, catalog.Query{Class: nc.Name, Filter: catalog.NewFilter(reqs)})
 	if err != nil {

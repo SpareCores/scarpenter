@@ -915,6 +915,21 @@ func TestCreateRequiresAReadyNodeClass(t *testing.T) {
 	})
 }
 
+// Core marks every NodeClaim Drifted (InstanceTypeNotFound) when the list lacks
+// its type, so the list of a start that has not loaded the facts is an error.
+func TestGetInstanceTypesFailsUntilTheDriverFactsAreLoaded(t *testing.T) {
+	e := newEnv(t, envOptions{skipFacts: true})
+	if its, err := e.cp.GetInstanceTypes(t.Context(), nodePool()); err == nil {
+		t.Fatalf("GetInstanceTypes = %d types, nil error before the facts are loaded", len(its))
+	}
+	if err := e.facts.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if its, err := e.cp.GetInstanceTypes(t.Context(), nodePool()); err != nil || len(its) == 0 {
+		t.Errorf("GetInstanceTypes = %d types, %v after the facts are loaded", len(its), err)
+	}
+}
+
 func TestGetInstanceTypesFiltersByTheNodePoolRequirements(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	pool := nodePool()
