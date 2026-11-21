@@ -25,12 +25,14 @@ func (d *Driver) MetadataEndpoints() vendors.MetadataEndpoints {
 
 // dnsFragment makes the node resolve through Alibaba's public resolvers. The
 // DHCP resolvers (100.100.2.136 and 100.100.2.138) lie inside 100.64.0.0/10,
-// Tailscale's CGNAT range: after the node joins the tailnet, tailscaled's
-// handling of that range breaks traffic with Alibaba's 100.100.x service
-// addresses, and the node can no longer resolve the API server's name. The
-// metadata service (100.100.100.200) and any 100.100.x NTP server are in the
-// range too, so this fixes DNS only. A drop-in of the image's default network
-// unit sets the public resolvers and ignores the DHCP ones.
+// Tailscale's CGNAT range. Once the node joins the tailnet, tailscaled drops
+// the packets from that range that arrive outside tailscale0 (its ts-input
+// chain), and the replies of Alibaba's 100.100.x services arrive on eth0: the
+// node could no longer resolve the API server's name. The metadata service
+// (100.100.100.200) is unreachable after the join as well, which nothing in the
+// node bootstrap uses by then, and time sync uses public NTP. So this moves
+// only DNS. A drop-in of the image's default network unit sets the public
+// resolvers and ignores the DHCP ones.
 const dnsFragment = `variant: flatcar
 version: 1.1.0
 storage:

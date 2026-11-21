@@ -200,10 +200,11 @@ scenario checks that a Pod and a host-network Pod reach nothing and the allowed 
 ## DNS and the tailnet
 
 ECS hands out the resolvers `100.100.2.136` and `100.100.2.138` over DHCP. Both lie inside `100.64.0.0/10`, Tailscale's CGNAT
-range. After the node joins the tailnet, tailscaled's handling of that range breaks traffic with Alibaba's `100.100.x` service
-addresses, so with the `tailscale` network template the node could not resolve the API server's name and never registered.
-The metadata service (`100.100.100.200`) and any `100.100.x` NTP server are in that range too: this fix moves only DNS to
-public resolvers.
+range. Once the node joins the tailnet, tailscaled drops the packets from that range that arrive outside `tailscale0` (its
+`ts-input` chain), and the replies of Alibaba's `100.100.x` services arrive on `eth0`. With the `tailscale` network template the
+node could therefore not resolve the API server's name and never registered. The metadata service (`100.100.100.200`) is
+unreachable from a tailnet node after the join as well; nothing in the node bootstrap uses it by then. Time sync uses public NTP
+and is unaffected.
 
 The driver contributes a fragment (`vendors.VendorBootFragments`, always on, whatever `spec.instanceMetadata.access` says): a
 drop-in of the image's default network unit (`zz-default.network`) that sets Alibaba's public resolvers `223.5.5.5` and
