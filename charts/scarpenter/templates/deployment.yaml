@@ -401,10 +401,16 @@ spec:
           ports:
             - name: health
               containerPort: {{ .Values.karpenter.healthProbePort }}
+              {{- if $.Values.hostNetwork }}
+              hostPort: {{ .Values.karpenter.healthProbePort }}
+              {{- end }}
               protocol: TCP
             {{- if .Values.metrics.enabled }}
             - name: metrics
               containerPort: {{ .Values.karpenter.metricsPort }}
+              {{- if $.Values.hostNetwork }}
+              hostPort: {{ .Values.karpenter.metricsPort }}
+              {{- end }}
               protocol: TCP
             {{- end }}
           livenessProbe:
