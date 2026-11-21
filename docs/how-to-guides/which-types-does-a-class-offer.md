@@ -76,4 +76,4 @@ nothing.
 It is the class-level view: no NodePool filter and no pinned selection profile, so `Unrankable`, `NodePoolRequirement` and
 `NodePoolPreFilter` never appear, and Karpenter-side removals (requests that do not fit, `minValues`, NodePool limits) are not
 SCarpenter's to see. A type that the listing shows available can still be refused by a NodePool.
-If someone deletes the ConfigMap it comes back with the next change or a controller restart.
+If someone deletes the ConfigMap it comes back with the next change or heartbeat, within 10 minutes.

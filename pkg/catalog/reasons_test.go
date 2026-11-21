@@ -553,8 +553,8 @@ func (f *loadingFacts) Zones(vendor string) (map[string][]catalog.Zone, bool) {
 	return f.StaticFacts.Zones(vendor)
 }
 
-func (f *loadingFacts) Loaded() bool  { return f.loaded.Load() }
-func (f *loadingFacts) Epoch() uint64 { return f.epoch.Load() }
+func (f *loadingFacts) Loaded(string) bool { return f.loaded.Load() }
+func (f *loadingFacts) Epoch() uint64      { return f.epoch.Load() }
 func (f *loadingFacts) load() {
 	f.loaded.Store(true)
 	f.epoch.Add(1)

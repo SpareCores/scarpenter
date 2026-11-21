@@ -113,6 +113,23 @@ func TestListingTypeStates(t *testing.T) {
 	if len(lt.Offerings) != 2 {
 		t.Errorf("offerings %+v", lt.Offerings)
 	}
+	// More zones left out than gated: the type is still gated.
+	left := catalog.Reason{Code: catalog.ZoneNotAvailable, Detail: "r"}
+	lt = listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+		{CapacityType: "on-demand", Zone: "z1", Reason: gate},
+		{CapacityType: "on-demand", Zone: "z2", Removed: true, Reason: left},
+		{CapacityType: "on-demand", Zone: "z3", Removed: true, Reason: left},
+	}})
+	if lt.Reason != "QuotaGate" || lt.Detail != gate.Detail {
+		t.Errorf("gated with zones left out: %+v", lt)
+	}
+	// Only left-out zones: their reason.
+	lt = listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+		{CapacityType: "on-demand", Zone: "z2", Removed: true, Reason: left},
+	}})
+	if lt.Reason != "ZoneNotAvailable" {
+		t.Errorf("only left out: %+v", lt)
+	}
 }
 
 // A listing past the cap is cut, says so, and keeps the types that are not

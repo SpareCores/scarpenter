@@ -67,10 +67,10 @@ type RegionPricedFacts interface {
 }
 
 // LoadedFacts is an optional extension of Facts: the drivers' facts are loaded
-// in the background, and until they are every vendor has no zones, so every
-// type looks unavailable. Surfaces that report what is offered wait for Loaded.
+// in the background, and until a vendor's are it has no zones, so every type of
+// it looks unavailable. Surfaces that report what is offered wait for Loaded.
 type LoadedFacts interface {
-	Loaded() bool
+	Loaded(vendor string) bool
 }
 
 // LaunchableFacts is an optional extension of Facts: the driver's

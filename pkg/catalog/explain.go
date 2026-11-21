@@ -240,9 +240,7 @@ func (c *Catalog) LogNodePool(ctx context.Context, class, nodePool string, reqs 
 func (c *Catalog) logChanges(ctx context.Context, snap *snapshot, class *Class, gen, nodePool string, q Query,
 	only func(Code) bool) {
 	logger := log.FromContext(ctx)
-	// Before the facts load every offering is "ZoneNotAvailable": not a state to
-	// log. The load changes the facts epoch, so the first report follows it.
-	if !logger.V(1).Enabled() || !c.FactsLoaded() {
+	if !logger.V(1).Enabled() {
 		return
 	}
 	if nodePool != "" {
@@ -258,7 +256,12 @@ func (c *Catalog) logChanges(ctx context.Context, snap *snapshot, class *Class, 
 	if last, ok := l.gen[scope]; ok && l.inputs[scope] == input && (last == gen || genOlder(gen, last)) {
 		return
 	}
-	cur := c.explain(snap, class, q).states(only)
+	// Before a vendor's facts load every offering of it is "ZoneNotAvailable":
+	// not a state to log. The load changes the facts epoch, so the first report
+	// of the vendor follows it.
+	report := c.explain(snap, class, q)
+	report.Types = slices.DeleteFunc(report.Types, func(t TypeReport) bool { return !c.FactsLoaded(t.Vendor) })
+	cur := report.states(only)
 	prev, seen := l.states[scope]
 	if l.gen == nil {
 		l.gen, l.inputs, l.states = map[string]string{}, map[string]string{}, map[string]map[stateKey]Reason{}

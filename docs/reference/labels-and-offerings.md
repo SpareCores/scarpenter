@@ -404,10 +404,11 @@ The block is at most a few KiB however large the catalog is: there is no
 per-type or per-offering data in it (the details of a reason, a quota bucket or
 a cache expiry, are in the logs and the listing). The controller `offered-types`
 evaluates a class at most every 30 s, writes with server-side apply under the
-field manager `scarpenter-offered` and only when a count or a name changed. It
-reports nothing until the driver facts are loaded (before that every offering
-would look like `ZoneNotAvailable`) and while the catalog has no data for the
-class. `VendorNotReady` is not in the block: the vendor's conditions say it.
+field manager `scarpenter-offered`, the blocks of all vendors in one apply,
+and only when a count or a name changed. It reports nothing for a vendor until
+its driver facts are loaded (before that every offering of it would look like
+`ZoneNotAvailable`; a vendor whose facts keep failing holds back no other), and
+nothing while the catalog has no data for the class. `VendorNotReady` is not in the block: the vendor's conditions say it.
 
 ### The offered listing
 
@@ -432,12 +433,12 @@ it changes no hash. Without the annotation, or when the vendor leaves the class,
 
 | Field | Meaning |
 |---|---|
-| `generatedAt` | when the listing was written: on every change and at least every 10 minutes, so it trails by about 10 minutes at most while the controller runs; treat one older than 30 minutes as stale |
+| `generatedAt` | when the listing was written: on every change and at least every 10 minutes, so it trails by about 10 minutes at most while the controller runs and has the vendor's driver facts; treat one older than 30 minutes as stale |
 | `truncated` | the 800 KiB cap was hit: the types that are not available are kept first, so the available ones may be incomplete (OCI is about 60 KiB) |
 | `types` | by instance type name (`node.kubernetes.io/instance-type`, `<vendor>.<server id>`): every type of the catalog, offered or dropped at build time |
 | `apiReference` | the value of the `scarpenter.sparecores.com/api-reference` label; omitted when the type has no such label |
 | `available`, `capacityTypes` | at least one offering is available; the capacity types that have one |
-| `reason`, `detail` | only when `available` is false: the dominant class-level [reason code](#why-a-type-or-an-offering-is-not-offered) and its data as text for humans, never to be parsed |
+| `reason`, `detail` | only when `available` is false: the dominant class-level [reason code](#why-a-type-or-an-offering-is-not-offered) (the one of the most offerings, those Karpenter is given before the left-out ones, so a gated type says `QuotaGate`) and its data as text for humans, never to be parsed |
 | `offerings` | grouped by capacity type, state and reason, with the zones that share them; empty for a type dropped at build time (its `reason` is the build's) |
 
 Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is

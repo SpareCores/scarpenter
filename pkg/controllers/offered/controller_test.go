@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -31,6 +32,7 @@ import (
 	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/controllers/offered"
@@ -52,19 +54,39 @@ func (g *regionGate) Unavailable(_, _, region, _, _ string) (catalog.Reason, boo
 	return catalog.Reason{}, false
 }
 
+// hcloudLoading are facts whose hcloud vendor is loaded only once loaded is set,
+// as the driver facts of a vendor whose load keeps failing.
+type hcloudLoading struct {
+	catalog.StaticFacts
+	loaded *atomic.Bool
+}
+
+func (f hcloudLoading) Loaded(vendor string) bool { return vendor != "hcloud" || f.loaded.Load() }
+
 // env is a manager running the controller against an envtest API server, with
 // a catalog over the AWS fixtures.
 type env struct {
-	c      client.Client
-	cat    *catalog.Catalog
-	un     *unavailable.Cache
-	clk    *clocktesting.FakeClock
-	gate   *regionGate
-	ctx    context.Context
-	scheme *runtime.Scheme
+	c    client.Client
+	cat  *catalog.Catalog
+	un   *unavailable.Cache
+	clk  *clocktesting.FakeClock
+	gate *regionGate
+	// hcloudLoaded says that the facts of hcloud are loaded (startWith only).
+	hcloudLoaded atomic.Bool
+	ctx          context.Context
+	scheme       *runtime.Scheme
 }
 
 func start(t *testing.T, annotations map[string]string, tune func(*offered.Options, *env)) *env {
+	t.Helper()
+	return startWith(t, false, annotations, tune)
+}
+
+// hcloudRegions is the second vendor of startWith.
+var hcloudRegions = []string{"fsn1", "nbg1"}
+
+// startWith adds hcloud as a second vendor of the class when twoVendors is set.
+func startWith(t *testing.T, twoVendors bool, annotations map[string]string, tune func(*offered.Options, *env)) *env {
 	t.Helper()
 	cfg, stop, err := testutil.StartEnv()
 	if err != nil {
@@ -91,6 +113,11 @@ func start(t *testing.T, annotations map[string]string, tune func(*offered.Optio
 			Vendors:    v1alpha1.VendorBlocks{AWS: &aws.Settings{Regions: regions}},
 		},
 	}
+	scope, factVendors := catalog.Scope{"aws": regions}, []string{"aws"}
+	if twoVendors {
+		nc.Spec.Vendors.HCloud = &hcloud.Settings{Regions: hcloudRegions}
+		scope["hcloud"], factVendors = hcloudRegions, append(factVendors, "hcloud")
+	}
 	if err := c.Create(t.Context(), nc); err != nil {
 		t.Fatal(err)
 	}
@@ -98,9 +125,10 @@ func start(t *testing.T, annotations map[string]string, tune func(*offered.Optio
 	e := &env{c: c, clk: clocktesting.NewFakeClock(time.Now()), gate: &regionGate{}, scheme: scheme}
 	e.un = unavailable.New(e.clk, unavailable.TTLs{})
 	e.cat = catalog.New(catalog.Options{
-		Source: catalogtest.Source(t), Facts: catalogtest.Facts(t, "aws"), Unavailable: e.un, Gate: e.gate, Clock: e.clk,
+		Source: catalogtest.Source(t), Facts: hcloudLoading{catalogtest.Facts(t, factVendors...), &e.hcloudLoaded},
+		Unavailable: e.un, Gate: e.gate, Clock: e.clk,
 	})
-	e.cat.SetClasses([]catalog.Class{catalog.NewClass(className, catalog.Scope{"aws": regions})})
+	e.cat.SetClasses([]catalog.Class{catalog.NewClass(className, scope)})
 	if err := e.cat.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -275,6 +303,8 @@ func TestListingConfigMapLifecycle(t *testing.T) {
 	if !slices.ContainsFunc(cm.ManagedFields, func(mf metav1.ManagedFieldsEntry) bool { return mf.Manager == offered.FieldManager }) {
 		t.Errorf("no managed fields for %s", offered.FieldManager)
 	}
+	checkContract(t, cm)
+	checkAgreesWithInstanceTypes(t, e, l)
 	var first string
 	for name, lt := range l.Types {
 		if strings.HasPrefix(name, "aws.") && lt.Available && len(lt.CapacityTypes) > 0 {
@@ -286,19 +316,23 @@ func TestListingConfigMapLifecycle(t *testing.T) {
 		t.Fatal("no available aws type")
 	}
 
-	// A gate shows in the listing.
+	// A gate on one region shows in the listing, on the zones of that region
+	// only: the types offered in both regions stay available.
 	e.gate.region.Store(regions[0])
+	gatedZones := map[string]bool{}
+	for _, z := range catalogtest.Facts(t, "aws").ZonesByVendor["aws"][regions[0]] {
+		gatedZones[z.Name] = true
+	}
 	eventually(t, "the gate in the listing", func() error {
-		l, _, err := e.listing(name)
+		l, cm, err := e.listing(name)
 		if err != nil {
 			return err
 		}
-		for _, lt := range l.Types {
-			if !lt.Available && lt.Reason == "QuotaGate" {
-				return nil
-			}
+		if err := gatedIn(l, gatedZones); err != nil {
+			return err
 		}
-		return fmt.Errorf("no type is gated yet")
+		checkContract(t, cm)
+		return nil
 	})
 	e.gate.region.Store("")
 	eventually(t, "the gate clears", func() error {
@@ -374,4 +408,173 @@ func TestNoListingWithoutTheAnnotation(t *testing.T) {
 	if len(list.Items) != 0 {
 		t.Errorf("%d ConfigMaps without the annotation", len(list.Items))
 	}
+}
+
+// Two vendors of one class keep both summaries, and a quiet catalog then writes
+// nothing: each vendor's apply must not drop the other's block. A vendor whose
+// facts are not loaded is not reported and holds back no other.
+func TestOfferedStatusOfTwoVendors(t *testing.T) {
+	e := startWith(t, true, nil, nil)
+	e.expect(t, "aws before hcloud loads", func(o *v1alpha1.OfferedStatus) bool { return o.Types > 0 })
+	var nc v1alpha1.SCNodeClass
+	if err := e.c.Get(e.ctx, client.ObjectKey{Name: className}, &nc); err != nil {
+		t.Fatal(err)
+	}
+	if o := nc.Status.Vendors["hcloud"].Offered; o != nil {
+		t.Fatalf("hcloud reported before its facts loaded: %+v", o)
+	}
+	e.hcloudLoaded.Store(true)
+	var rv string
+	eventually(t, "both summaries", func() error {
+		var got v1alpha1.SCNodeClass
+		if err := e.c.Get(e.ctx, client.ObjectKey{Name: className}, &got); err != nil {
+			return err
+		}
+		for _, v := range []string{"aws", "hcloud"} {
+			if o := got.Status.Vendors[v].Offered; o == nil || o.Types == 0 {
+				return fmt.Errorf("%s: %+v", v, o)
+			}
+		}
+		rv = got.ResourceVersion
+		return nil
+	})
+	time.Sleep(time.Second)
+	if _, again, _ := e.offered(); again != rv {
+		t.Errorf("the object was written again while nothing changed: %s -> %s", rv, again)
+	}
+}
+
+// checkContract decodes the ConfigMap as a reader does and checks the layout of
+// the consumer contract: the keys, the field names and when they are omitted.
+func checkContract(t *testing.T, cm *corev1.ConfigMap) {
+	t.Helper()
+	if len(cm.Data) != 1 || len(cm.BinaryData) != 0 {
+		t.Fatalf("keys %v", cm.Data)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(cm.Data["types.json"]), &doc); err != nil {
+		t.Fatal(err)
+	}
+	keys := func(m map[string]any) []string { return slices.Sorted(maps.Keys(m)) }
+	if got := keys(doc); !slices.Equal(got, []string{"class", "generatedAt", "truncated", "types", "vendor"}) {
+		t.Fatalf("top-level keys %v", got)
+	}
+	if _, err := time.Parse(time.RFC3339, doc["generatedAt"].(string)); err != nil {
+		t.Errorf("generatedAt: %v", err)
+	}
+	if doc["class"] != className || doc["vendor"] != "aws" || doc["truncated"] != false {
+		t.Errorf("header %v %v %v", doc["class"], doc["vendor"], doc["truncated"])
+	}
+	for name, v := range doc["types"].(map[string]any) {
+		ty := v.(map[string]any)
+		available := ty["available"].(bool)
+		want := []string{"available", "capacityTypes", "offerings"}
+		if _, ok := ty["apiReference"]; ok {
+			want = append(want, "apiReference")
+			if "aws."+ty["apiReference"].(string) != name {
+				t.Errorf("%s: apiReference %v", name, ty["apiReference"])
+			}
+		}
+		if !available {
+			want = append(want, "reason")
+			if _, ok := ty["detail"]; ok {
+				want = append(want, "detail")
+			}
+		}
+		slices.Sort(want)
+		if got := keys(ty); !slices.Equal(got, want) {
+			t.Fatalf("%s: keys %v, want %v", name, got, want)
+		}
+		if !strings.HasPrefix(name, "aws.") || ty["reason"] == "" {
+			t.Errorf("%s: %v", name, ty)
+		}
+		cts, offerings := ty["capacityTypes"].([]any), ty["offerings"].([]any)
+		if available == (len(cts) == 0) {
+			t.Errorf("%s: available %v with capacity types %v", name, available, cts)
+		}
+		for _, raw := range offerings {
+			o := raw.(map[string]any)
+			want := []string{"available", "capacityType", "zones"}
+			if !o["available"].(bool) {
+				want = append(want, "reason")
+			} else if !slices.Contains(cts, o["capacityType"]) {
+				t.Errorf("%s: available offering %v not in %v", name, o, cts)
+			}
+			slices.Sort(want)
+			if got := keys(o); !slices.Equal(got, want) || len(o["zones"].([]any)) == 0 {
+				t.Fatalf("%s: offering %v", name, o)
+			}
+		}
+	}
+}
+
+// checkAgreesWithInstanceTypes checks the listing against what the catalog
+// hands Karpenter: the same types, and an available zone in the listing is one
+// with an available offering of that capacity type.
+func checkAgreesWithInstanceTypes(t *testing.T, e *env, l *offered.Listing) {
+	t.Helper()
+	its, err := e.cat.InstanceTypes(e.ctx, catalog.Query{Class: className})
+	if err != nil {
+		t.Fatal(err)
+	}
+	given := map[string]map[string]bool{} // type -> capacity type/zone -> available
+	for _, it := range its {
+		given[it.Name] = map[string]bool{}
+		for _, o := range it.Offerings {
+			given[it.Name][o.CapacityType()+"/"+o.Zone()] = o.Available
+		}
+	}
+	for name, lt := range l.Types {
+		g, ok := given[name]
+		if ok == (len(lt.Offerings) == 0) {
+			t.Errorf("%s: given to Karpenter %v, listed %+v", name, ok, lt)
+			continue
+		}
+		for _, o := range lt.Offerings {
+			for _, z := range o.Zones {
+				if avail := g[o.CapacityType+"/"+z]; o.Available != avail {
+					t.Errorf("%s %s/%s: listed available=%v, given available=%v", name, o.CapacityType, z, o.Available, avail)
+				}
+			}
+		}
+	}
+	for name, g := range given {
+		lt, ok := l.Types[name]
+		for key, avail := range g {
+			ct, z, _ := strings.Cut(key, "/")
+			listed := slices.ContainsFunc(lt.Offerings, func(o offered.ListingOffering) bool {
+				return o.CapacityType == ct && o.Available == avail && slices.Contains(o.Zones, z)
+			})
+			if !ok || !listed {
+				t.Errorf("%s %s is given to Karpenter (available=%v) but not listed so", name, key, avail)
+			}
+		}
+	}
+}
+
+// gatedIn checks a listing with a quota gate on the zones gatedZones: QuotaGate
+// is on those zones only, none of them is available, a type gated everywhere
+// says QuotaGate with the bucket, and some type stays available elsewhere.
+func gatedIn(l *offered.Listing, gatedZones map[string]bool) error {
+	partly := false
+	for n, lt := range l.Types {
+		for _, o := range lt.Offerings {
+			for _, z := range o.Zones {
+				if (o.Reason == "QuotaGate" && !gatedZones[z]) || (o.Available && gatedZones[z]) {
+					return fmt.Errorf("zone %s of %s: %+v", z, n, o)
+				}
+			}
+			partly = partly || (lt.Available && o.Reason == "QuotaGate")
+		}
+		allGated := len(lt.Offerings) > 0 && !slices.ContainsFunc(lt.Offerings, func(o offered.ListingOffering) bool {
+			return o.Reason != "QuotaGate"
+		})
+		if allGated && (lt.Available || lt.Reason != "QuotaGate" || !strings.HasPrefix(lt.Detail, "bucket ")) {
+			return fmt.Errorf("%s: %+v", n, lt)
+		}
+	}
+	if !partly {
+		return fmt.Errorf("no type is gated in one region yet")
+	}
+	return nil
 }

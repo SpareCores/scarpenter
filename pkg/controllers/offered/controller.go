@@ -117,26 +117,27 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if wait := c.wait(nc.Name); wait > 0 {
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
-	// Before the driver facts are loaded every type looks unavailable, and
-	// without a catalog for the class there is nothing to say.
+	// Without a catalog for the class there is nothing to say.
 	st := c.opts.Catalog.Status(nc.Name)
-	if !c.opts.Catalog.FactsLoaded() || (!st.Ready && st.Reason != "Stale") {
+	if !st.Ready && st.Reason != "Stale" {
 		return reconcile.Result{RequeueAfter: c.opts.Interval}, nil
 	}
 	report, err := c.opts.Catalog.Explain(ctx, catalog.Query{Class: nc.Name})
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("explaining the offered types of %s: %w", nc.Name, err)
 	}
+	// Before a vendor's driver facts are loaded every type of it looks
+	// unavailable: such a vendor is left as it is, the others are reported.
+	report.Types = slices.DeleteFunc(report.Types, func(t catalog.TypeReport) bool {
+		return !c.opts.Catalog.FactsLoaded(t.Vendor)
+	})
 	c.mu.Lock()
 	c.last[nc.Name] = c.opts.Clock.Now()
 	c.mu.Unlock()
 
 	c.metrics.record(nc.Name, report)
-	summaries := report.Summaries()
-	for _, vendor := range nc.Spec.Vendors.Names() {
-		if err := c.applyStatus(ctx, &nc, vendor, summaries[vendor]); err != nil {
-			return reconcile.Result{}, err
-		}
+	if err := c.applyStatus(ctx, &nc, report.Summaries()); err != nil {
+		return reconcile.Result{}, err
 	}
 	if err := c.publish(ctx, &nc, report); err != nil {
 		return reconcile.Result{}, err
@@ -200,14 +201,52 @@ func sameReason(a, b v1alpha1.OfferedReason) bool {
 	return a.Reason == b.Reason && a.Count == b.Count && slices.Equal(a.Types, b.Types)
 }
 
-func (c *Controller) applyStatus(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string,
-	s catalog.Summary) error {
-	want := statusOf(s)
-	if cur := nc.Status.Vendors[vendor].Offered; cur != nil && sameContent(*cur, want) {
+// applyStatus writes the blocks of every vendor in one apply, when any of them
+// changed: an apply drops the fields this manager owned and left out, so one
+// apply per vendor would remove the other vendors' blocks.
+func (c *Controller) applyStatus(ctx context.Context, nc *v1alpha1.SCNodeClass,
+	summaries map[string]catalog.Summary) error {
+	now := metav1.NewTime(c.opts.Clock.Now().Truncate(time.Minute))
+	vendors := map[string]any{}
+	changed := false
+	for _, vendor := range nc.Spec.Vendors.Names() {
+		if !c.opts.Catalog.FactsLoaded(vendor) {
+			// Kept as it is: left out of the apply, it would be removed.
+			if cur := nc.Status.Vendors[vendor].Offered; cur != nil {
+				vendors[vendor] = map[string]any{"offered": offeredBlock(*cur)}
+			}
+			continue
+		}
+		want := statusOf(summaries[vendor])
+		if cur := nc.Status.Vendors[vendor].Offered; cur != nil && sameContent(*cur, want) {
+			want.ObservedAt = cur.ObservedAt
+		} else {
+			want.ObservedAt, changed = now, true
+		}
+		vendors[vendor] = map[string]any{"offered": offeredBlock(want)}
+	}
+	if !changed {
 		return nil
 	}
-	want.ObservedAt = metav1.NewTime(c.opts.Clock.Now().Truncate(time.Minute))
+	u := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": v1alpha1.GroupVersion.String(),
+		"kind":       kindSCNodeClass,
+		"metadata":   map[string]any{"name": nc.Name},
+		"status":     map[string]any{"vendors": vendors},
+	}}
+	err := c.opts.Client.SubResource("status").Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
+		client.FieldOwner(FieldManager), client.ForceOwnership)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("applying the offered types status of %s: %w", nc.Name, err)
+	}
+	return nil
+}
 
+// offeredBlock is the apply body of one vendor's block.
+func offeredBlock(o v1alpha1.OfferedStatus) map[string]any {
 	reasons := func(in []v1alpha1.OfferedReason) []any {
 		out := make([]any, len(in))
 		for i, r := range in {
@@ -220,30 +259,16 @@ func (c *Controller) applyStatus(ctx context.Context, nc *v1alpha1.SCNodeClass, 
 		return out
 	}
 	block := map[string]any{
-		"types": int64(want.Types), "offerings": int64(want.Offerings), "availableOfferings": int64(want.AvailableOfferings),
-		"observedAt": want.ObservedAt.UTC().Format(time.RFC3339),
+		"types": int64(o.Types), "offerings": int64(o.Offerings), "availableOfferings": int64(o.AvailableOfferings),
+		"observedAt": o.ObservedAt.UTC().Format(time.RFC3339),
 	}
-	if len(want.Dropped) > 0 {
-		block["dropped"] = reasons(want.Dropped)
+	if len(o.Dropped) > 0 {
+		block["dropped"] = reasons(o.Dropped)
 	}
-	if len(want.Unavailable) > 0 {
-		block["unavailable"] = reasons(want.Unavailable)
+	if len(o.Unavailable) > 0 {
+		block["unavailable"] = reasons(o.Unavailable)
 	}
-	u := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": v1alpha1.GroupVersion.String(),
-		"kind":       kindSCNodeClass,
-		"metadata":   map[string]any{"name": nc.Name},
-		"status":     map[string]any{"vendors": map[string]any{vendor: map[string]any{"offered": block}}},
-	}}
-	err := c.opts.Client.SubResource("status").Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
-		client.FieldOwner(FieldManager), client.ForceOwnership)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("applying the offered types status of %s/%s: %w", nc.Name, vendor, err)
-	}
-	return nil
+	return block
 }
 
 func toAny(in []string) []any {

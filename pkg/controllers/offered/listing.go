@@ -122,6 +122,13 @@ func listingType(t catalog.TypeReport) ListingType {
 	groups := map[group][]string{}
 	counts := map[catalog.Code]int{}
 	details := map[catalog.Code]string{}
+	// The dominant reason is taken from the offerings Karpenter is given, when
+	// any is unavailable: one left out (its zone, price or launchability) cannot
+	// become available, so a gated type with more left-out zones still says
+	// QuotaGate.
+	listedDown := slices.ContainsFunc(t.Offerings, func(o catalog.OfferingReport) bool {
+		return !o.Available && !o.Removed
+	})
 	for _, o := range t.Offerings {
 		available := o.Available && !o.Removed
 		g := group{o.CapacityType, string(o.Reason.Code), available}
@@ -131,6 +138,9 @@ func listingType(t catalog.TypeReport) ListingType {
 			if !slices.Contains(lt.CapacityTypes, o.CapacityType) {
 				lt.CapacityTypes = append(lt.CapacityTypes, o.CapacityType)
 			}
+			continue
+		}
+		if o.Removed && listedDown {
 			continue
 		}
 		if counts[o.Reason.Code]++; details[o.Reason.Code] == "" {

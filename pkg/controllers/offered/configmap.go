@@ -88,6 +88,9 @@ func (c *Controller) publish(ctx context.Context, nc *v1alpha1.SCNodeClass, repo
 		return nil
 	}
 	for name, vendor := range wanted {
+		if !c.opts.Catalog.FactsLoaded(vendor) {
+			continue // written once the vendor's facts are loaded
+		}
 		var types []catalog.TypeReport
 		for _, t := range report.Types {
 			if t.Vendor == vendor {
