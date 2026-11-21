@@ -27,6 +27,8 @@ spec:
             - {name: scratch, size: 10G, filesystem: ext4, mountPath: /var/lib/scratch}
   vendors:
     hcloud:
+      # The run\'s SSH key (bootstrap.sh): servers created with one get no e-mailed root password.
+      sshKey: "${E2E_CLUSTER}"
       regions: [${E2E_HCLOUD_LOCATIONS_YAML}]
       resources:
         firewalls: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

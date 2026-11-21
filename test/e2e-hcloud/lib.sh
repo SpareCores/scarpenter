@@ -138,7 +138,7 @@ cluster_servers() {
 }
 
 # cluster_leaks <kind>: IDs of the cluster's objects of a kind (server, volume, placement-group,
-# firewall, network, primary-ip).
+# firewall, network, primary-ip, ssh-key).
 cluster_leaks() {
   hc "$1" list -l "${ctag}=${E2E_CLUSTER}" -o noheader -o columns=id | sed '/^$/d'
 }

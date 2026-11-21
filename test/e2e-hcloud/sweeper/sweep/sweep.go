@@ -5,7 +5,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
 // Package sweep finds and deletes what a test cluster of the Hetzner Cloud L5 lane left in a
-// project: servers, volumes, placement groups, firewalls and unassigned Primary IPs, selected by
+// project: servers, volumes, placement groups, firewalls, SSH keys and unassigned Primary IPs, selected by
 // the label scarpenter.sparecores.com/cluster, and the servers and SSH keys of the controller's
 // Flatcar snapshot builds (ADR-030), selected by scarpenter.sparecores.com/image-build. It is the sweeper
 // workflow's engine (every three hours, everything of a cluster named scarpenter-ci-* older
@@ -133,7 +133,7 @@ func Run(ctx context.Context, api hcloud.API, ips IPLister, o Options) (*Report,
 	s := &sweeper{api: api, ips: ips, o: o, rep: &Report{}}
 	var errs []error
 	for _, step := range []func(context.Context) error{
-		s.servers, s.buildKeys, s.volumes, s.placementGroups, s.firewalls, s.primaryIPs,
+		s.servers, s.sshKeys, s.volumes, s.placementGroups, s.firewalls, s.primaryIPs,
 	} {
 		if err := step(ctx); err != nil {
 			errs = append(errs, err)
@@ -275,11 +275,16 @@ func (s *sweeper) waitGone(ctx context.Context, ids []int64) error {
 	}
 }
 
-// buildKeys deletes the SSH keys of the controller's snapshot builds.
-func (s *sweeper) buildKeys(ctx context.Context) error {
-	list, err := s.api.SSHKeys(ctx, hc.SSHKeyListOpts{ListOpts: hc.ListOpts{LabelSelector: hcloud.LabelImageBuild}})
-	if err != nil {
-		return fmt.Errorf("listing image build SSH keys: %w", err)
+// sshKeys deletes the SSH keys of the lane's clusters (the run's key that keeps Hetzner from
+// e-mailing root passwords) and of the controller's snapshot builds.
+func (s *sweeper) sshKeys(ctx context.Context) error {
+	var list []*hc.SSHKey
+	for _, selector := range []string{present, hcloud.LabelImageBuild} {
+		keys, err := s.api.SSHKeys(ctx, hc.SSHKeyListOpts{ListOpts: hc.ListOpts{LabelSelector: selector}})
+		if err != nil {
+			return fmt.Errorf("listing SSH keys (%s): %w", selector, err)
+		}
+		list = append(list, keys...)
 	}
 	for _, k := range list {
 		s.handle("ssh-key", k.ID, k.Name, k.Labels, k.Created, func() error { return s.api.DeleteSSHKey(ctx, k) })

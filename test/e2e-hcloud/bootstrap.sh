@@ -18,7 +18,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/e2e-hcloud/lib.sh
 source "${here}/lib.sh"
-need E2E_OUT KUBECONFIG HCLOUD_TOKEN
+need E2E_CLUSTER E2E_CREATED_AT E2E_OUT KUBECONFIG HCLOUD_TOKEN
 mkdir -p "${E2E_OUT}"
 
 log "installing hcloud"
@@ -32,6 +32,17 @@ hc server list -o noheader >/dev/null || {
   echo "the Hetzner token does not work (HCLOUD_TOKEN)" >&2
   exit 1
 }
+
+# The run's SSH key, named like the cluster and labelled like its other resources (teardown and the
+# sweeper delete it). Servers created without a key make Hetzner e-mail a root password to every
+# project member; the nodes need no login (Ignition), so the private key is thrown away and only the
+# public key is uploaded.
+log "creating the run's SSH key"
+keydir="$(mktemp -d)"
+ssh-keygen -q -t ed25519 -N "" -C "${E2E_CLUSTER}" -f "${keydir}/key"
+hc ssh-key create --name "${E2E_CLUSTER}" --public-key-from-file "${keydir}/key.pub" \
+  --label "${ctag}=${E2E_CLUSTER}" --label "ci-created-at=${E2E_CREATED_AT}" >/dev/null
+rm -rf "${keydir}"
 
 tsip="$(tailscale ip -4 | head -n1)"
 [[ -n "${tsip}" ]] || {

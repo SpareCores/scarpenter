@@ -248,3 +248,21 @@ func TestImageBuildLeftoversAreSwept(t *testing.T) {
 		t.Errorf("the snapshot stays: %v", imgs)
 	}
 }
+
+func TestRunSSHKeysAreSweptByTheClusterLabel(t *testing.T) {
+	e := newEnv(t)
+	e.f.AddSSHKey("scarpenter-ci-1", cluster("scarpenter-ci-1"))
+	e.f.AddSSHKey("scarpenter-ci-9", cluster("scarpenter-ci-9"))
+	e.f.AddSSHKey("production", cluster("production"))
+	e.f.AddSSHKey("mine", nil)
+	e.clk.Step(3 * time.Hour)
+	e.f.AddSSHKey("scarpenter-ci-2", cluster("scarpenter-ci-2")) // young
+	rep := e.run(sweep.Options{MaxAge: 2 * time.Hour})
+	if rep.Count(sweep.Deleted) != 2 || rep.Count(sweep.Skipped) != 1 || rep.Count(sweep.Failed) != 0 {
+		t.Fatalf("the old keys of the CI clusters go, the young one is skipped: %+v", rep.Items)
+	}
+	keys, _ := e.f.SSHKeys(context.Background(), hc.SSHKeyListOpts{})
+	if len(keys) != 3 {
+		t.Errorf("the young, foreign and unlabelled keys stay: %v", keys)
+	}
+}

@@ -851,16 +851,21 @@ question 6), and `final` (the uninstall, and nothing labelled with the run remai
 placement groups, firewalls, networks, Primary IPs). The smoke set is `amd64,scalezero`. The restart-
 during-create assertion of the AWS lane has no analogue (the idempotency is the server name).
 
+Every run creates one SSH key (bootstrap.sh, named like the cluster, labelled like the other resources, the
+private half discarded) and every NodeClass of the lane sets `sshKey` to it, because Hetzner e-mails a root
+password to the project members for each server created without a key. The sweeper deletes the key with the rest;
+the canary never creates servers (its token is read-only), so it needs none.
+
 **Provisioning (outside this repository).** A dedicated Hetzner project (projects cannot be created through
 the API) with a low server limit and a usage alert; two tokens, a read-write one for the environments `e2e`
 and `e2e-sweeper` and a **read-only** one for `e2e-canary`, all as the secret `HCLOUD_TOKEN`; the optional
 variable `E2E_HCLOUD_LOCATIONS`; the tailnet's tags as for AWS.
 
 **The sweeper** (`e2e-hcloud-sweeper.yml`, every three hours, environment `e2e-sweeper`, from `main` only)
-runs `go run ./test/e2e-hcloud/sweeper`: it lists servers, volumes, placement groups, firewalls and Primary
-IPs by the presence of the cluster label (the API cannot match a prefix), keeps those of clusters named
+runs `go run ./test/e2e-hcloud/sweeper`: it lists servers, volumes, placement groups, firewalls, SSH keys and
+Primary IPs by the presence of the cluster label (the API cannot match a prefix), keeps those of clusters named
 `scarpenter-ci-*` that are older than two hours by the API's own creation time, and deletes them in the
-order servers (waited for), volumes, placement groups, firewalls, Primary IPs, a failed deletion not
+order servers (waited for), SSH keys, volumes, placement groups, firewalls, Primary IPs, a failed deletion not
 stopping the others. The Flatcar snapshots are never listed. The teardown runs it for its own cluster with
 `-cluster <name> -max-age 0`, then deletes the brought network with the CLI (the driver's API has no network
 delete). `-dry-run` reports only. A Primary IP is found only if it carries the cluster label, which Hetzner
