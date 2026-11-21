@@ -36,6 +36,12 @@ const (
 // Publisher and offers of the official Flatcar marketplace images (plan 17
 // section 1).
 const (
+	// ConfidentialGallery and ConfidentialImageDefinition are the community
+	// gallery image of the confidential VM sizes: Azure Container Linux for
+	// confidential VMs.
+	ConfidentialGallery         = "AKSAzureLinux-f7c7cda5-1c9a-4bdc-a222-9614c968580b"
+	ConfidentialImageDefinition = "aclgen2CVM"
+
 	DefaultPublisher = "kinvolk"
 	OfferAMD64       = "flatcar-container-linux-corevm-amd64"
 	OfferARM64       = "flatcar-container-linux-corevm"

@@ -231,8 +231,26 @@ func (s *Subscription) check(vm armcompute.VirtualMachine, rg string) error {
 	return nil
 }
 
+// checkCommunityImage accepts /CommunityGalleries/<gallery>/Images/<image>/Versions/<version>
+// of a published version.
+func (s *Subscription) checkCommunityImage(id, loc string) error {
+	parts := strings.Split(strings.Trim(id, "/"), "/")
+	if len(parts) == 6 {
+		k := strings.ToLower(loc + "|" + parts[1] + "|" + parts[3])
+		for _, v := range s.community[k] {
+			if val(v.Name) == parts[5] {
+				return nil
+			}
+		}
+	}
+	return Error(http.StatusBadRequest, "CommunityGalleryImageNotFound", fmt.Sprintf("The community gallery image '%s' is not available in %s.", id, loc))
+}
+
 func (s *Subscription) checkImage(vm armcompute.VirtualMachine, loc string) error {
 	ref := vm.Properties.StorageProfile.ImageReference
+	if id := val(ref.CommunityGalleryImageID); id != "" {
+		return s.checkCommunityImage(id, loc)
+	}
 	k := strings.ToLower(strings.Join([]string{val(ref.Publisher), val(ref.Offer), val(ref.SKU), val(ref.Version)}, ":"))
 	im, ok := s.images[k]
 	if !ok || im.missingIn[loc] {

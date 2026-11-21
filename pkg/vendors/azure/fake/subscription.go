@@ -38,6 +38,8 @@ type Subscription struct {
 	asgs      map[string]*armnetwork.ApplicationSecurityGroup
 	ppgs      map[string]*armcompute.ProximityPlacementGroup
 	images    map[string]*image
+	// community maps location|gallery|image (lower-cased) to the versions.
+	community map[string][]armcompute.CommunityGalleryImageVersion
 	agreement map[string]bool
 	vms       map[string]*vmState
 	nics      map[string]*armnetwork.Interface
@@ -107,7 +109,8 @@ func New(id string) *Subscription {
 	return &Subscription{
 		ID: id, Now: time.Now,
 		locations: map[string]*location{}, groups: map[string]bool{}, images: map[string]*image{},
-		rgs: map[string]*armresources.ResourceGroup{}, vnets: map[string]*armnetwork.VirtualNetwork{},
+		community: map[string][]armcompute.CommunityGalleryImageVersion{},
+		rgs:       map[string]*armresources.ResourceGroup{}, vnets: map[string]*armnetwork.VirtualNetwork{},
 		nsgs: map[string]*armnetwork.SecurityGroup{}, asgs: map[string]*armnetwork.ApplicationSecurityGroup{},
 		ppgs:      map[string]*armcompute.ProximityPlacementGroup{},
 		agreement: map[string]bool{}, vms: map[string]*vmState{}, nics: map[string]*armnetwork.Interface{},
@@ -303,6 +306,9 @@ type SKU struct {
 	RestrictedLocation bool
 	// RestrictedZones are zones the subscription cannot use for the size.
 	RestrictedZones []string
+	// Confidential is the ConfidentialComputingType capability (SNP or TDX); empty
+	// leaves it out.
+	Confidential string
 }
 
 // AddSKU adds a size to the location's SKU table.
@@ -350,6 +356,9 @@ func (s *Subscription) AddSKU(loc string, k SKU) error {
 			capab("EphemeralOSDiskSupported", boolStr(k.Ephemeral)), capab("DiskControllerTypes", ctrl),
 			capab("CpuArchitectureType", arch), capab("MaxDataDiskCount", fmt.Sprint(maxDisks)),
 		},
+	}
+	if k.Confidential != "" {
+		r.Capabilities = append(r.Capabilities, capab("ConfidentialComputingType", k.Confidential))
 	}
 	info := &armcompute.ResourceSKULocationInfo{Location: new(loc)}
 	for _, z := range zones {
@@ -399,6 +408,20 @@ func (s *Subscription) AddImage(publisher, offer, sku, version string, plan *arm
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.images[strings.ToLower(strings.Join([]string{publisher, offer, sku, version}, ":"))] = &image{plan: plan, missingIn: map[string]bool{}}
+}
+
+// AddCommunityVersion publishes a version of a community gallery image in a
+// location.
+func (s *Subscription) AddCommunityVersion(loc, gallery, image, version string, published time.Time, excludeFromLatest bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := strings.ToLower(loc + "|" + gallery + "|" + image)
+	s.community[k] = append(s.community[k], armcompute.CommunityGalleryImageVersion{
+		Name: new(version),
+		Properties: &armcompute.CommunityGalleryImageVersionProperties{
+			PublishedDate: new(published), ExcludeFromLatest: new(excludeFromLatest),
+		},
+	})
 }
 
 // SetImageArch makes a published version report an architecture ("x64" or

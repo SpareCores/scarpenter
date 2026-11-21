@@ -94,7 +94,7 @@ func NewSDKClients(cred azcore.TokenCredential, subscriptionID string, opts SDKO
 		Resources:  &sdkResources{c: res},
 		SKUs:       &sdkSKUs{c: compute.NewResourceSKUsClient()},
 		Usages:     &sdkUsages{compute: compute.NewUsageClient(), network: network.NewUsagesClient()},
-		Images:     &sdkImages{c: compute.NewVirtualMachineImagesClient()},
+		Images:     &sdkImages{c: compute.NewVirtualMachineImagesClient(), community: compute.NewCommunityGalleryImageVersionsClient()},
 		Agreements: &sdkAgreements{c: agr},
 		Locations:  &sdkLocations{c: subs, subscriptionID: subscriptionID},
 	}, nil
@@ -425,7 +425,17 @@ func (s *sdkUsages) NetworkUsages(ctx context.Context, location string) ([]*armn
 }
 
 type sdkImages struct {
-	c *armcompute.VirtualMachineImagesClient
+	c         *armcompute.VirtualMachineImagesClient
+	community *armcompute.CommunityGalleryImageVersionsClient
+}
+
+func (s *sdkImages) CommunityVersions(
+	ctx context.Context, location, gallery, image string,
+) ([]*armcompute.CommunityGalleryImageVersion, error) {
+	return drain(ctx, s.community.NewListPager(location, gallery, image, nil),
+		func(p armcompute.CommunityGalleryImageVersionsClientListResponse) []*armcompute.CommunityGalleryImageVersion {
+			return p.Value
+		})
 }
 
 func (s *sdkImages) Get(ctx context.Context, location, publisher, offer, sku, version string) (armcompute.VirtualMachineImage, error) {

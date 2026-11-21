@@ -43,7 +43,7 @@ func TestLaunchWithoutPublicIP(t *testing.T) {
 	req, img := request{nodeClaim: "nc-1"}.build(t)
 	f := false
 	req.Settings.Networking.PublicIPv4 = &f
-	l, err := NewLaunchSpec(req, testCluster, img, nil, nil, "key")
+	l, err := NewLaunchSpec(req, testCluster, img, nil, "", nil, "key")
 	require.NoError(t, err)
 	inst, err := e.c.Launch(context.Background(), l)
 	require.NoError(t, err)
@@ -306,7 +306,7 @@ func TestFindAndList(t *testing.T) {
 	other := &Compute{Clients: e.clients, Cluster: "another-cluster"}
 	req, img := request{nodeClaim: "nc-x"}.build(t)
 	req.Tags[vendors.TagCluster] = "another-cluster"
-	l, err := NewLaunchSpec(req, "another-cluster", img, nil, nil, "key")
+	l, err := NewLaunchSpec(req, "another-cluster", img, nil, "", nil, "key")
 	require.NoError(t, err)
 	_, err = other.Launch(context.Background(), l)
 	require.NoError(t, err)
@@ -351,7 +351,7 @@ func TestListFallsBackToEveryVMWhenTheTagListingFails(t *testing.T) {
 	other := &Compute{Clients: e.clients, Cluster: "another-cluster"}
 	req, img := request{nodeClaim: "nc-x"}.build(t)
 	req.Tags[vendors.TagCluster] = "another-cluster"
-	l, err := NewLaunchSpec(req, "another-cluster", img, nil, nil, "key")
+	l, err := NewLaunchSpec(req, "another-cluster", img, nil, "", nil, "key")
 	require.NoError(t, err)
 	_, err = other.Launch(context.Background(), l)
 	require.NoError(t, err)
@@ -376,7 +376,7 @@ func TestLaunchWithMarketplacePlan(t *testing.T) {
 	req, _ := request{nodeClaim: "nc-1"}.build(t)
 	img := ImageRef{Publisher: "kinvolk", Offer: "flatcar-container-linux-free", SKU: "stable-gen2", Version: "4547.1.0"}
 	mk := func(p *ImagePlan) LaunchSpec {
-		l, err := NewLaunchSpec(req, testCluster, img, p, nil, "key")
+		l, err := NewLaunchSpec(req, testCluster, img, p, "", nil, "key")
 		require.NoError(t, err)
 		return l
 	}
@@ -392,7 +392,7 @@ func TestLaunchWithMarketplacePlan(t *testing.T) {
 func TestMissingImage(t *testing.T) {
 	e := newEnv(t)
 	req, _ := request{nodeClaim: "nc-1"}.build(t)
-	l, err := NewLaunchSpec(req, testCluster, ImageRef{Publisher: "kinvolk", Offer: OfferAMD64, SKU: "stable-gen2", Version: "1.0.0"}, nil, nil, "key")
+	l, err := NewLaunchSpec(req, testCluster, ImageRef{Publisher: "kinvolk", Offer: OfferAMD64, SKU: "stable-gen2", Version: "1.0.0"}, nil, "", nil, "key")
 	require.NoError(t, err)
 	_, err = e.c.Launch(context.Background(), l)
 	require.Equal(t, vendors.NotFound, vendors.ClassOf(err))
