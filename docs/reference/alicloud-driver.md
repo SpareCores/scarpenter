@@ -199,18 +199,17 @@ scenario checks that a Pod and a host-network Pod reach nothing and the allowed 
 
 ## DNS and the tailnet
 
-ECS hands out the resolvers `100.100.2.136` and `100.100.2.138` over DHCP. Both lie inside `100.64.0.0/10`, the range
-tailscaled routes into `tailscale0`. Tailscaled does it with an `ip rule` for its own routing table (52, which holds that range)
-that is consulted before the main table, so a more specific route to the resolvers in the main table would not win. With the
-`tailscale` network template the node therefore lost its resolvers as soon as it joined the tailnet, could not resolve the API
-server's name and never registered.
+ECS hands out the resolvers `100.100.2.136` and `100.100.2.138` over DHCP. Both lie inside `100.64.0.0/10`, Tailscale's CGNAT
+range. After the node joins the tailnet, tailscaled's handling of that range breaks traffic with Alibaba's `100.100.x` service
+addresses, so with the `tailscale` network template the node could not resolve the API server's name and never registered.
+The metadata service (`100.100.100.200`) and any `100.100.x` NTP server are in that range too: this fix moves only DNS to
+public resolvers.
 
 The driver contributes a fragment (`vendors.VendorBootFragments`, always on, whatever `spec.instanceMetadata.access` says): a
 drop-in of the image's default network unit (`zz-default.network`) that sets Alibaba's public resolvers `223.5.5.5` and
 `223.6.6.6` and ignores the DHCP ones (`UseDNS=false`). They are outside the CGNAT range, so they are reached through the VPC
 gateway before and after the node joins the tailnet. The node resolves public names with them, which is all it needs: the
-tailscale template starts tailscaled with `--accept-dns=false`, and the API server is an address or a public name. Operators
-need no workaround of their own (such as a unit that rewrites the resolvers by OEM id). A name that only a VPC's private DNS
+tailscale template starts tailscaled with `--accept-dns=false`, and the API server is an address or a public name. A name that only a VPC's private DNS
 zone answers does not resolve on the node.
 
 ## Quotas
@@ -243,7 +242,7 @@ ServiceAccount token, the analogue of AWS web identity; recommended), the contro
 through to the instance metadata and stay there). Otherwise it authenticates through the default chain of `credentials-go`:
 `ALIBABA_CLOUD_ACCESS_KEY_ID`/`_SECRET`, the shared credentials file, the instance RAM role and a credentials URI. [Set up Alibaba Cloud](../how-to-guides/set-up-alicloud.md#2-credentials) covers the chart's three modes
 (`oidc`, `secret`, `none`). [`alicloud-ram-policy.json`](alicloud-ram-policy.json) is the policy: the `ecs:` and `vpc:` actions of the
-two API interfaces, reads for everything (including `ecs:GetInstanceConsoleOutput` and `ecs:GetInstanceScreenshot`, which the driver does not call and an operator uses to diagnose a boot), creates under the request tag and mutations under the resource tag
+two API interfaces, reads for everything (including `ecs:GetInstanceConsoleOutput` and `ecs:GetInstanceScreenshot`, which serve an operator's boot diagnosis, not the controller), creates under the request tag and mutations under the resource tag
 `scarpenter.sparecores.com/cluster` (a test ties the file to the interfaces; the condition keys' exact use with `RunInstances` is *unverified*).
 Deployment sets take no tags, so their create and delete are limited to the resource type only; the driver deletes only sets whose
 description carries its marker.

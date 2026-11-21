@@ -86,10 +86,8 @@ func TestAlicloudDNSFragment(t *testing.T) {
 		if part.Name != "vendor-dns" {
 			continue
 		}
-		for _, want := range []string{"zz-default.network.d/10-scarpenter-dns.conf"} {
-			if !strings.Contains(string(part.Ignition), want) {
-				t.Errorf("the Ignition of the fragment lacks %s", want)
-			}
+		if !strings.Contains(string(part.Ignition), "zz-default.network.d/10-scarpenter-dns.conf") {
+			t.Error("the Ignition of the fragment lacks the drop-in")
 		}
 		return
 	}
