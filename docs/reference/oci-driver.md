@@ -228,7 +228,8 @@ for OCI's message.
 | Class | OCI |
 |---|---|
 | `InsufficientCapacity` | HTTP 500 `InternalError` whose message says "Out of host capacity" |
-| `QuotaExceeded` | `LimitExceeded`, `QuotaExceeded` (not account-wide) |
+| `DailyLimit` | `LimitExceeded` whose message says "daily resource creation limit" (matched case-insensitively on that phrase only). Oracle documents no reset time for it (its [API errors page](https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm) only says to request an increase or delete resources), so the region is unavailable until the next 00:00 UTC |
+| `QuotaExceeded` | any other `LimitExceeded`, and `QuotaExceeded` (not account-wide) |
 | `Unsupported` | 400 `InvalidParameter` for a shape not compatible with the image, not available in the AD or not available as preemptible; the driver's own `InvalidInstanceType`, `ShapeNotInAvailabilityDomain`, `ExtendedMemoryUnsupported` |
 | `InvalidOffering` | any other 400 `InvalidParameter` on a launch, and the driver's own `ImageNotCompatible` (OCI's text is in the Event `OfferingRejected`): the offering is unavailable for 1 h and the next candidate is tried |
 | `ZoneUnusable` | a subnet with no free IP addresses |

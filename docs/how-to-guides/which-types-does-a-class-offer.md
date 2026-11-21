@@ -34,7 +34,7 @@ kubectl annotate scnodeclass bench scarpenter.sparecores.com/publish-offered=tru
 The controller then keeps one ConfigMap per vendor of the class, `scarpenter-offered-<class>-<vendor>`, in its own namespace
 (`scarpenter-system` with the chart's defaults), owned by the SCNodeClass. It is rewritten when something in it changed (at most every 30
 seconds) and at least every 10 minutes, with a new `generatedAt`: treat a listing older than 30 minutes as stale. Remove the annotation and
-the ConfigMaps go. The key is `types.json`; the fields are in [the reference](../reference/labels-and-offerings.md#the-offered-listing).
+the ConfigMaps go. The key is `types.json`; the fields are in [the reference](../reference/labels-and-offerings.md#the-offered-listing). An offering that a launch error marked carries the error class in `reason` and its expiry in `until`, so automation can skip it until then.
 
 To read it from another namespace, give the reader's ServiceAccount a Role with `get`, `list` and `watch` on `configmaps` in the
 controller's namespace (restrict it with `resourceNames`) and a RoleBinding. The chart does not grant it.
