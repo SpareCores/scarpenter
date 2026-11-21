@@ -354,10 +354,10 @@ the node's):
   4 GiB node, more than the fixed 320Mi, and a Pod that grows must hit the
   kubepods limit before the node runs out of memory.
 
-With the default `vmMemoryOverheadPercent` (7.5), the catalog takes at least
+Whatever `vmMemoryOverheadPercent` is, the catalog takes at least
 64Mi off an instance type's memory: a 0.5 GiB VM reports 448Mi (12.5% less), where
 7.5% alone would say 473Mi and overstate the allocatable. From 1 GiB up the percentage
-is the larger and decides.
+is the larger at the default and decides.
 
 The image garbage collection thresholds stay at the kubelet's defaults. `maxPods`
 does not use memory by itself; it limits how many Pods (and containerd shims, about
