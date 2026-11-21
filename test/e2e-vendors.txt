@@ -3,3 +3,4 @@
 # and the release gate: docs/how-to-guides/testing-and-releasing.md#adding-a-vendor-lane
 aws
 oci
+hcloud
