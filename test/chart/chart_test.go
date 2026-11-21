@@ -1119,3 +1119,18 @@ func TestImageTagPolicy(t *testing.T) {
 	check("v0.1.0-rc.1\n", "v0.1.0", "false", "true", "true")
 	check("v0.1.0\nv0.1.0-rc.1\n", "v0.1.0", "false", "true", "true")
 }
+
+func TestHostNetwork(t *testing.T) {
+	spec := deployment(t, mustHelm(t, required...)).Spec
+	if spec.Template.Spec.HostNetwork || spec.Strategy.RollingUpdate != nil {
+		t.Error("host network or its rollout strategy rendered by default")
+	}
+	d := deployment(t, mustHelm(t, append(slices.Clone(required), "--set", "hostNetwork=true")...))
+	pod := d.Spec.Template.Spec
+	if !pod.HostNetwork || pod.DNSPolicy != corev1.DNSClusterFirstWithHostNet {
+		t.Errorf("hostNetwork = %v, dnsPolicy = %q", pod.HostNetwork, pod.DNSPolicy)
+	}
+	if ru := d.Spec.Strategy.RollingUpdate; ru == nil || ru.MaxSurge.IntValue() != 0 {
+		t.Errorf("rollout strategy %+v: the new pod would need the old pod's host ports", d.Spec.Strategy)
+	}
+}
