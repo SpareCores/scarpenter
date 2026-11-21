@@ -130,6 +130,9 @@ holds the digests of the pinned version, they are kept and `ArtifactsReady` stay
 `True` (its message says refreshing failed); a version that was never resolved,
 or is not published (`ReleaseNotFound`), makes `ArtifactsReady` `False`.
 
+**Limitations.** The default sysext and NVIDIA driver URLs (GitHub, `ghcr.io`, the Flatcar release server) have no IPv6, so nodes
+without IPv4 need a mirror ([driver contract](driver-contract.md#reaching-the-bootstrap-artifacts)); long term the URLs should point at dual-stack hosts or a mirror.
+
 ## The user-data
 
 The user-data is a small Ignition config (version 3.4.0) whose

@@ -917,23 +917,38 @@ func TestMirrorSwitchKeepsTheHash(t *testing.T) {
 	}
 }
 
-func TestIPv6OnlyNodesWarnAboutTheDefaultSysextSource(t *testing.T) {
+// Nodes without IPv4 cannot reach the default sysext source (no AAAA record on
+// GitHub): the NodeClass is refused unless a sysext mirror is configured.
+func TestIPv6OnlyNodesNeedASysextMirror(t *testing.T) {
+	ipv6Only := func(nc *v1alpha1.SCNodeClass) {
+		nc.Spec.Networking.PublicIPv4, nc.Spec.Networking.PublicIPv6 = new(false), new(true)
+	}
 	for name, tc := range map[string]struct {
 		mutate func(*v1alpha1.SCNodeClass)
-		warn   bool
+		mirror bool
+		ready  metav1.ConditionStatus
 	}{
-		"ipv6 only": {func(nc *v1alpha1.SCNodeClass) {
-			nc.Spec.Networking.PublicIPv4, nc.Spec.Networking.PublicIPv6 = new(false), new(true)
-		}, true},
-		"default":    {nil, false},
-		"dual stack": {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Networking.PublicIPv6 = new(true) }, false},
+		"ipv6 only":             {ipv6Only, false, metav1.ConditionFalse},
+		"ipv6 only with mirror": {ipv6Only, true, metav1.ConditionTrue},
+		"default":               {nil, false, metav1.ConditionTrue},
+		"dual stack":            {func(nc *v1alpha1.SCNodeClass) { nc.Spec.Networking.PublicIPv6 = new(true) }, false, metav1.ConditionTrue},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t)
+			e.ctrl = nodeclass.New(nodeclass.Options{
+				Client: e.c, Catalog: e.cat, Registry: vendors.NewRegistryFrom(e.drv),
+				Artifacts: artifacts.New(artifacts.Config{SysextBase: e.server}),
+				Renderer:  bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: e.refs, APIServerEndpoint: "https://api.example.com:6443"}),
+				Refs:      e.refs, Recorder: e.rec, SysextMirror: tc.mirror,
+			})
 			e.create(e.newNodeClass(tc.mutate))
-			e.reconcile(e.name)
-			if got := contains(e.rec.reasons(), nodeclass.EventIPv6OnlyNeedsMirror); got != tc.warn {
-				t.Errorf("warned = %v, want %v (events %v)", got, tc.warn, e.rec.reasons())
+			nc := e.reconcile(e.name)
+			c := vcond(nc, "aws", v1alpha1.VendorConditionReady)
+			if c == nil || c.Status != tc.ready {
+				t.Errorf("VendorReady = %+v, want %s", c, tc.ready)
+			}
+			if tc.ready == metav1.ConditionFalse && !strings.Contains(c.Message, "--sysext-base-url") {
+				t.Errorf("the message does not name the fix: %q", c.Message)
 			}
 		})
 	}

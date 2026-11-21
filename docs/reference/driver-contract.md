@@ -53,6 +53,23 @@ virtual one that needs a GRID driver, so the catalog drops it with the reason `G
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
 
+## Reaching the bootstrap artifacts
+
+A node fetches its sysexts from `github.com` and `objects.githubusercontent.com`, its container images from
+`ghcr.io`, and (with the qemu driver and the controller) Flatcar release files from
+`stable.release.flatcar-linux.net`. None of these hosts has an AAAA record. A driver must not offer a type, or
+accept a NodeClass configuration, that leaves the node without a path to them: that is a node without IPv4 egress
+while no mirror (`--sysext-base-url`, `--flatcar-base-url`, `--nvidia-driver-base-url`) is configured.
+
+- **A type** that has no IPv4 is `NotLaunchable` in the offered-types listing (the Vultr `-v6` plans).
+- **A configuration** is refused with `VendorReady=False`, reason `VendorInvalid`. The NodeClass controller refuses
+  `publicIPv4: false` with `publicIPv6: true` for every vendor unless `--sysext-base-url` is set, and the driver
+  refuses `publicIPv4: false` where nothing gives the nodes IPv4 egress (the vendor documents where a brought
+  network is the user's job).
+- **With a mirror** reachable over IPv6 both are fine; the mirror is the operator's job.
+
+Long term the sysext and NVIDIA URLs should point at dual-stack hosts or a mirror, which makes the rule moot.
+
 ## Images
 
 `ResolveImage(ctx, ImageRequest{Region, Arch, Channel, Version, Owner, Use})` returns one `Image`

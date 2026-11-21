@@ -202,8 +202,9 @@ so the `volumes` kind is `perUse`: the engine deletes a volume no server uses af
 
 **Networking.** A server needs a public IPv4 or IPv6 address: private-only servers are refused
 (they need a NAT route in your network to reach the sysext hosts, and the metadata service that
-Ignition reads is not verified on them). IPv6-only is accepted, but `github.com` and its release
-hosts have no IPv6 address, so the default sysext base does not work without a mirror.
+Ignition reads is not verified on them). IPv6-only is accepted only with a sysext mirror reachable over IPv6
+(`--sysext-base-url`): `github.com` and its release hosts have no IPv6 address, so the NodeClass controller
+refuses it without one.
 `inbound.rules` become inbound rules of the firewall SCarpenter creates (`any` becomes one rule
 per protocol of tcp, udp, icmp; at most 500); outbound is open.
 

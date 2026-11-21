@@ -80,10 +80,10 @@ The plan is Keeper's `api_reference` (`vc2-2c-4gb`). The driver launches the fam
 (`vcg`), GPU bare metal (`vdm`), bare metal (`vbm`) and the free plan `vc2-1c-0.5gb-free` are not launched; a
 family nobody classified is unsupported, and a test fails when a family of the committed Keeper snapshot has no
 classification. IPv6-only plans (IDs ending in `-v6`, Vultr's documented spelling) are not offered: the offered-types
-listing shows them as `NotLaunchable`. The node bootstrap needs IPv4: the Kubernetes and tailscale sysexts come from
-github.com and the Flatcar release server, neither of which has an AAAA record, and the `direct` template's node-IP
-script reads an IPv4 address. Without it the node never registers. Supporting them needs IPv6-reachable mirrors of those
-artifacts (`artifacts.sysextBaseURL` and `artifacts.flatcarBaseURL`) or an IPv4 egress for the nodes. Vultr has no Arm instances: an arm64 type or image is `Unsupported`.
+listing shows them as `NotLaunchable`. The node bootstrap needs IPv4 (see [the driver
+contract](driver-contract.md#reaching-the-bootstrap-artifacts)): the sysexts come from github.com, which has no AAAA
+record, and the `direct` template's node-IP script reads an IPv4 address. Supporting them needs an IPv6-reachable
+sysext mirror (`artifacts.sysextBaseURL`) or an IPv4 egress for the nodes. Vultr has no Arm instances: an arm64 type or image is `Unsupported`.
 
 The root disk is the plan's disk (`RootDiskForType`, Keeper's `storage_size` in GB, read as 10^9 bytes). It is not
 configurable; swapping to a bigger sibling plan is forbidden by

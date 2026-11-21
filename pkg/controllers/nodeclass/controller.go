@@ -79,12 +79,9 @@ const (
 
 // Event reasons (on the SCNodeClass); Warning Events are deduplicated.
 const (
-	EventArtifactsFailed  = "ArtifactsNotResolved"
-	EventValidationFailed = "ValidationFailed"
-	EventVendorNotReady   = "VendorNotReady"
-	// EventIPv6OnlyNeedsMirror: IPv6-only nodes cannot reach the default sysext
-	// source (GitHub releases have no IPv6).
-	EventIPv6OnlyNeedsMirror  = "IPv6OnlyNeedsMirror"
+	EventArtifactsFailed      = "ArtifactsNotResolved"
+	EventValidationFailed     = "ValidationFailed"
+	EventVendorNotReady       = "VendorNotReady"
 	EventRestartRequired      = "RestartRequired"
 	EventConfigurationWarning = "ConfigurationWarning"
 	// EventDeprecatedHardening: the NodeClass still sets spec.bootstrap.hardening.
@@ -140,7 +137,7 @@ type Options struct {
 	// ImageGate, if set, is told the regions without a boot image, whose offerings
 	// are then unavailable (overview section 9).
 	// SysextMirror says --sysext-base-url points at a mirror: the default source
-	// (GitHub releases) has no IPv6, so IPv6-only nodes need one.
+	// (GitHub releases) has no IPv6, so a NodeClass of IPv6-only nodes needs one.
 	SysextMirror bool
 	// Tailnet is the backend of per-node tailnet keys; the zero value is none.
 	Tailnet   TailnetOptions
@@ -507,7 +504,6 @@ func (c *Controller) vendor(
 
 	c.warnDeprecatedHardening(desired, vendor)
 	if ready {
-		c.warnIPv6Only(desired, vendor)
 		if msg := c.configurationWarnings(desired, vendor); msg != "" {
 			w := vendorCondition(existing, v1alpha1.VendorConditionConfigurationWarning,
 				true, ReasonSettingHasNoEffect, msg, current.Generation, now)
@@ -590,7 +586,31 @@ func (c *Controller) vendorReady(
 			return false, ReasonVendorInvalid, trim(err.Error())
 		}
 	}
+	if err := c.checkBootstrapReachable(nc, vendor); err != nil {
+		return false, ReasonVendorInvalid, trim(err.Error())
+	}
 	return true, ReasonReady, ""
+}
+
+// checkBootstrapReachable refuses a NodeClass whose nodes have no IPv4 (publicIPv4
+// false, publicIPv6 true) while the sysexts come from the default source: GitHub
+// releases have no AAAA record, so the nodes could not fetch them. A sysext mirror
+// reachable over IPv6 lifts the refusal. With publicIPv4 false and no IPv6 the
+// driver decides (it needs brought subnets, whose NAT is the user's job).
+func (c *Controller) checkBootstrapReachable(nc *v1alpha1.SCNodeClass, vendor string) error {
+	if c.opts.SysextMirror {
+		return nil
+	}
+	in, ok, err := options.InputFromNodeClass(nc, vendor)
+	if err != nil || !ok {
+		return nil
+	}
+	if n := in.Networking; n.PublicIPv4 != nil && !*n.PublicIPv4 && n.PublicIPv6 != nil && *n.PublicIPv6 {
+		return errors.New("networking: the nodes would have IPv6 only, and the node bootstrap artifacts " +
+			"(github.com, objects.githubusercontent.com, ghcr.io) have no IPv6 address: set --sysext-base-url to a " +
+			"mirror reachable over IPv6, or keep publicIPv4 on")
+	}
+	return nil
 }
 
 // images asks the driver for its boot images; a driver without the capability
@@ -847,22 +867,4 @@ func (c *Controller) configurationWarnings(nc *v1alpha1.SCNodeClass, vendor stri
 	ws := slices.Clone(w.NodeClassWarnings(nc))
 	slices.Sort(ws)
 	return strings.Join(slices.Compact(ws), "; ")
-}
-
-// warnIPv6Only warns about nodes with IPv6 only (publicIPv4 false, publicIPv6 true)
-// while the sysexts come from the default source, which the nodes cannot reach: the
-// release host of the sysext-bakery has no IPv6. A sysext mirror with IPv6 fixes it.
-func (c *Controller) warnIPv6Only(nc *v1alpha1.SCNodeClass, vendor string) {
-	if c.opts.SysextMirror {
-		return
-	}
-	in, ok, err := options.InputFromNodeClass(nc, vendor)
-	if err != nil || !ok {
-		return
-	}
-	if n := in.Networking; n.PublicIPv4 != nil && !*n.PublicIPv4 && n.PublicIPv6 != nil && *n.PublicIPv6 {
-		c.warn(nc, EventIPv6OnlyNeedsMirror, fmt.Sprintf("vendor %s: the nodes have IPv6 only, and the default sysext "+
-			"source (GitHub releases) has no IPv6: set --sysext-base-url to a mirror that is reachable over IPv6",
-			vendor), vendor)
-	}
 }

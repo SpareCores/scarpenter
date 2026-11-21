@@ -182,8 +182,9 @@ public addresses; a vendor block may override them. Generic meaning:
   does not fail launches. A network SCarpenter creates has IPv6.
 - **IPv6-only** (`publicIPv4: false`, `publicIPv6: true`) is accepted with brought
   subnets only. The sysext-bakery's release host (GitHub) has no IPv6: a NodeClass
-  with IPv6-only nodes and the default sysext source gets the Warning Event
-  `IPv6OnlyNeedsMirror`; set `--sysext-base-url` to a mirror reachable over IPv6.
+  with IPv6-only nodes and the default sysext source is refused (`VendorReady=False`,
+  `VendorInvalid`); set `--sysext-base-url` to a mirror reachable over IPv6. Behind a
+  NAT gateway of your own, leave `publicIPv6` off.
 
 The AWS specifics are in [the AWS driver](aws-driver.md#network-addresses-and-egress).
 
