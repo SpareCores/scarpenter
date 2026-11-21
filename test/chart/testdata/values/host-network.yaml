@@ -1,0 +1,14 @@
+# The controller in the node's network namespace (pods without IPv6 egress).
+cluster:
+  name: my-cluster
+  apiServerEndpoint: https://api.example.com:6443
+  dns: [none]
+vendors:
+  aws:
+    credentials:
+      mode: none
+replicaCount: 2
+hostNetwork: true
+karpenter:
+  metricsPort: 8090
+  healthProbePort: 8091
