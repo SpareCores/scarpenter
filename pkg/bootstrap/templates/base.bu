@@ -61,6 +61,13 @@ storage:
       target: {{ .Path }}
       hard: false
 {{- end }}
+{{- if .PoweroffAfterSeconds }}
+    # The timer is enabled by its link: Azure Container Linux does not apply the
+    # presets that Ignition's enabled: true writes.
+    - path: /etc/systemd/system/timers.target.wants/scarpenter-poweroff.timer
+      target: /etc/systemd/system/scarpenter-poweroff.timer
+      hard: false
+{{- end }}
 systemd:
   units:
     - name: update-engine.service
@@ -73,9 +80,16 @@ systemd:
           contents: |
             # The kubernetes sysext ships kubelet.service and a kubeadm drop-in
             # (10-kubeadm.conf) that this drop-in overrides; the flags are spelled out so
-            # that the unit does not depend on the variables of that drop-in.
+            # that the unit does not depend on the variables of that drop-in. Azure
+            # Container Linux has a kubelet.service of its own in /etc that needs
+            # /opt/bin/kubelet and /etc/default/kubelet and runs its own scripts first:
+            # the empty assignments clear those settings.
+            [Unit]
+            ConditionPathExists=
             [Service]
+            EnvironmentFile=
             EnvironmentFile=-/run/scarpenter/node-ip.env
+            ExecStartPre=
             ExecStart=
             ExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml {{ .KubeletArgs }} $SCARPENTER_NODE_IP_ARGS
 {{- if .PoweroffAfterSeconds }}
@@ -87,7 +101,6 @@ systemd:
         Type=oneshot
         ExecStart=/usr/bin/systemctl poweroff --force
     - name: scarpenter-poweroff.timer
-      enabled: true
       contents: |
         [Unit]
         Description=Fail-safe: power the node off {{ .PoweroffAfter }} after boot
