@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -426,8 +427,14 @@ func TestResourceStatusOfTwoVendors(t *testing.T) {
 
 	got := waitFor("both vendors", func(got v1alpha1.SCNodeClass) bool { return ready(got, "aws") && ready(got, "alicloud") })
 	time.Sleep(time.Second)
-	if again := get(); again.ResourceVersion != got.ResourceVersion {
+	again := get()
+	if again.ResourceVersion != got.ResourceVersion {
 		t.Errorf("the object was written again while nothing changed: %s -> %s", got.ResourceVersion, again.ResourceVersion)
+	}
+	for _, vendor := range []string{"aws", "alicloud"} {
+		if !again.Status.Vendors[vendor].Conditions[0].LastTransitionTime.Equal(&got.Status.Vendors[vendor].Conditions[0].LastTransitionTime) {
+			t.Errorf("%s: lastTransitionTime moved while nothing changed", vendor)
+		}
 	}
 
 	cur := get()
@@ -438,6 +445,129 @@ func TestResourceStatusOfTwoVendors(t *testing.T) {
 	waitFor("alicloud removed", func(got v1alpha1.SCNodeClass) bool {
 		as := got.Status.Vendors["alicloud"]
 		return len(as.Resources) == 0 && len(as.Conditions) == 0 && ready(got, "aws")
+	})
+}
+
+// alicloudRegions knows the regions of alicloud only once its driver is loaded.
+type alicloudRegions struct{ loaded atomic.Bool }
+
+func (r *alicloudRegions) Regions(vendor string) []string {
+	if vendor == "alicloud" && r.loaded.Load() {
+		return []string{"cn-hangzhou"}
+	}
+	return nil
+}
+
+// TestResourceStatusKeepsAVendorWithUnknownRegions: a vendor whose regions are
+// not known (its driver is not loaded) keeps its entries, with their old
+// observedGeneration, while the other vendor is updated.
+func TestResourceStatusKeepsAVendorWithUnknownRegions(t *testing.T) {
+	cfg, stop, err := testutil.StartEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stop() })
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{clientgoscheme.AddToScheme, v1alpha1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const className = "rs3"
+	use := &common.Resource{Use: &common.ResourceUse{Tags: map[string]string{"scarpenter.sparecores.com/use": "true"}}}
+	nc := &v1alpha1.SCNodeClass{
+		ObjectMeta: metav1.ObjectMeta{Name: className},
+		Spec: v1alpha1.SCNodeClassSpec{
+			Flatcar:    v1alpha1.FlatcarSpec{Version: "4757.2.3"},
+			Kubernetes: v1alpha1.KubernetesSpec{Version: "v1.37.1"},
+			Network:    v1alpha1.NetworkSpec{Template: v1alpha1.NetworkTemplateDirect},
+			Vendors: v1alpha1.VendorBlocks{
+				AWS:      &aws.Settings{Regions: []string{"us-east-1"}, Resources: &aws.Resources{Subnets: use}},
+				Alicloud: &alicloud.Settings{Resources: &alicloud.Resources{Subnets: use}},
+			},
+		},
+	}
+	if err := c.Create(t.Context(), nc); err != nil {
+		t.Fatal(err)
+	}
+
+	clk := clocktesting.NewFakeClock(time.Now())
+	awsDrv := resourcestest.New("aws", clk)
+	awsDrv.Existing = []resourcestest.Existing{{
+		Kind: resourcestest.Subnets, Region: "us-east-1", ID: "subnet-a",
+		Tags: map[string]string{"scarpenter.sparecores.com/use": "true"},
+	}}
+	aliDrv := resourcestest.New("alicloud", clk)
+	aliDrv.Existing = []resourcestest.Existing{{
+		Kind: resourcestest.Subnets, Region: "cn-hangzhou", ID: "vsw-a",
+		Tags: map[string]string{"scarpenter.sparecores.com/use": "true"},
+	}}
+	known := &alicloudRegions{}
+	known.loaded.Store(true)
+
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"},
+		Controller: config.Controller{SkipNameValidation: new(true)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := &recorder{}
+	engine := resources.New(resources.Options{
+		Registry: vendors.NewRegistryFrom(awsDrv, aliDrv), Reader: mgr.GetClient(), Clock: clk,
+		ClusterName: "my-cluster", Recorder: rec,
+	})
+	if err := resourcestatus.New(resourcestatus.Options{
+		Client: mgr.GetClient(), Engine: engine, Regions: known, Recorder: rec, Interval: 100 * time.Millisecond,
+	}).Register(mgr); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); _ = mgr.Start(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	waitFor := func(what string, ok func(v1alpha1.SCNodeClass) bool) v1alpha1.SCNodeClass {
+		t.Helper()
+		var got v1alpha1.SCNodeClass
+		err := wait.PollUntilContextTimeout(ctx, 50*time.Millisecond, 60*time.Second, true, func(context.Context) (bool, error) {
+			if err := c.Get(ctx, client.ObjectKey{Name: className}, &got); err != nil {
+				return false, err
+			}
+			return ok(got), nil
+		})
+		if err != nil {
+			t.Fatalf("%s: timed out; vendors %+v", what, got.Status.Vendors)
+		}
+		return got
+	}
+	observed := func(got v1alpha1.SCNodeClass, vendor string) int64 {
+		vs := got.Status.Vendors[vendor]
+		if len(vs.Resources) == 0 || len(vs.Conditions) == 0 {
+			return 0
+		}
+		return vs.Conditions[0].ObservedGeneration
+	}
+	waitFor("both vendors", func(got v1alpha1.SCNodeClass) bool {
+		return observed(got, "aws") == 1 && observed(got, "alicloud") == 1
+	})
+
+	// The regions of alicloud become unknown, and a spec change makes aws move on.
+	known.loaded.Store(false)
+	var cur v1alpha1.SCNodeClass
+	if err := c.Get(ctx, client.ObjectKey{Name: className}, &cur); err != nil {
+		t.Fatal(err)
+	}
+	cur.Spec.Kubernetes.Version = "v1.37.2"
+	if err := c.Update(ctx, &cur); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("aws updated, alicloud kept", func(got v1alpha1.SCNodeClass) bool {
+		return observed(got, "aws") == 2 && observed(got, "alicloud") == 1
 	})
 }
 

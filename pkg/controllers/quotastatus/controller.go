@@ -234,7 +234,7 @@ func (c *Controller) apply(ctx context.Context, nc *v1alpha1.SCNodeClass, blocke
 		changed = changed || differs
 	}
 	for vendor, vs := range nc.Status.Vendors {
-		hasQuota := len(vs.Quota) > 0 || hasCondition(vs, v1alpha1.VendorConditionQuotaAvailable)
+		hasQuota := len(vs.Quota) > 0 || slices.ContainsFunc(vs.Conditions, isQuotaAvailable)
 		if !slices.Contains(names, vendor) && hasQuota {
 			changed = true
 		}
@@ -262,8 +262,8 @@ func (c *Controller) apply(ctx context.Context, nc *v1alpha1.SCNodeClass, blocke
 	return nil
 }
 
-func hasCondition(vs v1alpha1.VendorStatus, condType string) bool {
-	return slices.ContainsFunc(vs.Conditions, func(c status.Condition) bool { return c.Type == condType })
+func isQuotaAvailable(c status.Condition) bool {
+	return c.Type == v1alpha1.VendorConditionQuotaAvailable
 }
 
 // vendorBody is the apply body of one vendor, and whether it differs from the

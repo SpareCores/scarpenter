@@ -257,7 +257,8 @@ NodeClass itself stays `Ready`. Regions are checked every
 with server-side apply under the field manager `scarpenter-resources`, which
 owns only these fields. One apply per class carries the fields of every vendor of
 the class, and nothing is written while they are unchanged; a vendor that leaves
-the class loses its resource fields.
+the class loses its resource fields. A vendor whose regions are not yet known
+keeps its existing entries, and its `observedGeneration` shows they may be stale.
 
 ## Garbage collection
 
