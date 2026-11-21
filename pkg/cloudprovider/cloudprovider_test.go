@@ -915,6 +915,58 @@ func TestCreateRequiresAReadyNodeClass(t *testing.T) {
 	})
 }
 
+// Core marks every NodeClaim Drifted (InstanceTypeNotFound) when the list lacks
+// its type, so the list of a start that has not loaded the facts is an error.
+func TestGetInstanceTypesFailsUntilTheDriverFactsAreLoaded(t *testing.T) {
+	e := newEnv(t, envOptions{skipFacts: true})
+	if its, err := e.cp.GetInstanceTypes(t.Context(), nodePool()); err == nil {
+		t.Fatalf("GetInstanceTypes = %d types, nil error before the facts are loaded", len(its))
+	}
+	if err := e.facts.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if its, err := e.cp.GetInstanceTypes(t.Context(), nodePool()); err != nil || len(its) == 0 {
+		t.Errorf("GetInstanceTypes = %d types, %v after the facts are loaded", len(its), err)
+	}
+}
+
+// A driver that keeps failing must not hold the class back for ever.
+func TestGetInstanceTypesOffersWithoutFailingFactsAfterTheGrace(t *testing.T) {
+	e := newEnv(t, envOptions{skipFacts: true, wrap: func(d *fakedriver.Driver) vendors.Driver { return regionsFailing{d} }})
+	if err := e.facts.Load(t.Context()); err == nil {
+		t.Fatal("Load succeeded with a driver whose Regions fails")
+	}
+	if _, err := e.cp.GetInstanceTypes(t.Context(), nodePool()); err == nil {
+		t.Fatal("GetInstanceTypes succeeded within the grace period")
+	}
+	e.advance(cloudprovider.FactsStartupGrace)
+	if _, err := e.cp.GetInstanceTypes(t.Context(), nodePool()); err != nil {
+		t.Errorf("GetInstanceTypes after the grace period: %v", err)
+	}
+}
+
+func TestGetInstanceTypesIgnoresTheFactsOfAVendorThatIsNotReady(t *testing.T) {
+	e := newEnv(t, envOptions{skipFacts: true, notReady: true})
+	if its, err := e.cp.GetInstanceTypes(t.Context(), nodePool()); err != nil || len(its) != 0 {
+		t.Errorf("GetInstanceTypes = %d types, %v, want none and no error", len(its), err)
+	}
+}
+
+func TestGetInstanceTypesFailsWithoutTheCatalog(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	e.cat.SetClasses(nil)
+	if _, err := e.cp.GetInstanceTypes(t.Context(), nodePool()); err == nil {
+		t.Error("GetInstanceTypes succeeded for a class the catalog does not know")
+	}
+}
+
+// regionsFailing is a driver that cannot list its regions.
+type regionsFailing struct{ *fakedriver.Driver }
+
+func (regionsFailing) Regions(context.Context) ([]vendors.Region, error) {
+	return nil, vendors.NewError(vendors.Retryable, "RegionsUnavailable", errors.New("regions unavailable"))
+}
+
 func TestGetInstanceTypesFiltersByTheNodePoolRequirements(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	pool := nodePool()

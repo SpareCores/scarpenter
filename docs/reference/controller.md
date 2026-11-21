@@ -634,7 +634,9 @@ SCNodeClass. With one allowed region and no headroom the pods stay Pending and
 nothing is launched; when a refresh shows headroom, core's next scheduling round
 (it re-evaluates pending pods every 10 s) provisions them, with no nudge from
 SCarpenter. The status is written by server-side apply with field manager
-`scarpenter-quota`, which owns only these fields.
+`scarpenter-quota`, which owns only these fields. One apply per class carries the
+fields of every vendor of the class, and nothing is written while they are
+unchanged; a vendor that leaves the class loses its quota fields.
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|

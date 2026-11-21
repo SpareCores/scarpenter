@@ -13,7 +13,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // The status is written with server-side apply under the field manager
 // scarpenter-quota and owns nothing but those two fields, so that the NodeClass
-// controller can write the rest of the status.
+// controller can write the rest of the status. One apply per class carries every
+// vendor, and nothing is written while the content is unchanged.
 package quotastatus
 
 import (
@@ -23,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awslabs/operatorpkg/status"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -121,10 +123,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-	for _, vendor := range nc.Spec.Vendors.Names() {
-		if err := c.apply(ctx, &nc, vendor, blocked[vendor]); err != nil {
-			return reconcile.Result{}, err
-		}
+	if err := c.apply(ctx, &nc, blocked); err != nil {
+		return reconcile.Result{}, err
 	}
 	return reconcile.Result{RequeueAfter: c.opts.Interval}, nil
 }
@@ -201,7 +201,7 @@ func (c *Controller) Compute(ctx context.Context, class string) (map[string][]Bl
 }
 
 // condition builds the condition of a vendor from its blocked scopes.
-func condition(blocked []Blocked) (status metav1.ConditionStatus, reason, message string) {
+func condition(blocked []Blocked) (condStatus metav1.ConditionStatus, reason, message string) {
 	if len(blocked) == 0 {
 		return metav1.ConditionTrue, ReasonAvailable, ""
 	}
@@ -220,8 +220,56 @@ func condition(blocked []Blocked) (status metav1.ConditionStatus, reason, messag
 	return metav1.ConditionFalse, reason, message
 }
 
-func (c *Controller) apply(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, blocked []Blocked) error {
-	status, reason, message := condition(blocked)
+// apply writes the status of every vendor of the class in one apply, when any
+// of them changed: an apply drops the fields this manager owned and left out,
+// so one apply per vendor would remove the other vendors' fields. A vendor that
+// left the class is left out too, which removes its fields.
+func (c *Controller) apply(ctx context.Context, nc *v1alpha1.SCNodeClass, blocked map[string][]Blocked) error {
+	names := nc.Spec.Vendors.Names()
+	vendors := map[string]any{}
+	changed := false
+	for _, vendor := range names {
+		body, differs := c.vendorBody(nc, vendor, blocked[vendor])
+		vendors[vendor] = body
+		changed = changed || differs
+	}
+	for vendor, vs := range nc.Status.Vendors {
+		hasQuota := len(vs.Quota) > 0 || slices.ContainsFunc(vs.Conditions, isQuotaAvailable)
+		if !slices.Contains(names, vendor) && hasQuota {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	u := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": v1alpha1.GroupVersion.String(),
+		"kind":       "SCNodeClass",
+		"metadata":   map[string]any{"name": nc.Name},
+		"status":     map[string]any{"vendors": vendors},
+	}}
+	err := c.opts.Client.SubResource("status").Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
+		client.FieldOwner(FieldManager), client.ForceOwnership)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("applying the quota status of %s: %w", nc.Name, err)
+	}
+	for _, vendor := range names {
+		c.emit(nc, vendor, blocked[vendor], nc.Status.Vendors[vendor].Quota)
+	}
+	return nil
+}
+
+func isQuotaAvailable(c status.Condition) bool {
+	return c.Type == v1alpha1.VendorConditionQuotaAvailable
+}
+
+// vendorBody is the apply body of one vendor, and whether it differs from the
+// status as read. The condition keeps its transition time while its status holds.
+func (c *Controller) vendorBody(nc *v1alpha1.SCNodeClass, vendor string, blocked []Blocked) (map[string]any, bool) {
+	condStatus, reason, message := condition(blocked)
 	quotaStatus := make([]v1alpha1.QuotaStatus, len(blocked))
 	for i, b := range blocked {
 		quotaStatus[i] = v1alpha1.QuotaStatus{
@@ -236,15 +284,13 @@ func (c *Controller) apply(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor
 		if cond.Type != v1alpha1.VendorConditionQuotaAvailable {
 			continue
 		}
-		if string(cond.Status) == string(status) {
+		if string(cond.Status) == string(condStatus) {
 			now = cond.LastTransitionTime
 		}
-		changedCondition = string(cond.Status) != string(status) || cond.Reason != reason || cond.Message != message ||
+		changedCondition = string(cond.Status) != string(condStatus) || cond.Reason != reason || cond.Message != message ||
 			cond.ObservedGeneration != nc.Generation
 	}
-	if !changedCondition && slices.Equal(current.Quota, quotaStatus) {
-		return nil
-	}
+	differs := changedCondition || !slices.Equal(current.Quota, quotaStatus)
 
 	quotaList := make([]any, len(quotaStatus))
 	for i, q := range quotaStatus {
@@ -257,32 +303,17 @@ func (c *Controller) apply(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor
 		}
 		quotaList[i] = entry
 	}
-	u := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": v1alpha1.GroupVersion.String(),
-		"kind":       "SCNodeClass",
-		"metadata":   map[string]any{"name": nc.Name},
-		"status": map[string]any{"vendors": map[string]any{vendor: map[string]any{
-			"conditions": []any{map[string]any{
-				"type":               v1alpha1.VendorConditionQuotaAvailable,
-				"status":             string(status),
-				"reason":             reason,
-				"message":            message,
-				"lastTransitionTime": now.UTC().Format(time.RFC3339),
-				"observedGeneration": nc.Generation,
-			}},
-			"quota": quotaList,
-		}}},
-	}}
-	err := c.opts.Client.SubResource("status").Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
-		client.FieldOwner(FieldManager), client.ForceOwnership)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("applying the quota status of %s/%s: %w", nc.Name, vendor, err)
-	}
-	c.emit(nc, vendor, blocked, current.Quota)
-	return nil
+	return map[string]any{
+		"conditions": []any{map[string]any{
+			"type":               v1alpha1.VendorConditionQuotaAvailable,
+			"status":             string(condStatus),
+			"reason":             reason,
+			"message":            message,
+			"lastTransitionTime": now.UTC().Format(time.RFC3339),
+			"observedGeneration": nc.Generation,
+		}},
+		"quota": quotaList,
+	}, differs
 }
 
 // emit publishes an Event for every scope that became blocked or changed its

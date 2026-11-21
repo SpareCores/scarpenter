@@ -14,7 +14,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // stays Ready.
 //
 // The status is written with server-side apply under the field manager
-// scarpenter-resources and owns nothing but those two fields.
+// scarpenter-resources and owns nothing but those two fields. One apply per class
+// carries every vendor, and nothing is written while the content is unchanged.
 package resourcestatus
 
 import (
@@ -24,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/awslabs/operatorpkg/status"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,7 +34,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/karpenter/pkg/events"
 
@@ -107,14 +108,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		c.opts.Engine.ForgetClass(nc.Name)
 		return reconcile.Result{}, nil
 	}
-	var errs []error
-	for _, vendor := range nc.Spec.Vendors.Names() {
-		if err := c.vendor(ctx, &nc, vendor); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if len(errs) > 0 {
-		log.FromContext(ctx).Error(fmt.Errorf("%v", errs), "applying the resource status")
+	if err := c.applyStatus(ctx, &nc); err != nil {
+		return reconcile.Result{}, err
 	}
 	return reconcile.Result{RequeueAfter: c.opts.Interval}, nil
 }
@@ -130,15 +125,68 @@ func (c *Controller) regionsOf(nc *v1alpha1.SCNodeClass, vendor string) []string
 	return slices.Compact(out)
 }
 
-func (c *Controller) vendor(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string) error {
+// applyStatus writes the status of every vendor of the class in one apply, when
+// any of them changed: an apply drops the fields this manager owned and left
+// out, so one apply per vendor would remove the other vendors' fields. A vendor
+// that left the class is left out too, which removes its fields.
+func (c *Controller) applyStatus(ctx context.Context, nc *v1alpha1.SCNodeClass) error {
+	names := nc.Spec.Vendors.Names()
+	vendors := map[string]any{}
+	changed := false
+	for _, vendor := range names {
+		body, differs := c.vendorBody(ctx, nc, vendor)
+		if body != nil {
+			vendors[vendor] = body
+		}
+		changed = changed || differs
+	}
+	for vendor, vs := range nc.Status.Vendors {
+		if !slices.Contains(names, vendor) && (len(vs.Resources) > 0 || len(vs.ResourceCounts) > 0 ||
+			slices.ContainsFunc(vs.Conditions, isResourcesReady)) {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	u := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": v1alpha1.GroupVersion.String(),
+		"kind":       "SCNodeClass",
+		"metadata":   map[string]any{"name": nc.Name},
+		"status":     map[string]any{"vendors": vendors},
+	}}
+	err := c.opts.Client.SubResource("status").Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
+		client.FieldOwner(FieldManager), client.ForceOwnership)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("applying the resource status of %s: %w", nc.Name, err)
+	}
+	return nil
+}
+
+func isResourcesReady(c status.Condition) bool {
+	return c.Type == v1alpha1.VendorConditionResourcesReady
+}
+
+// vendorBody is the apply body of one vendor, and whether it differs from the
+// status as read. A vendor whose regions are not known yet (the driver is not
+// loaded) keeps what the status has, and a vendor with nothing yet gets no body.
+func (c *Controller) vendorBody(ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string) (map[string]any, bool) {
+	current := nc.Status.Vendors[vendor]
 	regions := c.regionsOf(nc, vendor)
 	if len(regions) == 0 {
-		return nil // the driver's regions are not loaded yet
+		i := slices.IndexFunc(current.Conditions, isResourcesReady)
+		if i < 0 {
+			return nil, false
+		}
+		return resourceBody(current.Conditions[i], current.Resources, current.ResourceCounts), false
 	}
 	rep := c.opts.Engine.Check(ctx, nc, vendor, regions)
 	notReady, reasons := rep.NotReady()
 
-	var status metav1.ConditionStatus
+	var condStatus metav1.ConditionStatus
 	var reason, message string
 	switch {
 	case len(notReady) > 0:
@@ -146,13 +194,13 @@ func (c *Controller) vendor(ctx context.Context, nc *v1alpha1.SCNodeClass, vendo
 		for _, r := range notReady {
 			parts = append(parts, r+": "+reasons[r])
 		}
-		status, reason = metav1.ConditionFalse, ReasonUnavailable
+		condStatus, reason = metav1.ConditionFalse, ReasonUnavailable
 		message = "offerings are unavailable in the regions with missing or failed resources: " + strings.Join(parts, "; ")
 	case len(rep.Errors) > 0:
-		status, reason = metav1.ConditionUnknown, ReasonCheckFailed
+		condStatus, reason = metav1.ConditionUnknown, ReasonCheckFailed
 		message = fmt.Sprintf("%v", rep.Errors[0])
 	default:
-		status, reason = metav1.ConditionTrue, ReasonReady
+		condStatus, reason = metav1.ConditionTrue, ReasonReady
 	}
 	if len(message) > maxMessage {
 		message = message[:maxMessage-3] + "..."
@@ -160,7 +208,24 @@ func (c *Controller) vendor(ctx context.Context, nc *v1alpha1.SCNodeClass, vendo
 	for _, region := range notReady {
 		c.warn(nc, vendor, region, reasons[region])
 	}
-	return c.apply(ctx, nc, vendor, status, reason, message, rep.Resources, rep.Counts)
+
+	// The condition keeps its transition time while its status holds.
+	cond := status.Condition{
+		Type: v1alpha1.VendorConditionResourcesReady, Status: condStatus, Reason: reason, Message: message,
+		LastTransitionTime: metav1.NewTime(c.opts.Clock.Now()), ObservedGeneration: nc.Generation,
+	}
+	differs := true
+	if i := slices.IndexFunc(current.Conditions, isResourcesReady); i >= 0 {
+		old := current.Conditions[i]
+		if old.Status == cond.Status {
+			cond.LastTransitionTime = old.LastTransitionTime
+		}
+		differs = old.Status != cond.Status || old.Reason != cond.Reason || old.Message != cond.Message ||
+			old.ObservedGeneration != cond.ObservedGeneration
+	}
+	differs = differs || !sameResources(current.Resources, rep.Resources) ||
+		!slices.Equal(current.ResourceCounts, rep.Counts)
+	return resourceBody(cond, rep.Resources, rep.Counts), differs
 }
 
 func (c *Controller) warn(nc *v1alpha1.SCNodeClass, vendor, region, reason string) {
@@ -175,26 +240,10 @@ func (c *Controller) warn(nc *v1alpha1.SCNodeClass, vendor, region, reason strin
 	})
 }
 
-func (c *Controller) apply(
-	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, status metav1.ConditionStatus, reason, message string,
-	res []v1alpha1.ResourceStatus, counts []v1alpha1.ResourceCount,
-) error {
-	now := metav1.NewTime(c.opts.Clock.Now())
-	current := nc.Status.Vendors[vendor]
-	changed := true
-	for _, cond := range current.Conditions {
-		if cond.Type != v1alpha1.VendorConditionResourcesReady {
-			continue
-		}
-		if string(cond.Status) == string(status) {
-			now = cond.LastTransitionTime
-		}
-		changed = string(cond.Status) != string(status) || cond.Reason != reason || cond.Message != message ||
-			cond.ObservedGeneration != nc.Generation
-	}
-	if !changed && sameResources(current.Resources, res) && slices.Equal(current.ResourceCounts, counts) {
-		return nil
-	}
+// resourceBody is the apply body of one vendor.
+func resourceBody(
+	cond status.Condition, res []v1alpha1.ResourceStatus, counts []v1alpha1.ResourceCount,
+) map[string]any {
 	list := make([]any, len(res))
 	for i, r := range res {
 		m := map[string]any{fieldKind: r.Kind, fieldRegion: r.Region, "id": r.ID}
@@ -219,32 +268,18 @@ func (c *Controller) apply(
 	for i, n := range counts {
 		countList[i] = map[string]any{fieldKind: n.Kind, fieldRegion: n.Region, "count": int64(n.Count)}
 	}
-	u := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": v1alpha1.GroupVersion.String(),
-		"kind":       "SCNodeClass",
-		"metadata":   map[string]any{"name": nc.Name},
-		"status": map[string]any{"vendors": map[string]any{vendor: map[string]any{
-			"conditions": []any{map[string]any{
-				"type":               v1alpha1.VendorConditionResourcesReady,
-				"status":             string(status),
-				"reason":             reason,
-				"message":            message,
-				"lastTransitionTime": now.UTC().Format(time.RFC3339),
-				"observedGeneration": nc.Generation,
-			}},
-			"resources":      list,
-			"resourceCounts": countList,
-		}}},
-	}}
-	err := c.opts.Client.SubResource("status").Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
-		client.FieldOwner(FieldManager), client.ForceOwnership)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("applying the resource status of %s/%s: %w", nc.Name, vendor, err)
+	return map[string]any{
+		"conditions": []any{map[string]any{
+			"type":               v1alpha1.VendorConditionResourcesReady,
+			"status":             string(cond.Status),
+			"reason":             cond.Reason,
+			"message":            cond.Message,
+			"lastTransitionTime": cond.LastTransitionTime.UTC().Format(time.RFC3339),
+			"observedGeneration": cond.ObservedGeneration,
+		}},
+		"resources":      list,
+		"resourceCounts": countList,
 	}
-	return nil
 }
 
 // sameResources compares the status as read with the one computed; lastUsed
