@@ -22,3 +22,29 @@ func (d *Driver) MetadataEndpoints() vendors.MetadataEndpoints {
 		},
 	}
 }
+
+// tailnetFragment keeps the node's access to Alibaba's 100.100.0.0/16 services
+// (the metadata service at 100.100.100.200 and the DHCP resolvers 100.100.2.136
+// and 100.100.2.138) after it joins the tailnet. They lie inside 100.64.0.0/10,
+// Tailscale's CGNAT range: tailscaled's ts-input chain drops packets from that
+// range that arrive outside tailscale0, and their replies arrive on eth0 (the
+// routes are fine). --netfilter-mode=nodivert makes tailscaled create its
+// chains without jumping to them from INPUT and FORWARD, so the drop never
+// applies. The drop-in hands the flag to the tailscale template's
+// scarpenter-tailscale-up.service; without that template it does nothing.
+const tailnetFragment = `variant: flatcar
+version: 1.1.0
+systemd:
+  units:
+    - name: scarpenter-tailscale-up.service
+      dropins:
+        - name: 20-alicloud-netfilter.conf
+          contents: |
+            [Service]
+            Environment=SCARPENTER_TAILSCALE_UP_ARGS=--netfilter-mode=nodivert
+`
+
+// BootFragments implements vendors.VendorBootFragments.
+func (d *Driver) BootFragments() []vendors.BootFragment {
+	return []vendors.BootFragment{{Name: "tailnet", Butane: tailnetFragment}}
+}

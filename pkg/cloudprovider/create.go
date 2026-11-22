@@ -351,14 +351,12 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	if rr.NVIDIA, err = nvidiaSelection(nc, cand.it); err != nil {
 		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
 	}
-	if nc.Spec.RestrictsInstanceMetadata() {
-		f, ok, err := vendors.RestrictMetadata(drv)
-		if err != nil {
-			return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
-		}
-		if ok {
-			rr.VendorFragments = append(rr.VendorFragments, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
-		}
+	frags, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata())
+	if err != nil {
+		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
+	}
+	for _, f := range frags {
+		rr.VendorFragments = append(rr.VendorFragments, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
 	}
 	userData, err := c.opts.UserData.Render(ctx, rr)
 	if err != nil {

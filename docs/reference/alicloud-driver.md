@@ -25,6 +25,7 @@ what the live L5 run must settle. Enable the driver with `--vendors alicloud` (o
 - [Node settings](#node-settings)
 - [Resources and network](#resources-and-network)
 - [The metadata service](#the-metadata-service)
+- [Tailnet and the service addresses](#tailnet-and-the-service-addresses)
 - [Quotas](#quotas)
 - [Billing](#billing)
 - [Credentials and the RAM policy](#credentials-and-the-ram-policy)
@@ -156,7 +157,7 @@ Decisions that differ from AWS (each an open question of the plan, decided by de
 | Kind | `use` | Without `use` (ADR-022) | Created by SCarpenter |
 |---|---|---|---|
 | `subnets` | vSwitches by ID, name (`{zone}`), tags, `match` (zone, network, cidr, within, state, creation time), filters | tagged vSwitches, else the default VPC's default vSwitches (never modified), else create | one VPC (`10.240.0.0/16`) with a `/20` vSwitch per zone, `idleTTL` 24 h. No gateway or route table: the public IPv4 is a bandwidth |
-| `securityGroups` | groups by ID, name, tags, `match.network`, filters | tagged groups, else create | one normal group per (NodeClass, VPC): inbound only `spec.networking.inbound`, a self rule for `isolation: nodeclass`, outbound open by default; one more per run key for `isolation: run` (`runSecurityGroups`, `perUse`) |
+| `securityGroups` | groups by ID, name, tags, `match.network`, filters | tagged groups, else create | one normal group per (NodeClass, VPC): inbound only `spec.networking.inbound`, members reach each other by the normal group's default (`InnerAccessPolicy` Accept; no self rule: ECS refuses `SourceGroupId` equal to the group), outbound open by default; one more per run key for `isolation: run` (`runSecurityGroups`, `perUse`) |
 | `deploymentSets` | sets by ID or name (no tags) | none | one per (profile, run key), `perUse` |
 | `images` | see [Images](#images) | the name convention | never (rung 3) |
 
@@ -196,6 +197,28 @@ The driver declares `100.100.100.200` as the address that nodes of a NodeClass w
 ([instance metadata access](node-bootstrap.md#instance-metadata-access)); `Open` leaves it reachable. The L5 `imds`
 scenario checks that a Pod and a host-network Pod reach nothing and the allowed slice does.
 
+## Tailnet and the service addresses
+
+Alibaba serves the metadata service (`100.100.100.200`) and the DHCP resolvers (`100.100.2.136`, `100.100.2.138`) from
+`100.100.0.0/16`, which lies inside `100.64.0.0/10`, Tailscale's CGNAT range. The routes to them (through the `eth0` gateway)
+are fine, but once the node joins the tailnet, tailscaled's `ts-input` chain drops the packets from that range that arrive
+outside `tailscale0`, and the replies of those services arrive on `eth0`. Without a fix the node could not resolve the API
+server's name and never registered, and the metadata service timed out.
+
+The driver contributes a fragment (`vendors.VendorBootFragments`, always on, whatever `spec.instanceMetadata.access` says) that
+runs tailscaled with `--netfilter-mode=nodivert`: tailscaled still creates its chains, but nothing in `INPUT` or `FORWARD` jumps
+to them, so the drop never applies. The fragment is a drop-in that sets `SCARPENTER_TAILSCALE_UP_ARGS` for the tailscale
+template's `scarpenter-tailscale-up.service`. The DHCP resolvers and the metadata service work as on a node without a tailnet;
+operators need no workaround of their own.
+
+What `nodivert` leaves out is the rest of tailscaled's firewall integration: the accept rule for `tailscale0` in `INPUT`, the
+forwarding and masquerade rules for subnet routers and exit nodes, and the CGNAT drop itself. Flatcar's `INPUT` policy is
+`ACCEPT`, and SCarpenter nodes are neither subnet routers nor exit nodes; the CNI and kube-proxy install their own rules.
+
+The default `spec.instanceMetadata.access: Restricted` still drops every connection to `100.100.100.200` except from the node's own
+units, Pods included ([above](#the-metadata-service)). A workload that reads the instance metadata needs a NodeClass with
+`access: Open`.
+
 ## Quotas
 
 `DescribeAccountAttributes` gives limit and usage in one call per region: the buckets `postpaid-vcpu` and `spot-vcpu` (unit
@@ -226,7 +249,7 @@ ServiceAccount token, the analogue of AWS web identity; recommended), the contro
 through to the instance metadata and stay there). Otherwise it authenticates through the default chain of `credentials-go`:
 `ALIBABA_CLOUD_ACCESS_KEY_ID`/`_SECRET`, the shared credentials file, the instance RAM role and a credentials URI. [Set up Alibaba Cloud](../how-to-guides/set-up-alicloud.md#2-credentials) covers the chart's three modes
 (`oidc`, `secret`, `none`). [`alicloud-ram-policy.json`](alicloud-ram-policy.json) is the policy: the `ecs:` and `vpc:` actions of the
-two API interfaces, reads for everything, creates under the request tag and mutations under the resource tag
+two API interfaces, reads for everything (including `ecs:GetInstanceConsoleOutput` and `ecs:GetInstanceScreenshot`, which serve an operator's boot diagnosis, not the controller), creates under the request tag and mutations under the resource tag
 `scarpenter.sparecores.com/cluster` (a test ties the file to the interfaces; the condition keys' exact use with `RunInstances` is *unverified*).
 Deployment sets take no tags, so their create and delete are limited to the resource type only; the driver deletes only sets whose
 description carries its marker.

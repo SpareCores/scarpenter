@@ -540,14 +540,14 @@ func TestSecurityGroups(t *testing.T) {
 		}
 	}
 	self := &ecs.AuthorizeSecurityGroupRequest{SecurityGroupId: &a, IpProtocol: new("all"), PortRange: new("-1/-1"), SourceGroupId: &a}
-	if _, err := w.ecs.AuthorizeSecurityGroup(ctx, self); err != nil {
-		t.Fatal(err)
+	if _, err := w.ecs.AuthorizeSecurityGroup(ctx, self); code(err) != "InvalidParamter.Conflict" {
+		t.Fatalf("a rule from the group itself: %v", err)
 	}
 	if _, err := w.ecs.AuthorizeSecurityGroup(ctx, &ecs.AuthorizeSecurityGroupRequest{SecurityGroupId: &a}); err == nil {
 		t.Fatal("a rule needs a protocol")
 	}
 	attr, err := w.ecs.DescribeSecurityGroupAttribute(ctx, &ecs.DescribeSecurityGroupAttributeRequest{SecurityGroupId: &a})
-	if err != nil || len(attr.Permissions.Permission) != 2 || *attr.VpcId != w.vpcID {
+	if err != nil || len(attr.Permissions.Permission) != 1 || *attr.VpcId != w.vpcID {
 		t.Fatalf("attribute = %v, %v", attr, err)
 	}
 	if _, err := w.ecs.RevokeSecurityGroup(ctx, &ecs.RevokeSecurityGroupRequest{SecurityGroupId: &a, IpProtocol: new("udp"),
