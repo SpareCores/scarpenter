@@ -233,12 +233,29 @@ func TestQuotaStatus(t *testing.T) {
 		entry{"us-east-1", "on-demand", quotastatus.ReasonExhausted}, entry{"us-east-1", "spot", quotastatus.ReasonExhausted},
 		entry{"us-east-2", "on-demand", quotastatus.ReasonExhausted}, entry{"us-east-2", "spot", quotastatus.ReasonExhausted})
 
-	checkEvents(t, rec.reasons())
+	// The controller publishes events after the apply the status wait observed,
+	// so wait for them instead of reading once.
+	var events []string
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if events = rec.reasons(); eventsOK(events) {
+			break
+		}
+	}
+	checkEvents(t, events)
 	checkOwnership(ctx, t, c, className)
 }
 
 func checkEvents(t *testing.T, got []string) {
 	t.Helper()
+	if !eventsOK(got) {
+		t.Errorf("events: want at least 4 exhausted and exactly 2 zero: %v", got)
+	}
+}
+
+// eventsOK: us-east-1 (x2 capacity types) blocked, zero, then both regions
+// again. A stale cache read may repeat an exhausted event, so that count is a
+// minimum.
+func eventsOK(got []string) bool {
 	var exhausted, zero int
 	for _, r := range got {
 		switch {
@@ -248,10 +265,7 @@ func checkEvents(t *testing.T, got []string) {
 			zero++
 		}
 	}
-	// us-east-1 (x2 capacity types) blocked, zero, then both regions again.
-	if exhausted < 4 || zero != 2 {
-		t.Errorf("events: %d exhausted, %d zero: %v", exhausted, zero, got)
-	}
+	return exhausted >= 4 && zero == 2
 }
 
 // The apply owns only its fields: the quota manager is on the status.
