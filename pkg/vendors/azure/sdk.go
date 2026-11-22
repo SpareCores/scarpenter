@@ -11,10 +11,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/marketplaceordering/armmarketplaceordering"
@@ -62,6 +64,13 @@ func NewSDKClients(cred azcore.TokenCredential, subscriptionID string, opts SDKO
 	if err != nil {
 		return Clients{}, fmt.Errorf("compute client: %w", err)
 	}
+	// The SDK's newest api-version is not registered for locations/communityGalleries.
+	galleryOpts := &arm.ClientOptions{ClientOptions: co}
+	galleryOpts.PerCallPolicies = append(slices.Clone(co.PerCallPolicies), communityGalleryAPIVersion{})
+	community, err := armcompute.NewCommunityGalleryImageVersionsClient(subscriptionID, cred, galleryOpts)
+	if err != nil {
+		return Clients{}, fmt.Errorf("community gallery client: %w", err)
+	}
 	network, err := armnetwork.NewClientFactory(subscriptionID, cred, armOpts)
 	if err != nil {
 		return Clients{}, fmt.Errorf("network client: %w", err)
@@ -94,7 +103,7 @@ func NewSDKClients(cred azcore.TokenCredential, subscriptionID string, opts SDKO
 		Resources:  &sdkResources{c: res},
 		SKUs:       &sdkSKUs{c: compute.NewResourceSKUsClient()},
 		Usages:     &sdkUsages{compute: compute.NewUsageClient(), network: network.NewUsagesClient()},
-		Images:     &sdkImages{c: compute.NewVirtualMachineImagesClient(), community: compute.NewCommunityGalleryImageVersionsClient()},
+		Images:     &sdkImages{c: compute.NewVirtualMachineImagesClient(), community: community},
 		Agreements: &sdkAgreements{c: agr},
 		Locations:  &sdkLocations{c: subs, subscriptionID: subscriptionID},
 	}, nil
@@ -422,6 +431,20 @@ func (s *sdkUsages) ComputeUsages(ctx context.Context, location string) ([]*armc
 func (s *sdkUsages) NetworkUsages(ctx context.Context, location string) ([]*armnetwork.Usage, error) {
 	return drain(ctx, s.network.NewListPager(location, nil),
 		func(p armnetwork.UsagesClientListResponse) []*armnetwork.Usage { return p.Value })
+}
+
+// communityGalleryAPIVersion is the newest api-version that locations/communityGalleries
+// supports (seen live: the SDK's own, 2026-03-03, is refused with
+// NoRegisteredProviderFound); the responses have the same shape.
+const communityGalleryVersion = "2026-03-01"
+
+type communityGalleryAPIVersion struct{}
+
+func (communityGalleryAPIVersion) Do(req *policy.Request) (*http.Response, error) {
+	q := req.Raw().URL.Query()
+	q.Set("api-version", communityGalleryVersion)
+	req.Raw().URL.RawQuery = q.Encode()
+	return req.Next()
 }
 
 type sdkImages struct {
