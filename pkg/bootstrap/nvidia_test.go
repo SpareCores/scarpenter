@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/SpareCores/scarpenter/internal/testutil"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
@@ -111,7 +113,7 @@ func TestNVIDIAPartAcrossVariants(t *testing.T) {
 						for _, want := range []string{
 							sel.Sysext + "%0A", // enabled-sysext.conf
 							"sha256-" + sel.RuntimeSHA256,
-							"scarpenter-nvidia-check " + sel.Version + " 2",
+							"scarpenter-nvidia-check " + sel.Version + " 2 default-abc12",
 							"Upholds=nvidia-persistenced.service",
 							// Before the driver sysext's 10-flatcar-nvidia-drivers-*.conf:
 							// modprobe uses the first install line of a module.
@@ -160,9 +162,9 @@ func TestFabricManagerOnNVSwitchSystemsOnly(t *testing.T) {
 		}
 		text, _ := part(r, "nvidia")
 		for _, want := range []string{
-			"/opt/nvidia-fabricmanager/" + file, wantURL, "sha256-" + sel.FabricManagerSHA256,
+			"/opt/nvidia-fabricmanager/" + file, wantURL, sel.FabricManagerSHA256,
 			"scarpenter-nvidia-fabricmanager.service", "nv-fabricmanager -c",
-			"scarpenter-nvidia-check " + sel.Version + " 8 fabric",
+			"scarpenter-nvidia-check " + sel.Version + " 8 default-abc12 fabric",
 		} {
 			if !strings.Contains(strings.ReplaceAll(text, " ", ""), strings.ReplaceAll(want, " ", "")) {
 				t.Errorf("mirror %q: the nvidia part lacks %q", mirror, want)
@@ -327,5 +329,75 @@ func TestValidateCountsTheNVIDIAPart(t *testing.T) {
 	unknown := nodeClass(func(nc *v1alpha1.SCNodeClass) { nc.Spec.Flatcar.Version = "4000.0.0" })
 	if err := r.Validate(t.Context(), unknown, "amd64", bootstrap.Inputs{}); err != nil {
 		t.Errorf("a release without a driver table: %v", err)
+	}
+}
+
+// ADR-031: the kubelet does not wait for the driver. The node registers with the gpu-pending
+// taint (once, also when the NodePool lists it as a startup taint), the check unit is
+// enabled on its own, and nothing in the user-data makes the kubelet require it.
+func TestGPUNodeRegistersWithPendingTaint(t *testing.T) {
+	const taint = v1alpha1.TaintGPUPending + ":NoSchedule"
+	sel := gpuSelection(t, "T4", 2)
+	for name, taints := range map[string][]corev1.Taint{
+		"no taints":          nil,
+		"as a startup taint": {{Key: v1alpha1.TaintGPUPending, Effect: corev1.TaintEffectNoSchedule}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := gpuParams(t, v1alpha1.NetworkTemplateDirect, sel, "")
+			p.Taints = taints
+			r, err := bootstrap.Render(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(goldenText(t, r))
+			if n := strings.Count(text, taint); n != 1 {
+				t.Errorf("the kubelet registers the taint %d times, want 1", n)
+			}
+			nv, _ := part(r, "nvidia")
+			for _, banned := range []string{"Requires=scarpenter-nvidia-check", "Before=kubelet.service", "kubelet.service"} {
+				if strings.Contains(nv, banned) {
+					t.Errorf("the nvidia part has %q: the kubelet must not wait for the check", banned)
+				}
+			}
+			if want := "--node-labels=" + v1alpha1.LabelNVIDIADriverBranch + "=" + sel.Branch; !strings.Contains(text, want) {
+				t.Errorf("the kubelet lacks %q: the driver label must exist from registration", want)
+			}
+			if !strings.Contains(text, "WantedBy=multi-user.target") {
+				t.Error("the check unit is not enabled")
+			}
+		})
+	}
+	r, err := bootstrap.Render(baseParams("amd64", v1alpha1.NetworkTemplateDirect))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(goldenText(t, r)); strings.Contains(text, v1alpha1.TaintGPUPending) ||
+		strings.Contains(text, "--node-labels") {
+		t.Error("a node without a GPU registers with the gpu-pending taint or the driver label")
+	}
+}
+
+// The Fabric Manager archive is not an Ignition file: the unit downloads it after the boot
+// and checks the pin, so that the download does not count against the registration timeout.
+func TestFabricManagerArchiveIsDownloadedAfterTheBoot(t *testing.T) {
+	sel := gpuSelection(t, "H100", 8)
+	r, err := bootstrap.Render(gpuParams(t, v1alpha1.NetworkTemplateDirect, sel, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := part(r, "nvidia")
+	file := nvidia.FabricManagerFile(sel.Version)
+	for _, want := range []string{
+		"/opt/nvidia-fabricmanager/" + file + ".sha256",
+		"curl -fsSL --retry 5 -o /opt/nvidia-fabricmanager/" + file,
+		"sha256sum -c --quiet /opt/nvidia-fabricmanager/" + file + ".sha256",
+		"TimeoutStartSec=600",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the nvidia part lacks %q", want)
+		}
+	}
+	if n := strings.Count(text, nvidia.FabricManagerURL(sel.Version)); n != 1 {
+		t.Errorf("the archive URL appears %d times, want once (in the unit, not as an Ignition file)", n)
 	}
 }

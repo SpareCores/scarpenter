@@ -375,8 +375,8 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
   for sysexts and images. With `use` it is allowed: whether the subnets have a NAT
   gateway or a proxy is the user's job.
 - **IPv6-only** (`publicIPv4: false`, `publicIPv6: true`): `use` subnets with IPv6 only,
-  and the sysexts need a mirror reachable over IPv6 (the Warning Event
-  `IPv6OnlyNeedsMirror` otherwise).
+  and the sysexts need a mirror reachable over IPv6 (the NodeClass is refused
+  otherwise, see [the driver contract](driver-contract.md#reaching-the-bootstrap-artifacts)).
 
 ## Tags
 

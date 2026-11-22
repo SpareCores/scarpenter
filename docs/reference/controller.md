@@ -279,6 +279,15 @@ The chart's default limit is 2Gi (request 640Mi), which covers every region of
 all eight vendors; scope the NodeClasses' `regions` to what you use to need less.
 The refresh itself reads each file as a stream and holds no uncompressed body.
 
+## GPU pending taint
+
+The GPU pending controller removes the taint `scarpenter.sparecores.com/gpu-pending` from a Node that has the label
+`scarpenter.sparecores.com/gpu-ready=true` ([ADR-031](../explanation/DECISIONS.md#adr-031-gpu-nodes-register-before-the-check-and-fabric-manager-work-are-done-accepted-2026-11-22)).
+The node's own check sets the label with the kubelet's credentials, because NodeRestriction forbids a node to change its taints.
+It also removes the taint at once from every Node of a SCarpenter NodeClaim without the `nvidia-driver-branch` label (a CPU
+node of a pool that lists the taint in `startupTaints`, as every pool that can launch GPU types must). A GPU node labelled `gpu-ready=false`, or still tainted 30 minutes after its creation, loses its NodeClaim (Event `GPUCheckFailed`).
+The controller already has `patch` on Nodes and `delete` on NodeClaims; other taints are left alone.
+
 ## Billing retention
 
 The billing retention controller ([ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10),
@@ -603,8 +612,7 @@ Events (on the SCNodeClass): `LaunchFailed` (a `Fatal` vendor error),
 and the serving certificate approver add `ArtifactsNotResolved`,
 `ValidationFailed`, `VendorNotReady`, `RestartRequired`, `MetricInvalid`,
 `DeprecatedHardening` (Warning: the NodeClass still sets `spec.bootstrap.hardening`, which has no effect),
-`IPv6OnlyNeedsMirror` (Warning: IPv6-only nodes and the default sysext source, which
-has no IPv6; set `--sysext-base-url`) (on the SCNodeClass), `BootstrapTokenDeleted` (on the NodeClaim; also `GarbageCollected` on
+`BootstrapTokenDeleted` (on the NodeClaim; also `GarbageCollected` on
 the NodeClass for orphan tokens) and `ServingCertificateApproved` /
 `ServingCertificateDenied` (on the certificate signing request); see
 [node bootstrap](node-bootstrap.md).
@@ -687,7 +695,7 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 | `ImageResolutionFailed` | Warning | SCNodeClass | A boot image could not be resolved. |
 | `OfferingRejected` | Warning | SCNodeClass | The vendor rejected the launch of an offering (`InvalidOffering`, with the vendor's message); it is unavailable for an hour. |
 | `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `MetricInvalid`, `RestartRequired` | Warning / Normal | SCNodeClass | The NodeClass controller's findings ([conditions](#scnodeclass-status-conditions)). |
-| `IPv6OnlyNeedsMirror` | Warning | SCNodeClass | IPv6-only nodes and the default sysext source, which has no IPv6: set `--sysext-base-url`. |
+| `IPv6OnlyEgress` | Warning | SCNodeClass | IPv6-only nodes in a network you bring, with the default sysext source (no IPv6): the IPv4 egress of that network must reach it. |
 | `QuotaExhausted`, `QuotaZero` | Warning | SCNodeClass | No headroom in a quota bucket (deduplicated for 10 minutes). |
 | `BootstrapTokenDeleted` | Normal | NodeClaim | The node registered; its token was deleted. |
 | `GarbageCollected` | Normal | SCNodeClass, else the Deployment | An orphan instance, bootstrap token or resource was deleted ([garbage collection](#garbage-collection)). |

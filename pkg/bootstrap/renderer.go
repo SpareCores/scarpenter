@@ -41,8 +41,10 @@ type RenderRequest struct {
 	// KubeReserved is the effective kubeReserved of the instance type
 	// (resource name to quantity), what the catalog assumed.
 	KubeReserved map[string]string
-	Volumes      []VolumeHint
-	Local        *LocalHint
+	// NodeMemoryMiB is the catalog's memory of the instance type.
+	NodeMemoryMiB int64
+	Volumes       []VolumeHint
+	Local         *LocalHint
 	// VendorFragments are the fragments of the vendor's driver for the node.
 	VendorFragments []Fragment
 	// NodeIPCIDR is the IPv4 range of the private network of the launch, from
@@ -154,7 +156,7 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 	}
 	p.NodeName, p.ProviderID, p.BootstrapToken = req.NodeName, req.ProviderID, req.Token
 	p.Vendor, p.Region, p.Zone, p.InstanceType = req.Vendor, req.Region, req.Zone, req.InstanceType
-	p.KubeReserved, p.Volumes, p.Local = req.KubeReserved, req.Volumes, req.Local
+	p.KubeReserved, p.NodeMemoryMiB, p.Volumes, p.Local = req.KubeReserved, req.NodeMemoryMiB, req.Volumes, req.Local
 	p.VendorFragments = req.VendorFragments
 	p.NodeIPCIDR = req.NodeIPCIDR
 	if req.NVIDIA != nil {

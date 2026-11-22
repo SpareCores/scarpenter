@@ -22,7 +22,7 @@ var (
 	azureWrites = map[string]bool{"CreateOrUpdate": true, "Delete": true}
 	azureReads  = map[string]bool{
 		"Get": true, "ListAll": true, "ListInGroup": true, "List": true, "Resources": true, "ListByTag": true,
-		"ComputeUsages": true, "NetworkUsages": true, "ListSKUs": true, "ListVersions": true, "Accepted": true,
+		"ComputeUsages": true, "NetworkUsages": true, "ListSKUs": true, "ListVersions": true, "CommunityVersions": true, "Accepted": true,
 	}
 	// fakeOps maps the field of the clients to the prefix of the fake's operation names.
 	fakeOps = map[string]string{"VMs": "vm", "NICs": "nic", "PIPs": "pip", "Groups": "group", "VNets": "vnet", "NSGs": "nsg", "ASGs": "asg", "PPGs": "ppg"}
