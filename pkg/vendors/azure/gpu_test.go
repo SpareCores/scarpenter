@@ -18,7 +18,7 @@ func TestVirtualGPUSeries(t *testing.T) {
 	for ref, want := range map[string]bool{
 		"Standard_NV6s_v2": true, "Standard_NV12s_v3": true, "Standard_NV36ads_A10_v5": true,
 		"Standard_NV72ads_A10_v5": true, "Standard_NV36adms_A10_v5": true, "Standard_NV4as_v4": true,
-		"Standard_NCC40ads_H100_v5": true, "Standard_NC4as_T4_v3": false, "Standard_NC24ads_A100_v4": false, "Standard_NC40ads_H100_v5": false,
+		"Standard_NCC40ads_H100_v5": false, "Standard_NC4as_T4_v3": false, "Standard_NC24ads_A100_v4": false, "Standard_NC40ads_H100_v5": false,
 		"Standard_NC16ads_A10_v4": false, "Standard_ND96isr_H100_v5": false, "Standard_ND40rs_v2": false,
 		"Standard_D2as_v5": false, "": false,
 	} {
