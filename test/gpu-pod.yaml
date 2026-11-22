@@ -19,6 +19,8 @@ spec:
     - name: cuda
       image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
       command: [sh, -c, "nvidia-smi -L && nvidia-smi --query-gpu=driver_version --format=csv,noheader && exec /cuda-samples/vectorAdd"]
+      env:
+        - {name: NVIDIA_DRIVER_CAPABILITIES, value: "compute,utility"}
       resources:
         requests: {cpu: 100m, memory: 64Mi}
         limits: {nvidia.com/gpu: ${GPU_COUNT}}

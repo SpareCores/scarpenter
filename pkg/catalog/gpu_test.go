@@ -206,13 +206,13 @@ func TestAWSOffersTheNVIDIAFamiliesOfThePlan(t *testing.T) {
 	_, its := gpuCatalog(t, "4757.2.3", awsVirtualFacts{catalogtestFacts(t)}, nil, "aws")
 	for _, name := range []string{
 		"aws.g4dn.xlarge", "aws.g5.xlarge", "aws.g6.xlarge", "aws.gr6.4xlarge", "aws.g6e.xlarge",
-		"aws.p3dn.24xlarge", "aws.p5.4xlarge", "aws.p4d.24xlarge", "aws.p4de.24xlarge", "aws.p5.48xlarge",
+		"aws.p3dn.24xlarge", "aws.p5.4xlarge", "aws.p4d.24xlarge", "aws.p4de.24xlarge", "aws.p5.48xlarge", "aws.p5e.48xlarge", "aws.p5en.48xlarge",
 	} {
 		if byName(its, name) == nil {
 			t.Errorf("%s is not offered", name)
 		}
 	}
-	for _, name := range []string{"aws.g5g.xlarge", "aws.g6f.large", "aws.gr6f.4xlarge", "aws.g7e.2xlarge", "aws.p6-b200.48xlarge"} {
+	for _, name := range []string{"aws.g5g.xlarge", "aws.g6f.large", "aws.gr6f.4xlarge", "aws.g7e.2xlarge", "aws.p6-b200.48xlarge", "aws.p6-b300.48xlarge"} {
 		if byName(its, name) != nil {
 			t.Errorf("%s is offered", name)
 		}

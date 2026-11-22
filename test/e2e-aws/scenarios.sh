@@ -129,10 +129,23 @@ start_local() {
   render "${here}/manifests/local.yaml" | kubectl apply -f -
 }
 
-# start_gpu (manual scenario gpu): the RuntimeClass the cluster may lack (k3s ships one
+# start_gpu (manual scenario gpu): fails early when the account's G or P vCPU quota cannot hold the type
+# (before anything is applied), then the RuntimeClass the cluster may lack (k3s ships one
 # only when it finds the NVIDIA runtime on its own host), the NodeClass and the NodePool of
 # the GPU type, and the Pod (test/gpu-pod.yaml) that requests all the type's GPUs.
 start_gpu() {
+  local type="${E2E_GPU_TYPE#aws.}" count vcpus code quota
+  count="$(gpu_count "${type}")"
+  [[ "${count}" -ge 1 ]] || fail "${E2E_GPU_TYPE} has no GPU according to EC2"
+  case "${type}" in
+    p*) code=L-417A185B ;; # P on-demand
+    g* | vt*) code=L-DB2E81BA ;; # G and VT on-demand
+    *) fail "${E2E_GPU_TYPE} is not a G, VT or P family type" ;;
+  esac
+  vcpus="$(vcpus_of "${type}")"
+  quota="$(aws --region "${AWS_REGION}" service-quotas get-service-quota --service-code ec2 --quota-code "${code}" --query Quota.Value --output text)"
+  [[ "$(num "${quota}")" -ge "${vcpus}" ]] ||
+    fail "the on-demand vCPU quota ${code} of ${AWS_REGION} is ${quota}; ${E2E_GPU_TYPE} needs ${vcpus} (a new account has 0: request an increase)"
   kubectl get runtimeclass nvidia >/dev/null 2>&1 ||
     kubectl apply -f - <<'YAML'
 apiVersion: node.k8s.io/v1
@@ -143,7 +156,7 @@ handler: nvidia
 YAML
   render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
   render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
-  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="$(gpu_count "${E2E_GPU_TYPE#aws.}")" \
+  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${count}" \
     render "${here}/../gpu-pod.yaml" | kubectl apply -f -
 }
 
@@ -518,21 +531,10 @@ scn_local() {
 
 # gpu (plan 12, manual only): one GPU type from the Pod to the end of a CUDA run on its
 # node. The shared checks are test/lib.sh gpu_check_node: labels against the table,
-# capacity, the log of nvidia-smi and vectorAdd. The scenario also records the time to
-# Ready, and fails early when the account's G or P vCPU quota cannot hold the type.
+# capacity, the log of nvidia-smi and vectorAdd. The scenario also records the time to Ready.
 scn_gpu() {
-  local type="${E2E_GPU_TYPE#aws.}" count vcpus code quota node claim
+  local type="${E2E_GPU_TYPE#aws.}" count node claim
   count="$(gpu_count "${type}")"
-  [[ "${count}" -ge 1 ]] || fail "${E2E_GPU_TYPE} has no GPU according to EC2"
-  case "${type}" in
-    p*) code=L-417A185B ;; # P on-demand
-    g* | vt*) code=L-DB2E81BA ;; # G and VT on-demand
-    *) fail "${E2E_GPU_TYPE} is not a G, VT or P family type" ;;
-  esac
-  vcpus="$(vcpus_of "${type}")"
-  quota="$(aws --region "${AWS_REGION}" service-quotas get-service-quota --service-code ec2 --quota-code "${code}" --query Quota.Value --output text)"
-  [[ "$(num "${quota}")" -ge "${vcpus}" ]] ||
-    fail "the on-demand vCPU quota ${code} of ${AWS_REGION} is ${quota}; ${E2E_GPU_TYPE} needs ${vcpus} (a new account has 0: request an increase)"
   start_gpu
   wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
   node="$(pod_node e2e-gpu)"

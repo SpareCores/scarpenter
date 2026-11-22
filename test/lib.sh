@@ -91,7 +91,7 @@ wait_condition() {
 # (through its render function: NAME, POOL, TYPE, GPU_COUNT) next to its own
 # NodeClass and NodePool, waits with gpu_pod_done, and calls gpu_check_node. These
 # functions use the lane's lib.sh: assert_eq, assert_nonempty, assert_match, fail,
-# note, node_label, kjson.
+# note, node_label.
 
 # gpu_pod_done <name> [namespace]: succeeds once the Pod has ended (Succeeded or
 # Failed, so that a failing CUDA run does not wait for the timeout).
@@ -121,10 +121,11 @@ gpu_check_node() {
   assert_eq "nvidia-driver-flavor (the table)" "${drv[2]}" "$(node_label "${node}" scarpenter.sparecores.com/nvidia-driver-flavor)"
   assert_eq "nvidia.com/gpu capacity" "${count}" "$(kubectl get node "${node}" -o json | jq -r '.status.capacity["nvidia.com/gpu"] // "0"')"
   assert_eq "nvidia.com/gpu allocatable" "${count}" "$(kubectl get node "${node}" -o json | jq -r '.status.allocatable["nvidia.com/gpu"] // "0"')"
+  assert_eq "gpu-ready" true "$(node_label "${node}" scarpenter.sparecores.com/gpu-ready)"
   assert_eq "the gpu-pending taint is gone" "" \
     "$(kubectl get node "${node}" -o json | jq -r '.spec.taints[]? | select(.key == "scarpenter.sparecores.com/gpu-pending") | .key')"
   logs="$(kubectl logs "${pod}")"
   assert_eq "GPUs listed by nvidia-smi -L" "${count}" "$(grep -c '^GPU [0-9]*:' <<<"${logs}" || true)"
-  assert_eq "lines with the driver version nvidia-smi reports (one per GPU)" "${count}" "$(grep -cx "${drv[1]}" <<<"${logs}" || true)"
+  assert_eq "lines with the driver version nvidia-smi reports (one per GPU)" "${count}" "$(grep -cFx "${drv[1]}" <<<"${logs}" || true)"
   assert_match "CUDA vectorAdd" "Test PASSED" "${logs}"
 }

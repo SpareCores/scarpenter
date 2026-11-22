@@ -219,7 +219,7 @@ the fractional L4 families as virtual. On Flatcar 4757.2.3:
 | Offered | Dropped (reason) |
 |---|---|
 | `g4dn` (T4), `g5` (A10G), `g6` and `gr6` (L4), `g6e` (L40S), `p3dn` (V100, proprietary driver), `p5.4xlarge` (1 H100) | `g5g` (arm64: `GPUArch`) |
-| with Fabric Manager: `p4d`, `p4de`, `p5.48xlarge`, and `p5e`, `p5en` where the catalog lists them | `g6f`, `gr6f` (fractional L4, a vGPU: `GPUFractional`, and `GPUVirtual` where the count is whole) |
+| with Fabric Manager: `p4d`, `p4de`, `p5.48xlarge`, and `p5e`, `p5en` | `g6f`, `gr6f` (fractional L4, a vGPU: `GPUFractional`, and `GPUVirtual` where the count is whole) |
 | | `g7`, `g7e` and `p6` (Blackwell: `GPUNoDriverBranch`, or `GPUNVSwitch` for the 8-GPU systems that need `nvlsm`), until a release that builds a 580-open driver is pinned |
 
 The new account quota for G and P is 0, so these types are `QuotaZero` until an increase is granted. EFA is not
