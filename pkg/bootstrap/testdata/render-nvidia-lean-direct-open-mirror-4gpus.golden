@@ -66,7 +66,7 @@
       {
         "dropins": [
           {
-            "contents": "# The kubernetes sysext ships kubelet.service and a kubeadm drop-in\n# (10-kubeadm.conf) that this drop-in overrides; the flags are spelled out so\n# that the unit does not depend on the variables of that drop-in.\n[Service]\nEnvironmentFile=-/run/scarpenter/node-ip.env\nExecStart=\nExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml --provider-id=scarpenter://aws/us-east-1/default-abc12 --hostname-override=default-abc12 --register-with-taints=karpenter.sh/unregistered:NoExecute,dedicated=gpu:NoSchedule $SCARPENTER_NODE_IP_ARGS\n",
+            "contents": "# The kubernetes sysext ships kubelet.service and a kubeadm drop-in\n# (10-kubeadm.conf) that this drop-in overrides; the flags are spelled out so\n# that the unit does not depend on the variables of that drop-in.\n[Service]\nEnvironmentFile=-/run/scarpenter/node-ip.env\nExecStart=\nExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml --provider-id=scarpenter://aws/us-east-1/default-abc12 --hostname-override=default-abc12 --register-with-taints=karpenter.sh/unregistered:NoExecute,dedicated=gpu:NoSchedule,scarpenter.sparecores.com/gpu-pending:NoSchedule --node-labels=scarpenter.sparecores.com/nvidia-driver-branch=570 $SCARPENTER_NODE_IP_ARGS\n",
             "name": "20-scarpenter.conf"
           }
         ],
@@ -194,7 +194,7 @@
       },
       {
         "contents": {
-          "inline": "#!/bin/bash\nset -u\nwant_version=$1\nwant_gpus=$2\nfabric=${3:-}\nfm_unit=scarpenter-nvidia-fabricmanager.service\nfm_journal() {\n  journalctl -o cat --no-pager \"_SYSTEMD_INVOCATION_ID=$(systemctl show -p InvocationID --value \"$fm_unit\")\" 2\u003e\u00261\n}\nretry() {\n  local tries=$1 fail\n  shift\n  for _ in $(seq \"$tries\"); do\n    fail=$(\"$@\")\n    [ -z \"$fail\" ] \u0026\u0026 return 0\n    sleep 3\n  done\n  echo \"scarpenter-nvidia-check: $fail; the node does not join the cluster\" \u003e\u00262\n  return 1\n}\ncheck_gpus() {\n  if ! grep -qF \" $want_version \" /proc/driver/nvidia/version 2\u003e/dev/null; then\n    echo \"the loaded NVIDIA driver is not $want_version ($(head -n 1 /proc/driver/nvidia/version 2\u003e\u00261))\"\n    return\n  fi\n  local gpus\n  gpus=$(nvidia-smi -L 2\u003e\u00261 | grep -c '^GPU ')\n  if [ \"$gpus\" -ne \"$want_gpus\" ]; then\n    echo \"nvidia-smi lists $gpus GPUs, the instance type has $want_gpus\"\n  fi\n}\ncheck_fabric() {\n  if ! fm_journal | grep -qF \"Successfully configured all the available \"; then\n    echo \"Fabric Manager has not configured the NVSwitches ($(fm_journal | tail -n 1))\"\n  fi\n}\nretry 10 check_gpus || exit 1\nif [ -n \"$fabric\" ]; then\n  retry 60 check_fabric || exit 1\nfi\n"
+          "inline": "#!/bin/bash\nset -u\nwant_version=$1\nwant_gpus=$2\nnode=$3\nfabric=${4:-}\nfm_unit=scarpenter-nvidia-fabricmanager.service\nfm_journal() {\n  journalctl -o cat --no-pager \"_SYSTEMD_INVOCATION_ID=$(systemctl show -p InvocationID --value \"$fm_unit\")\" 2\u003e\u00261\n}\nretry() {\n  local tries=$1 fail\n  shift\n  for _ in $(seq \"$tries\"); do\n    fail=$(\"$@\")\n    [ -z \"$fail\" ] \u0026\u0026 return 0\n    sleep 3\n  done\n  echo \"scarpenter-nvidia-check: $fail; the node is labelled gpu-ready=false\" \u003e\u00262\n  return 1\n}\ncheck_gpus() {\n  if ! grep -qF \" $want_version \" /proc/driver/nvidia/version 2\u003e/dev/null; then\n    echo \"the loaded NVIDIA driver is not $want_version ($(head -n 1 /proc/driver/nvidia/version 2\u003e\u00261))\"\n    return\n  fi\n  local gpus\n  gpus=$(nvidia-smi -L 2\u003e\u00261 | grep -c '^GPU ')\n  if [ \"$gpus\" -ne \"$want_gpus\" ]; then\n    echo \"nvidia-smi lists $gpus GPUs, the instance type has $want_gpus\"\n  fi\n}\ncheck_fabric() {\n  if ! fm_journal | grep -qF \"Successfully configured all the available \"; then\n    echo \"Fabric Manager has not configured the NVSwitches ($(fm_journal | tail -n 1))\"\n  fi\n}\nset_ready() {\n  until kubectl --kubeconfig /etc/kubernetes/kubelet.conf --request-timeout=10s label node \"$node\" \\\n    \"scarpenter.sparecores.com/gpu-ready=$1\" --overwrite; do\n    sleep 3\n  done\n}\nif ! { retry 10 check_gpus \u0026\u0026 { [ -z \"$fabric\" ] || retry 200 check_fabric; }; }; then\n  set_ready false\n  exit 1\nfi\nset_ready true\n"
         },
         "mode": 493,
         "path": "/opt/scarpenter/bin/scarpenter-nvidia-check"
@@ -221,7 +221,8 @@
         "name": "scarpenter-nvidia-prepare.service"
       },
       {
-        "contents": "[Unit]\nDescription=Check the NVIDIA driver and the GPUs before the kubelet starts\nRequires=nvidia.service\nAfter=nvidia.service\nBefore=kubelet.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nTimeoutStartSec=120\nExecStart=/opt/scarpenter/bin/scarpenter-nvidia-check 570.211.01 4\n",
+        "contents": "[Unit]\nDescription=Check the NVIDIA driver and the GPUs, then let the node take GPU Pods\nRequires=nvidia.service\nAfter=nvidia.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nTimeoutStartSec=1200\nExecStart=/opt/scarpenter/bin/scarpenter-nvidia-check 570.211.01 4 default-abc12\n[Install]\nWantedBy=multi-user.target\n",
+        "enabled": true,
         "name": "scarpenter-nvidia-check.service"
       },
       {
@@ -232,15 +233,6 @@
           }
         ],
         "name": "multi-user.target"
-      },
-      {
-        "dropins": [
-          {
-            "contents": "[Unit]\nRequires=scarpenter-nvidia-check.service\nAfter=scarpenter-nvidia-check.service\n",
-            "name": "30-scarpenter-nvidia.conf"
-          }
-        ],
-        "name": "kubelet.service"
       }
     ]
   }

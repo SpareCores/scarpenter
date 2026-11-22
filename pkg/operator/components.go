@@ -26,6 +26,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/controllers/bootstraptoken"
 	"github.com/SpareCores/scarpenter/pkg/controllers/csr"
 	"github.com/SpareCores/scarpenter/pkg/controllers/garbagecollection"
+	"github.com/SpareCores/scarpenter/pkg/controllers/gpupending"
 	"github.com/SpareCores/scarpenter/pkg/controllers/interruption"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/controllers/offered"
@@ -296,6 +297,9 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	})
 	if err := approver.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the serving certificate controller: %w", err)
+	}
+	if err := gpupending.New(o.GetClient(), o.EventRecorder, o.Clock).Register(o.Manager); err != nil {
+		return err
 	}
 	c.checkClusterCA(ctx)
 	qs := quotastatus.New(quotastatus.Options{

@@ -30,6 +30,27 @@ The DaemonSet:
 - uses the environment variable strategy (no CDI), which works through the
   `nvidia` handler.
 
+## The GPU pending taint
+
+A GPU node registers with the taint `scarpenter.sparecores.com/gpu-pending:NoSchedule` and keeps it until its
+driver check passed, so that Pods land only on a node whose GPUs work and the driver work does not count against
+Karpenter's 15 minute registration timeout. A NodePool that can launch GPU types, a mixed CPU and GPU pool too, lists it, so that Karpenter plans Pods onto the new
+node and waits for the taint's removal (the controller clears it at once from the pool's CPU nodes):
+
+```yaml
+spec:
+  template:
+    spec:
+      startupTaints:
+        - {key: scarpenter.sparecores.com/gpu-pending, effect: NoSchedule}
+```
+
+Without it Karpenter treats the taint as permanent and may launch more nodes than the Pods need, so SCarpenter does not offer the
+NVIDIA types to a NodePool that lacks it (the controller logs it once per NodePool). Adding the startup taint to an existing NodePool
+changes its hash: the pool's nodes drift and are replaced, within its disruption budgets. A node whose
+check fails keeps the taint and never takes a Pod; the controller deletes its NodeClaim at once (or 30 minutes after the node's creation if
+the check never reports), and Karpenter replaces the node ([node bootstrap](../reference/node-bootstrap.md#nvidia-gpu-nodes)).
+
 ## Taints
 
 A node with a taint that the device plugin does not tolerate never gets its Pod,
