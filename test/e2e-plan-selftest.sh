@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Tests test/e2e-plan.sh: the path rules, the labels, the dispatch and release plans and
-# the vendor list. No network, no cloud. Run through `make test-e2e-aws-dryrun`.
+# Tests test/e2e-plan.sh: the dispatch plan (vendors, mode, overrides) and the vendor list. No network, no cloud. Run through `make test-e2e-aws-dryrun`.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 plan="${here}/e2e-plan.sh"
@@ -12,13 +11,6 @@ failures=0
 printf '# vendors\naws\n\noci\n' >"${tmp}/vendors.txt"
 export E2E_VENDORS_FILE="${tmp}/vendors.txt"
 
-# pr_plan <labels JSON> <file>...: the matrix as "vendor:mode" words.
-pr_plan() {
-  local labels="$1"
-  shift
-  printf '%s\n' "$@" | E2E_LABELS="${labels}" "${plan}" pr | sed -n 's/^matrix=//p' |
-    jq -r '[.[] | .vendor + ":" + .mode] | join(" ")'
-}
 expect() { # expect <name> <want> <got>
   if [[ "$2" == "$3" ]]; then
     echo "ok   $1"
@@ -27,68 +19,59 @@ expect() { # expect <name> <want> <got>
     failures=$((failures + 1))
   fi
 }
-
-expect "docs only: nothing" "" "$(pr_plan '[]' docs/how-to-guides/testing.md README.md)"
-expect "workflows of other things: nothing" "" "$(pr_plan '[]' .github/workflows/ci.yml .github/workflows/e2e-canary.yml)"
-expect "tests only: nothing" "" "$(pr_plan '[]' pkg/bootstrap/render_test.go pkg/vendors/aws/testdata/x.json)"
-expect "a vendor's driver: its full lane only" "aws:full" "$(pr_plan '[]' pkg/vendors/aws/driver.go)"
-expect "another vendor's driver" "oci:full" "$(pr_plan '[]' pkg/vendors/oci/driver.go)"
-expect "a vendor's lane scripts" "oci:full" "$(pr_plan '[]' test/e2e-oci/scenarios.sh)"
-expect "a vendor's sweeper workflow" "aws:full" "$(pr_plan '[]' .github/workflows/e2e-aws-sweeper.yml)"
-expect "the caller workflow: every vendor full" "aws:full oci:full" "$(pr_plan '[]' .github/workflows/e2e.yml)"
-expect "the reusable workflow: every vendor full" "aws:full oci:full" "$(pr_plan '[]' .github/workflows/e2e-cloud.yml)"
-expect "the planner itself: every vendor full" "aws:full oci:full" "$(pr_plan '[]' test/e2e-plan.sh)"
-expect "bootstrap: smoke everywhere" "aws:smoke oci:smoke" "$(pr_plan '[]' pkg/bootstrap/render.go)"
-expect "the cloudprovider" "aws:smoke oci:smoke" "$(pr_plan '[]' pkg/cloudprovider/cloudprovider.go)"
-expect "artifacts" "aws:smoke oci:smoke" "$(pr_plan '[]' pkg/artifacts/artifacts.go)"
-expect "resources" "aws:smoke oci:smoke" "$(pr_plan '[]' pkg/resources/x.go)"
-expect "the chart" "aws:smoke oci:smoke" "$(pr_plan '[]' charts/scarpenter/values.yaml)"
-expect "the shared driver contract" "aws:smoke oci:smoke" "$(pr_plan '[]' pkg/vendors/driver.go)"
-expect "the driver facts" "aws:smoke oci:smoke" "$(pr_plan '[]' pkg/vendors/facts/facts.go)"
-expect "go.mod" "aws:smoke oci:smoke" "$(pr_plan '[]' go.mod)"
-expect "the image build" "aws:smoke oci:smoke" "$(pr_plan '[]' Dockerfile .dockerignore)"
-expect "a dev-only vendor package: nothing" "" "$(pr_plan '[]' pkg/vendors/fake/driver.go pkg/vendors/qemu/driver.go)"
-expect "full wins over smoke, per vendor" "aws:full oci:smoke" "$(pr_plan '[]' pkg/bootstrap/render.go pkg/vendors/aws/driver.go)"
-expect "the label l5:full forces every vendor" "aws:full oci:full" "$(pr_plan '["l5:full"]' docs/x.md)"
-expect "the label l5:skip skips" "" "$(pr_plan '["l5:skip"]' pkg/vendors/aws/driver.go)"
-expect "l5:skip wins over l5:full" "" "$(pr_plan '["l5:full", "l5:skip"]' pkg/vendors/aws/driver.go)"
-expect "unrelated labels change nothing" "aws:smoke oci:smoke" "$(pr_plan '["bug"]' pkg/bootstrap/render.go)"
+words() { sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode + ":" + .scenarios] | join(" ")'; }
 
 dispatch() { "${plan}" dispatch "$@" | sed -n 's/^matrix=//p' | jq -c .; }
-expect "dispatch one vendor" '[{"vendor":"oci","mode":"smoke","scenarios":"amd64"}]' "$(dispatch oci smoke amd64)"
-expect "dispatch all" "2" "$(dispatch all full | jq length)"
-expect "dispatch refuses an unknown vendor" "refused" "$(dispatch gcp full 2>/dev/null || echo refused)"
-expect "dispatch refuses a bad mode" "refused" "$(dispatch aws weekly 2>/dev/null || echo refused)"
-expect "dispatch refuses a bad scenario list" "refused" "$(dispatch aws full 'a;b' 2>/dev/null || echo refused)"
-expect "release: every vendor, full" "aws:full oci:full" "$("${plan}" release | sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode] | join(" ")')"
-expect "release: an unset variable (empty) is full" "aws:full oci:full" "$("${plan}" release '' | sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode] | join(" ")')"
-expect "release: smoke on request" "aws:smoke oci:smoke" "$("${plan}" release smoke | sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode] | join(" ")')"
+dplan() { "${plan}" dispatch "$@" | words; }
+overrides() { "${plan}" dispatch "$@" | sed -n 's/^env_overrides=//p'; }
+refused() { "${plan}" dispatch "$@" >/dev/null 2>&1 && echo accepted || echo refused; }
+expect "dispatch one vendor" '[{"vendor":"oci","mode":"smoke","scenarios":""}]' "$(dispatch oci smoke)"
+expect "dispatch all, smoke" "aws:smoke: oci:smoke:" "$(dplan all smoke)"
+expect "dispatch all, full" "aws:full: oci:full:" "$(dplan all full)"
+expect "dispatch a vendor list" "aws:smoke: oci:smoke:" "$(dplan aws,oci smoke)"
+expect "dispatch a list keeps the file's order" "aws:smoke: oci:smoke:" "$(dplan oci,aws smoke)"
+expect "dispatch a scenario list is a full run of those scenarios" "oci:full:gpu" "$(dplan oci gpu)"
+expect "dispatch several scenarios" "aws:full:amd64,drift oci:full:amd64,drift" "$(dplan all amd64,drift)"
+expect "dispatch refuses an unknown vendor" "refused" "$(refused gcp full)"
+expect "dispatch refuses one unknown vendor in a list" "refused" "$(refused aws,gcp full)"
+expect "dispatch refuses a bad vendor list" "refused" "$(refused 'aws;oci' full)"
+expect "dispatch refuses a bad mode" "refused" "$(refused aws 'a;b')"
+expect "dispatch refuses an empty mode" "refused" "$(refused aws '')"
+expect "no overrides: empty" "" "$(overrides aws smoke)"
+expect "named type overrides" "E2E_GPU_TYPE=oci.VM.GPU.A10.1,E2E_TYPE_CVM=azure.Standard_DC2as_v5" \
+  "$(overrides oci gpu oci.VM.GPU.A10.1 azure.Standard_DC2as_v5)"
+expect "generic overrides" "E2E_NODE_TIMEOUT=1200,E2E_ROOT_GB=80" "$(overrides aws full '' '' E2E_NODE_TIMEOUT=1200,E2E_ROOT_GB=80)"
+expect "named and generic overrides together" "E2E_GPU_TYPE=x,E2E_ROOT_GB=80" "$(overrides aws gpu x '' E2E_ROOT_GB=80)"
+expect "overrides refuse a key outside E2E_" "refused" "$(refused aws full '' '' PATH=/tmp)"
+expect "overrides refuse a lowercase key" "refused" "$(refused aws full '' '' e2e_x=1)"
+expect "overrides refuse a key the workflow sets" "refused" "$(refused aws full '' '' E2E_VENDOR=oci)"
+expect "overrides refuse a value with a quote" "refused" "$(refused aws full '' '' "E2E_X='a")"
+expect "overrides refuse an entry without =" "refused" "$(refused aws full '' '' E2E_X)"
+expect "overrides refuse an empty value" "refused" "$(refused aws full '' '' E2E_X=)"
+expect "overrides refuse a key given twice" "refused" "$(refused aws gpu x '' E2E_GPU_TYPE=y)"
+expect "a type needs one vendor, not all" "refused" "$(refused all gpu x)"
+expect "a type needs one vendor, not a list" "refused" "$(refused aws,oci gpu '' x)"
+expect "generic overrides may span vendors" "E2E_ROOT_GB=80" "$(overrides all full '' '' E2E_ROOT_GB=80)"
+expect "overrides refuse a bad type" "refused" "$(refused aws gpu 'x;y')"
+expect "release: unset (empty) is none: no vendor" "any=false" "$("${plan}" release '' | grep '^any=')"
+expect "release: none" "[]" "$("${plan}" release none | sed -n 's/^matrix=//p')"
+expect "release: smoke, every vendor" "aws:smoke: oci:smoke:" "$("${plan}" release smoke | words)"
+expect "release: full, every vendor" "aws:full: oci:full:" "$("${plan}" release full | words)"
 expect "release refuses another mode" "refused" "$("${plan}" release weekly 2>/dev/null || echo refused)"
 expect "canary: every vendor" '[{"vendor":"aws"},{"vendor":"oci"}]' "$("${plan}" vendors | sed -n 's/^matrix=//p')"
-expect "any=false for an empty plan" "any=false" "$(printf '%s\n' docs/x.md | "${plan}" pr | grep '^any=')"
 
-# The GCP lane is ready for its line in test/e2e-vendors.txt (not listed until its cost guards
-# are true, docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards): with a list that has
-# gcp, its driver, its lane, its sweeper and its sweep package are full rules of its own, the shared
-# paths reach it, and the canary, dispatch and release plans include it.
+# A vendor added to the list is planned like the others (GCP's lane is ready for its line, not
+# listed until its cost guards are true, docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards).
 printf 'aws\ngcp\n' >"${tmp}/vendors-gcp.txt"
-gcp_pr_plan() { # gcp_pr_plan <file>...
-  printf '%s\n' "$@" | E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" E2E_LABELS='[]' "${plan}" pr | sed -n 's/^matrix=//p' |
-    jq -r '[.[] | .vendor + ":" + .mode] | join(" ")'
-}
-expect "gcp listed: its driver" "gcp:full" "$(gcp_pr_plan pkg/vendors/gcp/driver.go)"
-expect "gcp listed: its sweep package" "gcp:full" "$(gcp_pr_plan pkg/vendors/gcp/sweep/sweep.go)"
-expect "gcp listed: its lane scripts" "gcp:full" "$(gcp_pr_plan test/e2e-gcp/scenarios.sh)"
-expect "gcp listed: its sweeper workflow" "gcp:full" "$(gcp_pr_plan .github/workflows/e2e-gcp-sweeper.yml)"
-expect "gcp listed: the AWS sweeper is not its business" "aws:full" "$(gcp_pr_plan .github/workflows/e2e-aws-sweeper.yml)"
-expect "gcp listed: bootstrap is a smoke for both" "aws:smoke gcp:smoke" "$(gcp_pr_plan pkg/bootstrap/render.go)"
-expect "gcp listed: the reusable workflow is full for both" "aws:full gcp:full" "$(gcp_pr_plan .github/workflows/e2e-cloud.yml)"
-expect "gcp listed: dispatch" '[{"vendor":"gcp","mode":"smoke","scenarios":""}]' \
-  "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" dispatch gcp smoke | sed -n 's/^matrix=//p' | jq -c .)"
+expect "gcp listed: dispatch" "gcp:smoke:" "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" dispatch gcp smoke | words)"
+expect "gcp listed: the release gate" "aws:full: gcp:full:" "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" release full | words)"
 expect "gcp listed: the canary matrix" '[{"vendor":"aws"},{"vendor":"gcp"}]' \
   "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" vendors | sed -n 's/^matrix=//p')"
-expect "gcp listed: the release gate" "aws:full gcp:full" \
-  "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" release | sed -n 's/^matrix=//p' | jq -r '[.[] | .vendor + ":" + .mode] | join(" ")')"
+# The manual cvm scenario of the Azure lane: a scenario mode plus its instance type override.
+printf 'aws\nazure\n' >"${tmp}/vendors-azure.txt"
+expect "azure cvm: plan" "azure:full:cvm" "$(E2E_VENDORS_FILE="${tmp}/vendors-azure.txt" "${plan}" dispatch azure cvm | words)"
+expect "azure cvm: type override" "E2E_TYPE_CVM=azure.Standard_DC2as_v5" \
+  "$(E2E_VENDORS_FILE="${tmp}/vendors-azure.txt" "${plan}" dispatch azure cvm '' azure.Standard_DC2as_v5 | sed -n 's/^env_overrides=//p')"
 # What a listed vendor needs next to its directory: the sweeper workflow and the credentials
 # steps of the two reusable workflows (test/e2e-gcp/selftest.sh checks the gcp ones in detail).
 for v in $(env -u E2E_VENDORS_FILE "${plan}" vendors | sed -n 's/^matrix=//p' | jq -r '.[].vendor') gcp; do
