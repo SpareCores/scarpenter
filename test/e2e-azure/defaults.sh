@@ -3,7 +3,7 @@
 # (the workflow's inputs do it for the minimum-Kubernetes run).
 #
 # THIS LANE IS NOT IN test/e2e-vendors.txt, ON PURPOSE. A line there puts Azure into the
-# pull request tiers, the nightly canary and the release gate, and may only be added when
+# manual L5 workflow, the nightly canary and the release gate, and may only be added when
 # every cost guard of docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards
 # is true on a LIVE account. Nobody has verified them; the guards still to be verified
 # live are:
@@ -56,9 +56,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # The database and its client: on-demand, Premium IO (the Premium data disk), proximity
 # placement group.
 : "${E2E_TYPE_DB:=azure.Standard_D2as_v5}"
+# The confidential VM (AMD SEV-SNP) of the cvm scenario, the smallest of its family.
+# It runs only when named (mode=cvm), as it costs more than the others. It boots Azure Container Linux
+# from a community gallery, not Flatcar, and is offered in the lane's region (centralus)
+# to the lane's subscription.
+: "${E2E_TYPE_CVM:=azure.Standard_DC2as_v6}"
 # The manual gpu scenario (never in `all` or the smoke set): the GPU size it launches (the
-# cheapest supported one, a T4 with 4 vCPUs; the workflow input gpu_instance_type overrides
-# it, and the size policy of ci-policy.sh allows it) and how long its node may take from the
+# cheapest supported one, a T4 with 4 vCPUs; the gpu_instance_type input of e2e.yml, an
+# E2E_GPU_TYPE override, replaces it, and the size policy of ci-policy.sh allows it) and how long its node may take from the
 # Pod to the end of the CUDA run (the driver download and the image pull come on top of a boot).
 : "${E2E_GPU_TYPE:=azure.Standard_NC4as_T4_v3}"
 : "${E2E_GPU_TIMEOUT:=1500}"
@@ -121,7 +126,7 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 
 # envsubst (manifests) and the child processes read exported variables.
 export AZURE_REGION E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
-  E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_SPOT E2E_TYPE_DB E2E_TYPE_DENIED E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
+  E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_SPOT E2E_TYPE_DB E2E_TYPE_CVM E2E_TYPE_DENIED E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
   E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH \
   E2E_NEGATIVE_WAIT E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_MIN_VCPU_FAMILY E2E_TAG_RUNNER E2E_TAG_NODE \
   E2E_AZURE_AUDIENCE E2E_AZURE_TOKEN_INTERVAL E2E_AZURE_RELOGIN_INTERVAL E2E_AZURE_TOKEN_MAX_SECONDS

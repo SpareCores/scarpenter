@@ -87,7 +87,7 @@ var sample = map[string]string{
 	"E2E_K3S_VERSION": "v1.37.2+k3s1", "E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10",
 	"E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
 	"E2E_TYPE_AMD64": "azure.Standard_B2ats_v2", "E2E_TYPE_ARM64": "azure.Standard_B2pts_v2",
-	"E2E_TYPE_SPOT": "azure.Standard_D2as_v5", "E2E_TYPE_DB": "azure.Standard_D2as_v5", "E2E_TYPE_DENIED": "azure.Standard_B2ls_v2",
+	"E2E_TYPE_SPOT": "azure.Standard_D2as_v5", "E2E_TYPE_DB": "azure.Standard_D2as_v5", "E2E_TYPE_CVM": "azure.Standard_DC2as_v6", "E2E_TYPE_DENIED": "azure.Standard_B2ls_v2",
 	"E2E_GPU_TYPE": "azure.Standard_NC4as_T4_v3", "GPU_COUNT": "1",
 	"E2E_TYPES_DESCRIBED_YAML": `"azure.Standard_B2ats_v2", "azure.Standard_B2as_v2"`,
 	"E2E_TAG_RUNNER":           "tag:scarpenter-ci", "E2E_TAG_NODE": "tag:scarpenter-ci-node",
