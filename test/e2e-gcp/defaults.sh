@@ -46,6 +46,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # The types the described-not-named scenario may pick from (small to large): 2 vCPUs and
 # more than 3000 MiB rules out e2-small.
 : "${E2E_TYPES_DESCRIBED:=gcp.e2-small,gcp.e2-medium,gcp.e2-standard-2}"
+# The manual gpu scenario (not in all, the smoke set or a gate: the maintainer runs it by hand,
+# E2E_SCENARIOS=gpu): the cheapest supported GPU type (one L4) and NVIDIA's CUDA vectorAdd
+# sample. The type needs NVIDIA_L4_GPUS (1) and CPUS (4) in the region.
+: "${E2E_GPU_TYPE:=gcp.g2-standard-4}"
+: "${E2E_CUDA_IMAGE:=nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0}"
 # arm64 has no official Flatcar image on GCE: Spare Cores publishes one (plan 16 section
 # 1). The arm64 scenario and the canary's arm64 check run only when this is true, and
 # the image project is then the one that holds them ("" = the driver's own default).
@@ -95,6 +100,6 @@ E2E_FLATCAR_IMAGE="flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION//./-}"
 
 # envsubst (manifests) and the child processes read exported variables.
 export GCP_PROJECT GCP_REGION GCP_ZONE E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
-  E2E_FLATCAR_VERSION E2E_FLATCAR_IMAGE_PROJECT E2E_FLATCAR_IMAGE E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
+  E2E_FLATCAR_VERSION E2E_FLATCAR_IMAGE_PROJECT E2E_FLATCAR_IMAGE E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_GPU_TYPE E2E_CUDA_IMAGE E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
   E2E_ARM64 E2E_ARM64_IMAGE_PROJECT E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE \
   E2E_QUOTA_REFRESH E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_TAG_RUNNER E2E_TAG_NODE

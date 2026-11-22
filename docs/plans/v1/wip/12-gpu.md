@@ -362,6 +362,12 @@ metric names per model, A100 40 and 80 GB]; the series join the confirmed list w
 `onHostMaintenance TERMINATE` and `automaticRestart false` already apply to these series; no `guestAccelerators`
 (N1 with attached GPUs is not in Keeper's catalog). Lane default `g2-standard-4`.
 
+**Done (f).** `a2 a3 a4 a4x g2 g4` left `droppedSeries` (TPU series stay); the GPU quota buckets (`NVIDIA_<MODEL>_GPUS`,
+`PREEMPTIBLE_NVIDIA_<MODEL>_GPUS`, `GPUS_ALL_REGIONS`, unit `GPUs`) are read, none is consumed per type yet ([U]: metric
+names; the series join `ConfirmedSeries` after a real run); launch needed no change (`TERMINATE`, no `guestAccelerators`);
+lane scenario `gpu` (manual-only, `E2E_GPU_TYPE` default `gcp.g2-standard-4`, local to `test/e2e-gcp`, no workflow input
+yet), docs.
+
 **(g) Azure.** `GPUVirtualizer`: the `NV*` sizes (A10 v5, v3 M60 and any other GRID-only
 series); AMD and fractional sizes fall to the core's rules. The family vCPU quotas exist. Check the SCSI-or-NVMe
 rule against `NCasT4_v3`, NC A100 v4 and NC H100 v5. Lane default `Standard_NC4as_T4_v3`.

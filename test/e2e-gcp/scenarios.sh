@@ -8,6 +8,9 @@
 #                   amd64 spot arm64 db described byo create default negative quota drift
 #                   scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
+#                   MANUAL ONLY: gpu (E2E_SCENARIOS=gpu; never part of "all", the smoke set, a gate or
+#                   a schedule): one GPU node of E2E_GPU_TYPE, a Pod that runs nvidia-smi and a CUDA
+#                   sample (plan 12 step f). It needs the GPU quota of the type in the region.
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -116,6 +119,16 @@ start_arm64() {
 }
 start_db() { render "${here}/manifests/db.yaml" | kubectl apply -f -; }
 start_described() { render "${here}/manifests/described.yaml" | kubectl apply -f -; }
+start_gpu() {
+  local n
+  n="$(gpu_count)"
+  assert_match "the GPU count of ${E2E_GPU_TYPE}" '^[1-9][0-9]*$' "${n}"
+  E2E_GPU_COUNT="${n}"
+  export E2E_GPU_COUNT
+  render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
+  render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
+  render "${here}/manifests/gpu.yaml" | kubectl apply -f -
+}
 start_drift() { probe e2e-drift e2e-drift "${E2E_TYPE_AMD64}" on-demand; }
 
 # start_byo: the network, the subnet and the firewall rule (network tag) the workflow
@@ -147,6 +160,13 @@ start_default() {
   render "${here}/manifests/nodeclass-default.yaml" | kubectl apply -f -
   render "${here}/manifests/nodepool-default.yaml" | kubectl apply -f -
   probe e2e-default e2e-default "${E2E_TYPE_AMD64}" on-demand
+}
+
+# gpu_count: the GPUs of the machine type, from machineTypes.get (UNVERIFIED that it lists them for
+# every GPU series).
+gpu_count() {
+  gc compute machine-types describe "${E2E_GPU_TYPE#gcp.}" --zone "${GCP_ZONE}" \
+    --format='value(accelerators[0].guestAcceleratorCount)'
 }
 
 # ----------------------------------------------------------- scenarios ------
@@ -940,6 +960,62 @@ scn_scalezero() {
   rm -f "${m}"
 }
 
+# gpu_pod_done: the GPU Pod succeeded (a failed one ends the wait early with its log).
+gpu_pod_done() {
+  local phase
+  phase="$(kubectl get pod e2e-gpu -o jsonpath='{.status.phase}')"
+  case "${phase}" in
+    Succeeded) return 0 ;;
+    Failed)
+      kubectl logs e2e-gpu --tail=40 | redact >&2 || true
+      return 1
+      ;;
+  esac
+  return 1
+}
+
+# gpu (plan 12 step f, MANUAL ONLY): a node of the GPU type comes up with the driver and the device
+# plugin, advertises nvidia.com/gpu, carries the three driver labels the driver check proved, and a
+# Pod with runtimeClassName nvidia that requests every GPU sees them (nvidia-smi) and runs a CUDA
+# kernel. The time from the NodeClaim to Ready is noted. Needs nvidia.NodeBootstrap on (the release
+# that ships the GPU driver) and the chart's device plugin and RuntimeClass.
+scn_gpu() {
+  start_gpu
+  wait_node "the GPU Pod finished" $((E2E_NODE_TIMEOUT + 900)) app=e2e-gpu "" gpu_pod_done
+  local pod=e2e-gpu node claim iid count branch version flavor logs
+  count="$(gpu_count)"
+  node="$(pod_node "${pod}")"
+  claim="$(claim_of_node "${node}")"
+  assert_nonempty "the NodeClaim of ${node}" "${claim}"
+  iid="$(instance_of_claim "${claim}")"
+  assert_nonempty "the instance of ${claim}" "${iid}"
+  note "gpu: ${E2E_GPU_TYPE} x${count}, node ${node}, claim ${claim}, instance ${iid}, Ready after $(ready_seconds "${claim}" "${node}")s"
+
+  log "the node: capacity, labels (they are what the driver check proved)"
+  assert_eq "the node is Ready" True "$(kubectl get node "${node}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+  assert_eq "nvidia.com/gpu capacity" "${count}" "$(kubectl get node "${node}" -o json | jq -r '.status.capacity["nvidia.com/gpu"]')"
+  assert_eq "nvidia.com/gpu allocatable" "${count}" "$(kubectl get node "${node}" -o json | jq -r '.status.allocatable["nvidia.com/gpu"]')"
+  branch="$(node_label "${node}" "${label_domain}/nvidia-driver-branch")"
+  version="$(node_label "${node}" "${label_domain}/nvidia-driver-version")"
+  flavor="$(node_label "${node}" "${label_domain}/nvidia-driver-flavor")"
+  assert_match "driver branch" '^[0-9]+$' "${branch}"
+  assert_match "driver version, of the branch" "^${branch}\\.[0-9.]+\$" "${version}"
+  assert_match "driver flavor" '^(open|proprietary)$' "${flavor}"
+  assert_eq "gpu-ready" true "$(node_label "${node}" "${label_domain}/gpu-ready")"
+  assert_eq "no gpu-pending taint is left" 0 "$(kubectl get node "${node}" -o json | jq '[.spec.taints[]? | select(.key == "scarpenter.sparecores.com/gpu-pending")] | length')"
+
+  log "the Pod: every GPU is visible, the driver is the labelled one, a CUDA kernel ran"
+  logs="$(kubectl logs "${pod}")"
+  assert_eq "GPUs listed by nvidia-smi" "${count}" "$(grep -c '^GPU [0-9]' <<<"${logs}")"
+  assert_match "the loaded driver equals the label" "driver-version: ${version//./\.}" "${logs}"
+  assert_match "vectorAdd" 'Test PASSED' "${logs}"
+  assert_eq "the instance's maintenance policy" TERMINATE "$(instance_json "${iid}" | jq -r '.scheduling.onHostMaintenance')"
+
+  log "scale down: the Pod's deletion removes the GPU node"
+  kubectl delete pod "${pod}" --wait=false >/dev/null
+  wait_until "the NodeClaim ${claim} gone" 600 is_empty kubectl get nodeclaim "${claim}" -o name --ignore-not-found
+}
+
 # uninstall: the procedure of docs/how-to-guides/install.md#uninstall, on the live project.
 scn_uninstall() {
   log "1. SCarpenter's NodePools (selected by nodeClassRef.group), then wait for the NodeClaims"
@@ -977,16 +1053,18 @@ scarpenter_claims() {
 # --------------------------------------------------------------- runner -----
 
 all_scenarios=(amd64 spot arm64 db described byo create default negative quota drift scalezero uninstall)
+# Run only when named in E2E_SCENARIOS: never part of "all".
+manual_scenarios=(gpu)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
 else
-  for s in "${all_scenarios[@]}"; do
+  for s in "${all_scenarios[@]}" "${manual_scenarios[@]}"; do
     [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
   done
   for s in ${E2E_SCENARIOS//,/ }; do
-    [[ " ${all_scenarios[*]} " == *" ${s} "* ]] || {
-      echo "unknown scenario ${s} (known: ${all_scenarios[*]})" >&2
+    [[ " ${all_scenarios[*]} ${manual_scenarios[*]} " == *" ${s} "* ]] || {
+      echo "unknown scenario ${s} (known: ${all_scenarios[*]} ${manual_scenarios[*]})" >&2
       exit 2
     }
   done

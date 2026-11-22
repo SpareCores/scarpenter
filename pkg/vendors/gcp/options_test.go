@@ -354,6 +354,11 @@ func TestSeriesTables(t *testing.T) {
 		gcp.MaintenanceFor("c4a-standard-4", false) != "TERMINATE" {
 		t.Error("maintenance")
 	}
+	for _, typ := range []string{"a2-highgpu-1g", "a3-highgpu-8g", "a4-highgpu-8g", "g2-standard-4", "g4-standard-48"} {
+		if gcp.MaintenanceFor(typ, false) != "TERMINATE" {
+			t.Errorf("%s migrates", typ)
+		}
+	}
 	// Every series of the snapshot that the driver offers is classified for the root
 	// disk: a Hyperdisk-only series boots from Hyperdisk, the others from a PD type.
 	for _, r := range gcpServers(t) {

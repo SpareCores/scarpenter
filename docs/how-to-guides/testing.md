@@ -979,8 +979,8 @@ hack/dev.sh make test-e2e-gcp-dryrun                      # everything that need
   arm64 check run only with `E2E_ARM64=true` and `E2E_ARM64_IMAGE_PROJECT` (the project that holds the Spare Cores image).
 - **Types.** `gcp.e2-small` (amd64, on demand and Spot), `gcp.e2-medium` and `gcp.e2-standard-2` (the described scenario),
   `gcp.c3-standard-4` (the database: it takes Hyperdisk Balanced and compact placement, and needs the `GVNIC` guest OS
-  feature on the image, which the preflight and the canary read), and `gcp.t2a-standard-1` (arm64, optional). The pools
-  of `test/e2e-gcp/manifests/nodepools.yaml` name the same types, and a test keeps this page and them together.
+  feature on the image, which the preflight and the canary read), and `gcp.t2a-standard-1` (arm64, optional). The manual `gpu` scenario launches
+  `gcp.g2-standard-4` (one L4; `E2E_GPU_TYPE`). The pools of `test/e2e-gcp/manifests/nodepool*.yaml` name the same types, and a test keeps this page and them together.
 - **Quotas.** About 24 vCPUs of `CPUS` and 4 of `PREEMPTIBLE_CPUS` in the region (`E2E_MIN_VCPU_OD`, `E2E_MIN_VCPU_SPOT`).
   A region without preemptible quota (limit 0) runs Spot VMs on `CPUS`, so then the preflight and the canary want both
   added up. GCP reports the usage with the limit, so the `quota` scenario compares the controller's buckets with
@@ -1008,6 +1008,7 @@ hack/dev.sh make test-e2e-gcp-dryrun                      # everything that need
 | `drift` | as on AWS with the root disk size (`vendors.gcp.storage.root.sizeGb`): a change to a profile no node uses drifts nothing, a change to the block replaces the node (new root size, old instance deleted, NodeClaim and Node gone, the Pod moves), the controller Pod is killed hard while the replacement's `Create` is in flight (opportunistic replay assertion). Always asserted: no orphan, and **at most one successful `instances.insert` operation for the replacement claim** (deleted instances vanish from the API, but the project's operations are listed) |
 | `scalezero` | the exit criterion: after the workloads are deleted every instance of the cluster is gone within 2 minutes; no node, NodeClaim, bootstrap token or **disk** is left; the quota usage equals `regions.get` again |
 | `uninstall` | the procedure of [Uninstall](install.md#uninstall): the NodePools, the SCNodeClasses (the managed firewall rules, subnets and networks fall under `managedResources.defaultTTL`), then `helm uninstall` |
+| `gpu` | **manual only** (`E2E_SCENARIOS=gpu`; never in `all`, the smoke set, a gate or a schedule; needs the release that ships the GPU driver, the device plugin and the RuntimeClass, and the type's `NVIDIA_<MODEL>_GPUS` quota in the region): one node of `E2E_GPU_TYPE` (default `gcp.g2-standard-4`) from a pool with the GPU startup taint; `nvidia.com/gpu` in capacity and allocatable equals the machine type's GPU count; the three driver labels, `gpu-ready=true`, no `gpu-pending` taint; a Pod with `runtimeClassName: nvidia` that requests every GPU lists them with `nvidia-smi`, reports the labelled driver version and passes NVIDIA's CUDA `vectorAdd`; `onHostMaintenance: TERMINATE`; the time to `Ready` is noted; deleting the Pod removes the node |
 
 **Provisioning (outside this repository).** A maintainer provisions once, with whatever tool they use; the repository holds none of it:
 

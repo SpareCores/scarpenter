@@ -156,7 +156,7 @@ log. The instance has the NodeClaim's name; a node that never joins shows why on
 
 ## Limits
 
-- One project per controller; arm64 only with your own images; no GPU, TPU, bare metal, sole-tenant or
+- One project per controller; arm64 only with your own images; no TPU, N1 with attached GPUs, bare metal, sole-tenant or
   custom machine types.
 - Spot VMs only (not preemptible or Flex-start); a preempted VM is deleted and replaced, without
   using the 30-second notice.

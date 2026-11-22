@@ -1,0 +1,30 @@
+# The Pod of the manual gpu scenario: it requests every GPU of the type through the nvidia
+# RuntimeClass, lists them with nvidia-smi, prints the driver version and runs NVIDIA's
+# CUDA vectorAdd sample. It runs to completion (the scenario reads its log).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-gpu
+  labels: {app: e2e-gpu, scarpenter-e2e: "true"}
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 0
+  runtimeClassName: nvidia
+  nodeSelector:
+    karpenter.sh/nodepool: e2e-gpu
+    node.kubernetes.io/instance-type: ${E2E_GPU_TYPE}
+  containers:
+    - name: cuda
+      image: ${E2E_CUDA_IMAGE}
+      env:
+        - {name: NVIDIA_DRIVER_CAPABILITIES, value: "compute,utility"}
+      command:
+        - sh
+        - -c
+        - |
+          nvidia-smi -L &&
+          nvidia-smi --query-gpu=driver_version --format=csv,noheader | sort -u | sed 's/^/driver-version: /' &&
+          /cuda-samples/vectorAdd
+      resources:
+        requests: {cpu: 100m, memory: 64Mi, nvidia.com/gpu: "${E2E_GPU_COUNT}"}
+        limits: {nvidia.com/gpu: "${E2E_GPU_COUNT}"}
