@@ -496,7 +496,7 @@ dry-run target works.
 
 **Scenarios** (names as AWS where the meaning holds):
 
-1. `amd64`: `hcloud.cx23` on-demand: node Ready, Pod Running, `kubectl logs` and `exec`,
+1. `amd64`: `hcloud.cpx22` on-demand: node Ready, Pod Running, `kubectl logs` and `exec`,
    node labels (zone = zone ID = location), server labels and the `idempotency-key`,
    root filesystem expanded, the real user-data size, time from the create call to Ready.
 2. `arm64`: `hcloud.cax11` (stands in for AWS's spot scenario).
