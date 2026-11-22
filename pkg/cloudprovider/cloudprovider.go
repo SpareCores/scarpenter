@@ -568,9 +568,11 @@ func (c *CloudProvider) reportGone(ctx context.Context, nodeClaim *karpv1.NodeCl
 	c.opts.OnInstanceGone(ctx, nodeClaim, vendor, goneReason)
 }
 
-// forget cleans up after an instance that is gone: the cache entry and the
-// bootstrap token.
+// forget cleans up after an instance that is gone: the cache entry, the
+// bootstrap token and the vendor's quota marks of the region, since the quota the
+// instance held is free now.
 func (c *CloudProvider) forget(ctx context.Context, vendor, region, providerID, nodeClaim string) {
+	c.opts.Unavailable.ClearQuotaExceeded(vendor, region)
 	c.dropInstance(providerID)
 	c.terminating.Forget(vendor, vendors.InstanceRef(providerID))
 	if err := c.opts.Tokens.Delete(ctx, nodeClaim); err != nil {

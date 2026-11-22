@@ -314,7 +314,8 @@ the sequence number the catalog's cache key uses are clock-injectable.
 |---|---|---|
 | `InsufficientCapacity` | (vendor, instance type, zone, capacity type) | 3 min |
 | `Unsupported` | (vendor, instance type, zone) | 24 h; 10 min when the driver's own pre-launch check found it (`vendors.Error.PreLaunch`) |
-| `QuotaExceeded`, vendor without a quota API | (vendor, region, capacity type) | 30 min |
+| `QuotaExceeded` | (vendor, region, quota bucket): the bucket the vendor counts the launch against (the quota tracker's `Consumption` mapping); (vendor, region, capacity type) for a vendor without a bucket mapping; (vendor, capacity type) in every region when account-wide | 5 min; a NodeClaim of the vendor and region confirmed gone clears it |
+| `DailyLimit` | (vendor, region), every offering | until the vendor's reset time; the next 00:00 UTC when the driver gives none (OCI documents none); 5 min when the error arrives within 5 min after 00:00 UTC. Deleting NodeClaims does not clear it |
 | `ZoneUnusable` | (vendor, zone) | 10 min |
 
 ### Why a type or an offering is not offered
@@ -336,7 +337,7 @@ was given.
 | `GPUManufacturer`, `GPUModelUnknown`, `GPUFractional`, `GPUArch`, `GPUNoDriverBranch`, `GPUNVSwitch`, `GPUVirtual` | type | [GPU types](#gpu-types) | |
 | `NotLaunchable` | offering | the driver's offering lister says the type cannot launch in the zone | zone ID |
 | `NoOffering` | type | every offering of the type was removed above | the dominant earlier code |
-| `UnavailableCache` | offering | a live entry of the unavailable-offerings cache | its class (`InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `ZoneUnusable`, `InvalidOffering`) and its expiry |
+| `UnavailableCache` | offering | a live entry of the unavailable-offerings cache | its class (`InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable`, `InvalidOffering`) and its expiry |
 | `QuotaGate` | offering | the quota is known and has no headroom | the limiting bucket, the headroom and the need |
 | `ImageGap` | offering | the class has no ready boot image in the region; **region-level, not per architecture**: a region is marked only when no architecture's image is ready, so a type of an architecture without an image can still be offered there | the region |
 | `RegionNotReady` | offering | the class's vendor resources are not ready in the region | the region |
@@ -424,8 +425,11 @@ it changes no hash. Without the annotation, or when the vendor leaves the class,
   "types": {
     "oci.VM.Standard4.Ax.Flex.16-64": {
       "apiReference": "VM.Standard4.Ax.Flex.16-64", "available": false, "capacityTypes": [],
-      "reason": "QuotaGate", "detail": "bucket standard-x12-ax-core-count, headroom 6, need 16",
-      "offerings": [{"capacityType": "on-demand", "zones": ["eu-frankfurt-1-AD-2"], "available": false, "reason": "QuotaGate"}]
+      "reason": "UnavailableCache", "detail": "DailyLimit until 2026-11-22T00:00:00Z",
+      "offerings": [
+        {"capacityType": "on-demand", "zones": ["eu-frankfurt-1-AD-1", "eu-frankfurt-1-AD-2", "eu-frankfurt-1-AD-3"], "available": false,
+         "reason": "DailyLimit", "until": "2026-11-22T00:00:00Z"}
+      ]
     }
   }
 }
@@ -439,7 +443,9 @@ it changes no hash. Without the annotation, or when the vendor leaves the class,
 | `apiReference` | the value of the `scarpenter.sparecores.com/api-reference` label; omitted when the type has no such label |
 | `available`, `capacityTypes` | at least one offering is available; the capacity types that have one |
 | `reason`, `detail` | only when `available` is false: the dominant class-level [reason code](#why-a-type-or-an-offering-is-not-offered) (the one of the most offerings, those Karpenter is given before the left-out ones, so a gated type says `QuotaGate`) and its data as text for humans, never to be parsed |
-| `offerings` | grouped by capacity type, state and reason, with the zones that share them; empty for a type dropped at build time (its `reason` is the build's) |
+| `offerings` | grouped by capacity type, state, reason and expiry, with the zones that share them; empty for a type dropped at build time (its `reason` is the build's) |
+| `offerings[].reason` | for an offering a launch error marked (reason code `UnavailableCache`), the launch-error class: `InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable` or `InvalidOffering`; for any other unavailable offering the reason code (for example `QuotaGate`) |
+| `offerings[].until` | RFC3339 time (UTC) the mark expires, only on a group whose `reason` is a launch-error class. A planner skips the offering until then without launching |
 
 Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is
 available in some zones is `available: true`; its blocked zones are in `offerings`. The class-level view has no NodePool, so no

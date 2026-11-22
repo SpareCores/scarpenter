@@ -1078,6 +1078,10 @@ message or an account identifier. Codes are API: additions only, never renamed.
   tables the driver read, which may have been read while a region was briefly unreadable; retrying costs nothing. The
   vendor's explicit "not offered" answer keeps 24 hours. A driver says which it is with `vendors.Error.PreLaunch`.
   Every `Unsupported` mark is logged at V(0) with its code.
+- **The listing names the launch-error class and the expiry of a cache mark.** In the offered listing an offering
+  with the code `UnavailableCache` carries the class of the launch error (`InsufficientCapacity`, `QuotaExceeded`,
+  `DailyLimit`, `Unsupported`, `ZoneUnusable`, `InvalidOffering`, `Interrupted`) as its `reason` and the RFC3339 expiry
+  as `until`, so automation that plans launches skips it without launching. Every other unavailable offering carries its reason code.
 
 Rejected:
 

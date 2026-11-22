@@ -28,7 +28,7 @@ import (
 const (
 	DefaultInsufficientCapacityTTL = 3 * time.Minute
 	DefaultUnsupportedTTL          = 24 * time.Hour
-	DefaultQuotaExceededTTL        = 30 * time.Minute
+	DefaultQuotaExceededTTL        = 5 * time.Minute
 	DefaultZoneUnusableTTL         = 10 * time.Minute
 	// DefaultInvalidTTL: the vendor rejected the offering's launch parameters;
 	// retrying the same request cannot succeed, only an operator change can.
@@ -80,11 +80,13 @@ const (
 	classZoneUnusable
 	classInterrupted
 	classInvalid
+	classDailyLimit
 )
 
 func (c class) String() string {
 	return [...]string{
 		"InsufficientCapacity", "Unsupported", "QuotaExceeded", "ZoneUnusable", "Interrupted", "InvalidOffering",
+		"DailyLimit",
 	}[c]
 }
 
@@ -96,12 +98,18 @@ type key struct {
 	region       string
 	zone         string
 	capacityType string
+	// bucket is the quota bucket of a QuotaExceeded entry of one bucket.
+	bucket string
 }
 
 // Cache holds the unavailable offerings. It is safe for concurrent use.
 type Cache struct {
 	clock clock.Clock
 	ttls  TTLs
+
+	// bucketsOf maps an instance type to the quota buckets it consumes; nil when
+	// no quota tracker is wired in.
+	bucketsOf func(vendor, apiReference, capacityType string) []string
 
 	mu      sync.Mutex
 	entries map[key]time.Time // key -> expiry
@@ -118,10 +126,21 @@ func New(clk clock.Clock, ttls TTLs) *Cache {
 }
 
 func (c *Cache) mark(k key, ttl time.Duration) {
+	c.markUntil(k, c.clock.Now().Add(ttl))
+}
+
+func (c *Cache) markUntil(k key, expiry time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries[k] = c.clock.Now().Add(ttl)
+	c.entries[k] = expiry
 	c.sequence.Add(1)
+}
+
+// SetBucketsOf sets how the cache maps an instance type to the quota buckets it
+// consumes (the quota tracker's mapping), so that an entry of a bucket covers
+// the offerings that consume it.
+func (c *Cache) SetBucketsOf(f func(vendor, apiReference, capacityType string) []string) {
+	c.bucketsOf = f
 }
 
 // MarkInsufficientCapacity records that the vendor had no capacity for the
@@ -152,6 +171,37 @@ func (c *Cache) MarkUnsupportedPreLaunch(vendor, instanceType, zone string) {
 func (c *Cache) MarkQuotaExceeded(vendor, region, capacityType string) {
 	c.mark(key{class: classQuotaExceeded, vendor: vendor, region: region, capacityType: capacityType},
 		c.ttls.QuotaExceeded)
+}
+
+// MarkQuotaBucket records that the quota bucket the vendor counts a launch
+// against has no room left in the region. It covers the offerings that consume
+// the bucket, for either capacity type.
+func (c *Cache) MarkQuotaBucket(vendor, region, bucket string) {
+	c.mark(key{class: classQuotaExceeded, vendor: vendor, region: region, bucket: bucket}, c.ttls.QuotaExceeded)
+}
+
+// ClearQuotaExceeded drops the QuotaExceeded entries of the vendor's region and
+// the account-wide ones of the vendor: a NodeClaim of the region was deleted, so
+// quota may be free again.
+func (c *Cache) ClearQuotaExceeded(vendor, region string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cleared := false
+	for k := range c.entries {
+		if k.class == classQuotaExceeded && k.vendor == vendor && (k.region == region || k.region == "") {
+			delete(c.entries, k)
+			cleared = true
+		}
+	}
+	if cleared {
+		c.sequence.Add(1)
+	}
+}
+
+// MarkDailyLimit records that the vendor refuses to create resources in the
+// region until the limit resets. Deleting nodes does not clear it.
+func (c *Cache) MarkDailyLimit(vendor, region string, until time.Time) {
+	c.markUntil(key{class: classDailyLimit, vendor: vendor, region: region}, until)
 }
 
 // MarkQuotaExceededAccountWide records that the vendor's account has no quota
@@ -186,7 +236,10 @@ func (c *Cache) MarkInterrupted(vendor, instanceType, zone, capacityType string)
 
 // Offering identifies an offering the way the catalog builds it.
 type Offering struct {
-	Vendor       string
+	Vendor string
+	// APIReference is the vendor's name of the type, which the quota buckets are
+	// mapped by.
+	APIReference string
 	InstanceType string
 	Region       string
 	Zone         string
@@ -201,11 +254,20 @@ func (c *Cache) IsUnavailable(o Offering) bool {
 
 // Why returns the error class and the expiry of the first live entry that
 // covers the offering. The class is one of InsufficientCapacity, Interrupted,
-// Unsupported, QuotaExceeded and ZoneUnusable.
+// Unsupported, QuotaExceeded, DailyLimit, InvalidOffering and ZoneUnusable.
 func (c *Cache) Why(o Offering) (class string, expiry time.Time, ok bool) {
+	var buckets []string
+	if c.bucketsOf != nil {
+		buckets = c.bucketsOf(o.Vendor, o.APIReference, o.CapacityType)
+	}
 	now := c.clock.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	live := func(k key) bool {
+		exp, found := c.entries[k]
+		expiry = exp
+		return found && now.Before(exp)
+	}
 	for _, k := range [...]key{
 		{
 			class: classInsufficientCapacity, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
@@ -223,9 +285,15 @@ func (c *Cache) Why(o Offering) (class string, expiry time.Time, ok bool) {
 		{class: classQuotaExceeded, vendor: o.Vendor, region: o.Region, capacityType: o.CapacityType},
 		{class: classQuotaExceeded, vendor: o.Vendor, capacityType: o.CapacityType}, // account-wide
 		{class: classZoneUnusable, vendor: o.Vendor, zone: o.Zone},
+		{class: classDailyLimit, vendor: o.Vendor, region: o.Region},
 	} {
-		if exp, found := c.entries[k]; found && now.Before(exp) {
-			return k.class.String(), exp, true
+		if live(k) {
+			return k.class.String(), expiry, true
+		}
+	}
+	for _, b := range buckets {
+		if live(key{class: classQuotaExceeded, vendor: o.Vendor, region: o.Region, bucket: b}) {
+			return classQuotaExceeded.String(), expiry, true
 		}
 	}
 	return "", time.Time{}, false

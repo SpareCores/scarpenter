@@ -27,10 +27,12 @@ var expected = map[string]vendors.Class{
 	"ZonalAllocationFailed":                    vendors.InsufficientCapacity,
 	"OverconstrainedAllocationRequest":         vendors.InsufficientCapacity,
 	"OverconstrainedZonalAllocationRequest":    vendors.InsufficientCapacity,
+	"SpotPriceGreaterThanProvidedMaxPrice":     vendors.InsufficientCapacity,
 	"AzureSpotIsNotSupportedForThisVMSize":     vendors.Unsupported,
 	"ZoneNotAvailableForSubscription":          vendors.ZoneUnusable,
 	"QuotaExceeded":                            vendors.QuotaExceeded,
 	"PublicIPCountLimitReached":                vendors.QuotaExceeded,
+	"ResourceQuotaExceeded":                    vendors.QuotaExceeded,
 	"TooManyRequests":                          vendors.Retryable,
 	"InternalServerError":                      vendors.Retryable,
 	"ServerBusy":                               vendors.Retryable,
@@ -97,11 +99,14 @@ func TestClassifyMessageExceptions(t *testing.T) {
 		want            vendors.Class
 	}{
 		{"quota text", "OperationNotAllowed", "Operation could not be completed as it results in exceeding approved Total Regional Cores quota.", errContext{}, vendors.QuotaExceeded},
+		{"quota limits text", "OperationNotAllowed", "Operation results in exceeding quota limits of Core. Maximum allowed: 4, Current in use: 4, Additional requested: 2.", errContext{}, vendors.QuotaExceeded},
 		{"in progress", "OperationNotAllowed", "Another operation is in progress on the resource.", errContext{}, vendors.Retryable},
 		{"other not allowed", "OperationNotAllowed", "The subscription is disabled.", errContext{}, vendors.Fatal},
 		{"size not available", "InvalidParameter", "The requested VM size Standard_X1 is not available in the current region.", errContext{size: "Standard_X1"}, vendors.Unsupported},
 		{"size not supported", "InvalidParameter", "VM size Standard_X1 is not supported in this zone.", errContext{size: "Standard_X1"}, vendors.Unsupported},
 		{"another size", "InvalidParameter", "The requested VM size Standard_X2 is not available.", errContext{size: "Standard_X1"}, vendors.Fatal},
+		{"security type invalid parameter", "InvalidParameter", "VM size not supported for creation of VMs and Virtual Machine Scale Set with '<NULL>' security type", errContext{size: "Standard_DC32ads_v5"}, vendors.Unsupported},
+		{"security type bad request", "BadRequest", "VM size not supported for creation of VMs and Virtual Machine Scale Set with '<NULL>' security type", errContext{size: "Standard_DC32ads_v5"}, vendors.Unsupported},
 		{"plain invalid", "InvalidParameter", "Parameter x is wrong.", errContext{size: "Standard_X1"}, vendors.Fatal},
 	}
 	for _, c := range cases {

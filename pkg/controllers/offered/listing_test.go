@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 )
@@ -168,5 +169,34 @@ func TestConfigMapNameIsBounded(t *testing.T) {
 	long := ConfigMapName(strings.Repeat("a", 250), "oci")
 	if len(long) != maxNameLength || long == ConfigMapName(strings.Repeat("a", 249)+"b", "oci") {
 		t.Errorf("long name %q", long)
+	}
+}
+
+func TestListingCarriesTheClassAndTheExpiryOfCacheMarks(t *testing.T) {
+	soon := time.Date(2026, 11, 21, 10, 5, 0, 0, time.UTC)
+	late := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
+	mark := func(class string, until time.Time) catalog.Reason {
+		return catalog.Reason{Code: catalog.UnavailableCache, Detail: class + " until " + until.Format(time.RFC3339),
+			Class: class, Until: until}
+	}
+	lt := listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+		{CapacityType: "on-demand", Zone: "z1", Reason: mark("QuotaExceeded", soon)},
+		{CapacityType: "on-demand", Zone: "z2", Reason: mark("QuotaExceeded", soon)},
+		{CapacityType: "on-demand", Zone: "z3", Reason: mark("DailyLimit", late)},
+		{CapacityType: "on-demand", Zone: "z4", Reason: mark("QuotaExceeded", late)},
+		{CapacityType: "on-demand", Zone: "z5", Available: true},
+	}})
+	want := []ListingOffering{
+		{CapacityType: "on-demand", Zones: []string{"z5"}, Available: true},
+		{CapacityType: "on-demand", Zones: []string{"z3"}, Reason: "DailyLimit", Until: "2026-11-22T00:00:00Z"},
+		{CapacityType: "on-demand", Zones: []string{"z1", "z2"}, Reason: "QuotaExceeded", Until: "2026-11-21T10:05:00Z"},
+		{CapacityType: "on-demand", Zones: []string{"z4"}, Reason: "QuotaExceeded", Until: "2026-11-22T00:00:00Z"},
+	}
+	if !reflect.DeepEqual(lt.Offerings, want) {
+		t.Errorf("offerings %+v, want %+v", lt.Offerings, want)
+	}
+	raw, err := json.Marshal(lt.Offerings[0])
+	if err != nil || strings.Contains(string(raw), "until") {
+		t.Errorf("an available offering carries until: %s", raw)
 	}
 }

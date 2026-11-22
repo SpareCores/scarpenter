@@ -102,7 +102,7 @@ func reportOf(e evaluation, q Query) Report {
 			tr.FitsRequests = resources.Fits(q.Requests, it.Allocatable())
 		}
 		if key := firstMismatch(it.Requirements, q.Requirements); key != "" {
-			tr.Dropped = Reason{NodePoolRequirement, key}
+			tr.Dropped = Reason{Code: NodePoolRequirement, Detail: key}
 			r.Types = append(r.Types, tr)
 			continue
 		}

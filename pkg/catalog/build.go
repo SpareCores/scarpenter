@@ -135,7 +135,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 
 	for _, srv := range vd.servers {
 		drop := func(code Code, detail string) {
-			vb.drops = append(vb.drops, typeDrop{vendor, srv.APIReference, Reason{code, detail}})
+			vb.drops = append(vb.drops, typeDrop{vendor, srv.APIReference, Reason{Code: code, Detail: detail}})
 		}
 		prices := vd.prices[srv.ID]
 		if len(prices) == 0 {
@@ -321,13 +321,14 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 		zones, why := resolveZones(vd, ri.region, p, zonesByRegion, hasZones, regionPriced)
 		if len(zones) == 0 {
 			k := key{ri.region.ID, why, p.CapacityType}
-			lost[k] = offeringDrop{ri.region.Name, why, p.CapacityType, Reason{ZoneNotAvailable, why}}
+			lost[k] = offeringDrop{ri.region.Name, why, p.CapacityType, Reason{Code: ZoneNotAvailable, Detail: why}}
 		}
 		for _, z := range zones {
 			delta, complete := c.opts.Facts.PriceDelta(vendor, class, srv, z.Name, p.CapacityType)
 			k := key{ri.region.ID, z.ID, p.CapacityType}
 			if !complete && !class.AllowIncompletePrice {
-				lost[k] = offeringDrop{ri.region.Name, z.ID, p.CapacityType, Reason{IncompletePrice, z.ID + " " + p.CapacityType}}
+				lost[k] = offeringDrop{ri.region.Name, z.ID, p.CapacityType,
+					Reason{Code: IncompletePrice, Detail: z.ID + " " + p.CapacityType}}
 				continue
 			}
 			usd := p.USDPerHour + delta
@@ -374,7 +375,7 @@ func withoutUnlaunchable(vendor string, srv *model.Server, set offeringSet, laun
 		ok, known := launchable.Launchable(vendor, srv.APIReference, o.zone.ID)
 		if known && !ok {
 			removed = append(removed, offeringDrop{o.region.region.Name, o.zone.ID, o.capacityType,
-				Reason{NotLaunchable, o.zone.ID}})
+				Reason{Code: NotLaunchable, Detail: o.zone.ID}})
 		}
 		return known && !ok
 	})

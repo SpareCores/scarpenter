@@ -57,7 +57,7 @@ The last column names the plan that introduced the flag.
 | `--interruption-unavailable-ttl` | `SCARPENTER_INTERRUPTION_UNAVAILABLE_TTL` | `10m` | How long an interrupted spot offering (instance type and zone) stays unavailable. | plan 26 |
 | `--unavailable-insufficient-capacity-ttl` | `SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL` | `0` (3m) | How long an offering stays unavailable after `InsufficientCapacity`. | plan 04 |
 | `--unavailable-unsupported-ttl` | `SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL` | `0` (24h) | How long a type stays unavailable in a zone after `Unsupported`. | plan 04 |
-| `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (30m) | How long a region and capacity type stay unavailable after `QuotaExceeded` of a vendor without a quota API; every region of the vendor when the error is account-wide. | plan 04 |
+| `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (5m) | How long a quota bucket stays unavailable after `QuotaExceeded` (the region and capacity type for a vendor without a bucket mapping; every region of the vendor when the error is account-wide). A NodeClaim of the vendor and region confirmed gone clears it. | plan 04 |
 | `--unavailable-zone-unusable-ttl` | `SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL` | `0` (10m) | How long a zone stays unavailable after `ZoneUnusable`. | plan 04 |
 | `--resource-default-ttl` | `SCARPENTER_RESOURCE_DEFAULT_TTL` | `24h` | `idleTTL` of managed shared resources when an SCNodeClass does not set one. | plan 06 |
 | `--resource-per-use-grace` | `SCARPENTER_RESOURCE_PER_USE_GRACE` | `2m` | How long an unused `perUse` managed resource is kept for launches in flight. | plan 06 |
@@ -562,11 +562,12 @@ to the returned instance.
   tries the others until one launches or `--max-launch-attempts` vendor calls
   failed. Error classes: `InsufficientCapacity` marks the offering unavailable
   and continues; `Unsupported` marks the type in the zone, `ZoneUnusable` the
-  zone; `QuotaExceeded` triggers a quota refresh of the region (vendor with
-  quota knowledge for the type) or marks region and capacity type unavailable
-  for the TTL (vendor without), and the rest of that region and capacity type is
-  skipped (an account-wide quota error, `Error.AccountWide`, marks the capacity type
-  unavailable in every region of the vendor); `Retryable` is returned as is (core retries); `Fatal` returns a
+  zone; `QuotaExceeded` triggers a quota refresh of the region and marks the quota bucket the vendor
+  counts against (the region and capacity type for a vendor without a bucket
+  mapping) unavailable for the TTL, also when the tracker showed headroom; a NodeClaim of the vendor and region confirmed gone
+  clears the mark (an account-wide quota error, `Error.AccountWide`, marks the capacity type
+  unavailable in every region of the vendor); `DailyLimit` marks the vendor's region unavailable
+  until the vendor's reset time (the next 00:00 UTC when the driver gives none, 5 min within 5 min after it), whatever is deleted; `Retryable` is returned as is (core retries); `Fatal` returns a
   `CreateError` and an Event. When nothing launched it returns
   `InsufficientCapacityError` and core deletes the NodeClaim, except when there are
   no candidates because the catalog is not ready (a controller that has just

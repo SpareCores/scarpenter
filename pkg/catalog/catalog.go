@@ -769,7 +769,7 @@ func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pric
 		if !explain {
 			return nil, nil
 		}
-		return nil, &typeDrop{vendor, bt.server.APIReference, Reason{NodePoolPreFilter, key}}
+		return nil, &typeDrop{vendor, bt.server.APIReference, Reason{Code: NodePoolPreFilter, Detail: key}}
 	}
 	if key := f.rejectType(bt.it.Name, bt.server.Arch); key != "" {
 		return dropped(key)
@@ -783,7 +783,8 @@ func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pric
 				firstRejected = key
 			}
 			if explain {
-				ev.filtered = append(ev.filtered, offeringDrop{o.region, o.zone, o.capacityType, Reason{NodePoolPreFilter, key}})
+				ev.filtered = append(ev.filtered,
+					offeringDrop{o.region, o.zone, o.capacityType, Reason{Code: NodePoolPreFilter, Detail: key}})
 			}
 			continue
 		}
@@ -794,7 +795,7 @@ func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pric
 			if !ok {
 				// Not rankable by the objective: it cannot be priced by it.
 				if !down {
-					why, down = Reason{Unrankable, pin.name}, true
+					why, down = Reason{Code: Unrankable, Detail: pin.name}, true
 				}
 			} else {
 				price = p
@@ -818,9 +819,12 @@ func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pric
 // unavailableReason asks the three gates in order and returns the first reason.
 func (c *Catalog) unavailableReason(bt *builtType, vendor, class string, o offeringInfo) (Reason, bool) {
 	if cls, expiry, ok := c.opts.Unavailable.Why(unavailable.Offering{
-		Vendor: vendor, InstanceType: bt.it.Name, Region: o.region, Zone: o.zone, CapacityType: o.capacityType,
+		Vendor: vendor, APIReference: bt.server.APIReference, InstanceType: bt.it.Name, Region: o.region, Zone: o.zone,
+		CapacityType: o.capacityType,
 	}); ok {
-		return Reason{UnavailableCache, cls + " until " + expiry.UTC().Format(time.RFC3339)}, true
+		return Reason{
+			Code: UnavailableCache, Detail: cls + " until " + expiry.UTC().Format(time.RFC3339), Class: cls, Until: expiry.UTC(),
+		}, true
 	}
 	if c.opts.Gate != nil {
 		if why, ok := c.opts.Gate.Unavailable(vendor, bt.server.APIReference, o.region, o.zone, o.capacityType); ok {

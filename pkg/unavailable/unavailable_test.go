@@ -76,9 +76,9 @@ func TestKeysAndTTLs(t *testing.T) {
 			},
 		},
 		{
-			name: "quota exceeded without a quota API: (vendor, region, capacity type), 30 minutes",
+			name: "quota exceeded without a quota API: (vendor, region, capacity type), 5 minutes",
 			mark: func(c *unavailable.Cache) { c.MarkQuotaExceeded("aws", "us-east-1", "spot") },
-			ttl:  30 * time.Minute,
+			ttl:  5 * time.Minute,
 			covered: []unavailable.Offering{
 				base, with(base, func(o *unavailable.Offering) { o.InstanceType, o.Zone = "aws.c7g.large", "us-east-1c" }),
 			},
@@ -88,9 +88,9 @@ func TestKeysAndTTLs(t *testing.T) {
 			},
 		},
 		{
-			name: "account-wide quota exceeded: (vendor, capacity type) in every region, 30 minutes",
+			name: "account-wide quota exceeded: (vendor, capacity type) in every region, 5 minutes",
 			mark: func(c *unavailable.Cache) { c.MarkQuotaExceededAccountWide("aws", "spot") },
-			ttl:  30 * time.Minute,
+			ttl:  5 * time.Minute,
 			covered: []unavailable.Offering{
 				base, with(base, func(o *unavailable.Offering) { o.Region, o.Zone = "eu-west-1", "eu-west-1a" }),
 			},
@@ -236,5 +236,82 @@ func TestWhyNamesTheClassAndExpiryAndPreLaunchMarksAreShort(t *testing.T) {
 		if class, _, ok := c.Why(o); !ok || class != mark {
 			t.Errorf("Why = %q, %v, want %q", class, ok, mark)
 		}
+	}
+}
+
+func TestQuotaBucketMarkExpiresAfterFiveMinutesAndIsClearedByADelete(t *testing.T) {
+	clk := clocktesting.NewFakeClock(time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC))
+	c := unavailable.New(clk, unavailable.TTLs{})
+	c.SetBucketsOf(func(_, apiReference, _ string) []string {
+		if apiReference == "m7i.large" || apiReference == "m7i.xlarge" {
+			return []string{"m-family", "all-vcpus"}
+		}
+		return []string{"c-family", "all-vcpus"}
+	})
+	m := with(base, func(o *unavailable.Offering) { o.APIReference = "m7i.large" })
+	m2 := with(m, func(o *unavailable.Offering) { o.APIReference, o.CapacityType = "m7i.xlarge", "on-demand" })
+	other := with(base, func(o *unavailable.Offering) { o.APIReference = "c7g.large" })
+	otherRegion := with(m, func(o *unavailable.Offering) { o.Region = "eu-west-1" })
+
+	c.MarkQuotaBucket("aws", "us-east-1", "m-family")
+	if !c.IsUnavailable(m) || !c.IsUnavailable(m2) {
+		t.Error("the types of the bucket are still available")
+	}
+	if c.IsUnavailable(other) || c.IsUnavailable(otherRegion) {
+		t.Error("an offering outside the bucket and region is unavailable")
+	}
+	clk.Step(5*time.Minute - time.Second)
+	if !c.IsUnavailable(m) {
+		t.Error("the bucket mark expired before 5 minutes")
+	}
+	clk.Step(time.Second)
+	if c.IsUnavailable(m) {
+		t.Error("the bucket mark outlived 5 minutes")
+	}
+
+	c.MarkQuotaBucket("aws", "us-east-1", "m-family")
+	c.MarkQuotaExceeded("aws", "us-east-1", "spot")
+	c.MarkQuotaExceededAccountWide("aws", "on-demand")
+	c.MarkDailyLimit("aws", "us-east-1", clk.Now().Add(time.Hour))
+	c.ClearQuotaExceeded("aws", "us-east-1")
+	if cls, _, ok := c.Why(m2); !ok || cls != "DailyLimit" {
+		t.Errorf("Why = %q, %v after the clear, want only the daily limit to stay", cls, ok)
+	}
+	if c.Len() != 1 {
+		t.Errorf("%d entries after the clear, want only the daily limit", c.Len())
+	}
+	// Another region keeps its marks.
+	c.MarkQuotaBucket("aws", "eu-west-1", "m-family")
+	c.ClearQuotaExceeded("aws", "us-east-1")
+	if !c.IsUnavailable(otherRegion) {
+		t.Error("a delete in us-east-1 cleared the mark of eu-west-1")
+	}
+}
+
+func TestDailyLimitCoversTheRegionUntilTheResetTime(t *testing.T) {
+	clk := clocktesting.NewFakeClock(time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC))
+	c := unavailable.New(clk, unavailable.TTLs{})
+	reset := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
+	c.MarkDailyLimit("aws", "us-east-1", reset)
+	for _, o := range []unavailable.Offering{
+		base, with(base, func(o *unavailable.Offering) {
+			o.CapacityType, o.Zone, o.InstanceType = "on-demand", "us-east-1c", "aws.c7g.large"
+		}),
+	} {
+		cls, expiry, ok := c.Why(o)
+		if !ok || cls != "DailyLimit" || !expiry.Equal(reset) {
+			t.Errorf("Why(%+v) = %q, %v, %v", o, cls, expiry, ok)
+		}
+	}
+	if c.IsUnavailable(with(base, func(o *unavailable.Offering) { o.Region = "eu-west-1" })) {
+		t.Error("another region is unavailable")
+	}
+	clk.Step(12*time.Hour - time.Second)
+	if !c.IsUnavailable(base) {
+		t.Error("the mark ended before the reset")
+	}
+	clk.Step(time.Second)
+	if c.IsUnavailable(base) {
+		t.Error("the mark outlived the reset")
 	}
 }
