@@ -71,7 +71,7 @@ summary shows the commit that will run.
 
 | Input | Meaning | Default |
 |---|---|---|
-| `vendors` | `all` (every vendor that has a lane, a `test/e2e-<vendor>/` directory), or a comma separated list of vendors with a lane: `aws`, `aws,azure`; `test/e2e-vendors.txt` does not limit it | `all` |
+| `vendors` | `all` (every vendor that has a lane, a `test/e2e-<vendor>/` directory), or a comma separated list of vendors with a lane: `aws`, `aws,azure`; `test/e2e-vendors.txt` does not limit it | required, no default: type `all` or a list on purpose |
 | `mode` | `smoke`, `full`, or a comma separated list of scenarios (`gpu`, `cvm`, `amd64,drift`; a list is a full-limit run of just those scenarios) | `smoke` |
 | `gpu_instance_type` | the instance type of the `gpu` scenario (`E2E_GPU_TYPE`), with the vendor prefix | the lane's default |
 | `cvm_instance_type` | the instance type of the `cvm` scenario (`E2E_TYPE_CVM`), with the vendor prefix | the lane's default |

@@ -18,8 +18,8 @@ on:
   workflow_dispatch:
     inputs:
       vendors:
-        description: "all (every vendor with a lane in test/e2e-<vendor>/), or comma separated vendors: aws or aws,azure"
-        default: all
+        description: "all (every vendor with a lane in test/e2e-<vendor>/), or comma separated vendors: aws or aws,azure (required, no default: all runs every cloud)"
+        required: true
         type: string
       mode:
         description: "smoke (preflight, one node, scale to zero), full (every scenario), or comma separated scenarios, e.g. gpu or amd64,drift (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall)"
