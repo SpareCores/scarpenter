@@ -21,9 +21,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Server types the suite launches (the lane's NodePools list them: the token cannot deny others).
 # amd64 and the database need an on-demand offering in fsn1 (the bring-your-own network and the
 # database's location, the first of the lane's): of the cheap types only cpx22 has one there (cx23
-# is offered in hel1 and nbg1 only, and often sold out). cax11 (arm64) is offered in hel1 only.
+# is offered in hel1 and nbg1 only, and often sold out). cax21 (arm64) is offered in hel1 only (Keeper prices no arm type elsewhere).
 : "${E2E_TYPE_AMD64:=hcloud.cpx22}"
-: "${E2E_TYPE_ARM64:=hcloud.cax11}"
+: "${E2E_TYPE_ARM64:=hcloud.cax21}"
 : "${E2E_TYPE_DB:=hcloud.cpx22}"
 # The types the described-not-named scenario may pick from (two vCPUs, more than 3000 MiB).
 : "${E2E_TYPES_DESCRIBED:=hcloud.cx23,hcloud.cpx22}"
