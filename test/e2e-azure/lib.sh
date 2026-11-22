@@ -231,7 +231,7 @@ limit_of() {
 # slow and big) and kept in E2E_OUT/state/skus.json.
 lane_sizes() {
   local t
-  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_SPOT}" "${E2E_TYPE_DB}" "${E2E_TYPE_DENIED}" ${E2E_TYPES_DESCRIBED//,/ }; do
+  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_SPOT}" "${E2E_TYPE_DB}" "${E2E_TYPE_CVM}" "${E2E_TYPE_DENIED}" ${E2E_TYPES_DESCRIBED//,/ }; do
     echo "${t#azure.}"
   done | sort -u
 }

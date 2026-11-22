@@ -938,6 +938,13 @@ the background for the controller. **The lane is not in `test/e2e-vendors.txt`**
 cost guard (an Allowed-SKU and an Allowed-locations policy on the lane's resource group, the tags, the sweeper, the
 quota ceiling and a budget alert, the read-only canary role) is true on a live account, and nobody has verified that yet
 (see [Azure](testing-and-releasing.md#azure)); the lane's selftest checks that the line is absent.
+The lane's scenarios, after the preflight: `amd64 arm64 db described byo negative quota drift cvm scalezero uninstall`;
+the smoke set is `amd64,scalezero`, so `cvm` runs only in the full mode.
+
+| Scenario | What it proves |
+|---|---|
+| `cvm` | One confidential VM (`E2E_TYPE_CVM`, default `azure.Standard_DC2as_v6`, AMD SEV-SNP; a size is confidential when its SKU's `ConfidentialComputingType` capability is set) from the `e2e-cvm` NodePool: the node is Ready and the Pod runs; `az vm show` says security type `ConfidentialVM`, secure boot and vTPM on, OS disk encryption `VMGuestStateOnly`; the image is the Azure Container Linux community gallery image (`aclgen2CVM`), not the Flatcar marketplace one; `dmesg` in the guest reports SEV-SNP. The Flatcar checks of `amd64` do not apply. The preflight checks the size's quota family when `cvm` is selected, and `ci-policy.sh` lists the size in the Allowed-SKU policy (the lane is pinned to `centralus`, where the size is offered). |
+
 Nothing in the lane has run against Azure.
 
 ### The L5 lane on Google Cloud

@@ -7,9 +7,10 @@
 # expected value is to be confirmed by the first live run (plan 17, live verification list).
 #
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:
-#                   amd64 arm64 db described byo negative quota drift scalezero uninstall
-#                   (arm64 is the arm64 on-demand node and then the spot node; preflight
-#                   always runs first, and ends the run when it fails)
+#                   amd64 arm64 db described byo negative quota drift cvm scalezero uninstall
+#                   (arm64 is the arm64 on-demand node and then the spot node; cvm is one
+#                   confidential VM and is not in the smoke set; preflight always runs
+#                   first, and ends the run when it fails)
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -97,6 +98,7 @@ start_db() {
   render "${here}/manifests/db.yaml" | kubectl apply -f -
 }
 start_described() { render "${here}/manifests/described.yaml" | kubectl apply -f -; }
+start_cvm() { probe e2e-cvm e2e-cvm "${E2E_TYPE_CVM}" on-demand; }
 start_drift() { probe e2e-drift e2e-drift "${E2E_TYPE_AMD64}" on-demand; }
 
 # start_byo: the VNet with its subnet and the NSG the scenario creates with the az CLI in
@@ -182,6 +184,7 @@ scn_preflight() {
     note "the Spot vCPUs quota of ${AZURE_REGION} is '${spot}' (not checked: no selected scenario launches Spot)"
   fi
   selected_has db && types+=("${E2E_TYPE_DB}")
+  selected_has cvm && types+=("${E2E_TYPE_CVM}")
   for t in "${types[@]}"; do
     fam="$(sku_family "${t#azure.}")"
     assert_nonempty "the quota family of ${t}" "${fam}"
@@ -211,12 +214,14 @@ scn_preflight() {
   # 4. The sizes: offered in the region, no restriction for the subscription, Gen2 and
   # SCSI (the driver drops others), and the spot size is LowPriorityCapable, which the
   # B-series are not.
-  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_SPOT}" "${E2E_TYPE_DB}" ${E2E_TYPES_DESCRIBED//,/ }; do
+  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_SPOT}" "${E2E_TYPE_DB}" "${E2E_TYPE_CVM}" ${E2E_TYPES_DESCRIBED//,/ }; do
     assert_nonempty "the size ${t} is offered in ${AZURE_REGION}" "$(sku_field "${t#azure.}" '.name')"
     assert_eq "restrictions of ${t}" 0 "$(sku_field "${t#azure.}" '(.restrictions | length)')"
   done
   assert_eq "the spot size ${E2E_TYPE_SPOT} is LowPriorityCapable" True \
     "$(sku_field "${E2E_TYPE_SPOT#azure.}" '(.capabilities[] | select(.name == "LowPriorityCapable") | .value)')"
+  assert_eq "the size ${E2E_TYPE_CVM} is a confidential size (SEV-SNP)" SNP \
+    "$(sku_field "${E2E_TYPE_CVM#azure.}" '(.capabilities[] | select(.name == "ConfidentialComputingType") | .value)')"
   assert_nonempty "the premium data disk's size ${E2E_TYPE_DB} supports Premium IO" \
     "$(sku_field "${E2E_TYPE_DB#azure.}" '(.capabilities[] | select(.name == "PremiumIO" and .value == "True") | .value)')"
 
@@ -376,6 +381,34 @@ node_unit_checks() {
   pid="$(node_shell "${node}" 'systemctl show kubelet.service -p MainPID --value')"
   assert_match "the kubelet's --node-ip" "--node-ip=${ip//./\\.}" "$(node_shell "${node}" "tr '\\0' ' ' </proc/${pid}/cmdline")"
   assert_eq "the auth key file mode" 600 "$(node_shell "${node}" 'stat -c %a /etc/scarpenter/tailscale-authkey')"
+}
+
+# cvm: one confidential VM (AMD SEV-SNP), booted from Azure Container Linux in a community
+# gallery instead of Flatcar, so the Flatcar checks of amd64 do not apply to it.
+scn_cvm() {
+  start_cvm
+  settle e2e-cvm
+  local node vm j
+  node="$(getstate e2e-cvm.node)"
+  vm="$(vm_name "$(getstate e2e-cvm.vm)")"
+
+  assert_eq "the node is Ready" True "$(kubectl get node "${node}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+  assert_eq "instance-type" "${E2E_TYPE_CVM}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  assert_eq "the Pod runs" Running "$(kubectl get pod "$(getstate e2e-cvm.pod)" -o jsonpath='{.status.phase}')"
+
+  log "the VM: confidential security profile and the ACL community image (az vm show)"
+  j="$(vm_json "${vm}")"
+  assert_eq "size" "${E2E_TYPE_CVM#azure.}" "$(jq -r '.hardwareProfile.vmSize' <<<"${j}")"
+  assert_eq "security type" ConfidentialVM "$(jq -r '.securityProfile.securityType' <<<"${j}")"
+  assert_eq "secure boot" true "$(jq -r '.securityProfile.uefiSettings.secureBootEnabled' <<<"${j}")"
+  assert_eq "vTPM" true "$(jq -r '.securityProfile.uefiSettings.vTpmEnabled' <<<"${j}")"
+  assert_eq "OS disk encryption type" VMGuestStateOnly "$(jq -r '.storageProfile.osDisk.managedDisk.securityProfile.securityEncryptionType' <<<"${j}")"
+  assert_match "the image is the ACL community gallery image" aclgen2CVM "$(jq -r '.storageProfile.imageReference.communityGalleryImageId // empty' <<<"${j}")"
+  assert_eq "the image is not a marketplace one (no publisher)" "" "$(jq -r '.storageProfile.imageReference.publisher // empty' <<<"${j}")"
+
+  log "in the guest: the kernel runs SEV-SNP"
+  assert_match "dmesg reports SEV-SNP" 'SEV-SNP' "$(node_shell "${node}" "dmesg | grep -i 'SEV-SNP'")"
+  drop_nodeshells
 }
 
 # arm64: the arm64 on-demand node, then the spot node (a small D size: B-series have no Spot).
@@ -952,7 +985,7 @@ scarpenter_claims() {
 
 # --------------------------------------------------------------- runner -----
 
-all_scenarios=(amd64 arm64 db described byo negative quota drift scalezero uninstall)
+all_scenarios=(amd64 arm64 db described byo negative quota drift cvm scalezero uninstall)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")

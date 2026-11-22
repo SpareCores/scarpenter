@@ -404,7 +404,7 @@ t_policy() {
       ([.roleDefinitions[].AssignableScopes[]] | all(. == "/subscriptions/\($sub)"))' "${p}" >/dev/null &&
     jq -e '.policyAssignments[] | select(.displayName == "Allowed virtual machine size SKUs")
       | .policyDefinitionId == "/providers/Microsoft.Authorization/policyDefinitions/cccc23c7-8427-4f53-ad12-b6a63eb452b3"
-        and (.parameters.listOfAllowedSKUs.value | sort) == ["Standard_B2as_v2", "Standard_B2ats_v2", "Standard_B2pts_v2", "Standard_D2as_v5"]' "${p}" >/dev/null &&
+        and (.parameters.listOfAllowedSKUs.value | sort) == ["Standard_B2as_v2", "Standard_B2ats_v2", "Standard_B2pts_v2", "Standard_D2as_v5", "Standard_DC2as_v6"]' "${p}" >/dev/null &&
     jq -e '.policyAssignments[] | select(.displayName == "Allowed locations")
       | .parameters.listOfAllowedLocations.value == ["centralus"]' "${p}" >/dev/null &&
     # the lane role writes only compute, network, and reads resources and the activity log; the reads role only reads
