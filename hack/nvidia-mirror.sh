@@ -60,6 +60,10 @@ cache="${out}/.cache"
 tree="${out}/amd64-usr/${version}"
 mkdir -p "${cache}" "${tree}"
 
+# A container that a failed step leaves behind is removed on exit.
+cid=""
+trap '[[ -z "${cid}" ]] || docker rm -f "${cid}" >/dev/null 2>&1' EXIT
+
 # The containers get their files by docker cp, not by bind mounts: with a Docker socket mounted
 # into a container (hack/dev.sh) a bind mount's path would be read on the host, not here.
 if [[ ${#names[@]} -gt 0 && ! -x "${cache}/download_sysext" ]]; then
@@ -70,6 +74,7 @@ if [[ ${#names[@]} -gt 0 && ! -x "${cache}/download_sysext" ]]; then
   docker start -a "${cid}" >&2
   docker cp "${cid}:/tmp/ue/bin/download_sysext" "${cache}/download_sysext"
   docker rm "${cid}" >/dev/null
+  cid=""
 fi
 if [[ ${#names[@]} -gt 0 ]]; then
   if [[ ! -f "${cache}/update-key.pub.pem" ]]; then
@@ -97,6 +102,7 @@ for name in "${names[@]}"; do
   docker start -a "${cid}" >/dev/null
   docker cp "${cid}:/out/." "${work}"
   docker rm "${cid}" >/dev/null
+  cid=""
   # download_sysext keeps the payload it verified the signature of next to the image.
   payload="${work}/.unverified/flatcar-${name}.gz"
   actual="$(sha256sum "${payload}" | awk '{print $1}')"

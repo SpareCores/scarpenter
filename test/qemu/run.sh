@@ -14,12 +14,13 @@
 #                     Headscale of your own for scenario Q11, which skips without it
 #                     (Q09 uses the Headscale this script starts)
 #
-# The GPU-less boot scenarios (names with GPU, plan 12 step (d)) also need the NVIDIA driver
+# The GPU-less boot scenarios (Q12 to Q15, names with GPU, plan 12 step (d)) are opt-in: they run only
+# when QEMU_SCENARIOS names them (QEMU_SCENARIOS=GPU), and they also need the NVIDIA driver
 # sysext of the Flatcar release and Fabric Manager's archive, served by the mirror below as
 # --nvidia-driver-base-url: the first run downloads them (the payload from Flatcar's public
 # release server, 600 MB, about 450 MB extracted; the archive from NVIDIA's) and builds the
 # extraction tool in a container through the host's Docker (hack/nvidia-mirror.sh). They are
-# prepared unless QEMU_SCENARIOS is set and names no GPU scenario.
+# prepared in that case only (the default run, CI's included, downloads and boots none of it).
 #
 # In the container's network namespace the lane creates a bridge with a DHCP and
 # DNS server (dnsmasq) and NAT, a k3s server (server only, configured like a
@@ -162,7 +163,7 @@ download "${upstream}/${ts}-x86-64.raw" "${cache}/mirror/${ts}/${ts}-x86-64.raw"
 # of pkg/nvidia for the lane's Flatcar release (the scenarios check them); Ignition verifies every
 # file against the table's sha256, so a mismatch fails the boot.
 nvidia_base=""
-if [[ -z "${QEMU_SCENARIOS:-}" ]] || grep -qE 'GPU|Q1[2-5]' <<<"${QEMU_SCENARIOS}"; then
+if grep -qE 'GPU|Q1[2-5]' <<<"${QEMU_SCENARIOS:-}"; then
   flatcar_version="4757.2.3"
   nvidia_runtime="nvidia-runtime-v1.17.9"
   nvidia_driver="nvidia-drivers-570-open"

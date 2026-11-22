@@ -17,6 +17,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 
@@ -34,9 +35,9 @@ import (
 //
 // The GPU pending controller deletes the NodeClaim of a node labelled gpu-ready=false,
 // within seconds of the label: the VM would vanish while the scenario looks inside it. So
-// Q12, Q14 and Q15 run without that controller (SCARPENTER_DEV_NO_GPU_PENDING=1, a
-// development switch) and Q13, the only one that needs it, runs with it and asserts the
-// deletion.
+// Q12 and Q15 run without that controller (SCARPENTER_DEV_NO_GPU_PENDING=1, a
+// development switch); Q13 runs with it and asserts the deletion, and Q14 (no check, so
+// no label) runs with it to show it leaves the node alone.
 
 const (
 	gpuNodeSelector = corev1.LabelInstanceTypeStable
@@ -50,7 +51,7 @@ const (
 func gpuLane(t *testing.T, gpuPending bool) {
 	t.Helper()
 	if lane.nvidiaBase == "" {
-		t.Skip("the lane did not prepare the NVIDIA mirror (QEMU_SCENARIOS names no GPU scenario)")
+		t.Skip("the GPU scenarios are opt-in: run with QEMU_SCENARIOS=GPU")
 	}
 	// run.sh serves the driver of this selection; a table change needs the lane's versions updated.
 	sel, reason := nvidia.Select(nvidia.GPU{Manufacturer: nvidia.Manufacturer, Model: "T4", Count: 1, AMD64: true}, flatcarVer)
@@ -145,9 +146,11 @@ func checkGPUBoot(t *testing.T, ip string, node *corev1.Node) {
 		t.Errorf("%s has the sha256 %s, the table pins %s", file, got, sel.RawSHA256)
 	}
 
-	if got := sh("systemctl show nvidia.service -p Result -p ActiveState --value"); got != "active\nsuccess" && got != "success\nactive" {
-		t.Errorf("nvidia.service without a GPU: %q, want active and success", got)
-	}
+	// Not ordered before the kubelet: it may still be running when the node registers.
+	eventually(t, 3*time.Minute, 2*time.Second, "nvidia.service done without a GPU", func() (bool, string) {
+		out, _ := ssh(t, ip, "systemctl show nvidia.service -p Result -p ActiveState --value")
+		return out == "active\nsuccess" || out == "success\nactive", out
+	})
 	if got := sh("lsmod | grep -c '^nouveau' || true"); got != "0" {
 		t.Errorf("nouveau is loaded")
 	}
@@ -294,7 +297,10 @@ func TestQ13GPUCheckFailureDeletesTheNodeClaim(t *testing.T) {
 	eventually(t, 10*time.Minute, 2*time.Second, "the NodeClaim deleted after the failed check", func() (bool, string) {
 		c := &karpv1.NodeClaim{}
 		err := k8s.Get(ctx(), client.ObjectKey{Name: claim}, c)
-		return err != nil || !c.DeletionTimestamp.IsZero(), fmt.Sprintf("the NodeClaim exists: %v", err)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return false, err.Error()
+		}
+		return apierrors.IsNotFound(err) || !c.DeletionTimestamp.IsZero(), "the NodeClaim exists"
 	})
 	var events corev1.EventList
 	if err := k8s.List(ctx(), &events); err != nil {
@@ -378,9 +384,10 @@ func TestQ15NVSwitchFabricManagerWithoutGPU(t *testing.T) {
 		out, _ := ssh(t, ip, "sudo journalctl -b -u scarpenter-nvidia-fabricmanager.service --no-pager")
 		return strings.Contains(out, "failed to allocate handle"), out
 	})
-	if got := sh("systemctl show scarpenter-nvidia-fabricmanager.service -p NRestarts --value"); got == "" {
-		t.Errorf("no NRestarts for the Fabric Manager unit")
-	}
+	eventually(t, 2*time.Minute, 3*time.Second, "the Fabric Manager unit restarted", func() (bool, string) {
+		out, _ := ssh(t, ip, "systemctl show scarpenter-nvidia-fabricmanager.service -p NRestarts --value")
+		return out != "" && out != "0", "NRestarts " + out
+	})
 	if got := sh("systemctl show scarpenter-nvidia-check.service -p Wants -p After --value"); strings.Count(got, "scarpenter-nvidia-fabricmanager.service") < 2 {
 		t.Errorf("the check does not want and follow the Fabric Manager unit: %q", got)
 	}
