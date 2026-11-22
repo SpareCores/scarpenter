@@ -34,7 +34,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Change it here if the live account's plan list says otherwise.
 : "${E2E_TYPE_AMD64:=upcloud.STARTER-1xCPU-1GB}"
 # The manual gpu scenario (never in `all` or the smoke set): the GPU plan it launches (the
-# cheapest supported one, 1 L40S; the workflow input gpu_instance_type overrides it) and how
+# cheapest supported one, 1 L40S; the gpu_instance_type input of e2e.yml, an E2E_GPU_TYPE override, replaces it) and how
 # long its node may take from the Pod to the end of the CUDA run (the server clone, the driver
 # download and the image pull come on top of a boot).
 : "${E2E_GPU_TYPE:=upcloud.GPU-8xCPU-64GB-1xL40S}"
