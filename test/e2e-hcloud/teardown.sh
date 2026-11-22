@@ -3,7 +3,7 @@
 #   1. delete SCarpenter's NodePools and wait for the NodeClaims to go (the controller deletes the
 #      servers), if the controller still runs;
 #   2. delete everything labelled with the run's cluster, whatever its age, with the sweeper
-#      (servers, volumes, placement groups, firewalls, Primary IPs), then the brought network with the CLI;
+#      (servers, volumes, placement groups, firewalls, Primary IPs, the run's SSH key), then the brought network with the CLI;
 #   3. check that nothing labelled with the cluster remains: the job fails when something does;
 #   4. revoke the nodes' auth key and take the runner off the tailnet.
 # Every step runs even when an earlier one failed; the exit status is the sum. The Flatcar
@@ -54,7 +54,7 @@ for id in $(cluster_leaks network 2>/dev/null); do
 done
 
 log "3. nothing labelled with ${E2E_CLUSTER} may remain"
-for kind in server volume placement-group firewall network primary-ip; do
+for kind in server volume placement-group firewall network primary-ip ssh-key; do
   out="$(cluster_leaks "${kind}" 2>&1)" || {
     problem "could not list the ${kind}s: ${out}"
     continue

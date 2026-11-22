@@ -38,6 +38,8 @@ spec:
       spread: {hcloud: {placementGroup: {type: spread}}}
   vendors:
     hcloud:
+      # The run\'s SSH key (bootstrap.sh): servers created with one get no e-mailed root password.
+      sshKey: "${E2E_CLUSTER}"
       regions: [${E2E_HCLOUD_LOCATIONS_YAML}]
       # A short idle lifetime, so that the final scenario sees the NodeClass's firewall go
       # (the default is 24 hours).

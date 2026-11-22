@@ -187,12 +187,14 @@ scn_amd64() {
   assert_eq "no private network (none configured)" 0 "$(jq -r '.private_net | length' <<<"${j}")"
   assert_eq "one firewall applied (the managed deny-inbound firewall)" 1 "$(jq -r '.public_net.firewalls | length' <<<"${j}")"
   assert_eq "no placement group" null "$(jq -r '.placement_group // "null"' <<<"${j}")"
-  # Unverified until this run (plan 15): the first boot expands the root partition to the type's disk.
+  # Flatcar's first boot grows ROOT to the end of the disk. ROOT starts behind about 2.4 GiB of boot
+  # and /usr partitions and the filesystem keeps some for metadata, so a grown one is about 31 GiB
+  # on a 40 GB (37.3 GiB) disk; an unexpanded one is a few GiB. Compare in bytes against 70% of the disk.
   local disk size
   disk="$(jq -r '.primary_disk_size' <<<"${j}")"
-  size="$(node_shell "${node}" 'df -B1G --output=size / | tail -n1' | tr -d ' G')"
-  note "root filesystem ${size} GB of the type's ${disk} GB disk"
-  [[ "${size}" -ge $((disk * 8 / 10)) ]] || fail "the root filesystem (${size} GB) was not expanded to the type's disk (${disk} GB)"
+  size="$(node_shell "${node}" 'df -B1 --output=size / | tail -n1' | tr -d ' ')"
+  note "root filesystem ${size} bytes of the type's ${disk} GB disk"
+  [[ "${size}" -ge $((disk * 700000000)) ]] || fail "the root filesystem (${size} bytes) was not expanded to the type's disk (${disk} GB)"
 
   log "the claim: price, bootstrap token, serving certificate"
   local price
@@ -460,7 +462,8 @@ settle_fixtures() {
 
 # drift: a change to a profile no node uses drifts nothing; a change to the vendor block
 # (networking.publicIPv6, which every node uses) replaces the node, and the replacement has an
-# IPv6 address.
+# IPv6 address (read from the Hetzner API: the node's addresses are the tailnet ones, nothing publishes
+# the public addresses on the Node).
 scn_drift() {
   start_drift
   settle e2e-drift
@@ -494,8 +497,6 @@ scn_drift() {
   [[ "${sid}" != "${old_sid}" ]] || fail "the replacement runs on the old server"
   j="$(server_json "${sid}")"
   assert_nonempty "the replacement's IPv6 address" "$(jq -r '.public_net.ipv6.ip // empty' <<<"${j}")"
-  assert_match "the node reports an IPv6 address" ':' \
-    "$(kubectl get node "${node}" -o jsonpath='{range .status.addresses[*]}{.address}{"\n"}{end}' | paste -sd' ' -)"
   wait_until "the old server deleted" 300 is_empty servers_left "${old_sid}"
   wait_until "the old NodeClaim gone" 120 is_empty kubectl get nodeclaim "${old_claim}" -o name --ignore-not-found
   wait_until "the old Node gone" 120 is_empty kubectl get node "${old_node}" -o name --ignore-not-found

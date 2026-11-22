@@ -73,12 +73,12 @@ var sample = map[string]string{
 	"E2E_CREATED_AT": "1800000000", "E2E_API_HOST": "100.64.0.1",
 	"E2E_K3S_VERSION": "v1.37.2+k3s1", "E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10",
 	"E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
-	"E2E_TYPE_AMD64": "hcloud.cx23", "E2E_TYPE_ARM64": "hcloud.cax11", "E2E_TYPE_DB": "hcloud.cx23",
+	"E2E_TYPE_AMD64": "hcloud.cpx22", "E2E_TYPE_ARM64": "hcloud.cax21", "E2E_TYPE_DB": "hcloud.cpx22",
 	"E2E_TYPES_DESCRIBED_YAML":  `"hcloud.cx23", "hcloud.cpx22"`,
 	"E2E_HCLOUD_LOCATIONS_YAML": `"fsn1", "nbg1", "hel1"`, "E2E_HCLOUD_SERVER_LIMIT": "10",
 	"E2E_BYO_LOCATION": "fsn1", "E2E_PG_LOCATION": "fsn1", "E2E_NEGATIVE_LOCATION": "ash",
 	"E2E_TAG_RUNNER": "tag:scarpenter-ci", "E2E_TAG_NODE": "tag:scarpenter-ci-node",
-	"NAME": "e2e-amd64", "POOL": "e2e-amd64", "TYPE": "hcloud.cx23", "CAPACITY": "on-demand",
+	"NAME": "e2e-amd64", "POOL": "e2e-amd64", "TYPE": "hcloud.cpx22", "CAPACITY": "on-demand",
 	"NODE": "node-1", "PODNAME": "nodeshell-node-1",
 }
 

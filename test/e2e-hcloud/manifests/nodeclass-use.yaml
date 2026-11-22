@@ -23,6 +23,8 @@ spec:
   tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
   vendors:
     hcloud:
+      # The run\'s SSH key (bootstrap.sh): servers created with one get no e-mailed root password.
+      sshKey: "${E2E_CLUSTER}"
       regions: [${E2E_BYO_LOCATION}]
       networking: {isolation: nodeclass}
       resources:

@@ -496,10 +496,10 @@ dry-run target works.
 
 **Scenarios** (names as AWS where the meaning holds):
 
-1. `amd64`: `hcloud.cx23` on-demand: node Ready, Pod Running, `kubectl logs` and `exec`,
+1. `amd64`: `hcloud.cpx22` on-demand: node Ready, Pod Running, `kubectl logs` and `exec`,
    node labels (zone = zone ID = location), server labels and the `idempotency-key`,
    root filesystem expanded, the real user-data size, time from the create call to Ready.
-2. `arm64`: `hcloud.cax11` (stands in for AWS's spot scenario).
+2. `arm64`: `hcloud.cax21` (stands in for AWS's spot scenario).
 3. `scalezero`: servers gone within 2 minutes of the Pods' deletion, no Primary IP left
    (asserts the auto-delete fact), bootstrap tokens gone.
 4. `drift`: change `networking.publicIPv6` (a profile no node uses drifts nothing, one

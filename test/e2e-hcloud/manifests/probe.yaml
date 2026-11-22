@@ -20,6 +20,9 @@ spec:
         karpenter.sh/nodepool: ${POOL}
         node.kubernetes.io/instance-type: ${TYPE}
         karpenter.sh/capacity-type: ${CAPACITY}
+        # a plain node: without this Karpenter may pack the probe onto the claim of the database or
+        # its client (same pool, same type, profile spread), and the node would carry that profile
+        scarpenter.sparecores.com/placement-profile: default
       containers:
         - name: probe
           image: public.ecr.aws/docker/library/busybox:1.37.0

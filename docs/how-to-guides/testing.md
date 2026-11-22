@@ -807,7 +807,7 @@ against the driver's in-memory Vultr API, and `selftest.sh`.
 
 ### The L5 lane of Hetzner Cloud
 
-The second vendor lane (`test/e2e-hcloud/`, `e2e-cloud.yml` with `vendor: hcloud`; plan 15) is not in `test/e2e-vendors.txt` until the project's server limit and usage alert are set (see [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards)), so the workflows do not run it by themselves. It has the
+The second vendor lane (`test/e2e-hcloud/`, `e2e-cloud.yml` with `vendor: hcloud`; plan 15) is a line of `test/e2e-vendors.txt`, with the project's server limit and usage alert set (see [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards)). It has the
 same shape as the AWS one: a k3s control plane on the runner, nodes that join over the tailnet, the
 same scripts and the same tiers, mode, approval and release gate ([Testing and
 releasing](testing-and-releasing.md)). What differs is the cloud:
@@ -818,7 +818,7 @@ releasing](testing-and-releasing.md)). What differs is the cloud:
 | Images | `bootstrap.sh` installs `hcloud` and `hcloud-upload-image` with `go install` (the module proxy's checksum database verifies them) and makes **one Flatcar snapshot per architecture** for the pinned version when the project has none, in parallel (about five minutes), with the [label convention](set-up-hcloud.md#1-the-flatcar-image); the snapshots are kept. |
 | Control plane | on the runner, as in the AWS lane: no server of the project is spent on it. |
 | Variables | `E2E_HCLOUD_LOCATIONS` (default `fsn1,nbg1,hel1`: the arm and the cheap types are there; the NodeClasses' `regions`), `TS_OAUTH_CLIENT_ID`, `TS_AUDIENCE`. |
-| Types | `cx23` (amd64, the database and its client), `cax11` (arm64), and `cx23` or `cpx22` for the described-not-named scenario. All on-demand: Hetzner has no spot. |
+| Types | `cpx22` (amd64, the database and its client: the one cheap type offered in `fsn1`, where the bring-your-own network and the database are), `cax21` (arm64, offered in `hel1` only: no arm type has a price in a second location, and `cax11` has no live-launchable offering there), and `cx23` or `cpx22` for the described-not-named scenario (`cx23` is offered in `hel1` and `nbg1` only). All on-demand: Hetzner has no spot. |
 | Cost | about eight servers for one started hour each of the cheapest types (cents), two small volumes, the snapshots kept (about 1 GB, under a cent a month). The whole run's limit is the same 90 minutes. |
 
 **Guards.** A Hetzner token cannot be restricted by type, location or label, so there is no CI policy
@@ -826,14 +826,14 @@ to print (`ci-policy.sh` and `canary-policy.sh` have no analogue): the token is 
 bounds a bug: the **dedicated project** (nothing else in it), a **server limit** requested low in the
 Console (the lane needs at least ten: it runs up to nine servers at once; `E2E_HCLOUD_SERVER_LIMIT`
 tells the controller), a **usage alert** to a person, the lane's NodePools that list the types
-(`cx23`, `cax11`, `cpx22`; `manifests_test.go` keeps them and this page together), `E2E_HCLOUD_LOCATIONS`,
+(`cx23`, `cax21`, `cpx22`; `manifests_test.go` keeps them and this page together), `E2E_HCLOUD_LOCATIONS`,
 the label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` on every
 resource of a run, the sweeper, and the teardown that fails the job when anything labelled remains.
 
-**Scenarios** (`E2E_SCENARIOS`, in this order): `amd64` (`hcloud.cx23`: node Ready, the Pod, `kubectl
+**Scenarios** (`E2E_SCENARIOS`, in this order): `amd64` (`hcloud.cpx22`: node Ready, the Pod, `kubectl
 logs` and `exec`, node labels with zone = zone ID = location, the server's labels and the
 `idempotency-key`, the root filesystem expanded to the type's disk, the time from the create call to
-Ready), `arm64` (`hcloud.cax11`, standing in for AWS's spot scenario), `db` (a StatefulSet with the
+Ready), `arm64` (`hcloud.cax21`, standing in for AWS's spot scenario), `db` (a StatefulSet with the
 `db` storage profile and a client Deployment, both with the `spread` placement profile and one run key:
 one placement group named and labelled by SCarpenter with both servers in it, a 10 GB volume attached,
 mounted by its by-id link and formatted by the first-boot unit; after the deletion the group and the
@@ -851,16 +851,21 @@ question 6), and `final` (the uninstall, and nothing labelled with the run remai
 placement groups, firewalls, networks, Primary IPs). The smoke set is `amd64,scalezero`. The restart-
 during-create assertion of the AWS lane has no analogue (the idempotency is the server name).
 
+Every run creates one SSH key (bootstrap.sh, named like the cluster, labelled like the other resources, the
+private half discarded) and every NodeClass of the lane sets `sshKey` to it, because Hetzner e-mails a root
+password to the project members for each server created without a key. The sweeper deletes the key with the rest;
+the canary never creates servers (its token is read-only), so it needs none.
+
 **Provisioning (outside this repository).** A dedicated Hetzner project (projects cannot be created through
 the API) with a low server limit and a usage alert; two tokens, a read-write one for the environments `e2e`
 and `e2e-sweeper` and a **read-only** one for `e2e-canary`, all as the secret `HCLOUD_TOKEN`; the optional
 variable `E2E_HCLOUD_LOCATIONS`; the tailnet's tags as for AWS.
 
 **The sweeper** (`e2e-hcloud-sweeper.yml`, every three hours, environment `e2e-sweeper`, from `main` only)
-runs `go run ./test/e2e-hcloud/sweeper`: it lists servers, volumes, placement groups, firewalls and Primary
-IPs by the presence of the cluster label (the API cannot match a prefix), keeps those of clusters named
+runs `go run ./test/e2e-hcloud/sweeper`: it lists servers, volumes, placement groups, firewalls, SSH keys and
+Primary IPs by the presence of the cluster label (the API cannot match a prefix), keeps those of clusters named
 `scarpenter-ci-*` that are older than two hours by the API's own creation time, and deletes them in the
-order servers (waited for), volumes, placement groups, firewalls, Primary IPs, a failed deletion not
+order servers (waited for), SSH keys, volumes, placement groups, firewalls, Primary IPs, a failed deletion not
 stopping the others. The Flatcar snapshots are never listed. The teardown runs it for its own cluster with
 `-cluster <name> -max-age 0`, then deletes the brought network with the CLI (the driver's API has no network
 delete). `-dry-run` reports only. A Primary IP is found only if it carries the cluster label, which Hetzner
