@@ -344,6 +344,8 @@ handler `nvidia` and the default `runc` (`crictl info`); `scarpenter-nvidia-chec
 the kubelet does not start; with the check masked through `spec.butane`, the node joins; the boot timeline is
 recorded. This is the cheap guard of D7's rewrite against a runtime sysext bump.
 
+**Done (d).** L4 scenarios Q12 to Q15 (`test/qemu/e2e/gpu_test.go`) on the qemu catalog's new `qemu.gpu` (T4) and `qemu.gpu-nvswitch` (8 A100): both sysexts merged, the driver image equals the table's pin, `nvidia.service` succeeds, no `nouveau`, `crictl info` shows `runc` and the `nvidia` handler, the kubelet runs, the node registers tainted, the check fails with its message and labels `gpu-ready=false`; the masked check (Q14) registers and stays unlabelled; with the GPU pending controller the NodeClaim is deleted (Q13); Fabric Manager's archive is verified and unpacked and the unit fails without a driver handle (Q15); the timeline goes to the report. The lane serves the driver and archive through `hack/nvidia-mirror.sh` (now by `docker cp`, so it works through the dev container's Docker socket). Q12, Q14 and Q15 run with the controller switched off by the development-only `SCARPENTER_DEV_NO_GPU_PENDING=1`, and the NVIDIA labels come on with `SCARPENTER_DEV_NVIDIA_BOOTSTRAP=1` (both exist only with the `scarpenter_dev` tag); `nvidia.NodeBootstrap` stays false. The static catalog now sets the accelerator type for types with `gpus`.
+
 **(e) AWS.** `GPUVirtualizer` for `g6f`, `gr6f` (and any later fractional family);
 no other launch change (classes G and P already map to their vCPU quotas, `QuotaZero` until an increase;
 `InsufficientInstanceCapacity` stays reactive per zone). The shared L5 scenario `gpu` (in `test/lib.sh`, used

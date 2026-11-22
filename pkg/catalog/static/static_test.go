@@ -14,6 +14,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/catalog/static"
 )
 
@@ -29,6 +30,9 @@ vendors:
         arch: amd64
         vcpus: 2
         memoryMiB: 4096
+        gpus: 1
+        gpuModel: T4
+        gpuManufacturer: NVIDIA
         prices:
           - {region: region-a, onDemand: 0.05, spot: 0.02}
           - {region: region-b, onDemand: 0.06}
@@ -37,9 +41,6 @@ vendors:
         arch: arm64
         vcpus: 4
         memoryMiB: 8192
-        gpus: 1
-        gpuModel: T4
-        gpuManufacturer: NVIDIA
         prices:
           - {region: region-a, onDemand: 0.20}
 `
@@ -56,6 +57,9 @@ func TestStaticCatalogAsASource(t *testing.T) {
 		},
 	}}
 	cl := catalog.NewClass("c", catalog.Scope{"fake": nil})
+	// A GPU type needs a driver for the release, or the core drops it.
+	cl.FlatcarVersion = catalogtest.FlatcarVersion
+	cl.Finalize()
 	c := catalog.New(catalog.Options{Source: src, Facts: facts})
 	c.SetClasses([]catalog.Class{cl})
 	if err := c.Refresh(t.Context()); err != nil {
@@ -77,15 +81,22 @@ func TestStaticCatalogAsASource(t *testing.T) {
 		t.Errorf("offerings per type = %v", byName)
 	}
 	for _, it := range its {
-		if it.Name == "fake.arm-4" {
-			if !it.Requirements.Get(corev1.LabelArchStable).Has("arm64") || !it.Requirements.Get(v1alpha1.LabelAcceleratorModel).Has("T4") {
+		switch it.Name {
+		case "fake.arm-4":
+			if !it.Requirements.Get(corev1.LabelArchStable).Has("arm64") {
 				t.Errorf("arm-4: %v", it.Requirements)
+			}
+		case "fake.small-2":
+			if !it.Requirements.Get(v1alpha1.LabelAcceleratorModel).Has("T4") {
+				t.Errorf("small-2: %v", it.Requirements)
 			}
 		}
 	}
 
 	// The region allow-list narrows what is read.
 	cl2 := catalog.NewClass("d", catalog.Scope{"fake": {"region-b"}})
+	cl2.FlatcarVersion = catalogtest.FlatcarVersion
+	cl2.Finalize()
 	c.SetClasses([]catalog.Class{cl2})
 	if err := c.Refresh(t.Context()); err != nil {
 		t.Fatal(err)

@@ -309,6 +309,17 @@ Butane, read from a ConfigMap, adds the lane's key.
 | Q09 | the tailscale template against the lane's Headscale: the VM joins the tailnet, the kubelet's `--node-ip` is its tailscale address, the node is Ready over the tailnet, the Pod runs, `kubectl logs` and `exec` work (the API server reaches the kubelet over the tailnet), the serving certificate is approved, the unit ordering holds |
 | Q10 | the tailscale template without a tailnet (a dummy key, a control server nobody listens on): the sysext is merged, `tailscaled` runs, the join unit cannot finish, and the kubelet, ordered after and bound to it, never starts: the sysext's `Upholds=` and the template's units and ordering work on real Flatcar |
 | Q11 | optional: Q09's node side against a tailnet of your own (Tailscale SaaS or another Headscale); needs `SCARPENTER_QEMU_TAILSCALE_AUTHKEY` (a pre-authorized, ephemeral key; `SCARPENTER_QEMU_TAILSCALE_LOGIN_SERVER` for a Headscale) and skips without it |
+| Q12 | the GPU-less boot of a T4 type (plan 12 step (d); the qemu catalog's `qemu.gpu`, offered with the driver labels by the development switch `SCARPENTER_DEV_NVIDIA_BOOTSTRAP=1`, the driver served as `--nvidia-driver-base-url`): the driver and nvidia-runtime sysexts merge and the driver image is the pinned one; `nvidia.service` ends successfully, `nouveau` is not loaded, `nvidia-drm` resolves to `/bin/true`; containerd's default runtime is `runc` with the `nvidia` handler (`crictl info`); the kubelet runs (ADR-031) and the node registers with the `gpu-pending` taint and the driver branch label; the check fails with its message, the node is labelled `gpu-ready=false`, keeps the taint and its NodeClaim (the GPU pending controller is switched off here, `SCARPENTER_DEV_NO_GPU_PENDING=1`, because it would delete the VM within seconds), and becomes Ready; the boot timeline is recorded |
+| Q13 | the same boot with the production GPU pending controller: the failed check deletes the NodeClaim (Event `GPUCheckFailed`) and the VM goes |
+| Q14 | the check unit masked through `spec.butane`: the node registers and is Ready, has no `gpu-ready` label and keeps the taint, and nothing deletes it within the controller's 30 minutes |
+| Q15 | the GPU-less boot of an 8-GPU A100 HGX type (`qemu.gpu-nvswitch`): Q12's checks, and Fabric Manager's archive is downloaded from the mirror, verified against the pinned sha256 and unpacked, `nv-fabricmanager` runs and fails without a driver handle, and the check, which wants the unit, fails with the driver message |
+
+Q12 to Q15 need the NVIDIA driver sysext of the lane's Flatcar release and Fabric
+Manager's archive: the first run of the lane builds the mirror tree with
+`hack/nvidia-mirror.sh` (the payload from Flatcar's release server, the archive from
+NVIDIA's, the extraction tool in a container through the host's Docker; about 1 GB in
+the cache, a few minutes once) and the nvidia-runtime sysext, and serves them next to the
+others. `QEMU_SCENARIOS` that names no GPU scenario (`Q1[2-5]` or `GPU`) skips the mirror.
 
 Knobs: `QEMU_SCENARIOS=<go test -run regexp>` selects scenarios
 (`QEMU_SCENARIOS='Q0[12]'`), `QEMU_SETUP_ONLY=1` stops after the control plane is

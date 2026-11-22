@@ -497,8 +497,11 @@ func TestTheEmbeddedCatalogIsAStaticCatalogWithLocalDisksOnOneType(t *testing.T)
 			t.Errorf("%s is %s", s.APIReference, s.Arch)
 		}
 	}
-	want := map[string][3]float64{"small": {2, 2048, 0}, "medium": {2, 4096, 0}, "local": {2, 4096, 8}}
-	if len(got) != 3 || got["small"] != want["small"] || got["medium"] != want["medium"] || got["local"] != want["local"] {
+	want := map[string][3]float64{"small": {2, 2048, 0}, "medium": {2, 4096, 0}, "local": {2, 4096, 8},
+		"gpu": {2, 4096, 0}, "gpu-nvswitch": {2, 4096, 0}}
+	// The two GPU types (gpu, gpu-nvswitch) have no disks and 4 GiB, like medium.
+	if len(got) != 5 || got["small"] != want["small"] || got["medium"] != want["medium"] || got["local"] != want["local"] ||
+		got["gpu"] != want["gpu"] || got["gpu-nvswitch"] != want["gpu-nvswitch"] {
 		t.Errorf("types %v, want %v", got, want)
 	}
 	d, _ := newTestDriver(t)

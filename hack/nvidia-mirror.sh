@@ -60,13 +60,16 @@ cache="${out}/.cache"
 tree="${out}/amd64-usr/${version}"
 mkdir -p "${cache}" "${tree}"
 
+# The containers get their files by docker cp, not by bind mounts: with a Docker socket mounted
+# into a container (hack/dev.sh) a bind mount's path would be read on the host, not here.
 if [[ ${#names[@]} -gt 0 && ! -x "${cache}/download_sysext" ]]; then
   echo "building download_sysext (ue-rs ${UE_RS_REV})" >&2
-  docker run --rm -v "${cache}:/out" "${RUST_IMAGE}" bash -ec "
+  cid="$(docker create "${RUST_IMAGE}" bash -ec "
     apt-get update -qq && apt-get install -y -qq protobuf-compiler >/dev/null
-    cargo install --locked --git https://github.com/flatcar/ue-rs --rev ${UE_RS_REV} --root /tmp/ue --bin download_sysext ue-rs
-    cp /tmp/ue/bin/download_sysext /out/
-    chown $(id -u):$(id -g) /out/download_sysext"
+    cargo install --locked --git https://github.com/flatcar/ue-rs --rev ${UE_RS_REV} --root /tmp/ue --bin download_sysext ue-rs")"
+  docker start -a "${cid}" >&2
+  docker cp "${cid}:/tmp/ue/bin/download_sysext" "${cache}/download_sysext"
+  docker rm "${cid}" >/dev/null
 fi
 if [[ ${#names[@]} -gt 0 ]]; then
   if [[ ! -f "${cache}/update-key.pub.pem" ]]; then
@@ -87,9 +90,13 @@ for name in "${names[@]}"; do
   rm -rf "${work}"
   mkdir -p "${work}"
   echo "extracting ${name}" >&2
-  docker run --rm --user "$(id -u):$(id -g)" \
-    -v "${cache}:/cache:ro" -v "${work}:/out" "${RUST_IMAGE}" \
-    /cache/download_sysext -o /out -n "flatcar-${name}.raw" -u "${payload_url}" -p /cache/update-key.pub.pem >/dev/null
+  cid="$(docker create "${RUST_IMAGE}" bash -ec \
+    "mkdir /out && /tmp/download_sysext -o /out -n flatcar-${name}.raw -u ${payload_url} -p /tmp/update-key.pub.pem")"
+  docker cp "${cache}/download_sysext" "${cid}:/tmp/download_sysext"
+  docker cp "${cache}/update-key.pub.pem" "${cid}:/tmp/update-key.pub.pem"
+  docker start -a "${cid}" >/dev/null
+  docker cp "${cid}:/out/." "${work}"
+  docker rm "${cid}" >/dev/null
   # download_sysext keeps the payload it verified the signature of next to the image.
   payload="${work}/.unverified/flatcar-${name}.gz"
   actual="$(sha256sum "${payload}" | awk '{print $1}')"
