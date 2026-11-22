@@ -214,14 +214,18 @@ scn_preflight() {
   # 4. The sizes: offered in the region, no restriction for the subscription, Gen2 and
   # SCSI (the driver drops others), and the spot size is LowPriorityCapable, which the
   # B-series are not.
-  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_SPOT}" "${E2E_TYPE_DB}" "${E2E_TYPE_CVM}" ${E2E_TYPES_DESCRIBED//,/ }; do
+  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_SPOT}" "${E2E_TYPE_DB}" ${E2E_TYPES_DESCRIBED//,/ }; do
     assert_nonempty "the size ${t} is offered in ${AZURE_REGION}" "$(sku_field "${t#azure.}" '.name')"
     assert_eq "restrictions of ${t}" 0 "$(sku_field "${t#azure.}" '(.restrictions | length)')"
   done
   assert_eq "the spot size ${E2E_TYPE_SPOT} is LowPriorityCapable" True \
     "$(sku_field "${E2E_TYPE_SPOT#azure.}" '(.capabilities[] | select(.name == "LowPriorityCapable") | .value)')"
-  assert_eq "the size ${E2E_TYPE_CVM} is a confidential size (SEV-SNP)" SNP \
-    "$(sku_field "${E2E_TYPE_CVM#azure.}" '(.capabilities[] | select(.name == "ConfidentialComputingType") | .value)')"
+  if selected_has cvm; then
+    assert_nonempty "the size ${E2E_TYPE_CVM} is offered in ${AZURE_REGION}" "$(sku_field "${E2E_TYPE_CVM#azure.}" '.name')"
+    assert_eq "restrictions of ${E2E_TYPE_CVM}" 0 "$(sku_field "${E2E_TYPE_CVM#azure.}" '(.restrictions | length)')"
+    assert_eq "the size ${E2E_TYPE_CVM} is a confidential size (SEV-SNP)" SNP \
+      "$(sku_field "${E2E_TYPE_CVM#azure.}" '(.capabilities[] | select(.name == "ConfidentialComputingType") | .value)')"
+  fi
   assert_nonempty "the premium data disk's size ${E2E_TYPE_DB} supports Premium IO" \
     "$(sku_field "${E2E_TYPE_DB#azure.}" '(.capabilities[] | select(.name == "PremiumIO" and .value == "True") | .value)')"
 
@@ -388,7 +392,7 @@ node_unit_checks() {
 scn_cvm() {
   start_cvm
   settle e2e-cvm
-  local node vm j
+  local node vm j disk_gb
   node="$(getstate e2e-cvm.node)"
   vm="$(vm_name "$(getstate e2e-cvm.vm)")"
 
@@ -403,11 +407,23 @@ scn_cvm() {
   assert_eq "secure boot" true "$(jq -r '.securityProfile.uefiSettings.secureBootEnabled' <<<"${j}")"
   assert_eq "vTPM" true "$(jq -r '.securityProfile.uefiSettings.vTpmEnabled' <<<"${j}")"
   assert_eq "OS disk encryption type" VMGuestStateOnly "$(jq -r '.storageProfile.osDisk.managedDisk.securityProfile.securityEncryptionType' <<<"${j}")"
+  disk_gb=$(jq -r '.storageProfile.osDisk.diskSizeGB' <<<"${j}")
+  [[ "${disk_gb}" -ge 60 ]] || fail "OS disk size ${disk_gb} GB is below 60"
   assert_match "the image is the ACL community gallery image" aclgen2CVM "$(jq -r '.storageProfile.imageReference.communityGalleryImageId // empty' <<<"${j}")"
   assert_eq "the image is not a marketplace one (no publisher)" "" "$(jq -r '.storageProfile.imageReference.publisher // empty' <<<"${j}")"
 
   log "in the guest: the kernel runs SEV-SNP"
-  assert_match "dmesg reports SEV-SNP" 'SEV-SNP' "$(node_shell "${node}" "dmesg | grep -i 'SEV-SNP'")"
+  # Under Azure's paravisor the guest may print only "AMD SEV"; then the Hyper-V line
+  # "Isolation Config: Group A 0x.., Group B 0x.." tells SNP (low nibble of Group B is 2).
+  local klog lines
+  klog="$(node_shell "${node}" 'journalctl -k -b --no-pager 2>/dev/null || dmesg')"
+  lines="$(grep -iE 'SEV|Isolation Config' <<<"${klog}" || true)"
+  if ! grep -q 'SEV-SNP' <<<"${klog}"; then
+    grep -q 'AMD SEV' <<<"${klog}" || fail "the guest kernel log has no SEV line: ${lines:-none}"
+    [[ "$(sed -nE 's/.*Isolation Config:.*Group B 0x([0-9a-fA-F]+).*/\1/p' <<<"${klog}" | head -n1 | grep -oE '.$')" == 2 ]] ||
+      fail "the guest reports AMD SEV but not SNP isolation; kernel lines: ${lines}"
+  fi
+  note "guest kernel lines: ${lines}"
   drop_nodeshells
 }
 
