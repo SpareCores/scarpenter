@@ -11,16 +11,19 @@ package chart
 import (
 	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/yaml"
@@ -171,6 +174,22 @@ func TestCRDUpgradeKeepsNewFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The API server serves the new schema only once its CRD handler has seen
+	// the update, which is asynchronous: probe with throwaway objects until the
+	// new field survives, then create the object under test.
+	probes := 0
+	err = wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		probes++
+		name := fmt.Sprintf("probe-%d", probes)
+		if err := c.Create(ctx, newObj(name)); err != nil {
+			return false, err
+		}
+		_, found, _ := unstructured.NestedString(fetch(name).Object, "spec", "kubelet", "footprint")
+		return found, nil
+	})
+	if err != nil {
+		t.Fatalf("the API server still serves the old CRD schema: %v", err)
+	}
 	if err := c.Create(ctx, newObj("after")); err != nil {
 		t.Fatal(err)
 	}
