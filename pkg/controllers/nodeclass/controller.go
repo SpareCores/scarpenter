@@ -8,6 +8,7 @@ package nodeclass
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -82,9 +83,9 @@ const (
 	EventArtifactsFailed  = "ArtifactsNotResolved"
 	EventValidationFailed = "ValidationFailed"
 	EventVendorNotReady   = "VendorNotReady"
-	// EventIPv6OnlyNeedsMirror: IPv6-only nodes cannot reach the default sysext
-	// source (GitHub releases have no IPv6).
-	EventIPv6OnlyNeedsMirror  = "IPv6OnlyNeedsMirror"
+	// EventIPv6OnlyEgress: IPv6-only nodes in a network the user brings, with the
+	// default sysext source (no IPv6): the egress is the user's job.
+	EventIPv6OnlyEgress       = "IPv6OnlyEgress"
 	EventRestartRequired      = "RestartRequired"
 	EventConfigurationWarning = "ConfigurationWarning"
 	// EventDeprecatedHardening: the NodeClass still sets spec.bootstrap.hardening.
@@ -140,7 +141,7 @@ type Options struct {
 	// ImageGate, if set, is told the regions without a boot image, whose offerings
 	// are then unavailable (overview section 9).
 	// SysextMirror says --sysext-base-url points at a mirror: the default source
-	// (GitHub releases) has no IPv6, so IPv6-only nodes need one.
+	// (GitHub releases) has no IPv6, so a NodeClass of IPv6-only nodes needs one.
 	SysextMirror bool
 	// Tailnet is the backend of per-node tailnet keys; the zero value is none.
 	Tailnet   TailnetOptions
@@ -454,18 +455,23 @@ func (c *Controller) restartRequired(nc *v1alpha1.SCNodeClass, cs status.Conditi
 }
 
 // bootFragments returns the fragments the core builds for the NodeClass's vendors
-// (the metadata restriction, unless the NodeClass says Open), for the trial rendering.
+// (the driver's own and the metadata restriction, unless the NodeClass says Open),
+// for the trial rendering.
 func (c *Controller) bootFragments(nc *v1alpha1.SCNodeClass) bootstrap.FragmentsFunc {
 	return func(vendor, arch string) ([]bootstrap.Fragment, error) {
 		drv, ok := c.opts.Registry.Driver(vendor)
-		if !ok || !nc.Spec.RestrictsInstanceMetadata() {
+		if !ok {
 			return nil, nil
 		}
-		f, ok, err := vendors.RestrictMetadata(drv)
-		if err != nil || !ok {
+		fs, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata())
+		if err != nil {
 			return nil, err
 		}
-		return []bootstrap.Fragment{{Name: f.Name, Butane: f.Butane}}, nil
+		out := make([]bootstrap.Fragment, 0, len(fs))
+		for _, f := range fs {
+			out = append(out, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
+		}
+		return out, nil
 	}
 }
 
@@ -507,7 +513,6 @@ func (c *Controller) vendor(
 
 	c.warnDeprecatedHardening(desired, vendor)
 	if ready {
-		c.warnIPv6Only(desired, vendor)
 		if msg := c.configurationWarnings(desired, vendor); msg != "" {
 			w := vendorCondition(existing, v1alpha1.VendorConditionConfigurationWarning,
 				true, ReasonSettingHasNoEffect, msg, current.Generation, now)
@@ -590,7 +595,56 @@ func (c *Controller) vendorReady(
 			return false, ReasonVendorInvalid, trim(err.Error())
 		}
 	}
+	if err := c.checkBootstrapReachable(nc, vendor); err != nil {
+		return false, ReasonVendorInvalid, trim(err.Error())
+	}
 	return true, ReasonReady, ""
+}
+
+// checkBootstrapReachable refuses a NodeClass whose nodes have no IPv4 (publicIPv4
+// false, publicIPv6 true) while the sysexts come from the default source: github.com
+// and objects.githubusercontent.com have no AAAA record, so the nodes could not
+// fetch them. A sysext mirror reachable over IPv6 lifts the refusal. A NodeClass that
+// brings its own subnets or networks keeps the IPv4 egress of that network (a NAT
+// gateway is the user's job): it gets a Warning Event instead.
+func (c *Controller) checkBootstrapReachable(nc *v1alpha1.SCNodeClass, vendor string) error {
+	if c.opts.SysextMirror {
+		return nil
+	}
+	in, ok, err := options.InputFromNodeClass(nc, vendor)
+	if err != nil || !ok {
+		return nil
+	}
+	n := in.Networking
+	if n.PublicIPv4 == nil || *n.PublicIPv4 || n.PublicIPv6 == nil || !*n.PublicIPv6 {
+		return nil
+	}
+	if bringsNetwork(in.Resources) {
+		c.warn(nc, EventIPv6OnlyEgress, fmt.Sprintf("vendor %s: the nodes have no public IPv4 address and the sysexts "+
+			"come from github.com, which has no IPv6: the IPv4 egress of your own network must reach it (egress is your job)",
+			vendor), vendor)
+		return nil
+	}
+	return errors.New("networking: the nodes would have IPv6 only, and the sysexts come from github.com and " +
+		"objects.githubusercontent.com, which have no IPv6 address: set --sysext-base-url (it covers the sysexts " +
+		"only) to a mirror reachable over IPv6, bring your own subnets or networks with IPv4 egress, or keep publicIPv4 on")
+}
+
+// bringsNetwork says the vendor block's resources use a subnet or a network of the
+// user's (resources.subnets.use or resources.networks.use).
+func bringsNetwork(raw json.RawMessage) bool {
+	var r map[string]struct {
+		Use json.RawMessage `json:"use"`
+	}
+	if json.Unmarshal(raw, &r) != nil {
+		return false
+	}
+	for _, kind := range []string{"subnets", "networks"} {
+		if u := r[kind].Use; len(u) > 0 && string(u) != "null" {
+			return true
+		}
+	}
+	return false
 }
 
 // images asks the driver for its boot images; a driver without the capability
@@ -847,22 +901,4 @@ func (c *Controller) configurationWarnings(nc *v1alpha1.SCNodeClass, vendor stri
 	ws := slices.Clone(w.NodeClassWarnings(nc))
 	slices.Sort(ws)
 	return strings.Join(slices.Compact(ws), "; ")
-}
-
-// warnIPv6Only warns about nodes with IPv6 only (publicIPv4 false, publicIPv6 true)
-// while the sysexts come from the default source, which the nodes cannot reach: the
-// release host of the sysext-bakery has no IPv6. A sysext mirror with IPv6 fixes it.
-func (c *Controller) warnIPv6Only(nc *v1alpha1.SCNodeClass, vendor string) {
-	if c.opts.SysextMirror {
-		return
-	}
-	in, ok, err := options.InputFromNodeClass(nc, vendor)
-	if err != nil || !ok {
-		return
-	}
-	if n := in.Networking; n.PublicIPv4 != nil && !*n.PublicIPv4 && n.PublicIPv6 != nil && *n.PublicIPv6 {
-		c.warn(nc, EventIPv6OnlyNeedsMirror, fmt.Sprintf("vendor %s: the nodes have IPv6 only, and the default sysext "+
-			"source (GitHub releases) has no IPv6: set --sysext-base-url to a mirror that is reachable over IPv6",
-			vendor), vendor)
-	}
 }

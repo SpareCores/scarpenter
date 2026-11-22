@@ -31,20 +31,20 @@ const DefaultMaxPods = 110
 // not offer to the guest (the default of the AWS provider's vmMemoryOverhead).
 const DefaultVMMemoryOverheadPercent = 7.5
 
+// minVMMemoryOverheadMiB is the least the overhead takes from a VM:
+// a 0.5 GiB VM reports 448 MiB, 12.5% less, where 7.5% would say 473.
+const minVMMemoryOverheadMiB = 64
+
 // defaultEvictionMemory is the kubelet's default hard eviction threshold for
 // memory.available.
 const defaultEvictionMemory = "100Mi"
 
 // minKubeReservedMemoryMiB is the least the cap of the default kube-reserved
-// memory goes down to: what the Lean footprint reserves for the kubelet and
-// the system together (192Mi + 128Mi). A Standard node, whose daemons have no
-// memory limits, never reserves less than a Lean one, so Lean never leaves
-// Pods less memory than Standard.
-var minKubeReservedMemoryMiB = func() int64 {
-	kube := resource.MustParse(v1alpha1.LeanKubeReservedMemory)
-	system := resource.MustParse(v1alpha1.LeanSystemReservedMemory)
-	return (kube.Value() + system.Value()) >> 20
-}()
+// memory goes down to: what the Lean footprint reserves for the kubelet and the
+// system together on a 1-2 GiB node (192Mi + 128Mi). A Standard node, whose
+// daemons have no memory limits, never reserves less than that, so Lean leaves
+// Pods less memory than Standard nowhere above 1 GiB.
+const minKubeReservedMemoryMiB = v1alpha1.LeanKubeReservedMiB + v1alpha1.LeanSystemReservedMiB
 
 // KubeReserved returns the resources reserved for Kubernetes daemons: the
 // formula of the AWS provider (pkg/providers/instancetype/types.go of
@@ -86,7 +86,9 @@ func KubeReserved(cpus int, pods int64, memoryMiB int64) corev1.ResourceList {
 }
 
 // capacity returns the resources of a server for a NodeClass: cpu, memory
-// reduced by the VM overhead, pods and the root disk of the vendor's default
+// reduced by the VM overhead (by at least 64 MiB: below
+// 0.85 GiB the percentage alone overestimates what the guest reports),
+// pods and the root disk of the vendor's default
 // settings as ephemeral storage (omitted when the driver does not say), and
 // nvidia.com/gpu for a type with a driver selection (the device plugin the
 // chart ships makes it appear on the node).
@@ -94,6 +96,7 @@ func capacity(vcpus int, memoryMiB float64, class *Class, rootDiskBytes int64, r
 	gpu *nvidia.Selection) corev1.ResourceList {
 	overhead := class.VMMemoryOverheadPercent
 	memory := math.Floor(memoryMiB * (1 - overhead/100))
+	memory = min(memory, memoryMiB-minVMMemoryOverheadMiB)
 	rl := corev1.ResourceList{
 		corev1.ResourceCPU:    *resource.NewQuantity(int64(vcpus), resource.DecimalSI),
 		corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", int64(memory))),
@@ -111,15 +114,28 @@ func capacity(vcpus int, memoryMiB float64, class *Class, rootDiskBytes int64, r
 // overhead returns the node overhead for a NodeClass: the kube-reserved
 // formula, where a key the NodeClass sets replaces the computed value of that
 // resource; the NodeClass's system-reserved; and the hard eviction thresholds
-// (memory.available defaults to 100Mi) for the resources they cover.
+// (memory.available defaults to 100Mi) for the resources they cover. With the
+// Lean footprint the memory of the three defaults to v1alpha1.LeanMemory of the
+// node's memory, which the kubelet configuration reads too
+// (KubeletSpec.EffectiveFor).
 func overhead(vcpus int, class *Class, capacity corev1.ResourceList) *cloudprovider.InstanceTypeOverhead {
 	memory := capacity[corev1.ResourceMemory]
-	kube := KubeReserved(vcpus, class.MaxPods, memory.Value()>>20)
+	nodeMiB := memory.Value() >> 20
+	kube := KubeReserved(vcpus, class.MaxPods, nodeMiB)
+	system := corev1.ResourceList{}
+	evictionMemory := defaultEvictionMemory
+	if class.Lean {
+		kubeMiB, systemMiB, evictionMiB := v1alpha1.LeanMemory(nodeMiB)
+		kube[corev1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%dMi", kubeMiB))
+		system[corev1.ResourceMemory] = resource.MustParse(fmt.Sprintf("%dMi", systemMiB))
+		evictionMemory = fmt.Sprintf("%dMi", evictionMiB)
+	}
 	maps.Copy(kube, class.KubeReserved)
+	maps.Copy(system, class.SystemReserved)
 	return &cloudprovider.InstanceTypeOverhead{
 		KubeReserved:      kube,
-		SystemReserved:    class.SystemReserved,
-		EvictionThreshold: evictionThreshold(class.EvictionHard, capacity),
+		SystemReserved:    system,
+		EvictionThreshold: evictionThreshold(class.EvictionHard, evictionMemory, capacity),
 	}
 }
 
@@ -134,8 +150,10 @@ var evictionSignals = map[string]corev1.ResourceName{
 	"pid.available":      "",
 }
 
-func evictionThreshold(thresholds map[string]string, capacity corev1.ResourceList) corev1.ResourceList {
-	out := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(defaultEvictionMemory)}
+func evictionThreshold(
+	thresholds map[string]string, defaultMemory string, capacity corev1.ResourceList,
+) corev1.ResourceList {
+	out := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(defaultMemory)}
 	for signal, value := range thresholds {
 		name := evictionSignals[signal]
 		if name == "" {

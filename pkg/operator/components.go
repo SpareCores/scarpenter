@@ -26,6 +26,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/controllers/bootstraptoken"
 	"github.com/SpareCores/scarpenter/pkg/controllers/csr"
 	"github.com/SpareCores/scarpenter/pkg/controllers/garbagecollection"
+	"github.com/SpareCores/scarpenter/pkg/controllers/gpupending"
 	"github.com/SpareCores/scarpenter/pkg/controllers/interruption"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/controllers/offered"
@@ -129,6 +130,7 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		LaunchableInterval: opts.QuotaLaunchableInterval,
 		Registerer:         metrics.Registry,
 	})
+	un.SetBucketsOf(c.Tracker.BucketsOf)
 	c.Facts = facts.New(facts.Options{Registry: reg, Launchable: c.Tracker, Clock: o.Clock})
 	c.Scope = &scope.Resolver{Reader: o.GetClient(), Registry: reg, Regions: c.Facts}
 	c.Artifacts = artifacts.New(artifacts.Config{
@@ -296,6 +298,9 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	})
 	if err := approver.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the serving certificate controller: %w", err)
+	}
+	if err := gpupending.New(o.GetClient(), o.EventRecorder, o.Clock).Register(o.Manager); err != nil {
+		return err
 	}
 	c.checkClusterCA(ctx)
 	qs := quotastatus.New(quotastatus.Options{

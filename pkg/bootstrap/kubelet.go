@@ -39,7 +39,8 @@ const (
 // upstream resolv.conf (the stub address 127.0.0.53 does not work inside
 // Pods). What the NodeClass sets: maxPods (default 110), systemReserved,
 // kubeReserved and evictionHard (unset keeps the kubelet's defaults); with
-// the Lean footprint their defaults are the preset's (KubeletSpec.Effective)
+// the Lean footprint their defaults are the preset's (KubeletSpec.EffectiveFor,
+// with the memory of the node, nodeMiB, 0 when unknown)
 // and the kubelet also pulls images one at a time, keeps small container logs
 // and reports few images. clusterDNS is only set with --cluster-dns. The
 // output is deterministic.
@@ -47,10 +48,10 @@ const (
 // clientCAFile is the file with the CA of the API server's client certificates
 // (authentication.x509.clientCAFile); empty means the cluster CA.
 func KubeletConfiguration(
-	spec v1alpha1.KubeletSpec, clusterDNS []string, clusterDomain, clientCAFile string,
+	spec v1alpha1.KubeletSpec, nodeMiB int64, clusterDNS []string, clusterDomain, clientCAFile string,
 ) (string, error) {
 	lean := spec.IsLean()
-	spec = spec.Effective()
+	spec = spec.EffectiveFor(nodeMiB)
 	if clientCAFile == "" {
 		clientCAFile = ClusterCAPath
 	}

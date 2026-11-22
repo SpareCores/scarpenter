@@ -25,7 +25,10 @@ const (
 	DefaultStorageAccountType = "Premium_LRS"
 	DefaultRootDiskGB         = 64
 	DefaultCaching            = "ReadWrite"
-	maxUserData               = 16384
+	// confidentialImageDiskGB is the OS disk of the confidential VM image; Azure
+	// rejects a smaller osDisk.diskSizeGB (409 OperationNotAllowed).
+	confidentialImageDiskGB = 60
+	maxUserData             = 16384
 )
 
 // Storage account types of managed disks that v1 creates inline.

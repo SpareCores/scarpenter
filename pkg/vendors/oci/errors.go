@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 
@@ -38,11 +39,13 @@ const (
 // OCI's error codes the driver acts on (the Oracle API errors page).
 const (
 	CodeInternalError        = "InternalError"
+	CodeInternalServerError  = "InternalServerError"
 	CodeLimitExceeded        = "LimitExceeded"
 	CodeQuotaExceeded        = "QuotaExceeded"
 	CodeInvalidParameter     = "InvalidParameter"
 	CodeTooManyRequests      = "TooManyRequests"
 	CodeIncorrectState       = "IncorrectState"
+	CodeExternalIncorrect    = "ExternalServerIncorrectState"
 	CodeLockConflict         = "LockConflict"
 	CodeConflict             = "Conflict"
 	CodeNotAuthorizedOrFound = "NotAuthorizedOrNotFound"
@@ -86,7 +89,10 @@ var (
 	// subnetFullRe: the subnet has no free IP addresses.
 	subnetFullRe = regexp.MustCompile(`(?i)subnet.*(no (more )?(free |available )?ip|not enough (free )?ip|` +
 		`ip (addresses )?(are )?exhausted|out of ip)`)
-	limitNameRe = regexp.MustCompile(`(?i)(?:limits? exceeded:|limits were exceeded:)\s*([a-z0-9-]+)`)
+	// dailyLimitRe: "You have reached your daily resource creation limit" on a
+	// LimitExceeded, the tenancy's cap on resources created per day.
+	dailyLimitRe = regexp.MustCompile(`(?i)daily resource creation limit`)
+	limitNameRe  = regexp.MustCompile(`(?i)(?:limits? exceeded:|limits were exceeded:)\s*([a-z0-9-]+)`)
 )
 
 // LimitNameOf extracts the limit name from the message of a LimitExceeded error
@@ -143,32 +149,20 @@ func classify(err error, kind callKind) error {
 func classifyService(status int, code, msg string, kind callKind, cause error) error {
 	switch {
 	// Capacity first: it is a 500, which every other 5xx row would call
-	// transient.
-	case status == http.StatusInternalServerError && code == CodeInternalError && capacityRe.MatchString(msg):
+	// transient. Oracle's error page names the code of a 500 InternalServerError;
+	// the launch's out-of-capacity answer is seen as InternalError.
+	case status == http.StatusInternalServerError && (code == CodeInternalError || code == CodeInternalServerError) &&
+		capacityRe.MatchString(msg):
 		return vendors.NewError(vendors.InsufficientCapacity, code, cause)
 	case code == CodeLimitExceeded || code == CodeQuotaExceeded:
-		// The limits of the Compute service are per availability domain or region,
-		// not account-wide.
-		return vendors.NewError(vendors.QuotaExceeded, code, cause)
+		return classifyLimit(code, msg, cause)
 	case status == http.StatusBadRequest && code == CodeInvalidParameter:
-		switch {
-		case unsupportedRe.MatchString(msg):
-			return vendors.NewError(vendors.Unsupported, code, cause)
-		case subnetFullRe.MatchString(msg):
-			return vendors.NewError(vendors.ZoneUnusable, code, cause)
-		}
-		if kind == kindLaunch {
-			// A 400 that names no known reason: the request was built for this
-			// offering (shape, size, capacity type, zone), so another type may
-			// launch. The core marks the offering for an hour.
-			return vendors.NewError(vendors.InvalidOffering, code, cause)
-		}
-		return vendors.NewError(vendors.Fatal, code, cause)
-	case status == http.StatusConflict && code == CodeConflict && subnetFullRe.MatchString(msg):
+		return classifyInvalidParameter(code, msg, kind, cause)
+	case status == http.StatusConflict && code == CodeConflict && kind == kindLaunch && subnetFullRe.MatchString(msg):
 		return vendors.NewError(vendors.ZoneUnusable, code, cause)
 	case status == http.StatusTooManyRequests || code == CodeTooManyRequests:
 		return vendors.NewError(vendors.Retryable, codeOf(code, status), cause)
-	case code == CodeIncorrectState || code == CodeLockConflict || (kind == kindDelete && status == http.StatusConflict):
+	case slices.Contains(retryableStates, code) || (kind == kindDelete && status == http.StatusConflict):
 		// A resource still in use or locked: clears when the users are gone.
 		return vendors.NewError(vendors.Retryable, code, cause)
 	}
@@ -188,6 +182,41 @@ func classifyService(status int, code, msg string, kind callKind, cause error) e
 		return vendors.NewError(vendors.Retryable, codeOf(code, status), cause)
 	}
 	return vendors.NewError(vendors.Fatal, codeOf(code, status), cause)
+}
+
+// retryableStates are the 409 codes Oracle documents as temporary.
+var retryableStates = []string{CodeIncorrectState, CodeExternalIncorrect, CodeLockConflict}
+
+// classifyInvalidParameter classifies a 400 InvalidParameter. Only the launch's
+// is about an offering: a known text is Unsupported or ZoneUnusable, any other
+// is InvalidOffering (the request was built for this offering, so another type
+// may launch; the core marks it for an hour). A read's 400 (a lookup, a page
+// token, a filter) is a malformed request of ours, the same on every retry:
+// Fatal, and its text is not matched, so it never marks an offering.
+func classifyInvalidParameter(code, msg string, kind callKind, cause error) error {
+	if kind != kindLaunch {
+		return vendors.NewError(vendors.Fatal, code, cause)
+	}
+	switch {
+	case unsupportedRe.MatchString(msg):
+		return vendors.NewError(vendors.Unsupported, code, cause)
+	case subnetFullRe.MatchString(msg):
+		return vendors.NewError(vendors.ZoneUnusable, code, cause)
+	}
+	return vendors.NewError(vendors.InvalidOffering, code, cause)
+}
+
+// classifyLimit classifies a LimitExceeded or QuotaExceeded error. The daily
+// resource creation limit is DailyLimit: Oracle documents no reset time for it
+// (its API errors page only says to request an increase or delete resources), so
+// ResetAt stays zero and the core waits until the next 00:00 UTC. Every other
+// limit is QuotaExceeded; the limits of the Compute service are per availability
+// domain or region, not account-wide.
+func classifyLimit(code, msg string, cause error) error {
+	if code == CodeLimitExceeded && dailyLimitRe.MatchString(msg) {
+		return vendors.NewError(vendors.DailyLimit, code, cause)
+	}
+	return vendors.NewError(vendors.QuotaExceeded, code, cause)
 }
 
 func codeOf(code string, status int) string {

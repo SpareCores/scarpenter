@@ -57,7 +57,7 @@ The last column names the plan that introduced the flag.
 | `--interruption-unavailable-ttl` | `SCARPENTER_INTERRUPTION_UNAVAILABLE_TTL` | `10m` | How long an interrupted spot offering (instance type and zone) stays unavailable. | plan 26 |
 | `--unavailable-insufficient-capacity-ttl` | `SCARPENTER_UNAVAILABLE_INSUFFICIENT_CAPACITY_TTL` | `0` (3m) | How long an offering stays unavailable after `InsufficientCapacity`. | plan 04 |
 | `--unavailable-unsupported-ttl` | `SCARPENTER_UNAVAILABLE_UNSUPPORTED_TTL` | `0` (24h) | How long a type stays unavailable in a zone after `Unsupported`. | plan 04 |
-| `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (30m) | How long a region and capacity type stay unavailable after `QuotaExceeded` of a vendor without a quota API; every region of the vendor when the error is account-wide. | plan 04 |
+| `--unavailable-quota-exceeded-ttl` | `SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL` | `0` (5m) | How long a quota bucket stays unavailable after `QuotaExceeded` (the region and capacity type for a vendor without a bucket mapping; every region of the vendor when the error is account-wide). A NodeClaim of the vendor and region confirmed gone clears it. | plan 04 |
 | `--unavailable-zone-unusable-ttl` | `SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL` | `0` (10m) | How long a zone stays unavailable after `ZoneUnusable`. | plan 04 |
 | `--resource-default-ttl` | `SCARPENTER_RESOURCE_DEFAULT_TTL` | `24h` | `idleTTL` of managed shared resources when an SCNodeClass does not set one. | plan 06 |
 | `--resource-per-use-grace` | `SCARPENTER_RESOURCE_PER_USE_GRACE` | `2m` | How long an unused `perUse` managed resource is kept for launches in flight. | plan 06 |
@@ -278,6 +278,15 @@ scope built, and the controller rows are the L3 scale scenario S10, at rest:
 The chart's default limit is 2Gi (request 640Mi), which covers every region of
 all eight vendors; scope the NodeClasses' `regions` to what you use to need less.
 The refresh itself reads each file as a stream and holds no uncompressed body.
+
+## GPU pending taint
+
+The GPU pending controller removes the taint `scarpenter.sparecores.com/gpu-pending` from a Node that has the label
+`scarpenter.sparecores.com/gpu-ready=true` ([ADR-031](../explanation/DECISIONS.md#adr-031-gpu-nodes-register-before-the-check-and-fabric-manager-work-are-done-accepted-2026-11-22)).
+The node's own check sets the label with the kubelet's credentials, because NodeRestriction forbids a node to change its taints.
+It also removes the taint at once from every Node of a SCarpenter NodeClaim without the `nvidia-driver-branch` label (a CPU
+node of a pool that lists the taint in `startupTaints`, as every pool that can launch GPU types must). A GPU node labelled `gpu-ready=false`, or still tainted 30 minutes after its creation, loses its NodeClaim (Event `GPUCheckFailed`).
+The controller already has `patch` on Nodes and `delete` on NodeClaims; other taints are left alone.
 
 ## Billing retention
 
@@ -553,11 +562,12 @@ to the returned instance.
   tries the others until one launches or `--max-launch-attempts` vendor calls
   failed. Error classes: `InsufficientCapacity` marks the offering unavailable
   and continues; `Unsupported` marks the type in the zone, `ZoneUnusable` the
-  zone; `QuotaExceeded` triggers a quota refresh of the region (vendor with
-  quota knowledge for the type) or marks region and capacity type unavailable
-  for the TTL (vendor without), and the rest of that region and capacity type is
-  skipped (an account-wide quota error, `Error.AccountWide`, marks the capacity type
-  unavailable in every region of the vendor); `Retryable` is returned as is (core retries); `Fatal` returns a
+  zone; `QuotaExceeded` triggers a quota refresh of the region and marks the quota bucket the vendor
+  counts against (the region and capacity type for a vendor without a bucket
+  mapping) unavailable for the TTL, also when the tracker showed headroom; a NodeClaim of the vendor and region confirmed gone
+  clears the mark (an account-wide quota error, `Error.AccountWide`, marks the capacity type
+  unavailable in every region of the vendor); `DailyLimit` marks the vendor's region unavailable
+  until the vendor's reset time (the next 00:00 UTC when the driver gives none, 5 min within 5 min after it), whatever is deleted; `Retryable` is returned as is (core retries); `Fatal` returns a
   `CreateError` and an Event. When nothing launched it returns
   `InsufficientCapacityError` and core deletes the NodeClaim, except when there are
   no candidates because the catalog is not ready (a controller that has just
@@ -603,8 +613,7 @@ Events (on the SCNodeClass): `LaunchFailed` (a `Fatal` vendor error),
 and the serving certificate approver add `ArtifactsNotResolved`,
 `ValidationFailed`, `VendorNotReady`, `RestartRequired`, `MetricInvalid`,
 `DeprecatedHardening` (Warning: the NodeClass still sets `spec.bootstrap.hardening`, which has no effect),
-`IPv6OnlyNeedsMirror` (Warning: IPv6-only nodes and the default sysext source, which
-has no IPv6; set `--sysext-base-url`) (on the SCNodeClass), `BootstrapTokenDeleted` (on the NodeClaim; also `GarbageCollected` on
+`BootstrapTokenDeleted` (on the NodeClaim; also `GarbageCollected` on
 the NodeClass for orphan tokens) and `ServingCertificateApproved` /
 `ServingCertificateDenied` (on the certificate signing request); see
 [node bootstrap](node-bootstrap.md).
@@ -687,7 +696,7 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 | `ImageResolutionFailed` | Warning | SCNodeClass | A boot image could not be resolved. |
 | `OfferingRejected` | Warning | SCNodeClass | The vendor rejected the launch of an offering (`InvalidOffering`, with the vendor's message); it is unavailable for an hour. |
 | `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `MetricInvalid`, `RestartRequired` | Warning / Normal | SCNodeClass | The NodeClass controller's findings ([conditions](#scnodeclass-status-conditions)). |
-| `IPv6OnlyNeedsMirror` | Warning | SCNodeClass | IPv6-only nodes and the default sysext source, which has no IPv6: set `--sysext-base-url`. |
+| `IPv6OnlyEgress` | Warning | SCNodeClass | IPv6-only nodes in a network you bring, with the default sysext source (no IPv6): the IPv4 egress of that network must reach it. |
 | `QuotaExhausted`, `QuotaZero` | Warning | SCNodeClass | No headroom in a quota bucket (deduplicated for 10 minutes). |
 | `BootstrapTokenDeleted` | Normal | NodeClaim | The node registered; its token was deleted. |
 | `GarbageCollected` | Normal | SCNodeClass, else the Deployment | An orphan instance, bootstrap token or resource was deleted ([garbage collection](#garbage-collection)). |

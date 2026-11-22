@@ -43,17 +43,21 @@ const (
 // listed in docs/reference/aws-driver.md.
 var errorClasses = map[string]vendors.Class{
 	// Stock: the zone has no capacity for the type right now.
-	"InsufficientInstanceCapacity":         vendors.InsufficientCapacity,
-	"InsufficientHostCapacity":             vendors.InsufficientCapacity,
-	"InsufficientReservedInstanceCapacity": vendors.InsufficientCapacity,
-	"InsufficientCapacity":                 vendors.InsufficientCapacity,
-	"SpotMaxPriceTooLow":                   vendors.InsufficientCapacity,
-	"UnfulfillableCapacity":                vendors.InsufficientCapacity,
-	"ReservationCapacityExceeded":          vendors.InsufficientCapacity,
-	"InsufficientAddressCapacity":          vendors.InsufficientCapacity,
-	"InsufficientVolumeCapacity":           vendors.InsufficientCapacity,
+	"InsufficientInstanceCapacity":          vendors.InsufficientCapacity,
+	"InsufficientHostCapacity":              vendors.InsufficientCapacity,
+	"InsufficientReservedInstanceCapacity":  vendors.InsufficientCapacity,
+	"InsufficientReservedInstancesCapacity": vendors.InsufficientCapacity,
+	"InsufficientCapacityOnHost":            vendors.InsufficientCapacity,
+	"InsufficientCapacity":                  vendors.InsufficientCapacity,
+	"SpotMaxPriceTooLow":                    vendors.InsufficientCapacity,
+	"UnfulfillableCapacity":                 vendors.InsufficientCapacity,
+	"ReservationCapacityExceeded":           vendors.InsufficientCapacity,
+	"InsufficientAddressCapacity":           vendors.InsufficientCapacity,
+	"InsufficientVolumeCapacity":            vendors.InsufficientCapacity,
 	// The type or the configuration does not exist where it was asked for.
 	"Unsupported": vendors.Unsupported,
+	// The type is not supported by the AMI: the operator can fix it.
+	"UnsupportedOperation": vendors.InvalidOffering,
 	// Region-wide limits. The vCPU and spot limits are the quota the tracker
 	// reads; the resource limits are the ones sc-inspector treats as blocking
 	// every instance type of the region.
@@ -71,6 +75,8 @@ var errorClasses = map[string]vendors.Class{
 	"RulesPerSecurityGroupLimitExceeded": vendors.QuotaExceeded,
 	"PlacementGroupLimitExceeded":        vendors.QuotaExceeded,
 	"AddressLimitExceeded":               vendors.QuotaExceeded,
+	"ResourceLimitExceeded":              vendors.QuotaExceeded,
+	"NetworkInterfaceLimitExceeded":      vendors.QuotaExceeded,
 	// The zone cannot host any instance.
 	"InsufficientFreeAddressesInSubnet": vendors.ZoneUnusable,
 	// Transient: throttling, server errors, and dependencies that clear when the
@@ -85,6 +91,7 @@ var errorClasses = map[string]vendors.Class{
 	"TooManyRequestsException":    vendors.Retryable,
 	"PriorRequestNotComplete":     vendors.Retryable,
 	"InternalError":               vendors.Retryable,
+	"ServerInternal":              vendors.Retryable,
 	"InternalFailure":             vendors.Retryable,
 	"ServiceUnavailable":          vendors.Retryable,
 	"Unavailable":                 vendors.Retryable,

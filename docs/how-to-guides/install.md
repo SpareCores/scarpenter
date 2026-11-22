@@ -48,7 +48,7 @@ vendors' storage and IPv4 prices, and `/benchmark_configs`; it needs an [API key
 hosts of the node artifacts (the Flatcar release server and the sysext-bakery
 releases on GitHub; point `artifacts.sysextBaseURL` and `artifacts.flatcarBaseURL`
 at mirrors if the controller has no such access). Nodes download the same
-artifacts themselves; IPv6-only nodes need mirrors, because GitHub has no IPv6.
+artifacts themselves; A NodeClass of IPv6-only nodes needs `artifacts.sysextBaseURL` set to a mirror reachable over IPv6 (GitHub has no IPv6) and is refused without one; see [the driver contract](../reference/driver-contract.md#reaching-the-bootstrap-artifacts).
 
 **An account at one or more providers**, set up as its guide describes (the Flatcar
 image, credentials with the right permissions, the chart values): see

@@ -53,6 +53,22 @@ virtual one that needs a GRID driver, so the catalog drops it with the reason `G
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own
 static catalog instead of Keeper's; plan 07).
 
+## Reaching the bootstrap artifacts
+
+A node fetches its sysexts from `github.com` and `objects.githubusercontent.com`, its container images from
+`ghcr.io`, and (with the qemu driver and the controller) Flatcar release files from
+`stable.release.flatcar-linux.net`. None of these hosts has an AAAA record. A driver must not offer a type, or
+accept a NodeClass configuration, that leaves the node without a path to them: that is a node without IPv4 egress
+while no mirror (`--sysext-base-url`, `--flatcar-base-url`, `--nvidia-driver-base-url`) is configured.
+
+- **A type** that has no IPv4 is `NotLaunchable` in the offered-types listing (the Vultr `-v6` plans).
+- **A configuration** is refused with `VendorReady=False`, reason `ValidationFailed`. The NodeClass controller refuses
+  `publicIPv4: false` with `publicIPv6: true` for every vendor unless `--sysext-base-url` is set (it covers the
+  sysexts only) or the NodeClass brings its own subnets or networks (`resources.subnets.use`,
+  `resources.networks.use`), whose IPv4 egress is the user's job: that case gets the Warning Event `IPv6OnlyEgress`.
+  The driver refuses `publicIPv4: false` where nothing gives the nodes IPv4 egress.
+- **With a mirror** reachable over IPv6 both are fine; the mirror is the operator's job.
+
 ## Images
 
 `ResolveImage(ctx, ImageRequest{Region, Arch, Channel, Version, Owner, Use})` returns one `Image`
@@ -277,13 +293,21 @@ conformance suite has no extra case for it; the per-driver tests are the pin.
 |---|---|
 | `InsufficientCapacity` | Offering unavailable for the TTL (3 min), next candidate. |
 | `Unsupported` | Type unavailable in the zone (24 h), next candidate. A driver that found it with its own check, before any vendor call, sets `Error.PreLaunch` (`vendors.AsPreLaunch(err)`): the mark then lasts 10 minutes, because such a check is deterministic from tables the driver read and a table read while a region was briefly unreadable must not block the type for a day. The vendor's explicit "not offered" answer keeps 24 h. Every mark is logged at V(0) with the code. |
-| `QuotaExceeded` | Quota refresh of the region (vendor with quota knowledge for the type) or region and capacity type unavailable (30 min); next candidate in another region or capacity type. A quota limit must never be reported as `InsufficientCapacity`. A driver of a vendor whose limits are account-wide (project or account limits, not per region) sets `Error.AccountWide` (`err.AsAccountWide()`): the capacity type is then unavailable in every region of the vendor for the same 30 minutes, so that each region does not fail once before all are gated. A vendor that reports account-wide buckets in `GlobalQuotas` is gated by the quota tracker; the flag covers the reactive path, where the vendor reports no usage. |
+| `QuotaExceeded` | A limit that frees up when nodes end. The quota tracker refreshes its view of the region, and the bucket the vendor counts the launch against is marked unavailable for 5 min, also when the tracker showed headroom (its view was stale). The bucket is the one the tracker finds limiting for the type, else every bucket `Consumption` returns for it; a vendor without a bucket mapping has the region and capacity type marked. Once a NodeClaim of the vendor and region is confirmed gone (its instance terminated or not found; not while it is still terminating), the marks are cleared. Next candidate in another bucket. A quota limit must never be reported as `InsufficientCapacity`. A driver of a vendor whose limits are account-wide (project or account limits, not per region) sets `Error.AccountWide` (`err.AsAccountWide()`): the capacity type is then unavailable in every region of the vendor for the same 5 minutes, so that each region does not fail once before all are gated; a NodeClaim of the vendor confirmed gone clears it. |
+| `DailyLimit` | The vendor refuses to create resources in the region until a daily limit resets (OCI: "You have reached your daily resource creation limit"). Every offering of the vendor's region is unavailable until `Error.ResetAt`, or until the next 00:00 UTC when the driver leaves it zero (5 min when the error comes within 5 min after 00:00 UTC). Deleting NodeClaims does not clear it. Use it only for a limit that a deletion cannot free. |
 | `InvalidOffering` | The vendor rejected the launch of this offering for a reason the driver cannot attribute (OCI: a 400 `InvalidParameter` with no known text), or for a configuration the operator fixes (OCI: an image without the shape). The offering (type, zone, capacity type) is unavailable for 1 h, an Event `OfferingRejected` carries the vendor's message, next candidate; a Create whose every attempt failed so is `InsufficientCapacity`, so core picks other types. A driver must not use it for an error it can tell is global (a missing subnet or image: `Fatal`). |
 | `ZoneUnusable` | Zone unavailable (10 min). |
 | `RegionUnavailable` | Only from `Zones`: the credentials cannot read the region. The facts skip the region (one warning) and load the others; if every region is unavailable the load fails. |
-| `Retryable` | Returned to core, which retries the NodeClaim. |
+| `Retryable` | No mark. Returned to core, which retries the NodeClaim. |
 | `NotFound` | The instance does not exist. |
 | `Fatal` | `CreateError` and an Event on the SCNodeClass. |
+
+The text of a launch failure, on the NodeClaim's `Launched` condition and in the Events, is always
+`<Class> (<Code>): <vendor message>`, where Code is `Unknown` when the vendor gave none, and Class is one of `InsufficientCapacity`, `ZoneUnusable`, `QuotaExceeded`,
+`DailyLimit`, `Retryable`, `Unsupported`, `InvalidOffering` and `Fatal`; an error of another class (`NotFound`, `RegionUnavailable`) or without one reads `Fatal`. When every
+attempt of a `Create` failed, core's `InsufficientCapacityError` carries the last failure's text, so its event reads
+`NodeClaim <name> event: insufficient capacity, <Class> (<Code>): <vendor message>`. Automation reads the class from
+this text; the same class and the expiry are in [the offered listing](labels-and-offerings.md#the-offered-listing).
 
 ## Quotas
 

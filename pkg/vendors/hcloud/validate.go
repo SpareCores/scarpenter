@@ -85,10 +85,6 @@ func (d *Driver) validateBlock(nc *v1alpha1.SCNodeClass, b *hcapi.Settings) []er
 			"are not supported in v1 (they need a NAT route in your network to reach the sysext hosts, and the "+
 			"metadata service Ignition reads is not verified on them)"))
 	}
-	if !boolOr(net.PublicIPv4, true) && boolOr(net.PublicIPv6, false) && d.log.GetSink() != nil {
-		d.log.Info("an IPv6-only NodeClass: github.com and its release hosts have no IPv6 address, so the default "+
-			"sysext base does not work without a mirror", "nodeclass", nc.Name)
-	}
 	if r := b.Resources; r != nil {
 		caps := (&Driver{}).Selectors()
 		errs = append(errs, validateResource(KindImages, caps[KindImages], r.Images)...)

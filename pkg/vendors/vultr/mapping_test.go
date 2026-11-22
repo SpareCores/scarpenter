@@ -163,6 +163,8 @@ func TestClassifyPlan(t *testing.T) {
 		{"vx1-g-4c-16g", 1, false, "diskless"},
 		{"vx1-g-4c-16g", 0, false, "diskless"},
 		{"vc2-1c-0.5gb-free", 10, false, "free"},
+		{"vc2-1c-0.5gb-v6", 10, false, "IPv6-only"},
+		{"vhf-1c-1gb-v6", 32, false, "IPv6-only"},
 		{"vcg-a100-12c-120g-80vram", 0, false, "Cloud GPU"},
 		{"vdm-8c-64g", 0, false, "bare metal"},
 		{"vbm-4c-32gb", 240, false, "bare metal"},

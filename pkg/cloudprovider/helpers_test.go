@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -94,12 +95,15 @@ func (e *env) advance(d time.Duration) { e.clock.Step(d) }
 
 func unavailableOf(o offeringOf) unavailable.Offering {
 	return unavailable.Offering{
-		Vendor: "aws", InstanceType: o.typeName, Region: o.region, Zone: o.zone, CapacityType: o.capacityType,
+		Vendor: "aws", APIReference: strings.TrimPrefix(o.typeName, "aws."), InstanceType: o.typeName, Region: o.region,
+		Zone: o.zone, CapacityType: o.capacityType,
 	}
 }
 
 func unavailableOfRegion(o offeringOf) unavailable.Offering {
-	return unavailable.Offering{Vendor: "aws", InstanceType: "aws.none", Region: o.region, Zone: "none", CapacityType: o.capacityType}
+	return unavailable.Offering{
+		Vendor: "aws", APIReference: "m7i.large", InstanceType: "aws.none", Region: o.region, Zone: "none", CapacityType: o.capacityType,
+	}
 }
 
 type envOptions struct {
@@ -162,6 +166,7 @@ func newEnv(t *testing.T, o envOptions) *env {
 		Scope:    func() map[string][]string { return map[string][]string{"aws": o.regions} },
 		Debounce: time.Millisecond,
 	})
+	un.SetBucketsOf(e.tracker.BucketsOf)
 	f := facts.New(facts.Options{Registry: reg, Launchable: e.tracker})
 	e.facts = f
 	if !o.skipFacts {

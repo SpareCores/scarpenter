@@ -52,6 +52,8 @@ var errorClasses = map[string]vendors.Class{
 	"Zone.NotOnSale":                             vendors.InsufficientCapacity,
 	"InvalidOperation.PublicIpAddressNoStock":    vendors.InsufficientCapacity,
 	"QuotaExceed.DeploymentSetInstanceQuotaFull": vendors.InsufficientCapacity, // as PlacementGroupFull
+	"ResourceNotAvailable":                       vendors.InsufficientCapacity,
+	"OperationDenied.PublicIpAddressNoStock":     vendors.InsufficientCapacity,
 	"LackResource":                               vendors.InsufficientCapacity,
 	// The type or the configuration does not exist where it was asked for.
 	"InvalidInstanceType.ZoneNotSupported":       vendors.Unsupported,
@@ -63,12 +65,16 @@ var errorClasses = map[string]vendors.Class{
 	"InvalidInstanceType.NotSupportDiskCategory": vendors.Unsupported,
 	"OperationDenied.CloudSSDNotSupported":       vendors.Unsupported,
 	"OperationDenied.ZoneSystemCategoryNotMatch": vendors.Unsupported,
+	"InvalidInstanceType.NotSupported":           vendors.Unsupported,
+	"InvalidInstanceType.ValueUnauthorized":      vendors.Unsupported,
+	"OperationDenied":                            vendors.InvalidOffering, // bare code: no documented reason
 	"InvalidAccount.NotSupportSpot":              vendors.Unsupported,
 	// Region-wide limits (none of the codes is known to be account-wide: the
 	// vCPU quotas and the instance limits are per region).
 	"QuotaExceed.ElasticQuota":               vendors.QuotaExceeded,
 	"QuotaExceed.AfterpayInstance":           vendors.QuotaExceeded,
 	"QuotaExceeded":                          vendors.QuotaExceeded, // instances in the VPC
+	"QuotaExceed.DiskCapacity":               vendors.QuotaExceeded,
 	"QuotaExceed.PostPaidDisk":               vendors.QuotaExceeded,
 	"QuotaExceeded.PostpaidDataDiskCapacity": vendors.QuotaExceeded,
 	"QuotaExceeded.InternetBandwidth":        vendors.QuotaExceeded,
@@ -80,14 +86,16 @@ var errorClasses = map[string]vendors.Class{
 	"Zone.NotOpen":                     vendors.ZoneUnusable,
 	"SecurityGroupInstanceLimitExceed": vendors.ZoneUnusable, // the group is full
 	// Transient.
-	"Throttling.Resource":     vendors.Retryable,
-	"Throttling":              vendors.Retryable, // U
-	"Throttling.User":         vendors.Retryable, // U
-	"Throttling.Api":          vendors.Retryable, // U
-	"ServiceUnavailable":      vendors.Retryable,
-	"InternalError":           vendors.Retryable,
-	"IdempotentProcessing":    vendors.Retryable, // U
-	"IncorrectInstanceStatus": vendors.Retryable, // U, on delete
+	"Throttling.Resource":       vendors.Retryable,
+	"Throttling":                vendors.Retryable, // U
+	"Throttling.User":           vendors.Retryable, // U
+	"Throttling.Api":            vendors.Retryable, // U
+	"ServiceUnavailable":        vendors.Retryable,
+	"Mayi.InternalError":        vendors.Retryable,
+	"NodeControllerUnavailable": vendors.Retryable,
+	"InternalError":             vendors.Retryable,
+	"IdempotentProcessing":      vendors.Retryable, // U
+	"IncorrectInstanceStatus":   vendors.Retryable, // U, on delete
 	// Things that do not exist (get and delete).
 	"InvalidInstanceId.NotFound": vendors.NotFound, // U
 }

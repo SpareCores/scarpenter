@@ -10,6 +10,7 @@ design is [plan 17](../plans/v1/wip/17-azure.md); the contract it implements is 
 - [Account and credentials](#account-and-credentials)
 - [Regions, zones and images](#regions-zones-and-images)
 - [Launch](#launch)
+- [Confidential sizes](#confidential-sizes)
 - [Node settings](#node-settings)
 - [Resources and network](#resources-and-network)
 - [Quotas, offerings and errors](#quotas-offerings-and-errors)
@@ -59,6 +60,37 @@ Ignition's business). Spot: priority `Spot`, eviction `Delete`, `maxPrice: -1`. 
 is running (it costs: the NodeClaim deletes it). The instance reference is `<region>/<resource group>/<vm>`.
 Tags are `scarpenter-<key>` plus `Name`. `DeleteInstance` refuses a VM without the cluster tag.
 
+## Confidential sizes
+
+A size whose SKU says `ConfidentialComputingType` `SNP` (AMD SEV-SNP: DCasv5, DCadsv5, ECasv5, ECadsv5 and the v6 and
+`cc` variants) or `TDX` (Intel TDX: DCesv6, DCedsv6, ECesv6, ECedsv6) is a confidential VM size. It boots Azure Container
+Linux, not Flatcar from the marketplace, because Flatcar has no confidential VM image. The SGX sizes (DCsv2, DCsv3)
+report no type and stay on Flatcar like every other size.
+
+- **Image**: the newest version (by published date, versions excluded from latest skipped) of the community gallery image
+  `AKSAzureLinux-f7c7cda5-1c9a-4bdc-a222-9614c968580b/aclgen2CVM`, read per region and cached for an hour. It replaces the
+  image of the request (`Image.Ref`, `imageOwner`, the `images` selector and the Flatcar pin do not apply to it). A region
+  without a version makes the size `Unsupported` there (code `ConfidentialImageNotFound`, cached for 5 minutes). The image has no
+  purchase plan and the API takes no terms acceptance.
+- **Launch fields**: `securityProfile.securityType: ConfidentialVM` with secure boot and vTPM on, OS disk
+  `securityEncryptionType: VMGuestStateOnly`, the image by `communityGalleryImageId`, accelerated networking off. The user-data
+  (Ignition) is the custom data as for Flatcar. Ephemeral OS disks, encryption at host and accelerated networking `"true"` are
+  `Unsupported` on these sizes, and so is a confidential size with GPUs (`ConfidentialGPUNotSupported`: the image has no
+  NVIDIA driver, e.g. NCC40ads_H100_v5).
+- **Intel TDX**: launched with the same image and fields on a DC2es_v6; it boots, Ignition runs and the kubelet sysext is
+  active, like on SEV-SNP.
+- **Differences from Flatcar** the user-data accounts for: the image has its own `kubelet.service` in `/etc` (it needs
+  `/opt/bin/kubelet` and `/etc/default/kubelet` and runs its own scripts first), which the kubelet drop-in clears; and the
+  presets that Ignition writes for `enabled: true` are not applied, so the fail-safe poweroff timer is enabled by a link.
+  The other units of the templates are pulled in by the kubelet (`Requires`, `RequiresMountsFor`), not by their `[Install]`
+  section. `waagent` provisions the `core` user and an SSH key that nobody holds (the generated key, or `adminSSHPublicKey`);
+  Ignition configures neither.
+- **Instance metadata**: the `Restricted` firewall (`scarpenter-metadata-firewall.service`) loads on the image: `iptables` and
+  the cgroup match exist, `waagent.service` is the agent's unit name, and both the kubelet (`Requires=`) and waagent (`Wants=`)
+  pull the firewall in. A connection to the metadata service or the WireServer from outside `scarpenter-metadata.slice` is
+  dropped, from inside it succeeds, and waagent runs in the slice. The image's own rules (root-owned processes only on the
+  WireServer) stay in place next to it.
+
 ## Node settings
 
 | Block | Fields |
@@ -101,9 +133,12 @@ Quota is per subscription and region: the Usage APIs report the whole subscripti
 hand; the buckets are `cores` (total regional), the size's family (from the SKU table, never from names),
 `lowPriorityCores` (Spot) and `StandardPublicIPAddresses`. `Counted` lists this cluster's VMs so the in-flight ledger
 releases its reservations. Offerings come from the SKU table (zones, restrictions, Gen2, SCSI). Errors are classified
-by ARM code (never message text, except `OperationNotAllowed`, `InvalidParameter` and the zones of `SkuNotAvailable`);
-`SkuNotAvailable` is `InsufficientCapacity` for Spot, `ZoneUnusable` on demand when ARM names the zones (the size is
-not offered in that zone for the subscription) and `Unsupported` otherwise; 429 is always `Retryable`. The table is in
+by ARM code (never message text, except `OperationNotAllowed`, `InvalidParameter` and the zones of `SkuNotAvailable`, and the "security type ... not supported" text);
+`AllocationFailed`, `ZonalAllocationFailed`, the `Overconstrained*` codes and `SpotPriceGreaterThanProvidedMaxPrice` are
+`InsufficientCapacity`; `QuotaExceeded`, `ResourceQuotaExceeded` and `OperationNotAllowed` with a "exceeding approved ... quota" or
+"exceeding quota limits" text are `QuotaExceeded`; `SkuNotAvailable` is `InsufficientCapacity` for Spot, `ZoneUnusable` on demand when ARM names the zones (the size is
+not offered in that zone for the subscription) and `Unsupported` otherwise; a "VM size not supported ... security type" error (the confidential DC\*/EC\* sizes, which need
+`ConfidentialVM`, unsupported by the driver) is `Unsupported` under any code; 429 is always `Retryable`. The table is in
 `errors.go` and tested against an independent copy.
 
 ## Billing
@@ -124,7 +159,9 @@ verified on a live account: [Per-vendor cost guards](../how-to-guides/testing-an
 
 ## What is not verified against Azure yet
 
-Everything. In particular: the marketplace SKUs and versions per channel and architecture and whether the arm64
+Everything, except that a VM of a confidential size (SEV-SNP and TDX, westeurope) boots from the community gallery image with
+the launch fields above, runs Ignition and starts the kubelet of the kubernetes sysext (no join to a cluster was tried).
+In particular: the marketplace SKUs and versions per channel and architecture and whether the arm64
 offer has terms; that a VM with custom data and a throwaway key is accepted; the Compute and Network usage names, the
 SKU capability names and the family mapping; whether a failed allocation leaves a `Failed` VM; the `deleteOption`
 cascade; the codes of capacity, quota, zone and in-use errors (the zonal `SkuNotAvailable` wording and the in-use codes

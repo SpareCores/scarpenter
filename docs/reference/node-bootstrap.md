@@ -130,6 +130,9 @@ holds the digests of the pinned version, they are kept and `ArtifactsReady` stay
 `True` (its message says refreshing failed); a version that was never resolved,
 or is not published (`ReleaseNotFound`), makes `ArtifactsReady` `False`.
 
+**Limitations.** The default sysext and NVIDIA driver URLs (GitHub, `ghcr.io`, the Flatcar release server) have no IPv6, so nodes
+without IPv4 need a mirror ([driver contract](driver-contract.md#reaching-the-bootstrap-artifacts)); long term the URLs should point at dual-stack hosts or a mirror.
+
 ## The user-data
 
 The user-data is a small Ignition config (version 3.4.0) whose
@@ -181,7 +184,10 @@ SCarpenter therefore writes the files at those paths and adds the drop-in
 `ExecStart` and spells out the full command line (the three paths above plus
 `--provider-id`, `--hostname-override`, `--register-with-taints` and, with the
 tailscale template, `--node-ip`), so the unit does not depend on the variables of
-the kubeadm drop-in. `Upholds=` starts the kubelet; nothing enables it.
+the kubeadm drop-in. It also resets `ExecStartPre`, `EnvironmentFile` and
+`ConditionPathExists` (the kubelet unit of Azure Container Linux sets its own) and
+writes the sysext's `ExecStartPre` steps back verbatim (the CNI plugins into
+`/opt/cni/bin`, the version file, the volume plugin directory). `Upholds=` starts the kubelet; nothing enables it.
 The `tailscale` sysext likewise ships `tailscaled.service`, started by `Upholds=`.
 
 ## NVIDIA GPU nodes
@@ -223,23 +229,36 @@ release (its modules are signed with the release's kernel key). The part holds:
   the first `install` line of a module);
   `scarpenter-nvidia-prepare.service` unloads `nouveau` before `nvidia.service` when the initrd
   loaded it; `Upholds=nvidia-persistenced.service` on `multi-user.target` (persistence mode).
-- `scarpenter-nvidia-check.service`, which the kubelet `Requires=` and starts after: the loaded driver
-  (`/proc/driver/nvidia/version`) must be the version of the type's `nvidia-driver-version` label and
-  `nvidia-smi -L` must list every GPU of the type (retried for 30 s). A node that fails the check never
-  joins; Karpenter deletes the NodeClaim after the registration timeout and tries again, and the
-  unit's journal line says why.
+- `scarpenter-nvidia-check.service`, enabled on its own: the kubelet does not wait for it or for the driver
+  ([ADR-031](../explanation/DECISIONS.md#adr-031-gpu-nodes-register-before-the-check-and-fabric-manager-work-are-done-accepted-2026-11-22)),
+  so the check, Fabric Manager and a later on-node build do not count against Karpenter's 15 minute registration
+  timeout. The driver sysext download does: it stays in the initrd (or in Ignition with a mirror), see the first two items. The node registers with the taint `scarpenter.sparecores.com/gpu-pending:NoSchedule`
+  (`--register-with-taints`, added to the NodeClaim's taints on every launch of a NVIDIA type). The check:
+  the loaded driver (`/proc/driver/nvidia/version`) must be the version of the type's `nvidia-driver-version`
+  label and `nvidia-smi -L` must list every GPU of the type (retried for 30 s). On success it labels the Node
+  `scarpenter.sparecores.com/gpu-ready=true` with `kubectl` and the kubelet's credentials (retried for 5 minutes
+  until the kubelet has registered the Node), and the controller removes the taint. A node cannot remove
+  its own taint (NodeRestriction), hence the label. A node that fails keeps the taint, so nothing schedules
+  there: the check labels the Node `gpu-ready=false`, and the controller deletes its NodeClaim at once (and when the taint is
+  still there 30 minutes after the Node's creation), with an Event `GPUCheckFailed`; the unit's journal line says why.
+  **A NodePool that can launch GPU types (a mixed CPU and GPU pool too) must list the taint in `spec.template.spec.startupTaints`**, because Karpenter
+  takes startup taints only from the NodePool: with it the scheduler plans pods onto the node and `Initialized` waits for the
+  taint's removal; the controller clears it at once from the pool's nodes that need no check (no `nvidia-driver-branch` label), because core puts a startup taint on every node of the pool; without it the scheduler sees a permanent taint and may launch extra nodes for the same pods, so the NVIDIA types are not
+  offered to a NodePool that lacks it. Adding it changes the NodePool's hash, so its nodes drift and are replaced.
+  `Ready` is the kubelet's and does not depend on the driver. `Initialized` also needs `nvidia.com/gpu`
+  registered by the device plugin. DaemonSets that the node needs for Ready (the CNI) must tolerate `NoSchedule` taints.
 
 - **NVSwitch systems** (8 or more GPUs of A100, H100 and H200 HGX models) additionally get Fabric
   Manager, which no Flatcar sysext ships and without which CUDA does not initialize on them. NVIDIA's
   Fabric Manager archive of the driver's exact version (the daemon aborts on a mismatch) is pinned by
-  sha256 in the table; Ignition writes it to `/opt/nvidia-fabricmanager/` from NVIDIA's driver
+  sha256 in the table; `scarpenter-nvidia-fabricmanager.service` downloads it after the boot (so the download does
+  not count against the registration timeout) to `/opt/nvidia-fabricmanager/` from NVIDIA's driver
   redistributables (`developer.download.nvidia.com/.../redist/fabricmanager/linux-x86_64/`), or from
-  `<--nvidia-driver-base-url>/fabricmanager/<driver version>/` with a mirror, and verifies the hash.
-  `scarpenter-nvidia-fabricmanager.service` (after `nvidia.service`, started by the check unit that
-  wants it, so before the kubelet and the device plugin) unpacks the archive at every start, sets its
+  `<--nvidia-driver-base-url>/fabricmanager/<driver version>/` with a mirror, and verifies the hash with `sha256sum -c` against a pin file that Ignition writes. The unit (after
+  `nvidia.service`, started by the check unit that wants it) unpacks the archive at every start, sets its
   `fabricmanager.cfg` to run in the foreground, to log to syslog (the journal) and to take the topology
   and database files from the archive, and runs `nv-fabricmanager -c` (`Restart=on-failure`). The check
-  unit then also waits (3 minutes) for Fabric Manager's success line (`Successfully configured all the
+  unit then also waits (10 minutes) for Fabric Manager's success line (`Successfully configured all the
   available ...`, which names NVSwitches on A100 and GPUs and NVSwitches on H100; read from the journal
   of the unit's current run), so the device plugin never advertises GPUs that cannot initialize. `hack/nvidia-mirror.sh <version> <dir> fabricmanager-<driver version>`
   copies an archive into the mirror tree and prints its pin. Smaller slices of the same hardware (four
@@ -318,7 +337,7 @@ compares them. What each renders:
   `scarpenter-tailscale-up.service` (oneshot, before the kubelet) runs
   `tailscale up --auth-key=file:... --hostname=<nodeclaim> --accept-dns=false`
   plus `--login-server` (Headscale), `--accept-routes` (`acceptRoutes: true`,
-  so the node uses the subnet routes advertised into the tailnet) and `--advertise-tags`, then
+  so the node uses the subnet routes advertised into the tailnet) and `--advertise-tags`, plus the flags a vendor's fragment sets in `SCARPENTER_TAILSCALE_UP_ARGS` (Alibaba Cloud: `--netfilter-mode=nodivert`), then
   `/opt/scarpenter/bin/wait-for-tailscale-ip` waits up to 120 s for the node's
   tailscale IPv4 and writes `/run/scarpenter/node-ip.env`
   (`SCARPENTER_NODE_IP_ARGS=--node-ip=<ip>`), which the kubelet drop-in reads. A

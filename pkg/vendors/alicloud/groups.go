@@ -26,9 +26,11 @@ import (
 type SecurityGroupParams struct {
 	// VPC is the VPC the group lives in.
 	VPC string `json:"vpcId"`
-	// SelfReference allows all traffic between the members of the group: the
-	// rule of isolation nodeclass (the NodeClass's group) and of isolation run
-	// (the run's group).
+	// SelfReference marks a group whose members talk to each other: isolation
+	// nodeclass (the NodeClass's group) and isolation run (the run's group). A
+	// normal (basic) group allows traffic between its members by default
+	// (InnerAccessPolicy Accept); ECS refuses a rule whose SourceGroupId is the
+	// group itself, so no rule is added.
 	SelfReference bool `json:"selfReference,omitempty"`
 	// Inbound are the rules of spec.networking.inbound.
 	Inbound []common.InboundRule `json:"inbound,omitempty"`
@@ -127,11 +129,8 @@ const (
 )
 
 // wantedRules are the inbound rules a group with the parameters has.
-func wantedRules(groupID string, p SecurityGroupParams) []ingressRule {
+func wantedRules(p SecurityGroupParams) []ingressRule {
 	var out []ingressRule
-	if p.SelfReference {
-		out = append(out, ingressRule{protocol: protoAll, portRange: noPorts, source: "group:" + groupID})
-	}
 	for _, r := range p.Inbound {
 		proto, ports := protoAll, noPorts
 		switch r.Protocol {
@@ -196,7 +195,7 @@ func (d *Driver) rulesOf(
 // syncIngress adds the rules the group lacks and removes the ones it should not
 // have. The default outbound rule (everything) stays as ECS creates it.
 func (d *Driver) syncIngress(ctx context.Context, region, groupID string, p SecurityGroupParams) error {
-	want := wantedRules(groupID, p)
+	want := wantedRules(p)
 	have, ids, err := d.rulesOf(ctx, region, groupID)
 	if err != nil {
 		return err

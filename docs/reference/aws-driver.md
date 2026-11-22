@@ -375,8 +375,8 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
   for sysexts and images. With `use` it is allowed: whether the subnets have a NAT
   gateway or a proxy is the user's job.
 - **IPv6-only** (`publicIPv4: false`, `publicIPv6: true`): `use` subnets with IPv6 only,
-  and the sysexts need a mirror reachable over IPv6 (the Warning Event
-  `IPv6OnlyNeedsMirror` otherwise).
+  and the sysexts need a mirror reachable over IPv6 (the NodeClass is refused
+  otherwise, see [the driver contract](driver-contract.md#reaching-the-bootstrap-artifacts)).
 
 ## Tags
 
@@ -458,11 +458,12 @@ checked against a second, independent copy.
 
 | Class | EC2 codes |
 |---|---|
-| `InsufficientCapacity` | `InsufficientInstanceCapacity`, `InsufficientHostCapacity`, `InsufficientReservedInstanceCapacity`, `InsufficientCapacity`, `SpotMaxPriceTooLow`, `UnfulfillableCapacity`, `ReservationCapacityExceeded`, `InsufficientAddressCapacity`, `InsufficientVolumeCapacity` |
+| `InsufficientCapacity` | `InsufficientInstanceCapacity`, `InsufficientHostCapacity`, `InsufficientReservedInstanceCapacity`, `InsufficientReservedInstancesCapacity`, `InsufficientCapacityOnHost`, `InsufficientCapacity`, `SpotMaxPriceTooLow`, `UnfulfillableCapacity`, `ReservationCapacityExceeded`, `InsufficientAddressCapacity`, `InsufficientVolumeCapacity` |
 | `Unsupported` | `Unsupported`; `InvalidParameterCombination` naming the type and the zone |
-| `QuotaExceeded` | `VcpuLimitExceeded`, `MaxSpotInstanceCountExceeded`, `InstanceLimitExceeded`, `PendingVerification`, `VolumeLimitExceeded`, `MaxIOPSLimitExceeded`; the region-wide resource limits `VpcLimitExceeded`, `SubnetLimitExceeded`, `InternetGatewayLimitExceeded`, `RouteTableLimitExceeded`, `SecurityGroupLimitExceeded`, `RulesPerSecurityGroupLimitExceeded`, `PlacementGroupLimitExceeded`, `AddressLimitExceeded` |
+| `InvalidOffering` | `UnsupportedOperation` (the type is not supported by the AMI) |
+| `QuotaExceeded` | `VcpuLimitExceeded`, `MaxSpotInstanceCountExceeded`, `InstanceLimitExceeded`, `PendingVerification`, `VolumeLimitExceeded`, `MaxIOPSLimitExceeded`, `ResourceLimitExceeded`, `NetworkInterfaceLimitExceeded`; the region-wide resource limits `VpcLimitExceeded`, `SubnetLimitExceeded`, `InternetGatewayLimitExceeded`, `RouteTableLimitExceeded`, `SecurityGroupLimitExceeded`, `RulesPerSecurityGroupLimitExceeded`, `PlacementGroupLimitExceeded`, `AddressLimitExceeded` |
 | `ZoneUnusable` | `InsufficientFreeAddressesInSubnet` (the subnet's cached free count is dropped); `NoSubnetInZone` |
-| `Retryable` | `RequestLimitExceeded`, `Throttling`, `ThrottlingException`, `ThrottledException`, `EC2ThrottledException`, `RequestThrottled`, `RequestThrottledException`, `TooManyRequestsException`, `PriorRequestNotComplete`, `InternalError`, `InternalFailure`, `ServiceUnavailable`, `Unavailable`, `RequestTimeout`, `RequestExpired`, HTTP 5xx, network errors, the per-call timeout and a canceled context; the dependency codes `DependencyViolation`, `InvalidPlacementGroup.InUse`, `InvalidGroup.InUse`, `IncorrectState`, `IncorrectInstanceState` |
+| `Retryable` | `RequestLimitExceeded`, `Throttling`, `ThrottlingException`, `ThrottledException`, `EC2ThrottledException`, `RequestThrottled`, `RequestThrottledException`, `TooManyRequestsException`, `PriorRequestNotComplete`, `InternalError`, `ServerInternal`, `InternalFailure`, `ServiceUnavailable`, `Unavailable`, `RequestTimeout`, `RequestExpired`, HTTP 5xx, network errors, the per-call timeout and a canceled context; the dependency codes `DependencyViolation`, `InvalidPlacementGroup.InUse`, `InvalidGroup.InUse`, `IncorrectState`, `IncorrectInstanceState` |
 | `NotFound` | `InvalidInstanceID.NotFound`, `InvalidInstanceID.Malformed`, `InvalidGroup.NotFound`, `InvalidGroupId.Malformed`, `InvalidVpcID.NotFound`, `InvalidSubnetID.NotFound`, `InvalidInternetGatewayID.NotFound`, `InvalidRouteTableID.NotFound`, `InvalidAssociationID.NotFound`, `InvalidPlacementGroup.Unknown`, `Gateway.NotAttached`, `NoSuchResourceException` |
 | `Fatal` | everything else |
 

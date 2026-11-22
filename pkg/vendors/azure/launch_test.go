@@ -94,7 +94,7 @@ func TestVMBodySpotPlanPlacementEphemeral(t *testing.T) {
 		vendors.ResourceRef{Kind: KindPlacement, ID: "/ppg/1"}, vendors.ResourceRef{Kind: KindAppSecGroups, ID: "/asg/1"})
 	skus := skuTable(t, e, testRegion)
 	sku := skus["Standard_D2ps_v6"]
-	l, err := NewLaunchSpec(req, testCluster, img, &ImagePlan{Name: "stable", Product: "offer", Publisher: "kinvolk"}, &sku, "key")
+	l, err := NewLaunchSpec(req, testCluster, img, &ImagePlan{Name: "stable", Product: "offer", Publisher: "kinvolk"}, "", &sku, "key")
 	require.NoError(t, err)
 	vm := l.VM("/nic")
 	require.Nil(t, vm.Zones, "zone 0 is a region without zones: no zones field")
@@ -116,7 +116,7 @@ func TestNICAndPIPBodies(t *testing.T) {
 	req.Prepared.Resources = append(req.Prepared.Resources, vendors.ResourceRef{Kind: KindAppSecGroups, ID: "/asg/1"})
 	skus := skuTable(t, e, testRegion)
 	sku := skus["Standard_D2s_v5"]
-	l, err := NewLaunchSpec(req, testCluster, img, nil, &sku, "key")
+	l, err := NewLaunchSpec(req, testCluster, img, nil, "", &sku, "key")
 	require.NoError(t, err)
 
 	pip := l.PIP()
@@ -175,7 +175,7 @@ func TestLaunchSpecValidation(t *testing.T) {
 			if s, ok := skus[req.InstanceType]; ok {
 				sku = &s
 			}
-			_, err := NewLaunchSpec(req, testCluster, img, nil, sku, "key")
+			_, err := NewLaunchSpec(req, testCluster, img, nil, "", sku, "key")
 			if c.class == "" {
 				require.NoError(t, err)
 				return
@@ -189,7 +189,7 @@ func TestLaunchSpecValidation(t *testing.T) {
 	req, img := request{nodeClaim: "a", size: "Standard_B2ats_v2", raw: `{"storage":{"root":{"storageAccountType":"StandardSSD_LRS"}}}`}.build(t)
 	req.Settings.Network = []byte(`{"acceleratedNetworking":{"enabled":"true"}}`)
 	sku := skuTable(t, e, testRegion)["Standard_B2ats_v2"]
-	_, err := NewLaunchSpec(req, testCluster, img, nil, &sku, "key")
+	_, err := NewLaunchSpec(req, testCluster, img, nil, "", &sku, "key")
 	require.Equal(t, vendors.Unsupported, vendors.ClassOf(err))
 }
 
@@ -197,13 +197,13 @@ func TestMissingNetworkAndDataDiskLimit(t *testing.T) {
 	e := newEnv(t)
 	req, img := request{nodeClaim: "a"}.build(t)
 	req.Prepared = nil
-	_, err := NewLaunchSpec(req, testCluster, img, nil, nil, "key")
+	_, err := NewLaunchSpec(req, testCluster, img, nil, "", nil, "key")
 	require.Error(t, err)
 
 	disks := strings.Repeat(`{"name":"d","diskSizeGB":10},`, 9)
 	req, img = request{nodeClaim: "a", raw: `{"storage":{"data":[` + strings.TrimSuffix(disks, ",") + `]}}`}.build(t)
 	sku := skuTable(t, e, testRegion)["Standard_D2s_v5"]
-	_, err = NewLaunchSpec(req, testCluster, img, nil, &sku, "key")
+	_, err = NewLaunchSpec(req, testCluster, img, nil, "", &sku, "key")
 	require.Equal(t, vendors.Unsupported, vendors.ClassOf(err), "more than MaxDataDiskCount")
 }
 

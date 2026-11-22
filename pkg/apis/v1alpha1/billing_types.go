@@ -35,6 +35,17 @@ const (
 	TaintReleasing = Group + "/releasing"
 )
 
+const (
+	// TaintGPUPending is the NoSchedule taint a GPU node registers with and
+	// keeps until its GPU check passed (ADR-031). A NodePool that offers GPU
+	// types must list it in spec.template.spec.startupTaints.
+	TaintGPUPending = Group + "/gpu-pending"
+	// LabelGPUReady is set to "true" on the Node by the node's own GPU check;
+	// the GPU pending controller then removes TaintGPUPending. A node may
+	// label itself but may not change its taints (NodeRestriction).
+	LabelGPUReady = Group + "/gpu-ready"
+)
+
 // BillingSpec is the opt-in to keeping nodes until the end of the billing
 // period they have already paid for (ADR-024). Each vendor's own billing rule
 // decides whether the setting has any effect; the NodeClass status says so.

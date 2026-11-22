@@ -130,7 +130,7 @@ func (e *env) spec(t *testing.T, r request) LaunchSpec {
 	if s, ok := ParseSKUs(skus, req.Region)[req.InstanceType]; ok {
 		sku = &s
 	}
-	l, err := NewLaunchSpec(req, testCluster, img, nil, sku, "ssh-ed25519 AAAA test")
+	l, err := NewLaunchSpec(req, testCluster, img, nil, "", sku, "ssh-ed25519 AAAA test")
 	require.NoError(t, err)
 	return l
 }

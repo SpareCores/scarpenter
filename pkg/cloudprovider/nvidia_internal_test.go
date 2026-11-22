@@ -9,8 +9,13 @@ package cloudprovider
 import (
 	"testing"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
 	"sigs.k8s.io/karpenter/pkg/scheduling"
 
@@ -67,5 +72,32 @@ func TestNVIDIASelectionFromTheTypeLabels(t *testing.T) {
 	// Labels the table of the NodeClass's release cannot back stop the launch.
 	if _, err := nvidiaSelection(nodeClassOn("4000.0.0"), gpuType(&want, "V100", 4)); err == nil {
 		t.Error("a release without a table launched")
+	}
+}
+
+// ADR-031: a NodePool that does not list the gpu-pending startup taint is not offered the
+// NVIDIA types (it fails closed), and the log line comes once per NodePool.
+func TestGPUTypesNeedTheStartupTaint(t *testing.T) {
+	sel, reason := nvidia.Select(nvidia.GPU{Manufacturer: "NVIDIA", Model: "T4", Count: 1, AMD64: true}, "4757.2.3")
+	if reason != nvidia.Supported {
+		t.Fatal(reason)
+	}
+	gpu, cpu := gpuType(&sel, "T4", 1), gpuType(nil, "", 0)
+	pool := &karpv1.NodePool{ObjectMeta: metav1.ObjectMeta{Name: "mixed"}}
+	var lines int
+	ctx := logr.NewContext(t.Context(), funcr.New(func(_, _ string) { lines++ }, funcr.Options{}))
+	c := &CloudProvider{}
+	for range 2 {
+		got := c.withoutUnguardedGPUs(ctx, pool, []*cloudprovider.InstanceType{gpu, cpu})
+		if len(got) != 1 || got[0] != cpu {
+			t.Fatalf("without the startup taint: %d types, want only the CPU type", len(got))
+		}
+	}
+	if lines != 1 {
+		t.Errorf("%d log lines for two calls, want 1", lines)
+	}
+	pool.Spec.Template.Spec.StartupTaints = []corev1.Taint{{Key: v1alpha1.TaintGPUPending, Effect: corev1.TaintEffectNoSchedule}}
+	if got := c.withoutUnguardedGPUs(ctx, pool, []*cloudprovider.InstanceType{gpu, cpu}); len(got) != 2 {
+		t.Errorf("with the startup taint: %d types, want both", len(got))
 	}
 }

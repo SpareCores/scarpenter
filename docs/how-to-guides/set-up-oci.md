@@ -179,5 +179,6 @@ console.
 | `NotAuthorizedOrNotFound` (404) | A policy statement is missing or an OCID is wrong; OCI does not say which. |
 | `ImagesReady=False` | No `flatcar-<channel>-<version>-<arch>` image in the image compartment, or a different `flatcar-version` tag. |
 | `QuotaExceeded` | Raise the limit or compartment quota; set every name the error lists. |
+| `DailyLimit` | The tenancy hit OCI's daily resource creation limit: the region takes no launch until the next 00:00 UTC (Oracle documents no reset time). Deleting nodes does not help; upgrade the account type or ask Oracle to raise the limit. |
 | Preemptible "Out of host capacity" | Common on OCI: allow more shape families in the NodePool. |
 | A region is missing from the offerings | Subscribe the tenancy to it. |

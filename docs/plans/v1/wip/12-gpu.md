@@ -115,10 +115,10 @@ on the NodeClaim and core syncs them to the Node at registration (no kubelet `--
 does not apply, and Pods can select them before a node exists): `scarpenter.sparecores.com/nvidia-driver-branch`
 (`570`), `nvidia-driver-version` (`570.211.01`) and `nvidia-driver-flavor` (`open` or `proprietary`);
 `DoesNotExist` on every other type. The values are known at render time because the Flatcar version and the
-table fix them; the node proves them before it joins: a oneshot `scarpenter-nvidia-check.service` compares
-`/proc/driver/nvidia/version` with the version and `nvidia-smi -L` with the GPU count, and the kubelet
-`Requires=` it: a node whose check fails never joins (decided 2026-11-19; Karpenter deletes the claim after its
-registration timeout and tries again). A node labelled 570.211.01 has that driver loaded. Rejected: writing the version
+table fix them; the node proves them before it takes Pods: a oneshot `scarpenter-nvidia-check.service` compares
+`/proc/driver/nvidia/version` with the version and `nvidia-smi -L` with the GPU count, and the node
+registers with a gpu-pending taint that the check lifts (ADR-031, which replaced the kubelet's `Requires=` of the
+check: a node whose check fails keeps the taint). A node labelled 570.211.01 has that driver loaded. Rejected: writing the version
 at boot into an `EnvironmentFile` that feeds the kubelet's `--node-labels` (it works, as `SCARPENTER_NODE_IP_ARGS`
 does, but adds nothing the catalog does not know and hides the value from scheduling).
 

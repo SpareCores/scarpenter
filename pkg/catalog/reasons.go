@@ -6,6 +6,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 package catalog
 
+import "time"
+
 // Code names the gate that removed an instance type or an offering, or made an
 // offering unavailable (plan 28, section 2). Codes are API: they are
 // documented in docs/reference/labels-and-offerings.md, only added, never
@@ -59,6 +61,10 @@ const (
 type Reason struct {
 	Code   Code
 	Detail string
+	// Class and Until are set for UnavailableCache: the cache entry's class and
+	// the time it expires.
+	Class string
+	Until time.Time
 }
 
 // typeDrop is a type the build left out, with the reason.

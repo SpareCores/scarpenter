@@ -240,7 +240,8 @@ func TestAvailabilityReasons(t *testing.T) {
 				un.MarkInsufficientCapacity("v", "v.small", "zone-1", "on-demand")
 				return catalog.Options{}
 			},
-			want: catalog.Reason{Code: catalog.UnavailableCache, Detail: "InsufficientCapacity until 2026-11-20T12:03:00Z"},
+			want: catalog.Reason{Code: catalog.UnavailableCache, Detail: "InsufficientCapacity until 2026-11-20T12:03:00Z",
+				Class: "InsufficientCapacity", Until: time.Date(2026, 11, 20, 12, 3, 0, 0, time.UTC)},
 		},
 		"QuotaGate": {
 			opts: func(*unavailable.Cache) catalog.Options {

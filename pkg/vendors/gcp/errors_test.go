@@ -66,6 +66,9 @@ func TestClassifyOperation(t *testing.T) {
 	}{
 		{"success", doneOp("", "", 0), "", "", false},
 		{"capacity", doneOp("ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS", "The zone does not have enough resources", 503), vendors.InsufficientCapacity, "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS", false},
+		{"quota http 429", doneOp("QUOTA_EXCEEDED", "Quota 'CPUS' exceeded.  Limit: 24.0 in region europe-west3.", 429), vendors.QuotaExceeded, "QUOTA_EXCEEDED", false},
+		{"region pool exhausted", doneOp("REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS", "no capacity in the region", 503), vendors.InsufficientCapacity, "REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS", false},
+		{"pool capacity insufficient", doneOp("POOL_CAPACITY_INSUFFICIENT", "not enough", 503), vendors.InsufficientCapacity, "POOL_CAPACITY_INSUFFICIENT", false},
 		{"quota region", doneOp("QUOTA_EXCEEDED", "Quota 'CPUS' exceeded.  Limit: 24.0 in region europe-west3.", 403), vendors.QuotaExceeded, "QUOTA_EXCEEDED", false},
 		{"quota family", doneOp("QUOTA_EXCEEDED", "Quota 'N2_CPUS' exceeded.  Limit: 8.0 in region europe-west3.", 403), vendors.QuotaExceeded, "QUOTA_EXCEEDED", false},
 		{"quota all regions", doneOp("QUOTA_EXCEEDED", "Quota 'CPUS_ALL_REGIONS' exceeded.  Limit: 32.0.", 403), vendors.QuotaExceeded, "QUOTA_EXCEEDED", true},
