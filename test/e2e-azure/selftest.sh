@@ -325,7 +325,7 @@ check "azure-token.sh stop leaves a foreign process alone" t_token_stop_foreign
 # ---- the runner, the workflows and the vendor list ----------------------------
 t_scenarios_defined() {
   local names n
-  names="$(sed -n 's/^all_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  names="$(sed -n 's/^\(all\|manual\)_scenarios=(\(.*\))$/\2/p' "${here}/scenarios.sh")"
   [[ -n "${names}" ]]
   for n in ${names} preflight; do
     grep -q "^scn_${n}() {" "${here}/scenarios.sh" || {

@@ -938,8 +938,8 @@ the background for the controller. **The lane is not in `test/e2e-vendors.txt`**
 cost guard (an Allowed-SKU and an Allowed-locations policy on the lane's resource group, the tags, the sweeper, the
 quota ceiling and a budget alert, the read-only canary role) is true on a live account, and nobody has verified that yet
 (see [Azure](testing-and-releasing.md#azure)); the lane's selftest checks that the line is absent.
-The lane's scenarios, after the preflight: `amd64 arm64 db described byo negative quota drift cvm scalezero uninstall`;
-the smoke set is `amd64,scalezero`, so `cvm` runs only in the full mode.
+The lane's scenarios, after the preflight: `amd64 arm64 db described byo negative quota drift scalezero uninstall`;
+the smoke set is `amd64,scalezero`. `cvm` is manual-only: run it with `scenarios=cvm` after changing the confidential-VM code; neither the smoke nor the full mode runs it.
 
 | Scenario | What it proves |
 |---|---|

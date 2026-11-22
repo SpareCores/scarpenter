@@ -7,10 +7,11 @@
 # expected value is to be confirmed by the first live run (plan 17, live verification list).
 #
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:
-#                   amd64 arm64 db described byo negative quota drift cvm scalezero uninstall
-#                   (arm64 is the arm64 on-demand node and then the spot node; cvm is one
-#                   confidential VM and is not in the smoke set; preflight always runs
-#                   first, and ends the run when it fails)
+#                   amd64 arm64 db described byo negative quota drift scalezero uninstall
+#                   (arm64 is the arm64 on-demand node and then the spot node; preflight
+#                   always runs first, and ends the run when it fails)
+#                   Manual-only, never in the default set: cvm (one confidential VM), run
+#                   when named in E2E_SCENARIOS.
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -1001,7 +1002,8 @@ scarpenter_claims() {
 
 # --------------------------------------------------------------- runner -----
 
-all_scenarios=(amd64 arm64 db described byo negative quota drift cvm scalezero uninstall)
+all_scenarios=(amd64 arm64 db described byo negative quota drift scalezero uninstall)
+manual_scenarios=(cvm)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
@@ -1009,9 +1011,12 @@ else
   for s in "${all_scenarios[@]}"; do
     [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
   done
+  for s in "${manual_scenarios[@]}"; do
+    [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
+  done
   for s in ${E2E_SCENARIOS//,/ }; do
-    [[ " ${all_scenarios[*]} " == *" ${s} "* ]] || {
-      echo "unknown scenario ${s} (known: ${all_scenarios[*]})" >&2
+    [[ " ${all_scenarios[*]} ${manual_scenarios[*]} " == *" ${s} "* ]] || {
+      echo "unknown scenario ${s} (known: ${all_scenarios[*]} ${manual_scenarios[*]})" >&2
       exit 2
     }
   done
