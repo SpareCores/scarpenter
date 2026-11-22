@@ -7,8 +7,8 @@ Available:
 - [**Test and develop**](testing.md) (plan 02, extended by every plan) — dev
   container, gates, the L1–L5 test lanes, generated files, CI.
 - [**Testing and releasing**](testing-and-releasing.md) — when the real-cloud
-  tests run and what they cost, the PR tiers and path rules, approval, the
-  nightly canary, the release process and its gate, adding a vendor lane.
+  tests run and what they cost, the manual L5 workflow and its inputs, who can
+  start real instances, the nightly canary, the release process and its gate, adding a vendor lane.
 - [**Choose a node network template**](choose-a-network-template.md) (plan 05) —
   `tailscale`, `direct`, or a custom Butane template.
 

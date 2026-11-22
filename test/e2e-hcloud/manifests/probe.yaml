@@ -1,4 +1,4 @@
-# A one-replica workload pinned to a NodePool, an exact instance type and a capacity
+# A one-replica workload pinned to a NodePool, an architecture and a capacity
 # type (lib.sh: probe). It logs a line (kubectl logs) and sleeps (kubectl exec); no
 # grace period, so that deleting it does not hold the node. Public ECR mirror of
 # busybox: no Docker Hub pull limits for the account's addresses.
@@ -18,7 +18,7 @@ spec:
       terminationGracePeriodSeconds: 0
       nodeSelector:
         karpenter.sh/nodepool: ${POOL}
-        node.kubernetes.io/instance-type: ${TYPE}
+        kubernetes.io/arch: ${ARCH}
         karpenter.sh/capacity-type: ${CAPACITY}
         # a plain node: without this Karpenter may pack the probe onto the claim of the database or
         # its client (same pool, same type, profile spread), and the node would carry that profile

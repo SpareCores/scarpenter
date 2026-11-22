@@ -1,7 +1,8 @@
 # The NodePools of the lane. Consolidation is WhenEmpty with 0 s, so an empty node goes
 # at once (the scale-to-zero exit criterion); limits keep a runaway small; every pool lists the
-# server types it may launch (Hetzner cannot deny a type in the token), and the workloads select
-# their pool, so that two pools with the same type never compete.
+# server types it may launch (Hetzner cannot deny a type in the token; the arm64 pool bounds the
+# size instead, as Arm stock varies), and the workloads select their pool, so that two pools
+# with the same type never compete.
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
@@ -30,7 +31,7 @@ spec:
         - {key: scarpenter.sparecores.com/vendor, operator: In, values: [hcloud]}
         - {key: kubernetes.io/arch, operator: In, values: [arm64]}
         - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
-        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_TYPE_ARM64}"]}
+        - {key: scarpenter.sparecores.com/vcpus, operator: Lt, values: ["5"]}
   disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
   limits: {cpu: "8"}
 ---

@@ -3,7 +3,7 @@
 # (the workflow's inputs do it for the minimum-Kubernetes run).
 #
 # THIS LANE IS NOT IN test/e2e-vendors.txt, ON PURPOSE. A line there puts GCP into the
-# pull request tiers, the nightly canary and the release gate, and may only be added when
+# manual L5 workflow, the nightly canary and the release gate, and may only be added when
 # every cost guard of docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards
 # is true on a LIVE project. Nobody has verified them; the guards still to be verified
 # live (docs/how-to-guides/testing-and-releasing.md#gcp) are:
@@ -47,7 +47,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # more than 3000 MiB rules out e2-small.
 : "${E2E_TYPES_DESCRIBED:=gcp.e2-small,gcp.e2-medium,gcp.e2-standard-2}"
 # The manual gpu scenario (not in all, the smoke set or a gate: the maintainer runs it by hand,
-# E2E_SCENARIOS=gpu): the cheapest supported GPU type (one L4) and
+# mode=gpu of e2e.yml): the cheapest supported GPU type (one L4) and
 # the shared test/gpu-pod.yaml. The type needs NVIDIA_L4_GPUS (1) and CPUS (4) in the region.
 : "${E2E_GPU_TYPE:=gcp.g2-standard-4}"
 : "${E2E_GPU_TIMEOUT:=1500}"

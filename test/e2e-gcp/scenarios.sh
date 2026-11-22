@@ -8,7 +8,7 @@
 #                   amd64 spot arm64 db described byo create default negative quota drift
 #                   scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
-#                   MANUAL ONLY: gpu (E2E_SCENARIOS=gpu; never part of "all", the smoke set, a gate or
+#                   MANUAL ONLY: gpu (mode=gpu; never part of "all", the smoke set, a gate or
 #                   a schedule): one GPU node of E2E_GPU_TYPE, a Pod that runs nvidia-smi and a CUDA
 #                   sample (plan 12 step f). It needs the GPU quota of the type in the region.
 #

@@ -73,12 +73,12 @@ var sample = map[string]string{
 	"E2E_CREATED_AT": "1800000000", "E2E_API_HOST": "100.64.0.1",
 	"E2E_K3S_VERSION": "v1.37.2+k3s1", "E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10",
 	"E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
-	"E2E_TYPE_AMD64": "hcloud.cpx22", "E2E_TYPE_ARM64": "hcloud.cax21", "E2E_TYPE_DB": "hcloud.cpx22",
+	"E2E_TYPE_AMD64": "hcloud.cpx22", "E2E_TYPE_DB": "hcloud.cpx22",
 	"E2E_TYPES_DESCRIBED_YAML":  `"hcloud.cx23", "hcloud.cpx22"`,
 	"E2E_HCLOUD_LOCATIONS_YAML": `"fsn1", "nbg1", "hel1"`, "E2E_HCLOUD_SERVER_LIMIT": "10",
 	"E2E_BYO_LOCATION": "fsn1", "E2E_PG_LOCATION": "fsn1", "E2E_NEGATIVE_LOCATION": "ash",
 	"E2E_TAG_RUNNER": "tag:scarpenter-ci", "E2E_TAG_NODE": "tag:scarpenter-ci-node",
-	"NAME": "e2e-amd64", "POOL": "e2e-amd64", "TYPE": "hcloud.cpx22", "CAPACITY": "on-demand",
+	"NAME": "e2e-amd64", "POOL": "e2e-amd64", "ARCH": "amd64", "CAPACITY": "on-demand",
 	"NODE": "node-1", "PODNAME": "nodeshell-node-1",
 }
 
@@ -139,7 +139,7 @@ func TestVariablesAreDeclared(t *testing.T) {
 	pins["E2E_BYO_LOCATION"] = true
 	// Set by the workflow, the scenarios or the render call.
 	for _, v := range []string{"E2E_CLUSTER", "E2E_RUN_ID", "E2E_CREATED_AT", "E2E_API_HOST", "E2E_PG_LOCATION",
-		"NAME", "POOL", "TYPE", "CAPACITY", "NODE", "PODNAME"} {
+		"NAME", "POOL", "ARCH", "CAPACITY", "NODE", "PODNAME"} {
 		pins[v] = true
 	}
 	for _, f := range manifests(t) {
@@ -225,8 +225,8 @@ func TestNodePoolsOnlyNameTheTypesTheSuiteLaunches(t *testing.T) {
 			t.Errorf("the instance type %s is launched by the lane but not named in docs/how-to-guides/testing.md", typ)
 		}
 	}
-	if len(types) < 3 {
-		t.Errorf("expected the pools to name at least three types, got %v", types)
+	if len(types) < 2 {
+		t.Errorf("expected the pools to name at least two types, got %v", types)
 	}
 }
 

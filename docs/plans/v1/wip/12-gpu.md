@@ -348,14 +348,14 @@ recorded. This is the cheap guard of D7's rewrite against a runtime sysext bump.
 no other launch change (classes G and P already map to their vCPU quotas, `QuotaZero` until an increase;
 `InsufficientInstanceCapacity` stays reactive per zone). The shared L5 scenario `gpu` (in `test/lib.sh`, used
 by every vendor's lane): **manual-only** (never in `all`, the smoke set, a CI gate or a schedule; the maintainer
-runs it by hand when wanted), with a workflow input
-`gpu_instance_type` (default: the vendor's cheapest supported type from its `defaults.sh`); it applies a NodePool
+runs it by hand when wanted), selected by `mode=gpu` of `e2e.yml`, with its input
+`gpu_instance_type` (an `E2E_GPU_TYPE` override; default: the vendor's cheapest supported type from its `defaults.sh`); it applies a NodePool
 and a Pod with `runtimeClassName: nvidia` that requests all GPUs and runs `nvidia-smi` and a CUDA vectorAdd,
 checks the labels against the table and the node's capacity, and records the time to `Ready`. Docs: aws-driver.md
 (offered on 4757.2.3: g4dn, g5, g6, gr6, g6e, p3dn, p5.4xlarge, and with Fabric Manager p4d, p4de, p5.48xlarge,
 p5e, p5en [U]; dropped: g5g arm64, g6f and gr6f virtual, g7, g7e and p6 Blackwell). Lane default `g4dn.xlarge`.
 
-**Done (e).** `aws.Driver.Virtual` (families `g<N>f`, `gr<N>f`), the offering test over the snapshot, the manual `gpu` scenario (shared helpers in `test/lib.sh`, `test/gpu-pod.yaml`, `test/gpu-expect`; AWS NodeClass, NodePool, `scn_gpu`, `E2E_GPU_TYPE` default `aws.g4dn.xlarge`, workflow input `gpu_instance_type`, the role policy lists the type), docs. No launch change was needed (64 GiB root, same AMI, EFA stays deferred).
+**Done (e).** `aws.Driver.Virtual` (families `g<N>f`, `gr<N>f`), the offering test over the snapshot, the manual `gpu` scenario (shared helpers in `test/lib.sh`, `test/gpu-pod.yaml`, `test/gpu-expect`; AWS NodeClass, NodePool, `scn_gpu`, `E2E_GPU_TYPE` default `aws.g4dn.xlarge`, `e2e.yml` input `gpu_instance_type` (`mode=gpu`), the role policy lists the type), docs. No launch change was needed (64 GiB root, same AMI, EFA stays deferred).
 
 **(f) GCP.** Remove `a2 a3 a4 a4x g2 g4` from `droppedSeries` (the TPU series stay); the core
 drops Blackwell and fractional types (8- and 16-GPU types are offered with Fabric Manager). Quotas: per-region buckets `NVIDIA_<model>_GPUS` and
@@ -363,12 +363,6 @@ drops Blackwell and fractional types (8- and 16-GPU types are offered with Fabri
 metric names per model, A100 40 and 80 GB]; the series join the confirmed list when a real run confirms them. Launch:
 `onHostMaintenance TERMINATE` and `automaticRestart false` already apply to these series; no `guestAccelerators`
 (N1 with attached GPUs is not in Keeper's catalog). Lane default `g2-standard-4`.
-
-**Done (f).** `a2 a3 a4 a4x g2 g4` left `droppedSeries` (TPU series stay); the GPU quota buckets (`NVIDIA_<MODEL>_GPUS`,
-`PREEMPTIBLE_NVIDIA_<MODEL>_GPUS`, `GPUS_ALL_REGIONS`, unit `GPUs`) are read, none is consumed per type yet ([U]: metric
-names; the series join `ConfirmedSeries` after a real run); launch needed no change (`TERMINATE`, no `guestAccelerators`);
-lane scenario `gpu` (manual-only, `E2E_GPU_TYPE` default `gcp.g2-standard-4`, local to `test/e2e-gcp`, no workflow input
-yet), docs.
 
 **(g) Azure.** `GPUVirtualizer`: the `NV*` sizes (A10 v5, v3 M60 and any other GRID-only
 series); AMD and fractional sizes fall to the core's rules. The family vCPU quotas exist. Check the SCSI-or-NVMe
