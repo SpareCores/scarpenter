@@ -1,8 +1,8 @@
 # Scenario negative: NodeClasses the project cannot serve.
 #   e2e-noipv4  publicIPv4 false and no IPv6: refused (a server needs a public address; private-only
 #               servers are not supported in v1). Never used by a NodePool.
-#   e2e-noarm   a NodeClass for a location without the arm types, with a NodePool pinned to
-#               hcloud.cax21 there: the Pod stays Pending and nothing is launched.
+#   e2e-noarm   a NodeClass for a location without the arm types, with an arm64 NodePool
+#               there: the Pod stays Pending and nothing is launched.
 apiVersion: scarpenter.sparecores.com/v1alpha1
 kind: SCNodeClass
 metadata:
@@ -63,7 +63,7 @@ spec:
       requirements:
         - {key: scarpenter.sparecores.com/vendor, operator: In, values: [hcloud]}
         - {key: kubernetes.io/arch, operator: In, values: [arm64]}
-        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_TYPE_ARM64}"]}
+        - {key: scarpenter.sparecores.com/vcpus, operator: Lt, values: ["5"]}
         - {key: topology.kubernetes.io/zone, operator: In, values: ["${E2E_NEGATIVE_LOCATION}"]}
   disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
   limits: {cpu: "2"}

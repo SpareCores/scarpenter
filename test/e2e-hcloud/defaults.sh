@@ -19,11 +19,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # run (latest until then). The Flatcar snapshots are built by the controller (ADR-030).
 : "${E2E_HCLOUD_CLI_VERSION:=latest}"
 # Server types the suite launches (the lane's NodePools list them: the token cannot deny others).
+# The arm64 pools list none: Hetzner Arm (cax*) is offered in hel1 only and its stock comes and goes,
+# so they select by arch, vendor and size and take whatever Keeper prices and the API offers.
 # amd64 and the database need an on-demand offering in fsn1 (the bring-your-own network and the
 # database's location, the first of the lane's): of the cheap types only cpx22 has one there (cx23
-# is offered in hel1 and nbg1 only, and often sold out). cax21 (arm64) is offered in hel1 only (Keeper prices no arm type elsewhere).
+# is offered in hel1 and nbg1 only, and often sold out).
 : "${E2E_TYPE_AMD64:=hcloud.cpx22}"
-: "${E2E_TYPE_ARM64:=hcloud.cax21}"
 : "${E2E_TYPE_DB:=hcloud.cpx22}"
 # The types the described-not-named scenario may pick from (two vCPUs, more than 3000 MiB).
 : "${E2E_TYPES_DESCRIBED:=hcloud.cx23,hcloud.cpx22}"
@@ -64,6 +65,6 @@ E2E_BYO_LOCATION="${_locations[0]}"
 export E2E_HCLOUD_LOCATIONS E2E_HCLOUD_LOCATIONS_YAML E2E_BYO_LOCATION E2E_NEGATIVE_LOCATION E2E_HCLOUD_SERVER_LIMIT \
   E2E_HCLOUD_CLI_VERSION \
   E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION \
-  E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
+  E2E_TYPE_AMD64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
   E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE \
   E2E_SMOKE_SCENARIOS E2E_TAG_RUNNER E2E_TAG_NODE

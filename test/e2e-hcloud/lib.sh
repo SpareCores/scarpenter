@@ -181,10 +181,10 @@ ready_seconds() {
   echo $(($(date -d "${ready}" +%s) - $(date -d "${created}" +%s)))
 }
 
-# probe <name> <pool> <instance type> <capacity type>: a one-replica Deployment
-# pinned to a NodePool and an exact type (manifests/probe.yaml).
+# probe <name> <pool> <arch> <capacity type>: a one-replica Deployment pinned to a NodePool,
+# an architecture and a capacity type (manifests/probe.yaml); the pool decides the type.
 probe() {
-  NAME="$1" POOL="$2" TYPE="$3" CAPACITY="$4" render "${e2e_dir}/manifests/probe.yaml" | kubectl apply -f -
+  NAME="$1" POOL="$2" ARCH="$3" CAPACITY="$4" render "${e2e_dir}/manifests/probe.yaml" | kubectl apply -f -
 }
 
 # render <file>: envsubst with the variables the manifests use, and nothing else

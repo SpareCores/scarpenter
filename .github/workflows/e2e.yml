@@ -1,171 +1,143 @@
 name: L5 (e2e)
 
-# When the real-cloud lane runs (docs/how-to-guides/testing-and-releasing.md): not on a
-# timer. A pull request that touches what a vendor's lane tests runs that vendor's FULL
-# lane; one that touches code every vendor's nodes go through runs a SMOKE (preflight, one
-# node, scale to zero) on every vendor; anything else runs nothing here. The paths are the
-# rules of test/e2e-plan.sh, the vendors are the lines of test/e2e-vendors.txt. The lane
-# itself is e2e-cloud.yml; the release gate is release.yml; the nightly free check of the
-# outside world is e2e-canary.yml.
+# The one workflow that starts real cloud instances, and only by hand (Actions, Run workflow;
+# docs/how-to-guides/testing-and-releasing.md): no pull request, push, tag or timer runs it.
+# The vendors are lines of test/e2e-vendors.txt, the lane itself is e2e-cloud.yml (called once
+# per vendor), the plan is test/e2e-plan.sh. The nightly canary (e2e-canary.yml) is free.
 #
-# Approval: the job that calls the lane waits in the GitHub environment "e2e", whose
-# required reviewers (configured outside this repository) approve every run: a pull
-# request's own workflow code runs with the cloud role, so a human reads the diff first.
-# Pull requests from forks and drafts never run it; their e2e-result fails when the plan
-# needs L5. The check "e2e-result" is the one to require.
+# What to test: the branch, tag or commit the run is dispatched on, or, instead, the head of the
+# pull request "pr" or the commit "sha" (a full SHA on a branch of this repository). The commit
+# is resolved once in the plan job and every vendor's job checks out that exact SHA.
 #
-# Labels: l5:skip runs nothing, l5:full forces the full lane on every vendor. They are read
-# live when the plan runs, and adding one does not start a run (no "labeled" trigger): a
-# run for an unrelated label would put a newer, green e2e-result on the same commit, and
-# a required check counts the newest check run of its name, so it would hide a failed or
-# still waiting L5 run. A label takes effect on the next push or "Re-run all jobs".
+# A pull request from a fork runs only when "allow_fork" is true: its code (the scripts of the
+# lane, the Go code that is built and installed) then runs with the cloud role and the tailnet
+# identity, so read its diff first. The environment "e2e" has required reviewers (configured
+# outside this repository) who approve every vendor's job, and the plan job's summary
+# names the commit they approve.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
-      vendor:
-        description: "Vendor (a line of test/e2e-vendors.txt) or all"
-        default: aws
+      vendors:
+        description: "all, or comma separated vendors (lines of test/e2e-vendors.txt): aws or aws,oci"
+        default: all
         type: string
       mode:
-        description: "full: every scenario; smoke: preflight, one node, scale to zero"
-        default: full
-        type: choice
-        options: [full, smoke]
-      scenarios:
-        description: "Scenarios to run, comma separated, or empty for the mode's set (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall, and the manual gpu, which runs only when named; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall; alicloud: amd64 arm64 spot imds db described byo negative image quota drift scalezero uninstall, and the manual gpu)"
+        description: "smoke (preflight, one node, scale to zero), full (every scenario), or comma separated scenarios, e.g. gpu or amd64,drift; manual-only scenarios (azure: cvm) run only when listed (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall)"
+        default: smoke
+        type: string
+      gpu_instance_type:
+        description: "Instance type of the gpu scenario, with the vendor prefix (E2E_GPU_TYPE); empty: the vendor's default. Use with one vendor"
         default: ""
         type: string
+      cvm_instance_type:
+        description: "Instance type of the cvm scenario, with the vendor prefix (E2E_TYPE_CVM); empty: the vendor's default. Use with one vendor"
+        default: ""
+        type: string
+      env:
+        description: "More overrides of the lane's defaults: comma separated E2E_KEY=VALUE (letters, digits and ._:/+- in values)"
+        default: ""
+        type: string
+      pr:
+        description: "Pull request number: test its head commit instead of the dispatch ref"
+        default: ""
+        type: string
+      sha:
+        description: "Full commit SHA on a branch of this repository: test it instead of the dispatch ref"
+        default: ""
+        type: string
+      allow_fork:
+        description: "Allow a pull request from a fork: its code runs with the cloud credentials, after you read it"
+        default: false
+        type: boolean
       fail_fast:
         description: "Skip the remaining scenarios after the first failure, so that the diagnostics and the teardown start at once"
         default: true
         type: boolean
-      gpu_instance_type:
-        description: "The GPU type of the manual gpu scenario, with the vendor prefix (empty: the vendor's default in defaults.sh; the cloud role must allow it)"
-        default: ""
-        type: string
 
 permissions:
   contents: read
 
 jobs:
-  # No secret, no environment: it only reads the changed files, the labels and the inputs.
-  # It runs for forks and drafts too (it holds nothing a pull request could misuse), so
-  # that e2e-result knows whether they would need L5.
+  # No secret, no environment: it resolves the commit and plans the matrix.
   plan:
     if: github.repository == 'SpareCores/scarpenter'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: read # the live labels and draft state
+      pull-requests: read # the head of the pull request
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       any: ${{ steps.plan.outputs.any }}
-      runnable: ${{ steps.state.outputs.runnable }}
-      reason: ${{ steps.state.outputs.reason }}
+      env_overrides: ${{ steps.plan.outputs.env_overrides }}
+      sha: ${{ steps.ref.outputs.sha }}
     steps:
-      # Before any code of the pull request is checked out. Read live rather than from the
-      # event, so that a re-run sees the labels and the draft state of now.
-      - name: Labels and draft state
-        id: state
-        env:
-          EVENT: ${{ github.event_name }}
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-        run: |
-          if [[ "${EVENT}" == workflow_dispatch ]]; then
-            echo '[]' >"${RUNNER_TEMP}/labels.json"
-            { echo "runnable=true"; echo "reason=manual"; } | tee -a "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          [[ "${PR}" =~ ^[0-9]+$ ]] || { echo "::error::no pull request number" >&2; exit 1; }
-          gh api "repos/${GH_REPO}/pulls/${PR}" >"${RUNNER_TEMP}/pr.json"
-          jq -c '[.labels[].name]' "${RUNNER_TEMP}/pr.json" | tee "${RUNNER_TEMP}/labels.json"
-          if [[ "${HEAD_REPO}" != "${GH_REPO}" ]]; then
-            reason=fork
-          elif [[ "$(jq -r .draft "${RUNNER_TEMP}/pr.json")" != false ]]; then
-            reason=draft
-          else
-            reason=ready
-          fi
-          { [[ "${reason}" == ready ]] && echo "runnable=true" || echo "runnable=false"; echo "reason=${reason}"; } | tee -a "${GITHUB_OUTPUT}"
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 2 # the merge commit and its parents
+          fetch-depth: 0 # to tell whether a commit is on a branch of this repository
+
+      - name: Commit to test
+        id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+          ALLOW_FORK: ${{ inputs.allow_fork }}
+        run: |
+          [[ -z "${PR}" || -z "${SHA}" ]] || { echo "::error::give pr or sha, not both" >&2; exit 1; }
+          if [[ -n "${PR}" ]]; then
+            [[ "${PR}" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a number" >&2; exit 1; }
+            gh api "repos/${GH_REPO}/pulls/${PR}" >pr.json
+            sha="$(jq -r .head.sha pr.json)"
+            if [[ "$(jq -r .head.repo.full_name pr.json)" != "${GH_REPO}" ]]; then
+              [[ "${ALLOW_FORK}" == true ]] || { echo "::error::pull request ${PR} is from a fork: its code would run with the cloud credentials; read it, then dispatch with allow_fork=true" >&2; exit 1; }
+              echo "::warning::pull request ${PR} is from a fork: ${sha} runs with the cloud credentials once the environment approves"
+            fi
+            what="the head of pull request ${PR}"
+          elif [[ -n "${SHA}" ]]; then
+            [[ "${SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a full 40 character commit SHA" >&2; exit 1; }
+            git cat-file -e "${SHA}^{commit}" 2>/dev/null && [[ -n "$(git branch -r --contains "${SHA}")" ]] ||
+              { echo "::error::${SHA} is not on a branch of this repository: for a fork, dispatch with its pull request number" >&2; exit 1; }
+            sha="${SHA}"
+            what="the commit given"
+          else
+            sha="${GITHUB_SHA}"
+            what="the dispatch ref ${GITHUB_REF_NAME}"
+          fi
+          echo "sha=${sha}" | tee -a "${GITHUB_OUTPUT}"
+          echo "Testing ${what}: ${sha}" | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Plan
         id: plan
         env:
-          EVENT: ${{ github.event_name }}
-          INPUT_VENDOR: ${{ inputs.vendor }}
-          INPUT_MODE: ${{ inputs.mode }}
-          INPUT_SCENARIOS: ${{ inputs.scenarios }}
+          VENDORS: ${{ inputs.vendors }}
+          MODE: ${{ inputs.mode }}
+          GPU: ${{ inputs.gpu_instance_type }}
+          CVM: ${{ inputs.cvm_instance_type }}
+          ENV_LIST: ${{ inputs.env }}
         run: |
-          if [[ "${EVENT}" == workflow_dispatch ]]; then
-            test/e2e-plan.sh dispatch "${INPUT_VENDOR}" "${INPUT_MODE}" "${INPUT_SCENARIOS}" | tee -a "${GITHUB_OUTPUT}"
-          else
-            # The pull request's changes: the merge commit against its first parent, the base
-            # it was merged onto. No rename detection, so that a file moved out of a path
-            # that triggers is seen there too.
-            git rev-parse --verify -q HEAD^2 >/dev/null || { echo "::error::HEAD is not the merge commit of the pull request" >&2; exit 1; }
-            git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD | tee changed.txt
-            E2E_LABELS="$(cat "${RUNNER_TEMP}/labels.json")" test/e2e-plan.sh pr < changed.txt | tee -a "${GITHUB_OUTPUT}"
-          fi
+          test/e2e-plan.sh dispatch "${VENDORS}" "${MODE}" "${GPU}" "${CVM}" "${ENV_LIST}" | tee plan.txt
+          cat plan.txt >>"${GITHUB_OUTPUT}"
+          { echo; echo "Plan: \`$(sed -n 's/^matrix=//p' plan.txt)\`"; echo "Overrides: \`$(sed -n 's/^env_overrides=//p' plan.txt)\`"; } >>"${GITHUB_STEP_SUMMARY}"
 
   e2e:
     needs: plan
-    # Never for a fork or a draft (runnable is false for them): the lane holds the cloud role.
-    if: >-
-      needs.plan.outputs.any == 'true' && needs.plan.outputs.runnable == 'true' &&
-      (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: needs.plan.outputs.any == 'true'
     strategy:
       fail-fast: false # one vendor's failure says nothing about the others
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     uses: ./.github/workflows/e2e-cloud.yml
-    secrets: inherit # the environment secrets of the called job's environment (e2e) reach it only so
+    secrets: inherit # the environment secrets of the called job's environment (e2e) reach it only so far as that job names it
     with:
       vendor: ${{ matrix.vendor }}
       mode: ${{ matrix.mode }}
       scenarios: ${{ matrix.scenarios }}
-      fail_fast: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_fast }}
-      gpu_instance_type: ${{ inputs.gpu_instance_type }}
+      fail_fast: ${{ inputs.fail_fast }}
+      ref: ${{ needs.plan.outputs.sha }}
+      env_overrides: ${{ needs.plan.outputs.env_overrides }}
     permissions:
       contents: read
       id-token: write
-
-  # The one check to require: green when nothing was needed or everything that ran passed;
-  # red when L5 was needed and did not run (a fork, a draft) or did not pass.
-  e2e-result:
-    needs: [plan, e2e]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Result
-        env:
-          IN_REPO: ${{ github.repository == 'SpareCores/scarpenter' }}
-          PLAN: ${{ needs.plan.result }}
-          E2E: ${{ needs.e2e.result }}
-          ANY: ${{ needs.plan.outputs.any }}
-          REASON: ${{ needs.plan.outputs.reason }}
-        run: |
-          echo "plan: ${PLAN}, e2e: ${E2E}, any: ${ANY:-none}, reason: ${REASON:-none}"
-          if [[ "${IN_REPO}" != true ]]; then echo "not applicable outside SpareCores/scarpenter"; exit 0; fi
-          [[ "${PLAN}" == success ]] || { echo "the plan did not succeed" >&2; exit 1; }
-          if [[ "${ANY}" == false ]]; then echo "no L5 run needed"; exit 0; fi
-          case "${E2E}/${REASON}" in
-            success/*) echo "all L5 runs passed" ;;
-            skipped/fork)
-              echo "this change needs L5, which never runs for a fork: a maintainer pushes it to a branch of the repository, or adds l5:skip and re-runs all jobs" >&2
-              exit 1
-              ;;
-            skipped/draft) echo "this change needs L5: it runs when the pull request is marked ready for review" >&2; exit 1 ;;
-            *) echo "L5 did not pass" >&2; exit 1 ;;
-          esac

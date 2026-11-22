@@ -32,7 +32,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 : "${E2E_TYPE_ARM64:=alicloud.ecs.c8y.large}"
 : "${E2E_TYPE_DB:=alicloud.ecs.u1-c1m4.large}"
 # The manual gpu scenario (never in `all` or the smoke set): the GPU type it launches (the
-# cheapest supported one, 1 T4 with 4 vCPUs; the workflow input gpu_instance_type overrides
+# cheapest supported one, 1 T4 with 4 vCPUs; the gpu_instance_type input of e2e.yml (an E2E_GPU_TYPE override) replaces
 # it, and the role's instance type deny must allow it) and how long its node may take from
 # the Pod to the end of the CUDA run (the driver download and the image pull come on top of
 # a boot). Stock and the GPU quota of the account in ap-southeast-1 are unverified.
