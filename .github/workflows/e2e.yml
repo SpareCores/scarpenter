@@ -34,13 +34,17 @@ on:
         type: choice
         options: [full, smoke]
       scenarios:
-        description: "Scenarios to run, comma separated, or empty for the mode's set (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall)"
+        description: "Scenarios to run, comma separated, or empty for the mode's set (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall, and the manual gpu, which runs only when named; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall)"
         default: ""
         type: string
       fail_fast:
         description: "Skip the remaining scenarios after the first failure, so that the diagnostics and the teardown start at once"
         default: true
         type: boolean
+      gpu_instance_type:
+        description: "The GPU type of the manual gpu scenario, with the vendor prefix (empty: the vendor's default in defaults.sh; the cloud role must allow it)"
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -131,6 +135,7 @@ jobs:
       mode: ${{ matrix.mode }}
       scenarios: ${{ matrix.scenarios }}
       fail_fast: ${{ github.event_name != 'workflow_dispatch' || inputs.fail_fast }}
+      gpu_instance_type: ${{ inputs.gpu_instance_type }}
     permissions:
       contents: read
       id-token: write

@@ -355,6 +355,8 @@ checks the labels against the table and the node's capacity, and records the tim
 (offered on 4757.2.3: g4dn, g5, g6, gr6, g6e, p3dn, p5.4xlarge, and with Fabric Manager p4d, p4de, p5.48xlarge,
 p5e, p5en [U]; dropped: g5g arm64, g6f and gr6f virtual, g7, g7e and p6 Blackwell). Lane default `g4dn.xlarge`.
 
+**Done (e).** `aws.Driver.Virtual` (families `g<N>f`, `gr<N>f`), the offering test over the snapshot, the manual `gpu` scenario (shared helpers in `test/lib.sh`, `test/gpu-pod.yaml`, `test/gpu-expect`; AWS NodeClass, NodePool, `scn_gpu`, `E2E_GPU_TYPE` default `aws.g4dn.xlarge`, workflow input `gpu_instance_type`, the role policy lists the type), docs. No launch change was needed (64 GiB root, same AMI, EFA stays deferred).
+
 **(f) GCP.** Remove `a2 a3 a4 a4x g2 g4` from `droppedSeries` (the TPU series stay); the core
 drops Blackwell and fractional types (8- and 16-GPU types are offered with Fabric Manager). Quotas: per-region buckets `NVIDIA_<model>_GPUS` and
 `PREEMPTIBLE_NVIDIA_<model>_GPUS` (unit GPUs) and the global `GPUS_ALL_REGIONS`, consumed per type [U: the

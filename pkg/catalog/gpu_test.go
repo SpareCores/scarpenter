@@ -21,6 +21,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/nvidia"
+	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
 )
 
 // virtualFacts reports the listed types as having a virtual GPU.
@@ -188,6 +189,33 @@ func TestNVSwitchTypesAreOfferedWithFabricManager(t *testing.T) {
 	}
 	if got := droppedGauge(t, reg)["c/aws/GPUNVSwitch"]; got < 1 {
 		t.Errorf("GPUNVSwitch = %v, want at least 1", got)
+	}
+}
+
+// awsVirtualFacts answers VirtualGPU as the AWS driver does.
+type awsVirtualFacts struct{ catalog.StaticFacts }
+
+func (awsVirtualFacts) VirtualGPU(_, apiReference string) bool {
+	return (&aws.Driver{}).Virtual(apiReference)
+}
+
+// TestAWSOffersTheNVIDIAFamiliesOfThePlan is the AWS list of plan 12 on 4757.2.3 over the
+// snapshot: the families the pinned release can run are offered (the NVSwitch ones with
+// Fabric Manager), the arm64, fractional and Blackwell ones are not.
+func TestAWSOffersTheNVIDIAFamiliesOfThePlan(t *testing.T) {
+	_, its := gpuCatalog(t, "4757.2.3", awsVirtualFacts{catalogtestFacts(t)}, nil, "aws")
+	for _, name := range []string{
+		"aws.g4dn.xlarge", "aws.g5.xlarge", "aws.g6.xlarge", "aws.gr6.4xlarge", "aws.g6e.xlarge",
+		"aws.p3dn.24xlarge", "aws.p5.4xlarge", "aws.p4d.24xlarge", "aws.p4de.24xlarge", "aws.p5.48xlarge",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{"aws.g5g.xlarge", "aws.g6f.large", "aws.gr6f.4xlarge", "aws.g7e.2xlarge", "aws.p6-b200.48xlarge"} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
 	}
 }
 
