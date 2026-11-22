@@ -37,6 +37,14 @@ import (
 const (
 	// DefaultInterval is how often regions and zones are read again.
 	DefaultInterval = time.Hour
+	// DefaultVendorTimeout bounds the load of one vendor.
+	DefaultVendorTimeout = 3 * time.Minute
+	// DefaultRegionTimeout bounds each driver call of one region (the driver's
+	// own call timeout, 45 s with retries, would stall a vendor for minutes
+	// on a region that never answers).
+	DefaultRegionTimeout = 30 * time.Second
+	// maxParallelRegions bounds the regions of a vendor read at once.
+	maxParallelRegions = 8
 	// retryInterval is the wait after a failed load.
 	retryInterval = 10 * time.Second
 )
@@ -54,7 +62,12 @@ type Options struct {
 	// Launchable may be nil.
 	Launchable Launchable
 	Interval   time.Duration
-	Clock      clock.Clock
+	// VendorTimeout bounds the load of one vendor; DefaultVendorTimeout if zero.
+	VendorTimeout time.Duration
+	// RegionTimeout bounds the listing of the regions and of the zones of one
+	// region; DefaultRegionTimeout if zero.
+	RegionTimeout time.Duration
+	Clock         clock.Clock
 }
 
 type vendorFacts struct {
@@ -68,6 +81,20 @@ type vendorFacts struct {
 	// (it carries the request ID), stays the same from one load to the next.
 	skipped  map[string]string
 	skipCode map[string]string
+	// failed are the regions that could not be read in the last load; the
+	// retry reads only these.
+	failed map[string]bool
+}
+
+// settled reports whether the region needs no retry: its zones were read, or
+// it is skipped because the credentials cannot read it.
+func (vf *vendorFacts) settled(region string) bool {
+	if vf == nil || vf.failed[region] {
+		return false
+	}
+	_, read := vf.zones[region]
+	_, skipped := vf.skipped[region]
+	return read || skipped
 }
 
 // Facts implements catalog.Facts and catalog.LaunchableFacts over the
@@ -99,6 +126,12 @@ func New(opts Options) *Facts {
 	if opts.Interval <= 0 {
 		opts.Interval = DefaultInterval
 	}
+	if opts.VendorTimeout <= 0 {
+		opts.VendorTimeout = DefaultVendorTimeout
+	}
+	if opts.RegionTimeout <= 0 {
+		opts.RegionTimeout = DefaultRegionTimeout
+	}
 	if opts.Clock == nil {
 		opts.Clock = clock.RealClock{}
 	}
@@ -106,7 +139,9 @@ func New(opts Options) *Facts {
 }
 
 // Load reads the regions and the zones of every region of every enabled
-// vendor. One region cannot block the others:
+// vendor. The vendors load concurrently, each bounded by Options.VendorTimeout,
+// and each is published as soon as it is read, so a vendor that hangs or fails
+// holds back no other. One region cannot block the others either:
 //
 //   - a region whose zones the credentials cannot read (the driver's
 //     RegionUnavailable: denied by policy, not opted in) is skipped, with one
@@ -114,42 +149,66 @@ func New(opts Options) *Facts {
 //   - a region that fails otherwise (throttling, network, 5xx) keeps its
 //     last-known zones, or is left out when it has none, and Load returns the
 //     error so that Start retries soon, but the other regions' facts are used;
-//   - only a vendor with no readable region at all fails as a whole: it keeps
-//     its previous facts (Loaded stays false until it has some) and the error
-//     is returned.
-func (f *Facts) Load(ctx context.Context) error {
+//   - only a vendor with no readable region at all, or one that did not finish
+//     in time, fails as a whole: it keeps its previous facts (Loaded stays
+//     false until it has some), the error is logged and returned.
+func (f *Facts) Load(ctx context.Context) error { return f.load(ctx, false) }
+
+// load is Load; with retryOnly it reads again only the regions that failed in
+// the last load (and the vendors without facts), keeping the others.
+func (f *Facts) load(ctx context.Context, retryOnly bool) error {
 	logger := log.FromContext(ctx).WithName("driver-facts")
-	var hard, soft []error
-	next := map[string]*vendorFacts{}
-	for _, vendor := range f.opts.Registry.Vendors() {
-		drv, _ := f.opts.Registry.Driver(vendor)
-		f.mu.RLock()
-		prev := f.data[vendor]
-		f.mu.RUnlock()
-		vf, errs, err := loadVendor(ctx, drv, prev)
-		if err != nil {
-			hard = append(hard, fmt.Errorf("vendor %s: %w", vendor, err))
-			continue
+	names := f.opts.Registry.Vendors()
+	logger.Info("loading the driver facts", "vendors", names, "timeout", f.opts.VendorTimeout.String())
+	errs := make([]error, len(names))
+	var wg sync.WaitGroup
+	for i, vendor := range names {
+		wg.Go(func() { errs[i] = f.loadOne(ctx, logger, vendor, retryOnly) })
+	}
+	wg.Wait()
+	return errors.Join(errs...)
+}
+
+// loadOne reads one vendor within the timeout and publishes its facts.
+func (f *Facts) loadOne(ctx context.Context, logger logr.Logger, vendor string, retryOnly bool) error {
+	drv, _ := f.opts.Registry.Driver(vendor)
+	f.mu.RLock()
+	prev := f.data[vendor]
+	f.mu.RUnlock()
+	vctx, cancel := context.WithTimeout(ctx, f.opts.VendorTimeout)
+	defer cancel()
+	vf, softErrs, err := f.loadVendor(vctx, drv, prev, retryOnly)
+	if vctx.Err() != nil && ctx.Err() == nil {
+		err = fmt.Errorf("not finished in %s: %w", f.opts.VendorTimeout, errors.Join(vctx.Err(), err))
+	}
+	if err != nil {
+		err = fmt.Errorf("vendor %s: %w", vendor, err)
+		if ctx.Err() == nil {
+			logger.Error(err, "loading the driver facts of a vendor failed, it stays unloaded and is retried", "vendor", vendor)
 		}
-		for _, e := range errs {
-			soft = append(soft, fmt.Errorf("vendor %s: %w", vendor, e))
-		}
-		next[vendor] = vf
+		return err
+	}
+	if len(vf.failed) > 0 {
+		logger.Error(errors.Join(softErrs...), "loading the zones of some regions failed, they are retried",
+			"vendor", vendor, "failedRegions", slices.Sorted(maps.Keys(vf.failed)))
 	}
 	f.mu.Lock()
-	changed := false
-	for vendor, vf := range next {
-		if old, ok := f.data[vendor]; !ok || !sameFacts(old, vf) {
-			changed = true
-		}
-		f.data[vendor] = vf
-		f.logSkipped(logger, vendor, vf)
-	}
+	old, had := f.data[vendor]
+	changed := !had || !sameFacts(old, vf)
+	f.data[vendor] = vf
+	f.logSkipped(logger, vendor, vf)
 	f.mu.Unlock()
 	if changed {
 		f.epoch.Add(1)
+		logger.Info("loaded the driver facts of a vendor", "vendor", vendor, "regions", len(vf.regions))
+	} else {
+		logger.V(1).Info("reloaded the driver facts of a vendor", "vendor", vendor, "regions", len(vf.regions))
 	}
-	return errors.Join(append(hard, soft...)...)
+	var soft []error
+	for _, e := range softErrs {
+		soft = append(soft, fmt.Errorf("vendor %s: %w", vendor, e))
+	}
+	return errors.Join(soft...)
 }
 
 // logSkipped warns once for each region that starts being skipped, and says
@@ -180,37 +239,72 @@ func (f *Facts) logSkipped(logger logr.Logger, vendor string, vf *vendorFacts) {
 	}
 }
 
-// loadVendor reads the zones of every region of the vendor. errs are the
-// regions that failed for another reason than RegionUnavailable; err is set
-// when no region could be read at all.
-func loadVendor(ctx context.Context, drv vendors.Driver, prev *vendorFacts) (vf *vendorFacts, errs []error, err error) {
-	regions, err := drv.Regions(ctx)
+// loadVendor reads the zones of the regions of the vendor, up to
+// maxParallelRegions at once, each within RegionTimeout. errs are the regions
+// that failed for another reason than RegionUnavailable (also in vf.failed);
+// err is set when no region could be read at all. With retryOnly the regions
+// that prev has settled are kept without a call.
+func (f *Facts) loadVendor(
+	ctx context.Context, drv vendors.Driver, prev *vendorFacts, retryOnly bool,
+) (vf *vendorFacts, errs []error, err error) {
+	rctx, cancel := context.WithTimeout(ctx, f.opts.RegionTimeout)
+	regions, err := drv.Regions(rctx)
+	cancel()
 	if err != nil {
 		return nil, nil, fmt.Errorf("listing regions: %w", err)
 	}
+	type result struct {
+		zones []vendors.Zone
+		err   error
+		kept  bool
+	}
+	results := make([]result, len(regions))
+	sem := make(chan struct{}, maxParallelRegions)
+	var wg sync.WaitGroup
+	for i, r := range regions {
+		if retryOnly && prev.settled(r.Name) {
+			results[i].kept = true
+			continue
+		}
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			zctx, cancel := context.WithTimeout(ctx, f.opts.RegionTimeout)
+			defer cancel()
+			results[i].zones, results[i].err = drv.Zones(zctx, r.Name)
+		})
+	}
+	wg.Wait()
+
 	vf = &vendorFacts{
 		zones: map[string][]catalog.Zone{}, zoneRegion: map[string]string{},
-		skipped: map[string]string{}, skipCode: map[string]string{},
+		skipped: map[string]string{}, skipCode: map[string]string{}, failed: map[string]bool{},
 	}
 	var skipped []error
-	for _, r := range regions {
-		zones, err := drv.Zones(ctx, r.Name)
+	for i, r := range regions {
 		var cz []catalog.Zone
-		switch {
-		case err == nil:
-			cz = make([]catalog.Zone, 0, len(zones))
-			for _, z := range zones {
+		switch res := results[i]; {
+		case res.kept:
+			if why, ok := prev.skipped[r.Name]; ok {
+				vf.skipped[r.Name] = why
+				vf.skipCode[r.Name] = prev.skipCode[r.Name]
+				continue
+			}
+			cz = prev.zones[r.Name]
+		case res.err == nil:
+			cz = make([]catalog.Zone, 0, len(res.zones))
+			for _, z := range res.zones {
 				cz = append(cz, catalog.Zone{ID: z.ID, Name: z.Name})
 			}
 			slices.SortFunc(cz, func(a, b catalog.Zone) int { return compare(a.Name, b.Name) })
-		case vendors.IsClass(err, vendors.RegionUnavailable):
-			vf.skipped[r.Name] = err.Error()
-			vf.skipCode[r.Name] = string(vendors.ClassOf(err)) + "/" + vendors.CodeOf(err)
-			skipped = append(skipped, fmt.Errorf("region %s: %w", r.Name, err))
+		case vendors.IsClass(res.err, vendors.RegionUnavailable):
+			vf.skipped[r.Name] = res.err.Error()
+			vf.skipCode[r.Name] = string(vendors.ClassOf(res.err)) + "/" + vendors.CodeOf(res.err)
+			skipped = append(skipped, fmt.Errorf("region %s: %w", r.Name, res.err))
 			continue
 		default:
-			err = fmt.Errorf("listing the zones of %s: %w", r.Name, err)
-			errs = append(errs, err)
+			vf.failed[r.Name] = true
+			errs = append(errs, fmt.Errorf("listing the zones of %s: %w", r.Name, res.err))
 			old, ok := prev.zonesOf(r.Name)
 			if !ok {
 				continue
@@ -271,20 +365,24 @@ func (f *Facts) Loaded(vendor string) bool {
 }
 
 // Start loads the facts until the context ends: retrying every ten seconds
-// until the first success, then every interval. It implements
+// (only the vendors and regions that failed or timed out are read again, each
+// region within a timeout) until all load, then everything every interval. It implements
 // controller-runtime's Runnable.
 func (f *Facts) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("driver-facts")
+	retryOnly := false
 	for {
 		wait := f.opts.Interval
-		if err := f.Load(ctx); err != nil {
+		if err := f.load(ctx, retryOnly); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			logger.Error(err, "loading the regions and zones of the drivers failed")
+			logger.Info("some driver facts failed to load, retrying them", "in", retryInterval.String())
 			wait = retryInterval
+			retryOnly = true
 		} else {
 			logger.V(1).Info("loaded the regions and zones of the drivers")
+			retryOnly = false
 		}
 		select {
 		case <-ctx.Done():
