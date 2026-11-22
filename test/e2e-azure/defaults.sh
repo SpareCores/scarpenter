@@ -56,8 +56,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # The database and its client: on-demand, Premium IO (the Premium data disk), proximity
 # placement group.
 : "${E2E_TYPE_DB:=azure.Standard_D2as_v5}"
-# The confidential VM (AMD SEV-SNP) of the cvm scenario, the smallest of its family. Only
-# the full mode runs it: it costs more than the others. It boots Azure Container Linux
+# The confidential VM (AMD SEV-SNP) of the cvm scenario, the smallest of its family.
+# It runs only when named (scenarios=cvm), as it costs more than the others. It boots Azure Container Linux
 # from a community gallery, not Flatcar, and is offered in the lane's region (centralus)
 # to the lane's subscription.
 : "${E2E_TYPE_CVM:=azure.Standard_DC2as_v6}"
