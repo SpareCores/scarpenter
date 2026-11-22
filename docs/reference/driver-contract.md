@@ -305,12 +305,14 @@ conformance suite has no extra case for it; the per-driver tests are the pin.
 The driver facts (`Regions`, `Zones`) load in the background on the leader, all vendors concurrently and,
 within a vendor, up to 8 regions at once. Each vendor is published as soon as it is read, so a vendor that hangs
 or fails holds back no other. Every driver call of a region is bounded to 30 s (`facts.DefaultRegionTimeout`) and a
-vendor load to 3 minutes (`facts.DefaultVendorTimeout`). A region that fails or times out does not fail the
-vendor: the vendor is published with the regions that loaded (`Loaded` is true once any did), the offerings of the
-failed region are absent like those of a region without zones, and one Error per vendor names the failed
-regions. A vendor with no readable region stays unloaded. Every 10 s only the failed regions and the unloaded
-vendors are read again, until all load; then everything is read every hour. The start of a load and each vendor
-loaded (with its region count) are logged at Info.
+vendor load to 3 minutes (`facts.DefaultVendorTimeout`); the regions that finished when the vendor times out are
+published. A region that fails or times out does not fail the vendor: the vendor is published with the regions
+that loaded (`Loaded` is true once any did), and the failed region stays known (a NodeClass naming it stays
+Ready) with its last-known zones, or with none, so that it has no offerings. A vendor with no readable region stays
+unloaded. A failed region (or an unloaded vendor) is read again with a backoff of 10 s, doubling up to 15 min, and
+only when due; every vendor is read in full every `Interval` (1 h by default), also while a region keeps
+failing. One Error names the failed regions of a vendor when that set changes, and the first load of a vendor is
+logged at Info with its region count; the rest of the progress is at V(1).
 
 The text of a launch failure, on the NodeClaim's `Launched` condition and in the Events, is always
 `<Class> (<Code>): <vendor message>`, where Code is `Unknown` when the vendor gave none, and Class is one of `InsufficientCapacity`, `ZoneUnusable`, `QuotaExceeded`,

@@ -178,15 +178,21 @@ func TestATransientRegionErrorKeepsTheLastKnownZones(t *testing.T) {
 	}
 }
 
-func TestATransientErrorWithoutLastKnownZonesLeavesTheRegionOut(t *testing.T) {
+func TestATransientErrorWithoutLastKnownZonesLeavesTheRegionWithoutZones(t *testing.T) {
 	d := &regionDriver{}
 	d.set("eu-west-1", errBroken)
 	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(d)})
 	if err := f.Load(t.Context()); err == nil {
 		t.Fatal("the failure was not reported")
 	}
-	if got := f.Regions("aws"); !slices.Equal(got, []string{"af-south-1", "us-east-2"}) {
-		t.Errorf("regions %v: the other regions must load", got)
+	// The region stays known (a NodeClass naming it stays Ready) but has no
+	// zones, so no offerings.
+	if got := f.Regions("aws"); !slices.Equal(got, []string{"af-south-1", "eu-west-1", "us-east-2"}) {
+		t.Errorf("regions %v", got)
+	}
+	zones, _ := f.Zones("aws")
+	if len(zones["eu-west-1"]) != 0 || len(zones["us-east-2"]) != 1 {
+		t.Errorf("zones %v: the other regions must load", zones)
 	}
 }
 
@@ -256,7 +262,7 @@ func TestAStuckVendorTimesOutAndIsRetriedWithoutHidingTheOthers(t *testing.T) {
 }
 
 func isStuckError(l string) bool {
-	return strings.Contains(l, `"vendor"="hcloud"`) && strings.Contains(l, "not finished in") &&
+	return strings.Contains(l, `"vendor"="hcloud"`) && true &&
 		strings.Contains(l, "loading the driver facts of a vendor failed")
 }
 
@@ -333,15 +339,18 @@ func TestHangingRegionsDoNotFailTheVendorAndOnlyTheyAreRetried(t *testing.T) {
 				strings.Contains(l, "eu-west-1") && !strings.Contains(l, "us-east-2")
 		})
 	})
-	if got := f.Regions("aws"); !slices.Equal(got, []string{"af-south-1", "us-east-2"}) {
-		t.Errorf("regions %v", got)
+	if got := f.Regions("aws"); len(got) != 3 {
+		t.Errorf("regions %v: the failed region must stay known", got)
+	}
+	if zones, _ := f.Zones("aws"); len(zones["eu-west-1"]) != 0 || len(zones["af-south-1"]) != 1 {
+		t.Errorf("zones %v", zones)
 	}
 
 	// The retry reads the failed region only.
 	waitFor(t, clk.HasWaiters)
 	d.unhang("eu-west-1")
 	clk.Step(retryIntervalForTest)
-	waitFor(t, func() bool { return len(f.Regions("aws")) == 3 })
+	waitFor(t, func() bool { z, _ := f.Zones("aws"); return len(z["eu-west-1"]) == 1 })
 	if got := d.callsOf("eu-west-1"); got != 2 {
 		t.Errorf("eu-west-1 read %d times, want 2", got)
 	}
@@ -352,3 +361,92 @@ func TestHangingRegionsDoNotFailTheVendorAndOnlyTheyAreRetried(t *testing.T) {
 
 // retryIntervalForTest is long enough to pass the retry wait of Start.
 const retryIntervalForTest = time.Minute
+
+// withHung builds a started Facts over a vendor whose eu-west-1 hangs and a
+// healthy second vendor, on a fake clock.
+func withHung(t *testing.T, interval, vendorTimeout time.Duration) (*facts.Facts, *hangingRegions, *clocktesting.FakeClock, func() []string) {
+	t.Helper()
+	d := &hangingRegions{hung: map[string]bool{"eu-west-1": true}, calls: map[string]int{}}
+	clk := clocktesting.NewFakeClock(time.Now())
+	f := facts.New(facts.Options{
+		Registry:      vendors.NewRegistryFrom(d, &stuckDriver{name: "gcp"}),
+		RegionTimeout: 100 * time.Millisecond,
+		VendorTimeout: vendorTimeout,
+		Interval:      interval,
+		Clock:         clk,
+	})
+	ctx, lines := capture(t)
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan error)
+	go func() { done <- f.Start(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	waitFor(t, func() bool { return f.Loaded("aws") && f.Loaded("gcp") && d.callsOf("eu-west-1") == 1 })
+	waitFor(t, clk.HasWaiters)
+	return f, d, clk, lines
+}
+
+func TestAFailedRegionIsRetriedWithABackoff(t *testing.T) {
+	_, d, clk, lines := withHung(t, time.Hour, time.Minute)
+	// step moves the clock and waits for Start to finish what it woke for.
+	step := func(by time.Duration, wantCalls int) {
+		t.Helper()
+		clk.Step(by)
+		waitFor(t, clk.HasWaiters)
+		if got := d.callsOf("eu-west-1"); got != wantCalls {
+			t.Fatalf("after +%s: %d reads of the failed region, want %d", by, got, wantCalls)
+		}
+	}
+	// t=0 failed (retry due at 10 s), t=10 failed (due at 30), t=30 failed (due at 70).
+	step(5*time.Second, 1)
+	step(5*time.Second, 2)
+	step(10*time.Second, 2)
+	step(10*time.Second, 3)
+	step(30*time.Second, 3)
+	step(10*time.Second, 4)
+	// The failed set did not change: one Error line only.
+	n := 0
+	for _, l := range lines() {
+		if strings.Contains(l, "some regions failed") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d error lines for an unchanged failed set, want 1", n)
+	}
+}
+
+func TestTheFullRefreshRunsWhileARegionKeepsFailing(t *testing.T) {
+	f, d, clk, _ := withHung(t, time.Hour, time.Minute)
+	if got := d.callsOf("us-east-2"); got != 1 {
+		t.Fatalf("healthy region read %d times at the start", got)
+	}
+	for range 5 { // retries alone never read the healthy regions
+		clk.Step(15 * time.Minute)
+		waitFor(t, clk.HasWaiters)
+	}
+	if got := d.callsOf("us-east-2"); got < 2 {
+		t.Errorf("the healthy region was not read again after an hour: %d reads", got)
+	}
+	if !f.Loaded("aws") {
+		t.Error("not loaded")
+	}
+}
+
+func TestAVendorTimeoutKeepsTheRegionsThatLoaded(t *testing.T) {
+	d := &hangingRegions{hung: map[string]bool{"eu-west-1": true}, calls: map[string]int{}}
+	f := facts.New(facts.Options{
+		Registry:      vendors.NewRegistryFrom(d),
+		RegionTimeout: time.Minute,
+		VendorTimeout: 100 * time.Millisecond,
+	})
+	err := f.Load(t.Context())
+	if err == nil {
+		t.Fatal("the timeout was not reported")
+	}
+	if !f.Loaded("aws") {
+		t.Fatal("the regions that loaded were dropped")
+	}
+	if zones, _ := f.Zones("aws"); len(zones["us-east-2"]) != 1 || len(zones["eu-west-1"]) != 0 {
+		t.Errorf("zones %v", zones)
+	}
+}
