@@ -610,10 +610,9 @@ the lane's selftest checks that the line is absent.
   that fails the job on leftovers; the account's vCPU quota as ceiling (pay-as-you-go 16 vCPU,
   spot 4 vCPU needed: Alibaba accounts need real-name verification and a balance, and spot can
   be refused by account rules: step 0); an approval gate via the `e2e` environment.
-- **Test types** (from the committed snapshot; per-zone availability unverified): x86 on-demand
-  `ecs.e-c1m2.large` (2 vCPU, 4 GiB, shared), arm64 `ecs.c8y.large` (2 vCPU, 4 GiB, Yitian) or
-  `ecs.c8y.small`, spot for one of them, `ecs.g7.large`-class for the placement scenario if
-  `LowLatency` needs a family the small types do not support.
+- **Test types** (active in ap-southeast-1 per Keeper data): x86 on-demand `ecs.u1-c1m2.large`
+  (2 vCPU, 4 GiB), `ecs.u1-c1m4.large` (2 vCPU, 8 GiB) for the placement scenario and the described
+  one, arm64 spot `ecs.c8y.large` (2 vCPU, 4 GiB, Yitian; spot in zone 1b only).
 - **Scenarios** (AWS lane, mapped; "S" = the numbering of plan 10):
   `preflight` (image found, quotas, NodeClasses Ready), `amd64` (S1: node Ready, Pod, `logs`/
   `exec`, labels incl. zone ID, instance tags and metadata options checked with `aliyun ecs`;

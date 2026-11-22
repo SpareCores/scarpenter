@@ -194,8 +194,18 @@ ali_login() {
 # environment (ali_login); the output is JSON (the CLI's default). The CLI refuses to run
 # without a region of its own profile ("region can't be empty"), whatever --RegionId says:
 # ALIBABA_CLOUD_REGION_ID is that region from the environment.
-ecs() { ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun ecs "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
-vpc() { ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun vpc "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
+ecs() { aliyun_call ecs "$@"; }
+vpc() { aliyun_call vpc "$@"; }
+
+# aliyun_call <product> <Action> [flags]: a failed call prints the CLI's own error (its
+# stdout and stderr; the CLI's errors carry the code and message, no credentials) and
+# fails the running scenario as a FAIL line instead of ending it silently under set -e.
+aliyun_call() {
+  local out
+  out="$(ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun "$1" "$2" --RegionId "${ALICLOUD_REGION}" "${@:3}" 2>&1)" ||
+    fail "aliyun $1 $2 failed: ${out}"
+  printf '%s\n' "${out}"
+}
 
 # The cluster's tag as the CLI's filter flags.
 cluster_tag_args() { printf '%s\n' --Tag.1.Key "${ctag}" --Tag.1.Value "${E2E_CLUSTER}"; }
