@@ -10,8 +10,8 @@
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit deadlines.
-# Workloads of all selected scenarios are started together (the prelude), so that the nodes
-# boot in parallel; a scenario then only waits and checks. The exit status is 1 when a scenario
+# Workloads of the selected scenarios (the arm64 one apart, see arm64_workload) are started together
+# (the prelude), so that the nodes boot in parallel; a scenario then only waits and checks. The exit status is 1 when a scenario
 # failed; with E2E_FAIL_FAST=true (the default) the scenarios after the first failure are
 # reported as SKIP, so that the diagnostics and the teardown start at once. A failed scenario
 # prints one redacted snapshot of the cluster (observe.sh), and the waits for nodes print a
@@ -76,7 +76,12 @@ servers_left() {
 # Idempotent: they apply what the scenario then waits for.
 
 start_amd64() { probe e2e-amd64 e2e-amd64 amd64 on-demand; }
-start_arm64() { probe e2e-arm64 e2e-arm64 arm64 on-demand; }
+# The arm64 workload is not in the prelude (no start_ prefix): launched with the six others it meets
+# the quota gate. The tracker counts a server in the usage and in its reservation until the next
+# refresh (2 min), so seven launching servers look like thirteen against the limit of ten and
+# every offering reads QuotaGate, the Arm pool resolves no instance type and creates no NodeClaim.
+# scn_arm64 starts it once the amd64 nodes are up and a refresh has settled the count.
+arm64_workload() { probe e2e-arm64 e2e-arm64 arm64 on-demand; }
 start_db() { render "${here}/manifests/db.yaml" | kubectl apply -f -; }
 start_described() { render "${here}/manifests/described.yaml" | kubectl apply -f -; }
 start_drift() { probe e2e-drift e2e-drift amd64 on-demand; }
@@ -249,7 +254,7 @@ node_unit_checks() {
 }
 
 scn_arm64() {
-  start_arm64
+  arm64_workload
   settle e2e-arm64
   local pod node sid j
   pod="$(getstate e2e-arm64.pod)"
