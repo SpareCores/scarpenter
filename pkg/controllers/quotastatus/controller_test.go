@@ -235,13 +235,13 @@ func TestQuotaStatus(t *testing.T) {
 
 	// The controller publishes events after the apply the status wait observed,
 	// so wait for them instead of reading once.
-	var events []string
+	var got []string
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		if events = rec.reasons(); eventsOK(events) {
+		if got = rec.reasons(); eventsOK(got) {
 			break
 		}
 	}
-	checkEvents(t, events)
+	checkEvents(t, got)
 	checkOwnership(ctx, t, c, className)
 }
 
