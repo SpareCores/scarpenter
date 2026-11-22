@@ -102,31 +102,29 @@ func TestFamilyAndFlex(t *testing.T) {
 	}
 }
 
-// The root disk is the type's storage_size, except the types with several disks
-// (i1, t1, t2, h100, h200), whose storage_size holds the local NVMe disks too: the
-// root is the smallest, and RootDiskForType's table agrees.
-func TestRootDiskFromKeeper(t *testing.T) {
+// flavorDiskGB is the root disk of a snapshot type as Nova lists its flavor: the
+// storage_size, or the smallest of several disks.
+func flavorDiskGB(s snapServer) int64 {
+	if len(s.Storages) > 1 {
+		m := s.Storages[0].Size
+		for _, st := range s.Storages {
+			m = min(m, st.Size)
+		}
+		return int64(m)
+	}
+	return int64(s.StorageSize)
+}
+
+// The types with several disks (i1, t1, t2, h100, h200) have a storage_size that
+// holds the local NVMe disks too: their root is the smallest disk, and the
+// multiDiskRootGB table of RootDiskForType agrees with the snapshot.
+func TestMultiDiskRootsMatchKeeper(t *testing.T) {
 	for _, s := range ovhServers(t) {
-		if ok, _ := Launchable(s.APIReference); !ok {
+		if ok, _ := Launchable(s.APIReference); !ok || len(s.Storages) < 2 {
 			continue
 		}
-		var storages []float64
-		for _, st := range s.Storages {
-			storages = append(storages, st.Size)
+		if got, want := flavorDiskGB(s), int64(multiDiskRootGB[Family(s.APIReference)]); got != want {
+			t.Errorf("%s: smallest disk %d GB, table %d GB", s.APIReference, got, want)
 		}
-		got := RootDiskGB(s.APIReference, s.StorageSize, storages)
-		want := s.StorageSize
-		if len(storages) > 1 {
-			want = float64(multiDiskRootGB[Family(s.APIReference)])
-		}
-		if got != want {
-			t.Errorf("%s: root disk %v GB, want %v", s.APIReference, got, want)
-		}
-		if got < 25 || got > 800 {
-			t.Errorf("%s: root disk %v GB outside 25..800", s.APIReference, got)
-		}
-	}
-	if RootDiskGB("i1-45", 1950, nil) != 1950 {
-		t.Error("no storages list: storage_size")
 	}
 }

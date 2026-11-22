@@ -225,7 +225,7 @@ func TestLaunchAgainstTheFake(t *testing.T) {
 			kept++
 			flavors = append(flavors, osapi.Flavor{
 				Name: s.APIReference, VCPUs: s.VCPUs, RAMMiB: s.MemoryMiB,
-				DiskGB: int64(RootDiskGB(s.APIReference, s.StorageSize, storageSizes(s))),
+				DiskGB: flavorDiskGB(s),
 			})
 		}
 	}
@@ -288,12 +288,4 @@ func TestLaunchAgainstTheFake(t *testing.T) {
 	if _, err := cl.Compute.CreateServer(ctx, req); !vendors.IsClass(Classify(err), vendors.Unsupported) {
 		t.Fatalf("missing flavor: %v", err)
 	}
-}
-
-func storageSizes(s snapServer) []float64 {
-	out := make([]float64, 0, len(s.Storages))
-	for _, st := range s.Storages {
-		out = append(out, st.Size)
-	}
-	return out
 }

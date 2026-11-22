@@ -24,14 +24,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 : "${E2E_TYPE_AMD64:=ovh.d2-2}"
 : "${E2E_TYPE_DB:=ovh.b3-8}"
 # The manual gpu scenario (never in `all` or the smoke set): the GPU flavor it launches
-# (the cheapest supported one in the lane's region: one RTX 5000; the workflow input
-# gpu_instance_type overrides it) with its GPU count, which must match the flavor (the
-# scenario fails on a mismatch: the Pod requests that many GPUs, and the node's
-# accelerator-count label is checked against it), and how long its node may take from the
-# Pod to the end of the CUDA run (the driver download and the image pull come on top of a boot).
-# The GPU flavors need a quota the project may not have, and are not in every region.
-: "${E2E_GPU_TYPE:=ovh.rtx5000-28}"
-: "${E2E_GPU_COUNT:=1}"
+# (the cheapest supported one priced in the lane's region GRA11: one L4; the workflow input
+# gpu_instance_type overrides it; the scenario reads the GPU count from Keeper's snapshot)
+# and how long its node may take from the Pod to the end of the CUDA run (the driver
+# download and the image pull come on top of a boot). The GPU flavors need a quota the
+# project may not have, and are not in every region.
+: "${E2E_GPU_TYPE:=ovh.l4-90}"
 : "${E2E_GPU_TIMEOUT:=1500}"
 # The types the described-not-named scenario may pick from (small to large): the request
 # is 2 vCPUs and more than 3000 MiB, which rules out d2-2.
@@ -75,6 +73,6 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 
 # envsubst (manifests) and the child processes read exported variables.
 export OS_REGION_NAME OS_AUTH_URL OS_USER_DOMAIN_NAME E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION \
-  E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_DB E2E_GPU_TYPE E2E_GPU_COUNT E2E_GPU_TIMEOUT E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
+  E2E_FLATCAR_CHANNEL E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_DB E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
   E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH \
   E2E_LOCAL_STORAGE_TYPE E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_INSTANCES E2E_TAG_RUNNER E2E_TAG_NODE

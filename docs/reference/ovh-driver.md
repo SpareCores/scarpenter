@@ -329,11 +329,12 @@ GPU flavors are launched like any other: the same Flatcar image, the flavor's ow
 parameter. Which of them the catalog offers is the vendor-neutral rule of
 [GPU types](labels-and-offerings.md#gpu-types); the driver has no `GPUVirtualizer` (OVH sells whole GPUs only). On
 Flatcar 4757.2.3 over the committed snapshot the offered flavors are the priced ones of `t1` and `t2` (V100 and V100S, the
-proprietary driver), `rtx5000`, `l4`, `l40s`, `a10`, `a100` and `h100` (the open 570 driver), and the 8-GPU `h200` with
-[Fabric Manager](node-bootstrap.md#nvidia-gpu-nodes); a flavor the snapshot has no price for is dropped as `NoPrice`
-until Keeper prices it. The GPU quota of a project is separate and not in Nova's limits, and GPU flavors exist only in some
+proprietary driver), `rtx5000` and `l4` (the open 570 driver), and the 8-GPU `h200` with
+[Fabric Manager](node-bootstrap.md#nvidia-gpu-nodes). The `a10`, `a100`, `h100` and `l40s` flavors are launchable but not
+offered: the snapshot has no price for them, so they drop as `NoPrice` until Keeper prices them. A flavor is priced per region
+(`rtx5000-28` only in `GRA9`, so not in the lane's `GRA11`). The GPU quota of a project is separate and not in Nova's limits, and GPU flavors exist only in some
 regions (a flavor missing in a region is not offered there); the project must ask OVH for both. The manual `gpu` scenario of the
-[OVH lane](../how-to-guides/testing.md#the-l5-lane-of-ovhcloud) runs `rtx5000-28` by default. Not verified on OVH until a real run: the driver
+[OVH lane](../how-to-guides/testing.md#the-l5-lane-of-ovhcloud) runs `l4-90` by default. Not verified on OVH until a real run: the driver
 on these flavors (the passthrough device, `nvidia.service`), the quota and error texts of a refused GPU launch, and
 Fabric Manager on the h200.
 

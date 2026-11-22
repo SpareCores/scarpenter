@@ -230,7 +230,7 @@ t_scenarios_defined() {
       echo "no function scn_${n}"
       return 1
     }
-    grep -q "${n}" "${root}/.github/workflows/e2e.yml" || [[ "${n}" == preflight ]] || {
+    grep -qE "(^|[ ,])${n}[ ,.)]" "${root}/.github/workflows/e2e.yml" || [[ "${n}" == preflight ]] || {
       echo "the workflow's scenarios input does not name ${n}"
       return 1
     }
@@ -243,7 +243,7 @@ t_manual_scenarios() { # the manual scenarios have functions, are named by the w
   [[ -n "${manual}" ]]
   for n in ${manual}; do
     grep -q "^scn_${n}() {" "${here}/scenarios.sh" || { echo "no function scn_${n}"; return 1; }
-    grep -q "${n}" "${root}/.github/workflows/e2e.yml" || { echo "the workflow's scenarios input does not name ${n}"; return 1; }
+    grep -qE "(^|[ ,])${n}[ ,.)]" "${root}/.github/workflows/e2e.yml" || { echo "the workflow's scenarios input does not name ${n}"; return 1; }
     [[ " ${all} " != *" ${n} "* ]] || { echo "${n} is in all_scenarios"; return 1; }
     [[ ",${E2E_SMOKE_SCENARIOS}," != *",${n},"* ]] || { echo "${n} is in the smoke set"; return 1; }
   done

@@ -78,14 +78,3 @@ func ExcludedFamilies() []string {
 
 // LaunchedFamilies returns the launched families.
 func LaunchedFamilies() []string { return slices.Clone(launchedFamilies) }
-
-// RootDiskGB is the size of the local root disk of a launched flavor as Keeper
-// describes it: storage_size, but for a flavor with several disks (i1, and the
-// GPU flavors with local NVMe disks) storage_size adds them up, so the root is the
-// smallest entry of the storages list (the system disk). Keeper's storages are in GB.
-func RootDiskGB(apiReference string, storageSize float64, storages []float64) float64 {
-	if len(storages) > 1 {
-		return slices.Min(storages)
-	}
-	return storageSize
-}

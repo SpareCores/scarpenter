@@ -8,7 +8,7 @@
 #                   amd64 db described byo negative quota drift poweroff scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
 #                   The manual scenario gpu is never part of "all": it runs only when named
-#                   (plan 12; E2E_GPU_TYPE, default ovh.rtx5000-28).
+#                   (plan 12; E2E_GPU_TYPE, default ovh.l4-90).
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -91,14 +91,27 @@ start_byo() {
   probe e2e-use e2e-use "${E2E_TYPE_AMD64}" on-demand
 }
 
+# gpu_count <flavor without the vendor prefix>: the GPUs of the flavor, from Keeper's
+# committed snapshot (test/gpu-count), the data the controller's catalog is built from.
+gpu_count() {
+  (cd "${here}/../.." && go run ./test/gpu-count ovh "$1") || fail "no GPU count for ${1} in Keeper's snapshot"
+}
+
 # start_gpu (manual scenario gpu): fails early when the flavor is not in the region (the GPU
 # flavors are in some regions only; their quota is the project's and not in Nova's limits,
 # so a missing quota shows as a launch failure), then the RuntimeClass the cluster may lack
 # (k3s ships one only when it finds the NVIDIA runtime on its own host), the NodeClass and
 # the NodePool of the GPU flavor, and the Pod (test/gpu-pod.yaml) that requests all its GPUs.
 start_gpu() {
-  os flavor show "${E2E_GPU_TYPE#ovh.}" >/dev/null 2>&1 ||
-    fail "the flavor ${E2E_GPU_TYPE#ovh.} does not exist in ${OS_REGION_NAME} (the project must have the region and the GPU flavor activated)"
+  local out
+  gpu_count "${E2E_GPU_TYPE#ovh.}" >/dev/null
+  if ! out="$(os flavor show "${E2E_GPU_TYPE#ovh.}" -f value -c name 2>&1)"; then
+    case "${out}" in
+      *"No flavor with a name or ID"* | *"not found"*)
+        fail "the flavor ${E2E_GPU_TYPE#ovh.} does not exist in ${OS_REGION_NAME} (the project must have the region and the GPU flavor activated)" ;;
+      *) fail "openstack flavor show ${E2E_GPU_TYPE#ovh.}: ${out}" ;;
+    esac
+  fi
   kubectl get runtimeclass nvidia >/dev/null 2>&1 ||
     kubectl apply -f - <<'YAML'
 apiVersion: node.k8s.io/v1
@@ -109,7 +122,7 @@ handler: nvidia
 YAML
   render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
   render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
-  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${E2E_GPU_COUNT}" \
+  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="$(gpu_count "${E2E_GPU_TYPE#ovh.}")" \
     render "${here}/../gpu-pod.yaml" | kubectl apply -f -
 }
 
@@ -266,15 +279,16 @@ scn_amd64() {
 # node. The shared checks are test/lib.sh gpu_check_node: labels against the table,
 # capacity, the log of nvidia-smi and vectorAdd. The scenario also records the time to Ready.
 scn_gpu() {
-  local node claim
+  local node claim count
+  count="$(gpu_count "${E2E_GPU_TYPE#ovh.}")"
   start_gpu
   wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
   node="$(pod_node e2e-gpu)"
   claim="$(claim_of_node "${node}")"
   assert_nonempty "the NodeClaim of ${node}" "${claim}"
   assert_eq "instance-type" "${E2E_GPU_TYPE}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
-  gpu_check_node "${node}" e2e-gpu "${E2E_GPU_COUNT}" "${E2E_FLATCAR_VERSION}"
-  note "gpu: ${E2E_GPU_TYPE} (${E2E_GPU_COUNT} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
+  gpu_check_node "${node}" e2e-gpu "${count}" "${E2E_FLATCAR_VERSION}"
+  note "gpu: ${E2E_GPU_TYPE} (${count} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
   kubectl delete pod e2e-gpu --wait=false
   kubectl delete nodepool e2e-gpu --wait=false
 }

@@ -26,7 +26,8 @@ const defaultSettings = `{"configDrive":true}`
 // disks next to the system disk: Keeper's storage_size of such a type adds the
 // disks up (i1 1950 to 7650 GB, h100 4040 to 15560 GB), but the root is the
 // system disk (plan 18, "Node options"; a test checks the sizes against the
-// snapshot). The t1 and t2 types with a single disk have it as the root.
+// snapshot). A stopgap: Keeper's storages list has the sizes but no
+// system-disk flag. The t1 and t2 types with a single disk have it as the root.
 var multiDiskRootGB = map[string]int{"i1": 50, "t1": 50, "t2": 50, "h100": 200, "h200": 400}
 
 // dataDeviceSerial is the serial pattern of a data volume's device until spike S8
@@ -60,7 +61,8 @@ func (d *Driver) RootDiskForType(s vendors.VendorSettings, it vendors.CatalogTyp
 	if b := d.RootDiskBytes(s); b > 0 {
 		return b, true
 	}
-	if gb, ok := multiDiskRootGB[Family(it.APIReference)]; ok && it.LocalStorageCount > 1 {
+	fam := Family(it.APIReference)
+	if gb, ok := multiDiskRootGB[fam]; ok && (it.LocalStorageCount > 1 || fam == "i1") {
 		return int64(gb) * 1e9, true
 	}
 	return 0, false
