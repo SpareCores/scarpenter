@@ -24,8 +24,8 @@
 #                                       removes what it created
 #
 # Nothing here pushes, signs or publishes: that is the workflow's, on a tag. Nor does it run the
-# release gate: the workflow runs the full real-cloud lane (L5) of every vendor on the tagged
-# commit before it publishes (docs/how-to-guides/testing-and-releasing.md#releasing), and the
+# release gate: the workflow runs the real-cloud lane (L5) of every vendor on the tagged
+# commit before it publishes only when the repository variable RELEASE_E2E_MODE is smoke or full (docs/how-to-guides/testing-and-releasing.md#releasing), and the
 # dry run does not need it: it checks what the build can check without a cloud.
 set -euo pipefail
 

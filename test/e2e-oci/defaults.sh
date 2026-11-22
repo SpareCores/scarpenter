@@ -2,7 +2,7 @@
 # The pins of the L5 lane (OCI). Every value can be overridden through the environment
 # (the workflow's inputs do it for the minimum-Kubernetes run).
 #
-# This lane is a line of test/e2e-vendors.txt (pull request tiers, nightly canary, release gate). Each cost guard of
+# This lane is a line of test/e2e-vendors.txt (manual L5 workflow, nightly canary, release gate). Each cost guard of
 # docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards was shown by:
 #   - a dedicated compartment and a compartment quota on cores and memory (the ceiling: no IAM statement can
 #     deny a shape): the Quotas service accepted the quota names and the quota scenario reached the limit;

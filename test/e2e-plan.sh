@@ -4,23 +4,21 @@
 #   matrix=[{"vendor":"aws","mode":"smoke","scenarios":""}, ...]
 #   any=true|false
 #
-# The vendors come from test/e2e-vendors.txt (the only list); the path rules are below.
-# It needs no secret and calls no API, so it runs in a job without credentials.
+# The vendors come from test/e2e-vendors.txt (the only list). It needs no secret and calls
+# no API, so it runs in a job without credentials. No automatic trigger runs L5: the callers
+# are the manual workflow e2e.yml (dispatch) and the release gate (release, none by default); the canary (vendors) reads the same list.
 #
-#   test/e2e-plan.sh pr                          changed files on stdin (one per line), the
-#                                                labels of the pull request as a JSON array
-#                                                in $E2E_LABELS (l5:skip, l5:full)
-#   test/e2e-plan.sh dispatch <vendor|all> <full|smoke> [scenarios]
-#   test/e2e-plan.sh release [full|smoke]        every vendor, full by default
+#   test/e2e-plan.sh dispatch <vendors> <mode> [gpu_type] [cvm_type] [env]
+#       vendors  all, or a comma separated list of vendors (aws,oci)
+#       mode     smoke, full, or a comma separated list of scenarios (gpu; amd64,drift)
+#       gpu_type, cvm_type   instance types for the gpu and cvm scenarios (E2E_TYPE_GPU, E2E_TYPE_CVM)
+#       env      KEY=VALUE pairs, comma separated: more overrides of the lane's defaults
+#       Also prints env_overrides=KEY=VALUE,KEY=VALUE (every override, for the lane).
+#   test/e2e-plan.sh release [none|full|smoke]   the release gate (RELEASE_E2E_MODE): every vendor
+#                                                in the mode; none (the default, also for an
+#                                                empty value): no vendor, no real instance
 #   test/e2e-plan.sh vendors [vendor]            the vendors as {"vendor":...} entries (the
 #                                                canary); one vendor or all
-#
-# Tiers (docs/how-to-guides/testing-and-releasing.md):
-#   full   a pull request touched what is specific to the vendor (its driver, its lane), or
-#          the lane's shared workflows and helpers
-#   smoke  a pull request touched code every vendor's nodes go through
-# full wins over smoke for a vendor. Test files (*_test.go, testdata) never trigger a run:
-# L1 to L4 cover them. A change that is only documentation triggers nothing.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 vendors_file="${E2E_VENDORS_FILE:-${here}/e2e-vendors.txt}"
@@ -42,51 +40,6 @@ vendor_list() {
 # is_vendor <name>
 is_vendor() { vendor_list | grep -qxF -- "$1"; }
 
-# tier_of <file> <vendor>: prints full or smoke, or nothing.
-tier_of() {
-  local f="$1" v="$2"
-  case "${f}" in
-    *_test.go | */testdata/*) return 0 ;;
-  esac
-  case "${f}" in
-    # What is specific to the vendor: its driver, its lane, its sweeper workflow.
-    pkg/vendors/"${v}"/* | test/e2e-"${v}"/* | .github/workflows/e2e-"${v}"-sweeper.yml)
-      echo full
-      return 0
-      ;;
-    # The lane's shared machinery: every vendor's run changes with it.
-    .github/workflows/e2e.yml | .github/workflows/e2e-cloud.yml | test/e2e-plan.sh | test/e2e-vendors.txt | test/lib.sh)
-      echo full
-      return 0
-      ;;
-    # The shared driver contract (pkg/vendors/*.go, not a vendor's package) and the facts.
-    pkg/vendors/*/*) ;;
-    pkg/vendors/*.go)
-      echo smoke
-      return 0
-      ;;
-  esac
-  case "${f}" in
-    pkg/vendors/facts/*)
-      echo smoke
-      return 0
-      ;;
-    # Everything a node goes through from the NodeClaim to Ready: the CloudProvider and the
-    # controllers around it, the bootstrap (Ignition, join), the artifacts, the resources,
-    # quota, catalog and unavailability tracking, the API types, the options and the wiring.
-    pkg/bootstrap/* | pkg/cloudprovider/* | pkg/artifacts/* | pkg/resources/* | pkg/quota/* | pkg/controllers/* | \
-      pkg/catalog/* | pkg/unavailable/* | pkg/apis/* | pkg/options/* | pkg/operator/* | pkg/scope/* | cmd/*)
-      echo smoke
-      return 0
-      ;;
-    # The chart and what it is generated from, the image, the Karpenter pin.
-    charts/* | config/crd/* | config/rbac* | Dockerfile | .dockerignore | go.mod | go.sum)
-      echo smoke
-      return 0
-      ;;
-  esac
-}
-
 # entry <vendor> <mode> <scenarios>
 entry() { jq -cn --arg v "$1" --arg m "$2" --arg s "$3" '{vendor: $v, mode: $m, scenarios: $s}'; }
 
@@ -98,52 +51,62 @@ emit() {
   if [[ "${m}" == "[]" ]]; then echo "any=false"; else echo "any=true"; fi
 }
 
-cmd_pr() {
-  local labels="${E2E_LABELS:-[]}" files f v t forced=false
-  jq -e 'type == "array"' <<<"${labels}" >/dev/null || die "E2E_LABELS must be a JSON array of label names"
-  files="$(cat)"
-  if jq -e 'index("l5:skip")' <<<"${labels}" >/dev/null; then
-    emit </dev/null
-    return
-  fi
-  if jq -e 'index("l5:full")' <<<"${labels}" >/dev/null; then forced=true; fi
-  while read -r v; do
-    if [[ "${forced}" == true ]]; then
-      entry "${v}" full ""
-      continue
-    fi
-    t=""
-    while IFS= read -r f; do
-      [[ -n "${f}" ]] || continue
-      case "$(tier_of "${f}" "${v}")" in
-        full)
-          t=full
-          break
-          ;;
-        smoke) t=smoke ;;
-      esac
-    done <<<"${files}"
-    if [[ -n "${t}" ]]; then entry "${v}" "${t}" ""; fi
-  done < <(vendor_list) | emit
+# Keys the lane sets itself, and the values that reach GITHUB_ENV: e2e-cloud.yml checks the same.
+valid_override() { # valid_override <key> <value>
+  [[ "$1" =~ ^E2E_[A-Z0-9_]+$ ]] || die "override key '$1' must match ^E2E_[A-Z0-9_]+\$"
+  case "$1" in
+    E2E_VENDOR | E2E_MODE | E2E_SCENARIOS | E2E_FAIL_FAST | E2E_CLUSTER | E2E_RUN_ID | E2E_CREATED_AT | E2E_OUT | E2E_PREPARED)
+      die "override key '$1' is set by the workflow"
+      ;;
+  esac
+  [[ "$2" =~ ^[A-Za-z0-9._:/+-]+$ ]] || die "override value of '$1' must match ^[A-Za-z0-9._:/+-]+\$"
 }
 
 cmd_dispatch() {
-  [[ $# -ge 2 ]] || die "usage: dispatch <vendor|all> <full|smoke> [scenarios]"
-  local vendor="$1" mode="$2" scenarios="${3:-}" v
-  [[ "${mode}" == full || "${mode}" == smoke ]] || die "mode must be full or smoke"
-  [[ "${scenarios}" =~ ^[a-z0-9,]*$ ]] || die "scenarios must match ^[a-z0-9,]*\$"
-  if [[ "${vendor}" != all ]]; then
-    is_vendor "${vendor}" || die "unknown vendor '${vendor}' (known: $(vendor_list | paste -sd, -))"
+  [[ $# -ge 2 ]] || die "usage: dispatch <vendors> <mode> [gpu_type] [cvm_type] [env]"
+  local vendors="$1" mode="$2" gpu="${3:-}" cvm="${4:-}" extra="${5:-}"
+  local scenarios="" v w pair key overrides=() seen=","
+  [[ "${vendors}" =~ ^[a-z0-9]+(,[a-z0-9]+)*$ ]] || die "vendors must be all or a comma separated list of vendors"
+  if [[ "${vendors}" != all ]]; then
+    for w in ${vendors//,/ }; do
+      is_vendor "${w}" || die "unknown vendor '${w}' (known: $(vendor_list | paste -sd, -))"
+    done
   fi
+  case "${mode}" in
+    smoke | full) ;;
+    *)
+      [[ "${mode}" =~ ^[a-z0-9]+(,[a-z0-9]+)*$ ]] || die "mode must be smoke, full or a comma separated list of scenarios"
+      scenarios="${mode}"
+      mode=full
+      ;;
+  esac
+  [[ -z "${gpu}" ]] || overrides+=("E2E_TYPE_GPU=${gpu}")
+  [[ -z "${cvm}" ]] || overrides+=("E2E_TYPE_CVM=${cvm}")
+  if [[ -n "${extra}" ]]; then
+    for pair in ${extra//,/ }; do
+      [[ "${pair}" == *=* ]] || die "env entry '${pair}' is not KEY=VALUE"
+      overrides+=("${pair}")
+    done
+  fi
+  for pair in "${overrides[@]}"; do
+    key="${pair%%=*}"
+    valid_override "${key}" "${pair#*=}"
+    [[ "${seen}" != *",${key},"* ]] || die "override '${key}' is given twice"
+    seen+="${key},"
+  done
+  # The list is empty or not: the lane reads one comma separated string.
+  echo "env_overrides=$(IFS=,; echo "${overrides[*]:-}")"
   while read -r v; do
-    if [[ "${vendor}" == all || "${vendor}" == "${v}" ]]; then entry "${v}" "${mode}" "${scenarios}"; fi
+    if [[ "${vendors}" == all || ",${vendors}," == *",${v},"* ]]; then entry "${v}" "${mode}" "${scenarios}"; fi
   done < <(vendor_list) | emit
 }
 
 cmd_release() {
-  local mode="${1:-full}" v
-  [[ "${mode}" == full || "${mode}" == smoke ]] || die "RELEASE_E2E_MODE must be unset, full or smoke, not '${mode}'"
-  while read -r v; do entry "${v}" "${mode}" ""; done < <(vendor_list) | emit
+  local mode="${1:-none}" v
+  [[ "${mode}" == none || "${mode}" == full || "${mode}" == smoke ]] || die "RELEASE_E2E_MODE must be unset, none, full or smoke, not '${mode}'"
+  while read -r v; do
+    if [[ "${mode}" != none ]]; then entry "${v}" "${mode}" ""; fi
+  done < <(vendor_list) | emit
 }
 
 cmd_vendors() {
@@ -157,10 +120,6 @@ cmd_vendors() {
 }
 
 case "${1:-}" in
-  pr)
-    shift
-    cmd_pr "$@"
-    ;;
   dispatch)
     shift
     cmd_dispatch "$@"
@@ -173,5 +132,5 @@ case "${1:-}" in
     shift
     cmd_vendors "$@"
     ;;
-  *) die "usage: $0 pr|dispatch|release|vendors (see the header of this file)" ;;
+  *) die "usage: $0 dispatch|release|vendors (see the header of this file)" ;;
 esac

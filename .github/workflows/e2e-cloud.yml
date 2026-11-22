@@ -4,8 +4,8 @@ name: L5 (cloud e2e)
 # when it runs and why: docs/how-to-guides/testing-and-releasing.md): SCarpenter on a real
 # cloud with a k3s control plane on this runner and the nodes joining over Tailscale. It
 # costs money (a full AWS run: under $0.20, about 22 minutes; the job limit is 90) and
-# needs credentials, so it is only called from e2e.yml (pull requests that touch what the
-# lane tests, manual runs) and release.yml (every tag), never by itself.
+# needs credentials, so it is only called from e2e.yml (started by hand), never by itself and
+# by no automatic trigger.
 #
 # What differs per vendor lives in test/e2e-<vendor>/ (the scripts, the pins in
 # defaults.sh, the CI policy) and in the vendor's credential step below; everything else
@@ -69,6 +69,16 @@ on:
         type: string
       local_storage_type:
         description: "Optional: an instance type with instance-store disks for the local-storage scenario"
+        required: false
+        default: ""
+        type: string
+      ref:
+        description: "Commit to test (a full SHA); empty: the commit of the calling workflow's ref"
+        required: false
+        default: ""
+        type: string
+      env_overrides:
+        description: "KEY=VALUE pairs, comma separated, set in the environment of the lane (E2E_TYPE_GPU=...): keys E2E_*, values of a safe alphabet"
         required: false
         default: ""
         type: string
@@ -140,6 +150,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
 
       - name: Prepare
         env:
@@ -149,6 +160,8 @@ jobs:
           INPUT_LOCAL_STORAGE_TYPE: ${{ inputs.local_storage_type }}
           INPUT_SCENARIOS: ${{ inputs.scenarios }}
           INPUT_FAIL_FAST: ${{ inputs.fail_fast }}
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_ENV_OVERRIDES: ${{ inputs.env_overrides }}
         run: |
           # The inputs reach GITHUB_ENV, a download URL, a path and sed expressions: only
           # the shapes they are documented with are accepted (a newline or a sed delimiter
@@ -165,6 +178,7 @@ jobs:
           valid local_storage_type "${INPUT_LOCAL_STORAGE_TYPE}" '^[a-z0-9]+\.[a-z0-9-]+\.[a-z0-9]+$'
           valid scenarios "${INPUT_SCENARIOS}" '^[a-z0-9,]+$'
           valid fail_fast "${INPUT_FAIL_FAST}" '^(true|false)$'
+          valid ref "${INPUT_REF}" '^[0-9a-f]{40}$'
           # The scenarios: the input when given, else the mode's set (the smoke set is a pin of
           # the vendor's defaults.sh, read by sourcing it in a subshell).
           scenarios="${INPUT_SCENARIOS}"
@@ -254,6 +268,22 @@ jobs:
               } >> "${GITHUB_ENV}"
               ;;
           esac
+          # The overrides of the run (the planner checks the same): E2E_* keys the lane does not set
+          # itself, values of a safe alphabet, so that nothing but a plain variable reaches GITHUB_ENV.
+          if [[ -n "${INPUT_ENV_OVERRIDES}" ]]; then
+            for pair in ${INPUT_ENV_OVERRIDES//,/ }; do
+              key="${pair%%=*}"
+              [[ "${pair}" == *=* && "${key}" =~ ^E2E_[A-Z0-9_]+$ ]] || { echo "::error::env_overrides: '${pair}' is not E2E_KEY=VALUE" >&2; exit 1; }
+              case "${key}" in
+                E2E_VENDOR | E2E_MODE | E2E_SCENARIOS | E2E_FAIL_FAST | E2E_CLUSTER | E2E_RUN_ID | E2E_CREATED_AT | E2E_OUT | E2E_PREPARED)
+                  echo "::error::env_overrides: ${key} is set by the workflow" >&2
+                  exit 1
+                  ;;
+              esac
+              valid "env_overrides ${key}" "${pair#*=}" '^[A-Za-z0-9._:/+-]+$'
+              echo "${pair}" >> "${GITHUB_ENV}"
+            done
+          fi
           mkdir -p "${RUNNER_TEMP}/e2e"
           # Everything validated: from here the steps that always run may use the vendor in a path.
           echo "E2E_PREPARED=true" >> "${GITHUB_ENV}"
