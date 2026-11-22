@@ -1,16 +1,14 @@
 # Testing and releasing
 
-When the real-cloud tests run, what they cost, who approves them, how the nightly
-canary watches the outside world, how a release is cut and what gates it, and how to
-add the next vendor. The lanes themselves (what each proves, how to run L1 to L4,
-the scenarios of L5) are in [Test and develop](testing.md); this page is the policy
-around them.
+When the real-cloud tests run, what they cost, who can start them, how the nightly
+canary watches the outside world, how a release is cut, and how to add the next vendor.
+The lanes themselves (what each proves, how to run L1 to L4, the scenarios of L5) are in
+[Test and develop](testing.md); this page is the policy around them.
 
 - [Policy](#policy)
-- [The tiers](#the-tiers)
-- [What triggers what](#what-triggers-what)
-- [Labels and manual runs](#labels-and-manual-runs)
-- [Approval and fork pull requests](#approval-and-fork-pull-requests)
+- [What runs when](#what-runs-when)
+- [Running L5 by hand](#running-l5-by-hand)
+- [Security: who can start real instances](#security-who-can-start-real-instances)
 - [The canary](#the-canary)
 - [Releasing](#releasing)
 - [Per-vendor cost guards](#per-vendor-cost-guards)
@@ -22,162 +20,154 @@ around them.
 
 The real-cloud lane (L5: [the L5 lane](testing.md#the-l5-lane)) is the only test
 that proves the whole node path on a real cloud, and the only one that costs money,
-needs credentials and takes 20 to 30 minutes. Two things follow:
+needs credentials and takes 20 to 30 minutes. So:
 
-- **It runs when something relevant changed, not on a timer.** A weekly run
-  spends money when nothing moved and says nothing about the change that broke it;
-  a run on the pull request that touches the code says so while the author still
-  has the context, and costs the same. So L5 runs on the pull requests that touch
-  what it tests, and before every release.
+- **No automatic trigger starts a real instance** (a release tag does only if you switch the
+  [release gate](#releasing) on). Pull requests, pushes and timers run only tests without cloud instances: unit, envtest, kwok, the L4 qemu lane,
+  chart tests, lint. A maintainer starts L5 by hand, when a change needs it (a vendor's
+  driver, the node path, a dependency bump) and before a release they want proven.
 - **The outside world drifts without a commit.** An AMI is deprecated, a quota is
   lowered, an instance type disappears from a region, a sysext release loses its
-  checksum file. Nothing in the repository changed, so nothing would run. A
-  nightly **canary** reads exactly those things with the real driver code and no
-  instance: it costs nothing, so it can run every night on every vendor.
+  checksum file. A nightly **canary** reads exactly those things with the real driver
+  code and no instance: it costs nothing, so it runs every night on every vendor.
 
 Cost and signal pull in different directions per vendor. AWS bills a started hour
 per instance, so a full run is cents; a vendor that bills a full hour per instance
-or has no cheap type, or a GPU lane later, can cost dollars per run. That is why
-the tiers differ in size (a smoke run is two scenarios), why the vendor list is in
-one file, and why every vendor lane must have the cost guards below before it is
-added to the list.
+or has no cheap type, or a GPU lane, can cost dollars per run. That is why a smoke run
+is two scenarios, why the vendor list is in one file, and why every vendor lane must
+have the cost guards below before it is added to the list.
 
-## The tiers
+## What runs when
 
-| Trigger | What runs | Cost (AWS) |
+| Workflow | Triggers | Real instances |
 |---|---|---|
-| every pull request | L1 to L4 (`ci.yml`, `qemu.yml`), unchanged | $0 |
-| a pull request that touches a vendor's driver, its lane or the e2e workflows | that vendor's **full** L5 | cents (about 22 minutes) |
-| a pull request that touches code every vendor's nodes go through | a **smoke** L5 on every vendor | cents (a fraction of a full run: two scenarios) |
-| nightly (and on demand) | the **canary** of every vendor: no instances, no cluster, read-only credentials | about $0 |
-| a release tag | the **full** L5 of every vendor (the **smoke** L5 when the repository variable `RELEASE_E2E_MODE` is `smoke`), a required gate before anything is published | cents on AWS, dollars on dearer vendors |
-| manual (`workflow_dispatch`) | any vendor, `full` or `smoke`, optionally a scenario list | as chosen |
+| `ci.yml` (gates, kwok, the `e2e-result` placeholder) | pull request, push to `main` | none |
+| `qemu.yml` (L4: local VMs in qemu) | pull request touching what it tests, nightly, manual | none |
+| `release.yml` | tag `v*` (verify, then publish); manual dry run | none by default; the L5 gate only when `RELEASE_E2E_MODE` is `smoke` or `full` |
+| `e2e-canary.yml` | nightly, manual | none: read-only credentials, a guard that refuses writes |
+| `e2e-<vendor>-sweeper.yml` | every three hours, manual | none: only deletes leftovers of dead runs |
+| `e2e.yml` (L5) | **manual only** | yes: the only one |
+| `e2e-cloud.yml` (the lane) | called by `e2e.yml` and `release.yml` | yes |
 
-**Smoke** is the preflight (always first: the Flatcar images, the quotas, the
+The check **`e2e-result`** is a job of `ci.yml` that always succeeds and says no L5 runs for a
+pull request. It exists so that a ruleset that still requires `e2e-result` keeps passing;
+remove the check from the ruleset (Settings, Rules, the ruleset of `main`, required checks),
+and then the job from `ci.yml`.
+
+A **smoke** run is the preflight (always first: the Flatcar images, the quotas, the
 NodeClasses are `Ready`), `amd64` (one on-demand node from the Pod to Ready, with
 its labels, tags, bootstrap, join and DNS checks) and `scalezero` (every instance
 terminated within two minutes of the Pods' deletion, nothing left behind, the quota
 usage follows). The set is `E2E_SMOKE_SCENARIOS` in the vendor's
 `test/e2e-<vendor>/defaults.sh` (AWS: `amd64,scalezero`; the preflight is not
-listed because it always runs). It is the shortest path through the shared node
-code: NodeClaim, driver launch, Ignition, join, scale to zero. Both scenarios are
-standalone: `amd64` starts its own workload, and `scalezero` reads the amd64 node's
-state when it exists and otherwise checks the cluster-wide criterion (no instance,
-node, NodeClaim or token left), so neither depends on a scenario that is not in
-the set. **Full** is every scenario of the lane (AWS: `amd64 arm64 db described byo
-local negative quota drift scalezero uninstall`; `local` only with a
-`local_storage_type`).
+listed because it always runs). Both scenarios are standalone: `amd64` starts its own
+workload, and `scalezero` reads the amd64 node's state when it exists and otherwise checks
+the cluster-wide criterion (no instance, node, NodeClaim or token left). A **full** run is
+every scenario of the lane (AWS: `amd64 arm64 db described byo local negative quota drift
+scalezero uninstall`; `local` only with a `local_storage_type`).
 
-## What triggers what
+## Running L5 by hand
 
-`e2e.yml` runs on every pull request (opened, synchronized, reopened, ready for review)
-without a path filter, so that its result is a check that can be required.
-Its first job, `plan`, has no secret and no environment: it reads the labels and the draft
-state of the pull request live (so that a re-run sees the current ones), computes the
-changed files (`git diff --no-renames` of the merge commit against its first parent, the
-base it was merged onto; a moved file counts at its old and its new path) and runs
-`test/e2e-plan.sh`, the only place the rules are written down. A vendor
-is a line of `test/e2e-vendors.txt`; `<vendor>` below stands for each of them.
+Actions, "L5 (e2e)", Run workflow (pick the branch or tag to dispatch on), or `gh workflow run e2e.yml`.
+Each job waits in the environment `e2e` until a required reviewer approves it; the plan job's
+summary shows the commit that will run.
 
-| Path | Tier for the vendor |
-|---|---|
-| `pkg/vendors/<vendor>/**` | full |
-| `test/e2e-<vendor>/**` | full |
-| `.github/workflows/e2e-<vendor>-sweeper.yml` | full |
-| `.github/workflows/e2e.yml`, `.github/workflows/e2e-cloud.yml`, `test/e2e-plan.sh`, `test/e2e-vendors.txt`, `test/lib.sh` | full, for every vendor |
-| `pkg/vendors/*.go` (the shared driver contract), `pkg/vendors/facts/**` | smoke |
-| `pkg/bootstrap/**`, `pkg/cloudprovider/**`, `pkg/artifacts/**`, `pkg/resources/**` | smoke |
-| `pkg/quota/**`, `pkg/controllers/**`, `pkg/catalog/**`, `pkg/unavailable/**`, `pkg/apis/**`, `pkg/options/**`, `pkg/operator/**`, `pkg/scope/**`, `cmd/**` | smoke |
-| `charts/**`, `config/crd/**`, `config/rbac*`, `Dockerfile`, `.dockerignore`, `go.mod`, `go.sum` | smoke |
-| anything else (documentation, `hack/`, the other lanes, the canary's files, another vendor's package, the fake and qemu drivers) | nothing |
+| Input | Meaning | Default |
+|---|---|---|
+| `vendors` | `all`, or a comma separated list of the lines of `test/e2e-vendors.txt`: `aws`, `aws,oci` | `all` |
+| `mode` | `smoke`, `full`, or a comma separated list of scenarios (`gpu`, `cvm`, `amd64,drift`; a list is a full-limit run of just those scenarios) | `smoke` |
+| `gpu_instance_type` | the instance type of the `gpu` scenario (`E2E_GPU_TYPE`), with the vendor prefix | the lane's default |
+| `cvm_instance_type` | the instance type of the `cvm` scenario (`E2E_TYPE_CVM`), with the vendor prefix | the lane's default |
+| `env` | more overrides of the lane's `defaults.sh`: comma separated `E2E_KEY=VALUE` | none |
+| `pr` | a pull request number: test its head commit | the dispatch ref |
+| `sha` | a full commit SHA on a branch of this repository | the dispatch ref |
+| `allow_fork` | required `true` for a pull request from a fork | `false` |
+| `fail_fast` | skip the remaining scenarios after the first failure | `true` |
 
-- **Full wins over smoke**, per vendor: a pull request that touches `pkg/vendors/aws/**` and
-  `pkg/bootstrap/**` runs the full AWS lane and a smoke on every other vendor.
-- **Test files never trigger**: `*_test.go` and `testdata/` are covered by L1 and L2 and
-  cost nothing to run there.
-- **A documentation-only pull request** triggers nothing: the matrix is empty and the
-  check `e2e-result` succeeds at once.
-- `go.mod` and `go.sum` are in the smoke set because the Karpenter core pin changes
-  what the controller does on every node; a bump of a test-only dependency costs one smoke run.
-- The paths are code, not a checklist: `test/e2e-plan-selftest.sh` tests every rule
-  (`make test-e2e-aws-dryrun` and CI run it). A new package that nodes go through belongs in
-  the list of `tier_of` in `test/e2e-plan.sh` together with a line in the test.
-
-The caller then runs `e2e-cloud.yml` once per entry of the matrix, one vendor per job
-(`fail-fast: false`: one vendor's failure says nothing about another), and the last
-job, **`e2e-result`**, always runs: it succeeds when the matrix was empty (also with
-`l5:skip`) and when every run passed. It fails when a run failed or was cancelled, and when
-the plan needs L5 but the pull request is a draft or a fork's, which never run it. Make
-`e2e-result` the required status check; do not require the `e2e` jobs themselves, which do
-not exist for a pull request that needs none.
-
-## Labels and manual runs
-
-| Label | Effect |
-|---|---|
-| `l5:skip` | runs nothing (the result is green): for a change the path rules call relevant that cannot change the node path. Wins over `l5:full`. |
-| `l5:full` | the full lane on every vendor, whatever the paths say: put it on a pull request that changes behaviour the paths do not show (a refactor across packages, a Karpenter bump you want proven everywhere). |
-
-**Adding or removing a label starts nothing**: push a commit, or "Re-run all jobs" of the
-latest run ("Re-run failed jobs" keeps the old plan). The plan reads the labels live, so a
-re-run uses the current ones. There is deliberately no `labeled` trigger: a required check
-counts the newest check run of its name on the commit, so a run for an unrelated label would
-put a green `e2e-result` over a failed L5 run of the same commit, or over one still waiting
-for its approval. Anyone who can label pull requests (the triage role) can add `l5:skip`, so
-review who has it. A draft pull request never runs L5; marking it ready for review does.
-
-Manual: Actions, "L5 (e2e)", Run workflow, or
+`pr` and `sha` exclude each other. The commit is resolved once, in the plan job, and every
+vendor's job checks out that exact SHA (a push after the dispatch changes nothing). The
+workflow files themselves come from the dispatch ref. The type inputs carry a vendor prefix
+(`oci.VM.GPU.A10.1`), so give them with one vendor; they and `env` are plain environment
+variables of the lane that the vendor's `defaults.sh` reads (`: "${E2E_GPU_TYPE:=...}"`).
+`env` keys must match `E2E_[A-Z0-9_]+` and not be one the workflow sets itself
+(`E2E_VENDOR`, `E2E_MODE`, `E2E_SCENARIOS`, `E2E_FAIL_FAST`, `E2E_CLUSTER`, `E2E_RUN_ID`,
+`E2E_CREATED_AT`, `E2E_OUT`, `E2E_PREPARED`); values are letters, digits and `._:/+-`.
+`test/e2e-plan.sh` and `e2e-cloud.yml` check the same rules.
 
 ```bash
-gh workflow run e2e.yml -f vendor=aws -f mode=full                       # everything
-gh workflow run e2e.yml -f vendor=aws -f mode=smoke                      # the smoke set
-gh workflow run e2e.yml -f vendor=all -f mode=full -f scenarios=amd64,arm64
-gh workflow run e2e.yml -f vendor=aws -f fail_fast=false                 # every scenario despite failures
-gh workflow run e2e-canary.yml                                           # the canary, now
+# All vendors, smoke, on the current branch
+gh workflow run e2e.yml -f vendors=all -f mode=smoke
+
+# One GPU node on OCI of a given type, for the pull request 123
+gh workflow run e2e.yml -f vendors=oci -f mode=gpu -f gpu_instance_type=oci.VM.GPU.A10.1 -f pr=123
+
+# An Azure confidential VM check, on a branch
+gh workflow run e2e.yml --ref feat/cvm -f vendors=azure -f mode=cvm -f cvm_instance_type=azure.Standard_DC2as_v5
+
+# AWS and OCI, two scenarios, a pinned commit, every scenario despite failures
+gh workflow run e2e.yml -f vendors=aws,oci -f mode=amd64,drift -f sha=<40 hex characters> -f fail_fast=false
+
+# A longer node timeout through an override
+gh workflow run e2e.yml -f vendors=aws -f mode=full -f env=E2E_NODE_TIMEOUT=1200
 ```
 
-`scenarios` overrides the mode's set. A manual run of `e2e.yml` runs on the branch you
-pick, so the manual run is also how to run L5 on a branch without a pull request. The
-pins of the minimum-Kubernetes run (`k3s_version`, `kubernetes_version`,
-`local_storage_type`) are inputs of `e2e-cloud.yml`, which cannot be dispatched by itself:
-a one-off run with them is a workflow change that calls it with those inputs.
+A scenario name must exist in the lane of each selected vendor; one that does not fails that
+vendor's job. The pins of the minimum-Kubernetes run (`k3s_version`, `kubernetes_version`,
+`local_storage_type`) are inputs of `e2e-cloud.yml`, which cannot be dispatched by itself: a
+one-off run with them is a workflow change that calls it with those inputs.
 
-## Approval and fork pull requests
+A run waits for the vendor's concurrency slot (`e2e-<vendor>`: one run per vendor at a time,
+because the account's quotas and the tailnet are shared). GitHub keeps one waiting run per
+group, so a third run replaces the second while it waits. Every run's teardown deletes what it
+created; the [sweeper](testing.md#the-sweeper) deletes what a dead run left behind.
 
-The job that calls the lane waits in the GitHub environment **`e2e`**, whose
-**required reviewers** approve every run: nothing reaches a cloud account until a
-maintainer has looked at the pull request. The reason is the shape of GitHub Actions:
-for a `pull_request` run the workflow files, the scripts under `test/e2e-<vendor>/` and
-the Go code that is built and installed all come from the pull request, and the job
-that runs them holds the cloud role and a Tailscale identity. Whoever approves is
-approving that code, so read the diff of the lane's files and of the shared code, not
-only the description. The environment cannot be limited to `main`: a pull request runs
-on `refs/pull/<n>/merge`.
+**A pull request from a fork** is tested only when a maintainer dispatches it with `pr=<n>`
+and `allow_fork=true`. **Its code then runs with the cloud role and the tailnet identity**:
+the scripts under `test/e2e-<vendor>/`, the Go code that is built and installed, and the
+Dockerfile. Read the whole diff first (not only the description), then approve the job in the
+environment `e2e` only if the commit in the plan summary is the one you read. A fork's commit
+is never accepted through `sha`.
 
-- **Forks never get credentials.** A pull request from a fork never runs the lane
-  (`github.event.pull_request.head.repo.full_name != github.repository`), and a fork that
-  enables Actions runs nothing (`github.repository != 'SpareCores/scarpenter'`). These
-  conditions are guardrails: the workflow file of a pull request comes from the pull request,
-  so the boundary is GitHub's, which gives a fork's run no secrets and no OIDC token, and the
-  environment's reviewers. The plan still runs for a fork (it holds nothing), and when it needs
-  L5 the check `e2e-result` fails: a maintainer who wants the change pushes it to a branch of
-  the repository (and reviews it), or adds `l5:skip` and re-runs all jobs. Setting "Require
-  approval for all outside collaborators" in the repository's Actions settings stays required:
-  it covers the L1 to L4 workflows.
-- **Drafts never run.** The plan runs; when it needs L5 the check fails until the pull
-  request is marked ready for review, which starts a run.
-- The plan job and `e2e-result` have no secrets and no environment, so they run for
-  a pull request without approval; they only read file names and labels (`plan` has
-  `pull-requests: read` for the labels).
-- A run waits for the vendor's concurrency slot (`e2e-<vendor>`: one run per vendor at a
-  time, because the account's quotas and the tailnet are shared). GitHub keeps one waiting run per
-  group, so a third run replaces the second while it waits; after a push, the new run
-  replaces the waiting one and the running one finishes. The release gate shares the slot
-  (two runs at once in one account would fail the quota scenario), so a pull request run can
-  replace a waiting gate: it shows as cancelled, and "Re-run failed jobs" of the release run
-  queues it again.
-- Every run's teardown deletes what it created; the [sweeper](testing.md#the-sweeper)
-  deletes what a dead run left behind.
+## Security: who can start real instances
+
+An outsider (anyone without write access to this repository) cannot make this repository start
+a cloud instance:
+
+- **`workflow_dispatch` needs write access.** `e2e.yml` is the only workflow that starts
+  instances, and it has no other trigger.
+- **A fork's `pull_request` run gets no secrets and no OIDC token** (GitHub's rule for fork
+  pull requests), and `e2e-cloud.yml` only runs for `github.repository == 'SpareCores/scarpenter'`.
+  A fork that enables Actions has no environment, secrets or role of this repository.
+- **The cloud credentials sit in the environment `e2e`**, whose required reviewers approve
+  every job that reads them. `e2e-cloud.yml` names the environment `e2e`, and so does `refresh-sc-snapshot.yml`, which is manual only.
+- **A reusable workflow can be called only by a workflow of this repository** (`uses:
+  ./.github/workflows/e2e-cloud.yml`): a fork's workflow cannot call it, and
+  no workflow with an automatic trigger calls it (the release gate does, on a tag pushed by a maintainer, only when `RELEASE_E2E_MODE` is `smoke` or `full`).
+- **A pull request that edits a workflow.** For a same-repository branch, `pull_request` runs
+  the pull request's version of the workflow files, so its author (who has write access) could
+  add a job that calls `e2e-cloud.yml` or names the environment `e2e` to `ci.yml`. That job
+  would still stop at the environment's required reviewers, who see the job and approve it
+  before any secret is exposed. This is the one control that matters for insiders, so keep it:
+  the guard is the environment's required reviewers, and a reviewer reads the workflow diff of
+  the run. A pull request from a fork cannot do this at all: no secrets and no environment.
+- **The inputs of the manual run** reach the lane through validated variables (the vendor, the
+  scenarios, the override keys and values match fixed patterns before they touch `GITHUB_ENV`
+  or a shell), and the commit is a full SHA resolved by the plan job.
+
+Repository settings the owner applies (this repository cannot set them):
+
+1. The environment `e2e`: required reviewers and no administrator bypass; this is the gate for
+   everything that reaches the cloud credentials. Consider "Prevent self-review" on once there
+   are two maintainers. A deployment-branch policy of `main` plus `v*` tags would also stop a
+   pull-request-branch workflow from reading the secrets; it is possible because manual runs
+   pick the code with `pr` or `sha` while the workflow itself is dispatched on `main`. Without it,
+   the reviewers are the only guard.
+2. The environments `e2e-canary` (read-only) and `e2e-sweeper` (limited to `main`).
+3. Actions, General: "Require approval for all outside collaborators" for fork pull request
+   workflows, and "Send write tokens to workflows from pull requests" off.
+4. The ruleset on `main`: remove the required check `e2e-result` (the `ci.yml` job is a
+   placeholder), keep `gates`, `kwok (scenarios)` and `kwok (retention)`.
+5. The repository variable `RELEASE_E2E_MODE` (unset is `none`) switches the release gate; see [Releasing](#releasing).
 
 ## The canary
 
@@ -319,9 +309,9 @@ stamps the binary, the chart is packaged with the tag as `version` and `appVersi
 `v0.2.0-rc.1` for a pre-release) pushed by a maintainer.
 
 1. **Make `main` releasable.** Everything for the release is merged; CI is green on the
-   commit; the last nightly canary is green (no open `e2e-canary` issue); the L5 runs of the
-   merged pull requests passed (a change the paths did not cover is covered by the gate
-   in step 4).
+   commit; the last nightly canary is green (no open `e2e-canary` issue). If the release
+   carries node-path changes you want proven on a real cloud, run [L5 by hand](#running-l5-by-hand)
+   on the commit (`sha=<commit>`) before tagging (or switch the gate on, below).
 2. **Dry run (optional, recommended for the first tag of a series).**
    `hack/dev.sh hack/release.sh dry-run v0.2.0-rc.1` locally, or Actions, "Release", Run
    workflow with `dryRun: true`: builds both images for amd64 and arm64 without pushing, checks the
@@ -334,16 +324,15 @@ stamps the binary, the chart is packaged with the tag as `version` and `appVersi
    - `verify`: the tag is a valid `v<major>.<minor>.<patch>[-<pre>]`; the tagged commit is on
      `main`; whether this is the highest stable version (it may move `latest` and the major
      tag) and the highest of its minor; generated files are up to date; lint, tests and the
-     chart tests pass; the vendors of the gate are read from `test/e2e-vendors.txt`.
-   - **`e2e` (the release gate)**: the full L5 lane of **every** vendor against the tagged
-     commit (the smoke lane instead when the repository variable `RELEASE_E2E_MODE` is `smoke`;
-     unset or `full` is the full lane, any other value fails `verify`), one job per vendor, in the environment `e2e`: the required reviewers approve it
-     like any L5 run, and it waits for each vendor's concurrency slot (so a run of a pull request
-     that holds the slot delays it, and a newer pull request run replaces it while it waits:
-     re-run the failed jobs; avoid starting L5 on pull requests while a release is pending). It builds the controller from the tagged checkout, so it
-     proves the commit, which the next jobs then build the images from.
-   - `images`, `chart` and `release` **need `e2e`**: a failed or rejected gate publishes
-     nothing. `images` runs in the environment `release` (add required reviewers there for a
+     chart tests pass. No real instance is started.
+   - **`e2e` (the release gate)**, by the repository variable **`RELEASE_E2E_MODE`**:
+     `none` (also when the variable is unset: the current setting) runs no L5 lane, so `verify` is
+     the only gate; `smoke` runs the smoke lane and `full` the full lane of **every** vendor of
+     `test/e2e-vendors.txt` against the tagged commit, one job per vendor, in the environment `e2e`
+     (its required reviewers approve it, and it waits for each vendor's concurrency slot). Any
+     other value fails `verify`. Set it in Settings, Secrets and variables, Actions, Variables.
+   - `images`, `chart` and `release` need `verify` and, when the gate is on, `e2e` (a skipped gate
+     passes; a failed or rejected one publishes nothing). `images` runs in the environment `release` (add required reviewers there for a
      second approval before the first push): the controller and development images for
      both architectures, SBOM and provenance, cosign signatures by digest. `chart` packages
      the charts `scarpenter` and `scarpenter-crd` (the CRDs as templates, so that Helm upgrades them)
@@ -353,20 +342,11 @@ stamps the binary, the chart is packaged with the tag as `version` and `appVersi
      release with notes, the chart package, the SBOMs and those files
      ([published schema and examples](../reference/infrastructure-handoff.md#published-schema-and-examples);
      pre-release for a tag with a suffix, which does not move `latest`).
-5. **If the gate fails**, nothing was published. Fix on `main`, and tag the next version (or
+5. **If `verify` or the gate fails**, nothing was published. Fix on `main`, and tag the next version (or
    the next `-rc.N`): do not move or reuse a tag. Re-running the failed jobs of the same run
-   is right for a flake (a spot capacity error, an infrastructure hiccup that the diagnostics
-   show); it re-runs the lane on the same commit.
+   is right for a flake (it re-runs on the same commit).
 6. **Verify**: the release notes carry the `cosign verify` commands for both images and the
    chart.
-
-Why the gate is a job of `release.yml` and not a separate workflow: the release is triggered
-by the tag push and the publishing jobs must not start without the gate's result; `needs:`
-between jobs of one run is the dependency GitHub enforces (a separate workflow on the same tag
-would run in parallel and could not stop the publishing). `release.yml` calls the same
-reusable workflow as the pull requests, `e2e-cloud.yml`, so the release gate and the
-pull request tiers run the same code. The `workflow_dispatch` dry run does not run the gate: it
-cannot publish, and it must stay free.
 
 ## Per-vendor cost guards
 
@@ -384,7 +364,7 @@ unverified, so the operator checks the type deny bites and the budget alert fire
 | Every resource carries a run tag, so cost and leftovers are attributable | `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` | the same tag and `ci-created-at`; a deployment set takes no tags, so its description carries the cluster |
 | A sweeper that deletes what a dead run left behind, by tag and age | `e2e-aws-sweeper.yml`, every three hours, environment `e2e-sweeper` | `e2e-alicloud-sweeper.yml`, every three hours, environment `e2e-sweeper` |
 | A run time limit | 90 minutes for the job (60 for a smoke), 55 (25) for the scenarios step; the teardown always runs | the same limits |
-| Small, cheap types; spot where the vendor has it | `t3a.small`, `t4g.small` (spot), `r6a.large` for the placement-group scenario | `ecs.e-c1m2.large`, `ecs.c8y.large` (spot), `ecs.g7.large` for the deployment-set scenario |
+| Small, cheap types; spot where the vendor has it | `t3a.small`, `t4g.small` (spot), `r6a.large` for the placement-group scenario | `ecs.u1-c1m2.large`, `ecs.c8y.large` (spot), `ecs.u1-c1m4.large` for the deployment-set scenario |
 | A teardown that fails the job when anything tagged remains | `teardown.sh` | `teardown.sh` (instances, disks, network interfaces, groups, deployment sets, vSwitches, VPCs) |
 | A quota that bounds the damage of a bug | the vCPU quotas of the account (16 on-demand, 4 spot needed) are the ceiling | the vCPU quotas of the account (16 pay-as-you-go, 4 spot needed) are the ceiling |
 | A read-only role for the canary | `canary-policy.sh`, a role of its own, environment `e2e-canary` | `canary-policy.sh`, a role of its own, environment `e2e-canary` |
@@ -485,9 +465,8 @@ line and a few credentials. In this repository:
    region variable. Start from `test/e2e-aws/`; the control plane, the tailnet and the
    scenarios' shape are the same, the cloud calls differ. Its `selftest.sh` and manifests
    test belong in `make test-e2e-aws-dryrun`.
-2. **The vendor list**: one line in `test/e2e-vendors.txt`. The pull request tiers, the canary matrix and the
-   release gate all read it; the paths `pkg/vendors/<vendor>/**` and `test/e2e-<vendor>/**` are
-   already rules (`test/e2e-plan.sh`), and `test/e2e-plan-selftest.sh` checks the list names a
+2. **The vendor list**: one line in `test/e2e-vendors.txt`. The manual workflow's `vendors` input, the canary matrix and the
+   release gate all read it, and `test/e2e-plan-selftest.sh` checks the list names a
    `test/e2e-<vendor>/` directory.
 3. **The reusable workflow**: a credentials step in `e2e-cloud.yml` next to the AWS one
    (`if: inputs.vendor == '<vendor>'`, the vendor's own role action, its secret) and, in the
@@ -534,10 +513,9 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
 - **Environment `e2e`**: the secret `AWS_ROLE_ARN` (the CI role) and the variables
   `AWS_REGION`, `TS_OAUTH_CLIENT_ID` and `TS_AUDIENCE`, **required reviewers** (the
   maintainers who approve runs) with "Prevent self-review" off and administrators not allowed
-  to bypass them, and no branch restriction to `main`: pull request runs
-  are on `refs/pull/<n>/merge`, and the release gate's on the tag `refs/tags/v*`. A
-  deployment-branch policy, if any, must allow those refs (a `v*` tag policy and the
-  merge refs of pull requests), so the controls that matter are the reviewers, the fork
+  to bypass them, and no branch restriction to `main`: manual runs are on the branch or tag they are
+  dispatched on, and the release gate's on the tag `refs/tags/v*`. A
+  deployment-branch policy, if any, must allow those refs, so the controls that matter are the reviewers, the fork
   rule and the role's own limits. Self-review is allowed because the maintainers' own pull
   requests (and changes agents push under a maintainer's account) are approved by that
   maintainer; the reviewer still approves every run, and whoever approves reviews the diff
@@ -552,7 +530,7 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
   and the variable `AWS_REGION` (the lane's region); **no reviewers** (it runs every three
   hours and must not wait for an approval); deployments limited to `main`, so that a manual
   run from any other branch is refused (its code would hold the role without a review).
-- **Environment `release`** (existing): required reviewers for the publish.
+- **Environment `release`**: required reviewers for the publish.
 - **IAM**: the OIDC provider, the CI role (trust: the subjects of the `e2e` and the
   `e2e-sweeper` environments; the policy printed by `ci-policy.sh`; two-hour maximum session)
   and the canary role (trust: the `e2e-canary` environment's subject; the policy printed by

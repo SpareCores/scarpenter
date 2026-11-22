@@ -3,7 +3,7 @@
 # (the workflow's inputs do it for the minimum-Kubernetes run).
 #
 # THIS LANE IS NOT IN test/e2e-vendors.txt, ON PURPOSE. A line there puts Azure into the
-# pull request tiers, the nightly canary and the release gate, and may only be added when
+# manual L5 workflow, the nightly canary and the release gate, and may only be added when
 # every cost guard of docs/how-to-guides/testing-and-releasing.md#per-vendor-cost-guards
 # is true on a LIVE account. Nobody has verified them; the guards still to be verified
 # live are:

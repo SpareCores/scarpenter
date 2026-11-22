@@ -44,7 +44,7 @@ export E2E_CLUSTER=scarpenter-ci-1 E2E_RUN_ID=1 E2E_CREATED_AT=1800000000 E2E_AP
 export E2E_BYO_ZONE=ap-southeast-1a E2E_PG_ZONE=ap-southeast-1a
 t_render() {
   local out
-  out="$(NAME=probe1 POOL=pool1 TYPE=alicloud.ecs.e-c1m2.large CAPACITY=spot render "${here}/manifests/probe.yaml")"
+  out="$(NAME=probe1 POOL=pool1 TYPE=alicloud.ecs.u1-c1m2.large CAPACITY=spot render "${here}/manifests/probe.yaml")"
   grep -q 'name: probe1' <<<"${out}" && grep -q 'karpenter.sh/nodepool: pool1' <<<"${out}" && grep -q 'capacity-type: spot' <<<"${out}" &&
     ! grep -qF -e "\${" <<<"${out}"
 }
@@ -124,9 +124,9 @@ case "$1 $2" in
     echo '{"AccountAttributeItems":{"AccountAttributeItem":[{"AttributeName":"max-postpaid-instance-vcpu-count","AttributeValues":{"ValueItem":[{"Value":"16"}]}}]}}' ;;
   "ecs DescribeAvailableResource")
     echo '{"AvailableZones":{"AvailableZone":[
-      {"ZoneId":"ap-southeast-1b","AvailableResources":{"AvailableResource":[{"SupportedResources":{"SupportedResource":[{"Value":"ecs.g7.large","Status":"Available"}]}}]}},
-      {"ZoneId":"ap-southeast-1a","AvailableResources":{"AvailableResource":[{"SupportedResources":{"SupportedResource":[{"Value":"ecs.g7.large","Status":"Available"}]}}]}},
-      {"ZoneId":"ap-southeast-1c","AvailableResources":{"AvailableResource":[{"SupportedResources":{"SupportedResource":[{"Value":"ecs.g7.large","Status":"SoldOut"}]}}]}}]}}' ;;
+      {"ZoneId":"ap-southeast-1b","AvailableResources":{"AvailableResource":[{"SupportedResources":{"SupportedResource":[{"Value":"ecs.u1-c1m4.large","Status":"Available"}]}}]}},
+      {"ZoneId":"ap-southeast-1a","AvailableResources":{"AvailableResource":[{"SupportedResources":{"SupportedResource":[{"Value":"ecs.u1-c1m4.large","Status":"Available"}]}}]}},
+      {"ZoneId":"ap-southeast-1c","AvailableResources":{"AvailableResource":[{"SupportedResources":{"SupportedResource":[{"Value":"ecs.u1-c1m4.large","Status":"SoldOut"}]}}]}}]}}' ;;
   *) echo "unexpected aliyun call: $*" >&2; exit 1 ;;
 esac
 STUB
@@ -148,7 +148,7 @@ t_deployment_sets_match_whole_cluster() { # run 1 must not see the set of run 12
 }
 t_account_attr() { [[ "$(PATH="${tmp}/bin:${PATH}" account_attr max-postpaid-instance-vcpu-count)" == 16 ]]; }
 t_offered_zones() { # only the zones with stock, sorted
-  [[ "$(PATH="${tmp}/bin:${PATH}" offered_zones ecs.g7.large | paste -sd,)" == "ap-southeast-1a,ap-southeast-1b" ]]
+  [[ "$(PATH="${tmp}/bin:${PATH}" offered_zones ecs.u1-c1m4.large | paste -sd,)" == "ap-southeast-1a,ap-southeast-1b" ]]
 }
 t_tag_of() {
   local j='{"Tags":{"Tag":[{"TagKey":"a","TagValue":"1"},{"TagKey":"b/c","TagValue":"2"}]}}'
@@ -398,7 +398,7 @@ t_policy() {
     ([.Statement[] | select(.Effect == "Allow") | .Action | (if type == "array" then . else [.] end)[] | select(test("^ecs:(DescribeAccountAttributes|Describe\\*)$"))] | length) > 0 and
     ([.Statement[] | select(.Effect == "Allow") | .Action | (if type == "array" then . else [.] end)[]] | index("ecs:TagResources") != null)' "${p}" >/dev/null &&
     jq -e '.Statement[] | select(.Effect == "Deny") | .Action == "ecs:RunInstances" and .Resource == "*" and
-      (.Condition.StringNotEquals."ecs:InstanceType" | index("ecs.e-c1m2.large") != null and index("ecs.c8y.large") != null and index("ecs.g7.large") != null)' "${p}" >/dev/null &&
+      (.Condition.StringNotEquals."ecs:InstanceType" | index("ecs.u1-c1m2.large") != null and index("ecs.c8y.large") != null and index("ecs.u1-c1m4.large") != null)' "${p}" >/dev/null &&
     ! grep -q '"ecs:\*"\|"vpc:\*"\|"\*:\*"' "${p}"
 }
 t_policy_region() { # the region of a call is the one in the ARNs
@@ -412,6 +412,12 @@ t_policy_types() { # every type of the pins is allowed by the deny, so a type of
       { echo "the type ${t} is denied by the policy"; return 1; }
   done
 }
+t_ecs_error() { # a failing call ends the scenario with the CLI's message
+  local out
+  out="$(PATH="${tmp}/bin:${PATH}" bash -c "source '${here}/lib.sh'; ecs Bogus" 2>&1)" && return 1
+  [[ "${out}" == *"FAIL: aliyun ecs Bogus failed: unexpected aliyun call"* ]]
+}
+check "a failing ecs call prints a FAIL line with the CLI's error" t_ecs_error
 check "ci-policy.sh prints a RAM policy: tagged RunInstances in the region, the type deny, tagged mutations, reads" t_policy
 check "ci-policy.sh limits the ARNs to the region it is given" t_policy_region
 check "ci-policy.sh allows every type of defaults.sh" t_policy_types

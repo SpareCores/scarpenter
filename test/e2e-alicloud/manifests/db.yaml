@@ -2,9 +2,10 @@
 # deployment set. Both select the placement profile `colocated` and the same run key, the
 # database also the storage profile `db-essd` (a small cloud_essd PL1 volume mounted at
 # /var/lib/pgdata, which the Pod sees through a hostPath). The zone is pinned so that the
-# set's zone is deterministic. Both use the same on-demand type (the g7 family, expected to
-# take LowLatency sets: unverified), so the client's pod anti-affinity (as in 00a section
-# 8.2) keeps Karpenter from packing the two Pods onto one node.
+# set's zone is deterministic. Both use the same on-demand type (ecs.u1-c1m4.large; that the
+# u1 family takes LowLatency sets is unverified, Alibaba's docs list g7, g8i, g8a, g8y and others),
+# so the client's pod anti-affinity (as in 00a section 8.2) keeps Karpenter from packing the
+# two Pods onto one node.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
