@@ -127,7 +127,7 @@ func TestLeanOverheadBySize(t *testing.T) {
 		instanceMiB, estimateMiB, kube, system, eviction, allocMiB int64
 		measured                                                   int64 // allocatable of the real node, 0 if not measured
 	}{
-		{512, 448, 144, 96, 16, 192, 0},
+		{512, 448, 176, 128, 16, 128, 0},
 		{1024, 947, 192, 128, 50, 577, 581},
 		{2048, 1894, 192, 128, 50, 1524, 1587},
 		{4096, 3788, 192, 236, 50, 3310, 0},
@@ -150,8 +150,8 @@ func TestLeanOverheadBySize(t *testing.T) {
 			if alloc != tc.allocMiB {
 				t.Errorf("allocatable %dMi, want %dMi", alloc, tc.allocMiB)
 			}
-			if tc.estimateMiB == 448 && (alloc < 150 || alloc > 200) {
-				t.Errorf("a 0.5 GiB node leaves %dMi, want 150-200Mi", alloc)
+			if tc.estimateMiB == 448 && (alloc < 90 || alloc > 130) {
+				t.Errorf("a 0.5 GiB node leaves %dMi, want 90-130Mi", alloc)
 			}
 			if tc.measured > 0 && math.Abs(float64(alloc-tc.measured)) > 0.1*float64(tc.measured) {
 				t.Errorf("allocatable %dMi is not within 10%% of the measured %dMi", alloc, tc.measured)

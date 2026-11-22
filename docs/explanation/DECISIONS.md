@@ -917,7 +917,7 @@ drift hash does not read the catalog.
 **`spec.kubelet.footprint: Lean`** (`Standard` when unset) is a preset for single-purpose nodes, such as
 benchmark runners, that makes 1 GiB instance types usable: `maxPods` 10, `kubeReserved.memory` 192Mi,
 `systemReserved.memory` 128Mi, `evictionHard` `memory.available` 50Mi (these are the values for 1-2 GiB; below 768Mi of node
-memory they are 144Mi, 96Mi and 16Mi, so that a 0.5 GiB node leaves a benchmark about 190 MiB, and above 2 GiB
+memory they are 176Mi, 128Mi and 16Mi, so that a 0.5 GiB node leaves a benchmark 128 MiB and a kubepods limit of 144 MiB, and above 2 GiB
 `systemReserved` grows by 1/16 of the memory beyond 2 GiB, up to 256Mi more, so that a runaway Pod hits the kubepods limit
 before a global OOM; `LeanMemory` computes them for the catalog and the kubelet configuration), a kubelet that pulls images one at a time and
 keeps small container logs and few image records, and on the node `GOMEMLIMIT` and `GOGC` for the kubelet, containerd

@@ -323,8 +323,8 @@ you set overrides the preset's value, key by key, so a `kubeReserved` of
 | Setting | Lean | Standard |
 |---|---|---|
 | `maxPods` | 10 | 110 |
-| `kubeReserved.memory` | 192Mi (the kubelet and containerd); 144Mi below 768Mi of node memory | the formula above |
-| `systemReserved.memory` | 128Mi (systemd, journald, resolved, networkd, udevd, tailscaled); 96Mi below 768Mi of node memory; plus 1/16 of the node's memory above 2 GiB, at most 256Mi more | unset |
+| `kubeReserved.memory` | 192Mi (the kubelet and containerd); 176Mi below 768Mi of node memory | the formula above |
+| `systemReserved.memory` | 128Mi (systemd, journald, resolved, networkd, udevd, tailscaled); 128Mi below 768Mi of node memory; plus 1/16 of the node's memory above 2 GiB, at most 256Mi more | unset |
 | `evictionHard` | `memory.available` 50Mi (16Mi below 768Mi of node memory), and the kubelet's defaults for the others (`nodefs.available` 10%, `nodefs.inodesFree` 5%, `imagefs.available` 15%, `imagefs.inodesFree` 5%; the kubelet drops its defaults for every signal once `evictionHard` is set) | the kubelet's defaults (100Mi of memory) |
 | `serializeImagePulls` | `true` (one image pull at a time: less memory and page cache in containerd) | the kubelet's default (the same) |
 | `containerLogMaxSize`, `containerLogMaxFiles` | 5Mi, 2 | the kubelet's defaults (10Mi, 5) |
@@ -337,19 +337,21 @@ the node's):
 
 | Instance type | Node memory | kubeReserved | systemReserved | memory.available | Allocatable |
 |---|---|---|---|---|---|
-| 0.5 GiB | 448Mi | 144Mi | 96Mi | 16Mi | 192Mi |
+| 0.5 GiB | 448Mi | 176Mi | 128Mi | 16Mi | 128Mi |
 | 1 GiB | 947Mi | 192Mi | 128Mi | 50Mi | 577Mi |
 | 2 GiB | 1894Mi | 192Mi | 128Mi | 50Mi | 1524Mi |
 | 4 GiB | 3788Mi | 192Mi | 236Mi | 50Mi | 3310Mi |
 | 64 GiB | 60620Mi | 192Mi | 384Mi | 50Mi | 59994Mi |
 
-- Below 768Mi, the reservations are sized to what the node uses and cannot
-  give back, about 220-230 MiB with the daemons and the DaemonSet Pods, and the
-  threshold is low, because the kubelet counts active page cache as used and
-  would evict at 50Mi while the OS still has 186 MiB available. A Pod that requests
-  no memory gets about 190 MiB; the kubepods cgroup limit is the node's memory less
-  kubeReserved and systemReserved (208Mi), and a Pod that grows is ended by the
-  kernel's OOM killer.
+- Below 768Mi, the reservations are sized to what the kernel, kubelet, containerd and a
+  working page cache need, about 300 MiB of a 448Mi node, and the threshold is low,
+  because the kubelet counts active page cache as used and would evict at 50Mi while
+  the OS still has memory available. A Pod that requests no memory gets 128Mi (94Mi
+  with a 50Mi `evictionHard` override); the kubepods cgroup limit is the node's
+  memory less kubeReserved and systemReserved (144Mi; eviction is not subtracted),
+  and a Pod that grows is ended by the kernel's OOM killer. With less reserved, a
+  Pod near the limit thrashes the page cache, as there is no swap, and the node goes
+  NotReady without an OOM kill or an eviction.
 - From 768Mi to 2 GiB the values are fixed, as measured.
 - Above 2 GiB, systemReserved grows by 1/16 of the memory beyond 2 GiB, up to 256Mi
   more (at 6 GiB). The system, with slab and page cache, uses about 400 MiB on a

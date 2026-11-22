@@ -622,7 +622,7 @@ func TestKubeletConfigurationLeanBySize(t *testing.T) {
 		nodeMiB                          int64
 		kube, system, eviction, allocMiB int64
 	}{
-		{448, 144, 96, 16, 192},
+		{448, 176, 128, 16, 128},
 		{947, 192, 128, 50, 577},
 		{1894, 192, 128, 50, 1524},
 		{3788, 192, 236, 50, 3310},
@@ -651,8 +651,8 @@ func TestKubeletConfigurationLeanBySize(t *testing.T) {
 			}
 			if alloc := tc.nodeMiB - tc.kube - tc.system - tc.eviction; alloc != tc.allocMiB {
 				t.Errorf("allocatable %dMi, want %dMi", alloc, tc.allocMiB)
-			} else if tc.nodeMiB == 448 && (alloc < 150 || alloc > 200) {
-				t.Errorf("a 0.5 GiB node leaves %dMi, want 150-200Mi", alloc)
+			} else if tc.nodeMiB == 448 && (alloc < 90 || alloc > 130) {
+				t.Errorf("a 0.5 GiB node leaves %dMi, want 90-130Mi", alloc)
 			}
 		})
 	}
