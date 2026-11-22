@@ -141,6 +141,26 @@ view is in `quota`). A NodeClaim appears and the node joins within a few minutes
 in `kubectl describe nodeclaim` and `kubectl -n scarpenter-system logs deploy/scarpenter`; boot
 problems in the instance's console output in the ECS console. Delete the Pod and the node goes away.
 
+## GPU instances
+
+NVIDIA GPU types (`gn5`, `gn5i`, `gn6i`, `gn6v`, `gn6e`, `gn7i`, `gn8ia`, `gn8is`) need nothing in the NodeClass:
+the node loads Flatcar's NVIDIA driver and advertises `nvidia.com/gpu` (see
+[Run GPU workloads](run-gpu-workloads.md) and the
+[reference](../reference/alicloud-driver.md#gpu-instance-types) for the offered families). The vGPU families
+(`vgn*`, `sgn*`, `*-vws*`) are never offered. A NodePool that can launch GPU types lists the startup taint
+`scarpenter.sparecores.com/gpu-pending:NoSchedule`, and the account needs vCPU quota and stock for the type.
+
+**Mainland China regions.** The driver is built for the international regions; if you use a mainland region
+with a China-site account, Flatcar's release server, GitHub and `nvcr.io` may be slow or blocked from there
+(unverified). Mirror what the nodes and the chart fetch, inside the region:
+
+- the driver sysexts: build the tree with `hack/nvidia-mirror.sh` and set `nvidia.driverBaseURL`
+  (`--nvidia-driver-base-url`); Ignition then writes the driver image itself and the initrd downloads nothing;
+- the Kubernetes and runtime sysexts and the Flatcar files: `artifacts.sysextBaseURL` and
+  `artifacts.flatcarBaseURL`;
+- the device plugin image: `nvidia.devicePlugin.image.repository`, pointing at a registry you pull through
+  (for example Alibaba Cloud Container Registry).
+
 ## Limits
 
 - No China regions; regions Keeper does not list are never used.
@@ -149,7 +169,7 @@ problems in the instance's console output in the ECS console. Delete the Pod and
 - `metadataOptions.httpTokens` is `optional` only. Pods can reach the metadata service and the user
   data only if the NodeClass sets `spec.instanceMetadata.access: Open`: by default it is restricted to the
   node's own components ([instance metadata access](../reference/node-bootstrap.md#instance-metadata-access)).
-- No local-disk families (`i`, `d`), bare metal (`ebm`), `scc`, dedicated hosts, EIPs or NAT gateways;
+- No local-disk families (`i`, `d`), bare metal (`ebm`, `ebmgn` GPU servers too), `scc`, dedicated hosts, EIPs or NAT gateways;
   no billing retention; at most 15 `spec.tags`. More in the [reference](../reference/alicloud-driver.md#deferred).
 
 ## Troubleshooting

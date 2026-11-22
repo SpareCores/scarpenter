@@ -656,7 +656,7 @@ How it differs from the AWS lane:
 The RAM policy of the CI role is printed by `test/e2e-alicloud/ci-policy.sh <account UID> [region]` and the
 canary's by `canary-policy.sh`. `RunInstances` is allowed in the lane's region with the cluster tag
 (`scarpenter-ci-*`) on the request and denied for every instance type but the ones of `defaults.sh`
-(`ecs.u1-c1m2.large`, `ecs.u1-c1m4.large`, `ecs.c8y.large`, and `E2E_LOCAL_STORAGE_TYPE` if set; the pools of
+(`ecs.u1-c1m2.large`, `ecs.u1-c1m4.large`, `ecs.c8y.large`, the manual `gpu` scenario's `ecs.gn6i-c4g1.xlarge`, and `E2E_LOCAL_STORAGE_TYPE` if set; the pools of
 `test/e2e-alicloud/manifests/nodepools.yaml` name the same types, and a test keeps this page and them together);
 deleting or changing instances, security groups, vSwitches and VPCs needs the cluster tag on the resource; the
 reads are `Describe*`, `ListTagResources`, `ecs:DescribeAccountAttributes`, `vpc:Describe*` and the Quota Center
@@ -676,6 +676,7 @@ reads. The condition keys' exact use with `RunInstances` is unverified.
 | `image` | the instances booted the images found by name (ids and names, from `DescribeImages`) and the NodeClass status lists them |
 | `quota` | `scarpenter_quota_limit` equals `max-postpaid-` and `max-spot-instance-vcpu-count` of `DescribeAccountAttributes`; `scarpenter_quota_used` equals the used attributes and follows launch and release; the launched types are in `DescribeAvailableResource` of their zones |
 | `drift` | a change to a profile no node uses drifts nothing; a change to `vendors.alicloud.storage.root.size` replaces the node (new disk size, old instance released, the Pod moves), the controller is killed while the replacement is created (the replay is opportunistic, as on AWS) |
+| `gpu` | **manual only** (never in `all`, the smoke set, a gate or a schedule; run it by name, `scenarios=gpu`): one GPU type, `alicloud.ecs.gn6i-c4g1.xlarge` (1 T4) by default or the `gpu_instance_type` input, with its own NodeClass and NodePool (the gpu-pending startup taint) and the shared Pod of `test/gpu-pod.yaml`: `runtimeClassName: nvidia`, all the type's GPUs, `nvidia-smi` and CUDA's vectorAdd. The checks are those of the AWS lane's `gpu` scenario (`gpu_check_node` in `test/lib.sh`). It fails early when the pay-as-you-go vCPU quota cannot hold the type next to what runs; the per-family GPU limits of Quota Center are not read, so a refusal there shows as a launch error. The account needs GPU stock and quota in the region (unverified for `ap-southeast-1`), and the CI role must allow the type (`E2E_GPU_TYPE` is in the deny's list). It needs `nvidia.NodeBootstrap` to be true: until then no type offers `nvidia.com/gpu` and the run ends "never launched". It costs real money for the minutes the node runs and is not part of the plan's gates |
 | `scalezero` | every instance of the cluster is released within 2 minutes of the Pods' deletion (`E2E_SCALE_DOWN_DEADLINE`); no node, NodeClaim or token left; the quota usage falls |
 | `uninstall` | the procedure of [Uninstall](install.md#uninstall) on the live account: the NodePools, the NodeClasses (the managed groups and deployment sets go), `helm uninstall` |
 
