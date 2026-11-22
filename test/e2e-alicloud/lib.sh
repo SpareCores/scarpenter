@@ -50,7 +50,7 @@ read -r -d '' _redact_rules <<'SED' || true
 s#(authorization["']?[:=] *["']?)((bearer|basic|token) +)?[^ ,"']+#\1<redacted>#Ig
 s#(bearer +)[A-Za-z0-9._~+/=-]+#\1<redacted>#Ig
 s#((client-key|client-certificate|certificate-authority)-data: *)[A-Za-z0-9+/=]+#\1<redacted>#g
-s#(access_?key_?secret|security_?token|oidc_?token|secret_?access_?key|session_?token)(["']?[:= ]+["']?)[^ ,"'}]+#\1\2<redacted>#Ig
+s#(access_?key_?secret|security_?token|signature|oidc_?token|secret_?access_?key|session_?token)(["']?[:= ]+["']?)[^ ,"'}]+#\1\2<redacted>#Ig
 s#acs:[a-z]+::[0-9]+:[A-Za-z0-9_/.*-]+#<acs-arn>#g
 s#CAIS[A-Za-z0-9/+=_-]{40,}#<security-token>#g
 s/[0-9]{12,20}/<account>/g
@@ -194,8 +194,23 @@ ali_login() {
 # environment (ali_login); the output is JSON (the CLI's default). The CLI refuses to run
 # without a region of its own profile ("region can't be empty"), whatever --RegionId says:
 # ALIBABA_CLOUD_REGION_ID is that region from the environment.
-ecs() { ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun ecs "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
-vpc() { ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun vpc "$1" --RegionId "${ALICLOUD_REGION}" "${@:2}"; }
+ecs() { aliyun_call ecs "$@"; }
+vpc() { aliyun_call vpc "$@"; }
+
+# aliyun_call <product> <Action> [flags]: a failed call prints the CLI's own error (its
+# stderr and stdout, through redact: a SignatureDoesNotMatch error can echo the signed request) and
+# fails the running scenario as a FAIL line instead of ending it silently under set -e.
+aliyun_call() {
+  local out errfile
+  errfile="$(mktemp)"
+  if ! out="$(ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun "$1" "$2" --RegionId "${ALICLOUD_REGION}" "${@:3}" 2>"${errfile}")"; then
+    out="$(cat "${errfile}")${out}"
+    rm -f "${errfile}"
+    fail "aliyun $1 $2 failed: $(redact <<<"${out}")"
+  fi
+  rm -f "${errfile}"
+  printf '%s\n' "${out}"
+}
 
 # The cluster's tag as the CLI's filter flags.
 cluster_tag_args() { printf '%s\n' --Tag.1.Key "${ctag}" --Tag.1.Value "${E2E_CLUSTER}"; }

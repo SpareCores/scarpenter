@@ -23,15 +23,16 @@
 source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # Instance types the suite launches (ecs.<family>.<size>, with the vendor prefix); the
 # role's instance type deny must allow them. Availability per zone is unverified.
-#   amd64 on-demand: ecs.e-c1m2.large (2 vCPU, 4 GiB, shared)
-#   arm64 spot:      ecs.c8y.large (2 vCPU, 4 GiB, Yitian)
-#   placement:       ecs.g7.large, a family LowLatency deployment sets are expected to take
-#                    (unverified: the small types may not support the strategy)
-: "${E2E_TYPE_AMD64:=alicloud.ecs.e-c1m2.large}"
+#   amd64 on-demand: ecs.u1-c1m2.large (2 vCPU, 4 GiB; on-demand in ap-southeast-1a/b/c)
+#   arm64 spot:      ecs.c8y.large (2 vCPU, 4 GiB, Yitian; spot in ap-southeast-1b only)
+#   placement:       ecs.u1-c1m4.large (2 vCPU, 8 GiB; on-demand in ap-southeast-1a/b/c), the
+#                    type of the deployment-set scenarios
+#   Active types per Keeper data; the e-c1m* and g7 types have no price or no stock here.
+: "${E2E_TYPE_AMD64:=alicloud.ecs.u1-c1m2.large}"
 : "${E2E_TYPE_ARM64:=alicloud.ecs.c8y.large}"
-: "${E2E_TYPE_DB:=alicloud.ecs.g7.large}"
+: "${E2E_TYPE_DB:=alicloud.ecs.u1-c1m4.large}"
 # The types the described-not-named scenario may pick from (small to large).
-: "${E2E_TYPES_DESCRIBED:=alicloud.ecs.e-c1m2.large,alicloud.ecs.e-c1m4.large}"
+: "${E2E_TYPES_DESCRIBED:=alicloud.ecs.u1-c1m2.large,alicloud.ecs.u1-c1m4.large}"
 # How long a node may take from its Pod to Running, and the exit criterion for
 # scale to zero (seconds from the Pod's deletion to every instance gone).
 : "${E2E_NODE_TIMEOUT:=720}"

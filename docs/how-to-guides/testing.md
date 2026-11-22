@@ -616,8 +616,8 @@ diagnostics, the no-leftover check). **It was written and validated statically a
 account**: the pins, the cloud facts and the assertions marked "unverified" in the scripts are settled by the
 first run, which the coordinator triggers. The pins are in `test/e2e-alicloud/defaults.sh`: the region
 `ALICLOUD_REGION` (`ap-southeast-1`; the zone IDs equal the zone names, `ap-southeast-1a`), the types
-`ecs.e-c1m2.large` (amd64, on-demand), `ecs.c8y.large` (arm64, spot) and `ecs.g7.large` (the deployment-set
-scenario), `ecs.e-c1m4.large` for the described scenario, the Flatcar release, and `E2E_SMOKE_SCENARIOS`
+`ecs.u1-c1m2.large` (amd64, on-demand), `ecs.c8y.large` (arm64, spot) and `ecs.u1-c1m4.large` (the deployment-set
+scenario, and with `ecs.u1-c1m2.large` the described scenario), the Flatcar release, and `E2E_SMOKE_SCENARIOS`
 (`amd64,scalezero`).
 
 How it differs from the AWS lane:
@@ -654,7 +654,7 @@ How it differs from the AWS lane:
 The RAM policy of the CI role is printed by `test/e2e-alicloud/ci-policy.sh <account UID> [region]` and the
 canary's by `canary-policy.sh`. `RunInstances` is allowed in the lane's region with the cluster tag
 (`scarpenter-ci-*`) on the request and denied for every instance type but the ones of `defaults.sh`
-(`ecs.e-c1m2.large`, `ecs.e-c1m4.large`, `ecs.c8y.large`, `ecs.g7.large`, and `E2E_LOCAL_STORAGE_TYPE` if set; the pools of
+(`ecs.u1-c1m2.large`, `ecs.u1-c1m4.large`, `ecs.c8y.large`, and `E2E_LOCAL_STORAGE_TYPE` if set; the pools of
 `test/e2e-alicloud/manifests/nodepools.yaml` name the same types, and a test keeps this page and them together);
 deleting or changing instances, security groups, vSwitches and VPCs needs the cluster tag on the resource; the
 reads are `Describe*`, `ListTagResources`, `ecs:DescribeAccountAttributes`, `vpc:Describe*` and the Quota Center
@@ -663,7 +663,7 @@ reads. The condition keys' exact use with `RunInstances` is unverified.
 | Scenario | Proves |
 |---|---|
 | preflight | the Flatcar images exist by name and tags (exactly one per architecture, `ImdsSupport` v1 when reported); the vCPU quotas suffice (16, 4); the four NodeClasses are `Ready`, `VendorReady` and `ImagesReady` |
-| `amd64` | on-demand `ecs.e-c1m2.large`: Node Ready, Pod, `kubectl logs` and `exec`, the labels (the zone ID equals the zone name); the instance's tags and name (`DescribeInstances`), the metadata options (`DescribeInstanceAttribute`: `HttpTokens` stays `optional`, because Ignition's aliyun provider reads the user-data without a token), the system disk (cloud_essd PL0, 40 GiB, deleted with the instance); the bootstrap token is gone, the serving CSR approved, the L4 unit checks on the node; **the Ignition check**: `PLATFORM_ID=aliyun` and Ignition's aliyun provider fetched the user-data (the node's journal) |
+| `amd64` | on-demand `ecs.u1-c1m2.large`: Node Ready, Pod, `kubectl logs` and `exec`, the labels (the zone ID equals the zone name); the instance's tags and name (`DescribeInstances`), the metadata options (`DescribeInstanceAttribute`: `HttpTokens` stays `optional`, because Ignition's aliyun provider reads the user-data without a token), the system disk (cloud_essd PL0, 40 GiB, deleted with the instance); the bootstrap token is gone, the serving CSR approved, the L4 unit checks on the node; **the Ignition check**: `PLATFORM_ID=aliyun` and Ignition's aliyun provider fetched the user-data (the node's journal) |
 | `arm64` | spot `ecs.c8y.large`: the same on arm64, the instance's image is an arm64 image |
 | `spot` | `SpotStrategy=SpotAsPriceGo`, still running, a price annotation, the spot vCPUs counted |
 | `imds` | the gap of plan 21 section 5, closed: a Pod reads neither the instance ID nor the user-data at `100.100.100.200` on the default NodeClass (`instanceMetadata` unset) nor on a second one with `instanceMetadata: {access: Restricted}` spelled out; a host-network Pod reads nothing either, while a process in the allowed slice does |

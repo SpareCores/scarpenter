@@ -384,7 +384,7 @@ unverified, so the operator checks the type deny bites and the budget alert fire
 | Every resource carries a run tag, so cost and leftovers are attributable | `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` | the same tag and `ci-created-at`; a deployment set takes no tags, so its description carries the cluster |
 | A sweeper that deletes what a dead run left behind, by tag and age | `e2e-aws-sweeper.yml`, every three hours, environment `e2e-sweeper` | `e2e-alicloud-sweeper.yml`, every three hours, environment `e2e-sweeper` |
 | A run time limit | 90 minutes for the job (60 for a smoke), 55 (25) for the scenarios step; the teardown always runs | the same limits |
-| Small, cheap types; spot where the vendor has it | `t3a.small`, `t4g.small` (spot), `r6a.large` for the placement-group scenario | `ecs.e-c1m2.large`, `ecs.c8y.large` (spot), `ecs.g7.large` for the deployment-set scenario |
+| Small, cheap types; spot where the vendor has it | `t3a.small`, `t4g.small` (spot), `r6a.large` for the placement-group scenario | `ecs.u1-c1m2.large`, `ecs.c8y.large` (spot), `ecs.u1-c1m4.large` for the deployment-set scenario |
 | A teardown that fails the job when anything tagged remains | `teardown.sh` | `teardown.sh` (instances, disks, network interfaces, groups, deployment sets, vSwitches, VPCs) |
 | A quota that bounds the damage of a bug | the vCPU quotas of the account (16 on-demand, 4 spot needed) are the ceiling | the vCPU quotas of the account (16 pay-as-you-go, 4 spot needed) are the ceiling |
 | A read-only role for the canary | `canary-policy.sh`, a role of its own, environment `e2e-canary` | `canary-policy.sh`, a role of its own, environment `e2e-canary` |

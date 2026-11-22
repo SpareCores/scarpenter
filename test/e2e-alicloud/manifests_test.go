@@ -73,11 +73,11 @@ var sample = map[string]string{
 	"E2E_CREATED_AT": "1800000000", "E2E_API_HOST": "100.64.0.1",
 	"E2E_K3S_VERSION": "v1.37.2+k3s1", "E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10",
 	"E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
-	"E2E_TYPE_AMD64": "alicloud.ecs.e-c1m2.large", "E2E_TYPE_ARM64": "alicloud.ecs.c8y.large", "E2E_TYPE_DB": "alicloud.ecs.g7.large",
-	"E2E_TYPES_DESCRIBED_YAML": `"alicloud.ecs.e-c1m2.large", "alicloud.ecs.e-c1m4.large"`,
+	"E2E_TYPE_AMD64": "alicloud.ecs.u1-c1m2.large", "E2E_TYPE_ARM64": "alicloud.ecs.c8y.large", "E2E_TYPE_DB": "alicloud.ecs.u1-c1m4.large",
+	"E2E_TYPES_DESCRIBED_YAML": `"alicloud.ecs.u1-c1m2.large", "alicloud.ecs.u1-c1m4.large"`,
 	"E2E_TAG_RUNNER":           "tag:scarpenter-ci", "E2E_TAG_NODE": "tag:scarpenter-ci-node",
 	"E2E_PG_ZONE": "ap-southeast-1a", "E2E_BYO_ZONE": "ap-southeast-1a",
-	"NAME": "e2e-amd64", "POOL": "e2e-amd64", "TYPE": "alicloud.ecs.e-c1m2.large", "CAPACITY": "on-demand",
+	"NAME": "e2e-amd64", "POOL": "e2e-amd64", "TYPE": "alicloud.ecs.u1-c1m2.large", "CAPACITY": "on-demand",
 	"NODE": "ip-node-1", "PODNAME": "nodeshell-ip-node-1",
 }
 
