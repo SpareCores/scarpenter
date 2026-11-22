@@ -174,8 +174,9 @@ jobs:
 
   images:
     needs: [verify, e2e]
-    # A skipped gate (no real instances) passes; a failed or cancelled one does not.
-    if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.e2e.result) }}
+    # A skipped gate (no real instances) must not skip the jobs behind it: success() would, so the
+    # condition is spelled out. A failed or rejected gate or verify still blocks (failure()).
+    if: ${{ !cancelled() && !failure() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: release
@@ -271,6 +272,7 @@ jobs:
 
   chart:
     needs: [verify, images]
+    if: ${{ !cancelled() && !failure() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -355,6 +357,7 @@ jobs:
 
   release:
     needs: [verify, images, chart, schema]
+    if: ${{ !cancelled() && !failure() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

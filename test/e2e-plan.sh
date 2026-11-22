@@ -11,7 +11,7 @@
 #   test/e2e-plan.sh dispatch <vendors> <mode> [gpu_type] [cvm_type] [env]
 #       vendors  all, or a comma separated list of vendors (aws,oci)
 #       mode     smoke, full, or a comma separated list of scenarios (gpu; amd64,drift)
-#       gpu_type, cvm_type   instance types for the gpu and cvm scenarios (E2E_TYPE_GPU, E2E_TYPE_CVM)
+#       gpu_type, cvm_type   instance types for the gpu and cvm scenarios (E2E_GPU_TYPE, E2E_TYPE_CVM)
 #       env      KEY=VALUE pairs, comma separated: more overrides of the lane's defaults
 #       Also prints env_overrides=KEY=VALUE,KEY=VALUE (every override, for the lane).
 #   test/e2e-plan.sh release [none|full|smoke]   the release gate (RELEASE_E2E_MODE): every vendor
@@ -80,7 +80,10 @@ cmd_dispatch() {
       mode=full
       ;;
   esac
-  [[ -z "${gpu}" ]] || overrides+=("E2E_TYPE_GPU=${gpu}")
+  if [[ -n "${gpu}${cvm}" ]]; then
+    [[ "${vendors}" != all && "${vendors}" != *,* ]] || die "gpu_instance_type and cvm_instance_type need exactly one vendor (the types carry the vendor's prefix)"
+  fi
+  [[ -z "${gpu}" ]] || overrides+=("E2E_GPU_TYPE=${gpu}")
   [[ -z "${cvm}" ]] || overrides+=("E2E_TYPE_CVM=${cvm}")
   if [[ -n "${extra}" ]]; then
     for pair in ${extra//,/ }; do

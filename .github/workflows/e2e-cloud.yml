@@ -78,7 +78,7 @@ on:
         default: ""
         type: string
       env_overrides:
-        description: "KEY=VALUE pairs, comma separated, set in the environment of the lane (E2E_TYPE_GPU=...): keys E2E_*, values of a safe alphabet"
+        description: "KEY=VALUE pairs, comma separated, set in the environment of the lane (E2E_GPU_TYPE=...): keys E2E_*, values of a safe alphabet"
         required: false
         default: ""
         type: string

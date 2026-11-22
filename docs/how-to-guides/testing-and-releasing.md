@@ -47,7 +47,7 @@ have the cost guards below before it is added to the list.
 | `e2e-canary.yml` | nightly, manual | none: read-only credentials, a guard that refuses writes |
 | `e2e-<vendor>-sweeper.yml` | every three hours, manual | none: only deletes leftovers of dead runs |
 | `e2e.yml` (L5) | **manual only** | yes: the only one |
-| `e2e-cloud.yml` (the lane) | called by `e2e.yml` only | yes |
+| `e2e-cloud.yml` (the lane) | called by `e2e.yml` and `release.yml` | yes |
 
 The check **`e2e-result`** is a job of `ci.yml` that always succeeds and says no L5 runs for a
 pull request. It exists so that a ruleset that still requires `e2e-result` keeps passing;
@@ -76,7 +76,7 @@ summary shows the commit that will run.
 |---|---|---|
 | `vendors` | `all`, or a comma separated list of the lines of `test/e2e-vendors.txt`: `aws`, `aws,oci` | `all` |
 | `mode` | `smoke`, `full`, or a comma separated list of scenarios (`gpu`, `cvm`, `amd64,drift`; a list is a full-limit run of just those scenarios) | `smoke` |
-| `gpu_instance_type` | the instance type of the `gpu` scenario (`E2E_TYPE_GPU`), with the vendor prefix | the lane's default |
+| `gpu_instance_type` | the instance type of the `gpu` scenario (`E2E_GPU_TYPE`), with the vendor prefix | the lane's default |
 | `cvm_instance_type` | the instance type of the `cvm` scenario (`E2E_TYPE_CVM`), with the vendor prefix | the lane's default |
 | `env` | more overrides of the lane's `defaults.sh`: comma separated `E2E_KEY=VALUE` | none |
 | `pr` | a pull request number: test its head commit | the dispatch ref |
@@ -88,7 +88,7 @@ summary shows the commit that will run.
 vendor's job checks out that exact SHA (a push after the dispatch changes nothing). The
 workflow files themselves come from the dispatch ref. The type inputs carry a vendor prefix
 (`oci.VM.GPU.A10.1`), so give them with one vendor; they and `env` are plain environment
-variables of the lane that the vendor's `defaults.sh` reads (`: "${E2E_TYPE_GPU:=...}"`).
+variables of the lane that the vendor's `defaults.sh` reads (`: "${E2E_GPU_TYPE:=...}"`).
 `env` keys must match `E2E_[A-Z0-9_]+` and not be one the workflow sets itself
 (`E2E_VENDOR`, `E2E_MODE`, `E2E_SCENARIOS`, `E2E_FAIL_FAST`, `E2E_CLUSTER`, `E2E_RUN_ID`,
 `E2E_CREATED_AT`, `E2E_OUT`, `E2E_PREPARED`); values are letters, digits and `._:/+-`.
@@ -139,9 +139,9 @@ a cloud instance:
   pull requests), and `e2e-cloud.yml` only runs for `github.repository == 'SpareCores/scarpenter'`.
   A fork that enables Actions has no environment, secrets or role of this repository.
 - **The cloud credentials sit in the environment `e2e`**, whose required reviewers approve
-  every job that reads them. `e2e-cloud.yml` is the only workflow that names the environment.
+  every job that reads them. `e2e-cloud.yml` names the environment `e2e`, and so does `refresh-sc-snapshot.yml`, which is manual only.
 - **A reusable workflow can be called only by a workflow of this repository** (`uses:
-  ./.github/workflows/e2e-cloud.yml`): a fork's workflow cannot call it, and since this change
+  ./.github/workflows/e2e-cloud.yml`): a fork's workflow cannot call it, and
   no workflow with an automatic trigger calls it (the release gate does, on a tag pushed by a maintainer, only when `RELEASE_E2E_MODE` is `smoke` or `full`).
 - **A pull request that edits a workflow.** For a same-repository branch, `pull_request` runs
   the pull request's version of the workflow files, so its author (who has write access) could
@@ -162,7 +162,7 @@ Repository settings the owner applies (this repository cannot set them):
    pull-request-branch workflow from reading the secrets; it is possible because manual runs
    pick the code with `pr` or `sha` while the workflow itself is dispatched on `main`. Without it,
    the reviewers are the only guard.
-2. The environments `e2e-canary` (read-only) and `e2e-sweeper` (limited to `main`) as before.
+2. The environments `e2e-canary` (read-only) and `e2e-sweeper` (limited to `main`).
 3. Actions, General: "Require approval for all outside collaborators" for fork pull request
    workflows, and "Send write tokens to workflows from pull requests" off.
 4. The ruleset on `main`: remove the required check `e2e-result` (the `ci.yml` job is a
@@ -530,7 +530,7 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
   and the variable `AWS_REGION` (the lane's region); **no reviewers** (it runs every three
   hours and must not wait for an approval); deployments limited to `main`, so that a manual
   run from any other branch is refused (its code would hold the role without a review).
-- **Environment `release`** (existing): required reviewers for the publish.
+- **Environment `release`**: required reviewers for the publish.
 - **IAM**: the OIDC provider, the CI role (trust: the subjects of the `e2e` and the
   `e2e-sweeper` environments; the policy printed by `ci-policy.sh`; two-hour maximum session)
   and the canary role (trust: the `e2e-canary` environment's subject; the policy printed by

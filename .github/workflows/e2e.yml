@@ -26,7 +26,7 @@ on:
         default: smoke
         type: string
       gpu_instance_type:
-        description: "Instance type of the gpu scenario, with the vendor prefix (E2E_TYPE_GPU); empty: the vendor's default. Use with one vendor"
+        description: "Instance type of the gpu scenario, with the vendor prefix (E2E_GPU_TYPE); empty: the vendor's default. Use with one vendor"
         default: ""
         type: string
       cvm_instance_type:
@@ -130,7 +130,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     uses: ./.github/workflows/e2e-cloud.yml
-    secrets: inherit # the environment secrets of the called job's environment (e2e) reach it only so
+    secrets: inherit # the environment secrets of the called job's environment (e2e) reach it only so far as that job names it
     with:
       vendor: ${{ matrix.vendor }}
       mode: ${{ matrix.mode }}
