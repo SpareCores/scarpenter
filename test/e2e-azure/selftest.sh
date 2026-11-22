@@ -69,7 +69,7 @@ check "render fills every variable" t_render
 check_fails "render refuses an unset variable" t_render_unset
 check "render leaves other dollar signs alone" t_render_keeps_other_dollars
 check "the created-at tag is rendered as RFC 3339" t_created_at
-for f in nodeclass-amd64 nodeclass-arm64 nodeclass-drift nodeclass-negative nodepools nodepool-negative; do
+for f in nodeclass-amd64 nodeclass-arm64 nodeclass-drift nodeclass-negative nodeclass-gpu nodepools nodepool-negative nodepool-gpu; do
   check "render ${f}" render "${here}/manifests/${f}.yaml"
 done
 t_render_use() {
@@ -338,6 +338,18 @@ t_scenarios_defined() {
     }
   done
 }
+t_manual_scenarios() { # the manual scenarios have functions, are named by the workflow, and are in neither "all" nor the smoke set
+  local all manual n
+  all="$(sed -n 's/^all_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  manual="$(sed -n 's/^manual_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  [[ -n "${manual}" ]]
+  for n in ${manual}; do
+    grep -q "^scn_${n}() {" "${here}/scenarios.sh" || { echo "no function scn_${n}"; return 1; }
+    grep -q "${n}" "${root}/.github/workflows/e2e.yml" || { echo "the workflow's scenarios input does not name ${n}"; return 1; }
+    [[ " ${all} " != *" ${n} "* ]] || { echo "${n} is in all_scenarios"; return 1; }
+    [[ ",${E2E_SMOKE_SCENARIOS}," != *",${n},"* ]] || { echo "${n} is in the smoke set"; return 1; }
+  done
+}
 t_pins_pinned() { # every action of the L5 workflows is pinned by a full commit SHA (a local reusable workflow has no pin)
   local w="${root}/.github/workflows" f files=()
   for f in e2e.yml e2e-cloud.yml e2e-canary.yml e2e-aws-sweeper.yml e2e-azure-sweeper.yml release.yml; do
@@ -383,6 +395,7 @@ t_no_secrets_in_scripts() { # nothing that looks like a real subscription ID, a 
     grep -vE 'selftest.sh|00000000-0000-0000-0000-00000000000[0-9]|12345678-1234-1234-|policyDefinitions/(cccc23c7|e56962a6)-'  # the two built-in policy definitions are public
 }
 check "every scenario has a function and is named by the workflow" t_scenarios_defined
+check "the manual scenarios are outside all and the smoke set" t_manual_scenarios
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
 check "the workflows have the Azure steps: federated login, variables, token renewal, teardown login" t_workflows_azure
@@ -404,7 +417,7 @@ t_policy() {
       ([.roleDefinitions[].AssignableScopes[]] | all(. == "/subscriptions/\($sub)"))' "${p}" >/dev/null &&
     jq -e '.policyAssignments[] | select(.displayName == "Allowed virtual machine size SKUs")
       | .policyDefinitionId == "/providers/Microsoft.Authorization/policyDefinitions/cccc23c7-8427-4f53-ad12-b6a63eb452b3"
-        and (.parameters.listOfAllowedSKUs.value | sort) == ["Standard_B2as_v2", "Standard_B2ats_v2", "Standard_B2pts_v2", "Standard_D2as_v5"]' "${p}" >/dev/null &&
+        and (.parameters.listOfAllowedSKUs.value | sort) == ["Standard_B2as_v2", "Standard_B2ats_v2", "Standard_B2pts_v2", "Standard_D2as_v5", "Standard_NC4as_T4_v3"]' "${p}" >/dev/null &&
     jq -e '.policyAssignments[] | select(.displayName == "Allowed locations")
       | .parameters.listOfAllowedLocations.value == ["centralus"]' "${p}" >/dev/null &&
     # the lane role writes only compute, network, and reads resources and the activity log; the reads role only reads

@@ -940,6 +940,10 @@ the background for the controller. **The lane is not in `test/e2e-vendors.txt`**
 cost guard (an Allowed-SKU and an Allowed-locations policy on the lane's resource group, the tags, the sweeper, the
 quota ceiling and a budget alert, the read-only canary role) is true on a live account, and nobody has verified that yet
 (see [Azure](testing-and-releasing.md#azure)); the lane's selftest checks that the line is absent.
+The manual `gpu` scenario (never in `all` or the smoke set; `scenarios=gpu`) launches `azure.Standard_NC4as_T4_v3` or the
+`gpu_instance_type` input, with the same Pod and checks as the AWS one (its table row above); it first checks that the size is offered
+without restriction with a SCSI controller and that the subscription's quota of the size's family holds it (a new
+subscription has 0), and the size policy of `ci-policy.sh` allows it. It needs `nvidia.NodeBootstrap` to be true.
 Nothing in the lane has run against Azure.
 
 ### The L5 lane on Google Cloud
