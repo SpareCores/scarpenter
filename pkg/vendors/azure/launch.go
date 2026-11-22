@@ -388,6 +388,7 @@ func (l LaunchSpec) VM(nicID string) armcompute.VirtualMachine {
 		// Confidential VM with secure boot and a vTPM; the guest state is encrypted
 		// with the platform key (the image supports no other mode).
 		props.StorageProfile.ImageReference = &armcompute.ImageReference{CommunityGalleryImageID: new(l.CommunityImage)}
+		osDisk.DiskSizeGB = new(max(root.DiskSizeGB, confidentialImageDiskGB))
 		osDisk.ManagedDisk.SecurityProfile = &armcompute.VMDiskSecurityProfile{
 			SecurityEncryptionType: new(armcompute.SecurityEncryptionTypesVMGuestStateOnly),
 		}

@@ -70,6 +70,7 @@ func TestConfidentialVMBody(t *testing.T) {
 		require.True(t, *p.SecurityProfile.UefiSettings.VTpmEnabled)
 		require.Equal(t, armcompute.SecurityEncryptionTypesVMGuestStateOnly,
 			*p.StorageProfile.OSDisk.ManagedDisk.SecurityProfile.SecurityEncryptionType)
+		require.GreaterOrEqual(t, *p.StorageProfile.OSDisk.DiskSizeGB, int32(confidentialImageDiskGB), "%s: the OS disk holds the image", size)
 		require.False(t, *l.NIC("").Properties.EnableAcceleratedNetworking, "%s: accelerated networking is off", size)
 		require.NotEmpty(t, *p.OSProfile.CustomData, "Ignition is the custom data")
 		require.Nil(t, l.VM("/nic").Plan)
