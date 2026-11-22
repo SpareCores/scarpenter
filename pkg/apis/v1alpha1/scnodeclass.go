@@ -438,13 +438,13 @@ const (
 // configuration both call it (KubeletSpec.EffectiveFor), so the node's
 // allocatable equals what the scheduler assumed.
 //
-//   - Below 768 MiB (a 0.5 GiB instance type, estimated at 448 MiB): 144 + 96 MiB
-//     reserved and 16 MiB eviction. The node's non-reclaimable use is about
-//     220-230 MiB with the daemons and DaemonSet Pods, so a Pod that requests
-//     nothing gets 192 MiB of allocatable and the kubepods cgroup limit is
-//     208 MiB; the kernel's OOM killer ends a runaway Pod, which has the
-//     highest oom_score_adj, before the kubelet's eviction does. The 50 MiB
-//     eviction threshold evicted it at 45 MiB, while 186 MiB were available.
+//   - Below 768 MiB (a 0.5 GiB instance type, estimated at 448 MiB): 176 + 128 MiB
+//     reserved and 16 MiB eviction. The kernel, kubelet, containerd and a
+//     working page cache need about 300 MiB of a 448 MiB node, so a Pod that
+//     requests nothing gets 128 MiB of allocatable and the kubepods cgroup
+//     limit is 144 MiB (the eviction threshold is not subtracted from it). With
+//     less reserved, a Pod near the limit thrashed the page cache, with no
+//     swap, and the node went NotReady without an OOM kill or an eviction.
 //   - 768 MiB to 2 GiB: 192 + 128 MiB and 50 MiB, as measured on 1 and 2 GiB.
 //   - Above 2 GiB: the system reservation grows by 1/16 of the memory beyond
 //     2 GiB, at most 256 MiB (reached at 6 GiB). The system, with its slab and
@@ -454,7 +454,7 @@ const (
 func LeanMemory(nodeMiB int64) (kube, system, eviction int64) {
 	switch {
 	case nodeMiB > 0 && nodeMiB < leanSmallBelowMiB:
-		return 144, 96, 16
+		return 176, 128, 16
 	case nodeMiB > leanGrowAboveMiB:
 		grow := min((nodeMiB-leanGrowAboveMiB)/16, leanGrowMaxMiB)
 		return LeanKubeReservedMiB, LeanSystemReservedMiB + grow, LeanEvictionMiB
