@@ -66,7 +66,8 @@ state when it exists and otherwise checks the cluster-wide criterion (no instanc
 node, NodeClaim or token left), so neither depends on a scenario that is not in
 the set. **Full** is every scenario of the lane (AWS: `amd64 arm64 db described byo
 local negative quota drift scalezero uninstall`; `local` only with a
-`local_storage_type`).
+`local_storage_type`). The manual `gpu` scenario is in no mode: it runs only when named
+in `scenarios` (optionally with `gpu_instance_type`), by hand.
 
 ## What triggers what
 

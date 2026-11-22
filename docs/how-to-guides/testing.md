@@ -355,12 +355,13 @@ gh workflow run e2e.yml -f vendor=aws -f scenarios=amd64,arm64         # a subse
 gh workflow run e2e.yml -f vendor=aws -f fail_fast=false               # run every scenario despite failures
 ```
 
-Inputs of `e2e.yml`: `vendor`, `mode`, `scenarios` (names below, comma separated) and
-`fail_fast` (default `true`, see below). `e2e-cloud.yml` also takes `k3s_version` and
+Inputs of `e2e.yml`: `vendor`, `mode`, `scenarios` (names below, comma separated),
+`fail_fast` (default `true`, see below) and `gpu_instance_type`. `e2e-cloud.yml` also takes `k3s_version` and
 `kubernetes_version` (the pins of `test/e2e-aws/defaults.sh`; together they run the
 lane at another Kubernetes version, for example the chart's minimum, 1.31: the
 kubelet sysext must exist in the sysext-bakery for the version and be at most the
-API server's) and `local_storage_type` (enables the optional local-storage scenario); it
+API server's), `local_storage_type` (enables the optional local-storage scenario) and
+`gpu_instance_type` (the type of the manual `gpu` scenario, with the vendor prefix; `e2e.yml` takes it too); it
 cannot be dispatched by itself, so a minimum-version run is a one-off workflow change that
 calls it with them.
 The check that the dry run [below](#without-aws) cannot make, is the run itself.
@@ -436,6 +437,7 @@ a Pod's environment. `selftest.sh` tests the redaction.
 | `described` | a Deployment that selects by `vcpus`, `memory-mib` ranges and a `metric-single-core-pct` threshold within the allowed test types gets a type that satisfies all of them (checked against EC2's vCPUs of the type) |
 | `byo` | a security group and a subnet that the workflow creates with the AWS CLI (tagged with the cluster and the run's creation time) are `use`d by a second NodeClass: the node launches into them, and after the workload, the NodePool and the NodeClass are gone SCarpenter has not deleted them (the teardown does) |
 | `local` | optional (`local_storage_type`): a type with instance-store disks gets them striped and mounted at the profile's path |
+| `gpu` | **manual only** (never in `all`, the smoke set, a gate or a schedule; run it by name, `scenarios=gpu`): one GPU type, `aws.g4dn.xlarge` by default or the `gpu_instance_type` input, with its own NodeClass and NodePool (the gpu-pending startup taint) and a Pod with `runtimeClassName: nvidia` that requests all the type's GPUs and runs `nvidia-smi` and CUDA's vectorAdd. It checks the node's driver labels against the table (`test/gpu-expect`), `nvidia.com/gpu` in capacity and allocatable, the lifted taint, every GPU and the labelled driver version in the Pod's log and `Test PASSED`, and records the time to `Ready`. The account needs the G (or P) on-demand vCPU quota for the type (a new account has 0) and the CI role must allow the type (`E2E_GPU_TYPE` is in the deny's list). It needs `nvidia.NodeBootstrap` to be true: until then no type offers `nvidia.com/gpu` and the run ends "never launched". It costs real money for the minutes the node runs and is not part of the plan's gates |
 | `negative` | `publicIPv4: false` is refused on the default VPC (`VendorReady=False`, reason `ValidationFailed`), `publicIPv6: true` skips the subnets of a default VPC without IPv6 (ADR-022: the status lists no `default` subnet and the region stays ready, the managed network would be created at the first launch); no instance is launched |
 | `quota` | the limits SCarpenter reports (`scarpenter_quota_limit`) equal `aws service-quotas get-service-quota` for all 18 codes; `scarpenter_quota_used` of the Standard on-demand and spot buckets equals what EC2 says is running and pending (the counting rules of overview section 11.8: a spot request with an instance is not counted twice); the in-flight reservations are released; the launched types are in `DescribeInstanceTypeOfferings` of their zones |
 | `drift` | a change to a storage profile no running node uses drifts nothing; a change to `vendors.aws.storage.root.volumeSize` replaces the node (new root size, old instance terminated, old NodeClaim and Node gone, the Pod moves). The controller Pod is killed hard (`--grace-period=0 --force`) while the replacement's `Create` is in flight, and the replacement carries `karpenter.sh/do-not-disrupt` until the Pod has moved (core forgets its disruption command at a restart and would consolidate the empty replacement). **The replay of `Create` is opportunistic**: the window (the instance exists, `Create` has not returned) is narrow on AWS and no test-only driver flag stretches it, so when the attempt misses it the run notes that and never fails for it. This is what the carry-over items "a restart must assert the replay of `Create` ran" (plan 07) and `IdempotentParameterMismatch` with changed user-data (plan 08) depend on. Always asserted: a claim that survived the restart owns one instance, no instance is orphaned; when the window was hit, the replay found the first launch's instance instead of making a second |
@@ -532,8 +534,8 @@ and the `byo` scenario creates and deletes one tagged subnet and security group 
 default VPC: `LaneBringYourOwn` allows `ec2:CreateSubnet` in the region's VPCs, the subnet
 itself must carry the tag); `LaneReads` allows `DescribeVolumes`, `DescribeNetworkInterfaces` and
 `GetConsoleOutput`; an explicit deny of `RunInstances` for every instance type but the ones the
-lane launches (`t3a.small`, `t3a.medium`, `t3a.large`, `t4g.small`, `r6a.large`, and
-`E2E_LOCAL_STORAGE_TYPE` if set; the pools of `test/e2e-aws/manifests/nodepools.yaml` name the
+lane launches (`t3a.small`, `t3a.medium`, `t3a.large`, `t4g.small`, `r6a.large`, `g4dn.xlarge` for
+the manual `gpu` scenario, and `E2E_LOCAL_STORAGE_TYPE` if set; the pools of `test/e2e-aws/manifests/nodepools.yaml` name the
 same types, and a test keeps this page and them together); an explicit deny of EC2 and Service
 Quotas calls outside the region (the sweeper is told the lane's region and visits only that; with `-regions all` it is refused in the
 others and skips them; the controller's driver facts do the same: a region whose zones the role

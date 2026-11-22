@@ -15,7 +15,7 @@
 #                          and the default VPC does not (the new subnet itself must still
 #                          carry the tag);
 #   DenyOtherInstanceTypes an explicit deny of RunInstances for every type the lane does
-#                          not launch (the types of defaults.sh, and E2E_LOCAL_STORAGE_TYPE);
+#                          not launch (the types of defaults.sh, including the manual gpu scenario's, and E2E_LOCAL_STORAGE_TYPE);
 #   DenyOutsideRegion      EC2 and Service Quotas calls outside the lane's region (the
 #                          sweeper looks at the other regions, finds itself refused, and
 #                          skips them).
@@ -36,6 +36,7 @@ types=("${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_DB}")
 IFS=, read -ra described <<<"${E2E_TYPES_DESCRIBED}"
 types+=("${described[@]}")
 [[ -z "${E2E_LOCAL_STORAGE_TYPE}" ]] || types+=("${E2E_LOCAL_STORAGE_TYPE}")
+types+=("${E2E_GPU_TYPE}")
 allowed="$(printf '%s\n' "${types[@]}" | sed 's/^aws\.//' | sort -u | jq -R . | jq -s .)"
 
 sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${root}/docs/reference/aws-iam-policy.json" |

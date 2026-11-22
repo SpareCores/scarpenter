@@ -72,6 +72,11 @@ on:
         required: false
         default: ""
         type: string
+      gpu_instance_type:
+        description: "The GPU type of the manual gpu scenario, with the vendor prefix (empty: E2E_GPU_TYPE of the vendor's defaults.sh)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -147,6 +152,7 @@ jobs:
           INPUT_K3S_VERSION: ${{ inputs.k3s_version }}
           INPUT_KUBERNETES_VERSION: ${{ inputs.kubernetes_version }}
           INPUT_LOCAL_STORAGE_TYPE: ${{ inputs.local_storage_type }}
+          INPUT_GPU_INSTANCE_TYPE: ${{ inputs.gpu_instance_type }}
           INPUT_SCENARIOS: ${{ inputs.scenarios }}
           INPUT_FAIL_FAST: ${{ inputs.fail_fast }}
         run: |
@@ -163,6 +169,7 @@ jobs:
           valid k3s_version "${INPUT_K3S_VERSION}" '^v1\.[0-9]+\.[0-9]+\+k3s[0-9]+$'
           valid kubernetes_version "${INPUT_KUBERNETES_VERSION}" '^v1\.[0-9]+\.[0-9]+$'
           valid local_storage_type "${INPUT_LOCAL_STORAGE_TYPE}" '^[a-z0-9]+\.[a-z0-9-]+\.[a-z0-9]+$'
+          valid gpu_instance_type "${INPUT_GPU_INSTANCE_TYPE}" '^[a-z0-9]+\.[A-Za-z0-9._-]+$'
           valid scenarios "${INPUT_SCENARIOS}" '^[a-z0-9,]+$'
           valid fail_fast "${INPUT_FAIL_FAST}" '^(true|false)$'
           # The scenarios: the input when given, else the mode's set (the smoke set is a pin of
@@ -181,6 +188,7 @@ jobs:
             echo "E2E_K3S_VERSION=${INPUT_K3S_VERSION}"
             echo "E2E_KUBERNETES_VERSION=${INPUT_KUBERNETES_VERSION}"
             echo "E2E_LOCAL_STORAGE_TYPE=${INPUT_LOCAL_STORAGE_TYPE}"
+            echo "E2E_GPU_TYPE=${INPUT_GPU_INSTANCE_TYPE}"
             echo "E2E_SCENARIOS=${scenarios:-all}"
             echo "E2E_FAIL_FAST=${INPUT_FAIL_FAST:-true}"
           } >> "${GITHUB_ENV}"
