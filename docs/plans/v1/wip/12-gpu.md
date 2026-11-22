@@ -373,7 +373,7 @@ fall to the core. Quotas stay vCPU plus reactive (the per-family Quota Center is
 China regions: document the mirror (D5) and the chart's image repository override (Flatcar's server, GitHub and
 nvcr.io may be slow or blocked [U]). Lane default `ecs.gn6i-c4g1.xlarge` (T4).
 
-**Done (h).** `alicloud.Driver.Virtual` (`vgn*`, `sgn*`, `*-vws*`; the catalog test over the snapshot), the manual `gpu` scenario in the Alibaba lane (shared helpers, NodeClass and NodePool manifests, `E2E_GPU_TYPE` default `alicloud.ecs.gn6i-c4g1.xlarge`, `E2E_GPU_TIMEOUT`, the role policy lists the type), docs (driver reference, set-up with the mainland mirror advice). No family needed enabling (no GPU family was dropped) and no launch change was needed; quotas stay vCPU plus reactive.
+**Done (h).** `alicloud.Driver.Virtual` (`vgn*`, `sgn*`, `*-vws*`; the catalog test over the snapshot), the manual `gpu` scenario in the Alibaba lane (shared helpers, NodeClass and NodePool manifests, `E2E_GPU_TYPE` default `alicloud.ecs.gn6i-c4g1.xlarge`, `E2E_GPU_TIMEOUT`, the role policy lists the type), docs (driver reference, set-up with the mainland mirror advice). No family needed enabling (no family was dropped for being GPU; `ebmgn*` stays out as bare metal) and no launch change was needed; quotas stay vCPU plus reactive.
 
 **(i) OVHcloud.** Launch `t1 t2 a10 a100 h100 h200 l4 l40s rtx5000` (the 8-GPU
 h200 gets Fabric Manager); `g1 g2 g3` stay excluded unless the data shows them active; the GPU quota per region becomes a bucket if

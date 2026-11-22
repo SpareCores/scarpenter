@@ -150,9 +150,8 @@ the node loads Flatcar's NVIDIA driver and advertises `nvidia.com/gpu` (see
 (`vgn*`, `sgn*`, `*-vws*`) are never offered. A NodePool that can launch GPU types lists the startup taint
 `scarpenter.sparecores.com/gpu-pending:NoSchedule`, and the account needs vCPU quota and stock for the type.
 
-**Mainland China regions.** The driver is built for the international regions; if you use a mainland region
-with a China-site account, Flatcar's release server, GitHub and `nvcr.io` may be slow or blocked from there
-(unverified). Mirror what the nodes and the chart fetch, inside the region:
+**Unreachable upstreams.** China regions are unsupported. If your nodes run where Flatcar's release server,
+GitHub or `nvcr.io` cannot be reached, mirror those three:
 
 - the driver sysexts: build the tree with `hack/nvidia-mirror.sh` and set `nvidia.driverBaseURL`
   (`--nvidia-driver-base-url`); Ignition then writes the driver image itself and the initrd downloads nothing;

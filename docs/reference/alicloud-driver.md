@@ -238,8 +238,7 @@ family. On Flatcar 4757.2.3, over Keeper's snapshot:
 | `gn6v` and `gn6e` (V100, proprietary driver), `gn5` (P100) and `gn5i` (P4), proprietary driver | `gn8t`, `gn8te`, `gn9gc` (no model in Keeper: `GPUModelUnknown`), `gn8v` (no manufacturer: `GPUManufacturer`) |
 
 The 8-GPU `gn5`, `gn6v`, `gn6e` and `gn7i` types use NVLink or PCIe without NVSwitch, so they need no Fabric
-Manager. The mainland China regions may reach Flatcar's release server, GitHub and nvcr.io slowly or not at
-all (unverified): see [Alibaba Cloud set-up](../how-to-guides/set-up-alicloud.md#gpu-instances) for the
+Manager. Where Flatcar's release server, GitHub or nvcr.io are unreachable the operator must mirror them: see [Alibaba Cloud set-up](../how-to-guides/set-up-alicloud.md#gpu-instances) for the
 mirrors. Until a type has a green real run it is "offered, not yet verified"; the manual `gpu` scenario of the
 [L5 lane](../how-to-guides/testing.md#the-alibaba-cloud-lane) is how the maintainer runs one
 (`ecs.gn6i-c4g1.xlarge`, 1 T4, by default).

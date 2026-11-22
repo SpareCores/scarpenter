@@ -154,15 +154,15 @@ start_byo() {
   probe e2e-use e2e-use "${E2E_TYPE_AMD64}" on-demand
 }
 
-# start_gpu (manual scenario gpu): fails early when the account's pay-as-you-go vCPU quota
+# start_gpu [GPU count] (manual scenario gpu): fails early when the account's pay-as-you-go vCPU quota
 # cannot hold the type next to what is running (before anything is applied; the per-family
 # GPU limits of Quota Center are not read, a refusal there shows as a launch error), then the
 # RuntimeClass the cluster may lack (k3s ships one only when it finds the NVIDIA runtime on
 # its own host), the NodeClass and the NodePool of the GPU type, and the Pod
 # (test/gpu-pod.yaml) that requests all the type's GPUs.
 start_gpu() {
-  local type="${E2E_GPU_TYPE#alicloud.}" count vcpus max used
-  count="$(gpu_count "${type}")"
+  local type="${E2E_GPU_TYPE#alicloud.}" count="${1:-}" vcpus max used
+  [[ -n "${count}" ]] || count="$(gpu_count "${type}")"
   [[ "$(num "${count}")" -ge 1 ]] || fail "${E2E_GPU_TYPE} has no GPU according to ECS"
   vcpus="$(vcpus_of "${type}")"
   max="$(account_attr max-postpaid-instance-vcpu-count)"
@@ -905,7 +905,7 @@ active_instances() {
 scn_gpu() {
   local type="${E2E_GPU_TYPE#alicloud.}" count node claim
   count="$(gpu_count "${type}")"
-  start_gpu
+  start_gpu "${count}"
   wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
   node="$(pod_node e2e-gpu)"
   claim="$(claim_of_node "${node}")"
