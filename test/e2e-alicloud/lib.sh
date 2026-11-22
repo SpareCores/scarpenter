@@ -50,7 +50,7 @@ read -r -d '' _redact_rules <<'SED' || true
 s#(authorization["']?[:=] *["']?)((bearer|basic|token) +)?[^ ,"']+#\1<redacted>#Ig
 s#(bearer +)[A-Za-z0-9._~+/=-]+#\1<redacted>#Ig
 s#((client-key|client-certificate|certificate-authority)-data: *)[A-Za-z0-9+/=]+#\1<redacted>#g
-s#(access_?key_?secret|security_?token|oidc_?token|secret_?access_?key|session_?token)(["']?[:= ]+["']?)[^ ,"'}]+#\1\2<redacted>#Ig
+s#(access_?key_?secret|security_?token|signature|oidc_?token|secret_?access_?key|session_?token)(["']?[:= ]+["']?)[^ ,"'}]+#\1\2<redacted>#Ig
 s#acs:[a-z]+::[0-9]+:[A-Za-z0-9_/.*-]+#<acs-arn>#g
 s#CAIS[A-Za-z0-9/+=_-]{40,}#<security-token>#g
 s/[0-9]{12,20}/<account>/g
@@ -198,12 +198,17 @@ ecs() { aliyun_call ecs "$@"; }
 vpc() { aliyun_call vpc "$@"; }
 
 # aliyun_call <product> <Action> [flags]: a failed call prints the CLI's own error (its
-# stdout and stderr; the CLI's errors carry the code and message, no credentials) and
+# stderr and stdout, through redact: a SignatureDoesNotMatch error can echo the signed request) and
 # fails the running scenario as a FAIL line instead of ending it silently under set -e.
 aliyun_call() {
-  local out
-  out="$(ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun "$1" "$2" --RegionId "${ALICLOUD_REGION}" "${@:3}" 2>&1)" ||
-    fail "aliyun $1 $2 failed: ${out}"
+  local out errfile
+  errfile="$(mktemp)"
+  if ! out="$(ALIBABA_CLOUD_REGION_ID="${ALICLOUD_REGION}" aliyun "$1" "$2" --RegionId "${ALICLOUD_REGION}" "${@:3}" 2>"${errfile}")"; then
+    out="$(cat "${errfile}")${out}"
+    rm -f "${errfile}"
+    fail "aliyun $1 $2 failed: $(redact <<<"${out}")"
+  fi
+  rm -f "${errfile}"
   printf '%s\n' "${out}"
 }
 

@@ -512,11 +512,10 @@ disks_existing() {
 # managed_group_self_referencing: true when a security group SCarpenter created for the
 # cluster has a rule whose source is the group itself (isolation: nodeclass). Prints true or false.
 managed_group_self_referencing() {
-  local id ok=false
+  local id ok=false self
   for id in $(managed_groups_ids); do
-    if [[ "$(ecs DescribeSecurityGroupAttribute --SecurityGroupId "${id}" | jq --arg g "${id}" 'any(.Permissions.Permission[]?; .SourceGroupId == $g)')" == true ]]; then
-      ok=true
-    fi
+    self="$(ecs DescribeSecurityGroupAttribute --SecurityGroupId "${id}" | jq --arg g "${id}" 'any(.Permissions.Permission[]?; .SourceGroupId == $g)')"
+    [[ "${self}" != true ]] || ok=true
   done
   echo "${ok}"
 }
