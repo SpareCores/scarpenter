@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package v1alpha1
 
 import (
+	"fmt"
 	"maps"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -400,31 +401,73 @@ const (
 	FootprintLean Footprint = "Lean"
 )
 
-// The values the Lean footprint presets; fields of the KubeletSpec override
-// them. The catalog and the kubelet configuration both read them through
-// Effective, so the node's allocatable equals what the scheduler assumed.
+// LeanMaxPods is maxPods with the Lean footprint.
+const LeanMaxPods = 10
+
+// The memory the Lean footprint reserves for a node of 768 MiB to 2 GiB (a
+// 1 GiB or 2 GiB instance type), in MiB; LeanMemory scales it with the node's
+// memory. The measured allocatable is 581 MiB on a 951 MiB node and 1587 MiB on
+// a 1957 MiB one.
 const (
-	// LeanMaxPods is maxPods with the Lean footprint.
-	LeanMaxPods = 10
-	// LeanKubeReservedMemory is kubeReserved.memory with the Lean footprint:
-	// the kubelet and containerd, with their memory limits of the Lean bootstrap
-	// settings.
-	LeanKubeReservedMemory = "192Mi"
-	// LeanSystemReservedMemory is systemReserved.memory with the Lean footprint:
-	// systemd, journald, resolved, networkd, udevd and tailscaled.
-	LeanSystemReservedMemory = "128Mi"
-	// LeanEvictionMemoryAvailable is evictionHard["memory.available"] with the
-	// Lean footprint.
-	LeanEvictionMemoryAvailable = "50Mi"
+	// LeanKubeReservedMiB is for the kubelet and containerd, with their memory
+	// limits of the Lean bootstrap settings.
+	LeanKubeReservedMiB = 192
+	// LeanSystemReservedMiB is for systemd, journald, resolved, networkd, udevd
+	// and tailscaled.
+	LeanSystemReservedMiB = 128
+	// LeanEvictionMiB is the memory.available eviction threshold.
+	LeanEvictionMiB = 50
 )
 
-// leanEvictionHard is evictionHard with the Lean footprint: the kubelet's
-// defaults (DefaultEvictionHard of pkg/kubelet/eviction/defaults_linux.go), but
-// 50Mi of memory. The other signals are spelled out because the kubelet applies
-// its defaults only to an evictionHard that is not set at all (unless
-// mergeDefaultEvictionSettings is set, which SCarpenter does not set).
+// Where LeanMemory changes its reservations, in MiB of node memory.
+const (
+	// leanSmallBelowMiB: a node below it (an instance type below 1 GiB) is
+	// small. Between a 0.5 GiB node (448 MiB) and a 1 GiB one (951 MiB).
+	leanSmallBelowMiB = 768
+	// leanGrowAboveMiB: above it the system reservation grows by 1/16 of the
+	// node's memory beyond it, up to leanGrowMaxMiB.
+	leanGrowAboveMiB = 2048
+	leanGrowMaxMiB   = 256
+)
+
+// LeanMemory returns the Lean footprint's memory reservations for a node with
+// nodeMiB of memory (the catalog's estimate of the node's memory, the instance
+// type's less the VM overhead; 0 or less means unknown and gives the 1-2 GiB
+// values), in MiB: kubeReserved, systemReserved
+// and the memory.available eviction threshold. The catalog and the kubelet
+// configuration both call it (KubeletSpec.EffectiveFor), so the node's
+// allocatable equals what the scheduler assumed.
+//
+//   - Below 768 MiB (a 0.5 GiB instance type, estimated at 448 MiB): 144 + 96 MiB
+//     reserved and 16 MiB eviction. The node's non-reclaimable use is about
+//     220-230 MiB with the daemons and DaemonSet Pods, so a Pod that requests
+//     nothing gets 192 MiB of allocatable and the kubepods cgroup limit is
+//     208 MiB; the kernel's OOM killer ends a runaway Pod, which has the
+//     highest oom_score_adj, before the kubelet's eviction does. The 50 MiB
+//     eviction threshold evicted it at 45 MiB, while 186 MiB were available.
+//   - 768 MiB to 2 GiB: 192 + 128 MiB and 50 MiB, as measured on 1 and 2 GiB.
+//   - Above 2 GiB: the system reservation grows by 1/16 of the memory beyond
+//     2 GiB, at most 256 MiB (reached at 6 GiB). The system, with its slab and
+//     page cache, uses about 400 MiB on a 4 GiB node, more than the 320 MiB
+//     the 2 GiB values reserve: 4 GiB gets 192 + 244 MiB, so a runaway Pod
+//     reaches the kubepods limit before a global OOM.
+func LeanMemory(nodeMiB int64) (kube, system, eviction int64) {
+	switch {
+	case nodeMiB > 0 && nodeMiB < leanSmallBelowMiB:
+		return 144, 96, 16
+	case nodeMiB > leanGrowAboveMiB:
+		grow := min((nodeMiB-leanGrowAboveMiB)/16, leanGrowMaxMiB)
+		return LeanKubeReservedMiB, LeanSystemReservedMiB + grow, LeanEvictionMiB
+	}
+	return LeanKubeReservedMiB, LeanSystemReservedMiB, LeanEvictionMiB
+}
+
+// leanEvictionHard is evictionHard with the Lean footprint besides the memory
+// threshold: the kubelet's defaults (DefaultEvictionHard of
+// pkg/kubelet/eviction/defaults_linux.go). They are spelled out because the
+// kubelet applies its defaults only to an evictionHard that is not set at all
+// (unless mergeDefaultEvictionSettings is set, which SCarpenter does not set).
 var leanEvictionHard = map[string]string{
-	"memory.available":   LeanEvictionMemoryAvailable,
 	"nodefs.available":   "10%",
 	"nodefs.inodesFree":  "5%",
 	"imagefs.available":  "15%",
@@ -435,8 +478,9 @@ var leanEvictionHard = map[string]string{
 func (k KubeletSpec) IsLean() bool { return k.Footprint == FootprintLean }
 
 // Effective returns the kubelet settings with the footprint preset applied
-// under the fields the NodeClass sets, key by key. With the Standard footprint
-// it returns the spec unchanged.
+// under the fields the NodeClass sets, key by key, except the memory
+// reservations and eviction threshold, which depend on the node's size
+// (EffectiveFor). With the Standard footprint it returns the spec unchanged.
 func (k KubeletSpec) Effective() KubeletSpec {
 	if !k.IsLean() {
 		return k
@@ -445,11 +489,24 @@ func (k KubeletSpec) Effective() KubeletSpec {
 		maxPods := int32(LeanMaxPods)
 		k.MaxPods = &maxPods
 	}
-	k.KubeReserved = withDefaults(k.KubeReserved, "memory", LeanKubeReservedMemory)
-	k.SystemReserved = withDefaults(k.SystemReserved, "memory", LeanSystemReservedMemory)
 	merged := maps.Clone(leanEvictionHard)
 	maps.Copy(merged, k.EvictionHard)
 	k.EvictionHard = merged
+	return k
+}
+
+// EffectiveFor is Effective with the memory reservations and the memory.available
+// threshold of LeanMemory for a node with nodeMiB of memory, under the fields
+// the NodeClass sets. The kubelet configuration renders it.
+func (k KubeletSpec) EffectiveFor(nodeMiB int64) KubeletSpec {
+	k = k.Effective()
+	if !k.IsLean() {
+		return k
+	}
+	kube, system, eviction := LeanMemory(nodeMiB)
+	k.KubeReserved = withDefaults(k.KubeReserved, "memory", fmt.Sprintf("%dMi", kube))
+	k.SystemReserved = withDefaults(k.SystemReserved, "memory", fmt.Sprintf("%dMi", system))
+	k.EvictionHard = withDefaults(k.EvictionHard, "memory.available", fmt.Sprintf("%dMi", eviction))
 	return k
 }
 

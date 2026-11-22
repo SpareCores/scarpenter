@@ -49,8 +49,12 @@ type Class struct {
 
 	MaxPods                 int64
 	VMMemoryOverheadPercent float64
-	KubeReserved            corev1.ResourceList
-	SystemReserved          corev1.ResourceList
+	// Lean says that the Lean footprint is selected: its memory reservations
+	// scale with the instance type's memory (v1alpha1.LeanMemory), under what
+	// KubeReserved, SystemReserved and EvictionHard set.
+	Lean           bool `json:",omitempty"`
+	KubeReserved   corev1.ResourceList
+	SystemReserved corev1.ResourceList
 	// EvictionHard holds the hard eviction thresholds as written: quantities or
 	// percentages of the capacity.
 	EvictionHard map[string]string
@@ -109,6 +113,7 @@ func ClassFromNodeClass(nc *v1alpha1.SCNodeClass) (Class, error) {
 		Vendors:                 map[string][]string{},
 		MaxPods:                 DefaultMaxPods,
 		VMMemoryOverheadPercent: DefaultVMMemoryOverheadPercent,
+		Lean:                    spec.Kubelet.IsLean(),
 		EvictionHard:            maps.Clone(kubelet.EvictionHard),
 		Metrics:                 maps.Clone(spec.Metrics),
 		Selections:              maps.Clone(spec.Selections),

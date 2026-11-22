@@ -297,13 +297,13 @@ catalog and the kubelet configuration use the same value, as above.
 |---|---|---|---|---|
 | 1 GiB | 947Mi | 320Mi (floor; 25% is 236Mi) | 527Mi | 577Mi |
 | 2 GiB | 1894Mi | 473Mi (25%) | 1321Mi | 1524Mi |
-| 4 GiB | 3788Mi | 947Mi (25%) | 2741Mi | 3418Mi |
-| 8 GiB | 7577Mi | 1465Mi | 6012Mi | 7207Mi |
-| 16 GiB | 15155Mi | 1465Mi | 13590Mi | 14785Mi |
+| 4 GiB | 3788Mi | 947Mi (25%) | 2741Mi | 3310Mi |
+| 8 GiB | 7577Mi | 1465Mi | 6012Mi | 6951Mi |
+| 16 GiB | 15155Mi | 1465Mi | 13590Mi | 14529Mi |
 
 Allocatable is the node's memory less kubeReserved, systemReserved and the
-eviction threshold. The `Lean` column is for the preset below (192Mi, 128Mi and
-50Mi: 370Mi in all).
+eviction threshold. The `Lean` column is for the preset below, whose
+reservations scale with the node's memory.
 
 **`spec.kubelet.footprint`** selects a preset for the memory settings:
 
@@ -321,12 +321,43 @@ you set overrides the preset's value, key by key, so a `kubeReserved` of
 | Setting | Lean | Standard |
 |---|---|---|
 | `maxPods` | 10 | 110 |
-| `kubeReserved.memory` | 192Mi (the kubelet and containerd) | the formula above |
-| `systemReserved.memory` | 128Mi (systemd, journald, resolved, networkd, udevd, tailscaled) | unset |
-| `evictionHard` | `memory.available` 50Mi, and the kubelet's defaults for the others (`nodefs.available` 10%, `nodefs.inodesFree` 5%, `imagefs.available` 15%, `imagefs.inodesFree` 5%; the kubelet drops its defaults for every signal once `evictionHard` is set) | the kubelet's defaults (100Mi of memory) |
+| `kubeReserved.memory` | 192Mi (the kubelet and containerd); 144Mi below 768Mi of node memory | the formula above |
+| `systemReserved.memory` | 128Mi (systemd, journald, resolved, networkd, udevd, tailscaled); 96Mi below 768Mi of node memory; plus 1/16 of the node's memory above 2 GiB, at most 256Mi more | unset |
+| `evictionHard` | `memory.available` 50Mi (16Mi below 768Mi of node memory), and the kubelet's defaults for the others (`nodefs.available` 10%, `nodefs.inodesFree` 5%, `imagefs.available` 15%, `imagefs.inodesFree` 5%; the kubelet drops its defaults for every signal once `evictionHard` is set) | the kubelet's defaults (100Mi of memory) |
 | `serializeImagePulls` | `true` (one image pull at a time: less memory and page cache in containerd) | the kubelet's default (the same) |
 | `containerLogMaxSize`, `containerLogMaxFiles` | 5Mi, 2 | the kubelet's defaults (10Mi, 5) |
 | `nodeStatusMaxImages` | 10 | the kubelet's default (50) |
+
+The memory values scale with the node's memory as the catalog estimates it (the
+instance type's less `vmMemoryOverheadPercent`; the catalog and the kubelet
+configuration both read `v1alpha1.LeanMemory`, so the scheduler's allocatable is
+the node's):
+
+| Instance type | Node memory | kubeReserved | systemReserved | memory.available | Allocatable |
+|---|---|---|---|---|---|
+| 0.5 GiB | 448Mi | 144Mi | 96Mi | 16Mi | 192Mi |
+| 1 GiB | 947Mi | 192Mi | 128Mi | 50Mi | 577Mi |
+| 2 GiB | 1894Mi | 192Mi | 128Mi | 50Mi | 1524Mi |
+| 4 GiB | 3788Mi | 192Mi | 236Mi | 50Mi | 3310Mi |
+| 64 GiB | 60620Mi | 192Mi | 384Mi | 50Mi | 59994Mi |
+
+- Below 768Mi, the reservations are sized to what the node uses and cannot
+  give back, about 220-230 MiB with the daemons and the DaemonSet Pods, and the
+  threshold is low, because the kubelet counts active page cache as used and
+  would evict at 50Mi while the OS still has 186 MiB available. A Pod that requests
+  no memory gets about 190 MiB; the kubepods cgroup limit is the node's memory less
+  kubeReserved and systemReserved (208Mi), and a Pod that grows is ended by the
+  kernel's OOM killer.
+- From 768Mi to 2 GiB the values are fixed, as measured.
+- Above 2 GiB, systemReserved grows by 1/16 of the memory beyond 2 GiB, up to 256Mi
+  more (at 6 GiB). The system, with slab and page cache, uses about 400 MiB on a
+  4 GiB node, more than the fixed 320Mi, and a Pod that grows must hit the
+  kubepods limit before the node runs out of memory.
+
+Whatever `vmMemoryOverheadPercent` is, the catalog takes at least
+64Mi off an instance type's memory: a 0.5 GiB VM reports 448Mi (12.5% less), where
+7.5% alone would say 473Mi and overstate the allocatable. From 1 GiB up the percentage
+is the larger at the default and decides.
 
 The image garbage collection thresholds stay at the kubelet's defaults. `maxPods`
 does not use memory by itself; it limits how many Pods (and containerd shims, about

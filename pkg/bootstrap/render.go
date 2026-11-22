@@ -274,6 +274,10 @@ type Params struct {
 
 	PoweroffAfter time.Duration
 
+	// NodeMemoryMiB is the memory of the instance type as the catalog expects
+	// the kubelet to report it (0 when unknown): the Lean footprint's memory
+	// reservations scale with it.
+	NodeMemoryMiB int64
 	// KubeReserved, when set, is the kubelet's kubeReserved for the instance
 	// type: what the catalog assumed for scheduling, so that the node's
 	// allocatable matches the scheduler's. It replaces Kubelet.KubeReserved.
@@ -463,7 +467,7 @@ func (p *Params) templateData() (*TemplateData, error) {
 	if strings.TrimSpace(p.KubeletClientCA) != "" {
 		clientCAFile = KubeletClientCAPath
 	}
-	kubeletConfig, err := KubeletConfiguration(kubelet, p.ClusterDNS, p.ClusterDomain, clientCAFile)
+	kubeletConfig, err := KubeletConfiguration(kubelet, p.NodeMemoryMiB, p.ClusterDNS, p.ClusterDomain, clientCAFile)
 	if err != nil {
 		return nil, err
 	}

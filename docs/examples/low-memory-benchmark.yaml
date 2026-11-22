@@ -3,8 +3,9 @@
 # (docs/reference/node-settings.md#memory-footprint). The matching NodePool, with the taint,
 # the small sizes and a Pod per node, is nodepools/low-memory-benchmark.yaml.
 #
-# Lean sets maxPods 10, kubeReserved memory 192Mi, systemReserved memory 128Mi and an
-# evictionHard memory.available of 50Mi, and the node's own limits (no swap or zram, so a
+# Lean sets maxPods 10, kubeReserved and systemReserved memory and an evictionHard
+# memory.available that scale with the node's memory (192Mi, 128Mi and 50Mi on 1 GiB;
+# 144Mi, 96Mi and 16Mi on 0.5 GiB), and the node's own limits (no swap or zram, so a
 # benchmark's memory is the node's). A field set under kubelet overrides it: here maxPods
 # is raised to 12 for a node that also runs one more DaemonSet.
 apiVersion: scarpenter.sparecores.com/v1alpha1
