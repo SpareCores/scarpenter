@@ -67,6 +67,11 @@ expect "gcp listed: dispatch" "gcp:smoke:" "$(E2E_VENDORS_FILE="${tmp}/vendors-g
 expect "gcp listed: the release gate" "aws:full: gcp:full:" "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" release full | words)"
 expect "gcp listed: the canary matrix" '[{"vendor":"aws"},{"vendor":"gcp"}]' \
   "$(E2E_VENDORS_FILE="${tmp}/vendors-gcp.txt" "${plan}" vendors | sed -n 's/^matrix=//p')"
+# The manual cvm scenario of the Azure lane: a scenario mode plus its instance type override.
+printf 'aws\nazure\n' >"${tmp}/vendors-azure.txt"
+expect "azure cvm: plan" "azure:full:cvm" "$(E2E_VENDORS_FILE="${tmp}/vendors-azure.txt" "${plan}" dispatch azure cvm | words)"
+expect "azure cvm: type override" "E2E_TYPE_CVM=azure.Standard_DC2as_v5" \
+  "$(E2E_VENDORS_FILE="${tmp}/vendors-azure.txt" "${plan}" dispatch azure cvm '' azure.Standard_DC2as_v5 | sed -n 's/^env_overrides=//p')"
 # What a listed vendor needs next to its directory: the sweeper workflow and the credentials
 # steps of the two reusable workflows (test/e2e-gcp/selftest.sh checks the gcp ones in detail).
 for v in $(env -u E2E_VENDORS_FILE "${plan}" vendors | sed -n 's/^matrix=//p' | jq -r '.[].vendor') gcp; do

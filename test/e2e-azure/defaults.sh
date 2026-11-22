@@ -56,6 +56,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # The database and its client: on-demand, Premium IO (the Premium data disk), proximity
 # placement group.
 : "${E2E_TYPE_DB:=azure.Standard_D2as_v5}"
+# The confidential VM (AMD SEV-SNP) of the cvm scenario, the smallest of its family.
+# It runs only when named (scenarios=cvm), as it costs more than the others. It boots Azure Container Linux
+# from a community gallery, not Flatcar, and is offered in the lane's region (centralus)
+# to the lane's subscription.
+: "${E2E_TYPE_CVM:=azure.Standard_DC2as_v6}"
 # The types the described-not-named scenario may pick from (small to large): 2 vCPUs,
 # 1 GiB and 8 GiB.
 : "${E2E_TYPES_DESCRIBED:=azure.Standard_B2ats_v2,azure.Standard_B2as_v2}"
@@ -115,7 +120,7 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 
 # envsubst (manifests) and the child processes read exported variables.
 export AZURE_REGION E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
-  E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_SPOT E2E_TYPE_DB E2E_TYPE_DENIED E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
+  E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_SPOT E2E_TYPE_DB E2E_TYPE_CVM E2E_TYPE_DENIED E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
   E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH \
   E2E_NEGATIVE_WAIT E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_MIN_VCPU_FAMILY E2E_TAG_RUNNER E2E_TAG_NODE \
   E2E_AZURE_AUDIENCE E2E_AZURE_TOKEN_INTERVAL E2E_AZURE_RELOGIN_INTERVAL E2E_AZURE_TOKEN_MAX_SECONDS
