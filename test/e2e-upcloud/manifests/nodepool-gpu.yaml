@@ -1,0 +1,18 @@
+# The pool of the manual gpu scenario: the one GPU plan (E2E_GPU_TYPE). The startup taint is
+# required: SCarpenter does not offer NVIDIA types to a pool without it.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-gpu
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-gpu}
+      startupTaints:
+        - {key: scarpenter.sparecores.com/gpu-pending, effect: NoSchedule}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [upcloud]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_GPU_TYPE}"]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "64"}

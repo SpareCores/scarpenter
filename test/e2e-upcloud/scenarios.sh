@@ -7,6 +7,8 @@
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:
 #                   amd64 described byo data servergroup negative quota publicfw drift scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
+#                   The manual scenario gpu is never part of "all": it runs only when named
+#                   (plan 12; E2E_GPU_TYPE, default upcloud.GPU-8xCPU-64GB-1xL40S).
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -100,6 +102,42 @@ start_byo() {
   render "${here}/manifests/nodepool-use.yaml" | kubectl apply -f -
   probe e2e-use e2e-use "${E2E_TYPE_AMD64}" on-demand
 }
+
+# start_gpu (manual scenario gpu): fails early when the zone has no stock of the plan or the
+# account's limits (gpus, cores, memory) cannot hold it, before anything is applied; then the
+# RuntimeClass the cluster may lack (k3s ships one only when it finds the NVIDIA runtime on
+# its own host), the NodeClass and the NodePool of the GPU plan, and the Pod
+# (test/gpu-pod.yaml) that requests all the plan's GPUs.
+start_gpu() {
+  local plan="${E2E_GPU_TYPE#upcloud.}" pj count acct stock limit need
+  pj="$(plan_json "${plan}")"
+  assert_nonempty "the plan ${plan} in the account's plan list" "${pj}"
+  count="$(gpu_count "${plan}")"
+  [[ "${count}" -ge 1 ]] || fail "${E2E_GPU_TYPE} has no GPU according to the plan list"
+  stock="$(up GET /device/availability | jq -r --arg z "${UPCLOUD_ZONE}" --arg p "${plan}" '.[$z].gpu_plans[$p].amount // 0')"
+  [[ "$(num "${stock}")" -ge 1 ]] || fail "no ${plan} in stock in ${UPCLOUD_ZONE} (GET /device/availability)"
+  acct="$(up GET /account)"
+  for need in "gpus ${count}" "cores $(jq -r '.core_number' <<<"${pj}")" "memory $(jq -r '.memory_amount' <<<"${pj}")"; do
+    limit="$(jq -r --arg k "${need% *}" '.account.resource_limits[$k] // 0' <<<"${acct}")"
+    [[ "$(num "${limit}")" -ge "$(num "${need#* }")" ]] ||
+      fail "the ${need% *} limit of the account is ${limit}; ${E2E_GPU_TYPE} needs ${need#* } (ask UpCloud to raise it: a sub-account has no GPU limit by default)"
+  done
+  kubectl get runtimeclass nvidia >/dev/null 2>&1 ||
+    kubectl apply -f - <<'YAML'
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
+YAML
+  render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
+  render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
+  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${count}" \
+    render "${here}/../gpu-pod.yaml" | kubectl apply -f -
+}
+
+# gpu_count <plan without the vendor prefix>: the GPUs of the plan, from the plan list.
+gpu_count() { plan_json "$1" | jq -r '.gpu_amount // 0'; }
 
 # ----------------------------------------------------------- scenarios ------
 
@@ -388,6 +426,24 @@ scn_servergroup() {
   # perUse: two minutes of grace for launches in flight, then the next resource check and
   # garbage collection (30 s and 1 m here).
   wait_until "the server group deleted" 420 is_empty cluster_groups
+}
+
+# gpu (plan 12, manual only): one GPU plan from the Pod to the end of a CUDA run on its
+# node. The shared checks are test/lib.sh gpu_check_node: labels against the table,
+# capacity, the log of nvidia-smi and vectorAdd. The scenario also records the time to Ready.
+scn_gpu() {
+  local plan="${E2E_GPU_TYPE#upcloud.}" count node claim
+  start_gpu
+  count="$(gpu_count "${plan}")"
+  wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
+  node="$(pod_node e2e-gpu)"
+  claim="$(claim_of_node "${node}")"
+  assert_nonempty "the NodeClaim of ${node}" "${claim}"
+  assert_eq "instance-type" "${E2E_GPU_TYPE}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  gpu_check_node "${node}" e2e-gpu "${count}" "${E2E_FLATCAR_VERSION}"
+  note "gpu: ${E2E_GPU_TYPE} (${count} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
+  kubectl delete pod e2e-gpu --wait=false
+  kubectl delete nodepool e2e-gpu --wait=false
 }
 
 # negative: NodeClasses the driver refuses; nothing is launched.
@@ -738,16 +794,19 @@ managed_resources() {
 # --------------------------------------------------------------- runner -----
 
 all_scenarios=(amd64 described byo data servergroup negative quota publicfw drift scalezero uninstall)
+# Run only when named (never by "all", the smoke set or a schedule), before the others, so that scalezero
+# and uninstall still clean up after them.
+manual_scenarios=(gpu)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
 else
-  for s in "${all_scenarios[@]}"; do
+  for s in "${manual_scenarios[@]}" "${all_scenarios[@]}"; do
     [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
   done
   for s in ${E2E_SCENARIOS//,/ }; do
-    [[ " ${all_scenarios[*]} " == *" ${s} "* ]] || {
-      echo "unknown scenario ${s} (known: ${all_scenarios[*]})" >&2
+    [[ " ${all_scenarios[*]} ${manual_scenarios[*]} " == *" ${s} "* ]] || {
+      echo "unknown scenario ${s} (known: ${all_scenarios[*]}; manual: ${manual_scenarios[*]})" >&2
       exit 2
     }
   done

@@ -55,6 +55,11 @@ func (g *roUpCloud) GetPlans(ctx context.Context) (*upcloud.Plans, error) {
 	return g.inner.GetPlans(ctx)
 }
 
+func (g *roUpCloud) GetDevicesAvailability(ctx context.Context) (*upcloud.DevicesAvailability, error) {
+	g.pass("GetDevicesAvailability")
+	return g.inner.GetDevicesAvailability(ctx)
+}
+
 func (g *roUpCloud) GetAccount(ctx context.Context) (*upcloud.Account, error) {
 	g.pass("GetAccount")
 	return g.inner.GetAccount(ctx)

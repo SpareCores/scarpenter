@@ -219,6 +219,25 @@ func TestAWSOffersTheNVIDIAFamiliesOfThePlan(t *testing.T) {
 	}
 }
 
+// TestUpCloudOffersL40SAndH100OfThePlan is the UpCloud list of plan 12 (step j) on 4757.2.3
+// over the snapshot: the L40S and H100 plans are offered, the RTX PRO 6000 ones wait for a
+// release that builds a 580-open driver.
+func TestUpCloudOffersL40SAndH100OfThePlan(t *testing.T) {
+	_, its := gpuCatalog(t, "4757.2.3", catalogtestFacts(t), nil, "upcloud")
+	for _, name := range []string{
+		"upcloud.GPU-8xCPU-64GB-1xL40S", "upcloud.GPU-16xCPU-192GB-2xL40S", "upcloud.GPU-12xCPU-240GB-1xH100",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{"upcloud.GPU-16xCPU-80GB-1xRTXPRO6000", "upcloud.GPU-64xCPU-320GB-4xRTXPRO6000"} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
+	}
+}
+
 func TestUnsupportedGPUTypesAreDroppedWithTheirReason(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	facts := virtualFacts{StaticFacts: catalogtestFacts(t), virtual: map[string]bool{"aws.g5.xlarge": true}}

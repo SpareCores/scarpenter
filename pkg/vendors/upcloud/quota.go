@@ -24,6 +24,7 @@ const (
 	BucketMemory     = "memory"
 	BucketPublicIPv4 = "public-ipv4"
 	BucketNetworks   = "networks"
+	BucketGPUs       = "gpus"
 	bucketStorage    = "storage-"
 )
 
@@ -35,6 +36,7 @@ func StorageBucket(tier string) string { return bucketStorage + tier }
 type Usage struct {
 	Cores    int
 	MemoryMB int
+	GPUs     int
 	// StorageGB is the private storage per tier, templates and server disks.
 	StorageGB  map[string]int
 	PublicIPv4 int
@@ -56,9 +58,15 @@ func CollectUsage(ctx context.Context, a api.API) (*Usage, error) {
 	if err != nil {
 		return nil, Classify(err)
 	}
+	plans, err := a.GetPlans(cctx)
+	if err != nil {
+		return nil, Classify(err)
+	}
+	gpus := PlansOf(plans)
 	for _, s := range servers.Servers {
 		u.Cores += s.CoreNumber
 		u.MemoryMB += s.MemoryAmount
+		u.GPUs += gpus[s.Plan].GPUs
 	}
 	storages, err := a.GetStorages(cctx, &request.GetStoragesRequest{Access: upcloud.StorageAccessPrivate})
 	if err != nil {
@@ -115,6 +123,7 @@ func Snapshot(l upcloud.ResourceLimits, u Usage) *vendors.QuotaSnapshot {
 	add(StorageBucket(upcloud.StorageTierMaxIOPS), "GB", l.StorageMaxIOPS, u.StorageGB[upcloud.StorageTierMaxIOPS])
 	add(StorageBucket(upcloud.StorageTierStandard), "GB", l.StorageSSD, u.StorageGB[upcloud.StorageTierStandard])
 	add(StorageBucket(upcloud.StorageTierHDD), "GB", l.StorageHDD, u.StorageGB[upcloud.StorageTierHDD])
+	add(BucketGPUs, "GPUs", l.GPUs, u.GPUs)
 	add(BucketPublicIPv4, "addresses", l.PublicIPv4, u.PublicIPv4)
 	add(BucketNetworks, "networks", l.Networks, u.Networks)
 	return s
@@ -151,14 +160,17 @@ func SnapshotOf(ctx context.Context, a api.API, l upcloud.ResourceLimits) (*vend
 }
 
 // Consumption is what a launch of the plan takes: its cores, its memory in MB,
-// one public IPv4 address (none for Cloud Native plans, where the address is a
-// separate item; none when the node has no public IPv4) and the root disk on
+// its GPUs, one public IPv4 address (none for Cloud Native plans, where the address
+// is a separate item; none when the node has no public IPv4) and the root disk on
 // its tier. Data volumes add their own with ConsumptionOfVolume.
 func Consumption(p Plan, root Root, publicIPv4 bool) []vendors.Consumption {
 	out := []vendors.Consumption{
 		{Bucket: BucketCores, Amount: int64(p.Cores)},
 		{Bucket: BucketMemory, Amount: int64(p.MemoryMB)},
 		{Bucket: StorageBucket(root.Tier), Amount: int64(root.SizeGB)},
+	}
+	if p.GPUs > 0 {
+		out = append(out, vendors.Consumption{Bucket: BucketGPUs, Amount: int64(p.GPUs)})
 	}
 	if publicIPv4 && p.HasIPv4() {
 		out = append(out, vendors.Consumption{Bucket: BucketPublicIPv4, Amount: 1})

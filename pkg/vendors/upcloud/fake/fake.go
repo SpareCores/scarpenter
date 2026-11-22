@@ -242,7 +242,8 @@ func (f *Fake) begin(ctx context.Context, method string) (func(), error) {
 }
 
 // SetOutOfStock makes creates of the plan in the zone fail with
-// SERVER_RESOURCES_UNAVAILABLE (UpCloud has no stock API: capacity is reactive).
+// SERVER_RESOURCES_UNAVAILABLE; a GPU plan out of stock is also absent from
+// GetDevicesAvailability (the only stock UpCloud reports: other capacity is reactive).
 func (f *Fake) SetOutOfStock(zone, plan string, out bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -285,6 +286,27 @@ func (f *Fake) GetPlans(ctx context.Context) (*upcloud.Plans, error) {
 		out.Plans = append(out.Plans, f.plans[n].Plan)
 	}
 	return out, nil
+}
+
+// GetDevicesAvailability reports every GPU plan as in stock (amount 1) in every zone
+// where SetOutOfStock has not marked it.
+func (f *Fake) GetDevicesAvailability(ctx context.Context) (*upcloud.DevicesAvailability, error) {
+	done, err := f.begin(ctx, "GetDevicesAvailability")
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	out := upcloud.DevicesAvailability{}
+	for _, z := range f.zones {
+		plans := map[string]upcloud.DeviceAvailability{}
+		for _, n := range f.planList {
+			if f.plans[n].GPUAmount > 0 && !f.outOfStock[z.ID+"/"+n] {
+				plans[n] = upcloud.DeviceAvailability{Amount: 1}
+			}
+		}
+		out[z.ID] = upcloud.Devices{GPUPlans: plans}
+	}
+	return &out, nil
 }
 
 // GetAccount returns the account with its limits (no usage: the driver

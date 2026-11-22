@@ -31,10 +31,10 @@ func TestSnapshotPlansAreClassified(t *testing.T) {
 		if fam == uc.FamilyUnknown {
 			t.Errorf("the plan %s of the Keeper snapshot has no family: classify it in plans.go", r.APIReference)
 		}
-		if fam == uc.FamilyGPU {
+		if fam == uc.FamilyGPU || fam == uc.FamilyGPUSpot {
 			gpu++
-			if fam.Supported() {
-				t.Errorf("%s is launchable", r.APIReference)
+			if fam.Supported() != (fam == uc.FamilyGPU) {
+				t.Errorf("%s: launchable = %v", r.APIReference, fam.Supported())
 			}
 		} else if fam.Supported() {
 			supported++
@@ -182,7 +182,7 @@ func TestCreateInstanceRefusesWhatCannotLaunch(t *testing.T) {
 		class vendors.Class
 	}{
 		"not in the account's list": {"NOPE-1xCPU-1GB", vendors.Unsupported},
-		"a GPU plan":                {"GPU-8xCPU-64GB-1xL40S", vendors.Unsupported},
+		"a spot GPU plan":           {"GPU-SPOT-8xCPU-64GB-1xL40S", vendors.Unsupported},
 	} {
 		req := e.request("c-"+strings.ToLower(tc.plan[:3]), tc.plan)
 		if _, err := e.d.CreateInstance(e.ctx(), req); vendors.ClassOf(err) != tc.class {
@@ -427,8 +427,9 @@ func TestGlobalQuotasCacheTheLimitsAndConsumptionNeedsThePlanTable(t *testing.T)
 	if _, known := e.d.Consumption(testType, vendors.CapacitySpot); known {
 		t.Error("spot is unknown")
 	}
-	if _, known := e.d.Consumption("GPU-8xCPU-64GB-1xL40S", vendors.CapacityOnDemand); known {
-		t.Error("a GPU plan is unknown")
+	gpuCons, known := e.d.Consumption("GPU-12xCPU-128GB-2xL40S", vendors.CapacityOnDemand)
+	if !known || !slices.Contains(gpuCons, vendors.Consumption{Bucket: uc.BucketGPUs, Amount: 2}) {
+		t.Errorf("a GPU plan consumes its GPUs: %v, %v", gpuCons, known)
 	}
 	lazy := vendors.WithQuotaRefresh(e.ctx(), vendors.QuotaRefresh{Limits: false})
 	g1, err := e.d.GlobalQuotas(lazy)
@@ -449,8 +450,33 @@ func TestGlobalQuotasCacheTheLimitsAndConsumptionNeedsThePlanTable(t *testing.T)
 		t.Errorf("LaunchableTypes of an unknown zone: %v", err)
 	}
 	types, err := e.d.LaunchableTypes(e.ctx(), testZone)
-	if err != nil || len(types["GPU-8xCPU-64GB-1xL40S"]) != 0 || len(types["PREMIUM-1xCPU-1GB"]) != 1 {
+	if err != nil || len(types["GPU-8xCPU-64GB-1xL40S"]) != 1 || len(types["PREMIUM-1xCPU-1GB"]) != 1 {
 		t.Errorf("LaunchableTypes: %v, %v", types, err)
+	}
+	for plan := range types {
+		if strings.HasPrefix(plan, "GPU-SPOT-") {
+			t.Errorf("the spot plan %s is launchable", plan)
+		}
+	}
+}
+
+func TestLaunchableTypesFollowTheGPUStock(t *testing.T) {
+	const gpuPlan = "GPU-8xCPU-64GB-1xL40S"
+	e := newEnv(t, envOptions{})
+	e.f.SetOutOfStock(testZone, gpuPlan, true)
+	types, err := e.d.LaunchableTypes(e.ctx(), testZone)
+	if err != nil || len(types[gpuPlan]) != 0 || len(types["GPU-12xCPU-128GB-1xL40S"]) != 1 || len(types[testType]) != 1 {
+		t.Errorf("a GPU plan out of stock: %v, %v", types, err)
+	}
+	if other, err := e.d.LaunchableTypes(e.ctx(), "de-fra1"); err != nil || len(other[gpuPlan]) != 1 {
+		t.Errorf("the stock is per zone: %v, %v", other, err)
+	}
+	// A failed stock call takes the GPU plans out and leaves the rest.
+	e.f.SetOutOfStock(testZone, gpuPlan, false)
+	e.f.Inject("GetDevicesAvailability", errors.New("boom"), 0)
+	types, err = e.d.LaunchableTypes(e.ctx(), testZone)
+	if err != nil || len(types[gpuPlan]) != 0 || len(types[testType]) != 1 {
+		t.Errorf("a failed stock call: %v, %v", types, err)
 	}
 }
 

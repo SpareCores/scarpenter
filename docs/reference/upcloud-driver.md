@@ -25,6 +25,7 @@ The L5 smoke (preflight, `amd64`, `scalezero`) has passed once, in `fi-hel1` wit
 - [Regions and zones](#regions-and-zones)
 - [Images](#images)
 - [Launch](#launch)
+- [GPU plans](#gpu-plans)
 - [Firewalls](#firewalls)
 - [Node settings](#node-settings)
 - [Resources and network](#resources-and-network)
@@ -45,7 +46,7 @@ The L5 smoke (preflight, `amd64`, `scalezero`) has passed once, in `fi-hel1` wit
 | `ImageReporter` | `status.vendors.upcloud.images`, condition `ImagesReady` (amd64 only) |
 | `NodeOptions`, `EpochReporter` | defaults, `RootDiskForType`, `Supported`, `PriceDelta`, `Prepare` with device hints; the epoch changes when the plan table, the templates or the prices load |
 | `ManagedResources` | kinds `networks`, `firewalls`, `serverGroups`; `images` is `use`-only |
-| `QuotaReporter`, `OfferingLister` | account-wide buckets; every supported plan in every zone |
+| `QuotaReporter`, `OfferingLister` | account-wide buckets (the GPU count among them); every supported plan in every zone, a GPU plan only where the device stock has it |
 | `BillingDescriber` | hourly, unverified: [billing retention](controller.md#billing-retention) stays off |
 | `ArchNamer`, `InstanceMetadata` | `{vendorArch}` (amd64 only); the metadata address `169.254.169.254` |
 
@@ -156,9 +157,29 @@ registration timeout for the boot and the join.
 - **Get, list**: `GetInstance` is `NotFound` for a deleted server (there is no terminated state) and for a reference that is
   not `<zone>/<server uuid>`. A list answer has no labels, so `ListInstances` and `FindInstance` read the details of each
   match (SCarpenter's servers only: the `scarpenter-managed-by` label).
-- **Plans**: the server is the plan name (Keeper's `api_reference`). GPU plans and families the driver has not classified are
-  not launched (`LaunchableTypes` leaves them out, and a launch is `Unsupported`); spot exists only for GPU plans, so UpCloud
-  is on-demand only.
+- **Plans**: the server is the plan name (Keeper's `api_reference`). The spot GPU plans (`GPU-SPOT-`) and families the driver
+  has not classified are not launched (`LaunchableTypes` leaves them out, and a launch is `Unsupported`); spot exists only for
+  GPU plans, so UpCloud is on-demand only. The `GPU-` plans are launched ([GPU plans](#gpu-plans)).
+
+## GPU plans
+
+The `GPU-` plans (`GPU-8xCPU-64GB-1xL40S`; L40S, H100 and RTX PRO 6000) launch like every other plan: the same Flatcar
+template, and the plan's included root disk (300 GB and more, which holds the driver sysext and CUDA images; the
+default root size is the plan's, as for any plan). Three driver parts are GPU-specific:
+
+- **Stock.** `LaunchableTypes` reads `GET /device/availability` (`GetDevicesAvailability`: per zone, the amount in stock of each GPU
+  plan) and lists a GPU plan in a zone only when its amount is positive, so a plan out of stock is not offered there until the next
+  refresh. When the call fails the GPU plans are left out for that refresh (logged) and the other plans are unaffected. The create
+  call stays reactive too: `SERVER_RESOURCES_UNAVAILABLE` is `InsufficientCapacity` as for every plan.
+- **GPU count quota.** The account's `resource_limits.gpus` is the global bucket `gpus` (reported only when positive); its usage is
+  the sum of the GPUs of the account's servers (by their plan), and a GPU plan's consumption includes its GPU count.
+- **No virtual GPU.** UpCloud's GPU plans are passthrough, so the driver has no `GPUVirtualizer`.
+
+Which types the catalog offers is the vendor-neutral rule of [GPU types](labels-and-offerings.md#gpu-types). On Flatcar
+4757.2.3 the L40S and H100 plans are offered and the RTX PRO 6000 ones (Blackwell) are dropped until a release that builds a
+580-open driver is pinned. Until a plan has a green real run it is "offered, not yet verified"; the manual `gpu` scenario of the
+[UpCloud lane](../how-to-guides/testing.md#the-upcloud-lane) is how the maintainer runs one. A sub-account has no GPU limit and
+no GPU plan access until UpCloud grants it.
 
 ## Firewalls
 
@@ -246,7 +267,7 @@ two minutes, until the lane measures it.
 ## Quotas
 
 Every limit is account-wide (`GET /account` `resource_limits`) and reported as a global bucket: `cores`, `memory` (MB),
-`storage-maxiops`, `storage-standard`, `storage-hdd` (GB), `public-ipv4`, `networks`; `Quotas(zone)` has none. The account call has no usage,
+`storage-maxiops`, `storage-standard`, `storage-hdd` (GB), `public-ipv4`, `networks`, `gpus`; `Quotas(zone)` has none. The account call has no usage,
 so the driver computes it from the lists of servers, private storages, addresses and networks. A bucket is reported only when its
 limit is positive (0 or absent means unknown, **unverified**). `Consumption` is the plan's cores, memory, one public IPv4 (none for
 Cloud Native) and the plan's default root disk on its tier; a NodeClass's own root size is not known there. Limits are read every 15
@@ -287,7 +308,7 @@ The driver deletes only servers, networks, rulesets and groups that carry the cl
 
 ## Deferred
 
-`isolation: run` (one SDN network per run key), GPU plans and spot, a guest-side firewall for the interval of the Public & Utility
+`isolation: run` (one SDN network per run key), spot GPU plans, a guest-side firewall for the interval of the Public & Utility
 firewall's rollout, `SCImage` (rung 4: SCarpenter importing the template itself), discovery of labelled networks without a
 `networks` block, upstream Flatcar shipping an official `upcloud` image (the source then switches), the v9 SDK once it is stable.
 
@@ -319,5 +340,9 @@ documentation and the SDK source, and the spikes of plan 19 and the full lane se
   (`FIREWALL_RULESET_NOT_FOUND`, `FIREWALL_RULESET_IN_USE`), whether the list carries labels (without them a managed ruleset is
   adopted by its name), the number of servers a group may hold.
 - **Keeper**: the unit of the storage prices for UpCloud.
+- **GPU plans**: the shape of `GET /device/availability` (the SDK's: zone, then `gpu_plans`, then the plan with an `amount`),
+  whether a plan without stock is absent or has amount 0 (both are read as out of stock), the name of the account limit
+  (`resource_limits.gpus`) and of its error code on a create (not mapped: it falls under `Fatal` until a real run shows it), whether
+  the plan's included disk takes the default root size, and whether the template boots on the GPU hosts.
 - **Plans**: Keeper's active plans today are Starter, Premium, Cloud Native and GPU; the driver classifies them by name and takes
   the included tier from the account's plan list.

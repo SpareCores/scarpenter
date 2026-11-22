@@ -20,12 +20,13 @@ import (
 )
 
 // API is the part of the UpCloud API the driver calls. Every method but the
-// ruleset ones and CreateServer is the SDK service method of the same name. GPU stock
-// (GetDevicesAvailability) is not part of it: v1 launches no GPU plans.
+// ruleset ones and CreateServer is the SDK service method of the same name.
 type API interface {
 	GetZones(ctx context.Context) (*upcloud.Zones, error)
 	GetPlans(ctx context.Context) (*upcloud.Plans, error)
 	GetAccount(ctx context.Context) (*upcloud.Account, error)
+	// GetDevicesAvailability is the GPU stock per zone and GPU plan.
+	GetDevicesAvailability(ctx context.Context) (*upcloud.DevicesAvailability, error)
 
 	GetServersWithFilters(ctx context.Context, r *request.GetServersWithFiltersRequest) (*upcloud.Servers, error)
 	GetServerDetails(ctx context.Context, r *request.GetServerDetailsRequest) (*upcloud.ServerDetails, error)

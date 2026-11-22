@@ -53,8 +53,8 @@ func (d *Driver) GlobalQuotas(ctx context.Context) (*vendors.QuotaSnapshot, erro
 // cores, its memory in MB, one public IPv4 address (none on Cloud Native plans,
 // where the address is billed apart) and the plan's default root disk on its
 // tier. A NodeClass's own root size is not known here, so the disk bucket is the
-// default one. A plan that is not in the table (not read yet, GPU, spot) is
-// unknown and the reactive path applies.
+// default one, and its GPUs. A plan that is not in the table (not read yet, spot)
+// is unknown and the reactive path applies.
 func (d *Driver) Consumption(instanceType, capacityType string) ([]vendors.Consumption, bool) {
 	if capacityType != vendors.CapacityOnDemand {
 		return nil, false
@@ -67,11 +67,13 @@ func (d *Driver) Consumption(instanceType, capacityType string) ([]vendors.Consu
 }
 
 // LaunchableTypes implements vendors.OfferingLister: every plan of the account's
-// list that the driver launches, in the zone (UpCloud has no stock API, and the
-// plan list is account-wide: Keeper's price list decides where a plan is offered,
-// and a launch that disagrees is Unsupported). GPU plans and families the driver
-// has not classified are left out. Reading the plans also fills the table the
-// quota consumption and the prices need.
+// list that the driver launches, in the zone (the plan list is account-wide:
+// Keeper's price list decides where a plan is offered, and a launch that disagrees
+// is Unsupported). A GPU plan is listed only where the device stock
+// (GetDevicesAvailability) has it; when that call fails the GPU plans are left out
+// for now (the next refresh asks again), and the other plans are not affected.
+// Spot GPU plans and families the driver has not classified are left out. Reading
+// the plans also fills the table the quota consumption and the prices need.
 func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string][]string, error) {
 	if !d.knownRegion(ctx, region) {
 		return nil, vendors.Errorf(vendors.RegionUnavailable, "the account cannot use the zone %q", region)
@@ -80,11 +82,30 @@ func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string
 	if err != nil {
 		return nil, err
 	}
+	stock, err := d.gpuStock(ctx, region)
+	if err != nil {
+		d.log.Error(err, "reading the GPU stock; the GPU plans are not offered", "zone", region)
+	}
 	out := map[string][]string{}
 	for name, p := range plans {
-		if p.Supported() {
+		if p.Supported() && (p.GPUs == 0 || stock[name]) {
 			out[name] = []string{region}
 		}
 	}
 	return out, nil
+}
+
+// gpuStock returns the GPU plans that have devices in stock in the zone.
+func (d *Driver) gpuStock(ctx context.Context, zone string) (map[string]bool, error) {
+	cctx, cancel := CallContext(ctx, CallTimeout)
+	defer cancel()
+	avail, err := d.api.GetDevicesAvailability(cctx)
+	if err != nil {
+		return nil, Classify(err)
+	}
+	stock := map[string]bool{}
+	for plan, a := range (*avail)[zone].GPUPlans {
+		stock[plan] = a.Amount > 0
+	}
+	return stock, nil
 }

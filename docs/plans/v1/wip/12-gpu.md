@@ -382,6 +382,8 @@ region.
 stock (`GetDevicesAvailability`) for the offerings, a GPU count bucket from the account limits. L40S and H100
 qualify; RTX PRO 6000 waits for 580-open.
 
+**Done (j).** `FamilyGPUSpot` (`GPU-SPOT-` stays out) and `GPU-` plans launch; `Supported` no longer excludes GPU. `GetDevicesAvailability` joins the API interface (real client, fake, canary guard) and `LaunchableTypes` lists a GPU plan in a zone only with stock there (a failed call leaves the GPU plans out for that refresh); the global bucket `gpus` from `resource_limits.gpus`, usage by the servers' plans, and the plan's GPUs in `Consumption`. No `GPUVirtualizer` (passthrough). L40S and H100 offered, RTX PRO 6000 dropped until 580-open (test over the snapshot). Manual `gpu` scenario in the UpCloud lane (`E2E_GPU_TYPE` default `upcloud.GPU-8xCPU-64GB-1xL40S`, early stock and limits check), docs. Unverified: the stock response shape and whether a plan out of stock is absent or 0, the limit's name and its create error code, the root default on the plan's disk, boot on the GPU hosts.
+
 Each vendor step adds the vendor's `gpu` defaults to its lane (for the manual scenario) and ends at the dry run; no
 step runs a GPU instance.
 
