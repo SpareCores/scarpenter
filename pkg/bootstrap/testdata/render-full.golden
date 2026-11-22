@@ -65,6 +65,11 @@
         "hard": false,
         "path": "/etc/extensions/zfs.raw",
         "target": "/opt/extensions/zfs/zfs.raw"
+      },
+      {
+        "hard": false,
+        "path": "/etc/systemd/system/timers.target.wants/scarpenter-poweroff.timer",
+        "target": "/etc/systemd/system/scarpenter-poweroff.timer"
       }
     ]
   },
@@ -81,7 +86,7 @@
       {
         "dropins": [
           {
-            "contents": "# The kubernetes sysext ships kubelet.service and a kubeadm drop-in\n# (10-kubeadm.conf) that this drop-in overrides; the flags are spelled out so\n# that the unit does not depend on the variables of that drop-in.\n[Service]\nEnvironmentFile=-/run/scarpenter/node-ip.env\nExecStart=\nExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml --provider-id=scarpenter://aws/us-east-1/default-abc12 --hostname-override=default-abc12 --register-with-taints=karpenter.sh/unregistered:NoExecute,dedicated=gpu:NoSchedule $SCARPENTER_NODE_IP_ARGS\n",
+            "contents": "# The kubernetes sysext ships kubelet.service and a kubeadm drop-in\n# (10-kubeadm.conf) that this drop-in overrides; the flags are spelled out so\n# that the unit does not depend on the variables of that drop-in. Azure\n# Container Linux has a kubelet.service of its own in /etc that needs\n# /opt/bin/kubelet and /etc/default/kubelet and runs its own scripts first:\n# the empty assignments clear those settings. ExecStartPre= also clears the\n# sysext's steps (the CNI plugins into /opt/cni/bin), which follow verbatim.\n[Unit]\nConditionPathExists=\n[Service]\nEnvironmentFile=\nEnvironmentFile=-/run/scarpenter/node-ip.env\nExecStartPre=\nExecStartPre=/usr/bin/mkdir -p /opt/cni/bin\nExecStartPre=/usr/bin/cp -r /usr/local/bin/cni/. /opt/cni/bin/\nExecStartPre=/usr/bin/cp /usr/local/share/kubernetes-version /etc/kubernetes-version\nExecStartPre=/usr/bin/mkdir -p /var/kubernetes/kubelet-plugins/volume/exec/\nExecStart=\nExecStart=/usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml --provider-id=scarpenter://aws/us-east-1/default-abc12 --hostname-override=default-abc12 --register-with-taints=karpenter.sh/unregistered:NoExecute,dedicated=gpu:NoSchedule $SCARPENTER_NODE_IP_ARGS\n",
             "name": "20-scarpenter.conf"
           }
         ],
@@ -93,7 +98,6 @@
       },
       {
         "contents": "[Unit]\nDescription=Fail-safe: power the node off 24h0m0s after boot\n[Timer]\nOnBootSec=86400s\n[Install]\nWantedBy=timers.target\n",
-        "enabled": true,
         "name": "scarpenter-poweroff.timer"
       }
     ]

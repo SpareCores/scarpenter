@@ -292,6 +292,11 @@ func (g *roAzureImages) ListVersions(ctx context.Context, location, publisher, o
 	return g.inner.ListVersions(ctx, location, publisher, offer, sku)
 }
 
+func (g *roAzureImages) CommunityVersions(ctx context.Context, location, gallery, image string) ([]*armcompute.CommunityGalleryImageVersion, error) {
+	g.audit.read("Images.CommunityVersions")
+	return g.inner.CommunityVersions(ctx, location, gallery, image)
+}
+
 type roAgreements struct {
 	inner azure.AgreementAPI
 	audit *audit

@@ -210,6 +210,26 @@ func (a *Images) ListVersions(ctx context.Context, loc, publisher, offer, sku st
 	return out, nil
 }
 
+// CommunityVersions lists the versions of a community gallery image in the
+// location; an image the location does not have is NotFound.
+func (a *Images) CommunityVersions(ctx context.Context, loc, gallery, image string) ([]*armcompute.CommunityGalleryImageVersion, error) {
+	s := a.s
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.begin(ctx, "image.community"); err != nil {
+		return nil, err
+	}
+	vs := s.community[strings.ToLower(loc+"|"+gallery+"|"+image)]
+	if len(vs) == 0 {
+		return nil, notFound("ResourceNotFound", "community gallery image "+image)
+	}
+	out := make([]*armcompute.CommunityGalleryImageVersion, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, &v)
+	}
+	return out, nil
+}
+
 // ListSKUs lists the SKU names of an offer; an offer without images is
 // NotFound.
 func (a *Images) ListSKUs(ctx context.Context, loc, publisher, offer string) ([]string, error) {

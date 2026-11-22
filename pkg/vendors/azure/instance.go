@@ -18,8 +18,9 @@ import (
 // deterministic name takes the place of the idempotency key (plan 14, A3): a
 // replay returns the VM of the name whatever else the request says, and a failed
 // launch leaves nothing behind that would keep the next attempt from launching
-// (Compute.Launch). The image is the URN ResolveImage returned; its purchase plan
-// and the terms are read again here (cached for an hour).
+// (Compute.Launch). The image is the URN ResolveImage returned (its purchase plan
+// and the terms are read again here, cached for an hour), except for a
+// confidential size, which boots the community gallery image of the region.
 func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) (*vendors.Instance, error) {
 	if len(req.UserData) > MaxUserData {
 		return nil, vendors.NewError(vendors.Fatal, codeUserDataTooLarge, fmt.Errorf(
@@ -27,21 +28,6 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			len(req.UserData), MaxUserData))
 	}
 	if err := d.checkZone(ctx, req.Region, req.Zone); err != nil {
-		return nil, err
-	}
-	img, err := ParseURN(req.Image.Ref)
-	if err != nil {
-		return nil, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
-	}
-	res, _, err := d.images.Lookup(ctx, req.Region, img)
-	if err != nil {
-		if vendors.IsClass(err, vendors.NotFound) {
-			// The image the status reported is gone: nothing a next zone fixes.
-			return nil, vendors.NewError(vendors.Fatal, codeImageNotFound, err)
-		}
-		return nil, err
-	}
-	if err := d.images.CheckTerms(ctx, res); err != nil {
 		return nil, err
 	}
 	skus, err := d.skuTable(ctx, req.Region)
@@ -52,11 +38,48 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	if s, ok := skus[req.InstanceType]; ok {
 		sku = &s
 	}
-	spec, err := NewLaunchSpec(req, d.cfg.ClusterName, res.Image, res.Plan, sku, d.sshKey)
+	var (
+		img       ImageRef
+		plan      *ImagePlan
+		community string
+	)
+	// A size missing from the SKU table (sku nil) takes the Flatcar path: the
+	// table is read for the region first, so this is a size Azure does not list.
+	if sku != nil && sku.Confidential != "" {
+		// A confidential size boots Azure Container Linux, whatever image the
+		// request names.
+		if community, err = d.confidentialImage(ctx, req.Region); err != nil {
+			return nil, err
+		}
+	} else if img, plan, err = d.marketplaceImage(ctx, req); err != nil {
+		return nil, err
+	}
+	spec, err := NewLaunchSpec(req, d.cfg.ClusterName, img, plan, community, sku, d.sshKey)
 	if err != nil {
 		return nil, err
 	}
 	return d.compute.Launch(ctx, spec)
+}
+
+// marketplaceImage reads the Flatcar image of the request again and checks its
+// terms.
+func (d *Driver) marketplaceImage(ctx context.Context, req vendors.CreateRequest) (ImageRef, *ImagePlan, error) {
+	img, err := ParseURN(req.Image.Ref)
+	if err != nil {
+		return ImageRef{}, nil, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
+	}
+	res, _, err := d.images.Lookup(ctx, req.Region, img)
+	if err != nil {
+		if vendors.IsClass(err, vendors.NotFound) {
+			// The image the status reported is gone: nothing a next zone fixes.
+			return ImageRef{}, nil, vendors.NewError(vendors.Fatal, codeImageNotFound, err)
+		}
+		return ImageRef{}, nil, err
+	}
+	if err := d.images.CheckTerms(ctx, res); err != nil {
+		return ImageRef{}, nil, err
+	}
+	return res.Image, res.Plan, nil
 }
 
 // GetInstance implements vendors.Driver.

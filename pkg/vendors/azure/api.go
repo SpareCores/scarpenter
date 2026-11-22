@@ -144,6 +144,11 @@ type ImageAPI interface {
 	// ListVersions lists the versions of a SKU (the name pattern of the images
 	// selector).
 	ListVersions(ctx context.Context, location, publisher, offer, sku string) ([]string, error)
+	// CommunityVersions lists the versions of a community gallery image in a
+	// location; a gallery or image the location does not have is NotFound.
+	CommunityVersions(
+		ctx context.Context, location, gallery, image string,
+	) ([]*armcompute.CommunityGalleryImageVersion, error)
 }
 
 // AgreementAPI reads the marketplace terms state of a plan.

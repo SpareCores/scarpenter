@@ -284,3 +284,21 @@ func TestNewSDKClientsRejectsNoCredential(t *testing.T) {
 	_, err = NewSDKClients(token{}, "", SDKOptions{})
 	require.Error(t, err)
 }
+
+type captureTransport struct{ url string }
+
+func (c *captureTransport) Do(r *http.Request) (*http.Response, error) {
+	c.url = r.URL.String()
+	return &http.Response{StatusCode: 200, Body: http.NoBody, Header: http.Header{"Content-Type": {"application/json"}}, Request: r}, nil
+}
+
+// TestCommunityGalleryVersionsUseASupportedAPIVersion: the SDK's own api-version is
+// refused for locations/communityGalleries (NoRegisteredProviderFound, seen live).
+func TestCommunityGalleryVersionsUseASupportedAPIVersion(t *testing.T) {
+	tr := &captureTransport{}
+	c, err := NewSDKClients(token{}, "sub-1", SDKOptions{ClientOptions: &azcore.ClientOptions{Transport: tr}})
+	require.NoError(t, err)
+	_, _ = c.Images.CommunityVersions(context.Background(), "centralus", ConfidentialGallery, ConfidentialImageDefinition)
+	require.Contains(t, tr.url, "/locations/centralus/communityGalleries/"+ConfidentialGallery+"/images/"+ConfidentialImageDefinition+"/versions")
+	require.Contains(t, tr.url, "api-version="+communityGalleryVersion)
+}

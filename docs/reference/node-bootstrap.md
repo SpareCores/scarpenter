@@ -184,7 +184,10 @@ SCarpenter therefore writes the files at those paths and adds the drop-in
 `ExecStart` and spells out the full command line (the three paths above plus
 `--provider-id`, `--hostname-override`, `--register-with-taints` and, with the
 tailscale template, `--node-ip`), so the unit does not depend on the variables of
-the kubeadm drop-in. `Upholds=` starts the kubelet; nothing enables it.
+the kubeadm drop-in. It also resets `ExecStartPre`, `EnvironmentFile` and
+`ConditionPathExists` (the kubelet unit of Azure Container Linux sets its own) and
+writes the sysext's `ExecStartPre` steps back verbatim (the CNI plugins into
+`/opt/cni/bin`, the version file, the volume plugin directory). `Upholds=` starts the kubelet; nothing enables it.
 The `tailscale` sysext likewise ships `tailscaled.service`, started by `Upholds=`.
 
 ## NVIDIA GPU nodes

@@ -381,7 +381,7 @@ func TestValidateRendersTheLargestStorageSetup(t *testing.T) {
 	nc := nodeClass(nil)
 	profileOnly, profiled := nodeClass(withProfile), nodeClass(withProfile)
 	found := false
-	for n := 8000; n < 20000; n += 250 {
+	for n := 2000; n < 20000; n += 25 {
 		in := bootstrap.Inputs{UserButane: blob(n)}
 		if err := r.Validate(t.Context(), nc, "amd64", in); err != nil {
 			break

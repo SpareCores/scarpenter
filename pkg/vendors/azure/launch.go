@@ -76,7 +76,10 @@ type LaunchSpec struct {
 	UserData  []byte
 	Image     ImageRef
 	Plan      *ImagePlan
-	Settings  Settings
+	// CommunityImage is the community gallery image ID with its version of a
+	// confidential size (SKU.Confidential), which boots it instead of Image.
+	CommunityImage string
+	Settings       Settings
 	// PublicIPv4 gives the node a Standard public IPv4 address.
 	PublicIPv4 bool
 	Network    Network
@@ -94,7 +97,8 @@ type LaunchSpec struct {
 // the settings against the size's capabilities (Unsupported where the size
 // cannot have them).
 func NewLaunchSpec(
-	req vendors.CreateRequest, cluster string, img ImageRef, plan *ImagePlan, sku *SKU, sshKey string,
+	req vendors.CreateRequest, cluster string, img ImageRef, plan *ImagePlan, communityImage string, sku *SKU,
+	sshKey string,
 ) (LaunchSpec, error) {
 	st, err := DecodeSettings(req.Settings)
 	if err != nil {
@@ -115,7 +119,8 @@ func NewLaunchSpec(
 	l := LaunchSpec{
 		Cluster: cluster, NodeClaim: req.Node.Name, Region: req.Region, Zone: req.Zone, Size: req.InstanceType,
 		Spot: req.CapacityType == vendors.CapacitySpot, UserData: req.UserData, Image: img, Plan: plan,
-		Settings: st, PublicIPv4: boolOr(req.Settings.Networking.PublicIPv4, true),
+		CommunityImage: communityImage,
+		Settings:       st, PublicIPv4: boolOr(req.Settings.Networking.PublicIPv4, true),
 		Network: NetworkOf(req.Prepared), SKU: sku, SSHPublicKey: key, Tags: tags,
 	}
 	if l.NodeClaim == "" {
@@ -161,6 +166,21 @@ func (l LaunchSpec) validate() error {
 	if l.SKU == nil {
 		return nil
 	}
+	if l.Confidential() {
+		if l.SKU.GPUs > 0 {
+			return vendors.NewError(vendors.Unsupported, codeConfidentialGPU, fmt.Errorf(
+				"%s is a confidential size with GPUs: Azure Container Linux has no NVIDIA driver", l.Size))
+		}
+		if root.Ephemeral != nil {
+			return unsupported("%s is a confidential size: its OS disk is encrypted, not ephemeral", l.Size)
+		}
+		if l.Settings.EncryptionAtHost != nil && *l.Settings.EncryptionAtHost {
+			return unsupported("%s is a confidential size: it does not take encryption at host", l.Size)
+		}
+		if l.Settings.AcceleratedNetwork == settingTrue {
+			return unsupported("%s is a confidential size: its image runs without accelerated networking", l.Size)
+		}
+	}
 	if IsPremium(root.StorageAccountType) && !l.SKU.PremiumIO {
 		return unsupported("%s does not support premium storage (root %s)", l.Size, root.StorageAccountType)
 	}
@@ -188,10 +208,16 @@ func (l LaunchSpec) validate() error {
 // VMName is the VM's deterministic name.
 func (l LaunchSpec) VMName() string { return VMName(l.Cluster, l.NodeClaim) }
 
+// Confidential reports whether the size is a confidential VM size.
+func (l LaunchSpec) Confidential() bool { return l.SKU != nil && l.SKU.Confidential != "" }
+
 // AcceleratedNetworking resolves the setting: auto is on where the size has the
-// capability. The result is part of the NIC name, so a different value is a
-// different NIC.
+// capability, never on a confidential size. The result is part of the NIC name,
+// so a different value is a different NIC.
 func (l LaunchSpec) AcceleratedNetworking() bool {
+	if l.Confidential() {
+		return false
+	}
 	switch l.Settings.AcceleratedNetwork {
 	case settingTrue:
 		return true
@@ -358,7 +384,19 @@ func (l LaunchSpec) VM(nicID string) armcompute.VirtualMachine {
 			BootDiagnostics: &armcompute.BootDiagnostics{Enabled: new(true)},
 		},
 	}
-	if l.Settings.EncryptionAtHost != nil {
+	if l.Confidential() {
+		// Confidential VM with secure boot and a vTPM; the guest state is encrypted
+		// with the platform key (the image supports no other mode).
+		props.StorageProfile.ImageReference = &armcompute.ImageReference{CommunityGalleryImageID: new(l.CommunityImage)}
+		osDisk.DiskSizeGB = new(max(root.DiskSizeGB, confidentialImageDiskGB))
+		osDisk.ManagedDisk.SecurityProfile = &armcompute.VMDiskSecurityProfile{
+			SecurityEncryptionType: new(armcompute.SecurityEncryptionTypesVMGuestStateOnly),
+		}
+		props.SecurityProfile = &armcompute.SecurityProfile{
+			SecurityType: new(armcompute.SecurityTypesConfidentialVM),
+			UefiSettings: &armcompute.UefiSettings{SecureBootEnabled: new(true), VTpmEnabled: new(true)},
+		}
+	} else if l.Settings.EncryptionAtHost != nil {
 		props.SecurityProfile = &armcompute.SecurityProfile{EncryptionAtHost: l.Settings.EncryptionAtHost}
 	}
 	if l.Spot {

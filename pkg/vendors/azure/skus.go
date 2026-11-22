@@ -28,6 +28,16 @@ const (
 	capArch         = "CpuArchitectureType"
 	capCachedDisk   = "CachedDiskBytes"
 	capResourceDisk = "MaxResourceVolumeMB"
+	// capConfidential is SNP or TDX on a confidential VM size and absent on
+	// the others (SGX sizes included).
+	capConfidential = "ConfidentialComputingType"
+	capGPUs         = "GPUs"
+)
+
+// Confidential computing types of a size.
+const (
+	ConfidentialSNP = "SNP" // AMD SEV-SNP
+	ConfidentialTDX = "TDX" // Intel TDX
 )
 
 // SKU is one virtual machine size of a location, as the SKU table says.
@@ -55,6 +65,12 @@ type SKU struct {
 	Zones              []string // zones the size exists in; empty for a region without zones
 	RestrictedLocation bool
 	RestrictedZones    []string
+	// Confidential is ConfidentialSNP or ConfidentialTDX for a confidential VM
+	// size (it boots Azure Container Linux, see ConfidentialImage), "" for the
+	// others. SGX sizes (DCsv2, DCsv3) report no type and stay plain.
+	Confidential string
+	// GPUs is the number of GPUs of the size.
+	GPUs int
 }
 
 // capabilities indexes the capability list of a SKU.
@@ -107,6 +123,13 @@ func ParseSKU(r *armcompute.ResourceSKU, location string) (SKU, bool) {
 		MaxDataDisks:       int(capInt(c, capMaxDataDisks)),
 		CachedDiskBytes:    capInt(c, capCachedDisk),
 		ResourceDiskMB:     capInt(c, capResourceDisk),
+		GPUs:               int(capInt(c, capGPUs)),
+	}
+	switch strings.ToUpper(strings.TrimSpace(c[capConfidential])) {
+	case ConfidentialSNP:
+		s.Confidential = ConfidentialSNP
+	case ConfidentialTDX:
+		s.Confidential = ConfidentialTDX
 	}
 	if strings.EqualFold(c[capArch], "Arm64") {
 		s.Arch = archARM64
