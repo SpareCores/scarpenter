@@ -219,6 +219,33 @@ func TestAWSOffersTheNVIDIAFamiliesOfThePlan(t *testing.T) {
 	}
 }
 
+// TestOVHOffersItsNVIDIAFlavors is the OVH list of plan 12 on 4757.2.3 over the snapshot:
+// the priced t1 and t2 (V100), RTX 5000, L4 flavors and the 8-GPU h200 (with Fabric
+// Manager) are offered with their whole GPU count as capacity; the a10, a100, h100
+// and l40s flavors of the snapshot have no price yet and are dropped as NoPrice.
+func TestOVHOffersItsNVIDIAFlavors(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_, its := gpuCatalog(t, "4757.2.3", catalogtestFacts(t), reg, "ovh")
+	for name, count := range map[string]int64{
+		"ovh.t1-le-45": 1, "ovh.t1-180": 4, "ovh.t2-90": 2, "ovh.rtx5000-28": 1, "ovh.l4-90": 1, "ovh.l4-180": 2, "ovh.h200-1920-eph": 8,
+	} {
+		it := byName(its, name)
+		if it == nil {
+			t.Errorf("%s is not offered (dropped: %v)", name, droppedGauge(t, reg))
+			continue
+		}
+		if got := gpuCapacity(it); got != count {
+			t.Errorf("%s: nvidia.com/gpu = %d, want %d", name, got, count)
+		}
+	}
+	if it := byName(its, "ovh.h200-1920-eph"); it != nil && it.Requirements.Get(v1alpha1.LabelNVIDIADriverBranch).Any() != "570" {
+		t.Errorf("h200: branch %q", it.Requirements.Get(v1alpha1.LabelNVIDIADriverBranch).Any())
+	}
+	if it := byName(its, "ovh.t1-45"); it != nil && it.Requirements.Get(v1alpha1.LabelNVIDIADriverFlavor).Any() != "proprietary" {
+		t.Error("the V100 flavors take the proprietary driver")
+	}
+}
+
 func TestUnsupportedGPUTypesAreDroppedWithTheirReason(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	facts := virtualFacts{StaticFacts: catalogtestFacts(t), virtual: map[string]bool{"aws.g5.xlarge": true}}

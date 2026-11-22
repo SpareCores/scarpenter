@@ -895,7 +895,9 @@ server's CEL rule; a profile that asks for local storage stays Pending without a
 absolute limits equal the controller's `scarpenter_quota_limit`, and `used` follows launch and delete),
 `drift` (a root disk that becomes a volume replaces the node), `poweroff` (a guest that powers itself off
 leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific case), `scalezero` and
-`uninstall`. There is no arm64, no spot and no local-storage scenario: OVH has none of them.
+`uninstall`. The manual `gpu` scenario (never in `all`, the smoke set, a gate or a schedule; `scenarios=gpu`) launches one GPU flavor,
+`ovh.rtx5000-28` (one RTX 5000, the cheapest) by default or the `gpu_instance_type` input, with `E2E_GPU_COUNT` (default 1) as its GPU count: the same
+Pod and checks as the [AWS one](#the-l5-lane), and like it needs `nvidia.NodeBootstrap` to be true. The project needs the flavor in the lane's region and its GPU quota. There is no arm64, no spot and no local-storage scenario: OVH has none of them.
 
 - **Flavors** (`defaults.sh`): `d2-2` (shared CPU, the cheapest) for the probes, `b3-8` for the database and its
   client, and `d2-2`, `d2-4` and `b3-8` for the described scenario. No IAM condition limits flavors, so the guard is
