@@ -398,7 +398,7 @@ infrastructure provides](#what-the-ci-accounts-infrastructure-provides)).
 | Guard | hcloud lane |
 |---|---|
 | Budget alert to a person | the project's usage alert (Console) |
-| Type deny | **none possible** in the token: the lane's NodePools list the types (`cx23`, `cax21`, `cpx22`), and the project's server limit (at least 10, requested low) bounds a bug |
+| Type deny | **none possible** in the token: the lane's NodePools list the types (`cx23` and `cpx22` by type, the arm64 pool by size), and the project's server limit (at least 10, requested low) bounds a bug |
 | Region restriction | `E2E_HCLOUD_LOCATIONS` (default `fsn1,nbg1,hel1`); not enforceable by the token |
 | Run tag | label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` on every resource; the controller's snapshot builds label their temporary server and SSH key `scarpenter.sparecores.com/image-build=scarpenter-ci-<run id>` |
 | Sweeper | `e2e-hcloud-sweeper.yml` every three hours, environment `e2e-sweeper`: servers, volumes, placement groups, firewalls and unassigned Primary IPs older than two hours, and the build servers and SSH keys of CI clusters; never the Flatcar snapshots |

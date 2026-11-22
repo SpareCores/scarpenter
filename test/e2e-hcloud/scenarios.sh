@@ -75,11 +75,11 @@ servers_left() {
 # ------------------------------------------------------------ the starts ----
 # Idempotent: they apply what the scenario then waits for.
 
-start_amd64() { probe e2e-amd64 e2e-amd64 "${E2E_TYPE_AMD64}" on-demand; }
-start_arm64() { probe e2e-arm64 e2e-arm64 "${E2E_TYPE_ARM64}" on-demand; }
+start_amd64() { probe e2e-amd64 e2e-amd64 amd64 on-demand; }
+start_arm64() { probe e2e-arm64 e2e-arm64 arm64 on-demand; }
 start_db() { render "${here}/manifests/db.yaml" | kubectl apply -f -; }
 start_described() { render "${here}/manifests/described.yaml" | kubectl apply -f -; }
-start_drift() { probe e2e-drift e2e-drift "${E2E_TYPE_AMD64}" on-demand; }
+start_drift() { probe e2e-drift e2e-drift amd64 on-demand; }
 
 # start_byo: the network (with a cloud subnet of the location's network zone) and the firewall the
 # workflow creates with the hcloud CLI, labelled with the cluster, the selector label and the
@@ -104,7 +104,7 @@ start_byo() {
   setstate byo.firewall "${fw}"
   render "${here}/manifests/nodeclass-use.yaml" | kubectl apply -f -
   render "${here}/manifests/nodepool-use.yaml" | kubectl apply -f -
-  probe e2e-use e2e-use "${E2E_TYPE_AMD64}" on-demand
+  probe e2e-use e2e-use amd64 on-demand
 }
 
 # ----------------------------------------------------------- scenarios ------
@@ -256,11 +256,13 @@ scn_arm64() {
   node="$(getstate e2e-arm64.node)"
   sid="$(getstate e2e-arm64.sid)"
   assert_eq "the node is Ready" True "$(kubectl get node "${node}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
-  assert_eq "instance-type" "${E2E_TYPE_ARM64}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  assert_match "instance-type is a Hetzner Arm type" '^hcloud\.cax' "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  assert_eq "vendor" hcloud "$(node_label "${node}" "${label_domain}/vendor")"
+  assert_match "vcpus within the pool's bound" '^[1-4]$' "$(node_label "${node}" "${label_domain}/vcpus")"
   assert_eq "arch" arm64 "$(node_label "${node}" kubernetes.io/arch)"
   assert_eq "capacity-type (Hetzner has no spot)" on-demand "$(node_label "${node}" karpenter.sh/capacity-type)"
   j="$(server_json "${sid}")"
-  assert_eq "server type" "${E2E_TYPE_ARM64#hcloud.}" "$(jq -r '.server_type.name' <<<"${j}")"
+  assert_eq "server type is the node's" "$(node_label "${node}" node.kubernetes.io/instance-type)" "hcloud.$(jq -r '.server_type.name' <<<"${j}")"
   assert_eq "architecture" arm "$(jq -r '.server_type.architecture' <<<"${j}")"
   assert_eq "label cluster" "${E2E_CLUSTER}" "$(label_of "${j}" "${ctag}")"
   wait_until "kubectl logs" 120 kubectl logs "${pod}" --tail=5
@@ -417,7 +419,7 @@ scn_offerings() {
   note "offerings: ${type} is listed unavailable in: ${gone}"
   local l
   for l in ${gone}; do
-    NAME="e2e-unavail" POOL=e2e-amd64 TYPE="${E2E_TYPE_AMD64}" CAPACITY=on-demand render "${here}/manifests/probe.yaml" |
+    NAME="e2e-unavail" POOL=e2e-amd64 ARCH=amd64 CAPACITY=on-demand render "${here}/manifests/probe.yaml" |
       kubectl patch --local -f - -p "{\"spec\":{\"template\":{\"spec\":{\"nodeSelector\":{\"topology.kubernetes.io/zone\":\"${l}\"}}}}}" -o yaml |
       kubectl apply -f -
     sleep 60
@@ -436,10 +438,10 @@ scn_negative() {
     "$(kubectl get scnodeclass e2e-noipv4 -o jsonpath='{.status.vendors.hcloud.conditions[?(@.type=="VendorReady")].reason}')"
   assert_match "the message names the fix" "public" \
     "$(kubectl get scnodeclass e2e-noipv4 -o jsonpath='{.status.vendors.hcloud.conditions[?(@.type=="VendorReady")].message}')"
-  # An arm type pinned to a location without it: the Pod stays Pending, no launch attempt.
+  # An arm pool in a location without Arm: the Pod stays Pending, no launch attempt.
   wait_until "ResourcesReady on e2e-noarm" 180 is_value True \
     kubectl get scnodeclass e2e-noarm -o jsonpath='{.status.vendors.hcloud.conditions[?(@.type=="ResourcesReady")].status}'
-  probe e2e-noarm e2e-noarm "${E2E_TYPE_ARM64}" on-demand
+  probe e2e-noarm e2e-noarm arm64 on-demand
   sleep 90
   assert_eq "the Pod is Pending" Pending "$(kubectl get pod -l app=e2e-noarm -o jsonpath='{.items[0].status.phase}')"
   assert_eq "no NodeClaim of the pool (no launch attempt)" 0 \
