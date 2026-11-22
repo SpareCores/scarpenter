@@ -37,8 +37,19 @@ import (
 const (
 	// DefaultInterval is how often regions and zones are read again.
 	DefaultInterval = time.Hour
-	// retryInterval is the wait after a failed load.
+	// DefaultVendorTimeout bounds the load of one vendor.
+	DefaultVendorTimeout = 3 * time.Minute
+	// DefaultRegionTimeout bounds each driver call of one region (the driver's
+	// own call timeout, 45 s with retries, would stall a vendor for minutes
+	// on a region that never answers).
+	DefaultRegionTimeout = 30 * time.Second
+	// maxParallelRegions bounds the regions of a vendor read at once.
+	maxParallelRegions = 8
+	// retryInterval is how often Start looks for failed regions that are due,
+	// and the first backoff of a failed region; the backoff doubles up to
+	// maxBackoff.
 	retryInterval = 10 * time.Second
+	maxBackoff    = 15 * time.Minute
 )
 
 // Launchable is the optional view of which types the account can launch where;
@@ -54,7 +65,12 @@ type Options struct {
 	// Launchable may be nil.
 	Launchable Launchable
 	Interval   time.Duration
-	Clock      clock.Clock
+	// VendorTimeout bounds the load of one vendor; DefaultVendorTimeout if zero.
+	VendorTimeout time.Duration
+	// RegionTimeout bounds the listing of the regions and of the zones of one
+	// region; DefaultRegionTimeout if zero.
+	RegionTimeout time.Duration
+	Clock         clock.Clock
 }
 
 type vendorFacts struct {
@@ -68,6 +84,69 @@ type vendorFacts struct {
 	// (it carries the request ID), stays the same from one load to the next.
 	skipped  map[string]string
 	skipCode map[string]string
+	// failed are the regions that could not be read in the last load. They
+	// are in regions (with their last-known zones, or none), and retried when
+	// their backoff expires.
+	failed map[string]failure
+}
+
+// failure is the retry state of a region (or of a vendor with no facts).
+type failure struct {
+	attempts int
+	// next is when the retry is due.
+	next time.Time
+	// stale is set when the region has last-known zones.
+	stale bool
+}
+
+// backoffDelay is the wait after the given number of failed attempts: 10 s,
+// doubling up to 15 min.
+func backoffDelay(attempts int) time.Duration {
+	d := retryInterval
+	for i := 1; i < attempts && d < maxBackoff; i++ {
+		d *= 2
+	}
+	return min(d, maxBackoff)
+}
+
+func newFailure(prev failure, stale bool, now time.Time) failure {
+	n := prev.attempts + 1
+	return failure{attempts: n, next: now.Add(backoffDelay(n)), stale: stale}
+}
+
+// failure returns the retry state of the region, if it failed.
+func (vf *vendorFacts) failure(region string) failure {
+	if vf == nil {
+		return failure{}
+	}
+	return vf.failed[region]
+}
+
+// settled reports whether the region needs no read at the time: it was read,
+// is skipped because the credentials cannot read it, or failed and its retry
+// is not due.
+func (vf *vendorFacts) settled(region string, now time.Time) bool {
+	if vf == nil {
+		return false
+	}
+	if _, skipped := vf.skipped[region]; skipped {
+		return true
+	}
+	if _, read := vf.zones[region]; !read {
+		return false
+	}
+	fl, failed := vf.failed[region]
+	return !failed || now.Before(fl.next)
+}
+
+// due reports whether a failed region is due for a retry.
+func (vf *vendorFacts) due(now time.Time) bool {
+	for _, fl := range vf.failed {
+		if !now.Before(fl.next) {
+			return true
+		}
+	}
+	return false
 }
 
 // Facts implements catalog.Facts and catalog.LaunchableFacts over the
@@ -80,7 +159,9 @@ type Facts struct {
 	// skippedSeen remembers the skipped regions already warned about
 	// (vendor/region -> class and code of the error).
 	skippedSeen map[string]string
-	epoch       atomic.Uint64
+	// vendorFailed is the retry state of the vendors that have no facts.
+	vendorFailed map[string]failure
+	epoch        atomic.Uint64
 
 	defaults  sync.Map // class hash/vendor -> resolved
 	defaultsN atomic.Int64
@@ -99,14 +180,22 @@ func New(opts Options) *Facts {
 	if opts.Interval <= 0 {
 		opts.Interval = DefaultInterval
 	}
+	if opts.VendorTimeout <= 0 {
+		opts.VendorTimeout = DefaultVendorTimeout
+	}
+	if opts.RegionTimeout <= 0 {
+		opts.RegionTimeout = DefaultRegionTimeout
+	}
 	if opts.Clock == nil {
 		opts.Clock = clock.RealClock{}
 	}
-	return &Facts{opts: opts, data: map[string]*vendorFacts{}}
+	return &Facts{opts: opts, data: map[string]*vendorFacts{}, vendorFailed: map[string]failure{}}
 }
 
 // Load reads the regions and the zones of every region of every enabled
-// vendor. One region cannot block the others:
+// vendor. The vendors load concurrently, each bounded by Options.VendorTimeout,
+// and each is published as soon as it is read, so a vendor that hangs or fails
+// holds back no other. One region cannot block the others either:
 //
 //   - a region whose zones the credentials cannot read (the driver's
 //     RegionUnavailable: denied by policy, not opted in) is skipped, with one
@@ -114,42 +203,94 @@ func New(opts Options) *Facts {
 //   - a region that fails otherwise (throttling, network, 5xx) keeps its
 //     last-known zones, or is left out when it has none, and Load returns the
 //     error so that Start retries soon, but the other regions' facts are used;
-//   - only a vendor with no readable region at all fails as a whole: it keeps
-//     its previous facts (Loaded stays false until it has some) and the error
-//     is returned.
-func (f *Facts) Load(ctx context.Context) error {
+//   - only a vendor with no readable region at all, or one that did not finish
+//     in time, fails as a whole: it keeps its previous facts (Loaded stays
+//     false until it has some), the error is logged and returned.
+func (f *Facts) Load(ctx context.Context) error { return f.load(ctx, false) }
+
+// load is Load; with retryOnly it reads again only the failed regions whose
+// backoff expired and the vendors without facts whose backoff expired.
+func (f *Facts) load(ctx context.Context, retryOnly bool) error {
 	logger := log.FromContext(ctx).WithName("driver-facts")
-	var hard, soft []error
-	next := map[string]*vendorFacts{}
+	names := f.opts.Registry.Vendors()
+	logger.V(1).Info("loading the driver facts", "vendors", names, "retry", retryOnly)
+	now := f.opts.Clock.Now()
+	errs := make([]error, len(names))
+	var wg sync.WaitGroup
+	for i, vendor := range names {
+		wg.Go(func() { errs[i] = f.loadOne(ctx, logger, vendor, retryOnly, now) })
+	}
+	wg.Wait()
+	return errors.Join(errs...)
+}
+
+// pending reports whether a vendor has no facts or has a failed region.
+func (f *Facts) pending() bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	for _, vendor := range f.opts.Registry.Vendors() {
-		drv, _ := f.opts.Registry.Driver(vendor)
-		f.mu.RLock()
-		prev := f.data[vendor]
-		f.mu.RUnlock()
-		vf, errs, err := loadVendor(ctx, drv, prev)
-		if err != nil {
-			hard = append(hard, fmt.Errorf("vendor %s: %w", vendor, err))
-			continue
+		if vf := f.data[vendor]; vf == nil || len(vf.failed) > 0 {
+			return true
 		}
-		for _, e := range errs {
-			soft = append(soft, fmt.Errorf("vendor %s: %w", vendor, e))
+	}
+	return false
+}
+
+// loadOne reads one vendor within the timeout and publishes its facts.
+func (f *Facts) loadOne(ctx context.Context, logger logr.Logger, vendor string, retryOnly bool, now time.Time) error {
+	drv, _ := f.opts.Registry.Driver(vendor)
+	f.mu.RLock()
+	prev := f.data[vendor]
+	vfail := f.vendorFailed[vendor]
+	f.mu.RUnlock()
+	if retryOnly && (prev == nil && now.Before(vfail.next) || prev != nil && !prev.due(now)) {
+		return nil
+	}
+	vctx, cancel := context.WithTimeout(ctx, f.opts.VendorTimeout)
+	defer cancel()
+	vf, softErrs, err := f.loadVendor(vctx, drv, prev, retryOnly, now)
+	if err != nil {
+		err = fmt.Errorf("vendor %s: %w", vendor, err)
+		if ctx.Err() == nil {
+			f.mu.Lock()
+			f.vendorFailed[vendor] = newFailure(vfail, false, now)
+			f.mu.Unlock()
+			logger.Error(err, "loading the driver facts of a vendor failed, it is retried with backoff", "vendor", vendor)
 		}
-		next[vendor] = vf
+		return err
+	}
+	if !maps.EqualFunc(prev.failedSet(), vf.failed, func(failure, failure) bool { return true }) && len(vf.failed) > 0 {
+		logger.Error(errors.Join(softErrs...), "loading the zones of some regions failed, they are retried with backoff",
+			"vendor", vendor, "failedRegions", slices.Sorted(maps.Keys(vf.failed)))
 	}
 	f.mu.Lock()
-	changed := false
-	for vendor, vf := range next {
-		if old, ok := f.data[vendor]; !ok || !sameFacts(old, vf) {
-			changed = true
-		}
-		f.data[vendor] = vf
-		f.logSkipped(logger, vendor, vf)
-	}
+	old, had := f.data[vendor]
+	changed := !had || !sameFacts(old, vf)
+	f.data[vendor] = vf
+	delete(f.vendorFailed, vendor)
+	f.logSkipped(logger, vendor, vf)
 	f.mu.Unlock()
-	if changed {
+	switch {
+	case !had:
 		f.epoch.Add(1)
+		logger.Info("loaded the driver facts of a vendor", "vendor", vendor, "regions", len(vf.regions))
+	case changed:
+		f.epoch.Add(1)
+		logger.V(1).Info("the driver facts of a vendor changed", "vendor", vendor, "regions", len(vf.regions))
 	}
-	return errors.Join(append(hard, soft...)...)
+	var soft []error
+	for _, e := range softErrs {
+		soft = append(soft, fmt.Errorf("vendor %s: %w", vendor, e))
+	}
+	return errors.Join(soft...)
+}
+
+// failedSet returns the failed regions of the vendor (nil-safe).
+func (vf *vendorFacts) failedSet() map[string]failure {
+	if vf == nil {
+		return nil
+	}
+	return vf.failed
 }
 
 // logSkipped warns once for each region that starts being skipped, and says
@@ -180,42 +321,84 @@ func (f *Facts) logSkipped(logger logr.Logger, vendor string, vf *vendorFacts) {
 	}
 }
 
-// loadVendor reads the zones of every region of the vendor. errs are the
-// regions that failed for another reason than RegionUnavailable; err is set
-// when no region could be read at all.
-func loadVendor(ctx context.Context, drv vendors.Driver, prev *vendorFacts) (vf *vendorFacts, errs []error, err error) {
-	regions, err := drv.Regions(ctx)
+// loadVendor reads the zones of the regions of the vendor, up to
+// maxParallelRegions at once, each within RegionTimeout. errs are the regions
+// that failed for another reason than RegionUnavailable (also in vf.failed);
+// err is set when no region could be read at all. With retryOnly the regions
+// that prev has settled are kept without a call.
+func (f *Facts) loadVendor(
+	ctx context.Context, drv vendors.Driver, prev *vendorFacts, retryOnly bool, now time.Time,
+) (vf *vendorFacts, errs []error, err error) {
+	rctx, cancel := context.WithTimeout(ctx, f.opts.RegionTimeout)
+	regions, err := drv.Regions(rctx)
+	cancel()
 	if err != nil {
 		return nil, nil, fmt.Errorf("listing regions: %w", err)
 	}
+	type result struct {
+		zones []vendors.Zone
+		err   error
+		kept  bool
+	}
+	results := make([]result, len(regions))
+	sem := make(chan struct{}, maxParallelRegions)
+	var wg sync.WaitGroup
+	for i, r := range regions {
+		if retryOnly && prev.settled(r.Name, now) {
+			results[i].kept = true
+			continue
+		}
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			zctx, cancel := context.WithTimeout(ctx, f.opts.RegionTimeout)
+			defer cancel()
+			results[i].zones, results[i].err = drv.Zones(zctx, r.Name)
+		})
+	}
+	wg.Wait()
+
 	vf = &vendorFacts{
 		zones: map[string][]catalog.Zone{}, zoneRegion: map[string]string{},
-		skipped: map[string]string{}, skipCode: map[string]string{},
+		skipped: map[string]string{}, skipCode: map[string]string{}, failed: map[string]failure{},
 	}
 	var skipped []error
-	for _, r := range regions {
-		zones, err := drv.Zones(ctx, r.Name)
+	readable := 0 // the regions with zones, read now or earlier
+	for i, r := range regions {
 		var cz []catalog.Zone
-		switch {
-		case err == nil:
-			cz = make([]catalog.Zone, 0, len(zones))
-			for _, z := range zones {
+		read := true // false for a region that failed and has no last-known zones
+		switch res := results[i]; {
+		case res.kept:
+			if why, ok := prev.skipped[r.Name]; ok {
+				vf.skipped[r.Name] = why
+				vf.skipCode[r.Name] = prev.skipCode[r.Name]
+				continue
+			}
+			cz = prev.zones[r.Name]
+			if fl, failed := prev.failed[r.Name]; failed {
+				vf.failed[r.Name] = fl
+				read = fl.stale
+			}
+		case res.err == nil:
+			cz = make([]catalog.Zone, 0, len(res.zones))
+			for _, z := range res.zones {
 				cz = append(cz, catalog.Zone{ID: z.ID, Name: z.Name})
 			}
 			slices.SortFunc(cz, func(a, b catalog.Zone) int { return compare(a.Name, b.Name) })
-		case vendors.IsClass(err, vendors.RegionUnavailable):
-			vf.skipped[r.Name] = err.Error()
-			vf.skipCode[r.Name] = string(vendors.ClassOf(err)) + "/" + vendors.CodeOf(err)
-			skipped = append(skipped, fmt.Errorf("region %s: %w", r.Name, err))
+		case vendors.IsClass(res.err, vendors.RegionUnavailable):
+			vf.skipped[r.Name] = res.err.Error()
+			vf.skipCode[r.Name] = string(vendors.ClassOf(res.err)) + "/" + vendors.CodeOf(res.err)
+			skipped = append(skipped, fmt.Errorf("region %s: %w", r.Name, res.err))
 			continue
 		default:
-			err = fmt.Errorf("listing the zones of %s: %w", r.Name, err)
-			errs = append(errs, err)
-			old, ok := prev.zonesOf(r.Name)
-			if !ok {
-				continue
-			}
+			errs = append(errs, fmt.Errorf("listing the zones of %s: %w", r.Name, res.err))
+			old, stale := prev.zonesOf(r.Name)
+			vf.failed[r.Name] = newFailure(prev.failure(r.Name), stale, now)
 			cz = old
+			read = stale
+		}
+		if read {
+			readable++
 		}
 		vf.regions = append(vf.regions, r.Name)
 		vf.zones[r.Name] = cz
@@ -225,7 +408,7 @@ func loadVendor(ctx context.Context, drv vendors.Driver, prev *vendorFacts) (vf 
 		vf.hasZones = vf.hasZones || len(cz) > 0
 	}
 	slices.Sort(vf.regions)
-	if len(regions) > 0 && len(vf.regions) == 0 {
+	if len(regions) > 0 && readable == 0 {
 		return nil, nil, fmt.Errorf("no region could be read: %w", errors.Join(append(errs, skipped...)...))
 	}
 	return vf, errs, nil
@@ -234,6 +417,9 @@ func loadVendor(ctx context.Context, drv vendors.Driver, prev *vendorFacts) (vf 
 // zonesOf returns the zones last loaded of the region.
 func (vf *vendorFacts) zonesOf(region string) ([]catalog.Zone, bool) {
 	if vf == nil {
+		return nil, false
+	}
+	if fl, failed := vf.failed[region]; failed && !fl.stale {
 		return nil, false
 	}
 	z, ok := vf.zones[region]
@@ -270,26 +456,27 @@ func (f *Facts) Loaded(vendor string) bool {
 	return f.data[vendor] != nil
 }
 
-// Start loads the facts until the context ends: retrying every ten seconds
-// until the first success, then every interval. It implements
-// controller-runtime's Runnable.
+// Start loads the facts until the context ends. Everything is read every
+// interval; in between, every 10 s, the failed regions and the vendors without
+// facts whose backoff expired are read again. It implements controller-runtime's
+// Runnable.
 func (f *Facts) Start(ctx context.Context) error {
-	logger := log.FromContext(ctx).WithName("driver-facts")
+	var lastFull time.Time
 	for {
-		wait := f.opts.Interval
-		if err := f.Load(ctx); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			logger.Error(err, "loading the regions and zones of the drivers failed")
-			wait = retryInterval
-		} else {
-			logger.V(1).Info("loaded the regions and zones of the drivers")
+		now := f.opts.Clock.Now()
+		full := lastFull.IsZero() || now.Sub(lastFull) >= f.opts.Interval
+		if full {
+			lastFull = now
+		}
+		_ = f.load(ctx, !full) // failures are logged per vendor
+		wait := f.opts.Interval - f.opts.Clock.Since(lastFull)
+		if f.pending() {
+			wait = min(wait, retryInterval)
 		}
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-f.opts.Clock.After(wait):
+		case <-f.opts.Clock.After(max(wait, 0)):
 		}
 	}
 }

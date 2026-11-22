@@ -301,8 +301,8 @@ func (c *CloudProvider) withoutUnguardedGPUs(
 // FactsStartupGrace is how long after the start GetInstanceTypes reports an
 // error while the facts of a ready vendor are not loaded. Afterwards it offers
 // the types it has, so that a vendor whose driver keeps failing does not stop
-// the others.
-const FactsStartupGrace = 10 * time.Minute
+// the others. It is the vendor load timeout (facts.DefaultVendorTimeout) and a margin.
+const FactsStartupGrace = 4 * time.Minute
 
 // missingFacts returns the ready vendors of the NodeClass whose driver facts
 // are not loaded.
