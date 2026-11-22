@@ -123,11 +123,10 @@ start_gpu() {
   local n
   n="$(gpu_count)"
   assert_match "the GPU count of ${E2E_GPU_TYPE}" '^[1-9][0-9]*$' "${n}"
-  E2E_GPU_COUNT="${n}"
-  export E2E_GPU_COUNT
   render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
   render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
-  render "${here}/manifests/gpu.yaml" | kubectl apply -f -
+  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${n}" \
+    render "${here}/../gpu-pod.yaml" | kubectl apply -f -
 }
 start_drift() { probe e2e-drift e2e-drift "${E2E_TYPE_AMD64}" on-demand; }
 
@@ -960,60 +959,27 @@ scn_scalezero() {
   rm -f "${m}"
 }
 
-# gpu_pod_done: the GPU Pod succeeded (a failed one ends the wait early with its log).
-gpu_pod_done() {
-  local phase
-  phase="$(kubectl get pod e2e-gpu -o jsonpath='{.status.phase}')"
-  case "${phase}" in
-    Succeeded) return 0 ;;
-    Failed)
-      kubectl logs e2e-gpu --tail=40 | redact >&2 || true
-      return 1
-      ;;
-  esac
-  return 1
-}
-
-# gpu (plan 12 step f, MANUAL ONLY): a node of the GPU type comes up with the driver and the device
-# plugin, advertises nvidia.com/gpu, carries the three driver labels the driver check proved, and a
-# Pod with runtimeClassName nvidia that requests every GPU sees them (nvidia-smi) and runs a CUDA
-# kernel. The time from the NodeClaim to Ready is noted. Needs nvidia.NodeBootstrap on (the release
-# that ships the GPU driver) and the chart's device plugin and RuntimeClass.
+# gpu (plan 12 step f, MANUAL ONLY): one GPU type from the Pod to the end of a CUDA run on its node.
+# The shared checks are test/lib.sh gpu_check_node (labels against the table, capacity, the log of
+# nvidia-smi and vectorAdd); this adds the instance's maintenance policy and the time to Ready.
+# Needs nvidia.NodeBootstrap on (the release that ships the GPU driver) and the chart's device
+# plugin and RuntimeClass.
 scn_gpu() {
-  start_gpu
-  wait_node "the GPU Pod finished" $((E2E_NODE_TIMEOUT + 900)) app=e2e-gpu "" gpu_pod_done
-  local pod=e2e-gpu node claim iid count branch version flavor logs
+  local count node claim iid
   count="$(gpu_count)"
-  node="$(pod_node "${pod}")"
+  start_gpu
+  wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
+  node="$(pod_node e2e-gpu)"
   claim="$(claim_of_node "${node}")"
   assert_nonempty "the NodeClaim of ${node}" "${claim}"
   iid="$(instance_of_claim "${claim}")"
   assert_nonempty "the instance of ${claim}" "${iid}"
-  note "gpu: ${E2E_GPU_TYPE} x${count}, node ${node}, claim ${claim}, instance ${iid}, Ready after $(ready_seconds "${claim}" "${node}")s"
-
-  log "the node: capacity, labels (they are what the driver check proved)"
-  assert_eq "the node is Ready" True "$(kubectl get node "${node}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
-  assert_eq "nvidia.com/gpu capacity" "${count}" "$(kubectl get node "${node}" -o json | jq -r '.status.capacity["nvidia.com/gpu"]')"
-  assert_eq "nvidia.com/gpu allocatable" "${count}" "$(kubectl get node "${node}" -o json | jq -r '.status.allocatable["nvidia.com/gpu"]')"
-  branch="$(node_label "${node}" "${label_domain}/nvidia-driver-branch")"
-  version="$(node_label "${node}" "${label_domain}/nvidia-driver-version")"
-  flavor="$(node_label "${node}" "${label_domain}/nvidia-driver-flavor")"
-  assert_match "driver branch" '^[0-9]+$' "${branch}"
-  assert_match "driver version, of the branch" "^${branch}\\.[0-9.]+\$" "${version}"
-  assert_match "driver flavor" '^(open|proprietary)$' "${flavor}"
-  assert_eq "gpu-ready" true "$(node_label "${node}" "${label_domain}/gpu-ready")"
-  assert_eq "no gpu-pending taint is left" 0 "$(kubectl get node "${node}" -o json | jq '[.spec.taints[]? | select(.key == "scarpenter.sparecores.com/gpu-pending")] | length')"
-
-  log "the Pod: every GPU is visible, the driver is the labelled one, a CUDA kernel ran"
-  logs="$(kubectl logs "${pod}")"
-  assert_eq "GPUs listed by nvidia-smi" "${count}" "$(grep -c '^GPU [0-9]' <<<"${logs}")"
-  assert_match "the loaded driver equals the label" "driver-version: ${version//./\.}" "${logs}"
-  assert_match "vectorAdd" 'Test PASSED' "${logs}"
+  assert_eq "instance-type" "${E2E_GPU_TYPE}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  gpu_check_node "${node}" e2e-gpu "${count}" "${E2E_FLATCAR_VERSION}"
   assert_eq "the instance's maintenance policy" TERMINATE "$(instance_json "${iid}" | jq -r '.scheduling.onHostMaintenance')"
-
-  log "scale down: the Pod's deletion removes the GPU node"
-  kubectl delete pod "${pod}" --wait=false >/dev/null
-  wait_until "the NodeClaim ${claim} gone" 600 is_empty kubectl get nodeclaim "${claim}" -o name --ignore-not-found
+  note "gpu: ${E2E_GPU_TYPE} (${count} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
+  kubectl delete pod e2e-gpu --wait=false
+  kubectl delete nodepool e2e-gpu --wait=false
 }
 
 # uninstall: the procedure of docs/how-to-guides/install.md#uninstall, on the live project.
@@ -1059,12 +1025,12 @@ selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
 else
-  for s in "${all_scenarios[@]}" "${manual_scenarios[@]}"; do
+  for s in "${manual_scenarios[@]}" "${all_scenarios[@]}"; do
     [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
   done
   for s in ${E2E_SCENARIOS//,/ }; do
     [[ " ${all_scenarios[*]} ${manual_scenarios[*]} " == *" ${s} "* ]] || {
-      echo "unknown scenario ${s} (known: ${all_scenarios[*]} ${manual_scenarios[*]})" >&2
+      echo "unknown scenario ${s} (known: ${all_scenarios[*]}; manual: ${manual_scenarios[*]})" >&2
       exit 2
     }
   done
