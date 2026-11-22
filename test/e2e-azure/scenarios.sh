@@ -227,10 +227,10 @@ scn_preflight() {
     [[ "$(num "$(limit_of compute "${fam}")")" -ge "${E2E_MIN_VCPU_FAMILY}" ]] ||
       fail "the ${fam} vCPUs quota of ${AZURE_REGION} is '$(limit_of compute "${fam}")'; the suite needs ${E2E_MIN_VCPU_FAMILY}"
   done
-  # Public IPs: 8 for the whole suite; a run of amd64 and scalezero only (the smoke) holds one node.
+  # Public IPs: 8 for the whole suite; a run of amd64, scalezero and the manual gpu only (the smoke) holds one node.
   local pip need_pip=2 sc
   for sc in "${selected[@]}"; do
-    [[ "${sc}" == amd64 || "${sc}" == scalezero ]] || need_pip=8
+    [[ "${sc}" == amd64 || "${sc}" == scalezero || "${sc}" == gpu ]] || need_pip=8
   done
   # The row has had more than one name (the driver's publicIPUsageNames, pkg/vendors/azure/quota.go).
   local pname

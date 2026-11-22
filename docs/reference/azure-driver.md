@@ -101,16 +101,18 @@ are SCSI; NC H100 v5 lists SCSI and NVMe [U: from Azure's documentation, not rea
 scenario of the lane checks the rule against the subscription's SKU row before it launches. Which sizes the catalog offers is the vendor-neutral rule of
 [GPU types](labels-and-offerings.md#gpu-types); the driver's part is that `GPUVirtualizer` reports every `Standard_NV*`
 size as virtual: the NV series (NV v2 and v3 with the M60, NVadsA10 v5 with the A10) are visualization sizes whose GPUs
-are vGPUs on NVIDIA's GRID driver, which SCarpenter does not boot. A confidential size with GPUs stays `Unsupported`
-([above](#confidential-sizes)). On Flatcar 4757.2.3:
+are vGPUs on NVIDIA's GRID driver, which SCarpenter does not boot. It also reports the confidential sizes with GPUs
+(`Standard_NCC*`, NCC40ads_H100_v5), which boot an image without the NVIDIA driver, so Karpenter never picks a size that cannot launch;
+the launch still refuses them as `Unsupported` (`ConfidentialGPUNotSupported`, [above](#confidential-sizes)) as a backstop. On Flatcar 4757.2.3:
 
 | Offered | Dropped (reason) |
 |---|---|
-| `NC*as_T4_v3` (T4), `NC*ads_A10_v4` (A10), `NC*ads_A100_v4` (A100), `NC*ads_H100_v5` and `NC*adis_H100_v5` (H100), `ND40rs_v2` (V100, proprietary driver) | `NV*` (M60, A10 v5: `GPUVirtual`) |
-| with Fabric Manager: `ND96asr_v4` and `ND96amsr_A100_v4` (A100), `ND96isr_H100_v5`, `ND96isr_H200_v5` | the AMD GPU sizes (`GPUManufacturer`) and fractional sizes (`GPUFractional`) |
+| `NC*as_T4_v3` (T4), `NC*ads_A10_v4` (A10), `NC*ads_A100_v4` (A100), `NC*ads_H100_v5` and `NC*adis_H100_v5` (H100), `ND40rs_v2` (V100, proprietary driver) | `NV*` (M60, A10 v5: `GPUVirtual`), `NCC*` (confidential H100: `GPUVirtual`) |
+| with Fabric Manager: `ND96asr_v4` and `ND96amsr_A100_v4` (A100), `ND96isr_H100_v5` [U: SCSI], `ND96isr_H200_v5` [U: SCSI] | the AMD GPU sizes (`GPUManufacturer`) and fractional sizes (`GPUFractional`) |
+| | Blackwell: `NC*_xl_RTXPRO6000BSE_v6`, `ND128isr_GB200_v6`, `ND128isr_GB300_v6` (`GPUNoDriverBranch` until a release builds 580-open, or `GPUNVSwitch`) |
 
 The family quota of a new subscription is 0, so these sizes are `QuotaZero` until an increase is granted. Until a size
-has a green real run it is "offered, not yet verified"; the manual `gpu` scenario of the [L5 lane](../how-to-guides/testing.md#the-l5-lane)
+has a green real run it is "offered, not yet verified"; the manual `gpu` scenario of the [L5 lane](../how-to-guides/testing.md#the-l5-lane-of-azure)
 (default `Standard_NC4as_T4_v3`) is how the maintainer runs one.
 
 ## Node settings

@@ -229,8 +229,8 @@ func (azureVirtualFacts) VirtualGPU(_, apiReference string) bool {
 
 // TestAzureOffersTheNVIDIASizesOfThePlan is the Azure list of plan 12 on 4757.2.3 over the
 // snapshot: the NC and ND sizes (passthrough GPUs, the 8-GPU A100, H100 and H200 with Fabric
-// Manager) are offered, the NV sizes (GRID vGPUs) are not. (The confidential NCC H100 size stays in
-// the catalog: the driver refuses it at launch, ConfidentialGPUNotSupported.)
+// Manager) are offered, the NV sizes (GRID vGPUs) and the confidential NCC H100 size (no driver on its
+// image; the driver also refuses it at launch, ConfidentialGPUNotSupported) are not.
 func TestAzureOffersTheNVIDIASizesOfThePlan(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	_, its := gpuCatalog(t, "4757.2.3", azureVirtualFacts{catalogtest.Facts(t, "azure")}, reg, "azure")
@@ -246,13 +246,15 @@ func TestAzureOffersTheNVIDIASizesOfThePlan(t *testing.T) {
 	}
 	for _, name := range []string{
 		"azure.Standard_NV6s_v2", "azure.Standard_NV24s_v2", "azure.Standard_NV36ads_A10_v5", "azure.Standard_NV72ads_A10_v5",
+		"azure.Standard_NCC40ads_H100_v5",
 	} {
 		if byName(its, name) != nil {
 			t.Errorf("%s is offered", name)
 		}
 	}
-	if got := droppedGauge(t, reg)["c/azure/GPUVirtual"]; got < 4 {
-		t.Errorf("GPUVirtual = %v, want at least 4", got)
+	// The six NV sizes and the confidential NCC40ads_H100_v5 of the pinned snapshot.
+	if got := droppedGauge(t, reg)["c/azure/GPUVirtual"]; got != 7 {
+		t.Errorf("GPUVirtual = %v, want 7", got)
 	}
 }
 
