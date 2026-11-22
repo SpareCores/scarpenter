@@ -1,0 +1,26 @@
+# The Pod of the manual `gpu` scenario of the L5 lanes (test/lib.sh, gpu_check_node):
+# runtime class nvidia and a request for every GPU of the type (GPU_COUNT), pinned to
+# the scenario's NodePool and exact type. It lists the GPUs, prints the driver version
+# and runs NVIDIA's CUDA vectorAdd sample, then ends (restartPolicy Never). [U: the
+# image's path of vectorAdd, until a real run uses it.]
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${NAME}
+  labels: {app: ${NAME}, scarpenter-e2e: "true"}
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 0
+  runtimeClassName: nvidia
+  nodeSelector:
+    karpenter.sh/nodepool: ${POOL}
+    node.kubernetes.io/instance-type: ${TYPE}
+  containers:
+    - name: cuda
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
+      command: [sh, -c, "nvidia-smi -L && nvidia-smi --query-gpu=driver_version --format=csv,noheader && exec /cuda-samples/vectorAdd"]
+      env:
+        - {name: NVIDIA_DRIVER_CAPABILITIES, value: "compute,utility"}
+      resources:
+        requests: {cpu: 100m, memory: 64Mi}
+        limits: {nvidia.com/gpu: ${GPU_COUNT}}

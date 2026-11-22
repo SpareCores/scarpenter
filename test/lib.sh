@@ -84,3 +84,48 @@ wait_condition() {
   ((left >= 1)) || left=1
   kubectl wait --for="condition=${condition}" "$@" --timeout="${left}s"
 }
+
+# ---------------------------------------------------------------- gpu -------
+# The manual `gpu` scenario every vendor's L5 lane has (plan 12; never in `all`, the
+# smoke set, a gate or a schedule). The lane's scenarios.sh applies test/gpu-pod.yaml
+# (through its render function: NAME, POOL, TYPE, GPU_COUNT) next to its own
+# NodeClass and NodePool, waits with gpu_pod_done, and calls gpu_check_node. These
+# functions use the lane's lib.sh: assert_eq, assert_nonempty, assert_match, fail,
+# note, node_label.
+
+# gpu_pod_done <name> [namespace]: succeeds once the Pod has ended (Succeeded or
+# Failed, so that a failing CUDA run does not wait for the timeout).
+gpu_pod_done() {
+  local phase
+  phase="$(kubectl -n "${2:-default}" get pod "$1" -o jsonpath='{.status.phase}')"
+  [[ "${phase}" == Succeeded || "${phase}" == Failed ]]
+}
+
+# gpu_check_node <node> <pod> <GPU count> <Flatcar version>: the Pod ran to the end on
+# the node and the node is what the table says: the driver labels equal the table's
+# choice for the node's model (test/gpu-expect), nvidia.com/gpu is the count in
+# capacity and allocatable, the startup taint is gone, and the Pod's log shows every
+# GPU, the labelled driver version and CUDA's "Test PASSED".
+gpu_check_node() {
+  local node="$1" pod="$2" count="$3" flatcar="$4" model want logs
+  local -a drv
+  assert_eq "the Pod ended" Succeeded "$(kubectl get pod "${pod}" -o jsonpath='{.status.phase}')"
+  assert_eq "the node is Ready" True "$(kubectl get node "${node}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+  model="$(node_label "${node}" scarpenter.sparecores.com/accelerator-model)"
+  assert_nonempty "accelerator-model" "${model}"
+  assert_eq "accelerator-count" "${count}" "$(node_label "${node}" scarpenter.sparecores.com/accelerator-count)"
+  want="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && go run ./test/gpu-expect "${flatcar}" "${model}" "${count}")"
+  read -ra drv <<<"${want}"
+  assert_eq "nvidia-driver-branch (the table)" "${drv[0]}" "$(node_label "${node}" scarpenter.sparecores.com/nvidia-driver-branch)"
+  assert_eq "nvidia-driver-version (the table)" "${drv[1]}" "$(node_label "${node}" scarpenter.sparecores.com/nvidia-driver-version)"
+  assert_eq "nvidia-driver-flavor (the table)" "${drv[2]}" "$(node_label "${node}" scarpenter.sparecores.com/nvidia-driver-flavor)"
+  assert_eq "nvidia.com/gpu capacity" "${count}" "$(kubectl get node "${node}" -o json | jq -r '.status.capacity["nvidia.com/gpu"] // "0"')"
+  assert_eq "nvidia.com/gpu allocatable" "${count}" "$(kubectl get node "${node}" -o json | jq -r '.status.allocatable["nvidia.com/gpu"] // "0"')"
+  assert_eq "gpu-ready" true "$(node_label "${node}" scarpenter.sparecores.com/gpu-ready)"
+  assert_eq "the gpu-pending taint is gone" "" \
+    "$(kubectl get node "${node}" -o json | jq -r '.spec.taints[]? | select(.key == "scarpenter.sparecores.com/gpu-pending") | .key')"
+  logs="$(kubectl logs "${pod}")"
+  assert_eq "GPUs listed by nvidia-smi -L" "${count}" "$(grep -c '^GPU [0-9]*:' <<<"${logs}" || true)"
+  assert_eq "lines with the driver version nvidia-smi reports (one per GPU)" "${count}" "$(grep -cFx "${drv[1]}" <<<"${logs}" || true)"
+  assert_match "CUDA vectorAdd" "Test PASSED" "${logs}"
+}

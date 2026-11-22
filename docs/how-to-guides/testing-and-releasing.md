@@ -65,6 +65,8 @@ workload, and `scalezero` reads the amd64 node's state when it exists and otherw
 the cluster-wide criterion (no instance, node, NodeClaim or token left). A **full** run is
 every scenario of the lane (AWS: `amd64 arm64 db described byo local negative quota drift
 scalezero uninstall`; `local` only with a `local_storage_type`).
+The manual `gpu` scenario is in no mode: it runs only when named in `mode` (`mode=gpu`,
+optionally with `gpu_instance_type`), by hand.
 
 ## Running L5 by hand
 
