@@ -117,7 +117,8 @@ start_gpu() {
   stock="$(up GET /device/availability | jq -r --arg z "${UPCLOUD_ZONE}" --arg p "${plan}" '.[$z].gpu_plans[$p].amount // 0')"
   [[ "$(num "${stock}")" -ge 1 ]] || fail "no ${plan} in stock in ${UPCLOUD_ZONE} (GET /device/availability)"
   acct="$(up GET /account)"
-  for need in "gpus ${count}" "cores $(jq -r '.core_number' <<<"${pj}")" "memory $(jq -r '.memory_amount' <<<"${pj}")"; do
+  for need in "gpus ${count}" "cores $(jq -r '.core_number' <<<"${pj}")" "memory $(jq -r '.memory_amount' <<<"${pj}")" \
+    "storage_maxiops $(jq -r '.storage_size' <<<"${pj}")"; do
     limit="$(jq -r --arg k "${need% *}" '.account.resource_limits[$k] // 0' <<<"${acct}")"
     [[ "$(num "${limit}")" -ge "$(num "${need#* }")" ]] ||
       fail "the ${need% *} limit of the account is ${limit}; ${E2E_GPU_TYPE} needs ${need#* } (ask UpCloud to raise it: a sub-account has no GPU limit by default)"

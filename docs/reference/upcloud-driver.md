@@ -169,10 +169,13 @@ default root size is the plan's, as for any plan). Three driver parts are GPU-sp
 
 - **Stock.** `LaunchableTypes` reads `GET /device/availability` (`GetDevicesAvailability`: per zone, the amount in stock of each GPU
   plan) and lists a GPU plan in a zone only when its amount is positive, so a plan out of stock is not offered there until the next
-  refresh. When the call fails the GPU plans are left out for that refresh (logged) and the other plans are unaffected. The create
+  refresh. The answer covers every zone and is cached for a minute; when the call fails the last good answer is used (without
+  one the GPU plans are left out, and the error is logged at V(1)); the other plans are unaffected. The create
   call stays reactive too: `SERVER_RESOURCES_UNAVAILABLE` is `InsufficientCapacity` as for every plan.
 - **GPU count quota.** The account's `resource_limits.gpus` is the global bucket `gpus` (reported only when positive); its usage is
-  the sum of the GPUs of the account's servers (by their plan), and a GPU plan's consumption includes its GPU count.
+  the sum of the GPUs of the account's servers (by their plan, from the cached plan list), counted only when the limit is
+  positive, and a GPU plan's consumption includes its GPU count. The limit's create error is `Fatal` until a real run shows
+  its code (then `QuotaExceeded`, not account-wide, so that the `gpus` bucket is the one marked).
 - **No virtual GPU.** UpCloud's GPU plans are passthrough, so the driver has no `GPUVirtualizer`.
 
 Which types the catalog offers is the vendor-neutral rule of [GPU types](labels-and-offerings.md#gpu-types). On Flatcar

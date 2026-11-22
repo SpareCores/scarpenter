@@ -1,5 +1,6 @@
-# The NodeClass of the manual gpu scenario: the tailscale template and the registry mirror of
-# the other NodeClasses, and the default root disk (the GPU plan's included 300 GB: the driver
+# The NodeClass of the manual gpu scenario: the tailscale template, the registry mirror in
+# its own Butane (e2e-gpu-node-butane: the nvidia-runtime sysext replaces the containerd
+# command line, so the other NodeClasses' mirror would not be read), and the default root disk (the GPU plan's included 300 GB: the driver
 # sysext and the CUDA images need more than the 25 GB of the others).
 apiVersion: scarpenter.sparecores.com/v1alpha1
 kind: SCNodeClass
@@ -8,7 +9,7 @@ metadata:
 spec:
   flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
   kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
-  butane: {configMapRef: {name: e2e-node-butane, namespace: scarpenter-system, key: butane.yaml}}
+  butane: {configMapRef: {name: e2e-gpu-node-butane, namespace: scarpenter-system, key: butane.yaml}}
   network:
     template: tailscale
     tailscale:

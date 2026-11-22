@@ -46,7 +46,15 @@ func (d *Driver) GlobalQuotas(ctx context.Context) (*vendors.QuotaSnapshot, erro
 		d.limits.set(l, d.clock.Now().Add(limitsTTL))
 		d.mu.Unlock()
 	}
-	return SnapshotOf(ctx, d.api, limits)
+	// The plan list (cached by planTable) is needed only to count the GPUs of an account that has a GPU limit.
+	var plans Plans
+	if limits.GPUs > 0 {
+		var err error
+		if plans, err = d.planTable(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return SnapshotOf(ctx, d.api, limits, plans)
 }
 
 // Consumption implements vendors.QuotaReporter: a launch of the plan takes its
@@ -70,8 +78,9 @@ func (d *Driver) Consumption(instanceType, capacityType string) ([]vendors.Consu
 // list that the driver launches, in the zone (the plan list is account-wide:
 // Keeper's price list decides where a plan is offered, and a launch that disagrees
 // is Unsupported). A GPU plan is listed only where the device stock
-// (GetDevicesAvailability) has it; when that call fails the GPU plans are left out
-// for now (the next refresh asks again), and the other plans are not affected.
+// (GetDevicesAvailability, cached for a minute) has it; when that call fails the last
+// good stock is used, and without one the GPU plans are left out (the other plans are
+// not affected either way).
 // Spot GPU plans and families the driver has not classified are left out. Reading
 // the plans also fills the table the quota consumption and the prices need.
 func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string][]string, error) {
@@ -82,30 +91,47 @@ func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string
 	if err != nil {
 		return nil, err
 	}
-	stock, err := d.gpuStock(ctx, region)
+	stock, err := d.gpuStock(ctx)
 	if err != nil {
-		d.log.Error(err, "reading the GPU stock; the GPU plans are not offered", "zone", region)
+		// V(1): an account without GPU access gets an error here at every refresh.
+		d.log.V(1).Info("reading the GPU stock failed; the GPU plans of the last good read stay, none without one",
+			"zone", region, "error", err.Error())
 	}
 	out := map[string][]string{}
 	for name, p := range plans {
-		if p.Supported() && (p.GPUs == 0 || stock[name]) {
+		if p.Supported() && (p.GPUs == 0 || stock[region][name]) {
 			out[name] = []string{region}
 		}
 	}
 	return out, nil
 }
 
-// gpuStock returns the GPU plans that have devices in stock in the zone.
-func (d *Driver) gpuStock(ctx context.Context, zone string) (map[string]bool, error) {
+// gpuStock returns the GPU plans in stock per zone (GET /device/availability answers
+// for every zone at once, cached for a minute). A failed call returns the last good
+// answer with the error, nil without one.
+func (d *Driver) gpuStock(ctx context.Context) (map[string]map[string]bool, error) {
+	d.mu.Lock()
+	if v, ok := d.stock.get(d.clock.Now()); ok {
+		d.mu.Unlock()
+		return v, nil
+	}
+	stale := d.stock
+	d.mu.Unlock()
 	cctx, cancel := CallContext(ctx, CallTimeout)
 	defer cancel()
 	avail, err := d.api.GetDevicesAvailability(cctx)
 	if err != nil {
-		return nil, Classify(err)
+		return stale.v, Classify(err)
 	}
-	stock := map[string]bool{}
-	for plan, a := range (*avail)[zone].GPUPlans {
-		stock[plan] = a.Amount > 0
+	stock := map[string]map[string]bool{}
+	for zone, devices := range *avail {
+		stock[zone] = map[string]bool{}
+		for plan, a := range devices.GPUPlans {
+			stock[zone][plan] = a.Amount > 0
+		}
 	}
+	d.mu.Lock()
+	d.stock.set(stock, d.clock.Now().Add(stockTTL))
+	d.mu.Unlock()
 	return stock, nil
 }

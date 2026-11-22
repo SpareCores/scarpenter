@@ -34,6 +34,9 @@ const (
 	codeNetworkLimit        = "NETWORK_LIMIT_REACHED"
 	codeFloatingIPLimit     = "DETACHED_FLOATING_IP_LIMIT_REACHED"
 	codeLabelLimit          = "LABEL_LIMIT_REACHED"
+	// The GPU limit (resource_limits.gpus) has no code here yet: its create error is Fatal until a
+	// real run shows the code (plan 12, step j). Then map it to QuotaExceeded as the others below
+	// but not with AsAccountWide, so that the gpus bucket is the one marked exhausted.
 	// The per-tier storage limits: the SDK has MAXIOPS_STORAGE_LIMIT_REACHED only;
 	// the API reference (storage chapter) lists the standard and HDD ones too.
 	codeStandardStorageLimit = "STANDARD_STORAGE_LIMIT_REACHED"

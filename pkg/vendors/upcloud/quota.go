@@ -50,7 +50,9 @@ type Usage struct {
 // states count; which ones UpCloud counts is unverified), the private storages,
 // the public IPv4 addresses and the private networks, plus a label-filtered
 // server list for the references of SCarpenter's own.
-func CollectUsage(ctx context.Context, a api.API) (*Usage, error) {
+// plans give the GPUs of each server's plan; nil when the account has no GPU limit
+// (nothing counts GPUs then, and the plan list is not read).
+func CollectUsage(ctx context.Context, a api.API, plans Plans) (*Usage, error) {
 	u := &Usage{StorageGB: map[string]int{}}
 	cctx, cancel := CallContext(ctx, CallTimeout)
 	defer cancel()
@@ -58,15 +60,10 @@ func CollectUsage(ctx context.Context, a api.API) (*Usage, error) {
 	if err != nil {
 		return nil, Classify(err)
 	}
-	plans, err := a.GetPlans(cctx)
-	if err != nil {
-		return nil, Classify(err)
-	}
-	gpus := PlansOf(plans)
 	for _, s := range servers.Servers {
 		u.Cores += s.CoreNumber
 		u.MemoryMB += s.MemoryAmount
-		u.GPUs += gpus[s.Plan].GPUs
+		u.GPUs += plans[s.Plan].GPUs
 	}
 	storages, err := a.GetStorages(cctx, &request.GetStoragesRequest{Access: upcloud.StorageAccessPrivate})
 	if err != nil {
@@ -136,7 +133,17 @@ func ReadQuota(ctx context.Context, a api.API) (*vendors.QuotaSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	return SnapshotOf(ctx, a, limits)
+	var plans Plans
+	if limits.GPUs > 0 {
+		cctx, cancel := CallContext(ctx, CallTimeout)
+		defer cancel()
+		ps, err := a.GetPlans(cctx)
+		if err != nil {
+			return nil, Classify(err)
+		}
+		plans = PlansOf(ps)
+	}
+	return SnapshotOf(ctx, a, limits, plans)
 }
 
 // ReadLimits reads the account's resource limits.
@@ -151,8 +158,8 @@ func ReadLimits(ctx context.Context, a api.API) (upcloud.ResourceLimits, error) 
 }
 
 // SnapshotOf reads the usage and builds the snapshot against the limits.
-func SnapshotOf(ctx context.Context, a api.API, l upcloud.ResourceLimits) (*vendors.QuotaSnapshot, error) {
-	u, err := CollectUsage(ctx, a)
+func SnapshotOf(ctx context.Context, a api.API, l upcloud.ResourceLimits, plans Plans) (*vendors.QuotaSnapshot, error) {
+	u, err := CollectUsage(ctx, a, plans)
 	if err != nil {
 		return nil, err
 	}

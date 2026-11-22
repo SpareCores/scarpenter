@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 
@@ -471,12 +472,25 @@ func TestLaunchableTypesFollowTheGPUStock(t *testing.T) {
 	if other, err := e.d.LaunchableTypes(e.ctx(), "de-fra1"); err != nil || len(other[gpuPlan]) != 1 {
 		t.Errorf("the stock is per zone: %v, %v", other, err)
 	}
-	// A failed stock call takes the GPU plans out and leaves the rest.
+	// The stock is cached for a minute; a failed call after that keeps the last good answer.
 	e.f.SetOutOfStock(testZone, gpuPlan, false)
+	e.clock.Step(2 * time.Minute)
+	if types, err = e.d.LaunchableTypes(e.ctx(), testZone); err != nil || len(types[gpuPlan]) != 1 {
+		t.Errorf("the stock came back: %v, %v", types, err)
+	}
 	e.f.Inject("GetDevicesAvailability", errors.New("boom"), 0)
+	e.f.SetOutOfStock(testZone, gpuPlan, true)
+	e.clock.Step(2 * time.Minute)
 	types, err = e.d.LaunchableTypes(e.ctx(), testZone)
+	if err != nil || len(types[gpuPlan]) != 1 || len(types[testType]) != 1 {
+		t.Errorf("a failed stock call keeps the last good stock: %v, %v", types, err)
+	}
+	// Without an earlier good answer the GPU plans are left out and the rest stays.
+	fresh := newEnv(t, envOptions{})
+	fresh.f.Inject("GetDevicesAvailability", errors.New("boom"), 0)
+	types, err = fresh.d.LaunchableTypes(fresh.ctx(), testZone)
 	if err != nil || len(types[gpuPlan]) != 0 || len(types[testType]) != 1 {
-		t.Errorf("a failed stock call: %v, %v", types, err)
+		t.Errorf("no stock ever read: %v, %v", types, err)
 	}
 }
 

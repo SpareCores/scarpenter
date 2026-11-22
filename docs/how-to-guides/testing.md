@@ -730,7 +730,7 @@ Differences that matter:
   NodeClasses select only its own template (`resources.images.use.tags` with `scarpenter-lane=ci`). The preflight fails, naming the missing template, when there is none.
 - **Node images.** The lane's NodeClasses add `spec.butane` (`manifests/node-butane.yaml`): containerd pulls
   `registry.k8s.io` images through `us-central1-docker.pkg.dev/k8s-artifacts-prod/images`, because the nodes
-  failed to pull `registry.k8s.io/pause` from UpCloud addresses. k3s's `gateway-api-crd` is disabled: its
+  failed to pull `registry.k8s.io/pause` from UpCloud addresses. The GPU NodeClass has its own ConfigMap in the same file (`e2e-gpu-node-butane`): the nvidia-runtime sysext replaces containerd's command line, so a drop-in `30-` resets `ExecStart` to a config that imports `config-nvidia.toml` and adds the mirror. k3s's `gateway-api-crd` is disabled: its
   install Job does not tolerate the control plane's taint and would wait for a node of its own.
 - **Plans.** `STARTER-1xCPU-1GB` (`upcloud.STARTER-1xCPU-1GB`) for every scenario, and
   `STARTER-2xCPU-4GB` and `STARTER-2xCPU-8GB` for the described-not-named one. Plan 19 names `1xCPU-1GB`,
