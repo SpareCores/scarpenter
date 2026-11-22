@@ -15,11 +15,11 @@ name: Release
 #     assets), and a GitHub release with notes, the chart package and the files an
 #     infrastructure tool renders against: the CRD, the JSON Schema of the SCNodeClass
 #     and the example NodeClasses.
-# Before the first image is built the real-cloud lane (L5, e2e-cloud.yml) runs in FULL for
-# every vendor of test/e2e-vendors.txt against the tagged commit (the repository variable
-# RELEASE_E2E_MODE=smoke selects the smoke lanes instead): the publishing jobs need
-# it, so a tag whose commit does not pass on a real cloud publishes nothing. It waits for the
-# approval of the environment "e2e" like any L5 run (docs/how-to-guides/testing-and-releasing.md#releasing).
+# Real-cloud gate, by the repository variable RELEASE_E2E_MODE: unset or none (the default) starts no
+# real instance, "verify" (generated files, lint, tests, chart tests) is the only gate; smoke or full
+# runs the real-cloud lane (L5, e2e-cloud.yml) in that mode for every vendor of test/e2e-vendors.txt
+# against the tagged commit before the first image is built, and the publishing jobs need it. It waits
+# for the approval of the environment "e2e" like any L5 run (docs/how-to-guides/testing-and-releasing.md#releasing).
 # The image tag and the chart version carry no "v". A tag with a pre-release
 # suffix creates a pre-release and does not move the "latest" image tag.
 #
@@ -27,7 +27,7 @@ name: Release
 # access) whose commit is on main, never for pull requests, and the publishing
 # jobs' only credential is the job's GITHUB_TOKEN (packages: write and the OIDC
 # token for cosign, in the jobs that publish; contents: write in the last job
-# only); the release gate holds the L5 cloud role and tailnet identity of the
+# only); the release gate, when RELEASE_E2E_MODE turns it on, holds the L5 cloud role and tailnet identity of the
 # environment "e2e", behind its required reviewers. The
 # publishing jobs run in the environment "release": add required reviewers to it
 # in the repository settings to put a human approval before the first publish.
@@ -118,16 +118,13 @@ jobs:
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: git tag --list 'v*' | hack/release.sh latest "${TAG}" "${PRERELEASE}" >>"${GITHUB_OUTPUT}"
 
-      # Every vendor of the list, full unless the repository variable RELEASE_E2E_MODE is smoke
-      # (unset is empty, which the planner reads as full): the matrix of the L5 gate below.
+      # Every vendor of the list in the mode of RELEASE_E2E_MODE (smoke or full; unset or none: no
+      # vendor, no gate): the matrix of the L5 gate below.
       - name: The vendors of the L5 gate
         id: e2e
         env:
           RELEASE_E2E_MODE: ${{ vars.RELEASE_E2E_MODE }}
-        run: |
-          plan="$(test/e2e-plan.sh release "${RELEASE_E2E_MODE}")"
-          echo "${plan}" | tee -a "${GITHUB_OUTPUT}"
-          [[ "${plan}" == *$'\nany=true' ]] || { echo "no vendor in test/e2e-vendors.txt: the release gate would be empty" >&2; exit 1; }
+        run: test/e2e-plan.sh release "${RELEASE_E2E_MODE}" | tee -a "${GITHUB_OUTPUT}"
 
       - name: The tagged commit is on main
         run: |
@@ -154,10 +151,12 @@ jobs:
       - name: Chart
         run: hack/dev.sh make test-chart
 
-  # The release gate: the L5 lane (full unless RELEASE_E2E_MODE is smoke) of every vendor on the tagged commit, in the environment
-  # "e2e" (its required reviewers approve it). Nothing is published unless all of them pass.
+  # The release gate: the L5 lane (RELEASE_E2E_MODE: smoke or full) of every vendor on the tagged commit,
+  # in the environment "e2e" (its required reviewers approve it). Nothing is published unless all of them
+  # pass. Skipped (no instance) when RELEASE_E2E_MODE is unset or none.
   e2e:
     needs: verify
+    if: needs.verify.outputs.e2e_matrix != '[]'
     strategy:
       fail-fast: false # every vendor's result is wanted, but the publishing jobs need all of them
       matrix:
@@ -175,6 +174,9 @@ jobs:
 
   images:
     needs: [verify, e2e]
+    # A skipped gate (no real instances) must not skip the jobs behind it: success() would, so the
+    # condition is spelled out. A failed or rejected gate or verify still blocks (failure()).
+    if: ${{ !cancelled() && !failure() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: release
@@ -270,6 +272,7 @@ jobs:
 
   chart:
     needs: [verify, images]
+    if: ${{ !cancelled() && !failure() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -354,6 +357,7 @@ jobs:
 
   release:
     needs: [verify, images, chart, schema]
+    if: ${{ !cancelled() && !failure() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

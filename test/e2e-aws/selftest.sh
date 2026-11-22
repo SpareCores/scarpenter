@@ -223,7 +223,7 @@ t_manual_scenarios() { # the manual scenarios have functions, are named by the w
   [[ -n "${manual}" ]]
   for n in ${manual}; do
     grep -q "^scn_${n}() {" "${here}/scenarios.sh" || { echo "no function scn_${n}"; return 1; }
-    grep -q "${n}" "${root}/.github/workflows/e2e.yml" || { echo "the workflow's scenarios input does not name ${n}"; return 1; }
+    grep -q "${n}" "${root}/.github/workflows/e2e.yml" || { echo "the workflow's mode input does not name ${n}"; return 1; }
     [[ " ${all} " != *" ${n} "* ]] || { echo "${n} is in all_scenarios"; return 1; }
     [[ ",${E2E_SMOKE_SCENARIOS}," != *",${n},"* ]] || { echo "${n} is in the smoke set"; return 1; }
   done
@@ -252,8 +252,9 @@ t_workflows_agree() { # the callers pass the reusable workflow its inputs; nothi
     grep -qE "^      ${i}: " "${w}/release.yml" || { echo "release.yml does not pass ${i}"; return 1; }
   done
   [[ ! -e "${w}/e2e-aws.yml" ]] || { echo "e2e-aws.yml still exists"; return 1; }
-  # A labeled run would put a newer green e2e-result over a failed one (testing-and-releasing.md).
-  ! grep -qE '^    types: .*labeled' "${w}/e2e.yml" || { echo "e2e.yml runs on labeled"; return 1; }
+  # Only the manual workflow and the release gate (off unless RELEASE_E2E_MODE is smoke or full) call the lane.
+  if grep -lE 'uses: .*e2e-cloud\.yml' "${w}"/*.yml | grep -vE '/(e2e|e2e-cloud|release)\.yml$'; then echo "another workflow calls the lane"; return 1; fi
+  ! grep -qE '^  (pull_request|push|schedule):' "${w}/e2e.yml" || { echo "e2e.yml has an automatic trigger"; return 1; }
   # The sweeper has no reviewers to wait for: its own environment, limited to main.
   grep -qE '^    environment: e2e-sweeper$' "${w}/e2e-aws-sweeper.yml" || { echo "the sweeper is not in the environment e2e-sweeper"; return 1; }
   ! grep -rn 'e2e-aws\.yml' "${root}/.github" "${root}/test" "${root}/hack" "${root}/Makefile" "${root}/docs/how-to-guides" |
@@ -267,7 +268,7 @@ check "every scenario has a function and is named by the workflow" t_scenarios_d
 check "the manual scenarios are outside all and the smoke set" t_manual_scenarios
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
-check "e2e.yml and release.yml pass what e2e-cloud.yml takes; no labeled trigger; the sweeper's environment; nothing names the old e2e-aws.yml" t_workflows_agree
+check "e2e.yml and release.yml pass what e2e-cloud.yml takes and are the only callers, e2e.yml with no automatic trigger; the sweeper's environment; nothing names the old e2e-aws.yml" t_workflows_agree
 check "no account ID, key or local path in the lane's files" t_no_secrets_in_scripts
 
 # ---- the CI role's policy ----------------------------------------------------

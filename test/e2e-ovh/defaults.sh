@@ -24,8 +24,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 : "${E2E_TYPE_AMD64:=ovh.d2-2}"
 : "${E2E_TYPE_DB:=ovh.b3-8}"
 # The manual gpu scenario (never in `all` or the smoke set): the GPU flavor it launches
-# (the cheapest supported one priced in the lane's region GRA11: one L4; the workflow input
-# gpu_instance_type overrides it; the scenario reads the GPU count from Keeper's snapshot)
+# (the cheapest supported one priced in the lane's region GRA11: one L4; the gpu_instance_type
+# input of e2e.yml, an E2E_GPU_TYPE override, replaces it; the scenario reads the GPU count from Keeper's snapshot)
 # and how long its node may take from the Pod to the end of the CUDA run (the driver
 # download and the image pull come on top of a boot). The GPU flavors need a quota the
 # project may not have, and are not in every region.

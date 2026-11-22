@@ -81,7 +81,7 @@ pushes `linux/amd64,linux/arm64`). `make help` lists every target.
 | Chart | `make test-chart` | The Helm chart without a cluster: lint, golden `helm template` output, the values schema and the template checks against bad values, every controller flag settable and accepted by the controller's own parser, the RBAC and CRDs equal to `config/` and Karpenter core's, the `scarpenter-crd` chart equal to them, and an envtest upgrade of the SCNodeClass CRD that must keep the fields of newer releases. | Plan 09: [The chart tests](#the-chart-tests). The install into a cluster is the L3 lane. |
 | L3 | `make test-kwok` | Real Karpenter core, SCarpenter (installed from the Helm chart) and the fake driver (KWOK nodes) in kind. | Plans 04 and 05: eleven scenarios, extended to seventeen by plan 06 and to nineteen by plan 14; the chart since plan 09. [The L3 lane](#the-l3-lane). |
 | L4 | `make test-qemu` | The qemu driver: real Flatcar VMs, a k3s control plane. Needs `--privileged` and `/dev/kvm`. | Plan 07: [The L4 lane](#the-l4-lane). |
-| L5 | `.github/workflows/e2e.yml` (pull requests that touch what it tests, manual), `e2e-cloud.yml` (the lane), `release.yml` (every tag) | Real cloud over Tailscale, AWS today. Never run from the dev container, never by a contributor's tooling; never on a timer ([when it runs](testing-and-releasing.md)). | Plan 10: [The L5 lane](#the-l5-lane). Has run green live (first green run 2026-11-10, all scenarios pass). |
+| L5 | `.github/workflows/e2e.yml` (manual only), `e2e-cloud.yml` (the lane), `release.yml` (only when the repository variable `RELEASE_E2E_MODE` is `smoke` or `full`; unset is `none`) | Real cloud over Tailscale, AWS today. Never run from the dev container, never by a contributor's tooling; never automatically ([when it runs](testing-and-releasing.md)). | Plan 10: [The L5 lane](#the-l5-lane). Has run green live (first green run 2026-11-10, all scenarios pass). |
 
 The design of the layers is in
 [the overview](../plans/v1/wip/00-overview.md#13-testing) and ADR-010.
@@ -322,7 +322,7 @@ console of the first boot.
 CI: `.github/workflows/qemu.yml` runs the lane on GitHub-hosted `ubuntu-latest`
 runners (KVM through a udev rule, the bridge inside the privileged container's own
 network namespace) for pull requests that touch what it tests, nightly and on
-demand. The job is `continue-on-error` until three green `workflow_dispatch` runs
+demand (local VMs, no cloud instances). The job is `continue-on-error` until three green `workflow_dispatch` runs
 under 20 minutes are on record (overview section 15, Q6); then the flag goes. A
 self-hosted runner with `/dev/kvm` is the fallback, only for `schedule` and
 `workflow_dispatch`, never for pull requests: a fork's pull request would run
@@ -334,13 +334,11 @@ L5 proves SCarpenter end to end on a real cloud: a k3s control plane on a GitHub
 runner, nodes on AWS that join over a Tailscale tailnet, both architectures, spot,
 the whole Karpenter path. It is the only lane that costs money and needs credentials,
 so it exists only as a workflow, the reusable `.github/workflows/e2e-cloud.yml` (one
-vendor, AWS today; `mode` is `full` or `smoke`), called by `e2e.yml` and by `release.yml`,
-in the GitHub environment `e2e` whose required reviewers approve every run. **It does not run
-on a timer**: it runs for the pull requests that touch what it tests (a vendor's driver or
-lane: its full lane; code every node goes through: a smoke of two scenarios), on demand, and
-before every release (full lanes, or smoke lanes when the repository variable `RELEASE_E2E_MODE` is `smoke`); a free nightly canary watches the outside world. The tiers, the path
-rules, the labels, the approval and the release gate are in
-[Testing and releasing](testing-and-releasing.md). Nothing in the repository runs it
+vendor, AWS today; `mode` is `full` or `smoke`), called by `e2e.yml` and, only when the repository variable `RELEASE_E2E_MODE` is `smoke` or `full`, by `release.yml`,
+in the GitHub environment `e2e` whose required reviewers approve every run. **No automatic trigger starts it**: a maintainer
+runs it by hand (`e2e.yml`, on any branch, pull request or commit), and a free nightly canary watches the outside world.
+How to run it, the inputs and the security reasoning are in
+[Testing and releasing](testing-and-releasing.md#running-l5-by-hand). Nothing in the repository runs it
 from a developer machine. A full run takes about 22 minutes (the job's limit is 90: the Scenarios step has its own
 limit of 55 minutes, so that at least 20 minutes stay for the diagnostics and the
 teardown, which always run) and costs well
@@ -349,19 +347,22 @@ gateway. Alibaba Cloud has a lane of the same shape, described [below](#the-alib
 it has not run yet.
 
 ```bash
-gh workflow run e2e.yml -f vendor=aws -f mode=full                     # everything
-gh workflow run e2e.yml -f vendor=aws -f mode=smoke                    # preflight, amd64, scalezero
-gh workflow run e2e.yml -f vendor=aws -f scenarios=amd64,arm64         # a subset
-gh workflow run e2e.yml -f vendor=aws -f fail_fast=false               # run every scenario despite failures
+gh workflow run e2e.yml -f vendors=aws -f mode=full                    # everything
+gh workflow run e2e.yml -f vendors=all -f mode=smoke                   # preflight, amd64, scalezero on every vendor
+gh workflow run e2e.yml -f vendors=aws -f mode=amd64,arm64             # a subset of scenarios
+gh workflow run e2e.yml -f vendors=oci -f mode=gpu -f gpu_instance_type=oci.VM.GPU.A10.1 -f pr=123   # one GPU node on OCI, for a pull request
+gh workflow run e2e.yml -f vendors=azure -f mode=cvm -f cvm_instance_type=azure.Standard_DC2as_v5    # an Azure confidential VM check
+gh workflow run e2e.yml -f vendors=aws -f fail_fast=false              # run every scenario despite failures
 ```
 
-Inputs of `e2e.yml`: `vendor`, `mode`, `scenarios` (names below, comma separated),
-`fail_fast` (default `true`, see below) and `gpu_instance_type`. `e2e-cloud.yml` also takes `k3s_version` and
+Inputs of `e2e.yml`: `vendors`, `mode` (`smoke`, `full` or scenario names, below, comma separated),
+`gpu_instance_type`, `cvm_instance_type`, `env` (more `E2E_KEY=VALUE` overrides), `pr`, `sha`,
+`allow_fork` and `fail_fast` (default `true`, see below); the table is in
+[Testing and releasing](testing-and-releasing.md#running-l5-by-hand). `e2e-cloud.yml` also takes `k3s_version` and
 `kubernetes_version` (the pins of `test/e2e-aws/defaults.sh`; together they run the
 lane at another Kubernetes version, for example the chart's minimum, 1.31: the
 kubelet sysext must exist in the sysext-bakery for the version and be at most the
-API server's), `local_storage_type` (enables the optional local-storage scenario) and
-`gpu_instance_type` (the type of the manual `gpu` scenario, with the vendor prefix; `e2e.yml` takes it too); it
+API server's), and `local_storage_type` (enables the optional local-storage scenario); it
 cannot be dispatched by itself, so a minimum-version run is a one-off workflow change that
 calls it with them.
 The check that the dry run [below](#without-aws) cannot make, is the run itself.
@@ -437,7 +438,7 @@ a Pod's environment. `selftest.sh` tests the redaction.
 | `described` | a Deployment that selects by `vcpus`, `memory-mib` ranges and a `metric-single-core-pct` threshold within the allowed test types gets a type that satisfies all of them (checked against EC2's vCPUs of the type) |
 | `byo` | a security group and a subnet that the workflow creates with the AWS CLI (tagged with the cluster and the run's creation time) are `use`d by a second NodeClass: the node launches into them, and after the workload, the NodePool and the NodeClass are gone SCarpenter has not deleted them (the teardown does) |
 | `local` | optional (`local_storage_type`): a type with instance-store disks gets them striped and mounted at the profile's path |
-| `gpu` | **manual only** (never in `all`, the smoke set, a gate or a schedule; run it by name, `scenarios=gpu`): one GPU type, `aws.g4dn.xlarge` by default or the `gpu_instance_type` input, with its own NodeClass and NodePool (the gpu-pending startup taint) and a Pod with `runtimeClassName: nvidia` that requests all the type's GPUs and runs `nvidia-smi` and CUDA's vectorAdd. It checks the node's driver labels against the table (`test/gpu-expect`), `nvidia.com/gpu` in capacity and allocatable, the lifted taint, every GPU and the labelled driver version in the Pod's log and `Test PASSED`, and records the time to `Ready`. The account needs the G (or P) on-demand vCPU quota for the type (a new account has 0) and the CI role must allow the type (`E2E_GPU_TYPE` is in the deny's list). It needs `nvidia.NodeBootstrap` to be true: until then no type offers `nvidia.com/gpu` and the run ends "never launched". It costs real money for the minutes the node runs and is not part of the plan's gates |
+| `gpu` | **manual only** (never in `all`, the smoke set, a gate or a schedule; run it by name: `mode=gpu`): one GPU type, `aws.g4dn.xlarge` by default or the `gpu_instance_type` input of `e2e.yml` (`E2E_GPU_TYPE`), with its own NodeClass and NodePool (the gpu-pending startup taint) and a Pod with `runtimeClassName: nvidia` that requests all the type's GPUs and runs `nvidia-smi` and CUDA's vectorAdd. It checks the node's driver labels against the table (`test/gpu-expect`), `nvidia.com/gpu` in capacity and allocatable, the lifted taint, every GPU and the labelled driver version in the Pod's log and `Test PASSED`, and records the time to `Ready`. The account needs the G (or P) on-demand vCPU quota for the type (a new account has 0) and the CI role must allow the type (`E2E_GPU_TYPE` is in the deny's list). It needs `nvidia.NodeBootstrap` to be true: until then no type offers `nvidia.com/gpu` and the run ends "never launched". It costs real money for the minutes the node runs and is not part of the plan's gates |
 | `negative` | `publicIPv4: false` is refused on the default VPC (`VendorReady=False`, reason `ValidationFailed`), `publicIPv6: true` skips the subnets of a default VPC without IPv6 (ADR-022: the status lists no `default` subnet and the region stays ready, the managed network would be created at the first launch); no instance is launched |
 | `quota` | the limits SCarpenter reports (`scarpenter_quota_limit`) equal `aws service-quotas get-service-quota` for all 18 codes; `scarpenter_quota_used` of the Standard on-demand and spot buckets equals what EC2 says is running and pending (the counting rules of overview section 11.8: a spot request with an instance is not counted twice); the in-flight reservations are released; the launched types are in `DescribeInstanceTypeOfferings` of their zones |
 | `drift` | a change to a storage profile no running node uses drifts nothing; a change to `vendors.aws.storage.root.volumeSize` replaces the node (new root size, old instance terminated, old NodeClaim and Node gone, the Pod moves). The controller Pod is killed hard (`--grace-period=0 --force`) while the replacement's `Create` is in flight, and the replacement carries `karpenter.sh/do-not-disrupt` until the Pod has moved (core forgets its disruption command at a restart and would consolidate the empty replacement). **The replay of `Create` is opportunistic**: the window (the instance exists, `Create` has not returned) is narrow on AWS and no test-only driver flag stretches it, so when the attempt misses it the run notes that and never fails for it. This is what the carry-over items "a restart must assert the replay of `Create` ran" (plan 07) and `IdempotentParameterMismatch` with changed user-data (plan 08) depend on. Always asserted: a claim that survived the restart owns one instance, no instance is orphaned; when the window was hit, the replay found the first launch's instance instead of making a second |
@@ -465,9 +466,9 @@ The lane needs the following, provisioned once by a maintainer; nothing here is 
 by a workflow. Use your own values; the repository holds none.
 
 *GitHub*: the environment `e2e` (shared by the cloud providers' e2e lanes), with
-**required reviewers** (every run is approved by a maintainer: a pull request's workflow code runs
-with the role) and no limit to the `main` branch (pull requests run on `refs/pull/<n>/merge`, the
-release gate on a `v*` tag; see [Testing and releasing](testing-and-releasing.md#approval-and-fork-pull-requests)).
+**required reviewers** (every run is approved by a maintainer: the code of the run, possibly a pull request's, holds
+the role) and no limit to the `main` branch (manual runs use the branch they are dispatched on, the
+release gate a `v*` tag; see [Testing and releasing](testing-and-releasing.md#security-who-can-start-real-instances)).
 The sweeper runs in an environment of its own, `e2e-sweeper` (limited to `main`, no reviewers, the
 same role: see [The sweeper](#the-sweeper)), so that its scheduled runs never wait for an approval.
 The nightly canary has its own environment, `e2e-canary`, with a read-only role. In `e2e` there are:
@@ -694,7 +695,7 @@ names it, that every action is pinned by SHA, that the lane's files hold no acco
 local path, that the CI policy and the canary's read-only policy are what the docs say, and renders the chart with the
 lane's values; the sweeper's tests run against the in-memory EC2; `test/canary` runs the canary
 against the same in-memory EC2 and compares its calls with the read-only policy; `test/e2e-plan-selftest.sh`
-tests the path rules that decide which runs a pull request needs. `make lint` runs `actionlint` and
+tests the planner of the manual run (vendors, mode, overrides) and of the release gate. `make lint` runs `actionlint` and
 `shellcheck` on the workflows and the scripts.
 
 #### The UpCloud lane
@@ -811,7 +812,7 @@ against the driver's in-memory Vultr API, and `selftest.sh`.
 
 The second vendor lane (`test/e2e-hcloud/`, `e2e-cloud.yml` with `vendor: hcloud`; plan 15) is a line of `test/e2e-vendors.txt`, with the project's server limit and usage alert set (see [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards)). It has the
 same shape as the AWS one: a k3s control plane on the runner, nodes that join over the tailnet, the
-same scripts and the same tiers, mode, approval and release gate ([Testing and
+same scripts and the same modes, approval and release gate ([Testing and
 releasing](testing-and-releasing.md)). What differs is the cloud:
 
 | | Hetzner Cloud |
@@ -820,7 +821,7 @@ releasing](testing-and-releasing.md)). What differs is the cloud:
 | Images | `bootstrap.sh` installs `hcloud` and `hcloud-upload-image` with `go install` (the module proxy's checksum database verifies them) and makes **one Flatcar snapshot per architecture** for the pinned version when the project has none, in parallel (about five minutes), with the [label convention](set-up-hcloud.md#1-the-flatcar-image); the snapshots are kept. |
 | Control plane | on the runner, as in the AWS lane: no server of the project is spent on it. |
 | Variables | `E2E_HCLOUD_LOCATIONS` (default `fsn1,nbg1,hel1`: the arm and the cheap types are there; the NodeClasses' `regions`), `TS_OAUTH_CLIENT_ID`, `TS_AUDIENCE`. |
-| Types | `cpx22` (amd64, the database and its client: the one cheap type offered in `fsn1`, where the bring-your-own network and the database are), `cax21` (arm64, offered in `hel1` only: no arm type has a price in a second location, and `cax11` has no live-launchable offering there), and `cx23` or `cpx22` for the described-not-named scenario (`cx23` is offered in `hel1` and `nbg1` only). All on-demand: Hetzner has no spot. |
+| Types | `cpx22` (amd64, the database and its client: the one cheap type offered in `fsn1`, where the bring-your-own network and the database are), no pinned arm type (arm64: the pool selects `arch` arm64, `vendor` hcloud and `vcpus` below 5, so whichever `cax` type Keeper prices and Hetzner offers in `hel1`, the only location with Arm, is launched; its stock comes and goes), and `cx23` or `cpx22` for the described-not-named scenario (`cx23` is offered in `hel1` and `nbg1` only). All on-demand: Hetzner has no spot. |
 | Cost | about eight servers for one started hour each of the cheapest types (cents), two small volumes, the snapshots kept (about 1 GB, under a cent a month). The whole run's limit is the same 90 minutes. |
 
 **Guards.** A Hetzner token cannot be restricted by type, location or label, so there is no CI policy
@@ -828,14 +829,14 @@ to print (`ci-policy.sh` and `canary-policy.sh` have no analogue): the token is 
 bounds a bug: the **dedicated project** (nothing else in it), a **server limit** requested low in the
 Console (the lane needs at least ten: it runs up to nine servers at once; `E2E_HCLOUD_SERVER_LIMIT`
 tells the controller), a **usage alert** to a person, the lane's NodePools that list the types
-(`cx23`, `cax21`, `cpx22`; `manifests_test.go` keeps them and this page together), `E2E_HCLOUD_LOCATIONS`,
+(`cx23` and `cpx22` by type, the arm64 pool by a `vcpus` bound; `manifests_test.go` keeps them and this page together), `E2E_HCLOUD_LOCATIONS`,
 the label `scarpenter.sparecores.com/cluster=scarpenter-ci-<run id>` and `ci-created-at` on every
 resource of a run, the sweeper, and the teardown that fails the job when anything labelled remains.
 
 **Scenarios** (`E2E_SCENARIOS`, in this order): `amd64` (`hcloud.cpx22`: node Ready, the Pod, `kubectl
 logs` and `exec`, node labels with zone = zone ID = location, the server's labels and the
 `idempotency-key`, the root filesystem expanded to the type's disk, the time from the create call to
-Ready), `arm64` (`hcloud.cax21`, standing in for AWS's spot scenario), `db` (a StatefulSet with the
+Ready), `arm64` (any `cax` type under five vCPUs; the node's arch, vendor, vCPU and instance-type labels and the server's type and architecture are checked; it stands in for AWS's spot scenario), `db` (a StatefulSet with the
 `db` storage profile and a client Deployment, both with the `spread` placement profile and one run key:
 one placement group named and labelled by SCarpenter with both servers in it, a 10 GB volume attached,
 mounted by its by-id link and formatted by the first-boot unit; after the deletion the group and the
@@ -895,8 +896,8 @@ server's CEL rule; a profile that asks for local storage stays Pending without a
 absolute limits equal the controller's `scarpenter_quota_limit`, and `used` follows launch and delete),
 `drift` (a root disk that becomes a volume replaces the node), `poweroff` (a guest that powers itself off
 leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific case), `scalezero` and
-`uninstall`. The manual `gpu` scenario (never in `all`, the smoke set, a gate or a schedule; `scenarios=gpu`) launches one GPU flavor,
-`ovh.l4-90` (one L4, the cheapest flavor priced in `GRA11`) by default or the `gpu_instance_type` input (the GPU count comes from Keeper's snapshot, `test/gpu-count`): the same
+`uninstall`. The manual `gpu` scenario (never in `all`, the smoke set, a gate or a schedule; `mode=gpu`) launches one GPU flavor,
+`ovh.l4-90` (one L4, the cheapest flavor priced in `GRA11`) by default or the `gpu_instance_type` input of `e2e.yml` (the GPU count comes from Keeper's snapshot, `test/gpu-count`): the same
 Pod and checks as the [AWS one](#the-l5-lane), and like it needs `nvidia.NodeBootstrap` to be true. The project needs the flavor in the lane's region and its GPU quota. There is no arm64, no spot and no local-storage scenario: OVH has none of them.
 
 - **Flavors** (`defaults.sh`): `d2-2` (shared CPU, the cheapest) for the probes, `b3-8` for the database and its
@@ -942,6 +943,13 @@ the background for the controller. **The lane is not in `test/e2e-vendors.txt`**
 cost guard (an Allowed-SKU and an Allowed-locations policy on the lane's resource group, the tags, the sweeper, the
 quota ceiling and a budget alert, the read-only canary role) is true on a live account, and nobody has verified that yet
 (see [Azure](testing-and-releasing.md#azure)); the lane's selftest checks that the line is absent.
+The lane's scenarios, after the preflight: `amd64 arm64 db described byo negative quota drift scalezero uninstall`;
+the smoke set is `amd64,scalezero`. `cvm` is manual-only: run it with `gh workflow run e2e.yml -f vendors=azure -f mode=cvm [-f cvm_instance_type=...]` after changing the confidential-VM code; neither the smoke nor the full mode runs it.
+
+| Scenario | What it proves |
+|---|---|
+| `cvm` | One confidential VM (`E2E_TYPE_CVM`, default `azure.Standard_DC2as_v6`, AMD SEV-SNP; a size is confidential when its SKU's `ConfidentialComputingType` capability is set) from the `e2e-cvm` NodePool: the node is Ready and the Pod runs; `az vm show` says security type `ConfidentialVM`, secure boot and vTPM on, OS disk encryption `VMGuestStateOnly`; the image is the Azure Container Linux community gallery image (`aclgen2CVM`), not the Flatcar marketplace one; `dmesg` in the guest reports SEV-SNP. The Flatcar checks of `amd64` do not apply. The preflight checks the size's quota family when `cvm` is selected, and `ci-policy.sh` lists the size in the Allowed-SKU policy (the lane is pinned to `centralus`, where the size is offered). |
+
 Nothing in the lane has run against Azure.
 
 ### The L5 lane on Google Cloud
@@ -1056,7 +1064,7 @@ The OCI lane is the same lane as the AWS one (a k3s control plane on the runner,
 Tailscale, the reusable `e2e-cloud.yml`, the same pins of Kubernetes, k3s, Tailscale and Flatcar) with the
 cloud calls of Oracle Cloud Infrastructure; everything it adds lives in `test/e2e-oci/`, `pkg/vendors/oci/sweep`,
 `test/canary/oci.go` and `.github/workflows/e2e-oci-sweeper.yml`. **It is a line of `test/e2e-vendors.txt`**: the cost guards of [Testing and releasing](testing-and-releasing.md#per-vendor-cost-guards)
-were shown on a live tenancy (provisioned outside this repository; what was shown and what stays the operator's: [OCI](testing-and-releasing.md#oci)), and the pull request tiers, the nightly canary and the release gate run it. The planner, the canary matrix and the release gate read that file, and `test/e2e-plan-selftest.sh` and `test/e2e-oci/selftest.sh` check that nothing else is missing
+were shown on a live tenancy (provisioned outside this repository; what was shown and what stays the operator's: [OCI](testing-and-releasing.md#oci)), and the manual L5 workflow, the nightly canary and the release gate (when on) run it. The planner, the canary matrix and the release gate read that file, and `test/e2e-plan-selftest.sh` and `test/e2e-oci/selftest.sh` check that nothing else is missing
 (the credentials steps of both reusable workflows, the sweeper workflow, the canary's vendor part, the smoke set). It also runs by
 hand against a tenancy of one's own:
 
@@ -1211,19 +1219,18 @@ token runs for a pull request, and in the repository settings (Actions, General)
 set "Require approval for all outside collaborators" for fork pull requests.
 `.github/CODEOWNERS` names the owners of `.github/workflows/`, `test/`, `hack/` and itself, who
 are requested to review every pull request that touches them; the review is requested, not
-enforced (the ruleset on `main` requires the `e2e-result` check only, and administrators
+enforced (the ruleset on `main` requires status checks only, and administrators
 bypass it). The L4
 workflow runs on GitHub-hosted runners. If a self-hosted runner is adopted for it
 (overview section 15, Q6), it must be for `schedule` and `workflow_dispatch` only,
 never for pull requests: a fork's pull request would run arbitrary code on it.
 
 The real-cloud lane is the exception that costs money, so it has its own rules
-([Testing and releasing](testing-and-releasing.md)): `e2e.yml` plans from the changed files of a pull
-request which vendors run what (a vendor's full lane, or a smoke of two scenarios on every vendor
-when shared node code changed, or nothing for documentation), the job that holds the cloud role waits
-for the required reviewers of the environment `e2e`, forks and drafts never run it (their
-`e2e-result` fails when the plan needs L5), and the check `e2e-result` is the one to require. The nightly canary (`e2e-canary.yml`) is free and
-read-only. Neither runs on a timer that spends money.
+([Testing and releasing](testing-and-releasing.md)): no automatic trigger starts it, `e2e.yml` is
+run by hand (on a branch, a pull request's head or a commit; a fork's pull request only with
+`allow_fork`), and the job that holds the cloud role waits for the required reviewers of the
+environment `e2e`. A pull request's `e2e-result` check is an always-green placeholder in `ci.yml`.
+The nightly canary (`e2e-canary.yml`) is free and read-only.
 
 ## Releases
 
@@ -1259,7 +1266,7 @@ check them before a release):
   dry run from a branch therefore stops at the publishing jobs.
 - A tag ruleset on `v*`: only maintainers create, move or delete release tags.
 - A ruleset on `main`: changes through pull requests, the checks `gates`,
-  `kwok (scenarios)`, `kwok (retention)` and `e2e-result` required, no force push or
+  `kwok (scenarios)` and `kwok (retention)` required (`e2e-result` is a placeholder job of `ci.yml`: remove it from the list), no force push or
   deletion; administrators may bypass only when merging a pull request. A workflow
   that commits (`refresh-sc-snapshot.yml`) is run on a branch and merged by a PR.
 - The environments `e2e` (required reviewers, no administrator bypass),
