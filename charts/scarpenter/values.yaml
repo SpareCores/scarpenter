@@ -199,6 +199,12 @@ vendors:
     # (a service account key, or the metadata server); workload identity
     # federation carries none, so set it there.
     project: ""
+    # Preemption notice a Spot VM is launched with
+    # (--gcp-preemption-notice; scheduling.preemptionNoticeDuration, 0 to 2m):
+    # the time Pods get to stop before the 30 s of the ACPI shutdown. Empty or 0:
+    # none, which is the default until a live check (plan 26, spike S3) shows
+    # that a notice costs nothing extra.
+    preemptionNotice: ""
     # Price of an external IPv4 address per hour in USD, used in the price of GCP
     # offerings (SCARPENTER_GCP_IPV4_PRICE). An explicit override that wins over
     # Keeper's ipv4_price rows; empty: Keeper's price of the region. "0": free.

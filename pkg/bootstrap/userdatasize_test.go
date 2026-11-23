@@ -16,6 +16,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/gcp"
 	"github.com/SpareCores/scarpenter/pkg/vendors/hcloud"
 )
 
@@ -128,5 +129,31 @@ func TestValidateCountsTheNodeIPUnit(t *testing.T) {
 	err := r.Validate(t.Context(), nodeClass(nil), "amd64", bootstrap.Inputs{})
 	if err == nil || !strings.Contains(err.Error(), "over the budget") || !strings.Contains(err.Error(), "node IP range") {
 		t.Fatalf("Validate = %v, want the budget error that names the node IP range", err)
+	}
+}
+
+// The GCP driver's spot worst case: its own metadata addresses and notice check
+// (the metadata value limit of Compute Engine is 256 KiB, far above any budget).
+func TestWorstCaseGCPSpotUserDataStaysInTheBudget(t *testing.T) {
+	d := gcp.New(gcp.WithPreemptionNotice(gcp.MaxPreemptionNotice))
+	frags, err := vendors.BootFragmentsOf(d, true, true)
+	if err != nil || len(frags) != 1 {
+		t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
+	}
+	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
+		t.Run(string(template), func(t *testing.T) {
+			p := worstCaseParams(t, template)
+			p.Spot = true
+			p.VendorFragments = []bootstrap.Fragment{{Name: frags[0].Name, Butane: frags[0].Butane}}
+			r, err := bootstrap.Render(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n, limit := len(r.UserData), bootstrap.DefaultBudgetBytes+bootstrap.SpotAgentBytes; n > limit {
+				t.Errorf("the GCP spot worst case is %d bytes, the budget with the agent is %d", n, limit)
+			} else {
+				t.Logf("%s GCP spot worst case: %d bytes of user-data (limit %d)", template, n, gcp.MaxUserData)
+			}
+		})
 	}
 }

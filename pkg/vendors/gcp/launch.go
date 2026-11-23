@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"time"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
 
@@ -57,6 +58,9 @@ type LaunchSpec struct {
 	MachineType string
 	// Spot selects the Spot provisioning model; false is on-demand.
 	Spot bool
+	// PreemptionNotice is the notice before the ACPI shutdown signal that a Spot VM
+	// asks for (0: none). Ignored for on-demand.
+	PreemptionNotice time.Duration
 	// OnHostMaintenance is MIGRATE or TERMINATE for on-demand (by series); Spot
 	// is always TERMINATE.
 	OnHostMaintenance string
@@ -213,6 +217,9 @@ func (s LaunchSpec) scheduling() *computepb.Scheduling {
 		// disks behind.
 		sched.InstanceTerminationAction = new("DELETE")
 		sched.OnHostMaintenance = new("TERMINATE")
+		if s.PreemptionNotice > 0 {
+			sched.PreemptionNoticeDuration = &computepb.Duration{Seconds: new(int64(s.PreemptionNotice / time.Second))}
+		}
 		return sched
 	}
 	sched.ProvisioningModel = new("STANDARD")

@@ -11,6 +11,7 @@ vendors:
   gcp:
     enabled: true
     project: my-project
+    preemptionNotice: 2m
     ipv4Price: "0.004"
     credentials:
       mode: workloadIdentity

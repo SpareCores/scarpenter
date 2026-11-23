@@ -289,6 +289,17 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    lock of logind on Flatcar 4757.2.3, and a Pod gets SIGTERM within a second of `systemctl poweroff`. `jq` is not needed (the agent does not parse JSON).
 5. **AWS** check script, `GoneReason`, spike S2, opt-in L5 `interruption` scenario.
 6. **GCP** check script, the 120 s notice at create by default if S3 shows no extra cost (else the 30 s ACPI window and the shutdown backstop), `GoneReason`, opt-in L5 scenario.
+   **Done.** Spike S3 has not run, so the step is built for "S3 unknown": Spot VMs are launched without a notice (the 30 s ACPI window,
+   the kubelet's graceful shutdown as the backstop), and the 120 s notice is one flag away: `--gcp-preemption-notice` (chart
+   `vendors.gcp.preemptionNotice`, default 0, at most 2 minutes) sets `scheduling.preemptionNoticeDuration`, the field of the Compute API's
+   `Scheduling` (name and limit unverified), and the check prints `now + N` as the deadline. The maintainer turns it on, or changes the
+   default, after S3 shows that it costs nothing extra. The check long-polls `instance/preempted` from the ETag of a first read and reads
+   the value again; the interval is 1 s, not 0, so that a failing long poll cannot spin. Deviations: (a) `GoneReason` is `SpotInterrupted` for
+   any Spot VM that is stopping, stopped or terminated, not read from the zone operation `compute.instances.preempted` (that would add an
+   API method and a permission; a stop by hand gets the same reason, as on OCI); (b) the L5 scenario `interruption` (manual only, in
+   `manual_scenarios` of `test/e2e-gcp`) preempts with `gcloud compute instances simulate-maintenance-event` and asserts the annotation,
+   the `Interrupted` condition, the Pod's SIGTERM before the deadline, the instance gone and the metric; it does not assert the replacement,
+   which the 10-minute unavailability of the one pool type may delay. Size: a GCP spot node's worst case is 13.0 KiB of user-data (limit 256 KB).
 7. **Azure** check script (opt-in at boot, VM name filter), opt-in L5 scenario with Simulate Eviction (S4).
 8. **Alibaba** check script with the token, `GoneReason`, S5, opt-in L5 scenario if it can be triggered.
 9. **Spot catalog and spot-less vendors** (independent, any time): section 7 checks, `Unsupported` for spot on

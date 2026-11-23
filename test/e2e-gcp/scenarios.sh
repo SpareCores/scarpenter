@@ -8,6 +8,9 @@
 #                   amd64 spot arm64 db described byo create default negative quota drift
 #                   scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
+#                   MANUAL ONLY: interruption (mode=interruption; never part of "all" or a gate): a Spot VM
+#                   is preempted with `gcloud compute instances simulate-maintenance-event` (plan 26 spike S3,
+#                   UNVERIFIED that it preempts a Spot VM) and the node is drained before the deadline.
 #                   MANUAL ONLY: gpu (mode=gpu; never part of "all", the smoke set, a gate or
 #                   a schedule): one GPU node of E2E_GPU_TYPE, a Pod that runs nvidia-smi and a CUDA
 #                   sample (plan 12 step f). It needs the GPU quota of the type in the region.
@@ -128,6 +131,7 @@ start_gpu() {
   NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${n}" \
     render "${here}/../gpu-pod.yaml" | kubectl apply -f -
 }
+start_interruption() { render "${here}/manifests/interruption.yaml" | kubectl apply -f -; }
 start_drift() { probe e2e-drift e2e-drift "${E2E_TYPE_AMD64}" on-demand; }
 
 # start_byo: the network, the subnet and the firewall rule (network tag) the workflow
@@ -981,6 +985,62 @@ scn_gpu() {
   kubectl delete nodepool e2e-gpu --wait=false
 }
 
+# interruption_logged <log file>: the Pod's SIGTERM line (the lane follows the log from before the
+# preemption, because the Pod's log is gone with the Pod).
+interruption_logged() { grep -q '^sigterm [0-9]' "$1"; }
+
+# interruption (plan 26 step 6, MANUAL ONLY): a Spot VM is preempted by Compute Engine's own simulation.
+# The node agent annotates the Node, the controller records Interrupted/SpotInterrupted and deletes the
+# NodeClaim, the Pod gets its SIGTERM before the deadline, and the instance goes. Needs the metadata
+# access Restricted or Open (the agent runs in the allowed slice either way). Whether the Pod's SIGTERM
+# comes from the agent's drain or from the kubelet's graceful shutdown is not told apart here: the
+# deadline check holds for both.
+scn_interruption() {
+  start_interruption
+  settle e2e-intr
+  local pod node claim iid podlog deadline sig
+  pod="$(getstate e2e-intr.pod)"
+  node="$(getstate e2e-intr.node)"
+  claim="$(getstate e2e-intr.claim)"
+  iid="$(getstate e2e-intr.iid)"
+  assert_eq "capacity-type" spot "$(node_label "${node}" karpenter.sh/capacity-type)"
+  note "preemption notice of the instance: $(instance_json "${iid}" | jq -r '.scheduling.preemptionNoticeDuration.seconds // 0') s"
+  wait_until "the agent's unit is active" 120 node_shell "${node}" 'systemctl is-active scarpenter-interruption.service'
+  drop_nodeshells # a privileged Pod would be drained as well and keep the log below from ending
+  podlog="${E2E_OUT}/logs/e2e-intr-pod.log"
+  kubectl logs -f "${pod}" >"${podlog}" 2>&1 &
+  trap 'kill %1 2>/dev/null || true' EXIT
+  log "preempting ${iid}"
+  gc compute instances simulate-maintenance-event "${iid#*/}" --zone "${iid%%/*}"
+  wait_until "the Node is annotated" 180 is_value SpotInterrupted node_annotation "${node}" interruption
+  deadline="$(node_annotation "${node}" interruption-deadline)"
+  assert_nonempty "the deadline annotation" "${deadline}"
+  wait_until "the NodeClaim is Interrupted" 60 is_value SpotInterrupted claim_interrupted "${claim}"
+  wait_until "the Pod logged its SIGTERM" 120 interruption_logged "${podlog}"
+  sig="$(sed -n 's/^sigterm \([0-9]*\)$/\1/p' "${podlog}" | head -1)"
+  note "SIGTERM $(($(date -d "${deadline}" +%s) - sig)) s before the deadline ${deadline}"
+  [[ "${sig}" -le "$(date -d "${deadline}" +%s)" ]] || fail "the Pod's SIGTERM (${sig}) came after the deadline ${deadline}"
+  wait_until "the instance is gone" 300 is_empty alive_instances_named "${iid}"
+  wait_until "the interruption is counted" 60 interruption_counted
+  kubectl delete deployment e2e-intr --wait=false
+}
+
+# node_annotation <node> <annotation name under the label domain>
+node_annotation() {
+  kubectl get node "$1" -o json | jq -r --arg k "${label_domain}/$2" '.metadata.annotations[$k] // empty'
+}
+
+# claim_interrupted <claim>: the reason of the NodeClaim's Interrupted condition.
+claim_interrupted() {
+  kubectl get nodeclaim "$1" -o json | jq -r '.status.conditions[]? | select(.type == "Interrupted") | .reason'
+}
+
+# alive_instances_named <zone/name>: that instance, when it is not on its way out.
+alive_instances_named() { alive_instances | grep -Fx "$1" || true; }
+
+# interruption_counted: the controller's counter has a series of this vendor.
+interruption_counted() { metrics | grep '^scarpenter_interruptions_total{' | grep -q 'vendor="gcp"'; }
+
 # uninstall: the procedure of docs/how-to-guides/install.md#uninstall, on the live project.
 scn_uninstall() {
   log "1. SCarpenter's NodePools (selected by nodeClassRef.group), then wait for the NodeClaims"
@@ -1019,7 +1079,7 @@ scarpenter_claims() {
 
 all_scenarios=(amd64 spot arm64 db described byo create default negative quota drift scalezero uninstall)
 # Run only when named in E2E_SCENARIOS: never part of "all".
-manual_scenarios=(gpu)
+manual_scenarios=(gpu interruption)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
