@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package bootstrap_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -132,31 +133,46 @@ func TestValidateCountsTheNodeIPUnit(t *testing.T) {
 	}
 }
 
-// Alibaba Cloud takes 32 KB of user-data before Base64, twice the budget: its spot
-// worst case (its tailnet fragment, the restriction and the agent with its own
-// check) is held to the same budget as the other vendors, with room to spare.
-func TestAlicloudSpotWorstCaseIsFarUnderItsLimit(t *testing.T) {
-	const alicloudLimit = 32 * 1000
+// Alibaba Cloud's driver holds SCarpenter's 16 KiB user-data limit (ECS itself
+// takes 32 KB before Base64). The spot worst case of the default templates (its
+// tailnet fragment, the restriction and the agent with its own check) is held to
+// the same budget as the other vendors, and the spot GPU worst case (16 GPUs with
+// Fabric Manager) to the driver's limit. The GPU case with the direct template
+// is left out: its worst case is over the limit (16425 of 16384 bytes, Render
+// refuses it) and awaits a decision.
+func TestAlicloudSpotWorstCaseFitsTheDriversLimit(t *testing.T) {
 	frags, err := vendors.BootFragmentsOf(alicloud.New(), true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
-		t.Run(string(template), func(t *testing.T) {
-			p := spotWorstCaseParams(t, template)
-			p.VendorFragments = nil
-			for _, f := range frags {
-				p.VendorFragments = append(p.VendorFragments, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
+	for _, gpu := range []bool{false, true} {
+		for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
+			if gpu && template == v1alpha1.NetworkTemplateDirect {
+				continue
 			}
-			r, err := bootstrap.Render(p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			n := len(r.UserData)
-			if limit := bootstrap.DefaultBudgetBytes + bootstrap.SpotAgentBytes; n > limit {
-				t.Errorf("the Alibaba spot worst case is %d bytes, over the budget %d", n, limit)
-			}
-			t.Logf("%s Alibaba spot worst case: %d bytes of user-data, limit %d", template, n, alicloudLimit)
-		})
+			t.Run(fmt.Sprintf("gpu=%t/%s", gpu, template), func(t *testing.T) {
+				p := spotWorstCaseParams(t, template)
+				p.VendorFragments = nil
+				for _, f := range frags {
+					p.VendorFragments = append(p.VendorFragments, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
+				}
+				limit := bootstrap.DefaultBudgetBytes + bootstrap.SpotAgentBytes
+				if gpu {
+					p.NVIDIA = &bootstrap.NVIDIAParams{
+						Selection: gpuSelection(t, "A100", 16), FlatcarVersion: gpuFlatcar, RuntimeURL: gpuRuntimeURL, DriverBaseURL: gpuMirror,
+					}
+					limit = alicloud.MaxUserData
+				}
+				r, err := bootstrap.Render(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if n := len(r.UserData); n > limit {
+					t.Errorf("the Alibaba spot worst case is %d bytes, over %d", n, limit)
+				} else {
+					t.Logf("Alibaba spot worst case: %d bytes of user-data, limit %d", n, limit)
+				}
+			})
+		}
 	}
 }

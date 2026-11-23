@@ -39,6 +39,26 @@ func metadataFixture(t *testing.T, status int, body string) string {
 	return strings.TrimPrefix(srv.URL, "http://")
 }
 
+// tokenlessFixture answers like ECS in the optional mode with a failing token
+// endpoint: the PUT gets the given status and body, and the termination time is
+// served to a GET without a token header only.
+func tokenlessFixture(t *testing.T, tokenStatus int, tokenBody string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut:
+			w.WriteHeader(tokenStatus)
+			_, _ = w.Write([]byte(tokenBody))
+		case r.Header.Get("X-aliyun-ecs-metadata-token") == "":
+			_, _ = w.Write([]byte("2026-11-23T10:15:00Z"))
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return strings.TrimPrefix(srv.URL, "http://")
+}
+
 // runCheck runs the driver's check with sh against the fixture and returns its
 // output and exit status.
 func runCheck(t *testing.T, addr string) (string, int) {
@@ -66,6 +86,8 @@ func TestNoticeCheckAgainstTheMetadataService(t *testing.T) {
 		{"no notice", 404, "404 Not Found", "", 1},
 		{"a notice", 200, "2026-11-23T10:15:00Z", "SpotInterrupted 2026-11-23T10:15:00Z\n", 0},
 		{"a notice without seconds", 200, "2026-11-23T10:15Z", "SpotInterrupted 2026-11-23T10:15:00Z\n", 0},
+		{"a notice with a trailing newline", 200, "2026-11-23T10:15:00Z\n", "SpotInterrupted 2026-11-23T10:15:00Z\n", 0},
+		{"a notice without seconds, with a trailing newline", 200, "2026-11-23T10:15Z\r\n", "SpotInterrupted 2026-11-23T10:15:00Z\n", 0},
 		{"a server error", 500, "boom", "", 2},
 		{"a refused token", 401, "", "", 2},
 	} {
@@ -73,6 +95,14 @@ func TestNoticeCheckAgainstTheMetadataService(t *testing.T) {
 			out, code := runCheck(t, metadataFixture(t, tc.status, tc.body))
 			if out != tc.want || code != tc.code {
 				t.Errorf("check = %q, %d; want %q, %d", out, code, tc.want, tc.code)
+			}
+		})
+	}
+	for name, status := range map[string]int{"a failing token request": 500, "an empty token": 200} {
+		t.Run("falls back without a token: "+name, func(t *testing.T) {
+			out, code := runCheck(t, tokenlessFixture(t, status, ""))
+			if want := "SpotInterrupted 2026-11-23T10:15:00Z\n"; out != want || code != 0 {
+				t.Errorf("check = %q, %d; want %q, 0", out, code, want)
 			}
 		})
 	}
@@ -99,10 +129,10 @@ func TestInterruptionNoticesDeclaration(t *testing.T) {
 	}
 }
 
-func TestGoneReasonIsRecyclingOfASpotInstance(t *testing.T) {
-	locked := func(spot string, reasons ...string) *ecs.DescribeInstancesResponseBodyInstancesInstance {
+func TestGoneReasonIsRecyclingOfAGoneSpotInstance(t *testing.T) {
+	locked := func(status, spot string, reasons ...string) *ecs.DescribeInstancesResponseBodyInstancesInstance {
 		in := &ecs.DescribeInstancesResponseBodyInstancesInstance{
-			InstanceId: new("i-1"), Status: new("Running"), SpotStrategy: new(spot),
+			InstanceId: new("i-1"), Status: new(status), SpotStrategy: new(spot),
 			OperationLocks: &ecs.DescribeInstancesResponseBodyInstancesInstanceOperationLocks{},
 		}
 		for _, r := range reasons {
@@ -116,11 +146,12 @@ func TestGoneReasonIsRecyclingOfASpotInstance(t *testing.T) {
 		in   *ecs.DescribeInstancesResponseBodyInstancesInstance
 		want string
 	}{
-		{"spot, recycling", locked("SpotAsPriceGo", "Recycling"), "SpotInterrupted"},
-		{"spot, other lock first", locked("SpotAsPriceGo", "security", "Recycling"), "SpotInterrupted"},
-		{"spot, security lock", locked("SpotAsPriceGo", "security"), ""},
-		{"spot, no lock", locked("SpotAsPriceGo"), ""},
-		{"on-demand, recycling", locked("NoSpot", "Recycling"), ""},
+		{"spot, recycling", locked("Stopping", "SpotAsPriceGo", "Recycling"), "SpotInterrupted"},
+		{"spot, other lock first", locked("Stopping", "SpotAsPriceGo", "security", "Recycling"), "SpotInterrupted"},
+		{"spot, security lock", locked("Stopping", "SpotAsPriceGo", "security"), ""},
+		{"spot, no lock", locked("Stopping", "SpotAsPriceGo"), ""},
+		{"running spot, recycling", locked("Running", "SpotAsPriceGo", "Recycling"), ""},
+		{"on-demand, recycling", locked("Stopping", "NoSpot", "Recycling"), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := toInstance("eu-central-1", tc.in).GoneReason; got != tc.want {

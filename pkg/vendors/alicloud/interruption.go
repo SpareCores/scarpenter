@@ -25,16 +25,19 @@ const lockRecycling = "Recycling"
 // works in the hardened mode, where the token is required). The endpoint answers
 // 404 while there is no notice and the time of the release (UTC, RFC 3339; ECS
 // writes minute-precision times without seconds elsewhere, so a missing seconds
-// field is added) once there is one. The agent's unit runs in the metadata
+// field is added; whitespace around the time is dropped) once there is one. The agent's unit runs in the metadata
 // slice, so the restricted firewall lets it through; after the tailnet join the
 // address stays reachable (--netfilter-mode=nodivert, see tailnetFragment).
 const noticeCheck = `  b=http://100.100.100.200/latest
-  t=$(curl -sf --max-time 3 -X PUT -H 'X-aliyun-ecs-metadata-token-ttl-seconds: 60' $b/api/token) || return 2
-  o=$(curl -s --max-time 3 -w ' %{http_code}' -H "X-aliyun-ecs-metadata-token: $t" \
-   $b/meta-data/instance/spot/termination-time) || return 2
+  t=$(curl -sf --max-time 3 -X PUT -H 'X-aliyun-ecs-metadata-token-ttl-seconds: 60' $b/api/token) || t=
+  set --
+  [ -n "$t" ] && set -- -H "X-aliyun-ecs-metadata-token: $t"
+  o=$(curl -s --max-time 3 -w ' %{http_code}' "$@" $b/meta-data/instance/spot/termination-time) || return 2
   case $o in
   *' 404') return 1 ;;
-  *' 200') d=${o% *}; case $d in ????-??-??T??:??Z) d=${d%Z}:00Z ;; esac; echo "SpotInterrupted $d" ;;
+  *' 200') d=$(printf %s "${o% *}" | tr -d ' \r\n')
+   case $d in ????-??-??T??:??Z) d=${d%Z}:00Z ;; esac
+   echo "SpotInterrupted $d" ;;
   *) return 2 ;;
   esac`
 
@@ -53,9 +56,12 @@ func (d *Driver) InterruptionNotices() vendors.NoticeCheck {
 // goneReason is the Instance.GoneReason of an ECS instance: a spot instance
 // whose OperationLocks hold the reason Recycling is being reclaimed (unverified,
 // spike S5). A released instance is no longer returned by ECS, so this is only
-// seen while the instance still exists.
-func goneReason(capacity string, in *ecs.DescribeInstancesResponseBodyInstancesInstance) string {
-	if capacity != vendors.CapacitySpot || in.OperationLocks == nil {
+// seen while the instance still exists. As the contract has it, a reason is
+// only given for a gone (terminating or terminated) instance, so a running one
+// with the lock has none yet.
+func goneReason(capacity, state string, in *ecs.DescribeInstancesResponseBodyInstancesInstance) string {
+	gone := state == vendors.StateTerminating || state == vendors.StateTerminated
+	if !gone || capacity != vendors.CapacitySpot || in.OperationLocks == nil {
 		return ""
 	}
 	for _, l := range in.OperationLocks.LockReason {

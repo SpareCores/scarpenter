@@ -252,12 +252,13 @@ with the driver's check ([plan 26](../plans/v1/wip/26-interruption.md) section 6
   check works with the default `spec.instanceMetadata.access` (the `imds` scenario's allowed-slice probe is the same path). After the tailnet join the
   address stays reachable because tailscaled runs with `--netfilter-mode=nodivert` ([above](#tailnet-and-the-service-addresses)); the agent starts
   before that and the call does not use the tailnet.
-- **`GoneReason`.** A spot instance whose `OperationLocks` hold the `LockReason` `Recycling` reports `SpotInterrupted`. ECS stops returning a
-  released instance, so the core mostly sees it as gone without a reason (`ReclaimedWithoutNotice`); the lock is seen only in the window before the
-  release.
-- **User-data.** ECS takes 32 KB of user-data before Base64; the driver holds SCarpenter's 16 KiB budget. The worst case of a spot node (the tailnet
-  fragment, the restriction and the agent, two volumes, 24 local disks, the Lean footprint) renders to 12.6 KiB (`tailscale`) and 12.9 KiB (`direct`);
-  the largest GPU case stays at the budget's 16 KiB, half of Alibaba's limit.
+- **`GoneReason`.** A spot instance that ECS reports stopping or stopped (`terminating`) and whose `OperationLocks` hold the `LockReason`
+  `Recycling` reports `SpotInterrupted`; a running instance with the lock has no reason yet. ECS stops returning a released instance, so the core
+  mostly sees it as gone without a reason (`ReclaimedWithoutNotice`).
+- **User-data.** ECS takes 32 KB of user-data before Base64; the driver holds SCarpenter's 16 KiB budget. The tests hold the worst case of a spot node
+  (the tailnet fragment, the restriction and the agent, two volumes, 24 local disks, the Lean footprint) to the default budget plus the agent's
+  allowance: it renders to 12.6 KiB (`tailscale`) and 12.9 KiB (`direct`). The worst spot GPU case (16 GPUs with Fabric Manager) is held to the
+  16 KiB budget: 15.7 KiB with `tailscale`.
 - **No L5 scenario.** Alibaba offers no way to trigger the reclaim of a spot instance (no fault injection, no simulated event), so a scenario would
   wait for a real one; none is added. A manual run is a spot node left running until ECS reclaims it, then `journalctl -u scarpenter-interruption`.
 

@@ -402,9 +402,9 @@ shows that the instance is going (a terminating state), and the controller then 
 class: any error backs the region's poller off (twice the interval, doubling up to 5 minutes), counted in
 `scarpenter_interruption_poll_errors_total`; a failed poll never stops the controller.
 
-`Instance.GoneReason` is set by a driver that can tell a vendor reclaim from a crash, on an instance that is gone (`terminating` or
-`terminated`): `SpotInterrupted` for a spot reclaim, empty otherwise (the AWS state reason, Alibaba's `Recycling` operation lock (seen while the instance still exists), GCP's
-preemption operation: the vendor steps of plan 26). `CloudProvider.Delete` passes it on when it finds the instance gone without having
+`Instance.GoneReason` is set by a driver that can tell a vendor reclaim from a crash, only on an instance that is gone (`terminating` or
+`terminated`): `SpotInterrupted` for a spot reclaim, empty otherwise and for any other state (the AWS state reason, Alibaba's `Recycling` operation lock
+on a stopping instance, GCP's preemption operation: the vendor steps of plan 26). `CloudProvider.Delete` passes it on when it finds the instance gone without having
 deleted it (see [silent reclaim](controller.md#silent-reclaim)).
 
 The conformance suite checks a driver that implements the capability (subtest `interruption poller`): a positive interval, no notice for an
