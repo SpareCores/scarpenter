@@ -153,6 +153,12 @@ func req(key string, values ...string) karpv1.NodeSelectorRequirementWithMinValu
 // VMs are gone.
 func createNodePool(t *testing.T, name, class string, reqs ...karpv1.NodeSelectorRequirementWithMinValues) *karpv1.NodePool {
 	t.Helper()
+	return createNodePoolWith(t, name, class, nil, reqs...)
+}
+
+// createNodePoolWith is createNodePool with an edit of the pool before it is created.
+func createNodePoolWith(t *testing.T, name, class string, edit func(*karpv1.NodePool), reqs ...karpv1.NodeSelectorRequirementWithMinValues) *karpv1.NodePool {
+	t.Helper()
 	all := append([]karpv1.NodeSelectorRequirementWithMinValues{req(v1alpha1.LabelVendor, "qemu")}, reqs...)
 	np := &karpv1.NodePool{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	np.Spec.Template.Spec.NodeClassRef = &karpv1.NodeClassReference{
@@ -161,6 +167,9 @@ func createNodePool(t *testing.T, name, class string, reqs ...karpv1.NodeSelecto
 	np.Spec.Template.Spec.Requirements = all
 	np.Spec.Disruption.ConsolidationPolicy = karpv1.ConsolidationPolicyWhenEmpty
 	np.Spec.Disruption.ConsolidateAfter = karpv1.MustParseNillableDuration("10s")
+	if edit != nil {
+		edit(np)
+	}
 	if err := k8s.Create(ctx(), np); err != nil {
 		t.Fatal(err)
 	}

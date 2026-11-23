@@ -175,11 +175,15 @@ func (s *Source) Load(_ context.Context, req catalog.Request) (*model.Data, erro
 			if arch == "" {
 				arch = model.ArchAMD64
 			}
+			accelerator := ""
+			if t.GPUs > 0 {
+				accelerator = model.AcceleratorGPU
+			}
 			d.Servers = append(d.Servers, model.Server{
 				Vendor: v.Name, ID: t.Name, APIReference: t.Name, Family: t.Family,
 				VCPUs: t.VCPUs, CPUCores: t.CPUCores, CPUAllocation: "Dedicated", Arch: arch,
 				CPUManufacturer: t.Manufacturer, CPUFamily: t.CPUFamily, CPUSpeedGHz: t.ClockGHz, CPUFlags: t.Flags,
-				MemoryMiB: t.MemoryMiB, AcceleratorCount: t.GPUs, AcceleratorModel: t.GPUModel,
+				MemoryMiB: t.MemoryMiB, AcceleratorType: accelerator, AcceleratorCount: t.GPUs, AcceleratorModel: t.GPUModel,
 				AcceleratorManufacturer: t.GPUMaker,
 				LocalStorageGB:          t.LocalStorageGB, LocalStorageCount: t.LocalStorageCount,
 			})

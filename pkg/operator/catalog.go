@@ -64,7 +64,7 @@ func (o *Operator) WithCatalog(
 		RefreshInterval: o.Options.CatalogRefreshInterval,
 		MaxAge:          o.Options.CatalogMaxAge,
 		Registerer:      metrics.Registry,
-		NVIDIAGPUs:      nvidia.NodeBootstrap,
+		NVIDIAGPUs:      nvidia.NodeBootstrap || nvidiaBootstrapDev(),
 	})
 	if err := o.Add(cat); err != nil {
 		return nil, fmt.Errorf("adding the catalog to the manager: %w", err)

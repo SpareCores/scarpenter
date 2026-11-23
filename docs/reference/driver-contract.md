@@ -485,7 +485,9 @@ brings its own catalog (the optional `CatalogProvider` capability: `CatalogYAML(
 returns the document of `pkg/catalog/static`; the operator serves that vendor from
 it and every other vendor from Keeper, so a lane without a Keeper runs): region
 `local`, zone `local-a`, types `qemu.small` (2 vCPUs, 2 GiB), `qemu.medium` (2 vCPUs,
-4 GiB) and `qemu.local` (2 vCPUs, 4 GiB, two local disks of 4 GB), on-demand only.
+4 GiB) and `qemu.local` (2 vCPUs, 4 GiB, two local disks of 4 GB), on-demand only, and the GPU types
+`qemu.gpu` (a T4) and `qemu.gpu-nvswitch` (8 A100) that only describe a GPU for the lane's
+GPU-less boot (the VMs have none).
 
 - **Images.** `ResolveImage` downloads `flatcar_production_qemu_uefi_image.img.bz2`
   (a compressed qcow2) and the UEFI firmware files of the release from the Flatcar
