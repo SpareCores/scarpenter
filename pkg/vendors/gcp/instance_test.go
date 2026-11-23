@@ -437,6 +437,39 @@ func TestNestedVirtualization(t *testing.T) {
 			t.Errorf("advancedMachineFeatures = %v, want unset after the retry", f)
 		}
 	})
+	t.Run("normalised forms, org policy and Unsupported are retried without", func(t *testing.T) {
+		for name, inject := range map[string]func(*fake.Compute){
+			"upper snake": func(c *fake.Compute) {
+				c.InjectOpError("InsertInstance", "INVALID_FIELD_VALUE", "NESTED_VIRTUALIZATION is not supported", 400)
+			},
+			"org policy": func(c *fake.Compute) {
+				c.InjectOpError("InsertInstance", "CONDITION_NOT_MET",
+					"Constraint constraints/compute.disableNestedVirtualization violated", 412)
+			},
+			"unsupported": func(c *fake.Compute) {
+				c.InjectOpError("InsertInstance", "UNSUPPORTED_OPERATION", "Nested virtualization is not supported", 400)
+			},
+		} {
+			e := newEnv(t, envOptions{})
+			inject(e.c)
+			req := request(`{"nestedVirtualization":true}`)
+			if _, err := e.d.CreateInstance(t.Context(), req); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if f := created(t, e, req).GetAdvancedMachineFeatures(); f != nil {
+				t.Errorf("%s: advancedMachineFeatures = %v, want unset after the retry", name, f)
+			}
+		}
+	})
+	t.Run("a failing retry returns its own error", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		e.c.Inject("InsertInstance", refusal, 1)
+		e.c.InjectOpError("InsertInstance", "ZONE_RESOURCE_POOL_EXHAUSTED", "no capacity", 503)
+		_, err := e.d.CreateInstance(t.Context(), request(`{"nestedVirtualization":true}`))
+		if vendors.ClassOf(err) != vendors.InsufficientCapacity {
+			t.Errorf("err = %v, want InsufficientCapacity", err)
+		}
+	})
 	t.Run("another failure is not retried", func(t *testing.T) {
 		e := newEnv(t, envOptions{})
 		e.c.Inject("InsertInstance", fake.Error(400, "invalid", "Invalid value for field 'resource.disks'"), 1)

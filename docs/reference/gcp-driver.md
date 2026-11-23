@@ -72,11 +72,14 @@ spec:
 ```
 
 Not every machine series supports it, and the driver keeps no table of the series that do. When
-Compute Engine refuses an insert with a `Fatal` error whose message names nested virtualization (or
-the field `enableNestedVirtualization`), the driver logs it and launches the same node once more
-without the feature, so the node still comes up. The matched text is UNVERIFIED live: the wording of
-the refusal has not been confirmed against Compute Engine. The node does not record whether the
-feature was applied.
+Compute Engine refuses an insert (a `Fatal` or `Unsupported` error) whose message names nested
+virtualization (case, spaces and underscores ignored, so `NESTED_VIRTUALIZATION` and the organization
+policy constraint `compute.disableNestedVirtualization` match too), the driver logs it and launches the
+same node once more without the feature, so the node still comes up. This covers an organization
+policy that forbids the feature. Each launch of an unsupported type therefore costs one refused insert
+first. If the second insert fails, its error is the one returned. The matched text is UNVERIFIED live:
+the wording of the refusal has not been confirmed against Compute Engine. The node does not record
+whether the feature was applied.
 
 ## Regions and zones
 
