@@ -181,7 +181,7 @@ See also [not built yet](../reference/ovh-driver.md#not-built-yet) and
 - **`ImageVersionMismatch` or `ImageVersionUnknown`**: the image's name, properties or tag name another release than
   the NodeClass, or contradict each other; fix the image's metadata.
 - **`VendorReady=False`**: `ValidationFailed` on a region name wants the catalog's upper-case name (`GRA11`);
-  `UnknownRegions` means the region is not activated, or has no row in the driver's region table (the log says so).
+  `UnknownRegions` means neither the driver nor Keeper has the region; a region that is not activated shows in `RegionsUnavailable` (the log says so).
 - **`QuotaExceeded`**: the project's per-region instance, core or RAM limit is reached; raise it.
 - **`InsufficientCapacity` (`NoValidHost`)**: the flavor has no capacity in the region; the next candidate type is
   tried. Allow more types or regions in the NodePool.

@@ -161,5 +161,6 @@ architecture), `ResourcesReady` and `QuotaAvailable`. A failed launch shows on t
 - `AADSTS700213` or "no matching federated identity record": the federated credential's issuer or subject differs from the cluster's issuer and the ServiceAccount.
 - `ImagesReady=False`, `MarketplaceTermsNotAccepted`: run the `az vm image terms accept` command of the message.
 - `ImagesReady=False`, `ImagesNotReady` or `ImageVersionMismatch`: the pinned Flatcar version is not in the Marketplace (yet); pin a published one (`az vm image list --publisher kinvolk --all --offer flatcar`).
+- `RegionsUnavailable=True` on the vendor: the message names locations the subscription cannot use (not enabled for it); they have no offerings, the others work. Enable the location or remove it from `regions`. `VendorReady=False`, `NoUsableRegions` means none works; `UnknownRegions` is a name Azure and Keeper do not have.
 - `VendorReady=False`, `ValidationFailed`: the message names the field, for example a `subscriptionID` that is not the controller's.
 - `QuotaAvailable=False` or launches fail on quota: request more regional, family or Spot vCPUs, or public IPs.

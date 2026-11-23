@@ -44,6 +44,12 @@ const (
 	// absent otherwise. It is informational: VendorReady, ImagesReady and the
 	// NodeClass's Ready do not depend on it.
 	VendorConditionConfigurationWarning = "ConfigurationWarning"
+	// VendorConditionRegionsUnavailable is abnormal-true and informational too:
+	// present and True (reason RegionsUnavailable) while some of the NodeClass's
+	// regions of a ready vendor cannot be used (the credentials cannot read them,
+	// or their zones failed to load); the message names them. They have no
+	// offerings, the vendor's other regions work.
+	VendorConditionRegionsUnavailable = "RegionsUnavailable"
 )
 
 // SCNodeClass is the node definition SCarpenter launches nodes from: shared
@@ -148,7 +154,7 @@ type Artifact struct {
 // VendorStatus is the observed state of one vendor of the SCNodeClass.
 type VendorStatus struct {
 	// conditions of the vendor: VendorReady, ImagesReady, ResourcesReady,
-	// QuotaAvailable, and ConfigurationWarning when set.
+	// QuotaAvailable, ConfigurationWarning and RegionsUnavailable when set.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

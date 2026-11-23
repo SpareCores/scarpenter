@@ -330,6 +330,9 @@ func (s *Settings) GetRegions() []string {
 	return s.Regions
 }
 
+// SetRegions replaces the region allow-list.
+func (s *Settings) SetRegions(regions []string) { s.Regions = regions }
+
 // GetImageOwner returns the project that owns the Flatcar images ("" means the
 // defaults: the public Flatcar project, and the Spare Cores project for arm64).
 func (s *Settings) GetImageOwner() string {

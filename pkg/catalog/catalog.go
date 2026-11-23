@@ -692,6 +692,36 @@ func (c *Catalog) Loaded(class string) bool {
 	return c.snap != nil && c.classes[class] != nil
 }
 
+// RegionName returns the vendor's own name of the region that Keeper knows by
+// this name, alias or ID (an active region first, else an inactive one).
+// It reads Keeper's region table, not zones, so it covers vendors without zones
+// too. loaded is false while the catalog has no regions of the vendor: found then
+// says nothing.
+func (c *Catalog) RegionName(vendor, name string) (apiName string, found, loaded bool) {
+	c.mu.RLock()
+	snap := c.snap
+	c.mu.RUnlock()
+	if snap == nil || snap.vendors[vendor] == nil || len(snap.vendors[vendor].regions) == 0 {
+		return "", false, false
+	}
+	// Keeper keeps retired regions, whose aliases can name a current one: an
+	// active match wins, then the lowest ID, so the answer does not depend on
+	// the map order.
+	var best *model.Region
+	for _, r := range snap.vendors[vendor].regions {
+		if !matchesRegion(r, name) {
+			continue
+		}
+		if best == nil || r.Active && !best.Active || r.Active == best.Active && r.ID < best.ID {
+			best = r
+		}
+	}
+	if best == nil {
+		return "", false, true
+	}
+	return best.Name, true, true
+}
+
 // FactsLoaded reports whether the driver facts of the vendor are loaded (true
 // for facts that do not say). Until then the vendor has no zones and nothing of
 // it is really offered, so what it offers must not be reported as a state.

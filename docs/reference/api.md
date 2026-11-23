@@ -5962,7 +5962,7 @@ VendorStatus is the observed state of one vendor of the SCNodeClass.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `conditions` | array of [object](#statusvendorsconditions) |  | conditions of the vendor: VendorReady, ImagesReady, ResourcesReady, QuotaAvailable, and ConfigurationWarning when set. |
+| `conditions` | array of [object](#statusvendorsconditions) |  | conditions of the vendor: VendorReady, ImagesReady, ResourcesReady, QuotaAvailable, ConfigurationWarning and RegionsUnavailable when set. |
 | `hash` | string |  | hash is the drift hash of the shared fields that change what a node is plus this vendor's block (overview section 6.3). |
 | `images` | array of [object](#statusvendorsimages) |  | images are the resolved boot images per region and architecture. |
 | `offered` | [object](#statusvendorsoffered) |  | offered summarises what the catalog hands to Karpenter for this vendor and why the rest is left out or unavailable (reference: labels and offerings). |

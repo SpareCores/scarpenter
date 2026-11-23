@@ -15164,7 +15164,7 @@
             "description": "VendorStatus is the observed state of one vendor of the SCNodeClass.",
             "properties": {
               "conditions": {
-                "description": "conditions of the vendor: VendorReady, ImagesReady, ResourcesReady,\nQuotaAvailable, and ConfigurationWarning when set.",
+                "description": "conditions of the vendor: VendorReady, ImagesReady, ResourcesReady,\nQuotaAvailable, ConfigurationWarning and RegionsUnavailable when set.",
                 "items": {
                   "additionalProperties": false,
                   "description": "Condition aliases the upstream type and adds additional helper methods",

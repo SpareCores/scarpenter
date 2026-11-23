@@ -310,6 +310,9 @@ func (s *Settings) GetRegions() []string {
 	return s.Regions
 }
 
+// SetRegions replaces the region allow-list.
+func (s *Settings) SetRegions(regions []string) { s.Regions = regions }
+
 // GetImageOwner returns the account that owns the Flatcar images ("" means the
 // account of the credentials).
 func (s *Settings) GetImageOwner() string {

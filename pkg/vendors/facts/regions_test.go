@@ -103,6 +103,9 @@ func TestADeniedRegionIsSkippedAndTheOthersLoad(t *testing.T) {
 	if sk := f.SkippedRegions("aws"); len(sk) != 1 || !strings.Contains(sk["af-south-1"], "UnauthorizedOperation") {
 		t.Errorf("skipped %v", sk)
 	}
+	if got, retrying := f.UnavailableRegions("aws"); !slices.Equal(got, []string{"af-south-1"}) || len(retrying) != 0 {
+		t.Errorf("unavailable %v, retrying %v, want the skipped region", got, retrying)
+	}
 	if got := regionLines(lines()); len(got) != 1 {
 		t.Errorf("want one warning naming the region, got %q", got)
 	}

@@ -331,6 +331,12 @@ type RegionLister interface {
 	GetRegions() []string
 }
 
+// RegionSetter is implemented by the vendor blocks that have a region allow-list.
+// +kubebuilder:object:generate=false
+type RegionSetter interface {
+	SetRegions(regions []string)
+}
+
 // ImageOwnerGetter is implemented by the vendor blocks that name the account that
 // owns the boot images (AWS imageOwner); empty means the vendor's official owner.
 // +kubebuilder:object:generate=false
@@ -360,4 +366,13 @@ func (v VendorBlocks) Regions(vendor string) ([]string, bool) {
 		return l.GetRegions(), true
 	}
 	return nil, true
+}
+
+// SetRegions replaces the region allow-list of the vendor's block.
+func (v VendorBlocks) SetRegions(vendor string, regions []string) {
+	if block, ok := v.Get(vendor); ok {
+		if r, ok := block.(RegionSetter); ok {
+			r.SetRegions(regions)
+		}
+	}
 }

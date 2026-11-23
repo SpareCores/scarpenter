@@ -649,9 +649,9 @@ writes the status with server-side apply under the field manager
 | `RestartRequired` | (set only when) metric labels were added after start-up | `MetricLabelsNotRegistered` |
 
 Per vendor in `status.vendors.<vendor>`: `VendorReady` (the driver is enabled,
-the regions are ones the driver can use, the driver's `ValidateNodeClass`
-accepts the block; reasons `VendorNotEnabled`, `UnknownRegions`,
-`ValidationFailed`), `ImagesReady` (the driver's `ImageReporter`, when it has one;
+at least one named region can be used, the driver's `ValidateNodeClass`
+accepts the block; reasons `VendorNotEnabled`, `UnknownRegions`, `NoUsableRegions`,
+`ValidationFailed`; unusable regions among usable ones show in `RegionsUnavailable`), `ImagesReady` (the driver's `ImageReporter`, when it has one;
 a driver without it resolves images at launch and counts as ready; an image that is not the pinned release
 makes it `False` with `ImageVersionMismatch` or `ImageVersionUnknown`), `images`, and
 `hash`. A vendor that is not ready does not make the NodeClass not ready; it only
