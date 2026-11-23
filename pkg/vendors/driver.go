@@ -596,6 +596,15 @@ type NodeOptions interface {
 	Prepare(ctx context.Context, req PrepareRequest) (*Prepared, error)
 }
 
+// SettingsChecker is an optional extension of NodeOptions: whether the type can
+// host the resolved settings, by what the driver knows of the type (Azure: its
+// compatible disk types, for the root disk the defaults and the NodeClass's
+// block leave as they are). The catalog asks it for the default route and for
+// every profile, which the settings it resolves to must pass.
+type SettingsChecker interface {
+	SupportsSettings(s VendorSettings, it CatalogType) bool
+}
+
 // NetworkAwareOptions is the optional capability of a driver whose supported
 // profiles depend on the NodeClass's resolved networking (the isolation): the
 // catalog asks SupportedFor, with the networking of the NodeClass for the

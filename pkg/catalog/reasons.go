@@ -28,6 +28,9 @@ const (
 	IncompletePrice Code = "IncompletePrice"
 	// NotLaunchable: the driver says the type cannot launch in the zone.
 	NotLaunchable Code = "NotLaunchable"
+	// StorageIncompatible: the type cannot host the class's default storage
+	// and no storage profile makes it work.
+	StorageIncompatible Code = "StorageIncompatible"
 	// NoOffering: every offering of the type was removed; the detail is the
 	// dominant reason.
 	NoOffering Code = "NoOffering"

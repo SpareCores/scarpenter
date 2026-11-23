@@ -342,6 +342,7 @@ was given.
 | `ZoneNotAvailable` | offering | a price row's zone is not one of the account's, Keeper marked it inactive, or the driver lists no zones for the region (facts not loaded yet, or the credentials cannot read it) | the zone ID, or the region |
 | `IncompletePrice` | offering | the price delta is incomplete and `pricing.allowIncomplete` is false | zone ID, capacity type |
 | `GPUManufacturer`, `GPUModelUnknown`, `GPUFractional`, `GPUArch`, `GPUNoDriverBranch`, `GPUNVSwitch`, `GPUVirtual` | type | [GPU types](#gpu-types) | |
+| `StorageIncompatible` | type | the driver says the type cannot host the class's default storage, and no storage profile makes it work | |
 | `NotLaunchable` | offering | the driver's offering lister says the type cannot launch in the zone | zone ID |
 | `NoOffering` | type | every offering of the type was removed above | the dominant earlier code |
 | `UnavailableCache` | offering | a live entry of the unavailable-offerings cache | its class (`InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable`, `InvalidOffering`) and its expiry |

@@ -70,10 +70,8 @@ func (d *Driver) RootDiskForType(vendors.VendorSettings, vendors.CatalogType) (i
 // NodeClass sets StandardSSD_LRS to include it.
 //
 // Keeper's compatible storage of the size is checked for the disk types a
-// profile names and for the root disk type it leaves to the default (Premium_LRS):
-// a size that cannot attach it is not offered with the profile. A NodeClass
-// that wants such sizes pins a non-premium root type (StandardSSD_LRS) in the
-// profile.
+// profile names; the root disk type it leaves alone is checked with the resolved
+// settings (SupportsSettings).
 func (d *Driver) Supported(it vendors.CatalogType, _ string, p vendors.Profiles) map[string][]string {
 	out := map[string][]string{}
 	sku, known := d.skuFacts(it.APIReference)
@@ -105,7 +103,7 @@ func supportsStorage(block json.RawMessage, compatible []string, sku SKU, known 
 	if err != nil {
 		return false
 	}
-	if !attachable(st, compatible) {
+	if !attachable(storageTypes(st), compatible) {
 		return false
 	}
 	if st.LocalStorage != nil && st.LocalStorage.Policy != "" && st.LocalStorage.Policy != "ignore" {
@@ -123,17 +121,30 @@ func supportsStorage(block json.RawMessage, compatible []string, sku SKU, known 
 	return sku.MaxDataDisks == 0 || len(st.Data) <= sku.MaxDataDisks
 }
 
-// attachable says whether Keeper lists every disk type the block uses for the
-// size, the root disk's default included; an empty list (unknown) allows all.
-func attachable(st StorageSettings, compatible []string) bool {
-	if len(compatible) == 0 {
-		return true
+// attachable says whether Keeper lists every given disk type for the size; an
+// empty list (unknown) allows all.
+func attachable(types, compatible []string) bool {
+	return len(compatible) == 0 || !slices.ContainsFunc(types, func(t string) bool { return !slices.Contains(compatible, t) })
+}
+
+// SupportsSettings implements vendors.SettingsChecker: Keeper lists the disk
+// types of the resolved settings for the size, the root disk's type (the
+// default Premium_LRS unless the NodeClass pins another; an ephemeral root has
+// none) and the data disks'. Sizes without premium storage are not offered
+// with a Premium root: SCarpenter never downgrades it (ADR-017).
+func (d *Driver) SupportsSettings(s vendors.VendorSettings, it vendors.CatalogType) bool {
+	st, err := DecodeSettings(s)
+	if err != nil {
+		return true // the launch reports the broken settings
 	}
-	types := storageTypes(st)
-	if st.Root == nil || (st.Root.StorageAccountType == "" && st.Root.Ephemeral == nil) {
-		types = append(types, DefaultStorageAccountType)
+	var types []string
+	if root := st.Root(); root.Ephemeral == nil {
+		types = append(types, root.StorageAccountType)
 	}
-	return !slices.ContainsFunc(types, func(t string) bool { return !slices.Contains(compatible, t) })
+	for _, dd := range st.DataDisks() {
+		types = append(types, dd.StorageAccountType)
+	}
+	return attachable(types, it.CompatibleStorage)
 }
 
 // storageTypes lists the disk SKUs a storage block names (the root's, then the

@@ -636,6 +636,9 @@ func (f *Facts) Supported(vendor string, class *catalog.Class, srv *model.Server
 			if _, defined := in.Profiles[kind][name]; !defined {
 				continue
 			}
+			if !settingsSupported(no, in, selectionOf(kind, name), ct) {
+				continue
+			}
 			if !class.AllowIncompletePrice && !f.profileComplete(no, in, kind, name, ct, region, zone) {
 				continue
 			}
@@ -649,8 +652,7 @@ func (f *Facts) Supported(vendor string, class *catalog.Class, srv *model.Server
 	return out
 }
 
-func (f *Facts) profileComplete(no vendors.NodeOptions, in options.Input, kind, name string, ct vendors.CatalogType,
-	region, zone string) bool {
+func selectionOf(kind, name string) options.Selection {
 	sel := options.Selection{}
 	switch kind {
 	case vendors.ProfileStorage:
@@ -660,7 +662,39 @@ func (f *Facts) profileComplete(no vendors.NodeOptions, in options.Input, kind, 
 	default:
 		sel.Placement = name
 	}
+	return sel
+}
+
+// settingsSupported asks the driver (vendors.SettingsChecker) whether the type
+// can host the settings the selection resolves to, the NodeClass's block and the
+// built-in defaults included. A driver without the check supports everything.
+func settingsSupported(no vendors.NodeOptions, in options.Input, sel options.Selection, ct vendors.CatalogType) bool {
+	sc, ok := no.(vendors.SettingsChecker)
+	if !ok {
+		return true
+	}
 	s, err := options.Resolve(no, in, sel)
+	return err == nil && sc.SupportsSettings(s, ct)
+}
+
+// DefaultSupported implements catalog.DefaultRouteFacts: the type can host the
+// class's default settings.
+func (f *Facts) DefaultSupported(vendor string, class *catalog.Class, srv *model.Server) bool {
+	no := f.nodeOptions(vendor)
+	if no == nil {
+		return true
+	}
+	sc, ok := no.(vendors.SettingsChecker)
+	if !ok {
+		return true
+	}
+	s, ok := f.defaultsFor(vendor, class, no)
+	return !ok || sc.SupportsSettings(s, catalogType(vendor, srv))
+}
+
+func (f *Facts) profileComplete(no vendors.NodeOptions, in options.Input, kind, name string, ct vendors.CatalogType,
+	region, zone string) bool {
+	s, err := options.Resolve(no, in, selectionOf(kind, name))
 	if err != nil {
 		return false
 	}

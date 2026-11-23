@@ -401,6 +401,7 @@ var (
 	_ vendors.NodeClassValidator = (*Driver)(nil)
 	_ vendors.ImageReporter      = (*Driver)(nil)
 	_ vendors.NodeOptions        = (*Driver)(nil)
+	_ vendors.SettingsChecker    = (*Driver)(nil)
 	_ vendors.EpochReporter      = (*Driver)(nil)
 	_ vendors.ManagedResources   = (*Driver)(nil)
 	_ vendors.QuotaReporter      = (*Driver)(nil)

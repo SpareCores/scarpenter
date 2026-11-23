@@ -179,6 +179,16 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 		for k := range union {
 			union[k] = uniq(union[k])
 		}
+		// A type that cannot host the default settings is offered with a
+		// storage profile that makes it work, else not at all.
+		defaultOK := true
+		if df, ok := facts.(DefaultRouteFacts); ok {
+			defaultOK = df.DefaultSupported(vendor, class, srv)
+		}
+		if !defaultOK && len(union[labels.ProfileStorage]) == 0 {
+			drop(StorageIncompatible, "")
+			continue
+		}
 		for _, o := range offs {
 			regionNames = append(regionNames, o.region.region.Name)
 			zoneNames = append(zoneNames, o.zone.Name)
@@ -229,7 +239,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			// union, so that a profile a zone cannot host never matches there;
 			// with the default only they never do.
 			if perZoneProfiles {
-				reqs = append(reqs, labels.ProfileRequirements(perZone[o.zone.Name])...)
+				reqs = append(reqs, profileRequirements(perZone[o.zone.Name], defaultOK)...)
 			}
 			offReqs := scheduling.NewRequirements(reqs...)
 			if shareKey != "" {
@@ -260,7 +270,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			}
 		}
 		reqs = append(reqs, labels.Selection(view.members[srv.Key()]))
-		reqs = append(reqs, labels.ProfileRequirements(union)...)
+		reqs = append(reqs, profileRequirements(union, defaultOK)...)
 		it.Requirements = scheduling.NewRequirements(reqs...)
 
 		rootDisk, rootKnown := facts.RootDiskBytes(vendor, class, srv)
@@ -361,6 +371,18 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 			strings.Compare(a.capacityType, b.capacityType))
 	})
 	return out
+}
+
+// profileRequirements are the profile labels; without the default storage the
+// storage label names the supported profiles only.
+func profileRequirements(supported map[labels.ProfileKind][]string, defaultStorage bool) []*scheduling.Requirement {
+	reqs := labels.ProfileRequirements(supported)
+	if !defaultStorage {
+		names := slices.Clone(supported[labels.ProfileStorage])
+		slices.Sort(names)
+		reqs[0] = labels.In(labels.ProfileLabel(labels.ProfileStorage), slices.Compact(names)...)
+	}
+	return reqs
 }
 
 // withoutUnlaunchable removes the offerings the driver says cannot launch, and

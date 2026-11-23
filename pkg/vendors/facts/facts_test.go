@@ -312,3 +312,36 @@ func TestRegionPricedFollowsTheDriver(t *testing.T) {
 		t.Error("RegionPriced does not follow the driver")
 	}
 }
+
+// checker is a driver with vendors.SettingsChecker: it hosts only root disks of
+// at least 100 GiB.
+type checker struct{ *driver }
+
+func (c checker) SupportsSettings(s vendors.VendorSettings, _ vendors.CatalogType) bool {
+	return c.RootDiskBytes(s) >= 100<<30
+}
+
+func TestSettingsCheckerDecidesTheDefaultRouteAndTheProfiles(t *testing.T) {
+	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(checker{&driver{}})})
+	if err := f.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	small, err := catalog.ClassFromNodeClass(nodeClass("64Gi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	big, err := catalog.ClassFromNodeClass(nodeClass("100Gi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.DefaultSupported("aws", &small, srv) || !f.DefaultSupported("aws", &big, srv) {
+		t.Error("the default route follows the NodeClass's root disk")
+	}
+	// The profiles resolve over the NodeClass's block: the same answer.
+	if got := f.Supported("aws", &small, srv, "us-east-1a"); len(got) != 0 {
+		t.Errorf("the small class supports %v", got)
+	}
+	if got := f.Supported("aws", &big, srv, "us-east-1a"); len(got[labels.ProfileStorage]) != 2 {
+		t.Errorf("the big class supports %v", got)
+	}
+}
