@@ -327,6 +327,33 @@ func TestReservationLifecycle(t *testing.T) {
 	}
 }
 
+// A refresh that runs while the launch call is in flight can count the new
+// instance before Commit ties the reservation to it: the instance must not count
+// twice until the next refresh.
+func TestCommitAfterRefreshCountedTheInstanceDoesNotDoubleCount(t *testing.T) {
+	e := setup(t, nil)
+	e.refresh()
+	r, _ := e.tr.Reserve("stub", "r1", "m.large", "on-demand", "claim-a")
+	e.drv.set(func() {
+		e.drv.regional["r1"][0].Used = 8
+		e.drv.counted = []vendors.InstanceRef{"r1/i-1"}
+	})
+	e.refresh()
+	if h, _ := e.tr.Headroom("stub", "r1", "m.large", "on-demand"); h != 4 {
+		t.Fatalf("launch in flight: headroom = %d, want 4 (reservation still held)", h)
+	}
+	e.tr.Commit(r, "r1/i-1")
+	if h, _ := e.tr.Headroom("stub", "r1", "m.large", "on-demand"); h != 8 {
+		t.Errorf("after commit headroom = %d, want 8 (limit 16, used 8)", h)
+	}
+
+	// The replayed-key path reserves against the returned instance: same rule.
+	e.tr.Reconcile(nil, "stub", "r1", "m.large", "on-demand", "claim-b", "r1/i-1")
+	if h, _ := e.tr.Headroom("stub", "r1", "m.large", "on-demand"); h != 8 {
+		t.Errorf("after reconcile headroom = %d, want 8", h)
+	}
+}
+
 func TestConcurrentReservesCompeteForTheLastHeadroom(t *testing.T) {
 	e := setup(t, nil)
 	e.drv.set(func() { e.drv.regional["r1"][0].Used = 0; e.drv.regional["r1"][0].Limit = 40 })

@@ -22,10 +22,13 @@ import (
 // (spike S2 may change it).
 const defaultSettings = `{"configDrive":true}`
 
-// i1RootGB is the root disk of the storage-optimised i1 flavors: Keeper's
-// storage_size of an i1 type adds up its local NVMe disks (1950 to 7650 GB), but
-// the root is the 50 GB system disk (plan 18, "Node options").
-const i1RootGB = 50
+// multiDiskRootGB is the root disk of the families whose types have local NVMe
+// disks next to the system disk: Keeper's storage_size of such a type adds the
+// disks up (i1 1950 to 7650 GB, h100 4040 to 15560 GB), but the root is the
+// system disk (plan 18, "Node options"; a test checks the sizes against the
+// snapshot). A stopgap: Keeper's storages list has the sizes but no
+// system-disk flag. The t1 and t2 types with a single disk have it as the root.
+var multiDiskRootGB = map[string]int{"i1": 50, "t1": 50, "t2": 50, "h100": 200, "h200": 400}
 
 // dataDeviceSerial is the serial pattern of a data volume's device until spike S8
 // says which bus Flatcar sees on OVH: virtio disks carry the first 20 characters of
@@ -51,15 +54,16 @@ func (d *Driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 }
 
 // RootDiskForType implements vendors.NodeOptions: the root disk of the type when
-// the settings do not boot from a volume: the 50 GB system disk of the i1 flavors;
+// the settings do not boot from a volume: the system disk of the flavors with local NVMe disks (multiDiskRootGB);
 // for the others the catalog's own storage size (Keeper's storage_size, the
 // flavor's disk) is the root, so ok is false.
 func (d *Driver) RootDiskForType(s vendors.VendorSettings, it vendors.CatalogType) (int64, bool) {
 	if b := d.RootDiskBytes(s); b > 0 {
 		return b, true
 	}
-	if Family(it.APIReference) == "i1" {
-		return int64(i1RootGB) * 1e9, true
+	fam := Family(it.APIReference)
+	if gb, ok := multiDiskRootGB[fam]; ok && (it.LocalStorageCount > 1 || fam == "i1") {
+		return int64(gb) * 1e9, true
 	}
 	return 0, false
 }

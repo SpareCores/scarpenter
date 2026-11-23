@@ -46,7 +46,7 @@ group="${3:-${AZURE_RESOURCE_GROUP:-scarpenter-ci}}"
 }
 
 # The sizes the lane launches (the policy denies every other), without the vendor prefix.
-types=("${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_SPOT}" "${E2E_TYPE_DB}" "${E2E_TYPE_CVM}")
+types=("${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_SPOT}" "${E2E_TYPE_DB}" "${E2E_TYPE_CVM}" "${E2E_GPU_TYPE}")
 IFS=, read -ra described <<<"${E2E_TYPES_DESCRIBED}"
 types+=("${described[@]}")
 allowed="$(printf '%s\n' "${types[@]}" | sed 's/^azure\.//' | sort -u | jq -R . | jq -s .)"

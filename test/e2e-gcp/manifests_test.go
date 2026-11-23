@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -79,6 +80,7 @@ var sample = map[string]string{
 	"E2E_TYPES_DESCRIBED_YAML": `"gcp.e2-small", "gcp.e2-medium", "gcp.e2-standard-2"`,
 	"E2E_ARM64_IMAGE_PROJECT":  "my-images",
 	"E2E_TAG_RUNNER":           "tag:scarpenter-ci", "E2E_TAG_NODE": "tag:scarpenter-ci-node",
+	"E2E_GPU_TYPE": "gcp.g2-standard-4", "GPU_COUNT": "1",
 	"E2E_PG_ZONE":    "us-central1-a",
 	"E2E_BYO_TAG":    "nodes",
 	"E2E_BYO_SUBNET": "projects/my-project/regions/us-central1/subnetworks/scarpenter-e2e-byo-1234567890-us-central1",
@@ -94,7 +96,8 @@ func manifests(t *testing.T) []string {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no manifests: %v", err)
 	}
-	return files
+	// The Pod of the manual gpu scenario is shared by every vendor's lane.
+	return append(files, filepath.Join(testutil.RepoRoot(), "test", "gpu-pod.yaml"))
 }
 
 func render(t *testing.T, file string) string {
@@ -140,7 +143,7 @@ func TestVariablesAreDeclared(t *testing.T) {
 	}
 	pins["E2E_TYPES_DESCRIBED_YAML"] = true // derived in defaults.sh
 	// Set by the workflow, the scenarios or the render call.
-	for _, v := range []string{"E2E_CLUSTER", "E2E_RUN_ID", "E2E_CREATED_AT", "E2E_API_HOST", "E2E_PG_ZONE", "E2E_BYO_TAG", "E2E_BYO_SUBNET",
+	for _, v := range []string{"E2E_CLUSTER", "E2E_RUN_ID", "E2E_CREATED_AT", "E2E_API_HOST", "E2E_PG_ZONE", "E2E_BYO_TAG", "E2E_BYO_SUBNET", "GPU_COUNT",
 		"NAME", "POOL", "TYPE", "CAPACITY", "NODE", "PODNAME"} {
 		pins[v] = true
 	}
@@ -161,6 +164,10 @@ func TestManifestsAreAcceptedByAnAPIServer(t *testing.T) {
 		if err := k8sClient.Create(ctx, ns); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// The RuntimeClass the GPU Pod names (the chart or the cluster provides it).
+	if err := k8sClient.Create(ctx, &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "nvidia"}, Handler: "nvidia"}); err != nil {
+		t.Fatal(err)
 	}
 	for _, f := range manifests(t) {
 		if filepath.Base(f) == "chart-values.yaml" {

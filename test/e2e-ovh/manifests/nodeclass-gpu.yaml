@@ -1,0 +1,21 @@
+# The NodeClass of the manual gpu scenario: the tailscale template as in the other
+# NodeClasses and the flavor's own disk as the root (the GPU flavors have 300 GB and more).
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-gpu
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    ovh:
+      regions: [${OS_REGION_NAME}]
+      resources:
+        securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}

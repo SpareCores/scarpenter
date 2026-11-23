@@ -60,7 +60,7 @@ t_render_keeps_other_dollars() { # only the manifest's own ${NAME} are replaced
 check "render fills every variable" t_render
 check_fails "render refuses an unset variable" t_render_unset
 check "render leaves other dollar signs alone" t_render_keeps_other_dollars
-for f in nodeclass-amd64 nodeclass-arm64 nodeclass-drift nodeclass-hardened nodeclass-negative nodepools; do
+for f in nodeclass-amd64 nodeclass-arm64 nodeclass-drift nodeclass-hardened nodeclass-negative nodeclass-gpu nodepools nodepool-gpu; do
   check "render ${f}" render "${here}/manifests/${f}.yaml"
 done
 
@@ -338,6 +338,19 @@ t_scenarios_defined() {
     }
   done
 }
+t_manual_scenarios() { # the manual scenarios have functions, are named by the workflow, and are in neither "all" nor the smoke set
+  local all manual n
+  all="$(sed -n 's/^all_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  manual="$(sed -n 's/^manual_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  [[ -n "${manual}" ]]
+  for n in ${manual}; do
+    grep -q "^scn_${n}() {" "${here}/scenarios.sh" || { echo "no function scn_${n}"; return 1; }
+    grep -qw "${n}" "${root}/.github/workflows/e2e.yml" || { echo "the workflow's mode input does not name ${n}"; return 1; }
+    grep -q "\`${n}\`" "${root}/docs/how-to-guides/testing.md" || { echo "docs/how-to-guides/testing.md does not describe the scenario ${n}"; return 1; }
+    [[ " ${all} " != *" ${n} "* ]] || { echo "${n} is in all_scenarios"; return 1; }
+    [[ ",${E2E_SMOKE_SCENARIOS}," != *",${n},"* ]] || { echo "${n} is in the smoke set"; return 1; }
+  done
+}
 t_pins_pinned() { # every action of the L5 workflows is pinned by a full commit SHA (a local reusable workflow has no pin)
   local w="${root}/.github/workflows"
   ! grep -hE '^\s*-?\s*uses:' "${w}/e2e.yml" "${w}/e2e-cloud.yml" "${w}/e2e-canary.yml" "${w}/e2e-aws-sweeper.yml" "${w}/e2e-alicloud-sweeper.yml" "${w}/release.yml" |
@@ -369,6 +382,7 @@ t_no_secrets_in_scripts() { # nothing that looks like an account ID, a key or a 
     "${here}" --include='*.sh' --include='*.yaml' --include='*.go' | grep -v 'selftest.sh'
 }
 check "every scenario has a function and the docs describe it" t_scenarios_defined
+check "the manual scenarios are outside all and the smoke set" t_manual_scenarios
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
 t_not_in_the_vendor_list() { # whether RAM applies ecs:InstanceType on RunInstances is unverified, so the type deny may not bite
@@ -407,7 +421,7 @@ t_policy_region() { # the region of a call is the one in the ARNs
 t_policy_types() { # every type of the pins is allowed by the deny, so a type of defaults.sh is never refused
   local p="${tmp}/policy.json" t
   "${here}/ci-policy.sh" 123456789012 >"${p}"
-  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_DB}" ${E2E_TYPES_DESCRIBED//,/ }; do
+  for t in "${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_DB}" ${E2E_TYPES_DESCRIBED//,/ } "${E2E_GPU_TYPE}"; do
     jq -e --arg t "${t#alicloud.}" '.Statement[] | select(.Effect == "Deny") | .Condition.StringNotEquals."ecs:InstanceType" | index($t) != null' "${p}" >/dev/null ||
       { echo "the type ${t} is denied by the policy"; return 1; }
   done

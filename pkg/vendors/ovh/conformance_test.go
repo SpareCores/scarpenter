@@ -49,13 +49,9 @@ func snapshotFlavors(t testing.TB) []osapi.Flavor {
 		if ok, _ := Launchable(s.APIReference); !ok {
 			continue
 		}
-		var sizes []float64
-		for _, st := range s.Storages {
-			sizes = append(sizes, st.Size)
-		}
 		out = append(out, osapi.Flavor{
 			Name: s.APIReference, VCPUs: s.VCPUs, RAMMiB: s.MemoryMiB,
-			DiskGB: int64(RootDiskGB(s.APIReference, s.StorageSize, sizes)),
+			DiskGB: flavorDiskGB(s),
 		})
 	}
 	if len(out) == 0 {

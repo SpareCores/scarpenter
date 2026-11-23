@@ -26,6 +26,7 @@ what the live L5 run must settle. Enable the driver with `--vendors alicloud` (o
 - [Resources and network](#resources-and-network)
 - [The metadata service](#the-metadata-service)
 - [Tailnet and the service addresses](#tailnet-and-the-service-addresses)
+- [GPU instance types](#gpu-instance-types)
 - [Quotas](#quotas)
 - [Billing](#billing)
 - [Credentials and the RAM policy](#credentials-and-the-ram-policy)
@@ -218,6 +219,29 @@ forwarding and masquerade rules for subnet routers and exit nodes, and the CGNAT
 The default `spec.instanceMetadata.access: Restricted` still drops every connection to `100.100.100.200` except from the node's own
 units, Pods included ([above](#the-metadata-service)). A workload that reads the instance metadata needs a NodeClass with
 `access: Open`.
+
+## GPU instance types
+
+GPU types need nothing from the launch: they use the same Flatcar image as every other amd64 type, the
+default 64 GiB root disk holds the driver sysext and CUDA images, and the quota is the vCPU bucket of
+[Quotas](#quotas) (the per-family GPU limits of Quota Center are not read, so a refusal there is a launch
+error). Which types the catalog offers is the vendor-neutral rule of
+[GPU types](labels-and-offerings.md#gpu-types); the driver's part is that `GPUVirtualizer` reports the
+GRID (vGPU) families as virtual: `vgn*`, `sgn*` and any family with `-vws` in its name. Rows without a
+model fall to the core's rules (`GPUModelUnknown`, or `GPUManufacturer` where Keeper has no manufacturer).
+The families `ecs.ebm*` (bare metal, so `ecs.ebmgn*` too) stay dropped by the driver like every bare metal
+family. On Flatcar 4757.2.3, over Keeper's snapshot:
+
+| Offered | Dropped (reason) |
+|---|---|
+| `gn6i` (T4), `gn7i` (A10), `gn8ia` and `gn8is` (L20), as far as Keeper has a price | `vgn6i`, `sgn7i` (fractional A10 and T4 slices: `GPUFractional`, and `GPUVirtual` where the count is whole), `sgn8ia` |
+| `gn6v` and `gn6e` (V100, proprietary driver), `gn5` (P100) and `gn5i` (P4), proprietary driver | `gn8t`, `gn8te`, `gn9gc` (no model in Keeper: `GPUModelUnknown`), `gn8v` (no manufacturer: `GPUManufacturer`) |
+
+The 8-GPU `gn5`, `gn6v`, `gn6e` and `gn7i` types use NVLink or PCIe without NVSwitch, so they need no Fabric
+Manager. Where Flatcar's release server, GitHub or nvcr.io are unreachable the operator must mirror them: see [Alibaba Cloud set-up](../how-to-guides/set-up-alicloud.md#gpu-instances) for the
+mirrors. Until a type has a green real run it is "offered, not yet verified"; the manual `gpu` scenario of the
+[L5 lane](../how-to-guides/testing.md#the-alibaba-cloud-lane) is how the maintainer runs one
+(`ecs.gn6i-c4g1.xlarge`, 1 T4, by default).
 
 ## Quotas
 

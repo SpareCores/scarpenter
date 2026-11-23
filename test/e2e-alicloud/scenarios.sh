@@ -13,6 +13,8 @@
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:
 #                   amd64 arm64 spot imds db described byo negative image quota drift
 #                   scalezero uninstall
+#                   The manual scenario gpu is never part of "all": it runs only when named
+#                   (plan 12; E2E_GPU_TYPE, default alicloud.ecs.gn6i-c4g1.xlarge).
 #                   (preflight always runs first, and ends the run when it fails; the final
 #                   check that nothing of the run is left is the teardown's, step 3)
 #
@@ -150,6 +152,40 @@ start_byo() {
   render "${here}/manifests/nodeclass-use.yaml" | kubectl apply -f -
   render "${here}/manifests/nodepool-use.yaml" | kubectl apply -f -
   probe e2e-use e2e-use "${E2E_TYPE_AMD64}" on-demand
+}
+
+# start_gpu [GPU count] (manual scenario gpu): fails early when the account's pay-as-you-go vCPU quota
+# cannot hold the type next to what is running (before anything is applied; the per-family
+# GPU limits of Quota Center are not read, a refusal there shows as a launch error), then the
+# RuntimeClass the cluster may lack (k3s ships one only when it finds the NVIDIA runtime on
+# its own host), the NodeClass and the NodePool of the GPU type, and the Pod
+# (test/gpu-pod.yaml) that requests all the type's GPUs.
+start_gpu() {
+  local type="${E2E_GPU_TYPE#alicloud.}" count="${1:-}" vcpus max used
+  [[ -n "${count}" ]] || count="$(gpu_count "${type}")"
+  [[ "$(num "${count}")" -ge 1 ]] || fail "${E2E_GPU_TYPE} has no GPU according to ECS"
+  vcpus="$(vcpus_of "${type}")"
+  max="$(account_attr max-postpaid-instance-vcpu-count)"
+  used="$(account_attr used-postpaid-instance-vcpu-count)"
+  [[ "$(num "${max:-0}")" -ge "$(($(num "${used:-0}") + vcpus))" ]] ||
+    fail "the pay-as-you-go vCPU quota of ${ALICLOUD_REGION} is ${max} with ${used} in use; ${E2E_GPU_TYPE} needs ${vcpus} more"
+  kubectl get runtimeclass nvidia >/dev/null 2>&1 ||
+    kubectl apply -f - <<'YAML'
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
+YAML
+  render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
+  render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
+  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${count}" \
+    render "${here}/../gpu-pod.yaml" | kubectl apply -f -
+}
+
+# gpu_count <instance type without the vendor prefix>: the GPUs of the type, from ECS.
+gpu_count() {
+  ecs DescribeInstanceTypes --InstanceTypes "[\"$1\"]" | jq -r '.InstanceTypes.InstanceType[0].GPUAmount // 0'
 }
 
 # ----------------------------------------------------------- scenarios ------
@@ -863,6 +899,24 @@ active_instances() {
   ecs DescribeInstances "${tag[@]}" --PageSize 100 | jq -r '.Instances.Instance[]? | select(.Status | IN("Pending", "Starting", "Running")) | .InstanceId'
 }
 
+# gpu (plan 12, manual only): one GPU type from the Pod to the end of a CUDA run on its
+# node. The shared checks are test/lib.sh gpu_check_node: labels against the table,
+# capacity, the log of nvidia-smi and vectorAdd. The scenario also records the time to Ready.
+scn_gpu() {
+  local type="${E2E_GPU_TYPE#alicloud.}" count node claim
+  count="$(gpu_count "${type}")"
+  start_gpu "${count}"
+  wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
+  node="$(pod_node e2e-gpu)"
+  claim="$(claim_of_node "${node}")"
+  assert_nonempty "the NodeClaim of ${node}" "${claim}"
+  assert_eq "instance-type" "${E2E_GPU_TYPE}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  gpu_check_node "${node}" e2e-gpu "${count}" "${E2E_FLATCAR_VERSION}"
+  note "gpu: ${E2E_GPU_TYPE} (${count} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
+  kubectl delete pod e2e-gpu --wait=false
+  kubectl delete nodepool e2e-gpu --wait=false
+}
+
 # scalezero (plan 10 scenario 3, the roadmap's exit criterion): deleting the workloads
 # releases every instance within E2E_SCALE_DOWN_DEADLINE seconds of the Pods' deletion
 # (WhenEmpty, 0 s); the nodes, NodeClaims and bootstrap tokens go too; the quota usage
@@ -921,16 +975,19 @@ scarpenter_claims() {
 # --------------------------------------------------------------- runner -----
 
 all_scenarios=(amd64 arm64 spot imds db described byo negative image quota drift scalezero uninstall)
+# Run only when named (never by "all", the smoke set or a schedule), before the others, so that scalezero
+# and uninstall still clean up after them.
+manual_scenarios=(gpu)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
 else
-  for s in "${all_scenarios[@]}"; do
+  for s in "${manual_scenarios[@]}" "${all_scenarios[@]}"; do
     [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
   done
   for s in ${E2E_SCENARIOS//,/ }; do
-    [[ " ${all_scenarios[*]} " == *" ${s} "* ]] || {
-      echo "unknown scenario ${s} (known: ${all_scenarios[*]})" >&2
+    [[ " ${all_scenarios[*]} ${manual_scenarios[*]} " == *" ${s} "* ]] || {
+      echo "unknown scenario ${s} (known: ${all_scenarios[*]}; manual: ${manual_scenarios[*]})" >&2
       exit 2
     }
   done

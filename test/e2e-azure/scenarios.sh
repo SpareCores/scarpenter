@@ -10,8 +10,9 @@
 #                   amd64 arm64 db described byo negative quota drift scalezero uninstall
 #                   (arm64 is the arm64 on-demand node and then the spot node; preflight
 #                   always runs first, and ends the run when it fails)
-#                   Manual-only, never in the default set: cvm (one confidential VM), run
-#                   when named in E2E_SCENARIOS.
+#                   Manual-only, never in the default set: cvm (one confidential VM) and gpu
+#                   (plan 12; E2E_GPU_TYPE, default azure.Standard_NC4as_T4_v3), run when
+#                   named in E2E_SCENARIOS.
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -132,6 +133,43 @@ start_byo() {
   probe e2e-use e2e-use "${E2E_TYPE_AMD64}" on-demand
 }
 
+# start_gpu (manual scenario gpu): fails early when the size is not a launchable GPU size or the
+# subscription's quota of its family cannot hold it (before anything is applied), then the
+# RuntimeClass the cluster may lack (k3s ships one only when it finds the NVIDIA runtime on its
+# own host), the NodeClass and the NodePool of the GPU size, and the Pod (test/gpu-pod.yaml)
+# that requests all the size's GPUs.
+start_gpu() {
+  local size="${E2E_GPU_TYPE#azure.}" count vcpus fam limit
+  count="$(gpu_count "${size}")"
+  [[ "${count}" -ge 1 ]] || fail "${E2E_GPU_TYPE} has no GPU according to the SKU table"
+  assert_nonempty "${E2E_GPU_TYPE} is offered in ${AZURE_REGION}" "$(sku_field "${size}" '.name')"
+  assert_eq "restrictions of ${E2E_GPU_TYPE}" 0 "$(sku_field "${size}" '(.restrictions | length)')"
+  # The driver offers a size only with the SCSI disk controller (an NVMe-only size is dropped).
+  [[ "$(sku_field "${size}" '(.capabilities[] | select(.name == "DiskControllerTypes") | .value) // "SCSI"')" == *SCSI* ]] ||
+    fail "${E2E_GPU_TYPE} has no SCSI disk controller: SCarpenter does not offer it"
+  vcpus="$(vcpus_of "${size}")"
+  fam="$(sku_family "${size}")"
+  assert_nonempty "the quota family of ${E2E_GPU_TYPE}" "${fam}"
+  limit="$(limit_of compute "${fam}")"
+  [[ "$(num "${limit:-0}")" -ge "${vcpus}" ]] ||
+    fail "the ${fam} vCPUs quota of ${AZURE_REGION} is '${limit}'; ${E2E_GPU_TYPE} needs ${vcpus} (a new subscription has 0: request an increase)"
+  kubectl get runtimeclass nvidia >/dev/null 2>&1 ||
+    kubectl apply -f - <<'YAML'
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
+YAML
+  render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
+  render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
+  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${count}" \
+    render "${here}/../gpu-pod.yaml" | kubectl apply -f -
+}
+
+# gpu_count <size without the vendor prefix>: the GPUs of the size, from the SKU table.
+gpu_count() { sku_field "$1" '(.capabilities[] | select(.name == "GPUs") | .value) // "0"'; }
+
 # ----------------------------------------------------------- scenarios ------
 
 scn_preflight() {
@@ -192,10 +230,10 @@ scn_preflight() {
     [[ "$(num "$(limit_of compute "${fam}")")" -ge "${E2E_MIN_VCPU_FAMILY}" ]] ||
       fail "the ${fam} vCPUs quota of ${AZURE_REGION} is '$(limit_of compute "${fam}")'; the suite needs ${E2E_MIN_VCPU_FAMILY}"
   done
-  # Public IPs: 8 for the whole suite; a run of amd64 and scalezero only (the smoke) holds one node.
+  # Public IPs: 8 for the whole suite; a run of amd64, scalezero and the manual gpu only (the smoke) holds one node.
   local pip need_pip=2 sc
   for sc in "${selected[@]}"; do
-    [[ "${sc}" == amd64 || "${sc}" == scalezero ]] || need_pip=8
+    [[ "${sc}" == amd64 || "${sc}" == scalezero || "${sc}" == gpu ]] || need_pip=8
   done
   # The row has had more than one name (the driver's publicIPUsageNames, pkg/vendors/azure/quota.go).
   local pname
@@ -626,6 +664,24 @@ scn_byo() {
   note "the brought VNet and NSG ${E2E_CLUSTER}-byo are deleted by the teardown"
 }
 
+# gpu (plan 12, manual only): one GPU size from the Pod to the end of a CUDA run on its
+# node. The shared checks are test/lib.sh gpu_check_node: labels against the table,
+# capacity, the log of nvidia-smi and vectorAdd. The scenario also records the time to Ready.
+scn_gpu() {
+  local count node claim
+  count="$(gpu_count "${E2E_GPU_TYPE#azure.}")"
+  start_gpu
+  wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
+  node="$(pod_node e2e-gpu)"
+  claim="$(claim_of_node "${node}")"
+  assert_nonempty "the NodeClaim of ${node}" "${claim}"
+  assert_eq "instance-type" "${E2E_GPU_TYPE}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  gpu_check_node "${node}" e2e-gpu "${count}" "${E2E_FLATCAR_VERSION}"
+  note "gpu: ${E2E_GPU_TYPE} (${count} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
+  kubectl delete pod e2e-gpu --wait=false
+  kubectl delete nodepool e2e-gpu --wait=false
+}
+
 # negative: what must never launch. A NodeClass for another subscription is refused; Spot on
 # a B-series size (no Spot there) and a size outside the Azure Policy's allow-list get no VM.
 scn_negative() {
@@ -1003,20 +1059,19 @@ scarpenter_claims() {
 # --------------------------------------------------------------- runner -----
 
 all_scenarios=(amd64 arm64 db described byo negative quota drift scalezero uninstall)
-manual_scenarios=(cvm)
+# Run only when named (never by "all", the smoke set or a schedule), before the others, so that scalezero
+# and uninstall still clean up after them.
+manual_scenarios=(gpu cvm)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
 else
-  for s in "${all_scenarios[@]}"; do
-    [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
-  done
-  for s in "${manual_scenarios[@]}"; do
+  for s in "${manual_scenarios[@]}" "${all_scenarios[@]}"; do
     [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
   done
   for s in ${E2E_SCENARIOS//,/ }; do
     [[ " ${all_scenarios[*]} ${manual_scenarios[*]} " == *" ${s} "* ]] || {
-      echo "unknown scenario ${s} (known: ${all_scenarios[*]} ${manual_scenarios[*]})" >&2
+      echo "unknown scenario ${s} (known: ${all_scenarios[*]}; manual: ${manual_scenarios[*]})" >&2
       exit 2
     }
   done
