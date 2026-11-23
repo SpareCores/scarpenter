@@ -34,18 +34,19 @@ kubectl annotate scnodeclass bench scarpenter.sparecores.com/publish-offered=tru
 The controller then keeps one ConfigMap per vendor of the class, `scarpenter-offered-<class>-<vendor>`, in its own namespace
 (`scarpenter-system` with the chart's defaults), owned by the SCNodeClass. It is rewritten when something in it changed (at most every 30
 seconds) and at least every 10 minutes, with a new `generatedAt`: treat a listing older than 30 minutes as stale. Remove the annotation and
-the ConfigMaps go. The key is `types.json`; the fields are in [the reference](../reference/labels-and-offerings.md#the-offered-listing). An offering that a launch error marked carries the error class in `reason` and its expiry in `until`, so automation can skip it until then.
+the ConfigMaps go. The key is `binaryData."types.json.gz"`, the gzip of a JSON document; the fields are in [the reference](../reference/labels-and-offerings.md#the-offered-listing). An offering that a launch error marked carries the error class in `reason` and its expiry in `until`, so automation can skip it until then.
 
 To read it from another namespace, give the reader's ServiceAccount a Role with `get`, `list` and `watch` on `configmaps` in the
 controller's namespace (restrict it with `resourceNames`) and a RoleBinding. The chart does not grant it.
 
-A listing past 800 KiB is cut and says `"truncated": true`: the types that are not available come first, so the available ones may be
-incomplete. Narrow the class's regions, or read the status.
+The listing is capped at 800 KiB compressed. Past it the zones are left out (`"zonesOmitted": true`, every type stays, `truncated` is
+always `false`); if it still does not fit, no ConfigMap is written and the controller logs an error. Narrow the class's regions, or
+read the status.
 
 ## Recipes
 
 ```sh
-cm() { kubectl -n scarpenter-system get cm scarpenter-offered-bench-oci -o jsonpath='{.data.types\.json}'; }
+cm() { kubectl -n scarpenter-system get cm scarpenter-offered-bench-oci -o jsonpath='{.binaryData.types\.json\.gz}' | base64 -d | gunzip; }
 ```
 
 Instance types with an available offering, on-demand:

@@ -424,7 +424,14 @@ For a class with the annotation `scarpenter.sparecores.com/publish-offered: "tru
 `scarpenter-offered-<class>-<vendor>` (cut to 253 characters with a hash), in its own namespace (`POD_NAMESPACE`), owned by the
 SCNodeClass, with the labels `app.kubernetes.io/managed-by: scarpenter`, `scarpenter.sparecores.com/scnodeclass: <class>` (left out when
 the class name is longer than a label value) and `scarpenter.sparecores.com/vendor: <vendor>`. The annotation is not part of the spec:
-it changes no hash. Without the annotation, or when the vendor leaves the class, the ConfigMap is deleted. The key `types.json` holds:
+it changes no hash. Without the annotation, or when the vendor leaves the class, the ConfigMap is deleted. The ConfigMap has no `data`: the key `types.json.gz` of its `binaryData` holds the gzip of this JSON document
+(deterministic: no time in the gzip header). To read it:
+
+```sh
+kubectl -n <ns> get cm scarpenter-offered-<class>-<vendor> -o jsonpath='{.binaryData.types\.json\.gz}' | base64 -d | gunzip | jq
+```
+
+The document:
 
 ```json
 {
@@ -445,7 +452,8 @@ it changes no hash. Without the annotation, or when the vendor leaves the class,
 | Field | Meaning |
 |---|---|
 | `generatedAt` | when the listing was written: on every change and at least every 10 minutes, so it trails by about 10 minutes at most while the controller runs and has the vendor's driver facts; treat one older than 30 minutes as stale |
-| `truncated` | the 800 KiB cap was hit: the types that are not available are kept first, so the available ones may be incomplete (OCI is about 60 KiB) |
+| `truncated` | always `false`, kept for readers that index it: no type is ever left out |
+| `zonesOmitted` | only when `true`: the listing was over the 800 KiB cap (compressed), so every offering has an empty `zones` list; types, capacity types, availability, reasons and `until` are all kept |
 | `types` | by instance type name (`node.kubernetes.io/instance-type`, `<vendor>.<server id>`): every type of the catalog, offered or dropped at build time |
 | `apiReference` | the value of the `scarpenter.sparecores.com/api-reference` label; omitted when the type has no such label |
 | `available`, `capacityTypes` | at least one offering is available; the capacity types that have one |
@@ -453,6 +461,12 @@ it changes no hash. Without the annotation, or when the vendor leaves the class,
 | `offerings` | grouped by capacity type, state, reason and expiry, with the zones that share them; empty for a type dropped at build time (its `reason` is the build's) |
 | `offerings[].reason` | for an offering a launch error marked (reason code `UnavailableCache`), the launch-error class: `InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable` or `InvalidOffering`; for any other unavailable offering the reason code (for example `QuotaGate`) |
 | `offerings[].until` | RFC3339 time (UTC) the mark expires, only on a group whose `reason` is a launch-error class. A planner skips the offering until then without launching |
+
+The cap is 800 KiB of compressed bytes (a ConfigMap holds 1 MiB). The controller writes the full document when it fits; otherwise the one
+without zones (`zonesOmitted`), logging an error; when even that does not fit it writes nothing for that vendor (the others are still
+written) and fails with an error naming the class, vendor and size, so the old ConfigMap ages out and readers treat it as stale. No
+available type is ever dropped. The AWS catalog over all 33 regions of the test fixtures is about 31 KiB compressed;
+`scarpenter_offered_listing_bytes` shows the size of each listing.
 
 Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is
 available in some zones is `available: true`; its blocked zones are in `offerings`. The class-level view has no NodePool, so no
@@ -697,6 +711,7 @@ modified.
 | `scarpenter_catalog_offerings` | gauge | `vendor` | price rows in scope, before the driver's zone mapping |
 | `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | types a NodeClass's catalog leaves out at build time (`NoPrice`, `RegionNotAllowed`, `NoOffering`, the [GPU reasons](#gpu-types)), by [reason](#why-a-type-or-an-offering-is-not-offered); exported for the NodeClasses the catalog has built, only for reasons that occur |
 | `scarpenter_catalog_offerings_by_state` | gauge | `nodeclass`, `vendor`, `state` | offerings of the offered types: `available`, or the offering-level reason code (at most nine series); written by the offered types controller |
+| `scarpenter_offered_listing_bytes` | gauge | `nodeclass`, `vendor` | compressed bytes of the last offered listing ConfigMap written (cap 800 KiB) |
 | `scarpenter_instance_type_offering_available` | gauge | `nodeclass`, `instance_type`, `zone`, `capacity_type` | 1 available, 0 unavailable; only with `--metrics-offering-detail` (thousands of series per class and vendor) |
 
 ### Scale
