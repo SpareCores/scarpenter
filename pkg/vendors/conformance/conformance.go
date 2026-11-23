@@ -145,6 +145,11 @@ type Fixture struct {
 	// ordering and the placeholders) are skipped for a driver whose images kind
 	// declares no tags (the driver's own tests then cover ordering by name).
 	SeedImage SeedImageFunc
+	// NoSpot says that the vendor has no spot instances: a spot request must
+	// fail as Unsupported before any vendor call (ADR-017: never launched
+	// on-demand under a spot NodeClaim).
+	NoSpot bool
+
 	// NoArm64 says that the vendor has no Arm instances: the image cases
 	// that resolve an arm64 image are skipped, and ResolveImage of arm64 must be
 	// Unsupported.
@@ -297,6 +302,7 @@ func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 	sub("delete is idempotent", deleteIdempotent)
 	sub("powered-off instance", poweredOff)
 	sub("interruption poller", interruptionPoller)
+	sub("no spot", noSpot)
 	sub("billing start", billingStart)
 	sub("tag round trip", tagRoundTrip)
 	sub("user-data limit", userDataLimit)
@@ -919,5 +925,19 @@ func zoneChecker(t *testing.T, e *env) {
 		if !names[zone] || reason == "" {
 			t.Errorf("a gap %q: %q is not a zone of %s with a reason", zone, reason, e.region)
 		}
+	}
+}
+
+// noSpot checks that a vendor without spot refuses a spot request as
+// Unsupported.
+func noSpot(t *testing.T, e *env) {
+	if !e.fx.NoSpot {
+		t.Skip("the vendor has spot instances")
+	}
+	req := e.request(t)
+	req.CapacityType = vendors.CapacitySpot
+	_, err := e.d.CreateInstance(t.Context(), req)
+	if got := vendors.ClassOf(err); got != vendors.Unsupported {
+		t.Fatalf("CreateInstance(%s) = %v, want class %s", req, err, vendors.Unsupported)
 	}
 }

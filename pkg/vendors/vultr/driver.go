@@ -197,6 +197,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	if err := d.ready(); err != nil {
 		return nil, err
 	}
+	if req.CapacityType == vendors.CapacitySpot {
+		return nil, vendors.NoSpot(Vendor)
+	}
 	lo, err := launchOptions(req)
 	if err != nil {
 		return nil, err
