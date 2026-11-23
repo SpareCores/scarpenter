@@ -62,6 +62,7 @@ jq -n --arg sub "${sub}" --arg region "${region}" --arg group "${group}" --argjs
          "Microsoft.Compute/virtualMachines/read",
          "Microsoft.Compute/virtualMachines/write",
          "Microsoft.Compute/virtualMachines/delete",
+         "Microsoft.Compute/virtualMachines/simulateEviction/action",
          "Microsoft.Compute/virtualMachines/instanceView/read",
          "Microsoft.Compute/virtualMachines/retrieveBootDiagnosticsData/action",
          "Microsoft.Compute/disks/read",

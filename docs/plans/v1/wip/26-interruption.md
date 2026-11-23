@@ -311,6 +311,14 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    the `Interrupted` condition, the Pod's SIGTERM before the deadline, the instance gone and the metric; it does not assert the replacement,
    which the 10-minute unavailability of the one pool type may delay. Size: a GCP spot node's worst case is 13.0 KiB of user-data (limit 256 KB).
 7. **Azure** check script (opt-in at boot, VM name filter), opt-in L5 scenario with Simulate Eviction (S4).
+   **Done** (unverified until spike S4, which is the owner's). `azure.Driver.InterruptionNotices` (`NoticeWindow` 30 s to 2 min, 1 s interval): the
+   check asks Scheduled Events `2020-07-01` with `Metadata: true`, takes the VM's name once from `instance/compute/name` into `/run/sc-vm` (the Node's name is the
+   NodeClaim's, not the VM's; the agent runs the check in a command substitution, so a file, not a variable), matches a `Preempt` event that lists it in `Resources` with `sed`, `tr` and `grep` (no `jq`; two greps, so the key order does not matter; pretty-printed and compact
+   JSON; the first of several events gives the deadline), and converts `NotBefore` (RFC 1123) with `date -u -d`; the first call is the opt-in and an unanswered call is a transient error; the event is not
+   acknowledged. L1 tests run it with `sh` against a local fixture (compact, pretty-printed, other VM, other event type, no deadline, 404, 5xx, no service).
+   The agent script is 1.5 KiB (held by a test) and the Azure Spot worst case is 13 061 bytes of user-data (direct; 12 709 tailscale) against Azure's 64 KiB custom
+   data limit and the driver's 16 KiB budget. The manual L5 scenario `interruption` (`manual_scenarios`; waits 5 minutes after the first answer, as events may start only within 5 minutes of the opt-in; the preflight refuses it together with `arm64`; `az vm simulate-eviction`; the CI role gets
+   `simulateEviction/action`). The agent on Azure Container Linux (confidential sizes) is argued from the same paths and unit names, not run.
 8. **Alibaba** check script with the token, `GoneReason`, S5, opt-in L5 scenario if it can be triggered.
    **Done** (unverified until S5, the owner's spike, or a real reclaim). `alicloud.Driver.InterruptionNotices`: a 5 s check that takes a metadata token
    (`PUT /latest/api/token`) and reads `/latest/meta-data/instance/spot/termination-time` (404 no notice, 200 the UTC time, a minute-precision time
@@ -348,7 +356,7 @@ per instance type, `terminationGracePeriodSeconds` against each vendor's notice)
   `gcloud compute instances simulate-maintenance-event` on a Spot VM triggers a preemption with `preempted=TRUE`;
   the zone operation timing.
 - **S4 Azure**: Simulate Eviction (`az vm simulate-eviction`) produces a `Preempt` Scheduled Event with 30 s;
-  first-call latency on Flatcar.
+  first-call latency on Flatcar; whether the opt-in requires the first request to be held open longer than the check's `curl -m3`.
 - **S5 Alibaba**: the notice length (5 min) and whether `SpotDuration: 0` changes it; any way to simulate;
   `OperationLocks` timing.
 - **S6**: Hetzner, Vultr, OVH have no spot in their own docs; UpCloud GPU spot API field.

@@ -1,0 +1,33 @@
+# The workload of the manual interruption scenario: a one-replica Deployment pinned to the
+# Spot pool that prints a line with the time (seconds since the epoch) when it gets SIGTERM.
+# The grace period is the one a benchmark would set (about 20 s for a 30 s notice).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-intr
+  labels: {app: e2e-intr, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-intr}
+  template:
+    metadata:
+      labels: {app: e2e-intr, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 20
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-spot
+        node.kubernetes.io/instance-type: ${E2E_TYPE_SPOT}
+        karpenter.sh/capacity-type: spot
+      containers:
+        - name: probe
+          image: public.ecr.aws/docker/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              trap 'echo "sigterm $(date +%s)"; exit 0' TERM
+              echo scarpenter-e2e-up
+              while :; do sleep 1; done
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
