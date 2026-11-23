@@ -1,4 +1,4 @@
-# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/16-gcp.md section 9): the
+# The NodeClass of the amd64 scenarios (docs/plans/v1/done/16-gcp.md section 9): the
 # tailscale template with pinned versions, a small pd-balanced root disk, a storage
 # profile with a small Hyperdisk Balanced data volume, the placement profile that puts a
 # database and its client into one compact (collocated) resource policy, and a benchmark

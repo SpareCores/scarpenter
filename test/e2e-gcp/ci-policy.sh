@@ -7,7 +7,7 @@
 #   test/e2e-gcp/ci-policy.sh bindings <project id> <principal> [region]
 #                                                            the gcloud commands
 #
-# The permissions are the driver's (docs/plans/v1/wip/16-gcp.md section 8: instances, disks, images,
+# The permissions are the driver's (docs/plans/v1/done/16-gcp.md section 8: instances, disks, images,
 # subnetworks, networks, firewall rules, resource policies, the reads and the operations)
 # plus what the lane's scenarios and diagnostics need beyond it. No predefined role: the
 # instance admin role is wider (all-disk powers, IAM-adjacent permissions). Three roles,

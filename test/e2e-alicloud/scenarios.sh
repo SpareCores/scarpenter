@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2329  # the scenario and start functions are called by name from the runner
 # L5 of Alibaba Cloud: the scenarios, run against the cluster that bootstrap.sh and install.sh
-# built (docs/plans/v1/wip/21-alicloud.md section 9; docs/how-to-guides/testing.md#the-l5-lane
+# built (docs/plans/v1/done/21-alicloud.md section 9; docs/how-to-guides/testing.md#the-l5-lane
 # lists what each proves and how to read a failure). The shape is that of the AWS lane's
 # scenarios.sh.
 #

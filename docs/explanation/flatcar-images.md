@@ -164,7 +164,7 @@ hash; the pinned version is.
 | Created by | the images repository (GitHub Actions, keyless identity into the project) |
 | Pinned version | name `flatcar-<channel>-<major>-<minor>-<patch>-arm64` and the labels `flatcar-channel`, `flatcar-version` (dots as dashes: the label charset), `built-by` |
 | Architectures | arm64 |
-| Notes | Flatcar has no GCE arm64 image and no `oem-gce` sysext for arm64 (no guest agent, no OS Login); the build is unproven until the spike of [plan 16](../plans/v1/wip/16-gcp.md) |
+| Notes | Flatcar has no GCE arm64 image and no `oem-gce` sysext for arm64 (no guest agent, no OS Login); the build is unproven until the spike of [plan 16](../plans/v1/done/16-gcp.md) |
 | Later | when Flatcar ships a GCE arm64 image it appears in `kinvolk-public` and arm64 moves to rung 1 |
 
 ### hcloud

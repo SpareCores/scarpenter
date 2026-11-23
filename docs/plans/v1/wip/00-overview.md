@@ -5,7 +5,7 @@ builds on. It fixes what v1 does and how the vendor-neutral core is built, so
 that vendor drivers can be added without touching it. AWS is the first
 driver; more vendors follow as later plans. Node settings and profiles,
 instance selection and vendor resources are designed in detail in
-[`00a-node-options.md`](00a-node-options.md) (accepted); this overview
+[`00a-node-options.md`](../done/00a-node-options.md) (accepted); this overview
 summarises them and 00a decides where it is shorter. Decisions are recorded as
 ADRs in [`docs/explanation/DECISIONS.md`](../../../explanation/DECISIONS.md);
 open questions and facts still to verify are in §15.
@@ -532,7 +532,7 @@ Cluster-scoped, `scarpenter.sparecores.com/v1alpha1`. One NodeClass holds the
 shared node definition and a typed block per vendor (ADR-014); NodePools pick
 vendors with a `scarpenter.sparecores.com/vendor` requirement (one NodePool per
 vendor recommended, for per-vendor limits and budgets). Detailed design and
-the meaning of every option: [00a](00a-node-options.md) §4–§9.
+the meaning of every option: [00a](../done/00a-node-options.md) §4–§9.
 
 ```yaml
 apiVersion: scarpenter.sparecores.com/v1alpha1

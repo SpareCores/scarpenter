@@ -706,9 +706,9 @@ workflows and scripts; the lane's non-UpCloud parts run in `make
 test-e2e-upcloud-dryrun`. The coordinator runs the spikes before the driver starts
 and the first live L5 run after it; report the expected cost per run.
 
-## Outcome (in progress, 2026-11-20)
+## Outcome (done, 2026-11-23)
 
-Implemented and reviewed on main (commits `41c20d6..57ae007` over `pkg/vendors/upcloud`, the API block, the chart wiring, the L5 lane `test/e2e-upcloud` and its sweeper, and the reference docs). The L5 **smoke is green** (preflight, `amd64`, `scalezero`; GitHub run 44637995771, `fi-hel1`, `STARTER-1xCPU-1GB` on the Standard template), dispatched from a branch that listed `upcloud` in `test/e2e-vendors.txt`; on main the line stays absent. What the first runs changed:
+Implemented and reviewed on main (commits `41c20d6..57ae007` over `pkg/vendors/upcloud`, the API block, the chart wiring, the L5 lane `test/e2e-upcloud` and its sweeper, and the reference docs). The L5 **smoke is green** (preflight, `amd64`, `scalezero`; GitHub run 44637995771, `fi-hel1`, `STARTER-1xCPU-1GB` on the Standard template), dispatched from a branch that listed `upcloud` in `test/e2e-vendors.txt`; on main the line stays absent. Live: nodes launched by this driver have run k8s-inspector benchmark pods on the frankenscube cluster since 2026-11-21 (first completed run `r20261121t0152-f2b3` on `STARTER-2xCPU-4GB`; results published in sc-inspector-data), which counts as the green live run. The full L5 lane has not run. What the first runs changed:
 
 - The driver lists the private storages and keeps the templates (`/storage/private/template` is a 404 live).
 - The driver waits for the server to leave `maintenance` before the firewall write (409 `SERVER_STATE_ILLEGAL` while the disk clones; a Standard clone takes minutes), up to `StartTimeout` (10 minutes); a timed-out wait keeps the server for the retry by its key or the garbage collector. The fake refuses the write in `maintenance` too.

@@ -3,8 +3,8 @@
 Depends on: nothing in SCarpenter's code. The one shared piece is the Spare Cores GCP
 project, which Spare Cores creates as an operator, outside SCarpenter's code (a documented
 requirement: a project, a bucket and a keyless identity for the workflow). Needed
-by: GCP arm64 ([16](16-gcp.md)), UpCloud ([19](19-upcloud.md)), Vultr
-([20](20-vultr.md)) and Alibaba ([21](21-alicloud.md)): they come after it. Read
+by: GCP arm64 ([16](../done/16-gcp.md)), UpCloud ([19](../done/19-upcloud.md)), Vultr
+([20](../done/20-vultr.md)) and Alibaba ([21](../done/21-alicloud.md)): they come after it. Read
 `docs/plans/v1/CONVENTIONS.md` first; its rules 1, 3 to 6 and 8 apply to the new
 repository too (no commits by the executing model, no secrets, no live cloud calls
 except where a step says the coordinator runs it). Spec: ADR-021,

@@ -1,4 +1,4 @@
-# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/18-ovh.md, "L5 lane"): the
+# The NodeClass of the amd64 scenarios (docs/plans/v1/done/18-ovh.md, "L5 lane"): the
 # tailscale template with pinned versions, the flavor's own disk as the root, a storage
 # profile with a small high-speed data volume, a storage profile that asks for local
 # storage (unsupported on OVH, for the negative scenario), the placement profile that

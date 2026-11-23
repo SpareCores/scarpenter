@@ -2,7 +2,7 @@
 
 What the eight target vendors can do at instance-create time, and what the
 Spare Cores data already knows about it. This is the factual basis for the
-node-options design ([`../plans/v1/wip/00a-node-options.md`](../plans/v1/wip/00a-node-options.md)).
+node-options design ([`../plans/v1/done/00a-node-options.md`](../plans/v1/done/00a-node-options.md)).
 
 Researched 2026-11-05. Facts come from vendor API docs, the vendors' Go SDKs
 (`hcloud-go`, `upcloud-go-api`, `govultr`, `gophercloud`), the Karpenter
@@ -31,7 +31,7 @@ check them before a driver depends on them.
 What must exist in the account before an instance can be created, and what
 a usable default exists for. Every resource here can be pre-created by the
 user (e.g. with Pulumi or Terraform, in every region) and referenced, or created by
-SCarpenter on demand (design: [00a §9](../plans/v1/wip/00a-node-options.md#9-vendor-resources-bring-your-own-or-managed)).
+SCarpenter on demand (design: [00a §9](../plans/v1/done/00a-node-options.md#9-vendor-resources-bring-your-own-or-managed)).
 
 | Vendor | Required for every instance | Usual default | Needed for options |
 |---|---|---|---|

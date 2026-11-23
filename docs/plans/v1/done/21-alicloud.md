@@ -733,16 +733,16 @@ written and statically validated (`actionlint`, `shellcheck`, the dry-run target
 Step 0's results are a precondition; the plan's code starts only after items 1 to 5 are
 recorded.
 
-## Outcome
+## Outcome (done, 2026-11-23)
 
 The driver, the `alicloud` API block, the fake, the conformance wiring, the sweeper, the L5 lane and the canary are on
 the branch; the docs are `docs/reference/alicloud-driver.md`, the RAM policy, the credentials how-to and the chart values.
 Core gaps found (not changed): the core does not consume `InsufficientCapacity` from `GetInstance` (an instance ECS releases right after
 accepting the launch is only visible there); `BillingRule(region, family)` cannot express a minimum that depends on the vCPU count; a
-controller flag for the home region would need `pkg/operator/options`. Step 0 and the live L5 run are still to do.
+controller flag for the home region would need `pkg/operator/options`.
 
-## Outcome addendum (in progress, 2026-11-11)
+### Status (2026-11-23)
 
-Implemented and reviewed on main (commits `2b62955..afe6ab6` over `pkg/vendors/alicloud`, the API block, the chart wiring, the L5 lane `test/e2e-alicloud` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `alicloud` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+Implemented and reviewed on main (commits `2b62955..afe6ab6` over `pkg/vendors/alicloud`, the API block, the chart wiring, the L5 lane `test/e2e-alicloud` and its sweeper, and the reference docs). Live: nodes launched by this driver have run k8s-inspector benchmark pods on the frankenscube cluster since 2026-11-21 (first completed run `r20261121t1758-7180` on `ecs.g7.large`; results published in sc-inspector-data), which counts as the green live run. The L5 lane itself has not run green and `alicloud` is not in `test/e2e-vendors.txt`: its CI cost guards are still unverified.
 
-What L5 must still verify, from the `## 10. Step 0: the spike` and `docs/reference/alicloud-driver.md`: step 0 and the items marked unverified: the OEM image import, quota source, `ClientToken` behaviour, the `SystemFailure.Delete` release path, NVMe serials, RAM policy denies, and the billing minimum. The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.
+Open (live verification the benchmark runs do not cover), from the `## 10. Step 0: the spike` and `docs/reference/alicloud-driver.md`: step 0 and the items marked unverified: the OEM image import, quota source, `ClientToken` behaviour, the `SystemFailure.Delete` release path, NVMe serials, RAM policy denies, and the billing minimum.

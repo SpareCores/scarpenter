@@ -561,8 +561,8 @@ option otherwise):
 - **Not built**: the quota rows (no `QuotaReporter`), `ImageImporter`, block storage `data` profiles, the
   per-run VPC.
 
-## Outcome (in progress, 2026-11-11)
+## Outcome (done, 2026-11-23)
 
-Implemented and reviewed on main (commits `642dbcd..be213d0` over `pkg/vendors/vultr`, the API block, the chart wiring, the L5 lane `test/e2e-vultr` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `vultr` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+Implemented and reviewed on main (commits `642dbcd..be213d0` over `pkg/vendors/vultr`, the API block, the chart wiring, the L5 lane `test/e2e-vultr` and its sweeper, and the reference docs). Live: nodes launched by this driver have run k8s-inspector benchmark pods on the frankenscube cluster since 2026-11-21 (first completed run `r20261121t1335-b88d` on `vc2-2c-4gb`; results published in sc-inspector-data), which counts as the green live run. The L5 lane itself has not run green and `vultr` is not in `test/e2e-vendors.txt`: its CI cost guards are still unverified.
 
-What L5 must still verify, from the `## 11. Spikes` and `docs/reference/vultr-driver.md`: the spikes S0 to S7: snapshot import from the raw URL, availability and error text classes, VPC limits, firewall group behaviour, `date_created` as billing start, the billing rule, and the account limit that must be set before the lane is added to `test/e2e-vendors.txt`. The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.
+Open (live verification the benchmark runs do not cover), from the `## 11. Spikes` and `docs/reference/vultr-driver.md`: the spikes S0 to S7: snapshot import from the raw URL, availability and error text classes, VPC limits, firewall group behaviour, `date_created` as billing start, the billing rule, and the account limit that must be set before the lane is added to `test/e2e-vendors.txt`.

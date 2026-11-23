@@ -652,8 +652,8 @@ IPs, load balancers, snapshots as node roots, an `ImageImporter`.
 - Server and project limits of a new project, and whether dedicated-vCPU types (`ccx`) have
   a separate limit.
 
-## Outcome (in progress, 2026-11-11)
+## Outcome (done, 2026-11-23)
 
-Implemented and reviewed on main (commits `bffff38..22dccd3` over `pkg/vendors/hcloud`, the API block, the chart wiring, the L5 lane `test/e2e-hcloud` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `hcloud` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+Implemented and reviewed on main (commits `bffff38..22dccd3` over `pkg/vendors/hcloud`, the API block, the chart wiring, the L5 lane `test/e2e-hcloud` and its sweeper, and the reference docs; the Flatcar snapshot is built by the driver since `1d167c4`, ADR-030). The L5 lane ran green live (GitHub runs 45023225516 and 45077236410, 2026-11-22) and `hcloud` is in `test/e2e-vendors.txt` (`d2f53b2`).
 
-What L5 must still verify, from the `## Unverified facts` list and `docs/reference/hcloud-driver.md`: snapshot price and the upload server cost, whether Primary IPs created with a server auto-delete, the `placement_error`/`resource_unavailable`/`resource_limit_exceeded`/`no_subnet_available` shapes, the empty-firewall inbound drop, and the billing check that gates retention (`billingVerified`). The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.
+Open (live verification the green lane does not cover), from the `## Unverified facts` list and `docs/reference/hcloud-driver.md`: snapshot price and the upload server cost, whether Primary IPs created with a server auto-delete, the `placement_error`/`resource_unavailable`/`resource_limit_exceeded`/`no_subnet_available` shapes, the empty-firewall inbound drop, and the billing check that gates retention (`billingVerified` in `pkg/vendors/hcloud/driver.go` is still `false`).

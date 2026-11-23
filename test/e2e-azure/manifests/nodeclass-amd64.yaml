@@ -1,4 +1,4 @@
-# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/17-azure.md section 9): the
+# The NodeClass of the amd64 scenarios (docs/plans/v1/done/17-azure.md section 9): the
 # tailscale template with pinned versions, a small Premium root disk, a storage profile
 # with a small Premium data disk (device /dev/disk/azure/scsi1/lun0), the placement
 # profile that puts a database and its client into one proximity placement group, and a

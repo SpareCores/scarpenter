@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2329  # the scenario and start functions are called by name from the runner
 # L5 for Azure: the scenarios, run against the cluster that bootstrap.sh and install.sh built
-# (docs/plans/v1/wip/17-azure.md section 9; docs/how-to-guides/testing.md#the-l5-lane lists
+# (docs/plans/v1/done/17-azure.md section 9; docs/how-to-guides/testing.md#the-l5-lane lists
 # what each proves and how to read a failure). Ported from test/e2e-aws/scenarios.sh;
 # NOTHING HERE HAS RUN AGAINST A REAL SUBSCRIPTION: every az query, JSON path and
 # expected value is to be confirmed by the first live run (plan 17, live verification list).

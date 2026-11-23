@@ -6,7 +6,7 @@ what happens when the value is unknown, how metrics and selection profiles are
 evaluated, how often it refreshes and what happens when Keeper is down. The
 names of the labels are listed in [Labels and annotations](labels.md); the
 design is in the [overview](../plans/v1/wip/00-overview.md#5-catalog-keeper-data-to-instance-types-and-offerings)
-and [00a](../plans/v1/wip/00a-node-options.md#7-instance-selection). The code is
+and [00a](../plans/v1/done/00a-node-options.md#7-instance-selection). The code is
 `pkg/catalog` and `pkg/catalog/labels`.
 
 ## Table of Contents
@@ -482,7 +482,7 @@ ConfigMaps in a Role of the release namespace (optionally with `resourceNames`) 
 
 Every key is defined on every instance type or, for the offering-level keys, on every offering, with `DoesNotExist` where the value
 is unknown or nothing applies: an undefined key would match every type
-([00a section 2](../plans/v1/wip/00a-node-options.md#2-what-karpenter-allows)).
+([00a section 2](../plans/v1/done/00a-node-options.md#2-what-karpenter-allows)).
 Labels are stamped on the NodeClaim and copied to the Node by core.
 
 ### Unknown values
@@ -757,7 +757,7 @@ production: 138,970 price rows for AWS in the snapshot.
 
 ## References
 
-- [Overview section 5](../plans/v1/wip/00-overview.md#5-catalog-keeper-data-to-instance-types-and-offerings) and [00a sections 6.4 and 7](../plans/v1/wip/00a-node-options.md#7-instance-selection)
+- [Overview section 5](../plans/v1/wip/00-overview.md#5-catalog-keeper-data-to-instance-types-and-offerings) and [00a sections 6.4 and 7](../plans/v1/done/00a-node-options.md#7-instance-selection)
 - [ADR-008, ADR-009 and ADR-019](../explanation/DECISIONS.md)
 - [Labels and annotations](labels.md), [Controller reference](controller.md)
 - [sc-keeper-go](https://github.com/SpareCores/sc-keeper-go) and the

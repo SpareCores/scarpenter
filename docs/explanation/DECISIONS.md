@@ -223,7 +223,7 @@ vendor; NodePools select vendors with a `scarpenter.sparecores.com/vendor`
 requirement (one NodePool per vendor recommended, for per-vendor limits and
 budgets). Drift hashes and readiness are per vendor. Replaces "one NodeClass
 serves exactly one vendor" in the overview. Details:
-[`00a-node-options.md`](../plans/v1/wip/00a-node-options.md) §4.
+[`00a-node-options.md`](../plans/v1/done/00a-node-options.md) §4.
 
 Why: one place for the shared node definition (OS, Kubernetes, bootstrap,
 storage and network defaults, profiles, policy) across eight vendors; no
@@ -828,7 +828,7 @@ is reached); per-region and per-family Keeper data replacing the driver override
 Consequences: a controller with node and NodeClaim write access and a pod cache; the `spec.billing` API field and
 CEL; `Instance.BillingStart` and `BillingRule` in the driver contract; the vendor table in the catalog, so a
 Keeper client method and, with plan 13, the snapshot; one conformance scenario set. **First vendor: Hetzner** (decided 2026-11-10), switched on when
-[plan 15](../plans/v1/wip/15-hcloud.md)'s live lane has verified its billing start and that its periods count from it; Alibaba becomes a
+[plan 15](../plans/v1/done/15-hcloud.md)'s live lane has verified its billing start and that its periods count from it; Alibaba becomes a
 minimum-only candidate, still gated on verified data; Azure bills per full minute with no documented minimum and is not one. Implemented by
 [plan 23](../plans/v1/done/23-billing-retention.md); the user-facing description is
 [Reuse nodes within the billing period](../how-to-guides/reuse-nodes-within-billing-period.md).

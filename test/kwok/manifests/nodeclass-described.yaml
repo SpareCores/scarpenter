@@ -1,6 +1,6 @@
 # The NodeClass of scenario S13 (described, not named). It exists before the
 # controller starts: the label keys of a NodeClass's metrics are registered with
-# Karpenter core at start-up (docs/plans/v1/wip/00a-node-options.md section 7.2).
+# Karpenter core at start-up (docs/plans/v1/done/00a-node-options.md section 7.2).
 # Three AWS regions, the ones the committed snapshot has selection profiles for.
 apiVersion: scarpenter.sparecores.com/v1alpha1
 kind: SCNodeClass

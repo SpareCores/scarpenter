@@ -4,7 +4,7 @@ What a node depends on at the vendor besides the instance (resource groups,
 networks, subnets, security groups and firewalls, placement groups, separate
 volumes), and how SCarpenter gets them: brought by the user (`use`) or managed
 by SCarpenter (`create`) with an explicit lifecycle. Design: ADR-018 and
-`docs/plans/v1/wip/00a-node-options.md` section 9. How `use` finds resources, for every
+`docs/plans/v1/done/00a-node-options.md` section 9. How `use` finds resources, for every
 kind and vendor: [Resource selectors](resource-selectors.md) (ADR-023). How to reference
 your own resources: [Bring your own vendor resources](../how-to-guides/bring-your-own-resources.md).
 

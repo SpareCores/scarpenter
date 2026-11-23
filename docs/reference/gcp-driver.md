@@ -6,7 +6,7 @@ garbage-collects the networks, firewall rules and placement policies it owns, an
 `regions.get`. Everything below is tested against the in-memory Compute API (`pkg/vendors/gcp/fake`)
 and the shared conformance suite; nothing has called Google yet. What is **unverified** (error codes,
 quota metrics, guest behaviour, the arm64 image) is listed at the end and is what the live L5 run
-confirms ([plan 16](../plans/v1/wip/16-gcp.md)).
+confirms ([plan 16](../plans/v1/done/16-gcp.md)).
 
 ## Table of Contents
 

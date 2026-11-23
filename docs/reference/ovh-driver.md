@@ -2,7 +2,7 @@
 
 The OVHcloud Public Cloud driver (`pkg/vendors/ovh`, vendor ID `ovh`, registered as `ovh`), built on the
 OpenStack APIs (Nova, Neutron, Glance, Cinder) through gophercloud v2. Plan:
-`docs/plans/v1/wip/18-ovh.md`. It implements the [driver contract](driver-contract.md) and passes the
+`docs/plans/v1/done/18-ovh.md`. It implements the [driver contract](driver-contract.md) and passes the
 shared conformance suite against an in-memory OpenStack cloud (`pkg/vendors/ovh/fake`). A first smoke run of the
 L5 lane passed against OVH on 2026-11-16 (one amd64 node in `GRA11`, then scale to zero); the full lane and most of
 the plan's spikes S1 to S8 are still open, and every fact that depends on them is under

@@ -672,8 +672,8 @@ Not in the table, also taken by default:
 - gophercloud v2.15.0: https://github.com/gophercloud/gophercloud/releases/tag/v2.15.0
 - Keeper (regions, zones, servers, prices): https://keeper.sparecores.net
 
-## Outcome (in progress, 2026-11-11)
+## Outcome (done, 2026-11-23)
 
-Implemented and reviewed on main (commits `9fe66a3..6243d64` over `pkg/vendors/ovh`, the API block, the chart wiring, the L5 lane `test/e2e-ovh` and its sweeper, and the reference docs). Status: review; live verification pending. Nothing has run against the live cloud: the L5 lane is statically validated only (`actionlint`, `shellcheck`, dry-run target), and `ovh` is deliberately not in `test/e2e-vendors.txt` until its CI cost guards are verified live.
+Implemented and reviewed on main (commits `9fe66a3..6243d64` over `pkg/vendors/ovh`, the API block, the chart wiring, the L5 lane `test/e2e-ovh` and its sweeper, and the reference docs). Live: nodes launched by this driver have run k8s-inspector benchmark pods on the frankenscube cluster since 2026-11-21 (first completed run `r20261121t0342-2b81` on `d2-4`; results published in sc-inspector-data), which counts as the green live run. The L5 lane itself has not run green and `ovh` is not in `test/e2e-vendors.txt`: its CI cost guards are still unverified.
 
-What L5 must still verify, from the `## Verified on paper, to be proven live (spikes)` and `docs/reference/ovh-driver.md`: every spike item of that section: OpenStack error and quota shapes, the region alias table against the live catalog, image creation on rung 3, networking, and billing. The plan moves to `done/` when a live run is green and the lane is added to `test/e2e-vendors.txt`.
+Open (live verification the benchmark runs do not cover), from the `## Verified on paper, to be proven live (spikes)` and `docs/reference/ovh-driver.md`: every spike item of that section: OpenStack error and quota shapes, the region alias table against the live catalog, image creation on rung 3, networking, and billing.

@@ -717,7 +717,7 @@ tests the planner of the manual run (vendors, mode, overrides) and of the releas
 
 #### The UpCloud lane
 
-`test/e2e-upcloud/` is the L5 lane of the UpCloud driver ([plan 19](../plans/v1/wip/19-upcloud.md)):
+`test/e2e-upcloud/` is the L5 lane of the UpCloud driver ([plan 19](../plans/v1/done/19-upcloud.md)):
 the same shape as the AWS lane (a k3s control plane on the runner, nodes joined over Tailscale,
 the scripts `bootstrap.sh`, `mint-authkey.sh`, `install.sh`, `scenarios.sh`, `diagnostics.sh`,
 `teardown.sh`), with the cloud calls made with `curl` and `jq` against the UpCloud API
