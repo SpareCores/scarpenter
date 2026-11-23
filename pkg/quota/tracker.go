@@ -727,14 +727,32 @@ func (t *Tracker) Reserve(vendor, region, apiReference, capacityType, owner stri
 }
 
 // Commit ties the reservation to the instance the launch created, so that the
-// refresh that counts the instance releases it. Nil-safe.
+// refresh that counts the instance releases it. A refresh that ran while the
+// launch call was in flight may have counted the instance already: the
+// reservation is then released at once, or the instance would count twice until
+// the next refresh. Nil-safe.
 func (t *Tracker) Commit(r *Reservation, ref vendors.InstanceRef) {
 	if r == nil {
 		return
 	}
 	t.mu.Lock()
 	r.ref = ref
+	changed := t.countedLocked(r.vendor, ref) && t.dropLocked(r)
 	t.mu.Unlock()
+	if changed {
+		t.bump()
+	}
+}
+
+// countedLocked reports whether the latest snapshot of any region of the vendor
+// counts the instance in its usage.
+func (t *Tracker) countedLocked(vendor string, ref vendors.InstanceRef) bool {
+	for k, st := range t.states {
+		if k.vendor == vendor && st.snap != nil && slices.Contains(st.snap.Counted, ref) {
+			return true
+		}
+	}
+	return false
 }
 
 // Reconcile ties the reservation of an attempted launch to the instance the
@@ -760,7 +778,7 @@ func (t *Tracker) Reconcile(
 			break
 		}
 	}
-	if !has {
+	if !has && !t.countedLocked(vendor, ref) {
 		if ns := t.needsLocked(vendor, region, apiReference, capacityType, now); len(ns) > 0 {
 			t.nextID++
 			r := &Reservation{id: t.nextID, vendor: vendor, region: region, owner: owner, createdAt: now, ref: ref}
