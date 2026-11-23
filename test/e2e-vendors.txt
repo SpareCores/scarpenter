@@ -1,6 +1,8 @@
-# The vendors that have a real-cloud lane (L5), one per line. Adding a vendor here
-# (after test/e2e-<vendor>/ exists) makes it a vendor of the manual L5 workflow, the nightly canary
-# and the release gate: docs/how-to-guides/testing-and-releasing.md#adding-a-vendor-lane
+# The vendors of the release gate (release.yml, RELEASE_E2E_MODE smoke or full) and the nightly
+# canary, one per line. The manual L5 workflow (e2e.yml) is not limited to them: it runs any
+# vendor that has a lane, a test/e2e-<vendor>/ directory, and `all` means every lane. Adding a
+# vendor here (after test/e2e-<vendor>/ exists) puts it in the release gate:
+# docs/how-to-guides/testing-and-releasing.md#adding-a-vendor-lane
 aws
 oci
 hcloud

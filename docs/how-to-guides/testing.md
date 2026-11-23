@@ -611,7 +611,7 @@ listed explicitly that cannot be reached is a failure (exit status 1).
 
 #### The Alibaba Cloud lane
 
-`test/e2e-alicloud/` is the lane of the vendor `alicloud`, **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified (below), so the workflows do not run it by themselves,
+`test/e2e-alicloud/` is the lane of the vendor `alicloud`, **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified (below), so the release gate and the canary do not run it (a manual run of `e2e.yml` can),
 a copy of the AWS lane's shape with Alibaba Cloud's calls: the control plane on the runner, the tailnet, the
 chart install and the scenarios' structure are the same; the cloud calls go through the Alibaba Cloud
 CLI `aliyun` (the byo scenario's VPC, vSwitch and security group, the instance, disk and network checks, the
@@ -708,8 +708,8 @@ the scripts `bootstrap.sh`, `mint-authkey.sh`, `install.sh`, `scenarios.sh`, `di
 (`lib.sh`: `up`, the label filters of the list calls). It is **not in `test/e2e-vendors.txt`** until
 the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified
 (the sub-account's limits and a spending alert, see [UpCloud](testing-and-releasing.md#upcloud)), so the
-workflows do not run it by themselves; `make test-e2e-upcloud-dryrun` checks it without a cloud. To run it
-before then, dispatch `e2e.yml` (vendor `upcloud`) on a branch that adds the line; its smoke has passed that way.
+release gate and canary do not run it (a manual run of `e2e.yml` can); `make test-e2e-upcloud-dryrun` checks it without a cloud. To run it
+before then, dispatch `e2e.yml` (vendor `upcloud`); its smoke has passed that way.
 Differences that matter:
 
 - **Credential.** UpCloud has no OIDC federation and no workload identity. The lane uses the API
@@ -789,7 +789,7 @@ Differences that matter:
 the runner and the shape of the scenarios are the AWS ones, the cloud calls are `curl` against
 the Vultr API with `VULTR_API_KEY` (passed to curl through a config on a pipe, never in an
 argument). It is not in `test/e2e-vendors.txt` until the account's limits are set (see
-[Vultr](testing-and-releasing.md#vultr)), so the workflows do not run it by themselves.
+[Vultr](testing-and-releasing.md#vultr)), so the release gate and the canary do not run it (a manual run of `e2e.yml` can).
 
 The plans the lane launches are `vc2-1c-1gb` (the exact-type scenarios) and `vhf-1c-1gb`
 (checked in stock by the preflight and the canary), and `vc2-1c-1gb`, `vc2-1c-2gb` and `vc2-2c-4gb`
@@ -894,7 +894,7 @@ driver; `test/canary` runs the Hetzner canary against it too and checks both rea
 ### The L5 lane of OVHcloud
 
 `test/e2e-ovh/` is the OVH lane (`vendor: ovh` of the same reusable workflow; plan 18), statically
-validated only until its first live run, and **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are in place (below), so the workflows do not run it by themselves: nodes on OVHcloud Public Cloud (Nova servers on the
+validated only until its first live run, and **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are in place (below), so the release gate and the canary do not run it (a manual run of `e2e.yml` can): nodes on OVHcloud Public Cloud (Nova servers on the
 public `Ext-Net` network) that join over Tailscale, in one region (`OVH_REGION`, a Keystone catalog
 name, default `GRA11`). The scenarios are `amd64` (an exact flavor, on-demand: node labels, server
 metadata and tags, the managed security group and its marker, config drive, `kubectl logs` and `exec`,
@@ -1240,7 +1240,7 @@ The real-cloud lane is the exception that costs money, so it has its own rules
 ([Testing and releasing](testing-and-releasing.md)): no automatic trigger starts it, `e2e.yml` is
 run by hand (on a branch, a pull request's head or a commit; a fork's pull request only with
 `allow_fork`), and the job that holds the cloud role waits for the required reviewers of the
-environment `e2e`. A pull request's `e2e-result` check is an always-green placeholder in `ci.yml`.
+environment `e2e`.
 The nightly canary (`e2e-canary.yml`) is free and read-only.
 
 ## Releases
@@ -1277,7 +1277,7 @@ check them before a release):
   dry run from a branch therefore stops at the publishing jobs.
 - A tag ruleset on `v*`: only maintainers create, move or delete release tags.
 - A ruleset on `main`: changes through pull requests, the checks `gates`,
-  `kwok (scenarios)` and `kwok (retention)` required (`e2e-result` is a placeholder job of `ci.yml`: remove it from the list), no force push or
+  `kwok (scenarios)` and `kwok (retention)` required, no force push or
   deletion; administrators may bypass only when merging a pull request. A workflow
   that commits (`refresh-sc-snapshot.yml`) is run on a branch and merged by a PR.
 - The environments `e2e` (required reviewers, no administrator bypass),
