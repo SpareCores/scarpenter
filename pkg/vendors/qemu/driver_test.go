@@ -388,7 +388,7 @@ func TestCreateRefusesWhatTheDriverCannotLaunch(t *testing.T) {
 		hide   bool
 		class  vendors.Class
 	}{
-		"spot":         {func(r *vendors.CreateRequest) { r.CapacityType = vendors.CapacitySpot }, false, vendors.Unsupported},
+		"reserved":     {func(r *vendors.CreateRequest) { r.CapacityType = "reserved" }, false, vendors.Unsupported},
 		"unknown type": {func(r *vendors.CreateRequest) { r.InstanceType = "huge" }, false, vendors.Fatal},
 		"other region": {func(r *vendors.CreateRequest) { r.Region = "elsewhere" }, false, vendors.Fatal},
 		"other zone":   {func(r *vendors.CreateRequest) { r.Zone = "local-b" }, false, vendors.Fatal},
@@ -498,9 +498,9 @@ func TestTheEmbeddedCatalogIsAStaticCatalogWithLocalDisksOnOneType(t *testing.T)
 		}
 	}
 	want := map[string][3]float64{"small": {2, 2048, 0}, "medium": {2, 4096, 0}, "local": {2, 4096, 8},
-		"gpu": {2, 4096, 0}, "gpu-nvswitch": {2, 4096, 0}}
+		"gpu": {2, 4096, 0}, "gpu-nvswitch": {2, 4096, 0}, "spot": {2, 2048, 0}}
 	// The two GPU types (gpu, gpu-nvswitch) have no disks and 4 GiB, like medium.
-	if len(got) != 5 || got["small"] != want["small"] || got["medium"] != want["medium"] || got["local"] != want["local"] ||
+	if len(got) != 6 || got["spot"] != want["spot"] || got["small"] != want["small"] || got["medium"] != want["medium"] || got["local"] != want["local"] ||
 		got["gpu"] != want["gpu"] || got["gpu-nvswitch"] != want["gpu-nvswitch"] {
 		t.Errorf("types %v, want %v", got, want)
 	}
@@ -592,5 +592,37 @@ func TestLaunchDelayWaitsAfterTheVMStartedUntilTheContextEnds(t *testing.T) {
 	}
 	if len(h.alive) != 1 {
 		t.Errorf("%d VMs run", len(h.alive))
+	}
+}
+
+func TestInterruptionNoticesNeedTheNoticeURL(t *testing.T) {
+	d := New(Options{})
+	if c := d.InterruptionNotices(); c.Script != "" {
+		t.Errorf("a driver without --qemu-notice-url has a check: %q", c.Script)
+	}
+	if _, ok, err := vendors.InterruptionAgent(d, false); ok || err != nil {
+		t.Errorf("InterruptionAgent without the URL = %v, %v; want no agent", ok, err)
+	}
+	d = New(Options{NoticeURL: "http://10.77.0.1:8098/notice"})
+	c := d.InterruptionNotices()
+	if !strings.Contains(c.Script, `http://10.77.0.1:8098/notice/"$NODE_NAME"`) {
+		t.Errorf("the check does not ask the notice server: %q", c.Script)
+	}
+	if _, ok, err := vendors.InterruptionAgent(d, false); !ok || err != nil {
+		t.Errorf("InterruptionAgent = %v, %v; want the agent", ok, err)
+	}
+	if w := vendors.NoticeWindowOf(d); w != c.NoticeWindow {
+		t.Errorf("NoticeWindowOf = %+v, want the check's %+v", w, c.NoticeWindow)
+	}
+}
+
+func TestNoticeURLIsAPlainURL(t *testing.T) {
+	for url, ok := range map[string]bool{
+		"http://10.77.0.1:8098/notice": true, "https://example.com": true,
+		"http://x/$(reboot)": false, "http://x/a b": false, "ftp://x": false, `http://x/"`: false,
+	} {
+		if got := noticeURL.MatchString(url); got != ok {
+			t.Errorf("%q accepted = %v, want %v", url, got, ok)
+		}
 	}
 }

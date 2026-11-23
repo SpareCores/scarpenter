@@ -160,6 +160,14 @@ func createNodePool(t *testing.T, name, class string, reqs ...karpv1.NodeSelecto
 func createNodePoolWith(t *testing.T, name, class string, edit func(*karpv1.NodePool), reqs ...karpv1.NodeSelectorRequirementWithMinValues) *karpv1.NodePool {
 	t.Helper()
 	all := append([]karpv1.NodeSelectorRequirementWithMinValues{req(v1alpha1.LabelVendor, "qemu")}, reqs...)
+	// Pools are on-demand unless they say otherwise, so that nothing but the
+	// interruption scenarios launches the spot type qemu.spot (by price or when it
+	// consolidates).
+	if !slices.ContainsFunc(reqs, func(r karpv1.NodeSelectorRequirementWithMinValues) bool {
+		return r.Key == karpv1.CapacityTypeLabelKey
+	}) {
+		all = append(all, req(karpv1.CapacityTypeLabelKey, karpv1.CapacityTypeOnDemand))
+	}
 	np := &karpv1.NodePool{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	np.Spec.Template.Spec.NodeClassRef = &karpv1.NodeClassReference{
 		Group: v1alpha1.Group, Kind: "SCNodeClass", Name: class,

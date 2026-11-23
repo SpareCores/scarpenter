@@ -81,6 +81,12 @@ var unitName = regexp.MustCompile(`^[A-Za-z0-9:_.@-]+\.service$`)
 //     before they run;
 //   - kubelet requires the unit, so a node whose rules failed to load never joins.
 func RestrictMetadata(d Driver) (BootFragment, bool, error) {
+	return restrictWith(d, agentParts{})
+}
+
+// restrictWith is RestrictMetadata with more files and units in the same
+// fragment (the interruption agent): one part of the user-data instead of two.
+func restrictWith(d Driver, extra agentParts) (BootFragment, bool, error) {
 	im, ok := d.(InstanceMetadata)
 	if !ok {
 		return BootFragment{}, false, nil
@@ -114,8 +120,10 @@ func RestrictMetadata(d Driver) (BootFragment, bool, error) {
 	writeRules(&b, "/etc/scarpenter/metadata-iptables.rules", v4, "/32")
 	writeRules(&b, "/etc/scarpenter/metadata-ip6tables.rules", v6, "/128")
 	b.WriteString(firewallScript)
+	b.WriteString(extra.files)
 	b.WriteString("systemd:\n  units:\n")
 	b.WriteString(sliceAndFirewallUnits)
+	b.WriteString(extra.units)
 	for _, u := range units {
 		fmt.Fprintf(&b, "    - name: %s\n      dropins:\n        - name: 10-scarpenter-metadata.conf\n"+
 			"          contents: |\n            [Unit]\n            Wants=%s\n            After=%s\n"+

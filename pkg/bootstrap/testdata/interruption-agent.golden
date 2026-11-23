@@ -1,0 +1,59 @@
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: /opt/scarpenter/bin/scarpenter-interruption-agent
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/sh
+          scarpenter_check() {
+            t=$(curl -sf --max-time 3 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token) || return 2
+            s=$(curl -s --max-time 3 -w '%{http_code}' -H "X-aws-ec2-metadata-token: $t" http://169.254.169.254/latest/meta-data/spot/instance-action) || return 2
+            case $s in *404) return 1 ;; *200) ;; *) return 2 ;; esac
+            echo "SpotInterrupted $(echo "$s" | sed -n 's/.*"time": *"\([^"]*\)".*/\1/p')"
+          }
+          c=/var/lib/kubelet/pki/kubelet-client-current.pem
+          n=$API_SERVER/api/v1/nodes/$NODE_NAME
+          a=scarpenter.sparecores.com
+          k() { curl -fs --max-time 10 --cacert /etc/kubernetes/pki/ca.crt --cert $c "$@"; }
+          while :; do
+           o=$(scarpenter_check)
+           case $? in
+           0)
+            set -f
+            set -- $o
+            r=$(printf %s "${1:-SpotInterrupted}" | tr -cd A-Za-z0-9)
+            d=$(printf %s "$2" | tr -cd 0-9A-Za-z:.+-)
+            s=1
+            until [ -r $c ] && { k "$n" | grep -q $a/interruption-deadline ||
+             k -o /dev/null -X PATCH -H 'Content-Type: application/merge-patch+json' "$n" -d \
+             "{\"metadata\":{\"annotations\":{\"$a/interruption\":\"$r\",\
+          \"$a/interruption-deadline\":\"$d\",\"$a/interruption-source\":\"instance-metadata\"}}}"; }; do
+             [ -r $c ] && [ -z "$e" ] && echo "annotating the Node failed, retrying" && e=1
+             sleep $s
+             [ $s -lt 8 ] && s=$((s*2))
+            done
+            echo "$r: node annotated, deadline $d"
+            exec sleep infinity ;;
+           1) f=; sleep 1 ;;
+           *) [ -n "$f" ] || echo "the notice check failed"; f=1; sleep 5 ;;
+           esac
+          done
+systemd:
+  units:
+    - name: scarpenter-interruption.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Spot interruption notice
+        Wants=network-online.target
+        After=network-online.target
+        [Service]
+        Slice=scarpenter-metadata.slice
+        ExecStart=/opt/scarpenter/bin/scarpenter-interruption-agent
+        Environment=NODE_NAME={{ .NodeName }} API_SERVER={{ .APIServerEndpoint }}
+        Restart=always
+        RestartSec=1
+        [Install]
+        WantedBy=multi-user.target

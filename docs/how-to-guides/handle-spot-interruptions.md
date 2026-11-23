@@ -7,7 +7,8 @@ their SIGTERM with the time the vendor still gives, the reason is recorded on th
 
 Status: **OCI only so far** (preemptible instances, found by polling the OCI API): the reason is recorded and the node is cleaned up fast,
 but there is no graceful drain window yet, because the poll sees the preemption only once the instance is stopping or terminating. The other
-spot vendors follow in the plan's order (AWS, GCP, Azure, Alibaba). The OCI path follows the vendor's documentation and is unverified until
+spot vendors follow in the plan's order (AWS, GCP, Azure, Alibaba): each adds the check script of the [node agent](../reference/node-bootstrap.md#the-interruption-agent)
+that the core already renders on spot nodes (shell script in the metadata slice that annotates its own Node), so none has it yet. The OCI path follows the vendor's documentation and is unverified until
 the first real preemption: see [OCI interruption](../reference/oci-driver.md#interruption).
 
 ## What your workload sees

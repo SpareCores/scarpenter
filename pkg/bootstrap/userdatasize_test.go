@@ -67,6 +67,39 @@ func TestWorstCaseUserDataStaysInTheBudget(t *testing.T) {
 	}
 }
 
+// spotWorstCaseParams is worstCaseParams of a spot node: the fragments the core
+// builds for a vendor with a notice check (the agent inside the metadata
+// restriction's fragment).
+func spotWorstCaseParams(t *testing.T, template v1alpha1.NetworkTemplateName) bootstrap.Params {
+	t.Helper()
+	frags, err := vendors.BootFragmentsOf(noticeDriver{&hcloud.Driver{}}, true, true)
+	if err != nil || len(frags) != 1 {
+		t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
+	}
+	p := worstCaseParams(t, template)
+	p.Spot = true
+	p.VendorFragments = []bootstrap.Fragment{{Name: frags[0].Name, Butane: frags[0].Butane}}
+	return p
+}
+
+// A spot node adds the interruption agent: the worst case with it stays within the
+// budget plus the agent's allowance.
+func TestWorstCaseSpotUserDataStaysInTheBudget(t *testing.T) {
+	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
+		t.Run(string(template), func(t *testing.T) {
+			r, err := bootstrap.Render(spotWorstCaseParams(t, template))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n, limit := len(r.UserData), bootstrap.DefaultBudgetBytes+bootstrap.SpotAgentBytes; n > limit {
+				t.Errorf("the spot worst case is %d bytes, the budget with the agent is %d", n, limit)
+			} else {
+				t.Logf("%s spot worst case: %d bytes of user-data", template, n)
+			}
+		})
+	}
+}
+
 // Validate sizes its trial rendering with a node IP range, because a vendor with
 // a private network renders the node IP unit: a NodeClass that only fits without
 // it is rejected at validation, not when a node launches.

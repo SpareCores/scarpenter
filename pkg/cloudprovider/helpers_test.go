@@ -34,6 +34,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/cloudprovider"
@@ -313,12 +314,17 @@ func (e *env) setConfig(key, value string) {
 type recordingRenderer struct {
 	mu       sync.Mutex
 	requests []cloudprovider.RenderRequest
+	// tooLarge is the API reference of an instance type whose user-data is over the limit.
+	tooLarge string
 }
 
 func (r *recordingRenderer) Render(_ context.Context, req cloudprovider.RenderRequest) ([]byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.requests = append(r.requests, req)
+	if r.tooLarge != "" && req.InstanceType == r.tooLarge {
+		return nil, &bootstrap.UserDataTooLargeError{Size: 20000, Budget: 16384, Parts: "base 1 byte compressed"}
+	}
 	return []byte("user-data"), nil
 }
 

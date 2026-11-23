@@ -481,7 +481,7 @@ func TestSizeBudget(t *testing.T) {
 }
 
 func TestKubeletConfiguration(t *testing.T) {
-	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{}, 0, nil, "", "")
+	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{}, 0, nil, "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +501,7 @@ func TestKubeletConfiguration(t *testing.T) {
 }
 
 func TestKubeletConfigurationLean(t *testing.T) {
-	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}, 0, nil, "", "")
+	got, err := bootstrap.KubeletConfiguration(v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}, 0, nil, "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +520,7 @@ func TestKubeletConfigurationLean(t *testing.T) {
 		KubeReserved:   map[string]string{"memory": "256Mi", "cpu": "100m"},
 		SystemReserved: map[string]string{"memory": "64Mi"},
 		EvictionHard:   map[string]string{"memory.available": "80Mi"},
-	}, 0, nil, "", "")
+	}, 0, nil, "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,7 +630,7 @@ func TestKubeletConfigurationLeanBySize(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%dMi", tc.nodeMiB), func(t *testing.T) {
 			got, err := bootstrap.KubeletConfiguration(
-				v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}, tc.nodeMiB, nil, "", "")
+				v1alpha1.KubeletSpec{Footprint: v1alpha1.FootprintLean}, tc.nodeMiB, nil, "", "", false)
 			if err != nil {
 				t.Fatal(err)
 			}

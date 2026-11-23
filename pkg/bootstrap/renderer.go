@@ -43,8 +43,11 @@ type RenderRequest struct {
 	KubeReserved map[string]string
 	// NodeMemoryMiB is the catalog's memory of the instance type.
 	NodeMemoryMiB int64
-	Volumes       []VolumeHint
-	Local         *LocalHint
+	// Spot says that the launch is a spot or preemptible one: the kubelet then
+	// shuts Pods down gracefully when the node is powered off.
+	Spot    bool
+	Volumes []VolumeHint
+	Local   *LocalHint
 	// VendorFragments are the fragments of the vendor's driver for the node.
 	VendorFragments []Fragment
 	// NodeIPCIDR is the IPv4 range of the private network of the launch, from
@@ -158,6 +161,7 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 	p.Vendor, p.Region, p.Zone, p.InstanceType = req.Vendor, req.Region, req.Zone, req.InstanceType
 	p.KubeReserved, p.NodeMemoryMiB, p.Volumes, p.Local = req.KubeReserved, req.NodeMemoryMiB, req.Volumes, req.Local
 	p.VendorFragments = req.VendorFragments
+	p.Spot = req.Spot
 	p.NodeIPCIDR = req.NodeIPCIDR
 	if req.NVIDIA != nil {
 		if p.NVIDIA, err = r.nvidiaParams(req.NodeClass, *req.NVIDIA); err != nil {
@@ -183,7 +187,8 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 // that after compression and encoding), and falls back to a CA-sized
 // placeholder when it cannot be read: its availability is not the NodeClass's.
 func (r *Renderer) Validate(ctx context.Context, nc *v1alpha1.SCNodeClass, arch string, in Inputs) error {
-	return r.ValidateWith(ctx, nc, arch, in, nil)
+	_, err := r.ValidateWith(ctx, nc, arch, in, nil)
+	return err
 }
 
 // placeholderTailnetKey stands in for the per-node key in the trial renderings: 128
@@ -196,25 +201,31 @@ const validationNodeIPCIDR = "255.255.255.255/32"
 
 // FragmentsFunc returns the fragments the core builds for the node of a NodeClass
 // on a vendor for the architecture (the metadata restriction, unless the NodeClass
-// says Open), for the trial rendering; nil or an empty result means none.
-type FragmentsFunc func(vendor, arch string) ([]Fragment, error)
+// says Open, and the interruption agent when spot is set), for the trial
+// rendering; nil or an empty result means none.
+type FragmentsFunc func(vendor, arch string, spot bool) ([]Fragment, error)
 
 // ValidateWith is Validate that also renders, per vendor, the user-data with the
 // fragments of the vendor's driver, so that a fragment that does not translate or
 // pushes the user-data over the budget is found before the first launch.
+//
+// The warning is a combination that only a few launches render and that would exceed
+// the limit (a spot node of the largest GPU type with the largest storage setup,
+// the agent and the metadata restriction): such a launch is refused by itself
+// (cloudprovider: InvalidOffering, UserDataTooLarge), the NodeClass stays valid.
 func (r *Renderer) ValidateWith(
 	ctx context.Context, nc *v1alpha1.SCNodeClass, arch string, in Inputs, fragments FragmentsFunc,
-) error {
+) (warning string, err error) {
 	ca, err := r.opts.Refs.ClusterCA(ctx)
 	if err != nil {
 		ca = placeholderCA()
 	}
 	p, err := r.params(nc, arch, ca, in)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if p.ClusterDNS, err = r.clusterDNS(ctx); err != nil {
-		return err
+		return "", err
 	}
 	// Like the cluster CA, a CA file that cannot be read now is not the
 	// NodeClass's fault: size it with a placeholder.
@@ -237,7 +248,7 @@ func (r *Renderer) ValidateWith(
 	gpuNote := ""
 	if sel, ok := largestNVIDIA(nc.Spec.Flatcar.Version); ok && arch == artifacts.ArchAMD64 {
 		if p.NVIDIA, err = r.nvidiaParams(nc, sel); err != nil {
-			return err
+			return "", err
 		}
 		gpuNote = " and the NVIDIA driver"
 	}
@@ -246,14 +257,58 @@ func (r *Renderer) ValidateWith(
 		// placeholder longer than any vendor's key.
 		p.Network.Tailscale.AuthKey = placeholderTailnetKey
 	}
-	if _, err = Render(p); err != nil {
-		return fmt.Errorf("the trial rendering (with a node IP range as on a vendor with a private network%s): %w",
-			gpuNote, err)
+	// A spot node adds the interruption agent (and the shutdown settings). The
+	// combination of the largest GPU part (a 16-GPU NVSwitch system with Fabric
+	// Manager), the largest storage setup and the agent can exceed the limit,
+	// and such types are sold as spot (AWS p4d, p5), but only a few launches render
+	// it: the hard checks render the GPU part without the agent and the agent
+	// without the GPU part, and the combination is only a warning.
+	variants := []Params{p}
+	if p.NVIDIA == nil {
+		variants[0].Spot = true
+	} else {
+		spot := p
+		spot.NVIDIA, spot.Spot = nil, true
+		variants = append(variants, spot)
+	}
+	worst, err := worstCaseVolumes(nc)
+	if err != nil {
+		return "", err
+	}
+	for _, v := range variants {
+		note := gpuNote
+		if v.Spot && v.NVIDIA == nil && p.NVIDIA != nil {
+			note = " (a spot node without the NVIDIA part)"
+		}
+		if err := r.validateVariant(nc, arch, v, note, fragments, worst); err != nil {
+			return "", err
+		}
+	}
+	if p.NVIDIA != nil && fragments != nil {
+		both := p
+		both.Spot = true
+		if err := r.validateVariant(nc, arch, both, " (a spot node with the NVIDIA part)", fragments, worst); err != nil {
+			return err.Error(), nil
+		}
+	}
+	return "", nil
+}
+
+// validateVariant renders one variant of the trial: the plain node, with the
+// boot fragments of each vendor, and with the largest storage setup of each
+// vendor (the first-boot volume unit adds to the user-data of nodes that have
+// volumes, about 2.5 KiB and 0.3 KiB per volume), so that no launch the NodeClass
+// allows can exceed the budget.
+func (r *Renderer) validateVariant(
+	nc *v1alpha1.SCNodeClass, arch string, p Params, note string, fragments FragmentsFunc, worst []worstCase,
+) error {
+	if _, err := Render(p); err != nil {
+		return fmt.Errorf("the trial rendering (with a node IP range as on a vendor with a private network%s): %w", note, err)
 	}
 	byVendor := map[string][]Fragment{}
 	if fragments != nil {
 		for _, vendor := range nc.Spec.Vendors.Names() {
-			frags, err := fragments(vendor, arch)
+			frags, err := fragments(vendor, arch, p.Spot)
 			if err != nil {
 				return fmt.Errorf("the boot fragments of %s: %w", vendor, err)
 			}
@@ -264,23 +319,16 @@ func (r *Renderer) ValidateWith(
 			vp := p
 			vp.Vendor, vp.VendorFragments = vendor, frags
 			if _, err := Render(vp); err != nil {
-				return fmt.Errorf("with the boot fragments of %s: %w", vendor, err)
+				return fmt.Errorf("with the boot fragments of %s%s: %w", vendor, note, err)
 			}
 		}
-	}
-	// The first-boot volume unit adds to the user-data of nodes that have
-	// volumes (about 2.5 KiB and 0.3 KiB per volume): render the largest setup of
-	// each vendor, so that no launch the NodeClass allows can exceed the budget.
-	worst, err := worstCaseVolumes(nc)
-	if err != nil {
-		return err
 	}
 	for _, w := range worst {
 		wp := p
 		wp.Vendor, wp.Volumes, wp.Local, wp.VendorFragments = w.vendor, w.volumes, w.local, byVendor[w.vendor]
 		if _, err := Render(wp); err != nil {
-			return fmt.Errorf("with the storage setup of %s (%d volumes%s): %w", w.vendor, len(w.volumes),
-				map[bool]string{true: " and local storage", false: ""}[w.local != nil], err)
+			return fmt.Errorf("with the storage setup of %s (%d volumes%s)%s: %w", w.vendor, len(w.volumes),
+				map[bool]string{true: " and local storage", false: ""}[w.local != nil], note, err)
 		}
 	}
 	return nil

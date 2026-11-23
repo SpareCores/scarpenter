@@ -48,6 +48,10 @@ const (
 	// Butane at least 1 KiB under the limit of every vendor. The NodeClass's trial
 	// rendering checks the limit itself, with the user's Butane.
 	GPUBudgetBytes = 15 * 1024
+	// SpotAgentBytes is what the interruption agent of a spot node (its script
+	// with a vendor's check, its unit and its settings) may add to the budgets
+	// above: about 1.4 KiB in the user-data today. Only spot launches render it.
+	SpotAgentBytes = 1536
 )
 
 // ignitionVersion is the version of the outer Ignition config. Flatcar 4757.2.3
@@ -55,6 +59,18 @@ const (
 // flatcar variant 1.1.0 translates to 3.4.0, and a config merged into the outer
 // one must not be newer.
 const ignitionVersion = "3.4.0"
+
+// UserDataTooLargeError is the error of a rendering over the budget.
+type UserDataTooLargeError struct {
+	Size, Budget int
+	// Parts is the compressed size of each part.
+	Parts string
+}
+
+func (e *UserDataTooLargeError) Error() string {
+	return fmt.Sprintf("the user-data is %d bytes, over the budget of %d bytes (%s); "+
+		"large payloads belong into sysexts referenced by URL and sha256", e.Size, e.Budget, e.Parts)
+}
 
 // Part is one of the translated configs that the user-data merges.
 type Part struct {
@@ -279,6 +295,9 @@ type Params struct {
 	// the kubelet to report it (0 when unknown): the Lean footprint's memory
 	// reservations scale with it.
 	NodeMemoryMiB int64
+	// Spot is set for a spot or preemptible launch: the kubelet gets the
+	// graceful node shutdown settings (SpotShutdownGracePeriod).
+	Spot bool
 	// KubeReserved, when set, is the kubelet's kubeReserved for the instance
 	// type: what the catalog assumed for scheduling, so that the node's
 	// allocatable matches the scheduler's. It replaces Kubelet.KubeReserved.
@@ -386,9 +405,7 @@ func Render(p Params) (*Rendered, error) {
 		budget = MaxUserDataSize
 	}
 	if len(userData) > budget {
-		return nil, fmt.Errorf("the user-data is %d bytes, over the budget of %d bytes (%s); "+
-			"large payloads belong into sysexts referenced by URL and sha256",
-			len(userData), budget, partSizes(parts))
+		return nil, &UserDataTooLargeError{Size: len(userData), Budget: budget, Parts: partSizes(parts)}
 	}
 	return &Rendered{UserData: userData, Parts: parts}, nil
 }
@@ -492,7 +509,8 @@ func (p *Params) templateData() (*TemplateData, error) {
 	if strings.TrimSpace(p.KubeletClientCA) != "" {
 		clientCAFile = KubeletClientCAPath
 	}
-	kubeletConfig, err := KubeletConfiguration(kubelet, p.NodeMemoryMiB, p.ClusterDNS, p.ClusterDomain, clientCAFile)
+	kubeletConfig, err := KubeletConfiguration(
+		kubelet, p.NodeMemoryMiB, p.ClusterDNS, p.ClusterDomain, clientCAFile, p.Spot)
 	if err != nil {
 		return nil, err
 	}
