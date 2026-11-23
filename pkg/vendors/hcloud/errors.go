@@ -33,6 +33,7 @@ const (
 	CodeImageNotFound    = "ImageNotFound"
 	CodeImageAmbiguous   = "ImageAmbiguous"
 	CodeUnsupportedLoc   = "UnsupportedLocation"
+	CodeImageTooBig      = "ImageDiskTooBig"
 )
 
 // API error codes the SDK has no constant for.
@@ -133,7 +134,7 @@ func classify(err error) error {
 // the code it arrives with is unverified), so the message is the one thing to
 // match: the type can never boot that image, so it is Unsupported, not retried.
 func imageTooBig(msg string) bool {
-	return strings.Contains(msg, "image disk is bigger than server type disk")
+	return strings.Contains(strings.ToLower(msg), "image disk is bigger than server type disk")
 }
 
 // statusOf reads the HTTP status of the SDK's bare-status error

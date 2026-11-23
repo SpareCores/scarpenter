@@ -219,7 +219,7 @@ func (p *Project) cachedRootDisk(apiReference string) (int64, bool) {
 // architecture: exactly one. None is NotFound (code ImageNotFound), several are
 // Fatal (ImageAmbiguous). Snapshots are global in the project, so there is no
 // location. TODO(plan 14): replaced by the images kind's selector.
-func (p *Project) FindImage(ctx context.Context, arch, channel, version string) (*hc.Image, error) {
+func (p *Project) FindImage(ctx context.Context, region, arch, channel, version string) (*hc.Image, error) {
 	ha, ok := ImageArch(arch)
 	if !ok {
 		return nil, vendors.NewError(vendors.Fatal, CodeInvalidSettings, fmt.Errorf("unknown architecture %q", arch))
@@ -235,6 +235,15 @@ func (p *Project) FindImage(ctx context.Context, arch, channel, version string) 
 	if err != nil {
 		return nil, classify(err)
 	}
+	// A snapshot bigger than the smallest type's disk does not boot on every type:
+	// it counts as missing, so the driver builds one that does.
+	small, err := p.smallestType(ctx, ha, region)
+	if err != nil {
+		return nil, err
+	}
+	if small != nil {
+		imgs = slices.DeleteFunc(imgs, func(im *hc.Image) bool { return im.DiskSize > float32(small.Disk) })
+	}
 	switch len(imgs) {
 	case 0:
 		return nil, vendors.NewError(vendors.NotFound, CodeImageNotFound, fmt.Errorf(
@@ -245,6 +254,25 @@ func (p *Project) FindImage(ctx context.Context, arch, channel, version string) 
 	}
 	return nil, vendors.NewError(vendors.Fatal, CodeImageAmbiguous, fmt.Errorf(
 		"%d Flatcar snapshots (%s) carry the labels for %s %s; exactly one is required", len(imgs), arch, channel, version))
+}
+
+// smallestType is the type of the architecture launchable in the location with
+// the smallest disk (the name breaks a tie); nil when there is none.
+func (p *Project) smallestType(ctx context.Context, ha hc.Architecture, location string) (*hc.ServerType, error) {
+	types, err := p.ServerTypes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var best *hc.ServerType
+	for _, t := range types {
+		if t.Architecture != ha || !Launchable(t, location, p.clock.Now()) {
+			continue
+		}
+		if best == nil || t.Disk < best.Disk || t.Disk == best.Disk && t.Name < best.Name {
+			best = t
+		}
+	}
+	return best, nil
 }
 
 // ResolveSSHKey finds the key of the NodeClass's sshKey (name or ID).

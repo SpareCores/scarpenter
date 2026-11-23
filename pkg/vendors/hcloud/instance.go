@@ -30,6 +30,13 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		return nil, vendors.NewError(vendors.Fatal, CodeInvalidSettings, fmt.Errorf(
 			"the image reference %q is not a Hetzner image ID", req.Image.Ref))
 	}
+	// A snapshot only boots on a type with at least its disk: refuse before the
+	// call (from the cached table; unchecked while it is not loaded).
+	if disk, ok := d.p.cachedRootDisk(req.InstanceType); ok && req.Image.RootDiskBytes > disk {
+		return nil, vendors.NewError(vendors.Unsupported, CodeImageTooBig, fmt.Errorf(
+			"image disk %d GB > type disk %d GB for %s", (req.Image.RootDiskBytes+999_999_999)/1_000_000_000,
+			disk/1_000_000_000, req.InstanceType))
+	}
 	location := req.Zone
 	if location == "" {
 		location = req.Region

@@ -111,7 +111,7 @@ func imageDiskBytes(im *hc.Image) int64 {
 // findImage is the lookup: the convention without a selector, the selector with.
 func (d *Driver) findImage(ctx context.Context, req vendors.ImageRequest, ha hc.Architecture) (*hc.Image, error) {
 	if req.Use.IsDefault() {
-		return d.p.FindImage(ctx, req.Arch, req.Channel, req.Version)
+		return d.p.FindImage(ctx, req.Region, req.Arch, req.Channel, req.Version)
 	}
 	use, ok := selector.NarrowArchitecture(req.Use, req.Arch)
 	if !ok {
@@ -262,7 +262,7 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 	builds := map[string]error{}
 	for _, arch := range []string{ArchAMD64, ArchARM64} {
 		if slices.ContainsFunc(lookups, func(l lookup) bool { return l.build && l.arch == arch }) {
-			builds[arch] = d.ensureImage(ctx, buildKey{channel, nc.Spec.Flatcar.Version, arch})
+			builds[arch] = d.ensureImage(ctx, buildKey{channel, nc.Spec.Flatcar.Version, arch, regions[0]})
 		}
 	}
 	var (
