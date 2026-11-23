@@ -425,7 +425,8 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	}
 	spot := cand.capacityType == vendors.CapacitySpot
 	rr.Spot = spot
-	frags, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata(), spot)
+	frags, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata(), spot,
+		nc.Spec.Network.Template == v1alpha1.NetworkTemplateTailscale)
 	if err != nil {
 		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
 	}
