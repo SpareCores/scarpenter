@@ -29,20 +29,24 @@ const (
 	MaxPreemptionNotice = 120 * time.Second
 )
 
-// noticeScript is the check of the node agent. It waits (long poll, up to 60 s)
-// for the value to change from the one it has just read, then reads the value
-// again, so a failing long poll only costs the agent's one second pause.
-// 169.254.169.254 is the metadata server (the name needs DNS). The deadline is
-// the end of the preemption notice; without a notice there is none, and the
-// controller assumes the shortest notice of the window (the shutdown window).
-// The variable names stay clear of the agent loop's.
+// noticeScript is the check of the node agent. It reads the value; TRUE is the
+// notice at once (the change may have come before the first read, and a long
+// poll from TRUE would wait for a change away from it). Otherwise it waits (long
+// poll, up to 60 s) for the value to change from the ETag of that read, then
+// reads the value again, so a failing long poll only costs the agent's one
+// second pause. 169.254.169.254 is the metadata server (the name needs DNS). The
+// deadline is the end of the preemption notice; without a notice there is none,
+// and the controller assumes the shortest notice of the window (the shutdown
+// window). The variable names stay clear of the agent loop's.
 const noticeScript = `  h='Metadata-Flavor: Google'
   p=http://169.254.169.254/computeMetadata/v1/instance/preempted
-  t=$(curl -sf -D - -o /dev/null --max-time 3 -H "$h" $p | tr -d '\r' | sed -n 's/^[Ee][Tt]ag: //p')
-  curl -sf -o /dev/null --max-time 70 -H "$h" "$p?wait_for_change=true&timeout_sec=60&last_etag=$t"
-  v=$(curl -sf --max-time 3 -H "$h" $p) || return 2
-  [ "$v" = TRUE ] || return 1
-  echo SpotInterrupted%s
+  r=$(curl -sf -D - -m3 -H "$h" $p) || return 2
+  case $r in *TRUE) ;; *)
+    t=$(echo "$r" | tr -d '\r' | sed -n 's/^[Ee][Tt]ag: //p')
+    curl -sf -o /dev/null -m70 -H "$h" "$p?wait_for_change=true&timeout_sec=60&last_etag=$t"
+    r=$(curl -sf -m3 -H "$h" $p) || return 2 ;;
+  esac
+  case $r in *TRUE) echo SpotInterrupted%s ;; *) return 1 ;; esac
 `
 
 // InterruptionNotices implements vendors.InterruptionNotices: the node agent of a

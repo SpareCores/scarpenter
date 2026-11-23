@@ -1011,8 +1011,10 @@ scn_interruption() {
   kubectl logs -f "${pod}" >"${podlog}" 2>&1 &
   trap 'kill %1 2>/dev/null || true' EXIT
   log "preempting ${iid}"
-  gc compute instances simulate-maintenance-event "${iid#*/}" --zone "${iid%%/*}"
+  gc compute instances simulate-maintenance-event "${iid#*/}" --zone "${iid%%/*}" --async
   wait_until "the Node is annotated" 180 is_value SpotInterrupted node_annotation "${node}" interruption
+  # Without a notice the agent writes an empty deadline and the controller fills it in.
+  wait_until "the deadline is annotated" 60 node_annotation_set "${node}" interruption-deadline
   deadline="$(node_annotation "${node}" interruption-deadline)"
   assert_nonempty "the deadline annotation" "${deadline}"
   wait_until "the NodeClaim is Interrupted" 60 is_value SpotInterrupted claim_interrupted "${claim}"
@@ -1029,6 +1031,9 @@ scn_interruption() {
 node_annotation() {
   kubectl get node "$1" -o json | jq -r --arg k "${label_domain}/$2" '.metadata.annotations[$k] // empty'
 }
+
+# node_annotation_set <node> <name>: the annotation is there and not empty.
+node_annotation_set() { [[ -n "$(node_annotation "$1" "$2")" ]]; }
 
 # claim_interrupted <claim>: the reason of the NodeClaim's Interrupted condition.
 claim_interrupted() {

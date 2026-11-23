@@ -141,7 +141,7 @@ and that the controller's own parser accepts what the chart renders.
 | `vendors.azure.credentials.mode`, `workloadIdentity.*`, `secret.*` | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`, a projected ServiceAccount token, `AZURE_CLIENT_SECRET` | [Azure credentials](../how-to-guides/set-up-azure.md#2-credentials). `workloadIdentity` needs `clientId` and `tenantId`, `secret` an `existingSecret`. |
 | `vendors.gcp.enabled` | `--vendors` | `gcp` is added to the list when enabled (off by default). |
 | `vendors.gcp.project` | `--gcp-project` | |
-| `vendors.gcp.preemptionNotice` | `--gcp-preemption-notice` | Empty or `0`: no notice. |
+| `vendors.gcp.preemptionNotice` | `--gcp-preemption-notice` | Empty or `0s`: no notice. |
 | `vendors.gcp.ipv4Price` | `SCARPENTER_GCP_IPV4_PRICE` | An explicit override that wins over Keeper's price, see the table above. |
 | `vendors.gcp.credentials.mode`, `workloadIdentity.*`, `secret.*` | `GOOGLE_APPLICATION_CREDENTIALS`, a projected ServiceAccount token (audience `workloadIdentity.audience`) and a ConfigMap or Secret mount | [GCP credentials](../how-to-guides/set-up-gcp.md#2-credentials). `workloadIdentity` needs `configMap` and `audience`, `secret` an `existingSecret`. |
 | `vendors.oci.enabled`, `vendors.oci.compartment` | `--vendors` (adds `oci`), `--oci-compartment` | `compartment` is required when enabled. |

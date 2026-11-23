@@ -69,6 +69,29 @@ func TestNoticeCheck(t *testing.T) {
 	}
 }
 
+// A VM preempted before the first read must report at once: a long poll from
+// TRUE would block for the full 60 s.
+func TestNoticeCheckAlreadyPreempted(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("wait_for_change") != "" {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(30 * time.Second):
+			}
+			return
+		}
+		metadata("TRUE")(w, r)
+	}
+	start := time.Now()
+	out, rc := runCheck(t, New(), handler)
+	if rc != 0 || out != "SpotInterrupted" {
+		t.Errorf("got %q, %d; want SpotInterrupted and 0", out, rc)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("the check took %s, it waited on a change", d)
+	}
+}
+
 func TestNoticeCheckDeadline(t *testing.T) {
 	d := New(WithPreemptionNotice(90 * time.Second))
 	out, rc := runCheck(t, d, metadata("TRUE"))
