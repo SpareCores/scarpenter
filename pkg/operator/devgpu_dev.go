@@ -10,13 +10,8 @@ package operator
 
 import "os"
 
-// The development build can turn the GPU node bootstrap on before nvidia.NodeBootstrap
-// is flipped, and the GPU pending controller off, for the L4 lane's GPU-less boot
-// (test/qemu, plan 12 step (d)). The production build has neither switch.
-
-// nvidiaBootstrapDev: SCARPENTER_DEV_NVIDIA_BOOTSTRAP=1 advertises the NVIDIA
-// resources and driver labels as if nvidia.NodeBootstrap were true.
-func nvidiaBootstrapDev() bool { return os.Getenv("SCARPENTER_DEV_NVIDIA_BOOTSTRAP") == "1" }
+// The development build can turn the GPU pending controller off, for the L4 lane's
+// GPU-less boot (test/qemu, plan 12 step (d)). The production build has no such switch.
 
 // gpuPendingDev: SCARPENTER_DEV_NO_GPU_PENDING=1 does not register the GPU pending
 // controller, so that a node whose check failed keeps its NodeClaim and its VM.

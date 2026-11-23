@@ -33,9 +33,8 @@ vendors:
       # The GPU types only describe a GPU: the VMs have none. The L4 lane boots them to
       # prove the node bootstrap of NVIDIA types without hardware (plan 12 step (d)):
       # gpu is a T4 (the driver check fails), gpu-nvswitch an 8-GPU A100 HGX system
-      # (Fabric Manager runs, and the check fails). The development build offers them
-      # with SCARPENTER_DEV_NVIDIA_BOOTSTRAP=1; without it the catalog leaves the
-      # driver labels off, and they are plain machines.
+      # (Fabric Manager runs, and the check fails). The catalog offers them
+      # with the driver labels (nvidia.NodeBootstrap).
       - name: gpu
         family: qemu
         arch: amd64

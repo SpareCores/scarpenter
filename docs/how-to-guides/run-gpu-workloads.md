@@ -2,9 +2,9 @@
 
 What the Helm chart ships for NVIDIA GPU nodes, and how a Pod uses it. GPU nodes
 themselves (the driver, the labels, `nvidia.com/gpu`) are described in the
-[node bootstrap reference](../reference/node-bootstrap.md#nvidia-gpu-nodes); until
-the catalog advertises them, GPU types are launched as plain machines and
-selected by their `accelerator-*` labels.
+[node bootstrap reference](../reference/node-bootstrap.md#nvidia-gpu-nodes). A Pod
+that requests `nvidia.com/gpu` gets a node of a supported NVIDIA type from a NodePool
+that lists the startup taint (below).
 
 ## What the chart installs
 
@@ -50,6 +50,23 @@ NVIDIA types to a NodePool that lacks it (the controller logs it once per NodePo
 changes its hash: the pool's nodes drift and are replaced, within its disruption budgets. A node whose
 check fails keeps the taint and never takes a Pod; the controller deletes its NodeClaim at once (or 30 minutes after the node's creation if
 the check never reports), and Karpenter replaces the node ([node bootstrap](../reference/node-bootstrap.md#nvidia-gpu-nodes)).
+
+### A NodePool without the startup taint
+
+A NodePool that does not list the taint is not offered the NVIDIA types: they are left out of its
+instance types, the controller logs it once per NodePool, and a Pod that requests GPUs finds no node there. This is
+expected, and it is what keeps an existing cluster working when it upgrades: such a pool behaves as before
+and launches no GPU node. To use GPU types, add the startup taint (the pool's nodes drift and are replaced, within its
+disruption budgets).
+
+### GPU types in a general NodePool
+
+A pool that lists the taint offers its GPU types to every Pod, not only to those that request GPUs. Karpenter
+launches the cheapest type that fits, and SCarpenter tries the candidates in price order, so a Pod without a GPU
+request gets a GPU node only when no cheaper type fits it (a very large memory or vCPU shape, or a
+selector that only GPU types match). A GPU node costs more than a CPU type of the same size, but it is not always more than
+a very large one. If you do not want that, keep the GPU types out of the general pools with the requirement
+`scarpenter.sparecores.com/accelerator-count DoesNotExist` and give GPU Pods their own pool, which lists the taint.
 
 ## Taints
 

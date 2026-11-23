@@ -27,9 +27,8 @@ import (
 
 // The GPU-less boot (plan 12 step (d)): the qemu catalog has two NVIDIA types, a T4
 // (qemu.gpu) and an 8-GPU A100 HGX system (qemu.gpu-nvswitch), and the VMs have no GPU.
-// The development build of the controller offers them with the driver labels
-// (SCARPENTER_DEV_NVIDIA_BOOTSTRAP=1; nvidia.NodeBootstrap is false until the step that
-// ships the whole GPU path), and run.sh serves the release's driver sysext and Fabric
+// The controller offers them with the driver labels
+// (nvidia.NodeBootstrap), and run.sh serves the release's driver sysext and Fabric
 // Manager's archive as the mirror (--nvidia-driver-base-url). The node registers with the
 // gpu-pending taint (ADR-031), its check fails, and the node is labelled gpu-ready=false.
 //
@@ -60,7 +59,7 @@ func gpuLane(t *testing.T, gpuPending bool) {
 			sel.Sysext, reason, flatcarVer)
 	}
 	prefetchImage(t)
-	env := []string{"SCARPENTER_DEV_NVIDIA_BOOTSTRAP=1"}
+	var env []string
 	if !gpuPending {
 		env = append(env, "SCARPENTER_DEV_NO_GPU_PENDING=1")
 	}

@@ -10,6 +10,4 @@ package operator
 
 // The production build has no development switches (see devgpu_dev.go).
 
-func nvidiaBootstrapDev() bool { return false }
-
 func gpuPendingDev() bool { return true }

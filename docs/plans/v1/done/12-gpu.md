@@ -8,7 +8,7 @@ Spec: overview §2 (deferred list), §5.3 (capacity), §5.5 (labels), §8 (boots
 [ADR-025](../../../explanation/DECISIONS.md#adr-025-instance-metadata-reaches-only-the-nodes-own-components-accepted-2026-11-19) (instance metadata), [ADR-026](../../../explanation/DECISIONS.md#adr-026-node-memory-a-capped-default-reservation-and-a-lean-footprint-accepted-2026-11-19); [node bootstrap](../../../reference/node-bootstrap.md),
 [labels and offerings](../../../reference/labels-and-offerings.md).
 
-Status: **todo**. Decisions of the maintainer 2026-11-19 are folded in (section 6). Research date 2026-11-19, from Flatcar's documentation and sources (flatcar/scripts tag
+Status: **done** (steps (a) to (k); real runs verify the GPU types, section 5). Decisions of the maintainer 2026-11-19 are folded in (section 6). Research date 2026-11-19, from Flatcar's documentation and sources (flatcar/scripts tag
 `stable-4757.2.3`, bootengine, ue-rs, sysext-bakery), the update server's listings, NVIDIA's release notes and
 device plugin README, Karpenter core v1.15.1 and Keeper's server table (active rows, every vendor). No cloud API
 was called. Everything marked **[U]** is unverified and is settled by the optional manual spikes (section 7), by real
@@ -332,9 +332,8 @@ how-to.
 `run-gpu-workloads.md`, install and node-bootstrap docs. The image is `nvcr.io/nvidia/k8s-device-plugin` v0.20.2,
 pinned by the digest of the multi-architecture index (read from the registry 2026-11-20). Tolerations default to
 every taint (D6; a GPU node whose plugin cannot run never initializes) and are a value. The plugin uses the
-environment variable strategy through the `nvidia` handler (no CDI, as step (b) configured). Not done:
-`nvidia.NodeBootstrap` stays false; the flip waits for Azure's and Alibaba's `GPUVirtualizer` ((g), (h)), and for
-(b2), the L4 boot of (d) and a real run to settle the device plugin's resources [U: S6].
+environment variable strategy through the `nvidia` handler (no CDI, as step (b) configured). The device plugin's resources
+are unsettled until a real run [U: S6]. The flip is step (k).
 
 **(d) L4: boot without a GPU** (cheap, no GPU instance; opt-in: `QEMU_SCENARIOS=GPU`, not in the default lane or CI). A qemu scenario launches an NVIDIA type on a VM without a GPU, through the
 mirror path, against a local HTTP server that serves the release's driver payload (fetched once from Flatcar's
@@ -368,6 +367,12 @@ metric names per model, A100 40 and 80 GB]; the series join the confirmed list w
 `onHostMaintenance TERMINATE` and `automaticRestart false` already apply to these series; no `guestAccelerators`
 (N1 with attached GPUs is not in Keeper's catalog). Lane default `g2-standard-4`.
 
+**Done (f).** `a2 a3 a4 a4x g2 g4` left `droppedSeries` (TPU series stay); the GPU quota buckets (`NVIDIA_<MODEL>_GPUS`,
+`PREEMPTIBLE_NVIDIA_<MODEL>_GPUS`, `GPUS_ALL_REGIONS`, unit `GPUs`) are read, none is consumed per type yet ([U]: metric
+names; the series join `ConfirmedSeries` after a real run); launch needed no change (`TERMINATE`, no `guestAccelerators`);
+lane scenario `gpu` (manual-only, `E2E_GPU_TYPE` default `gcp.g2-standard-4`, local to `test/e2e-gcp`, no workflow input
+yet), docs.
+
 **(g) Azure.** `GPUVirtualizer`: the `NV*` sizes (A10 v5, v3 M60 and any other GRID-only
 series); AMD and fractional sizes fall to the core's rules. The family vCPU quotas exist. Check the SCSI-or-NVMe
 rule against `NCasT4_v3`, NC A100 v4 and NC H100 v5. Lane default `Standard_NC4as_T4_v3`.
@@ -393,6 +398,20 @@ stock (`GetDevicesAvailability`) for the offerings, a GPU count bucket from the 
 qualify; RTX PRO 6000 waits for 580-open.
 
 **Done (j).** `FamilyGPUSpot` (`GPU-SPOT-` stays out) and `GPU-` plans launch; `Supported` no longer excludes GPU. `GetDevicesAvailability` joins the API interface (real client, fake, canary guard) and `LaunchableTypes` lists a GPU plan in a zone only with stock there (a failed call leaves the GPU plans out for that refresh); the global bucket `gpus` from `resource_limits.gpus`, usage by the servers' plans, and the plan's GPUs in `Consumption`. No `GPUVirtualizer` (passthrough). L40S and H100 offered, RTX PRO 6000 dropped until 580-open (test over the snapshot). Manual `gpu` scenario in the UpCloud lane (`E2E_GPU_TYPE` default `upcloud.GPU-8xCPU-64GB-1xL40S`, early stock and limits check), docs. The GPU limit's create error stays `Fatal` until a real run shows its code; then map it to `QuotaExceeded` without `AsAccountWide`, so the `gpus` bucket is marked. Unverified: the stock response shape and whether a plan out of stock is absent or 0, the limit's name and its create error code, the root default on the plan's disk, boot on the GPU hosts.
+
+**(k) The flip.** `nvidia.NodeBootstrap` is true: the catalog advertises `nvidia.com/gpu` and the driver labels on
+the supported NVIDIA types and the bootstrap renders the `nvidia` part for them. Safety conditions, each on main: Azure's and
+Alibaba's `GPUVirtualizer` ((g), (h)); the confidential GPU sizes of Azure dropped (`SKU.Launchable`: a confidential size is
+launchable only without GPUs, dropped as `NotLaunchable`, `ConfidentialGPUNotSupported` as the launch backstop); the NodePool guard of ADR-031
+(`withoutUnguardedGPUs`: no NVIDIA type for a pool without the startup taint, fail closed); the gpupending
+controller deleting the NodeClaim of a failed check. The L3 scenarios S21 and S21b request GPUs and use NodePools with the
+startup taint (they label the Nodes `gpu-ready=true`, as the check would). Operators: a NodePool without the startup taint is
+left out of GPU types (expected, no change for it); a general pool that lists the taint offers GPU types to every Pod and gets
+one only when no cheaper type fits (exclude them with `accelerator-count DoesNotExist`); see
+[run GPU workloads](../../../how-to-guides/run-gpu-workloads.md#the-gpu-pending-taint).
+
+**Done (k).** The flag, the S21 and S21b scenarios, the docs (the pre-flip statements removed). No golden file changed:
+the renderings take the selection from the labels, not from the flag.
 
 Each vendor step adds the vendor's `gpu` defaults to its lane (for the manual scenario) and ends at the dry run; no
 step runs a GPU instance.

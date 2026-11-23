@@ -26,12 +26,11 @@ import (
 const Manufacturer = "NVIDIA"
 
 // NodeBootstrap says that nodes of a supported type boot with the driver and
-// that the chart runs the device plugin (plan 12, steps (b) and (c)). Until
-// then the catalog advertises no nvidia.com/gpu and no driver labels: Karpenter
-// would launch a node for a Pod that requests GPUs, and the node would never
-// initialize because nothing registers the resource. The step that ships the
-// driver and the device plugin sets it.
-const NodeBootstrap = false
+// that the chart runs the device plugin (plan 12). The catalog then advertises
+// nvidia.com/gpu and the driver labels on those types (the catalog option
+// NVIDIAGPUs is the same switch). Were it false, they would be offered as plain
+// machines and a Pod that requests GPUs would get no node at all.
+const NodeBootstrap = true
 
 // Architecture is a GPU architecture.
 type Architecture string

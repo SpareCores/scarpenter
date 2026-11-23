@@ -103,15 +103,15 @@ OCI is read from Keeper like the other vendors (it needs a Keeper API key):
 | `memory` | Keeper `memory_amount` (MiB) less `kubelet.vmMemoryOverheadPercent` (default 7.5 %, rounded down) |
 | `pods` | `kubelet.maxPods` (default 110) |
 | `ephemeral-storage` | the root disk of the type under the vendor's resolved default settings: the driver's per-type answer where the type defines its root disk, else the settings' root disk, else Keeper's `storage_size` of the type; omitted when none says |
-| `nvidia.com/gpu` | the GPU count of an NVIDIA GPU type the catalog keeps ([GPU types](#gpu-types)), once nodes boot the driver (below); nothing is reserved. Other types have no GPU resource |
+| `nvidia.com/gpu` | the GPU count of an NVIDIA GPU type the catalog keeps ([GPU types](#gpu-types)); nothing is reserved. Other types have no GPU resource |
 
 The NVIDIA device plugin (shipped by the chart) registers the resource on the
 node; Karpenter initializes a NodeClaim that requests it only when the plugin
-has. The node bootstrap does not install the driver yet, so the catalog
-advertises neither `nvidia.com/gpu` nor the driver labels (the switch is
-`nvidia.NodeBootstrap`): a Pod that requests GPUs gets no node, rather than one
-that never initializes, and a supported GPU type is offered as a plain machine,
-selected by its `accelerator-*` labels. Accelerators that are not GPUs (NPUs, FPGAs, VPUs, TPUs) have no extended
+has. The node bootstrap installs the driver, so a supported GPU type carries the resource and the driver labels
+and a Pod that requests GPUs gets such a node ([run GPU workloads](../how-to-guides/run-gpu-workloads.md)).
+The catalog offers these types only to a NodePool that lists the
+`gpu-pending` startup taint ([ADR-031](../explanation/DECISIONS.md#adr-031-gpu-nodes-register-before-the-check-and-fabric-manager-work-are-done-accepted-2026-11-22)):
+for any other NodePool they are left out, which is expected. Accelerators that are not GPUs (NPUs, FPGAs, VPUs, TPUs) have no extended
 resource and are selected by label.
 
 Overhead (what the scheduler subtracts from capacity to get allocatable):
