@@ -151,9 +151,10 @@ type LocalStorage struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.ephemeral) || !has(self.storageAccountType)",message="an ephemeral OS disk has no storageAccountType"
 // +kubebuilder:validation:XValidation:rule="!has(self.ephemeral) || !has(self.caching) || self.caching == 'ReadOnly'",message="an ephemeral OS disk is read-only cached"
 type RootDisk struct {
-	// storageAccountType is the disk SKU. Built-in default Premium_LRS (sizes
-	// without the PremiumIO capability then get no offering: set
-	// StandardSSD_LRS to include them).
+	// storageAccountType is the disk SKU. Built-in default Premium_LRS: sizes
+	// whose compatible storage lacks it are offered only with a storage profile
+	// that pins another type, else dropped as StorageIncompatible; set
+	// StandardSSD_LRS here to include them.
 	// +optional
 	StorageAccountType StorageAccountType `json:"storageAccountType,omitempty"`
 

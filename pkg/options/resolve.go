@@ -142,23 +142,28 @@ func Validate(no vendors.NodeOptions, in Input) error {
 
 // Select chooses the profile of each kind for an offering from the NodeClaim's
 // requirements (00a section 5.2). A kind the NodeClaim does not constrain gets
-// the default; otherwise the values allowed by the claim, the instance type and
-// the offering are candidates, the default winning when it is among them and
-// the first by name otherwise. ok is false when a constrained kind has no
-// allowed value, which the scheduler's feasibility check should have made
-// impossible.
+// the default when the instance type and the offering allow it (a type that
+// cannot host the default storage lists only profiles: no profile is picked
+// for a claim that did not ask for it, ADR-017); otherwise the values allowed
+// by the claim, the instance type and the offering are candidates, the default
+// winning when it is among them and the first by name otherwise. ok is false
+// when no value is allowed.
 func Select(claim, typ, off scheduling.Requirements) (sel Selection, ok bool) {
 	ok = true
 	pick := func(kind labels.ProfileKind) string {
 		key := labels.ProfileLabel(kind)
-		if !claim.Has(key) {
-			return vendors.DefaultProfile
-		}
-		allowed := sets.New[string]()
 		have := typ.Get(key)
 		if off.Has(key) {
 			have = have.Intersection(off.Get(key))
 		}
+		if !claim.Has(key) {
+			if !have.Has(vendors.DefaultProfile) {
+				ok = false
+				return ""
+			}
+			return vendors.DefaultProfile
+		}
+		allowed := sets.New[string]()
 		for _, v := range have.Values() {
 			if claim.Get(key).Has(v) {
 				allowed.Insert(v)

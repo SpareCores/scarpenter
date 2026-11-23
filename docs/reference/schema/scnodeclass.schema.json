@@ -1581,7 +1581,7 @@
                             "type": "object"
                           },
                           "storageAccountType": {
-                            "description": "storageAccountType is the disk SKU. Built-in default Premium_LRS (sizes\nwithout the PremiumIO capability then get no offering: set\nStandardSSD_LRS to include them).",
+                            "description": "storageAccountType is the disk SKU. Built-in default Premium_LRS: sizes\nwhose compatible storage lacks it are offered only with a storage profile\nthat pins another type, else dropped as StorageIncompatible; set\nStandardSSD_LRS here to include them.",
                             "enum": [
                               "Standard_LRS",
                               "StandardSSD_LRS",
@@ -7139,7 +7139,7 @@
                           "type": "object"
                         },
                         "storageAccountType": {
-                          "description": "storageAccountType is the disk SKU. Built-in default Premium_LRS (sizes\nwithout the PremiumIO capability then get no offering: set\nStandardSSD_LRS to include them).",
+                          "description": "storageAccountType is the disk SKU. Built-in default Premium_LRS: sizes\nwhose compatible storage lacks it are offered only with a storage profile\nthat pins another type, else dropped as StorageIncompatible; set\nStandardSSD_LRS here to include them.",
                           "enum": [
                             "Standard_LRS",
                             "StandardSSD_LRS",

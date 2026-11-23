@@ -43,11 +43,15 @@ func ProfileLabel(k ProfileKind) string {
 type Profiles map[ProfileKind][]string
 
 // ProfileRequirements returns the three profile labels: In [default,
-// <supported...>] for each kind.
-func ProfileRequirements(supported map[ProfileKind][]string) []*scheduling.Requirement {
+// <supported...>] for each kind, or without default for the storage label when
+// defaultStorage is false (the type cannot host the default storage).
+func ProfileRequirements(supported map[ProfileKind][]string, defaultStorage bool) []*scheduling.Requirement {
 	out := make([]*scheduling.Requirement, 0, len(ProfileKinds))
 	for _, k := range ProfileKinds {
-		names := append([]string{v1alpha1.DefaultProfile}, supported[k]...)
+		names := slices.Clone(supported[k])
+		if k != ProfileStorage || defaultStorage {
+			names = append(names, v1alpha1.DefaultProfile)
+		}
 		slices.Sort(names)
 		out = append(out, In(ProfileLabel(k), slices.Compact(names)...))
 	}

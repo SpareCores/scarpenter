@@ -65,13 +65,9 @@ func (d *Driver) RootDiskForType(vendors.VendorSettings, vendors.CatalogType) (i
 //
 // The facts come from the SKU table, read at runtime; until they are known a
 // profile that depends on them is not offered, and the epoch of the node options
-// changes when they arrive. The default profile is always valid: a size without
-// premium storage fails the default root disk at launch (Unsupported) and the
-// NodeClass sets StandardSSD_LRS to include it.
-//
-// Keeper's compatible storage of the size is checked for the disk types a
-// profile names; the root disk type it leaves alone is checked with the resolved
-// settings (SupportsSettings).
+// changes when they arrive. The default profile is not decided here: the
+// catalog asks SupportsSettings for the default route and for every storage
+// profile, with Keeper's compatible storage of the size.
 func (d *Driver) Supported(it vendors.CatalogType, _ string, p vendors.Profiles) map[string][]string {
 	out := map[string][]string{}
 	sku, known := d.skuFacts(it.APIReference)
@@ -80,7 +76,7 @@ func (d *Driver) Supported(it vendors.CatalogType, _ string, p vendors.Profiles)
 			ok := false
 			switch kind {
 			case vendors.ProfileStorage:
-				ok = supportsStorage(block, it.CompatibleStorage, sku, known)
+				ok = supportsStorage(block, sku, known)
 			case vendors.ProfileNetwork:
 				ok = supportsNetwork(block, sku, known)
 			case vendors.ProfilePlacement:
@@ -98,12 +94,9 @@ func (d *Driver) Supported(it vendors.CatalogType, _ string, p vendors.Profiles)
 	return out
 }
 
-func supportsStorage(block json.RawMessage, compatible []string, sku SKU, known bool) bool {
+func supportsStorage(block json.RawMessage, sku SKU, known bool) bool {
 	st, err := decodeStorage(block)
 	if err != nil {
-		return false
-	}
-	if !attachable(storageTypes(st), compatible) {
 		return false
 	}
 	if st.LocalStorage != nil && st.LocalStorage.Policy != "" && st.LocalStorage.Policy != "ignore" {

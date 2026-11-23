@@ -1596,9 +1596,10 @@ spec:
                                   type: object
                                 storageAccountType:
                                   description: |-
-                                    storageAccountType is the disk SKU. Built-in default Premium_LRS (sizes
-                                    without the PremiumIO capability then get no offering: set
-                                    StandardSSD_LRS to include them).
+                                    storageAccountType is the disk SKU. Built-in default Premium_LRS: sizes
+                                    whose compatible storage lacks it are offered only with a storage profile
+                                    that pins another type, else dropped as StorageIncompatible; set
+                                    StandardSSD_LRS here to include them.
                                   enum:
                                   - Standard_LRS
                                   - StandardSSD_LRS
@@ -7608,9 +7609,10 @@ spec:
                                 type: object
                               storageAccountType:
                                 description: |-
-                                  storageAccountType is the disk SKU. Built-in default Premium_LRS (sizes
-                                  without the PremiumIO capability then get no offering: set
-                                  StandardSSD_LRS to include them).
+                                  storageAccountType is the disk SKU. Built-in default Premium_LRS: sizes
+                                  whose compatible storage lacks it are offered only with a storage profile
+                                  that pins another type, else dropped as StorageIncompatible; set
+                                  StandardSSD_LRS here to include them.
                                 enum:
                                 - Standard_LRS
                                 - StandardSSD_LRS

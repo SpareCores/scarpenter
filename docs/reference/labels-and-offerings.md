@@ -623,7 +623,9 @@ Offering-level, from Keeper's region table. Unknown is `DoesNotExist`.
 ### Profile labels
 
 `storage-profile`, `network-profile` and `placement-profile` are `In [default,
-<profiles valid for the type>]` on every type. The driver decides validity
+<profiles valid for the type>]` on every type, except that `storage-profile` has no
+`default` on a type whose driver says it cannot host the default storage (Azure sizes
+without premium storage under a Premium root). The driver decides validity
 through its `Supported` hook, given the profile blocks of the NodeClass for the
 vendor (a profile without a block for the vendor is not offered to the driver and
 does not exist on it; [node settings](node-settings.md#which-profiles-a-type-can-host)).

@@ -236,7 +236,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			// union, so that a profile a zone cannot host never matches there;
 			// with the default only they never do.
 			if perZoneProfiles {
-				reqs = append(reqs, profileRequirements(perZone[o.zone.Name], defaultOK)...)
+				reqs = append(reqs, labels.ProfileRequirements(perZone[o.zone.Name], defaultOK)...)
 			}
 			offReqs := scheduling.NewRequirements(reqs...)
 			if shareKey != "" {
@@ -267,7 +267,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			}
 		}
 		reqs = append(reqs, labels.Selection(view.members[srv.Key()]))
-		reqs = append(reqs, profileRequirements(union, defaultOK)...)
+		reqs = append(reqs, labels.ProfileRequirements(union, defaultOK)...)
 		it.Requirements = scheduling.NewRequirements(reqs...)
 
 		rootDisk, rootKnown := facts.RootDiskBytes(vendor, class, srv)
@@ -375,18 +375,6 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 func defaultRouteSupported(facts Facts, vendor string, class *Class, srv *model.Server) bool {
 	df, ok := facts.(DefaultRouteFacts)
 	return !ok || df.DefaultSupported(vendor, class, srv)
-}
-
-// profileRequirements are the profile labels; without the default storage the
-// storage label names the supported profiles only.
-func profileRequirements(supported map[labels.ProfileKind][]string, defaultStorage bool) []*scheduling.Requirement {
-	reqs := labels.ProfileRequirements(supported)
-	if !defaultStorage {
-		names := slices.Clone(supported[labels.ProfileStorage])
-		slices.Sort(names)
-		reqs[0] = labels.In(labels.ProfileLabel(labels.ProfileStorage), slices.Compact(names)...)
-	}
-	return reqs
 }
 
 // withoutUnlaunchable removes the offerings the driver says cannot launch, and

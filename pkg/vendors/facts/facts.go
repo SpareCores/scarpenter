@@ -636,7 +636,7 @@ func (f *Facts) Supported(vendor string, class *catalog.Class, srv *model.Server
 			if _, defined := in.Profiles[kind][name]; !defined {
 				continue
 			}
-			if !settingsSupported(no, in, selectionOf(kind, name), ct) {
+			if kind == vendors.ProfileStorage && !f.storageHostable(no, class, in, vendor, name, ct) {
 				continue
 			}
 			if !class.AllowIncompletePrice && !f.profileComplete(no, in, kind, name, ct, region, zone) {
@@ -665,16 +665,29 @@ func selectionOf(kind, name string) options.Selection {
 	return sel
 }
 
-// settingsSupported asks the driver (vendors.SettingsChecker) whether the type
-// can host the settings the selection resolves to, the NodeClass's block and the
-// built-in defaults included. A driver without the check supports everything.
-func settingsSupported(no vendors.NodeOptions, in options.Input, sel options.Selection, ct vendors.CatalogType) bool {
+// storageHostable says whether the type can host the settings of a storage
+// profile (resolved once per class, vendor and profile, like the defaults).
+func (f *Facts) storageHostable(
+	no vendors.NodeOptions, class *catalog.Class, in options.Input, vendor, name string, ct vendors.CatalogType,
+) bool {
 	sc, ok := no.(vendors.SettingsChecker)
 	if !ok {
 		return true
 	}
-	s, err := options.Resolve(no, in, sel)
-	return err == nil && sc.SupportsSettings(s, ct)
+	key := class.Hash + "/" + vendor + "/" + vendors.ProfileStorage + "/" + name
+	var r resolved
+	if v, ok := f.defaults.Load(key); ok {
+		r = v.(resolved)
+	} else {
+		s, err := options.Resolve(no, in, selectionOf(vendors.ProfileStorage, name))
+		r = resolved{settings: s, ok: err == nil}
+		if f.defaultsN.Add(1) > maxCachedDefaults {
+			f.defaults.Clear()
+			f.defaultsN.Store(0)
+		}
+		f.defaults.Store(key, r)
+	}
+	return r.ok && sc.SupportsSettings(r.settings, ct)
 }
 
 // DefaultSupported implements catalog.DefaultRouteFacts: the type can host the

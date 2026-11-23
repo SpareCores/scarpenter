@@ -186,7 +186,7 @@ Rung 1 for amd64, rung 2 for arm64 ([ADR-021](../explanation/DECISIONS.md)).
 Built-in defaults: a 64 GiB boot disk, `pd-balanced` (or `hyperdisk-balanced` where the type's compatible
 storage from Keeper lacks `pd-balanced`, e.g. `c4`, `m4`, `x4`), `publicIPv4: true`, the series' NIC type.
 The catalog reads Keeper's `compatible_storage_ids` of the type and maps them to the disk type names of
-Keeper's storage table; an empty list means unknown and the default is `pd-balanced`, with no disk type
+Keeper's storage table; an empty list means unknown: the default is then `pd-balanced` even for Hyperdisk-only types (the launch fails with the API's error), with no disk type
 excluded. A pinned `diskType` that is not in the type's compatible storage, or a pinned root `diskType` that
 cannot boot (only the pd types and `hyperdisk-balanced` can; a short disk-type table until Keeper has a
 bootable flag), makes the profile unsupported for that type, never a substitute. The NodeClass block's own root disk is not
