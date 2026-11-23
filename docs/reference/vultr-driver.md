@@ -2,7 +2,7 @@
 
 The `vultr` driver (`pkg/vendors/vultr`, vendor ID and registration name `vultr`): Vultr Cloud Compute
 (`/v2/instances`) booting a pinned Flatcar from a snapshot in your own account, with a firewall group and,
-for the isolations that need one, a VPC. Design: [plan 20](../plans/v1/wip/20-vultr.md), ADR-021 (the image
+for the isolations that need one, a VPC. Design: [plan 20](../plans/v1/done/20-vultr.md), ADR-021 (the image
 ladder), ADR-022 to ADR-024. The contract it implements is in the [driver contract](driver-contract.md);
 the settings are in [node settings](node-settings.md); the resource engine around it is in
 [vendor resources](vendor-resources.md); the selector is in [resource selectors](resource-selectors.md#vultr).

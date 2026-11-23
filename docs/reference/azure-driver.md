@@ -4,7 +4,7 @@
 complete `vendors.Driver` (registered as `azure`, enabled with `--vendors=azure`) with node options,
 managed resources, quotas and a NodeClass validator, and it passes the shared conformance suite
 against an in-memory ARM. **Nothing in it has run against Azure**: no test makes a cloud call. The
-design is [plan 17](../plans/v1/wip/17-azure.md); the contract it implements is the
+design is [plan 17](../plans/v1/done/17-azure.md); the contract it implements is the
 [driver contract](driver-contract.md). The NodeClass block is `spec.vendors.azure` ([API](api.md)).
 
 - [Account and credentials](#account-and-credentials)

@@ -1,4 +1,4 @@
-# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/15-hcloud.md): the tailscale template
+# The NodeClass of the amd64 scenarios (docs/plans/v1/done/15-hcloud.md): the tailscale template
 # with pinned versions, a storage profile with a small data volume (`db`), the placement profile
 # that puts a database and its client into one spread placement group (`spread`), a firewall
 # that SCarpenter creates with a short idle lifetime, and a benchmark metric for the

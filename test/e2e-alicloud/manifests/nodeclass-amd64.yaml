@@ -1,4 +1,4 @@
-# The NodeClass of the amd64 scenarios (docs/plans/v1/wip/21-alicloud.md section 9): the
+# The NodeClass of the amd64 scenarios (docs/plans/v1/done/21-alicloud.md section 9): the
 # tailscale template with pinned versions, a small cloud_essd PL0 system disk, a storage
 # profile with a small cloud_essd PL1 data disk, the placement profile that puts a database
 # and its client into one LowLatency deployment set, and a benchmark metric for the

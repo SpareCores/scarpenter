@@ -2,7 +2,7 @@
 
 Status: **accepted** (2026-11-05; ADR-014, ADR-015 and ADR-017 to ADR-020
 accepted, ADR-016 deferred). Its decisions are folded into
-[`00-overview.md`](00-overview.md) and the plan sequence; this document is the
+[`00-overview.md`](../wip/00-overview.md) and the plan sequence; this document is the
 detailed design of node options, instance selection and vendor resources, and
 decides where the overview is shorter.
 

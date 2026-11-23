@@ -99,5 +99,5 @@ minutes. It saves nothing on per-second or per-minute vendors with no real minim
   and the node is deleted before the boundary anyway.
 
 See also [node settings](../reference/node-settings.md) and the vendor plans' billing sections
-([hcloud](../plans/v1/wip/15-hcloud.md), [OVH](../plans/v1/wip/18-ovh.md), [UpCloud](../plans/v1/wip/19-upcloud.md),
-[Vultr](../plans/v1/wip/20-vultr.md)).
+([hcloud](../plans/v1/done/15-hcloud.md), [OVH](../plans/v1/done/18-ovh.md), [UpCloud](../plans/v1/done/19-upcloud.md),
+[Vultr](../plans/v1/done/20-vultr.md)).

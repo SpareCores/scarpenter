@@ -270,7 +270,7 @@ to the node's own `tailscale up`, typically under two minutes, and it admits one
    until step 3). Write the ADR (next free number, ADR-028 if plan 26 took no further one): per-node keys, controller-wide
    backend, ephemeral, no sweeper. Update overview §8.3, §8.6, the deferred list and Q8. Docs: SCNodeClass reference,
    node bootstrap (network templates), controller reference (flags, chart values).
-2. **`pkg/tailnet` backends.** The interface, `Secret`, error classes, limiter and `Retry-After`; the Tailscale backend
+2. **Done: `pkg/tailnet` backends.** (Done: commits `a58b8e7` and `f9f9984`, the fixes after running against Headscale 0.29.7.) The interface, `Secret`, error classes, limiter and `Retry-After`; the Tailscale backend
    (client credentials, keys, devices) and the Headscale backend (0.28+); in-memory fakes of both APIs as
    `httptest` servers in `pkg/tailnet/tailnettest` (they record calls, enforce single use, expiry, tags and Bearer
    auth, and can inject 429, 5xx and slow answers). L1 tests per backend: mint, revoke idempotent, find by IP / key

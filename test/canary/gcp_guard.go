@@ -24,7 +24,7 @@ import (
 // refused, and that every method has the IAM permission the audit and canary-policy.sh speak in.
 
 // gcpPermissions maps each method of gcp.ComputeAPI to the IAM permission its call needs
-// (docs/plans/v1/wip/16-gcp.md section 8). The writes are listed too: a refusal is recorded with
+// (docs/plans/v1/done/16-gcp.md section 8). The writes are listed too: a refusal is recorded with
 // the permission it would have needed.
 var gcpPermissions = map[string]string{
 	"InsertInstance":          "compute.instances.create",

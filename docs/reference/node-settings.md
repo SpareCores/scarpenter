@@ -3,7 +3,7 @@
 What a node is made of (disks, network features, placement), how the settings
 of a node are resolved from four layers, what profiles are, which labels say
 what was applied, and when a change drifts nodes. Design: ADR-015, ADR-017,
-ADR-020 and the node options design (`docs/plans/v1/wip/00a-node-options.md`).
+ADR-020 and the node options design (`docs/plans/v1/done/00a-node-options.md`).
 The vendor resources a node depends on are in
 [Vendor resources](vendor-resources.md); how to write profiles is in
 [Write node profiles](../how-to-guides/write-profiles.md).
