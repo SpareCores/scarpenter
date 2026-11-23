@@ -36,7 +36,7 @@ storage:
             done
             echo "$r: node annotated, deadline $d"
             exec sleep infinity ;;
-           1) f=; sleep 1 ;;
+           1) f=; sleep 2 ;;
            *) [ -n "$f" ] || echo "the notice check failed"; f=1; sleep 5 ;;
            esac
           done

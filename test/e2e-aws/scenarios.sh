@@ -7,8 +7,9 @@
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:
 #                   amd64 arm64 db described byo local negative quota drift scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
-#                   The manual scenario gpu is never part of "all": it runs only when named
-#                   (plan 12; E2E_GPU_TYPE, default aws.g4dn.xlarge).
+#                   The manual scenarios gpu and interruption are never part of "all": they run only when
+#                   named (plan 12; E2E_GPU_TYPE, default aws.g4dn.xlarge; plan 26 step 5, which needs
+#                   E2E_FIS_ROLE_ARN).
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -158,6 +159,14 @@ YAML
   render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
   NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${count}" \
     render "${here}/../gpu-pod.yaml" | kubectl apply -f -
+}
+
+# start_interruption (manual scenario interruption): fails early when no FIS role is
+# given (before anything is applied), then applies the spot Pod of the arm64 pool that
+# logs its SIGTERM.
+start_interruption() {
+  [[ -n "${E2E_FIS_ROLE_ARN}" ]] || fail "E2E_FIS_ROLE_ARN is empty: the interruption scenario needs the role AWS FIS assumes (docs/how-to-guides/testing.md#the-l5-lane)"
+  render "${here}/manifests/interruption.yaml" | kubectl apply -f -
 }
 
 # gpu_count <instance type without the vendor prefix>: the GPUs of the type, from EC2.
@@ -547,6 +556,82 @@ scn_gpu() {
   kubectl delete nodepool e2e-gpu --wait=false
 }
 
+# pod_sigterm <log file>: succeeds when the Pod's followed log has its SIGTERM line, and
+# keeps the time (the Pod is gone soon after, with its log, so the scenario follows it).
+pod_sigterm() {
+  local t
+  t="$(sed -n 's/^sigterm //p' "$1" | head -n1)"
+  [[ -n "${t}" ]] || return 1
+  setstate e2e-intr.sigterm "${t}"
+}
+
+# interruption (plan 26 step 5, manual only): a real spot interruption, sent by AWS FIS
+# (aws:ec2:send-spot-instance-interruptions: the notice at once, the termination after
+# the set time). It asserts what the plan's L5 text names: the reason on the NodeClaim, the
+# lead time left when the controller saw the notice, the Pod's SIGTERM before the deadline
+# (the Pod logs a line on SIGTERM) and the replacement. Costs one small spot instance for
+# a few minutes, twice.
+scn_interruption() {
+  start_interruption
+  settle e2e-intr
+  local node claim iid pod account arn tpl exp start deadline seen deleted term_at replacement podlog follower
+  node="$(getstate e2e-intr.node)"
+  claim="$(getstate e2e-intr.claim)"
+  iid="$(getstate e2e-intr.iid)"
+  pod="$(getstate e2e-intr.pod)"
+  assert_eq "capacity-type" spot "$(node_label "${node}" karpenter.sh/capacity-type)"
+
+  podlog="$(mktemp)"
+  kubectl logs -f "${pod}" >"${podlog}" 2>&1 &
+  follower=$!
+
+  log "FIS: an experiment that interrupts ${iid} two minutes from now"
+  account="$(cut -d: -f5 <<<"${E2E_FIS_ROLE_ARN}")"
+  arn="arn:aws:ec2:${AWS_REGION}:${account}:instance/${iid}"
+  tpl="$(aws --region "${AWS_REGION}" fis create-experiment-template --description "scarpenter ${E2E_CLUSTER} interruption" \
+    --stop-conditions source=none --role-arn "${E2E_FIS_ROLE_ARN}" \
+    --actions '{"interrupt":{"actionId":"aws:ec2:send-spot-instance-interruptions","parameters":{"durationBeforeInterruption":"PT2M"},"targets":{"SpotInstances":"victim"}}}' \
+    --targets "{\"victim\":{\"resourceType\":\"aws:ec2:spot-instance\",\"resourceArns\":[\"${arn}\"],\"selectionMode\":\"ALL\"}}" \
+    --query experimentTemplate.id --output text)"
+  # shellcheck disable=SC2064  # the IDs are known now: expand them here
+  trap "kill ${follower} 2>/dev/null || true; rm -f '${podlog}'; aws --region '${AWS_REGION}' fis delete-experiment-template --id '${tpl}' >/dev/null 2>&1 || true" EXIT
+  start="$(now)"
+  exp="$(aws --region "${AWS_REGION}" fis start-experiment --experiment-template-id "${tpl}" --query experiment.id --output text)"
+  note "interruption: experiment ${exp} started"
+
+  log "the controller reacts: Interrupted/SpotInterrupted on the NodeClaim, the agent's annotations on the Node"
+  wait_until "the NodeClaim is Interrupted" 180 \
+    is_value SpotInterrupted kubectl get nodeclaim "${claim}" -o jsonpath='{.status.conditions[?(@.type=="Interrupted")].reason}'
+  seen=$(($(now) - start))
+  assert_eq "interruption source" instance-metadata \
+    "$(kubectl get node "${node}" -o jsonpath="{.metadata.annotations.scarpenter\\.sparecores\\.com/interruption-source}")"
+  deadline="$(kubectl get node "${node}" -o jsonpath="{.metadata.annotations.scarpenter\\.sparecores\\.com/interruption-deadline}")"
+  assert_nonempty "the deadline on the Node" "${deadline}"
+  deadline="$(date -d "${deadline}" +%s)"
+  deleted="$(kubectl get nodeclaim "${claim}" -o jsonpath='{.metadata.deletionTimestamp}')"
+  assert_nonempty "the NodeClaim is being deleted" "${deleted}"
+  deleted="$(date -d "${deleted}" +%s)"
+  [[ "${deleted}" -lt "${deadline}" ]] || fail "the NodeClaim was deleted at ${deleted}, not before the deadline ${deadline}"
+  note "interruption: marked ${seen}s after the experiment started, the NodeClaim was deleted $((deadline - deleted))s before the deadline"
+
+  log "the Pod gets SIGTERM before the deadline"
+  wait_until "the Pod logged its SIGTERM" 120 pod_sigterm "${podlog}"
+  term_at="$(getstate e2e-intr.sigterm)"
+  [[ "${term_at}" -lt "${deadline}" ]] || fail "the Pod got SIGTERM at ${term_at}, not before the deadline ${deadline}"
+  note "interruption: the Pod's SIGTERM came $((deadline - term_at))s before the deadline"
+
+  log "the NodeClaim and the instance are gone, the Pod runs on a replacement"
+  wait_until "the NodeClaim gone" 300 is_empty kubectl get nodeclaim "${claim}" --ignore-not-found -o name
+  wait_until "the replacement runs the Pod" "${E2E_NODE_TIMEOUT}" pod_moved_from app=e2e-intr "${node}"
+  replacement="$(kubectl get pod -l app=e2e-intr -o jsonpath='{.items[0].spec.nodeName}')"
+  assert_nonempty "the replacement node" "${replacement}"
+  wait_until "the instance is terminated" 300 is_value terminated \
+    ec2 describe-instances --instance-ids "${iid}" --query 'Reservations[0].Instances[0].State.Name' --output text
+  assert_eq "the interruption is counted" 1 \
+    "$(metrics | awk '/^scarpenter_interruptions_total{/ && /vendor="aws"/ && /source="instance-metadata"/ { n += $NF } END { print n + 0 }')"
+  kubectl delete deployment e2e-intr --wait=false
+}
+
 # negative: NodeClasses that ask for what the default network cannot give are refused,
 # or do not use it, and nothing is launched (plan 08 review items 17 and 18, ADR-022).
 scn_negative() {
@@ -898,7 +983,7 @@ managed_groups() {
 all_scenarios=(amd64 arm64 db described byo local negative quota drift scalezero uninstall)
 # Run only when named (never by "all", the smoke set or a schedule), before the others, so that scalezero
 # and uninstall still clean up after them.
-manual_scenarios=(gpu)
+manual_scenarios=(gpu interruption)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
