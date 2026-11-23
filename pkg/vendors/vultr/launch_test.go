@@ -129,7 +129,6 @@ func TestCreateRequestRejects(t *testing.T) {
 			delete(r.Tags, vendors.TagNodeClaim)
 		}, vendors.Fatal, codeInvalid},
 		{"no user data", func(r *vendors.CreateRequest, _ *LaunchOptions) { r.UserData = nil }, vendors.Fatal, codeInvalid},
-		{"spot", func(r *vendors.CreateRequest, _ *LaunchOptions) { r.CapacityType = vendors.CapacitySpot }, vendors.Unsupported, codeUnsupportedArch},
 		{"user data over the budget", func(r *vendors.CreateRequest, _ *LaunchOptions) { r.UserData = make([]byte, MaxUserDataBytes+1) }, vendors.Fatal, codeUserDataTooBig},
 	}
 	for _, c := range cases {

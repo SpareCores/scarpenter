@@ -257,7 +257,7 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, region, zone s
 	return conformance.Fixture{
 		New:    newConformanceDriver,
 		Region: region, Zone: zone, InstanceType: testType, MaxUserData: MaxUserData,
-		InstanceTypes: all, UnknownQuotaTypes: unknown, StoresIdempotencyKey: true,
+		InstanceTypes: all, UnknownQuotaTypes: unknown, StoresIdempotencyKey: true, NoSpot: true,
 		Inject: func(t *testing.T, d vendors.Driver, class vendors.Class, req vendors.CreateRequest) {
 			t.Helper()
 			worldOf(t, d).cloud.InjectError(req.Region, "CreateServer", injected[class], 1)

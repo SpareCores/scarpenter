@@ -54,7 +54,7 @@ nothing in the repository's tests calls Hetzner (the first live run is the L5 la
 - **No public Flatcar image.** Snapshots in your own project, found by labels, global in
   the project, per architecture, not per location. The driver builds a missing one itself
   (rung 4, ADR-030), [below](#building-the-snapshot).
-- **No spot, no instance profiles, no IAM.** Every server is on-demand; the token is the
+- **No spot, no instance profiles, no IAM.** Every server is on-demand (a spot request is `Unsupported`, code `NoSpot`, before any call); the token is the
   whole credential and it is bound to one project.
 - **The root disk belongs to the server type** (20 to 960 GB): the scheduler's ephemeral
   storage is per type and a profile cannot change it.

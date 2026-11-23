@@ -140,6 +140,19 @@ func AsPreLaunch(err error) error {
 	return err
 }
 
+// CodeNoSpot is the code of the Unsupported error of a spot request to a vendor
+// that has no spot capacity.
+const CodeNoSpot = "NoSpot"
+
+// NoSpot is the error of a driver whose vendor has no spot capacity, for a
+// request with CapacityType spot. It is Unsupported (ADR-017: the node is never
+// launched on-demand under a spot NodeClaim) and PreLaunch (no vendor call was
+// made). Keeper has no spot prices for such a vendor, so the catalog does not
+// offer spot there and this is a backstop.
+func NoSpot(vendor string) error {
+	return AsPreLaunch(NewError(Unsupported, CodeNoSpot, fmt.Errorf("%s has no spot instances", vendor)))
+}
+
 // IsPreLaunch reports whether the first *Error in the chain is marked PreLaunch.
 func IsPreLaunch(err error) bool {
 	if e, ok := errors.AsType[*Error](err); ok {

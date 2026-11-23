@@ -304,6 +304,11 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
 8. **Alibaba** check script with the token, `GoneReason`, S5, opt-in L5 scenario if it can be triggered.
 9. **Spot catalog and spot-less vendors** (independent, any time): section 7 checks, `Unsupported` for spot on
    hcloud, OVH, UpCloud, conformance case, docs say "no spot" per vendor reference after S6.
+   **Done** (UpCloud left out by the maintainer: its GPU-SPOT plans stay not launched). Spot offerings come from Keeper's spot rows
+   only, no vendor list: `TestSpotOfferingsComeFromKeepersSpotRows` over the committed snapshot (spot for AWS, GCP, Azure, Alibaba;
+   none for Hetzner, OVH, Vultr; OCI in `keeper_oci_test.go`) and a price check. The launch fields of AWS, GCP, Azure, OCI and Alibaba
+   match section 7 (read in code and golden tests; the GCP 120 s notice stays step 6). `vendors.NoSpot` (`Unsupported`, code `NoSpot`,
+   `PreLaunch`) in hcloud, OVH and Vultr, conformance subtest `no spot` (fixture `NoSpot`), the vendor references. S6 (the vendors' own docs) is not run.
 
 Each step updates in the same change: the controller reference (flags, RBAC, metrics, Events, conditions), the labels
 reference (annotations), the driver contract (capabilities, `GoneReason`), node bootstrap (agent, shutdown

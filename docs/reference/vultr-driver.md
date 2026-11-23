@@ -209,7 +209,7 @@ No quota reader: the account's limits (maximum instances, maximum instance cost)
 type has an unknown quota and the reactive path applies. A limit hit on a create is `QuotaExceeded` marked **account-wide**
 (the core then gates the capacity type in every region, as the limits are the account's). Stock comes from
 `GET /v2/regions/{id}/availability` (`available_plans`), which is both the pre-call check and the `OfferingLister`. Vultr has no spot
-instances for cloud plans, so there is no capacity type but `on-demand`.
+instances for cloud plans, so there is no capacity type but `on-demand`; a spot request is `Unsupported`, code `NoSpot`, before any call.
 
 ## Billing
 

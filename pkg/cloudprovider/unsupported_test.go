@@ -16,6 +16,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
+	corev1 "k8s.io/api/core/v1"
+	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	fakedriver "github.com/SpareCores/scarpenter/pkg/vendors/fake"
@@ -33,6 +35,42 @@ func (d *unsupportedDriver) CreateInstance(context.Context, vendors.CreateReques
 		err = vendors.AsPreLaunch(err)
 	}
 	return nil, err
+}
+
+// noSpotDriver refuses a spot launch the way a vendor without spot does.
+type noSpotDriver struct{ *fakedriver.Driver }
+
+func (d *noSpotDriver) CreateInstance(ctx context.Context, req vendors.CreateRequest) (*vendors.Instance, error) {
+	if req.CapacityType == vendors.CapacitySpot {
+		return nil, vendors.NoSpot("aws")
+	}
+	return d.Driver.CreateInstance(ctx, req)
+}
+
+// A spot request refused as NoSpot marks the spot offering only: on-demand of
+// the same type and zone stays available.
+func TestCreateNoSpotMarksOnlyTheSpotOffering(t *testing.T) {
+	e := newEnv(t, envOptions{
+		attempts: 1,
+		wrap:     func(d *fakedriver.Driver) vendors.Driver { return &noSpotDriver{Driver: d} },
+	})
+	before := e.offerings("aws.m7i.large")
+	_, _ = e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}, with(req(karpv1.CapacityTypeLabelKey, corev1.NodeSelectorOpIn, "spot"))))
+	marked := 0
+	for _, o := range before {
+		if o.capacityType != vendors.CapacitySpot || !e.un.IsUnavailable(unavailableOf(o)) {
+			continue
+		}
+		marked++
+		twin := o
+		twin.capacityType = vendors.CapacityOnDemand
+		if e.un.IsUnavailable(unavailableOf(twin)) {
+			t.Errorf("on-demand %+v was marked unavailable by a refused spot request", twin)
+		}
+	}
+	if marked != 1 {
+		t.Errorf("%d spot offerings marked unavailable, want 1", marked)
+	}
 }
 
 // An Unsupported mark from the driver's own pre-launch check lasts minutes; the

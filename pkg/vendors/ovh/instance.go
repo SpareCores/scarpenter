@@ -78,6 +78,9 @@ func clusterFilter(tags map[vendors.TagKey]string) []string {
 // waits for the scheduler (CreateAndWait) so that a capacity failure falls
 // through to the next candidate.
 func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) (*vendors.Instance, error) {
+	if req.CapacityType == vendors.CapacitySpot {
+		return nil, vendors.NoSpot(Vendor)
+	}
 	if len(req.UserData) > MaxUserData {
 		return nil, vendors.NewError(vendors.Fatal, CodeUserDataTooLarge, fmt.Errorf(
 			"the user data is %d bytes; the budget is %d (a larger cluster CA or Ignition addition does not fit)",
