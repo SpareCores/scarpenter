@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,8 +61,17 @@ type launchState struct {
 	// because of quota; imageErr is the last image failure.
 	attempts int
 	skipped  int
-	imageErr error
-	lastErr  error
+	// maxAttempts and deadline are the class's launch policy; a zero deadline
+	// is no time limit.
+	maxAttempts int
+	deadline    time.Time
+	// The summary of the failed attempts, for the error: the regions and zones
+	// tried, the count per class and what ended the loop.
+	regions, zones map[string]bool
+	classes        map[vendors.Class]int
+	stopped        string
+	imageErr       error
+	lastErr        error
 	// keepToken is set when the failure may hide a launched instance.
 	keepToken bool
 	// prepared are the resources the last attempt launched with.
@@ -71,11 +81,15 @@ type launchState struct {
 // Create launches the NodeClaim (overview section 4.1): the candidate offerings
 // in price order, the first with quota headroom is reserved and launched, errors
 // of class InsufficientCapacity and QuotaExceeded fall through to the next one,
-// up to --max-launch-attempts vendor calls. When nothing is left it returns
+// up to --max-launch-attempts vendor calls (spec.launch.maxAttempts of the
+// NodeClass overrides it) and spec.launch.maxDuration. When nothing is left it returns
 // InsufficientCapacityError, and core deletes the NodeClaim.
 func (c *CloudProvider) Create(ctx context.Context, nodeClaim *karpv1.NodeClaim) (*karpv1.NodeClaim, error) {
 	started := c.opts.Clock.Now()
-	st := &launchState{nodeClaim: nodeClaim, blocked: map[string]bool{}}
+	st := &launchState{
+		nodeClaim: nodeClaim, blocked: map[string]bool{}, maxAttempts: c.opts.MaxLaunchAttempts,
+		regions: map[string]bool{}, zones: map[string]bool{}, classes: map[vendors.Class]int{}, stopped: stopNoCandidates,
+	}
 	created, err := c.create(ctx, st)
 	result := resultSuccess
 	if err != nil {
@@ -111,6 +125,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 	if err := checkNodeClassReady(nc); err != nil {
 		return nil, err
 	}
+	c.applyLaunchPolicy(st)
 	// The key manager that mints a node's key is not wired in yet.
 	if nc.Spec.Network.Tailscale.PerNode() {
 		return nil, cloudprovider.NewNodeClassNotReadyError(
@@ -151,7 +166,8 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 
 	for i := range cands {
 		cand := &cands[i]
-		if st.attempts >= c.opts.MaxLaunchAttempts {
+		if why := c.stopReason(st); why != "" {
+			st.stopped = why
 			break
 		}
 		if reason := c.skipReason(st, cand); reason != "" {
@@ -177,12 +193,15 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		st.attempts++
 		st.lastErr = err
 		class := vendors.ClassOf(err)
+		st.regions[cand.vendor+"/"+cand.region] = true
+		st.zones[cand.vendor+"/"+cand.zone] = true
+		st.classes[class]++
 		c.metrics.launches.WithLabelValues(cand.vendor, cand.region, cand.capacityType, string(class)).Inc()
 		logger.Info("launch attempt failed", "type", cand.typeName, "zone", cand.zone, "region", cand.region,
 			"capacity-type", cand.capacityType, "class", class, "error", err.Error())
 		switch class {
 		case vendors.InsufficientCapacity:
-			c.opts.Unavailable.MarkInsufficientCapacity(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
+			c.markInsufficientCapacity(st.nc, cand, vendors.IsRegionWide(err))
 		case vendors.Unsupported:
 			c.onUnsupported(logger, st, cand, err)
 		case vendors.InvalidOffering:
@@ -212,10 +231,78 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		c.publish(nc, EventImageFailed, st.imageErr.Error(), "image")
 		return nil, cloudprovider.NewCreateError(st.imageErr, "ImageResolutionFailed", truncate(st.imageErr.Error()))
 	case st.lastErr != nil:
-		return nil, cloudprovider.NewInsufficientCapacityError(launchFailure{st.lastErr})
+		return nil, cloudprovider.NewInsufficientCapacityError(launchFailure{st.lastErr, st.summary()})
 	}
 	return nil, cloudprovider.NewInsufficientCapacityError(
-		fmt.Errorf("no candidate offering had quota headroom (%d skipped)", st.skipped))
+		fmt.Errorf("no candidate offering had quota headroom (%d skipped); %s", st.skipped, st.summary()))
+}
+
+// What ended the attempts, for the summary of the error.
+const (
+	stopMaxAttempts  = "maxAttempts"
+	stopMaxDuration  = "maxDuration"
+	stopNoCandidates = "no candidates left"
+)
+
+// applyLaunchPolicy sets the limits of the Create from the flags and the
+// NodeClass's spec.launch.
+func (c *CloudProvider) applyLaunchPolicy(st *launchState) {
+	l := st.nc.Spec.Launch
+	if l == nil {
+		return
+	}
+	if l.MaxAttempts != nil {
+		st.maxAttempts = int(*l.MaxAttempts)
+	}
+	if l.MaxDuration != nil {
+		st.deadline = c.opts.Clock.Now().Add(l.MaxDuration.Duration)
+	}
+}
+
+// stopReason is why no further candidate may be tried, "" when one may. The
+// first candidate is always tried, whatever the time budget.
+func (c *CloudProvider) stopReason(st *launchState) string {
+	switch {
+	case st.attempts >= st.maxAttempts:
+		return stopMaxAttempts
+	case st.attempts > 0 && !st.deadline.IsZero() && !c.opts.Clock.Now().Before(st.deadline):
+		return stopMaxDuration
+	}
+	return ""
+}
+
+// summary is one line on the failed attempts of the launch.
+func (st *launchState) summary() string {
+	classes := make([]string, 0, len(st.classes))
+	for class, n := range st.classes {
+		classes = append(classes, fmt.Sprintf("%s:%d", class, n))
+	}
+	slices.Sort(classes)
+	if len(classes) == 0 {
+		classes = append(classes, "none")
+	}
+	return fmt.Sprintf("tried %d offerings in %d regions / %d zones; classes: %s; stopped by: %s",
+		st.attempts, len(st.regions), len(st.zones), strings.Join(classes, ","), st.stopped)
+}
+
+// markInsufficientCapacity records an InsufficientCapacity error of the
+// candidate: for every class with the global TTL, and for the launching class
+// alone when its insufficientCapacityTTL is longer. A region-wide error marks
+// the type in every zone of the region.
+func (c *CloudProvider) markInsufficientCapacity(nc *v1alpha1.SCNodeClass, cand *candidate, regionWide bool) {
+	o := unavailable.Offering{
+		Vendor: cand.vendor, InstanceType: cand.typeName, Region: cand.region, Zone: cand.zone,
+		CapacityType: cand.capacityType, NodeClass: nc.Name,
+	}
+	if regionWide {
+		o.Zone = ""
+		c.opts.Unavailable.MarkInsufficientCapacityRegion(cand.vendor, cand.typeName, cand.region, cand.capacityType)
+	} else {
+		c.opts.Unavailable.MarkInsufficientCapacity(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
+	}
+	if l := nc.Spec.Launch; l != nil && l.InsufficientCapacityTTL != nil {
+		c.opts.Unavailable.MarkInsufficientCapacityForClass(o, l.InsufficientCapacityTTL.Duration)
+	}
 }
 
 // reserveQuota reserves the quota of a launch of the candidate. It returns
@@ -280,7 +367,7 @@ func (c *CloudProvider) skipReason(st *launchState, cand *candidate) string {
 	if c.opts.Unavailable.IsUnavailable(unavailable.Offering{
 		Vendor: cand.vendor, APIReference: cand.apiReference, InstanceType: cand.typeName, Region: cand.region,
 		Zone:         cand.zone,
-		CapacityType: cand.capacityType,
+		CapacityType: cand.capacityType, NodeClass: st.nc.Name,
 	}) {
 		return skipUnavailable
 	}
@@ -357,10 +444,14 @@ func nextMidnightUTC(now time.Time) time.Time {
 	return midnight.AddDate(0, 0, 1)
 }
 
-// launchFailure is a launch error whose text is launchMessage.
-type launchFailure struct{ err error }
+// launchFailure is a launch error whose text is launchMessage of the last
+// attempt followed by the summary of all of them.
+type launchFailure struct {
+	err     error
+	summary string
+}
 
-func (f launchFailure) Error() string { return launchMessage(f.err) }
+func (f launchFailure) Error() string { return launchMessage(f.err) + "; " + f.summary }
 func (f launchFailure) Unwrap() error { return f.err }
 
 // launchMessage is the text of a launch failure on the NodeClaim's launch

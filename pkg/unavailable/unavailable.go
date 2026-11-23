@@ -100,6 +100,9 @@ type key struct {
 	capacityType string
 	// bucket is the quota bucket of a QuotaExceeded entry of one bucket.
 	bucket string
+	// nodeClass is set on an InsufficientCapacity entry that only one NodeClass
+	// sees (see MarkInsufficientCapacityForClass).
+	nodeClass string
 }
 
 // Cache holds the unavailable offerings. It is safe for concurrent use.
@@ -149,6 +152,51 @@ func (c *Cache) MarkInsufficientCapacity(vendor, instanceType, zone, capacityTyp
 	c.mark(key{
 		class: classInsufficientCapacity, vendor: vendor, instanceType: instanceType, zone: zone, capacityType: capacityType,
 	}, c.ttls.InsufficientCapacity)
+}
+
+// MarkInsufficientCapacityRegion records that the vendor has no capacity for the
+// instance type with the capacity type in any zone of the region.
+func (c *Cache) MarkInsufficientCapacityRegion(vendor, instanceType, region, capacityType string) {
+	c.mark(insufficientCapacityKey(Offering{
+		Vendor: vendor, InstanceType: instanceType, Region: region, CapacityType: capacityType,
+	}), c.ttls.InsufficientCapacity)
+}
+
+// MarkInsufficientCapacityForClass records that the offering is out of capacity
+// for the NodeClass o.NodeClass only, until ttl from now. The shared mark has
+// the global TTL; a class mark is only recorded when it outlives it, so it can
+// extend the block for its class, never shorten it. The offering's zone is empty
+// for a region-wide mark.
+func (c *Cache) MarkInsufficientCapacityForClass(o Offering, ttl time.Duration) {
+	if ttl <= c.ttls.InsufficientCapacity {
+		return
+	}
+	c.mark(insufficientCapacityKey(o), ttl)
+}
+
+// ForgetClass drops the entries that only the NodeClass sees: it was deleted.
+func (c *Cache) ForgetClass(nodeClass string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.entries {
+		if k.nodeClass == nodeClass {
+			delete(c.entries, k)
+			c.sequence.Add(1)
+		}
+	}
+}
+
+// insufficientCapacityKey is the key of the offering's InsufficientCapacity
+// entry: of its zone, or of its region when the zone is empty.
+func insufficientCapacityKey(o Offering) key {
+	k := key{
+		class: classInsufficientCapacity, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
+		capacityType: o.CapacityType, nodeClass: o.NodeClass,
+	}
+	if o.Zone == "" {
+		k.region = o.Region
+	}
+	return k
 }
 
 // MarkUnsupported records that the instance type is not offered in the zone (for
@@ -244,6 +292,9 @@ type Offering struct {
 	Region       string
 	Zone         string
 	CapacityType string
+	// NodeClass is the class the offering is asked for: the entries only that
+	// class sees count as well as the shared ones. Empty sees the shared ones.
+	NodeClass string
 }
 
 // IsUnavailable reports whether any live entry covers the offering.
@@ -252,27 +303,20 @@ func (c *Cache) IsUnavailable(o Offering) bool {
 	return ok
 }
 
-// Why returns the error class and the expiry of the first live entry that
-// covers the offering. The class is one of InsufficientCapacity, Interrupted,
-// Unsupported, QuotaExceeded, DailyLimit, InvalidOffering and ZoneUnusable.
+// Why returns the error class and the expiry of the live entry that covers the
+// offering and expires last: the first moment the offering may be launchable
+// again. The class is one of InsufficientCapacity, Interrupted, Unsupported,
+// QuotaExceeded, DailyLimit, InvalidOffering and ZoneUnusable.
 func (c *Cache) Why(o Offering) (class string, expiry time.Time, ok bool) {
-	var buckets []string
-	if c.bucketsOf != nil {
-		buckets = c.bucketsOf(o.Vendor, o.APIReference, o.CapacityType)
-	}
-	now := c.clock.Now()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	live := func(k key) bool {
-		exp, found := c.entries[k]
-		expiry = exp
-		return found && now.Before(exp)
-	}
-	for _, k := range [...]key{
-		{
-			class: classInsufficientCapacity, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
-			capacityType: o.CapacityType,
-		},
+	zoneless := o
+	zoneless.Zone = ""
+	keys := []key{
+		insufficientCapacityKey(Offering{
+			Vendor: o.Vendor, InstanceType: o.InstanceType, Zone: o.Zone, CapacityType: o.CapacityType,
+		}),
+		insufficientCapacityKey(Offering{
+			Vendor: o.Vendor, InstanceType: o.InstanceType, Region: o.Region, CapacityType: o.CapacityType,
+		}),
 		{
 			class: classInterrupted, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
 			capacityType: o.CapacityType,
@@ -286,17 +330,28 @@ func (c *Cache) Why(o Offering) (class string, expiry time.Time, ok bool) {
 		{class: classQuotaExceeded, vendor: o.Vendor, capacityType: o.CapacityType}, // account-wide
 		{class: classZoneUnusable, vendor: o.Vendor, zone: o.Zone},
 		{class: classDailyLimit, vendor: o.Vendor, region: o.Region},
-	} {
-		if live(k) {
-			return k.class.String(), expiry, true
+	}
+	if o.NodeClass != "" {
+		keys = append(keys, insufficientCapacityKey(o), insufficientCapacityKey(zoneless))
+	}
+	if c.bucketsOf != nil {
+		for _, b := range c.bucketsOf(o.Vendor, o.APIReference, o.CapacityType) {
+			keys = append(keys, key{class: classQuotaExceeded, vendor: o.Vendor, region: o.Region, bucket: b})
 		}
 	}
-	for _, b := range buckets {
-		if live(key{class: classQuotaExceeded, vendor: o.Vendor, region: o.Region, bucket: b}) {
-			return classQuotaExceeded.String(), expiry, true
+	now := c.clock.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var latest key
+	for _, k := range keys {
+		if exp, found := c.entries[k]; found && now.Before(exp) && (!ok || exp.After(expiry)) {
+			latest, expiry, ok = k, exp, true
 		}
 	}
-	return "", time.Time{}, false
+	if !ok {
+		return "", time.Time{}, false
+	}
+	return latest.class.String(), expiry, true
 }
 
 // Bump changes the sequence without changing the entries. Other components

@@ -319,8 +319,8 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 		return fmt.Errorf("registering the offered types controller: %w", err)
 	}
 	rs := resourcestatus.New(resourcestatus.Options{
-		Client: o.GetClient(), Engine: c.Resources, Regions: c.Facts, Recorder: o.EventRecorder, Clock: o.Clock,
-		Interval: opts.ResourceCheckInterval,
+		Client: o.GetClient(), Engine: c.Resources, Unavailable: c.Unavailable, Regions: c.Facts, Recorder: o.EventRecorder,
+		Clock: o.Clock, Interval: opts.ResourceCheckInterval,
 	})
 	if err := rs.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the resource status controller: %w", err)

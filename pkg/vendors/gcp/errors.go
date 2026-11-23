@@ -60,10 +60,10 @@ const (
 // reason vocabulary.
 var errorClasses = map[string]vendors.Class{
 	// Stock: the zone or region has no capacity for the type right now.
-	"ZONE_RESOURCE_POOL_EXHAUSTED":                vendors.InsufficientCapacity,
-	"ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS":   vendors.InsufficientCapacity,
-	"REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS": vendors.InsufficientCapacity,
-	"POOL_CAPACITY_INSUFFICIENT":                  vendors.InsufficientCapacity,
+	"ZONE_RESOURCE_POOL_EXHAUSTED":              vendors.InsufficientCapacity,
+	"ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS": vendors.InsufficientCapacity,
+	codeRegionPoolExhausted:                     vendors.InsufficientCapacity,
+	"POOL_CAPACITY_INSUFFICIENT":                vendors.InsufficientCapacity,
 	// A limit of the project: the metric is in the message.
 	CodeQuotaExceeded: vendors.QuotaExceeded,
 	// The type or the configuration is not offered where it was asked for.
@@ -93,6 +93,10 @@ var errorClasses = map[string]vendors.Class{
 	CodeConditionNot:   vendors.Fatal,
 	reasonConditionNot: vendors.Fatal,
 }
+
+// codeRegionPoolExhausted is the InsufficientCapacity code that says the whole
+// region, not the zone of the call, is out of stock.
+const codeRegionPoolExhausted = "REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS"
 
 // errContext is what the classification of one call knows about it.
 type errContext struct {
@@ -151,7 +155,11 @@ func classifyOpErr(e opErr, ec errContext, cause error) error {
 		return err
 	}
 	if class, ok := errorClasses[code]; ok {
-		return vendors.NewError(class, code, cause)
+		err := vendors.NewError(class, code, cause)
+		if code == codeRegionPoolExhausted {
+			return err.AsRegionWide()
+		}
+		return err
 	}
 	// reason "quotaExceeded" on an HTTP error is a resource quota; the API's own
 	// request rate limits use rateLimitExceeded.

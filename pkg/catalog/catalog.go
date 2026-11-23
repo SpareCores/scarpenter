@@ -828,7 +828,7 @@ func (c *Catalog) apply(bt *builtType, vendor, class string, f Filter, pin *pric
 func (c *Catalog) unavailableReason(bt *builtType, vendor, class string, o offeringInfo) (Reason, bool) {
 	if cls, expiry, ok := c.opts.Unavailable.Why(unavailable.Offering{
 		Vendor: vendor, APIReference: bt.server.APIReference, InstanceType: bt.it.Name, Region: o.region, Zone: o.zone,
-		CapacityType: o.capacityType,
+		CapacityType: o.capacityType, NodeClass: class,
 	}); ok {
 		return Reason{
 			Code: UnavailableCache, Detail: cls + " until " + expiry.UTC().Format(time.RFC3339), Class: cls, Until: expiry.UTC(),

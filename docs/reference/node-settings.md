@@ -168,7 +168,8 @@ are hashed separately: at launch the NodeClaim records the hash of each profile
 block it uses (`profile-hashes`), and a node drifts when one of them differs from
 the profile's current block for the vendor, or the profile was removed or lost
 its block for the vendor. Changing one profile therefore drifts only the nodes
-that use it; changing another vendor's block or profile drifts nothing.
+that use it; changing another vendor's block or profile drifts nothing. `spec.launch`
+(the [launch policy](controller.md#launch-policy)) is not in the hash.
 
 ## Network addresses and egress
 

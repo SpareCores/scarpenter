@@ -293,3 +293,27 @@ func TestListingCarriesTheClassAndTheExpiryOfCacheMarks(t *testing.T) {
 		t.Errorf("an available offering carries until: %s", raw)
 	}
 }
+
+// A type whose offerings are all marked is not available and says when the
+// first mark expires; an available type has no until.
+func TestListingTypeUntilIsTheEarliestMarkOfAnUnavailableType(t *testing.T) {
+	soon := time.Date(2026, 11, 21, 10, 5, 0, 0, time.UTC)
+	late := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
+	mark := func(until time.Time) catalog.Reason {
+		return catalog.Reason{Code: catalog.UnavailableCache, Class: "InsufficientCapacity", Until: until}
+	}
+	lt := listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+		{CapacityType: "on-demand", Zone: "z1", Reason: mark(late)},
+		{CapacityType: "spot", Zone: "z1", Reason: mark(soon)},
+	}})
+	if lt.Available || lt.Until != "2026-11-21T10:05:00Z" {
+		t.Errorf("available = %v, until = %q, want the earliest mark", lt.Available, lt.Until)
+	}
+	lt = listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+		{CapacityType: "on-demand", Zone: "z1", Reason: mark(late)},
+		{CapacityType: "spot", Zone: "z1", Available: true},
+	}})
+	if !lt.Available || lt.Until != "" {
+		t.Errorf("available type: %+v", lt)
+	}
+}

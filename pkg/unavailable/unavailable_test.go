@@ -315,3 +315,77 @@ func TestDailyLimitCoversTheRegionUntilTheResetTime(t *testing.T) {
 		t.Error("the mark outlived the reset")
 	}
 }
+
+func TestRegionInsufficientCapacityCoversEveryZoneOfTheRegion(t *testing.T) {
+	c := unavailable.New(clocktesting.NewFakeClock(time.Now()), unavailable.TTLs{})
+	c.MarkInsufficientCapacityRegion("aws", "aws.m7i.large", "us-east-1", "spot")
+	for _, zone := range []string{"us-east-1a", "us-east-1b"} {
+		if !c.IsUnavailable(with(base, func(o *unavailable.Offering) { o.Zone = zone })) {
+			t.Errorf("zone %s is not unavailable", zone)
+		}
+	}
+	for name, o := range map[string]unavailable.Offering{
+		"other region":        with(base, func(o *unavailable.Offering) { o.Region = "us-east-2" }),
+		"other capacity type": with(base, func(o *unavailable.Offering) { o.CapacityType = "on-demand" }),
+		"other type":          with(base, func(o *unavailable.Offering) { o.InstanceType = "aws.m7i.xlarge" }),
+	} {
+		if c.IsUnavailable(o) {
+			t.Errorf("%s is unavailable", name)
+		}
+	}
+}
+
+// A class mark outlives the shared one for its class only, extends but never
+// shortens, and is dropped with the class.
+func TestClassInsufficientCapacityMarkIsSeenByItsClassOnly(t *testing.T) {
+	clk := clocktesting.NewFakeClock(time.Now())
+	c := unavailable.New(clk, unavailable.TTLs{})
+	forClass := with(base, func(o *unavailable.Offering) { o.NodeClass = "bench" })
+	c.MarkInsufficientCapacity("aws", "aws.m7i.large", "us-east-1a", "spot")
+	c.MarkInsufficientCapacityForClass(forClass, time.Hour)
+
+	clk.Step(4 * time.Minute) // the shared 3 minutes are over
+	if c.IsUnavailable(base) {
+		t.Error("a class without its own mark still sees the offering after the shared TTL")
+	}
+	if c.IsUnavailable(with(base, func(o *unavailable.Offering) { o.NodeClass = "other" })) {
+		t.Error("another class sees the mark of bench")
+	}
+	_, expiry, ok := c.Why(forClass)
+	if !ok || expiry.Sub(clk.Now()) != 56*time.Minute {
+		t.Errorf("bench: unavailable = %v until %v, want its own mark for one hour", ok, expiry)
+	}
+
+	c.ForgetClass("bench")
+	if c.IsUnavailable(forClass) {
+		t.Error("the mark survived the class")
+	}
+}
+
+func TestShorterClassTTLRecordsNothing(t *testing.T) {
+	c := unavailable.New(clocktesting.NewFakeClock(time.Now()), unavailable.TTLs{})
+	c.MarkInsufficientCapacityForClass(with(base, func(o *unavailable.Offering) { o.NodeClass = "bench" }), time.Minute)
+	if n := c.Len(); n != 0 {
+		t.Errorf("%d entries, want none: a class TTL below the shared one only extends", n)
+	}
+}
+
+// With several live entries the offering is unavailable until the last of them
+// expires, and Why names that one.
+func TestWhyReturnsTheEntryThatExpiresLast(t *testing.T) {
+	clk := clocktesting.NewFakeClock(time.Now())
+	c := unavailable.New(clk, unavailable.TTLs{})
+	forClass := with(base, func(o *unavailable.Offering) { o.NodeClass = "bench" })
+	c.MarkInsufficientCapacity("aws", "aws.m7i.large", "us-east-1a", "spot")
+	c.MarkInsufficientCapacityForClass(forClass, time.Hour)
+	c.MarkUnsupported("aws", "aws.m7i.large", "us-east-1a")
+
+	class, expiry, ok := c.Why(forClass)
+	if !ok || class != "Unsupported" || expiry != clk.Now().Add(24*time.Hour) {
+		t.Errorf("Why = %s until %v (%v), want Unsupported until 24h", class, expiry, ok)
+	}
+	class, _, _ = c.Why(base)
+	if class != "Unsupported" {
+		t.Errorf("Why = %s, want Unsupported", class)
+	}
+}

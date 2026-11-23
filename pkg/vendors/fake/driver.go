@@ -446,6 +446,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			err := vendors.NewError(rule.Error, "Injected"+string(rule.Error),
 				errors.New("injected by the fake driver's ConfigMap"))
 			err.AccountWide = rule.AccountWide
+			err.RegionWide = rule.RegionWide
 			return nil, err
 		}
 	}

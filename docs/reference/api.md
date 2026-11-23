@@ -44,6 +44,7 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 | `instanceMetadata` | [object](#specinstancemetadata) |  | instanceMetadata controls which processes on a node can reach the vendor's instance metadata service. Unset means Restricted for new nodes (ADR-025); nodes launched before that keep what they have until the field is set. |
 | `kubelet` | [object](#speckubelet) | `{}` | kubelet configures the kubelet and the node capacity the scheduler assumes. |
 | `kubernetes` (required) | [object](#speckubernetes) |  | kubernetes selects the Kubernetes release (a sysext-bakery release) nodes run. |
+| `launch` | [object](#speclaunch) |  | launch is the launch retry policy of the class. |
 | `metrics` | map of [object](#specmetrics) |  | metrics define benchmark metric labels (metric-&lt;name&gt;, -pct and -per-usd) on instance types and offerings. |
 | `network` (required) | [object](#specnetwork) |  | network is the node bootstrap network template (how nodes reach the control plane). |
 | `networking` | [object](#specnetworking) | `{}` | networking is the generic network setting, identical in meaning on every vendor; vendor blocks may override it. |
@@ -143,6 +144,16 @@ kubernetes selects the Kubernetes release (a sysext-bakery release) nodes run.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `version` (required) | string |  | version of a sysext-bakery Kubernetes release, e.g. v1.37.1. Pattern `^v[0-9]+\.[0-9]+\.[0-9]+$`. |
+
+### `spec.launch`
+
+launch is the launch retry policy of the class.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `insufficientCapacityTTL` | string |  | insufficientCapacityTTL is how long this class keeps away from an offering that had no capacity. It can only extend the controller's --unavailable-insufficient-capacity-ttl for this class: every class still shares the controller's mark. At most 24h. A change applies to the marks made after it; the existing ones keep their expiry. Pattern `^([0-9]+(\.[0-9]+)?(s\|m\|h))+$`. Rule: insufficientCapacityTTL must be greater than 0 and at most 24h (`duration(self) > duration('0s') && duration(self) <= duration('24h')`). |
+| `maxAttempts` | integer (int32) |  | maxAttempts is how many vendor calls one NodeClaim creation may make before it gives up (--max-launch-attempts for this class). Candidates skipped for lack of quota headroom do not count. Minimum 1. |
+| `maxDuration` | string |  | maxDuration is the wall-clock budget of one NodeClaim creation: once it is spent, no further candidate is tried and the launch fails with InsufficientCapacity. It bounds when an attempt starts, not when it ends: the worst case is maxDuration plus one vendor call (a GCP launch may wait for the operation), and the first candidate is always tried. A Retryable error is requeued by Karpenter and starts a fresh budget. At most 4m30s, to stay under Karpenter's 5m launch timeout. Pattern `^([0-9]+(\.[0-9]+)?(s\|m\|h))+$`. Rule: maxDuration must be greater than 0 and at most 4m30s (`duration(self) > duration('0s') && duration(self) <= duration('4m30s')`). |
 
 ### `spec.metrics.*`
 

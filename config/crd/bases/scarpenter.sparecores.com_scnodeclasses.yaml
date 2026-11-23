@@ -321,6 +321,45 @@ spec:
                 required:
                 - version
                 type: object
+              launch:
+                description: launch is the launch retry policy of the class.
+                properties:
+                  insufficientCapacityTTL:
+                    description: |-
+                      insufficientCapacityTTL is how long this class keeps away from an
+                      offering that had no capacity. It can only extend the controller's
+                      --unavailable-insufficient-capacity-ttl for this class: every class
+                      still shares the controller's mark. At most 24h. A change applies to the
+                      marks made after it; the existing ones keep their expiry.
+                    pattern: ^([0-9]+(\.[0-9]+)?(s|m|h))+$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: insufficientCapacityTTL must be greater than 0 and
+                        at most 24h
+                      rule: duration(self) > duration('0s') && duration(self) <= duration('24h')
+                  maxAttempts:
+                    description: |-
+                      maxAttempts is how many vendor calls one NodeClaim creation may make
+                      before it gives up (--max-launch-attempts for this class). Candidates
+                      skipped for lack of quota headroom do not count.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  maxDuration:
+                    description: |-
+                      maxDuration is the wall-clock budget of one NodeClaim creation: once it
+                      is spent, no further candidate is tried and the launch fails with
+                      InsufficientCapacity. It bounds when an attempt starts, not when it ends:
+                      the worst case is maxDuration plus one vendor call (a GCP launch may wait
+                      for the operation), and the first candidate is always tried. A Retryable
+                      error is requeued by Karpenter and starts a fresh budget. At most 4m30s,
+                      to stay under Karpenter's 5m launch timeout.
+                    pattern: ^([0-9]+(\.[0-9]+)?(s|m|h))+$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: maxDuration must be greater than 0 and at most 4m30s
+                      rule: duration(self) > duration('0s') && duration(self) <= duration('4m30s')
+                type: object
               metrics:
                 additionalProperties:
                   description: |-
