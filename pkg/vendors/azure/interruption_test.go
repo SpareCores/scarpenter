@@ -73,6 +73,7 @@ func runCheck(t *testing.T, events string, status int) (string, int) {
 	}))
 	t.Cleanup(srv.Close)
 	script := strings.ReplaceAll(noticeCheck, "http://169.254.169.254", srv.URL)
+	script = strings.ReplaceAll(script, "/run/sc-vm", t.TempDir()+"/vm-name")
 	out, err := exec.Command("sh", "-c", "scarpenter_check() {\n"+script+"\n}\nscarpenter_check").Output()
 	if err == nil {
 		return strings.TrimSpace(string(out)), 0
@@ -97,6 +98,13 @@ func TestNoticeCheck(t *testing.T) {
 		"another event of this VM": {`{"Events":[{"EventType":"Reboot","Resources":["claim-abc"]}]}`, 200, "", 1},
 		"an unparsable deadline": {
 			strings.ReplaceAll(eventsCompact, "Tue, 20 Sep 2016 08:00:01 GMT", "soon"), 200, "SpotInterrupted", 0},
+		"a preemption with Resources before EventType": {
+			`{"Events":[{"Resources":["claim-abc"],"NotBefore":"Tue, 20 Sep 2016 08:00:01 GMT","EventType":"Preempt"}]}`,
+			200, "SpotInterrupted 2016-09-20T08:00:01Z", 0},
+		"two preemptions of this VM": {
+			`{"Events":[{"EventType":"Preempt","Resources":["claim-abc"],"NotBefore":"Tue, 20 Sep 2016 08:00:01 GMT"},` +
+				`{"EventType":"Preempt","Resources":["claim-abc"],"NotBefore":"Wed, 21 Sep 2016 09:00:00 GMT"}]}`,
+			200, "SpotInterrupted 2016-09-20T08:00:01Z", 0},
 		"a missing deadline":            {`{"Events":[{"EventType":"Preempt","Resources":["claim-abc"]}]}`, 200, "SpotInterrupted", 0},
 		"the opt-in not done yet (404)": {"", 404, "", 2},
 		"a server error":                {"", 500, "", 2},

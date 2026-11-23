@@ -102,12 +102,12 @@ with this check ([plan 26](../plans/v1/wip/26-interruption.md) section 6), which
   minutes later), so the agent starts at boot and an unanswered request is a transient error. A VM evicted inside that window has no notice and falls to
   the silent-reclaim path ([ADR-027](../explanation/DECISIONS.md)).
 - A notice is an event with `EventType` `Preempt` whose `Resources` name **this VM**. The Node's name is the NodeClaim's, not the VM's, so the check
-  reads the VM name once from `instance/compute/name` (`api-version=2021-02-01`, `format=text`). Other event types (`Reboot`, `Redeploy`,
+  reads the VM name once from `instance/compute/name` (`api-version=2021-02-01`, `format=text`) and caches it in `/run/sc-vm` (the agent runs the check in a command substitution, so a variable would not survive). Other event types (`Reboot`, `Redeploy`,
   `Freeze`, `Terminate`) and other VMs' events are ignored, as is `SpotRebalanceRecommendation`.
 - The deadline is the event's `NotBefore` (RFC 1123, `Mon, 02 Jan 2006 15:04:05 GMT`), converted to RFC 3339 with `date -u -d`; a missing or
   unconvertible value leaves the deadline out and the controller assumes the minimum notice. The controller's window is 30 s to 2 minutes.
 - The event is **not acknowledged** (`StartRequests`): approving it would end its window early, and the VM is deleted at `NotBefore` anyway.
-- The response is matched with `sed`, `tr` and `grep` (no `jq` on the node), tolerant of pretty-printed and compact JSON.
+- The response is matched with `sed`, `tr` and `grep` (no `jq` on the node), tolerant of pretty-printed and compact JSON and of the key order (the event type and the VM in `Resources` are two separate greps). With several matching events the first gives the deadline.
 - Needs `curl`, `date` with `-d`, `sed`, `tr` and `grep`: Flatcar has them. The confidential sizes boot Azure Container Linux
   ([above](#confidential-sizes)); the agent's paths (`/opt/scarpenter/bin`, the kubelet's certificate) and the metadata firewall's unit name
   (`waagent.service`) are the same there, **but the agent has not run on that image** (a confidential size as Spot is not part of the lane; whether Azure
@@ -217,7 +217,7 @@ verified on a live account: [Per-vendor cost guards](../how-to-guides/testing-an
 
 The [interruption check](#interruption) (spike S4): that `az vm simulate-eviction` produces a `Preempt` event with a 30 s `NotBefore`, the
 shape and spacing of the Scheduled Events JSON, the time until the first answer and the first event after the opt-in, that the VM name in `Resources` is
-the name of `instance/compute/name`, and the agent on Azure Container Linux.
+the name of `instance/compute/name`, whether the opt-in requires the first request to be held open longer than the check's `curl -m3`, and the agent on Azure Container Linux. The scenario waits 5 minutes after the first answer before Simulate Eviction (events may start only within 5 minutes of the opt-in); it cannot be run together with `arm64` (the preflight refuses it).
 
 Everything else, except that a VM of a confidential size (SEV-SNP and TDX, westeurope) boots from the community gallery image with
 the launch fields above, runs Ignition and starts the kubelet of the kubernetes sysext (no join to a cluster was tried).

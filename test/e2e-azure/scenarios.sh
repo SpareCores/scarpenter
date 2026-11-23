@@ -179,6 +179,10 @@ scn_preflight() {
   for t in az kubectl jq helm envsubst; do command -v "${t}" >/dev/null || fail "${t} is not installed"; done
   assert_eq "the az session's subscription is the lane's" "${AZURE_SUBSCRIPTION_ID}" "$(az account show --query id --output tsv | tr -d '\r')"
 
+  if selected_has interruption && selected_has arm64; then
+    fail "the scenarios interruption and arm64 share the Spot pool: run them in separate runs"
+  fi
+
   # 1. The resource providers (plan 17 section 2: a MissingSubscriptionRegistration is Fatal)
   # and the lane's resource group.
   local p
@@ -690,12 +694,17 @@ scn_gpu() {
 # and delete the VM at its NotBefore. The node agent (the Azure check script) must annotate the
 # Node, the controller must mark the NodeClaim and delete it, the Pod must get SIGTERM before the
 # deadline, and the replacement must not be the interrupted offering (same size, same zone, Spot).
-# Run it without arm64 (its Spot Pod would sit on the node that is evicted). UNVERIFIED until the
+# Run it without arm64 (its Spot Pod would sit on the node that is evicted; the preflight refuses
+# the combination). UNVERIFIED until the
 # first live run (spike S4: that Simulate Eviction sends a Preempt event with 30 s, and when the
 # first call of the agent registers the VM).
 scn_interruption() {
   local node claim vm pod zone t0 deadline dl_epoch lead sig sig_epoch repl repl_node logs_pid
   start_interruption
+  # Whatever happens next, the log follower and the Deployment (its Pod would be rescheduled
+  # onto the next scenarios' nodes) must not outlive the scenario.
+  logs_pid=""
+  trap 'kill "${logs_pid:-0}" 2>/dev/null || true; kubectl delete deployment e2e-intr --wait=false || true' EXIT
   settle e2e-intr
   node="$(getstate e2e-intr.node)"
   claim="$(getstate e2e-intr.claim)"
@@ -712,6 +721,10 @@ scn_interruption() {
   wait_until "Scheduled Events of ${vm} answer" "${E2E_OPTIN_TIMEOUT}" node_shell "${node}" \
     'systemd-run --quiet --pipe --wait --slice=scarpenter-metadata.slice curl -sf --max-time 3 -H Metadata:true "http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01"'
   drop_nodeshells
+  # Azure documents that events may start only within 5 minutes of the opt-in (the first answer
+  # is the latest the opt-in can have happened), so Simulate Eviction waits that long.
+  log "waiting ${E2E_OPTIN_EVENT_DELAY}s after the first answer, before the eviction"
+  sleep "${E2E_OPTIN_EVENT_DELAY}"
 
   log "evicting ${vm}"
   kubectl logs -f "${pod}" >"${E2E_OUT}/logs/interruption-pod.log" 2>&1 &
@@ -742,7 +755,8 @@ scn_interruption() {
   note "interruption: SIGTERM $((sig_epoch - t0))s after the eviction call, $((dl_epoch - sig_epoch))s before the deadline"
 
   wait_until "the NodeClaim ${claim} is gone" 180 claim_gone "${claim}"
-  assert_nonempty "the interruption metric" "$(metrics | grep -E '^scarpenter_interruptions_total\{.*vendor="azure".*reason="SpotInterrupted"' || true)"
+  # client_golang sorts the labels by name, so each label is matched on its own.
+  assert_nonempty "the interruption metric" "$(metrics | grep '^scarpenter_interruptions_total{' | grep 'vendor="azure"' | grep 'reason="SpotInterrupted"' || true)"
 
   log "the replacement"
   wait_node "a replacement Pod running on another node" "${E2E_NODE_TIMEOUT}" app=e2e-intr "${claim}" is_replacement "${node}"
@@ -751,8 +765,6 @@ scn_interruption() {
   note "interruption: the replacement is on ${repl_node} ($(node_label "${repl_node}" karpenter.sh/capacity-type), zone $(node_label "${repl_node}" topology.kubernetes.io/zone)); the interrupted offering was ${E2E_TYPE_SPOT} in zone ${zone}"
   [[ "$(node_label "${repl_node}" topology.kubernetes.io/zone)" != "${zone}" ]] ||
     fail "the replacement is Spot ${E2E_TYPE_SPOT} in the interrupted zone ${zone}"
-  kubectl delete deployment e2e-intr --wait=false
-  kill "${logs_pid}" 2>/dev/null || true
 }
 
 # claim_gone <claim>: the NodeClaim does not exist.
