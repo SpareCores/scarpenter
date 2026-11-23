@@ -91,6 +91,31 @@ report no type and stay on Flatcar like every other size.
   dropped, from inside it succeeds, and waagent runs in the slice. The image's own rules (root-owned processes only on the
   WireServer) stay in place next to it.
 
+## GPU sizes
+
+GPU sizes need nothing from the launch: they use the same Flatcar image as every other amd64 size, the default
+64 GiB root disk holds the driver sysext and CUDA images, and the size's own quota family (from the SKU table) is its
+quota bucket ([Quotas](#quotas-offerings-and-errors)). The SCSI rule applies as everywhere: a size is offered only when
+its `DiskControllerTypes` lists SCSI (or says nothing), so an NVMe-only GPU size would be dropped. NCasT4_v3 and NC A100 v4
+are SCSI; NC H100 v5 lists SCSI and NVMe [U: from Azure's documentation, not read from a SKU row]. The manual `gpu`
+scenario of the lane checks the rule against the subscription's SKU row before it launches. Which sizes the catalog offers is the vendor-neutral rule of
+[GPU types](labels-and-offerings.md#gpu-types); the driver's part is that `GPUVirtualizer` reports every `Standard_NV*`
+size as virtual: the NV series (NV v2 and v3 with the M60, NVadsA10 v5 with the A10) are visualization sizes whose GPUs
+are vGPUs on NVIDIA's GRID driver, which SCarpenter does not boot. The confidential sizes with GPUs (`NCC40ads_H100_v5`) boot an image without the NVIDIA driver, so the driver's launchable
+sizes leave them out (the catalog drops them as `NotLaunchable`: confidential GPU size, no NVIDIA path on the confidential image) and
+Karpenter never picks a size that cannot launch; the launch still refuses them as `Unsupported` (`ConfidentialGPUNotSupported`,
+[above](#confidential-sizes)) as a backstop. On Flatcar 4757.2.3:
+
+| Offered | Dropped (reason) |
+|---|---|
+| `NC*as_T4_v3` (T4), `NC*ads_A10_v4` (A10), `NC*ads_A100_v4` (A100), `NC*ads_H100_v5` and `NC*adis_H100_v5` (H100), `ND40rs_v2` (V100, proprietary driver) | `NV*` (M60, A10 v5: `GPUVirtual`), `NCC*` (confidential H100: `NotLaunchable`) |
+| with Fabric Manager: `ND96asr_v4` and `ND96amsr_A100_v4` (A100), `ND96isr_H100_v5` [U: SCSI], `ND96isr_H200_v5` [U: SCSI] | the AMD GPU sizes (`GPUManufacturer`) and fractional sizes (`GPUFractional`) |
+| | Blackwell: `NC*_xl_RTXPRO6000BSE_v6`, `ND128isr_GB200_v6`, `ND128isr_GB300_v6` (`GPUNoDriverBranch` until a release builds 580-open, or `GPUNVSwitch`) |
+
+The family quota of a new subscription is 0, so these sizes are `QuotaZero` until an increase is granted. Until a size
+has a green real run it is "offered, not yet verified"; the manual `gpu` scenario of the [L5 lane](../how-to-guides/testing.md#the-l5-lane-of-azure)
+(default `Standard_NC4as_T4_v3`) is how the maintainer runs one.
+
 ## Node settings
 
 | Block | Fields |

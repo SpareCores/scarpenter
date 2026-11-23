@@ -57,6 +57,16 @@ func TestLaunchableTypes(t *testing.T) {
 	require.Equal(t, []string{ZoneNone}, nz["Standard_D2s_v5"])
 }
 
+func TestConfidentialGPUSizeIsNotLaunchable(t *testing.T) {
+	base := SKU{Name: "Standard_NCC40ads_H100_v5", Gen2: true, SCSI: true, GPUs: 1, Zones: []string{"1"}}
+	require.True(t, base.Launchable())
+	base.Confidential = ConfidentialTDX
+	require.False(t, base.Launchable(), "confidential GPU size: no NVIDIA path on the confidential image")
+	require.Empty(t, LaunchableTypes(map[string]SKU{base.Name: base}))
+	base.GPUs = 0
+	require.True(t, base.Launchable(), "a confidential size without GPUs stays launchable")
+}
+
 func TestRegionUnusableWhenEverySizeRestricted(t *testing.T) {
 	e := newEnv(t)
 	e.sub.AddLocation("brazilus", true)

@@ -368,6 +368,8 @@ metric names per model, A100 40 and 80 GB]; the series join the confirmed list w
 series); AMD and fractional sizes fall to the core's rules. The family vCPU quotas exist. Check the SCSI-or-NVMe
 rule against `NCasT4_v3`, NC A100 v4 and NC H100 v5. Lane default `Standard_NC4as_T4_v3`.
 
+**Done (g).** `azure.Driver.Virtual` (every `Standard_NV*` size), the offering test over the snapshot (NC and ND offered, NV dropped as `GPUVirtual`), the manual `gpu` scenario in the Azure lane (`E2E_GPU_TYPE` default `azure.Standard_NC4as_T4_v3`, NodeClass with a 64 GiB root, NodePool, family-quota and SCSI checks, the size in `ci-policy.sh`), docs. No launch change (SCSI rule unchanged; NC H100 v5 lists NVMe too [U]); the lane stays out of `test/e2e-vendors.txt`.
+
 **(h) Alibaba Cloud.** `GPUVirtualizer`: `vgn*`, `sgn*`, `*-vws*`; rows without a model
 fall to the core. Quotas stay vCPU plus reactive (the per-family Quota Center is the driver's open item). Mainland
 China regions: document the mirror (D5) and the chart's image repository override (Flatcar's server, GitHub and
