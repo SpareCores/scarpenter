@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -94,11 +95,17 @@ func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*v
 	if err := vendors.CheckImageVersion(itoa(im.ID), channel, version, req); err != nil {
 		return nil, remember(err)
 	}
-	img := vendors.Image{Ref: itoa(im.ID), Channel: channel, Version: version}
+	img := vendors.Image{Ref: itoa(im.ID), Channel: channel, Version: version, RootDiskBytes: imageDiskBytes(im)}
 	d.mu.Lock()
 	d.images[key] = cachedImage{image: img, until: d.clock.Now().Add(imageTTL)}
 	d.mu.Unlock()
 	return &img, nil
+}
+
+// imageDiskBytes is the disk size of an image (the API's GB, decimal, rounded up);
+// a snapshot only boots on types with at least that much disk.
+func imageDiskBytes(im *hc.Image) int64 {
+	return int64(math.Ceil(float64(im.DiskSize))) * 1_000_000_000
 }
 
 // findImage is the lookup: the convention without a selector, the selector with.

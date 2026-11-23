@@ -302,3 +302,20 @@ func TestFlatcarImageURL(t *testing.T) {
 		t.Error(got)
 	}
 }
+
+// TestBuildRunsOnTheTypeWithTheSmallestDisk: the snapshot takes the disk size of
+// its build server, so the type comes from the live list, smallest disk first.
+func TestBuildRunsOnTheTypeWithTheSmallestDisk(t *testing.T) {
+	types := fake.DefaultServerTypes()
+	for _, st := range types {
+		if st.Name == "cpx22" {
+			st.Disk = 20
+		}
+	}
+	e := newBuildEnv(t, hcloud.WithAPI(fake.New(fake.WithServerTypes(types))))
+	e.report(t)
+	e.waitUploads(t, 1)
+	if st := e.up.uploads()[0].ServerType; st == nil || st.Name != "cpx22" {
+		t.Errorf("build type: %+v, want cpx22 (20 GB, the smallest)", st)
+	}
+}

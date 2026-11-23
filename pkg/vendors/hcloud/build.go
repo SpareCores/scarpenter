@@ -33,6 +33,9 @@ const (
 	// the snapshot it makes, with the cluster's name.
 	LabelImageBuild = "scarpenter.sparecores.com/image-build"
 
+	// buildLocation is where the build server runs (the upload library's default).
+	buildLocation = "fsn1"
+
 	imageBuildTimeout = 30 * time.Minute
 	imageBuildRetry   = 15 * time.Minute
 	sweepTimeout      = 2 * time.Minute
@@ -155,7 +158,11 @@ func (d *Driver) runBuild(k buildKey) {
 	defer cancel()
 	log := d.log.WithValues("channel", k.channel, "version", k.version, "arch", k.arch)
 	log.Info("building the Flatcar snapshot")
-	img, err := d.uploader.Upload(contextlogger.New(ctx, slog.New(logr.ToSlogHandler(log))), d.uploadOptions(k))
+	var img *hc.Image
+	opts, err := d.uploadOptions(ctx, k)
+	if err == nil {
+		img, err = d.uploader.Upload(contextlogger.New(ctx, slog.New(logr.ToSlogHandler(log))), opts)
+	}
 
 	b := &d.builds
 	b.mu.Lock()
@@ -176,8 +183,12 @@ func (d *Driver) runBuild(k buildKey) {
 	log.Info("built the Flatcar snapshot", "image", img.ID)
 }
 
-func (d *Driver) uploadOptions(k buildKey) hcloudimages.UploadOptions {
+func (d *Driver) uploadOptions(ctx context.Context, k buildKey) (hcloudimages.UploadOptions, error) {
 	ha, _ := ImageArch(k.arch)
+	st, err := d.buildServerType(ctx, ha)
+	if err != nil {
+		return hcloudimages.UploadOptions{}, err
+	}
 	labels := k.labels()
 	labels[LabelImageBuild] = LabelValue(d.cfg.ClusterName)
 	description := fmt.Sprintf("Flatcar %s %s %s", k.channel, k.version, k.arch)
@@ -187,9 +198,36 @@ func (d *Driver) uploadOptions(k buildKey) hcloudimages.UploadOptions {
 			ImageCompression: hcloudimages.CompressionBZ2,
 		},
 		Architecture: ha,
+		ServerType:   st,
+		Location:     &hc.Location{Name: buildLocation},
 		Description:  &description,
 		Labels:       labels,
+	}, nil
+}
+
+// buildServerType is the type the build server runs on: the launchable type of
+// the architecture with the smallest disk (the name breaks a tie), from the live
+// server type list. The snapshot takes the disk size of its build server, and a
+// server cannot boot a snapshot bigger than its own disk, so the smallest disk
+// makes a snapshot every type of the architecture can boot.
+func (d *Driver) buildServerType(ctx context.Context, ha hc.Architecture) (*hc.ServerType, error) {
+	types, err := d.p.ServerTypes(ctx)
+	if err != nil {
+		return nil, err
 	}
+	var best *hc.ServerType
+	for _, t := range types {
+		if t.Architecture != ha || !Launchable(t, buildLocation, d.clock.Now()) {
+			continue
+		}
+		if best == nil || t.Disk < best.Disk || t.Disk == best.Disk && t.Name < best.Name {
+			best = t
+		}
+	}
+	if best == nil {
+		return nil, fmt.Errorf("no %s server type is launchable in %s for the build server", ha, buildLocation)
+	}
+	return &hc.ServerType{Name: best.Name}, nil
 }
 
 // FlatcarImageURL is Flatcar's hetzner image of a release on its release server.

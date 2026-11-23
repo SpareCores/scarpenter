@@ -261,7 +261,40 @@ func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string
 	if err := d.ready(); err != nil {
 		return nil, err
 	}
-	return d.p.LaunchableTypes(ctx, region)
+	out, err := d.p.LaunchableTypes(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	// A snapshot only boots on a type whose disk is at least its own: drop the
+	// types too small for an image in use (the table is cached, no extra call).
+	need := d.largestImageDisk()
+	types, err := d.p.ServerTypes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range types {
+		if disk := int64(t.Disk) * 1_000_000_000; disk < need {
+			if _, ok := out[t.Name]; ok {
+				d.log.Info("type left out: image disk is bigger than the type's disk",
+					"type", t.Name, "imageDiskGB", need/1_000_000_000, "typeDiskGB", t.Disk)
+				delete(out, t.Name)
+			}
+		}
+	}
+	return out, nil
+}
+
+// largestImageDisk is the biggest disk, in bytes, of the images resolved so far.
+func (d *Driver) largestImageDisk() int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var most int64
+	for _, c := range d.images {
+		if c.err == nil {
+			most = max(most, c.image.RootDiskBytes)
+		}
+	}
+	return most
 }
 
 // Quotas implements vendors.QuotaReporter: Hetzner's limits are per project and

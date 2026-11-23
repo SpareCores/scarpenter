@@ -179,3 +179,32 @@ func TestReportImages(t *testing.T) {
 		t.Error("a transient failure")
 	}
 }
+
+// TestLaunchableTypesLeaveOutTypesSmallerThanTheImage: a snapshot only boots on
+// types with at least its disk, so the others are not offered.
+func TestLaunchableTypesLeaveOutTypesSmallerThanTheImage(t *testing.T) {
+	e := newCEnv()
+	d := e.driver(t)
+	ctx := context.Background()
+	all, err := d.LaunchableTypes(ctx, "fsn1")
+	if err != nil || len(all["cx23"]) == 0 || len(all["cpx22"]) == 0 {
+		t.Fatalf("without an image every type is launchable: %v %v", all, err)
+	}
+	e.x86.DiskSize = 80
+	if _, err := d.ResolveImage(ctx, imageReq("amd64", vendors.UseRef{})); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.LaunchableTypes(ctx, "fsn1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["cx23"]; ok {
+		t.Errorf("cx23 (40 GB) cannot boot an 80 GB image: %v", got)
+	}
+	if _, ok := got["cax11"]; ok {
+		t.Errorf("cax11 (40 GB) cannot boot an 80 GB image: %v", got)
+	}
+	if len(got["cpx22"]) == 0 || len(got["ccx13"]) == 0 {
+		t.Errorf("80 GB types stay: %v", got)
+	}
+}

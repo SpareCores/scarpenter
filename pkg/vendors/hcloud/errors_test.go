@@ -190,3 +190,20 @@ func TestBareStatus(t *testing.T) {
 		}
 	}
 }
+
+// TestImageDiskBiggerThanTypeIsUnsupported: the create error of a snapshot that
+// does not fit the type's disk arrives with a code the table calls Retryable;
+// it must not be retried.
+func TestImageDiskBiggerThanTypeIsUnsupported(t *testing.T) {
+	msg := "image disk is bigger than server type disk"
+	for _, code := range []hc.ErrorCode{hc.ErrorCodeServiceError, hc.ErrorCodeConflict, hc.ErrorCodeInvalidInput} {
+		err := classify(fmt.Errorf("wrapped: %w", hc.Error{Code: code, Message: msg}))
+		if vendors.ClassOf(err) != vendors.Unsupported || vendors.CodeOf(err) != string(code) {
+			t.Errorf("%s: class %s code %q", code, vendors.ClassOf(err), vendors.CodeOf(err))
+		}
+	}
+	err := classify(hc.ActionError{Code: "service_error", Message: msg})
+	if vendors.ClassOf(err) != vendors.Unsupported {
+		t.Errorf("action error: class %s", vendors.ClassOf(err))
+	}
+}
