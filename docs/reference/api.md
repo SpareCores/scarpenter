@@ -3205,6 +3205,7 @@ gcp configures GCP (Compute Engine) nodes.
 |---|---|---|---|
 | `imageProject` | string |  | imageProject is the project that owns the Flatcar images. Empty means the public Flatcar project (amd64) and the Spare Cores project (arm64). Pattern `^([a-z][-a-z0-9.:]{4,61}[a-z0-9])?$`. |
 | `metadata` | map of string values |  | metadata is extra instance metadata. user-data, ssh-keys, enable-oslogin and block-project-ssh-keys are reserved. |
+| `nestedVirtualization` | boolean |  | nestedVirtualization turns on nested virtualization (advancedMachineFeatures.enableNestedVirtualization) on the nodes, so that they expose /dev/kvm and the vmx flags. Off by default. Not every machine series supports it: when Compute Engine refuses the feature for a machine type, the node is launched once more without it. |
 | `networking` | [object](#specvendorsgcpnetworking) |  | networking overrides the generic spec.networking for GCP. |
 | `project` | string |  | project is the project of the nodes. The controller targets one project (--gcp-project); when set here it must equal it, so that a mismatch is a visible condition and not a launch error. Pattern `^([a-z][-a-z0-9.:]{4,61}[a-z0-9])?$`. |
 | `regions` | array of string |  | regions is the allow-list of GCP regions; empty means every region the driver can read. At most 64 items. |
