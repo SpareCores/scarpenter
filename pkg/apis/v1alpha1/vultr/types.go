@@ -84,3 +84,6 @@ func (s *Settings) GetRegions() []string {
 	}
 	return s.Regions
 }
+
+// SetRegions replaces the region allow-list.
+func (s *Settings) SetRegions(regions []string) { s.Regions = regions }

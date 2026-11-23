@@ -68,11 +68,10 @@ const (
 	ReasonVendorInvalid            = "ValidationFailed"
 	ReasonUnknownRegions           = "UnknownRegions"
 	ReasonNoUsableRegions          = "NoUsableRegions"
-	// ReasonRegionsUnavailable is the reason of RegionsUnavailable=True.
-	ReasonRegionsUnavailable = "RegionsUnavailable"
-	ReasonImagesNotReady     = "ImagesNotReady"
-	ReasonImagesFailed       = "ImageResolutionFailed"
-	ReasonImagesNotReported  = "NotReported"
+	ReasonRegionsUnavailable       = "RegionsUnavailable"
+	ReasonImagesNotReady           = "ImagesNotReady"
+	ReasonImagesFailed             = "ImageResolutionFailed"
+	ReasonImagesNotReported        = "NotReported"
 	// ReasonImagesPartial: some regions the NodeClass does not name have no image;
 	// their offerings are unavailable, the condition stays True.
 	ReasonImagesPartial        = "ImagesPartial"
@@ -144,10 +143,11 @@ type Options struct {
 	Refs     bootstrap.References
 	// Regions says which regions a driver can use (the facts); nil skips the
 	// check of the NodeClass's regions.
-	// UnavailableRegions are those of them the credentials cannot use.
+	// UnavailableRegions are those of them without zones: the credentials cannot
+	// use them (unusable) or reading them failed and is retried (retrying).
 	Regions interface {
 		Regions(vendor string) []string
-		UnavailableRegions(vendor string) []string
+		UnavailableRegions(vendor string) (unusable, retrying []string)
 	}
 	// ImageGate, if set, is told the regions without a boot image, whose offerings
 	// are then unavailable (overview section 9).
@@ -522,7 +522,8 @@ func (c *Controller) vendor(
 		vs.Hash = hash
 	}
 
-	ready, reason, msg := c.vendorReady(ctx, desired, vendor)
+	rv := c.checkRegions(desired, vendor)
+	ready, reason, msg := c.vendorReady(ctx, desired, vendor, rv, existing)
 	cond(v1alpha1.VendorConditionReady, ready, reason, msg)
 	if !ready {
 		c.warn(desired, EventVendorNotReady, fmt.Sprintf("vendor %s: %s: %s", vendor, reason, msg), vendor)
@@ -530,7 +531,7 @@ func (c *Controller) vendor(
 
 	c.warnDeprecatedHardening(desired, vendor)
 	if ready {
-		if cond, ok := c.regionsUnavailable(ctx, desired, vendor, existing, now); ok {
+		if cond, ok := c.regionsUnavailable(ctx, desired, vendor, rv, existing, now); ok {
 			vs.Conditions = append(vs.Conditions, cond)
 		}
 		if msg := c.configurationWarnings(desired, vendor); msg != "" {
@@ -539,14 +540,12 @@ func (c *Controller) vendor(
 			vs.Conditions = append(vs.Conditions, w)
 			// One event when the warning appears or changes, not one per reconcile:
 			// the condition carries it from then on.
-			if !slices.ContainsFunc(existing, func(prev status.Condition) bool {
-				return prev.Type == w.Type && prev.Status == w.Status && prev.Message == w.Message
-			}) {
+			if conditionChanged(existing, w) {
 				c.warn(desired, EventConfigurationWarning, fmt.Sprintf("vendor %s: %s", vendor, msg), vendor)
 			}
 		}
 	}
-	images, ok, reason, msg := c.images(ctx, desired, vendor, ready)
+	images, ok, reason, msg := c.images(ctx, desired, vendor, ready, rv.withoutZones())
 	kept := false
 	if reason == ReasonImagesFailed {
 		// A lookup that failed (throttling, a timeout) is no verdict: keep the last one,
@@ -571,21 +570,28 @@ func (c *Controller) vendor(
 // vendorReady checks the enabled driver, the regions and the driver's own
 // validation of the vendor block.
 func (c *Controller) vendorReady(
-	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string,
+	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, rv regionVerdict, existing []status.Condition,
 ) (ready bool, reason, msg string) {
 	drv, ok := c.opts.Registry.Driver(vendor)
 	if !ok {
 		return false, ReasonVendorNotEnabled, fmt.Sprintf("no driver serves the vendor %q (enabled: %s)",
 			vendor, strings.Join(c.opts.Registry.Vendors(), ", "))
 	}
-	want, unknown, unavailable := c.checkRegions(nc, vendor)
-	if len(unknown) > 0 {
+	switch {
+	case rv.pending:
+		// No verdict yet: a region-based refusal stays as it was.
+		for _, prev := range existing {
+			if prev.Type == v1alpha1.VendorConditionReady && prev.Status == metav1.ConditionFalse &&
+				(prev.Reason == ReasonUnknownRegions || prev.Reason == ReasonNoUsableRegions) {
+				return false, prev.Reason, prev.Message
+			}
+		}
+	case len(rv.unknown) > 0:
 		return false, ReasonUnknownRegions, trim(fmt.Sprintf(
-			"the vendor has no regions %s (neither the driver nor Keeper knows them)", strings.Join(unknown, ", ")))
-	}
-	if len(want) > 0 && len(unavailable) == len(want) {
+			"the vendor has no regions %s (neither the driver nor Keeper knows them)", strings.Join(rv.unknown, ", ")))
+	case len(rv.want) > 0 && len(rv.unavailable) == len(rv.want):
 		return false, ReasonNoUsableRegions, trim(fmt.Sprintf("none of the regions can be used: %s",
-			strings.Join(unavailable, ", ")))
+			strings.Join(rv.unavailable, ", ")))
 	}
 	if v, ok := drv.(vendors.NodeClassValidator); ok {
 		if err := v.ValidateNodeClass(ctx, nc); err != nil {
@@ -614,63 +620,106 @@ func (c *Controller) vendorReady(
 	return true, ReasonReady, ""
 }
 
-// checkRegions sorts the regions the NodeClass names for the vendor. unknown
-// ones exist for neither the driver nor Keeper (a typo): the NodeClass is
-// invalid. unavailable ones exist, but the credentials cannot use them (an
-// opt-in region not enabled, a location not in the subscription) or their zones
-// could not be read yet: they have no offerings, the others are unaffected.
-// Nothing is reported until the driver's regions are loaded.
-func (c *Controller) checkRegions(nc *v1alpha1.SCNodeClass, vendor string) (want, unknown, unavailable []string) {
+// regionVerdict sorts the regions the NodeClass names for a vendor.
+type regionVerdict struct {
+	want []string
+	// unknown ones exist for neither the driver nor Keeper (a typo): invalid.
+	unknown []string
+	// unavailable ones exist, but the credentials cannot use them (an opt-in
+	// region not enabled, a location not in the subscription).
+	unavailable []string
+	// retrying ones could not have their zones read yet (retried with backoff).
+	retrying []string
+	// pending: the driver's regions or Keeper's are not loaded (a restart, a new
+	// leader), so there is no verdict and the previous one stays.
+	pending bool
+}
+
+// withoutZones are the regions that have no offerings for lack of a read.
+func (v regionVerdict) withoutZones() []string { return slices.Concat(v.unavailable, v.retrying) }
+
+// checkRegions classifies the regions the NodeClass names for the vendor. A name
+// Keeper knows is compared by its vendor name, so an alias or ID of a region the
+// driver lists is usable.
+func (c *Controller) checkRegions(nc *v1alpha1.SCNodeClass, vendor string) regionVerdict {
 	if c.opts.Regions == nil {
-		return nil, nil, nil
+		return regionVerdict{}
 	}
-	want, _ = nc.Spec.Vendors.Regions(vendor)
+	v := regionVerdict{}
+	v.want, _ = nc.Spec.Vendors.Regions(vendor)
 	known := c.opts.Regions.Regions(vendor)
 	if len(known) == 0 {
-		return want, nil, nil
+		v.pending = len(v.want) > 0
+		return v
 	}
-	noZones := c.opts.Regions.UnavailableRegions(vendor)
-	for _, r := range want {
+	unusable, retrying := c.opts.Regions.UnavailableRegions(vendor)
+	for _, r := range v.want {
+		name := r
+		if !slices.Contains(known, r) {
+			apiName, found, loaded := c.opts.Catalog.RegionName(vendor, r)
+			switch {
+			case !loaded:
+				v.pending = true
+				continue
+			case !found:
+				v.unknown = append(v.unknown, r)
+				continue
+			}
+			name = apiName
+		}
 		switch {
-		case slices.Contains(noZones, r):
-			unavailable = append(unavailable, r)
-		case slices.Contains(known, r):
-		default:
-			// The driver does not list it: a name Keeper knows is a region the
-			// account cannot use; one it does not know (with Keeper's regions
-			// loaded) is a typo.
-			if keeperKnows, loaded := c.opts.Catalog.KnowsRegion(vendor, r); keeperKnows || !loaded {
-				unavailable = append(unavailable, r)
-			} else {
-				unknown = append(unknown, r)
+		case slices.Contains(unusable, name) || !slices.Contains(known, name):
+			v.unavailable = append(v.unavailable, r)
+		case slices.Contains(retrying, name):
+			v.retrying = append(v.retrying, r)
+		}
+	}
+	return v
+}
+
+// regionsUnavailable returns the vendor condition RegionsUnavailable
+// (abnormal-true, informational) while some regions of a ready vendor have no
+// offerings, and says so in the log and in one Event per change of the set.
+// Without a verdict (the facts are not loaded) the previous condition stays.
+func (c *Controller) regionsUnavailable(
+	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, v regionVerdict, existing []status.Condition,
+	now metav1.Time,
+) (status.Condition, bool) {
+	if v.pending {
+		for _, prev := range existing {
+			if prev.Type == v1alpha1.VendorConditionRegionsUnavailable {
+				prev.ObservedGeneration = nc.Generation
+				return prev, true
 			}
 		}
 	}
-	return want, unknown, unavailable
-}
-
-// regionsUnavailable sets the vendor condition RegionsUnavailable (abnormal-true,
-// informational) while some regions of a ready vendor cannot be used, and says so
-// in the log and in one Event per change of the set.
-func (c *Controller) regionsUnavailable(
-	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, existing []status.Condition, now metav1.Time,
-) (status.Condition, bool) {
-	_, _, unavailable := c.checkRegions(nc, vendor)
-	if len(unavailable) == 0 {
+	if len(v.withoutZones()) == 0 {
 		return status.Condition{}, false
 	}
-	msg := trim("no offerings in these regions, the credentials cannot use them or their zones could not be read: " +
-		strings.Join(unavailable, ", "))
+	var parts []string
+	if len(v.unavailable) > 0 {
+		parts = append(parts, "the credentials cannot use: "+strings.Join(v.unavailable, ", "))
+	}
+	if len(v.retrying) > 0 {
+		parts = append(parts, "zones could not be read yet, retrying: "+strings.Join(v.retrying, ", "))
+	}
+	msg := "no offerings in some regions, " + strings.Join(parts, "; ")
 	cond := vendorCondition(existing, v1alpha1.VendorConditionRegionsUnavailable,
 		true, ReasonRegionsUnavailable, msg, nc.Generation, now)
-	if !slices.ContainsFunc(existing, func(prev status.Condition) bool {
-		return prev.Type == cond.Type && prev.Status == cond.Status && prev.Message == cond.Message
-	}) {
-		log.FromContext(ctx).Info("regions of the NodeClass cannot be used, the vendor keeps its other regions",
-			"nodeclass", nc.Name, "vendor", vendor, "regions", unavailable)
-		c.warn(nc, EventRegionsUnavailable, fmt.Sprintf("vendor %s: %s", vendor, msg), vendor)
+	if conditionChanged(existing, cond) {
+		log.FromContext(ctx).Info("regions of the NodeClass have no offerings, the vendor keeps its other regions",
+			"nodeclass", nc.Name, "vendor", vendor, "unavailable", v.unavailable, "retrying", v.retrying)
+		c.warn(nc, EventRegionsUnavailable, fmt.Sprintf("vendor %s: %s", vendor, cond.Message), vendor)
 	}
 	return cond, true
+}
+
+// conditionChanged says the condition is new or has another status or message
+// than the one in existing: the moment for an Event, not every reconcile.
+func conditionChanged(existing []status.Condition, cond status.Condition) bool {
+	return !slices.ContainsFunc(existing, func(prev status.Condition) bool {
+		return prev.Type == cond.Type && prev.Status == cond.Status && prev.Message == cond.Message
+	})
 }
 
 // checkBootstrapReachable refuses a NodeClass whose nodes have no IPv4 (publicIPv4
@@ -723,7 +772,7 @@ func bringsNetwork(raw json.RawMessage) bool {
 // resolves them at launch and counts as ready. Images are informational: a
 // region without one has unavailable offerings, the NodeClass stays Ready.
 func (c *Controller) images(
-	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, vendorReady bool,
+	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, vendorReady bool, noZones []string,
 ) (images []v1alpha1.ImageStatus, ready bool, reason, msg string) {
 	drv, ok := c.opts.Registry.Driver(vendor)
 	if !ok || !vendorReady {
@@ -732,6 +781,15 @@ func (c *Controller) images(
 	reporter, ok := drv.(vendors.ImageReporter)
 	if !ok {
 		return nil, true, ReasonImagesNotReported, "the driver resolves images at launch"
+	}
+	// The regions without zones have no offerings: no images are asked for them.
+	if named, _ := nc.Spec.Vendors.Regions(vendor); len(named) > 0 && len(noZones) > 0 {
+		keep := slices.DeleteFunc(slices.Clone(named), func(r string) bool { return slices.Contains(noZones, r) })
+		if len(keep) == 0 {
+			return nil, false, ReasonImagesNotReady, "none of the regions can be used yet"
+		}
+		nc = nc.DeepCopy()
+		nc.Spec.Vendors.SetRegions(vendor, keep)
 	}
 	images, err := reporter.ReportImages(ctx, nc)
 	if err != nil {
