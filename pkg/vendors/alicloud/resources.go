@@ -340,13 +340,29 @@ func (d *Driver) regionsOf(ctx context.Context, regions []string) ([]string, err
 	if err != nil {
 		return nil, err
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	var usable []string
 	for _, r := range all {
+		if d.unusable[r.Name] {
+			continue
+		}
 		if len(regions) == 0 || slices.Contains(regions, r.Name) {
 			usable = append(usable, r.Name)
 		}
 	}
 	return usable, nil
+}
+
+// markUnusable remembers a region the account lists but cannot call, until the
+// next refresh of the regions, and logs it once.
+func (d *Driver) markUnusable(region string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.unusable[region] {
+		d.unusable[region] = true
+		d.log.V(1).Info("skipping a region the account cannot use", "region", region)
+	}
 }
 
 // List implements vendors.ManagedResources: the managed resources carrying all the
@@ -367,6 +383,7 @@ func (d *Driver) List(
 			refs, err := list(ctx, region, tags)
 			if err != nil {
 				if vendors.IsClass(err, vendors.RegionUnavailable) || isCode(err, regionDeniedCodes...) {
+					d.markUnusable(region)
 					break
 				}
 				return nil, fmt.Errorf("listing the managed resources of %s: %w", region, err)

@@ -9,6 +9,7 @@ package alicloud
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -88,7 +89,18 @@ type Driver struct {
 	vsw      map[string]cachedVSwitch
 	sgVPC    map[string]cachedSG
 	launched map[vendors.InstanceRef]time.Time
+	// diskTypes lists, per zone and system disk category, the types that take
+	// the category (LaunchableTypes reads it); a zone and category without an
+	// entry are unknown, and Supported does not refuse them. diskCats are the
+	// categories to read: the default and the ones a profile asked for.
+	diskTypes map[zoneDisk][]string
+	diskCats  map[string]bool
+	// unusable are the regions the account lists but cannot call
+	// (InvalidRegionId.NotFound); the next refresh of the regions forgets them.
+	unusable map[string]bool
 }
+
+type zoneDisk struct{ zone, category string }
 
 // cached is a value with an expiry.
 type cached[T any] struct {
@@ -112,6 +124,8 @@ func New(opts ...Option) *Driver {
 	d := &Driver{
 		zones: map[string]*cached[[]vendors.Zone]{}, images: map[imageKey]cachedImage{}, nvmeOf: map[string]bool{},
 		vsw: map[string]cachedVSwitch{}, sgVPC: map[string]cachedSG{}, launched: map[vendors.InstanceRef]time.Time{},
+		diskTypes: map[zoneDisk][]string{}, diskCats: map[string]bool{},
+		unusable: map[string]bool{},
 	}
 	for _, o := range opts {
 		o(d)
@@ -198,6 +212,7 @@ func (d *Driver) Regions(ctx context.Context) ([]vendors.Region, error) {
 	}
 	d.mu.Lock()
 	d.regions.set(regions, d.clock.Now().Add(regionsTTL))
+	clear(d.unusable)
 	d.mu.Unlock()
 	return slices.Clone(regions), nil
 }
@@ -245,6 +260,14 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	}
 	if err := d.checkImageFits(req); err != nil {
 		return nil, err
+	}
+	if st, err := decodeSettings(req.Settings); err == nil {
+		c, ok := d.systemDiskCategory(req.InstanceType, req.Zone, st)
+		if !ok {
+			return nil, vendors.NewError(vendors.Unsupported, "NoSystemDiskCategory", fmt.Errorf(
+				"%s takes none of the system disk categories in %s", req.InstanceType, req.Zone))
+		}
+		lr.SystemDiskCategory = c
 	}
 	inst, err := d.cloud.CreateInstance(ctx, req, lr)
 	if err != nil {
@@ -308,13 +331,22 @@ func (d *Driver) FindInstance(
 func (d *Driver) ListInstances(
 	ctx context.Context, regions []string, tags map[vendors.TagKey]string,
 ) ([]*vendors.Instance, error) {
-	var known []string
+	var out []*vendors.Instance
 	for _, r := range regions {
-		if d.knownRegion(ctx, r) {
-			known = append(known, r)
+		if !d.knownRegion(ctx, r) {
+			continue
 		}
+		insts, err := d.cloud.ListInstances(ctx, []string{r}, tags)
+		if err != nil {
+			if vendors.IsClass(err, vendors.RegionUnavailable) || isCode(err, regionDeniedCodes...) {
+				d.markUnusable(r)
+				continue
+			}
+			return nil, err
+		}
+		out = append(out, insts...)
 	}
-	return d.cloud.ListInstances(ctx, known, tags)
+	return out, nil
 }
 
 // DeleteInstance implements vendors.Driver.
@@ -340,7 +372,10 @@ func (d *Driver) knownRegion(ctx context.Context, region string) bool {
 	if err != nil {
 		return true
 	}
-	return slices.ContainsFunc(regions, func(r vendors.Region) bool { return r.Name == region })
+	d.mu.Lock()
+	unusable := d.unusable[region]
+	d.mu.Unlock()
+	return !unusable && slices.ContainsFunc(regions, func(r vendors.Region) bool { return r.Name == region })
 }
 
 // ---- quotas and offerings ------------------------------------------------------
@@ -389,6 +424,7 @@ func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string
 		names = append(names, typ)
 	}
 	slices.Sort(names)
+	d.loadDiskTypes(ctx, region)
 	before := d.cloud.Types.Len()
 	if err := d.cloud.LoadTypes(ctx, region, names); err != nil {
 		return nil, fmt.Errorf("reading the instance types of %s: %w", region, err)
@@ -397,6 +433,74 @@ func (d *Driver) LaunchableTypes(ctx context.Context, region string) (map[string
 		d.bumpEpoch()
 	}
 	return out, nil
+}
+
+// loadDiskTypes reads, per system disk category in use, which types take it in
+// each zone (one more DescribeAvailableResource per category and region, on
+// the cadence of LaunchableTypes). A failure keeps the previous answer: the
+// launch error is the backstop.
+func (d *Driver) loadDiskTypes(ctx context.Context, region string) {
+	d.mu.Lock()
+	cats := slices.Sorted(maps.Keys(d.diskCats))
+	cats = append(cats, systemDiskFallback...)
+	d.mu.Unlock()
+	slices.Sort(cats)
+	cats = slices.Compact(cats)
+	changed := false
+	for _, category := range cats {
+		byZone, err := d.cloud.SystemDiskTypes(ctx, region, category)
+		if err != nil {
+			d.log.V(1).Info("reading the types of a system disk category failed",
+				"region", region, "category", category, "error", err.Error())
+			continue
+		}
+		d.mu.Lock()
+		for zone, names := range byZone {
+			k := zoneDisk{zone, category}
+			if old, ok := d.diskTypes[k]; !ok || !slices.Equal(old, names) {
+				d.diskTypes[k] = names
+				changed = true
+			}
+		}
+		d.mu.Unlock()
+	}
+	if changed {
+		d.bumpEpoch()
+	}
+}
+
+// systemDiskFallback is the order of the system disk categories tried for a
+// type that refuses the NodeClass's default (ecs.xn4 and the other old
+// generations take cloud_efficiency and cloud_ssd only).
+var systemDiskFallback = []string{CategoryESSD, CategorySSD, CategoryEfficiency}
+
+// systemDiskCategory chooses the system disk category of a type in a zone from
+// the categories the vendor reports it takes (loadDiskTypes). A NodeClass that
+// sets storage.root.category pins it: the type either takes it or is not
+// offered. Without one the built-in cloud_essd is tried first, then
+// systemDiskFallback in order. ok is false when no category fits. A zone whose
+// categories are not read yet takes the requested one, and the launch error is
+// the backstop.
+func (d *Driver) systemDiskCategory(instanceType, zone string, st Settings) (category string, ok bool) {
+	requested := rootDisk(st).Category
+	pinned := st.Storage != nil && st.Storage.Root != nil && st.Storage.Root.Category != ""
+	candidates := []string{requested}
+	if pinned {
+		d.mu.Lock()
+		d.diskCats[requested] = true
+		d.mu.Unlock()
+	} else {
+		candidates = append(candidates, systemDiskFallback...)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, c := range candidates {
+		types, known := d.diskTypes[zoneDisk{zone, c}]
+		if !known || slices.Contains(types, instanceType) {
+			return c, true
+		}
+	}
+	return "", false
 }
 
 // ---- billing --------------------------------------------------------------------

@@ -110,6 +110,44 @@ func (c *Cloud) LaunchableTypes(ctx context.Context, region, capacityType string
 	if capacityType == vendors.CapacitySpot {
 		in.SpotStrategy = new("SpotAsPriceGo")
 	}
+	byZone, err := c.availableTypes(ctx, cl, in)
+	if err != nil {
+		return nil, err
+	}
+	types := map[string][]string{}
+	for zone, names := range byZone {
+		for _, name := range names {
+			types[name] = append(types[name], zone)
+		}
+	}
+	for _, zones := range types {
+		slices.Sort(zones)
+	}
+	return types, nil
+}
+
+// SystemDiskTypes maps each zone of the region to the launchable types that
+// take the system disk category: the same DescribeAvailableResource call as
+// LaunchableTypes with SystemDiskCategory set, so the vendor's own data says
+// which types refuse the category (the old generations refuse cloud_essd). A
+// zone the answer does not list is not in the map.
+func (c *Cloud) SystemDiskTypes(ctx context.Context, region, category string) (map[string][]string, error) {
+	cl, err := c.Clients(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	return c.availableTypes(ctx, cl, &ecs.DescribeAvailableResourceRequest{
+		RegionId: new(region), DestinationResource: new("InstanceType"),
+		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"),
+		SystemDiskCategory: new(category),
+	})
+}
+
+// availableTypes runs DescribeAvailableResource and returns, per zone, the
+// sorted launchable types with stock.
+func (c *Cloud) availableTypes(
+	ctx context.Context, cl Clients, in *ecs.DescribeAvailableResourceRequest,
+) (map[string][]string, error) {
 	out, err := call(ctx, c, callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DescribeAvailableResourceResponseBody, error) {
 			return cl.ECS.DescribeAvailableResource(ctx, in)
@@ -117,30 +155,31 @@ func (c *Cloud) LaunchableTypes(ctx context.Context, region, capacityType string
 	if err != nil {
 		return nil, err
 	}
-	types := map[string][]string{}
+	byZone := map[string][]string{}
 	if out.AvailableZones == nil {
-		return types, nil
+		return byZone, nil
 	}
 	for _, z := range out.AvailableZones.AvailableZone {
 		zone := deref(z.ZoneId)
-		if zone == "" || z.AvailableResources == nil {
+		if zone == "" {
 			continue
 		}
-		for _, ar := range z.AvailableResources.AvailableResource {
-			if ar.SupportedResources == nil {
-				continue
-			}
-			for _, sr := range ar.SupportedResources.SupportedResource {
-				name := deref(sr.Value)
-				if deref(sr.Status) != StatusAvailable || !Launchable(name) || slices.Contains(types[name], zone) {
+		names := byZone[zone]
+		if z.AvailableResources != nil {
+			for _, ar := range z.AvailableResources.AvailableResource {
+				if ar.SupportedResources == nil {
 					continue
 				}
-				types[name] = append(types[name], zone)
+				for _, sr := range ar.SupportedResources.SupportedResource {
+					name := deref(sr.Value)
+					if deref(sr.Status) == StatusAvailable && Launchable(name) && !slices.Contains(names, name) {
+						names = append(names, name)
+					}
+				}
 			}
 		}
+		slices.Sort(names)
+		byZone[zone] = names
 	}
-	for _, zones := range types {
-		slices.Sort(zones)
-	}
-	return types, nil
+	return byZone, nil
 }

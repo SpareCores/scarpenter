@@ -117,6 +117,7 @@ var fatalCodes = []string{
 // (classifyRegionRead turns them into RegionUnavailable).
 var regionDeniedCodes = []string{
 	"RegionUnauthorized",
+	"InvalidRegionId.NotFound",    // listed by DescribeRegions, refused by the regional endpoint
 	"InvalidRegion.NotSupport",    // U
 	"RealNameAuthenticationError", // U
 }
