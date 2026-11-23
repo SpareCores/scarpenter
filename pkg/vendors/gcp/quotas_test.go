@@ -111,6 +111,7 @@ func TestQuotaExceededIsReactive(t *testing.T) {
 func TestLaunchableTypes(t *testing.T) {
 	e := newEnv(t, envOptions{bare: true})
 	e.c.AddMachineType(fake.SeedZoneA, "a2-highgpu-1g", 12, 1, "X86_64")
+	e.c.AddMachineType(fake.SeedZoneA, "ct5lp-hightpu-1t", 24, 1, "X86_64")
 	e.c.AddMachineType(fake.SeedZoneA, "n2-custom-4-8192", 4, 8192, "X86_64")
 	e.c.AddMachineType(fake.SeedZoneA, "c3-standard-192-metal", 192, 1, "X86_64")
 	e.c.RemoveMachineType(fake.SeedZoneB, "e2-small")
@@ -118,10 +119,14 @@ func TestLaunchableTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dropped := range []string{"a2-highgpu-1g", "n2-custom-4-8192", "c3-standard-192-metal"} {
+	for _, dropped := range []string{"ct5lp-hightpu-1t", "n2-custom-4-8192", "c3-standard-192-metal"} {
 		if _, ok := types[dropped]; ok {
 			t.Errorf("%s is offered", dropped)
 		}
+	}
+	// The GPU series are offered; the TPU series are not.
+	if _, ok := types["a2-highgpu-1g"]; !ok {
+		t.Error("a2-highgpu-1g is not offered")
 	}
 	// A machine type a zone does not list is not offered there.
 	if zs := types["e2-small"]; len(zs) != 1 || zs[0] != "2000" {

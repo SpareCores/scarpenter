@@ -21,7 +21,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/nvidia"
+	"github.com/SpareCores/scarpenter/pkg/vendors/alicloud"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
+	"github.com/SpareCores/scarpenter/pkg/vendors/azure"
 )
 
 // virtualFacts reports the listed types as having a virtual GPU.
@@ -243,6 +245,82 @@ func TestOVHOffersItsNVIDIAFlavors(t *testing.T) {
 	}
 	if it := byName(its, "ovh.t1-45"); it != nil && it.Requirements.Get(v1alpha1.LabelNVIDIADriverFlavor).Any() != "proprietary" {
 		t.Error("the V100 flavors take the proprietary driver")
+	}
+}
+
+// alicloudVirtualFacts answers VirtualGPU as the Alibaba Cloud driver does.
+type alicloudVirtualFacts struct{ catalog.StaticFacts }
+
+func (alicloudVirtualFacts) VirtualGPU(_, apiReference string) bool {
+	return (&alicloud.Driver{}).Virtual(apiReference)
+}
+
+// TestAlicloudOffersTheNVIDIAFamiliesOfThePlan is the Alibaba Cloud list of plan 12 on 4757.2.3
+// over the snapshot: the whole-GPU families of a known model are offered; the vGPU families
+// (vgn, sgn, vws) and the rows without a model or manufacturer are not (the bare metal ebm families
+// stay in the catalog and are refused by the driver's launchable set).
+func TestAlicloudOffersTheNVIDIAFamiliesOfThePlan(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_, its := gpuCatalog(t, "4757.2.3", alicloudVirtualFacts{catalogtest.Facts(t, "alicloud")}, reg, "alicloud")
+	for _, name := range []string{
+		"alicloud.ecs.gn6i-c4g1.xlarge", "alicloud.ecs.gn6v-c8g1.2xlarge", "alicloud.ecs.gn6e-c12g1.3xlarge",
+		"alicloud.ecs.gn7i-c8g1.2xlarge", "alicloud.ecs.gn7i-c32g1.32xlarge", "alicloud.ecs.gn6e-c12g1.24xlarge",
+		"alicloud.ecs.gn5-c8g1.2xlarge", "alicloud.ecs.gn5i-c4g1.xlarge",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{
+		"alicloud.ecs.vgn6i-m4-vws.xlarge", "alicloud.ecs.vgn6i-m16-vws.5xlarge", "alicloud.ecs.sgn7i-vws-m2.xlarge",
+		"alicloud.ecs.sgn8ia-m2.xlarge", "alicloud.ecs.gn8v.4xlarge", "alicloud.ecs.gn9gc.4xlarge",
+	} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
+	}
+	got := droppedGauge(t, reg)
+	for _, key := range []string{"c/alicloud/GPUVirtual", "c/alicloud/GPUFractional"} {
+		if got[key] < 1 {
+			t.Errorf("%s = %v (all: %v)", key, got[key], got)
+		}
+	}
+}
+
+// azureVirtualFacts answers VirtualGPU as the Azure driver does.
+type azureVirtualFacts struct{ catalog.StaticFacts }
+
+func (azureVirtualFacts) VirtualGPU(_, apiReference string) bool {
+	return (&azure.Driver{}).Virtual(apiReference)
+}
+
+// TestAzureOffersTheNVIDIASizesOfThePlan is the Azure list of plan 12 on 4757.2.3 over the
+// snapshot: the NC and ND sizes (passthrough GPUs, the 8-GPU A100, H100 and H200 with Fabric
+// Manager) are offered, the NV sizes (GRID vGPUs) are not. (The confidential NCC H100 size is dropped
+// by the driver's launchable sizes, SKU.Launchable, not by the NVIDIA rules.)
+func TestAzureOffersTheNVIDIASizesOfThePlan(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_, its := gpuCatalog(t, "4757.2.3", azureVirtualFacts{catalogtest.Facts(t, "azure")}, reg, "azure")
+	for _, name := range []string{
+		"azure.Standard_NC4as_T4_v3", "azure.Standard_NC64as_T4_v3", "azure.Standard_NC16ads_A10_v4",
+		"azure.Standard_NC24ads_A100_v4", "azure.Standard_NC96ads_A100_v4", "azure.Standard_NC40ads_H100_v5",
+		"azure.Standard_NC80adis_H100_v5", "azure.Standard_ND40rs_v2", "azure.Standard_ND96asr_v4",
+		"azure.Standard_ND96amsr_A100_v4", "azure.Standard_ND96isr_H100_v5", "azure.Standard_ND96isr_H200_v5",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{
+		"azure.Standard_NV6s_v2", "azure.Standard_NV24s_v2", "azure.Standard_NV36ads_A10_v5", "azure.Standard_NV72ads_A10_v5",
+	} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
+	}
+	// The six NV sizes of the pinned snapshot.
+	if got := droppedGauge(t, reg)["c/azure/GPUVirtual"]; got != 6 {
+		t.Errorf("GPUVirtual = %v, want 6", got)
 	}
 }
 

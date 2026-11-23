@@ -155,7 +155,7 @@ func TestKeysAndTTLs(t *testing.T) {
 }
 
 func TestSequenceIsStableWithoutChanges(t *testing.T) {
-	clk := clocktesting.NewFakeClock(time.Now())
+	clk := clocktesting.NewFakeClock(time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC))
 	c := unavailable.New(clk, unavailable.TTLs{})
 	c.MarkZoneUnusable("aws", "z")
 	s := c.Sequence()
@@ -166,7 +166,7 @@ func TestSequenceIsStableWithoutChanges(t *testing.T) {
 }
 
 func TestMarkingAgainRestartsTheTTL(t *testing.T) {
-	clk := clocktesting.NewFakeClock(time.Now())
+	clk := clocktesting.NewFakeClock(time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC))
 	c := unavailable.New(clk, unavailable.TTLs{})
 	c.MarkInsufficientCapacity("aws", "t", "z", "spot")
 	clk.Step(2 * time.Minute)
@@ -178,7 +178,7 @@ func TestMarkingAgainRestartsTheTTL(t *testing.T) {
 }
 
 func TestCustomTTLs(t *testing.T) {
-	clk := clocktesting.NewFakeClock(time.Now())
+	clk := clocktesting.NewFakeClock(time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC))
 	c := unavailable.New(clk, unavailable.TTLs{InsufficientCapacity: time.Second})
 	c.MarkInsufficientCapacity("aws", "t", "z", "spot")
 	clk.Step(time.Second)

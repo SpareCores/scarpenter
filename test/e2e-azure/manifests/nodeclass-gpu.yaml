@@ -1,0 +1,30 @@
+# The NodeClass of the manual gpu scenario: the tailscale template as in the other
+# NodeClasses and a 64 GiB root disk (the driver sysext and CUDA images need more than the
+# 32 GiB of the others). It is applied by the scenario, after the controller started.
+apiVersion: scarpenter.sparecores.com/v1alpha1
+kind: SCNodeClass
+metadata:
+  name: e2e-gpu
+spec:
+  flatcar: {channel: ${E2E_FLATCAR_CHANNEL}, version: "${E2E_FLATCAR_VERSION}"}
+  kubernetes: {version: "${E2E_KUBERNETES_VERSION}"}
+  network:
+    template: tailscale
+    tailscale:
+      version: "${E2E_TAILSCALE_VERSION}"
+      authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
+      tags: ["${E2E_TAG_NODE}"]
+  # The creation time on every resource of the run, which the sweeper needs (the tag name
+  # is test/e2e-azure's created_tag).
+  tags: {ci-created-at: "${E2E_CREATED_AT_RFC3339}", ci-run: "${E2E_RUN_ID}"}
+  vendors:
+    azure:
+      regions: [${AZURE_REGION}]
+      # The guard: the controller's subscription must be this one.
+      subscriptionID: ${AZURE_SUBSCRIPTION_ID}
+      storage:
+        root: {storageAccountType: Premium_LRS, diskSizeGB: 64}
+      resources:
+        resourceGroups: {use: {ids: {${AZURE_REGION}: ["${AZURE_RESOURCE_GROUP}"]}}}
+        subnets: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
+        securityGroups: {create: {lifecycle: {policy: idleTTL, ttl: 5m}}}
