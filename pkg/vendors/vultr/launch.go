@@ -58,8 +58,6 @@ func BuildCreateRequest(req vendors.CreateRequest, o LaunchOptions) (*govultr.In
 		return nil, invalid("no NodeClaim name for the label and hostname")
 	case len(req.UserData) == 0:
 		return nil, invalid("no user data: the node cannot configure itself without Ignition")
-	case req.CapacityType == vendors.CapacitySpot:
-		return nil, vendors.NoSpot(Vendor)
 	case len(req.UserData) > MaxUserDataBytes:
 		return nil, vendors.NewError(vendors.Fatal, codeUserDataTooBig,
 			fmt.Errorf("user data is %d bytes, the budget is %d", len(req.UserData), MaxUserDataBytes))

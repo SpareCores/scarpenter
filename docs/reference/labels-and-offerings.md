@@ -49,12 +49,6 @@ and [00a](../plans/v1/wip/00a-node-options.md#7-instance-selection). The code is
   prices.
 - **Instance type**: a Karpenter `InstanceType`: what a node of one server type
   looks like, with requirements (labels), capacity, overhead and offerings.
-Which vendors have spot is therefore Keeper's data, not a list in SCarpenter: AWS, GCP, Azure, Alibaba and OCI have spot
-rows (UpCloud has them for GPU plans only, not launched), Hetzner, Vultr and OVH have none and get no spot offering. A
-spot offering is priced from the spot row alone and the NodeClaim gets `karpenter.sh/capacity-type: spot` from
-`Instance.CapacityType`. What each driver sends at create for spot is in its reference (AWS one-time request, terminate;
-GCP `SPOT` with `DELETE`; Azure `Spot`, eviction `Delete`, max price -1; OCI preemptible, boot volume not preserved;
-Alibaba `SpotAsPriceGo`, `Terminate`). Tests: `TestSpotOfferingsComeFromKeepersSpotRows` over the committed snapshot.
 - **Offering**: where an instance type can be launched and at what price: one
   per zone and capacity type.
 - **Snapshot**: the data of one successful refresh, read at one Keeper
@@ -259,6 +253,13 @@ offered on it. The same table on an alpha release that has 580 (4865.0.0):
 One offering per (instance type, zone, capacity type) with a price in scope.
 Keeper `ondemand` prices become `on-demand` offerings and `spot` prices `spot`
 offerings.
+
+Because offerings come only from Keeper's prices, which vendors have spot is Keeper's data, not a list in SCarpenter: AWS, GCP, Azure, Alibaba and OCI have spot
+rows (UpCloud has them for GPU plans only, not launched), Hetzner, Vultr and OVH have none and get no spot offering. A
+spot offering is priced from the spot row alone and the NodeClaim gets `karpenter.sh/capacity-type: spot` from
+`Instance.CapacityType`. What each driver sends at create for spot is in its reference (AWS one-time request, terminate;
+GCP `SPOT` with `DELETE`; Azure `Spot`, eviction `Delete`, max price -1; OCI preemptible, boot volume not preserved;
+Alibaba `SpotAsPriceGo`, `Terminate`). Tests: `TestSpotOfferingsComeFromKeepersSpotRows` over the committed snapshot.
 
 ### Zones and zone IDs
 

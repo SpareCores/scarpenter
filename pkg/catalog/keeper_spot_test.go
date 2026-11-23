@@ -54,7 +54,7 @@ func TestSpotOfferingsComeFromKeepersSpotRows(t *testing.T) {
 				t.Fatalf("%s has no on-demand offerings: the scope matches nothing", tc.vendor)
 			}
 			if got := spot > 0; got != tc.hasSpot {
-				t.Errorf("%s has %d spot offerings, want some: %v", tc.vendor, spot, tc.hasSpot)
+				t.Errorf("%s has %d spot offerings, want spot offerings: %v", tc.vendor, spot, tc.hasSpot)
 			}
 		})
 	}
