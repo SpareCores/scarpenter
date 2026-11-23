@@ -547,7 +547,7 @@ the NodeClass controller. `spec.butane` and a custom template merge after it and
 ## The interruption agent
 
 A **spot** launch whose driver implements [`InterruptionNotices`](driver-contract.md#interruption-notices-the-node-agent) also gets a small
-node agent ([plan 26](../plans/v1/wip/26-interruption.md) section 2, [ADR-027](../explanation/DECISIONS.md)). It is a shell script, rendered
+node agent ([plan 26](../plans/v1/done/26-interruption.md) section 2, [ADR-027](../explanation/DECISIONS.md)). It is a shell script, rendered
 into the user-data, so there is nothing to build or host. With the metadata restriction it is part of that fragment (`metadata-access`: one
 part of the user-data, which saves a gzip header and a base64 wrapper); without it it is the fragment `interruption-agent`.
 

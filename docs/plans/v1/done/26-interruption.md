@@ -12,6 +12,16 @@ instance metadata access).
 Written 2026-11-19 from public vendor documentation and the Karpenter core v1.15.1 source in the module cache. No
 cloud API was called. Everything marked **unverified** is settled by a spike (section 9) or a live run.
 
+## Open
+
+Steps 1 to 9 are merged (UpCloud was left out on purpose). Not yet run live:
+
+- Spikes S2 to S5 (section 9): AWS, GCP, Azure and Alibaba notice formats, lead times and simulation.
+- The first manual L5 `interruption` run per vendor (`gh workflow run e2e.yml -f vendors=<vendor> -f mode=interruption`, each run needs the maintainer's approval).
+- AWS: the `interruption` scenario needs the FIS role from the infrastructure-as-code side (the hand-off contract lists its permissions).
+- Azure: the lane's role needs the `simulateEviction` permission.
+- GCP: the 120 s notice stays undecided until S3 confirms the `scheduling` field and its cost; until then the 30 s ACPI window and the shutdown backstop apply.
+
 ## Goal
 
 When a vendor reclaims a spot or preemptible node, Karpenter drains it **as early in the notice window as possible**,

@@ -95,7 +95,7 @@ report no type and stay on Flatcar like every other size.
 
 A Spot VM (eviction policy `Delete`) is evicted with a notice of at least 30 s, best effort, through Scheduled Events. The driver implements
 [`InterruptionNotices`](driver-contract.md#interruption-notices-the-node-agent), so every Spot node runs the [node agent](node-bootstrap.md#the-interruption-agent)
-with this check ([plan 26](../plans/v1/wip/26-interruption.md) section 6), which reports through the Node's annotations:
+with this check ([plan 26](../plans/v1/done/26-interruption.md) section 6), which reports through the Node's annotations:
 
 - It asks `http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01` with the header `Metadata: true` every second. The first
   request registers the VM for Scheduled Events: Azure answers only after that (documented: up to 2 minutes, and the first events up to 5
