@@ -693,7 +693,7 @@ func (c *Catalog) Loaded(class string) bool {
 }
 
 // RegionName returns the vendor's own name of the region that Keeper knows by
-// this name, alias or ID (active or not, like the catalog's region resolver).
+// this name, alias or ID (an active region first, else an inactive one).
 // It reads Keeper's region table, not zones, so it covers vendors without zones
 // too. loaded is false while the catalog has no regions of the vendor: found then
 // says nothing.
@@ -704,12 +704,22 @@ func (c *Catalog) RegionName(vendor, name string) (apiName string, found, loaded
 	if snap == nil || snap.vendors[vendor] == nil || len(snap.vendors[vendor].regions) == 0 {
 		return "", false, false
 	}
+	// Keeper keeps retired regions, whose aliases can name a current one: an
+	// active match wins, then the lowest ID, so the answer does not depend on
+	// the map order.
+	var best *model.Region
 	for _, r := range snap.vendors[vendor].regions {
-		if matchesRegion(r, name) {
-			return r.Name, true, true
+		if !matchesRegion(r, name) {
+			continue
+		}
+		if best == nil || r.Active && !best.Active || r.Active == best.Active && r.ID < best.ID {
+			best = r
 		}
 	}
-	return "", false, true
+	if best == nil {
+		return "", false, true
+	}
+	return best.Name, true, true
 }
 
 // FactsLoaded reports whether the driver facts of the vendor are loaded (true
