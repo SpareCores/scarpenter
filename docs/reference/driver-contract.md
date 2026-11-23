@@ -378,7 +378,7 @@ instance metadata ([plan 26](../plans/v1/wip/26-interruption.md) section 2). `In
 | Field | Meaning |
 |---|---|
 | `Script` | The body of the POSIX `sh` function `scarpenter_check`. It prints `<reason> <deadline>` and returns 0 when a notice is present (the reason is `SpotInterrupted`; the deadline is RFC 3339 and may be left out), returns 1 when there is none, 2 on a transient error (the endpoint did not answer). It may use `curl`, and the variable `NODE_NAME` (the node's name). It must not contain `{{` (the fragment is rendered as a template). An empty script means no agent. |
-| `Interval` | The pause after a check that found no notice, in whole seconds, rounded up (AWS 2 s, Azure 1 s, Alibaba 5 s). Zero for a check that blocks until something changes (GCP's `wait_for_change`). |
+| `Interval` | The pause after a check that found no notice, in whole seconds, rounded up (AWS 2 s, Azure 1 s, Alibaba 5 s). Zero for a check that blocks until something changes; GCP's blocks in `wait_for_change` and still sets 1 s, so that a failing long poll cannot spin. |
 | `NoticeWindow` | Embedded: `MinNotice` and `MaxNotice`, the same window as [`InterruptionWindow`](#interruption-notice-window); `NoticeWindowOf` reads it from here when the driver has no `InterruptionWindow`. |
 
 `vendors.InterruptionAgent(d, restricted)` wraps the check in the generic loop and the unit (the [node agent](node-bootstrap.md#the-interruption-agent)),

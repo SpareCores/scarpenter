@@ -125,6 +125,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "resource-full-sweep-every" .Values.managedResources.fullSweepEvery
   "aws-home-region" (ternary $aws.homeRegion "" $aws.enabled)
   "gcp-project" (ternary $gcp.project "" $gcp.enabled)
+  "gcp-preemption-notice" (ternary $gcp.preemptionNotice "" $gcp.enabled)
   "oci-compartment" (ternary $oci.compartment "" $oci.enabled)
   "oci-image-compartment" (ternary $oci.imageCompartment "" $oci.enabled)
   "oci-interruption-poll" (ternary $oci.interruptionPoll "" $oci.enabled)

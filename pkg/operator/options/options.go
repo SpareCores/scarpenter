@@ -64,6 +64,7 @@ const (
 	DefaultOCIAuth                    = "apiKey"
 	DefaultInterruptionMargin         = 5 * time.Second
 	DefaultOCIInterruptionPoll        = 10 * time.Second
+	maxGCPPreemptionNotice            = 2 * time.Minute
 	DefaultInterruptionUnavailableTTL = 10 * time.Minute
 )
 
@@ -194,6 +195,9 @@ type Options struct {
 	// GCPProject is the Google Cloud project of the GCP driver; empty means the
 	// project of the credentials.
 	GCPProject string
+	// GCPPreemptionNotice is the preemption notice a GCP Spot VM is launched with
+	// (the Metadata Service notice before the ACPI shutdown signal); 0 asks for none.
+	GCPPreemptionNotice time.Duration
 	// OCICompartment is the compartment of the OCI driver's nodes (required with
 	// the oci vendor); OCIAuth the credentials mode; the other OCI fields are the
 	// sources of the identity (docs/how-to-guides/set-up-oci.md).
@@ -295,6 +299,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.BoolVar(&o.MetricsOfferingDetail, "metrics-offering-detail", env.WithDefaultBool("SCARPENTER_METRICS_OFFERING_DETAIL", false), "Export scarpenter_instance_type_offering_available, one gauge per offering (instance type, zone, capacity type) of every NodeClass: thousands of series per class and vendor, so off by default. The listing ConfigMap (annotation scarpenter.sparecores.com/publish-offered) has the same data without the cardinality.")
 	fs.StringVar(&o.AWSHomeRegion, "aws-home-region", env.WithDefaultString("SCARPENTER_AWS_HOME_REGION", DefaultAWSHomeRegion), "AWS region of the global endpoints (pricing and quota APIs).")
 	fs.StringVar(&o.GCPProject, "gcp-project", env.WithDefaultString("SCARPENTER_GCP_PROJECT", ""), "Google Cloud project of the GCP driver's nodes; empty means the project of the credentials (a service account key or the metadata server; workload identity federation has none, so set it there).")
+	fs.DurationVar(&o.GCPPreemptionNotice, "gcp-preemption-notice", env.WithDefaultDuration("SCARPENTER_GCP_PREEMPTION_NOTICE", 0), "Preemption notice a GCP Spot VM is launched with (scheduling.preemptionNoticeDuration), 0 to 2m in whole seconds. 0 (the default) asks for none: Pods get the 30 s of the ACPI shutdown. Whether a notice costs extra is unverified (plan 26, spike S3).")
 	fs.StringVar(&o.OCICompartment, "oci-compartment", env.WithDefaultString("SCARPENTER_OCI_COMPARTMENT", ""), "[REQUIRED with the oci vendor] OCID of the OCI compartment of the nodes: instances, boot volumes, the managed network and the default image lookup live in it. The tenancy root is not a default.")
 	fs.DurationVar(&o.OCIInterruptionPoll, "oci-interruption-poll", env.WithDefaultDuration("SCARPENTER_OCI_INTERRUPTION_POLL", DefaultOCIInterruptionPoll), "How often the OCI driver lists a region's instances to find preempted ones: one paged list call per region per interval, whatever the number of nodes.")
 	fs.StringVar(&o.OCIImageCompartment, "oci-image-compartment", env.WithDefaultString("SCARPENTER_OCI_IMAGE_COMPARTMENT", ""), "OCID of the OCI compartment the default image lookup and the images.use selectors (name, tags, OS) list images in, for images an operator keeps apart from the nodes. Default (empty): --oci-compartment. images.use.ids is not affected; launches stay in --oci-compartment.")
@@ -468,6 +473,9 @@ func (o *Options) validateInterruption() []error {
 	var errs []error
 	if o.OCIInterruptionPoll < time.Second {
 		errs = append(errs, fmt.Errorf("--oci-interruption-poll must be at least 1s, got %s", o.OCIInterruptionPoll))
+	}
+	if n := o.GCPPreemptionNotice; n < 0 || n > maxGCPPreemptionNotice || n%time.Second != 0 {
+		errs = append(errs, fmt.Errorf("--gcp-preemption-notice must be 0 to %s in whole seconds, got %s", maxGCPPreemptionNotice, n))
 	}
 	if o.InterruptionMargin < 0 {
 		errs = append(errs, fmt.Errorf("--interruption-margin must not be negative, got %s", o.InterruptionMargin))

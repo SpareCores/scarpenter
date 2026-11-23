@@ -78,6 +78,10 @@ func WithAPI(api ComputeAPI) Option { return func(d *Driver) { d.api = api } }
 // the project of the credentials.
 func WithProject(p string) Option { return func(d *Driver) { d.project = p } }
 
+// WithPreemptionNotice sets the preemption notice a Spot VM is launched with
+// (0 for none); the default is --gcp-preemption-notice.
+func WithPreemptionNotice(n time.Duration) Option { return func(d *Driver) { d.preemptionNotice = n } }
+
 // WithCallTimeouts sets the deadline of one API call and of one operation wait.
 func WithCallTimeouts(call, wait time.Duration) Option {
 	return func(d *Driver) { d.callTimeout, d.waitTimeout = call, wait }
@@ -103,8 +107,11 @@ type Driver struct {
 	callTimeout time.Duration
 	waitTimeout time.Duration
 	launchWait  time.Duration
-	prices      PriceSource
-	keeper      *keeperPrices
+	// preemptionNotice is the notice a Spot VM is asked for at launch (0: none, the
+	// 30 s shutdown window only).
+	preemptionNotice time.Duration
+	prices           PriceSource
+	keeper           *keeperPrices
 	// epochID is random per process start; with the attempt counters it makes
 	// the request IDs of inserts (RequestID).
 	epochID string
@@ -185,9 +192,12 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 	if d.api != nil {
 		d.api = WithTimeouts(d.api, d.callTimeout, d.waitTimeout)
 	}
-	if d.project == "" {
-		if o := operatoroptions.FromContext(ctx); o != nil {
+	if o := operatoroptions.FromContext(ctx); o != nil {
+		if d.project == "" {
 			d.project = o.GCPProject
+		}
+		if d.preemptionNotice == 0 {
+			d.preemptionNotice = o.GCPPreemptionNotice
 		}
 	}
 	if d.project == "" && d.api == nil {

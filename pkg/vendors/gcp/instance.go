@@ -304,7 +304,7 @@ func (d *Driver) launchSpec(ctx context.Context, req vendors.CreateRequest) (Lau
 	spot := req.CapacityType == vendors.CapacitySpot
 	spec := LaunchSpec{
 		Project: d.project, Zone: req.Zone, Name: InstanceName(req.Node.Name), MachineType: req.InstanceType,
-		Spot: spot, OnHostMaintenance: MaintenanceFor(req.InstanceType, compact),
+		Spot: spot, PreemptionNotice: d.preemptionNotice, OnHostMaintenance: MaintenanceFor(req.InstanceType, compact),
 		Image: ImageURL(d.project, req.Image.Ref), Labels: labels, UserData: req.UserData,
 		ExtraMetadata: st.Metadata, Root: root, Data: data, Subnetwork: lr.subnet, NetworkTags: lr.tags,
 		PublicIPv4: boolOr(req.Settings.Networking.PublicIPv4, true),

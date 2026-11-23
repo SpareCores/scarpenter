@@ -92,6 +92,7 @@ func ToInstance(region string, in *computepb.Instance) *vendors.Instance {
 		Tags:         TagsOf(in.GetLabels()),
 		Addresses:    AddressesOf(in),
 	}
+	inst.GoneReason = goneReasonOf(inst.CapacityType, inst.State)
 	if t, err := time.Parse(time.RFC3339, in.GetCreationTimestamp()); err == nil {
 		inst.CreatedAt = t
 		// Per second billing with a one minute minimum: retention never applies
