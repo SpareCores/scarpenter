@@ -548,18 +548,19 @@ the NodeClass controller. `spec.butane` and a custom template merge after it and
 
 A **spot** launch whose driver implements [`InterruptionNotices`](driver-contract.md#interruption-notices-the-node-agent) also gets a small
 node agent ([plan 26](../plans/v1/wip/26-interruption.md) section 2, [ADR-027](../explanation/DECISIONS.md)). It is a shell script, rendered
-into the user-data as the boot fragment `interruption-agent` (after the driver's fragments and the metadata restriction), so there is nothing to
-build or host:
+into the user-data, so there is nothing to build or host. With the metadata restriction it is part of that fragment (`metadata-access`: one
+part of the user-data, which saves a gzip header and a base64 wrapper); without it it is the fragment `interruption-agent`.
 
 - `/opt/scarpenter/bin/scarpenter-interruption-agent`: the vendor's `scarpenter_check` function in a generic loop. It runs the check every
   interval; on a notice (exit 0) it reduces the printed reason and deadline to letters, digits and `:.+-`, waits for the kubelet's client
   certificate, and patches **its own Node** (`PATCH /api/v1/nodes/<name>`, JSON merge patch, `curl`) with the annotations
   `scarpenter.sparecores.com/interruption`, `interruption-deadline` and `interruption-source=instance-metadata`
-  ([labels](labels.md#interruption-annotations)), retrying until it gets a 2xx. A restart first reads the Node: with the annotation present it
-  does not patch again. It logs one line per state change to the journal (`journalctl -u scarpenter-interruption`). The interruption controller
-  clamps the deadline to the vendor's notice window; the agent does not.
-- `/etc/scarpenter/interruption.env`: `NODE_NAME` and `API_SERVER` (the template variables `NodeName` and `APIServerEndpoint`).
-- `scarpenter-interruption.service`: `Slice=scarpenter-metadata.slice`, `Restart=always`, started at boot after `network-online.target` (and after
+  ([labels](labels.md#interruption-annotations)), retrying until it gets a 2xx. A refused or failing patch (the Node not registered yet, or a
+  permanent 403) is logged once (`annotating the Node failed, retrying`) and retried with a backoff of up to 8 s. A restart first reads the Node:
+  with the annotation present it does not patch again. It logs one line per state change to the journal (`journalctl -u scarpenter-interruption`).
+  The interruption controller clamps the deadline to the vendor's notice window; the agent does not.
+- `scarpenter-interruption.service`: `Slice=scarpenter-metadata.slice`, `Restart=always`, `Environment=` with `NODE_NAME` and `API_SERVER` (the
+  template variables `NodeName` and `APIServerEndpoint`), started at boot after `network-online.target` (and after
   `scarpenter-metadata-firewall.service` when the metadata restriction is rendered), before the kubelet has a certificate: a vendor that needs an
   early first metadata call (Azure's opt-in) gets it. With `instanceMetadata.access: Open` the slice is created implicitly and the agent works the
   same.
@@ -573,11 +574,15 @@ k3s: its own Node is patched (200), another Node is refused (403).
 configuration, so an ACPI shutdown without a usable notice (a missed one, GCP with no notice) still sends the Pods SIGTERM. Q17 checks on Flatcar
 that the kubelet holds a delay lock of logind and that a Pod gets SIGTERM on `systemctl poweroff`. On-demand launches have neither.
 
-**Size.** The agent adds about 1.7 KiB to the user-data of a spot node (the script with a typical check is 1.2 KiB; the unit, the settings and
-the encoding make up the rest), so `SpotAgentBytes` (1.5 KiB) is added to the 12 KiB budget of the golden worst case for spot nodes. The NodeClass's
-trial rendering renders a spot node with the agent but without the NVIDIA part, and the NVIDIA part without the agent: the largest GPU part, the
-largest storage setup and the agent together exceed 16 KiB, and no vendor offers such a type. A spot launch of a GPU type that really needs both
-still fails at launch with `UserDataRender` if it does not fit.
+**Size.** The agent adds about 1.2 KiB to the user-data of a spot node (the script with a 240 byte check is 1.3 KiB; it is compressed with the
+rest of its part). So `SpotAgentBytes` (1.5 KiB) is added to the 12 KiB budget of the golden worst case for spot nodes (12.9 KiB direct, 12.6 KiB
+tailscale, with a check as long as AWS's IMDSv2 one). The largest case, which AWS's p4d and p5 spot types can reach (16 GPUs with Fabric Manager,
+the mirror, two volumes, 24 local disks, the restriction and the agent) is 16.1 KiB with `direct` and 15.8 KiB with `tailscale` of the 16 KiB
+limit, a test holds it 256 bytes under it. That leaves room for a check of about AWS's length and little more. Two safety nets: a launch whose
+user-data still exceeds the limit is refused for that offering alone (`InvalidOffering`, code `UserDataTooLarge`: the offering is marked
+unavailable and an `OfferingRejected` Event carries the sizes; the type's on-demand offering and the other types launch), and the NodeClass's trial
+rendering, which renders the agent without the NVIDIA part and the NVIDIA part without the agent as hard checks, also renders the combination
+and reports a failure only as a Warning Event `UserDataTooLarge` on the NodeClass: the NodeClass stays valid.
 
 ## Custom templates and extra Butane
 
@@ -608,7 +613,7 @@ everything on (the node IP unit, two volumes, 24 local disks with one mount each
 the Lean footprint, the metadata restriction) it is 11.0 KiB with `tailscale` and
 11.3 KiB with `direct`, and a unit test holds that worst case to the 12 KiB. A spot
 node of a vendor with a notice check adds the [interruption agent](#the-interruption-agent)
-(about 1.7 KiB; 12.7 and 13.0 KiB in the worst case, held to 12 KiB plus 1.5 KiB).
+(about 1.2 KiB; 12.6 and 12.9 KiB in the worst case, held to 12 KiB plus 1.5 KiB).
 The CA is the largest fixed part and
 it does not compress (a 4096-bit CA adds about 0.7 KiB, a rotation bundle of two
 CAs about 1 KiB). The NodeClass controller's trial rendering uses the real cluster

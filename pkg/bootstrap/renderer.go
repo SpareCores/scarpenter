@@ -187,7 +187,8 @@ func (r *Renderer) Render(ctx context.Context, req RenderRequest) ([]byte, error
 // that after compression and encoding), and falls back to a CA-sized
 // placeholder when it cannot be read: its availability is not the NodeClass's.
 func (r *Renderer) Validate(ctx context.Context, nc *v1alpha1.SCNodeClass, arch string, in Inputs) error {
-	return r.ValidateWith(ctx, nc, arch, in, nil)
+	_, err := r.ValidateWith(ctx, nc, arch, in, nil)
+	return err
 }
 
 // placeholderTailnetKey stands in for the per-node key in the trial renderings: 128
@@ -207,19 +208,24 @@ type FragmentsFunc func(vendor, arch string, spot bool) ([]Fragment, error)
 // ValidateWith is Validate that also renders, per vendor, the user-data with the
 // fragments of the vendor's driver, so that a fragment that does not translate or
 // pushes the user-data over the budget is found before the first launch.
+//
+// The warning is a combination that only a few launches render and that would exceed
+// the limit (a spot node of the largest GPU type with the largest storage setup,
+// the agent and the metadata restriction): such a launch is refused by itself
+// (cloudprovider: InvalidOffering, UserDataTooLarge), the NodeClass stays valid.
 func (r *Renderer) ValidateWith(
 	ctx context.Context, nc *v1alpha1.SCNodeClass, arch string, in Inputs, fragments FragmentsFunc,
-) error {
+) (warning string, err error) {
 	ca, err := r.opts.Refs.ClusterCA(ctx)
 	if err != nil {
 		ca = placeholderCA()
 	}
 	p, err := r.params(nc, arch, ca, in)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if p.ClusterDNS, err = r.clusterDNS(ctx); err != nil {
-		return err
+		return "", err
 	}
 	// Like the cluster CA, a CA file that cannot be read now is not the
 	// NodeClass's fault: size it with a placeholder.
@@ -242,7 +248,7 @@ func (r *Renderer) ValidateWith(
 	gpuNote := ""
 	if sel, ok := largestNVIDIA(nc.Spec.Flatcar.Version); ok && arch == artifacts.ArchAMD64 {
 		if p.NVIDIA, err = r.nvidiaParams(nc, sel); err != nil {
-			return err
+			return "", err
 		}
 		gpuNote = " and the NVIDIA driver"
 	}
@@ -251,11 +257,12 @@ func (r *Renderer) ValidateWith(
 		// placeholder longer than any vendor's key.
 		p.Network.Tailscale.AuthKey = placeholderTailnetKey
 	}
-	// A spot node adds the interruption agent (and the shutdown settings), and the
-	// largest GPU part and the agent do not meet in the trial: a spot launch of
-	// the largest GPU type with the largest storage setup would exceed the limit, and no
-	// vendor offers such a type. The trial renders the GPU part without the agent
-	// and the agent without the GPU part.
+	// A spot node adds the interruption agent (and the shutdown settings). The
+	// combination of the largest GPU part (a 16-GPU NVSwitch system with Fabric
+	// Manager), the largest storage setup and the agent can exceed the limit,
+	// and such types are sold as spot (AWS p4d, p5), but only a few launches render
+	// it: the hard checks render the GPU part without the agent and the agent
+	// without the GPU part, and the combination is only a warning.
 	variants := []Params{p}
 	if p.NVIDIA == nil {
 		variants[0].Spot = true
@@ -266,7 +273,7 @@ func (r *Renderer) ValidateWith(
 	}
 	worst, err := worstCaseVolumes(nc)
 	if err != nil {
-		return err
+		return "", err
 	}
 	for _, v := range variants {
 		note := gpuNote
@@ -274,10 +281,17 @@ func (r *Renderer) ValidateWith(
 			note = " (a spot node without the NVIDIA part)"
 		}
 		if err := r.validateVariant(nc, arch, v, note, fragments, worst); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return nil
+	if p.NVIDIA != nil && fragments != nil {
+		both := p
+		both.Spot = true
+		if err := r.validateVariant(nc, arch, both, " (a spot node with the NVIDIA part)", fragments, worst); err != nil {
+			return err.Error(), nil
+		}
+	}
+	return "", nil
 }
 
 // validateVariant renders one variant of the trial: the plain node, with the

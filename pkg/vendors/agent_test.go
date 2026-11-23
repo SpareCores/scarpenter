@@ -104,12 +104,13 @@ func TestAgentScriptSize(t *testing.T) {
 type node struct {
 	mu        sync.Mutex
 	annotated bool
+	forbidden bool
 	patches   chan map[string]string
 }
 
-func newNode(t *testing.T, annotated bool) (*node, string) {
+func newNode(t *testing.T, annotated, forbidden bool) (*node, string) {
 	t.Helper()
-	n := &node{annotated: annotated, patches: make(chan map[string]string, 10)}
+	n := &node{annotated: annotated, forbidden: forbidden, patches: make(chan map[string]string, 10)}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/nodes/node-1" {
 			http.NotFound(w, r)
@@ -125,6 +126,10 @@ func newNode(t *testing.T, annotated bool) (*node, string) {
 				_, _ = io.WriteString(w, `{"metadata":{"name":"node-1"}}`)
 			}
 		case http.MethodPatch:
+			if n.forbidden {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			var body struct {
 				Metadata struct {
 					Annotations map[string]string `json:"annotations"`
@@ -146,22 +151,31 @@ func newNode(t *testing.T, annotated bool) (*node, string) {
 // returns what it patched, if anything within wait.
 func runAgent(t *testing.T, check vendors.NoticeCheck, annotated bool, wait time.Duration) (map[string]string, string) {
 	t.Helper()
+	return runAgentOn(t, check, annotated, false, wait)
+}
+
+func runAgentOn(
+	t *testing.T, check vendors.NoticeCheck, annotated, forbidden bool, wait time.Duration,
+) (map[string]string, string) {
+	t.Helper()
 	script, err := vendors.InterruptionAgentScript(check)
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, url := newNode(t, annotated)
+	n, url := newNode(t, annotated, forbidden)
 	dir := t.TempDir()
 	cert := filepath.Join(dir, "cert.pem")
 	if err := os.WriteFile(cert, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "agent")
+	// The script has the node's paths: point them at the fixture's.
+	script = strings.NewReplacer("/var/lib/kubelet/pki/kubelet-client-current.pem", cert, "/etc/kubernetes/pki/ca.crt", cert).Replace(script)
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("sh", path)
-	cmd.Env = append(os.Environ(), "NODE_NAME=node-1", "API_SERVER="+url, "KUBELET_CERT="+cert, "CLUSTER_CA="+cert, "STATE="+dir)
+	cmd.Env = append(os.Environ(), "NODE_NAME=node-1", "API_SERVER="+url, "STATE="+dir)
 	var out strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.SysProcAttr = processGroup()
@@ -236,4 +250,42 @@ func TestAgentDoesNotPatchTwice(t *testing.T) {
 	if got != nil {
 		t.Errorf("a node that has the annotation was patched again: %v", got)
 	}
+}
+
+// A patch that is refused (NodeRestriction, RBAC) is logged once and retried with
+// a backoff, not every second.
+func TestAgentLogsARefusedPatchOnce(t *testing.T) {
+	got, log := runAgentOn(t, checkWith("echo SpotInterrupted"), false, true, 5*time.Second)
+	if got != nil {
+		t.Errorf("a refused patch was applied: %v", got)
+	}
+	if n := strings.Count(log, "annotating the Node failed"); n != 1 {
+		t.Errorf("the agent logged the failure %d times, want once:\n%s", n, log)
+	}
+}
+
+func TestBootFragmentsOfPutsTheAgentIntoTheRestrictionFragment(t *testing.T) {
+	d := restrictedNoticeDriver{noticeDriver{check: checkWith("return 1")}}
+	frags, err := vendors.BootFragmentsOf(d, true, true)
+	if err != nil || len(frags) != 1 || frags[0].Name != "metadata-access" {
+		t.Fatalf("spot + restricted: %d fragments %v, %v; want the one metadata-access", len(frags), frags, err)
+	}
+	for _, want := range []string{"scarpenter-interruption.service", "scarpenter-metadata-firewall.service", "scarpenter-interruption-agent"} {
+		if !strings.Contains(frags[0].Butane, want) {
+			t.Errorf("the fragment lacks %q", want)
+		}
+	}
+	if frags, _ := vendors.BootFragmentsOf(d, true, false); len(frags) != 1 || strings.Contains(frags[0].Butane, "interruption") {
+		t.Errorf("an on-demand node has the agent")
+	}
+	frags, _ = vendors.BootFragmentsOf(d, false, true)
+	if len(frags) != 1 || frags[0].Name != "interruption-agent" || strings.Contains(frags[0].Butane, "firewall") {
+		t.Errorf("spot, open metadata: %v", frags)
+	}
+}
+
+type restrictedNoticeDriver struct{ noticeDriver }
+
+func (restrictedNoticeDriver) MetadataEndpoints() vendors.MetadataEndpoints {
+	return vendors.MetadataEndpoints{Addresses: addrs("169.254.169.254")}
 }

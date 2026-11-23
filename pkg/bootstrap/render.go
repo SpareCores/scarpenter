@@ -60,6 +60,18 @@ const (
 // one must not be newer.
 const ignitionVersion = "3.4.0"
 
+// UserDataTooLargeError is the error of a rendering over the budget.
+type UserDataTooLargeError struct {
+	Size, Budget int
+	// Parts is the compressed size of each part.
+	Parts string
+}
+
+func (e *UserDataTooLargeError) Error() string {
+	return fmt.Sprintf("the user-data is %d bytes, over the budget of %d bytes (%s); "+
+		"large payloads belong into sysexts referenced by URL and sha256", e.Size, e.Budget, e.Parts)
+}
+
 // Part is one of the translated configs that the user-data merges.
 type Part struct {
 	// Name is base, lean, volumes, nvidia, vendor-<name>, network or user.
@@ -393,9 +405,7 @@ func Render(p Params) (*Rendered, error) {
 		budget = MaxUserDataSize
 	}
 	if len(userData) > budget {
-		return nil, fmt.Errorf("the user-data is %d bytes, over the budget of %d bytes (%s); "+
-			"large payloads belong into sysexts referenced by URL and sha256",
-			len(userData), budget, partSizes(parts))
+		return nil, &UserDataTooLargeError{Size: len(userData), Budget: budget, Parts: partSizes(parts)}
 	}
 	return &Rendered{UserData: userData, Parts: parts}, nil
 }

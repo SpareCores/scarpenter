@@ -67,22 +67,27 @@ func TestWorstCaseUserDataStaysInTheBudget(t *testing.T) {
 	}
 }
 
-// A spot node adds the interruption agent: the worst case with it stays within the
-// budget plus the agent's allowance. The GPU worst case has no room for it (the
-// largest GPU part, the largest storage setup and the agent together exceed the
-// limit of every vendor), and no vendor offers such a type: the trial rendering
-// of a NodeClass renders the two apart.
-func TestWorstCaseSpotUserDataStaysInTheBudget(t *testing.T) {
-	agent, ok, err := vendors.InterruptionAgent(noticeDriver{}, true)
-	if err != nil || !ok {
-		t.Fatalf("InterruptionAgent = %v, %v", ok, err)
+// spotWorstCaseParams is worstCaseParams of a spot node: the fragments the core
+// builds for a vendor with a notice check (the agent inside the metadata
+// restriction's fragment).
+func spotWorstCaseParams(t *testing.T, template v1alpha1.NetworkTemplateName) bootstrap.Params {
+	t.Helper()
+	frags, err := vendors.BootFragmentsOf(noticeDriver{&hcloud.Driver{}}, true, true)
+	if err != nil || len(frags) != 1 {
+		t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
 	}
+	p := worstCaseParams(t, template)
+	p.Spot = true
+	p.VendorFragments = []bootstrap.Fragment{{Name: frags[0].Name, Butane: frags[0].Butane}}
+	return p
+}
+
+// A spot node adds the interruption agent: the worst case with it stays within the
+// budget plus the agent's allowance.
+func TestWorstCaseSpotUserDataStaysInTheBudget(t *testing.T) {
 	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
 		t.Run(string(template), func(t *testing.T) {
-			p := worstCaseParams(t, template)
-			p.Spot = true
-			p.VendorFragments = append(p.VendorFragments, bootstrap.Fragment{Name: agent.Name, Butane: agent.Butane})
-			r, err := bootstrap.Render(p)
+			r, err := bootstrap.Render(spotWorstCaseParams(t, template))
 			if err != nil {
 				t.Fatal(err)
 			}

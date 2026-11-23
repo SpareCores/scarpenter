@@ -428,6 +428,12 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 		rr.VendorFragments = append(rr.VendorFragments, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
 	}
 	userData, err := c.opts.UserData.Render(ctx, rr)
+	if tooLarge, ok := errors.AsType[*bootstrap.UserDataTooLargeError](err); ok {
+		// This offering's combination (a spot GPU type with the agent, say) does not
+		// fit the vendor's limit: reject the offering, not the NodeClass or the other
+		// offerings of the type.
+		return nil, vendors.NewError(vendors.InvalidOffering, "UserDataTooLarge", tooLarge)
+	}
 	if err != nil {
 		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", fmt.Errorf("rendering the user-data: %w", err))
 	}

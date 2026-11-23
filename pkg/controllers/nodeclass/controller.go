@@ -91,6 +91,9 @@ const (
 	// EventDeprecatedHardening: the NodeClass still sets spec.bootstrap.hardening.
 	EventDeprecatedHardening = "DeprecatedHardening"
 	EventMetricInvalid       = "MetricInvalid"
+	// EventUserDataTooLarge: a combination of a spot launch with the largest GPU part, the largest
+	// storage setup and the agent exceeds the vendors' user-data limit; the NodeClass stays valid.
+	EventUserDataTooLarge = "UserDataTooLarge"
 	// EventImageBuilding (Normal) and EventImageBuildFailed (Warning): a driver
 	// builds a missing boot image (ADR-030).
 	EventImageBuilding    = vendors.CodeImageBuilding
@@ -366,7 +369,12 @@ func (c *Controller) validate(
 	// what is wrong.
 	if artifactsOK {
 		for _, arch := range architectures {
-			if err := c.opts.Renderer.ValidateWith(ctx, desired, arch, inputs, c.bootFragments(desired)); err != nil {
+			warning, err := c.opts.Renderer.ValidateWith(ctx, desired, arch, inputs, c.bootFragments(desired))
+			if warning != "" {
+				c.warn(desired, EventUserDataTooLarge,
+					fmt.Sprintf("rendering for %s: %s; launches of such types are refused one by one", arch, warning))
+			}
+			if err != nil {
 				reason := ReasonTemplateInvalid
 				if _, ok := errors.AsType[*bootstrap.ClusterDNSError](err); ok {
 					reason = ReasonClusterDNSUnknown

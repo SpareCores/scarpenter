@@ -227,6 +227,33 @@ func TestNVIDIARejectsWhatItCannotRender(t *testing.T) {
 	}
 }
 
+// The worst case of a spot GPU node (16 GPUs with Fabric Manager, the mirror, the
+// largest storage setup, the metadata restriction and the interruption agent) is
+// what AWS's p4d and p5 types, which are sold as spot, can render. It must fit
+// the 16 KiB limit of every vendor with room for a user's Butane (the test's check is
+// as long as AWS's IMDSv2 one).
+func TestWorstCaseSpotGPUUserDataFitsTheLimit(t *testing.T) {
+	const margin = 256
+	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
+		t.Run(string(template), func(t *testing.T) {
+			p := spotWorstCaseParams(t, template)
+			p.NVIDIA = &bootstrap.NVIDIAParams{
+				Selection: gpuSelection(t, "A100", 16), FlatcarVersion: gpuFlatcar, RuntimeURL: gpuRuntimeURL, DriverBaseURL: gpuMirror,
+			}
+			r, err := bootstrap.Render(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n := len(r.UserData); n > bootstrap.MaxUserDataSize-margin {
+				t.Errorf("the spot GPU worst case is %d bytes, over %d (the limit less a margin of %d)",
+					n, bootstrap.MaxUserDataSize-margin, margin)
+			} else {
+				t.Logf("%s spot GPU worst case: %d bytes of user-data (limit %d)", template, n, bootstrap.MaxUserDataSize)
+			}
+		})
+	}
+}
+
 // The worst case of a GPU node (every other feature on, 16 GPUs, the mirror, which
 // is the largest variant) stays within the budget of GPU nodes, so that a user's
 // Butane has room under the limit of every vendor.

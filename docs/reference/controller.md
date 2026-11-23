@@ -697,6 +697,8 @@ the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 | `ImageResolutionFailed` | Warning | SCNodeClass | A boot image could not be resolved. |
 | `OfferingRejected` | Warning | SCNodeClass | The vendor rejected the launch of an offering (`InvalidOffering`, with the vendor's message); it is unavailable for an hour. |
 | `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `MetricInvalid`, `RestartRequired` | Warning / Normal | SCNodeClass | The NodeClass controller's findings ([conditions](#scnodeclass-status-conditions)). |
+| `UserDataTooLarge` | Warning | SCNodeClass | The trial rendering of a spot node with the largest GPU part, the largest storage setup and the agent exceeds the vendors' user-data limit: launches of such types are refused one by one ([size](node-bootstrap.md#the-interruption-agent)); the NodeClass stays valid. |
+| `UserDataTooLarge` | Warning | SCNodeClass | The trial rendering of a spot node with the largest GPU part, the largest storage setup and the agent exceeds the vendors' user-data limit: launches of such types are refused one by one ([size](node-bootstrap.md#the-interruption-agent)); the NodeClass stays valid. |
 | `IPv6OnlyEgress` | Warning | SCNodeClass | IPv6-only nodes in a network you bring, with the default sysext source (no IPv6): the IPv4 egress of that network must reach it. |
 | `QuotaExhausted`, `QuotaZero` | Warning | SCNodeClass | No headroom in a quota bucket (deduplicated for 10 minutes). |
 | `BootstrapTokenDeleted` | Normal | NodeClaim | The node registered; its token was deleted. |

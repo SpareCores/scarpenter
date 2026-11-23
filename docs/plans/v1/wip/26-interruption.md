@@ -278,11 +278,12 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    scenarios Q16 (agent, slice, NodeRestriction both ways, notice to Pod SIGTERM) and Q17 (graceful shutdown), both in the default L4 set (no
    extra download). Deviations from the text above: (a) the agent does not clamp the deadline: the controller already clamps it into the notice
    window and treats a missing or unparsable one as `now + MinNotice` (step 1), and the clamping code cost about 0.4 KiB of user-data; the agent
-   only reduces the reason and the deadline to safe characters; (b) the agent script with a typical check is 1.2 KiB, but with its unit, its
-   settings and the encoding it adds about 1.7 KiB to the user-data, which the 12 KiB golden worst case cannot hold: spot nodes are held to
-   12 KiB plus `SpotAgentBytes` (1.5 KiB), and the NodeClass's trial rendering renders the agent without the NVIDIA part and the NVIDIA part
-   without the agent (the largest GPU part, the largest storage setup and the agent together exceed 16 KiB); (c) the node name and the API server
-   reach the script through an environment file written from the template variables, so the script is static and testable; (d) a graceful
+   only reduces the reason and the deadline to safe characters; (b) the agent adds about 1.2 KiB to the user-data (it shares the metadata
+   restriction's part), which the 12 KiB golden worst case cannot hold: spot nodes are held to 12 KiB plus `SpotAgentBytes` (1.5 KiB). The largest case,
+   which AWS's p4d and p5 spot types can reach, is 16.1 KiB of the 16 KiB limit (held 256 bytes under it); a launch over the limit is refused for its
+   offering alone (`InvalidOffering`, `UserDataTooLarge`), and the NodeClass's trial rendering reports that combination as a Warning Event, not a
+   failure; (c) the node name and the API server reach the script through `Environment=` of its unit, written from the template variables, so the
+   script is static and testable; (d) a graceful
    shutdown test (Q17) runs `systemctl poweroff` because the lane's VMs have no QEMU monitor for the ACPI power button. Verified in L4: NodeRestriction
    on k3s v1.37.1 allows the kubelet's identity to patch its own Node's annotations and refuses another Node (403); the kubelet holds a delay
    lock of logind on Flatcar 4757.2.3, and a Pod gets SIGTERM within a second of `systemctl poweroff`. `jq` is not needed (the agent does not parse JSON).

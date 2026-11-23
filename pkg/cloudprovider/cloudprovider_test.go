@@ -1174,3 +1174,26 @@ func TestGetInstanceTypesLogsTheNodePoolReasonsOnce(t *testing.T) {
 		t.Errorf("%d NodePool lines naming aws.m7i.large after two calls, want 1", n)
 	}
 }
+
+// A launch whose user-data is over the vendor's limit (a spot GPU type with the
+// agent) rejects that offering only: it is marked and Event'ed, and another type
+// launches in the same Create.
+func TestCreateRejectsAnOfferingWhoseUserDataIsTooLarge(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 100})
+	types := []string{"aws.m7i.large", "aws.c7i.large"}
+	bad, good := e.offerings(types...)[0].typeName, types[0]
+	if bad == good {
+		good = types[1]
+	}
+	e.renderer.tooLarge = strings.TrimPrefix(bad, "aws.")
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", types))
+	if err != nil {
+		t.Fatalf("Create: %v, want the other type to launch", err)
+	}
+	if got := created.Labels[corev1.LabelInstanceTypeStable]; got != good {
+		t.Errorf("launched %q, want %s", got, good)
+	}
+	if !contains(e.events.reasons(), cloudprovider.EventOfferingRejected) {
+		t.Errorf("events = %v, want %s", e.events.reasons(), cloudprovider.EventOfferingRejected)
+	}
+}

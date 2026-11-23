@@ -131,7 +131,13 @@ func TestFragmentErrors(t *testing.T) {
 
 func bigFragment(t *testing.T) string {
 	t.Helper()
-	raw := make([]byte, 10*1024)
+	return fragmentOf(t, 10*1024)
+}
+
+// fragmentOf is a fragment of about n bytes that does not compress.
+func fragmentOf(t *testing.T, n int) string {
+	t.Helper()
+	raw := make([]byte, n)
 	if _, err := rand.Read(raw); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +163,7 @@ func TestValidateRendersTheFragmentsOfEachVendor(t *testing.T) {
 		}, "boot fragments of aws"},
 		"none": {func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) { return nil, nil }, ""},
 	} {
-		err := r.ValidateWith(t.Context(), nc, "amd64", bootstrap.Inputs{}, tc.fn)
+		_, err := r.ValidateWith(t.Context(), nc, "amd64", bootstrap.Inputs{}, tc.fn)
 		switch {
 		case tc.wantErr == "" && err != nil:
 			t.Errorf("%s: %v", name, err)
@@ -173,7 +179,7 @@ func TestValidateRendersTheSpotFragmentsWithoutTheGPUPart(t *testing.T) {
 	r := bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: kubeRefs(t), APIServerEndpoint: "https://api.example.com:6443"})
 	nc := nodeClass(nil)
 	var asked []bool
-	err := r.ValidateWith(t.Context(), nc, "amd64", bootstrap.Inputs{}, func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
+	_, err := r.ValidateWith(t.Context(), nc, "amd64", bootstrap.Inputs{}, func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
 		asked = append(asked, spot)
 		if spot {
 			// Fits alone, not together with the largest NVIDIA part.
@@ -187,6 +193,34 @@ func TestValidateRendersTheSpotFragmentsWithoutTheGPUPart(t *testing.T) {
 	if !slices.Contains(asked, true) || !slices.Contains(asked, false) {
 		t.Errorf("fragments asked for with spot = %v, want both", asked)
 	}
+}
+
+// A spot fragment that fits the node without the NVIDIA part but not together with
+// the largest one is a warning, not a validation failure: such a launch is refused
+// by itself.
+func TestValidateWarnsAboutTheSpotGPUCombination(t *testing.T) {
+	r := bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: kubeRefs(t), APIServerEndpoint: "https://api.example.com:6443"})
+	nc := nodeClass(nil)
+	for n := 500; n <= 6000; n += 250 {
+		frag := fragmentOf(t, n)
+		warning, err := r.ValidateWith(t.Context(), nc, "amd64", bootstrap.Inputs{},
+			func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
+				if spot {
+					return []bootstrap.Fragment{{Name: "agent", Butane: frag}}, nil
+				}
+				return nil, nil
+			})
+		switch {
+		case err != nil:
+			t.Fatalf("a %d byte spot fragment failed the validation before it produced a warning: %v", n, err)
+		case warning != "":
+			if !strings.Contains(warning, "a spot node with the NVIDIA part") {
+				t.Errorf("the warning is %q", warning)
+			}
+			return
+		}
+	}
+	t.Error("no size of the spot fragment gave a warning")
 }
 
 type boom struct{}

@@ -15,16 +15,19 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/hcloud"
 )
 
-type noticeDriver struct{ vendors.Driver }
+// noticeDriver is a driver with metadata addresses (hcloud's) and a notice check.
+type noticeDriver struct{ *hcloud.Driver }
 
-func (noticeDriver) Vendor() string { return "x" }
 func (noticeDriver) InterruptionNotices() vendors.NoticeCheck {
 	return vendors.NoticeCheck{
-		Script: `  t=$(curl -sf --max-time 3 -H 'Metadata: true' http://169.254.169.254/metadata/scheduledevents) || return 2
-  echo "$t" | grep -q Preempt || return 1
-  echo "SpotInterrupted $(echo "$t" | sed -n 's/.*"NotBefore": *"\([^"]*\)".*/\1/p')"`,
+		// As long as the longest check expected: AWS's IMDSv2 (a token, then the action).
+		Script: `  t=$(curl -sf --max-time 3 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token) || return 2
+  s=$(curl -s --max-time 3 -w '%{http_code}' -H "X-aws-ec2-metadata-token: $t" http://169.254.169.254/latest/meta-data/spot/instance-action) || return 2
+  case $s in *404) return 1 ;; *200) ;; *) return 2 ;; esac
+  echo "SpotInterrupted $(echo "$s" | sed -n 's/.*"time": *"\([^"]*\)".*/\1/p')"`,
 		Interval:     time.Second,
 		NoticeWindow: vendors.NoticeWindow{MinNotice: 30 * time.Second, MaxNotice: 30 * time.Second},
 	}
@@ -34,7 +37,7 @@ func (noticeDriver) InterruptionNotices() vendors.NoticeCheck {
 // into a node's user-data: the script, its settings and the unit in the metadata
 // slice.
 func TestInterruptionAgentFragment(t *testing.T) {
-	f, ok, err := vendors.InterruptionAgent(noticeDriver{}, true)
+	f, ok, err := vendors.InterruptionAgent(noticeDriver{&hcloud.Driver{}}, false)
 	if err != nil || !ok {
 		t.Fatalf("InterruptionAgent = %v, %v", ok, err)
 	}
