@@ -240,14 +240,19 @@ func (c *CloudProvider) reserveQuota(ctx context.Context, st *launchState, cand 
 // onUnsupported records an Unsupported error. A vendor resource of the region
 // that is missing has the engine make the region's offerings unavailable, and
 // nothing of this type or zone is wrong: the other candidates of the region are
-// skipped, or only those of the zone when only the zone lacks it. Otherwise the
-// type in the zone is marked.
+// skipped, or only those of the zone when only the zone lacks it. A spot request
+// to a vendor without spot marks the spot offering only. Otherwise the type in
+// the zone is marked.
 func (c *CloudProvider) onUnsupported(logger logr.Logger, st *launchState, cand *candidate, err error) {
 	switch vendors.CodeOf(err) {
 	case vendors.CodeResourceMissing, vendors.CodeResourceForbidden:
 		st.blocked[resourceKey(cand)] = true
 	case vendors.CodeResourceMissingInZone:
 		st.blocked[resourceKey(cand)+"/"+cand.zone] = true
+	case vendors.CodeNoSpot:
+		// The vendor has no spot: only the spot offering is wrong, on-demand of
+		// the same type and zone is fine.
+		c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 	default:
 		c.markUnsupported(logger, cand, err)
 	}

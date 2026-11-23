@@ -85,7 +85,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind) conformance.Fix
 			return conformanceDriver(t, a, clk)
 		},
 		Region: testRegion, Zone: testRegion, InstanceType: testType, MaxUserData: vultr.MaxUserDataBytes,
-		NoArm64: true, StoresIdempotencyKey: true, InstanceTypes: all,
+		NoArm64: true, StoresIdempotencyKey: true, NoSpot: true, InstanceTypes: all,
 		Now: time.Now,
 		Inject: func(t *testing.T, d vendors.Driver, class vendors.Class, _ vendors.CreateRequest) {
 			t.Helper()
