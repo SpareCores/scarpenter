@@ -108,8 +108,8 @@ international regions: the China regions need a China-site, real-name-verified a
 driver has no code branch for them. `Zones` is `DescribeZones`, cached for an hour; the zone ID and
 the zone name are the same text (`ap-southeast-1a`), so Keeper's zone IDs match without mapping. A
 region the credentials cannot use is `RegionUnavailable`. A region that `DescribeRegions` lists but whose endpoint
-answers `InvalidRegionId.NotFound` (or a denied code) is skipped by the resource list and the instance list (logged
-once at V(1)) until the next refresh of the regions.
+answers `InvalidRegionId.NotFound` is skipped by the resource list and the instance list (logged
+once at V(1)) until the next refresh of the regions; reads and deletes of a single instance still reach it.
 
 `LaunchableTypes` is `DescribeAvailableResource` per region for on-demand and for spot (a type with
 stock for either is offered; the launch error settles the rest), refreshed by the quota tracker, minus the
@@ -154,7 +154,10 @@ Decisions that differ from AWS (each an open question of the plan, decided by de
   zone). A NodeClass that sets `storage.root.category` pins it: a type that does not take it in the zone is not
   offered. Without one the disk is `cloud_essd` where the type takes it, else `cloud_ssd`, else `cloud_efficiency`
   (old generations such as `ecs.xn4` take the last two; the performance level is dropped with the category), and a
-  type that takes none is not offered. `PriceDelta` prices the chosen category. A zone not read yet is not refused.
+  type that takes none is not offered. `PriceDelta` prices the chosen category. A zone not read yet, or listed without a type, is not refused. A `performanceLevel` without a category pins
+  `cloud_essd`. The capability read ignores stock. Under the fallback different types of one NodeClass can run on
+  different system disk categories, which affects the comparability of benchmarks between them: pin the category when
+  that matters.
 - **`PriceDelta`** is the disks at Keeper's GB-month price divided by 730, per region and category (and level for
   ESSD: a row without a level serves PL1 only); incomplete for `cloud_auto`, a level Keeper has no row for, any
   provisioned IOPS or bursting, and `PayByBandwidth`. The public IP is free and traffic is not priced. Keeper's
@@ -371,7 +374,7 @@ copy in `errors_test.go`; every code is tested.
 | `InvalidOffering` | the bare `OperationDenied`, which names no reason (the offering is unavailable for 1 h and the next candidate is tried) |
 | `QuotaExceeded` | `QuotaExceed.ElasticQuota`, `QuotaExceed.AfterpayInstance`, `QuotaExceeded`, `QuotaExceed.DiskCapacity`, `QuotaExceed.PostPaidDisk`, `QuotaExceeded.PostpaidDataDiskCapacity`, `QuotaExceeded.InternetBandwidth`, `InstanceDiskNumLimitExceed`, `InstanceDiskLimitExceeded` |
 | `ZoneUnusable` | `QuotaExceeded.PrivateIpAddress`, `OperationDenied.ZoneNotAllowed`, `Zone.NotOpen`, `SecurityGroupInstanceLimitExceed` |
-| `RegionUnavailable` (zone reads) | `RegionUnauthorized`, `InvalidRegionId.NotFound`, `InvalidRegion.NotSupport`, `RealNameAuthenticationError` |
+| `RegionUnavailable` (zone reads) | `RegionUnauthorized`, `InvalidRegion.NotSupport`, `RealNameAuthenticationError` |
 | `Retryable` | `Throttling`, `Throttling.*`, HTTP 429, `ServiceUnavailable`, `InternalError`, `Mayi.InternalError`, `NodeControllerUnavailable`, HTTP 5xx, `IdempotentProcessing`, `IncorrectInstanceStatus`, `DependencyViolation.*` |
 | `NotFound` | `InvalidInstanceId.NotFound` |
 | `Fatal` | everything else, for example `InvalidImageId.NotFound`, `InvalidVSwitchId.NotFound`, `InvalidSecurityGroup.VpcMismatch`, `Account.Arrearage`, `Forbidden.RAM`, `QuotaExceed.Tags`, `NumberExceed.Tags`; `IdempotentParameterMismatch` is resolved by the create path and never classified |

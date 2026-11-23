@@ -354,6 +354,12 @@ func (d *Driver) regionsOf(ctx context.Context, regions []string) ([]string, err
 	return usable, nil
 }
 
+func (d *Driver) isUnusable(region string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.unusable[region]
+}
+
 // markUnusable remembers a region the account lists but cannot call, until the
 // next refresh of the regions, and logs it once.
 func (d *Driver) markUnusable(region string) {
@@ -382,8 +388,11 @@ func (d *Driver) List(
 		} {
 			refs, err := list(ctx, region, tags)
 			if err != nil {
-				if vendors.IsClass(err, vendors.RegionUnavailable) || isCode(err, regionDeniedCodes...) {
+				if isCode(err, codeRegionNotFound) {
 					d.markUnusable(region)
+					break
+				}
+				if vendors.IsClass(err, vendors.RegionUnavailable) || isCode(err, regionDeniedCodes...) {
 					break
 				}
 				return nil, fmt.Errorf("listing the managed resources of %s: %w", region, err)

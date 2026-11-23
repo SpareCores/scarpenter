@@ -333,12 +333,12 @@ func (d *Driver) ListInstances(
 ) ([]*vendors.Instance, error) {
 	var out []*vendors.Instance
 	for _, r := range regions {
-		if !d.knownRegion(ctx, r) {
+		if !d.knownRegion(ctx, r) || d.isUnusable(r) {
 			continue
 		}
 		insts, err := d.cloud.ListInstances(ctx, []string{r}, tags)
 		if err != nil {
-			if vendors.IsClass(err, vendors.RegionUnavailable) || isCode(err, regionDeniedCodes...) {
+			if isCode(err, codeRegionNotFound) {
 				d.markUnusable(r)
 				continue
 			}
@@ -372,10 +372,7 @@ func (d *Driver) knownRegion(ctx context.Context, region string) bool {
 	if err != nil {
 		return true
 	}
-	d.mu.Lock()
-	unusable := d.unusable[region]
-	d.mu.Unlock()
-	return !unusable && slices.ContainsFunc(regions, func(r vendors.Region) bool { return r.Name == region })
+	return slices.ContainsFunc(regions, func(r vendors.Region) bool { return r.Name == region })
 }
 
 // ---- quotas and offerings ------------------------------------------------------
@@ -476,14 +473,16 @@ var systemDiskFallback = []string{CategoryESSD, CategorySSD, CategoryEfficiency}
 
 // systemDiskCategory chooses the system disk category of a type in a zone from
 // the categories the vendor reports it takes (loadDiskTypes). A NodeClass that
-// sets storage.root.category pins it: the type either takes it or is not
+// sets storage.root.category (or performanceLevel) pins it: the type either takes it or is not
 // offered. Without one the built-in cloud_essd is tried first, then
 // systemDiskFallback in order. ok is false when no category fits. A zone whose
 // categories are not read yet takes the requested one, and the launch error is
 // the backstop.
 func (d *Driver) systemDiskCategory(instanceType, zone string, st Settings) (category string, ok bool) {
 	requested := rootDisk(st).Category
-	pinned := st.Storage != nil && st.Storage.Root != nil && st.Storage.Root.Category != ""
+	// A performance level belongs to cloud_essd alone, so it pins that too.
+	pinned := st.Storage != nil && st.Storage.Root != nil &&
+		(st.Storage.Root.Category != "" || st.Storage.Root.PerformanceLevel != "")
 	candidates := []string{requested}
 	if pinned {
 		d.mu.Lock()

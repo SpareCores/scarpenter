@@ -8,6 +8,7 @@ package alicloud
 
 import (
 	"context"
+	"maps"
 	"slices"
 
 	ecs "github.com/alibabacloud-go/ecs-20140526/v7/client"
@@ -110,7 +111,7 @@ func (c *Cloud) LaunchableTypes(ctx context.Context, region, capacityType string
 	if capacityType == vendors.CapacitySpot {
 		in.SpotStrategy = new("SpotAsPriceGo")
 	}
-	byZone, err := c.availableTypes(ctx, cl, in)
+	byZone, err := c.availableTypes(ctx, cl, in, false)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +131,11 @@ func (c *Cloud) LaunchableTypes(ctx context.Context, region, capacityType string
 // take the system disk category: the same DescribeAvailableResource call as
 // LaunchableTypes with SystemDiskCategory set, so the vendor's own data says
 // which types refuse the category (the old generations refuse cloud_essd). A
-// zone the answer does not list is not in the map.
+// zone the answer does not list, or lists without a type, is not in the map:
+// that is unknown, not "takes nothing" (the launch error is the backstop). The
+// types count whatever their stock Status, as this is capability, not stock.
+// The DescribeAvailableResource filter form (InstanceType with SystemDiskCategory)
+// is unverified against the live API.
 func (c *Cloud) SystemDiskTypes(ctx context.Context, region, category string) (map[string][]string, error) {
 	cl, err := c.Clients(ctx, region)
 	if err != nil {
@@ -140,13 +145,13 @@ func (c *Cloud) SystemDiskTypes(ctx context.Context, region, category string) (m
 		RegionId: new(region), DestinationResource: new("InstanceType"),
 		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"),
 		SystemDiskCategory: new(category),
-	})
+	}, true)
 }
 
 // availableTypes runs DescribeAvailableResource and returns, per zone, the
 // sorted launchable types with stock.
 func (c *Cloud) availableTypes(
-	ctx context.Context, cl Clients, in *ecs.DescribeAvailableResourceRequest,
+	ctx context.Context, cl Clients, in *ecs.DescribeAvailableResourceRequest, anyStock bool,
 ) (map[string][]string, error) {
 	out, err := call(ctx, c, callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DescribeAvailableResourceResponseBody, error) {
@@ -172,7 +177,7 @@ func (c *Cloud) availableTypes(
 				}
 				for _, sr := range ar.SupportedResources.SupportedResource {
 					name := deref(sr.Value)
-					if deref(sr.Status) == StatusAvailable && Launchable(name) && !slices.Contains(names, name) {
+					if (anyStock || deref(sr.Status) == StatusAvailable) && Launchable(name) && !slices.Contains(names, name) {
 						names = append(names, name)
 					}
 				}
@@ -180,6 +185,9 @@ func (c *Cloud) availableTypes(
 		}
 		slices.Sort(names)
 		byZone[zone] = names
+	}
+	if anyStock {
+		maps.DeleteFunc(byZone, func(_ string, names []string) bool { return len(names) == 0 })
 	}
 	return byZone, nil
 }

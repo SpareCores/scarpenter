@@ -1051,3 +1051,65 @@ func TestUnusableRegionIsSkippedByListInstancesUntilRefresh(t *testing.T) {
 		t.Errorf("DescribeInstances calls after the refresh = %d, want 4", n)
 	}
 }
+
+func TestSkippedRegionStillReachedByInstanceReads(t *testing.T) {
+	e := newDenv(t, denvOptions{})
+	e.warm(testRegion)
+	inst, err := e.d.CreateInstance(bg(), e.claim("live", "ecs.g7.large", vendors.CapacityOnDemand))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.acct.Inject("DescribeVpcs", notFoundRegion, 1)
+	if _, err := e.d.List(bg(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !e.d.isUnusable(testRegion) && !e.d.isUnusable(otherRegion) {
+		t.Fatal("no region was skipped")
+	}
+	if _, err := e.d.GetInstance(bg(), inst.Ref); err != nil {
+		t.Errorf("Get after the skip: %v", err)
+	}
+	if _, err := e.d.FindInstance(bg(), testRegion, map[vendors.TagKey]string{vendors.TagNodeClaim: "live"}); err != nil {
+		t.Errorf("Find after the skip: %v", err)
+	}
+	if err := e.d.DeleteInstance(bg(), inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.acct.InstanceIDs(testRegion)) != 0 {
+		t.Error("the delete did not reach the region")
+	}
+}
+
+func TestPerformanceLevelPinsESSD(t *testing.T) {
+	e := oldTypeEnv(t)
+	e.warm(testRegion)
+	st, err := decodeSettings(vendors.VendorSettings{Raw: []byte(`{"storage":{"root":{"performanceLevel":"PL1"}}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := e.d.systemDiskCategory(oldType.Name, testZoneA, st); ok {
+		t.Errorf("an old type with a performance level got %q", c)
+	}
+}
+
+func TestEmptyDiskAnswerIsUnknown(t *testing.T) {
+	e := oldTypeEnv(t)
+	// No type takes cloud_essd anywhere: the answer says nothing, it must not
+	// drop every type.
+	for _, ts := range append(slices.Clone(smallTypes), oldType) {
+		ts.SystemDisks = []string{"cloud_efficiency"}
+		e.acct.AddType(ts)
+	}
+	e.warm(testRegion)
+	st, _ := decodeSettings(vendors.VendorSettings{Raw: []byte(`{}`)})
+	if c, ok := e.d.systemDiskCategory("ecs.g7.large", testZoneA, st); !ok || c != CategoryESSD {
+		t.Errorf("empty cloud_essd answer: %q %v", c, ok)
+	}
+	// A sold-out type still counts for the category.
+	e.acct.Offer(testRegion, testZoneA, fake.OnDemand, "SoldOut", oldType.Name)
+	e.warm(testRegion)
+	pin, _ := decodeSettings(vendors.VendorSettings{Raw: []byte(`{"storage":{"root":{"category":"cloud_efficiency"}}}`)})
+	if c, ok := e.d.systemDiskCategory(oldType.Name, testZoneA, pin); !ok || c != CategoryEfficiency {
+		t.Errorf("sold out: %q %v", c, ok)
+	}
+}
