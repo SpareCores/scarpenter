@@ -239,7 +239,7 @@ units, Pods included ([above](#the-metadata-service)). A workload that reads the
 ## Interruption
 
 Spot nodes (`SpotAsPriceGo`, `SpotDuration=0`, `SpotInterruptionBehavior=Terminate`) get the [node agent](node-bootstrap.md#the-interruption-agent)
-with the driver's check ([plan 26](../plans/v1/wip/26-interruption.md) section 6), the capability `InterruptionNotices`:
+with the driver's check ([plan 26](../plans/v1/done/26-interruption.md) section 6), the capability `InterruptionNotices`:
 
 - **Check.** Every 5 s the agent asks the metadata service for a token (`PUT http://100.100.100.200/latest/api/token` with
   `X-aliyun-ecs-metadata-token-ttl-seconds`, so it also works in the hardened mode) and then for

@@ -3,7 +3,7 @@
 When a vendor reclaims a spot or preemptible node, SCarpenter drains it at once instead of waiting for the node to fail: your Pods get
 their SIGTERM with the time the vendor still gives, the reason is recorded on the NodeClaim and the Node, and the interrupted offering
 (instance type and zone) is kept out of scheduling for a while. Design: [ADR-027](../explanation/DECISIONS.md#adr-027-spot-interruption-the-notice-is-an-annotation-the-reaction-is-one-controller-accepted-2026-11-19),
-[plan 26](../plans/v1/wip/26-interruption.md); mechanics: [the controller reference](../reference/controller.md#interruption).
+[plan 26](../plans/v1/done/26-interruption.md); mechanics: [the controller reference](../reference/controller.md#interruption).
 
 Status: **OCI, AWS, GCP, Alibaba Cloud and Azure**. OCI (preemptible instances, found by polling the OCI API) records the reason and cleans the node up fast, but has
 no graceful drain window yet, because the poll sees the preemption only once the instance is stopping or terminating; its path follows the vendor's

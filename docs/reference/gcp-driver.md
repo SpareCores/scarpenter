@@ -385,7 +385,7 @@ so. A period under `minPeriod` (default 10 minutes) would not qualify anyway. `I
 ## Interruption
 
 A preempted Spot VM is announced in the instance metadata, so GCP uses the [node agent](node-bootstrap.md#the-interruption-agent)
-([plan 26](../plans/v1/wip/26-interruption.md), [handle spot interruptions](../how-to-guides/handle-spot-interruptions.md)); the
+([plan 26](../plans/v1/done/26-interruption.md), [handle spot interruptions](../how-to-guides/handle-spot-interruptions.md)); the
 driver implements `InterruptionNotices` and `Instance.GoneReason`.
 
 - **The check.** The agent's `scarpenter_check` long-polls `computeMetadata/v1/instance/preempted?wait_for_change=true`

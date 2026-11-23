@@ -364,7 +364,7 @@ the hold floor.
 
 `InterruptionWindow` is the optional capability of a driver whose vendor has spot or preemptible instances: `NoticeWindow()` returns
 `NoticeWindow{MinNotice, MaxNotice}`, the shortest and the longest lead time the vendor gives before it takes a reclaimed instance
-([plan 26](../plans/v1/wip/26-interruption.md)). The interruption controller clamps a node's claimed deadline into `[now, now +
+([plan 26](../plans/v1/done/26-interruption.md)). The interruption controller clamps a node's claimed deadline into `[now, now +
 MaxNotice]`, and a notice without a usable deadline is `now + MinNotice`. A driver that declares none (or an invalid window: no minimum,
 or a maximum under the minimum) gets `vendors.DefaultNoticeWindow`, 30 s and 5 min. The fake declares the window of the vendor it
 impersonates (AWS and OCI 2 min, GCP 30 s to 2 min 30 s, Azure 30 s, Alibaba 5 min), which `--fake-min-notice` and `--fake-max-notice`
@@ -373,7 +373,7 @@ override.
 ## Interruption notices (the node agent)
 
 `InterruptionNotices` is the optional capability of a driver whose vendor announces the loss of a spot or preemptible instance in the
-instance metadata ([plan 26](../plans/v1/wip/26-interruption.md) section 2). `InterruptionNotices()` returns a `NoticeCheck`:
+instance metadata ([plan 26](../plans/v1/done/26-interruption.md) section 2). `InterruptionNotices()` returns a `NoticeCheck`:
 
 | Field | Meaning |
 |---|---|
@@ -391,7 +391,7 @@ malformed, 5xx); the agent's size, the generic loop plus the check, stays under 
 ## Interruption poller and the reason an instance is gone
 
 `InterruptionPoller` is the optional capability of a driver whose vendor shows an interruption in its API instead of, or besides, the
-instance metadata ([plan 26](../plans/v1/wip/26-interruption.md) section 4): `PollInterruptions(ctx, region)` returns the `Notice{Ref,
+instance metadata ([plan 26](../plans/v1/done/26-interruption.md) section 4): `PollInterruptions(ctx, region)` returns the `Notice{Ref,
 Reason, Deadline}` of the cluster's instances in the region that are announced or under way, and `PollInterval()` the time between two
 polls. The core runs one poller per (vendor, region) that has a spot NodeClaim, however many instances there are (so the driver makes a
 bounded number of calls per region, one paged list and not one call per instance), and stops it when the last one is gone. The poller maps
