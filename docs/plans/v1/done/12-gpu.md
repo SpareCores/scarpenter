@@ -8,7 +8,7 @@ Spec: overview §2 (deferred list), §5.3 (capacity), §5.5 (labels), §8 (boots
 [ADR-025](../../../explanation/DECISIONS.md#adr-025-instance-metadata-reaches-only-the-nodes-own-components-accepted-2026-11-19) (instance metadata), [ADR-026](../../../explanation/DECISIONS.md#adr-026-node-memory-a-capped-default-reservation-and-a-lean-footprint-accepted-2026-11-19); [node bootstrap](../../../reference/node-bootstrap.md),
 [labels and offerings](../../../reference/labels-and-offerings.md).
 
-Status: **done** (steps (a) to (k); step (d)'s L4 scenario and step (j) UpCloud are separate PRs that may still be open; real runs verify the GPU types, section 5). Decisions of the maintainer 2026-11-19 are folded in (section 6). Research date 2026-11-19, from Flatcar's documentation and sources (flatcar/scripts tag
+Status: **done** (steps (a) to (k); real runs verify the GPU types, section 5). Decisions of the maintainer 2026-11-19 are folded in (section 6). Research date 2026-11-19, from Flatcar's documentation and sources (flatcar/scripts tag
 `stable-4757.2.3`, bootengine, ue-rs, sysext-bakery), the update server's listings, NVIDIA's release notes and
 device plugin README, Karpenter core v1.15.1 and Keeper's server table (active rows, every vendor). No cloud API
 was called. Everything marked **[U]** is unverified and is settled by the optional manual spikes (section 7), by real
