@@ -133,8 +133,9 @@ root disk type (the default `Premium_LRS`, or the `storageAccountType` the NodeC
 ephemeral root has none) and the data disks' types. A size that cannot attach them is not offered on that route.
 With the default route that means sizes without premium storage (`D2_v5`) are not offered at all, unless a storage
 profile makes them work: then the type is offered for claims that select such a profile (its `storage-profile`
-label has no `default`, so a claim that names no storage profile does not match it, and no profile is picked for
-it). To get such sizes, pin `storageAccountType: StandardSSD_LRS` in the NodeClass's root disk, or in a
+label has no `default`; Karpenter's scheduler may still match it for a claim that names no storage profile, but
+Create never launches it for that claim: the candidate is skipped, and if every type a pod fits is such a size,
+launches fail until the pod or NodePool selects a storage profile). To get such sizes, pin `storageAccountType: StandardSSD_LRS` in the NodeClass's root disk, or in a
 storage profile. An empty list means unknown and excludes nothing. Premium disks also need the `PremiumIO`
 capability: a size without it that passes the check fails the default root disk at launch (`Unsupported`, the
 offering is unavailable for a while). Sizes without Gen2 or without a SCSI disk
