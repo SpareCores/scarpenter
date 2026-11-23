@@ -124,7 +124,8 @@ func supportsStorage(block json.RawMessage, compatible []string, sku SKU, known 
 // attachable says whether Keeper lists every given disk type for the size; an
 // empty list (unknown) allows all.
 func attachable(types, compatible []string) bool {
-	return len(compatible) == 0 || !slices.ContainsFunc(types, func(t string) bool { return !slices.Contains(compatible, t) })
+	notListed := func(t string) bool { return !slices.Contains(compatible, t) }
+	return len(compatible) == 0 || !slices.ContainsFunc(types, notListed)
 }
 
 // SupportsSettings implements vendors.SettingsChecker: Keeper lists the disk

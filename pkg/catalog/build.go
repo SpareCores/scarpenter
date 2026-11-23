@@ -181,10 +181,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 		}
 		// A type that cannot host the default settings is offered with a
 		// storage profile that makes it work, else not at all.
-		defaultOK := true
-		if df, ok := facts.(DefaultRouteFacts); ok {
-			defaultOK = df.DefaultSupported(vendor, class, srv)
-		}
+		defaultOK := defaultRouteSupported(facts, vendor, class, srv)
 		if !defaultOK && len(union[labels.ProfileStorage]) == 0 {
 			drop(StorageIncompatible, "")
 			continue
@@ -371,6 +368,13 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 			strings.Compare(a.capacityType, b.capacityType))
 	})
 	return out
+}
+
+// defaultRouteSupported asks the facts whether the type works with the class's
+// default settings; facts that cannot say support it.
+func defaultRouteSupported(facts Facts, vendor string, class *Class, srv *model.Server) bool {
+	df, ok := facts.(DefaultRouteFacts)
+	return !ok || df.DefaultSupported(vendor, class, srv)
 }
 
 // profileRequirements are the profile labels; without the default storage the
