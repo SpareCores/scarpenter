@@ -97,27 +97,40 @@ func TestInterruptionNoticesWindow(t *testing.T) {
 func TestGoneReason(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	ctx := t.Context()
-	spot, err := e.d.CreateInstance(ctx, request(testRegion, testZone, "m7i.large", vendors.CapacitySpot))
-	if err != nil {
-		t.Fatal(err)
+	create := func(capacity string) *vendors.Instance {
+		t.Helper()
+		inst, err := e.d.CreateInstance(ctx, request(testRegion, testZone, "m7i.large", capacity))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return inst
 	}
-	ended, _ := e.d.CreateInstance(ctx, request(testRegion, testZone, "m7i.large", vendors.CapacitySpot))
-	od, _ := e.d.CreateInstance(ctx, request(testRegion, testZone, "m7i.large", vendors.CapacityOnDemand))
-	for name, tc := range map[string]struct {
+	spotRunning, spotReclaimed, spotEnded, od := create(vendors.CapacitySpot), create(vendors.CapacitySpot), create(vendors.CapacitySpot), create(vendors.CapacityOnDemand)
+	for _, tc := range []struct {
+		name string
 		inst *vendors.Instance
-		stop func()
+		stop func(t *testing.T)
 		want string
 	}{
-		"spot running": {spot, func() {}, ""},
-		"spot reclaimed": {spot, func() { e.acct.ReclaimSpotInstance(testRegion, spot.Ref.ID()) },
+		{"spot running", spotRunning, func(*testing.T) {}, ""},
+		{"spot reclaimed", spotReclaimed, func(*testing.T) { e.acct.ReclaimSpotInstance(testRegion, spotReclaimed.Ref.ID()) },
 			v1alpha1.ReasonSpotInterrupted},
-		"spot ended by SCarpenter": {ended, func() { e.acct.SetInstanceState(testRegion, ended.Ref.ID(), "terminated") }, ""},
-		"on-demand terminated":     {od, func() { e.acct.SetInstanceState(testRegion, od.Ref.ID(), "terminated") }, ""},
+		{"spot ended by SCarpenter", spotEnded, func(t *testing.T) {
+			if err := e.d.DeleteInstance(ctx, spotEnded.Ref); err != nil {
+				t.Fatal(err)
+			}
+		}, ""},
+		{"on-demand terminated", od, func(*testing.T) { e.acct.SetInstanceState(testRegion, od.Ref.ID(), "terminated") }, ""},
 	} {
-		tc.stop()
-		got, err := e.d.GetInstance(ctx, tc.inst.Ref)
-		if err != nil || got.GoneReason != tc.want {
-			t.Errorf("%s: GoneReason = %q (%v), want %q", name, got.GoneReason, err, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			tc.stop(t)
+			got, err := e.d.GetInstance(ctx, tc.inst.Ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.GoneReason != tc.want {
+				t.Errorf("GoneReason = %q, want %q", got.GoneReason, tc.want)
+			}
+		})
 	}
 }

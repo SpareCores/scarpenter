@@ -71,7 +71,8 @@ sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${ro
     | if $fis_role == "" then . else .Statement += [
         {Sid: "LaneInterruption", Effect: "Allow",
          Action: ["fis:CreateExperimentTemplate", "fis:DeleteExperimentTemplate", "fis:StartExperiment", "fis:GetExperiment"],
-         Resource: [("arn:aws:fis:" + $region + ":" + $account + ":experiment-template/*"), ("arn:aws:fis:" + $region + ":" + $account + ":experiment/*")]},
+         Resource: [("arn:aws:fis:" + $region + ":" + $account + ":experiment-template/*"), ("arn:aws:fis:" + $region + ":" + $account + ":experiment/*"),
+                    ("arn:aws:fis:" + $region + ":*:action/*")]},
         {Sid: "LanePassFisRole", Effect: "Allow", Action: "iam:PassRole", Resource: $fis_role,
          Condition: {StringEquals: {"iam:PassedToService": "fis.amazonaws.com"}}}
       ] end'

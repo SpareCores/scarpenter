@@ -2,7 +2,7 @@
 # writes a line with the time (epoch seconds) when it gets SIGTERM, and keeps running
 # for the rest of its grace period, so that the scenario can read the line from its log
 # (plan 26: the Pod must get SIGTERM before the vendor's deadline). The grace period
-# is the first workload's (about 20 s).
+# is longer than the first workload's, to keep the Pod's log readable (the scenario follows it).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,7 +16,15 @@ spec:
     metadata:
       labels: {app: e2e-intr, scarpenter-e2e: "true"}
     spec:
-      terminationGracePeriodSeconds: 20
+      # Never on the node of the arm64 scenario's Pod (the same pool): the interruption must
+      # hit a node of its own.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels: {app: e2e-arm64}
+      terminationGracePeriodSeconds: 45
       nodeSelector:
         karpenter.sh/nodepool: e2e-arm64
         node.kubernetes.io/instance-type: ${E2E_TYPE_ARM64}
@@ -28,7 +36,7 @@ spec:
             - sh
             - -c
             - |
-              trap 'echo "sigterm $(date +%s)"; sleep 15; exit 0' TERM
+              trap 'echo "sigterm $(date +%s)"; sleep 40; exit 0' TERM
               echo scarpenter-e2e-up
               while :; do sleep 1; done
           resources:

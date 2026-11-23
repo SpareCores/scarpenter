@@ -556,11 +556,11 @@ scn_gpu() {
   kubectl delete nodepool e2e-gpu --wait=false
 }
 
-# pod_sigterm <pod>: succeeds when the Pod has logged its SIGTERM, and keeps the time
-# (the Pod is gone soon after, with its log).
+# pod_sigterm <log file>: succeeds when the Pod's followed log has its SIGTERM line, and
+# keeps the time (the Pod is gone soon after, with its log, so the scenario follows it).
 pod_sigterm() {
   local t
-  t="$(kubectl logs "$1" | sed -n 's/^sigterm //p' | head -n1)"
+  t="$(sed -n 's/^sigterm //p' "$1" | head -n1)"
   [[ -n "${t}" ]] || return 1
   setstate e2e-intr.sigterm "${t}"
 }
@@ -574,12 +574,16 @@ pod_sigterm() {
 scn_interruption() {
   start_interruption
   settle e2e-intr
-  local node claim iid pod account arn tpl exp start deadline seen deleted term_at replacement
+  local node claim iid pod account arn tpl exp start deadline seen deleted term_at replacement podlog follower
   node="$(getstate e2e-intr.node)"
   claim="$(getstate e2e-intr.claim)"
   iid="$(getstate e2e-intr.iid)"
   pod="$(getstate e2e-intr.pod)"
   assert_eq "capacity-type" spot "$(node_label "${node}" karpenter.sh/capacity-type)"
+
+  podlog="$(mktemp)"
+  kubectl logs -f "${pod}" >"${podlog}" 2>&1 &
+  follower=$!
 
   log "FIS: an experiment that interrupts ${iid} two minutes from now"
   account="$(cut -d: -f5 <<<"${E2E_FIS_ROLE_ARN}")"
@@ -589,8 +593,8 @@ scn_interruption() {
     --actions '{"interrupt":{"actionId":"aws:ec2:send-spot-instance-interruptions","parameters":{"durationBeforeInterruption":"PT2M"},"targets":{"SpotInstances":"victim"}}}' \
     --targets "{\"victim\":{\"resourceType\":\"aws:ec2:spot-instance\",\"resourceArns\":[\"${arn}\"],\"selectionMode\":\"ALL\"}}" \
     --query experimentTemplate.id --output text)"
-  # shellcheck disable=SC2064  # the template ID is known now: expand it here
-  trap "aws --region '${AWS_REGION}' fis delete-experiment-template --id '${tpl}' >/dev/null 2>&1 || true" EXIT
+  # shellcheck disable=SC2064  # the IDs are known now: expand them here
+  trap "kill ${follower} 2>/dev/null || true; rm -f '${podlog}'; aws --region '${AWS_REGION}' fis delete-experiment-template --id '${tpl}' >/dev/null 2>&1 || true" EXIT
   start="$(now)"
   exp="$(aws --region "${AWS_REGION}" fis start-experiment --experiment-template-id "${tpl}" --query experiment.id --output text)"
   note "interruption: experiment ${exp} started"
@@ -611,7 +615,7 @@ scn_interruption() {
   note "interruption: marked ${seen}s after the experiment started, the NodeClaim was deleted $((deadline - deleted))s before the deadline"
 
   log "the Pod gets SIGTERM before the deadline"
-  wait_until "the Pod logged its SIGTERM" 120 pod_sigterm "${pod}"
+  wait_until "the Pod logged its SIGTERM" 120 pod_sigterm "${podlog}"
   term_at="$(getstate e2e-intr.sigterm)"
   [[ "${term_at}" -lt "${deadline}" ]] || fail "the Pod got SIGTERM at ${term_at}, not before the deadline ${deadline}"
   note "interruption: the Pod's SIGTERM came $((deadline - term_at))s before the deadline"
