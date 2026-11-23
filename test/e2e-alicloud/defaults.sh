@@ -31,6 +31,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 : "${E2E_TYPE_AMD64:=alicloud.ecs.u1-c1m2.large}"
 : "${E2E_TYPE_ARM64:=alicloud.ecs.c8y.large}"
 : "${E2E_TYPE_DB:=alicloud.ecs.u1-c1m4.large}"
+# The manual gpu scenario (never in `all` or the smoke set): the GPU type it launches (the
+# cheapest supported one, 1 T4 with 4 vCPUs; the gpu_instance_type input of e2e.yml (an E2E_GPU_TYPE override) replaces
+# it, and the role's instance type deny must allow it) and how long its node may take from
+# the Pod to the end of the CUDA run (the driver download and the image pull come on top of
+# a boot). Stock and the GPU quota of the account in ap-southeast-1 are unverified.
+: "${E2E_GPU_TYPE:=alicloud.ecs.gn6i-c4g1.xlarge}"
+: "${E2E_GPU_TIMEOUT:=1500}"
 # The types the described-not-named scenario may pick from (small to large).
 : "${E2E_TYPES_DESCRIBED:=alicloud.ecs.u1-c1m2.large,alicloud.ecs.u1-c1m4.large}"
 # How long a node may take from its Pod to Running, and the exit criterion for
@@ -75,4 +82,4 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 # envsubst (manifests) and the child processes read exported variables.
 export ALICLOUD_REGION E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
   E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
-  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_TAG_RUNNER E2E_TAG_NODE
+  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_TAG_RUNNER E2E_TAG_NODE
