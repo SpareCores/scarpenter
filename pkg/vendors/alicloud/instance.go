@@ -134,7 +134,7 @@ func (c *Cloud) describe(
 	in.MaxResults = dara.Int32(describeMax)
 	var out []*ecs.DescribeInstancesResponseBodyInstancesInstance
 	for {
-		page, err := call(ctx, c, callTimeout, errContext{},
+		page, err := call(ctx, c, c.callTimeout, errContext{},
 			func(ctx context.Context) (*ecs.DescribeInstancesResponseBody, error) {
 				return cl.ECS.DescribeInstances(ctx, in)
 			})
@@ -252,7 +252,7 @@ func (c *Cloud) CreateInstance(
 		if err != nil {
 			return nil, err
 		}
-		out, err := call(ctx, c, runTimeout, ec, func(ctx context.Context) (*ecs.RunInstancesResponseBody, error) {
+		out, err := call(ctx, c, 2*c.callTimeout, ec, func(ctx context.Context) (*ecs.RunInstancesResponseBody, error) {
 			return cl.ECS.RunInstances(ctx, in)
 		})
 		if err == nil {
@@ -342,7 +342,7 @@ func (c *Cloud) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) err
 		return err
 	}
 	in := &ecs.DeleteInstanceRequest{InstanceId: new(ref.ID()), Force: new(true)}
-	_, err = call(ctx, c, callTimeout, errContext{},
+	_, err = call(ctx, c, c.callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DeleteInstanceResponseBody, error) {
 			return cl.ECS.DeleteInstance(ctx, in)
 		})
@@ -364,7 +364,7 @@ func (c *Cloud) describeFirst(ctx context.Context, region string, in *ecs.Descri
 	in.RegionId = new(region)
 	in.MaxResults = dara.Int32(10)
 	for {
-		page, err := call(ctx, c, callTimeout, errContext{},
+		page, err := call(ctx, c, c.callTimeout, errContext{},
 			func(ctx context.Context) (*ecs.DescribeInstancesResponseBody, error) {
 				return cl.ECS.DescribeInstances(ctx, in)
 			})

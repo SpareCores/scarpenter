@@ -16,6 +16,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
 	"sigs.k8s.io/karpenter/pkg/scheduling"
@@ -93,16 +94,31 @@ func (c *CloudProvider) instances(ctx context.Context, force bool) (map[string]l
 		}
 		drv, _ := c.opts.Registry.Driver(vendor)
 		clusterTag := map[vendors.TagKey]string{vendors.TagCluster: c.opts.ClusterName}
-		insts, err := drv.ListInstances(ctx, regions[vendor], clusterTag)
-		if err != nil {
-			return nil, fmt.Errorf("listing the instances of vendor %s: %w", vendor, err)
+		// One region at a time, in parallel: a slow or failing region must not
+		// hide the others.
+		results := make([]regionListing, len(regions[vendor]))
+		var wg sync.WaitGroup
+		for i, region := range regions[vendor] {
+			wg.Go(func() {
+				results[i].region = region
+				results[i].insts, results[i].err = drv.ListInstances(ctx, []string{region}, clusterTag)
+			})
 		}
-		for _, inst := range insts {
-			name := inst.Tags[vendors.TagNodeClaim]
-			if inst.Gone() || name == "" {
+		wg.Wait()
+		for _, res := range results {
+			if res.err != nil {
+				if err := c.keepListed(ctx, listed, vendor, res); err != nil {
+					return nil, err
+				}
 				continue
 			}
-			listed[scope.ProviderID(vendor, inst.Region, name)] = listedInstance{vendor: vendor, instance: inst}
+			for _, inst := range res.insts {
+				name := inst.Tags[vendors.TagNodeClaim]
+				if inst.Gone() || name == "" {
+					continue
+				}
+				listed[scope.ProviderID(vendor, inst.Region, name)] = listedInstance{vendor: vendor, instance: inst}
+			}
 		}
 	}
 
@@ -122,6 +138,38 @@ func (c *CloudProvider) instances(ctx context.Context, force bool) (map[string]l
 	}
 	c.cache.byID, c.cache.listedAt = listed, started
 	return c.snapshotLocked(), nil
+}
+
+// regionListing is the answer of a driver for one region.
+type regionListing struct {
+	region string
+	insts  []*vendors.Instance
+	err    error
+}
+
+// keepListed handles a region that could not be listed: its instances of the
+// previous listing stay in listed, so that core's garbage collector (which
+// deletes the registered NodeClaims missing from List) does not take them for
+// gone. Without a previous listing nothing is known about the region, and the
+// listing fails as a whole.
+func (c *CloudProvider) keepListed(
+	ctx context.Context, listed map[string]listedInstance, vendor string, res regionListing,
+) error {
+	c.cache.mu.Lock()
+	defer c.cache.mu.Unlock()
+	if c.cache.byID == nil {
+		return fmt.Errorf("listing the instances of vendor %s in %s: %w", vendor, res.region, res.err)
+	}
+	kept := 0
+	for id, li := range c.cache.byID {
+		if li.vendor == vendor && li.instance.Region == res.region {
+			listed[id] = li
+			kept++
+		}
+	}
+	log.FromContext(ctx).Error(res.err, "listing the instances of a region failed, keeping the ones of the last listing",
+		"vendor", vendor, "region", res.region, "kept", kept)
+	return nil
 }
 
 func (c *CloudProvider) snapshotLocked() map[string]listedInstance {

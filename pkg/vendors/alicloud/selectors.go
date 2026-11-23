@@ -402,7 +402,7 @@ func (d *Driver) describeImages(
 	for _, in := range reqs {
 		for page := int32(1); ; page++ {
 			in.PageNumber = new(page)
-			res, err := call(ctx, d.cloud, callTimeout, errContext{},
+			res, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 				func(ctx context.Context) (*ecs.DescribeImagesResponseBody, error) {
 					return cl.ECS.DescribeImages(ctx, in)
 				})
@@ -574,7 +574,7 @@ func (d *Driver) pageVSwitches(
 	var out []*vswitchInfo
 	for page := int32(1); ; page++ {
 		in.PageNumber = new(page)
-		res, err := call(ctx, d.cloud, callTimeout, errContext{},
+		res, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*vpc.DescribeVSwitchesResponseBody, error) {
 				return cl.VPC.DescribeVSwitches(ctx, in)
 			})
@@ -704,7 +704,7 @@ func (d *Driver) pageGroups(
 	}
 	var out []*groupInfo
 	for {
-		res, err := call(ctx, d.cloud, callTimeout, errContext{},
+		res, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*ecs.DescribeSecurityGroupsResponseBody, error) {
 				return cl.ECS.DescribeSecurityGroups(ctx, in)
 			})
@@ -789,7 +789,7 @@ func (d *Driver) describeSets(ctx context.Context, region string, ref vendors.Us
 	for _, in := range reqs {
 		for page := int32(1); ; page++ {
 			in.PageNumber = new(page)
-			res, err := call(ctx, d.cloud, callTimeout, errContext{},
+			res, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 				func(ctx context.Context) (*ecs.DescribeDeploymentSetsResponseBody, error) {
 					return cl.ECS.DescribeDeploymentSets(ctx, in)
 				})

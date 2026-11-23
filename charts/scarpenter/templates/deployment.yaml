@@ -258,6 +258,10 @@ spec:
             - name: SCARPENTER_ALICLOUD_HOME_REGION
               value: {{ . | quote }}
             {{- end }}
+            {{- with $ali.callTimeout }}
+            - name: SCARPENTER_ALICLOUD_CALL_TIMEOUT
+              value: {{ . | quote }}
+            {{- end }}
             {{- if eq $amode "oidc" }}
             - name: ALIBABA_CLOUD_ROLE_ARN
               value: {{ $ali.credentials.oidc.roleArn | quote }}

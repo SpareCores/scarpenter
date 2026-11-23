@@ -17,8 +17,9 @@ import (
 
 // Event reasons of the CloudProvider, on the SCNodeClass.
 const (
-	// EventLaunchFailed: a vendor call failed with a Fatal error; the NodeClaim
-	// is retried until core's launch timeout.
+	// EventLaunchFailed: a vendor call failed with a Fatal error (or a call of the
+	// launch's preparation timed out, and the region is tried again later); the
+	// NodeClaim is retried until core's launch timeout.
 	EventLaunchFailed = "LaunchFailed"
 	// EventOfferingRejected: the vendor rejected the launch of an offering with
 	// an error that is not known to be fatal for every type; the offering is

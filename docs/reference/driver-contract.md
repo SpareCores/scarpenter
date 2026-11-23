@@ -305,7 +305,8 @@ conformance suite has no extra case for it; the per-driver tests are the pin.
 The driver facts (`Regions`, `Zones`) load in the background on the leader, all vendors concurrently and,
 within a vendor, up to 8 regions at once. Each vendor is published as soon as it is read, so a vendor that hangs
 or fails holds back no other. Every driver call of a region is bounded to 30 s (`facts.DefaultRegionTimeout`) and a
-vendor load to 3 minutes (`facts.DefaultVendorTimeout`); the regions that finished when the vendor times out are
+vendor load to 3 minutes (`facts.DefaultVendorTimeout`), or, for a driver that implements `facts.CallBounded`
+(`LoadTimeout`, the longest one call takes), that long per region and six times it per vendor; the regions that finished when the vendor times out are
 published. A region that fails or times out does not fail the vendor: the vendor is published with the regions
 that loaded (`Loaded` is true once any did), and the failed region stays known (a NodeClass naming it stays
 Ready) with its last-known zones, or with none, so that it has no offerings. A vendor with no readable region stays

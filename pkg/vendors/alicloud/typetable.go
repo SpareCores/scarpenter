@@ -114,7 +114,7 @@ func (c *Cloud) LoadTypes(ctx context.Context, region string, names []string) er
 		var token *string
 		for {
 			in := &ecs.DescribeInstanceTypesRequest{InstanceTypes: dara.StringSlice(batch), NextToken: token}
-			out, err := call(ctx, c, callTimeout, errContext{},
+			out, err := call(ctx, c, c.callTimeout, errContext{},
 				func(ctx context.Context) (*ecs.DescribeInstanceTypesResponseBody, error) {
 					return cl.ECS.DescribeInstanceTypes(ctx, in)
 				})
@@ -145,7 +145,7 @@ func (c *Cloud) LoadAllTypes(ctx context.Context, region string) error {
 	var token *string
 	for {
 		in := &ecs.DescribeInstanceTypesRequest{NextToken: token}
-		out, err := call(ctx, c, callTimeout, errContext{},
+		out, err := call(ctx, c, c.callTimeout, errContext{},
 			func(ctx context.Context) (*ecs.DescribeInstanceTypesResponseBody, error) {
 				return cl.ECS.DescribeInstanceTypes(ctx, in)
 			})

@@ -183,6 +183,22 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 			c.reconcileQuota(res, cand, inst, nodeClaim.Name)
 			return c.created(ctx, nc, nodeClaim, cands, cand, inst, st.runKey, st.prepared), nil
 		}
+		if prep, isPrep := errors.AsType[*prepareError](err); isPrep && vendors.ClassOf(err) == vendors.Retryable {
+			// Nothing was requested from the vendor yet: no instance can exist,
+			// so the region is set aside for a few minutes and the next
+			// candidate is tried in this Create.
+			c.release(res)
+			c.opts.Unavailable.MarkRegionUnreachable(cand.vendor, cand.region)
+			st.attempts++
+			st.lastErr = err
+			st.classes[vendors.Retryable]++
+			st.regions[cand.vendor+"/"+cand.region] = true
+			logger.Info("preparing a launch failed, skipping the region for now", "type", cand.typeName,
+				"zone", cand.zone, "region", cand.region, "error", prep.Error())
+			c.publish(nc, EventLaunchFailed, launchMessage(err), cand.vendor, cand.region, vendors.CodeOf(err))
+			c.metrics.launches.WithLabelValues(cand.vendor, cand.region, cand.capacityType, string(vendors.Retryable)).Inc()
+			continue
+		}
 		if _, isImage := errors.AsType[*imageError](err); isImage {
 			c.release(res)
 			st.imageErr = err
@@ -497,7 +513,7 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 			Resources: c.resourceProvider(nc, cand),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("preparing the launch: %w", err)
+			return nil, &prepareError{err: fmt.Errorf("preparing the launch in %s: %w", cand.zone, err)}
 		}
 	}
 	st.prepared = prepared
@@ -774,6 +790,13 @@ type imageError struct{ err error }
 
 func (e *imageError) Error() string { return e.err.Error() }
 func (e *imageError) Unwrap() error { return e.err }
+
+// prepareError marks a failure of the launch's preparation, before the vendor's
+// create call.
+type prepareError struct{ err error }
+
+func (e *prepareError) Error() string { return e.err.Error() }
+func (e *prepareError) Unwrap() error { return e.err }
 
 type imageKey struct{ vendor, region, arch, channel, version, owner, use string }
 

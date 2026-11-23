@@ -102,6 +102,12 @@ minutes), with the reason for a region that has none. Both architectures are rep
 
 ## Regions and zones
 
+Every API call runs under one deadline, `SCARPENTER_ALICLOUD_CALL_TIMEOUT` (chart
+`vendors.alicloud.callTimeout`, default 90 s; RunInstances gets twice that). A call that times out is not
+retried on the spot. The driver tells the facts loader its call timeout, which then gives each region that
+long (instead of `facts.DefaultRegionTimeout`, 30 s) and the vendor six times it (instead of 3 minutes).
+The same applies to every region, there is no special case for the mainland.
+
 `Regions` is `DescribeRegions` from the home region (`SCARPENTER_ALICLOUD_HOME_REGION`, chart
 `vendors.alicloud.homeRegion`, default `ap-southeast-1`), cached for an hour; the catalog
 intersects it with Keeper's regions, so regions Keeper does not list are never used. Use
