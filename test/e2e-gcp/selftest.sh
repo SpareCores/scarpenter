@@ -269,6 +269,15 @@ t_scenarios_defined() {
     }
   done
 }
+t_manual_scenarios() { # the manual scenarios are defined, and are not part of all
+  local names n
+  names="$(sed -n 's/^manual_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  [[ -n "${names}" ]]
+  for n in ${names}; do
+    grep -q "^scn_${n}() {" "${here}/scenarios.sh" || { echo "no function scn_${n}"; return 1; }
+    [[ " $(all_names) " != *" ${n} "* ]] || { echo "the manual scenario ${n} is in all_scenarios"; return 1; }
+  done
+}
 t_unknown_scenario() { # exit status 2, and the message names the known ones
   local out rc=0
   out="$(E2E_SCENARIOS=nosuch E2E_CLUSTER=x E2E_RUN_ID=1 E2E_CREATED_AT=1 GCP_PROJECT=my-project KUBECONFIG=/dev/null "${here}/scenarios.sh" 2>&1)" || rc=$?
@@ -324,6 +333,7 @@ t_no_secrets_in_scripts() { # nothing that looks like a key, a token, a project 
     "${here}" --include='*.sh' --include='*.yaml' --include='*.go' | grep -v 'selftest.sh'
 }
 check "every scenario has a function, and the plan's scenarios are all there" t_scenarios_defined
+check "the manual scenarios are defined and not in all" t_manual_scenarios
 check "an unknown scenario is refused with status 2" t_unknown_scenario
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios

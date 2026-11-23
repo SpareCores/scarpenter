@@ -61,6 +61,24 @@ func TestReadQuota(t *testing.T) {
 	}
 }
 
+func TestReadQuotaCountsGPUs(t *testing.T) {
+	e := newEnv(t, fake.Options{Limits: upcloud.ResourceLimits{Cores: 100, Memory: 1 << 20, StorageMaxIOPS: 5000, GPUs: 4}})
+	e.f.AddServer(fake.ServerSpec{Zone: "fi-hel1", Plan: "GPU-8xCPU-64GB-1xL40S", Title: "operator-gpu"})
+	snap, err := ReadQuota(e.ctx, e.f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, ok := bucketsByID(snap)[BucketGPUs]; !ok || b.Limit != 4 || b.Used != 1 || b.Scope != vendors.QuotaScopeGlobal {
+		t.Errorf("the gpus bucket = %+v, want limit 4 used 1 global", b)
+	}
+	// No GPU limit, no bucket.
+	e.f.SetLimits(upcloud.ResourceLimits{Cores: 100})
+	snap, _ = ReadQuota(e.ctx, e.f)
+	if _, ok := bucketsByID(snap)[BucketGPUs]; ok {
+		t.Error("a gpus bucket without a limit was reported")
+	}
+}
+
 func TestQuotaUsageMovesWithLaunchAndDeletion(t *testing.T) {
 	e := newEnv(t, fake.Options{Limits: upcloud.ResourceLimits{Cores: 10}})
 	used := func() int64 {

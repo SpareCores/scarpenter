@@ -4,12 +4,14 @@
 #   matrix=[{"vendor":"aws","mode":"smoke","scenarios":""}, ...]
 #   any=true|false
 #
-# The vendors come from test/e2e-vendors.txt (the only list). It needs no secret and calls
-# no API, so it runs in a job without credentials. No automatic trigger runs L5: the callers
-# are the manual workflow e2e.yml (dispatch) and the release gate (release, none by default); the canary (vendors) reads the same list.
+# The manual workflow runs any vendor that has a lane (a test/e2e-<vendor>/ directory with the
+# scripts e2e-cloud.yml calls); the release gate and the canary use the vendors of
+# test/e2e-vendors.txt. It needs no secret and calls no API, so it runs in a job without
+# credentials. No automatic trigger runs L5: the callers are the manual workflow e2e.yml
+# (dispatch) and the release gate (release, none by default).
 #
 #   test/e2e-plan.sh dispatch <vendors> <mode> [gpu_type] [cvm_type] [env]
-#       vendors  all, or a comma separated list of vendors (aws,oci)
+#       vendors  all (every vendor with a lane), or a comma separated list of vendors (aws,azure)
 #       mode     smoke, full, or a comma separated list of scenarios (gpu; amd64,drift)
 #       gpu_type, cvm_type   instance types for the gpu and cvm scenarios (E2E_GPU_TYPE, E2E_TYPE_CVM)
 #       env      KEY=VALUE pairs, comma separated: more overrides of the lane's defaults
@@ -37,7 +39,20 @@ vendor_list() {
   done <"${vendors_file}"
 }
 
-# is_vendor <name>
+# The vendors with a lane: a directory test/e2e-<vendor>/ with the scripts e2e-cloud.yml calls.
+lane_list() {
+  local d v s
+  for d in "${here}"/e2e-*/; do
+    v="${d%/}"
+    v="${v##*/e2e-}"
+    for s in defaults bootstrap mint-authkey install scenarios diagnostics teardown; do
+      [[ -f "${d}${s}.sh" ]] || continue 2
+    done
+    echo "${v}"
+  done
+}
+
+# is_vendor <name>: a vendor of the list
 is_vendor() { vendor_list | grep -qxF -- "$1"; }
 
 # entry <vendor> <mode> <scenarios>
@@ -65,11 +80,12 @@ valid_override() { # valid_override <key> <value>
 cmd_dispatch() {
   [[ $# -ge 2 ]] || die "usage: dispatch <vendors> <mode> [gpu_type] [cvm_type] [env]"
   local vendors="$1" mode="$2" gpu="${3:-}" cvm="${4:-}" extra="${5:-}"
-  local scenarios="" v w pair key overrides=() seen=","
+  local scenarios="" v w pair key overrides=() seen="," lanes
+  lanes="$(lane_list)"
   [[ "${vendors}" =~ ^[a-z0-9]+(,[a-z0-9]+)*$ ]] || die "vendors must be all or a comma separated list of vendors"
   if [[ "${vendors}" != all ]]; then
     for w in ${vendors//,/ }; do
-      is_vendor "${w}" || die "unknown vendor '${w}' (known: $(vendor_list | paste -sd, -))"
+      grep -qxF -- "${w}" <<<"${lanes}" || die "unknown vendor '${w}' (lanes: $(paste -sd, - <<<"${lanes}"))"
     done
   fi
   case "${mode}" in
@@ -101,7 +117,7 @@ cmd_dispatch() {
   echo "env_overrides=$(IFS=,; echo "${overrides[*]:-}")"
   while read -r v; do
     if [[ "${vendors}" == all || ",${vendors}," == *",${v},"* ]]; then entry "${v}" "${mode}" "${scenarios}"; fi
-  done < <(vendor_list) | emit
+  done <<<"${lanes}" | emit
 }
 
 cmd_release() {

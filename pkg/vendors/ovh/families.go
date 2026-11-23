@@ -21,16 +21,23 @@ func Family(apiReference string) string {
 // Launched families: the types the driver launches (plan 18, "Catalog"): general
 // purpose b2/b3, CPU c2/c3, memory r2/r3, Discovery d2 (shared CPU) and the
 // storage-optimised i1, with the -flex variants (their API reference is the
-// flavor name, so they are separate types).
-var launchedFamilies = []string{"b2", "b3", "c2", "c3", "r2", "r3", "d2", "i1"}
+// flavor name, so they are separate types), and the GPU families (plan 12, step i).
+var launchedFamilies = slices.Concat([]string{"b2", "b3", "c2", "c3", "r2", "r3", "d2", "i1"}, gpuFamilies)
+
+// gpuFamilies are the NVIDIA GPU flavors (T1 and T2 are V100, V100S and the
+// like, RTX 5000, A10, A100, H100, H200, L4, L40S). The core's GPU rules (pkg/nvidia)
+// decide which of their types the catalog keeps: Volta types get the proprietary
+// driver, the 8-GPU h200 gets Fabric Manager. They are launched like any other
+// flavor; the GPU count has no Nova quota (see the quota reader).
+var gpuFamilies = []string{"t1", "t2", "a10", "a100", "h100", "h200", "l4", "l40s", "rtx5000"}
 
 // Excluded families and why. The conformance suite's UnknownQuotaTypes holds
 // exactly these; a test asserts every Keeper OVH family of the snapshot is in
 // one list or the other.
 var (
-	// GPU families: any server with accelerators; the driver has no NVIDIA
-	// sysext path, and their quota is separate.
-	gpuFamilies = []string{"t1", "t2", "a10", "a100", "h100", "h200", "l4", "l40s", "rtx5000", "g1", "g2", "g3"}
+	// Retired GPU families (the first generations): excluded unless Keeper's
+	// data shows them active again.
+	retiredGPUFamilies = []string{"g1", "g2", "g3"}
 	// Metal (Ironic bare metal); booting our image there is unverified.
 	metalFamilies = []string{"bm"}
 	// Keeper's inactive legacy families.
@@ -51,7 +58,7 @@ func Launchable(apiReference string) (ok bool, reason string) {
 	switch {
 	case slices.Contains(launchedFamilies, f):
 		return true, ""
-	case slices.Contains(gpuFamilies, f):
+	case slices.Contains(retiredGPUFamilies, f):
 		return false, ReasonGPU
 	case slices.Contains(metalFamilies, f):
 		return false, ReasonMetal
@@ -64,21 +71,10 @@ func Launchable(apiReference string) (ok bool, reason string) {
 // ExcludedFamilies returns every family the driver knows and does not launch
 // (the conformance UnknownQuotaTypes families), sorted.
 func ExcludedFamilies() []string {
-	out := slices.Concat(gpuFamilies, metalFamilies, legacyFamilies)
+	out := slices.Concat(retiredGPUFamilies, metalFamilies, legacyFamilies)
 	slices.Sort(out)
 	return out
 }
 
 // LaunchedFamilies returns the launched families.
 func LaunchedFamilies() []string { return slices.Clone(launchedFamilies) }
-
-// RootDiskGB is the size of the local root disk of a launched flavor as Keeper
-// describes it: storage_size for b, c, r and d2, but for i1 storage_size includes
-// the local NVMe disks (1950 to 7650 GB), so the root is the 50 GB entry of the
-// storages list (the smallest). Keeper's storages are in GB.
-func RootDiskGB(apiReference string, storageSize float64, storages []float64) float64 {
-	if Family(apiReference) == "i1" && len(storages) > 0 {
-		return slices.Min(storages)
-	}
-	return storageSize
-}

@@ -622,7 +622,7 @@ listed explicitly that cannot be reached is a failure (exit status 1).
 
 #### The Alibaba Cloud lane
 
-`test/e2e-alicloud/` is the lane of the vendor `alicloud`, **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified (below), so the workflows do not run it by themselves,
+`test/e2e-alicloud/` is the lane of the vendor `alicloud`, **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified (below), so the release gate and the canary do not run it (a manual run of `e2e.yml` can),
 a copy of the AWS lane's shape with Alibaba Cloud's calls: the control plane on the runner, the tailnet, the
 chart install and the scenarios' structure are the same; the cloud calls go through the Alibaba Cloud
 CLI `aliyun` (the byo scenario's VPC, vSwitch and security group, the instance, disk and network checks, the
@@ -668,7 +668,7 @@ How it differs from the AWS lane:
 The RAM policy of the CI role is printed by `test/e2e-alicloud/ci-policy.sh <account UID> [region]` and the
 canary's by `canary-policy.sh`. `RunInstances` is allowed in the lane's region with the cluster tag
 (`scarpenter-ci-*`) on the request and denied for every instance type but the ones of `defaults.sh`
-(`ecs.u1-c1m2.large`, `ecs.u1-c1m4.large`, `ecs.c8y.large`, and `E2E_LOCAL_STORAGE_TYPE` if set; the pools of
+(`ecs.u1-c1m2.large`, `ecs.u1-c1m4.large`, `ecs.c8y.large`, the manual `gpu` scenario's `ecs.gn6i-c4g1.xlarge`, and `E2E_LOCAL_STORAGE_TYPE` if set; the pools of
 `test/e2e-alicloud/manifests/nodepools.yaml` name the same types, and a test keeps this page and them together);
 deleting or changing instances, security groups, vSwitches and VPCs needs the cluster tag on the resource; the
 reads are `Describe*`, `ListTagResources`, `ecs:DescribeAccountAttributes`, `vpc:Describe*` and the Quota Center
@@ -688,6 +688,7 @@ reads. The condition keys' exact use with `RunInstances` is unverified.
 | `image` | the instances booted the images found by name (ids and names, from `DescribeImages`) and the NodeClass status lists them |
 | `quota` | `scarpenter_quota_limit` equals `max-postpaid-` and `max-spot-instance-vcpu-count` of `DescribeAccountAttributes`; `scarpenter_quota_used` equals the used attributes and follows launch and release; the launched types are in `DescribeAvailableResource` of their zones |
 | `drift` | a change to a profile no node uses drifts nothing; a change to `vendors.alicloud.storage.root.size` replaces the node (new disk size, old instance released, the Pod moves), the controller is killed while the replacement is created (the replay is opportunistic, as on AWS) |
+| `gpu` | **manual only** (never in `all`, the smoke set, a gate or a schedule; run it by name: `gh workflow run e2e.yml -f vendors=alicloud -f mode=gpu [-f gpu_instance_type=...]`): one GPU type, `alicloud.ecs.gn6i-c4g1.xlarge` (1 T4) by default or the `gpu_instance_type` input of `e2e.yml` (`E2E_GPU_TYPE`), with its own NodeClass and NodePool (the gpu-pending startup taint) and the shared Pod of `test/gpu-pod.yaml`: `runtimeClassName: nvidia`, all the type's GPUs, `nvidia-smi` and CUDA's vectorAdd. The checks are those of the AWS lane's `gpu` scenario (`gpu_check_node` in `test/lib.sh`). It fails early when the pay-as-you-go vCPU quota cannot hold the type next to what runs; the per-family GPU limits of Quota Center are not read, so a refusal there shows as a launch error. The account needs GPU stock and quota in the region (unverified for `ap-southeast-1`), and the CI role must allow the type (`E2E_GPU_TYPE` is in the deny's list). It needs `nvidia.NodeBootstrap` to be true: until then no type offers `nvidia.com/gpu` and the run ends "never launched". It costs real money for the minutes the node runs and is not part of the plan's gates |
 | `scalezero` | every instance of the cluster is released within 2 minutes of the Pods' deletion (`E2E_SCALE_DOWN_DEADLINE`); no node, NodeClaim or token left; the quota usage falls |
 | `uninstall` | the procedure of [Uninstall](install.md#uninstall) on the live account: the NodePools, the NodeClasses (the managed groups and deployment sets go), `helm uninstall` |
 
@@ -718,8 +719,8 @@ the scripts `bootstrap.sh`, `mint-authkey.sh`, `install.sh`, `scenarios.sh`, `di
 (`lib.sh`: `up`, the label filters of the list calls). It is **not in `test/e2e-vendors.txt`** until
 the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are verified
 (the sub-account's limits and a spending alert, see [UpCloud](testing-and-releasing.md#upcloud)), so the
-workflows do not run it by themselves; `make test-e2e-upcloud-dryrun` checks it without a cloud. To run it
-before then, dispatch `e2e.yml` (vendor `upcloud`) on a branch that adds the line; its smoke has passed that way.
+release gate and canary do not run it (a manual run of `e2e.yml` can); `make test-e2e-upcloud-dryrun` checks it without a cloud. To run it
+before then, dispatch `e2e.yml` (vendor `upcloud`); its smoke has passed that way.
 Differences that matter:
 
 - **Credential.** UpCloud has no OIDC federation and no workload identity. The lane uses the API
@@ -742,7 +743,7 @@ Differences that matter:
   NodeClasses select only its own template (`resources.images.use.tags` with `scarpenter-lane=ci`). The preflight fails, naming the missing template, when there is none.
 - **Node images.** The lane's NodeClasses add `spec.butane` (`manifests/node-butane.yaml`): containerd pulls
   `registry.k8s.io` images through `us-central1-docker.pkg.dev/k8s-artifacts-prod/images`, because the nodes
-  failed to pull `registry.k8s.io/pause` from UpCloud addresses. k3s's `gateway-api-crd` is disabled: its
+  failed to pull `registry.k8s.io/pause` from UpCloud addresses. The GPU NodeClass has its own ConfigMap in the same file (`e2e-gpu-node-butane`): the nvidia-runtime sysext replaces containerd's command line, so a drop-in `30-` resets `ExecStart` to a config that imports `config-nvidia.toml` and adds the mirror. k3s's `gateway-api-crd` is disabled: its
   install Job does not tolerate the control plane's taint and would wait for a node of its own.
 - **Plans.** `STARTER-1xCPU-1GB` (`upcloud.STARTER-1xCPU-1GB`) for every scenario, and
   `STARTER-2xCPU-4GB` and `STARTER-2xCPU-8GB` for the described-not-named one. Plan 19 names `1xCPU-1GB`,
@@ -767,7 +768,16 @@ Differences that matter:
   10 GB MaxIOPS disk mounted at the profile's path, deleted with the node. `negative`: `publicIPv4:
   false` without a network of the user's own, and a label key over 32 characters, are refused. The
   final check is the teardown: no server, disk, network, ruleset or server group labelled with the
-  run's cluster remains.
+  run's cluster remains. `gpu` is **manual only** (never in `all`, the smoke set, a gate or a schedule; run it by
+  name, `mode=gpu`): one GPU plan, `upcloud.GPU-8xCPU-64GB-1xL40S` (1 L40S) by default or the `gpu_instance_type` input of `e2e.yml`, with its
+  own NodeClass and NodePool (the gpu-pending startup taint) and a Pod with `runtimeClassName: nvidia` that requests all
+  the plan's GPUs and runs `nvidia-smi` and CUDA's vectorAdd. It first fails early, before anything is applied, when
+  `GET /device/availability` has no stock of the plan in the zone or the account's `gpus`, `cores` or `memory` limit cannot hold it (a
+  sub-account has no GPU limit until UpCloud grants one). It checks the node's driver labels against the table
+  (`test/gpu-expect`), `nvidia.com/gpu` in capacity and allocatable, the lifted taint, every GPU and the labelled driver
+  version in the Pod's log and `Test PASSED`, and records the time to `Ready`. It needs `nvidia.NodeBootstrap` to be true: until
+  then no type offers `nvidia.com/gpu` and the run ends "never launched". It costs real money for the minutes the server runs
+  (hourly billing) and is not part of the plan's gates.
 - **The sweeper.** `.github/workflows/e2e-upcloud-sweeper.yml` (every three hours, environment
   `e2e-sweeper`) runs `go run ./test/e2e-upcloud/sweeper`: one account-wide list of the servers
   labelled `scarpenter-cluster`, those whose value starts with `scarpenter-ci-` and whose
@@ -790,7 +800,7 @@ Differences that matter:
 the runner and the shape of the scenarios are the AWS ones, the cloud calls are `curl` against
 the Vultr API with `VULTR_API_KEY` (passed to curl through a config on a pipe, never in an
 argument). It is not in `test/e2e-vendors.txt` until the account's limits are set (see
-[Vultr](testing-and-releasing.md#vultr)), so the workflows do not run it by themselves.
+[Vultr](testing-and-releasing.md#vultr)), so the release gate and the canary do not run it (a manual run of `e2e.yml` can).
 
 The plans the lane launches are `vc2-1c-1gb` (the exact-type scenarios) and `vhf-1c-1gb`
 (checked in stock by the preflight and the canary), and `vc2-1c-1gb`, `vc2-1c-2gb` and `vc2-2c-4gb`
@@ -895,7 +905,7 @@ driver; `test/canary` runs the Hetzner canary against it too and checks both rea
 ### The L5 lane of OVHcloud
 
 `test/e2e-ovh/` is the OVH lane (`vendor: ovh` of the same reusable workflow; plan 18), statically
-validated only until its first live run, and **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are in place (below), so the workflows do not run it by themselves: nodes on OVHcloud Public Cloud (Nova servers on the
+validated only until its first live run, and **not in `test/e2e-vendors.txt`** until the guards of [Per-vendor cost guards](testing-and-releasing.md#per-vendor-cost-guards) are in place (below), so the release gate and the canary do not run it (a manual run of `e2e.yml` can): nodes on OVHcloud Public Cloud (Nova servers on the
 public `Ext-Net` network) that join over Tailscale, in one region (`OVH_REGION`, a Keystone catalog
 name, default `GRA11`). The scenarios are `amd64` (an exact flavor, on-demand: node labels, server
 metadata and tags, the managed security group and its marker, config drive, `kubectl logs` and `exec`,
@@ -907,7 +917,9 @@ server's CEL rule; a profile that asks for local storage stays Pending without a
 absolute limits equal the controller's `scarpenter_quota_limit`, and `used` follows launch and delete),
 `drift` (a root disk that becomes a volume replaces the node), `poweroff` (a guest that powers itself off
 leaves a `SHUTOFF` server that the garbage collector deletes: the OVH-specific case), `scalezero` and
-`uninstall`. There is no arm64, no spot and no local-storage scenario: OVH has none of them.
+`uninstall`. The manual `gpu` scenario (never in `all`, the smoke set, a gate or a schedule; `mode=gpu`) launches one GPU flavor,
+`ovh.l4-90` (one L4, the cheapest flavor priced in `GRA11`) by default or the `gpu_instance_type` input of `e2e.yml` (the GPU count comes from Keeper's snapshot, `test/gpu-count`): the same
+Pod and checks as the [AWS one](#the-l5-lane), and like it needs `nvidia.NodeBootstrap` to be true. The project needs the flavor in the lane's region and its GPU quota. There is no arm64, no spot and no local-storage scenario: OVH has none of them.
 
 - **Flavors** (`defaults.sh`): `d2-2` (shared CPU, the cheapest) for the probes, `b3-8` for the database and its
   client, and `d2-2`, `d2-4` and `b3-8` for the described scenario. No IAM condition limits flavors, so the guard is
@@ -1019,6 +1031,7 @@ hack/dev.sh make test-e2e-gcp-dryrun                      # everything that need
 | `amd64` | on demand, exact type `gcp.e2-small`: Node Ready, Pod Running, `kubectl logs` and `exec`; node labels of overview section 5.5 (the zone name and the numeric zone ID consistent with `gcloud compute zones describe`); the instance's labels (cluster, nodeclaim, nodepool, nodeclass, managed-by, the idempotency key equal to the NodeClaim's UID, the NodeClass's `spec.tags`); the metadata keys of plan 16 section 3 (`user-data`, `block-project-ssh-keys=TRUE`, `enable-oslogin=FALSE`, no `ssh-keys`), no service account, an external IPv4; the root disk (`pd-balanced`, 20 GB, from the pinned image, labelled, deleted with the instance); the price annotation; the bootstrap token is gone, the serving CSR approved; on the node, the checks of L4 scenarios Q09 and Q10; the metadata access Restricted (the default): the firewall unit and `oem-gce.service` active, the agent in the allowed slice, the metadata server answers a process in that slice (the user-data is the Ignition) and neither a host-network Pod nor a Pod; no login user exists (project SSH keys and OS Login are off) |
 | `spot` | `gcp.e2-small` Spot: `provisioningModel: SPOT`, **`instanceTerminationAction: DELETE`** (the API's default is `STOP`, which leaves a stopped instance and its disks), no automatic restart, `onHostMaintenance: TERMINATE` |
 | `arm64` | optional (`E2E_ARM64=true`): `gcp.t2a-standard-1` Spot on the Spare Cores arm64 image; the image's architecture is `ARM64`, the join units are active |
+| `gpu` | **manual only** (never in `all`, the smoke set, a gate or a schedule): `gh workflow run e2e.yml -f vendors=gcp -f mode=gpu [-f gpu_instance_type=gcp.g2-standard-4]`. One GPU node of `E2E_GPU_TYPE` (default `gcp.g2-standard-4`, one L4) with its own NodeClass and NodePool (the gpu-pending startup taint) and the shared `test/gpu-pod.yaml` Pod; the checks are those of the AWS `gpu` scenario. The region needs the type's GPU quota (`NVIDIA_L4_GPUS`) and CPUs. It costs real money for the minutes the node runs |
 | `db` | a `c3-standard-4` StatefulSet with the `db-hd` storage profile (a 10 GB Hyperdisk Balanced data disk named `pgdata`) and a client Deployment, both `colocated` with one run key: **one compact resource policy**, named `scarpenter-<cluster>-...` (at most 63 characters) and described by SCarpenter, both instances in it and in one zone; the data disk has the device name `pgdata`, `autoDelete: true` (not GCE's default), the cluster label, and is found at `/dev/disk/by-id/google-pgdata`, mounted as xfs at `/var/lib/pgdata`; the labels of the applied profiles; `C3_CPUS` usage covers the two instances; after deleting both workloads the policy and the disk are gone |
 | `described` | a Deployment that selects by `vcpus`, `memory-mib` ranges and a `metric-single-core-pct` threshold within the allowed test types gets a type that satisfies all of them (checked against `machine-types describe`) |
 | `byo` | a custom network, a subnet and a firewall rule that the workflow creates with `gcloud` are `use`d by a second NodeClass (the subnet by its resource ID, the rule by its network tag): the node launches into them, carries the tag, and after the workload, the pool and the NodeClass are gone SCarpenter has not touched them (the rule is unchanged); the teardown (the sweeper) deletes them |
@@ -1238,7 +1251,7 @@ The real-cloud lane is the exception that costs money, so it has its own rules
 ([Testing and releasing](testing-and-releasing.md)): no automatic trigger starts it, `e2e.yml` is
 run by hand (on a branch, a pull request's head or a commit; a fork's pull request only with
 `allow_fork`), and the job that holds the cloud role waits for the required reviewers of the
-environment `e2e`. A pull request's `e2e-result` check is an always-green placeholder in `ci.yml`.
+environment `e2e`.
 The nightly canary (`e2e-canary.yml`) is free and read-only.
 
 ## Releases
@@ -1275,7 +1288,7 @@ check them before a release):
   dry run from a branch therefore stops at the publishing jobs.
 - A tag ruleset on `v*`: only maintainers create, move or delete release tags.
 - A ruleset on `main`: changes through pull requests, the checks `gates`,
-  `kwok (scenarios)` and `kwok (retention)` required (`e2e-result` is a placeholder job of `ci.yml`: remove it from the list), no force push or
+  `kwok (scenarios)` and `kwok (retention)` required, no force push or
   deletion; administrators may bypass only when merging a pull request. A workflow
   that commits (`refresh-sc-snapshot.yml`) is run on a branch and merged by a PR.
 - The environments `e2e` (required reviewers, no administrator bypass),

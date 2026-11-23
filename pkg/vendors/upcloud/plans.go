@@ -28,7 +28,8 @@ const (
 	FamilyHiCPU       Family = "hicpu"       // HICPU-8xCPU-16GB
 	FamilyHiMem       Family = "himem"       // HIMEM-2xCPU-16GB
 	FamilyCloudNative Family = "cloudnative" // CLOUDNATIVE-2xCPU-4GB: no included storage or IPv4
-	FamilyGPU         Family = "gpu"         // GPU-..., GPU-SPOT-...: not in v1 (ADR-011)
+	FamilyGPU         Family = "gpu"         // GPU-8xCPU-64GB-1xL40S: launched (plan 12, step j)
+	FamilyGPUSpot     Family = "gpu-spot"    // GPU-SPOT-...: not launched
 	FamilyUnknown     Family = ""
 )
 
@@ -51,17 +52,18 @@ func FamilyOf(name string) Family {
 		return FamilyHiMem
 	case strings.HasPrefix(name, "CLOUDNATIVE-"):
 		return FamilyCloudNative
+	case strings.HasPrefix(name, "GPU-SPOT-"):
+		return FamilyGPUSpot
 	case strings.HasPrefix(name, "GPU-"):
 		return FamilyGPU
 	}
 	return FamilyUnknown
 }
 
-// Supported reports whether v1 launches the family: GPU plans have no drivers
-// in v1 and their spot variants (GPU-SPOT-) stay out; an unknown family waits
-// for a decision.
+// Supported reports whether the driver launches the family: the spot GPU plans
+// (GPU-SPOT-) stay out, and an unknown family waits for a decision.
 func (f Family) Supported() bool {
-	return f != FamilyGPU && f != FamilyUnknown
+	return f != FamilyGPUSpot && f != FamilyUnknown
 }
 
 // Plan is a plan as the driver uses it.

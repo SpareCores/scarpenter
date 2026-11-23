@@ -22,6 +22,7 @@ const (
 	MetricPreemptible    = "PREEMPTIBLE_CPUS"
 	MetricCPUsAllRegions = "CPUS_ALL_REGIONS"
 	MetricInstances      = "INSTANCES"
+	MetricGPUsAllRegions = "GPUS_ALL_REGIONS"
 )
 
 // QuotaReader reads the quota buckets of a project. GCP returns the usage with
@@ -47,29 +48,41 @@ func IsCPUMetric(metric string) bool {
 		strings.HasPrefix(metric, "CPUS_")
 }
 
-// unitOf is the unit of a bucket: vCPU for the CPU metrics, instances for the
-// instance count, count for the rest.
+// IsGPUMetric reports whether the metric is a GPU bucket: the per-model regional
+// NVIDIA_<MODEL>_GPUS, its PREEMPTIBLE_ twin and GPUS_ALL_REGIONS. The model part of
+// the names is UNVERIFIED (plan 12 section 8); the committed ones (COMMITTED_...) are
+// not launch limits.
+func IsGPUMetric(metric string) bool {
+	return metric == MetricGPUsAllRegions ||
+		(strings.HasSuffix(metric, "_GPUS") &&
+			(strings.HasPrefix(metric, "NVIDIA_") || strings.HasPrefix(metric, "PREEMPTIBLE_NVIDIA_")))
+}
+
+// unitOf is the unit of a bucket: vCPU for the CPU metrics, GPUs for the GPU
+// metrics, instances for the instance count, count for the rest.
 func unitOf(metric string) string {
 	switch {
 	case IsCPUMetric(metric):
 		return "vCPU"
+	case IsGPUMetric(metric):
+		return "GPUs"
 	case metric == MetricInstances:
 		return "instances"
 	}
 	return "count"
 }
 
-// buckets converts the quotas of a region or a project to buckets: the CPU
-// buckets and the instance count; the other metrics (disks, addresses,
+// buckets converts the quotas of a region or a project to buckets: the CPU and
+// GPU buckets and the instance count; the other metrics (disks, addresses,
 // firewalls) are not launch limits the tracker needs. Sorted by ID.
 func buckets(qs []*computepb.Quota, scope vendors.QuotaScope) []vendors.Bucket {
 	var out []vendors.Bucket
 	for _, q := range qs {
 		m := q.GetMetric()
-		if !IsCPUMetric(m) && m != MetricInstances {
+		if !IsCPUMetric(m) && !IsGPUMetric(m) && m != MetricInstances {
 			continue
 		}
-		// CPUS_ALL_REGIONS is account-wide wherever it is reported.
+		// CPUS_ALL_REGIONS and GPUS_ALL_REGIONS are account-wide wherever it is reported.
 		sc := scope
 		if accountWideMetric(m) {
 			sc = vendors.QuotaScopeGlobal

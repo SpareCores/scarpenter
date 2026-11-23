@@ -32,7 +32,7 @@
 #                          condition can apply; the region ARN limits them, and the sweeper
 #                          only deletes sets whose marker names a scarpenter-ci-* cluster;
 #   DenyOtherInstanceTypes an explicit deny of ecs:RunInstances for every instance type the
-#                          lane does not launch (the types of defaults.sh);
+#                          lane does not launch (the types of defaults.sh, including the manual gpu scenario's);
 # Every write Allow names the lane's region in its ARNs, so a write in another region is
 # denied by default (RAM has no NotResource element that I could rely on, unverified, so
 # there is no explicit region deny). The statements have no Sid: RAM policies do not take one.
@@ -56,6 +56,7 @@ types=("${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_DB}")
 IFS=, read -ra described <<<"${E2E_TYPES_DESCRIBED}"
 types+=("${described[@]}")
 [[ -z "${E2E_LOCAL_STORAGE_TYPE}" ]] || types+=("${E2E_LOCAL_STORAGE_TYPE}")
+types+=("${E2E_GPU_TYPE}")
 allowed="$(printf '%s\n' "${types[@]}" | sed 's/^alicloud\.//' | sort -u | jq -R . | jq -s .)"
 
 jq -n --argjson allowed "${allowed}" --arg region "${region}" --arg account "${account}" '

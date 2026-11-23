@@ -1,0 +1,19 @@
+# The pool of the manual gpu scenario: one exact GPU type, on demand, and the startup taint
+# a pool that can launch NVIDIA types must list (ADR-031), or the types are not offered.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: e2e-gpu
+spec:
+  template:
+    spec:
+      nodeClassRef: {group: scarpenter.sparecores.com, kind: SCNodeClass, name: e2e-gpu}
+      startupTaints:
+        - {key: scarpenter.sparecores.com/gpu-pending, effect: NoSchedule}
+      requirements:
+        - {key: scarpenter.sparecores.com/vendor, operator: In, values: [gcp]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: ["${E2E_GPU_TYPE}"]}
+  disruption: {consolidationPolicy: WhenEmpty, consolidateAfter: 0s}
+  limits: {cpu: "256", nvidia.com/gpu: "16"}

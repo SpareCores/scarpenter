@@ -41,7 +41,7 @@ have the cost guards below before it is added to the list.
 
 | Workflow | Triggers | Real instances |
 |---|---|---|
-| `ci.yml` (gates, kwok, the `e2e-result` placeholder) | pull request, push to `main` | none |
+| `ci.yml` (gates, kwok) | pull request, push to `main` | none |
 | `qemu.yml` (L4: local VMs in qemu) | pull request touching what it tests, nightly, manual | none |
 | `release.yml` | tag `v*` (verify, then publish); manual dry run | none by default; the L5 gate only when `RELEASE_E2E_MODE` is `smoke` or `full` |
 | `e2e-canary.yml` | nightly, manual | none: read-only credentials, a guard that refuses writes |
@@ -49,10 +49,7 @@ have the cost guards below before it is added to the list.
 | `e2e.yml` (L5) | **manual only** | yes: the only one |
 | `e2e-cloud.yml` (the lane) | called by `e2e.yml` and `release.yml` | yes |
 
-The check **`e2e-result`** is a job of `ci.yml` that always succeeds and says no L5 runs for a
-pull request. It exists so that a ruleset that still requires `e2e-result` keeps passing;
-remove the check from the ruleset (Settings, Rules, the ruleset of `main`, required checks),
-and then the job from `ci.yml`.
+No L5 test runs for a pull request, so no L5 check is required on `main`.
 
 A **smoke** run is the preflight (always first: the Flatcar images, the quotas, the
 NodeClasses are `Ready`), `amd64` (one on-demand node from the Pod to Ready, with
@@ -76,7 +73,7 @@ summary shows the commit that will run.
 
 | Input | Meaning | Default |
 |---|---|---|
-| `vendors` | `all`, or a comma separated list of the lines of `test/e2e-vendors.txt`: `aws`, `aws,oci` | `all` |
+| `vendors` | `all` (every vendor that has a lane, a `test/e2e-<vendor>/` directory), or a comma separated list of vendors with a lane: `aws`, `aws,azure`; `test/e2e-vendors.txt` does not limit it | required, no default: type `all` or a list on purpose |
 | `mode` | `smoke`, `full`, or a comma separated list of scenarios (`gpu`, `cvm`, `amd64,drift`; a list is a full-limit run of just those scenarios) | `smoke` |
 | `gpu_instance_type` | the instance type of the `gpu` scenario (`E2E_GPU_TYPE`), with the vendor prefix | the lane's default |
 | `cvm_instance_type` | the instance type of the `cvm` scenario (`E2E_TYPE_CVM`), with the vendor prefix | the lane's default |
@@ -94,7 +91,10 @@ variables of the lane that the vendor's `defaults.sh` reads (`: "${E2E_GPU_TYPE:
 `env` keys must match `E2E_[A-Z0-9_]+` and not be one the workflow sets itself
 (`E2E_VENDOR`, `E2E_MODE`, `E2E_SCENARIOS`, `E2E_FAIL_FAST`, `E2E_CLUSTER`, `E2E_RUN_ID`,
 `E2E_CREATED_AT`, `E2E_OUT`, `E2E_PREPARED`); values are letters, digits and `._:/+-`.
-`test/e2e-plan.sh` and `e2e-cloud.yml` check the same rules.
+`test/e2e-plan.sh` and `e2e-cloud.yml` check the same rules. An unknown vendor is refused with
+the list of lanes. A vendor that is not a line of `test/e2e-vendors.txt` can be run by hand even
+though its cost guards are not all verified: check [Per-vendor cost guards](#per-vendor-cost-guards)
+before dispatching it, and note that `vendors=all` includes every lane.
 
 ```bash
 # All vendors, smoke, on the current branch
@@ -167,8 +167,7 @@ Repository settings the owner applies (this repository cannot set them):
 2. The environments `e2e-canary` (read-only) and `e2e-sweeper` (limited to `main`).
 3. Actions, General: "Require approval for all outside collaborators" for fork pull request
    workflows, and "Send write tokens to workflows from pull requests" off.
-4. The ruleset on `main`: remove the required check `e2e-result` (the `ci.yml` job is a
-   placeholder), keep `gates`, `kwok (scenarios)` and `kwok (retention)`.
+4. The ruleset on `main` requires `gates`, `kwok (scenarios)` and `kwok (retention)`.
 5. The repository variable `RELEASE_E2E_MODE` (unset is `none`) switches the release gate; see [Releasing](#releasing).
 
 ## The canary
@@ -467,8 +466,9 @@ line and a few credentials. In this repository:
    region variable. Start from `test/e2e-aws/`; the control plane, the tailnet and the
    scenarios' shape are the same, the cloud calls differ. Its `selftest.sh` and manifests
    test belong in `make test-e2e-aws-dryrun`.
-2. **The vendor list**: one line in `test/e2e-vendors.txt`. The manual workflow's `vendors` input, the canary matrix and the
-   release gate all read it, and `test/e2e-plan-selftest.sh` checks the list names a
+2. **The vendor list**: one line in `test/e2e-vendors.txt`. The canary matrix and the release
+   gate read it (the manual workflow does not: it runs every directory `test/e2e-<vendor>/` that
+   has the lane's scripts), and `test/e2e-plan-selftest.sh` checks the list names a
    `test/e2e-<vendor>/` directory.
 3. **The reusable workflow**: a credentials step in `e2e-cloud.yml` next to the AWS one
    (`if: inputs.vendor == '<vendor>'`, the vendor's own role action, its secret) and, in the
@@ -541,8 +541,8 @@ tool they use, and this repository assumes it (a fork needs the same, in its own
   Spot service-linked role, the budget alert.
 - **Tailscale**: the tags `tag:scarpenter-ci` and `tag:scarpenter-ci-node`, the grants, and the
   federated identity for the `e2e` environment (the canary does not join the tailnet).
-- **Repository settings**: a ruleset on `main` requiring the status check `e2e-result` from
-  GitHub Actions, which repository administrators bypass entirely (they can still push to
+- **Repository settings**: a ruleset on `main` requiring the checks of `ci.yml`, which
+  repository administrators bypass entirely (they can still push to
   `main` directly), the tag ruleset on `v*`, approval for outside collaborators' workflows,
   and the label `e2e-canary` (the canary creates it if it is missing). There is no
   pull-request rule, so the reviews are not enforced.

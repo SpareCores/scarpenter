@@ -34,7 +34,7 @@ func ovhCloud() *fake.Cloud {
 	c := fake.New()
 	flavors := []osapi.Flavor{
 		{Name: "d2-2", VCPUs: 1, RAMMiB: 2048, DiskGB: 25}, {Name: "d2-4", VCPUs: 2, RAMMiB: 4096, DiskGB: 50},
-		{Name: "b3-8", VCPUs: 2, RAMMiB: 8192, DiskGB: 50}, {Name: "t1-45", VCPUs: 8, RAMMiB: 46080, DiskGB: 400},
+		{Name: "b3-8", VCPUs: 2, RAMMiB: 8192, DiskGB: 50}, {Name: "g2-15", VCPUs: 8, RAMMiB: 46080, DiskGB: 400},
 	}
 	c.AddRegion("GRA11", fake.RegionConfig{Flavors: flavors, Limits: osapi.Limits{MaxInstances: 20, MaxCores: 64, MaxRAMMiB: 262144}})
 	c.AddRegion("SBG5", fake.RegionConfig{Flavors: flavors})
@@ -86,7 +86,7 @@ func TestOVHCanaryReportsWhatMoved(t *testing.T) {
 		"the quota shrank":            {func(c *fake.Cloud, _ *config) { c.SetLimits("GRA11", osapi.Limits{MaxInstances: 20, MaxCores: 8}) }, "quota cores and instances GRA11"},
 		"too few instances":           {func(c *fake.Cloud, _ *config) { c.SetLimits("GRA11", osapi.Limits{MaxInstances: 3, MaxCores: 64}) }, "quota cores and instances GRA11"},
 		"a flavor is gone":            {func(_ *fake.Cloud, c *config) { c.types = append(c.types, "ovh.b3-9999") }, "flavors offered in GRA11"},
-		"a flavor is not launched":    {func(_ *fake.Cloud, c *config) { c.types = append(c.types, "ovh.t1-45") }, "flavors offered in GRA11"},
+		"a flavor is not launched":    {func(_ *fake.Cloud, c *config) { c.types = append(c.types, "ovh.g2-15") }, "flavors offered in GRA11"},
 		"the region left the catalog": {func(_ *fake.Cloud, c *config) { c.region = "WAW1" }, "regions and zones WAW1"},
 	} {
 		t.Run(name, func(t *testing.T) {
