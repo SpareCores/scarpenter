@@ -8406,6 +8406,14 @@ spec:
                           and block-project-ssh-keys are reserved.
                         maxProperties: 32
                         type: object
+                      nestedVirtualization:
+                        description: |-
+                          nestedVirtualization turns on nested virtualization
+                          (advancedMachineFeatures.enableNestedVirtualization) on the nodes, so that
+                          they expose /dev/kvm and the vmx flags. Off by default. Not every machine
+                          series supports it: when Compute Engine refuses the feature for a machine
+                          type, the node is launched once more without it.
+                        type: boolean
                       networking:
                         description: networking overrides the generic spec.networking
                           for GCP.

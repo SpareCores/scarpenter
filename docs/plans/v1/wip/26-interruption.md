@@ -299,6 +299,16 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    data limit and the driver's 16 KiB budget. The manual L5 scenario `interruption` (`manual_scenarios`; waits 5 minutes after the first answer, as events may start only within 5 minutes of the opt-in; the preflight refuses it together with `arm64`; `az vm simulate-eviction`; the CI role gets
    `simulateEviction/action`). The agent on Azure Container Linux (confidential sizes) is argued from the same paths and unit names, not run.
 8. **Alibaba** check script with the token, `GoneReason`, S5, opt-in L5 scenario if it can be triggered.
+   **Done** (unverified until S5, the owner's spike, or a real reclaim). `alicloud.Driver.InterruptionNotices`: a 5 s check that takes a metadata token
+   (`PUT /latest/api/token`) and reads `/latest/meta-data/instance/spot/termination-time` (404 no notice, 200 the UTC time, a minute-precision time
+   gets `:00`, anything else a transient error); window 1 min to 5 min (`MinNotice` is a cautious choice, not a documented figure); L1 tests run the
+   script with `sh` against a local fixture. `GoneReason` `SpotInterrupted` for a spot instance whose `OperationLocks` hold `Recycling`; since ECS no
+   longer returns a released instance, the core usually sees `ReclaimedWithoutNotice`, and `GoneReason` shows only in the lock's window (the instance
+   still `Running`, which the core does not treat as gone). The agent's unit is in `scarpenter-metadata.slice`, which the Restricted firewall allows, and
+   `100.100.100.200` stays reachable after the tailnet join (`--netfilter-mode=nodivert`). Worst-case user-data of an Alibaba spot node 12.6 KiB
+   (`tailscale`) and 12.9 KiB (`direct`) against ECS's 32 KB before Base64 (the driver holds the 16 KiB budget). No L5 scenario: Alibaba has no way to
+   trigger a reclaim. S5 must settle: that the termination time exists with `SpotDuration: 0`, the real lead time, the time format, the `Recycling`
+   lock and its timing.
 9. **Spot catalog and spot-less vendors** (independent, any time): section 7 checks, `Unsupported` for spot on
    hcloud, OVH, UpCloud, conformance case, docs say "no spot" per vendor reference after S6.
    **Done** (UpCloud left out by the maintainer: its GPU-SPOT plans stay not launched). Spot offerings come from Keeper's spot rows
