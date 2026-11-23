@@ -162,7 +162,7 @@ NodeClaim (`kubectl describe nodeclaim`), in the controller's events and in its 
 
 ## Limits
 
-- amd64 only; on-demand only (no spot); GPU plans are not launched.
+- amd64 only; on-demand only (no spot, so no `GPU-SPOT-` plans). The `GPU-` plans are launched; the account needs access to them and a GPU limit ([GPU plans](../reference/upcloud-driver.md#gpu-plans)).
 - No local disks: every disk is network storage. At most four storage devices per server (root and three data disks).
 - `isolation: run` with a run key is not supported (no SDN network per run).
 - `publicIPv4: false` needs a brought private network with a NAT gateway or router.

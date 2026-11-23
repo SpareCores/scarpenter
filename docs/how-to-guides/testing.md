@@ -732,7 +732,7 @@ Differences that matter:
   NodeClasses select only its own template (`resources.images.use.tags` with `scarpenter-lane=ci`). The preflight fails, naming the missing template, when there is none.
 - **Node images.** The lane's NodeClasses add `spec.butane` (`manifests/node-butane.yaml`): containerd pulls
   `registry.k8s.io` images through `us-central1-docker.pkg.dev/k8s-artifacts-prod/images`, because the nodes
-  failed to pull `registry.k8s.io/pause` from UpCloud addresses. k3s's `gateway-api-crd` is disabled: its
+  failed to pull `registry.k8s.io/pause` from UpCloud addresses. The GPU NodeClass has its own ConfigMap in the same file (`e2e-gpu-node-butane`): the nvidia-runtime sysext replaces containerd's command line, so a drop-in `30-` resets `ExecStart` to a config that imports `config-nvidia.toml` and adds the mirror. k3s's `gateway-api-crd` is disabled: its
   install Job does not tolerate the control plane's taint and would wait for a node of its own.
 - **Plans.** `STARTER-1xCPU-1GB` (`upcloud.STARTER-1xCPU-1GB`) for every scenario, and
   `STARTER-2xCPU-4GB` and `STARTER-2xCPU-8GB` for the described-not-named one. Plan 19 names `1xCPU-1GB`,
@@ -757,7 +757,16 @@ Differences that matter:
   10 GB MaxIOPS disk mounted at the profile's path, deleted with the node. `negative`: `publicIPv4:
   false` without a network of the user's own, and a label key over 32 characters, are refused. The
   final check is the teardown: no server, disk, network, ruleset or server group labelled with the
-  run's cluster remains.
+  run's cluster remains. `gpu` is **manual only** (never in `all`, the smoke set, a gate or a schedule; run it by
+  name, `mode=gpu`): one GPU plan, `upcloud.GPU-8xCPU-64GB-1xL40S` (1 L40S) by default or the `gpu_instance_type` input of `e2e.yml`, with its
+  own NodeClass and NodePool (the gpu-pending startup taint) and a Pod with `runtimeClassName: nvidia` that requests all
+  the plan's GPUs and runs `nvidia-smi` and CUDA's vectorAdd. It first fails early, before anything is applied, when
+  `GET /device/availability` has no stock of the plan in the zone or the account's `gpus`, `cores` or `memory` limit cannot hold it (a
+  sub-account has no GPU limit until UpCloud grants one). It checks the node's driver labels against the table
+  (`test/gpu-expect`), `nvidia.com/gpu` in capacity and allocatable, the lifted taint, every GPU and the labelled driver
+  version in the Pod's log and `Test PASSED`, and records the time to `Ready`. It needs `nvidia.NodeBootstrap` to be true: until
+  then no type offers `nvidia.com/gpu` and the run ends "never launched". It costs real money for the minutes the server runs
+  (hourly billing) and is not part of the plan's gates.
 - **The sweeper.** `.github/workflows/e2e-upcloud-sweeper.yml` (every three hours, environment
   `e2e-sweeper`) runs `go run ./test/e2e-upcloud/sweeper`: one account-wide list of the servers
   labelled `scarpenter-cluster`, those whose value starts with `scarpenter-ci-` and whose

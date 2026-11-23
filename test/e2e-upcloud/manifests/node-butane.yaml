@@ -40,3 +40,47 @@ data:
               [host."https://us-central1-docker.pkg.dev/v2/k8s-artifacts-prod/images"]
                 capabilities = ["pull", "resolve"]
                 override_path = true
+---
+# The same registry mirror for the GPU nodes (the manual gpu scenario's NodeClass). The
+# nvidia-runtime sysext's drop-in 10-nvidia.conf resets ExecStart of containerd to
+# `containerd --config /etc/containerd/config-nvidia.toml`, so the CONTAINERD_CONFIG variable
+# above is never read. This drop-in (30 sorts after 10) resets ExecStart again to a config
+# that imports the sysext's config-nvidia.toml (the nvidia handler, runc as the default, step
+# (b)'s containerd unit edits it before containerd starts) and adds the mirror's config_path.
+# [U: the containerd binary's path in the sysext's ExecStart; Flatcar's is /usr/bin/containerd.]
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: e2e-gpu-node-butane
+  namespace: scarpenter-system
+data:
+  butane.yaml: |
+    variant: flatcar
+    version: 1.0.0
+    systemd:
+      units:
+        - name: containerd.service
+          dropins:
+            - name: 30-e2e-registry-mirror-gpu.conf
+              contents: |
+                [Service]
+                ExecStart=
+                ExecStart=/usr/bin/containerd --config /etc/containerd/config-mirror.toml
+    storage:
+      files:
+        - path: /etc/containerd/config-mirror.toml
+          mode: 0644
+          contents:
+            inline: |
+              version = 2
+              imports = ["/etc/containerd/config-nvidia.toml"]
+              [plugins."io.containerd.grpc.v1.cri".registry]
+                config_path = "/etc/containerd/certs.d"
+        - path: /etc/containerd/certs.d/registry.k8s.io/hosts.toml
+          mode: 0644
+          contents:
+            inline: |
+              server = "https://registry.k8s.io"
+              [host."https://us-central1-docker.pkg.dev/v2/k8s-artifacts-prod/images"]
+                capabilities = ["pull", "resolve"]
+                override_path = true
