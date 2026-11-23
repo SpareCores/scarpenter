@@ -7,9 +7,11 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package alicloud
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	openapimodels "github.com/alibabacloud-go/darabonba-openapi/v2/models"
 	ecs "github.com/alibabacloud-go/ecs-20140526/v7/client"
@@ -34,7 +36,15 @@ type ClientOptions struct {
 	VPCEndpoint func(region string) string
 	// Protocol is "HTTPS" (the default) or "HTTP", for a test server.
 	Protocol string
+	// ConnectTimeout bounds opening a connection; DefaultConnectTimeout if zero.
+	// An endpoint that is not reachable (blackholed egress) then fails fast
+	// instead of holding the whole call timeout.
+	ConnectTimeout time.Duration
 }
+
+// DefaultConnectTimeout is the connect timeout of the SDK clients: a healthy
+// endpoint accepts a connection within a second, even from another continent.
+const DefaultConnectTimeout = 10 * time.Second
 
 // DefaultEndpoint is the endpoint pattern of an Alibaba Cloud service in a
 // region.
@@ -80,13 +90,15 @@ func NewClientFactory(o ClientOptions) ClientFactory {
 				return Clients{}, fmt.Errorf("alicloud: credentials: %w", err)
 			}
 		}
+		connect := cmp.Or(o.ConnectTimeout, DefaultConnectTimeout)
 		mk := func(service string, fn func(string) string) *openapimodels.Config {
 			endpoint := DefaultEndpoint(service, region)
 			if fn != nil {
 				endpoint = fn(region)
 			}
 			cfg := &openapimodels.Config{}
-			cfg.SetCredential(cred).SetRegionId(region).SetEndpoint(endpoint)
+			cfg.SetCredential(cred).SetRegionId(region).SetEndpoint(endpoint).
+				SetConnectTimeout(int(connect.Milliseconds()))
 			if o.Protocol != "" {
 				cfg.SetProtocol(o.Protocol)
 			}

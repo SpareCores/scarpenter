@@ -96,8 +96,8 @@ vendors:
     # Region of the global DescribeRegions call (SCARPENTER_ALICLOUD_HOME_REGION);
     # empty: ap-southeast-1.
     homeRegion: ""
-    # Deadline of one Alibaba Cloud API call, a Go duration (SCARPENTER_ALICLOUD_CALL_TIMEOUT);
-    # empty: 90s. Raise it when the mainland regions answer slowly from the cluster.
+    # Deadline of one Alibaba Cloud API call, a Go duration such as 1m (SCARPENTER_ALICLOUD_CALL_TIMEOUT);
+    # empty: 45s. It does not help an endpoint that cannot be reached (connect timeout 10s).
     callTimeout: ""
     credentials:
       # oidc: the ServiceAccount's projected token is exchanged for a RAM role

@@ -21,6 +21,9 @@ type TokenMinter interface {
 	// Mint creates the token Secret of the NodeClaim and returns the token
 	// ("<id>.<secret>"). It is idempotent per NodeClaim.
 	Mint(ctx context.Context, nodeClaim *karpv1.NodeClaim) (string, error)
+	// Exists says whether the NodeClaim has a live token: an earlier Create
+	// kept it because an instance may exist.
+	Exists(ctx context.Context, nodeClaimName string) (bool, error)
 	// Delete removes the NodeClaim's token; a missing token is not an error.
 	Delete(ctx context.Context, nodeClaimName string) error
 }
@@ -46,6 +49,9 @@ var (
 
 // Mint returns an empty token.
 func (StubBootstrap) Mint(context.Context, *karpv1.NodeClaim) (string, error) { return "", nil }
+
+// Exists is false.
+func (StubBootstrap) Exists(context.Context, string) (bool, error) { return false, nil }
 
 // Delete does nothing.
 func (StubBootstrap) Delete(context.Context, string) error { return nil }

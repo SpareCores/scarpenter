@@ -19,12 +19,11 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
-// DefaultCallTimeout is the deadline of one API call, for every region. The
-// mainland regions answer slowly from other continents (a DescribeInstances or
-// DescribeZones from the EU takes tens of seconds at times), so it is generous:
-// a call that times out is not retried on the spot. RunInstances gets twice
-// the time. SCARPENTER_ALICLOUD_CALL_TIMEOUT overrides it.
-const DefaultCallTimeout = 90 * time.Second
+// DefaultCallTimeout is the deadline of one API call, for every region. A call
+// that times out is not retried on the spot. RunInstances gets twice the time.
+// SCARPENTER_ALICLOUD_CALL_TIMEOUT overrides it; it does not help an endpoint
+// that is not reachable (the connect timeout fails that fast).
+const DefaultCallTimeout = 45 * time.Second
 
 // Retry bounds of the driver's own backoff on throttling and transient server
 // errors: the SDK has per-call retry settings but no adaptive mode.

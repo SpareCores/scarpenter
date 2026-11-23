@@ -986,3 +986,11 @@ type ImageImporter interface {
 func (c CreateRequest) String() string {
 	return fmt.Sprintf("%s/%s %s %s", c.Region, c.Zone, c.InstanceType, c.CapacityType)
 }
+
+// RegionLister is implemented by a driver whose ListInstances makes its own API
+// call per region: the controller then lists one region at a time, in parallel,
+// and a slow or failing region does not hide the others. A driver that lists
+// the whole account in one call does not implement it, and is asked once.
+type RegionLister interface {
+	ListsPerRegion()
+}

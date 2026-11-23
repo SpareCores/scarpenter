@@ -557,3 +557,6 @@ func (d *Driver) knownRegion(ctx context.Context, region string) bool {
 	}
 	return slices.ContainsFunc(regions, func(r vendors.Region) bool { return r.Name == region })
 }
+
+// ListsPerRegion implements vendors.RegionLister.
+func (d *Driver) ListsPerRegion() {}

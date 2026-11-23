@@ -103,10 +103,17 @@ minutes), with the reason for a region that has none. Both architectures are rep
 ## Regions and zones
 
 Every API call runs under one deadline, `SCARPENTER_ALICLOUD_CALL_TIMEOUT` (chart
-`vendors.alicloud.callTimeout`, default 90 s; RunInstances gets twice that). A call that times out is not
-retried on the spot. The driver tells the facts loader its call timeout, which then gives each region that
-long (instead of `facts.DefaultRegionTimeout`, 30 s) and the vendor six times it (instead of 3 minutes).
-The same applies to every region, there is no special case for the mainland.
+`vendors.alicloud.callTimeout`, default 45 s; RunInstances gets twice that), and the clients connect within
+10 s (`DefaultConnectTimeout`) or fail. A call that times out is not retried on the spot, and its error names
+the API action (`DescribeZones: context deadline exceeded`). The driver tells the facts loader its call timeout,
+which then gives each region that long (instead of `facts.DefaultRegionTimeout`, 30 s) and the vendor six
+times it (instead of 3 minutes). The same applies to every region, there is no special case for the mainland.
+
+A regional endpoint that cannot be reached shows as the vendor condition `RegionsUnavailable` ("zones could not
+be read yet, retrying"), and a launch whose preparing times out in a region sets it aside as
+`RegionUnreachable` for 3 minutes and moves on to the next candidate. A longer call timeout does not fix that:
+when only some control planes reach the endpoints, look at the egress of the one that cannot (a blackholed route,
+a firewall, IPv6 or DNS), not at the timeout.
 
 `Regions` is `DescribeRegions` from the home region (`SCARPENTER_ALICLOUD_HOME_REGION`, chart
 `vendors.alicloud.homeRegion`, default `ap-southeast-1`), cached for an hour; the catalog

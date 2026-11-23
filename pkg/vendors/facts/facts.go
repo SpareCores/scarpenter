@@ -39,9 +39,9 @@ const (
 	DefaultInterval = time.Hour
 	// DefaultVendorTimeout bounds the load of one vendor.
 	DefaultVendorTimeout = 3 * time.Minute
-	// DefaultRegionTimeout bounds each driver call of one region (the driver's
-	// own call timeout, 45 s with retries, would stall a vendor for minutes
-	// on a region that never answers).
+	// DefaultRegionTimeout bounds each driver call of one region, so that a
+	// region that never answers does not stall a vendor for minutes. A driver
+	// whose calls take longer says so (CallBounded) and gets that long.
 	DefaultRegionTimeout = 30 * time.Second
 	// maxParallelRegions bounds the regions of a vendor read at once.
 	maxParallelRegions = 8
@@ -55,7 +55,8 @@ const (
 // CallBounded is the optional view of a driver whose API calls may take longer
 // than DefaultRegionTimeout (a vendor far from the controllers): LoadTimeout is
 // the longest one call takes. The load then gives each region that long, and
-// the vendor enough time for its regions in batches of maxParallelRegions.
+// the vendor enough time for its regions in batches of maxParallelRegions
+// (at least six calls, at least VendorTimeout).
 type CallBounded interface {
 	LoadTimeout() time.Duration
 }

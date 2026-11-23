@@ -480,3 +480,6 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 	}
 	return nil
 }
+
+// ListsPerRegion implements vendors.RegionLister.
+func (d *Driver) ListsPerRegion() {}

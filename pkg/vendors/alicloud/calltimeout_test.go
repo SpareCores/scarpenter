@@ -13,6 +13,7 @@ import (
 	"time"
 
 	ecs "github.com/alibabacloud-go/ecs-20140526/v7/client"
+	"github.com/aliyun/credentials-go/credentials"
 	"github.com/go-logr/logr"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -66,4 +67,35 @@ func TestTheCallTimeoutComesFromTheEnvironment(t *testing.T) {
 			t.Errorf("%q was accepted", bad)
 		}
 	}
+}
+
+// An endpoint that does not accept connections fails at the connect timeout,
+// long before the call timeout.
+func TestAnUnreachableEndpointFailsAtTheConnectTimeout(t *testing.T) {
+	f := NewClientFactory(ClientOptions{
+		Protocol: "HTTP", ConnectTimeout: 300 * time.Millisecond, Credential: testCredential(t),
+		ECSEndpoint: func(string) string { return "192.0.2.1:81" }, // TEST-NET-1, never routed
+	})
+	cl, err := f(bg(), "cn-hangzhou")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	_, err = cl.ECS.DescribeZones(bg(), &ecs.DescribeZonesRequest{})
+	if err == nil {
+		t.Fatal("DescribeZones of an unreachable endpoint succeeded")
+	}
+	if took := time.Since(start); took > 20*time.Second {
+		t.Errorf("failed after %v, want the connect timeout of 300ms", took)
+	}
+}
+
+func testCredential(t *testing.T) credentials.Credential {
+	t.Helper()
+	cred, err := credentials.NewCredential(new(credentials.Config).
+		SetType("access_key").SetAccessKeyId("test-id").SetAccessKeySecret("test-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cred
 }

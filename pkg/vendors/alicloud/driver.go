@@ -579,3 +579,6 @@ var (
 	_ vendors.InstanceMetadata    = (*Driver)(nil)
 	_ vendors.InterruptionNotices = (*Driver)(nil)
 )
+
+// ListsPerRegion implements vendors.RegionLister.
+func (d *Driver) ListsPerRegion() {}
