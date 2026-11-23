@@ -122,7 +122,12 @@ cached for an hour, a missing image for five minutes.
 When the label lookup finds no snapshot for an architecture, the driver builds it (ADR-030), the way
 [`hcloud-upload-image`](https://github.com/apricote/hcloud-upload-image) does and with its library:
 
-1. A temporary `cx23` (amd64) or `cax11` (arm64) server in `fsn1`, with a temporary SSH key, boots the rescue system.
+1. A temporary server in the first location of the NodeClass (snapshots are project-global), with a temporary SSH
+   key, boots the rescue system. Its type is the one of the architecture with the **smallest disk** among those
+   launchable there, read from the live server type list (no pinned name): a snapshot takes the disk size of its
+   build server and cannot boot on a type with a smaller disk. The snapshot carries the label
+   `scarpenter.sparecores.com/image-disk=<GB>`. A snapshot whose disk is bigger than that smallest type's counts as
+   missing, so it is rebuilt.
 2. The controller connects over SSH to its public IPv4 and has it download
    `https://<channel>.release.flatcar-linux.net/<arch>-usr/<version>/flatcar_production_hetzner_image.bin.bz2`
    and write it to the disk.
@@ -315,6 +320,11 @@ consumption 1 for every type, none for a capacity type other than on-demand), so
 **Availability.** `LaunchableTypes(location)` is one `GET /server_types` (cached 3 minutes, which also serves the
 root disk of a type): a type is launchable in a location when its entry there is `available` and not past
 `deprecation.unavailable_after`. This replaces the removed `datacenters.server_types.available`.
+
+`CreateInstance` refuses a launch whose image `disk_size` is bigger than the type's disk (from the cached table, no
+call): `Unsupported`, code `ImageDiskTooBig`, per type and image. As a backstop, the create error `image disk is
+bigger than server type disk` is `Unsupported` too (matched by message, case-insensitively: the API gives it no
+code of its own), so it is not retried.
 
 ## Billing
 

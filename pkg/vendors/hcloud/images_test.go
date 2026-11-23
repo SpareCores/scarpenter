@@ -179,3 +179,40 @@ func TestReportImages(t *testing.T) {
 		t.Error("a transient failure")
 	}
 }
+
+// TestCreateRefusesATypeSmallerThanTheImage: a snapshot only boots on types with
+// at least its disk. The check is per launch (type and image), so a class with a
+// small image still launches the small type while another class's big image
+// does not, and the refusal costs no API call.
+func TestCreateRefusesATypeSmallerThanTheImage(t *testing.T) {
+	e := newCEnv()
+	d := e.driver(t)
+	ctx := context.Background()
+	if _, err := d.LaunchableTypes(ctx, "fsn1"); err != nil { // loads the type table
+		t.Fatal(err)
+	}
+	big := e.f.AddImage(hc.ArchitectureX86, map[string]string{"os": "x"})
+	big.DiskSize = 80
+	launch := func(img *hc.Image, name string) error {
+		_, err := d.CreateInstance(ctx, vendors.CreateRequest{
+			Region: "fsn1", Zone: "fsn1", InstanceType: "cx23", CapacityType: vendors.CapacityOnDemand, Arch: "amd64",
+			Image: vendors.Image{Ref: fmt.Sprint(img.ID), RootDiskBytes: int64(img.DiskSize) * 1_000_000_000},
+			Tags: map[vendors.TagKey]string{
+				vendors.TagCluster: conformanceCluster, vendors.TagNodeClaim: name, vendors.TagManagedBy: vendors.ManagedByValue,
+			},
+			IdempotencyKey: "uid-" + name, Node: vendors.NodeInfo{Name: name}, UserData: []byte("{}"),
+		})
+		return err
+	}
+	calls := e.f.Calls("CreateServer")
+	err := launch(big, "a")
+	if vendors.ClassOf(err) != vendors.Unsupported || vendors.CodeOf(err) != hcloud.CodeImageTooBig || !strings.Contains(err.Error(), "image disk 80 GB > type disk 40 GB") {
+		t.Fatalf("an 80 GB image on a 40 GB type: %v", err)
+	}
+	if e.f.Calls("CreateServer") != calls {
+		t.Error("the refusal made an API call")
+	}
+	if err := launch(e.x86, "b"); err != nil { // 20 GB image, same type
+		t.Errorf("the small image launches the small type: %v", err)
+	}
+}

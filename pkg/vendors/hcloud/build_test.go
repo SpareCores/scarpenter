@@ -256,7 +256,9 @@ func TestBuildSweepsLeftoversAndRespectsOtherBuilds(t *testing.T) {
 	other := e.f.AddForeignServer("fsn1", "cx23", theirs) // another cluster builds amd64
 	e.f.AddSSHKey("theirs", theirs)
 	// arm64's snapshot exists but is still being created.
-	arm := e.f.AddImage(hc.ArchitectureARM, release)
+	armLabels := map[string]string{hcloud.LabelImageDisk: "40"}
+	maps.Copy(armLabels, release)
+	arm := e.f.AddImage(hc.ArchitectureARM, armLabels)
 	e.f.SetImageStatus(arm.ID, hc.ImageStatusCreating)
 
 	st := e.report(t)
@@ -300,5 +302,37 @@ func TestFlatcarImageURL(t *testing.T) {
 	got := hcloud.FlatcarImageURL("beta", "4801.1.0", "arm64").String()
 	if got != "https://beta.release.flatcar-linux.net/arm64-usr/4801.1.0/flatcar_production_hetzner_image.bin.bz2" {
 		t.Error(got)
+	}
+}
+
+// TestBuildRunsOnTheTypeWithTheSmallestDisk: the snapshot takes the disk size of
+// its build server, so the type comes from the live list, smallest disk first.
+func TestBuildRunsOnTheTypeWithTheSmallestDisk(t *testing.T) {
+	types := fake.DefaultServerTypes()
+	for _, st := range types {
+		if st.Name == "cpx22" {
+			st.Disk = 20
+		}
+	}
+	e := newBuildEnv(t, hcloud.WithAPI(fake.New(fake.WithServerTypes(types))))
+	e.report(t)
+	e.waitUploads(t, 1)
+	if st := e.up.uploads()[0].ServerType; st == nil || st.Name != "cpx22" {
+		t.Errorf("build type: %+v, want cpx22 (20 GB, the smallest)", st)
+	}
+}
+
+// TestBiggerSnapshotIsRebuilt: a snapshot whose disk is bigger than the smallest
+// type's counts as missing and is replaced by one built on that type, which
+// carries its disk size as a label.
+func TestBiggerSnapshotIsRebuilt(t *testing.T) {
+	e := newBuildEnv(t)
+	old := e.f.AddImage(hc.ArchitectureX86, map[string]string{"os": "flatcar", "flatcar-channel": "stable", "flatcar-version": "4800.0.0"})
+	old.DiskSize = 80 // the smallest type of the default table has 40 GB
+	e.report(t)
+	e.waitUploads(t, 1)
+	o := e.up.uploads()[0]
+	if o.Architecture != hc.ArchitectureX86 || o.ServerType.Name != "cx23" || o.Labels[hcloud.LabelImageDisk] != "40" {
+		t.Errorf("rebuild: %+v labels %v", o.ServerType, o.Labels)
 	}
 }

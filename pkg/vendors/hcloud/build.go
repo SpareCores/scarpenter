@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -33,6 +34,11 @@ const (
 	// the snapshot it makes, with the cluster's name.
 	LabelImageBuild = "scarpenter.sparecores.com/image-build"
 
+	// LabelImageDisk is the disk size in GB of the build server's type, set on the
+	// snapshot: a snapshot without it, or with a bigger one, is not the one built
+	// now.
+	LabelImageDisk = "scarpenter.sparecores.com/image-disk"
+
 	imageBuildTimeout = 30 * time.Minute
 	imageBuildRetry   = 15 * time.Minute
 	sweepTimeout      = 2 * time.Minute
@@ -45,7 +51,7 @@ type Uploader interface {
 }
 
 // buildKey is one snapshot: a Flatcar release and an architecture.
-type buildKey struct{ channel, version, arch string }
+type buildKey struct{ channel, version, arch, location string }
 
 func (k buildKey) String() string { return k.channel + " " + k.version + " " + k.arch }
 
@@ -123,8 +129,18 @@ func building(k buildKey, format string, args ...any) error {
 // the build server of another controller. Empty: build it.
 func (d *Driver) buildingElsewhere(ctx context.Context, k buildKey) (string, error) {
 	ha, _ := ImageArch(k.arch)
+	st, err := d.p.smallestType(ctx, ha, k.location)
+	if err != nil {
+		return "", err
+	}
+	sel := k.selector()
+	if st != nil {
+		// Only a snapshot of the size built now counts; an older, bigger one is
+		// what the build replaces.
+		sel += fmt.Sprintf(",%s=%d", LabelImageDisk, st.Disk)
+	}
 	imgs, err := d.api.Images(ctx, hc.ImageListOpts{
-		ListOpts:     hc.ListOpts{LabelSelector: k.selector()},
+		ListOpts:     hc.ListOpts{LabelSelector: sel},
 		Type:         []hc.ImageType{hc.ImageTypeSnapshot},
 		Architecture: []hc.Architecture{ha},
 	})
@@ -155,7 +171,11 @@ func (d *Driver) runBuild(k buildKey) {
 	defer cancel()
 	log := d.log.WithValues("channel", k.channel, "version", k.version, "arch", k.arch)
 	log.Info("building the Flatcar snapshot")
-	img, err := d.uploader.Upload(contextlogger.New(ctx, slog.New(logr.ToSlogHandler(log))), d.uploadOptions(k))
+	var img *hc.Image
+	opts, err := d.uploadOptions(ctx, k)
+	if err == nil {
+		img, err = d.uploader.Upload(contextlogger.New(ctx, slog.New(logr.ToSlogHandler(log))), opts)
+	}
 
 	b := &d.builds
 	b.mu.Lock()
@@ -176,9 +196,18 @@ func (d *Driver) runBuild(k buildKey) {
 	log.Info("built the Flatcar snapshot", "image", img.ID)
 }
 
-func (d *Driver) uploadOptions(k buildKey) hcloudimages.UploadOptions {
+func (d *Driver) uploadOptions(ctx context.Context, k buildKey) (hcloudimages.UploadOptions, error) {
 	ha, _ := ImageArch(k.arch)
+	st, err := d.p.smallestType(ctx, ha, k.location)
+	if err != nil {
+		return hcloudimages.UploadOptions{}, err
+	}
+	if st == nil {
+		return hcloudimages.UploadOptions{}, fmt.Errorf(
+			"no %s server type is launchable in %s for the build server", ha, k.location)
+	}
 	labels := k.labels()
+	labels[LabelImageDisk] = strconv.Itoa(st.Disk)
 	labels[LabelImageBuild] = LabelValue(d.cfg.ClusterName)
 	description := fmt.Sprintf("Flatcar %s %s %s", k.channel, k.version, k.arch)
 	return hcloudimages.UploadOptions{
@@ -187,9 +216,11 @@ func (d *Driver) uploadOptions(k buildKey) hcloudimages.UploadOptions {
 			ImageCompression: hcloudimages.CompressionBZ2,
 		},
 		Architecture: ha,
+		ServerType:   &hc.ServerType{Name: st.Name},
+		Location:     &hc.Location{Name: k.location},
 		Description:  &description,
 		Labels:       labels,
-	}
+	}, nil
 }
 
 // FlatcarImageURL is Flatcar's hetzner image of a release on its release server.
