@@ -329,6 +329,21 @@ func TestConformance(t *testing.T) {
 			t.Helper()
 			return restart(t, d.(*fakedriver.Driver))
 		},
+		ImageCopy: &conformance.ImageCopyFixture{
+			Source: "us-east-1", Dest: "eu-central-1", Cluster: "my-cluster",
+			PublishOfficial: func(t *testing.T, d vendors.Driver, region string, rel vendors.Release) {
+				t.Helper()
+				if err := d.(*fakedriver.Driver).ImageCopies().PublishOfficial(t.Context(), region, rel.Channel, rel.Version); err != nil {
+					t.Fatal(err)
+				}
+			},
+			Finish: func(t *testing.T, d vendors.Driver) {
+				t.Helper()
+				if err := d.(*fakedriver.Driver).ImageCopies().Finish(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
 			t.Helper()
 			h := &harness{d: d.(*fakedriver.Driver)}

@@ -166,6 +166,10 @@ type Fixture struct {
 	OrderClass OrderClassFunc
 	SetDefault SetDefaultFunc
 	FailCreate func(t *testing.T, d vendors.Driver, kind vendors.ResourceKind)
+
+	// The image copy subtests (plan 29) run for drivers that implement
+	// vendors.ImageCopier, with ImageCopy and Restart.
+	ImageCopy *ImageCopyFixture
 }
 
 // The architectures and the creation-time order the suite names.
@@ -315,6 +319,7 @@ func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 	sub("selectors", selectors)
 	sub("images", images)
 	sub("resolution order", resolutionOrder)
+	sub("image copies", imageCopies)
 	sub("zone checker", zoneChecker)
 }
 

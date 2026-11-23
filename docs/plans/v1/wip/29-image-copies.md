@@ -107,7 +107,9 @@ permissions are the controller's. ADR-030 set the same precedent (`--hcloud-buil
 A flag that enables copies for a vendor whose driver lacks the capability refuses to start. Constants, not flags:
 the retry after a failed copy (6 h, like hcloud's build retry), at most 4 copies in flight per vendor (queued beyond),
 a backoff of 1 min doubling to 15 min on a limit or throttling error, a copy timeout of 2 h, the GC interval of 10 min,
-the unpinned grace of 2 h.
+the unpinned grace of 2 h, the primary grace of 2 h (rule b: the launch cache), the retry after a missing
+source of 15 min (`SourceMissingRetry`, shorter than the failure TTL since the release may be published soon), and
+5 min after which a copy the vendor does not list counts as failed (`MissingGrace`).
 
 **Opting a class out.** Copies are made for a region only when a launch of a class without `images.use` or
 `imageOwner` wants it. A class that must not cause copies either keeps the image-less regions out of its NodePools'
@@ -203,7 +205,7 @@ more (section 8).
    `InsufficientCapacity`, core deletes the NodeClaim and re-solves without the region. A pod that fits nowhere else
    stays Pending while the copy runs.
 5. The manager starts `CopyImage` when a slot is free, from the source (below), with the tags and a client token
-   derived from (cluster, region, release, architecture); it polls the destination every 30 s (one `DescribeImages`
+   derived from (cluster, region, release, architecture, the time the demand queued it); it polls the destination every 30 s (one `DescribeImages`
    per region with copies in flight).
 6. Available: the manager signals again. The report says ready, the gate lifts, Karpenter offers the region, and
    pending pods launch there. Consolidation may then move nodes into the cheaper region; that is the intent.
@@ -276,6 +278,8 @@ operator's uninstall, and the e2e sweeper deletes the lanes').
   ```go
   // ImageCopier copies a boot image between the regions of the account (plan 29).
   type ImageCopier interface {
+      // Architectures lists the architectures the driver serves in the region (the unit of a copy).
+      Architectures(ctx context.Context, region string) ([]string, error)
       // Primary finds the image the convention resolves in the region (section 4, step 3), without copies.
       Primary(ctx context.Context, region string, rel Release) (ref string, found bool, err error)
       // CopySources lists the images a copy can be made from, in the order of preference.
@@ -428,6 +432,11 @@ regions; 21 IaC copies of which most are idle). Rejected: the SCNodeClass as the
 waiting in `Create`; eager copies to every region (the owner chose on demand); a CRD per copy; the resources
 engine's lifecycles (section 1); copying only the demanded architecture (decision 3). `flatcar-images.md` gains a
 line under the ladder and the aws and alicloud rows.
+
+**Handoff from step 1 to step 2.** Step 2 must call `Manager.Bump` from the NodeClass controller on each manager
+signal (the GC sweep calls it only every 10 min, which is too late for the release bump), and wire into the operator
+the manager's `Signal`, `Start`, `Invalidate` and `Regions` and the `Collector`, keeping a typed-nil `*Manager` out of
+`vendors.Config.ImageCopies`. Step 5 must make Alibaba's owner `self` not opt a request out (TODO in `Lookup`).
 
 ## 10. Rollout
 

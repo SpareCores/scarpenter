@@ -58,6 +58,8 @@ const (
 	DefaultTerminatingGrace           = 10 * time.Minute // vendors.DefaultTerminatingGrace; options imports no scarpenter package
 	DefaultResourceDefaultTTL         = 24 * time.Hour
 	DefaultResourcePerUseGrace        = 2 * time.Minute
+	DefaultImageCopyIdleTTL           = 720 * time.Hour
+	MinImageCopyIdleTTL               = time.Minute
 	DefaultResourceCheckInterval      = 30 * time.Second
 	DefaultResourceFullSweepEvery     = 10
 	DefaultAWSHomeRegion              = "us-east-1"
@@ -181,6 +183,9 @@ type Options struct {
 	// ResourceDefaultTTL is the idleTTL of managed shared resources when a
 	// SCNodeClass does not set one.
 	ResourceDefaultTTL time.Duration
+	// ImageCopyIdleTTL is how long an image copy (plan 29) may go unused before the
+	// garbage collector deletes it.
+	ImageCopyIdleTTL time.Duration
 	// ResourcePerUseGrace is how long an unused perUse resource is kept for
 	// launches in flight; ResourceCheckInterval how often the vendor resources
 	// of each SCNodeClass are checked (status and preCreate).
@@ -288,6 +293,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.DurationVar(&o.UnavailableQuotaExceededTTL, "unavailable-quota-exceeded-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_QUOTA_EXCEEDED_TTL", 0), "How long a quota bucket (the region and capacity type for a vendor without bucket mapping) stays unavailable after a QuotaExceeded error (0 = 5m).")
 	fs.DurationVar(&o.UnavailableZoneUnusableTTL, "unavailable-zone-unusable-ttl", env.WithDefaultDuration("SCARPENTER_UNAVAILABLE_ZONE_UNUSABLE_TTL", 0), "How long a zone stays unavailable after a ZoneUnusable error (0 = 10m).")
 	fs.StringVar(&o.KeeperCacheDir, "keeper-cache-dir", env.WithDefaultString("SCARPENTER_KEEPER_CACHE_DIR", ""), "Directory that keeps Keeper's snapshot files of the pinned data version, so that a restart and an unchanged file need no download (empty: no copy).")
+	fs.DurationVar(&o.ImageCopyIdleTTL, "image-copy-idle-ttl", env.WithDefaultDuration("SCARPENTER_IMAGE_COPY_IDLE_TTL", DefaultImageCopyIdleTTL), "How long a boot image copy that SCarpenter made into a region (ADR-032) may go unused before it is deleted, at least 1m. Only has an effect for vendors with image copies on.")
 	fs.DurationVar(&o.ResourcePerUseGrace, "resource-per-use-grace", env.WithDefaultDuration("SCARPENTER_RESOURCE_PER_USE_GRACE", DefaultResourcePerUseGrace), "How long an unused perUse managed vendor resource is kept for launches in flight.")
 	fs.DurationVar(&o.ResourceCheckInterval, "resource-check-interval", env.WithDefaultDuration("SCARPENTER_RESOURCE_CHECK_INTERVAL", DefaultResourceCheckInterval), "How often the vendor resources of each SCNodeClass are checked (status, preCreate).")
 	fs.IntVar(&o.ResourceFullSweepEvery, "resource-full-sweep-every", env.WithDefaultInt("SCARPENTER_RESOURCE_FULL_SWEEP_EVERY", DefaultResourceFullSweepEvery), "Every this many garbage collection sweeps (and after a NodeClass was deleted) the managed vendor resources of every region of the driver are swept, not only of the regions in use.")
@@ -419,6 +425,9 @@ func (o *Options) Validate() error {
 		if d <= 0 {
 			errs = append(errs, fmt.Errorf("%s must be positive, got %s", name, d))
 		}
+	}
+	if o.ImageCopyIdleTTL < MinImageCopyIdleTTL {
+		errs = append(errs, fmt.Errorf("--image-copy-idle-ttl must be at least %s, got %s", MinImageCopyIdleTTL, o.ImageCopyIdleTTL))
 	}
 	if o.CatalogMaxAge > 0 && o.CatalogRefreshInterval > o.CatalogMaxAge {
 		errs = append(errs, fmt.Errorf("--catalog-max-age (%s) must not be shorter than --catalog-refresh-interval (%s)",
