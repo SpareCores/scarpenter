@@ -158,8 +158,18 @@ has a green real run it is "offered, not yet verified"; the manual `gpu` scenari
 | placement profile | `proximityPlacementGroup`: `strategy: cluster` (one group per run key) or `use.name` |
 | settings | `adminSSHPublicKey`, `encryptionAtHost`, `imageOwner`, `subscriptionID` |
 
-Premium disks need the `PremiumIO` capability: sizes without it fail the default root disk (`Unsupported`, the
-offering is unavailable for a while); set `StandardSSD_LRS` to include them. Sizes without Gen2 or without a SCSI disk
+The default root disk stays `Premium_LRS`; SCarpenter never downgrades it. The catalog checks Keeper's compatible
+storage of the size (`compatible_storage_ids`, the disk SKU names) against the settings a route resolves to: the
+root disk type (the default `Premium_LRS`, or the `storageAccountType` the NodeClass's block or the profile pins; an
+ephemeral root has none) and the data disks' types. A size that cannot attach them is not offered on that route.
+With the default route that means sizes without premium storage (`D2_v5`) are not offered at all, unless a storage
+profile makes them work: then the type is offered for claims that select such a profile (its `storage-profile`
+label has no `default`; Karpenter's scheduler may still match it for a claim that names no storage profile, but
+Create never launches it for that claim: the candidate is skipped, and if every type a pod fits is such a size,
+launches fail until the pod or NodePool selects a storage profile). To get such sizes, pin `storageAccountType: StandardSSD_LRS` in the NodeClass's root disk, or in a
+storage profile. An empty list means unknown and excludes nothing. Premium disks also need the `PremiumIO`
+capability: a size without it that passes the check fails the default root disk at launch (`Unsupported`, the
+offering is unavailable for a while). Sizes without Gen2 or without a SCSI disk
 controller (NVMe-only: most of the v6 families) are not offered. `PriceDelta` rounds a disk to its billing tier and uses Keeper's
 GB-month price per region and SKU; Standard SKUs and unpriced disks make it incomplete; the public IPv4 address is
 Keeper's `ipv4_price` row of the region (`SCARPENTER_AZURE_IPV4_PRICE` overrides it, also where Keeper has no row). Both

@@ -15,8 +15,14 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
 	"github.com/stretchr/testify/require"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/azure"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
+	"github.com/SpareCores/scarpenter/pkg/catalog/model"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/facts"
 	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
@@ -77,6 +83,73 @@ func TestSupported(t *testing.T) {
 	require.NotContains(t, got[vendors.ProfileStorage], "premium-db", "no premium storage on the size")
 	require.Contains(t, got[vendors.ProfileStorage], "ssd")
 	require.Empty(t, d.Supported(catalogType("Standard_D2s_v5"), "1", vendors.Profiles{}))
+}
+
+// The resolved settings decide: the root disk is Premium_LRS unless the NodeClass
+// pins another type (an ephemeral root has none), and the data disks count.
+func TestSupportsSettings(t *testing.T) {
+	d := New()
+	d5 := catalogType("Standard_D2_v5")
+	d5.CompatibleStorage = []string{"StandardSSD_LRS", "StandardSSD_ZRS", "Standard_LRS"}
+	for name, tc := range map[string]struct {
+		raw  string
+		want bool
+	}{
+		"defaults":           {defaultSettings, false},
+		"pinned StandardSSD": {`{"storage":{"root":{"storageAccountType":"StandardSSD_LRS"}}}`, true},
+		"ephemeral":          {`{"storage":{"root":{"ephemeral":{"placement":"CacheDisk"}}}}`, true},
+		"premium data disk":  {`{"storage":{"root":{"storageAccountType":"StandardSSD_LRS"},"data":[{"name":"a"}]}}`, false},
+		"broken":             {`{`, true},
+	} {
+		require.Equal(t, tc.want, d.SupportsSettings(vendors.VendorSettings{Raw: json.RawMessage(tc.raw)}, d5), name)
+	}
+	require.True(t, d.SupportsSettings(vendors.VendorSettings{Raw: json.RawMessage(defaultSettings)}, catalogType("Standard_D2s_v6")), "no list: unknown")
+}
+
+// A NodeClass without storage profiles keeps sizes without premium storage off
+// while its root disk is Premium_LRS (the default); pinning StandardSSD_LRS
+// offers them.
+func TestDefaultRouteFollowsTheRootDiskType(t *testing.T) {
+	d := newEnv(t).driver(t)
+	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(d)})
+	require.NoError(t, f.Load(context.Background()))
+	class := func(block azure.Settings) *catalog.Class {
+		c, err := catalog.ClassFromNodeClass(&v1alpha1.SCNodeClass{Spec: v1alpha1.SCNodeClassSpec{
+			Vendors: v1alpha1.VendorBlocks{Azure: &block}}})
+		require.NoError(t, err)
+		return &c
+	}
+	server := func(name string, compatible ...string) *model.Server {
+		return &model.Server{Vendor: Vendor, APIReference: name, CompatibleStorage: compatible}
+	}
+	d2v5 := server("Standard_D2s_v5", "StandardSSD_LRS", "StandardSSD_ZRS", "Standard_LRS")
+	d2sv6 := server("Standard_D2s_v5", "Premium_LRS", "StandardSSD_LRS", "Standard_LRS")
+	pinned := class(azure.Settings{Storage: &azure.Storage{Root: &azure.RootDisk{StorageAccountType: "StandardSSD_LRS"}}})
+
+	// A storage profile that pins another type makes the size work; one that
+	// leaves the root alone inherits the NodeClass's.
+	withProfiles := func(block azure.Settings) *catalog.Class {
+		c, err := catalog.ClassFromNodeClass(&v1alpha1.SCNodeClass{Spec: v1alpha1.SCNodeClassSpec{
+			Vendors: v1alpha1.VendorBlocks{Azure: &block},
+			Profiles: v1alpha1.Profiles{Storage: map[string]v1alpha1.StorageProfile{
+				"ssd":   {Azure: &azure.Storage{Root: &azure.RootDisk{StorageAccountType: "StandardSSD_LRS"}}},
+				"plain": {Azure: &azure.Storage{}},
+			}}}})
+		require.NoError(t, err)
+		return &c
+	}
+	_, err := d.LaunchableTypes(context.Background(), testRegion)
+	require.NoError(t, err)
+	require.Equal(t, []string{"ssd"}, f.Supported(Vendor, withProfiles(azure.Settings{}), d2v5, "1")[labels.ProfileStorage])
+	require.Equal(t, []string{"plain", "ssd"}, f.Supported(Vendor, withProfiles(azure.Settings{}), d2sv6, "1")[labels.ProfileStorage])
+	require.Equal(t, []string{"plain", "ssd"}, f.Supported(Vendor, withProfiles(azure.Settings{Storage: &azure.Storage{
+		Root: &azure.RootDisk{StorageAccountType: "StandardSSD_LRS"}}}), d2v5, "1")[labels.ProfileStorage])
+
+	require.False(t, f.DefaultSupported(Vendor, class(azure.Settings{}), d2v5))
+	require.True(t, f.DefaultSupported(Vendor, class(azure.Settings{}), d2sv6))
+	require.True(t, f.DefaultSupported(Vendor, pinned, d2v5))
+	require.True(t, f.DefaultSupported(Vendor, pinned, d2sv6))
+	require.True(t, f.DefaultSupported(Vendor, class(azure.Settings{}), server("Standard_D2_v5")), "no list: unknown")
 }
 
 func manyDisks(n int) string {

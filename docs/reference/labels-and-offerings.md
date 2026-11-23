@@ -342,6 +342,7 @@ was given.
 | `ZoneNotAvailable` | offering | a price row's zone is not one of the account's, Keeper marked it inactive, or the driver lists no zones for the region (facts not loaded yet, or the credentials cannot read it) | the zone ID, or the region |
 | `IncompletePrice` | offering | the price delta is incomplete and `pricing.allowIncomplete` is false | zone ID, capacity type |
 | `GPUManufacturer`, `GPUModelUnknown`, `GPUFractional`, `GPUArch`, `GPUNoDriverBranch`, `GPUNVSwitch`, `GPUVirtual` | type | [GPU types](#gpu-types) | |
+| `StorageIncompatible` | type | the driver says the type cannot host the class's default storage, and no storage profile makes it work | |
 | `NotLaunchable` | offering | the driver's offering lister says the type cannot launch in the zone | zone ID |
 | `NoOffering` | type | every offering of the type was removed above | the dominant earlier code |
 | `UnavailableCache` | offering | a live entry of the unavailable-offerings cache | its class (`InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable`, `InvalidOffering`) and its expiry |
@@ -622,7 +623,9 @@ Offering-level, from Keeper's region table. Unknown is `DoesNotExist`.
 ### Profile labels
 
 `storage-profile`, `network-profile` and `placement-profile` are `In [default,
-<profiles valid for the type>]` on every type. The driver decides validity
+<profiles valid for the type>]` on every type, except that `storage-profile` has no
+`default` on a type whose driver says it cannot host the default storage (Azure sizes
+without premium storage under a Premium root). The driver decides validity
 through its `Supported` hook, given the profile blocks of the NodeClass for the
 vendor (a profile without a block for the vendor is not offered to the driver and
 does not exist on it; [node settings](node-settings.md#which-profiles-a-type-can-host)).

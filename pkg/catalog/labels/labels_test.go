@@ -194,7 +194,7 @@ func TestSelectionAndProfiles(t *testing.T) {
 	if got := values(labels.Selection([]string{"b", "a", "b"})); got != "a,b" {
 		t.Errorf("membership = %s", got)
 	}
-	reqs0 := labels.ProfileRequirements(nil)
+	reqs0 := labels.ProfileRequirements(nil, true)
 	got := make([]string, 0, len(reqs0))
 	for _, r := range reqs0 {
 		got = append(got, r.Key+"="+values(r))
@@ -205,9 +205,13 @@ func TestSelectionAndProfiles(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("default profiles = %v", got)
 	}
-	reqs := labels.ProfileRequirements(map[labels.ProfileKind][]string{labels.ProfileStorage: {"db", "db"}})
+	reqs := labels.ProfileRequirements(map[labels.ProfileKind][]string{labels.ProfileStorage: {"db", "db"}}, true)
 	if values(reqs[0]) != "db,default" {
 		t.Errorf("storage = %s", values(reqs[0]))
+	}
+	reqs = labels.ProfileRequirements(map[labels.ProfileKind][]string{labels.ProfileStorage: {"db"}}, false)
+	if values(reqs[0]) != "db" || values(reqs[1]) != "default" {
+		t.Errorf("without the default storage: %s, %s", values(reqs[0]), values(reqs[1]))
 	}
 }
 

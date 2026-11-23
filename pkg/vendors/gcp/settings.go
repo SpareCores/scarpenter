@@ -15,8 +15,8 @@ import (
 )
 
 // The built-in defaults (00a section 5.3, layer 1): a 64 GiB root disk; its type
-// is pd-balanced, or hyperdisk-balanced for the series that boot only from
-// Hyperdisk (DefaultRootDiskType, decided per machine type at launch, which is
+// is pd-balanced, or hyperdisk-balanced where Keeper lists no pd-balanced for
+// the machine type (DefaultRootDiskType, decided per machine type at launch, which is
 // why the default block names no type: a pinned pd-balanced and the default
 // must stay distinguishable).
 const (
@@ -77,8 +77,8 @@ func decodeStorage(raw json.RawMessage) (gcpapi.Storage, error) {
 }
 
 // rootDisk returns the resolved boot disk of the settings for a machine type.
-func rootDisk(st gcpapi.Settings, machineType string) Disk {
-	d := Disk{Type: DefaultRootDiskType(machineType), SizeGb: defaultRootGiB}
+func rootDisk(st gcpapi.Settings, compatible []string) Disk {
+	d := Disk{Type: DefaultRootDiskType(compatible), SizeGb: defaultRootGiB}
 	if st.Storage == nil || st.Storage.Root == nil {
 		return d
 	}
@@ -147,5 +147,5 @@ func (d *Driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 	if err != nil {
 		return defaultRootGiB * giB
 	}
-	return rootDisk(st, "").SizeGb * giB
+	return rootDisk(st, nil).SizeGb * giB
 }

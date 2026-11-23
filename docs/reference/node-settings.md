@@ -125,7 +125,12 @@ The driver decides, per instance type and zone (`NodeOptions.Supported`), which
 of the NodeClass's profiles are valid: for example a profile that mounts local
 storage is valid only on types that have local disks. The catalog stamps, on
 every instance type and offering, `storage-profile In [default, <valid
-profiles>]`, likewise for the other kinds, so Karpenter's scheduler rejects
+profiles>]`, likewise for the other kinds (a type that cannot host the default
+storage, per the driver's `SettingsChecker`, has no `default` in its
+`storage-profile`; Karpenter's scheduler may still match such a type for a
+claim that names no storage profile, but Create never launches it for that
+claim: the candidate is skipped, and if every type a pod fits is such a size,
+launches fail until the pod or NodePool selects a storage profile), so Karpenter's scheduler rejects
 a profile a type cannot host before anything is launched. When
 `spec.pricing.allowIncomplete` is `false`, a profile whose price is incomplete is
 not valid either (see [Pricing](#pricing)). Changes of the driver's answers

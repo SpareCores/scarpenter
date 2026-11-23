@@ -287,7 +287,7 @@ func (d *Driver) launchSpec(ctx context.Context, req vendors.CreateRequest) (Lau
 	if err != nil {
 		return LaunchSpec{}, vendors.NewError(vendors.Fatal, codeInvalidSettings, err)
 	}
-	root := rootDisk(st, req.InstanceType)
+	root := rootDisk(st, req.Type.CompatibleStorage)
 	if want := root.SizeGb * giB; req.Image.RootDiskBytes > want {
 		return LaunchSpec{}, vendors.NewError(vendors.Fatal, codeInvalidSettings, fmt.Errorf(
 			"the root disk of %d GiB is smaller than the image's root disk of %d GiB", root.SizeGb,

@@ -803,7 +803,7 @@ Validation: an ephemeral OS disk is read-only cached (`!has(self.ephemeral) \|\|
 | `diskEncryptionSetID` | string |  | diskEncryptionSetID is the disk encryption set (customer-managed key) of the disk; platform-managed keys (always on) when empty. At most 2048 characters. |
 | `diskSizeGB` | integer (int32) |  | diskSizeGB of the OS disk. Built-in default 64. Minimum 30. Maximum 4095. |
 | `ephemeral` | [object](#specprofilesstorageazurerootephemeral) |  | ephemeral puts the OS disk on local storage instead of a managed disk. |
-| `storageAccountType` | string |  | storageAccountType is the disk SKU. Built-in default Premium_LRS (sizes without the PremiumIO capability then get no offering: set StandardSSD_LRS to include them). One of `Standard_LRS`, `StandardSSD_LRS`, `StandardSSD_ZRS`, `Premium_LRS`, `Premium_ZRS`. |
+| `storageAccountType` | string |  | storageAccountType is the disk SKU. Built-in default Premium_LRS: sizes whose compatible storage lacks it are offered only with a storage profile that pins another type, else dropped as StorageIncompatible; set StandardSSD_LRS here to include them. One of `Standard_LRS`, `StandardSSD_LRS`, `StandardSSD_ZRS`, `Premium_LRS`, `Premium_ZRS`. |
 
 ### `spec.profiles.storage.*.azure.root.ephemeral`
 
@@ -2915,7 +2915,7 @@ Validation: an ephemeral OS disk is read-only cached (`!has(self.ephemeral) \|\|
 | `diskEncryptionSetID` | string |  | diskEncryptionSetID is the disk encryption set (customer-managed key) of the disk; platform-managed keys (always on) when empty. At most 2048 characters. |
 | `diskSizeGB` | integer (int32) |  | diskSizeGB of the OS disk. Built-in default 64. Minimum 30. Maximum 4095. |
 | `ephemeral` | [object](#specvendorsazurestoragerootephemeral) |  | ephemeral puts the OS disk on local storage instead of a managed disk. |
-| `storageAccountType` | string |  | storageAccountType is the disk SKU. Built-in default Premium_LRS (sizes without the PremiumIO capability then get no offering: set StandardSSD_LRS to include them). One of `Standard_LRS`, `StandardSSD_LRS`, `StandardSSD_ZRS`, `Premium_LRS`, `Premium_ZRS`. |
+| `storageAccountType` | string |  | storageAccountType is the disk SKU. Built-in default Premium_LRS: sizes whose compatible storage lacks it are offered only with a storage profile that pins another type, else dropped as StorageIncompatible; set StandardSSD_LRS here to include them. One of `Standard_LRS`, `StandardSSD_LRS`, `StandardSSD_ZRS`, `Premium_LRS`, `Premium_ZRS`. |
 
 ### `spec.vendors.azure.storage.root.ephemeral`
 

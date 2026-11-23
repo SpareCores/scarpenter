@@ -281,20 +281,15 @@ func initParams(
 	return p
 }
 
-// hyperdiskOnlySeries boot only from Hyperdisk. UNVERIFIED: the list comes from
-// the plan (vendor-capabilities); the spike and a test against Keeper's types
-// keep it honest.
-var hyperdiskOnlySeries = []string{"c4", "n4", "c4a", "n4a", "c4d", "n4d", "c4n", "a3", "a4", seriesA4X, "g4",
-	seriesH4D, "z4d", "z4m"}
-
 // DefaultRootDiskType is the one type-dependent default of the root disk
-// (plan 16, section 6): hyperdisk-balanced for the series that boot only from
-// Hyperdisk, pd-balanced for the rest.
-func DefaultRootDiskType(machineType string) string {
-	if slices.Contains(hyperdiskOnlySeries, Family(machineType)) {
-		return "hyperdisk-balanced"
+// (plan 16, section 6): pd-balanced, or hyperdisk-balanced where Keeper says the
+// machine type cannot attach pd-balanced. Without Keeper's list (unknown) it is
+// pd-balanced.
+func DefaultRootDiskType(compatible []string) string {
+	if slices.Contains(compatible, "pd-balanced") || !slices.Contains(compatible, "hyperdisk-balanced") {
+		return "pd-balanced"
 	}
-	return "pd-balanced"
+	return "hyperdisk-balanced"
 }
 
 // DataDevicePath is the guest path of a data volume (the device name is chosen

@@ -213,6 +213,7 @@ func (e *env) request(t *testing.T) vendors.CreateRequest {
 	return vendors.CreateRequest{
 		Region: e.region, Zone: e.zone, InstanceType: e.fx.InstanceType, CapacityType: capType, Arch: arch,
 		Image:    vendors.Image{Ref: "image"},
+		Type:     vendors.CatalogType{Vendor: e.d.Vendor(), APIReference: e.fx.InstanceType},
 		UserData: []byte(`{"ignition":{"version":"3.4.0"}}`),
 		Tags: map[vendors.TagKey]string{
 			vendors.TagCluster: clusterName, vendors.TagNodeClaim: name, vendors.TagNodePool: "pool",

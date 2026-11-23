@@ -83,6 +83,14 @@ type LaunchableFacts interface {
 	Launchable(vendor, apiReference, zoneID string) (launchable, known bool)
 }
 
+// DefaultRouteFacts is an optional extension of Facts: whether the driver can
+// host the type with the class's default settings (no profile selected). A type
+// it cannot is offered only with a storage profile that makes it work, and not
+// at all when none does (reason StorageIncompatible).
+type DefaultRouteFacts interface {
+	DefaultSupported(vendor string, class *Class, srv *model.Server) bool
+}
+
 // VirtualGPUFacts is an optional extension of Facts: the vendors that sell
 // virtual GPUs (vGPU slices that need a GRID driver) say which of their types
 // they are. Such a type is dropped from the catalog (reason GPUVirtual).

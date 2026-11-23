@@ -102,6 +102,16 @@ func (f launchFacts) Launchable(_, apiReference, zoneID string) (bool, bool) {
 	return true, true
 }
 
+// noDefaultFacts says that one type cannot host the default settings.
+type noDefaultFacts struct {
+	catalog.StaticFacts
+	apiReference string
+}
+
+func (f noDefaultFacts) DefaultSupported(_ string, _ *catalog.Class, srv *model.Server) bool {
+	return srv.APIReference != f.apiReference
+}
+
 func TestBuildReasons(t *testing.T) {
 	priced := func(id, ref, zone string) (model.Server, model.Price) {
 		return model.Server{Vendor: "v", ID: id, APIReference: ref, VCPUs: 2, Arch: "amd64", MemoryMiB: 4096},
@@ -178,6 +188,10 @@ func TestBuildReasons(t *testing.T) {
 			want: map[string]catalog.Reason{
 				"v.small/z2/on-demand": {Code: catalog.IncompletePrice, Detail: "z2 on-demand"},
 			},
+		},
+		"StorageIncompatible: the default route cannot host the type, no profile helps": {
+			facts: noDefaultFacts{syntheticFacts(), "big"},
+			want:  map[string]catalog.Reason{"v.big": {Code: catalog.StorageIncompatible}},
 		},
 		"NotLaunchable and NoOffering": {
 			facts: launchFacts{syntheticFacts(), map[string]bool{"small/z2": true, "big/z1": true}},

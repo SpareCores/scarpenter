@@ -590,6 +590,7 @@ func catalogType(vendor string, srv *model.Server) vendors.CatalogType {
 		Vendor: vendor, APIReference: srv.APIReference, Family: srv.Family, Arch: srv.Arch,
 		VCPUs: srv.VCPUs, MemoryMiB: srv.MemoryMiB,
 		LocalStorageGB: srv.LocalStorageGB, LocalStorageCount: srv.LocalStorageCount,
+		CompatibleStorage: srv.CompatibleStorage,
 	}
 }
 
@@ -635,6 +636,9 @@ func (f *Facts) Supported(vendor string, class *catalog.Class, srv *model.Server
 			if _, defined := in.Profiles[kind][name]; !defined {
 				continue
 			}
+			if kind == vendors.ProfileStorage && !f.storageHostable(no, class, in, vendor, name, ct) {
+				continue
+			}
 			if !class.AllowIncompletePrice && !f.profileComplete(no, in, kind, name, ct, region, zone) {
 				continue
 			}
@@ -648,8 +652,7 @@ func (f *Facts) Supported(vendor string, class *catalog.Class, srv *model.Server
 	return out
 }
 
-func (f *Facts) profileComplete(no vendors.NodeOptions, in options.Input, kind, name string, ct vendors.CatalogType,
-	region, zone string) bool {
+func selectionOf(kind, name string) options.Selection {
 	sel := options.Selection{}
 	switch kind {
 	case vendors.ProfileStorage:
@@ -659,7 +662,52 @@ func (f *Facts) profileComplete(no vendors.NodeOptions, in options.Input, kind, 
 	default:
 		sel.Placement = name
 	}
-	s, err := options.Resolve(no, in, sel)
+	return sel
+}
+
+// storageHostable says whether the type can host the settings of a storage
+// profile (resolved once per class, vendor and profile, like the defaults).
+func (f *Facts) storageHostable(
+	no vendors.NodeOptions, class *catalog.Class, in options.Input, vendor, name string, ct vendors.CatalogType,
+) bool {
+	sc, ok := no.(vendors.SettingsChecker)
+	if !ok {
+		return true
+	}
+	key := class.Hash + "/" + vendor + "/" + vendors.ProfileStorage + "/" + name
+	var r resolved
+	if v, ok := f.defaults.Load(key); ok {
+		r = v.(resolved)
+	} else {
+		s, err := options.Resolve(no, in, selectionOf(vendors.ProfileStorage, name))
+		r = resolved{settings: s, ok: err == nil}
+		if f.defaultsN.Add(1) > maxCachedDefaults {
+			f.defaults.Clear()
+			f.defaultsN.Store(0)
+		}
+		f.defaults.Store(key, r)
+	}
+	return r.ok && sc.SupportsSettings(r.settings, ct)
+}
+
+// DefaultSupported implements catalog.DefaultRouteFacts: the type can host the
+// class's default settings.
+func (f *Facts) DefaultSupported(vendor string, class *catalog.Class, srv *model.Server) bool {
+	no := f.nodeOptions(vendor)
+	if no == nil {
+		return true
+	}
+	sc, ok := no.(vendors.SettingsChecker)
+	if !ok {
+		return true
+	}
+	s, ok := f.defaultsFor(vendor, class, no)
+	return !ok || sc.SupportsSettings(s, catalogType(vendor, srv))
+}
+
+func (f *Facts) profileComplete(no vendors.NodeOptions, in options.Input, kind, name string, ct vendors.CatalogType,
+	region, zone string) bool {
+	s, err := options.Resolve(no, in, selectionOf(kind, name))
 	if err != nil {
 		return false
 	}

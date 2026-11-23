@@ -240,13 +240,17 @@ func TestBuildInsertValidation(t *testing.T) {
 }
 
 func TestDefaultRootDiskType(t *testing.T) {
-	for mt, want := range map[string]string{
-		"e2-small": "pd-balanced", "n2-standard-2": "pd-balanced", "t2a-standard-1": "pd-balanced", "c3-standard-4": "pd-balanced",
-		"c4-standard-4": "hyperdisk-balanced", "n4-standard-2": "hyperdisk-balanced", "c4a-standard-4": "hyperdisk-balanced",
-		"n4a-standard-4": "hyperdisk-balanced", "a3-highgpu-8g": "hyperdisk-balanced",
+	for name, tc := range map[string]struct {
+		compatible []string
+		want       string
+	}{
+		"n2":      {[]string{"hyperdisk-balanced", "pd-balanced", "pd-ssd"}, "pd-balanced"},
+		"c4":      {[]string{"hyperdisk-balanced", "hyperdisk-throughput"}, "hyperdisk-balanced"},
+		"m4":      {[]string{"hyperdisk-balanced"}, "hyperdisk-balanced"},
+		"unknown": {nil, "pd-balanced"},
 	} {
-		if got := DefaultRootDiskType(mt); got != want {
-			t.Errorf("DefaultRootDiskType(%s) = %s, want %s", mt, got, want)
+		if got := DefaultRootDiskType(tc.compatible); got != tc.want {
+			t.Errorf("%s: DefaultRootDiskType = %s, want %s", name, got, tc.want)
 		}
 	}
 	if DataDevicePath("data0") != "/dev/disk/by-id/google-data0" {

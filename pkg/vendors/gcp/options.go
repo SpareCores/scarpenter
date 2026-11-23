@@ -68,11 +68,13 @@ func supportsStorage(block json.RawMessage, it vendors.CatalogType) bool {
 	if err != nil {
 		return false
 	}
-	if st.Root != nil && st.Root.DiskType != "" && !CanBootFrom(it.APIReference, string(st.Root.DiskType)) {
-		return false
+	if st.Root != nil && st.Root.DiskType != "" {
+		if !diskTable[st.Root.DiskType].bootable || !attachable(it, st.Root.DiskType) {
+			return false
+		}
 	}
 	for _, dd := range st.Data {
-		if !CanAttach(it.APIReference, string(dd.DiskType)) {
+		if !attachable(it, dd.DiskType) {
 			return false
 		}
 	}
@@ -80,6 +82,12 @@ func supportsStorage(block json.RawMessage, it vendors.CatalogType) bool {
 		return false
 	}
 	return true
+}
+
+// attachable says whether Keeper lists the disk type for the machine type; an
+// empty list (unknown) allows every type.
+func attachable(it vendors.CatalogType, t gcpapi.DiskType) bool {
+	return len(it.CompatibleStorage) == 0 || slices.Contains(it.CompatibleStorage, string(t))
 }
 
 func supportsNetwork(block json.RawMessage, it vendors.CatalogType) bool {
@@ -128,7 +136,7 @@ func (d *Driver) PriceDelta(s vendors.VendorSettings, o vendors.Offering) (float
 			complete = false
 		}
 	}
-	disk(rootDisk(st, o.APIReference))
+	disk(rootDisk(st, o.Type.CompatibleStorage))
 	for _, dd := range dataDisks(st) {
 		disk(dataDisk(dd))
 	}

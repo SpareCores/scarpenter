@@ -348,6 +348,18 @@ func TestSelectPicksProfilesFromTheClaim(t *testing.T) {
 			}
 		})
 	}
+	// A type that cannot host the default storage lists profiles only: a claim
+	// without the profile key gets none of them (ADR-017).
+	noDefault := reqs(
+		in(v1alpha1.LabelStorageProfile, "ssd"),
+		in(v1alpha1.LabelNetworkProfile, "default"),
+		in(v1alpha1.LabelPlacementProfile, "default"))
+	if sel, ok := options.Select(reqs(), noDefault, off); ok {
+		t.Errorf("a claim without the storage profile key selected %+v on a type without the default", sel)
+	}
+	if sel, ok := options.Select(reqs(in(v1alpha1.LabelStorageProfile, "ssd")), noDefault, off); !ok || sel.Storage != "ssd" {
+		t.Errorf("the claim asking for ssd: %+v, %v", sel, ok)
+	}
 	// The offering narrows what the type allows (a zone that cannot host the profile).
 	offNarrow := reqs(in(v1alpha1.LabelStorageProfile, "default"))
 	if _, ok := options.Select(reqs(in(v1alpha1.LabelStorageProfile, "db")), typ, offNarrow); ok {

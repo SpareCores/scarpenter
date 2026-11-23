@@ -65,9 +65,9 @@ func (d *Driver) RootDiskForType(vendors.VendorSettings, vendors.CatalogType) (i
 //
 // The facts come from the SKU table, read at runtime; until they are known a
 // profile that depends on them is not offered, and the epoch of the node options
-// changes when they arrive. The default profile is always valid: a size without
-// premium storage fails the default root disk at launch (Unsupported) and the
-// NodeClass sets StandardSSD_LRS to include it.
+// changes when they arrive. The default profile is not decided here: the
+// catalog asks SupportsSettings for the default route and for every storage
+// profile, with Keeper's compatible storage of the size.
 func (d *Driver) Supported(it vendors.CatalogType, _ string, p vendors.Profiles) map[string][]string {
 	out := map[string][]string{}
 	sku, known := d.skuFacts(it.APIReference)
@@ -112,6 +112,33 @@ func supportsStorage(block json.RawMessage, sku SKU, known bool) bool {
 		return false
 	}
 	return sku.MaxDataDisks == 0 || len(st.Data) <= sku.MaxDataDisks
+}
+
+// attachable says whether Keeper lists every given disk type for the size; an
+// empty list (unknown) allows all.
+func attachable(types, compatible []string) bool {
+	notListed := func(t string) bool { return !slices.Contains(compatible, t) }
+	return len(compatible) == 0 || !slices.ContainsFunc(types, notListed)
+}
+
+// SupportsSettings implements vendors.SettingsChecker: Keeper lists the disk
+// types of the resolved settings for the size, the root disk's type (the
+// default Premium_LRS unless the NodeClass pins another; an ephemeral root has
+// none) and the data disks'. Sizes without premium storage are not offered
+// with a Premium root: SCarpenter never downgrades it (ADR-017).
+func (d *Driver) SupportsSettings(s vendors.VendorSettings, it vendors.CatalogType) bool {
+	st, err := DecodeSettings(s)
+	if err != nil {
+		return true // the launch reports the broken settings
+	}
+	var types []string
+	if root := st.Root(); root.Ephemeral == nil {
+		types = append(types, root.StorageAccountType)
+	}
+	for _, dd := range st.DataDisks() {
+		types = append(types, dd.StorageAccountType)
+	}
+	return attachable(types, it.CompatibleStorage)
 }
 
 // storageTypes lists the disk SKUs a storage block names (the root's, then the

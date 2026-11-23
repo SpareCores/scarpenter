@@ -78,7 +78,7 @@ Consequences:
   property of the instance type. sc-runner's Vultr workaround swaps to a
   bigger sibling plan. That would change the instance type, which a benchmark
   must never do.
-- **Hyperdisk-only GCP series** and per-zone Alibaba disk categories make the
+- **Hyperdisk-only GCP types** (Keeper's `compatible_storage_ids` lists no persistent disk) and per-zone Alibaba disk categories make the
   allowed disk type a property of the (instance type, zone), not of the
   NodeClass alone.
 
@@ -153,7 +153,7 @@ per account; GCP uses numeric IDs and zone names; Azure uses `1`, `2`, `3`
 
 | Topic | Present | Missing |
 |---|---|---|
-| Storage | one row per volume type (type, max IOPS, max throughput, min/max size); GB-month price per region; per-server local disks for aws, gcp, azure, ovh | tunable-IOPS/throughput ranges and their prices; bootable flag; scope; delete default; `compatible_storage_ids` (declared, never filled); local disks for hcloud, vultr, upcloud, alicloud; alicloud `cloud_auto` price; gcp `pd-extreme`; max volumes per instance |
+| Storage | one row per volume type (type, max IOPS, max throughput, min/max size); GB-month price per region; per-server local disks for aws, gcp, azure, ovh | tunable-IOPS/throughput ranges and their prices; bootable flag; scope; delete default; correct `compatible_storage_ids` for alicloud and upcloud (used for gcp and azure only); local disks for hcloud, vultr, upcloud, alicloud; alicloud `cloud_auto` price; gcp `pd-extreme`; max volumes per instance |
 | Network | per-server baseline/max speed (aws, alicloud, ovh, vultr), free traffic, IPv4 count; IPv4 and traffic prices per region | speed for gcp, azure, hcloud, upcloud; NIC feature flags (ENA Express, EFA, gVNIC/Tier_1, accelerated networking, eRDMA); IPv6 and paid-bandwidth prices |
 | Placement | — | which instance families support which strategy |
 | Tenancy | shared prices | dedicated instance and host prices |

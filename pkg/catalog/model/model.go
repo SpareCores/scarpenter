@@ -79,6 +79,10 @@ type Server struct {
 	// the number of disks when the source lists them (0: unknown or none).
 	LocalStorageGB    float64
 	LocalStorageCount int
+
+	// CompatibleStorage are the names of the vendor's storage types the server
+	// can attach (Keeper's compatible_storage_ids); empty: unknown.
+	CompatibleStorage []string
 }
 
 // Key identifies a server across the catalog.

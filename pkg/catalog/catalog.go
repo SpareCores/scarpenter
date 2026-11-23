@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SpareCores/scarpenter/pkg/catalog/model"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/clock"
@@ -527,6 +528,9 @@ func (c *Catalog) Version() string {
 type Ref struct {
 	Vendor       string
 	APIReference string
+	// CompatibleStorage are the storage types the server can attach (empty:
+	// unknown).
+	CompatibleStorage []string
 }
 
 // Lookup resolves an instance type name of the current snapshot to its vendor
@@ -549,14 +553,18 @@ func (c *Catalog) Lookup(instanceType string) (Ref, bool) {
 		return Ref{}, false
 	}
 	if srv, ok := vd.byAPIRef[rest]; ok && InstanceTypeName(vendor, srv.APIReference) == instanceType {
-		return Ref{Vendor: vendor, APIReference: srv.APIReference}, true
+		return refOf(vendor, srv), true
 	}
 	for _, srv := range vd.servers {
 		if InstanceTypeName(vendor, srv.APIReference) == instanceType {
-			return Ref{Vendor: vendor, APIReference: srv.APIReference}, true
+			return refOf(vendor, srv), true
 		}
 	}
 	return Ref{}, false
+}
+
+func refOf(vendor string, srv *model.Server) Ref {
+	return Ref{Vendor: vendor, APIReference: srv.APIReference, CompatibleStorage: srv.CompatibleStorage}
 }
 
 // Type returns one instance type of the class by catalog name, without the

@@ -223,6 +223,8 @@ type CreateRequest struct {
 	CapacityType string
 	Arch         string
 	Image        Image
+	// Type is the instance type's catalog facts.
+	Type CatalogType
 	// UserData is the rendered user-data, not encoded.
 	UserData []byte
 	// Settings are the resolved vendor settings (defaults, vendor block,
@@ -442,6 +444,9 @@ type CatalogType struct {
 	// (0: none or unknown).
 	LocalStorageGB    float64
 	LocalStorageCount int
+	// CompatibleStorage are the names of the vendor's storage types the type
+	// can attach (Keeper); empty: unknown, which no check acts on.
+	CompatibleStorage []string
 }
 
 // Profiles are the profiles a NodeClass defines for the vendor: kind
@@ -589,6 +594,15 @@ type NodeOptions interface {
 	PriceDelta(s VendorSettings, o Offering) (usdPerHour float64, complete bool)
 	// Prepare makes pre-instance resources ready.
 	Prepare(ctx context.Context, req PrepareRequest) (*Prepared, error)
+}
+
+// SettingsChecker is an optional extension of NodeOptions: whether the type can
+// host the resolved settings, by what the driver knows of the type (Azure: its
+// compatible disk types, for the root disk the defaults and the NodeClass's
+// block leave as they are). The catalog asks it for the default route and for
+// every profile, which the settings it resolves to must pass.
+type SettingsChecker interface {
+	SupportsSettings(s VendorSettings, it CatalogType) bool
 }
 
 // NetworkAwareOptions is the optional capability of a driver whose supported
