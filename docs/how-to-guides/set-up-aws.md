@@ -195,4 +195,5 @@ More in the [AWS driver reference](../reference/aws-driver.md#deferred).
 | `UnauthorizedOperation` on `CreateVpc` or `CreateSubnet` | Add the `OptionalManagedNetwork*` statements, or bring subnets with `use`. |
 | `AuthFailure.ServiceLinkedRoleCreationNotPermitted` | Create the Spot service-linked role ([What you need](#what-you-need)). |
 | `VcpuLimitExceeded`, `QuotaAvailable=False` | Ask for a quota increase for the class and region. |
+| `RegionsUnavailable=True` on the vendor | The message names regions without offerings: an opt-in region that is not enabled in the account, or one whose zones cannot be read (policy). The other regions work; enable the region or remove it from `regions`. `VendorReady=False`, `NoUsableRegions` means none works; `UnknownRegions` is a name AWS and Keeper do not have. |
 | `ImagesReady=False`, `ImageNotFound` | The Flatcar release is not published in that region: pick another region or release. |

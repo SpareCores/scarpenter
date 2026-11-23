@@ -178,6 +178,7 @@ GitHub or `nvcr.io` cannot be reached, mirror those three:
 | `ImagesReady=False`: `ImageNotFound`, `ImageAmbiguous` | No (or more than one) `Available` image named `Flatcar-<channel>-<version>-<arch>` of yours in the region: import or copy it (step 1), or name it by ID in `resources.images.use`. |
 | `ImageVersionMismatch`, `ImageVersionUnknown` | The image's name or tags do not say the pinned release, or disagree: fix the tags. |
 | `Forbidden.RAM` | The policy is missing, or its `my-cluster` is not your `cluster.name`. |
+| `RegionsUnavailable=True` on the vendor | The message names regions the account cannot read or use (for example a `cn-*` region); they have no offerings, the others work. Verify the account or remove them from `regions`. `VendorReady=False`, `NoUsableRegions` means none works. |
 | `RegionUnauthorized` or `RealNameAuthenticationError` | The account cannot use the region: verify the account or remove the region from `regions`. |
 | `QuotaAvailable=False`, `QuotaExceed.*` | The vCPU limit of the region is used up: raise it in Quota Center. |
 | The instance runs but the node never joins | Its console: an image without the OEM id `aliyun` or with `ImdsSupport` other than `v1` never gets its user data; else the API endpoint is not reachable. |

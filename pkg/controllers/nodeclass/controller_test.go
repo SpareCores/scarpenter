@@ -163,8 +163,35 @@ func (r *recorder) reasons() []string {
 	return out
 }
 
+// regionFacts is the driver facts of the regions: what the driver lists and
+// which of those have no zones.
+type regionFacts struct {
+	mu          sync.Mutex
+	known       []string
+	unavailable []string
+}
+
+func (r *regionFacts) set(known, unavailable []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.known, r.unavailable = known, unavailable
+}
+
+func (r *regionFacts) Regions(string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.known
+}
+
+func (r *regionFacts) UnavailableRegions(string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.unavailable
+}
+
 type env struct {
 	t       *testing.T
+	regions *regionFacts
 	c       client.Client
 	ctrl    *nodeclass.Controller
 	drv     *driver
@@ -220,7 +247,7 @@ func newEnv(t *testing.T) *env {
 	srv := httptest.NewServer(http.FileServer(http.Dir("../../artifacts/testdata")))
 	t.Cleanup(srv.Close)
 
-	e := &env{t: t, c: c, name: strings.ToLower(strings.NewReplacer("/", "-", "_", "-").Replace(t.Name())), drv: &driver{}, refs: &refs{}, rec: &recorder{}, server: srv.URL, version: "v1.37.1"}
+	e := &env{t: t, c: c, name: strings.ToLower(strings.NewReplacer("/", "-", "_", "-").Replace(t.Name())), drv: &driver{}, regions: &regionFacts{}, refs: &refs{}, rec: &recorder{}, server: srv.URL, version: "v1.37.1"}
 	e.cat = catalog.New(catalog.Options{Source: catalogtest.Source(t), Facts: catalogtest.Facts(t, "aws")})
 	reg := vendors.NewRegistryFrom(e.drv)
 	resolver := artifacts.New(artifacts.Config{SysextBase: srv.URL})
@@ -229,6 +256,7 @@ func newEnv(t *testing.T) *env {
 		Client: c, Catalog: e.cat, Registry: reg, Artifacts: resolver, Renderer: renderer, Refs: e.refs,
 		ServerVersion: func(context.Context) (string, error) { return e.version, nil },
 		Recorder:      e.rec,
+		Regions:       e.regions,
 	})
 	return e
 }
@@ -1123,4 +1151,88 @@ func TestADriverReasonIsPromotedOnlyFromABlockingImage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// One region the credentials cannot use does not stop the vendor: it is named in
+// RegionsUnavailable; the condition clears when the region recovers.
+func TestOneUnusableRegionKeepsTheVendorReady(t *testing.T) {
+	e := newEnv(t)
+	e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) {
+		nc.Spec.Vendors.AWS.Regions = []string{"us-east-1", "eu-west-1"}
+	}))
+	// eu-west-1 is a Keeper region the driver does not list (an opt-in region
+	// that is not enabled).
+	e.regions.set([]string{"us-east-1"}, nil)
+	nc := e.reconcile(e.name)
+	wantCond(t, nc, status.ConditionReady, metav1.ConditionTrue, "")
+	if c := vcond(nc, "aws", v1alpha1.VendorConditionReady); c == nil || c.Status != metav1.ConditionTrue {
+		t.Fatalf("aws VendorReady = %+v, want True", c)
+	}
+	c := vcond(nc, "aws", v1alpha1.VendorConditionRegionsUnavailable)
+	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != nodeclass.ReasonRegionsUnavailable ||
+		!strings.Contains(c.Message, "eu-west-1") || strings.Contains(c.Message, "us-east-1") {
+		t.Fatalf("RegionsUnavailable = %+v, want True naming only eu-west-1", c)
+	}
+	if !contains(e.rec.reasons(), nodeclass.EventRegionsUnavailable) {
+		t.Errorf("events = %v, want %s", e.rec.reasons(), nodeclass.EventRegionsUnavailable)
+	}
+
+	// The same set again: no second Event.
+	e.reconcile(e.name)
+	if n := count(e.rec.reasons(), nodeclass.EventRegionsUnavailable); n != 1 {
+		t.Errorf("%d RegionsUnavailable events over two reconciles, want 1", n)
+	}
+
+	// A region that failed to read its zones counts the same.
+	e.regions.set([]string{"us-east-1", "eu-west-1"}, []string{"eu-west-1"})
+	nc = e.reconcile(e.name)
+	if c := vcond(nc, "aws", v1alpha1.VendorConditionRegionsUnavailable); c == nil || !strings.Contains(c.Message, "eu-west-1") {
+		t.Errorf("RegionsUnavailable = %+v, want eu-west-1", c)
+	}
+	wantCond(t, nc, status.ConditionReady, metav1.ConditionTrue, "")
+
+	// It recovers.
+	e.regions.set([]string{"us-east-1", "eu-west-1"}, nil)
+	nc = e.reconcile(e.name)
+	if c := vcond(nc, "aws", v1alpha1.VendorConditionRegionsUnavailable); c != nil {
+		t.Errorf("RegionsUnavailable = %+v after the recovery, want none", c)
+	}
+}
+
+func TestNoUsableRegionMakesTheVendorNotReady(t *testing.T) {
+	e := newEnv(t)
+	e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) {
+		nc.Spec.Vendors.AWS.Regions = []string{"us-east-1", "eu-west-1"}
+	}))
+	e.regions.set([]string{"us-east-1", "eu-west-1"}, []string{"us-east-1", "eu-west-1"})
+	nc := e.reconcile(e.name)
+	c := vcond(nc, "aws", v1alpha1.VendorConditionReady)
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != nodeclass.ReasonNoUsableRegions ||
+		!strings.Contains(c.Message, "us-east-1") || !strings.Contains(c.Message, "eu-west-1") {
+		t.Errorf("aws VendorReady = %+v, want False NoUsableRegions naming both", c)
+	}
+}
+
+func TestARegionNoOneKnowsIsInvalid(t *testing.T) {
+	e := newEnv(t)
+	e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) {
+		nc.Spec.Vendors.AWS.Regions = []string{"us-east-1", "mars-north-1"}
+	}))
+	e.regions.set([]string{"us-east-1"}, nil)
+	nc := e.reconcile(e.name)
+	c := vcond(nc, "aws", v1alpha1.VendorConditionReady)
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != nodeclass.ReasonUnknownRegions ||
+		!strings.Contains(c.Message, "mars-north-1") {
+		t.Errorf("aws VendorReady = %+v, want False UnknownRegions naming mars-north-1", c)
+	}
+}
+
+func count(list []string, want string) int {
+	n := 0
+	for _, s := range list {
+		if s == want {
+			n++
+		}
+	}
+	return n
 }

@@ -67,9 +67,12 @@ const (
 	ReasonVendorNotEnabled         = "VendorNotEnabled"
 	ReasonVendorInvalid            = "ValidationFailed"
 	ReasonUnknownRegions           = "UnknownRegions"
-	ReasonImagesNotReady           = "ImagesNotReady"
-	ReasonImagesFailed             = "ImageResolutionFailed"
-	ReasonImagesNotReported        = "NotReported"
+	ReasonNoUsableRegions          = "NoUsableRegions"
+	// ReasonRegionsUnavailable is the reason of RegionsUnavailable=True.
+	ReasonRegionsUnavailable = "RegionsUnavailable"
+	ReasonImagesNotReady     = "ImagesNotReady"
+	ReasonImagesFailed       = "ImageResolutionFailed"
+	ReasonImagesNotReported  = "NotReported"
 	// ReasonImagesPartial: some regions the NodeClass does not name have no image;
 	// their offerings are unavailable, the condition stays True.
 	ReasonImagesPartial        = "ImagesPartial"
@@ -88,6 +91,7 @@ const (
 	EventIPv6OnlyEgress       = "IPv6OnlyEgress"
 	EventRestartRequired      = "RestartRequired"
 	EventConfigurationWarning = "ConfigurationWarning"
+	EventRegionsUnavailable   = "RegionsUnavailable"
 	// EventDeprecatedHardening: the NodeClass still sets spec.bootstrap.hardening.
 	EventDeprecatedHardening = "DeprecatedHardening"
 	EventMetricInvalid       = "MetricInvalid"
@@ -140,7 +144,11 @@ type Options struct {
 	Refs     bootstrap.References
 	// Regions says which regions a driver can use (the facts); nil skips the
 	// check of the NodeClass's regions.
-	Regions interface{ Regions(vendor string) []string }
+	// UnavailableRegions are those of them the credentials cannot use.
+	Regions interface {
+		Regions(vendor string) []string
+		UnavailableRegions(vendor string) []string
+	}
 	// ImageGate, if set, is told the regions without a boot image, whose offerings
 	// are then unavailable (overview section 9).
 	// SysextMirror says --sysext-base-url points at a mirror: the default source
@@ -522,6 +530,9 @@ func (c *Controller) vendor(
 
 	c.warnDeprecatedHardening(desired, vendor)
 	if ready {
+		if cond, ok := c.regionsUnavailable(ctx, desired, vendor, existing, now); ok {
+			vs.Conditions = append(vs.Conditions, cond)
+		}
 		if msg := c.configurationWarnings(desired, vendor); msg != "" {
 			w := vendorCondition(existing, v1alpha1.VendorConditionConfigurationWarning,
 				true, ReasonSettingHasNoEffect, msg, current.Generation, now)
@@ -567,21 +578,14 @@ func (c *Controller) vendorReady(
 		return false, ReasonVendorNotEnabled, fmt.Sprintf("no driver serves the vendor %q (enabled: %s)",
 			vendor, strings.Join(c.opts.Registry.Vendors(), ", "))
 	}
-	if c.opts.Regions != nil {
-		if want, _ := nc.Spec.Vendors.Regions(vendor); len(want) > 0 {
-			if known := c.opts.Regions.Regions(vendor); len(known) > 0 {
-				var unknown []string
-				for _, r := range want {
-					if !slices.Contains(known, r) {
-						unknown = append(unknown, r)
-					}
-				}
-				if len(unknown) > 0 {
-					return false, ReasonUnknownRegions, trim(fmt.Sprintf("the driver cannot use the regions %s",
-						strings.Join(unknown, ", ")))
-				}
-			}
-		}
+	want, unknown, unavailable := c.checkRegions(nc, vendor)
+	if len(unknown) > 0 {
+		return false, ReasonUnknownRegions, trim(fmt.Sprintf(
+			"the vendor has no regions %s (neither the driver nor Keeper knows them)", strings.Join(unknown, ", ")))
+	}
+	if len(want) > 0 && len(unavailable) == len(want) {
+		return false, ReasonNoUsableRegions, trim(fmt.Sprintf("none of the regions can be used: %s",
+			strings.Join(unavailable, ", ")))
 	}
 	if v, ok := drv.(vendors.NodeClassValidator); ok {
 		if err := v.ValidateNodeClass(ctx, nc); err != nil {
@@ -608,6 +612,65 @@ func (c *Controller) vendorReady(
 		return false, ReasonVendorInvalid, trim(err.Error())
 	}
 	return true, ReasonReady, ""
+}
+
+// checkRegions sorts the regions the NodeClass names for the vendor. unknown
+// ones exist for neither the driver nor Keeper (a typo): the NodeClass is
+// invalid. unavailable ones exist, but the credentials cannot use them (an
+// opt-in region not enabled, a location not in the subscription) or their zones
+// could not be read yet: they have no offerings, the others are unaffected.
+// Nothing is reported until the driver's regions are loaded.
+func (c *Controller) checkRegions(nc *v1alpha1.SCNodeClass, vendor string) (want, unknown, unavailable []string) {
+	if c.opts.Regions == nil {
+		return nil, nil, nil
+	}
+	want, _ = nc.Spec.Vendors.Regions(vendor)
+	known := c.opts.Regions.Regions(vendor)
+	if len(known) == 0 {
+		return want, nil, nil
+	}
+	noZones := c.opts.Regions.UnavailableRegions(vendor)
+	for _, r := range want {
+		switch {
+		case slices.Contains(noZones, r):
+			unavailable = append(unavailable, r)
+		case slices.Contains(known, r):
+		default:
+			// The driver does not list it: a name Keeper knows is a region the
+			// account cannot use; one it does not know (with Keeper's regions
+			// loaded) is a typo.
+			if keeperKnows, loaded := c.opts.Catalog.KnowsRegion(vendor, r); keeperKnows || !loaded {
+				unavailable = append(unavailable, r)
+			} else {
+				unknown = append(unknown, r)
+			}
+		}
+	}
+	return want, unknown, unavailable
+}
+
+// regionsUnavailable sets the vendor condition RegionsUnavailable (abnormal-true,
+// informational) while some regions of a ready vendor cannot be used, and says so
+// in the log and in one Event per change of the set.
+func (c *Controller) regionsUnavailable(
+	ctx context.Context, nc *v1alpha1.SCNodeClass, vendor string, existing []status.Condition, now metav1.Time,
+) (status.Condition, bool) {
+	_, _, unavailable := c.checkRegions(nc, vendor)
+	if len(unavailable) == 0 {
+		return status.Condition{}, false
+	}
+	msg := trim("no offerings in these regions, the credentials cannot use them or their zones could not be read: " +
+		strings.Join(unavailable, ", "))
+	cond := vendorCondition(existing, v1alpha1.VendorConditionRegionsUnavailable,
+		true, ReasonRegionsUnavailable, msg, nc.Generation, now)
+	if !slices.ContainsFunc(existing, func(prev status.Condition) bool {
+		return prev.Type == cond.Type && prev.Status == cond.Status && prev.Message == cond.Message
+	}) {
+		log.FromContext(ctx).Info("regions of the NodeClass cannot be used, the vendor keeps its other regions",
+			"nodeclass", nc.Name, "vendor", vendor, "regions", unavailable)
+		c.warn(nc, EventRegionsUnavailable, fmt.Sprintf("vendor %s: %s", vendor, msg), vendor)
+	}
+	return cond, true
 }
 
 // checkBootstrapReachable refuses a NodeClass whose nodes have no IPv4 (publicIPv4
@@ -790,7 +853,8 @@ func projection(s *v1alpha1.SCNodeClassStatus) project {
 		mine := v1alpha1.VendorStatus{Hash: vs.Hash, Images: vs.Images}
 		for _, cond := range vs.Conditions {
 			if cond.Type == v1alpha1.VendorConditionReady || cond.Type == v1alpha1.VendorConditionImagesReady ||
-				cond.Type == v1alpha1.VendorConditionConfigurationWarning {
+				cond.Type == v1alpha1.VendorConditionConfigurationWarning ||
+				cond.Type == v1alpha1.VendorConditionRegionsUnavailable {
 				mine.Conditions = append(mine.Conditions, cond)
 			}
 		}

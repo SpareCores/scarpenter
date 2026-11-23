@@ -506,6 +506,26 @@ func (f *Facts) SkippedRegions(vendor string) map[string]string {
 	return nil
 }
 
+// UnavailableRegions returns the sorted regions of the vendor that have no
+// zones for lack of a read: the skipped ones (the credentials cannot read
+// them) and the failed ones without last-known zones (retried with backoff).
+func (f *Facts) UnavailableRegions(vendor string) []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	vf := f.data[vendor]
+	if vf == nil {
+		return nil
+	}
+	out := slices.Collect(maps.Keys(vf.skipped))
+	for r, fl := range vf.failed {
+		if !fl.stale {
+			out = append(out, r)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Zones implements catalog.Facts.
 func (f *Facts) Zones(vendor string) (map[string][]catalog.Zone, bool) {
 	f.mu.RLock()

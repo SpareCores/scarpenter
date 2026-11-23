@@ -692,6 +692,24 @@ func (c *Catalog) Loaded(class string) bool {
 	return c.snap != nil && c.classes[class] != nil
 }
 
+// KnowsRegion says whether Keeper's data has a region of the vendor with this
+// name, alias or ID, active or not. loaded is false while the catalog has no
+// regions of the vendor, then known says nothing.
+func (c *Catalog) KnowsRegion(vendor, name string) (known, loaded bool) {
+	c.mu.RLock()
+	snap := c.snap
+	c.mu.RUnlock()
+	if snap == nil || snap.vendors[vendor] == nil || len(snap.vendors[vendor].regions) == 0 {
+		return false, false
+	}
+	for _, r := range snap.vendors[vendor].regions {
+		if matchesRegion(r, name) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
 // FactsLoaded reports whether the driver facts of the vendor are loaded (true
 // for facts that do not say). Until then the vendor has no zones and nothing of
 // it is really offered, so what it offers must not be reported as a state.
