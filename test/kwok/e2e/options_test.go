@@ -116,7 +116,7 @@ func parsePrice(t *testing.T, c karpv1.NodeClaim) float64 {
 func TestS12ExactPlacement(t *testing.T) {
 	createNodeClass(t, "s12", us1)
 	taint := corev1.Taint{Key: labelDedicated, Value: "bench", Effect: corev1.TaintEffectNoSchedule}
-	pool := createNodePoolWith(t, "s12", "s12", []corev1.Taint{taint}, in(labelRegion, us1), in(labelCapacity, "on-demand"))
+	pool := createNodePoolWith(t, "s12", "s12", []corev1.Taint{taint}, nil, in(labelRegion, us1), in(labelCapacity, "on-demand"))
 	// KWOK completes the pods of a Job at once; the nodes stay for the assertions.
 	eventually(t, time.Minute, time.Second, "the NodePool keeps empty nodes", func() (bool, string) {
 		got := &karpv1.NodePool{}

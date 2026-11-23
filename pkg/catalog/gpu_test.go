@@ -104,10 +104,10 @@ func TestSupportedGPUTypesHaveCapacityAndDriverLabels(t *testing.T) {
 	}
 }
 
-// TestWithoutNodeBootstrapGPUTypesArePlainMachines is the release guard of
-// plan 12: until nodes boot the driver, a supported type is offered with no
-// nvidia.com/gpu (a Pod requesting GPUs gets no node that never initializes)
-// and no driver labels, while unsupported types are still dropped.
+// TestWithoutNodeBootstrapGPUTypesArePlainMachines covers the catalog option
+// NVIDIAGPUs off (nvidia.NodeBootstrap is on): a supported type is offered with
+// no nvidia.com/gpu and no driver labels, while unsupported types are still
+// dropped.
 func TestWithoutNodeBootstrapGPUTypesArePlainMachines(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	_, its := gpuCatalogWith(t, false, "4757.2.3", catalogtestFacts(t), reg, "aws")

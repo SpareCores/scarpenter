@@ -962,8 +962,7 @@ scn_scalezero() {
 # gpu (plan 12 step f, MANUAL ONLY): one GPU type from the Pod to the end of a CUDA run on its node.
 # The shared checks are test/lib.sh gpu_check_node (labels against the table, capacity, the log of
 # nvidia-smi and vectorAdd); this adds the instance's maintenance policy and the time to Ready.
-# Needs nvidia.NodeBootstrap on (the release that ships the GPU driver) and the chart's device
-# plugin and RuntimeClass.
+# Needs the chart's device plugin and RuntimeClass.
 scn_gpu() {
   local count node claim iid
   count="$(gpu_count)"

@@ -272,10 +272,9 @@ is part of the NodeClass controller's trial rendering for amd64, and a unit test
 GPU node (everything else on) to 15 KiB, which leaves a user's Butane at least 1 KiB.
 
 The chart ships the device plugin and, on request (`nvidia.runtimeClass.create`), the RuntimeClass `nvidia`, whose handler is the runtime this part
-registers ([run GPU workloads](../how-to-guides/run-gpu-workloads.md)). Until the vendors' virtual-GPU
-checks exist, GPU types are offered as plain machines and the catalog
-advertises neither `nvidia.com/gpu` nor the driver labels (`nvidia.NodeBootstrap`), so no launch
-renders the part yet.
+registers ([run GPU workloads](../how-to-guides/run-gpu-workloads.md)). The part is rendered for every launch of a
+supported NVIDIA type: the catalog advertises `nvidia.com/gpu` and the driver labels (`nvidia.NodeBootstrap`,
+a constant of `pkg/nvidia`), and the cloud provider rebuilds the selection from them.
 
 ## Template variables
 

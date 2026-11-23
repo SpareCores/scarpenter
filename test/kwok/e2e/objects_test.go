@@ -110,20 +110,21 @@ func in(key string, values ...string) karpv1.NodeSelectorRequirementWithMinValue
 // (and so its instances) to be gone.
 func createNodePool(t *testing.T, name, class string, reqs ...karpv1.NodeSelectorRequirementWithMinValues) *karpv1.NodePool {
 	t.Helper()
-	return createNodePoolWith(t, name, class, nil, reqs...)
+	return createNodePoolWith(t, name, class, nil, nil, reqs...)
 }
 
-// createNodePoolWith is createNodePool with taints on the nodes of the pool.
-func createNodePoolWith(t *testing.T, name, class string, taints []corev1.Taint, reqs ...karpv1.NodeSelectorRequirementWithMinValues) *karpv1.NodePool {
+// createNodePoolWith is createNodePool with taints and startup taints on the nodes of the pool.
+func createNodePoolWith(t *testing.T, name, class string, taints, startupTaints []corev1.Taint, reqs ...karpv1.NodeSelectorRequirementWithMinValues) *karpv1.NodePool {
 	t.Helper()
 	all := append([]karpv1.NodeSelectorRequirementWithMinValues{in(v1alpha1.LabelVendor, vendor)}, reqs...)
 	np := &karpv1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: karpv1.NodePoolSpec{
 			Template: karpv1.NodeClaimTemplate{Spec: karpv1.NodeClaimTemplateSpec{
-				NodeClassRef: &karpv1.NodeClassReference{Group: v1alpha1.Group, Kind: "SCNodeClass", Name: class},
-				Requirements: all,
-				Taints:       taints,
+				NodeClassRef:  &karpv1.NodeClassReference{Group: v1alpha1.Group, Kind: "SCNodeClass", Name: class},
+				Requirements:  all,
+				Taints:        taints,
+				StartupTaints: startupTaints,
 			}},
 			Disruption: karpv1.Disruption{
 				ConsolidationPolicy: karpv1.ConsolidationPolicyWhenEmpty,

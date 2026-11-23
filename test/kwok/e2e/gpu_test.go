@@ -22,15 +22,52 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
-	"github.com/SpareCores/scarpenter/pkg/nvidia"
 )
 
 const gpuResource = catalog.ResourceNVIDIAGPU
 
-// gpuPod is a pod that asks for gpus GPUs and little else.
-func gpuPod(t *testing.T, name string, gpus int64) {
+// gpuNodePool is a NodePool that lists the gpu-pending startup taint, which the
+// catalog requires before it offers NVIDIA types (ADR-031).
+func gpuNodePool(t *testing.T, name, class string, reqs ...karpv1.NodeSelectorRequirementWithMinValues) {
 	t.Helper()
-	spec := podSpec(nil, "100m")
+	pending := corev1.Taint{Key: v1alpha1.TaintGPUPending, Effect: corev1.TaintEffectNoSchedule}
+	createNodePoolWith(t, name, class, nil, []corev1.Taint{pending}, reqs...)
+}
+
+// markGPUReady plays the node's GPU check, which no KWOK node runs: it labels every Node
+// of the pool gpu-ready=true, so that the GPU pending controller lifts the startup taint.
+// It stops with the test.
+func markGPUReady(t *testing.T, pool string) {
+	t.Helper()
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+	go func() {
+		for {
+			var nodes corev1.NodeList
+			if err := k8s.List(ctx(), &nodes, client.MatchingLabels{labelNodePool: pool}); err == nil {
+				for i := range nodes.Items {
+					n := &nodes.Items[i]
+					if n.Labels[v1alpha1.LabelGPUReady] == "true" {
+						continue
+					}
+					patch := client.MergeFrom(n.DeepCopy())
+					n.Labels[v1alpha1.LabelGPUReady] = "true"
+					_ = k8s.Patch(ctx(), n, patch)
+				}
+			}
+			select {
+			case <-done:
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+	}()
+}
+
+// gpuPod is a pod that asks for gpus GPUs and little else, on nodes with the labels.
+func gpuPod(t *testing.T, name string, gpus int64, selector map[string]string) {
+	t.Helper()
+	spec := podSpec(selector, "100m")
 	spec.Containers[0].Resources.Requests[gpuResource] = *resource.NewQuantity(gpus, resource.DecimalSI)
 	spec.Containers[0].Resources.Limits = corev1.ResourceList{gpuResource: *resource.NewQuantity(gpus, resource.DecimalSI)}
 	p := &corev1.Pod{
@@ -45,13 +82,10 @@ func gpuPod(t *testing.T, name string, gpus int64) {
 
 // S21: GPU types. A type the vendor says has a virtual GPU is left out of the
 // catalog and counted with the other drop reasons, and the next-cheapest
-// four-GPU type is used. Once nodes boot the driver (nvidia.NodeBootstrap), a
-// Pod that requests nvidia.com/gpu: 4 gets that type, the type carries the
-// driver labels of the pinned release and the NodeClaim initializes (the
-// node's allocatable has the GPUs, as the device plugin would make them
-// appear). Until then the type is a plain machine: a Pod that requests GPUs
-// gets no NodeClaim, and one that selects four GPUs by label gets the type
-// with neither the resource nor the driver labels.
+// four-GPU type is used. A Pod that requests nvidia.com/gpu: 4 gets that type,
+// the type carries the driver labels of the pinned release and the NodeClaim
+// initializes once the startup taint is lifted (the node's allocatable has the
+// GPUs, as the device plugin would make them appear).
 func TestS21GPUType(t *testing.T) {
 	fourGPUs := byPrice(filterOfferings(reference(t, us1), func(o offering) bool {
 		return isOnDemand(o) && o.GPUs == 4
@@ -75,34 +109,16 @@ func TestS21GPUType(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	createNodeClass(t, "s21", us1)
-	createNodePool(t, "s21", "s21", in(labelRegion, us1), in(labelCapacity, "on-demand"))
+	gpuNodePool(t, "s21", "s21", in(labelRegion, us1), in(labelCapacity, "on-demand"))
+	markGPUReady(t, "s21")
 	wantLabels := map[string]string{
 		v1alpha1.LabelAcceleratorCount:    "4",
 		v1alpha1.LabelNVIDIADriverBranch:  "570",
 		v1alpha1.LabelNVIDIADriverVersion: "570.211.01",
 		v1alpha1.LabelNVIDIADriverFlavor:  "open",
 	}
-	var wantGPUs int64 = 4
-	if nvidia.NodeBootstrap {
-		gpuPod(t, "s21", 4)
-	} else {
-		gpuPod(t, "s21-gpu", 4)
-		consistently(t, 20*time.Second, 2*time.Second, "no NodeClaim for a Pod that requests GPUs", func() (bool, string) {
-			cs, err := listClaims("s21")
-			return err == nil && len(cs) > 0, fmt.Sprintf("%d NodeClaims", len(cs))
-		})
-		p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "s21-gpu", Namespace: "default"}}
-		if err := k8s.Delete(ctx(), p, client.GracePeriodSeconds(0)); err != nil {
-			t.Fatal(err)
-		}
-		createPod(t, "s21", map[string]string{
-			v1alpha1.LabelAcceleratorType: "GPU", v1alpha1.LabelAcceleratorCount: "4",
-		}, "100m")
-		wantLabels[v1alpha1.LabelNVIDIADriverBranch] = ""
-		wantLabels[v1alpha1.LabelNVIDIADriverVersion] = ""
-		wantLabels[v1alpha1.LabelNVIDIADriverFlavor] = ""
-		wantGPUs = 0
-	}
+	const wantGPUs = 4
+	gpuPod(t, "s21", wantGPUs, nil)
 
 	node := waitPodRunning(t, "s21", long)
 	claims := waitClaims(t, "s21", 1, time.Minute)
@@ -154,9 +170,7 @@ func TestS21GPUType(t *testing.T) {
 
 // S21b: an 8-GPU NVSwitch system (A100 HGX) is offered, because the table pins a Fabric
 // Manager archive for the driver of the release, and a Pod that asks for it gets its
-// NodeClaim, which initializes. Before nodes boot the driver (nvidia.NodeBootstrap) the
-// Pod selects the type by its labels and the type has neither the GPU resource nor the
-// driver labels.
+// NodeClaim, which initializes.
 func TestS21bNVSwitchType(t *testing.T) {
 	a100 := byPrice(filterOfferings(reference(t, us1), func(o offering) bool {
 		return isOnDemand(o) && o.GPUs == 8 && strings.HasPrefix(o.API, "p4d")
@@ -167,15 +181,10 @@ func TestS21bNVSwitchType(t *testing.T) {
 	want := a100[0]
 
 	createNodeClass(t, "s21b", us1)
-	createNodePool(t, "s21b", "s21b", in(labelRegion, us1), in(labelCapacity, "on-demand"))
-	selector := map[string]string{v1alpha1.LabelAcceleratorModel: "A100", v1alpha1.LabelAcceleratorCount: "8"}
-	var wantGPUs int64
-	if nvidia.NodeBootstrap {
-		gpuPod(t, "s21b", 8)
-		wantGPUs = 8
-	} else {
-		createPod(t, "s21b", selector, "100m")
-	}
+	gpuNodePool(t, "s21b", "s21b", in(labelRegion, us1), in(labelCapacity, "on-demand"))
+	markGPUReady(t, "s21b")
+	const wantGPUs = 8
+	gpuPod(t, "s21b", wantGPUs, map[string]string{v1alpha1.LabelAcceleratorModel: "A100"})
 	node := waitPodRunning(t, "s21b", long)
 	waitClaims(t, "s21b", 1, time.Minute)
 	eventually(t, time.Minute, time.Second, "node initialized", func() (bool, string) {
@@ -188,8 +197,8 @@ func TestS21bNVSwitchType(t *testing.T) {
 	if l[v1alpha1.LabelAcceleratorCount] != "8" || l[v1alpha1.LabelAcceleratorModel] != "A100" {
 		t.Errorf("accelerator labels = %q x %q", l[v1alpha1.LabelAcceleratorCount], l[v1alpha1.LabelAcceleratorModel])
 	}
-	if got := l[v1alpha1.LabelNVIDIADriverBranch] != ""; got != nvidia.NodeBootstrap {
-		t.Errorf("driver branch label set = %v, want %v", got, nvidia.NodeBootstrap)
+	if l[v1alpha1.LabelNVIDIADriverBranch] == "" {
+		t.Error("the driver branch label is not set")
 	}
 	n := &corev1.Node{}
 	if err := k8s.Get(ctx(), client.ObjectKey{Name: node}, n); err != nil {
