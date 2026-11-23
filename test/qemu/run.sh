@@ -14,6 +14,14 @@
 #                     Headscale of your own for scenario Q11, which skips without it
 #                     (Q09 uses the Headscale this script starts)
 #
+# The GPU-less boot scenarios (Q12 to Q15, names with GPU, plan 12 step (d)) are opt-in: they run only
+# when QEMU_SCENARIOS names them (QEMU_SCENARIOS=GPU), and they also need the NVIDIA driver
+# sysext of the Flatcar release and Fabric Manager's archive, served by the mirror below as
+# --nvidia-driver-base-url: the first run downloads them (the payload from Flatcar's public
+# release server, 600 MB, about 450 MB extracted; the archive from NVIDIA's) and builds the
+# extraction tool in a container through the host's Docker (hack/nvidia-mirror.sh). They are
+# prepared in that case only (the default run, CI's included, downloads and boots none of it).
+#
 # In the container's network namespace the lane creates a bridge with a DHCP and
 # DNS server (dnsmasq) and NAT, a k3s server (server only, configured like a
 # production k3s for remote workers), flannel and kube-proxy as DaemonSets, and a
@@ -150,6 +158,33 @@ upstream="https://github.com/flatcar/sysext-bakery/releases/download/${ts}"
 download "${upstream}/SHA256SUMS" "${cache}/mirror/${ts}/SHA256SUMS"
 download "${upstream}/${ts}-x86-64.raw" "${cache}/mirror/${ts}/${ts}-x86-64.raw"
 (cd "${cache}/mirror/${ts}" && grep " ${ts}-x86-64.raw\$" SHA256SUMS | sha256sum -c -)
+
+# The NVIDIA part of the GPU-less boot (scenarios Q12 to Q15). The versions are the table's
+# of pkg/nvidia for the lane's Flatcar release (the scenarios check them); Ignition verifies every
+# file against the table's sha256, so a mismatch fails the boot.
+nvidia_base=""
+if grep -qE 'GPU|Q1[2-5]' <<<"${QEMU_SCENARIOS:-}"; then
+  flatcar_version="4757.2.3"
+  nvidia_runtime="nvidia-runtime-v1.17.9"
+  nvidia_driver="nvidia-drivers-570-open"
+  nvidia_driver_version="570.211.01"
+  log "preparing the NVIDIA mirror (${nvidia_driver} of Flatcar ${flatcar_version}, ${nvidia_runtime}, Fabric Manager ${nvidia_driver_version})"
+  mkdir -p "${cache}/mirror/${nvidia_runtime}"
+  upstream="https://github.com/flatcar/sysext-bakery/releases/download/${nvidia_runtime}"
+  download "${upstream}/SHA256SUMS" "${cache}/mirror/${nvidia_runtime}/SHA256SUMS"
+  download "${upstream}/${nvidia_runtime}-x86-64.raw" "${cache}/mirror/${nvidia_runtime}/${nvidia_runtime}-x86-64.raw"
+  (cd "${cache}/mirror/${nvidia_runtime}" && grep " ${nvidia_runtime}-x86-64.raw\$" SHA256SUMS | sha256sum -c -)
+  nvidia_tree="${cache}/mirror/nvidia"
+  if [[ ! -s "${nvidia_tree}/amd64-usr/${flatcar_version}/flatcar-${nvidia_driver}.raw.gz" ||
+    ! -s "${nvidia_tree}/fabricmanager/${nvidia_driver_version}/fabricmanager-linux-x86_64-${nvidia_driver_version}-archive.tar.xz" ]]; then
+    "${root}/hack/nvidia-mirror.sh" "${flatcar_version}" "${nvidia_tree}" "${nvidia_driver}" "fabricmanager-${nvidia_driver_version}" \
+      >"${out}/logs/nvidia-mirror.txt" 2>&1 || {
+      cat "${out}/logs/nvidia-mirror.txt" >&2
+      exit 1
+    }
+  fi
+  nvidia_base="${sysext_base}/nvidia"
+fi
 
 # --------------------------------------------------------------- network ----
 log "creating the bridge ${bridge} (${host_ip}) with DHCP, DNS and NAT"
@@ -322,6 +357,7 @@ export QEMU_LANE_BINARY="${cache}/bin/scarpenter"
 export QEMU_LANE_API="${api}"
 export QEMU_LANE_BRIDGE="${bridge}"
 export QEMU_LANE_SYSEXT_BASE="${sysext_base}"
+export QEMU_LANE_NVIDIA_BASE="${nvidia_base}"
 export QEMU_LANE_KUBERNETES_VERSION="${KUBERNETES_VERSION}"
 export QEMU_LANE_KUBELET_CLIENT_CA="${tls}/client-ca.crt"
 export QEMU_LANE_STATE_DIR="${run}/state"

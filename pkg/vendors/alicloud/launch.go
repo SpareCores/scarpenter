@@ -36,6 +36,9 @@ type LaunchResources struct {
 	VSwitchID        string
 	SecurityGroupIDs []string
 	DeploymentSetID  string
+	// SystemDiskCategory is the category the driver chose for the system disk
+	// (systemDiskCategory); empty keeps the one of the settings.
+	SystemDiskCategory string
 }
 
 // resourcesOf extracts the vSwitch, the security groups and the deployment set
@@ -129,6 +132,9 @@ func BuildRunInstances(req vendors.CreateRequest, lr LaunchResources, attempt in
 		return nil, invalid("publicIPv6 is not supported on ECS yet (it needs an IPv6 gateway the driver does not manage)")
 	}
 	root := rootDisk(st)
+	if c := lr.SystemDiskCategory; c != "" && c != root.Category {
+		root = resolvedDisk{Category: c, GiB: root.GiB, Encrypted: root.Encrypted, KMSKeyID: root.KMSKeyID}
+	}
 	if root.GiB < minSystemDiskGiB || root.GiB > maxSystemDiskGiB {
 		return nil, invalid("the root disk of %d GiB is outside %d to %d GiB", root.GiB, minSystemDiskGiB, maxSystemDiskGiB)
 	}

@@ -2,7 +2,7 @@ name: L5 (e2e)
 
 # The one workflow that starts real cloud instances, and only by hand (Actions, Run workflow;
 # docs/how-to-guides/testing-and-releasing.md): no pull request, push, tag or timer runs it.
-# The vendors are lines of test/e2e-vendors.txt, the lane itself is e2e-cloud.yml (called once
+# The vendors are the lanes (test/e2e-<vendor>/ directories), the lane itself is e2e-cloud.yml (called once
 # per vendor), the plan is test/e2e-plan.sh. The nightly canary (e2e-canary.yml) is free.
 #
 # What to test: the branch, tag or commit the run is dispatched on, or, instead, the head of the
@@ -18,8 +18,8 @@ on:
   workflow_dispatch:
     inputs:
       vendors:
-        description: "all, or comma separated vendors (lines of test/e2e-vendors.txt): aws or aws,oci"
-        default: all
+        description: "all (every vendor with a lane in test/e2e-<vendor>/), or comma separated vendors: aws or aws,azure (required, no default: all runs every cloud)"
+        required: true
         type: string
       mode:
         description: "smoke (preflight, one node, scale to zero), full (every scenario), or comma separated scenarios, e.g. gpu or amd64,drift; manual-only scenarios (azure: cvm) run only when listed (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall)"

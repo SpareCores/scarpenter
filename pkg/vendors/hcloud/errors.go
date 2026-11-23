@@ -33,6 +33,7 @@ const (
 	CodeImageNotFound    = "ImageNotFound"
 	CodeImageAmbiguous   = "ImageAmbiguous"
 	CodeUnsupportedLoc   = "UnsupportedLocation"
+	CodeImageTooBig      = "ImageDiskTooBig"
 )
 
 // API error codes the SDK has no constant for.
@@ -108,9 +109,15 @@ func classify(err error) error {
 		return vendors.NewError(vendors.Retryable, CodeCanceled, err)
 	}
 	if apiErr, ok := errors.AsType[hc.Error](err); ok {
+		if imageTooBig(apiErr.Message) {
+			return vendors.NewError(vendors.Unsupported, string(apiErr.Code), err)
+		}
 		return fromCode(apiErr.Code, invalidFields(apiErr.Details), err)
 	}
 	if actErr, ok := errors.AsType[hc.ActionError](err); ok {
+		if imageTooBig(actErr.Message) {
+			return vendors.NewError(vendors.Unsupported, actErr.Code, err)
+		}
 		return fromCode(hc.ErrorCode(actErr.Code), nil, err)
 	}
 	if errors.Is(err, hc.ErrStatusCode) {
@@ -120,6 +127,14 @@ func classify(err error) error {
 		return vendors.NewError(vendors.Retryable, CodeTransport, err)
 	}
 	return vendors.NewError(vendors.Fatal, "", err)
+}
+
+// imageTooBig recognises the create error of a snapshot whose disk is bigger
+// than the type's. The API gives it no code of its own (the SDK has none, and
+// the code it arrives with is unverified), so the message is the one thing to
+// match: the type can never boot that image, so it is Unsupported, not retried.
+func imageTooBig(msg string) bool {
+	return strings.Contains(strings.ToLower(msg), "image disk is bigger than server type disk")
 }
 
 // statusOf reads the HTTP status of the SDK's bare-status error

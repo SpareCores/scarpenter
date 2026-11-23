@@ -8,6 +8,7 @@ package alicloud
 
 import (
 	"context"
+	"maps"
 	"slices"
 
 	ecs "github.com/alibabacloud-go/ecs-20140526/v7/client"
@@ -105,11 +106,54 @@ func (c *Cloud) LaunchableTypes(ctx context.Context, region, capacityType string
 	}
 	in := &ecs.DescribeAvailableResourceRequest{
 		RegionId: new(region), DestinationResource: new("InstanceType"),
-		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"),
+		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"), IoOptimized: new("optimized"),
 	}
 	if capacityType == vendors.CapacitySpot {
 		in.SpotStrategy = new("SpotAsPriceGo")
 	}
+	byZone, err := c.availableTypes(ctx, cl, in, false)
+	if err != nil {
+		return nil, err
+	}
+	types := map[string][]string{}
+	for zone, names := range byZone {
+		for _, name := range names {
+			types[name] = append(types[name], zone)
+		}
+	}
+	for _, zones := range types {
+		slices.Sort(zones)
+	}
+	return types, nil
+}
+
+// SystemDiskTypes maps each zone of the region to the launchable types that
+// take the system disk category: the same DescribeAvailableResource call as
+// LaunchableTypes with SystemDiskCategory set, so the vendor's own data says
+// which types refuse the category (the old generations refuse cloud_essd). A
+// zone the answer does not list, or lists without a type, is not in the map:
+// that is unknown, not "takes nothing" (the launch error is the backstop). The
+// types count whatever their stock Status, as this is capability, not stock.
+// The request form (DestinationResource=InstanceType with SystemDiskCategory, and
+// IoOptimized=optimized to leave out the retired types) matches the official
+// Terraform provider's (alicloud/service/ecs/service_alicloud_ecs.go).
+func (c *Cloud) SystemDiskTypes(ctx context.Context, region, category string) (map[string][]string, error) {
+	cl, err := c.Clients(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	return c.availableTypes(ctx, cl, &ecs.DescribeAvailableResourceRequest{
+		RegionId: new(region), DestinationResource: new("InstanceType"),
+		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"), IoOptimized: new("optimized"),
+		SystemDiskCategory: new(category),
+	}, true)
+}
+
+// availableTypes runs DescribeAvailableResource and returns, per zone, the
+// sorted launchable types with stock.
+func (c *Cloud) availableTypes(
+	ctx context.Context, cl Clients, in *ecs.DescribeAvailableResourceRequest, anyStock bool,
+) (map[string][]string, error) {
 	out, err := call(ctx, c, callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DescribeAvailableResourceResponseBody, error) {
 			return cl.ECS.DescribeAvailableResource(ctx, in)
@@ -117,30 +161,34 @@ func (c *Cloud) LaunchableTypes(ctx context.Context, region, capacityType string
 	if err != nil {
 		return nil, err
 	}
-	types := map[string][]string{}
+	byZone := map[string][]string{}
 	if out.AvailableZones == nil {
-		return types, nil
+		return byZone, nil
 	}
 	for _, z := range out.AvailableZones.AvailableZone {
 		zone := deref(z.ZoneId)
-		if zone == "" || z.AvailableResources == nil {
+		if zone == "" {
 			continue
 		}
-		for _, ar := range z.AvailableResources.AvailableResource {
-			if ar.SupportedResources == nil {
-				continue
-			}
-			for _, sr := range ar.SupportedResources.SupportedResource {
-				name := deref(sr.Value)
-				if deref(sr.Status) != StatusAvailable || !Launchable(name) || slices.Contains(types[name], zone) {
+		names := byZone[zone]
+		if z.AvailableResources != nil {
+			for _, ar := range z.AvailableResources.AvailableResource {
+				if ar.SupportedResources == nil {
 					continue
 				}
-				types[name] = append(types[name], zone)
+				for _, sr := range ar.SupportedResources.SupportedResource {
+					name := deref(sr.Value)
+					if (anyStock || deref(sr.Status) == StatusAvailable) && Launchable(name) && !slices.Contains(names, name) {
+						names = append(names, name)
+					}
+				}
 			}
 		}
+		slices.Sort(names)
+		byZone[zone] = names
 	}
-	for _, zones := range types {
-		slices.Sort(zones)
+	if anyStock {
+		maps.DeleteFunc(byZone, func(_ string, names []string) bool { return len(names) == 0 })
 	}
-	return types, nil
+	return byZone, nil
 }

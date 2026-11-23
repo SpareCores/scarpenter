@@ -121,28 +121,28 @@ func TestServerTypesLaunchableAndEpoch(t *testing.T) {
 
 func TestFindImage(t *testing.T) {
 	e := newEnv(t, nil)
-	im, err := e.p.FindImage(ctx, "amd64", "stable", "4757.2.3")
+	im, err := e.p.FindImage(ctx, "fsn1", "amd64", "stable", "4757.2.3")
 	if err != nil || im.ID != e.x86.ID {
 		t.Fatalf("%v %v", im, err)
 	}
-	im, err = e.p.FindImage(ctx, "arm64", "stable", "4757.2.3")
+	im, err = e.p.FindImage(ctx, "fsn1", "arm64", "stable", "4757.2.3")
 	if err != nil || im.ID != e.arm.ID {
 		t.Fatalf("%v %v", im, err)
 	}
-	if _, err := e.p.FindImage(ctx, "amd64", "stable", "1.0.0"); class(err) != vendors.NotFound || vendors.CodeOf(err) != hcloud.CodeImageNotFound {
+	if _, err := e.p.FindImage(ctx, "fsn1", "amd64", "stable", "1.0.0"); class(err) != vendors.NotFound || vendors.CodeOf(err) != hcloud.CodeImageNotFound {
 		t.Errorf("%v", err)
 	}
-	if _, err := e.p.FindImage(ctx, "amd64", "beta", "4757.2.3"); class(err) != vendors.NotFound {
+	if _, err := e.p.FindImage(ctx, "fsn1", "amd64", "beta", "4757.2.3"); class(err) != vendors.NotFound {
 		t.Errorf("channel: %v", err)
 	}
-	if _, err := e.p.FindImage(ctx, "riscv", "stable", "4757.2.3"); class(err) != vendors.Fatal {
+	if _, err := e.p.FindImage(ctx, "fsn1", "riscv", "stable", "4757.2.3"); class(err) != vendors.Fatal {
 		t.Errorf("%v", err)
 	}
 	e.f.AddImage(hc.ArchitectureX86, map[string]string{"os": "flatcar", "flatcar-channel": "stable", "flatcar-version": "4757.2.3"})
-	if _, err := e.p.FindImage(ctx, "amd64", "stable", "4757.2.3"); class(err) != vendors.Fatal || vendors.CodeOf(err) != hcloud.CodeImageAmbiguous {
+	if _, err := e.p.FindImage(ctx, "fsn1", "amd64", "stable", "4757.2.3"); class(err) != vendors.Fatal || vendors.CodeOf(err) != hcloud.CodeImageAmbiguous {
 		t.Errorf("two matches: %v", err)
 	}
-	if _, err := e.p.FindImage(ctx, "arm64", "stable", "4757.2.3"); err != nil {
+	if _, err := e.p.FindImage(ctx, "fsn1", "arm64", "stable", "4757.2.3"); err != nil {
 		t.Error("the other architecture is unaffected")
 	}
 }

@@ -335,13 +335,17 @@ every taint (D6; a GPU node whose plugin cannot run never initializes) and are a
 environment variable strategy through the `nvidia` handler (no CDI, as step (b) configured). The device plugin's resources
 are unsettled until a real run [U: S6]. The flip is step (k).
 
-**(d) L4: boot without a GPU** (cheap, no GPU instance). A qemu scenario launches the fake NVIDIA type on a VM without a GPU, through the
+**(d) L4: boot without a GPU** (cheap, no GPU instance; opt-in: `QEMU_SCENARIOS=GPU`, not in the default lane or CI). A qemu scenario launches an NVIDIA type on a VM without a GPU, through the
 mirror path, against a local HTTP server that serves the release's driver payload (fetched once from Flatcar's
 public server, which CONVENTIONS rule 8 allows, and extracted by step (b)'s script). It asserts: both sysexts
-are merged; `nvidia.service` ends harmlessly without a GPU [U]; `nouveau` is not loaded; containerd runs with the
-handler `nvidia` and the default `runc` (`crictl info`); `scarpenter-nvidia-check` fails with a clear message and
-the kubelet does not start; with the check masked through `spec.butane`, the node joins; the boot timeline is
-recorded. This is the cheap guard of D7's rewrite against a runtime sysext bump.
+are merged; `nvidia.service` ends harmlessly without a GPU; `nouveau` is not loaded; containerd runs with the
+handler `nvidia` and the default `runc` (`crictl info`); the kubelet runs and the node registers with the gpu-pending
+taint (ADR-031); `scarpenter-nvidia-check` fails with a clear message and labels the node `gpu-ready=false`, which
+the gpupending controller answers by deleting the NodeClaim; with the check masked through `spec.butane`, the node
+registers, is Ready and stays tainted and unlabelled; the boot timeline is recorded. This is the cheap guard of D7's
+rewrite against a runtime sysext bump.
+
+**Done (d).** L4 scenarios Q12 to Q15 (`test/qemu/e2e/gpu_test.go`) on the qemu catalog's `qemu.gpu` (T4) and `qemu.gpu-nvswitch` (8 A100): both sysexts merged, the driver image equals the table's pin, `nvidia.service` succeeds, no `nouveau`, `crictl info` shows `runc` and the `nvidia` handler, the kubelet runs, the node registers tainted, the check fails with its message and labels `gpu-ready=false`; the masked check (Q14) registers and stays unlabelled; with the GPU pending controller the NodeClaim is deleted (Q13); Fabric Manager's archive is verified and unpacked and the unit fails without a driver handle (Q15); the timeline goes to the report. The lane serves the driver and archive through `hack/nvidia-mirror.sh` (by `docker cp`, so it works through the dev container's Docker socket). Q12 and Q15 run with the controller switched off by the development-only `SCARPENTER_DEV_NO_GPU_PENDING=1`, and the NVIDIA labels come on with `SCARPENTER_DEV_NVIDIA_BOOTSTRAP=1` (both exist only with the `scarpenter_dev` tag); `nvidia.NodeBootstrap` stays false. The static catalog sets the accelerator type for types with `gpus`.
 
 **(e) AWS.** `GPUVirtualizer` for `g6f`, `gr6f` (and any later fractional family);
 no other launch change (classes G and P already map to their vCPU quotas, `QuotaZero` until an increase;
@@ -392,6 +396,8 @@ region.
 **(j) UpCloud** (conditional, the maintainer's go-ahead). Launch the `GPU-` plans (not `GPU-SPOT-`), read GPU
 stock (`GetDevicesAvailability`) for the offerings, a GPU count bucket from the account limits. L40S and H100
 qualify; RTX PRO 6000 waits for 580-open.
+
+**Done (j).** `FamilyGPUSpot` (`GPU-SPOT-` stays out) and `GPU-` plans launch; `Supported` no longer excludes GPU. `GetDevicesAvailability` joins the API interface (real client, fake, canary guard) and `LaunchableTypes` lists a GPU plan in a zone only with stock there (a failed call leaves the GPU plans out for that refresh); the global bucket `gpus` from `resource_limits.gpus`, usage by the servers' plans, and the plan's GPUs in `Consumption`. No `GPUVirtualizer` (passthrough). L40S and H100 offered, RTX PRO 6000 dropped until 580-open (test over the snapshot). Manual `gpu` scenario in the UpCloud lane (`E2E_GPU_TYPE` default `upcloud.GPU-8xCPU-64GB-1xL40S`, early stock and limits check), docs. The GPU limit's create error stays `Fatal` until a real run shows its code; then map it to `QuotaExceeded` without `AsAccountWide`, so the `gpus` bucket is marked. Unverified: the stock response shape and whether a plan out of stock is absent or 0, the limit's name and its create error code, the root default on the plan's disk, boot on the GPU hosts.
 
 **(k) The flip.** `nvidia.NodeBootstrap` is true: the catalog advertises `nvidia.com/gpu` and the driver labels on
 the supported NVIDIA types and the bootstrap renders the `nvidia` part for them. Safety conditions, each on main: Azure's and

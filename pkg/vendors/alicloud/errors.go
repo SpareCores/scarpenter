@@ -121,6 +121,11 @@ var regionDeniedCodes = []string{
 	"RealNameAuthenticationError", // U
 }
 
+// codeRegionNotFound is what the regional endpoint of a region the account
+// lists but cannot call answers. The sweeps skip such a region (markUnusable);
+// reads of single instances still reach it.
+const codeRegionNotFound = "InvalidRegionId.NotFound"
+
 // dependencyPrefix starts the codes of a delete that fails because an
 // instance still uses the resource (the codes are unverified, plan 21
 // section 7): the dependency clears when the instances are gone.

@@ -32,10 +32,13 @@ const hoursPerMonth = 730
 const diskSerialPattern = "*"
 
 // defaultSettings are the built-in defaults (layer 1, plan 21 section 4): a
-// cloud_essd PL0 system disk of 64 GiB, not encrypted (an encrypted system disk is
+// system disk of 64 GiB, not encrypted (an encrypted system disk is
 // refused in some zones), a public IPv4 of up to 100 Mbit/s pay by traffic, and
-// metadata access without a token, which Ignition's aliyun provider needs.
-const defaultSettings = `{"storage":{"root":{"category":"cloud_essd","performanceLevel":"PL0","size":"64Gi",` +
+// metadata access without a token, which Ignition's aliyun provider needs. The
+// category is left out on purpose: it is cloud_essd PL0 where the type takes it
+// and the next category it takes otherwise (systemDiskCategory), while a
+// category the NodeClass sets is pinned.
+const defaultSettings = `{"storage":{"root":{"size":"64Gi",` +
 	`"encrypted":false}},` +
 	`"internetMaxBandwidthOut":100,"internetChargeType":"PayByTraffic","metadataOptions":{"httpTokens":"optional"}}`
 
@@ -113,7 +116,7 @@ func (d *Driver) Supported(it vendors.CatalogType, zone string, p vendors.Profil
 			ok := false
 			switch kind {
 			case vendors.ProfileStorage:
-				ok = supportsStorage(block, it.APIReference, zone, ti, known)
+				ok = d.supportsStorage(block, it.APIReference, zone, ti, known)
 			case vendors.ProfileNetwork:
 				ok = decodeNetwork(block) == nil
 			case vendors.ProfilePlacement:
@@ -142,17 +145,21 @@ func entryFamily(instanceType string) bool {
 	return name == "u1" || strings.HasPrefix(name, "e-") || name == "e"
 }
 
-func supportsStorage(block json.RawMessage, instanceType, zone string, ti TypeInfo, known bool) bool {
+func (d *Driver) supportsStorage(block json.RawMessage, instanceType, zone string, ti TypeInfo, known bool) bool {
 	st, err := decodeStorage(block)
 	if err != nil {
 		return false
 	}
+	// The system disk is the profile's root disk or the default one.
+	root := rootDisk(Settings{Storage: &st})
+	if root.Encrypted && encryptedRootDenied[zone] {
+		return false
+	}
+	if _, ok := d.systemDiskCategory(instanceType, zone, Settings{Storage: &st}); !ok {
+		return false
+	}
 	disks := make([]resolvedDisk, 0, 1+len(st.Data))
 	if st.Root != nil {
-		root := rootDisk(Settings{Storage: &st})
-		if root.Encrypted && encryptedRootDenied[zone] {
-			return false
-		}
 		disks = append(disks, root)
 	}
 	disks = append(disks, dataDisks(Settings{Storage: &st})...)
@@ -193,7 +200,11 @@ func (d *Driver) PriceDelta(s vendors.VendorSettings, o vendors.Offering) (float
 			complete = false
 		}
 	}
-	disk(rootDisk(st))
+	root := rootDisk(st)
+	if c, ok := d.systemDiskCategory(o.APIReference, o.Zone, st); ok && c != root.Category {
+		root = resolvedDisk{Category: c, GiB: root.GiB}
+	}
+	disk(root)
 	for _, dk := range dataDisks(st) {
 		disk(dk)
 	}

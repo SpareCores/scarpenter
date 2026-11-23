@@ -73,6 +73,8 @@ type TypeSpec struct {
 	NVMe      bool
 	Disks     int32 // DiskQuantity
 	LocalDisk int32
+	// SystemDisks are the system disk categories the type takes; empty means all.
+	SystemDisks []string
 }
 
 type offerKey struct{ zone, typ, capacity string }

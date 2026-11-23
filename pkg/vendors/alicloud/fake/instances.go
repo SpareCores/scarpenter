@@ -289,6 +289,10 @@ func (f *Cloud) launch(r *regionState, in *ecs.RunInstancesRequest) (*instance, 
 	if !offered {
 		return nil, badRequest("InvalidInstanceType.ZoneNotSupported", "%s is not sold in %s", typ, zone)
 	}
+	if in.SystemDisk != nil && !f.types[typ].takes(dara.StringValue(in.SystemDisk.Category)) {
+		return nil, APIError("InvalidInstanceType.NotSupportDiskCategory", 403,
+			fmt.Sprintf("%s does not take the system disk category %q", typ, dara.StringValue(in.SystemDisk.Category)))
+	}
 	if status != StatusAvailable {
 		return nil, badRequest("OperationDenied.NoStock", "%s is sold out in %s", typ, zone)
 	}
@@ -544,10 +548,15 @@ func (e *ECS) DescribeInstanceTypes(ctx context.Context, in *ecs.DescribeInstanc
 	return out, nil
 }
 
+// takes says whether the type takes the system disk category ("" is any).
+func (t TypeSpec) takes(category string) bool {
+	return category == "" || len(t.SystemDisks) == 0 || slices.Contains(t.SystemDisks, category)
+}
+
 // DescribeAvailableResource reports, per zone, the types of the offerings with
 // their stock Status (Available or SoldOut) and StatusCategory (WithStock,
-// WithoutStock); the spot strategy selects the spot offerings. Only
-// DestinationResource=InstanceType is modelled.
+// WithoutStock); the spot strategy selects the spot offerings. SystemDiskCategory keeps the types that take it
+// (TypeSpec.SystemDisks). Only DestinationResource=InstanceType is modelled.
 func (e *ECS) DescribeAvailableResource(ctx context.Context, in *ecs.DescribeAvailableResourceRequest) (*ecs.DescribeAvailableResourceResponseBody, error) {
 	f := e.f
 	f.mu.Lock()
@@ -563,6 +572,7 @@ func (e *ECS) DescribeAvailableResource(ctx context.Context, in *ecs.DescribeAva
 	if s := dara.StringValue(in.SpotStrategy); s != "" && s != "NoSpot" {
 		capacity = Spot
 	}
+	category := dara.StringValue(in.SystemDiskCategory)
 	out := &ecs.DescribeAvailableResourceResponseBody{
 		RequestId: new("req"), AvailableZones: &ecs.DescribeAvailableResourceResponseBodyAvailableZones{},
 	}
@@ -573,7 +583,7 @@ func (e *ECS) DescribeAvailableResource(ctx context.Context, in *ecs.DescribeAva
 		var res []*ecs.DescribeAvailableResourceResponseBodyAvailableZonesAvailableZoneAvailableResourcesAvailableResourceSupportedResourcesSupportedResource
 		names := make([]string, 0)
 		for k := range r.offers {
-			if k.zone == z && k.capacity == capacity {
+			if k.zone == z && k.capacity == capacity && f.types[k.typ].takes(category) {
 				names = append(names, k.typ)
 			}
 		}
