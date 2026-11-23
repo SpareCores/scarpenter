@@ -148,7 +148,7 @@ Decisions that differ from AWS (each an open question of the plan, decided by de
   (`CategoryNotSupported`, `InvalidDiskCategory.NotSupported`, `InvalidInstanceType.NotSupportDiskCategory` are
   `Unsupported`, 24 h).
 - **System disk category** per type and zone comes from the vendor: the offerings read also calls
-  `DescribeAvailableResource` with `SystemDiskCategory` set (*unverified* against the live API: a failed read keeps
+  `DescribeAvailableResource` with `SystemDiskCategory` set (the form of the official Terraform provider; a failed read keeps
   the previous answer and the launch error is the backstop), once per category of `cloud_essd`, `cloud_ssd`,
   `cloud_efficiency` and any category a profile pins, per region on the refresh of the offerings (no call per type or
   zone). A NodeClass that sets `storage.root.category` pins it: a type that does not take it in the zone is not

@@ -106,7 +106,7 @@ func (c *Cloud) LaunchableTypes(ctx context.Context, region, capacityType string
 	}
 	in := &ecs.DescribeAvailableResourceRequest{
 		RegionId: new(region), DestinationResource: new("InstanceType"),
-		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"),
+		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"), IoOptimized: new("optimized"),
 	}
 	if capacityType == vendors.CapacitySpot {
 		in.SpotStrategy = new("SpotAsPriceGo")
@@ -134,8 +134,9 @@ func (c *Cloud) LaunchableTypes(ctx context.Context, region, capacityType string
 // zone the answer does not list, or lists without a type, is not in the map:
 // that is unknown, not "takes nothing" (the launch error is the backstop). The
 // types count whatever their stock Status, as this is capability, not stock.
-// The DescribeAvailableResource filter form (InstanceType with SystemDiskCategory)
-// is unverified against the live API.
+// The request form (DestinationResource=InstanceType with SystemDiskCategory, and
+// IoOptimized=optimized to leave out the retired types) matches the official
+// Terraform provider's (alicloud/service/ecs/service_alicloud_ecs.go).
 func (c *Cloud) SystemDiskTypes(ctx context.Context, region, category string) (map[string][]string, error) {
 	cl, err := c.Clients(ctx, region)
 	if err != nil {
@@ -143,7 +144,7 @@ func (c *Cloud) SystemDiskTypes(ctx context.Context, region, category string) (m
 	}
 	return c.availableTypes(ctx, cl, &ecs.DescribeAvailableResourceRequest{
 		RegionId: new(region), DestinationResource: new("InstanceType"),
-		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"),
+		ResourceType: new("instance"), InstanceChargeType: new("PostPaid"), IoOptimized: new("optimized"),
 		SystemDiskCategory: new(category),
 	}, true)
 }
