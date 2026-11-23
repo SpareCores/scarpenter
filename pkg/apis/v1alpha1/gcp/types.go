@@ -50,6 +50,14 @@ type Settings struct {
 	// +optional
 	ServiceAccount string `json:"serviceAccount,omitempty"`
 
+	// nestedVirtualization turns on nested virtualization
+	// (advancedMachineFeatures.enableNestedVirtualization) on the nodes, so that
+	// they expose /dev/kvm and the vmx flags. Off by default. Not every machine
+	// series supports it: when Compute Engine refuses the feature for a machine
+	// type, the node is launched once more without it.
+	// +optional
+	NestedVirtualization bool `json:"nestedVirtualization,omitempty"`
+
 	// metadata is extra instance metadata. user-data, ssh-keys, enable-oslogin
 	// and block-project-ssh-keys are reserved.
 	// +kubebuilder:validation:MaxProperties=32

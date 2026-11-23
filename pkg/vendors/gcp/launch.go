@@ -80,6 +80,8 @@ type LaunchSpec struct {
 	// selects the TIER_1 egress bandwidth.
 	NicType string
 	Tier1   bool
+	// NestedVirtualization sets advancedMachineFeatures.enableNestedVirtualization.
+	NestedVirtualization bool
 	// ServiceAccount is attached when set (needs iam.serviceAccounts.actAs).
 	ServiceAccount string
 	// ResourcePolicies are the placement policy URLs.
@@ -126,6 +128,9 @@ func BuildInsert(s LaunchSpec) (*computepb.InsertInstanceRequest, error) {
 	}
 	if s.Tier1 {
 		inst.NetworkPerformanceConfig = &computepb.NetworkPerformanceConfig{TotalEgressBandwidthTier: new("TIER_1")}
+	}
+	if s.NestedVirtualization {
+		inst.AdvancedMachineFeatures = &computepb.AdvancedMachineFeatures{EnableNestedVirtualization: new(true)}
 	}
 	if s.ServiceAccount != "" {
 		inst.ServiceAccounts = []*computepb.ServiceAccount{{
