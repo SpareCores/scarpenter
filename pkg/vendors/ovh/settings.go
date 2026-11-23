@@ -173,7 +173,7 @@ func (s Settings) Validate() error {
 
 // RootDiskBytes is the root disk size the settings fix: the bootFromVolume size,
 // or 0 for the flavor's local disk (its size depends on the type, not on the
-// settings; the catalog supplies it from Keeper, see RootDiskGB).
+// settings; the catalog supplies it from Keeper, see multiDiskRootGB).
 func (s Settings) RootDiskBytes() int64 {
 	if b := s.Storage.Root.BootFromVolume; b != nil {
 		return gib(b.Size) << 30

@@ -382,6 +382,8 @@ h200 gets Fabric Manager); `g1 g2 g3` stay excluded unless the data shows them a
 the API reports it, otherwise it stays reactive. Lane default: the cheapest `l4` or `rtx5000` flavor of the lane's
 region.
 
+**Done (i).** The nine GPU families moved from `gpuFamilies` (excluded) to the launched families (`g1 g2 g3` stay excluded as retired), no launch change; `RootDiskForType` gives the system disk of the multi-disk types (`i1`, `t1`, `t2`, `h100`, `h200`), checked against the snapshot; the GPU quota is not in Nova's limits, so it stays reactive [U: an OVH API route]; offering test over the snapshot (the priced flavors only: a10, a100, h100 and l40s have no price there yet); the manual `gpu` scenario in `test/e2e-ovh` (`E2E_GPU_TYPE` default `ovh.l4-90`, the cheapest priced in GRA11; the GPU count read from Keeper's snapshot (`test/gpu-count`); early flavor check), docs. `ovh` stays out of `test/e2e-vendors.txt`.
+
 **(j) UpCloud** (conditional, the maintainer's go-ahead). Launch the `GPU-` plans (not `GPU-SPOT-`), read GPU
 stock (`GetDevicesAvailability`) for the offerings, a GPU count bucket from the account limits. L40S and H100
 qualify; RTX PRO 6000 waits for 580-open.

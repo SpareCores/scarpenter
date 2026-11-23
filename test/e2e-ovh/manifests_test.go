@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -72,7 +73,7 @@ var sample = map[string]string{
 	"E2E_CREATED_AT": "1800000000", "E2E_API_HOST": "100.64.0.1",
 	"E2E_K3S_VERSION": "v1.37.2+k3s1", "E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10",
 	"E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
-	"E2E_TYPE_AMD64": "ovh.d2-2", "E2E_TYPE_DB": "ovh.b3-8",
+	"E2E_TYPE_AMD64": "ovh.d2-2", "E2E_TYPE_DB": "ovh.b3-8", "E2E_GPU_TYPE": "ovh.l4-90", "GPU_COUNT": "1",
 	"E2E_TYPES_DESCRIBED_YAML": `"ovh.d2-2", "ovh.d2-4", "ovh.b3-8"`,
 	"E2E_TAG_RUNNER":           "tag:scarpenter-ci", "E2E_TAG_NODE": "tag:scarpenter-ci-node",
 	"E2E_BYO_SG": "4be2a1c0-7f3d-4e9b-8a16-5c2d9e0f1b34",
@@ -88,7 +89,8 @@ func manifests(t *testing.T) []string {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no manifests: %v", err)
 	}
-	return files
+	// The Pod of the manual gpu scenario is shared by every vendor's lane.
+	return append(files, filepath.Join(testutil.RepoRoot(), "test", "gpu-pod.yaml"))
 }
 
 func render(t *testing.T, file string) string {
@@ -135,7 +137,7 @@ func TestVariablesAreDeclared(t *testing.T) {
 	pins["E2E_TYPES_DESCRIBED_YAML"] = true // derived in defaults.sh
 	// Set by the workflow, the scenarios or the render call.
 	for _, v := range []string{"E2E_CLUSTER", "E2E_RUN_ID", "E2E_CREATED_AT", "E2E_API_HOST", "E2E_BYO_SG",
-		"NAME", "POOL", "TYPE", "CAPACITY", "NODE", "PODNAME"} {
+		"NAME", "POOL", "TYPE", "CAPACITY", "NODE", "PODNAME", "GPU_COUNT"} {
 		pins[v] = true
 	}
 	for _, f := range manifests(t) {
@@ -155,6 +157,11 @@ func TestManifestsAreAcceptedByAnAPIServer(t *testing.T) {
 		if err := k8sClient.Create(ctx, ns); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// The GPU Pod names the RuntimeClass the cluster (or the scenario) provides.
+	rc := &nodev1.RuntimeClass{ObjectMeta: metav1.ObjectMeta{Name: "nvidia"}, Handler: "nvidia"}
+	if err := k8sClient.Create(ctx, rc); err != nil {
+		t.Fatal(err)
 	}
 	for _, f := range manifests(t) {
 		if filepath.Base(f) == "chart-values.yaml" {

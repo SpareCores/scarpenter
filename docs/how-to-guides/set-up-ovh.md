@@ -161,7 +161,7 @@ and it goes. Errors show in `kubectl describe` of the SCNodeClass and the NodeCl
 
 ## Limits
 
-- amd64 and on-demand only: no arm64, no spot, no GPU or Metal flavors.
+- amd64 and on-demand only: no arm64, no spot, no Metal flavors. GPU flavors (`t1`, `t2`, `a10`, `a100`, `h100`, `h200`, `l4`, `l40s`, `rtx5000`) are launched when the region has them and the project has their quota ([GPU flavors](../reference/ovh-driver.md#gpu-flavors)).
 - Public `Ext-Net` only: no private (vRack) networks, gateways or IPv6-only nodes; `networking.publicIPv4: false` is refused.
 - No `localStorage`: invalid in the vendor block; a storage profile asking for it fits no type, so its Pods stay Pending.
 - No billing retention (OVH's billing rules are unverified), and no automatic image import.
