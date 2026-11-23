@@ -20,8 +20,11 @@ type LaunchSpec struct {
 
 	// maxDuration is the wall-clock budget of one NodeClaim creation: once it
 	// is spent, no further candidate is tried and the launch fails with
-	// InsufficientCapacity. At most 4m30s, so that it ends before Karpenter's
-	// 5m launch timeout; a vendor call that has started is not interrupted.
+	// InsufficientCapacity. It bounds when an attempt starts, not when it ends:
+	// the worst case is maxDuration plus one vendor call (a GCP launch may wait
+	// for the operation), and the first candidate is always tried. A Retryable
+	// error is requeued by Karpenter and starts a fresh budget. At most 4m30s,
+	// to stay under Karpenter's 5m launch timeout.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(s|m|h))+$`
 	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('4m30s')",message="maxDuration must be greater than 0 and at most 4m30s"
@@ -31,10 +34,11 @@ type LaunchSpec struct {
 	// insufficientCapacityTTL is how long this class keeps away from an
 	// offering that had no capacity. It can only extend the controller's
 	// --unavailable-insufficient-capacity-ttl for this class: every class
-	// still shares the controller's mark.
+	// still shares the controller's mark. At most 24h. A change applies to the
+	// marks made after it; the existing ones keep their expiry.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?(s|m|h))+$`
-	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s')",message="insufficientCapacityTTL must be greater than 0"
+	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('24h')",message="insufficientCapacityTTL must be greater than 0 and at most 24h"
 	// +optional
 	InsufficientCapacityTTL *metav1.Duration `json:"insufficientCapacityTTL,omitempty"`
 }

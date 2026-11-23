@@ -234,7 +234,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		return nil, cloudprovider.NewInsufficientCapacityError(launchFailure{st.lastErr, st.summary()})
 	}
 	return nil, cloudprovider.NewInsufficientCapacityError(
-		fmt.Errorf("no candidate offering had quota headroom (%d skipped)", st.skipped))
+		fmt.Errorf("no candidate offering had quota headroom (%d skipped); %s", st.skipped, st.summary()))
 }
 
 // What ended the attempts, for the summary of the error.
@@ -259,12 +259,13 @@ func (c *CloudProvider) applyLaunchPolicy(st *launchState) {
 	}
 }
 
-// stopReason is why no further candidate may be tried, "" when one may.
+// stopReason is why no further candidate may be tried, "" when one may. The
+// first candidate is always tried, whatever the time budget.
 func (c *CloudProvider) stopReason(st *launchState) string {
 	switch {
 	case st.attempts >= st.maxAttempts:
 		return stopMaxAttempts
-	case !st.deadline.IsZero() && !c.opts.Clock.Now().Before(st.deadline):
+	case st.attempts > 0 && !st.deadline.IsZero() && !c.opts.Clock.Now().Before(st.deadline):
 		return stopMaxDuration
 	}
 	return ""
@@ -277,6 +278,9 @@ func (st *launchState) summary() string {
 		classes = append(classes, fmt.Sprintf("%s:%d", class, n))
 	}
 	slices.Sort(classes)
+	if len(classes) == 0 {
+		classes = append(classes, "none")
+	}
 	return fmt.Sprintf("tried %d offerings in %d regions / %d zones; classes: %s; stopped by: %s",
 		st.attempts, len(st.regions), len(st.zones), strings.Join(classes, ","), st.stopped)
 }

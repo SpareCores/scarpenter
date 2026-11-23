@@ -1255,6 +1255,18 @@ func TestLaunchMaxDurationStopsTheLoop(t *testing.T) {
 	}
 }
 
+// The first candidate is tried even when the budget is already spent.
+func TestLaunchMaxDurationNeverSkipsTheFirstCandidate(t *testing.T) {
+	e := newEnv(t, envOptions{
+		attempts: 100, transform: withLaunch(v1alpha1.LaunchSpec{MaxDuration: &metav1.Duration{Duration: -time.Second}}),
+	})
+	e.setConfig("errors", "- {error: InsufficientCapacity}")
+	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large", "aws.c7i.large"}))
+	if n := len(e.calls("create")); n != 1 || !strings.Contains(err.Error(), "stopped by: maxDuration") {
+		t.Errorf("%d vendor calls, error %v, want one call", n, err)
+	}
+}
+
 func TestLaunchWithoutPolicyStopsByTheFlag(t *testing.T) {
 	e := newEnv(t, envOptions{attempts: 3})
 	e.setConfig("errors", "- {error: InsufficientCapacity}")

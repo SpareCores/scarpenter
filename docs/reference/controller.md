@@ -630,8 +630,8 @@ Changing it is not drift.
 | Field | Flag it overrides | Meaning |
 |---|---|---|
 | `maxAttempts` | `--max-launch-attempts` | Vendor calls one `Create` may make; at least 1. |
-| `maxDuration` | none | Wall-clock budget of one `Create`: once spent, no further candidate is tried and `Create` returns `InsufficientCapacityError`. A vendor call that has started is not interrupted. Greater than 0 and at most `4m30s`, so that it ends before Karpenter's 5 minute launch timeout. |
-| `insufficientCapacityTTL` | `--unavailable-insufficient-capacity-ttl` | How long the class stays away from an offering that had no capacity. It can extend the flag's TTL for this class, never shorten it, see below. |
+| `maxDuration` | none | Wall-clock budget of one `Create`: once spent, no further candidate is tried and `Create` returns `InsufficientCapacityError`. It bounds when an attempt starts, not when it ends: the worst case is `maxDuration` plus one vendor call (a GCP launch may wait for its operation), and the first candidate is always tried. A `Retryable` error is requeued by Karpenter and starts a fresh budget. Greater than 0 and at most `4m30s`, to stay under Karpenter's 5 minute launch timeout. |
+| `insufficientCapacityTTL` | `--unavailable-insufficient-capacity-ttl` | How long the class stays away from an offering that had no capacity: greater than 0 and at most `24h`. It can extend the flag's TTL for this class, never shorten it, see below. A change applies to the marks made after it; the existing ones keep their expiry. |
 
 An `InsufficientCapacity` mark is shared by every class and lasts the flag's TTL
 (3m): a known stockout protects all of them. When the launching class sets a

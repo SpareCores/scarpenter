@@ -369,3 +369,23 @@ func TestShorterClassTTLRecordsNothing(t *testing.T) {
 		t.Errorf("%d entries, want none: a class TTL below the shared one only extends", n)
 	}
 }
+
+// With several live entries the offering is unavailable until the last of them
+// expires, and Why names that one.
+func TestWhyReturnsTheEntryThatExpiresLast(t *testing.T) {
+	clk := clocktesting.NewFakeClock(time.Now())
+	c := unavailable.New(clk, unavailable.TTLs{})
+	forClass := with(base, func(o *unavailable.Offering) { o.NodeClass = "bench" })
+	c.MarkInsufficientCapacity("aws", "aws.m7i.large", "us-east-1a", "spot")
+	c.MarkInsufficientCapacityForClass(forClass, time.Hour)
+	c.MarkUnsupported("aws", "aws.m7i.large", "us-east-1a")
+
+	class, expiry, ok := c.Why(forClass)
+	if !ok || class != "Unsupported" || expiry != clk.Now().Add(24*time.Hour) {
+		t.Errorf("Why = %s until %v (%v), want Unsupported until 24h", class, expiry, ok)
+	}
+	class, _, _ = c.Why(base)
+	if class != "Unsupported" {
+		t.Errorf("Why = %s, want Unsupported", class)
+	}
+}

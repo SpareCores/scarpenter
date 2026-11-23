@@ -145,14 +145,15 @@ func TestClearingQuotaMarksLeavesTheOtherClassesAlone(t *testing.T) {
 	o := unavailableOf(target)
 	e.un.MarkInsufficientCapacity("aws", o.InstanceType, o.Zone, o.CapacityType)
 	e.un.MarkInvalid("aws", o.InstanceType, o.Zone, o.CapacityType)
+	marks := e.un.Len()
 	if err := e.cp.Delete(t.Context(), claim); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.cp.Delete(t.Context(), claim); !karpcloudprovider.IsNodeClaimNotFoundError(err) {
 		t.Fatalf("second Delete = %v", err)
 	}
-	if cls, _, ok := e.un.Why(o); !ok || cls != "InsufficientCapacity" {
-		t.Errorf("Why = %q, %v, want the capacity mark to stay", cls, ok)
+	if got := e.un.Len(); got != marks {
+		t.Errorf("%d marks after the deletes, want the %d of before: the capacity and invalid marks stay", got, marks)
 	}
 	e.un.MarkZoneUnusable("aws", o.Zone)
 	e.un.ClearQuotaExceeded("aws", target.region)

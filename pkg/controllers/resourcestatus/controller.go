@@ -39,6 +39,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/resources"
+	"github.com/SpareCores/scarpenter/pkg/unavailable"
 )
 
 // The keys of a status entry the controller applies.
@@ -64,6 +65,8 @@ const (
 type Options struct {
 	Client client.Client
 	Engine *resources.Engine
+	// Unavailable has the marks that only a class sees dropped with the class.
+	Unavailable *unavailable.Cache
 	// Regions returns the regions the driver can use, for a NodeClass block
 	// that lists none.
 	Regions  interface{ Regions(vendor string) []string }
@@ -95,17 +98,25 @@ func (c *Controller) Register(mgr ctrl.Manager) error {
 		For(&v1alpha1.SCNodeClass{}).Complete(c)
 }
 
+// forget drops what is kept for a deleted NodeClass.
+func (c *Controller) forget(class string) {
+	c.opts.Engine.ForgetClass(class)
+	if c.opts.Unavailable != nil {
+		c.opts.Unavailable.ForgetClass(class)
+	}
+}
+
 // Reconcile checks and applies the resource status of one NodeClass.
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	var nc v1alpha1.SCNodeClass
 	if err := c.opts.Client.Get(ctx, req.NamespacedName, &nc); err != nil {
 		if apierrors.IsNotFound(err) {
-			c.opts.Engine.ForgetClass(req.Name)
+			c.forget(req.Name)
 		}
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 	if !nc.DeletionTimestamp.IsZero() {
-		c.opts.Engine.ForgetClass(nc.Name)
+		c.forget(nc.Name)
 		return reconcile.Result{}, nil
 	}
 	if err := c.applyStatus(ctx, &nc); err != nil {

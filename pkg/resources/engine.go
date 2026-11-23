@@ -722,12 +722,8 @@ func (e *Engine) SetImageGaps(class, vendor string, gaps map[string]string) {
 	}
 }
 
-// ForgetClass drops what the engine knows about a deleted NodeClass, and the
-// unavailable-offerings marks that only the class saw.
+// ForgetClass drops what the engine knows about a deleted NodeClass.
 func (e *Engine) ForgetClass(class string) {
-	if e.opts.Unavailable != nil {
-		e.opts.Unavailable.ForgetClass(class)
-	}
 	e.mu.Lock()
 	changed := false
 	for k := range e.imageGaps {
