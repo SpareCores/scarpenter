@@ -455,15 +455,15 @@ func (c *Controller) restartRequired(nc *v1alpha1.SCNodeClass, cs status.Conditi
 }
 
 // bootFragments returns the fragments the core builds for the NodeClass's vendors
-// (the driver's own and the metadata restriction, unless the NodeClass says Open),
-// for the trial rendering.
+// (the driver's own, the metadata restriction unless the NodeClass says Open, and
+// the interruption agent of spot nodes), for the trial rendering.
 func (c *Controller) bootFragments(nc *v1alpha1.SCNodeClass) bootstrap.FragmentsFunc {
-	return func(vendor, arch string) ([]bootstrap.Fragment, error) {
+	return func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
 		drv, ok := c.opts.Registry.Driver(vendor)
 		if !ok {
 			return nil, nil
 		}
-		fs, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata())
+		fs, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata(), spot)
 		if err != nil {
 			return nil, err
 		}

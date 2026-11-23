@@ -16,6 +16,7 @@ what the code does. The package is `pkg/bootstrap` (rendering, tokens),
 - [Template variables](#template-variables)
 - [The kubelet](#the-kubelet)
 - [Network templates](#network-templates)
+- [The interruption agent](#the-interruption-agent)
 - [Custom templates and extra Butane](#custom-templates-and-extra-butane)
 - [Size budget](#size-budget)
 - [The NodeClass controller](#the-nodeclass-controller)
@@ -312,7 +313,8 @@ authorization with `/etc/kubernetes/pki/ca.crt` as the client CA (or, with
 `--kubelet-client-ca-file`, the CA written to `/etc/kubernetes/pki/kubelet-client-ca.crt`:
 the API server's client certificate for `kubectl logs` and `exec` must verify
 against it) and anonymous access off, `resolvConf: /run/systemd/resolve/resolv.conf` (the stub resolver
-address does not work inside Pods). From the NodeClass: `maxPods` (default 110),
+address does not work inside Pods). On a spot launch also `shutdownGracePeriod: 25s` and `shutdownGracePeriodCriticalPods: 5s`
+([graceful node shutdown](#the-interruption-agent)). From the NodeClass: `maxPods` (default 110),
 `systemReserved`, `kubeReserved`, `evictionHard` (unset keeps the kubelet's
 defaults; quantities are validated); with `footprint: Lean` the defaults of these
 and a few more settings are the [preset's](node-settings.md#memory-footprint). From the controller: `clusterDomain`
@@ -542,6 +544,41 @@ A request to a metadata address that hangs and then times out comes from a proce
 The fragment counts in the [size budget](#size-budget) (about 2 KiB of the user-data) and in the trial rendering of
 the NodeClass controller. `spec.butane` and a custom template merge after it and can override it.
 
+## The interruption agent
+
+A **spot** launch whose driver implements [`InterruptionNotices`](driver-contract.md#interruption-notices-the-node-agent) also gets a small
+node agent ([plan 26](../plans/v1/wip/26-interruption.md) section 2, [ADR-027](../explanation/DECISIONS.md)). It is a shell script, rendered
+into the user-data as the boot fragment `interruption-agent` (after the driver's fragments and the metadata restriction), so there is nothing to
+build or host:
+
+- `/opt/scarpenter/bin/scarpenter-interruption-agent`: the vendor's `scarpenter_check` function in a generic loop. It runs the check every
+  interval; on a notice (exit 0) it reduces the printed reason and deadline to letters, digits and `:.+-`, waits for the kubelet's client
+  certificate, and patches **its own Node** (`PATCH /api/v1/nodes/<name>`, JSON merge patch, `curl`) with the annotations
+  `scarpenter.sparecores.com/interruption`, `interruption-deadline` and `interruption-source=instance-metadata`
+  ([labels](labels.md#interruption-annotations)), retrying until it gets a 2xx. A restart first reads the Node: with the annotation present it
+  does not patch again. It logs one line per state change to the journal (`journalctl -u scarpenter-interruption`). The interruption controller
+  clamps the deadline to the vendor's notice window; the agent does not.
+- `/etc/scarpenter/interruption.env`: `NODE_NAME` and `API_SERVER` (the template variables `NodeName` and `APIServerEndpoint`).
+- `scarpenter-interruption.service`: `Slice=scarpenter-metadata.slice`, `Restart=always`, started at boot after `network-online.target` (and after
+  `scarpenter-metadata-firewall.service` when the metadata restriction is rendered), before the kubelet has a certificate: a vendor that needs an
+  early first metadata call (Azure's opt-in) gets it. With `instanceMetadata.access: Open` the slice is created implicitly and the agent works the
+  same.
+
+**Credential.** The agent authenticates with the kubelet's client certificate (`/var/lib/kubelet/pki/kubelet-client-current.pem`, certificate and
+key in one file) and the cluster CA. NodeRestriction limits that identity to its own Node and does not forbid annotations, so a node can only annotate
+itself; a node that lies can only delete itself and mark its own type and zone unavailable for one TTL. L4 scenario Q16 checks both directions on
+k3s: its own Node is patched (200), another Node is refused (403).
+
+**Graceful node shutdown.** Spot launches also get `shutdownGracePeriod: 25s` and `shutdownGracePeriodCriticalPods: 5s` in the kubelet
+configuration, so an ACPI shutdown without a usable notice (a missed one, GCP with no notice) still sends the Pods SIGTERM. Q17 checks on Flatcar
+that the kubelet holds a delay lock of logind and that a Pod gets SIGTERM on `systemctl poweroff`. On-demand launches have neither.
+
+**Size.** The agent adds about 1.7 KiB to the user-data of a spot node (the script with a typical check is 1.2 KiB; the unit, the settings and
+the encoding make up the rest), so `SpotAgentBytes` (1.5 KiB) is added to the 12 KiB budget of the golden worst case for spot nodes. The NodeClass's
+trial rendering renders a spot node with the agent but without the NVIDIA part, and the NVIDIA part without the agent: the largest GPU part, the
+largest storage setup and the agent together exceed 16 KiB, and no vendor offers such a type. A spot launch of a GPU type that really needs both
+still fails at launch with `UserDataRender` if it does not fit.
+
 ## Custom templates and extra Butane
 
 `spec.network.custom.configMapRef` (template `custom`) and `spec.butane` each name
@@ -568,8 +605,10 @@ each part, and the NodeClass reports it as `ValidationSucceeded=False`
 by golden tests (15 KiB for a [GPU node](#nvidia-gpu-nodes)), measured with a CA bundle of RSA-2048 size (1.1 KiB of PEM). A
 plain rendering is 4.5 KiB with `tailscale` and 3.2 KiB with `direct`; with
 everything on (the node IP unit, two volumes, 24 local disks with one mount each,
-the Lean footprint, the metadata restriction) it is 10.6 KiB with `tailscale` and
-11.0 KiB with `direct`, and a unit test holds that worst case to the 12 KiB.
+the Lean footprint, the metadata restriction) it is 11.0 KiB with `tailscale` and
+11.3 KiB with `direct`, and a unit test holds that worst case to the 12 KiB. A spot
+node of a vendor with a notice check adds the [interruption agent](#the-interruption-agent)
+(about 1.7 KiB; 12.7 and 13.0 KiB in the worst case, held to 12 KiB plus 1.5 KiB).
 The CA is the largest fixed part and
 it does not compress (a 4096-bit CA adds about 0.7 KiB, a rotation bundle of two
 CAs about 1 KiB). The NodeClass controller's trial rendering uses the real cluster

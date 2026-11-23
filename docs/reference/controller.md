@@ -517,7 +517,7 @@ Binaries built with `-tags scarpenter_dev` add the fake driver and its flags
 (`scarpenter-fake-resources`), `--fake-launch-delay` (`0`) and `--fake-min-notice` and `--fake-max-notice` (empty: the
 [interruption notice window](driver-contract.md#interruption-notice-window) of the impersonated vendor). Details: [the fake driver](driver-contract.md#the-fake-driver).
 The qemu driver adds `--qemu-state-dir`, `--qemu-cache-dir`, `--qemu-log-dir`,
-`--qemu-bridge` and `--qemu-launch-delay` (below). The NodeClass controller is the same as in production. Development builds also
+`--qemu-bridge`, `--qemu-launch-delay` and `--qemu-notice-url` (below). The NodeClass controller is the same as in production. Development builds also
 expose the gauges `scarpenter_fake_state_revision` and
 `scarpenter_fake_state_published_revision` (the revision of the fake's in-memory
 state and of its state ConfigMap).
@@ -531,6 +531,7 @@ state and of its state ConfigMap).
 | `--qemu-log-dir` | `SCARPENTER_QEMU_LOG_DIR` | empty | If set, the serial log of every deleted instance is moved here (`<nodeclaim>-<id>.serial.log`). |
 | `--qemu-bridge` | `SCARPENTER_QEMU_BRIDGE` | `scbr0` | The bridge of the default network. |
 | `--qemu-launch-delay` | `SCARPENTER_QEMU_LAUNCH_DELAY` | `0` | Test aid: how long `CreateInstance` waits after the VM has started before it returns (the L4 scenario that kills the controller in that window). |
+| `--qemu-notice-url` | `SCARPENTER_QEMU_NOTICE_URL` | empty | Test aid: base URL of the notice server that the [node agent](node-bootstrap.md#the-interruption-agent) of a spot qemu instance polls (`<url>/<node name>`); a plain http(s) URL. Empty renders no agent (the L4 interruption scenario). |
 
 ## CloudProvider
 

@@ -30,6 +30,15 @@ vendors:
         localStorageCount: 2
         prices:
           - {region: local, onDemand: 0.025}
+      # The one spot type (the L4 scenario of the interruption node agent): dearer than
+      # small in both capacity types, so that no other scenario schedules onto it.
+      - name: spot
+        family: qemu
+        arch: amd64
+        vcpus: 2
+        memoryMiB: 2048
+        prices:
+          - {region: local, onDemand: 0.012, spot: 0.011}
       # The GPU types only describe a GPU: the VMs have none. The L4 lane boots them to
       # prove the node bootstrap of NVIDIA types without hardware (plan 12 step (d)):
       # gpu is a T4 (the driver check fails), gpu-nvswitch an 8-GPU A100 HGX system

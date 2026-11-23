@@ -370,6 +370,23 @@ or a maximum under the minimum) gets `vendors.DefaultNoticeWindow`, 30 s and 5 m
 impersonates (AWS and OCI 2 min, GCP 30 s to 2 min 30 s, Azure 30 s, Alibaba 5 min), which `--fake-min-notice` and `--fake-max-notice`
 override.
 
+## Interruption notices (the node agent)
+
+`InterruptionNotices` is the optional capability of a driver whose vendor announces the loss of a spot or preemptible instance in the
+instance metadata ([plan 26](../plans/v1/wip/26-interruption.md) section 2). `InterruptionNotices()` returns a `NoticeCheck`:
+
+| Field | Meaning |
+|---|---|
+| `Script` | The body of the POSIX `sh` function `scarpenter_check`. It prints `<reason> <deadline>` and returns 0 when a notice is present (the reason is `SpotInterrupted`; the deadline is RFC 3339 and may be left out), returns 1 when there is none, 2 on a transient error (the endpoint did not answer). It may use `curl`, and the variable `NODE_NAME` (the node's name). It must not contain `{{` (the fragment is rendered as a template). An empty script means no agent. |
+| `Interval` | The pause after a check that found no notice, in whole seconds, rounded up (AWS 2 s, Azure 1 s, Alibaba 5 s). Zero for a check that blocks until something changes (GCP's `wait_for_change`). |
+| `NoticeWindow` | Embedded: `MinNotice` and `MaxNotice`, the same window as [`InterruptionWindow`](#interruption-notice-window); `NoticeWindowOf` reads it from here when the driver has no `InterruptionWindow`. |
+
+`vendors.InterruptionAgent(d, restricted)` wraps the check in the generic loop and the unit (the [node agent](node-bootstrap.md#the-interruption-agent)),
+and `vendors.BootFragmentsOf(d, restrictMetadata, spot)` adds it after the driver's own fragments and the metadata restriction **on spot launches
+only**. The core never branches on the vendor: a vendor step adds its script and implements the capability, nothing else. A driver without the
+capability gets no agent. Its tests run the script with `sh` against a local HTTP fixture (the check's own responses: no notice, notice,
+malformed, 5xx); the agent's size, the generic loop plus the check, stays under 1.5 KiB (`TestAgentScriptSize`).
+
 ## Interruption poller and the reason an instance is gone
 
 `InterruptionPoller` is the optional capability of a driver whose vendor shows an interruption in its API instead of, or besides, the
@@ -487,7 +504,10 @@ it and every other vendor from Keeper, so a lane without a Keeper runs): region
 `local`, zone `local-a`, types `qemu.small` (2 vCPUs, 2 GiB), `qemu.medium` (2 vCPUs,
 4 GiB) and `qemu.local` (2 vCPUs, 4 GiB, two local disks of 4 GB), on-demand only, and the GPU types
 `qemu.gpu` (a T4) and `qemu.gpu-nvswitch` (8 A100) that only describe a GPU for the lane's
-GPU-less boot (the VMs have none).
+GPU-less boot (the VMs have none). `qemu.spot` (2 vCPUs, 2 GiB, dearer than `qemu.small` in both capacity types, so no other scenario
+schedules onto it) is the one type with a spot offering: the driver launches spot instances like on-demand ones, and with `--qemu-notice-url`
+set it implements [`InterruptionNotices`](#interruption-notices-the-node-agent) for them: the check asks `<url>/<node name>` and an empty
+answer means no notice, `SpotInterrupted <RFC 3339 deadline>` is one (window 30 s to 2 min, interval 1 s). L4 scenarios Q16 and Q17 use it.
 
 - **Images.** `ResolveImage` downloads `flatcar_production_qemu_uefi_image.img.bz2`
   (a compressed qcow2) and the UEFI firmware files of the release from the Flatcar

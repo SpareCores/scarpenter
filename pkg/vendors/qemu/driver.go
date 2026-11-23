@@ -99,12 +99,30 @@ type Driver struct {
 }
 
 var (
-	_ vendors.Driver             = (*Driver)(nil)
-	_ vendors.NodeOptions        = (*Driver)(nil)
-	_ vendors.ManagedResources   = (*Driver)(nil)
-	_ vendors.NodeClassValidator = (*Driver)(nil)
-	_ vendors.CatalogProvider    = (*Driver)(nil)
+	_ vendors.Driver              = (*Driver)(nil)
+	_ vendors.NodeOptions         = (*Driver)(nil)
+	_ vendors.ManagedResources    = (*Driver)(nil)
+	_ vendors.NodeClassValidator  = (*Driver)(nil)
+	_ vendors.CatalogProvider     = (*Driver)(nil)
+	_ vendors.InterruptionNotices = (*Driver)(nil)
 )
+
+// InterruptionNotices implements vendors.InterruptionNotices with a stand-in for
+// a vendor's metadata notice: the lane's notice server answers an empty body
+// while the node is fine, and "<reason> <deadline>" once the scenario interrupts
+// it. Without --qemu-notice-url the check is empty and nodes get no agent.
+func (d *Driver) InterruptionNotices() vendors.NoticeCheck {
+	c := vendors.NoticeCheck{
+		Interval:     time.Second,
+		NoticeWindow: vendors.NoticeWindow{MinNotice: 30 * time.Second, MaxNotice: 2 * time.Minute},
+	}
+	if d.opts.NoticeURL != "" {
+		c.Script = `  out=$(curl -sf --max-time 3 ` + d.opts.NoticeURL + `/"$NODE_NAME") || return 2
+  [ -n "$out" ] || return 1
+  echo "$out"`
+	}
+	return c
+}
 
 // New returns a driver with the given options and host (for tests; the
 // registry's factory returns a driver that reads its options from the Init
@@ -421,7 +439,7 @@ func (d *Driver) validate(req vendors.CreateRequest) (static.Type, error) {
 	case !ok:
 		return typ, vendors.NewError(vendors.Fatal, "InvalidInstanceType",
 			fmt.Errorf("unknown instance type %q", req.InstanceType))
-	case req.CapacityType != vendors.CapacityOnDemand:
+	case req.CapacityType != vendors.CapacityOnDemand && req.CapacityType != vendors.CapacitySpot:
 		return typ, vendors.NewError(vendors.Unsupported, "CapacityType",
 			fmt.Errorf("the qemu driver has no %s capacity", req.CapacityType))
 	case len(req.UserData) > maxUserData:

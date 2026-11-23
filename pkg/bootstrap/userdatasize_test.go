@@ -67,6 +67,34 @@ func TestWorstCaseUserDataStaysInTheBudget(t *testing.T) {
 	}
 }
 
+// A spot node adds the interruption agent: the worst case with it stays within the
+// budget plus the agent's allowance. The GPU worst case has no room for it (the
+// largest GPU part, the largest storage setup and the agent together exceed the
+// limit of every vendor), and no vendor offers such a type: the trial rendering
+// of a NodeClass renders the two apart.
+func TestWorstCaseSpotUserDataStaysInTheBudget(t *testing.T) {
+	agent, ok, err := vendors.InterruptionAgent(noticeDriver{}, true)
+	if err != nil || !ok {
+		t.Fatalf("InterruptionAgent = %v, %v", ok, err)
+	}
+	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
+		t.Run(string(template), func(t *testing.T) {
+			p := worstCaseParams(t, template)
+			p.Spot = true
+			p.VendorFragments = append(p.VendorFragments, bootstrap.Fragment{Name: agent.Name, Butane: agent.Butane})
+			r, err := bootstrap.Render(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n, limit := len(r.UserData), bootstrap.DefaultBudgetBytes+bootstrap.SpotAgentBytes; n > limit {
+				t.Errorf("the spot worst case is %d bytes, the budget with the agent is %d", n, limit)
+			} else {
+				t.Logf("%s spot worst case: %d bytes of user-data", template, n)
+			}
+		})
+	}
+}
+
 // Validate sizes its trial rendering with a node IP range, because a vendor with
 // a private network renders the node IP unit: a NodeClass that only fits without
 // it is rejected at validation, not when a node launches.

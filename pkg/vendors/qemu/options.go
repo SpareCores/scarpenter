@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	coreoptions "sigs.k8s.io/karpenter/pkg/operator/options"
@@ -60,7 +61,15 @@ type Options struct {
 	// returns: for the L4 scenario that kills the controller in that window, so
 	// that the replay of the launch is certain, not a matter of luck.
 	LaunchDelay time.Duration
+	// NoticeURL is the base URL of the test lane's notice server. A spot instance
+	// asks it for "<NoticeURL>/<node name>" whether it is being interrupted:
+	// the qemu driver's stand-in for a vendor's instance metadata notice. Empty
+	// means no node agent.
+	NoticeURL string
 }
+
+// noticeURL is what the notice check may embed in its shell script.
+var noticeURL = regexp.MustCompile(`^https?://[A-Za-z0-9.:_/-]+$`)
 
 // DefaultOptions returns the options with every default.
 func DefaultOptions() Options {
@@ -82,6 +91,7 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.CacheDir, "qemu-cache-dir", env.WithDefaultString("SCARPENTER_QEMU_CACHE_DIR", def.CacheDir), "Directory the qemu driver caches the downloaded Flatcar images in.")
 	fs.StringVar(&o.LogDir, "qemu-log-dir", env.WithDefaultString("SCARPENTER_QEMU_LOG_DIR", ""), "If set, the serial logs of deleted qemu instances are moved here.")
 	fs.DurationVar(&o.LaunchDelay, "qemu-launch-delay", env.WithDefaultDuration("SCARPENTER_QEMU_LAUNCH_DELAY", 0), "Test aid: how long CreateInstance waits after the VM has started before it returns.")
+	fs.StringVar(&o.NoticeURL, "qemu-notice-url", env.WithDefaultString("SCARPENTER_QEMU_NOTICE_URL", ""), "Test aid: base URL of the notice server that spot qemu instances poll for an interruption notice; empty renders no node agent.")
 	fs.StringVar(&o.Bridge, "qemu-bridge", env.WithDefaultString("SCARPENTER_QEMU_BRIDGE", def.Bridge), "Bridge of the qemu driver's default network.")
 }
 
@@ -95,6 +105,9 @@ func (o *Options) Parse(fs *coreoptions.FlagSet, args ...string) error {
 	}
 	if o.StateDir == "" || o.CacheDir == "" || o.Bridge == "" {
 		return errors.New("--qemu-state-dir, --qemu-cache-dir and --qemu-bridge must not be empty")
+	}
+	if o.NoticeURL != "" && !noticeURL.MatchString(o.NoticeURL) {
+		return fmt.Errorf("--qemu-notice-url %q is not a plain http(s) URL", o.NoticeURL)
 	}
 	if o.LaunchDelay < 0 {
 		return errors.New("--qemu-launch-delay must not be negative")

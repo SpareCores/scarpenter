@@ -418,7 +418,9 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	if rr.NVIDIA, err = nvidiaSelection(nc, cand.it); err != nil {
 		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
 	}
-	frags, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata())
+	spot := cand.capacityType == vendors.CapacitySpot
+	rr.Spot = spot
+	frags, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata(), spot)
 	if err != nil {
 		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
 	}

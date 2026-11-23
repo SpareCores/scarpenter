@@ -29,6 +29,11 @@ const (
 	// client certificates is written, when it is not the cluster CA (k3s signs
 	// serving and client certificates with two CAs).
 	KubeletClientCAPath = "/etc/kubernetes/pki/kubelet-client-ca.crt"
+	// SpotShutdownGracePeriod and SpotShutdownGracePeriodCriticalPods are the
+	// kubelet's graceful node shutdown settings on spot nodes (plan 26 section 2):
+	// the shorter of the vendors' ACPI windows (UpCloud's 30 s) minus a margin.
+	SpotShutdownGracePeriod             = "25s"
+	SpotShutdownGracePeriodCriticalPods = "5s"
 )
 
 // KubeletConfiguration returns the KubeletConfiguration (kubelet.config.k8s.io/v1beta1)
@@ -46,9 +51,11 @@ const (
 // output is deterministic.
 //
 // clientCAFile is the file with the CA of the API server's client certificates
-// (authentication.x509.clientCAFile); empty means the cluster CA.
+// (authentication.x509.clientCAFile); empty means the cluster CA. spot adds the
+// graceful node shutdown settings: an ACPI shutdown that no notice announced
+// still sends the Pods their SIGTERM.
 func KubeletConfiguration(
-	spec v1alpha1.KubeletSpec, nodeMiB int64, clusterDNS []string, clusterDomain, clientCAFile string,
+	spec v1alpha1.KubeletSpec, nodeMiB int64, clusterDNS []string, clusterDomain, clientCAFile string, spot bool,
 ) (string, error) {
 	lean := spec.IsLean()
 	spec = spec.EffectiveFor(nodeMiB)
@@ -80,6 +87,10 @@ func KubeletConfiguration(
 	}
 	if len(clusterDNS) > 0 {
 		cfg["clusterDNS"] = clusterDNS
+	}
+	if spot {
+		cfg["shutdownGracePeriod"] = SpotShutdownGracePeriod
+		cfg["shutdownGracePeriodCriticalPods"] = SpotShutdownGracePeriodCriticalPods
 	}
 	if lean {
 		cfg["serializeImagePulls"] = true

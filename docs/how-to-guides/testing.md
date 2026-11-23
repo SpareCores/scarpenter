@@ -314,6 +314,11 @@ Butane, read from a ConfigMap, adds the lane's key.
 | Q14 | the check unit masked through `spec.butane`: the node registers and is Ready, has no `gpu-ready` label and keeps the taint, and nothing deletes it within the controller's 30 minutes |
 | Q15 | the GPU-less boot of an 8-GPU A100 HGX type (`qemu.gpu-nvswitch`): Q12's checks, and Fabric Manager's archive is downloaded from the mirror, verified against the pinned sha256 and unpacked, `nv-fabricmanager` runs and fails without a driver handle, and the check, which wants the unit, fails with the driver message |
 
+| Q16 | the node agent of a spot node (`qemu.spot`, the L4 harness's notice server as the `--qemu-notice-url` of the controller; plan 26 step 4): the agent runs in `scarpenter-metadata.slice`; the kubelet has `shutdownGracePeriod` and holds a delay lock of logind; the kubelet's credential patches its own Node (200) and not another Node (403, NodeRestriction); a notice 60 s ahead is annotated on the Node by the agent (source `instance-metadata`), the NodeClaim gets `Interrupted`/`SpotInterrupted`, its termination timestamp is the deadline less 5 s and it is deleted, the Pod gets SIGTERM long before the deadline, the Events exist and Node, NodeClaim and VM go; the times are recorded |
+| Q17 | graceful shutdown with no notice: a spot node that is powered off (`systemctl poweroff`: the lane has no QEMU monitor for the power button) gives its Pod SIGTERM first, and has no agent without `--qemu-notice-url` |
+
+Q16 and Q17 need nothing beyond the other scenarios' downloads and run in the default set.
+
 Q12 to Q15 are opt-in: the default lane, CI's pull request and nightly runs included, skips them. Run them with `QEMU_SCENARIOS=GPU hack/dev.sh --privileged make test-qemu`, or with the `gpu` input of the L4 workflow's manual run. They need the NVIDIA driver sysext of the lane's Flatcar release and Fabric
 Manager's archive: the first run of the lane builds the mirror tree with
 `hack/nvidia-mirror.sh` (the payload from Flatcar's release server, the archive from

@@ -17,14 +17,26 @@ type VendorBootFragments interface {
 
 // BootFragmentsOf returns the fragments the core builds for a node of the
 // driver: the driver's own, then the metadata restriction when restrictMetadata
-// is set and the driver declares metadata addresses.
-func BootFragmentsOf(d Driver, restrictMetadata bool) ([]BootFragment, error) {
+// is set and the driver declares metadata addresses, then the interruption agent
+// when spot is set (a spot launch) and the driver has a notice check.
+func BootFragmentsOf(d Driver, restrictMetadata, spot bool) ([]BootFragment, error) {
 	var out []BootFragment
 	if vf, ok := d.(VendorBootFragments); ok {
 		out = append(out, vf.BootFragments()...)
 	}
+	restricted := false
 	if restrictMetadata {
 		f, ok, err := RestrictMetadata(d)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, f)
+			restricted = true
+		}
+	}
+	if spot {
+		f, ok, err := InterruptionAgent(d, restricted)
 		if err != nil {
 			return nil, err
 		}

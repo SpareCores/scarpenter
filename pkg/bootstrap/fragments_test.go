@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,14 +148,14 @@ func TestValidateRendersTheFragmentsOfEachVendor(t *testing.T) {
 		fn      bootstrap.FragmentsFunc
 		wantErr string
 	}{
-		"fits": {func(vendor, arch string) ([]bootstrap.Fragment, error) { return fragments(t), nil }, ""},
-		"too big": {func(vendor, arch string) ([]bootstrap.Fragment, error) {
+		"fits": {func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) { return fragments(t), nil }, ""},
+		"too big": {func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
 			return []bootstrap.Fragment{{Name: "big", Butane: bigFragment(t)}}, nil
 		}, "with the boot fragments of aws"},
-		"the driver fails": {func(vendor, arch string) ([]bootstrap.Fragment, error) {
+		"the driver fails": {func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
 			return nil, errBoom
 		}, "boot fragments of aws"},
-		"none": {func(vendor, arch string) ([]bootstrap.Fragment, error) { return nil, nil }, ""},
+		"none": {func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) { return nil, nil }, ""},
 	} {
 		err := r.ValidateWith(t.Context(), nc, "amd64", bootstrap.Inputs{}, tc.fn)
 		switch {
@@ -163,6 +164,28 @@ func TestValidateRendersTheFragmentsOfEachVendor(t *testing.T) {
 		case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
 			t.Errorf("%s: %v, want %q", name, err, tc.wantErr)
 		}
+	}
+}
+
+// The trial rendering asks for the spot fragments (the interruption agent) and
+// renders them without the NVIDIA part, whose largest variant would not leave room.
+func TestValidateRendersTheSpotFragmentsWithoutTheGPUPart(t *testing.T) {
+	r := bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: kubeRefs(t), APIServerEndpoint: "https://api.example.com:6443"})
+	nc := nodeClass(nil)
+	var asked []bool
+	err := r.ValidateWith(t.Context(), nc, "amd64", bootstrap.Inputs{}, func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
+		asked = append(asked, spot)
+		if spot {
+			// Fits alone, not together with the largest NVIDIA part.
+			return []bootstrap.Fragment{{Name: "agent", Butane: bigFragment(t)}}, nil
+		}
+		return nil, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "a spot node") {
+		t.Errorf("a spot fragment that does not fit: %v, want an error naming the spot variant", err)
+	}
+	if !slices.Contains(asked, true) || !slices.Contains(asked, false) {
+		t.Errorf("fragments asked for with spot = %v, want both", asked)
 	}
 }
 

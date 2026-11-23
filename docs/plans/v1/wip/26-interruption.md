@@ -271,6 +271,21 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    capability against a notice server the L4 harness runs on the host bridge, so L4 checks the real path: agent in
    the slice, kubelet credential, NodeRestriction lets it annotate its own Node and not another, the controller
    deletes the NodeClaim, Pods get SIGTERM, graceful shutdown on ACPI.
+   **Done.** `vendors.InterruptionNotices` (`NoticeCheck{Script, Interval, NoticeWindow}`), `vendors.InterruptionAgent(d, restricted)` and
+   `BootFragmentsOf(d, restrictMetadata, spot)` (the agent fragment `interruption-agent` on spot launches only), `RenderRequest.Spot` and the kubelet's
+   `shutdownGracePeriod: 25s` and `shutdownGracePeriodCriticalPods: 5s` on spot launches, the qemu driver's spot type `qemu.spot` and its check
+   (`--qemu-notice-url`), L1 tests that run the script with `sh` against a local HTTP fixture, a golden fragment, the size tests, and the L4
+   scenarios Q16 (agent, slice, NodeRestriction both ways, notice to Pod SIGTERM) and Q17 (graceful shutdown), both in the default L4 set (no
+   extra download). Deviations from the text above: (a) the agent does not clamp the deadline: the controller already clamps it into the notice
+   window and treats a missing or unparsable one as `now + MinNotice` (step 1), and the clamping code cost about 0.4 KiB of user-data; the agent
+   only reduces the reason and the deadline to safe characters; (b) the agent script with a typical check is 1.2 KiB, but with its unit, its
+   settings and the encoding it adds about 1.7 KiB to the user-data, which the 12 KiB golden worst case cannot hold: spot nodes are held to
+   12 KiB plus `SpotAgentBytes` (1.5 KiB), and the NodeClass's trial rendering renders the agent without the NVIDIA part and the NVIDIA part
+   without the agent (the largest GPU part, the largest storage setup and the agent together exceed 16 KiB); (c) the node name and the API server
+   reach the script through an environment file written from the template variables, so the script is static and testable; (d) a graceful
+   shutdown test (Q17) runs `systemctl poweroff` because the lane's VMs have no QEMU monitor for the ACPI power button. Verified in L4: NodeRestriction
+   on k3s v1.37.1 allows the kubelet's identity to patch its own Node's annotations and refuses another Node (403); the kubelet holds a delay
+   lock of logind on Flatcar 4757.2.3, and a Pod gets SIGTERM within a second of `systemctl poweroff`. `jq` is not needed (the agent does not parse JSON).
 5. **AWS** check script, `GoneReason`, spike S2, opt-in L5 `interruption` scenario.
 6. **GCP** check script, the 120 s notice at create by default if S3 shows no extra cost (else the 30 s ACPI window and the shutdown backstop), `GoneReason`, opt-in L5 scenario.
 7. **Azure** check script (opt-in at boot, VM name filter), opt-in L5 scenario with Simulate Eviction (S4).

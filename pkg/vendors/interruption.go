@@ -33,10 +33,17 @@ type InterruptionWindow interface {
 	NoticeWindow() NoticeWindow
 }
 
-// NoticeWindowOf returns the driver's notice window, or the default.
+// NoticeWindowOf returns the driver's notice window: the one InterruptionWindow
+// declares, else the one of its InterruptionNotices check, else the default.
 func NoticeWindowOf(d Driver) NoticeWindow {
+	var declared []NoticeWindow
 	if w, ok := d.(InterruptionWindow); ok {
-		nw := w.NoticeWindow()
+		declared = append(declared, w.NoticeWindow())
+	}
+	if n, ok := d.(InterruptionNotices); ok {
+		declared = append(declared, n.InterruptionNotices().NoticeWindow)
+	}
+	for _, nw := range declared {
 		if nw.MinNotice > 0 && nw.MaxNotice >= nw.MinNotice {
 			return nw
 		}
