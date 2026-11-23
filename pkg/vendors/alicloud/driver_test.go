@@ -915,3 +915,201 @@ func TestSettingsHelpers(t *testing.T) {
 		t.Error("VendorArch")
 	}
 }
+
+// oldType takes the old system disk categories only, like ecs.xn4.
+var oldType = fake.TypeSpec{
+	Name: "ecs.xn4.small", VCPUs: 1, MemoryGiB: 1, Disks: 17, SystemDisks: []string{"cloud_efficiency", "cloud_ssd"},
+}
+
+func oldTypeEnv(t *testing.T) *denv {
+	return newDenv(t, denvOptions{types: append(slices.Clone(smallTypes), oldType)})
+}
+
+func TestSystemDiskCategoryChoice(t *testing.T) {
+	e := oldTypeEnv(t)
+	e.warm(testRegion)
+	root := func(raw string) Settings {
+		st, err := decodeSettings(vendors.VendorSettings{Raw: []byte(raw)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	unpinned, ssd := root(`{}`), root(`{"storage":{"root":{"category":"cloud_ssd"}}}`)
+	pinnedEssd := root(`{"storage":{"root":{"category":"cloud_essd"}}}`)
+	cases := []struct {
+		name, typ string
+		st        Settings
+		want      string
+	}{
+		{"a modern type keeps cloud_essd", "ecs.g7.large", unpinned, CategoryESSD},
+		{"an old type falls back to cloud_ssd", oldType.Name, unpinned, CategorySSD},
+		{"a pinned category is kept when taken", oldType.Name, ssd, CategorySSD},
+		{"a pinned category is strict", oldType.Name, pinnedEssd, ""},
+		{"a type no category lists is dropped", "ecs.nope.large", unpinned, ""},
+	}
+	for _, c := range cases {
+		got, ok := e.d.systemDiskCategory(c.typ, testZoneA, c.st)
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("%s: %q %v, want %q", c.name, got, ok, c.want)
+		}
+	}
+}
+
+func TestSupportedAndPriceUseTheChosenCategory(t *testing.T) {
+	e := oldTypeEnv(t)
+	e.warm(testRegion)
+	p := vendors.Profiles{vendors.ProfileStorage: {
+		"default": json.RawMessage(`{}`),
+		"essd":    json.RawMessage(`{"root":{"category":"cloud_essd"}}`),
+		"ssd":     json.RawMessage(`{"root":{"category":"cloud_ssd"}}`),
+	}}
+	sup := e.d.Supported(vendors.CatalogType{APIReference: oldType.Name}, testZoneA, p)
+	if strings.Join(sup[vendors.ProfileStorage], ",") != "default,ssd" {
+		t.Errorf("old type = %v", sup)
+	}
+	sup = e.d.Supported(vendors.CatalogType{APIReference: "ecs.g7.large"}, testZoneA, p)
+	if len(sup[vendors.ProfileStorage]) != 3 {
+		t.Errorf("g7 = %v", sup)
+	}
+}
+
+func TestSystemDiskReadCost(t *testing.T) {
+	e := oldTypeEnv(t)
+	e.warm(testRegion)
+	// On-demand, spot and one per fallback category (essd, ssd, efficiency).
+	if n := e.acct.Calls("DescribeAvailableResource"); n != 5 {
+		t.Errorf("DescribeAvailableResource calls = %d, want 5", n)
+	}
+}
+
+func TestLaunchFallsBackToASupportedSystemDisk(t *testing.T) {
+	e := oldTypeEnv(t)
+	e.warm(testRegion)
+	// The default settings carry no category: the old type launches with cloud_ssd.
+	req := e.claim("old", oldType.Name, vendors.CapacityOnDemand)
+	req.Settings = e.d.Defaults()
+	if _, err := e.d.CreateInstance(bg(), req); err != nil {
+		t.Fatalf("launch of an old type with the default disk: %v", err)
+	}
+	// A pinned category is strict: the type is refused with its own class.
+	req = e.claim("old2", oldType.Name, vendors.CapacityOnDemand)
+	req.Settings = vendors.VendorSettings{Raw: []byte(`{"storage":{"root":{"category":"cloud_essd","size":"64Gi"}}}`)}
+	if _, err := e.d.CreateInstance(bg(), req); !vendors.IsClass(err, vendors.Unsupported) {
+		t.Fatalf("launch of an old type with a pinned cloud_essd: %v", err)
+	}
+}
+
+func TestNotSupportDiskCategoryIsUnsupported(t *testing.T) {
+	// The backstop: before the first read of the offerings nothing is known, the
+	// launch error carries the class.
+	e := oldTypeEnv(t)
+	req := e.claim("old", oldType.Name, vendors.CapacityOnDemand)
+	req.Settings = vendors.VendorSettings{Raw: []byte(`{"storage":{"root":{"category":"cloud_essd","size":"64Gi"}}}`)}
+	_, err := e.d.CreateInstance(bg(), req)
+	if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != "InvalidInstanceType.NotSupportDiskCategory" {
+		t.Fatalf("%v", err)
+	}
+}
+
+var notFoundRegion = fake.APIError("InvalidRegionId.NotFound", 400, "no such region")
+
+func TestUnusableRegionIsSkippedByList(t *testing.T) {
+	e := newDenv(t, denvOptions{})
+	e.acct.Inject("DescribeVpcs", notFoundRegion, 0)
+	// The sweep does not fail on regions the account lists but cannot call, and
+	// does not call them again.
+	for range 2 {
+		if _, err := e.d.List(bg(), nil, nil); err != nil {
+			t.Fatalf("List: %v", err)
+		}
+	}
+	if n := e.acct.Calls("DescribeVpcs"); n != 2 {
+		t.Errorf("DescribeVpcs calls = %d, want 2 (one per region, once)", n)
+	}
+}
+
+func TestUnusableRegionIsSkippedByListInstancesUntilRefresh(t *testing.T) {
+	e := newDenv(t, denvOptions{})
+	e.acct.Inject("DescribeInstances", notFoundRegion, 0)
+	tags := map[vendors.TagKey]string{vendors.TagCluster: testCluster}
+	regions := []string{testRegion, otherRegion}
+	for range 2 {
+		if _, err := e.d.ListInstances(bg(), regions, tags); err != nil {
+			t.Fatalf("ListInstances: %v", err)
+		}
+	}
+	if n := e.acct.Calls("DescribeInstances"); n != 2 {
+		t.Fatalf("DescribeInstances calls = %d, want 2", n)
+	}
+	// The next refresh of the regions forgets them.
+	e.clk.Step(regionsTTL + time.Minute)
+	if _, err := e.d.ListInstances(bg(), regions, tags); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.acct.Calls("DescribeInstances"); n != 4 {
+		t.Errorf("DescribeInstances calls after the refresh = %d, want 4", n)
+	}
+}
+
+func TestSkippedRegionStillReachedByInstanceReads(t *testing.T) {
+	e := newDenv(t, denvOptions{})
+	e.warm(testRegion)
+	inst, err := e.d.CreateInstance(bg(), e.claim("live", "ecs.g7.large", vendors.CapacityOnDemand))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.acct.Inject("DescribeVpcs", notFoundRegion, 1)
+	if _, err := e.d.List(bg(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !e.d.isUnusable(testRegion) && !e.d.isUnusable(otherRegion) {
+		t.Fatal("no region was skipped")
+	}
+	if _, err := e.d.GetInstance(bg(), inst.Ref); err != nil {
+		t.Errorf("Get after the skip: %v", err)
+	}
+	if _, err := e.d.FindInstance(bg(), testRegion, map[vendors.TagKey]string{vendors.TagNodeClaim: "live"}); err != nil {
+		t.Errorf("Find after the skip: %v", err)
+	}
+	if err := e.d.DeleteInstance(bg(), inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.acct.InstanceIDs(testRegion)) != 0 {
+		t.Error("the delete did not reach the region")
+	}
+}
+
+func TestPerformanceLevelPinsESSD(t *testing.T) {
+	e := oldTypeEnv(t)
+	e.warm(testRegion)
+	st, err := decodeSettings(vendors.VendorSettings{Raw: []byte(`{"storage":{"root":{"performanceLevel":"PL1"}}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := e.d.systemDiskCategory(oldType.Name, testZoneA, st); ok {
+		t.Errorf("an old type with a performance level got %q", c)
+	}
+}
+
+func TestEmptyDiskAnswerIsUnknown(t *testing.T) {
+	e := oldTypeEnv(t)
+	// No type takes cloud_essd anywhere: the answer says nothing, it must not
+	// drop every type.
+	for _, ts := range append(slices.Clone(smallTypes), oldType) {
+		ts.SystemDisks = []string{"cloud_efficiency"}
+		e.acct.AddType(ts)
+	}
+	e.warm(testRegion)
+	st, _ := decodeSettings(vendors.VendorSettings{Raw: []byte(`{}`)})
+	if c, ok := e.d.systemDiskCategory("ecs.g7.large", testZoneA, st); !ok || c != CategoryESSD {
+		t.Errorf("empty cloud_essd answer: %q %v", c, ok)
+	}
+	// A sold-out type still counts for the category.
+	e.acct.Offer(testRegion, testZoneA, fake.OnDemand, "SoldOut", oldType.Name)
+	e.warm(testRegion)
+	pin, _ := decodeSettings(vendors.VendorSettings{Raw: []byte(`{"storage":{"root":{"category":"cloud_efficiency"}}}`)})
+	if c, ok := e.d.systemDiskCategory(oldType.Name, testZoneA, pin); !ok || c != CategoryEfficiency {
+		t.Errorf("sold out: %q %v", c, ok)
+	}
+}

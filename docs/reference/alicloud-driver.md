@@ -107,7 +107,9 @@ intersects it with Keeper's regions, so regions Keeper does not list are never u
 international regions: the China regions need a China-site, real-name-verified account, and the
 driver has no code branch for them. `Zones` is `DescribeZones`, cached for an hour; the zone ID and
 the zone name are the same text (`ap-southeast-1a`), so Keeper's zone IDs match without mapping. A
-region the credentials cannot use is `RegionUnavailable`.
+region the credentials cannot use is `RegionUnavailable`. A region that `DescribeRegions` lists but whose endpoint
+answers `InvalidRegionId.NotFound` is skipped by the resource list and the instance list (logged
+once at V(1)) until the next refresh of the regions; reads and deletes of a single instance still reach it.
 
 `LaunchableTypes` is `DescribeAvailableResource` per region for on-demand and for spot (a type with
 stock for either is offered; the launch error settles the rest), refreshed by the quota tracker, minus the
@@ -119,7 +121,7 @@ disk quantity) from `DescribeInstanceTypes`.
 
 The `alicloud` block of `spec.vendors` and of the storage, network and placement profiles
 ([API reference](api.md#specvendorsalicloud); field names follow the ECS API). Built-in defaults
-(layer 1): a `cloud_essd` PL0 system disk of 64 GiB, **not encrypted**, a public IPv4 of up to 100 Mbit/s
+(layer 1): a 64 GiB system disk (`cloud_essd` PL0, or the next category the type takes, see `Supported`), **not encrypted**, a public IPv4 of up to 100 Mbit/s
 `PayByTraffic`, `HttpTokens` `optional`.
 
 | Setting | Meaning |
@@ -140,9 +142,22 @@ Decisions that differ from AWS (each an open question of the plan, decided by de
 - **Bandwidth 100 Mbit/s pay by traffic**: sc-runner's 5 Mbit/s caps benchmarks.
 - **`Supported`** drops a storage profile for a type when `cloud_essd_entry` is asked for a family other than
   `ecs.u1` and `ecs.e`, when the disks exceed the type's `DiskQuantity` (the system disk counts: the conservative
-  reading, *unverified*), when an encrypted system disk meets a zone that refuses it (`localStorage` policies other than `ignore` never get that far: the CRD refuses them). Which disk categories each zone
-  sells, and which deployment strategies each family takes, are *unverified* and left to the launch errors
-  (`CategoryNotSupported`, `InvalidDiskCategory.NotSupported` are `Unsupported`, 24 h).
+  reading, *unverified*), when an encrypted system disk meets a zone that refuses it, and when no system disk
+  category fits the type in the zone (`localStorage` policies other than `ignore` never get that far: the CRD
+  refuses them). Which deployment strategies each family takes is *unverified* and left to the launch errors
+  (`CategoryNotSupported`, `InvalidDiskCategory.NotSupported`, `InvalidInstanceType.NotSupportDiskCategory` are
+  `Unsupported`, 24 h).
+- **System disk category** per type and zone comes from the vendor: the offerings read also calls
+  `DescribeAvailableResource` with `SystemDiskCategory` set (the form of the official Terraform provider; a failed read keeps
+  the previous answer and the launch error is the backstop), once per category of `cloud_essd`, `cloud_ssd`,
+  `cloud_efficiency` and any category a profile pins, per region on the refresh of the offerings (no call per type or
+  zone). A NodeClass that sets `storage.root.category` pins it: a type that does not take it in the zone is not
+  offered. Without one the disk is `cloud_essd` where the type takes it, else `cloud_ssd`, else `cloud_efficiency`
+  (old generations such as `ecs.xn4` take the last two; the performance level is dropped with the category), and a
+  type that takes none is not offered. `PriceDelta` prices the chosen category. A zone not read yet, or listed without a type, is not refused. A `performanceLevel` without a category pins
+  `cloud_essd`. The capability read ignores stock. Under the fallback different types of one NodeClass can run on
+  different system disk categories, which affects the comparability of benchmarks between them: pin the category when
+  that matters.
 - **`PriceDelta`** is the disks at Keeper's GB-month price divided by 730, per region and category (and level for
   ESSD: a row without a level serves PL1 only); incomplete for `cloud_auto`, a level Keeper has no row for, any
   provisioned IOPS or bursting, and `PayByBandwidth`. The public IP is free and traffic is not priced. Keeper's
