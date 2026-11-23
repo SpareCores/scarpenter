@@ -7,14 +7,21 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package offered
 
 import (
+	"bytes"
+	"cmp"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 )
 
 // fixture builds a report like a vendor's: n types over a few regions of three
@@ -49,25 +56,33 @@ func fixture(n int) catalog.Report {
 	return r
 }
 
-func listingOf(t *testing.T, r catalog.Report, limit int) ([]byte, Listing) {
+// listingOf encodes the report and decodes the result as a reader does: the
+// compressed bytes, the JSON and the listing.
+func listingOf(t *testing.T, r catalog.Report, limit int) (gz, raw []byte, l Listing) {
 	t.Helper()
-	raw, err := encode("bench", "oci", "2026-11-21T10:00:00Z", r.Types, limit)
+	gz, _, err := encode(newListing("bench", "oci", "2026-11-21T10:00:00Z", r.Types), limit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var l Listing
+	zr, err := gzip.NewReader(bytes.NewReader(gz))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, err = io.ReadAll(zr); err != nil {
+		t.Fatal(err)
+	}
 	if err := json.Unmarshal(raw, &l); err != nil {
 		t.Fatal(err)
 	}
-	return raw, l
+	return gz, raw, l
 }
 
 func TestListingRoundTrip(t *testing.T) {
 	r := fixture(286)
-	raw, l := listingOf(t, r, MaxListingBytes)
-	t.Logf("286 types: %d bytes", len(raw))
-	if l.Truncated || len(raw) > MaxListingBytes {
-		t.Fatalf("truncated=%v at %d bytes", l.Truncated, len(raw))
+	gz, raw, l := listingOf(t, r, MaxListingBytes)
+	t.Logf("286 types: %d bytes, %d compressed", len(raw), len(gz))
+	if l.Truncated || l.ZonesOmitted || len(gz) > MaxListingBytes {
+		t.Fatalf("truncated=%v at %d bytes", l.Truncated, len(gz))
 	}
 	if l.Class != "bench" || l.Vendor != "oci" || l.GeneratedAt != "2026-11-21T10:00:00Z" || len(l.Types) != 286+14 {
 		t.Fatalf("%q %q %q, %d types", l.Class, l.Vendor, l.GeneratedAt, len(l.Types))
@@ -133,32 +148,110 @@ func TestListingTypeStates(t *testing.T) {
 	}
 }
 
-// A listing past the cap is cut, says so, and keeps the types that are not
-// available.
-func TestListingIsCutAtTheCap(t *testing.T) {
+// The 8000-type report fits compressed, with every available type.
+func TestListingFitsCompressed(t *testing.T) {
 	r := fixture(8000)
-	raw, l := listingOf(t, r, MaxListingBytes)
-	t.Logf("8000 types: %d bytes, %d listed", len(raw), len(l.Types))
-	if len(raw) > MaxListingBytes {
-		t.Fatalf("%d bytes, over the cap", len(raw))
+	gz, raw, l := listingOf(t, r, MaxListingBytes)
+	t.Logf("8000 types: %d bytes, %d compressed", len(raw), len(gz))
+	if len(gz) > MaxListingBytes || len(raw) <= MaxListingBytes {
+		t.Fatalf("%d compressed, %d raw", len(gz), len(raw))
 	}
-	if !l.Truncated || len(l.Types) >= 8000 {
-		t.Fatalf("truncated=%v, %d listed", l.Truncated, len(l.Types))
+	if l.Truncated || l.ZonesOmitted || len(l.Types) != 8000+400 {
+		t.Fatalf("truncated=%v zonesOmitted=%v, %d listed", l.Truncated, l.ZonesOmitted, len(l.Types))
 	}
-	// The dropped types come first and are all there.
-	for i := range 400 {
-		if _, ok := l.Types[fmt.Sprintf("oci.Unpriced.%d", i)]; !ok {
-			t.Fatalf("dropped type %d is missing", i)
+	for name, lt := range l.Types {
+		if lt.Available && len(lt.Offerings[0].Zones) == 0 {
+			t.Fatalf("%s has no zones", name)
 		}
+	}
+}
+
+// Over the cap the zones go, every type stays, with its state and expiry.
+func TestListingWithoutZonesWhenOverTheCap(t *testing.T) {
+	r := fixture(300)
+	r.Types[0].Offerings[0] = catalog.OfferingReport{CapacityType: "spot", Zone: "AD-1",
+		Reason: catalog.Reason{Code: catalog.UnavailableCache, Class: "InsufficientCapacity", Until: time.Date(2026, 11, 21, 11, 0, 0, 0, time.UTC)}}
+	// Zone names that do not repeat, so that they weigh on the compressed size.
+	for i := range r.Types {
+		for j := range r.Types[i].Offerings {
+			o := &r.Types[i].Offerings[j]
+			o.Zone = fmt.Sprintf("%s-%d-%d", o.Zone, i, j)
+		}
+	}
+	full, _, _ := listingOf(t, r, MaxListingBytes)
+	gz, _, l := listingOf(t, r, len(full)-1)
+	if !l.ZonesOmitted || l.Truncated || len(l.Types) != 300+15 || len(gz) >= len(full) {
+		t.Fatalf("zonesOmitted=%v truncated=%v, %d types, %d bytes", l.ZonesOmitted, l.Truncated, len(l.Types), len(gz))
+	}
+	for name, lt := range l.Types {
+		for _, o := range lt.Offerings {
+			if len(o.Zones) != 0 {
+				t.Fatalf("%s keeps zones %v", name, o.Zones)
+			}
+		}
+	}
+	var until string
+	for _, o := range l.Types["oci.VM.Standard.E5.Flex.1-8"].Offerings {
+		until = cmp.Or(until, o.Until)
+	}
+	if until != "2026-11-21T11:00:00Z" {
+		t.Errorf("until %q", until)
+	}
+	if strings.Contains(string(mustJSON(t, l)), `"zones":null`) {
+		t.Error("a null zone list")
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// A listing that does not fit even without zones is an error, not a cut.
+func TestListingOverTheCapIsAnError(t *testing.T) {
+	_, _, err := encode(newListing("bench", "oci", "", fixture(50).Types), 100)
+	if err == nil || !strings.Contains(err.Error(), "bench") || !strings.Contains(err.Error(), "oci") ||
+		!strings.Contains(err.Error(), "compressed") {
+		t.Fatalf("error %v", err)
 	}
 }
 
 func TestListingIsStable(t *testing.T) {
 	r := fixture(50)
-	a, _ := listingOf(t, r, MaxListingBytes)
-	b, _ := listingOf(t, r, MaxListingBytes)
-	if string(a) != string(b) {
+	a, _, _ := listingOf(t, r, MaxListingBytes)
+	b, _, _ := listingOf(t, r, MaxListingBytes)
+	if !bytes.Equal(a, b) {
 		t.Error("the same report encodes differently")
+	}
+}
+
+// Canary: the AWS catalog over every region of the fixtures compresses to a
+// fraction of the cap, so that the bench scale (~200 regions) still fits.
+func TestListingOfAllAWSRegionsFitsWithRoomToSpare(t *testing.T) {
+	facts := catalogtest.Facts(t, "aws")
+	regions := slices.Sorted(maps.Keys(facts.ZonesByVendor["aws"]))
+	cat := catalog.New(catalog.Options{Source: catalogtest.Source(t), Facts: facts})
+	cat.SetClasses([]catalog.Class{catalog.NewClass("canary", catalog.Scope{"aws": regions})})
+	if err := cat.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	report, err := cat.Explain(t.Context(), catalog.Query{Class: "canary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := slices.DeleteFunc(report.Types, func(tr catalog.TypeReport) bool { return tr.Vendor != "aws" })
+	l := newListing("canary", "aws", "2026-11-21T10:00:00Z", types)
+	gz, zonesOmitted, err := encode(l, MaxListingBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%d regions, %d types: %d bytes compressed", len(regions), len(types), len(gz))
+	if zonesOmitted || len(gz) > MaxListingBytes/4 {
+		t.Errorf("zonesOmitted=%v, %d bytes compressed, want at most %d", zonesOmitted, len(gz), MaxListingBytes/4)
 	}
 }
 

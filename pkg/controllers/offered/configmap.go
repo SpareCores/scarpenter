@@ -9,6 +9,8 @@ package offered
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -44,9 +46,12 @@ const maxNameLength = 253
 
 // listing is a ConfigMap this controller wrote.
 type listing struct {
-	class   string
-	digest  [sha256.Size]byte
-	written time.Time
+	class, vendor string
+	digest        [sha256.Size]byte
+	written       time.Time
+	// zonesOmitted is how it was written; refused says it was not written, as it
+	// did not fit: it is tried again when its content changes and at the heartbeat.
+	zonesOmitted, refused bool
 }
 
 // ConfigMapName is the name of the listing of a class and vendor; a name that
@@ -87,6 +92,7 @@ func (c *Controller) publish(ctx context.Context, nc *v1alpha1.SCNodeClass, repo
 	if len(wanted) == 0 {
 		return nil
 	}
+	var errs []error
 	for name, vendor := range wanted {
 		if !c.opts.Catalog.FactsLoaded(vendor) {
 			continue // written once the vendor's facts are loaded
@@ -97,11 +103,12 @@ func (c *Controller) publish(ctx context.Context, nc *v1alpha1.SCNodeClass, repo
 				types = append(types, t)
 			}
 		}
+		// A vendor whose listing cannot be written does not hold back the others.
 		if err := c.writeListing(ctx, nc, name, vendor, types); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // findListings reads, once, the ConfigMaps an earlier run wrote, so that those of
@@ -122,7 +129,7 @@ func (c *Controller) findListings(ctx context.Context) error {
 	for _, cm := range list.Items {
 		for _, ref := range cm.OwnerReferences {
 			if ref.Kind == kindSCNodeClass {
-				c.listings[cm.Name] = listing{class: ref.Name}
+				c.listings[cm.Name] = listing{class: ref.Name, vendor: cm.Labels[LabelVendor]}
 			}
 		}
 	}
@@ -133,9 +140,11 @@ func (c *Controller) findListings(ctx context.Context) error {
 func (c *Controller) removeUnwanted(ctx context.Context, class string, wanted map[string]string) error {
 	c.mu.Lock()
 	var gone []string
+	vendors := map[string]string{}
 	for name, l := range c.listings {
 		if _, ok := wanted[name]; !ok && l.class == class {
 			gone = append(gone, name)
+			vendors[name] = l.vendor
 		}
 	}
 	c.mu.Unlock()
@@ -151,6 +160,7 @@ func (c *Controller) removeUnwanted(ctx context.Context, class string, wanted ma
 		c.mu.Lock()
 		delete(c.listings, name)
 		c.mu.Unlock()
+		c.metrics.forgetListing(class, vendors[name])
 	}
 	return nil
 }
@@ -161,9 +171,10 @@ func (c *Controller) writeListing(ctx context.Context, nc *v1alpha1.SCNodeClass,
 	// as a heartbeat. The owner is part of it, a recreated class needs its
 	// ConfigMaps again.
 	now := c.opts.Clock.Now()
-	content, err := encode(nc.Name, vendor, "", types, MaxListingBytes)
+	l := newListing(nc.Name, vendor, "", types)
+	content, err := json.Marshal(l)
 	if err != nil {
-		return err
+		return fmt.Errorf("encoding the listing: %w", err)
 	}
 	digest := sha256.Sum256(append([]byte(nc.UID), content...))
 	c.mu.Lock()
@@ -172,9 +183,25 @@ func (c *Controller) writeListing(ctx context.Context, nc *v1alpha1.SCNodeClass,
 	if known.digest == digest && now.Sub(known.written) < heartbeat {
 		return nil
 	}
-	data, err := encode(nc.Name, vendor, now.UTC().Format(time.RFC3339), types, MaxListingBytes)
+	l.GeneratedAt = now.UTC().Format(time.RFC3339)
+	data, zonesOmitted, err := encode(l, c.opts.ListingLimit)
 	if err != nil {
-		return err
+		// Not a reconcile error, which would be retried at once: the old ConfigMap
+		// ages out and the next try is at a change or the heartbeat.
+		log.FromContext(ctx).Error(err, "not writing the offered listing", "nodeclass", nc.Name, "vendor", vendor)
+		c.metrics.forgetListing(nc.Name, vendor)
+		c.mu.Lock()
+		c.listings[name] = listing{class: nc.Name, vendor: vendor, digest: digest, written: now, refused: true}
+		c.mu.Unlock()
+		return nil
+	}
+	if zonesOmitted {
+		logger := log.FromContext(ctx).V(1)
+		if !known.zonesOmitted {
+			logger = log.FromContext(ctx)
+		}
+		logger.Error(nil, "the offered listing exceeded the cap, the zones are left out",
+			"nodeclass", nc.Name, "vendor", vendor, "bytes", len(data), "cap", c.opts.ListingLimit)
 	}
 	cm := corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
@@ -184,7 +211,7 @@ func (c *Controller) writeListing(ctx context.Context, nc *v1alpha1.SCNodeClass,
 				APIVersion: v1alpha1.GroupVersion.String(), Kind: kindSCNodeClass, Name: nc.Name, UID: nc.UID,
 			}},
 		},
-		Data: map[string]string{ListingKey: string(data)},
+		BinaryData: map[string][]byte{ListingKey: data},
 	}
 	u, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&cm)
 	if err != nil {
@@ -194,8 +221,9 @@ func (c *Controller) writeListing(ctx context.Context, nc *v1alpha1.SCNodeClass,
 		client.FieldOwner(FieldManager), client.ForceOwnership); err != nil {
 		return fmt.Errorf("writing the offered types ConfigMap %s: %w", name, err)
 	}
+	c.metrics.recordListing(nc.Name, vendor, len(data))
 	c.mu.Lock()
-	c.listings[name] = listing{class: nc.Name, digest: digest, written: now}
+	c.listings[name] = listing{class: nc.Name, vendor: vendor, digest: digest, written: now, zonesOmitted: zonesOmitted}
 	c.mu.Unlock()
 	return nil
 }

@@ -725,6 +725,7 @@ Besides the metrics of Karpenter core, the controller serves, on the metrics por
 | `scarpenter_resource_operations_total` (`vendor`, `kind`, `region`, `operation` `create`, `adopt` or `delete`, `result` `ok`, `error` or `dry-run`) and `scarpenter_resources_managed` (`vendor`, `kind`, `region`: the managed resources the last sweep found) | [Vendor resources](vendor-resources.md#metrics-and-events) |
 
 | `scarpenter_catalog_offerings_by_state` (`nodeclass`, `vendor`, `state`: `available` or an offering-level reason code, at most nine series per class and vendor) | [the offered summary](labels-and-offerings.md#the-offered-summary-in-the-status) |
+| `scarpenter_offered_listing_bytes` (`nodeclass`, `vendor`) | compressed bytes of the last [listing](labels-and-offerings.md#the-offered-listing) written |
 | `scarpenter_instance_type_offering_available` (`nodeclass`, `instance_type`, `zone`, `capacity_type`; 1 available, 0 listed unavailable), only with `--metrics-offering-detail` | one series per offering: thousands per class and vendor; the [listing](labels-and-offerings.md#the-offered-listing) has the same data |
 
 Development builds add the `scarpenter_fake_state_*` gauges.
