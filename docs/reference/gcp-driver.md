@@ -59,6 +59,29 @@ another project is `Fatal`), so a rendered manifest says which project it is for
 Nodes carry no service account unless `vendors.gcp.serviceAccount` is set (it needs
 `iam.serviceAccounts.actAs` for the controller).
 
+## Nested virtualization
+
+`vendors.gcp.nestedVirtualization: true` sets `advancedMachineFeatures.enableNestedVirtualization` on
+the instances of the NodeClass, so that the nodes expose the `vmx` flags and `/dev/kvm`. It is off by
+default and is never forced on a pool.
+
+```yaml
+spec:
+  vendors:
+    gcp:
+      nestedVirtualization: true
+```
+
+Not every machine series supports it, and the driver keeps no table of the series that do. When
+Compute Engine refuses an insert (a `Fatal` or `Unsupported` error) whose message names nested
+virtualization (case, spaces and underscores ignored, so `NESTED_VIRTUALIZATION` and the organization
+policy constraint `compute.disableNestedVirtualization` match too), the driver logs it and launches the
+same node once more without the feature, so the node still comes up. This covers an organization
+policy that forbids the feature. Each launch of an unsupported type therefore costs one refused insert
+first. If the second insert fails, its error is the one returned. The matched text is UNVERIFIED live:
+the wording of the refusal has not been confirmed against Compute Engine. The node does not record
+whether the feature was applied.
+
 ## Regions and zones
 
 `Regions` lists the regions that are `UP` (`regions.list`); `Zones` lists the zones of a region that are
@@ -116,6 +139,7 @@ Rung 1 for amd64, rung 2 for arm64 ([ADR-021](../explanation/DECISIONS.md)).
 | `labels` | the logical labels, the NodeClass's tags, the idempotency label |
 | `scheduling` | on-demand: `STANDARD`, `automaticRestart: false`, `MIGRATE` or `TERMINATE` (series that cannot migrate, compact placement); Spot: `SPOT`, **`instanceTerminationAction: DELETE`** (the default `STOP` would leave a stopped instance and its disks), `TERMINATE`, and `preemptionNoticeDuration` when `--gcp-preemption-notice` is set ([interruption](#interruption)) |
 | `metadata.items` | `user-data` (the Ignition), `block-project-ssh-keys: TRUE`, `enable-oslogin: FALSE`, the block's `metadata` |
+| `advancedMachineFeatures` | `enableNestedVirtualization: true`, only with `vendors.gcp.nestedVirtualization: true` |
 | `serviceAccounts` | only with `vendors.gcp.serviceAccount` |
 | `resourcePolicies` | the placement policy of a placement profile |
 
@@ -173,7 +197,7 @@ error (`Unsupported`).
 | `storage.localStorage` | `policy` (`ignore`, `mount`, `raid0`), `mountPath`: the local SSDs of types that bundle them |
 | placement profile | `resourcePolicy: {groupPlacement: {collocation: COLLOCATED}}` (compact), `{spread: {availabilityDomainCount}}` or `{use: {name}}` |
 | network profile | `nicType: GVNIC \| VIRTIO_NET`, `tier1: true` |
-| block | `regions`, `project`, `imageProject`, `serviceAccount`, `metadata`, `networking`, `resources` |
+| block | `regions`, `project`, `imageProject`, `serviceAccount`, `nestedVirtualization`, `metadata`, `networking`, `resources` |
 
 - **Validation** (`ValidateNodeClass`): regions, the project (equals the controller's), the image project,
   the service account e-mail, reserved metadata keys (`user-data`, `ssh-keys`, `enable-oslogin`,

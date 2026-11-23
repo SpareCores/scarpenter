@@ -70,7 +70,7 @@ func TestMetadataFragmentOfEachVendor(t *testing.T) {
 // (tailscaled's CGNAT drop must not apply to the 100.100.0.0/16 services) and
 // renders it into the user-data of a tailscale node, whose unit passes the flag.
 func TestAlicloudTailnetFragment(t *testing.T) {
-	frags := (&alicloud.Driver{}).BootFragments()
+	frags := (&alicloud.Driver{}).BootFragments(true)
 	if len(frags) != 1 {
 		t.Fatalf("%d fragments, want 1", len(frags))
 	}

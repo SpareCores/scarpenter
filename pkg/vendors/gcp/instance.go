@@ -178,6 +178,20 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	if err != nil {
 		return nil, err
 	}
+	inst, err := d.insert(ctx, api, req, key, spec)
+	if err != nil && spec.NestedVirtualization && isNestedVirtualizationRefusal(err) {
+		// Not every machine type supports it: the node still comes up, without.
+		d.log.Info("the machine type does not support nested virtualization, launching without it",
+			"machineType", req.InstanceType, "zone", req.Zone, "error", err.Error())
+		spec.NestedVirtualization = false
+		return d.insert(ctx, api, req, key, spec)
+	}
+	return inst, err
+}
+
+// insert sends the instances.insert of spec and waits for it; see CreateInstance.
+func (d *Driver) insert(ctx context.Context, api ComputeAPI, req vendors.CreateRequest, key string, spec LaunchSpec,
+) (*vendors.Instance, error) {
 	spec.Epoch, spec.Attempt = d.epochID, d.attempt(key)
 	insert, err := BuildInsert(spec)
 	if err != nil {
@@ -296,7 +310,8 @@ func (d *Driver) launchSpec(ctx context.Context, req vendors.CreateRequest) (Lau
 		PublicIPv4: boolOr(req.Settings.Networking.PublicIPv4, true),
 		PublicIPv6: boolOr(req.Settings.Networking.PublicIPv6, false),
 		NicType:    string(net.NicType), Tier1: boolOr(net.Tier1, false),
-		ServiceAccount: st.ServiceAccount, ResourcePolicies: lr.policies,
+		NestedVirtualization: st.NestedVirtualization,
+		ServiceAccount:       st.ServiceAccount, ResourcePolicies: lr.policies,
 		IdempotencyKey: req.IdempotencyKey, CapacityType: req.CapacityType,
 	}
 	if spec.Name == "" || (req.Node.Name == "" && req.Tags[vendors.TagNodeClaim] != "") {

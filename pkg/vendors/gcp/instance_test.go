@@ -378,3 +378,104 @@ func TestDeleteWaitsAndIsIdempotent(t *testing.T) {
 		t.Errorf("a failed delete operation: %v, want Retryable", err)
 	}
 }
+
+// created returns the fake's instance of the request.
+func created(t *testing.T, e *env, req vendors.CreateRequest) *computepb.Instance {
+	t.Helper()
+	for _, i := range e.c.Instances() {
+		if i.GetName() == req.Node.Name {
+			return i
+		}
+	}
+	t.Fatal("the fake has no instance")
+	return nil
+}
+
+func TestNestedVirtualization(t *testing.T) {
+	refusal := fake.Error(400, "invalid", "Invalid value for field 'resource.advancedMachineFeatures."+
+		"enableNestedVirtualization': 'true'. Nested virtualization is not supported for this machine type.")
+
+	t.Run("off by default", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		req := request(`{}`)
+		if _, err := e.d.CreateInstance(t.Context(), req); err != nil {
+			t.Fatal(err)
+		}
+		if f := created(t, e, req).GetAdvancedMachineFeatures(); f != nil {
+			t.Errorf("advancedMachineFeatures = %v, want unset", f)
+		}
+	})
+	t.Run("on", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		req := request(`{"nestedVirtualization":true}`)
+		if _, err := e.d.CreateInstance(t.Context(), req); err != nil {
+			t.Fatal(err)
+		}
+		if !created(t, e, req).GetAdvancedMachineFeatures().GetEnableNestedVirtualization() {
+			t.Error("enableNestedVirtualization is not set")
+		}
+	})
+	t.Run("refused by the insert, retried without", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		e.c.Inject("InsertInstance", refusal, 1)
+		req := request(`{"nestedVirtualization":true}`)
+		if _, err := e.d.CreateInstance(t.Context(), req); err != nil {
+			t.Fatal(err)
+		}
+		if f := created(t, e, req).GetAdvancedMachineFeatures(); f != nil {
+			t.Errorf("advancedMachineFeatures = %v, want unset after the retry", f)
+		}
+	})
+	t.Run("refused by the operation, retried without", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		e.c.InjectOpError("InsertInstance", "INVALID_FIELD_VALUE", "Nested virtualization is not supported", 400)
+		req := request(`{"nestedVirtualization":true}`)
+		if _, err := e.d.CreateInstance(t.Context(), req); err != nil {
+			t.Fatal(err)
+		}
+		if f := created(t, e, req).GetAdvancedMachineFeatures(); f != nil {
+			t.Errorf("advancedMachineFeatures = %v, want unset after the retry", f)
+		}
+	})
+	t.Run("normalised forms, org policy and Unsupported are retried without", func(t *testing.T) {
+		for name, inject := range map[string]func(*fake.Compute){
+			"upper snake": func(c *fake.Compute) {
+				c.InjectOpError("InsertInstance", "INVALID_FIELD_VALUE", "NESTED_VIRTUALIZATION is not supported", 400)
+			},
+			"org policy": func(c *fake.Compute) {
+				c.InjectOpError("InsertInstance", "CONDITION_NOT_MET",
+					"Constraint constraints/compute.disableNestedVirtualization violated", 412)
+			},
+			"unsupported": func(c *fake.Compute) {
+				c.InjectOpError("InsertInstance", "UNSUPPORTED_OPERATION", "Nested virtualization is not supported", 400)
+			},
+		} {
+			e := newEnv(t, envOptions{})
+			inject(e.c)
+			req := request(`{"nestedVirtualization":true}`)
+			if _, err := e.d.CreateInstance(t.Context(), req); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if f := created(t, e, req).GetAdvancedMachineFeatures(); f != nil {
+				t.Errorf("%s: advancedMachineFeatures = %v, want unset after the retry", name, f)
+			}
+		}
+	})
+	t.Run("a failing retry returns its own error", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		e.c.Inject("InsertInstance", refusal, 1)
+		e.c.InjectOpError("InsertInstance", "ZONE_RESOURCE_POOL_EXHAUSTED", "no capacity", 503)
+		_, err := e.d.CreateInstance(t.Context(), request(`{"nestedVirtualization":true}`))
+		if vendors.ClassOf(err) != vendors.InsufficientCapacity {
+			t.Errorf("err = %v, want InsufficientCapacity", err)
+		}
+	})
+	t.Run("another failure is not retried", func(t *testing.T) {
+		e := newEnv(t, envOptions{})
+		e.c.Inject("InsertInstance", fake.Error(400, "invalid", "Invalid value for field 'resource.disks'"), 1)
+		_, err := e.d.CreateInstance(t.Context(), request(`{"nestedVirtualization":true}`))
+		if vendors.ClassOf(err) != vendors.Fatal {
+			t.Errorf("err = %v, want Fatal", err)
+		}
+	})
+}

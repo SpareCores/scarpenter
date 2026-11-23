@@ -289,3 +289,19 @@ func IsNotFound(err error) bool {
 	ge, ok := errors.AsType[*googleapi.Error](err)
 	return ok && ge.Code == http.StatusNotFound
 }
+
+// isNestedVirtualizationRefusal reports whether a failed insert was refused because
+// of nested virtualization: the machine type does not support it, or an
+// organization policy (compute.disableNestedVirtualization) forbids it. Compute
+// Engine answers such an insert with an error that names the feature, either as
+// the HTTP 400 of the insert or as the error of the finished operation. The
+// match is on the class (Fatal, or Unsupported for UNSUPPORTED_OPERATION) and on
+// the feature's name in the message, with case, spaces and underscores ignored;
+// never on a bare status. UNVERIFIED live: the exact wording is not confirmed.
+func isNestedVirtualizationRefusal(err error) bool {
+	if !vendors.IsClass(err, vendors.Fatal) && !vendors.IsClass(err, vendors.Unsupported) {
+		return false
+	}
+	msg := strings.NewReplacer(" ", "", "_", "").Replace(strings.ToLower(err.Error()))
+	return strings.Contains(msg, "nestedvirtualization")
+}
