@@ -468,3 +468,6 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 	}
 	return d.remove(ctx, cl, id)
 }
+
+// ListsPerRegion implements vendors.RegionLister.
+func (d *Driver) ListsPerRegion() {}

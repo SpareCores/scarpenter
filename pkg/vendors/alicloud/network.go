@@ -279,7 +279,7 @@ func (d *Driver) ensureNetwork(
 			Description: new(sgDescription), ClientToken: new(clientToken("vpc", spec.Name)),
 			Tag: d.vpcCreateTags(spec),
 		}
-		out, err := call(ctx, d.cloud, callTimeout, errContext{},
+		out, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*vpc.CreateVpcResponseBody, error) { return cl.VPC.CreateVpc(ctx, in) })
 		if err != nil {
 			return vendors.ResourceRef{}, false, err
@@ -349,7 +349,7 @@ func (d *Driver) completeNetwork(ctx context.Context, region, vpcID string, spec
 			Description: new(sgDescription), ClientToken: new(clientToken("vsw", vpcID, z.Name, cidr)),
 			Tag: d.vswitchCreateTags(s),
 		}
-		out, err := call(ctx, d.cloud, callTimeout, errContext{},
+		out, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*vpc.CreateVSwitchResponseBody, error) {
 				return cl.VPC.CreateVSwitch(ctx, in)
 			})
@@ -404,7 +404,7 @@ func (d *Driver) networkAvailable(ctx context.Context, region, id, what string) 
 		return len(got) == 1 && deref(got[0].Status) == statusAvailable, nil
 	}
 	in := &vpc.DescribeVpcsRequest{RegionId: new(region), VpcId: new(id)}
-	out, err := call(ctx, d.cloud, callTimeout, errContext{},
+	out, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 		func(ctx context.Context) (*vpc.DescribeVpcsResponseBody, error) { return cl.VPC.DescribeVpcs(ctx, in) })
 	if err != nil {
 		return false, err
@@ -424,7 +424,7 @@ func (d *Driver) findVPCs(
 	var out []*vpc.DescribeVpcsResponseBodyVpcsVpc
 	for page := int32(1); ; page++ {
 		in.PageNumber = new(page)
-		res, err := call(ctx, d.cloud, callTimeout, errContext{},
+		res, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*vpc.DescribeVpcsResponseBody, error) { return cl.VPC.DescribeVpcs(ctx, in) })
 		if err != nil {
 			return nil, err
@@ -468,7 +468,7 @@ func (d *Driver) deleteNetwork(ctx context.Context, ref vendors.ResourceRef) err
 			continue // not ours: the VPC delete below says it is still used
 		}
 		in := &vpc.DeleteVSwitchRequest{RegionId: new(ref.Region), VSwitchId: s.VSwitchId}
-		_, err := call(ctx, d.cloud, callTimeout, errContext{},
+		_, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*vpc.DeleteVSwitchResponseBody, error) {
 				return cl.VPC.DeleteVSwitch(ctx, in)
 			})
@@ -494,7 +494,7 @@ func (d *Driver) deleteNetwork(ctx context.Context, ref vendors.ResourceRef) err
 		}
 	}
 	in := &vpc.DeleteVpcRequest{RegionId: new(ref.Region), VpcId: new(ref.ID)}
-	_, err = call(ctx, d.cloud, callTimeout, errContext{},
+	_, err = call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 		func(ctx context.Context) (*vpc.DeleteVpcResponseBody, error) { return cl.VPC.DeleteVpc(ctx, in) })
 	if err != nil && !isCode(err, "InvalidVpcID.NotFound", "InvalidVpcId.NotFound") {
 		return err

@@ -72,6 +72,10 @@ type launchState struct {
 	stopped        string
 	imageErr       error
 	lastErr        error
+	// started is when the Create began; mayHaveInstance is set when an earlier
+	// attempt of the NodeClaim may have requested an instance.
+	started         time.Time
+	mayHaveInstance bool
 	// keepToken is set when the failure may hide a launched instance.
 	keepToken bool
 	// prepared are the resources the last attempt launched with.
@@ -87,7 +91,7 @@ type launchState struct {
 func (c *CloudProvider) Create(ctx context.Context, nodeClaim *karpv1.NodeClaim) (*karpv1.NodeClaim, error) {
 	started := c.opts.Clock.Now()
 	st := &launchState{
-		nodeClaim: nodeClaim, blocked: map[string]bool{}, maxAttempts: c.opts.MaxLaunchAttempts,
+		started: started, nodeClaim: nodeClaim, blocked: map[string]bool{}, maxAttempts: c.opts.MaxLaunchAttempts,
 		regions: map[string]bool{}, zones: map[string]bool{}, classes: map[vendors.Class]int{}, stopped: stopNoCandidates,
 	}
 	created, err := c.create(ctx, st)
@@ -160,6 +164,12 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 
 	// The token is minted before the first vendor call (overview section 4.1
 	// step 3); its kubeconfig goes into every rendering.
+	// A token that exists was kept by an earlier attempt that may have sent a
+	// create call: its instance may exist, and this attempt must not launch in
+	// another region.
+	if st.mayHaveInstance, err = c.opts.Tokens.Exists(ctx, nodeClaim.Name); err != nil {
+		return nil, fmt.Errorf("looking for the bootstrap token: %w", err)
+	}
 	if st.token, err = c.opts.Tokens.Mint(ctx, nodeClaim); err != nil {
 		return nil, fmt.Errorf("minting the bootstrap token: %w", err)
 	}
@@ -182,6 +192,22 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		if err == nil {
 			c.reconcileQuota(res, cand, inst, nodeClaim.Name)
 			return c.created(ctx, nc, nodeClaim, cands, cand, inst, st.runKey, st.prepared), nil
+		}
+		if c.unreachable(ctx, st, err) {
+			// The vendor's API did not answer before any instance was requested
+			// (no instance can exist yet), so the region is set aside for a few
+			// minutes and the next candidate is tried in this Create.
+			c.release(res)
+			c.opts.Unavailable.MarkRegionUnreachable(cand.vendor, cand.region)
+			st.attempts++
+			st.lastErr = err
+			st.classes[vendors.Retryable]++
+			st.regions[cand.vendor+"/"+cand.region] = true
+			logger.Info("preparing a launch timed out, skipping the region for now", "type", cand.typeName,
+				"zone", cand.zone, "region", cand.region, "error", err.Error())
+			c.publish(nc, EventLaunchFailed, launchMessage(err), cand.vendor, cand.region, vendors.CodeOf(err))
+			c.metrics.launches.WithLabelValues(cand.vendor, cand.region, cand.capacityType, string(vendors.Retryable)).Inc()
+			continue
 		}
 		if _, isImage := errors.AsType[*imageError](err); isImage {
 			c.release(res)
@@ -237,10 +263,18 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		fmt.Errorf("no candidate offering had quota headroom (%d skipped); %s", st.skipped, st.summary()))
 }
 
+// launchBudget is how long a Create starts new candidates: core deletes a
+// NodeClaim that has not launched after 5 minutes, and a create call may take
+// 90 s (twice the 45 s call timeout of a driver; with a larger call timeout a
+// late candidate may not fit and core retries the claim), so a later candidate
+// would not fit.
+const launchBudget = 3 * time.Minute
+
 // What ended the attempts, for the summary of the error.
 const (
 	stopMaxAttempts  = "maxAttempts"
 	stopMaxDuration  = "maxDuration"
+	stopLaunchBudget = "launchBudget"
 	stopNoCandidates = "no candidates left"
 )
 
@@ -259,6 +293,17 @@ func (c *CloudProvider) applyLaunchPolicy(st *launchState) {
 	}
 }
 
+// unreachable says whether the failure of a candidate is a deadline of the
+// vendor's API before any instance was requested, in the launch's preparation
+// or the image resolution, and this Create is not cancelled: the region is then
+// set aside. Other errors (a cancelled context, throttling, a Pending state)
+// keep their own handling.
+func (c *CloudProvider) unreachable(ctx context.Context, st *launchState, err error) bool {
+	_, isPrep := errors.AsType[*prepareError](err)
+	_, isImage := errors.AsType[*imageError](err)
+	return (isPrep || isImage) && !st.mayHaveInstance && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded)
+}
+
 // stopReason is why no further candidate may be tried, "" when one may. The
 // first candidate is always tried, whatever the time budget.
 func (c *CloudProvider) stopReason(st *launchState) string {
@@ -267,6 +312,8 @@ func (c *CloudProvider) stopReason(st *launchState) string {
 		return stopMaxAttempts
 	case st.attempts > 0 && !st.deadline.IsZero() && !c.opts.Clock.Now().Before(st.deadline):
 		return stopMaxDuration
+	case st.attempts > 0 && c.opts.Clock.Since(st.started) >= launchBudget:
+		return stopLaunchBudget
 	}
 	return ""
 }
@@ -497,7 +544,7 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 			Resources: c.resourceProvider(nc, cand),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("preparing the launch: %w", err)
+			return nil, &prepareError{err: fmt.Errorf("preparing the launch in %s: %w", cand.zone, err)}
 		}
 	}
 	st.prepared = prepared
@@ -774,6 +821,13 @@ type imageError struct{ err error }
 
 func (e *imageError) Error() string { return e.err.Error() }
 func (e *imageError) Unwrap() error { return e.err }
+
+// prepareError marks a failure of the launch's preparation, before the vendor's
+// create call.
+type prepareError struct{ err error }
+
+func (e *prepareError) Error() string { return e.err.Error() }
+func (e *prepareError) Unwrap() error { return e.err }
 
 type imageKey struct{ vendor, region, arch, channel, version, owner, use string }
 

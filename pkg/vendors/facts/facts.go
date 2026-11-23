@@ -39,9 +39,9 @@ const (
 	DefaultInterval = time.Hour
 	// DefaultVendorTimeout bounds the load of one vendor.
 	DefaultVendorTimeout = 3 * time.Minute
-	// DefaultRegionTimeout bounds each driver call of one region (the driver's
-	// own call timeout, 45 s with retries, would stall a vendor for minutes
-	// on a region that never answers).
+	// DefaultRegionTimeout bounds each driver call of one region, so that a
+	// region that never answers does not stall a vendor for minutes. A driver
+	// whose calls take longer says so (CallBounded) and gets that long.
 	DefaultRegionTimeout = 30 * time.Second
 	// maxParallelRegions bounds the regions of a vendor read at once.
 	maxParallelRegions = 8
@@ -51,6 +51,15 @@ const (
 	retryInterval = 10 * time.Second
 	maxBackoff    = 15 * time.Minute
 )
+
+// CallBounded is the optional view of a driver whose API calls may take longer
+// than DefaultRegionTimeout (a vendor far from the controllers): LoadTimeout is
+// the longest one call takes. The load then gives each region that long, and
+// the vendor enough time for its regions in batches of maxParallelRegions
+// (at least six calls, at least VendorTimeout).
+type CallBounded interface {
+	LoadTimeout() time.Duration
+}
 
 // Launchable is the optional view of which types the account can launch where;
 // the quota tracker implements it.
@@ -224,6 +233,20 @@ func (f *Facts) load(ctx context.Context, retryOnly bool) error {
 	return errors.Join(errs...)
 }
 
+// timeouts returns the timeout of one region and of the whole vendor: the
+// options', or for a CallBounded driver what its calls need when that is more.
+// The vendor gets the listing of the regions and five batches of regions (more
+// than the regions of any vendor need), each as long as one call.
+func (f *Facts) timeouts(drv vendors.Driver) (region, vendor time.Duration) {
+	region, vendor = f.opts.RegionTimeout, f.opts.VendorTimeout
+	if cb, ok := drv.(CallBounded); ok {
+		call := cb.LoadTimeout()
+		region = max(region, call)
+		vendor = max(vendor, 6*call)
+	}
+	return region, vendor
+}
+
 // pending reports whether a vendor has no facts or has a failed region.
 func (f *Facts) pending() bool {
 	f.mu.RLock()
@@ -246,7 +269,8 @@ func (f *Facts) loadOne(ctx context.Context, logger logr.Logger, vendor string, 
 	if retryOnly && (prev == nil && now.Before(vfail.next) || prev != nil && !prev.due(now)) {
 		return nil
 	}
-	vctx, cancel := context.WithTimeout(ctx, f.opts.VendorTimeout)
+	_, vendorTimeout := f.timeouts(drv)
+	vctx, cancel := context.WithTimeout(ctx, vendorTimeout)
 	defer cancel()
 	vf, softErrs, err := f.loadVendor(vctx, drv, prev, retryOnly, now)
 	if err != nil {
@@ -329,7 +353,8 @@ func (f *Facts) logSkipped(logger logr.Logger, vendor string, vf *vendorFacts) {
 func (f *Facts) loadVendor(
 	ctx context.Context, drv vendors.Driver, prev *vendorFacts, retryOnly bool, now time.Time,
 ) (vf *vendorFacts, errs []error, err error) {
-	rctx, cancel := context.WithTimeout(ctx, f.opts.RegionTimeout)
+	regionTimeout, _ := f.timeouts(drv)
+	rctx, cancel := context.WithTimeout(ctx, regionTimeout)
 	regions, err := drv.Regions(rctx)
 	cancel()
 	if err != nil {
@@ -351,7 +376,7 @@ func (f *Facts) loadVendor(
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			zctx, cancel := context.WithTimeout(ctx, f.opts.RegionTimeout)
+			zctx, cancel := context.WithTimeout(ctx, regionTimeout)
 			defer cancel()
 			results[i].zones, results[i].err = drv.Zones(zctx, r.Name)
 		})

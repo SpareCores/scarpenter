@@ -25,7 +25,7 @@ func (c *Cloud) Regions(ctx context.Context, home string, active []string) ([]ve
 	if err != nil {
 		return nil, err
 	}
-	out, err := call(ctx, c, callTimeout, errContext{},
+	out, err := call(ctx, c, c.callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DescribeRegionsResponseBody, error) {
 			return cl.ECS.DescribeRegions(ctx, &ecs.DescribeRegionsRequest{})
 		})
@@ -66,7 +66,7 @@ func (c *Cloud) Zones(ctx context.Context, region string) ([]vendors.Zone, error
 	if err != nil {
 		return nil, err
 	}
-	out, err := call(ctx, c, callTimeout, errContext{regionRead: true},
+	out, err := call(ctx, c, c.callTimeout, errContext{regionRead: true},
 		func(ctx context.Context) (*ecs.DescribeZonesResponseBody, error) {
 			return cl.ECS.DescribeZones(ctx, &ecs.DescribeZonesRequest{RegionId: new(region)})
 		})
@@ -154,7 +154,7 @@ func (c *Cloud) SystemDiskTypes(ctx context.Context, region, category string) (m
 func (c *Cloud) availableTypes(
 	ctx context.Context, cl Clients, in *ecs.DescribeAvailableResourceRequest, anyStock bool,
 ) (map[string][]string, error) {
-	out, err := call(ctx, c, callTimeout, errContext{},
+	out, err := call(ctx, c, c.callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DescribeAvailableResourceResponseBody, error) {
 			return cl.ECS.DescribeAvailableResource(ctx, in)
 		})

@@ -100,6 +100,22 @@ func NewMinter(opts MinterOptions) *Minter {
 	return &Minter{opts: opts}
 }
 
+// Exists says whether the NodeClaim has a token that has not expired.
+func (m *Minter) Exists(ctx context.Context, nodeClaimName string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, err := m.find(ctx, nodeClaimName)
+	if err != nil {
+		return false, err
+	}
+	for i := range existing {
+		if _, expires, ok := parseToken(&existing[i]); ok && m.opts.Clock.Now().Before(expires) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Mint returns the token ("<id>.<secret>") of the NodeClaim, creating its
 // Secret when there is none. It is idempotent: a retried Create gets the token
 // that an earlier attempt may have put on an instance, never a rotated one. A

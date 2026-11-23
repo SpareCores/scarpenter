@@ -172,6 +172,10 @@
               "type": "string",
               "pattern": "^([a-z]{2}(-[a-z0-9]+)+)?$"
             },
+            "callTimeout": {
+              "type": "string",
+              "pattern": "^([1-9][0-9]*(\\.[0-9]+)?(ms|s|m|h))*$"
+            },
             "credentials": {
               "type": "object",
               "additionalProperties": false,

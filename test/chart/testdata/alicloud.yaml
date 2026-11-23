@@ -746,6 +746,8 @@ spec:
               valueFrom: {resourceFieldRef: {containerName: controller, resource: requests.cpu, divisor: 1m}}
             - name: SCARPENTER_ALICLOUD_HOME_REGION
               value: "ap-southeast-1"
+            - name: SCARPENTER_ALICLOUD_CALL_TIMEOUT
+              value: "2m"
             - name: ALIBABA_CLOUD_ROLE_ARN
               value: "acs:ram::123456789012:role/scarpenter"
             - name: ALIBABA_CLOUD_OIDC_PROVIDER_ARN

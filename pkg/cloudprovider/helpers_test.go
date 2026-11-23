@@ -347,6 +347,22 @@ func (r *recordingTokens) Mint(_ context.Context, nc *karpv1.NodeClaim) (string,
 	return "abcdef.0123456789abcdef", nil
 }
 
+// Exists is true while a mint of the name has no delete after it.
+func (r *recordingTokens) Exists(_ context.Context, name string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := func(list []string) int {
+		n := 0
+		for _, s := range list {
+			if s == name {
+				n++
+			}
+		}
+		return n
+	}
+	return count(r.minted) > count(r.deleted), nil
+}
+
 func (r *recordingTokens) Delete(_ context.Context, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

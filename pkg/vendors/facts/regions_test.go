@@ -453,3 +453,44 @@ func TestAVendorTimeoutKeepsTheRegionsThatLoaded(t *testing.T) {
 		t.Errorf("zones %v", zones)
 	}
 }
+
+// slowRegions answers every zone listing after delay, like a vendor far from
+// the controllers; bound is its LoadTimeout (zero: not CallBounded).
+type slowRegions struct {
+	regionDriver
+	delay time.Duration
+}
+
+func (d *slowRegions) Zones(ctx context.Context, region string) ([]vendors.Zone, error) {
+	select {
+	case <-time.After(d.delay):
+		return d.regionDriver.Zones(ctx, region)
+	case <-ctx.Done():
+		return nil, vendors.NewError(vendors.Retryable, "CallTimeout", ctx.Err())
+	}
+}
+
+type slowBounded struct {
+	slowRegions
+	bound time.Duration
+}
+
+func (d *slowBounded) LoadTimeout() time.Duration { return d.bound }
+
+func TestACallBoundedDriverGetsTheTimeItsCallsNeed(t *testing.T) {
+	opts := func(d vendors.Driver) facts.Options {
+		return facts.Options{Registry: vendors.NewRegistryFrom(d), RegionTimeout: 50 * time.Millisecond}
+	}
+	plain := &slowRegions{delay: 200 * time.Millisecond}
+	if err := facts.New(opts(plain)).Load(t.Context()); err == nil {
+		t.Error("a region slower than RegionTimeout loaded")
+	}
+	bounded := &slowBounded{slowRegions: slowRegions{delay: 200 * time.Millisecond}, bound: time.Second}
+	f := facts.New(opts(bounded))
+	if err := f.Load(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Regions("aws"); len(got) != 3 {
+		t.Errorf("regions = %v, want all 3 loaded", got)
+	}
+}

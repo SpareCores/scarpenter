@@ -28,6 +28,11 @@ import (
 // controller flag: nothing outside this package branches on the vendor.
 const HomeRegionEnv = "SCARPENTER_ALICLOUD_HOME_REGION"
 
+// CallTimeoutEnv overrides the deadline of one API call (a Go duration such as
+// "2m"; DefaultCallTimeout if unset), like HomeRegionEnv an environment
+// variable of the driver.
+const CallTimeoutEnv = "SCARPENTER_ALICLOUD_CALL_TIMEOUT"
+
 // Cache lifetimes.
 const (
 	regionsTTL = time.Hour
@@ -52,6 +57,9 @@ func WithClientFactory(f ClientFactory) Option { return func(d *Driver) { d.fact
 // WithHomeRegion sets the region of the global DescribeRegions call.
 func WithHomeRegion(r string) Option { return func(d *Driver) { d.home = r } }
 
+// WithCallTimeout sets the deadline of one API call.
+func WithCallTimeout(t time.Duration) Option { return func(d *Driver) { d.callTimeout = t } }
+
 // WithSleep replaces the wait between the retries of a call, for the tests.
 func WithSleep(f func(ctx context.Context, d time.Duration) error) Option {
 	return func(d *Driver) { d.sleep = f }
@@ -71,9 +79,11 @@ type Driver struct {
 	log     logr.Logger
 	factory ClientFactory
 	home    string
-	sleep   func(ctx context.Context, d time.Duration) error
-	prices  PriceSource
-	keeper  *keeperPrices
+	// callTimeout is the deadline of one API call; zero is DefaultCallTimeout.
+	callTimeout time.Duration
+	sleep       func(ctx context.Context, d time.Duration) error
+	prices      PriceSource
+	keeper      *keeperPrices
 
 	cloud  *Cloud
 	quotas *Quotas
@@ -153,10 +163,23 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 			d.home = v
 		}
 	}
+	if d.callTimeout == 0 {
+		d.callTimeout = DefaultCallTimeout
+		if v := os.Getenv(CallTimeoutEnv); v != "" {
+			t, err := time.ParseDuration(v)
+			if err != nil || t <= 0 {
+				return fmt.Errorf("%s=%q is not a positive duration", CallTimeoutEnv, v)
+			}
+			d.callTimeout = t
+		}
+	}
 	if d.factory == nil {
-		d.factory = NewClientFactory(ClientOptions{UserAgent: "scarpenter/" + version.Version})
+		d.factory = NewClientFactory(ClientOptions{
+			UserAgent: "scarpenter/" + version.Version, ReadTimeout: 3 * d.callTimeout,
+		})
 	}
 	d.cloud = NewCloud(cfg.ClusterName, d.factory, d.clock)
+	d.cloud.callTimeout = d.callTimeout
 	if d.sleep != nil {
 		d.cloud.sleep = d.sleep
 	}
@@ -195,6 +218,9 @@ func (d *Driver) NodeOptionsEpoch() uint64 {
 // TagKey implements vendors.Driver: scarpenter.sparecores.com/<key> (ECS accepts
 // slash keys).
 func (d *Driver) TagKey(k vendors.TagKey) string { return TagKey(k) }
+
+// LoadTimeout implements facts.CallBounded: the longest one API call takes.
+func (d *Driver) LoadTimeout() time.Duration { return d.callTimeout }
 
 // Regions implements vendors.Driver: the regions of the account, read from the
 // home region and cached for an hour. A region the account cannot use is
@@ -555,3 +581,6 @@ var (
 	_ vendors.InstanceMetadata    = (*Driver)(nil)
 	_ vendors.InterruptionNotices = (*Driver)(nil)
 )
+
+// ListsPerRegion implements vendors.RegionLister.
+func (d *Driver) ListsPerRegion() {}

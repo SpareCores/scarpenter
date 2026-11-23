@@ -97,7 +97,7 @@ func (q *Quotas) Quotas(ctx context.Context, region string) (*vendors.QuotaSnaps
 		RegionId:      new(region),
 		AttributeName: dara.StringSlice([]string{attrMaxPostpaid, attrUsedPostpaid, attrMaxSpot, attrUsedSpot}),
 	}
-	out, err := call(ctx, q.cloud, callTimeout, errContext{},
+	out, err := call(ctx, q.cloud, q.cloud.callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DescribeAccountAttributesResponseBody, error) {
 			return cl.ECS.DescribeAccountAttributes(ctx, in)
 		})

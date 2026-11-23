@@ -85,7 +85,7 @@ func (d *Driver) ensureSecurityGroup(
 			SecurityGroupType: new("normal"), Tag: d.groupCreateTags(spec),
 			ClientToken: new(clientToken("sg", p.VPC, spec.Name)),
 		}
-		out, err := call(ctx, d.cloud, callTimeout, errContext{},
+		out, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*ecs.CreateSecurityGroupResponseBody, error) {
 				return cl.ECS.CreateSecurityGroup(ctx, in)
 			})
@@ -165,7 +165,7 @@ func (d *Driver) rulesOf(
 	in := &ecs.DescribeSecurityGroupAttributeRequest{
 		RegionId: new(region), SecurityGroupId: new(groupID), Direction: new("ingress"),
 	}
-	out, err := call(ctx, d.cloud, callTimeout, errContext{},
+	out, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DescribeSecurityGroupAttributeResponseBody, error) {
 			return cl.ECS.DescribeSecurityGroupAttribute(ctx, in)
 		})
@@ -212,7 +212,7 @@ func (d *Driver) syncIngress(ctx context.Context, region, groupID string, p Secu
 	}
 	if len(drop) > 0 {
 		in := &ecs.RevokeSecurityGroupRequest{RegionId: new(region), SecurityGroupId: new(groupID), SecurityGroupRuleId: drop}
-		if _, err := call(ctx, d.cloud, callTimeout, errContext{},
+		if _, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*ecs.RevokeSecurityGroupResponseBody, error) {
 				return cl.ECS.RevokeSecurityGroup(ctx, in)
 			}); err != nil {
@@ -232,7 +232,7 @@ func (d *Driver) syncIngress(ctx context.Context, region, groupID string, p Secu
 		} else {
 			in.SourceCidrIp = new(strings.TrimPrefix(r.source, "cidr:"))
 		}
-		if _, err := call(ctx, d.cloud, callTimeout, errContext{},
+		if _, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*ecs.AuthorizeSecurityGroupResponseBody, error) {
 				return cl.ECS.AuthorizeSecurityGroup(ctx, in)
 			}); err != nil && !isCode(err, duplicateRuleCodes...) {
@@ -292,7 +292,7 @@ func (d *Driver) deleteSecurityGroup(ctx context.Context, ref vendors.ResourceRe
 		return err
 	}
 	in := &ecs.DeleteSecurityGroupRequest{RegionId: new(ref.Region), SecurityGroupId: new(ref.ID)}
-	_, err = call(ctx, d.cloud, callTimeout, errContext{},
+	_, err = call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DeleteSecurityGroupResponseBody, error) {
 			return cl.ECS.DeleteSecurityGroup(ctx, in)
 		})
@@ -343,7 +343,7 @@ func (d *Driver) ensureDeploymentSet(
 			RegionId: new(region), DeploymentSetName: new(spec.Name), Description: new(setDescription(spec)),
 			Strategy: new(p.Strategy), ClientToken: new(clientToken("ds", spec.Name)),
 		}
-		out, err := call(ctx, d.cloud, callTimeout, errContext{},
+		out, err := call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 			func(ctx context.Context) (*ecs.CreateDeploymentSetResponseBody, error) {
 				return cl.ECS.CreateDeploymentSet(ctx, in)
 			})
@@ -414,7 +414,7 @@ func (d *Driver) deleteDeploymentSet(ctx context.Context, ref vendors.ResourceRe
 		return err
 	}
 	in := &ecs.DeleteDeploymentSetRequest{RegionId: new(ref.Region), DeploymentSetId: new(ref.ID)}
-	_, err = call(ctx, d.cloud, callTimeout, errContext{},
+	_, err = call(ctx, d.cloud, d.cloud.callTimeout, errContext{},
 		func(ctx context.Context) (*ecs.DeleteDeploymentSetResponseBody, error) {
 			return cl.ECS.DeleteDeploymentSet(ctx, in)
 		})

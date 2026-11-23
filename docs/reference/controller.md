@@ -102,6 +102,7 @@ must be positive.
 | `MEMORY_LIMIT`, `CPU_REQUESTS` | Core's: the container's memory limit in bytes (the garbage collector's soft limit is 90 % of it) and CPU request in millicores (sizes core's concurrency). The chart derives both from the container's resources. |
 | `DISABLE_LEADER_ELECTION` | Core's: `true` runs without leader election; the chart sets it with `leaderElection.enabled=false`. |
 | `SCARPENTER_ALICLOUD_HOME_REGION` | The region the Alibaba Cloud account's region list (`DescribeRegions`) is read from; default `ap-southeast-1`. An environment variable of the driver, not a flag ([Alibaba Cloud driver](alicloud-driver.md)). |
+| `SCARPENTER_ALICLOUD_CALL_TIMEOUT` | The deadline of one Alibaba Cloud API call, a Go duration; default `45s` (`1m` and the like). It does not help a regional endpoint that cannot be reached: the clients connect within 10 s or fail. The zone load of the facts follows it ([Alibaba Cloud driver](alicloud-driver.md)). An environment variable of the driver, not a flag. |
 | `ALIBABA_CLOUD_ROLE_ARN`, `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, `ALIBABA_CLOUD_OIDC_TOKEN_FILE`, `ALIBABA_CLOUD_ACCESS_KEY_ID`, ... | The Alibaba Cloud SDK's own: the [credential modes](../how-to-guides/set-up-alicloud.md#2-credentials) of the chart set them. |
 | `OS_AUTH_URL`, `OS_USERNAME`, `OS_PASSWORD`, `OS_PROJECT_ID`, `OS_USER_DOMAIN_NAME` | The OpenStack environment of the OVH driver (gophercloud's, plus `OS_USER_DOMAIN_NAME` or `OS_USER_DOMAIN_ID` for the user's domain when `OS_DOMAIN_NAME` and `OS_DOMAIN_ID` are unset): one dedicated user of one Public Cloud project; the chart sets them from a Secret ([OVH credentials](../how-to-guides/set-up-ovh.md#2-credentials)). `Init` checks them and makes no call. |
 | `UPCLOUD_TOKEN` | The UpCloud API token (a bearer token) of the [UpCloud driver](upcloud-driver.md#credentials); the chart's `vendors.upcloud.credentials.mode: secret` sets it from a Secret. The driver does not start without it. |
@@ -135,7 +136,7 @@ and that the controller's own parser accepts what the chart renders.
 | `cluster.domain` | `--cluster-domain` | |
 | `kubeletClientCA.source`, `inline`, `configMap.*`, `secret.*` | `--kubelet-client-ca-file` | `none`, `inline`, an existing `configMap` or `secret`, or `extensionApiserverAuthentication` (copies key `client-ca-file` of `kube-system/extension-apiserver-authentication` into a ConfigMap of the release with Helm's `lookup`; the API server's client CA: the k3s client CA, the cluster CA on kubeadm and EKS). kubeadm and EKS need none; on k3s without it `kubectl logs` and `exec` fail with 401. |
 | `vendors.<vendor>.enabled` (`alicloud`, `aws`, `azure`, `gcp`, `hcloud`, `oci`, `ovh`, `upcloud`, `vultr`), `vendors.extra` | `--vendors` | `alicloud`, `aws`, `azure`, `gcp`, `hcloud`, `oci`, `ovh`, `upcloud` and `vultr` if enabled, then the extra drivers (the development image's `fake` and `qemu`); at least one is required. |
-| `vendors.alicloud.enabled`, `homeRegion` | `--vendors`, `SCARPENTER_ALICLOUD_HOME_REGION` | |
+| `vendors.alicloud.enabled`, `homeRegion`, `callTimeout` | `--vendors`, `SCARPENTER_ALICLOUD_HOME_REGION`, `SCARPENTER_ALICLOUD_CALL_TIMEOUT` | |
 | `vendors.azure.enabled`, `vendors.azure.subscriptionID` | `--vendors` (adds `azure`), `AZURE_SUBSCRIPTION_ID` | `subscriptionID` is required when enabled. |
 | `vendors.azure.ipv4Price` | `SCARPENTER_AZURE_IPV4_PRICE` | An explicit override that wins over Keeper's price, see the table above. |
 | `vendors.azure.credentials.mode`, `workloadIdentity.*`, `secret.*` | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`, a projected ServiceAccount token, `AZURE_CLIENT_SECRET` | [Azure credentials](../how-to-guides/set-up-azure.md#2-credentials). `workloadIdentity` needs `clientId` and `tenantId`, `secret` an `existingSecret`. |
@@ -588,8 +589,22 @@ to the returned instance.
   the pricing deltas of plan 06). Labels: every single-valued requirement of the
   instance type and offering, the node name as `kubernetes.io/hostname`, and the
   three profile labels (`default` until plan 06).
+- A deadline (`context.DeadlineExceeded`, not a cancellation or another Retryable error) of the launch's
+  preparation or the image resolution, when no earlier attempt of the NodeClaim may have requested an instance (its
+  bootstrap token does not exist yet), marks the region `RegionUnreachable` for 3 minutes (a class that has a single
+  region pauses for 3 minutes after one timeout), logs and publishes a `LaunchFailed` Event
+  naming the failed call, and the same Create tries the next candidate. A Retryable error of the create call
+  itself is unchanged: the token is kept and the launch is retried (an instance may exist). When every candidate
+  fails in the preparation, Create fails with `InsufficientCapacity` and its message. No new candidate starts
+  3 minutes after the Create began (core deletes an unlaunched NodeClaim after 5 minutes, a create call takes up to 90 s).
 - `Get` and `List` read through a 30 s cache of the cluster's instances
   (`Create` and `Delete` update it); a miss asks the driver by NodeClaim tag.
+  A driver that calls the vendor per region (`vendors.RegionLister`: AWS, Alibaba Cloud, OCI, OVH) is asked one
+  region at a time, up to 8 in parallel; the others once for all regions. A region that fails keeps the
+  instances of the previous listing (core's garbage collector deletes the registered NodeClaims missing from
+  `List`, so a slow region must not make them look gone), is logged and is not asked again for 3 minutes. A region
+  that was never listed counts as empty, unless a NodeClaim of the vendor lives in it: then the listing fails. The
+  cache is fresh from the end of the listing.
   Terminated and terminating instances are `NodeClaimNotFound`.
 - `Delete` terminates by the `instance-ref` annotation, else by tag lookup, and
   removes the bootstrap token. It returns `NodeClaimNotFound` once the instance

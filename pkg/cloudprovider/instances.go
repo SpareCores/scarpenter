@@ -8,6 +8,7 @@ package cloudprovider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider"
 	"sigs.k8s.io/karpenter/pkg/scheduling"
@@ -42,6 +44,10 @@ type instanceCache struct {
 	listedAt time.Time
 	byID     map[string]listedInstance // by provider ID
 	dropped  map[string]time.Time
+	// seen are the vendor/region pairs that were listed once; failedAt is when
+	// the listing of a region last failed.
+	seen     map[string]bool
+	failedAt map[string]time.Time
 }
 
 func (c *CloudProvider) putInstance(vendor string, inst *vendors.Instance) {
@@ -92,17 +98,25 @@ func (c *CloudProvider) instances(ctx context.Context, force bool) (map[string]l
 			continue
 		}
 		drv, _ := c.opts.Registry.Driver(vendor)
-		clusterTag := map[vendors.TagKey]string{vendors.TagCluster: c.opts.ClusterName}
-		insts, err := drv.ListInstances(ctx, regions[vendor], clusterTag)
-		if err != nil {
-			return nil, fmt.Errorf("listing the instances of vendor %s: %w", vendor, err)
+		results := c.listVendor(ctx, drv, regions[vendor], started)
+		if err := ctx.Err(); err != nil {
+			return nil, err // what was listed so far is partial: do not cache it
 		}
-		for _, inst := range insts {
-			name := inst.Tags[vendors.TagNodeClaim]
-			if inst.Gone() || name == "" {
+		for _, res := range results {
+			if res.err != nil {
+				if err := c.keepListed(ctx, listed, vendor, res, started); err != nil {
+					return nil, err
+				}
 				continue
 			}
-			listed[scope.ProviderID(vendor, inst.Region, name)] = listedInstance{vendor: vendor, instance: inst}
+			c.markListed(vendor, res.regions)
+			for _, inst := range res.insts {
+				name := inst.Tags[vendors.TagNodeClaim]
+				if inst.Gone() || name == "" {
+					continue
+				}
+				listed[scope.ProviderID(vendor, inst.Region, name)] = listedInstance{vendor: vendor, instance: inst}
+			}
 		}
 	}
 
@@ -120,8 +134,155 @@ func (c *CloudProvider) instances(ctx context.Context, force bool) (map[string]l
 			delete(listed, id)
 		}
 	}
-	c.cache.byID, c.cache.listedAt = listed, started
+	c.cache.byID, c.cache.listedAt = listed, c.opts.Clock.Now()
 	return c.snapshotLocked(), nil
+}
+
+// Listing limits: how many regions are listed at once, and how long a region
+// that failed is left alone (its last-known instances are kept meanwhile).
+const (
+	maxParallelListings = 8
+	listRetryAfter      = 3 * time.Minute
+)
+
+var errListedRecently = errors.New("the listing of the region failed recently, not asked again yet")
+
+// regionListing is the answer of a driver for a group of regions: one region
+// for a driver that lists per region, else all of them in one call.
+type regionListing struct {
+	regions []string
+	insts   []*vendors.Instance
+	err     error
+}
+
+// listVendor asks the driver for the instances of the regions. A driver that
+// lists per region (vendors.RegionLister) is asked one region at a time, in
+// parallel, so that a slow or failing region does not hide the others; the
+// others list the whole account in one call, which is not repeated per region.
+func (c *CloudProvider) listVendor(
+	ctx context.Context, drv vendors.Driver, regions []string, now time.Time,
+) []regionListing {
+	groups := [][]string{regions}
+	if _, ok := drv.(vendors.RegionLister); ok {
+		groups = groups[:0]
+		for _, r := range regions {
+			groups = append(groups, []string{r})
+		}
+	}
+	tags := map[vendors.TagKey]string{vendors.TagCluster: c.opts.ClusterName}
+	results := make([]regionListing, len(groups))
+	sem := make(chan struct{}, maxParallelListings)
+	var wg sync.WaitGroup
+	for i, group := range groups {
+		results[i].regions = group
+		if c.failedRecently(drv.Vendor(), group, now) {
+			results[i].err = errListedRecently
+			continue
+		}
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			results[i].insts, results[i].err = drv.ListInstances(ctx, group, tags)
+		})
+	}
+	wg.Wait()
+	return results
+}
+
+func regionKey(vendor, region string) string { return vendor + "/" + region }
+
+func (c *CloudProvider) failedRecently(vendor string, regions []string, now time.Time) bool {
+	c.cache.mu.Lock()
+	defer c.cache.mu.Unlock()
+	for _, r := range regions {
+		if at, ok := c.cache.failedAt[regionKey(vendor, r)]; ok && now.Sub(at) < listRetryAfter {
+			return true
+		}
+	}
+	return false
+}
+
+// markListed records that the regions were listed, so that they are known (an
+// empty region is empty, not unknown).
+func (c *CloudProvider) markListed(vendor string, regions []string) {
+	c.cache.mu.Lock()
+	defer c.cache.mu.Unlock()
+	if c.cache.seen == nil {
+		c.cache.seen = map[string]bool{}
+	}
+	for _, r := range regions {
+		c.cache.seen[regionKey(vendor, r)] = true
+		delete(c.cache.failedAt, regionKey(vendor, r))
+	}
+}
+
+// keepListed handles regions that could not be listed: their instances of the
+// previous listing stay in listed, so that core's garbage collector (which
+// deletes the registered NodeClaims missing from List) does not take them for
+// gone. A region that was never listed has nothing to keep: it counts as empty
+// unless a NodeClaim of the vendor lives in it, then the listing fails.
+func (c *CloudProvider) keepListed(
+	ctx context.Context, listed map[string]listedInstance, vendor string, res regionListing, now time.Time,
+) error {
+	logger := log.FromContext(ctx)
+	for _, region := range res.regions {
+		key := regionKey(vendor, region)
+		c.cache.mu.Lock()
+		seen := c.cache.seen[key]
+		c.cache.mu.Unlock()
+		if !seen {
+			has, err := c.hasNodeClaimIn(ctx, vendor, region)
+			if err != nil {
+				return fmt.Errorf("checking the NodeClaims of %s in %s: %w", vendor, region, err)
+			}
+			if has {
+				// Not "failed recently" any more: the next listing asks again.
+				c.cache.mu.Lock()
+				delete(c.cache.failedAt, key)
+				c.cache.mu.Unlock()
+				return fmt.Errorf("listing the instances of vendor %s in %s: %w", vendor, region, res.err)
+			}
+		}
+		c.cache.mu.Lock()
+		kept := 0
+		for id, li := range c.cache.byID {
+			if li.vendor == vendor && li.instance.Region == region {
+				listed[id] = li
+				kept++
+			}
+		}
+		if c.cache.failedAt == nil {
+			c.cache.failedAt = map[string]time.Time{}
+		}
+		_, failing := c.cache.failedAt[key]
+		if !errors.Is(res.err, errListedRecently) {
+			c.cache.failedAt[key] = now
+		}
+		c.cache.mu.Unlock()
+		if failing {
+			logger.V(1).Info("a region still cannot be listed, keeping the instances of the last listing",
+				"vendor", vendor, "region", region, "kept", kept, "error", res.err.Error())
+		} else {
+			logger.Info("listing the instances of a region failed, keeping the ones of the last listing",
+				"vendor", vendor, "region", region, "kept", kept, "error", res.err.Error())
+		}
+	}
+	return nil
+}
+
+// hasNodeClaimIn says whether a NodeClaim of the vendor lives in the region.
+func (c *CloudProvider) hasNodeClaimIn(ctx context.Context, vendor, region string) (bool, error) {
+	var claims karpv1.NodeClaimList
+	if err := c.opts.Client.List(ctx, &claims); err != nil {
+		return false, err
+	}
+	for i := range claims.Items {
+		v, r, _, err := scope.ParseProviderID(claims.Items[i].Status.ProviderID)
+		if err == nil && v == vendor && r == region {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *CloudProvider) snapshotLocked() map[string]listedInstance {

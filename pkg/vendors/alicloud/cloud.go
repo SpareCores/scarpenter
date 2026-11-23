@@ -8,6 +8,8 @@ package alicloud
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -17,11 +19,11 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
-// Per-call deadlines (plan 21 section 3): 45 s, 90 s for RunInstances (as AWS).
-const (
-	callTimeout = 45 * time.Second
-	runTimeout  = 90 * time.Second
-)
+// DefaultCallTimeout is the deadline of one API call, for every region. A call
+// that times out is not retried on the spot. RunInstances gets twice the time.
+// SCARPENTER_ALICLOUD_CALL_TIMEOUT overrides it; it does not help an endpoint
+// that is not reachable (the connect timeout fails that fast).
+const DefaultCallTimeout = 45 * time.Second
 
 // Retry bounds of the driver's own backoff on throttling and transient server
 // errors: the SDK has per-call retry settings but no adaptive mode.
@@ -40,6 +42,8 @@ type Cloud struct {
 	cluster string
 	factory ClientFactory
 	clock   clock.Clock
+	// callTimeout is the deadline of one API call (DefaultCallTimeout).
+	callTimeout time.Duration
 	// sleep waits between attempts; tests replace it.
 	sleep func(ctx context.Context, d time.Duration) error
 
@@ -56,7 +60,7 @@ func NewCloud(cluster string, factory ClientFactory, c clock.Clock) *Cloud {
 		c = clock.RealClock{}
 	}
 	return &Cloud{
-		cluster: cluster, factory: factory, clock: c, sleep: sleepCtx,
+		cluster: cluster, factory: factory, clock: c, sleep: sleepCtx, callTimeout: DefaultCallTimeout,
 		Types: NewTypeTable(), clients: map[string]Clients{},
 	}
 }
@@ -102,6 +106,20 @@ func retryable(err error) bool {
 	}
 }
 
+// withAction names the API action in the message of a timeout, so that a log
+// line says which call was slow. The action is the response type of the call
+// (*ecs.DescribeZonesResponseBody is DescribeZones).
+func withAction(err error, response any) error {
+	e, ok := errors.AsType[*vendors.Error](err)
+	if !ok {
+		return err
+	}
+	name := fmt.Sprintf("%T", response)
+	name = name[strings.LastIndex(name, ".")+1:]
+	name = strings.TrimSuffix(name, "ResponseBody")
+	return vendors.NewError(e.Class, e.Code, fmt.Errorf("%s: %w", name, e.Err))
+}
+
 // call runs fn with the deadline and the bounded backoff, and returns its
 // error classified. fn receives the context of the attempt.
 func call[T any](
@@ -117,6 +135,9 @@ func call[T any](
 			return out, nil
 		}
 		err = classify(err, ec)
+		if vendors.CodeOf(err) == codeTimeout {
+			err = withAction(err, out)
+		}
 		// The caller's own cancellation or deadline ends the loop.
 		if ctx.Err() != nil || !retryable(err) || attempt >= maxAttempts {
 			return zero, err

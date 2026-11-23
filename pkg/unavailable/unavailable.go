@@ -36,6 +36,10 @@ const (
 	// DefaultInterruptedTTL: a spot type that was just reclaimed is likely to be
 	// reclaimed again (ADR-027).
 	DefaultInterruptedTTL = 10 * time.Minute
+	// DefaultUnreachableTTL: the vendor's API did not answer a call of the
+	// launch's preparation in the region; short, so that the region is tried
+	// again soon.
+	DefaultUnreachableTTL = 3 * time.Minute
 )
 
 // TTLs are the lifetimes of the entries per error class. A zero field uses the
@@ -47,6 +51,7 @@ type TTLs struct {
 	ZoneUnusable         time.Duration
 	Invalid              time.Duration
 	Interrupted          time.Duration
+	Unreachable          time.Duration
 }
 
 func (t TTLs) withDefaults() TTLs {
@@ -68,6 +73,9 @@ func (t TTLs) withDefaults() TTLs {
 	if t.Interrupted <= 0 {
 		t.Interrupted = DefaultInterruptedTTL
 	}
+	if t.Unreachable <= 0 {
+		t.Unreachable = DefaultUnreachableTTL
+	}
 	return t
 }
 
@@ -81,12 +89,13 @@ const (
 	classInterrupted
 	classInvalid
 	classDailyLimit
+	classUnreachable
 )
 
 func (c class) String() string {
 	return [...]string{
 		"InsufficientCapacity", "Unsupported", "QuotaExceeded", "ZoneUnusable", "Interrupted", "InvalidOffering",
-		"DailyLimit",
+		"DailyLimit", "RegionUnreachable",
 	}[c]
 }
 
@@ -265,6 +274,13 @@ func (c *Cache) MarkZoneUnusable(vendor, zone string) {
 	c.mark(key{class: classZoneUnusable, vendor: vendor, zone: zone}, c.ttls.ZoneUnusable)
 }
 
+// MarkRegionUnreachable records that the vendor's API did not answer in the
+// region while a launch was prepared, before any instance was requested: every
+// offering of the region is skipped for a short time.
+func (c *Cache) MarkRegionUnreachable(vendor, region string) {
+	c.mark(key{class: classUnreachable, vendor: vendor, region: region}, c.ttls.Unreachable)
+}
+
 // MarkInvalid records that the vendor rejected the launch parameters of the
 // instance type in the zone with the capacity type.
 func (c *Cache) MarkInvalid(vendor, instanceType, zone, capacityType string) {
@@ -306,7 +322,7 @@ func (c *Cache) IsUnavailable(o Offering) bool {
 // Why returns the error class and the expiry of the live entry that covers the
 // offering and expires last: the first moment the offering may be launchable
 // again. The class is one of InsufficientCapacity, Interrupted, Unsupported,
-// QuotaExceeded, DailyLimit, InvalidOffering and ZoneUnusable.
+// QuotaExceeded, DailyLimit, InvalidOffering, ZoneUnusable and RegionUnreachable.
 func (c *Cache) Why(o Offering) (class string, expiry time.Time, ok bool) {
 	zoneless := o
 	zoneless.Zone = ""
@@ -330,6 +346,7 @@ func (c *Cache) Why(o Offering) (class string, expiry time.Time, ok bool) {
 		{class: classQuotaExceeded, vendor: o.Vendor, capacityType: o.CapacityType}, // account-wide
 		{class: classZoneUnusable, vendor: o.Vendor, zone: o.Zone},
 		{class: classDailyLimit, vendor: o.Vendor, region: o.Region},
+		{class: classUnreachable, vendor: o.Vendor, region: o.Region},
 	}
 	if o.NodeClass != "" {
 		keys = append(keys, insufficientCapacityKey(o), insufficientCapacityKey(zoneless))

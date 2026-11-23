@@ -100,6 +100,16 @@ func TestKeysAndTTLs(t *testing.T) {
 			},
 		},
 		{
+			name:    "region unreachable: (vendor, region), 3 minutes",
+			mark:    func(c *unavailable.Cache) { c.MarkRegionUnreachable("aws", "us-east-1") },
+			ttl:     3 * time.Minute,
+			covered: []unavailable.Offering{base, with(base, func(o *unavailable.Offering) { o.Zone, o.InstanceType = "us-east-1b", "aws.c7g.large" })},
+			free: []unavailable.Offering{
+				with(base, func(o *unavailable.Offering) { o.Region = "us-east-2" }),
+				with(base, func(o *unavailable.Offering) { o.Vendor = "gcp" }),
+			},
+		},
+		{
 			name:    "zone unusable: (vendor, zone), 10 minutes",
 			mark:    func(c *unavailable.Cache) { c.MarkZoneUnusable("aws", "us-east-1a") },
 			ttl:     10 * time.Minute,
