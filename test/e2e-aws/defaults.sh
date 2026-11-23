@@ -22,6 +22,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # the end of the CUDA run (the driver download and the image pull come on top of a boot).
 : "${E2E_GPU_TYPE:=aws.g4dn.xlarge}"
 : "${E2E_GPU_TIMEOUT:=1500}"
+# The manual interruption scenario (plan 26): the ARN of the IAM role AWS FIS assumes to send the
+# interruption (empty: the scenario refuses to start). The role trusts fis.amazonaws.com and
+# allows ec2:SendSpotInstanceInterruptions on instances of the account and ec2:DescribeInstances;
+# ci-policy.sh adds the CI role's FIS permissions and iam:PassRole on it when it is set.
+: "${E2E_FIS_ROLE_ARN:=}"
 # The types the described-not-named scenario may pick from (small to large).
 : "${E2E_TYPES_DESCRIBED:=aws.t3a.small,aws.t3a.medium,aws.t3a.large}"
 # How long a node may take from its Pod to Running, and the exit criterion for
@@ -66,4 +71,4 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 # envsubst (manifests) and the child processes read exported variables.
 export AWS_REGION E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
   E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
-  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_TAG_RUNNER E2E_TAG_NODE
+  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_FIS_ROLE_ARN E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_TAG_RUNNER E2E_TAG_NODE

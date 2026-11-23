@@ -577,8 +577,9 @@ that the kubelet holds a delay lock of logind and that a Pod gets SIGTERM on `sy
 **Size.** The agent adds about 1.2 KiB to the user-data of a spot node (the script with a 240 byte check is 1.3 KiB; it is compressed with the
 rest of its part). So `SpotAgentBytes` (1.5 KiB) is added to the 12 KiB budget of the golden worst case for spot nodes (12.9 KiB direct, 12.6 KiB
 tailscale, with a check as long as AWS's IMDSv2 one). The largest case, which AWS's p4d and p5 spot types can reach (16 GPUs with Fabric Manager,
-the mirror, two volumes, 24 local disks, the restriction and the agent) is 16.1 KiB with `direct` and 15.8 KiB with `tailscale` of the 16 KiB
-limit, a test holds it 256 bytes under it. That leaves room for a check of about AWS's length and little more. Two safety nets: a launch whose
+the mirror, two volumes, 24 local disks, the restriction and the agent) is 16105 bytes with `direct` and 15753 bytes with `tailscale` of the 16384
+limit with AWS's real check (the size tests render it), and a test holds it 256 bytes under it. That leaves 279 bytes: room for a check of about AWS's
+length and little more. Two safety nets: a launch whose
 user-data still exceeds the limit is refused for that offering alone (`InvalidOffering`, code `UserDataTooLarge`: the offering is marked
 unavailable and an `OfferingRejected` Event carries the sizes; the type's on-demand offering and the other types launch), and the NodeClass's trial
 rendering, which renders the agent without the NVIDIA part and the NVIDIA part without the agent as hard checks, also renders the combination

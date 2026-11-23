@@ -32,6 +32,7 @@ Setting it up: [Set up AWS](../how-to-guides/set-up-aws.md).
 - [Quotas](#quotas)
 - [Error mapping](#error-mapping)
 - [IAM](#iam)
+- [Interruption](#interruption)
 - [Deferred](#deferred)
 - [What is not verified against AWS yet](#what-is-not-verified-against-aws-yet)
 
@@ -46,6 +47,7 @@ Setting it up: [Set up AWS](../how-to-guides/set-up-aws.md).
 | `ManagedResources` | kinds `subnets`, `securityGroups`, `runSecurityGroups`, `placementGroups` |
 | `QuotaReporter`, `OfferingLister` | 18 vCPU quota buckets per region; launchable types by zone ID |
 | `GPUVirtualizer` | the fractional GPU families (`g6f`, `gr6f`, and a later `g<N>f`) report a virtual GPU, so the catalog drops them ([GPU instance types](#gpu-instance-types)) |
+| `InterruptionNotices` | the node agent's check of the instance metadata for a spot interruption notice; notice window 2 min ([Interruption](#interruption)) |
 | `BillingDescriber` | EC2 bills per second with a 60 second minimum: the rule is verified and under the hold floor, so [billing retention](controller.md#billing-retention) reports `MinimumTooShort` and never holds a node. `Instance.BillingStart` is the instance's `LaunchTime`. |
 
 ## Credentials and clients
@@ -528,10 +530,31 @@ needs the vCPUs of the types for the quota use and the type features for
 permission of this policy (a missing role fails with
 `AuthFailure.ServiceLinkedRoleCreationNotPermitted`, `Fatal`).
 
+## Interruption
+
+EC2 announces the interruption of a spot instance (one-time request, interruption behaviour `terminate`) two minutes ahead, best effort, in
+the instance metadata. Spot nodes get the [interruption agent](node-bootstrap.md#the-interruption-agent) with the driver's check
+(`InterruptionNotices`), which asks IMDSv2 every 2 s (AWS advises 5 s): a `PUT latest/api/token`, then `GET
+meta-data/spot/instance-action` with the token. A 404 is no notice; a 200 with `{"action":"terminate","time":"<RFC 3339>"}` is one, and
+`time` is the deadline (a response without a parsable `time` gets the window's minimum, 2 minutes, from the moment the controller sees it); any
+other answer is a transient error and is retried. The check runs in the metadata slice, so it works with the restricted instance
+metadata access (the default). Rebalance recommendations are ignored.
+
+`Instance.GoneReason` is `SpotInterrupted` for an instance that is `shutting-down` or `terminated` with the `StateReason.Code`
+`Server.SpotInstanceTermination`, so a reclaim the agent missed (no notice, or the node died first) is still recorded as `SpotInterrupted`
+with `source=vendor-api`; an instance SCarpenter deleted, or an on-demand one, has none.
+
+The check adds about 400 bytes to the user-data of a spot node: the largest case (a spot GPU type with 16 GPUs) is 16105 bytes of the
+16384 limit with it ([size](node-bootstrap.md#the-interruption-agent)).
+
+**Unverified until the owner's live check (plan 26, spike S2):** the exact response format of `instance-action` (the check also accepts a
+space after the colons), the lead time EC2 gives in practice, and `StateReason.Code` after a reclaim. The manual L5 scenario
+`interruption` ([the L5 lane](../how-to-guides/testing.md#the-l5-lane)) sends an interruption with AWS FIS and asserts the whole path.
+
 ## Deferred
 
-Spot placement scores as an ordering signal, interruption handling (EventBridge
-and SQS, or a node-side IMDS watcher), capacity reservations as a launch target,
+Spot placement scores as an ordering signal, interruption notices from EventBridge
+and SQS, capacity reservations as a launch target,
 EFA, dedicated hosts, multiple network interfaces, attaching existing volumes or
 snapshots, Capacity Blocks and Dedicated Host quotas.
 

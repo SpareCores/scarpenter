@@ -334,6 +334,9 @@ func toInstance(region string, in ec2types.Instance) *vendors.Instance {
 		}
 	}
 	inst.Addresses = addressesOf(in)
+	if inst.Gone() {
+		inst.GoneReason = goneReasonOf(in)
+	}
 	return inst
 }
 
