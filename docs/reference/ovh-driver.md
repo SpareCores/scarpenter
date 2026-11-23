@@ -257,17 +257,19 @@ whole project (foreign servers count); a limit of -1 (unlimited) gives no bucket
 `Counted` are the servers that are not deleted.
 `GlobalQuotas` is empty: every OVH limit is per project and region, so `QuotaExceeded` is never account-wide. `Consumption` is 1 instance, the flavor's vCPUs and its RAM;
 `false` for spot, for families the driver does not launch and for flavors not read yet
-(flavors are read per region and cached for an hour; `Quotas` and `LaunchableTypes` read them). GPU flavors have a separate quota
-and are not launched. Stock is not exposed by Nova: a flavor with no capacity fails at the scheduler.
+(flavors are read per region and cached for an hour; `Quotas` and `LaunchableTypes` read them). GPU flavors count against
+the same three buckets; their own GPU quota is not among Nova's absolute limits, so it stays reactive: a launch the quota refuses fails as
+the vendor's quota error and the type is retried later (an OVH API route for it is not verified). Stock is not exposed by Nova: a flavor with no capacity fails at the scheduler.
 
 ## Types and offerings
 
 Launched families: `b2`, `b3`, `c2`, `c3`, `r2`, `r3`, `d2` and `i1`, with their `-flex`
-variants. Excluded: GPU families, Metal (`bm`) and Keeper's inactive legacy families
+variants, and the GPU families `t1`, `t2`, `a10`, `a100`, `h100`, `h200`, `l4`, `l40s` and `rtx5000` ([GPU flavors](#gpu-flavors)).
+Excluded: the retired GPU families `g1`, `g2` and `g3` (until Keeper's data shows them active), Metal (`bm`) and Keeper's inactive legacy families
 (`eg`, `hg`, `s1`, `sp`, `vps`). A test over the snapshot asserts every Keeper OVH family
 is in one list, and the conformance suite checks that every type is launched or listed as unknown for the quota. `RootDiskGB` gives the local root disk
-of a type from Keeper's data: the `storage_size`, except `i1`, whose `storage_size` includes the local NVMe disks and
-whose root is the 50 GB entry. `LaunchableTypes` is the flavors of the region that the driver launches, mapped to
+of a type from Keeper's data: the `storage_size`, except the types with several disks (`i1`, and the `t1`, `t2`, `h100` and `h200` types with local NVMe disks), whose `storage_size`
+includes the NVMe disks and whose root is the smallest entry (50 GB for `i1`, `t1` and `t2`, 200 GB for `h100`, 400 GB for `h200`; `RootDiskForType` carries the table, a test checks it against the snapshot). `LaunchableTypes` is the flavors of the region that the driver launches, mapped to
 every zone of the region (OVH does not say which zone lacks a flavor); there is no spot, no preemption and no arm64 type.
 
 ## Billing
@@ -321,12 +323,27 @@ and Volume Operator; for the IAM service-account mode the actions of [`ovh-iam-p
 (`publicCloudProject:openstack:computeOperator`, `networkOperator`, `networkSecurityOperator`, `imageOperator`, `volumeOperator`).
 The exact least-privilege set is spike S6.
 
+## GPU flavors
+
+GPU flavors are launched like any other: the same Flatcar image, the flavor's own disk as the root, `Ext-Net`, no launch
+parameter. Which of them the catalog offers is the vendor-neutral rule of
+[GPU types](labels-and-offerings.md#gpu-types); the driver has no `GPUVirtualizer` (OVH sells whole GPUs only). On
+Flatcar 4757.2.3 over the committed snapshot the offered flavors are the priced ones of `t1` and `t2` (V100 and V100S, the
+proprietary driver), `rtx5000` and `l4` (the open 570 driver), and the 8-GPU `h200` with
+[Fabric Manager](node-bootstrap.md#nvidia-gpu-nodes). The `a10`, `a100`, `h100` and `l40s` flavors are launchable but not
+offered: the snapshot has no price for them, so they drop as `NoPrice` until Keeper prices them. A flavor is priced per region
+(`rtx5000-28` only in `GRA9`, so not in the lane's `GRA11`). The GPU quota of a project is separate and not in Nova's limits, and GPU flavors exist only in some
+regions (a flavor missing in a region is not offered there); the project must ask OVH for both. The manual `gpu` scenario of the
+[OVH lane](../how-to-guides/testing.md#the-l5-lane-of-ovhcloud) runs `l4-90` by default. Not verified on OVH until a real run: the driver
+on these flavors (the passthrough device, `nvidia.service`), the quota and error texts of a refused GPU launch, and
+Fabric Manager on the h200.
+
 ## Not built yet
 
 - The service-account OIDC credentials mode (Keystone federation with an `id_token`; `sdk.New` takes any authenticated provider
   client, so it plugs in with a `ReauthFunc`).
 - `vendors.Region` carrying the Keeper name (plan 14, A8): needed only for an alias row that differs from the Keeper name.
-- Private networks (a second NIC on a vRack network), gateways, IPv6-only nodes, GPU and Metal flavors, arm64, `localStorage`,
+- Private networks (a second NIC on a vRack network), gateways, IPv6-only nodes, Metal flavors, arm64, `localStorage`,
   Glance community publishing (S1), automatic image import (`ImageImporter`), flavor stock from the OVH API (`OfferingLister` over `flavor.available`).
 - The full live L5 run (only its smoke run has passed), the spikes S1 to S8 and the OVH-side setup (images, controller account), which are the maintainers'.
 

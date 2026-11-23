@@ -68,7 +68,7 @@ func TestQuotas(t *testing.T) {
 	}
 	for _, tc := range []struct{ typ, cap, why string }{
 		{"b3-8", vendors.CapacitySpot, "spot does not exist"},
-		{"t1-le-45", vendors.CapacityOnDemand, "GPU flavors are not launched"},
+		{"g2-15", vendors.CapacityOnDemand, "the retired GPU flavors are not launched"},
 		{"b3-999", vendors.CapacityOnDemand, "a flavor the region does not have is unknown"},
 	} {
 		if _, ok := q.Consumption(tc.typ, tc.cap); ok {

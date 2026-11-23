@@ -148,5 +148,34 @@ func TestIsCPUMetric(t *testing.T) {
 	if unitOf("CPUS") != "vCPU" || unitOf("INSTANCES") != "instances" || unitOf("DISKS_TOTAL_GB") != "count" {
 		t.Fatal("unitOf")
 	}
-	_ = computepb.Quota{}
+	if unitOf("NVIDIA_L4_GPUS") != "GPUs" || unitOf("GPUS_ALL_REGIONS") != "GPUs" {
+		t.Fatal("unitOf of a GPU metric")
+	}
+}
+
+func TestIsGPUMetric(t *testing.T) {
+	for m, want := range map[string]bool{
+		"NVIDIA_L4_GPUS": true, "PREEMPTIBLE_NVIDIA_L4_GPUS": true, "GPUS_ALL_REGIONS": true,
+		"COMMITTED_NVIDIA_L4_GPUS": false, "CPUS": false, "A2_CPUS": false, "NVIDIA_L4_VWS_GPUS": true, "INSTANCES": false,
+	} {
+		if got := IsGPUMetric(m); got != want {
+			t.Errorf("IsGPUMetric(%s) = %v", m, got)
+		}
+	}
+}
+
+// The GPU buckets of regions.get and projects.get are reported (unit GPUs), so that
+// the tracker knows them; no type consumes them until a series is confirmed.
+func TestBucketsKeepGPUMetrics(t *testing.T) {
+	qs := []*computepb.Quota{
+		{Metric: new("NVIDIA_L4_GPUS"), Limit: new(4.0), Usage: new(1.0)},
+		{Metric: new("COMMITTED_NVIDIA_L4_GPUS"), Limit: new(4.0)},
+		{Metric: new("GPUS_ALL_REGIONS"), Limit: new(8.0)},
+	}
+	got := buckets(qs, vendors.QuotaScopeRegion)
+	if len(got) != 2 || got[0].ID != "GPUS_ALL_REGIONS" || got[0].Scope != vendors.QuotaScopeGlobal ||
+		got[1].ID != "NVIDIA_L4_GPUS" || got[1].Scope != vendors.QuotaScopeRegion || got[1].Unit != "GPUs" ||
+		got[1].Limit != 4 || got[1].Used != 1 {
+		t.Fatalf("buckets = %+v", got)
+	}
 }

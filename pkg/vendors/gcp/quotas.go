@@ -101,14 +101,14 @@ func (d *Driver) GlobalQuotas(ctx context.Context) (*vendors.QuotaSnapshot, erro
 	return d.reader(api).GlobalQuotas(ctx)
 }
 
-// droppedSeries are the series the driver removes from the catalog: GPU machine
-// types launch like any type but have no driver (NVIDIA) support in v1 (like AWS's
-// mac types). UNVERIFIED list.
-var droppedSeries = []string{"a2", "a3", "a4", seriesA4X, "g2", "g4", "ct3", "ct3p", "ct5l", "ct5lp", "ct5p", "ct6e",
-	"tpu7", "tpu7x"}
+// droppedSeries are the series the driver removes from the catalog: the TPU series
+// (accelerator support for them is out of scope). The GPU series (a2, a3, a4, a4x, g2,
+// g4) are offered: the core drops the types it cannot serve (Blackwell, fractional,
+// arm64), and they launch like any type (MaintenanceFor gives TERMINATE). UNVERIFIED list.
+var droppedSeries = []string{"ct3", "ct3p", "ct5l", "ct5lp", "ct5p", "ct6e", "tpu7", "tpu7x"}
 
 // launchable says whether the machine type is offered by the driver: no custom
-// machine types, no bare metal, no GPU series.
+// machine types, no bare metal, no TPU series.
 func launchable(name string) bool {
 	return !strings.Contains(name, "-custom-") && !strings.HasPrefix(name, "custom-") &&
 		!strings.HasSuffix(name, "-metal") && !strings.Contains(name, "-metal-") &&

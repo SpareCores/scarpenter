@@ -7,6 +7,8 @@
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:
 #                   amd64 arm64 db described byo local negative quota drift scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
+#                   The manual scenario gpu is never part of "all": it runs only when named
+#                   (plan 12; E2E_GPU_TYPE, default aws.g4dn.xlarge).
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -125,6 +127,42 @@ start_local() {
   render "${here}/manifests/nodeclass-local.yaml" | kubectl apply -f -
   render "${here}/manifests/nodepool-local.yaml" | kubectl apply -f -
   render "${here}/manifests/local.yaml" | kubectl apply -f -
+}
+
+# start_gpu (manual scenario gpu): fails early when the account's G or P vCPU quota cannot hold the type
+# (before anything is applied), then the RuntimeClass the cluster may lack (k3s ships one
+# only when it finds the NVIDIA runtime on its own host), the NodeClass and the NodePool of
+# the GPU type, and the Pod (test/gpu-pod.yaml) that requests all the type's GPUs.
+start_gpu() {
+  local type="${E2E_GPU_TYPE#aws.}" count vcpus code quota
+  count="$(gpu_count "${type}")"
+  [[ "${count}" -ge 1 ]] || fail "${E2E_GPU_TYPE} has no GPU according to EC2"
+  case "${type}" in
+    p*) code=L-417A185B ;; # P on-demand
+    g* | vt*) code=L-DB2E81BA ;; # G and VT on-demand
+    *) fail "${E2E_GPU_TYPE} is not a G, VT or P family type" ;;
+  esac
+  vcpus="$(vcpus_of "${type}")"
+  quota="$(aws --region "${AWS_REGION}" service-quotas get-service-quota --service-code ec2 --quota-code "${code}" --query Quota.Value --output text)"
+  [[ "$(num "${quota}")" -ge "${vcpus}" ]] ||
+    fail "the on-demand vCPU quota ${code} of ${AWS_REGION} is ${quota}; ${E2E_GPU_TYPE} needs ${vcpus} (a new account has 0: request an increase)"
+  kubectl get runtimeclass nvidia >/dev/null 2>&1 ||
+    kubectl apply -f - <<'YAML'
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
+YAML
+  render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
+  render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
+  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${count}" \
+    render "${here}/../gpu-pod.yaml" | kubectl apply -f -
+}
+
+# gpu_count <instance type without the vendor prefix>: the GPUs of the type, from EC2.
+gpu_count() {
+  ec2 describe-instance-types --instance-types "$1" --query 'sum(InstanceTypes[0].GpuInfo.Gpus[].Count)' --output text
 }
 
 # ----------------------------------------------------------- scenarios ------
@@ -491,6 +529,24 @@ scn_local() {
   kubectl delete deployment e2e-local --wait=false
 }
 
+# gpu (plan 12, manual only): one GPU type from the Pod to the end of a CUDA run on its
+# node. The shared checks are test/lib.sh gpu_check_node: labels against the table,
+# capacity, the log of nvidia-smi and vectorAdd. The scenario also records the time to Ready.
+scn_gpu() {
+  local type="${E2E_GPU_TYPE#aws.}" count node claim
+  count="$(gpu_count "${type}")"
+  start_gpu
+  wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
+  node="$(pod_node e2e-gpu)"
+  claim="$(claim_of_node "${node}")"
+  assert_nonempty "the NodeClaim of ${node}" "${claim}"
+  assert_eq "instance-type" "${E2E_GPU_TYPE}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  gpu_check_node "${node}" e2e-gpu "${count}" "${E2E_FLATCAR_VERSION}"
+  note "gpu: ${E2E_GPU_TYPE} (${count} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
+  kubectl delete pod e2e-gpu --wait=false
+  kubectl delete nodepool e2e-gpu --wait=false
+}
+
 # negative: NodeClasses that ask for what the default network cannot give are refused,
 # or do not use it, and nothing is launched (plan 08 review items 17 and 18, ADR-022).
 scn_negative() {
@@ -840,16 +896,19 @@ managed_groups() {
 # --------------------------------------------------------------- runner -----
 
 all_scenarios=(amd64 arm64 db described byo local negative quota drift scalezero uninstall)
+# Run only when named (never by "all", the smoke set or a schedule), before the others, so that scalezero
+# and uninstall still clean up after them.
+manual_scenarios=(gpu)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
 else
-  for s in "${all_scenarios[@]}"; do
+  for s in "${manual_scenarios[@]}" "${all_scenarios[@]}"; do
     [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
   done
   for s in ${E2E_SCENARIOS//,/ }; do
-    [[ " ${all_scenarios[*]} " == *" ${s} "* ]] || {
-      echo "unknown scenario ${s} (known: ${all_scenarios[*]})" >&2
+    [[ " ${all_scenarios[*]} ${manual_scenarios[*]} " == *" ${s} "* ]] || {
+      echo "unknown scenario ${s} (known: ${all_scenarios[*]}; manual: ${manual_scenarios[*]})" >&2
       exit 2
     }
   done

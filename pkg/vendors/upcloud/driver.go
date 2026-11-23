@@ -42,6 +42,7 @@ const DefaultNetworkRange = "10.241.0.0/16"
 const (
 	regionsTTL = time.Hour
 	plansTTL   = time.Hour
+	stockTTL   = time.Minute
 )
 
 func init() {
@@ -83,6 +84,9 @@ type Driver struct {
 	// templates are the Flatcar templates the last resolution of each zone
 	// matched (all tiers), for the tier choice of CreateInstance and Supported.
 	templates map[string][]Template
+	// stock is the GPU stock of every zone (plan to in stock), shared by the
+	// zones of a refresh; an expired value is the fallback of a failed call.
+	stock cached[map[string]map[string]bool]
 	// limits are the account limits of the quota reader, reused for 15 minutes.
 	limits cached[limitsSnapshot]
 }

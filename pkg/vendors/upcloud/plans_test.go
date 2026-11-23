@@ -26,7 +26,7 @@ var knownPlans = map[string]Family{
 	"HICPU-8xCPU-16GB": FamilyHiCPU, "HICPU-64xCPU-128GB": FamilyHiCPU,
 	"HIMEM-2xCPU-16GB": FamilyHiMem, "HIMEM-32xCPU-256GB": FamilyHiMem,
 	"CLOUDNATIVE-2xCPU-4GB": FamilyCloudNative,
-	"GPU-8xCPU-64GB-1xL40S": FamilyGPU, "GPU-SPOT-8xCPU-64GB-1xL40S": FamilyGPU,
+	"GPU-8xCPU-64GB-1xL40S": FamilyGPU, "GPU-SPOT-8xCPU-64GB-1xL40S": FamilyGPUSpot,
 	"MYSTERY-4xCPU-8GB": FamilyUnknown, "": FamilyUnknown, "1xCPU": FamilyUnknown,
 }
 
@@ -41,7 +41,7 @@ func TestFamilyOf(t *testing.T) {
 func TestFamilySupported(t *testing.T) {
 	for f, want := range map[Family]bool{
 		FamilyGeneral: true, FamilyStarter: true, FamilyPremium: true, FamilyDeveloper: true, FamilyHiCPU: true, FamilyHiMem: true, FamilyCloudNative: true,
-		FamilyGPU: false, FamilyUnknown: false,
+		FamilyGPU: true, FamilyGPUSpot: false, FamilyUnknown: false,
 	} {
 		if f.Supported() != want {
 			t.Errorf("%q supported = %v", f, f.Supported())
@@ -79,7 +79,7 @@ func TestPlanDefaults(t *testing.T) {
 		"DEV-1xCPU-1GB-10GB":    {"standard", 25, true, true, 25, true},
 		"1xCPU-2GB":             {"maxiops", 50, true, true, 50, true},
 		"CLOUDNATIVE-2xCPU-4GB": {"maxiops", 25, false, true, 25, true},
-		"GPU-8xCPU-64GB-1xL40S": {"maxiops", 300, true, false, 300, true},
+		"GPU-8xCPU-64GB-1xL40S": {"maxiops", 300, true, true, 300, true},
 	} {
 		p := plans[name]
 		if p.DefaultRootTier() != tc.tier || p.DefaultRootGB() != tc.gb || p.HasIPv4() != tc.ipv4 ||
@@ -91,7 +91,10 @@ func TestPlanDefaults(t *testing.T) {
 	if p, err := plans.ValidatePlan("1xCPU-2GB"); err != nil || p.Cores != 1 || p.MemoryMB != 2048 {
 		t.Errorf("ValidatePlan = %+v %v", p, err)
 	}
-	for _, bad := range []string{"GPU-8xCPU-64GB-1xL40S", "nope"} {
+	if p, err := plans.ValidatePlan("GPU-8xCPU-64GB-1xL40S"); err != nil || p.GPUs != 1 {
+		t.Errorf("ValidatePlan of a GPU plan = %+v %v", p, err)
+	}
+	for _, bad := range []string{"nope"} {
 		if _, err := plans.ValidatePlan(bad); err == nil {
 			t.Errorf("%s validated", bad)
 		}

@@ -348,12 +348,14 @@ recorded. This is the cheap guard of D7's rewrite against a runtime sysext bump.
 no other launch change (classes G and P already map to their vCPU quotas, `QuotaZero` until an increase;
 `InsufficientInstanceCapacity` stays reactive per zone). The shared L5 scenario `gpu` (in `test/lib.sh`, used
 by every vendor's lane): **manual-only** (never in `all`, the smoke set, a CI gate or a schedule; the maintainer
-runs it by hand when wanted), with a workflow input
-`gpu_instance_type` (default: the vendor's cheapest supported type from its `defaults.sh`); it applies a NodePool
+runs it by hand when wanted), selected by `mode=gpu` of `e2e.yml`, with its input
+`gpu_instance_type` (an `E2E_GPU_TYPE` override; default: the vendor's cheapest supported type from its `defaults.sh`); it applies a NodePool
 and a Pod with `runtimeClassName: nvidia` that requests all GPUs and runs `nvidia-smi` and a CUDA vectorAdd,
 checks the labels against the table and the node's capacity, and records the time to `Ready`. Docs: aws-driver.md
 (offered on 4757.2.3: g4dn, g5, g6, gr6, g6e, p3dn, p5.4xlarge, and with Fabric Manager p4d, p4de, p5.48xlarge,
 p5e, p5en [U]; dropped: g5g arm64, g6f and gr6f virtual, g7, g7e and p6 Blackwell). Lane default `g4dn.xlarge`.
+
+**Done (e).** `aws.Driver.Virtual` (families `g<N>f`, `gr<N>f`), the offering test over the snapshot, the manual `gpu` scenario (shared helpers in `test/lib.sh`, `test/gpu-pod.yaml`, `test/gpu-expect`; AWS NodeClass, NodePool, `scn_gpu`, `E2E_GPU_TYPE` default `aws.g4dn.xlarge`, `e2e.yml` input `gpu_instance_type` (`mode=gpu`), the role policy lists the type), docs. No launch change was needed (64 GiB root, same AMI, EFA stays deferred).
 
 **(f) GCP.** Remove `a2 a3 a4 a4x g2 g4` from `droppedSeries` (the TPU series stay); the core
 drops Blackwell and fractional types (8- and 16-GPU types are offered with Fabric Manager). Quotas: per-region buckets `NVIDIA_<model>_GPUS` and
@@ -366,19 +368,27 @@ metric names per model, A100 40 and 80 GB]; the series join the confirmed list w
 series); AMD and fractional sizes fall to the core's rules. The family vCPU quotas exist. Check the SCSI-or-NVMe
 rule against `NCasT4_v3`, NC A100 v4 and NC H100 v5. Lane default `Standard_NC4as_T4_v3`.
 
+**Done (g).** `azure.Driver.Virtual` (every `Standard_NV*` size), the offering test over the snapshot (NC and ND offered, NV dropped as `GPUVirtual`), the manual `gpu` scenario in the Azure lane (`E2E_GPU_TYPE` default `azure.Standard_NC4as_T4_v3`, NodeClass with a 64 GiB root, NodePool, family-quota and SCSI checks, the size in `ci-policy.sh`), docs. No launch change (SCSI rule unchanged; NC H100 v5 lists NVMe too [U]); the lane stays out of `test/e2e-vendors.txt`.
+
 **(h) Alibaba Cloud.** `GPUVirtualizer`: `vgn*`, `sgn*`, `*-vws*`; rows without a model
 fall to the core. Quotas stay vCPU plus reactive (the per-family Quota Center is the driver's open item). Mainland
 China regions: document the mirror (D5) and the chart's image repository override (Flatcar's server, GitHub and
 nvcr.io may be slow or blocked [U]). Lane default `ecs.gn6i-c4g1.xlarge` (T4).
+
+**Done (h).** `alicloud.Driver.Virtual` (`vgn*`, `sgn*`, `*-vws*`; the catalog test over the snapshot), the manual `gpu` scenario in the Alibaba lane (shared helpers, NodeClass and NodePool manifests, `E2E_GPU_TYPE` default `alicloud.ecs.gn6i-c4g1.xlarge`, `E2E_GPU_TIMEOUT`, the role policy lists the type), docs (driver reference, set-up with the mainland mirror advice). No family needed enabling (no family was dropped for being GPU; `ebmgn*` stays out as bare metal) and no launch change was needed; quotas stay vCPU plus reactive.
 
 **(i) OVHcloud.** Launch `t1 t2 a10 a100 h100 h200 l4 l40s rtx5000` (the 8-GPU
 h200 gets Fabric Manager); `g1 g2 g3` stay excluded unless the data shows them active; the GPU quota per region becomes a bucket if
 the API reports it, otherwise it stays reactive. Lane default: the cheapest `l4` or `rtx5000` flavor of the lane's
 region.
 
+**Done (i).** The nine GPU families moved from `gpuFamilies` (excluded) to the launched families (`g1 g2 g3` stay excluded as retired), no launch change; `RootDiskForType` gives the system disk of the multi-disk types (`i1`, `t1`, `t2`, `h100`, `h200`), checked against the snapshot; the GPU quota is not in Nova's limits, so it stays reactive [U: an OVH API route]; offering test over the snapshot (the priced flavors only: a10, a100, h100 and l40s have no price there yet); the manual `gpu` scenario in `test/e2e-ovh` (`E2E_GPU_TYPE` default `ovh.l4-90`, the cheapest priced in GRA11; the GPU count read from Keeper's snapshot (`test/gpu-count`); early flavor check), docs. `ovh` stays out of `test/e2e-vendors.txt`.
+
 **(j) UpCloud** (conditional, the maintainer's go-ahead). Launch the `GPU-` plans (not `GPU-SPOT-`), read GPU
 stock (`GetDevicesAvailability`) for the offerings, a GPU count bucket from the account limits. L40S and H100
 qualify; RTX PRO 6000 waits for 580-open.
+
+**Done (j).** `FamilyGPUSpot` (`GPU-SPOT-` stays out) and `GPU-` plans launch; `Supported` no longer excludes GPU. `GetDevicesAvailability` joins the API interface (real client, fake, canary guard) and `LaunchableTypes` lists a GPU plan in a zone only with stock there (a failed call leaves the GPU plans out for that refresh); the global bucket `gpus` from `resource_limits.gpus`, usage by the servers' plans, and the plan's GPUs in `Consumption`. No `GPUVirtualizer` (passthrough). L40S and H100 offered, RTX PRO 6000 dropped until 580-open (test over the snapshot). Manual `gpu` scenario in the UpCloud lane (`E2E_GPU_TYPE` default `upcloud.GPU-8xCPU-64GB-1xL40S`, early stock and limits check), docs. The GPU limit's create error stays `Fatal` until a real run shows its code; then map it to `QuotaExceeded` without `AsAccountWide`, so the `gpus` bucket is marked. Unverified: the stock response shape and whether a plan out of stock is absent or 0, the limit's name and its create error code, the root default on the plan's disk, boot on the GPU hosts.
 
 Each vendor step adds the vendor's `gpu` defaults to its lane (for the manual scenario) and ends at the dry run; no
 step runs a GPU instance.

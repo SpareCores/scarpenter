@@ -230,10 +230,22 @@ t_scenarios_defined() {
       echo "no function scn_${n}"
       return 1
     }
-    grep -q "${n}" "${root}/.github/workflows/e2e.yml" || [[ "${n}" == preflight ]] || {
+    grep -qE "(^|[ ,])${n}[ ,.)]" "${root}/.github/workflows/e2e.yml" || [[ "${n}" == preflight ]] || {
       echo "the workflow's scenarios input does not name ${n}"
       return 1
     }
+  done
+}
+t_manual_scenarios() { # the manual scenarios have functions, are named by the workflow, and are in neither "all" nor the smoke set
+  local all manual n
+  all="$(sed -n 's/^all_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  manual="$(sed -n 's/^manual_scenarios=(\(.*\))$/\1/p' "${here}/scenarios.sh")"
+  [[ -n "${manual}" ]]
+  for n in ${manual}; do
+    grep -q "^scn_${n}() {" "${here}/scenarios.sh" || { echo "no function scn_${n}"; return 1; }
+    grep -qE "(^|[ ,])${n}[ ,.)]" "${root}/.github/workflows/e2e.yml" || { echo "the workflow's scenarios input does not name ${n}"; return 1; }
+    [[ " ${all} " != *" ${n} "* ]] || { echo "${n} is in all_scenarios"; return 1; }
+    [[ ",${E2E_SMOKE_SCENARIOS}," != *",${n},"* ]] || { echo "${n} is in the smoke set"; return 1; }
   done
 }
 t_pins_pinned() { # every action of the L5 workflows is pinned by a full commit SHA (a local reusable workflow has no pin)
@@ -274,6 +286,7 @@ t_no_secrets_in_scripts() { # nothing that looks like an ID, a key or a local pa
     "${here}" --include='*.sh' --include='*.yaml' --include='*.go' | grep -v 'selftest.sh'
 }
 check "every scenario has a function and is named by the workflow" t_scenarios_defined
+check "the manual scenarios are outside all and the smoke set" t_manual_scenarios
 check "every action in the L5 workflows is pinned by SHA with a version comment" t_pins_pinned
 check "the smoke scenarios are scenarios of the runner" t_smoke_scenarios
 check "e2e.yml and release.yml pass what e2e-cloud.yml takes and are the only callers, e2e.yml with no automatic trigger; the sweeper's environment; nothing names the old e2e-aws.yml" t_workflows_agree

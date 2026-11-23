@@ -34,6 +34,14 @@ func TestRootDisk(t *testing.T) {
 	if b, ok := d.RootDiskForType(def, i1); !ok || b != 50e9 {
 		t.Errorf("i1: %d %v", b, ok)
 	}
+	h100 := vendors.CatalogType{APIReference: "h100-380", LocalStorageGB: 4040, LocalStorageCount: 2}
+	if b, ok := d.RootDiskForType(def, h100); !ok || b != 200e9 {
+		t.Errorf("h100 with local NVMe: %d %v", b, ok)
+	}
+	l4 := vendors.CatalogType{APIReference: "l4-90", LocalStorageGB: 400, LocalStorageCount: 1}
+	if b, ok := d.RootDiskForType(def, l4); ok || b != 0 {
+		t.Errorf("a GPU flavor's own disk is the catalog's: %d %v", b, ok)
+	}
 	boot := vendors.VendorSettings{Raw: json.RawMessage(`{"storage":{"root":{"bootFromVolume":{"volumeType":"high-speed","size":"100Gi"}}}}`)}
 	boot.RootDiskBytes = d.RootDiskBytes(boot)
 	for _, it := range []vendors.CatalogType{b3, i1} {

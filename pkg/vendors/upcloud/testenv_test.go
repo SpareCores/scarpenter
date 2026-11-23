@@ -8,6 +8,8 @@ package upcloud_test
 
 import (
 	"context"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -41,6 +43,9 @@ type snapshotRow struct {
 	Memory       int     `json:"memory_amount"`
 	StorageSize  float64 `json:"storage_size"`
 }
+
+// gpuCountRE reads the GPU count of a plan name (GPU-12xCPU-128GB-2xL40S).
+var gpuCountRE = regexp.MustCompile(`^GPU-.*-(\d+)x[A-Z0-9]+$`)
 
 var (
 	snapshotOnce sync.Once
@@ -82,8 +87,8 @@ func snapshotPlans(t testing.TB) []fake.PlanSpec {
 				p.StorageTier = upcloud.StorageTierStandard
 			}
 		}
-		if strings.HasPrefix(r.APIReference, "GPU-") {
-			p.GPUAmount = 1
+		if m := gpuCountRE.FindStringSubmatch(r.APIReference); m != nil {
+			p.GPUAmount, _ = strconv.Atoi(m[1])
 		}
 		out = append(out, fake.PlanSpec{Plan: p})
 	}

@@ -42,11 +42,11 @@ export E2E_CLUSTER=scarpenter-ci-1 E2E_RUN_ID=1 E2E_CREATED_AT=1800000000 E2E_AP
 export E2E_PG_LOCATION=fsn1 E2E_HCLOUD_SERVER_LIMIT=10
 t_render() {
   local out
-  out="$(NAME=probe1 POOL=pool1 TYPE=hcloud.cx23 CAPACITY=on-demand render "${here}/manifests/probe.yaml")"
+  out="$(NAME=probe1 POOL=pool1 ARCH=amd64 CAPACITY=on-demand render "${here}/manifests/probe.yaml")"
   grep -q 'name: probe1' <<<"${out}" && grep -q 'karpenter.sh/nodepool: pool1' <<<"${out}" && grep -q 'capacity-type: on-demand' <<<"${out}" &&
     ! grep -qF -e "\${" <<<"${out}"
 }
-t_render_unset() { (unset NAME POOL TYPE CAPACITY; render "${here}/manifests/probe.yaml"); }
+t_render_unset() { (unset NAME POOL ARCH CAPACITY; render "${here}/manifests/probe.yaml"); }
 t_render_keeps_other_dollars() { # only the manifest's own ${NAME} are replaced
   # shellcheck disable=SC2016  # the dollar signs are the test's input
   printf 'a: ${NAME}\nb: $HOME\n' >"${tmp}/m.yaml"

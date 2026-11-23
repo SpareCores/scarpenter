@@ -33,6 +33,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # smallest plan that is both offered and carries an included disk and a public IPv4 address.
 # Change it here if the live account's plan list says otherwise.
 : "${E2E_TYPE_AMD64:=upcloud.STARTER-1xCPU-1GB}"
+# The manual gpu scenario (never in `all` or the smoke set): the GPU plan it launches (the
+# cheapest supported one, 1 L40S; the gpu_instance_type input of e2e.yml, an E2E_GPU_TYPE override, replaces it) and how
+# long its node may take from the Pod to the end of the CUDA run (the server clone, the driver
+# download and the image pull come on top of a boot).
+: "${E2E_GPU_TYPE:=upcloud.GPU-8xCPU-64GB-1xL40S}"
+: "${E2E_GPU_TIMEOUT:=2100}"
 # The types the described-not-named scenario may pick from (small to large): the workload
 # asks for 2 vCPUs and more than 3000 MiB, which rules out the first.
 : "${E2E_TYPES_DESCRIBED:=upcloud.STARTER-1xCPU-1GB,upcloud.STARTER-2xCPU-4GB,upcloud.STARTER-2xCPU-8GB}"
@@ -76,5 +82,5 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 # envsubst (manifests) and the child processes read exported variables.
 export UPCLOUD_ZONE E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
   E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
-  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH \
+  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_GPU_TYPE E2E_GPU_TIMEOUT \
   E2E_SMOKE_SCENARIOS E2E_MIN_CORES E2E_MIN_MEMORY_MB E2E_TAG_RUNNER E2E_TAG_NODE

@@ -21,6 +21,9 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/nvidia"
+	"github.com/SpareCores/scarpenter/pkg/vendors/alicloud"
+	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
+	"github.com/SpareCores/scarpenter/pkg/vendors/azure"
 )
 
 // virtualFacts reports the listed types as having a virtual GPU.
@@ -188,6 +191,155 @@ func TestNVSwitchTypesAreOfferedWithFabricManager(t *testing.T) {
 	}
 	if got := droppedGauge(t, reg)["c/aws/GPUNVSwitch"]; got < 1 {
 		t.Errorf("GPUNVSwitch = %v, want at least 1", got)
+	}
+}
+
+// awsVirtualFacts answers VirtualGPU as the AWS driver does.
+type awsVirtualFacts struct{ catalog.StaticFacts }
+
+func (awsVirtualFacts) VirtualGPU(_, apiReference string) bool {
+	return (&aws.Driver{}).Virtual(apiReference)
+}
+
+// TestAWSOffersTheNVIDIAFamiliesOfThePlan is the AWS list of plan 12 on 4757.2.3 over the
+// snapshot: the families the pinned release can run are offered (the NVSwitch ones with
+// Fabric Manager), the arm64, fractional and Blackwell ones are not.
+func TestAWSOffersTheNVIDIAFamiliesOfThePlan(t *testing.T) {
+	_, its := gpuCatalog(t, "4757.2.3", awsVirtualFacts{catalogtestFacts(t)}, nil, "aws")
+	for _, name := range []string{
+		"aws.g4dn.xlarge", "aws.g5.xlarge", "aws.g6.xlarge", "aws.gr6.4xlarge", "aws.g6e.xlarge",
+		"aws.p3dn.24xlarge", "aws.p5.4xlarge", "aws.p4d.24xlarge", "aws.p4de.24xlarge", "aws.p5.48xlarge", "aws.p5e.48xlarge", "aws.p5en.48xlarge",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{"aws.g5g.xlarge", "aws.g6f.large", "aws.gr6f.4xlarge", "aws.g7e.2xlarge", "aws.p6-b200.48xlarge", "aws.p6-b300.48xlarge"} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
+	}
+}
+
+// TestOVHOffersItsNVIDIAFlavors is the OVH list of plan 12 on 4757.2.3 over the snapshot:
+// the priced t1 and t2 (V100), RTX 5000, L4 flavors and the 8-GPU h200 (with Fabric
+// Manager) are offered with their whole GPU count as capacity; the a10, a100, h100
+// and l40s flavors of the snapshot have no price yet and are dropped as NoPrice.
+func TestOVHOffersItsNVIDIAFlavors(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_, its := gpuCatalog(t, "4757.2.3", catalogtestFacts(t), reg, "ovh")
+	for name, count := range map[string]int64{
+		"ovh.t1-le-45": 1, "ovh.t1-180": 4, "ovh.t2-90": 2, "ovh.rtx5000-28": 1, "ovh.l4-90": 1, "ovh.l4-180": 2, "ovh.h200-1920-eph": 8,
+	} {
+		it := byName(its, name)
+		if it == nil {
+			t.Errorf("%s is not offered (dropped: %v)", name, droppedGauge(t, reg))
+			continue
+		}
+		if got := gpuCapacity(it); got != count {
+			t.Errorf("%s: nvidia.com/gpu = %d, want %d", name, got, count)
+		}
+	}
+	if it := byName(its, "ovh.h200-1920-eph"); it != nil && it.Requirements.Get(v1alpha1.LabelNVIDIADriverBranch).Any() != "570" {
+		t.Errorf("h200: branch %q", it.Requirements.Get(v1alpha1.LabelNVIDIADriverBranch).Any())
+	}
+	if it := byName(its, "ovh.t1-45"); it != nil && it.Requirements.Get(v1alpha1.LabelNVIDIADriverFlavor).Any() != "proprietary" {
+		t.Error("the V100 flavors take the proprietary driver")
+	}
+}
+
+// alicloudVirtualFacts answers VirtualGPU as the Alibaba Cloud driver does.
+type alicloudVirtualFacts struct{ catalog.StaticFacts }
+
+func (alicloudVirtualFacts) VirtualGPU(_, apiReference string) bool {
+	return (&alicloud.Driver{}).Virtual(apiReference)
+}
+
+// TestAlicloudOffersTheNVIDIAFamiliesOfThePlan is the Alibaba Cloud list of plan 12 on 4757.2.3
+// over the snapshot: the whole-GPU families of a known model are offered; the vGPU families
+// (vgn, sgn, vws) and the rows without a model or manufacturer are not (the bare metal ebm families
+// stay in the catalog and are refused by the driver's launchable set).
+func TestAlicloudOffersTheNVIDIAFamiliesOfThePlan(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_, its := gpuCatalog(t, "4757.2.3", alicloudVirtualFacts{catalogtest.Facts(t, "alicloud")}, reg, "alicloud")
+	for _, name := range []string{
+		"alicloud.ecs.gn6i-c4g1.xlarge", "alicloud.ecs.gn6v-c8g1.2xlarge", "alicloud.ecs.gn6e-c12g1.3xlarge",
+		"alicloud.ecs.gn7i-c8g1.2xlarge", "alicloud.ecs.gn7i-c32g1.32xlarge", "alicloud.ecs.gn6e-c12g1.24xlarge",
+		"alicloud.ecs.gn5-c8g1.2xlarge", "alicloud.ecs.gn5i-c4g1.xlarge",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{
+		"alicloud.ecs.vgn6i-m4-vws.xlarge", "alicloud.ecs.vgn6i-m16-vws.5xlarge", "alicloud.ecs.sgn7i-vws-m2.xlarge",
+		"alicloud.ecs.sgn8ia-m2.xlarge", "alicloud.ecs.gn8v.4xlarge", "alicloud.ecs.gn9gc.4xlarge",
+	} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
+	}
+	got := droppedGauge(t, reg)
+	for _, key := range []string{"c/alicloud/GPUVirtual", "c/alicloud/GPUFractional"} {
+		if got[key] < 1 {
+			t.Errorf("%s = %v (all: %v)", key, got[key], got)
+		}
+	}
+}
+
+// azureVirtualFacts answers VirtualGPU as the Azure driver does.
+type azureVirtualFacts struct{ catalog.StaticFacts }
+
+func (azureVirtualFacts) VirtualGPU(_, apiReference string) bool {
+	return (&azure.Driver{}).Virtual(apiReference)
+}
+
+// TestAzureOffersTheNVIDIASizesOfThePlan is the Azure list of plan 12 on 4757.2.3 over the
+// snapshot: the NC and ND sizes (passthrough GPUs, the 8-GPU A100, H100 and H200 with Fabric
+// Manager) are offered, the NV sizes (GRID vGPUs) are not. (The confidential NCC H100 size is dropped
+// by the driver's launchable sizes, SKU.Launchable, not by the NVIDIA rules.)
+func TestAzureOffersTheNVIDIASizesOfThePlan(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_, its := gpuCatalog(t, "4757.2.3", azureVirtualFacts{catalogtest.Facts(t, "azure")}, reg, "azure")
+	for _, name := range []string{
+		"azure.Standard_NC4as_T4_v3", "azure.Standard_NC64as_T4_v3", "azure.Standard_NC16ads_A10_v4",
+		"azure.Standard_NC24ads_A100_v4", "azure.Standard_NC96ads_A100_v4", "azure.Standard_NC40ads_H100_v5",
+		"azure.Standard_NC80adis_H100_v5", "azure.Standard_ND40rs_v2", "azure.Standard_ND96asr_v4",
+		"azure.Standard_ND96amsr_A100_v4", "azure.Standard_ND96isr_H100_v5", "azure.Standard_ND96isr_H200_v5",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{
+		"azure.Standard_NV6s_v2", "azure.Standard_NV24s_v2", "azure.Standard_NV36ads_A10_v5", "azure.Standard_NV72ads_A10_v5",
+	} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
+	}
+	// The six NV sizes of the pinned snapshot.
+	if got := droppedGauge(t, reg)["c/azure/GPUVirtual"]; got != 6 {
+		t.Errorf("GPUVirtual = %v, want 6", got)
+	}
+}
+
+// TestUpCloudOffersL40SAndH100OfThePlan is the UpCloud list of plan 12 (step j) on 4757.2.3
+// over the snapshot: the L40S and H100 plans are offered, the RTX PRO 6000 ones wait for a
+// release that builds a 580-open driver.
+func TestUpCloudOffersL40SAndH100OfThePlan(t *testing.T) {
+	_, its := gpuCatalog(t, "4757.2.3", catalogtestFacts(t), nil, "upcloud")
+	for _, name := range []string{
+		"upcloud.GPU-8xCPU-64GB-1xL40S", "upcloud.GPU-16xCPU-192GB-2xL40S", "upcloud.GPU-12xCPU-240GB-1xH100",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{"upcloud.GPU-16xCPU-80GB-1xRTXPRO6000", "upcloud.GPU-64xCPU-320GB-4xRTXPRO6000"} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
 	}
 }
 

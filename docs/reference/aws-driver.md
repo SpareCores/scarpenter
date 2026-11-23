@@ -24,6 +24,7 @@ Setting it up: [Set up AWS](../how-to-guides/set-up-aws.md).
 - [Regions and zones](#regions-and-zones)
 - [Images](#images)
 - [Launch](#launch)
+- [GPU instance types](#gpu-instance-types)
 - [Node settings](#node-settings)
 - [Resources and network](#resources-and-network)
 - [Network addresses and egress](#network-addresses-and-egress)
@@ -44,6 +45,7 @@ Setting it up: [Set up AWS](../how-to-guides/set-up-aws.md).
 | `NodeOptions`, `EpochReporter` | defaults, `Supported`, `PriceDelta`, `Prepare` with device hints; the epoch changes when the instance type table or the prices load |
 | `ManagedResources` | kinds `subnets`, `securityGroups`, `runSecurityGroups`, `placementGroups` |
 | `QuotaReporter`, `OfferingLister` | 18 vCPU quota buckets per region; launchable types by zone ID |
+| `GPUVirtualizer` | the fractional GPU families (`g6f`, `gr6f`, and a later `g<N>f`) report a virtual GPU, so the catalog drops them ([GPU instance types](#gpu-instance-types)) |
 | `BillingDescriber` | EC2 bills per second with a 60 second minimum: the rule is verified and under the hold floor, so [billing retention](controller.md#billing-retention) reports `MinimumTooShort` and never holds a node. `Instance.BillingStart` is the instance's `LaunchTime`. |
 
 ## Credentials and clients
@@ -205,6 +207,24 @@ use and are never set).
   ones. Regions the account cannot use list nothing. `GetInstance` of a malformed
   reference or of a region the account cannot use is `NotFound`; `DeleteInstance` treats an
   unknown, malformed or terminated instance as success.
+
+## GPU instance types
+
+GPU types need nothing from the launch: they use the same Flatcar AMI as every other amd64 type, the
+default 64 GiB root volume holds the driver sysext and CUDA images, and the quota class of a type decides
+its quota bucket (G and VT, or P; [Quotas](#quotas)). Which types the catalog offers is the vendor-neutral
+rule of [GPU types](labels-and-offerings.md#gpu-types); the driver's part is that `GPUVirtualizer` reports
+the fractional L4 families as virtual. On Flatcar 4757.2.3:
+
+| Offered | Dropped (reason) |
+|---|---|
+| `g4dn` (T4), `g5` (A10G), `g6` and `gr6` (L4), `g6e` (L40S), `p3dn` (V100, proprietary driver), `p5.4xlarge` (1 H100) | `g5g` (arm64: `GPUArch`) |
+| with Fabric Manager: `p4d`, `p4de`, `p5.48xlarge`, and `p5e`, `p5en` | `g6f`, `gr6f` (fractional L4, a vGPU: `GPUFractional`, and `GPUVirtual` where the count is whole) |
+| | `g7`, `g7e` and `p6` (Blackwell: `GPUNoDriverBranch`, or `GPUNVSwitch` for the 8-GPU systems that need `nvlsm`), until a release that builds a 580-open driver is pinned |
+
+The new account quota for G and P is 0, so these types are `QuotaZero` until an increase is granted. EFA is not
+configured (see [Deferred](#deferred)). Until a type has a green real run it is "offered, not yet verified"; the manual
+`gpu` scenario of the [L5 lane](../how-to-guides/testing.md#the-l5-lane) is how the maintainer runs one.
 
 ## Node settings
 

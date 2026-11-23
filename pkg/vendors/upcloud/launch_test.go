@@ -100,7 +100,7 @@ func TestLaunchSpecValidation(t *testing.T) {
 	}{
 		"no zone":            {func(s *LaunchSpec) { s.Zone = "" }, vendors.Fatal, ""},
 		"upper case name":    {func(s *LaunchSpec) { s.Name = "NC" }, vendors.Fatal, "InvalidName"},
-		"gpu plan":           {func(s *LaunchSpec) { s.Plan = Plan{Name: "GPU-8xCPU-64GB-1xL40S", Family: FamilyGPU} }, vendors.Unsupported, ""},
+		"spot gpu plan":      {func(s *LaunchSpec) { s.Plan = Plan{Name: "GPU-SPOT-8xCPU-64GB-1xL40S", Family: FamilyGPUSpot} }, vendors.Unsupported, ""},
 		"unknown family":     {func(s *LaunchSpec) { s.Plan = Plan{Name: "X"} }, vendors.Unsupported, ""},
 		"no template":        {func(s *LaunchSpec) { s.Template.UUID = "" }, vendors.Fatal, ""},
 		"no user data":       {func(s *LaunchSpec) { s.UserData = nil }, vendors.Fatal, ""},

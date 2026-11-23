@@ -182,9 +182,12 @@ func ParseSKU(r *armcompute.ResourceSKU, location string) (SKU, bool) {
 }
 
 // Launchable reports whether the size can be launched by v1 at all: Gen2, a
-// SCSI controller and not restricted in the location.
+// SCSI controller, not restricted in the location, and not a confidential size
+// with GPUs (confidential GPU size: no NVIDIA path on the confidential image;
+// the catalog drops it as NotLaunchable, and the launch still refuses it as a
+// backstop, ConfidentialGPUNotSupported).
 func (s SKU) Launchable() bool {
-	return s.Gen2 && s.SCSI && !s.RestrictedLocation
+	return s.Gen2 && s.SCSI && !s.RestrictedLocation && (s.Confidential == "" || s.GPUs == 0)
 }
 
 // LaunchableZones returns the zones the size can be launched in: its zones

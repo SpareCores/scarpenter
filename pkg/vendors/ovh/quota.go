@@ -21,7 +21,7 @@ import (
 // Quota buckets per region (plan 18, "Quotas"): OVH enforces per-project,
 // per-region limits on instances, cores and RAM, which Nova reports as absolute
 // limits. The usage is the whole project, so foreign servers count (the
-// contract's rule). GPU flavors have a separate quota and are not launched.
+// contract's rule). The GPU flavors' own quota is not in Nova's limits (reactive).
 const (
 	BucketInstances = "instances"
 	BucketCores     = "cores"

@@ -154,7 +154,7 @@ func newEnv(t *testing.T, o envOptions) *env {
 		served = o.wrap(drv)
 	}
 	reg := vendors.NewRegistryFrom(served)
-	clk := testingclock.NewFakeClock(time.Now())
+	clk := testingclock.NewFakeClock(time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC))
 	un := unavailable.New(clk, unavailable.TTLs{InsufficientCapacity: time.Minute})
 	e := &env{t: t, client: kube, driver: drv, un: un, registry: reg, tokens: &recordingTokens{}, renderer: &recordingRenderer{}, events: &recordingEvents{}, clock: clk}
 	e.resources = resources.New(resources.Options{
