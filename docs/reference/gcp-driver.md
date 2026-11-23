@@ -275,7 +275,7 @@ label charset (lower-case letters, digits, `_`, `-`; keys start with a letter) a
 
 `regions.get` returns `quotas[]` with limit **and usage** (no usage is computed from instances) and
 `projects.get` the project-wide ones. The reader reports the CPU buckets (`CPUS`, `<SERIES>_CPUS`,
-`PREEMPTIBLE_CPUS`) and `INSTANCES` per region, and `CPUS_ALL_REGIONS` as the account-wide bucket when the
+`PREEMPTIBLE_CPUS`), the GPU buckets (below) and `INSTANCES` per region, and `CPUS_ALL_REGIONS` as the account-wide bucket when the
 project has it. `Counted` are the cluster's instances in the region that hold quota (not stopped ones), so
 the tracker releases their in-flight reservations.
 
@@ -286,6 +286,24 @@ the tracker releases their in-flight reservations.
 cache holds the offering back, account-wide for an `_ALL_REGIONS` metric. A series is added only with the
 lane's `quota` scenario as its proof. Spot is always unknown (it depends on the region's preemptible quota,
 which `Consumption` cannot see).
+
+## GPU machine types
+
+The accelerator-optimized series `a2`, `a3`, `a4`, `a4x`, `g2` and `g4` are offered like any series; the TPU series
+(`ct3`, `ct3p`, `ct5l`, `ct5lp`, `ct5p`, `ct6e`, `tpu7`, `tpu7x`) stay dropped (`droppedSeries`). The GPUs are part of the
+machine type, so the launch needs no `guestAccelerators`, and N1 with attached GPUs is not offered (Keeper has no such type).
+The core drops what SCarpenter cannot serve (the reasons of [labels and offerings](labels-and-offerings.md)): Blackwell
+(`a4` B200, `g4` RTX PRO 6000, `a4x` GB200 on arm64) and fractional types. The 8- and 16-GPU types of A100, H100 and H200 are
+offered with Fabric Manager ([node bootstrap](node-bootstrap.md#nvidia-gpu-nodes)). What the series add to a launch is
+already in the driver's tables: `onHostMaintenance: TERMINATE` (the series cannot live migrate; `automaticRestart` is false for
+every instance), compact placement where the series supports it, and NVMe or Hyperdisk disks for `a3` and `a4`. The NodePool
+lists the GPU startup taint ([run GPU workloads](../how-to-guides/run-gpu-workloads.md#the-gpu-pending-taint)).
+The GPU types are offered, not yet verified by a real run.
+
+The quota buckets of GPUs are read like the CPU ones, with the unit `GPUs`: per region `NVIDIA_<MODEL>_GPUS` and
+`PREEMPTIBLE_NVIDIA_<MODEL>_GPUS`, and the account-wide `GPUS_ALL_REGIONS`. **The metric names per model are unverified** (the
+A100 40 and 80 GB models in particular), and no GPU type is in `gcp.ConfirmedSeries`: a GPU launch takes the reactive path, where
+`QUOTA_EXCEEDED` names the metric. A series joins the confirmed list when a real run confirms what it consumes.
 
 ## Error mapping
 
@@ -338,8 +356,8 @@ so. A period under `minPeriod` (default 10 minutes) would not qualify anyway. `I
 
 ## Deferred
 
-Multi-project (one project per NodeClass); sole-tenant nodes; GPU machine types (`a2`, `a3`, `a4`, `a4x`, `g2`,
-`g4`) and TPU series, which the offerings drop until accelerator support lands; bare metal; custom machine types;
+Multi-project (one project per NodeClass); sole-tenant nodes; TPU series (`ct*`, `tpu7*`), which the offerings drop; N1 with attached GPUs
+(`guestAccelerators`; Keeper's catalog has no such type); bare metal; custom machine types;
 Flex-start and the legacy preemptible model; Spot interruption handling (a preempted VM is deleted and Karpenter
 replaces the claim; the 30 second notice and `maxRunDuration` are post-v1); firewall rules by service account
 (`sourceServiceAccounts`); resource-manager tags on instances; the Cloud Quotas API (only if `regions.get`
@@ -347,7 +365,7 @@ proves insufficient).
 
 ## What is not verified against GCP yet
 
-Every error code and reason above; the quota metrics a machine type consumes and the Spot/preemptible rule;
+Every error code and reason above; the quota metrics a machine type consumes (the GPU metric names per model included) and the Spot/preemptible rule;
 `requestId` replay for a failed operation and how long request IDs are kept (the attempt counter is the
 defence); the machine series tables (`hyperdiskOnlySeries`, NVMe-only, no-Hyperdisk, no-migrate, compact,
 Tier 1); the guest OS features of `kinvolk-public`'s images (`GVNIC`); the name shape of the `lts`, `beta` and

@@ -8,6 +8,9 @@
 #                   amd64 spot arm64 db described byo create default negative quota drift
 #                   scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
+#                   MANUAL ONLY: gpu (mode=gpu; never part of "all", the smoke set, a gate or
+#                   a schedule): one GPU node of E2E_GPU_TYPE, a Pod that runs nvidia-smi and a CUDA
+#                   sample (plan 12 step f). It needs the GPU quota of the type in the region.
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -116,6 +119,15 @@ start_arm64() {
 }
 start_db() { render "${here}/manifests/db.yaml" | kubectl apply -f -; }
 start_described() { render "${here}/manifests/described.yaml" | kubectl apply -f -; }
+start_gpu() {
+  local n
+  n="$(gpu_count)"
+  assert_match "the GPU count of ${E2E_GPU_TYPE}" '^[1-9][0-9]*$' "${n}"
+  render "${here}/manifests/nodeclass-gpu.yaml" | kubectl apply -f -
+  render "${here}/manifests/nodepool-gpu.yaml" | kubectl apply -f -
+  NAME=e2e-gpu POOL=e2e-gpu TYPE="${E2E_GPU_TYPE}" GPU_COUNT="${n}" \
+    render "${here}/../gpu-pod.yaml" | kubectl apply -f -
+}
 start_drift() { probe e2e-drift e2e-drift "${E2E_TYPE_AMD64}" on-demand; }
 
 # start_byo: the network, the subnet and the firewall rule (network tag) the workflow
@@ -147,6 +159,13 @@ start_default() {
   render "${here}/manifests/nodeclass-default.yaml" | kubectl apply -f -
   render "${here}/manifests/nodepool-default.yaml" | kubectl apply -f -
   probe e2e-default e2e-default "${E2E_TYPE_AMD64}" on-demand
+}
+
+# gpu_count: the GPUs of the machine type, from machineTypes.get (UNVERIFIED that it lists them for
+# every GPU series).
+gpu_count() {
+  gc compute machine-types describe "${E2E_GPU_TYPE#gcp.}" --zone "${GCP_ZONE}" \
+    --format='value(accelerators[0].guestAcceleratorCount)'
 }
 
 # ----------------------------------------------------------- scenarios ------
@@ -940,6 +959,29 @@ scn_scalezero() {
   rm -f "${m}"
 }
 
+# gpu (plan 12 step f, MANUAL ONLY): one GPU type from the Pod to the end of a CUDA run on its node.
+# The shared checks are test/lib.sh gpu_check_node (labels against the table, capacity, the log of
+# nvidia-smi and vectorAdd); this adds the instance's maintenance policy and the time to Ready.
+# Needs nvidia.NodeBootstrap on (the release that ships the GPU driver) and the chart's device
+# plugin and RuntimeClass.
+scn_gpu() {
+  local count node claim iid
+  count="$(gpu_count)"
+  start_gpu
+  wait_node "the GPU Pod ended" "${E2E_GPU_TIMEOUT}" app=e2e-gpu "" gpu_pod_done e2e-gpu
+  node="$(pod_node e2e-gpu)"
+  claim="$(claim_of_node "${node}")"
+  assert_nonempty "the NodeClaim of ${node}" "${claim}"
+  iid="$(instance_of_claim "${claim}")"
+  assert_nonempty "the instance of ${claim}" "${iid}"
+  assert_eq "instance-type" "${E2E_GPU_TYPE}" "$(node_label "${node}" node.kubernetes.io/instance-type)"
+  gpu_check_node "${node}" e2e-gpu "${count}" "${E2E_FLATCAR_VERSION}"
+  assert_eq "the instance's maintenance policy" TERMINATE "$(instance_json "${iid}" | jq -r '.scheduling.onHostMaintenance')"
+  note "gpu: ${E2E_GPU_TYPE} (${count} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
+  kubectl delete pod e2e-gpu --wait=false
+  kubectl delete nodepool e2e-gpu --wait=false
+}
+
 # uninstall: the procedure of docs/how-to-guides/install.md#uninstall, on the live project.
 scn_uninstall() {
   log "1. SCarpenter's NodePools (selected by nodeClassRef.group), then wait for the NodeClaims"
@@ -977,16 +1019,18 @@ scarpenter_claims() {
 # --------------------------------------------------------------- runner -----
 
 all_scenarios=(amd64 spot arm64 db described byo create default negative quota drift scalezero uninstall)
+# Run only when named in E2E_SCENARIOS: never part of "all".
+manual_scenarios=(gpu)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
 else
-  for s in "${all_scenarios[@]}"; do
+  for s in "${manual_scenarios[@]}" "${all_scenarios[@]}"; do
     [[ ",${E2E_SCENARIOS}," == *",${s},"* ]] && selected+=("${s}")
   done
   for s in ${E2E_SCENARIOS//,/ }; do
-    [[ " ${all_scenarios[*]} " == *" ${s} "* ]] || {
-      echo "unknown scenario ${s} (known: ${all_scenarios[*]})" >&2
+    [[ " ${all_scenarios[*]} ${manual_scenarios[*]} " == *" ${s} "* ]] || {
+      echo "unknown scenario ${s} (known: ${all_scenarios[*]}; manual: ${manual_scenarios[*]})" >&2
       exit 2
     }
   done

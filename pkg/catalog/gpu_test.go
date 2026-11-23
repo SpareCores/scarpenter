@@ -23,6 +23,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/nvidia"
 	"github.com/SpareCores/scarpenter/pkg/vendors/alicloud"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
+	"github.com/SpareCores/scarpenter/pkg/vendors/azure"
 )
 
 // virtualFacts reports the listed types as having a virtual GPU.
@@ -256,6 +257,43 @@ func TestAlicloudOffersTheNVIDIAFamiliesOfThePlan(t *testing.T) {
 		if got[key] < 1 {
 			t.Errorf("%s = %v (all: %v)", key, got[key], got)
 		}
+	}
+}
+
+// azureVirtualFacts answers VirtualGPU as the Azure driver does.
+type azureVirtualFacts struct{ catalog.StaticFacts }
+
+func (azureVirtualFacts) VirtualGPU(_, apiReference string) bool {
+	return (&azure.Driver{}).Virtual(apiReference)
+}
+
+// TestAzureOffersTheNVIDIASizesOfThePlan is the Azure list of plan 12 on 4757.2.3 over the
+// snapshot: the NC and ND sizes (passthrough GPUs, the 8-GPU A100, H100 and H200 with Fabric
+// Manager) are offered, the NV sizes (GRID vGPUs) are not. (The confidential NCC H100 size is dropped
+// by the driver's launchable sizes, SKU.Launchable, not by the NVIDIA rules.)
+func TestAzureOffersTheNVIDIASizesOfThePlan(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	_, its := gpuCatalog(t, "4757.2.3", azureVirtualFacts{catalogtest.Facts(t, "azure")}, reg, "azure")
+	for _, name := range []string{
+		"azure.Standard_NC4as_T4_v3", "azure.Standard_NC64as_T4_v3", "azure.Standard_NC16ads_A10_v4",
+		"azure.Standard_NC24ads_A100_v4", "azure.Standard_NC96ads_A100_v4", "azure.Standard_NC40ads_H100_v5",
+		"azure.Standard_NC80adis_H100_v5", "azure.Standard_ND40rs_v2", "azure.Standard_ND96asr_v4",
+		"azure.Standard_ND96amsr_A100_v4", "azure.Standard_ND96isr_H100_v5", "azure.Standard_ND96isr_H200_v5",
+	} {
+		if byName(its, name) == nil {
+			t.Errorf("%s is not offered", name)
+		}
+	}
+	for _, name := range []string{
+		"azure.Standard_NV6s_v2", "azure.Standard_NV24s_v2", "azure.Standard_NV36ads_A10_v5", "azure.Standard_NV72ads_A10_v5",
+	} {
+		if byName(its, name) != nil {
+			t.Errorf("%s is offered", name)
+		}
+	}
+	// The six NV sizes of the pinned snapshot.
+	if got := droppedGauge(t, reg)["c/azure/GPUVirtual"]; got != 6 {
+		t.Errorf("GPUVirtual = %v, want 6", got)
 	}
 }
 
