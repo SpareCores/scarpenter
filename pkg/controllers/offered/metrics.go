@@ -88,6 +88,13 @@ func (m *metrics) recordListing(class, vendor string, size int) {
 	m.listingBytes[class][vendor] = size
 }
 
+// forgetListing drops the size of a listing that is gone or not written.
+func (m *metrics) forgetListing(class, vendor string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.listingBytes[class], vendor)
+}
+
 func (m *metrics) forget(class string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

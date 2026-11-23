@@ -462,10 +462,12 @@ The document:
 | `offerings[].reason` | for an offering a launch error marked (reason code `UnavailableCache`), the launch-error class: `InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable` or `InvalidOffering`; for any other unavailable offering the reason code (for example `QuotaGate`) |
 | `offerings[].until` | RFC3339 time (UTC) the mark expires, only on a group whose `reason` is a launch-error class. A planner skips the offering until then without launching |
 
-The cap is 800 KiB of compressed bytes (a ConfigMap holds 1 MiB). The controller writes the full document when it fits; otherwise the one
-without zones (`zonesOmitted`), logging an error; when even that does not fit it writes nothing for that vendor (the others are still
-written) and fails with an error naming the class, vendor and size, so the old ConfigMap ages out and readers treat it as stale. No
-available type is ever dropped. The AWS catalog over all 33 regions of the test fixtures is about 31 KiB compressed;
+The cap is 800 KiB of compressed bytes (a ConfigMap holds 1 MiB). The controller writes the full document when it fits; otherwise the
+one without zones (`zonesOmitted`), logging an error when a listing first needs it. When even that does not fit it writes nothing for that
+vendor and logs an error naming the class, vendor and size (the other vendors are still written, the series of
+`scarpenter_offered_listing_bytes` for it is removed, and it is tried again when its content changes and at the 10-minute heartbeat), so
+the old ConfigMap ages out and readers treat it as stale. No available type is ever dropped. The AWS catalog over all 33 regions of the
+test fixtures is about 31 KiB compressed;
 `scarpenter_offered_listing_bytes` shows the size of each listing.
 
 Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is

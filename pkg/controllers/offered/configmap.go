@@ -46,9 +46,12 @@ const maxNameLength = 253
 
 // listing is a ConfigMap this controller wrote.
 type listing struct {
-	class   string
-	digest  [sha256.Size]byte
-	written time.Time
+	class, vendor string
+	digest        [sha256.Size]byte
+	written       time.Time
+	// zonesOmitted is how it was written; refused says it was not written, as it
+	// did not fit: it is tried again when its content changes and at the heartbeat.
+	zonesOmitted, refused bool
 }
 
 // ConfigMapName is the name of the listing of a class and vendor; a name that
@@ -126,7 +129,7 @@ func (c *Controller) findListings(ctx context.Context) error {
 	for _, cm := range list.Items {
 		for _, ref := range cm.OwnerReferences {
 			if ref.Kind == kindSCNodeClass {
-				c.listings[cm.Name] = listing{class: ref.Name}
+				c.listings[cm.Name] = listing{class: ref.Name, vendor: cm.Labels[LabelVendor]}
 			}
 		}
 	}
@@ -137,9 +140,11 @@ func (c *Controller) findListings(ctx context.Context) error {
 func (c *Controller) removeUnwanted(ctx context.Context, class string, wanted map[string]string) error {
 	c.mu.Lock()
 	var gone []string
+	vendors := map[string]string{}
 	for name, l := range c.listings {
 		if _, ok := wanted[name]; !ok && l.class == class {
 			gone = append(gone, name)
+			vendors[name] = l.vendor
 		}
 	}
 	c.mu.Unlock()
@@ -155,6 +160,7 @@ func (c *Controller) removeUnwanted(ctx context.Context, class string, wanted ma
 		c.mu.Lock()
 		delete(c.listings, name)
 		c.mu.Unlock()
+		c.metrics.forgetListing(class, vendors[name])
 	}
 	return nil
 }
@@ -180,10 +186,21 @@ func (c *Controller) writeListing(ctx context.Context, nc *v1alpha1.SCNodeClass,
 	l.GeneratedAt = now.UTC().Format(time.RFC3339)
 	data, zonesOmitted, err := encode(l, c.opts.ListingLimit)
 	if err != nil {
-		return err
+		// Not a reconcile error, which would be retried at once: the old ConfigMap
+		// ages out and the next try is at a change or the heartbeat.
+		log.FromContext(ctx).Error(err, "not writing the offered listing", "nodeclass", nc.Name, "vendor", vendor)
+		c.metrics.forgetListing(nc.Name, vendor)
+		c.mu.Lock()
+		c.listings[name] = listing{class: nc.Name, vendor: vendor, digest: digest, written: now, refused: true}
+		c.mu.Unlock()
+		return nil
 	}
 	if zonesOmitted {
-		log.FromContext(ctx).Error(nil, "the offered listing exceeded the cap, the zones are left out",
+		logger := log.FromContext(ctx).V(1)
+		if !known.zonesOmitted {
+			logger = log.FromContext(ctx)
+		}
+		logger.Error(nil, "the offered listing exceeded the cap, the zones are left out",
 			"nodeclass", nc.Name, "vendor", vendor, "bytes", len(data), "cap", c.opts.ListingLimit)
 	}
 	cm := corev1.ConfigMap{
@@ -206,7 +223,7 @@ func (c *Controller) writeListing(ctx context.Context, nc *v1alpha1.SCNodeClass,
 	}
 	c.metrics.recordListing(nc.Name, vendor, len(data))
 	c.mu.Lock()
-	c.listings[name] = listing{class: nc.Name, digest: digest, written: now}
+	c.listings[name] = listing{class: nc.Name, vendor: vendor, digest: digest, written: now, zonesOmitted: zonesOmitted}
 	c.mu.Unlock()
 	return nil
 }

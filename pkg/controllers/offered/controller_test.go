@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -413,19 +414,50 @@ func TestListingApplyRemovesTheOldDataKey(t *testing.T) {
 	})
 }
 
-// A vendor whose listing is over the cap does not hold back the other: hcloud
-// has far fewer types than aws, the limit is between the two.
+// listingBytesVendors are the vendors that have a scarpenter_offered_listing_bytes series.
+func listingBytesVendors(reg *prometheus.Registry) ([]string, error) {
+	families, err := reg.Gather()
+	if err != nil {
+		return nil, err
+	}
+	var vendors []string
+	for _, f := range families {
+		if f.GetName() != "scarpenter_offered_listing_bytes" {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "vendor" {
+					vendors = append(vendors, l.GetValue())
+				}
+			}
+		}
+	}
+	slices.Sort(vendors)
+	return vendors, nil
+}
+
+// A vendor whose listing is over the cap is refused and does not hold back the
+// other: hcloud has far fewer types than aws, the limit is between the two.
 func TestListingOfOneVendorOverTheCapDoesNotBlockTheOther(t *testing.T) {
 	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	reg := prometheus.NewRegistry()
 	e := startWith(t, true, annotated, func(o *offered.Options, e *env) {
-		o.Reader, o.Namespace, o.ListingLimit = o.Client, namespace, 4000
+		o.Reader, o.Namespace, o.ListingLimit, o.Registerer = o.Client, namespace, 4000, reg
 		e.hcloudLoaded.Store(true)
 	})
+	// Both vendors are handled in one pass: the gauge has hcloud and, as aws was
+	// refused, not aws.
 	eventually(t, "the hcloud listing", func() error {
-		_, _, err := e.listing(offered.ConfigMapName(className, "hcloud"))
-		return err
+		vendors, err := listingBytesVendors(reg)
+		if err != nil || !slices.Equal(vendors, []string{"hcloud"}) {
+			return fmt.Errorf("vendors %v: %v", vendors, err)
+		}
+		return nil
 	})
-	time.Sleep(time.Second)
+	if _, _, err := e.listing(offered.ConfigMapName(className, "hcloud")); err != nil {
+		t.Error(err)
+	}
 	if _, _, err := e.listing(offered.ConfigMapName(className, "aws")); !apierrors.IsNotFound(err) {
 		t.Errorf("aws listing over the cap: %v", err)
 	}
