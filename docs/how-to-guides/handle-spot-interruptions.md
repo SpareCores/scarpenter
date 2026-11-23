@@ -5,11 +5,13 @@ their SIGTERM with the time the vendor still gives, the reason is recorded on th
 (instance type and zone) is kept out of scheduling for a while. Design: [ADR-027](../explanation/DECISIONS.md#adr-027-spot-interruption-the-notice-is-an-annotation-the-reaction-is-one-controller-accepted-2026-11-19),
 [plan 26](../plans/v1/wip/26-interruption.md); mechanics: [the controller reference](../reference/controller.md#interruption).
 
-Status: **OCI only so far** (preemptible instances, found by polling the OCI API): the reason is recorded and the node is cleaned up fast,
-but there is no graceful drain window yet, because the poll sees the preemption only once the instance is stopping or terminating. The other
-spot vendors follow in the plan's order (AWS, GCP, Azure, Alibaba): each adds the check script of the [node agent](../reference/node-bootstrap.md#the-interruption-agent)
-that the core already renders on spot nodes (shell script in the metadata slice that annotates its own Node), so none has it yet. The OCI path follows the vendor's documentation and is unverified until
-the first real preemption: see [OCI interruption](../reference/oci-driver.md#interruption).
+Status: **OCI and AWS**. OCI (preemptible instances) is found by polling the OCI API: the reason is recorded and the node is cleaned up fast,
+but there is no graceful drain window yet, because the poll sees the preemption only once the instance is stopping or terminating. The OCI
+path follows the vendor's documentation and is unverified until the first real preemption: see [OCI interruption](../reference/oci-driver.md#interruption).
+AWS spot nodes run the [node agent](../reference/node-bootstrap.md#the-interruption-agent) (a shell script in the metadata slice that annotates
+its own Node) with a check of IMDSv2's `spot/instance-action`: EC2's two-minute notice reaches the controller within seconds ([AWS interruption](../reference/aws-driver.md#interruption);
+unverified until the owner's live check, spike S2). The other spot vendors follow in the plan's order (GCP, Azure, Alibaba): each adds its check script to the
+agent the core already renders on spot nodes, so none has it yet.
 
 ## What your workload sees
 
@@ -45,8 +47,9 @@ or terminating, not the two-minute notice before it.
 
 | Vendor | Lead time at the node | Assume for the grace period |
 |---|---|---|
+| AWS (spot) | 2 minutes, best effort: the `time` of `spot/instance-action`, polled every 2 s | about 100 s; the controller's deadline is the notice's `time` minus the 5 s margin |
 | OCI (preemptible) | none seen: about 2 minutes are documented, but only as an Events message; the API poll sees `STOPPING`, `STOPPED` or `TERMINATING` | none: the reason is recorded and the node cleaned up fast, Pods are deleted at once (1 s grace); no graceful drain window yet |
 
-A workload that needs about 5 s to flush (benchmarks) sets `terminationGracePeriodSeconds` to about 20 s for the vendors that give a notice.
+A workload that needs about 5 s to flush (benchmarks) sets `terminationGracePeriodSeconds` to about 20 s for the vendors that give a notice (AWS today).
 On OCI, until the in-VM check (plan 26) gives the node the two minutes, write progress early and make the Pod's work restartable: a preempted
 node is gone before a flush can finish.

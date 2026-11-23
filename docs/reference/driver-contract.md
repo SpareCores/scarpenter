@@ -384,7 +384,7 @@ instance metadata ([plan 26](../plans/v1/wip/26-interruption.md) section 2). `In
 `vendors.InterruptionAgent(d, restricted)` wraps the check in the generic loop and the unit (the [node agent](node-bootstrap.md#the-interruption-agent)),
 and `vendors.BootFragmentsOf(d, restrictMetadata, spot)` adds it after the driver's own fragments **on spot launches
 only**, inside the metadata restriction's fragment when there is one (one part of the user-data). The script may be about as long as AWS's IMDSv2 check
-(a token request and the action request) and little longer: the largest spot GPU case has about 270 bytes to spare ([size](node-bootstrap.md#the-interruption-agent)). The core never branches on the vendor: a vendor step adds its script and implements the capability, nothing else. A driver without the
+(a token request and the action request) and little longer: the largest spot GPU case has about 280 bytes to spare (AWS's real check is that long) ([size](node-bootstrap.md#the-interruption-agent)). The core never branches on the vendor: a vendor step adds its script and implements the capability, nothing else. A driver without the
 capability gets no agent. Its tests run the script with `sh` against a local HTTP fixture (the check's own responses: no notice, notice,
 malformed, 5xx); the agent's size, the generic loop plus the check, stays under 1.5 KiB (`TestAgentScriptSize`).
 
@@ -403,8 +403,8 @@ class: any error backs the region's poller off (twice the interval, doubling up 
 `scarpenter_interruption_poll_errors_total`; a failed poll never stops the controller.
 
 `Instance.GoneReason` is set by a driver that can tell a vendor reclaim from a crash, on an instance that is gone (`terminating` or
-`terminated`): `SpotInterrupted` for a spot reclaim, empty otherwise (the AWS state reason, Alibaba's operation lock, GCP's
-preemption operation: the vendor steps of plan 26). `CloudProvider.Delete` passes it on when it finds the instance gone without having
+`terminated`): `SpotInterrupted` for a spot reclaim, empty otherwise (AWS's `StateReason.Code` `Server.SpotInstanceTermination` is in; Alibaba's
+operation lock and GCP's preemption operation are vendor steps of plan 26). `CloudProvider.Delete` passes it on when it finds the instance gone without having
 deleted it (see [silent reclaim](controller.md#silent-reclaim)).
 
 The conformance suite checks a driver that implements the capability (subtest `interruption poller`): a positive interval, no notice for an

@@ -103,6 +103,7 @@ type instance struct {
 	metadata                                                  *types.InstanceMetadataOptionsResponse
 	owner                                                     string
 	spotRequest                                               string
+	stateReason                                               string // the StateReason.Code
 }
 
 type spotRequest struct {
