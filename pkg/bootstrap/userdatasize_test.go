@@ -74,7 +74,7 @@ func TestWorstCaseUserDataStaysInTheBudget(t *testing.T) {
 // restriction's fragment).
 func spotWorstCaseParams(t *testing.T, template v1alpha1.NetworkTemplateName) bootstrap.Params {
 	t.Helper()
-	frags, err := vendors.BootFragmentsOf(noticeDriver{&hcloud.Driver{}}, true, true)
+	frags, err := vendors.BootFragmentsOf(noticeDriver{&hcloud.Driver{}}, true, true, template == v1alpha1.NetworkTemplateTailscale)
 	if err != nil || len(frags) != 1 {
 		t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
 	}
@@ -134,23 +134,18 @@ func TestValidateCountsTheNodeIPUnit(t *testing.T) {
 }
 
 // Alibaba Cloud's driver holds SCarpenter's 16 KiB user-data limit (ECS itself
-// takes 32 KB before Base64). The spot worst case of the default templates (its
-// tailnet fragment, the restriction and the agent with its own check) is held to
-// the same budget as the other vendors, and the spot GPU worst case (16 GPUs with
-// Fabric Manager) to the driver's limit. The GPU case with the direct template
-// is left out: its worst case is over the limit (16425 of 16384 bytes, Render
-// refuses it) and awaits a decision.
+// takes 32 KB before Base64). The spot worst case of the default templates (the
+// tailnet fragment with tailscale, the restriction and the agent with its own
+// check) is held to the same budget as the other vendors, and the spot GPU worst
+// case (16 GPUs with Fabric Manager) to the driver's limit, with both templates.
 func TestAlicloudSpotWorstCaseFitsTheDriversLimit(t *testing.T) {
-	frags, err := vendors.BootFragmentsOf(alicloud.New(), true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, gpu := range []bool{false, true} {
 		for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
-			if gpu && template == v1alpha1.NetworkTemplateDirect {
-				continue
-			}
 			t.Run(fmt.Sprintf("gpu=%t/%s", gpu, template), func(t *testing.T) {
+				frags, err := vendors.BootFragmentsOf(alicloud.New(), true, true, template == v1alpha1.NetworkTemplateTailscale)
+				if err != nil {
+					t.Fatal(err)
+				}
 				p := spotWorstCaseParams(t, template)
 				p.VendorFragments = nil
 				for _, f := range frags {

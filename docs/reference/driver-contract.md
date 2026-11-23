@@ -382,7 +382,7 @@ instance metadata ([plan 26](../plans/v1/wip/26-interruption.md) section 2). `In
 | `NoticeWindow` | Embedded: `MinNotice` and `MaxNotice`, the same window as [`InterruptionWindow`](#interruption-notice-window); `NoticeWindowOf` reads it from here when the driver has no `InterruptionWindow`. |
 
 `vendors.InterruptionAgent(d, restricted)` wraps the check in the generic loop and the unit (the [node agent](node-bootstrap.md#the-interruption-agent)),
-and `vendors.BootFragmentsOf(d, restrictMetadata, spot)` adds it after the driver's own fragments **on spot launches
+and `vendors.BootFragmentsOf(d, restrictMetadata, spot, tailnet)` adds it after the driver's own fragments **on spot launches
 only**, inside the metadata restriction's fragment when there is one (one part of the user-data). The script may be about as long as AWS's IMDSv2 check
 (a token request and the action request) and little longer: the largest spot GPU case has about 270 bytes to spare ([size](node-bootstrap.md#the-interruption-agent)). The core never branches on the vendor: a vendor step adds its script and implements the capability, nothing else. A driver without the
 capability gets no agent. Its tests run the script with `sh` against a local HTTP fixture (the check's own responses: no notice, notice,

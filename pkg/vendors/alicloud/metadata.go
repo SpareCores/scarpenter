@@ -31,7 +31,7 @@ func (d *Driver) MetadataEndpoints() vendors.MetadataEndpoints {
 // routes are fine). --netfilter-mode=nodivert makes tailscaled create its
 // chains without jumping to them from INPUT and FORWARD, so the drop never
 // applies. The drop-in hands the flag to the tailscale template's
-// scarpenter-tailscale-up.service; without that template it does nothing.
+// scarpenter-tailscale-up.service, so BootFragments adds it only for that template.
 const tailnetFragment = `variant: flatcar
 version: 1.1.0
 systemd:
@@ -45,6 +45,9 @@ systemd:
 `
 
 // BootFragments implements vendors.VendorBootFragments.
-func (d *Driver) BootFragments() []vendors.BootFragment {
+func (d *Driver) BootFragments(tailnet bool) []vendors.BootFragment {
+	if !tailnet {
+		return nil
+	}
 	return []vendors.BootFragment{{Name: "tailnet", Butane: tailnetFragment}}
 }
