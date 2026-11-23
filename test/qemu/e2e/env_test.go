@@ -53,6 +53,9 @@ const (
 var lane struct {
 	adminKubeconfig, controllerKubeconfig, binary, api, bridge, sysextBase, k8sVersion string
 	kubeletClientCA, stateDir, cacheDir, serialDir, sshKey, out                        string
+	// nvidiaBase is the mirror of the NVIDIA driver sysexts (--nvidia-driver-base-url),
+	// empty when the lane did not prepare it.
+	nvidiaBase string
 }
 
 var (
@@ -83,6 +86,7 @@ func TestMain(m *testing.M) {
 	lane.serialDir = mustEnv("QEMU_LANE_SERIAL_DIR")
 	lane.sshKey = mustEnv("QEMU_LANE_SSH_KEY")
 	lane.out = mustEnv("QEMU_LANE_OUT")
+	lane.nvidiaBase = os.Getenv("QEMU_LANE_NVIDIA_BASE")
 
 	if err := v1alpha1.AddToScheme(scheme.Scheme); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -150,6 +154,9 @@ var (
 	ctlClientCA = true
 	// ctlExtra are more flags of the controller (the launch delay of Q04).
 	ctlExtra []string
+	// ctlEnv are more environment variables of the controller (the development
+	// switches of the GPU scenarios).
+	ctlEnv []string
 )
 
 // startController starts SCarpenter out of cluster, authenticating as its
@@ -194,6 +201,7 @@ func startController(t *testing.T) {
 		"POD_NAMESPACE="+ns, "LEADER_ELECTION_NAMESPACE="+ns, "DISABLE_LEADER_ELECTION=true",
 		"MEMORY_LIMIT=4294967296", "CPU_REQUESTS=1000",
 	)
+	cmd.Env = append(cmd.Env, ctlEnv...)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -214,7 +222,18 @@ func restartController(t *testing.T, clientCA bool, extra ...string) {
 	t.Helper()
 	stopController()
 	ctlMu.Lock()
-	ctlClientCA, ctlExtra = clientCA, extra
+	ctlClientCA, ctlExtra, ctlEnv = clientCA, extra, nil
+	ctlMu.Unlock()
+	startController(t)
+}
+
+// restartControllerWithEnv restarts SCarpenter with more environment variables
+// and flags.
+func restartControllerWithEnv(t *testing.T, env []string, extra ...string) {
+	t.Helper()
+	stopController()
+	ctlMu.Lock()
+	ctlClientCA, ctlExtra, ctlEnv = true, extra, env
 	ctlMu.Unlock()
 	startController(t)
 }
