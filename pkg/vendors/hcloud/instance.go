@@ -21,6 +21,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	if err := d.ready(); err != nil {
 		return nil, err
 	}
+	if req.CapacityType == vendors.CapacitySpot {
+		return nil, vendors.NoSpot(Name)
+	}
 	st, err := decodeSettings(req.Settings)
 	if err != nil {
 		return nil, vendors.NewError(vendors.Fatal, CodeInvalidSettings, err)
