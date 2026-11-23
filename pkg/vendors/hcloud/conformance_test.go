@@ -119,7 +119,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func() j
 	fx := conformance.Fixture{
 		New:    func(t *testing.T) vendors.Driver { return newCEnv().driver(t) },
 		Region: "fsn1", Zone: "fsn1", InstanceType: "cx23", MaxUserData: hcloud.MaxUserData,
-		InstanceTypes: all, UnknownQuotaTypes: unknown, StoresIdempotencyKey: true,
+		InstanceTypes: all, UnknownQuotaTypes: unknown, StoresIdempotencyKey: true, NoSpot: true,
 		Inject: func(t *testing.T, d vendors.Driver, class vendors.Class, _ vendors.CreateRequest) {
 			t.Helper()
 			in := injected[class]

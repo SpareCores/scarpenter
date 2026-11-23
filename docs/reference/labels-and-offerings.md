@@ -254,6 +254,13 @@ One offering per (instance type, zone, capacity type) with a price in scope.
 Keeper `ondemand` prices become `on-demand` offerings and `spot` prices `spot`
 offerings.
 
+Because offerings come only from Keeper's prices, which vendors have spot is Keeper's data, not a list in SCarpenter: AWS, GCP, Azure, Alibaba and OCI have spot
+rows (UpCloud has them for GPU plans only, not launched), Hetzner, Vultr and OVH have none and get no spot offering. A
+spot offering is priced from the spot row alone and the NodeClaim gets `karpenter.sh/capacity-type: spot` from
+`Instance.CapacityType`. What each driver sends at create for spot is in its reference (AWS one-time request, terminate;
+GCP `SPOT` with `DELETE`; Azure `Spot`, eviction `Delete`, max price -1; OCI preemptible, boot volume not preserved;
+Alibaba `SpotAsPriceGo`, `Terminate`). Tests: `TestSpotOfferingsComeFromKeepersSpotRows` over the committed snapshot.
+
 ### Zones and zone IDs
 
 Keeper rows carry the zone's portable **zone ID** (`use1-az1` on AWS). Zone names

@@ -58,8 +58,6 @@ func BuildCreateRequest(req vendors.CreateRequest, o LaunchOptions) (*govultr.In
 		return nil, invalid("no NodeClaim name for the label and hostname")
 	case len(req.UserData) == 0:
 		return nil, invalid("no user data: the node cannot configure itself without Ignition")
-	case req.CapacityType != "" && req.CapacityType != vendors.CapacityOnDemand:
-		return nil, noInstancesOf(req.CapacityType)
 	case len(req.UserData) > MaxUserDataBytes:
 		return nil, vendors.NewError(vendors.Fatal, codeUserDataTooBig,
 			fmt.Errorf("user data is %d bytes, the budget is %d", len(req.UserData), MaxUserDataBytes))
@@ -85,8 +83,8 @@ func BuildCreateRequest(req vendors.CreateRequest, o LaunchOptions) (*govultr.In
 	return out, nil
 }
 
-// noInstancesOf is the Unsupported error of a capacity type or an architecture
-// Vultr does not have.
+// noInstancesOf is the Unsupported error of an architecture Vultr does not
+// have.
 func noInstancesOf(what string) error {
 	return vendors.NewError(vendors.Unsupported, codeUnsupportedArch, fmt.Errorf("%s has no %s instances", Vendor, what))
 }

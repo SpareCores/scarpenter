@@ -270,7 +270,7 @@ Excluded: the retired GPU families `g1`, `g2` and `g3` (until Keeper's data show
 is in one list, and the conformance suite checks that every type is launched or listed as unknown for the quota. `RootDiskGB` gives the local root disk
 of a type from Keeper's data: the `storage_size`, except the types with several disks (`i1`, and the `t1`, `t2`, `h100` and `h200` types with local NVMe disks), whose `storage_size`
 includes the NVMe disks and whose root is the smallest entry (50 GB for `i1`, `t1` and `t2`, 200 GB for `h100`, 400 GB for `h200`; `RootDiskForType` carries the table, a test checks it against the snapshot). `LaunchableTypes` is the flavors of the region that the driver launches, mapped to
-every zone of the region (OVH does not say which zone lacks a flavor); there is no spot, no preemption and no arm64 type.
+every zone of the region (OVH does not say which zone lacks a flavor); there is no spot (a spot request is `Unsupported`, code `NoSpot`, before any call), no preemption and no arm64 type.
 
 ## Billing
 
