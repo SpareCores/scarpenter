@@ -127,8 +127,13 @@ has a green real run it is "offered, not yet verified"; the manual `gpu` scenari
 | placement profile | `proximityPlacementGroup`: `strategy: cluster` (one group per run key) or `use.name` |
 | settings | `adminSSHPublicKey`, `encryptionAtHost`, `imageOwner`, `subscriptionID` |
 
-Premium disks need the `PremiumIO` capability: sizes without it fail the default root disk (`Unsupported`, the
-offering is unavailable for a while); set `StandardSSD_LRS` to include them. Sizes without Gen2 or without a SCSI disk
+The default root disk stays `Premium_LRS`; SCarpenter never downgrades it. Keeper's compatible storage of the
+size (`compatible_storage_ids`, the disk SKU names) is checked by `Supported`: a storage profile whose disk
+types, the root's default `Premium_LRS` included, the size cannot attach is not offered for it, so sizes
+without premium storage (`D2_v5`) are not offered with a profile that leaves the root at the default. To
+get them, pin `storageAccountType: StandardSSD_LRS` in the profile's root. An empty list means unknown and
+excludes nothing. Premium disks also need the `PremiumIO` capability: a size without it that passes the
+check fails the default root disk at launch (`Unsupported`, the offering is unavailable for a while). Sizes without Gen2 or without a SCSI disk
 controller (NVMe-only: most of the v6 families) are not offered. `PriceDelta` rounds a disk to its billing tier and uses Keeper's
 GB-month price per region and SKU; Standard SKUs and unpriced disks make it incomplete; the public IPv4 address is
 Keeper's `ipv4_price` row of the region (`SCARPENTER_AZURE_IPV4_PRICE` overrides it, also where Keeper has no row). Both

@@ -446,6 +446,7 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	req := vendors.CreateRequest{
 		Region: cand.region, Zone: cand.zone, InstanceType: cand.apiReference, CapacityType: cand.capacityType,
 		Arch: arch, Image: *img, UserData: userData, Settings: cand.settings, Prepared: prepared,
+		Type:           catalogTypeOf(cand),
 		Tags:           c.launchTags(nc, nodeClaim),
 		ExtraTags:      nc.Spec.Tags,
 		IdempotencyKey: string(nodeClaim.UID),
@@ -506,6 +507,7 @@ func catalogTypeOf(cand *candidate) vendors.CatalogType {
 		Vendor: cand.vendor, APIReference: cand.apiReference, Family: one(v1alpha1.LabelFamily),
 		Arch: one(corev1.LabelArchStable), VCPUs: int(num(v1alpha1.LabelVCPUs)), MemoryMiB: num(v1alpha1.LabelMemoryMiB),
 		LocalStorageGB: num(v1alpha1.LabelLocalStorageGB), LocalStorageCount: int(num(v1alpha1.LabelLocalStorageCount)),
+		CompatibleStorage: cand.compatibleStorage,
 	}
 }
 

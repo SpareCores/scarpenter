@@ -25,9 +25,6 @@ const (
 var nvmeOnlySeries = []string{"c3", "c3d", "c4", "c4a", "c4d", "n4", "n4a", "n4d", "a3", "a4", seriesA4X, "h3", "z3",
 	"m3", "m4", "x4", "c4n", "m4n", seriesH4D, "z4d", "z4m", "x5"}
 
-// noHyperdiskSeries cannot attach Hyperdisk.
-var noHyperdiskSeries = []string{"e2", "n1", "f1", "g1", "t2a", "t2d"}
-
 // noMigrateSeries cannot live migrate: their on-demand instances use
 // onHostMaintenance TERMINATE (GPU series and the others that run on hardware
 // that cannot migrate).
@@ -56,29 +53,6 @@ func DiskInterface(machineType string) string {
 		return "NVME"
 	}
 	return ""
-}
-
-// CanBootFrom says whether the series boots from a disk type: the Hyperdisk-only
-// series boot only from Hyperdisk, the others boot from every type but cannot
-// all attach Hyperdisk.
-func CanBootFrom(machineType, diskType string) bool {
-	hyper := len(diskType) > 10 && diskType[:10] == "hyperdisk-"
-	switch {
-	case inSeries(hyperdiskOnlySeries, machineType):
-		return hyper
-	case hyper:
-		return !inSeries(noHyperdiskSeries, machineType)
-	}
-	return true
-}
-
-// CanAttach says whether the series attaches the disk type as a data disk.
-func CanAttach(machineType, diskType string) bool {
-	if len(diskType) > 10 && diskType[:10] == "hyperdisk-" {
-		return !inSeries(noHyperdiskSeries, machineType)
-	}
-	// The Hyperdisk-only series attach persistent disks of the PD types too.
-	return true
 }
 
 // MaintenanceFor is onHostMaintenance of an on-demand instance: MIGRATE, or

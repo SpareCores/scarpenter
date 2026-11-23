@@ -68,6 +68,12 @@ func (d *Driver) RootDiskForType(vendors.VendorSettings, vendors.CatalogType) (i
 // changes when they arrive. The default profile is always valid: a size without
 // premium storage fails the default root disk at launch (Unsupported) and the
 // NodeClass sets StandardSSD_LRS to include it.
+//
+// Keeper's compatible storage of the size is checked for the disk types a
+// profile names and for the root disk type it leaves to the default (Premium_LRS):
+// a size that cannot attach it is not offered with the profile. A NodeClass
+// that wants such sizes pins a non-premium root type (StandardSSD_LRS) in the
+// profile.
 func (d *Driver) Supported(it vendors.CatalogType, _ string, p vendors.Profiles) map[string][]string {
 	out := map[string][]string{}
 	sku, known := d.skuFacts(it.APIReference)
@@ -76,7 +82,7 @@ func (d *Driver) Supported(it vendors.CatalogType, _ string, p vendors.Profiles)
 			ok := false
 			switch kind {
 			case vendors.ProfileStorage:
-				ok = supportsStorage(block, sku, known)
+				ok = supportsStorage(block, it.CompatibleStorage, sku, known)
 			case vendors.ProfileNetwork:
 				ok = supportsNetwork(block, sku, known)
 			case vendors.ProfilePlacement:
@@ -94,9 +100,12 @@ func (d *Driver) Supported(it vendors.CatalogType, _ string, p vendors.Profiles)
 	return out
 }
 
-func supportsStorage(block json.RawMessage, sku SKU, known bool) bool {
+func supportsStorage(block json.RawMessage, compatible []string, sku SKU, known bool) bool {
 	st, err := decodeStorage(block)
 	if err != nil {
+		return false
+	}
+	if !attachable(st, compatible) {
 		return false
 	}
 	if st.LocalStorage != nil && st.LocalStorage.Policy != "" && st.LocalStorage.Policy != "ignore" {
@@ -112,6 +121,19 @@ func supportsStorage(block json.RawMessage, sku SKU, known bool) bool {
 		return false
 	}
 	return sku.MaxDataDisks == 0 || len(st.Data) <= sku.MaxDataDisks
+}
+
+// attachable says whether Keeper lists every disk type the block uses for the
+// size, the root disk's default included; an empty list (unknown) allows all.
+func attachable(st StorageSettings, compatible []string) bool {
+	if len(compatible) == 0 {
+		return true
+	}
+	types := storageTypes(st)
+	if st.Root == nil || (st.Root.StorageAccountType == "" && st.Root.Ephemeral == nil) {
+		types = append(types, DefaultStorageAccountType)
+	}
+	return !slices.ContainsFunc(types, func(t string) bool { return !slices.Contains(compatible, t) })
 }
 
 // storageTypes lists the disk SKUs a storage block names (the root's, then the

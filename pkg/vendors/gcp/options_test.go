@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
@@ -20,6 +21,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/gcp"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vendortest"
 )
 
 // provider is a ResourceProvider without the engine's policies: it resolves the
@@ -258,14 +260,21 @@ func TestSupportedProfiles(t *testing.T) {
 		want map[string][]string
 	}
 	for _, c := range []tc{
-		{vendors.CatalogType{APIReference: "e2-small", VCPUs: 2}, map[string][]string{
-			vendors.ProfileStorage: {"ignore", "pd"}, vendors.ProfileNetwork: {"gvnic"}, vendors.ProfilePlacement: {"spread"}}},
-		{vendors.CatalogType{APIReference: "n2-standard-32", VCPUs: 32}, map[string][]string{
+		{vendors.CatalogType{APIReference: "e2-small", VCPUs: 2, CompatibleStorage: []string{"pd-balanced", "pd-ssd"}},
+			map[string][]string{vendors.ProfileStorage: {"ignore", "pd"}, vendors.ProfileNetwork: {"gvnic"},
+				vendors.ProfilePlacement: {"spread"}}},
+		{vendors.CatalogType{APIReference: "c2-standard-4", VCPUs: 4, CompatibleStorage: []string{"pd-balanced"}},
+			map[string][]string{vendors.ProfileStorage: {"ignore", "pd"}, vendors.ProfileNetwork: {"gvnic"},
+				vendors.ProfilePlacement: {"compact", "spread"}}},
+		{vendors.CatalogType{APIReference: "n2-standard-32", VCPUs: 32,
+			CompatibleStorage: []string{"hyperdisk-balanced", "pd-balanced"}}, map[string][]string{
 			vendors.ProfileStorage: {"hd", "hdroot", "ignore", "pd"}, vendors.ProfileNetwork: {"gvnic", "tier1"},
 			vendors.ProfilePlacement: {"compact", "spread"}}},
-		{vendors.CatalogType{APIReference: "c4a-standard-4", VCPUs: 4}, map[string][]string{
+		{vendors.CatalogType{APIReference: "c4a-standard-4", VCPUs: 4,
+			CompatibleStorage: []string{"hyperdisk-balanced"}}, map[string][]string{
 			vendors.ProfileStorage: {"hd", "hdroot", "ignore"}, vendors.ProfileNetwork: {"gvnic"},
 			vendors.ProfilePlacement: {"compact", "spread"}}},
+		// Without Keeper's list nothing is excluded.
 		{vendors.CatalogType{APIReference: "c3-standard-8-lssd", VCPUs: 8, LocalStorageCount: 2}, map[string][]string{
 			vendors.ProfileStorage: {"hd", "hdroot", "ignore", "local", "pd"}, vendors.ProfileNetwork: {"gvnic"},
 			vendors.ProfilePlacement: {"compact", "spread"}}},
@@ -335,18 +344,6 @@ func TestRootDiskDefaults(t *testing.T) {
 }
 
 func TestSeriesTables(t *testing.T) {
-	for _, tc := range []struct {
-		typ, disk    string
-		boot, attach bool
-	}{
-		{"e2-small", "pd-balanced", true, true}, {"e2-small", "hyperdisk-balanced", false, false},
-		{"c4-standard-4", "pd-balanced", false, true}, {"c4-standard-4", "hyperdisk-balanced", true, true},
-		{"n2-standard-2", "hyperdisk-balanced", true, true},
-	} {
-		if gcp.CanBootFrom(tc.typ, tc.disk) != tc.boot || gcp.CanAttach(tc.typ, tc.disk) != tc.attach {
-			t.Errorf("%s/%s: boot %v attach %v", tc.typ, tc.disk, gcp.CanBootFrom(tc.typ, tc.disk), gcp.CanAttach(tc.typ, tc.disk))
-		}
-	}
 	if gcp.DiskInterface("c3-standard-4") != "NVME" || gcp.DiskInterface("e2-small") != "" {
 		t.Error("disk interfaces")
 	}
@@ -359,12 +356,36 @@ func TestSeriesTables(t *testing.T) {
 			t.Errorf("%s migrates", typ)
 		}
 	}
-	// Every series of the snapshot that the driver offers is classified for the root
-	// disk: a Hyperdisk-only series boots from Hyperdisk, the others from a PD type.
-	for _, r := range gcpServers(t) {
-		def := gcp.DefaultRootDiskType(r.APIReference)
-		if !gcp.CanBootFrom(r.APIReference, def) {
-			t.Errorf("%s cannot boot from its own default %s", r.APIReference, def)
+	// The default root disk of every type of the snapshot is attachable (by
+	// Keeper's list) and bootable.
+	names := map[string]string{}
+	for _, st := range vendortest.SnapshotRows[struct {
+		ID   string `json:"storage_id"`
+		Name string `json:"name"`
+	}](t, "storage", "gcp") {
+		names[st.ID] = st.Name
+	}
+	defaults := map[string]string{}
+	for _, r := range vendortest.SnapshotRows[struct {
+		APIReference string   `json:"api_reference"`
+		Compatible   []string `json:"compatible_storage_ids"`
+	}](t, "server", "gcp") {
+		var compatible []string
+		for _, id := range r.Compatible {
+			compatible = append(compatible, names[id])
+		}
+		def := gcp.DefaultRootDiskType(compatible)
+		defaults[r.APIReference] = def
+		if len(compatible) > 0 && !slices.Contains(compatible, def) {
+			t.Errorf("%s cannot attach its own default %s", r.APIReference, def)
+		}
+	}
+	for typ, want := range map[string]string{
+		"n2-standard-2": "pd-balanced", "e2-standard-2": "pd-balanced", "c4-standard-4": "hyperdisk-balanced",
+		"m4-megamem-28": "hyperdisk-balanced",
+	} {
+		if defaults[typ] != want {
+			t.Errorf("default root disk of %s = %s, want %s", typ, defaults[typ], want)
 		}
 	}
 }

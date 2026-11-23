@@ -590,6 +590,7 @@ func catalogType(vendor string, srv *model.Server) vendors.CatalogType {
 		Vendor: vendor, APIReference: srv.APIReference, Family: srv.Family, Arch: srv.Arch,
 		VCPUs: srv.VCPUs, MemoryMiB: srv.MemoryMiB,
 		LocalStorageGB: srv.LocalStorageGB, LocalStorageCount: srv.LocalStorageCount,
+		CompatibleStorage: srv.CompatibleStorage,
 	}
 }
 

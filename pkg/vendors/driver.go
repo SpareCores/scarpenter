@@ -223,6 +223,8 @@ type CreateRequest struct {
 	CapacityType string
 	Arch         string
 	Image        Image
+	// Type is the instance type's catalog facts.
+	Type CatalogType
 	// UserData is the rendered user-data, not encoded.
 	UserData []byte
 	// Settings are the resolved vendor settings (defaults, vendor block,
@@ -442,6 +444,9 @@ type CatalogType struct {
 	// (0: none or unknown).
 	LocalStorageGB    float64
 	LocalStorageCount int
+	// CompatibleStorage are the names of the vendor's storage types the type
+	// can attach (Keeper); empty: unknown, which no check acts on.
+	CompatibleStorage []string
 }
 
 // Profiles are the profiles a NodeClass defines for the vendor: kind

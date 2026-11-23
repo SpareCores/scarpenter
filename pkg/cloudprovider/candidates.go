@@ -31,11 +31,13 @@ import (
 type candidate struct {
 	vendor       string
 	apiReference string
-	typeName     string
-	region       string
-	zone         string
-	capacityType string
-	price        float64
+	// compatibleStorage are the storage types the type can attach (empty: unknown).
+	compatibleStorage []string
+	typeName          string
+	region            string
+	zone              string
+	capacityType      string
+	price             float64
 	// headroom is the quota headroom of the offering (the minimum over the
 	// buckets it consumes), -1 when the quota is unknown.
 	headroom int64
@@ -102,8 +104,9 @@ func (c *CloudProvider) candidates(
 				continue
 			}
 			cand := candidate{
-				vendor: ref.Vendor, apiReference: ref.APIReference, typeName: it.Name,
-				region: off.Requirements.Get(corev1.LabelTopologyRegion).Any(), zone: off.Zone(),
+				vendor: ref.Vendor, apiReference: ref.APIReference, compatibleStorage: ref.CompatibleStorage,
+				typeName: it.Name,
+				region:   off.Requirements.Get(corev1.LabelTopologyRegion).Any(), zone: off.Zone(),
 				capacityType: off.CapacityType(), price: off.Price, headroom: -1, it: it, off: off,
 			}
 			if !c.settle(ctx, nc, res, reqs, &cand) {

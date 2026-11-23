@@ -121,7 +121,7 @@ func validateStorage(path string, st *gcpapi.Storage) []error {
 				errs = append(errs, fmt.Errorf("%s.root: boot disks are 10 to 65536 GiB, not %d", path, *r.SizeGb))
 			}
 		} else {
-			errs = append(errs, validateDisk(path+".root", rootDisk(gcpapi.Settings{Storage: st}, ""), true)...)
+			errs = append(errs, validateDisk(path+".root", rootDisk(gcpapi.Settings{Storage: st}, nil), true)...)
 		}
 	}
 	names := map[string]bool{}

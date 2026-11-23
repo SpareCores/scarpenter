@@ -131,7 +131,7 @@ Rung 1 for amd64, rung 2 for arm64 ([ADR-021](../explanation/DECISIONS.md)).
 |---|---|
 | `name` | the NodeClaim name when it is a valid RFC 1035 name, else `scarpenter-<hash>` |
 | `machineType` | `zones/<zone>/machineTypes/<type>` |
-| `disks[0]` | boot, `autoDelete`, the image, the disk type (`pd-balanced`, or `hyperdisk-balanced` for the Hyperdisk-only series), 64 GiB, labels |
+| `disks[0]` | boot, `autoDelete`, the image, the disk type (`pd-balanced`, or `hyperdisk-balanced` where Keeper lists no `pd-balanced` for the type), 64 GiB, labels |
 | `disks[1..]` | the data volumes: `autoDelete: true` (not the API's default), `deviceName` = the volume's name, `diskName` `<instance>-<name>`, the interface `NVME` for the NVMe-only series |
 | `networkInterfaces[0]` | the subnetwork, `IPV4_ONLY` or `IPV4_IPV6` with an external IPv6 access config, one `ONE_TO_ONE_NAT` unless `publicIPv4: false`, the NIC type and Tier 1 of a network profile |
 | `tags.items` | the firewall's network tag and the run's tag |
@@ -183,10 +183,13 @@ Rung 1 for amd64, rung 2 for arm64 ([ADR-021](../explanation/DECISIONS.md)).
 
 ## Node settings
 
-Built-in defaults: a 64 GiB boot disk, `pd-balanced` (or `hyperdisk-balanced` for `c4`, `n4`, `c4a`, `n4a`
-and the other series that boot only from Hyperdisk: the list is a driver table, **unverified**),
-`publicIPv4: true`, the series' NIC type. A pinned `diskType` the series cannot boot from makes the
-profile unsupported for that type, never a substitute. The NodeClass block's own root disk is not
+Built-in defaults: a 64 GiB boot disk, `pd-balanced` (or `hyperdisk-balanced` where the type's compatible
+storage from Keeper lacks `pd-balanced`, e.g. `c4`, `m4`, `x4`), `publicIPv4: true`, the series' NIC type.
+The catalog reads Keeper's `compatible_storage_ids` of the type and maps them to the disk type names of
+Keeper's storage table; an empty list means unknown and the default is `pd-balanced`, with no disk type
+excluded. A pinned `diskType` that is not in the type's compatible storage, or a pinned root `diskType` that
+cannot boot (only the pd types and `hyperdisk-balanced` can; a short disk-type table until Keeper has a
+bootable flag), makes the profile unsupported for that type, never a substitute. The NodeClass block's own root disk is not
 checked per type (`Supported` sees profiles only): a launch with the wrong type fails with the API's
 error (`Unsupported`).
 
@@ -204,10 +207,10 @@ error (`Unsupported`).
   resource references, and disk sizes, IOPS and throughput against the disk table (`pd-balanced` and
   `hyperdisk-balanced` from Keeper's storage rows of 2026-11-10, the others unverified); `publicIPv4:
   false` without your own subnets is refused (see [egress](#network-addresses-and-egress)).
-- **`Supported`**: a pinned root disk type the series boots from, data disks it attaches (Hyperdisk is not
-  offered on `e2`, `n1`, `t2a`, `t2d`), local storage only on types that bundle local SSDs, Tier 1 only on
+- **`Supported`**: a pinned root disk type the type can attach and boot from, data disks it can attach
+  (both by Keeper's compatible storage), local storage only on types that bundle local SSDs, Tier 1 only on
   the series and sizes that offer it (30 vCPUs or more), compact placement only on the series that support
-  it. The series tables are in `series.go` and **unverified**.
+  it. The series tables for these are in `series.go` and **unverified**.
 - **`PriceDelta`**: disks at Keeper's GB-month price of the region and disk type divided by 730, plus the
   external IPv4 address (Keeper's `ipv4_price` row of the region; `SCARPENTER_GCP_IPV4_PRICE` /
   `vendors.gcp.ipv4Price` overrides it, also where Keeper has no row). Both come from the snapshot of the

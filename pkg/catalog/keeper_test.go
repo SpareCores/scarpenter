@@ -9,6 +9,7 @@ package catalog_test
 import (
 	"encoding/json"
 	"runtime"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -139,6 +140,29 @@ func TestPlannedForRetirementServersAreKept(t *testing.T) {
 	}
 	if planned == 0 {
 		t.Fatal("the snapshot has no planned-for-retirement gcp server")
+	}
+}
+
+// A server's compatible_storage_ids become the names of the vendor's storage
+// types (GCP ids are numbers, Azure ids are names).
+func TestServersCarryCompatibleStorageNames(t *testing.T) {
+	data, err := catalogtest.Source(t).Load(t.Context(), catalog.Request{
+		Scope: catalog.Scope{"gcp": {"europe-west3"}, "azure": {"westeurope"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, s := range data.Servers {
+		got[s.Vendor+"/"+s.APIReference] = s.CompatibleStorage
+	}
+	for key, want := range map[string][]string{
+		"gcp/m4-megamem-28":    {"hyperdisk-balanced"},
+		"gcp/c2-standard-4":    {"pd-standard", "pd-balanced", "pd-ssd"},
+		"azure/Standard_D2_v5": {"StandardSSD_LRS", "StandardSSD_ZRS", "Standard_LRS"},
+	} {
+		if !slices.Equal(got[key], want) {
+			t.Errorf("%s: compatible storage %v, want %v", key, got[key], want)
+		}
 	}
 }
 

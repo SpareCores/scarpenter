@@ -512,9 +512,26 @@ func loadVendor(ctx context.Context, fs snapshotFiles, vendor string, allowed []
 			return &noDataError{vendor: vendor, table: keeper.VendorTablePath(t, vendor)}
 		}
 	}
-	servers, err := decodeFile[keeper.TableServer](ctx, fs, keeper.VendorTablePath("server", vendor))
+	serverPath := keeper.VendorTablePath("server", vendor)
+	body, count, err := fs.file(ctx, serverPath)
 	if err != nil {
 		return err
+	}
+	servers, err := keeper.DecodeSnapshotRows[keeper.TableServer](body, count)
+	if err != nil {
+		return fmt.Errorf("decoding the Keeper snapshot file %s: %w", serverPath, err)
+	}
+	compat, err := keeper.DecodeSnapshotRows[compatibleStorageRow](body, count)
+	if err != nil {
+		return fmt.Errorf("decoding the Keeper snapshot file %s: %w", serverPath, err)
+	}
+	storageNames, err := loadStorageNames(ctx, fs, vendor)
+	if err != nil {
+		return err
+	}
+	compatByServer := make(map[string][]string, len(compat))
+	for _, c := range compat {
+		compatByServer[c.ServerID] = compatibleStorageNames(c.CompatibleStorageIDs, storageNames)
 	}
 	for i := range servers {
 		s := &servers[i]
@@ -524,6 +541,7 @@ func loadVendor(ctx context.Context, fs snapshotFiles, vendor string, allowed []
 			continue
 		}
 		if srv, ok := serverFromTable(s); ok {
+			srv.CompatibleStorage = compatByServer[s.ServerID]
 			data.Servers = append(data.Servers, srv)
 		}
 	}
@@ -561,7 +579,7 @@ func loadVendor(ctx context.Context, fs snapshotFiles, vendor string, allowed []
 			return err
 		}
 	}
-	return loadAuxPrices(ctx, fs, vendor, data)
+	return loadAuxPrices(ctx, fs, vendor, storageNames, data)
 }
 
 // regionsInScope returns the ids of the regions whose prices are read: the
@@ -615,11 +633,52 @@ type storageRow struct {
 	Name      string `json:"name"`
 }
 
+// compatibleStorageRow is the part of a server row that tells which storage
+// types the server can attach (ids of the vendor's storage table). The catalog
+// reads it apart from keeper.TableServer, which does not have the column.
+type compatibleStorageRow struct {
+	ServerID             string   `json:"server_id"`
+	CompatibleStorageIDs []string `json:"compatible_storage_ids"`
+}
+
+// loadStorageNames maps the vendor's storage ids to the names of its storage
+// types; a Keeper without the storage table gives an empty map.
+func loadStorageNames(ctx context.Context, fs snapshotFiles, vendor string) (map[string]string, error) {
+	names := map[string]string{}
+	path := keeper.VendorTablePath("storage", vendor)
+	if !listed(fs, path) {
+		return names, nil
+	}
+	rows, err := decodeFile[storageRow](ctx, fs, path)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range rows {
+		names[s.StorageID] = s.Name
+	}
+	return names, nil
+}
+
+// compatibleStorageNames resolves storage ids to names, skipping ids the
+// storage table does not have. An empty result means the compatibility is
+// unknown.
+func compatibleStorageNames(ids []string, names map[string]string) []string {
+	var out []string
+	for _, id := range ids {
+		if n, ok := names[id]; ok && n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // loadAuxPrices reads the vendor's storage and IPv4 prices, for its driver:
 // active USD rows with a price above zero, in every region. Regions are named
 // as the vendor does (the region table's api_reference), storage types carry
 // the source's name besides the id.
-func loadAuxPrices(ctx context.Context, fs snapshotFiles, vendor string, data *model.Data) error {
+func loadAuxPrices(
+	ctx context.Context, fs snapshotFiles, vendor string, storageName map[string]string, data *model.Data,
+) error {
 	regionName := map[string]string{}
 	for i := range data.Regions {
 		if rg := &data.Regions[i]; rg.Vendor == vendor && rg.Name != "" {
@@ -633,16 +692,6 @@ func loadAuxPrices(ctx context.Context, fs snapshotFiles, vendor string, data *m
 		return id
 	}
 	if path := keeper.VendorTablePath("storage_price", vendor); listed(fs, path) {
-		storageName := map[string]string{}
-		if spath := keeper.VendorTablePath("storage", vendor); listed(fs, spath) {
-			rows, err := decodeFile[storageRow](ctx, fs, spath)
-			if err != nil {
-				return err
-			}
-			for _, s := range rows {
-				storageName[s.StorageID] = s.Name
-			}
-		}
 		rows, err := decodeFile[keeper.StoragePrice](ctx, fs, path)
 		if err != nil {
 			return err

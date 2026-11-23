@@ -154,8 +154,8 @@ func catalogOver(t *testing.T, src catalog.Source, scope catalog.Scope, opts ...
 }
 
 var awsFiles = []string{
-	"/snapshot/server/aws", "/snapshot/region/aws", "/snapshot/zone/aws", "/snapshot/server_price/aws", "/snapshot/storage/aws",
-	"/snapshot/storage_price/aws", "/snapshot/ipv4_price/aws",
+	"/snapshot/server/aws", "/snapshot/storage/aws", "/snapshot/region/aws", "/snapshot/zone/aws",
+	"/snapshot/server_price/aws", "/snapshot/storage_price/aws", "/snapshot/ipv4_price/aws",
 }
 
 func TestRefreshReadsTheSnapshotOfTheHealthcheckHash(t *testing.T) {

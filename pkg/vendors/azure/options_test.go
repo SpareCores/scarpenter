@@ -79,6 +79,33 @@ func TestSupported(t *testing.T) {
 	require.Empty(t, d.Supported(catalogType("Standard_D2s_v5"), "1", vendors.Profiles{}))
 }
 
+// Keeper's compatible storage keeps a Premium default root disk (and explicit
+// types) off sizes that cannot attach it; an empty list excludes nothing.
+func TestSupportedChecksCompatibleStorage(t *testing.T) {
+	d := newEnv(t).driver(t)
+	_, err := d.LaunchableTypes(context.Background(), testRegion)
+	require.NoError(t, err)
+	profiles := vendors.Profiles{vendors.ProfileStorage: {
+		"default-root": json.RawMessage(`{"data":[]}`),
+		"ssd":          json.RawMessage(`{"root":{"storageAccountType":"StandardSSD_LRS"}}`),
+	}}
+	nonPremium := []string{"StandardSSD_LRS", "StandardSSD_ZRS", "Standard_LRS"}
+	premium := append([]string{"Premium_LRS", "Premium_ZRS"}, nonPremium...)
+	for name, tc := range map[string]struct {
+		compatible []string
+		want       []string
+	}{
+		"non-premium": {nonPremium, []string{"ssd"}},
+		"D2s_v6":      {premium, []string{"default-root", "ssd"}},
+		"unknown":     {nil, []string{"default-root", "ssd"}},
+	} {
+		it := catalogType("Standard_D2s_v5")
+		it.CompatibleStorage = tc.compatible
+		got := d.Supported(it, "1", profiles)
+		require.Equal(t, tc.want, got[vendors.ProfileStorage], name)
+	}
+}
+
 func manyDisks(n int) string {
 	var s string
 	for i := range n {
