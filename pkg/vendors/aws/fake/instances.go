@@ -77,6 +77,9 @@ func (i *instance) toSDK() types.Instance {
 	if i.publicIP != "" {
 		out.PublicIpAddress = new(i.publicIP)
 	}
+	if i.stateReason != "" {
+		out.StateReason = &types.StateReason{Code: new(i.stateReason)}
+	}
 	if i.lifecycle != "" {
 		out.InstanceLifecycle = types.InstanceLifecycleType(i.lifecycle)
 	}
@@ -487,6 +490,20 @@ func (a *Account) SetInstanceState(regionName, id string, s types.InstanceStateN
 			if s == types.InstanceStateNameTerminated {
 				a.terminate(r, i)
 			}
+		}
+	}
+}
+
+// ReclaimSpotInstance ends a spot instance the way EC2 does when it needs the
+// capacity back: terminated, with the StateReason Server.SpotInstanceTermination.
+func (a *Account) ReclaimSpotInstance(regionName, id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.regions[regionName]
+	for _, i := range r.insts {
+		if i.id == id {
+			i.stateReason = "Server.SpotInstanceTermination"
+			a.terminate(r, i)
 		}
 	}
 }

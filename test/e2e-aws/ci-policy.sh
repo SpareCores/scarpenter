@@ -14,6 +14,10 @@
 #                          allow CreateSubnet only in a VPC that carries the cluster tag,
 #                          and the default VPC does not (the new subnet itself must still
 #                          carry the tag);
+#   LaneInterruption       only when E2E_FIS_ROLE_ARN is set: the manual interruption scenario creates,
+#                          starts and deletes an AWS FIS experiment template in the region and passes
+#                          that role to FIS (the role itself, which FIS assumes to send the interruption,
+#                          is the operator's);
 #   DenyOtherInstanceTypes an explicit deny of RunInstances for every type the lane does
 #                          not launch (the types of defaults.sh, including the manual gpu scenario's, and E2E_LOCAL_STORAGE_TYPE);
 #   DenyOutsideRegion      EC2 and Service Quotas calls outside the lane's region (the
@@ -39,8 +43,15 @@ types+=("${described[@]}")
 types+=("${E2E_GPU_TYPE}")
 allowed="$(printf '%s\n' "${types[@]}" | sed 's/^aws\.//' | sort -u | jq -R . | jq -s .)"
 
+fis_role="${E2E_FIS_ROLE_ARN:-}"
+[[ -z "${fis_role}" || "${fis_role}" =~ ^arn:aws:iam::${account}:role/[A-Za-z0-9+=,.@_/-]+$ ]] ||
+  {
+    echo "E2E_FIS_ROLE_ARN must be a role ARN of the account" >&2
+    exit 2
+  }
+
 sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${root}/docs/reference/aws-iam-policy.json" |
-  jq --argjson allowed "${allowed}" --arg region "${region}" --arg account "${account}" '
+  jq --argjson allowed "${allowed}" --arg fis_role "${fis_role}" --arg region "${region}" --arg account "${account}" '
     # The cluster tag is matched with a wildcard: StringEquals becomes StringLike for that key.
     (.Statement[] | select(.Condition.StringEquals?) | .Condition) |=
       ((.StringLike = ((.StringLike // {}) + (.StringEquals | with_entries(select(.key | endswith("scarpenter.sparecores.com/cluster")))))) |
@@ -56,4 +67,12 @@ sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${ro
          Condition: {StringNotEquals: {"ec2:InstanceType": $allowed}}},
         {Sid: "DenyOutsideRegion", Effect: "Deny", Action: ["ec2:*", "servicequotas:*"], Resource: "*",
          Condition: {StringNotEquals: {"aws:RequestedRegion": [$region]}}}
-      ]'
+      ]
+    | if $fis_role == "" then . else .Statement += [
+        {Sid: "LaneInterruption", Effect: "Allow",
+         Action: ["fis:CreateExperimentTemplate", "fis:DeleteExperimentTemplate", "fis:StartExperiment", "fis:GetExperiment"],
+         Resource: [("arn:aws:fis:" + $region + ":" + $account + ":experiment-template/*"), ("arn:aws:fis:" + $region + ":" + $account + ":experiment/*"),
+                    ("arn:aws:fis:" + $region + ":*:action/*")]},
+        {Sid: "LanePassFisRole", Effect: "Allow", Action: "iam:PassRole", Resource: $fis_role,
+         Condition: {StringEquals: {"iam:PassedToService": "fis.amazonaws.com"}}}
+      ] end'

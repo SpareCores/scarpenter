@@ -230,7 +230,7 @@ func TestNVIDIARejectsWhatItCannotRender(t *testing.T) {
 // The worst case of a spot GPU node (16 GPUs with Fabric Manager, the mirror, the
 // largest storage setup, the metadata restriction and the interruption agent) is
 // what AWS's p4d and p5 types, which are sold as spot, can render. It must fit
-// the 16 KiB limit of every vendor with room for a user's Butane (the test's check is
+// the 16 KiB limit of every vendor with room for a user's Butane (the check is
 // as long as AWS's IMDSv2 one).
 func TestWorstCaseSpotGPUUserDataFitsTheLimit(t *testing.T) {
 	const margin = 256

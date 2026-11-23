@@ -288,6 +288,16 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    on k3s v1.37.1 allows the kubelet's identity to patch its own Node's annotations and refuses another Node (403); the kubelet holds a delay
    lock of logind on Flatcar 4757.2.3, and a Pod gets SIGTERM within a second of `systemctl poweroff`. `jq` is not needed (the agent does not parse JSON).
 5. **AWS** check script, `GoneReason`, spike S2, opt-in L5 `interruption` scenario.
+   **Done** (unverified until spike S2, the owner's live check). `aws.Driver.InterruptionNotices` (IMDSv2 token, then `meta-data/spot/instance-action`, 2 s
+   interval, window 2 min to 2 min), `Instance.GoneReason` `SpotInterrupted` from `StateReason.Code` `Server.SpotInstanceTermination` on a gone
+   instance (the fake's `ReclaimSpotInstance`), L1 tests that run the check with `sh` against a local HTTP fixture (404, notice, spaced JSON, no
+   `time`, 5xx, 401, token failure), and the manual L5 scenario `interruption` (in `manual_scenarios`: never in `all`, smoke or full; run it by name).
+   The size tests now render AWS's real check: the worst case (16 GPUs, spot) is 16105 bytes of 16384, 279 spare. The scenario sends the interruption
+   with AWS FIS (`aws:ec2:send-spot-instance-interruptions`, `PT2M`) to the lane's spot arm64 node and asserts `Interrupted`/`SpotInterrupted` on the
+   NodeClaim, the Node's annotations (source `instance-metadata`), the NodeClaim's deletion before the deadline, the Pod's logged SIGTERM before the
+   deadline, the replacement, the terminated instance and the metric. It needs `E2E_FIS_ROLE_ARN` (a role FIS assumes, the operator's): `ci-policy.sh` adds
+   the CI role's FIS statements and `iam:PassRole` for it only when it is set. Deviations: (a) `MinNotice` is the documented two minutes, so a notice
+   without a deadline is assumed to give two minutes; (b) the check does not read the `action` (the launch is always `terminate`).
 6. **GCP** check script, the 120 s notice at create by default if S3 shows no extra cost (else the 30 s ACPI window and the shutdown backstop), `GoneReason`, opt-in L5 scenario.
 7. **Azure** check script (opt-in at boot, VM name filter), opt-in L5 scenario with Simulate Eviction (S4).
 8. **Alibaba** check script with the token, `GoneReason`, S5, opt-in L5 scenario if it can be triggered.
