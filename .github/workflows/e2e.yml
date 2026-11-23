@@ -22,7 +22,7 @@ on:
         required: true
         type: string
       mode:
-        description: "smoke (preflight, one node, scale to zero), full (every scenario), or comma separated scenarios, e.g. gpu or amd64,drift; manual-only scenarios (azure: cvm) run only when listed (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall)"
+        description: "smoke (preflight, one node, scale to zero), full (every scenario), or comma separated scenarios, e.g. gpu or amd64,drift; manual-only scenarios (azure: cvm interruption) run only when listed (aws: amd64 arm64 db described byo local negative quota drift scalezero uninstall; ovh: amd64 db described byo negative quota drift poweroff scalezero uninstall)"
         default: smoke
         type: string
       gpu_instance_type:

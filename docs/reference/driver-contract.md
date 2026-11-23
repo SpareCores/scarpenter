@@ -377,7 +377,7 @@ instance metadata ([plan 26](../plans/v1/wip/26-interruption.md) section 2). `In
 
 | Field | Meaning |
 |---|---|
-| `Script` | The body of the POSIX `sh` function `scarpenter_check`. It prints `<reason> <deadline>` and returns 0 when a notice is present (the reason is `SpotInterrupted`; the deadline is RFC 3339 and may be left out), returns 1 when there is none, 2 on a transient error (the endpoint did not answer). It may use `curl`, and the variable `NODE_NAME` (the node's name). It must not contain `{{` (the fragment is rendered as a template). An empty script means no agent. |
+| `Script` | The body of the POSIX `sh` function `scarpenter_check`. It prints `<reason> <deadline>` and returns 0 when a notice is present (the reason is `SpotInterrupted`; the deadline is RFC 3339 and may be left out), returns 1 when there is none, 2 on a transient error (the endpoint did not answer). It may use `curl`, and the variable `NODE_NAME` (the node's name, which is the NodeClaim's: a vendor whose events name the instance reads its own name from the metadata, as Azure does). It must not contain `{{` (the fragment is rendered as a template). An empty script means no agent. |
 | `Interval` | The pause after a check that found no notice, in whole seconds, rounded up (AWS 2 s, Azure 1 s, Alibaba 5 s). Zero for a check that blocks until something changes (GCP's `wait_for_change`). |
 | `NoticeWindow` | Embedded: `MinNotice` and `MaxNotice`, the same window as [`InterruptionWindow`](#interruption-notice-window); `NoticeWindowOf` reads it from here when the driver has no `InterruptionWindow`. |
 

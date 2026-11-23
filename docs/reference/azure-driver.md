@@ -91,6 +91,37 @@ report no type and stay on Flatcar like every other size.
   dropped, from inside it succeeds, and waagent runs in the slice. The image's own rules (root-owned processes only on the
   WireServer) stay in place next to it.
 
+## Interruption
+
+A Spot VM (eviction policy `Delete`) is evicted with a notice of at least 30 s, best effort, through Scheduled Events. The driver implements
+[`InterruptionNotices`](driver-contract.md#interruption-notices-the-node-agent), so every Spot node runs the [node agent](node-bootstrap.md#the-interruption-agent)
+with this check ([plan 26](../plans/v1/wip/26-interruption.md) section 6), which reports through the Node's annotations:
+
+- It asks `http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01` with the header `Metadata: true` every second. The first
+  request registers the VM for Scheduled Events: Azure answers only after that (documented: up to 2 minutes, and the first events up to 5
+  minutes later), so the agent starts at boot and an unanswered request is a transient error. A VM evicted inside that window has no notice and falls to
+  the silent-reclaim path ([ADR-027](../explanation/DECISIONS.md)).
+- A notice is an event with `EventType` `Preempt` whose `Resources` name **this VM**. The Node's name is the NodeClaim's, not the VM's, so the check
+  reads the VM name once from `instance/compute/name` (`api-version=2021-02-01`, `format=text`). Other event types (`Reboot`, `Redeploy`,
+  `Freeze`, `Terminate`) and other VMs' events are ignored, as is `SpotRebalanceRecommendation`.
+- The deadline is the event's `NotBefore` (RFC 1123, `Mon, 02 Jan 2006 15:04:05 GMT`), converted to RFC 3339 with `date -u -d`; a missing or
+  unconvertible value leaves the deadline out and the controller assumes the minimum notice. The controller's window is 30 s to 2 minutes.
+- The event is **not acknowledged** (`StartRequests`): approving it would end its window early, and the VM is deleted at `NotBefore` anyway.
+- The response is matched with `sed`, `tr` and `grep` (no `jq` on the node), tolerant of pretty-printed and compact JSON.
+- Needs `curl`, `date` with `-d`, `sed`, `tr` and `grep`: Flatcar has them. The confidential sizes boot Azure Container Linux
+  ([above](#confidential-sizes)); the agent's paths (`/opt/scarpenter/bin`, the kubelet's certificate) and the metadata firewall's unit name
+  (`waagent.service`) are the same there, **but the agent has not run on that image** (a confidential size as Spot is not part of the lane; whether Azure
+  allows Spot for confidential VMs is unverified). A shell tool missing there would show as a failing check in the journal
+  (`journalctl -u scarpenter-interruption`).
+
+The user-data of the Azure Spot worst case (the golden worst case plus the agent) is 12.8 KiB with `direct` and 12.4 KiB with `tailscale`
+(13 061 and 12 709 bytes; the agent is 1.4 KiB of it). Azure's custom data limit is 64 KiB (65 535 bytes, before the base64 encoding),
+so it is the driver's own budget of 16 KiB ([`MaxUserData`](#launch)) that applies: the agent leaves 3.2 KiB of it.
+
+The manual L5 scenario `interruption` triggers a real eviction with `az vm simulate-eviction` ([the lane](../how-to-guides/testing.md#the-l5-lane-of-azure));
+Simulate Eviction is documented to behave like a platform eviction, which Azure says delivers a `Preempt` event: **unverified** until the
+first live run (spike S4).
+
 ## GPU sizes
 
 GPU sizes need nothing from the launch: they use the same Flatcar image as every other amd64 size, the default
@@ -184,7 +215,11 @@ verified on a live account: [Per-vendor cost guards](../how-to-guides/testing-an
 
 ## What is not verified against Azure yet
 
-Everything, except that a VM of a confidential size (SEV-SNP and TDX, westeurope) boots from the community gallery image with
+The [interruption check](#interruption) (spike S4): that `az vm simulate-eviction` produces a `Preempt` event with a 30 s `NotBefore`, the
+shape and spacing of the Scheduled Events JSON, the time until the first answer and the first event after the opt-in, that the VM name in `Resources` is
+the name of `instance/compute/name`, and the agent on Azure Container Linux.
+
+Everything else, except that a VM of a confidential size (SEV-SNP and TDX, westeurope) boots from the community gallery image with
 the launch fields above, runs Ignition and starts the kubelet of the kubernetes sysext (no join to a cluster was tried).
 In particular: the marketplace SKUs and versions per channel and architecture and whether the arm64
 offer has terms; that a VM with custom data and a throwaway key is accepted; the Compute and Network usage names, the

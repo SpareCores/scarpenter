@@ -16,6 +16,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/azure"
 	"github.com/SpareCores/scarpenter/pkg/vendors/hcloud"
 )
 
@@ -95,6 +96,31 @@ func TestWorstCaseSpotUserDataStaysInTheBudget(t *testing.T) {
 				t.Errorf("the spot worst case is %d bytes, the budget with the agent is %d", n, limit)
 			} else {
 				t.Logf("%s spot worst case: %d bytes of user-data", template, n)
+			}
+		})
+	}
+}
+
+// Azure's check is the longest of the agent's, and Azure restricts two addresses: its
+// spot worst case stays within the budget plus the agent's allowance.
+func TestWorstCaseAzureSpotUserDataStaysInTheBudget(t *testing.T) {
+	frags, err := vendors.BootFragmentsOf(&azure.Driver{}, true, true)
+	if err != nil || len(frags) != 1 {
+		t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
+	}
+	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
+		t.Run(string(template), func(t *testing.T) {
+			p := worstCaseParams(t, template)
+			p.Spot = true
+			p.VendorFragments = []bootstrap.Fragment{{Name: frags[0].Name, Butane: frags[0].Butane}}
+			r, err := bootstrap.Render(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n, limit := len(r.UserData), bootstrap.DefaultBudgetBytes+bootstrap.SpotAgentBytes; n > limit {
+				t.Errorf("the Azure spot worst case is %d bytes, the budget with the agent is %d", n, limit)
+			} else {
+				t.Logf("%s Azure spot worst case: %d bytes of user-data", template, n)
 			}
 		})
 	}

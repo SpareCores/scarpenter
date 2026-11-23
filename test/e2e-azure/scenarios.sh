@@ -10,8 +10,9 @@
 #                   amd64 arm64 db described byo negative quota drift scalezero uninstall
 #                   (arm64 is the arm64 on-demand node and then the spot node; preflight
 #                   always runs first, and ends the run when it fails)
-#                   Manual-only, never in the default set: cvm (one confidential VM) and gpu
-#                   (plan 12; E2E_GPU_TYPE, default azure.Standard_NC4as_T4_v3), run when
+#                   Manual-only, never in the default set: cvm (one confidential VM), gpu
+#                   (plan 12; E2E_GPU_TYPE, default azure.Standard_NC4as_T4_v3) and interruption
+#                   (plan 26 step 7: one Spot node evicted with `az vm simulate-eviction`), run when
 #                   named in E2E_SCENARIOS.
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
@@ -101,6 +102,7 @@ start_db() {
 }
 start_described() { render "${here}/manifests/described.yaml" | kubectl apply -f -; }
 start_cvm() { probe e2e-cvm e2e-cvm "${E2E_TYPE_CVM}" on-demand; }
+start_interruption() { render "${here}/manifests/interruption.yaml" | kubectl apply -f -; }
 start_drift() { probe e2e-drift e2e-drift "${E2E_TYPE_AMD64}" on-demand; }
 
 # start_byo: the VNet with its subnet and the NSG the scenario creates with the az CLI in
@@ -216,9 +218,10 @@ scn_preflight() {
   # Spot and the arm64 and db families only when a selected scenario launches them (a
   # smoke run is one amd64 node; a new subscription has 3 Spot vCPUs).
   local types=("${E2E_TYPE_AMD64}")
-  if selected_has arm64; then
+  if selected_has arm64 || selected_has interruption; then
     [[ "$(num "${spot:-0}")" -ge "${E2E_MIN_VCPU_SPOT}" ]] || fail "the Total Regional Spot vCPUs quota of ${AZURE_REGION} is '${spot}'; the suite needs ${E2E_MIN_VCPU_SPOT}"
-    types+=("${E2E_TYPE_ARM64}")
+    selected_has arm64 && types+=("${E2E_TYPE_ARM64}")
+    selected_has interruption && types+=("${E2E_TYPE_SPOT}")
   else
     note "the Spot vCPUs quota of ${AZURE_REGION} is '${spot}' (not checked: no selected scenario launches Spot)"
   fi
@@ -233,7 +236,7 @@ scn_preflight() {
   # Public IPs: 8 for the whole suite; a run of amd64, scalezero and the manual gpu only (the smoke) holds one node.
   local pip need_pip=2 sc
   for sc in "${selected[@]}"; do
-    [[ "${sc}" == amd64 || "${sc}" == scalezero || "${sc}" == gpu ]] || need_pip=8
+    [[ "${sc}" == amd64 || "${sc}" == scalezero || "${sc}" == gpu || "${sc}" == interruption ]] || need_pip=8
   done
   # The row has had more than one name (the driver's publicIPUsageNames, pkg/vendors/azure/quota.go).
   local pname
@@ -682,6 +685,86 @@ scn_gpu() {
   kubectl delete nodepool e2e-gpu --wait=false
 }
 
+# interruption (plan 26 step 7, manual only): a real Spot eviction. One Spot node runs a Pod that
+# prints a line on SIGTERM; `az vm simulate-eviction` makes Azure send a Preempt Scheduled Event
+# and delete the VM at its NotBefore. The node agent (the Azure check script) must annotate the
+# Node, the controller must mark the NodeClaim and delete it, the Pod must get SIGTERM before the
+# deadline, and the replacement must not be the interrupted offering (same size, same zone, Spot).
+# Run it without arm64 (its Spot Pod would sit on the node that is evicted). UNVERIFIED until the
+# first live run (spike S4: that Simulate Eviction sends a Preempt event with 30 s, and when the
+# first call of the agent registers the VM).
+scn_interruption() {
+  local node claim vm pod zone t0 deadline dl_epoch lead sig sig_epoch repl repl_node logs_pid
+  start_interruption
+  settle e2e-intr
+  node="$(getstate e2e-intr.node)"
+  claim="$(getstate e2e-intr.claim)"
+  vm="$(vm_name "$(getstate e2e-intr.vm)")"
+  pod="$(getstate e2e-intr.pod)"
+  assert_eq "capacity-type" spot "$(node_label "${node}" karpenter.sh/capacity-type)"
+  zone="$(node_label "${node}" topology.kubernetes.io/zone)"
+  assert_eq "the agent runs" active "$(node_shell "${node}" 'systemctl is-active scarpenter-interruption.service' | tr -d '\r')"
+
+  # The agent's first call registered the VM for Scheduled Events; Azure answers only once that
+  # is done (up to 2 minutes). The same call from the agent's slice, since the restriction drops it elsewhere.
+  log "waiting until the VM answers Scheduled Events"
+  # shellcheck disable=SC2016  # the command runs on the node
+  wait_until "Scheduled Events of ${vm} answer" "${E2E_OPTIN_TIMEOUT}" node_shell "${node}" \
+    'systemd-run --quiet --pipe --wait --slice=scarpenter-metadata.slice curl -sf --max-time 3 -H Metadata:true "http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01"'
+  drop_nodeshells
+
+  log "evicting ${vm}"
+  kubectl logs -f "${pod}" >"${E2E_OUT}/logs/interruption-pod.log" 2>&1 &
+  logs_pid=$!
+  t0="$(now)"
+  az vm simulate-eviction --resource-group "${AZURE_RESOURCE_GROUP}" --name "${vm}"
+
+  # shellcheck disable=SC2016  # the jsonpath escapes the dots of the annotation key
+  wait_until "the Node is annotated by the agent" "${E2E_INTERRUPTION_TIMEOUT}" is_value SpotInterrupted \
+    kubectl get node "${node}" -o jsonpath='{.metadata.annotations.scarpenter\.sparecores\.com/interruption}'
+  assert_eq "the annotation's source" instance-metadata \
+    "$(kubectl get node "${node}" -o json | jq -r --arg k "${label_domain}/interruption-source" '.metadata.annotations[$k] // empty')"
+  deadline="$(kubectl get node "${node}" -o json | jq -r --arg k "${label_domain}/interruption-deadline" '.metadata.annotations[$k] // empty')"
+  assert_nonempty "the deadline" "${deadline}"
+  dl_epoch="$(date -d "${deadline}" +%s)"
+  lead=$((dl_epoch - $(now)))
+  note "interruption: the Node was annotated $(($(now) - t0))s after the eviction call, deadline ${deadline}, ${lead}s left (Azure documents 30 s at least)"
+  [[ "${lead}" -gt 0 ]] || fail "the deadline ${deadline} had passed when the Node was annotated"
+
+  wait_until "the NodeClaim has Interrupted/SpotInterrupted" 60 is_value SpotInterrupted \
+    kubectl get nodeclaim "${claim}" -o jsonpath='{.status.conditions[?(@.type=="Interrupted")].reason}'
+
+  # The Pod's log is what a workload sees: SIGTERM must come before the deadline.
+  wait_until "the Pod got SIGTERM" 90 grep -q '^sigterm ' "${E2E_OUT}/logs/interruption-pod.log"
+  sig="$(grep '^sigterm ' "${E2E_OUT}/logs/interruption-pod.log" | head -n1)"
+  sig_epoch="${sig#sigterm }"
+  [[ "${sig_epoch}" -lt "${dl_epoch}" ]] || fail "SIGTERM came at ${sig_epoch}, not before the deadline ${dl_epoch}"
+  note "interruption: SIGTERM $((sig_epoch - t0))s after the eviction call, $((dl_epoch - sig_epoch))s before the deadline"
+
+  wait_until "the NodeClaim ${claim} is gone" 180 claim_gone "${claim}"
+  assert_nonempty "the interruption metric" "$(metrics | grep -E '^scarpenter_interruptions_total\{.*vendor="azure".*reason="SpotInterrupted"' || true)"
+
+  log "the replacement"
+  wait_node "a replacement Pod running on another node" "${E2E_NODE_TIMEOUT}" app=e2e-intr "${claim}" is_replacement "${node}"
+  repl="$(kubectl get pod -l app=e2e-intr -o jsonpath='{.items[0].metadata.name}')"
+  repl_node="$(pod_node "${repl}")"
+  note "interruption: the replacement is on ${repl_node} ($(node_label "${repl_node}" karpenter.sh/capacity-type), zone $(node_label "${repl_node}" topology.kubernetes.io/zone)); the interrupted offering was ${E2E_TYPE_SPOT} in zone ${zone}"
+  [[ "$(node_label "${repl_node}" topology.kubernetes.io/zone)" != "${zone}" ]] ||
+    fail "the replacement is Spot ${E2E_TYPE_SPOT} in the interrupted zone ${zone}"
+  kubectl delete deployment e2e-intr --wait=false
+  kill "${logs_pid}" 2>/dev/null || true
+}
+
+# claim_gone <claim>: the NodeClaim does not exist.
+claim_gone() { ! kubectl get nodeclaim "$1" >/dev/null 2>&1; }
+
+# is_replacement <old node>: the Pod of e2e-intr runs on another node.
+is_replacement() {
+  local n
+  n="$(kubectl get pods -l app=e2e-intr -o json | jq -r '[.items[] | select(.status.phase == "Running" and .metadata.deletionTimestamp == null)][0].spec.nodeName // empty')"
+  [[ -n "${n}" && "${n}" != "$1" ]]
+}
+
 # negative: what must never launch. A NodeClass for another subscription is refused; Spot on
 # a B-series size (no Spot there) and a size outside the Azure Policy's allow-list get no VM.
 scn_negative() {
@@ -1061,7 +1144,7 @@ scarpenter_claims() {
 all_scenarios=(amd64 arm64 db described byo negative quota drift scalezero uninstall)
 # Run only when named (never by "all", the smoke set or a schedule), before the others, so that scalezero
 # and uninstall still clean up after them.
-manual_scenarios=(gpu cvm)
+manual_scenarios=(gpu cvm interruption)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")

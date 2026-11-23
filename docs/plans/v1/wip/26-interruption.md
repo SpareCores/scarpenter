@@ -290,6 +290,14 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
 5. **AWS** check script, `GoneReason`, spike S2, opt-in L5 `interruption` scenario.
 6. **GCP** check script, the 120 s notice at create by default if S3 shows no extra cost (else the 30 s ACPI window and the shutdown backstop), `GoneReason`, opt-in L5 scenario.
 7. **Azure** check script (opt-in at boot, VM name filter), opt-in L5 scenario with Simulate Eviction (S4).
+   **Done** (unverified until spike S4, which is the owner's). `azure.Driver.InterruptionNotices` (`NoticeWindow` 30 s to 2 min, 1 s interval): the
+   check asks Scheduled Events `2020-07-01` with `Metadata: true`, takes the VM's name once from `instance/compute/name` (the Node's name is the
+   NodeClaim's, not the VM's), matches a `Preempt` event that lists it in `Resources` with `sed`, `tr` and `grep` (no `jq`; pretty-printed and compact
+   JSON), and converts `NotBefore` (RFC 1123) with `date -u -d`; the first call is the opt-in and an unanswered call is a transient error; the event is not
+   acknowledged. L1 tests run it with `sh` against a local fixture (compact, pretty-printed, other VM, other event type, no deadline, 404, 5xx, no service).
+   The agent script is 1.5 KiB (held by a test) and the Azure Spot worst case is 13 061 bytes of user-data (direct; 12 709 tailscale) against Azure's 64 KiB custom
+   data limit and the driver's 16 KiB budget. The manual L5 scenario `interruption` (`manual_scenarios`; `az vm simulate-eviction`; the CI role gets
+   `simulateEviction/action`). The agent on Azure Container Linux (confidential sizes) is argued from the same paths and unit names, not run.
 8. **Alibaba** check script with the token, `GoneReason`, S5, opt-in L5 scenario if it can be triggered.
 9. **Spot catalog and spot-less vendors** (independent, any time): section 7 checks, `Unsupported` for spot on
    hcloud, OVH, UpCloud, conformance case, docs say "no spot" per vendor reference after S6.

@@ -76,6 +76,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # How long a node may take from its Pod to Running, and the exit criterion for
 # scale to zero (seconds from the Pod's deletion to every VM gone).
 : "${E2E_NODE_TIMEOUT:=720}"
+# The manual interruption scenario: how long the VM may take to answer Scheduled Events for the first
+# time (Azure documents up to 2 minutes, and events up to 5 minutes later), and how long the Node may
+# take to carry the notice after Simulate Eviction (the notice is 30 s ahead).
+: "${E2E_OPTIN_TIMEOUT:=400}"
+: "${E2E_INTERRUPTION_TIMEOUT:=90}"
 # A node's NodeClaim must be launched (the VM created) this long after a wait began, or the
 # wait fails at once as "never launched" instead of running into E2E_NODE_TIMEOUT. The
 # driver waits up to 4 minutes for the VM's long-running operation, so this is longer than
@@ -127,6 +132,6 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 # envsubst (manifests) and the child processes read exported variables.
 export AZURE_REGION E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
   E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_SPOT E2E_TYPE_DB E2E_TYPE_CVM E2E_TYPE_DENIED E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
-  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH \
+  E2E_OPTIN_TIMEOUT E2E_INTERRUPTION_TIMEOUT E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH \
   E2E_NEGATIVE_WAIT E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_MIN_VCPU_FAMILY E2E_TAG_RUNNER E2E_TAG_NODE \
   E2E_AZURE_AUDIENCE E2E_AZURE_TOKEN_INTERVAL E2E_AZURE_RELOGIN_INTERVAL E2E_AZURE_TOKEN_MAX_SECONDS

@@ -584,6 +584,10 @@ unavailable and an `OfferingRejected` Event carries the sizes; the type's on-dem
 rendering, which renders the agent without the NVIDIA part and the NVIDIA part without the agent as hard checks, also renders the combination
 and reports a failure only as a Warning Event `UserDataTooLarge` on the NodeClass: the NodeClass stays valid.
 
+Azure's check is the longest so far (the agent script is 1.5 KiB, at the limit; `TestNoticeCheckSize`). The Azure Spot worst case of the golden
+parameters (the metadata restriction with two addresses and the agent) is 13 061 bytes with `direct` and 12 709 bytes with `tailscale`
+(`TestWorstCaseAzureSpotUserDataStaysInTheBudget`), against Azure's custom data limit of 64 KiB (65 535 bytes) and the driver's budget of 16 KiB.
+
 ## Custom templates and extra Butane
 
 `spec.network.custom.configMapRef` (template `custom`) and `spec.butane` each name

@@ -11,6 +11,9 @@ spot vendors follow in the plan's order (AWS, GCP, Azure, Alibaba): each adds th
 that the core already renders on spot nodes (shell script in the metadata slice that annotates its own Node), so none has it yet. The OCI path follows the vendor's documentation and is unverified until
 the first real preemption: see [OCI interruption](../reference/oci-driver.md#interruption).
 
+Azure has its check script: the agent of a Spot VM reads Scheduled Events and gets at least 30 s of notice, best effort. It is unverified until
+the first live eviction (spike S4); see [Azure interruption](../reference/azure-driver.md#interruption).
+
 ## What your workload sees
 
 1. The Node gets the annotations `scarpenter.sparecores.com/interruption` (`SpotInterrupted`), `interruption-deadline` and
@@ -46,6 +49,7 @@ or terminating, not the two-minute notice before it.
 | Vendor | Lead time at the node | Assume for the grace period |
 |---|---|---|
 | OCI (preemptible) | none seen: about 2 minutes are documented, but only as an Events message; the API poll sees `STOPPING`, `STOPPED` or `TERMINATING` | none: the reason is recorded and the node cleaned up fast, Pods are deleted at once (1 s grace); no graceful drain window yet |
+| Azure (Spot) | 30 s at least, best effort (a `Preempt` Scheduled Event; the VM must have registered for events at boot, so an eviction in its first minutes has no notice) | 20 s (a flush of 5 s fits); the controller deletes the Pods at the deadline less 5 s, so a grace above about 25 s is cut |
 
 A workload that needs about 5 s to flush (benchmarks) sets `terminationGracePeriodSeconds` to about 20 s for the vendors that give a notice.
 On OCI, until the in-VM check (plan 26) gives the node the two minutes, write progress early and make the Pod's work restartable: a preempted
