@@ -110,6 +110,8 @@ type errorRule struct {
 	Error vendors.Class `json:"error"`
 	// AccountWide marks a QuotaExceeded error as account-wide (vendors.Error).
 	AccountWide bool `json:"accountWide,omitempty"`
+	// RegionWide marks an InsufficientCapacity error as region-wide (vendors.Error).
+	RegionWide bool `json:"regionWide,omitempty"`
 	// Count is the number of calls that fail; 0 means every matching call.
 	Count int `json:"count,omitempty"`
 }

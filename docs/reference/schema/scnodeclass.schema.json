@@ -288,6 +288,29 @@
           ],
           "type": "object"
         },
+        "launch": {
+          "additionalProperties": false,
+          "description": "launch is the launch retry policy of the class.",
+          "properties": {
+            "insufficientCapacityTTL": {
+              "description": "insufficientCapacityTTL is how long this class keeps away from an\noffering that had no capacity. It can only extend the controller's\n--unavailable-insufficient-capacity-ttl for this class: every class\nstill shares the controller's mark.",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(s|m|h))+$",
+              "type": "string"
+            },
+            "maxAttempts": {
+              "description": "maxAttempts is how many vendor calls one NodeClaim creation may make\nbefore it gives up (--max-launch-attempts for this class). Candidates\nskipped for lack of quota headroom do not count.",
+              "format": "int32",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxDuration": {
+              "description": "maxDuration is the wall-clock budget of one NodeClaim creation: once it\nis spent, no further candidate is tried and the launch fails with\nInsufficientCapacity. At most 4m30s, so that it ends before Karpenter's\n5m launch timeout; a vendor call that has started is not interrupted.",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(s|m|h))+$",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "metrics": {
           "additionalProperties": {
             "additionalProperties": false,

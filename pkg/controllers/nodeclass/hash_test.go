@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -98,6 +99,9 @@ func TestHashIgnoresWhatDoesNotChangeTheNode(t *testing.T) {
 		"selections":     func(nc *v1alpha1.SCNodeClass) { nc.Spec.Selections = map[string]v1alpha1.Selection{"a": {}} },
 		"the billing retention": func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Billing = &v1alpha1.BillingSpec{RetainUntilPeriodEnd: true}
+		},
+		"the launch policy": func(nc *v1alpha1.SCNodeClass) {
+			nc.Spec.Launch = &v1alpha1.LaunchSpec{MaxAttempts: new(int32(10)), MaxDuration: &metav1.Duration{Duration: time.Minute}}
 		},
 		"the catalog settings": func(nc *v1alpha1.SCNodeClass) {
 			nc.Spec.Catalog = &v1alpha1.CatalogSpec{CPUFlagLabels: []string{"avx2"}}

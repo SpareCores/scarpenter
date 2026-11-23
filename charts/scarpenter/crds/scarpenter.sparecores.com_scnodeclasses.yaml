@@ -321,6 +321,40 @@ spec:
                 required:
                 - version
                 type: object
+              launch:
+                description: launch is the launch retry policy of the class.
+                properties:
+                  insufficientCapacityTTL:
+                    description: |-
+                      insufficientCapacityTTL is how long this class keeps away from an
+                      offering that had no capacity. It can only extend the controller's
+                      --unavailable-insufficient-capacity-ttl for this class: every class
+                      still shares the controller's mark.
+                    pattern: ^([0-9]+(\.[0-9]+)?(s|m|h))+$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: insufficientCapacityTTL must be greater than 0
+                      rule: duration(self) > duration('0s')
+                  maxAttempts:
+                    description: |-
+                      maxAttempts is how many vendor calls one NodeClaim creation may make
+                      before it gives up (--max-launch-attempts for this class). Candidates
+                      skipped for lack of quota headroom do not count.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  maxDuration:
+                    description: |-
+                      maxDuration is the wall-clock budget of one NodeClaim creation: once it
+                      is spent, no further candidate is tried and the launch fails with
+                      InsufficientCapacity. At most 4m30s, so that it ends before Karpenter's
+                      5m launch timeout; a vendor call that has started is not interrupted.
+                    pattern: ^([0-9]+(\.[0-9]+)?(s|m|h))+$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: maxDuration must be greater than 0 and at most 4m30s
+                      rule: duration(self) > duration('0s') && duration(self) <= duration('4m30s')
+                type: object
               metrics:
                 additionalProperties:
                   description: |-

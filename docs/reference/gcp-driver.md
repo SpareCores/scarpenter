@@ -338,7 +338,7 @@ by entry by `errors_test.go`; every entry is unverified live:
 
 | Class | Codes |
 |---|---|
-| `InsufficientCapacity` | `ZONE_RESOURCE_POOL_EXHAUSTED`, `ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS`, `REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS`, `POOL_CAPACITY_INSUFFICIENT` |
+| `InsufficientCapacity` | `ZONE_RESOURCE_POOL_EXHAUSTED`, `ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS`, `REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS` (region-wide: the type is marked in every zone of the region), `POOL_CAPACITY_INSUFFICIENT` |
 | `QuotaExceeded` | `QUOTA_EXCEEDED` (the metric is read from `Quota '<m>' exceeded`); account-wide when the metric ends in `_ALL_REGIONS` |
 | `Unsupported` | `UNSUPPORTED_OPERATION`; a 404 that names the machine type of the call |
 | `ZoneUnusable` | `IP_SPACE_EXHAUSTED`, `IP_SPACE_EXHAUSTED_WITH_DETAILS` |

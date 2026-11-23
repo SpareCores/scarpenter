@@ -198,6 +198,8 @@ func TestValidSpecsAreAccepted(t *testing.T) {
 		"instance metadata restricted":      `instanceMetadata: {access: Restricted}`,
 		"instance metadata open":            `instanceMetadata: {access: Open}`,
 		"billing retention":                 `billing: {retainUntilPeriodEnd: true, margin: 90s, minPeriod: 1m, maxRetainedNodes: 1}`,
+		"launch policy":                     `launch: {maxAttempts: 10, maxDuration: 4m, insufficientCapacityTTL: 6h}`,
+		"launch maxDuration at the bound":   `launch: {maxDuration: 4m30s}`,
 		"billing empty block":               `billing: {}`,
 		"billing composite durations":       `billing: {retainUntilPeriodEnd: true, margin: 1m30s, minPeriod: 1h}`,
 	}
@@ -574,6 +576,13 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		{"billing minPeriod under 1m", `billing: {minPeriod: 59s}`, "minPeriod must be at least 1m"},
 		{"billing maxRetainedNodes zero", `billing: {maxRetainedNodes: 0}`, "should be greater than or equal to 1"},
 		{"billing unknown field", `billing: {anchor: clock-hour}`, "unknown field"},
+		{"launch maxAttempts zero", `launch: {maxAttempts: 0}`, "should be greater than or equal to 1"},
+		{"launch maxDuration zero", `launch: {maxDuration: 0s}`, "maxDuration must be greater than 0 and at most 4m30s"},
+		{"launch maxDuration over the bound", `launch: {maxDuration: 4m31s}`, "maxDuration must be greater than 0 and at most 4m30s"},
+		{"launch maxDuration five minutes", `launch: {maxDuration: 5m}`, "maxDuration must be greater than 0 and at most 4m30s"},
+		{"launch maxDuration not a duration", `launch: {maxDuration: soon}`, "should match"},
+		{"launch insufficientCapacityTTL zero", `launch: {insufficientCapacityTTL: 0s}`, "insufficientCapacityTTL must be greater than 0"},
+		{"launch unknown field", `launch: {retries: 3}`, "unknown field"},
 		{"fake data disk without mountPath", `vendors: {fake: {storage: {data: [{name: d, size: 1Gi}]}}}`, "Required value"},
 	}
 	for i, tc := range tests {

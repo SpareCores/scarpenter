@@ -175,12 +175,12 @@ and that the controller's own parser accepts what the chart renders.
 | `bootstrap.tailnetPrefixes` | `--tailnet-prefixes` | A list of CIDRs. |
 | `tailnet.backend`, `apiURL`, `keyTTL` | `--tailnet-backend`, `--tailnet-api-url`, `--tailnet-key-ttl` | `backend` is `none` (default), `tailscale` or `headscale`; `apiURL` is required with `headscale`. The flags other than the backend are passed only when set. |
 | `tailnet.credentials.existingSecret`, `clientIdKey`, `clientSecretKey`, `apiKeyKey` | `--tailnet-credentials-dir` | Required with a backend (the schema refuses a backend without it); not mounted with `none`. The Secret of the release namespace is mounted read-only into the controller at `/etc/scarpenter/tailnet`: `clientIdKey` and `clientSecretKey` (defaults `client-id`, `client-secret`) as `client-id` and `client-secret` with `tailscale`, `apiKeyKey` (default `api-key`) as `api-key` with `headscale`. The Pod spec mounts it, so the controller needs no RBAC on Secrets for it. |
-| `launch.maxAttempts` | `--max-launch-attempts` | |
+| `launch.maxAttempts` | `--max-launch-attempts` | The default of every class; `spec.launch.maxAttempts` of an SCNodeClass overrides it ([launch policy](#launch-policy)). |
 | `quota.refreshInterval`, `limitsRefreshInterval`, `maxStaleness`, `launchableRefreshInterval` | `--quota-*` | |
 | `gc.interval`, `gracePeriod`, `terminatingGrace`, `dryRun` | `--gc-interval`, `--gc-grace-period`, `--terminating-grace`, `--gc-dry-run` | |
 | `billingRetention.enabled` | `--billing-retention` | `true`; the chart passes the flag only when it is `false`. |
 | `interruption.enabled`, `margin`, `unavailableTTL` | `--interruption`, `--interruption-margin`, `--interruption-unavailable-ttl` | `enabled` is `true`; the chart passes `--interruption` only when it is `false`. |
-| `unavailable.insufficientCapacityTTL`, `unsupportedTTL`, `quotaExceededTTL`, `zoneUnusableTTL` | `--unavailable-*-ttl` | |
+| `unavailable.insufficientCapacityTTL`, `unsupportedTTL`, `quotaExceededTTL`, `zoneUnusableTTL` | `--unavailable-*-ttl` | `spec.launch.insufficientCapacityTTL` of an SCNodeClass can extend the first for that class ([launch policy](#launch-policy)). |
 | `managedResources.defaultTTL`, `perUseGrace`, `checkInterval`, `fullSweepEvery` | `--resource-default-ttl`, `--resource-per-use-grace`, `--resource-check-interval`, `--resource-full-sweep-every` | See the cost note of the full sweep. |
 | `karpenter.logLevel`, `batchMaxDuration`, `batchIdleDuration`, `featureGates`, `metricsPort`, `healthProbePort` | `--log-level`, `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, `--metrics-port`, `--health-probe-port` | Core's. |
 | `leaderElection.enabled` | `DISABLE_LEADER_ELECTION` | With more than one replica leave it on. |
@@ -620,6 +620,36 @@ and the serving certificate approver add `ArtifactsNotResolved`,
 the NodeClass for orphan tokens) and `ServingCertificateApproved` /
 `ServingCertificateDenied` (on the certificate signing request); see
 [node bootstrap](node-bootstrap.md).
+
+### Launch policy
+
+`spec.launch` of an SCNodeClass overrides the controller's launch flags for the
+launches of that class. Every field is optional; an unset one keeps the flag.
+Changing it is not drift.
+
+| Field | Flag it overrides | Meaning |
+|---|---|---|
+| `maxAttempts` | `--max-launch-attempts` | Vendor calls one `Create` may make; at least 1. |
+| `maxDuration` | none | Wall-clock budget of one `Create`: once spent, no further candidate is tried and `Create` returns `InsufficientCapacityError`. A vendor call that has started is not interrupted. Greater than 0 and at most `4m30s`, so that it ends before Karpenter's 5 minute launch timeout. |
+| `insufficientCapacityTTL` | `--unavailable-insufficient-capacity-ttl` | How long the class stays away from an offering that had no capacity. It can extend the flag's TTL for this class, never shorten it, see below. |
+
+An `InsufficientCapacity` mark is shared by every class and lasts the flag's TTL
+(3m): a known stockout protects all of them. When the launching class sets a
+longer `insufficientCapacityTTL`, `Create` also records a mark of that class
+alone until now plus the TTL. The class's candidate filtering and its offered
+listing see both marks; the other classes only the shared one, so they try the
+offering again after the flag's TTL. A TTL shorter than the flag's changes
+nothing. The class's own marks are dropped when the class is deleted.
+
+An error the driver marks `vendors.Error.RegionWide` (GCP
+`REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS`) says the region is out of
+capacity for the type: it is marked unavailable in every zone of the region for
+the capacity type, and the other zones of the region are not tried.
+
+When the attempts end without a launch, the `InsufficientCapacity` message is
+the last error followed by a summary:
+`tried 3 offerings in 2 regions / 3 zones; classes: InsufficientCapacity:2,QuotaExceeded:1; stopped by: maxAttempts`.
+`stopped by` is `maxAttempts`, `maxDuration` or `no candidates left`.
 
 ## Quota
 

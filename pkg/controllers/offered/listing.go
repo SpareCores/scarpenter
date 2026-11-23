@@ -59,6 +59,10 @@ type ListingType struct {
 	// both only when the type is not available.
 	Reason string `json:"reason,omitempty"`
 	Detail string `json:"detail,omitempty"`
+	// Until is the earliest RFC3339 time a mark of the unavailable-offerings
+	// cache on one of the type's offerings expires; only when the type is not
+	// available and a mark is why.
+	Until string `json:"until,omitempty"`
 	// Offerings are grouped by capacity type and state; empty for a type that
 	// is not in the catalog at all.
 	Offerings []ListingOffering `json:"offerings"`
@@ -190,6 +194,11 @@ func listingType(t catalog.TypeReport) ListingType {
 			cmp.Compare(a.Reason, b.Reason), cmp.Compare(a.Until, b.Until))
 	})
 	if !lt.Available {
+		for g := range groups {
+			if g.until != "" && (lt.Until == "" || g.until < lt.Until) {
+				lt.Until = g.until
+			}
+		}
 		// The dominant reason: the most offerings, the first code on a tie.
 		best := catalog.Code("")
 		for code, n := range counts {

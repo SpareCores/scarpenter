@@ -84,6 +84,11 @@ type Error struct {
 	// unavailable-offerings cache then marks the capacity type unavailable in
 	// every region of the vendor, not in the one the call was made in.
 	AccountWide bool
+	// RegionWide is set by a driver on an InsufficientCapacity error that the
+	// vendor documents as being of the whole region, not of the zone the call
+	// was made in: the unavailable-offerings cache then marks the type in every
+	// zone of the region.
+	RegionWide bool
 	// PreLaunch is set by a driver on an Unsupported error found by its own
 	// check, before any vendor call, as opposed to the vendor's "not offered"
 	// answer. Such a check is deterministic from tables the driver read, so the
@@ -126,6 +131,23 @@ func (e *Error) AsAccountWide() *Error {
 	c := *e
 	c.AccountWide = true
 	return &c
+}
+
+// AsRegionWide returns a copy of the error marked as a region-wide capacity
+// error (see Error.RegionWide).
+func (e *Error) AsRegionWide() *Error {
+	c := *e
+	c.RegionWide = true
+	return &c
+}
+
+// IsRegionWide reports whether the first *Error in the chain is an
+// InsufficientCapacity that applies to the whole region.
+func IsRegionWide(err error) bool {
+	if e, ok := errors.AsType[*Error](err); ok {
+		return e.Class == InsufficientCapacity && e.RegionWide
+	}
+	return false
 }
 
 // AsPreLaunch returns err marked as found by the driver's own check before the

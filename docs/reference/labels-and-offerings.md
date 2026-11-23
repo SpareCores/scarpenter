@@ -319,7 +319,7 @@ the sequence number the catalog's cache key uses are clock-injectable.
 
 | Error class | Key | Default TTL |
 |---|---|---|
-| `InsufficientCapacity` | (vendor, instance type, zone, capacity type) | 3 min |
+| `InsufficientCapacity` | (vendor, instance type, zone, capacity type); (vendor, instance type, region, capacity type) for a region-wide error (`vendors.Error.RegionWide`); each also per class (above) | 3 min; a class with a longer `spec.launch.insufficientCapacityTTL` adds a mark that only it sees, for that TTL ([launch policy](controller.md#launch-policy)) |
 | `Unsupported` | (vendor, instance type, zone) | 24 h; 10 min when the driver's own pre-launch check found it (`vendors.Error.PreLaunch`) |
 | `QuotaExceeded` | (vendor, region, quota bucket): the bucket the vendor counts the launch against (the quota tracker's `Consumption` mapping); (vendor, region, capacity type) for a vendor without a bucket mapping; (vendor, capacity type) in every region when account-wide | 5 min; a NodeClaim of the vendor and region confirmed gone clears it |
 | `DailyLimit` | (vendor, region), every offering | until the vendor's reset time; the next 00:00 UTC when the driver gives none (OCI documents none); 5 min when the error arrives within 5 min after 00:00 UTC. Deleting NodeClaims does not clear it |
@@ -439,7 +439,7 @@ The document:
   "types": {
     "oci.VM.Standard4.Ax.Flex.16-64": {
       "apiReference": "VM.Standard4.Ax.Flex.16-64", "available": false, "capacityTypes": [],
-      "reason": "UnavailableCache", "detail": "DailyLimit until 2026-11-22T00:00:00Z",
+      "reason": "UnavailableCache", "detail": "DailyLimit until 2026-11-22T00:00:00Z", "until": "2026-11-22T00:00:00Z",
       "offerings": [
         {"capacityType": "on-demand", "zones": ["eu-frankfurt-1-AD-1", "eu-frankfurt-1-AD-2", "eu-frankfurt-1-AD-3"], "available": false,
          "reason": "DailyLimit", "until": "2026-11-22T00:00:00Z"}
@@ -458,6 +458,7 @@ The document:
 | `apiReference` | the value of the `scarpenter.sparecores.com/api-reference` label; omitted when the type has no such label |
 | `available`, `capacityTypes` | at least one offering is available; the capacity types that have one |
 | `reason`, `detail` | only when `available` is false: the dominant class-level [reason code](#why-a-type-or-an-offering-is-not-offered) (the one of the most offerings, those Karpenter is given before the left-out ones, so a gated type says `QuotaGate`) and its data as text for humans, never to be parsed |
+| `until` | only when `available` is false and an unavailable-offerings mark is why: the earliest RFC3339 time (UTC) a mark on one of the type's offerings expires, the first moment an offering may come back. A type whose offerings are all marked is `available: false` with this `until`; a consumer (k8s-inspector) that sees no `until` on an unavailable type should not wait for it |
 | `offerings` | grouped by capacity type, state, reason and expiry, with the zones that share them; empty for a type dropped at build time (its `reason` is the build's) |
 | `offerings[].reason` | for an offering a launch error marked (reason code `UnavailableCache`), the launch-error class: `InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable` or `InvalidOffering`; for any other unavailable offering the reason code (for example `QuotaGate`) |
 | `offerings[].until` | RFC3339 time (UTC) the mark expires, only on a group whose `reason` is a launch-error class. A planner skips the offering until then without launching |

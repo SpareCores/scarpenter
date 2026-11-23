@@ -22,6 +22,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	testingclock "k8s.io/utils/clock/testing"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	karpcloudprovider "sigs.k8s.io/karpenter/pkg/cloudprovider"
 
@@ -1195,5 +1197,124 @@ func TestCreateRejectsAnOfferingWhoseUserDataIsTooLarge(t *testing.T) {
 	}
 	if !contains(e.events.reasons(), cloudprovider.EventOfferingRejected) {
 		t.Errorf("events = %v, want %s", e.events.reasons(), cloudprovider.EventOfferingRejected)
+	}
+}
+
+// withLaunch sets the NodeClass's launch policy.
+func withLaunch(l v1alpha1.LaunchSpec) func(*v1alpha1.SCNodeClass) {
+	return func(nc *v1alpha1.SCNodeClass) { nc.Spec.Launch = &l }
+}
+
+func TestLaunchMaxAttemptsOverridesTheFlag(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 3, transform: withLaunch(v1alpha1.LaunchSpec{MaxAttempts: new(int32(2))})})
+	e.setConfig("errors", "- {error: InsufficientCapacity}")
+	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large", "aws.c7i.large", "aws.m6i.large"}))
+	if !karpcloudprovider.IsInsufficientCapacityError(err) {
+		t.Fatalf("Create error = %v, want InsufficientCapacityError", err)
+	}
+	if n := len(e.calls("create")); n != 2 {
+		t.Errorf("%d vendor calls, want the class's maxAttempts (2)", n)
+	}
+	if !strings.Contains(err.Error(), "tried 2 offerings in ") ||
+		!strings.Contains(err.Error(), "; classes: InsufficientCapacity:2; stopped by: maxAttempts") {
+		t.Errorf("error = %q, want the summary", err)
+	}
+}
+
+// slowDriver takes a minute of the fake clock per launch.
+type slowDriver struct {
+	*fakedriver.Driver
+	// clock is read at the call: the env that owns the clock is built after the driver.
+	clock func() *testingclock.FakeClock
+}
+
+func (d slowDriver) CreateInstance(ctx context.Context, req vendors.CreateRequest) (*vendors.Instance, error) {
+	d.clock().Step(time.Minute)
+	return d.Driver.CreateInstance(ctx, req)
+}
+
+func TestLaunchMaxDurationStopsTheLoop(t *testing.T) {
+	var e *env
+	e = newEnv(t, envOptions{
+		attempts:  100,
+		transform: withLaunch(v1alpha1.LaunchSpec{MaxDuration: &metav1.Duration{Duration: 150 * time.Second}}),
+		wrap: func(d *fakedriver.Driver) vendors.Driver {
+			return slowDriver{d, func() *testingclock.FakeClock { return e.clock }}
+		},
+	})
+	e.setConfig("errors", "- {error: InsufficientCapacity}")
+	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large", "aws.c7i.large", "aws.m6i.large"}))
+	if !karpcloudprovider.IsInsufficientCapacityError(err) {
+		t.Fatalf("Create error = %v, want InsufficientCapacityError", err)
+	}
+	if n := len(e.calls("create")); n != 3 {
+		t.Errorf("%d vendor calls, want 3 (150s budget, one minute per call)", n)
+	}
+	if !strings.Contains(err.Error(), "stopped by: maxDuration") {
+		t.Errorf("error = %q, want stopped by maxDuration", err)
+	}
+}
+
+func TestLaunchWithoutPolicyStopsByTheFlag(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 3})
+	e.setConfig("errors", "- {error: InsufficientCapacity}")
+	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large", "aws.c7i.large", "aws.m6i.large"}))
+	if n := len(e.calls("create")); n != 3 || !strings.Contains(err.Error(), "stopped by: maxAttempts") {
+		t.Errorf("%d vendor calls, error %v", n, err)
+	}
+}
+
+func TestLaunchSummaryWhenNoCandidateIsLeft(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 100})
+	e.setConfig("errors", "- {error: InsufficientCapacity}")
+	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	want := fmt.Sprintf("tried %d offerings", len(e.calls("create")))
+	if !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "stopped by: no candidates left") ||
+		!strings.Contains(err.Error(), "InsufficientCapacity (InjectedInsufficientCapacity)") {
+		t.Errorf("error = %q", err)
+	}
+}
+
+func TestRegionWideCapacityErrorMarksTheRegionAndSkipsItsOtherZones(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 100})
+	target := e.offerings("aws.m7i.large")[0]
+	e.setConfig("errors", "- {match: {region: "+target.region+"}, error: InsufficientCapacity, regionWide: true}")
+	if _, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"})); err != nil {
+		t.Fatalf("Create: %v, want the other region to launch", err)
+	}
+	// One failed call per capacity type: the zones of the region are skipped after the first.
+	for _, call := range e.calls("create") {
+		for _, other := range e.calls("create") {
+			if call != other && call.Region == other.Region && call.CapacityType == other.CapacityType {
+				t.Errorf("two calls for %s %s: %+v, %+v", call.Region, call.CapacityType, call, other)
+			}
+		}
+	}
+	for _, o := range e.offerings("aws.m7i.large") {
+		if o.region == target.region && o.capacityType == target.capacityType {
+			t.Errorf("%+v of the marked region is still offered", o)
+		}
+	}
+}
+
+func TestClassInsufficientCapacityTTLOutlastsTheSharedMark(t *testing.T) {
+	e := newEnv(t, envOptions{
+		attempts: 1, transform: withLaunch(v1alpha1.LaunchSpec{InsufficientCapacityTTL: &metav1.Duration{Duration: time.Hour}}),
+	})
+	target := e.offerings("aws.m7i.large")[0]
+	e.setConfig("errors", "- {error: InsufficientCapacity, count: 1}")
+	_, _ = e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	e.advance(2 * time.Minute) // the shared mark of the env is one minute
+	shared, mine := unavailableOf(target), unavailableOf(target)
+	mine.NodeClass = className
+	if e.un.IsUnavailable(shared) {
+		t.Error("the shared mark outlived its TTL")
+	}
+	if !e.un.IsUnavailable(mine) {
+		t.Error("the class does not see its own longer mark")
+	}
+	e.advance(time.Hour)
+	if e.un.IsUnavailable(mine) {
+		t.Error("the class mark outlived its TTL")
 	}
 }

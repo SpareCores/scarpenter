@@ -55,6 +55,18 @@ func TestErrorTable(t *testing.T) {
 	}
 }
 
+func TestRegionWideCapacityCodes(t *testing.T) {
+	for code, want := range map[string]bool{
+		"REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS": true,
+		"ZONE_RESOURCE_POOL_EXHAUSTED":                false,
+	} {
+		err := classifyOperation(doneOp(code, "boom", 400), errContext{})
+		if vendors.ClassOf(err) != vendors.InsufficientCapacity || vendors.IsRegionWide(err) != want {
+			t.Errorf("%s: class %s, region-wide %v, want region-wide %v", code, vendors.ClassOf(err), vendors.IsRegionWide(err), want)
+		}
+	}
+}
+
 func TestClassifyOperation(t *testing.T) {
 	ec := errContext{machineType: "n2-standard-2", zone: "europe-west3-a"}
 	tests := []struct {

@@ -94,6 +94,10 @@ var errorClasses = map[string]vendors.Class{
 	reasonConditionNot: vendors.Fatal,
 }
 
+// regionWideCapacity are the InsufficientCapacity codes that say the whole
+// region, not the zone of the call, is out of stock.
+var regionWideCapacity = map[string]bool{"REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS": true}
+
 // errContext is what the classification of one call knows about it.
 type errContext struct {
 	machineType, zone string
@@ -151,7 +155,11 @@ func classifyOpErr(e opErr, ec errContext, cause error) error {
 		return err
 	}
 	if class, ok := errorClasses[code]; ok {
-		return vendors.NewError(class, code, cause)
+		err := vendors.NewError(class, code, cause)
+		if regionWideCapacity[code] {
+			return err.AsRegionWide()
+		}
+		return err
 	}
 	// reason "quotaExceeded" on an HTTP error is a resource quota; the API's own
 	// request rate limits use rateLimitExceeded.

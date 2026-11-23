@@ -78,6 +78,10 @@ type SCNodeClassSpec struct {
 	// +optional
 	PoweroffAfter *metav1.Duration `json:"poweroffAfter,omitempty"`
 
+	// launch is the launch retry policy of the class.
+	// +optional
+	Launch *LaunchSpec `json:"launch,omitempty"`
+
 	// tags are added to every vendor resource SCarpenter creates (tags or
 	// labels, as the vendor calls them).
 	// +kubebuilder:validation:MaxProperties=32
