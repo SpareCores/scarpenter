@@ -177,6 +177,8 @@ func TestValidation(t *testing.T) {
 		{"zero resource ttl", append([]string{"--resource-default-ttl=0s"}, required...), "--resource-default-ttl must be positive"},
 		{"zero quota staleness", append([]string{"--quota-max-staleness=0s"}, required...), "--quota-max-staleness must be positive"},
 		{"max age below refresh interval", append([]string{"--catalog-max-age=10m"}, required...), "must not be shorter"},
+		{"gcp notice too long", append([]string{"--gcp-preemption-notice=121s"}, required...), "--gcp-preemption-notice must be 0 to 2m0s"},
+		{"gcp notice fractional", append([]string{"--gcp-preemption-notice=1500ms"}, required...), "--gcp-preemption-notice must be 0 to 2m0s"},
 		{"negative interruption margin", append([]string{"--interruption-margin=-1s"}, required...), "--interruption-margin must not be negative"},
 		{"zero interruption ttl", append([]string{"--interruption-unavailable-ttl=0s"}, required...), "--interruption-unavailable-ttl must be positive"},
 		{"empty aws home region", append([]string{"--aws-home-region="}, required...), "--aws-home-region"},

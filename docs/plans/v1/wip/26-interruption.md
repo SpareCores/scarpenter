@@ -299,6 +299,17 @@ boot; a VM evicted inside that window has no notice and falls to section 5. No `
    the CI role's FIS statements and `iam:PassRole` for it only when it is set. Deviations: (a) `MinNotice` is the documented two minutes, so a notice
    without a deadline is assumed to give two minutes; (b) the check does not read the `action` (the launch is always `terminate`).
 6. **GCP** check script, the 120 s notice at create by default if S3 shows no extra cost (else the 30 s ACPI window and the shutdown backstop), `GoneReason`, opt-in L5 scenario.
+   **Done.** Spike S3 has not run, so the step is built for "S3 unknown": Spot VMs are launched without a notice (the 30 s ACPI window,
+   the kubelet's graceful shutdown as the backstop), and the 120 s notice is one flag away: `--gcp-preemption-notice` (chart
+   `vendors.gcp.preemptionNotice`, default 0, at most 2 minutes) sets `scheduling.preemptionNoticeDuration`, the field of the Compute API's
+   `Scheduling` (name and limit unverified), and the check prints `now + N` as the deadline. The maintainer turns it on, or changes the
+   default, after S3 shows that it costs nothing extra. The check long-polls `instance/preempted` from the ETag of a first read and reads
+   the value again; the interval is 1 s, not 0, so that a failing long poll cannot spin. Deviations: (a) `GoneReason` is `SpotInterrupted` for
+   any Spot VM that is stopping, stopped or terminated, not read from the zone operation `compute.instances.preempted` (that would add an
+   API method and a permission; a stop by hand gets the same reason, as on OCI); (b) the L5 scenario `interruption` (manual only, in
+   `manual_scenarios` of `test/e2e-gcp`) preempts with `gcloud compute instances simulate-maintenance-event` and asserts the annotation,
+   the `Interrupted` condition, the Pod's SIGTERM before the deadline, the instance gone and the metric; it does not assert the replacement,
+   which the 10-minute unavailability of the one pool type may delay. Size: a GCP spot node's worst case is 13.0 KiB of user-data (limit 256 KB).
 7. **Azure** check script (opt-in at boot, VM name filter), opt-in L5 scenario with Simulate Eviction (S4).
    **Done** (unverified until spike S4, which is the owner's). `azure.Driver.InterruptionNotices` (`NoticeWindow` 30 s to 2 min, 1 s interval): the
    check asks Scheduled Events `2020-07-01` with `Metadata: true`, takes the VM's name once from `instance/compute/name` into `/run/sc-vm` (the Node's name is the

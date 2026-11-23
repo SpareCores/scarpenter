@@ -1,0 +1,33 @@
+# The workload of the manual interruption scenario: a one-replica Deployment on the
+# e2e-spot pool whose Pod logs the time of its SIGTERM, with a grace period like a
+# benchmark's (plan 26). Google's mirror of busybox (Docker Hub library).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-intr
+  labels: {app: e2e-intr, scarpenter-e2e: "true"}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: e2e-intr}
+  template:
+    metadata:
+      labels: {app: e2e-intr, scarpenter-e2e: "true"}
+    spec:
+      terminationGracePeriodSeconds: 20
+      nodeSelector:
+        karpenter.sh/nodepool: e2e-spot
+        node.kubernetes.io/instance-type: ${E2E_TYPE_AMD64}
+        karpenter.sh/capacity-type: spot
+      containers:
+        - name: probe
+          image: mirror.gcr.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              trap 'echo "sigterm $(date +%s)"; exit 0' TERM
+              echo scarpenter-e2e-up
+              while :; do sleep 1 & wait $!; done
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}

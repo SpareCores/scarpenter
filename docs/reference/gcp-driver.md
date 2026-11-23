@@ -24,6 +24,7 @@ confirms ([plan 16](../plans/v1/wip/16-gcp.md)).
 - [Metadata exposure](#metadata-exposure)
 - [IAM](#iam)
 - [Billing](#billing)
+- [Interruption](#interruption)
 - [Deferred](#deferred)
 - [What is not verified against GCP yet](#what-is-not-verified-against-gcp-yet)
 
@@ -136,7 +137,7 @@ Rung 1 for amd64, rung 2 for arm64 ([ADR-021](../explanation/DECISIONS.md)).
 | `networkInterfaces[0]` | the subnetwork, `IPV4_ONLY` or `IPV4_IPV6` with an external IPv6 access config, one `ONE_TO_ONE_NAT` unless `publicIPv4: false`, the NIC type and Tier 1 of a network profile |
 | `tags.items` | the firewall's network tag and the run's tag |
 | `labels` | the logical labels, the NodeClass's tags, the idempotency label |
-| `scheduling` | on-demand: `STANDARD`, `automaticRestart: false`, `MIGRATE` or `TERMINATE` (series that cannot migrate, compact placement); Spot: `SPOT`, **`instanceTerminationAction: DELETE`** (the default `STOP` would leave a stopped instance and its disks), `TERMINATE` |
+| `scheduling` | on-demand: `STANDARD`, `automaticRestart: false`, `MIGRATE` or `TERMINATE` (series that cannot migrate, compact placement); Spot: `SPOT`, **`instanceTerminationAction: DELETE`** (the default `STOP` would leave a stopped instance and its disks), `TERMINATE`, and `preemptionNoticeDuration` when `--gcp-preemption-notice` is set ([interruption](#interruption)) |
 | `metadata.items` | `user-data` (the Ignition), `block-project-ssh-keys: TRUE`, `enable-oslogin: FALSE`, the block's `metadata` |
 | `advancedMachineFeatures` | `enableNestedVirtualization: true`, only with `vendors.gcp.nestedVirtualization: true` |
 | `serviceAccounts` | only with `vendors.gcp.serviceAccount` |
@@ -378,16 +379,49 @@ so the rule is reported **unverified**: billing retention stays off for GCP and 
 so. A period under `minPeriod` (default 10 minutes) would not qualify anyway. `Instance.BillingStart` is
 `creationTimestamp`.
 
+## Interruption
+
+A preempted Spot VM is announced in the instance metadata, so GCP uses the [node agent](node-bootstrap.md#the-interruption-agent)
+([plan 26](../plans/v1/wip/26-interruption.md), [handle spot interruptions](../how-to-guides/handle-spot-interruptions.md)); the
+driver implements `InterruptionNotices` and `Instance.GoneReason`.
+
+- **The check.** The agent's `scarpenter_check` long-polls `computeMetadata/v1/instance/preempted?wait_for_change=true`
+  (`Metadata-Flavor: Google`, at `169.254.169.254`, a 60 s wait, started from the ETag of a first read) and reads the value
+  again afterwards; `TRUE` is a notice, the reason `SpotInterrupted`. The agent runs in the metadata slice, so it works with the
+  metadata restriction on (the default) and off. The check pauses 1 s after a poll that found nothing, so a failing long poll cannot spin. Google sends
+  the ACPI G2 signal right after the preemption notice, then stops the VM up to 30 s later.
+- **The notice and the deadline.** The metadata value gives no time, so the deadline is derived. `--gcp-preemption-notice` (chart
+  `vendors.gcp.preemptionNotice`) is the **switch**: `0`, the default, launches Spot VMs without a notice, so the value turns `TRUE`
+  together with the ACPI signal, the check prints no deadline and the controller assumes the 30 s of the shutdown window; the kubelet's
+  graceful shutdown (25 s, rendered on spot launches) is the backstop if the agent misses it. With a notice of `N` seconds (at most `2m`),
+  the launch sets `scheduling.preemptionNoticeDuration` and the check prints `now + N` as the deadline, so Pods get `N` seconds
+  before the ACPI signal; the window is 30 s to `30 s + N`.
+- **Why the default is off.** Plan 26 asks for the 120 s notice by default only if spike S3 shows that it costs nothing extra; S3 is a manual
+  live check that has not run, so the notice is off until the maintainer sets `--gcp-preemption-notice=2m` (or changes the default
+  after S3). Nothing else changes between the two.
+- **`GoneReason`.** A Spot VM that is stopping, stopped or terminated reports `SpotInterrupted`; SCarpenter's own deletes are filtered by the
+  core, as for OCI. A person stopping a Spot VM by hand gets the same reason: telling them apart needs the zone operation
+  `compute.instances.preempted`, which would add an API method and the `compute.zoneOperations.list` permission, and is not done. A
+  preempted VM is deleted (`instanceTerminationAction: DELETE`) and is often gone from the API before the next call: the
+  interruption is then recorded as `ReclaimedWithoutNotice` if no notice reached the node.
+- **Size.** The agent adds 1.5 KiB at most to the user-data; the worst case of a spot node (the default templates' worst case with the
+  agent and the notice) is about 13.0 KiB against the limit of 256 KB for a metadata value (`TestWorstCaseGCPSpotUserDataStaysInTheBudget`).
+
+Unverified until a live run (spike S3): the field `preemptionNoticeDuration` (from the Compute API's `Scheduling`; whether 120 s is its
+limit and whether it is billed), that `gcloud compute instances simulate-maintenance-event` preempts a Spot VM with `preempted=TRUE`, the
+long poll's behaviour on its timeout, and the timing of the zone operation.
+
 ## Deferred
 
 Multi-project (one project per NodeClass); sole-tenant nodes; TPU series (`ct*`, `tpu7*`), which the offerings drop; N1 with attached GPUs
 (`guestAccelerators`; Keeper's catalog has no such type); bare metal; custom machine types;
-Flex-start and the legacy preemptible model; Spot interruption handling (a preempted VM is deleted and Karpenter
-replaces the claim; the 30 second notice and `maxRunDuration` are post-v1); firewall rules by service account
+Flex-start and the legacy preemptible model; `maxRunDuration`; firewall rules by service account
 (`sourceServiceAccounts`); resource-manager tags on instances; the Cloud Quotas API (only if `regions.get`
 proves insufficient).
 
 ## What is not verified against GCP yet
+
+The [interruption](#interruption) facts (the notice field and its cost, the simulated preemption, the long poll).
 
 Every error code and reason above; the quota metrics a machine type consumes (the GPU metric names per model included) and the Spot/preemptible rule;
 `requestId` replay for a failed operation and how long request IDs are kept (the attempt counter is the

@@ -401,6 +401,9 @@
               "type": "string",
               "pattern": "^([a-z][-a-z0-9.:]{4,61}[a-z0-9])?$"
             },
+            "preemptionNotice": {
+              "$ref": "#/definitions/duration"
+            },
             "ipv4Price": {
               "type": [
                 "string",

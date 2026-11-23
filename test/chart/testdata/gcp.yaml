@@ -721,6 +721,7 @@ spec:
             - "--api-server-endpoint=https://100.64.0.1:6443"
             - "--cluster-dns=10.43.0.10"
             - "--cluster-name=lab"
+            - "--gcp-preemption-notice=2m"
             - "--gcp-project=my-project"
             - "--health-probe-port=8081"
             - "--keeper-cache-dir=/var/cache/scarpenter/keeper"
