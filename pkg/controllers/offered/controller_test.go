@@ -7,9 +7,12 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package offered_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"reflect"
 	"slices"
@@ -18,9 +21,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clocktesting "k8s.io/utils/clock/testing"
@@ -267,7 +272,15 @@ func (e *env) listing(name string) (*offered.Listing, *corev1.ConfigMap, error) 
 		return nil, nil, err
 	}
 	var l offered.Listing
-	if err := json.Unmarshal([]byte(cm.Data[offered.ListingKey]), &l); err != nil {
+	zr, err := gzip.NewReader(bytes.NewReader(cm.BinaryData[offered.ListingKey]))
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := json.Unmarshal(raw, &l); err != nil {
 		return nil, nil, err
 	}
 	return &l, &cm, nil
@@ -289,9 +302,9 @@ func TestListingConfigMapLifecycle(t *testing.T) {
 	if l.Class != className || l.Vendor != "aws" || l.Truncated || len(l.Types) < 100 || l.GeneratedAt == "" {
 		t.Fatalf("listing: %q %q truncated=%v types=%d", l.Class, l.Vendor, l.Truncated, len(l.Types))
 	}
-	t.Logf("%d types, %d bytes", len(l.Types), len(cm.Data[offered.ListingKey]))
-	if len(cm.Data[offered.ListingKey]) > offered.MaxListingBytes {
-		t.Errorf("%d bytes, over the cap", len(cm.Data[offered.ListingKey]))
+	t.Logf("%d types, %d bytes", len(l.Types), len(cm.BinaryData[offered.ListingKey]))
+	if len(cm.BinaryData[offered.ListingKey]) > offered.MaxListingBytes {
+		t.Errorf("%d bytes, over the cap", len(cm.BinaryData[offered.ListingKey]))
 	}
 	wantLabels := map[string]string{
 		offered.LabelManagedBy: "scarpenter", offered.LabelClass: className, offered.LabelVendor: "aws",
@@ -372,6 +385,84 @@ func TestListingConfigMapLifecycle(t *testing.T) {
 	})
 }
 
+// An earlier version wrote data.types.json: the apply of the new layout removes
+// it, since the same field manager owned it.
+func TestListingApplyRemovesTheOldDataKey(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	name := offered.ConfigMapName(className, "aws")
+	e := start(t, annotated, func(o *offered.Options, e *env) {
+		o.Reader, o.Namespace = o.Client, namespace
+		old := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1", "kind": "ConfigMap",
+			"metadata": map[string]any{"name": name, "namespace": namespace},
+			"data":     map[string]any{"types.json": `{"old":true}`},
+		}}
+		if err := e.c.Apply(t.Context(), client.ApplyConfigurationFromUnstructured(old),
+			client.FieldOwner(offered.FieldManager), client.ForceOwnership); err != nil {
+			t.Fatal(err)
+		}
+	})
+	eventually(t, "the new layout", func() error {
+		_, cm, err := e.listing(name)
+		if err != nil {
+			return err
+		}
+		if len(cm.Data) != 0 {
+			return fmt.Errorf("data keys %v", slices.Collect(maps.Keys(cm.Data)))
+		}
+		return nil
+	})
+}
+
+// listingBytesVendors are the vendors that have a scarpenter_offered_listing_bytes series.
+func listingBytesVendors(reg *prometheus.Registry) ([]string, error) {
+	families, err := reg.Gather()
+	if err != nil {
+		return nil, err
+	}
+	var vendors []string
+	for _, f := range families {
+		if f.GetName() != "scarpenter_offered_listing_bytes" {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "vendor" {
+					vendors = append(vendors, l.GetValue())
+				}
+			}
+		}
+	}
+	slices.Sort(vendors)
+	return vendors, nil
+}
+
+// A vendor whose listing is over the cap is refused and does not hold back the
+// other: hcloud has far fewer types than aws, the limit is between the two.
+func TestListingOfOneVendorOverTheCapDoesNotBlockTheOther(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	reg := prometheus.NewRegistry()
+	e := startWith(t, true, annotated, func(o *offered.Options, e *env) {
+		o.Reader, o.Namespace, o.ListingLimit, o.Registerer = o.Client, namespace, 4000, reg
+		e.hcloudLoaded.Store(true)
+	})
+	// Both vendors are handled in one pass: the gauge has hcloud and, as aws was
+	// refused, not aws.
+	eventually(t, "the hcloud listing", func() error {
+		vendors, err := listingBytesVendors(reg)
+		if err != nil || !slices.Equal(vendors, []string{"hcloud"}) {
+			return fmt.Errorf("vendors %v: %v", vendors, err)
+		}
+		return nil
+	})
+	if _, _, err := e.listing(offered.ConfigMapName(className, "hcloud")); err != nil {
+		t.Error(err)
+	}
+	if _, _, err := e.listing(offered.ConfigMapName(className, "aws")); !apierrors.IsNotFound(err) {
+		t.Errorf("aws listing over the cap: %v", err)
+	}
+}
+
 // The listing is written again after ten minutes without a change, with a new
 // generatedAt.
 func TestListingHeartbeat(t *testing.T) {
@@ -448,11 +539,19 @@ func TestOfferedStatusOfTwoVendors(t *testing.T) {
 // the consumer contract: the keys, the field names and when they are omitted.
 func checkContract(t *testing.T, cm *corev1.ConfigMap) {
 	t.Helper()
-	if len(cm.Data) != 1 || len(cm.BinaryData) != 0 {
-		t.Fatalf("keys %v", cm.Data)
+	if len(cm.Data) != 0 || len(cm.BinaryData) != 1 {
+		t.Fatalf("keys %v %v", cm.Data, slices.Collect(maps.Keys(cm.BinaryData)))
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(cm.BinaryData["types.json.gz"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
 	}
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(cm.Data["types.json"]), &doc); err != nil {
+	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
 	keys := func(m map[string]any) []string { return slices.Sorted(maps.Keys(m)) }

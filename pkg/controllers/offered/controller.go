@@ -60,6 +60,9 @@ type Options struct {
 	Registerer prometheus.Registerer
 	// Interval defaults to DefaultInterval.
 	Interval time.Duration
+	// ListingLimit is the cap of a compressed listing; it defaults to
+	// MaxListingBytes.
+	ListingLimit int
 }
 
 // Controller publishes the offered types of the SCNodeClasses.
@@ -85,6 +88,9 @@ func New(o Options) *Controller {
 	}
 	if o.Interval <= 0 {
 		o.Interval = DefaultInterval
+	}
+	if o.ListingLimit <= 0 {
+		o.ListingLimit = MaxListingBytes
 	}
 	c := &Controller{
 		opts: o, last: map[string]time.Time{}, listings: map[string]listing{}, metrics: newMetrics(o.OfferingDetail),

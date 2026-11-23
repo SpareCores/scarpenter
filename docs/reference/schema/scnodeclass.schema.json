@@ -7879,6 +7879,10 @@
                   "maxProperties": 32,
                   "type": "object"
                 },
+                "nestedVirtualization": {
+                  "description": "nestedVirtualization turns on nested virtualization\n(advancedMachineFeatures.enableNestedVirtualization) on the nodes, so that\nthey expose /dev/kvm and the vmx flags. Off by default. Not every machine\nseries supports it: when Compute Engine refuses the feature for a machine\ntype, the node is launched once more without it.",
+                  "type": "boolean"
+                },
                 "networking": {
                   "additionalProperties": false,
                   "description": "networking overrides the generic spec.networking for GCP.",

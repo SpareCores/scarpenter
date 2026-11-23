@@ -7,7 +7,9 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package offered
 
 import (
+	"bytes"
 	"cmp"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -17,11 +19,12 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
 )
 
-// ListingKey is the key of the ConfigMap that holds the listing.
-const ListingKey = "types.json"
+// ListingKey is the key in the binaryData of the ConfigMap that holds the
+// listing: the JSON of Listing, gzipped.
+const ListingKey = "types.json.gz"
 
-// MaxListingBytes caps the listing: a ConfigMap holds at most 1 MiB. Past the
-// cap the listing is cut (Listing.Truncated) rather than the write failing.
+// MaxListingBytes caps the compressed listing: a ConfigMap holds at most 1 MiB.
+// Past the cap the zones are left out, and past that nothing is written.
 const MaxListingBytes = 800 << 10
 
 // Listing is the content of the ConfigMap of one class and vendor: what the
@@ -33,9 +36,12 @@ type Listing struct {
 	GeneratedAt string `json:"generatedAt"`
 	Class       string `json:"class"`
 	Vendor      string `json:"vendor"`
-	// Truncated says that the cap was hit: the types that are not available are
-	// kept first, so the available ones may be incomplete.
+	// Truncated is always false, kept for readers that index it: no type is ever
+	// left out of the listing.
 	Truncated bool `json:"truncated"`
+	// ZonesOmitted says that the listing was over the cap, so every offering has
+	// an empty list of zones.
+	ZonesOmitted bool `json:"zonesOmitted,omitempty"`
 	// Types are keyed by the instance type name.
 	Types map[string]ListingType `json:"types"`
 }
@@ -70,44 +76,60 @@ type ListingOffering struct {
 	Until        string   `json:"until,omitempty"`
 }
 
-// encode builds the listing of one class and vendor from the types of the
-// report, cut at limit bytes.
-func encode(class, vendor, generatedAt string, types []catalog.TypeReport, limit int) ([]byte, error) {
-	type entry struct {
-		name string
-		lt   ListingType
-	}
-	var down, up []entry
+// newListing builds the listing of one class and vendor from the types of the
+// report.
+func newListing(class, vendor, generatedAt string, types []catalog.TypeReport) Listing {
+	l := Listing{GeneratedAt: generatedAt, Class: class, Vendor: vendor, Types: make(map[string]ListingType, len(types))}
 	for _, t := range types {
-		lt := listingType(t)
-		if lt.Available {
-			up = append(up, entry{t.InstanceType, lt})
-		} else {
-			down = append(down, entry{t.InstanceType, lt})
-		}
+		l.Types[t.InstanceType] = listingType(t)
 	}
-	l := Listing{GeneratedAt: generatedAt, Class: class, Vendor: vendor, Types: map[string]ListingType{}}
-	base, err := json.Marshal(l)
+	return l
+}
+
+// withoutZones is the listing with the zones of every offering emptied.
+func (l Listing) withoutZones() Listing {
+	types := make(map[string]ListingType, len(l.Types))
+	for name, lt := range l.Types {
+		lt.Offerings = slices.Clone(lt.Offerings)
+		for i := range lt.Offerings {
+			lt.Offerings[i].Zones = []string{}
+		}
+		types[name] = lt
+	}
+	l.Types, l.ZonesOmitted = types, true
+	return l
+}
+
+// encode is the gzipped JSON of the listing, at most limit bytes. A listing that
+// does not fit is encoded without the zones (zonesOmitted); one that still does
+// not fit is an error. No type is ever dropped.
+func encode(l Listing, limit int) (data []byte, zonesOmitted bool, err error) {
+	data, err = gzipJSON(l)
+	if err != nil || len(data) <= limit {
+		return data, false, err
+	}
+	if data, err = gzipJSON(l.withoutZones()); err != nil || len(data) <= limit {
+		return data, true, err
+	}
+	return nil, true, fmt.Errorf("the offered listing of class %s vendor %s is %d bytes compressed even without zones, "+
+		"over the %d cap", l.Class, l.Vendor, len(data), limit)
+}
+
+// gzipJSON is deterministic: the gzip header carries no time.
+func gzipJSON(l Listing) ([]byte, error) {
+	raw, err := json.Marshal(l)
 	if err != nil {
 		return nil, fmt.Errorf("encoding the listing: %w", err)
 	}
-	budget := limit - len(base) - len(`"truncated":true`)
-	for _, e := range slices.Concat(down, up) {
-		raw, err := json.Marshal(e.lt)
-		if err != nil {
-			return nil, fmt.Errorf("encoding the listing: %w", err)
-		}
-		if budget -= len(raw) + len(e.name) + 4; budget < 0 {
-			l.Truncated = true
-			break
-		}
-		l.Types[e.name] = e.lt
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(raw); err != nil {
+		return nil, fmt.Errorf("compressing the listing: %w", err)
 	}
-	out, err := json.Marshal(l)
-	if err != nil {
-		return nil, fmt.Errorf("encoding the listing: %w", err)
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("compressing the listing: %w", err)
 	}
-	return out, nil
+	return buf.Bytes(), nil
 }
 
 // listingType converts a type, grouping its offerings by capacity type and state.

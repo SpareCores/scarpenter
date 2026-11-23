@@ -12,19 +12,22 @@ package vendors
 // NodeClass says; the fragments of the driver come before the metadata
 // restriction.
 type VendorBootFragments interface {
-	BootFragments() []BootFragment
+	// BootFragments returns the fragments; tailnet is set when the node's
+	// network template is tailscale.
+	BootFragments(tailnet bool) []BootFragment
 }
 
 // BootFragmentsOf returns the fragments the core builds for a node of the
-// driver: the driver's own, then the metadata restriction when restrictMetadata
-// is set and the driver declares metadata addresses, and the interruption agent
+// driver: the driver's own (tailnet is set when the network template is
+// tailscale), then the metadata restriction when restrictMetadata is set and
+// the driver declares metadata addresses, and the interruption agent
 // when spot is set (a spot launch) and the driver has a notice check. The agent
 // goes into the restriction's fragment when there is one: one part of the
 // user-data saves a gzip header and a base64 wrapper.
-func BootFragmentsOf(d Driver, restrictMetadata, spot bool) ([]BootFragment, error) {
+func BootFragmentsOf(d Driver, restrictMetadata, spot, tailnet bool) ([]BootFragment, error) {
 	var out []BootFragment
 	if vf, ok := d.(VendorBootFragments); ok {
-		out = append(out, vf.BootFragments()...)
+		out = append(out, vf.BootFragments(tailnet)...)
 	}
 	restricted := false
 	if restrictMetadata {
