@@ -16,6 +16,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/alicloud"
 	"github.com/SpareCores/scarpenter/pkg/vendors/hcloud"
 )
 
@@ -128,5 +129,34 @@ func TestValidateCountsTheNodeIPUnit(t *testing.T) {
 	err := r.Validate(t.Context(), nodeClass(nil), "amd64", bootstrap.Inputs{})
 	if err == nil || !strings.Contains(err.Error(), "over the budget") || !strings.Contains(err.Error(), "node IP range") {
 		t.Fatalf("Validate = %v, want the budget error that names the node IP range", err)
+	}
+}
+
+// Alibaba Cloud takes 32 KB of user-data before Base64, twice the budget: its spot
+// worst case (its tailnet fragment, the restriction and the agent with its own
+// check) is held to the same budget as the other vendors, with room to spare.
+func TestAlicloudSpotWorstCaseIsFarUnderItsLimit(t *testing.T) {
+	const alicloudLimit = 32 * 1000
+	frags, err := vendors.BootFragmentsOf(alicloud.New(), true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
+		t.Run(string(template), func(t *testing.T) {
+			p := spotWorstCaseParams(t, template)
+			p.VendorFragments = nil
+			for _, f := range frags {
+				p.VendorFragments = append(p.VendorFragments, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
+			}
+			r, err := bootstrap.Render(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n := len(r.UserData)
+			if limit := bootstrap.DefaultBudgetBytes + bootstrap.SpotAgentBytes; n > limit {
+				t.Errorf("the Alibaba spot worst case is %d bytes, over the budget %d", n, limit)
+			}
+			t.Logf("%s Alibaba spot worst case: %d bytes of user-data, limit %d", template, n, alicloudLimit)
+		})
 	}
 }

@@ -26,6 +26,7 @@ what the live L5 run must settle. Enable the driver with `--vendors alicloud` (o
 - [Resources and network](#resources-and-network)
 - [The metadata service](#the-metadata-service)
 - [Tailnet and the service addresses](#tailnet-and-the-service-addresses)
+- [Interruption](#interruption)
 - [GPU instance types](#gpu-instance-types)
 - [Quotas](#quotas)
 - [Billing](#billing)
@@ -235,6 +236,35 @@ The default `spec.instanceMetadata.access: Restricted` still drops every connect
 units, Pods included ([above](#the-metadata-service)). A workload that reads the instance metadata needs a NodeClass with
 `access: Open`.
 
+## Interruption
+
+Spot nodes (`SpotAsPriceGo`, `SpotDuration=0`, `SpotInterruptionBehavior=Terminate`) get the [node agent](node-bootstrap.md#the-interruption-agent)
+with the driver's check ([plan 26](../plans/v1/wip/26-interruption.md) section 6), the capability `InterruptionNotices`:
+
+- **Check.** Every 5 s the agent asks the metadata service for a token (`PUT http://100.100.100.200/latest/api/token` with
+  `X-aliyun-ecs-metadata-token-ttl-seconds`, so it also works in the hardened mode) and then for
+  `/latest/meta-data/instance/spot/termination-time` with `X-aliyun-ecs-metadata-token`. A 404 is no notice, a 200 is the time of the release (UTC; a
+  time without seconds, `2026-11-23T10:15Z`, gets `:00`), any other answer or a failed call is a transient error and the check runs again. The agent
+  then annotates its own Node and the [interruption controller](controller.md#interruption) reacts.
+- **Window.** `MaxNotice` is 5 minutes (the lead time of Alibaba's product news); `MinNotice` is one minute, the lead assumed when the time is missing
+  or unreadable.
+- **Reaching the metadata service.** The agent's unit runs in `scarpenter-metadata.slice`, which the `Restricted` firewall lets through, so the
+  check works with the default `spec.instanceMetadata.access` (the `imds` scenario's allowed-slice probe is the same path). After the tailnet join the
+  address stays reachable because tailscaled runs with `--netfilter-mode=nodivert` ([above](#tailnet-and-the-service-addresses)); the agent starts
+  before that and the call does not use the tailnet.
+- **`GoneReason`.** A spot instance whose `OperationLocks` hold the `LockReason` `Recycling` reports `SpotInterrupted`. ECS stops returning a
+  released instance, so the core mostly sees it as gone without a reason (`ReclaimedWithoutNotice`); the lock is seen only in the window before the
+  release.
+- **User-data.** ECS takes 32 KB of user-data before Base64; the driver holds SCarpenter's 16 KiB budget. The worst case of a spot node (the tailnet
+  fragment, the restriction and the agent, two volumes, 24 local disks, the Lean footprint) renders to 12.6 KiB (`tailscale`) and 12.9 KiB (`direct`);
+  the largest GPU case stays at the budget's 16 KiB, half of Alibaba's limit.
+- **No L5 scenario.** Alibaba offers no way to trigger the reclaim of a spot instance (no fault injection, no simulated event), so a scenario would
+  wait for a real one; none is added. A manual run is a spot node left running until ECS reclaims it, then `journalctl -u scarpenter-interruption`.
+
+*Unverified* (spike S5): that the spot termination time exists on `SpotDuration=0` instances and how long before the release it appears (5 minutes
+in the product news; other documents say less), its exact time format, that the token endpoint answers while the endpoint is in normal mode, and
+that a recycling instance carries the `Recycling` lock (and for how long).
+
 ## GPU instance types
 
 GPU types need nothing from the launch: they use the same Flatcar image as every other amd64 type, the
@@ -440,7 +470,7 @@ is `test/canary/alicloud.go`, the sweeper is `pkg/vendors/alicloud/sweep` and `t
 ## Deferred
 
 IPv6 (needs an IPv6 gateway), local-storage profiles (the `i` and `d` families), partition placement, dedicated hosts and capacity
-reservations, multiple ENIs, eRDMA, EIPs and NAT gateways, RAM instance roles, interruption handling, `ebm` and `scc` types, `DryRun`
+reservations, multiple ENIs, eRDMA, EIPs and NAT gateways, RAM instance roles, `ebm` and `scc` types, `DryRun`
 pre-flights, Quota Center, the China regions in the lane, and rung 2 (community images published by Spare Cores).
 
 ## Not verified against Alibaba Cloud yet
@@ -452,5 +482,5 @@ launch; whether `DescribeInstances` ever lists released instances and how fast a
 is the binding quota, and the defaults of a new account; whether stopped instances count; the billing minimum, its cycle and the billing start;
 the codes of dependency and duplicate errors; Keeper's storage IDs; the RAM condition keys and the OIDC role path from a self-managed
 cluster; the rate limits; `DiskQuantity` semantics; the strategy limits of deployment sets and whether they take spot instances; the
-address count a vSwitch reserves.
+address count a vSwitch reserves; the spot notice (see [Interruption](#interruption)).
 

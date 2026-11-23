@@ -403,7 +403,7 @@ class: any error backs the region's poller off (twice the interval, doubling up 
 `scarpenter_interruption_poll_errors_total`; a failed poll never stops the controller.
 
 `Instance.GoneReason` is set by a driver that can tell a vendor reclaim from a crash, on an instance that is gone (`terminating` or
-`terminated`): `SpotInterrupted` for a spot reclaim, empty otherwise (the AWS state reason, Alibaba's operation lock, GCP's
+`terminated`): `SpotInterrupted` for a spot reclaim, empty otherwise (the AWS state reason, Alibaba's `Recycling` operation lock (seen while the instance still exists), GCP's
 preemption operation: the vendor steps of plan 26). `CloudProvider.Delete` passes it on when it finds the instance gone without having
 deleted it (see [silent reclaim](controller.md#silent-reclaim)).
 

@@ -105,7 +105,7 @@ func toInstance(region string, in *ecs.DescribeInstancesResponseBodyInstancesIns
 		Ref: vendors.NewInstanceRef(region, deref(in.InstanceId)), Region: region, Zone: deref(in.ZoneId),
 		Type: deref(in.InstanceType), CapacityType: capacity, State: StateOf(deref(in.Status)),
 		CreatedAt: parseTime(deref(in.CreationTime)), Tags: logicalTags(in), Addresses: addressesOf(in),
-		BillingStart: billingStart(deref(in.CreationTime)),
+		BillingStart: billingStart(deref(in.CreationTime)), GoneReason: goneReason(capacity, in),
 	}
 }
 
