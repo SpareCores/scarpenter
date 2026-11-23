@@ -265,7 +265,9 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 
 // launchBudget is how long a Create starts new candidates: core deletes a
 // NodeClaim that has not launched after 5 minutes, and a create call may take
-// 90 s, so a later candidate would not fit.
+// 90 s (twice the 45 s call timeout of a driver; with a larger call timeout a
+// late candidate may not fit and core retries the claim), so a later candidate
+// would not fit.
 const launchBudget = 3 * time.Minute
 
 // What ended the attempts, for the summary of the error.

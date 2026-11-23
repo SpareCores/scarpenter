@@ -236,6 +236,10 @@ func (c *CloudProvider) keepListed(
 				return fmt.Errorf("checking the NodeClaims of %s in %s: %w", vendor, region, err)
 			}
 			if has {
+				// Not "failed recently" any more: the next listing asks again.
+				c.cache.mu.Lock()
+				delete(c.cache.failedAt, key)
+				c.cache.mu.Unlock()
 				return fmt.Errorf("listing the instances of vendor %s in %s: %w", vendor, region, res.err)
 			}
 		}

@@ -40,7 +40,15 @@ type ClientOptions struct {
 	// An endpoint that is not reachable (blackholed egress) then fails fast
 	// instead of holding the whole call timeout.
 	ConnectTimeout time.Duration
+	// ReadTimeout bounds the wait for a response; DefaultReadTimeout if zero.
+	// The SDK limits a whole request to ConnectTimeout + ReadTimeout, so it must
+	// exceed the longest call: the per-call context deadline stays the real bound.
+	ReadTimeout time.Duration
 }
+
+// DefaultReadTimeout is the read timeout of the SDK clients when the driver does
+// not set one: more than the longest call (RunInstances, twice the call timeout).
+const DefaultReadTimeout = 3 * DefaultCallTimeout
 
 // DefaultConnectTimeout is the connect timeout of the SDK clients: a healthy
 // endpoint accepts a connection within a second, even from another continent.
@@ -91,6 +99,7 @@ func NewClientFactory(o ClientOptions) ClientFactory {
 			}
 		}
 		connect := cmp.Or(o.ConnectTimeout, DefaultConnectTimeout)
+		read := cmp.Or(o.ReadTimeout, DefaultReadTimeout)
 		mk := func(service string, fn func(string) string) *openapimodels.Config {
 			endpoint := DefaultEndpoint(service, region)
 			if fn != nil {
@@ -98,7 +107,7 @@ func NewClientFactory(o ClientOptions) ClientFactory {
 			}
 			cfg := &openapimodels.Config{}
 			cfg.SetCredential(cred).SetRegionId(region).SetEndpoint(endpoint).
-				SetConnectTimeout(int(connect.Milliseconds()))
+				SetConnectTimeout(int(connect.Milliseconds())).SetReadTimeout(int(read.Milliseconds()))
 			if o.Protocol != "" {
 				cfg.SetProtocol(o.Protocol)
 			}

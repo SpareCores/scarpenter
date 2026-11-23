@@ -8,6 +8,8 @@ package alicloud
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -98,4 +100,28 @@ func testCredential(t *testing.T) credentials.Credential {
 		t.Fatal(err)
 	}
 	return cred
+}
+
+// The connect timeout limits connecting only: a server that answers after it
+// still gets the call to succeed.
+func TestASlowAnswerIsNotCutAtTheConnectTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(900 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"RequestId":"r","Zones":{"Zone":[{"ZoneId":"cn-hangzhou-h"}]}}`))
+	}))
+	defer srv.Close()
+	f := NewClientFactory(ClientOptions{
+		Protocol: "HTTP", ConnectTimeout: 300 * time.Millisecond, ReadTimeout: 10 * time.Second,
+		Credential:  testCredential(t),
+		ECSEndpoint: func(string) string { return strings.TrimPrefix(srv.URL, "http://") },
+	})
+	cl, err := f(bg(), "cn-hangzhou")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cl.ECS.DescribeZones(bg(), &ecs.DescribeZonesRequest{})
+	if err != nil || out.Zones == nil || len(out.Zones.Zone) != 1 {
+		t.Fatalf("DescribeZones = %+v, %v, want the zone of the slow answer", out, err)
+	}
 }

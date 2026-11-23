@@ -174,7 +174,9 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 		}
 	}
 	if d.factory == nil {
-		d.factory = NewClientFactory(ClientOptions{UserAgent: "scarpenter/" + version.Version})
+		d.factory = NewClientFactory(ClientOptions{
+			UserAgent: "scarpenter/" + version.Version, ReadTimeout: 3 * d.callTimeout,
+		})
 	}
 	d.cloud = NewCloud(cfg.ClusterName, d.factory, d.clock)
 	d.cloud.callTimeout = d.callTimeout

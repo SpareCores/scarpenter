@@ -302,3 +302,29 @@ func TestCreateStopsStartingCandidatesWhenTheLaunchBudgetIsUsed(t *testing.T) {
 		t.Errorf("Create = %v, want one attempt, stopped by the launch budget", cerr)
 	}
 }
+
+// A region that failed while empty is asked again at once when a NodeClaim
+// appears in it, not after the retry delay.
+func TestANodeClaimInAFailedEmptyRegionMakesTheNextListingAskAgain(t *testing.T) {
+	e, d := newFlakyEnv(t)
+	d.down.Store(&map[string]bool{region1: true})
+	if _, err := e.cp.List(t.Context()); err != nil {
+		t.Fatal(err) // empty region, remembered as failed
+	}
+	claim := &karpv1.NodeClaim{ObjectMeta: metav1.ObjectMeta{Name: "claim-y"}}
+	if err := e.client.Create(t.Context(), claim); err != nil {
+		t.Fatal(err)
+	}
+	claim.Status.ProviderID = scope.ProviderID("aws", region1, "claim-y")
+	if err := e.client.Status().Update(t.Context(), claim); err != nil {
+		t.Fatal(err)
+	}
+	e.advance(time.Minute)
+	if _, err := e.cp.List(t.Context()); err == nil {
+		t.Fatal("List succeeded with a NodeClaim in a region that cannot be listed")
+	}
+	d.down.Store(nil)
+	if _, err := e.cp.List(t.Context()); err != nil {
+		t.Errorf("List after the region came back = %v, want it asked again at once", err)
+	}
+}
