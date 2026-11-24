@@ -41,6 +41,26 @@ type countingDriver struct {
 	tokens    []string
 	// failSourcesOf makes CopySources of that version fail.
 	failSourcesOf string
+	// failListIn are the regions that do not answer ListCopies (a hung endpoint):
+	// the others are listed and the error names these.
+	failListIn map[string]bool
+}
+
+func (c *countingDriver) ListCopies(ctx context.Context, regions []string) ([]vendors.ImageCopy, error) {
+	var answering []string
+	failed := vendors.RegionErrors{}
+	for _, r := range regions {
+		if c.failListIn[r] {
+			failed[r] = vendors.Errorf(vendors.Retryable, "DescribeImages: context deadline exceeded")
+		} else {
+			answering = append(answering, r)
+		}
+	}
+	out, err := c.Driver.ListCopies(ctx, answering)
+	if err == nil && len(failed) > 0 {
+		err = failed
+	}
+	return out, err
 }
 
 func (c *countingDriver) CopySources(ctx context.Context, rel vendors.Release) ([]vendors.ImageSource, error) {

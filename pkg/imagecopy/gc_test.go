@@ -467,3 +467,53 @@ func TestBumpHonoursTheRegionsOfAPin(t *testing.T) {
 		t.Errorf("code = %q; want the release queued in a region its classes use", code)
 	}
 }
+
+// A region that does not answer does not stop the sweep of the others: its copies are neither
+// decided on nor forgotten, and the error names it.
+func TestSweepSurvivesARegionThatDoesNotAnswer(t *testing.T) {
+	const hung = "eu-south-2"
+	g := newGCEnv(t)
+	g.ready(dstRegion)
+	g.ready(hung)
+	g.wantCopies(4, "both architectures in two regions")
+	g.clk.Step(idleTTL)
+	g.drv.failListIn = map[string]bool{hung: true}
+	err := g.gc.Sweep(t.Context())
+	if _, ok := vendors.FailedRegions(err)[hung]; !ok || len(vendors.FailedRegions(err)) != 1 {
+		t.Fatalf("Sweep = %v; want the error of %s only", err, hung)
+	}
+	// The idle copies of the region that answered are deleted; the other region's stay and are still served.
+	g.drv.failListIn = nil
+	got := g.copies()
+	if len(got) != 2 || got[0].Region != hung || got[1].Region != hung {
+		t.Fatalf("copies = %+v; want only the two of %s left", got, hung)
+	}
+	g.drv.failListIn = map[string]bool{hung: true}
+	if img, code := g.lookup(g.m, req(hung, "amd64"), false); img == nil {
+		t.Errorf("the copy in %s is no longer served: %q", hung, code)
+	}
+	// Once the region answers again, it is swept like the others.
+	g.drv.failListIn = nil
+	g.sweep()
+	g.wantCopies(0, "the region answers again")
+}
+
+// A job in a region that does not answer is kept even when the vendor's answer for it is missing.
+func TestSyncKeepsTheStateOfARegionThatDoesNotAnswer(t *testing.T) {
+	const hung = "eu-south-2"
+	e := newEnv(t)
+	e.ready(hung)
+	e.drv.failListIn = map[string]bool{hung: true}
+	copies, err := e.m.Sync(t.Context())
+	if _, ok := vendors.FailedRegions(err)[hung]; !ok {
+		t.Fatalf("Sync = %v, %v; want the error of %s", copies, err, hung)
+	}
+	if len(copies) != 0 {
+		t.Errorf("Sync returned %+v; want nothing from the region that did not answer", copies)
+	}
+	e.want(e.m, hung, "amd64", false, "") // still served: the job was not dropped
+	e.drv.failListIn = nil
+	if copies, err := e.m.Sync(t.Context()); err != nil || len(copies) != 2 {
+		t.Errorf("Sync = %+v, %v; want the two copies", copies, err)
+	}
+}

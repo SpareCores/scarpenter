@@ -262,16 +262,21 @@ func (c *Collector) Sweep(ctx context.Context) error {
 
 func (c *Collector) sweep(ctx context.Context, m *Manager, pins []Pin) error {
 	now := c.opts.Clock.Now()
+	var errs []error
+	// Sync returns the copies of the regions that answered with the error of
+	// those that did not: only what was listed is decided on.
 	copies, err := m.Sync(ctx)
 	if err != nil {
-		return err
+		if vendors.FailedRegions(err) == nil {
+			return err
+		}
+		errs = append(errs, err)
 	}
 	// A pinned release has no unpinned time, whatever copies exist now: a
 	// release that is pinned again starts its grace afresh.
 	for _, p := range pins {
 		delete(c.unpinned, m.Vendor()+"/"+p.Channel+"/"+p.Version)
 	}
-	var errs []error
 	if err := m.Bump(ctx, pins); err != nil {
 		errs = append(errs, err)
 	}
