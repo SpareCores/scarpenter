@@ -64,6 +64,7 @@ karpenter:
   logLevel: debug
   batchMaxDuration: 20s
   batchIdleDuration: 2s
+  registrationTimeout: 25m
   featureGates: NodeRepair=true
   metricsPort: 9090
   healthProbePort: 9091

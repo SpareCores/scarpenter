@@ -116,9 +116,19 @@ must be positive.
 
 Core's other flags and environment variables (`--log-level`/`LOG_LEVEL`,
 `--metrics-port`/`METRICS_PORT` (8080), `--health-probe-port`/`HEALTH_PROBE_PORT`
-(8081), `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, ...) are
-those of Karpenter core v1.15; the chart has values for the ones above and
-`extraArgs` for the rest. The controller serves `/healthz` and `/readyz` on the
+(8081), `--batch-max-duration`, `--batch-idle-duration`, `--registration-timeout`,
+`--feature-gates`, ...) are those of Karpenter core v1.15 (patched, see below); the
+chart has values for the ones above and `extraArgs` for the rest.
+
+`--registration-timeout` / `REGISTRATION_TIMEOUT` (chart: `karpenter.registrationTimeout`)
+is how long a NodeClaim may take to register as a Node before core's liveness
+check deletes it. Default `15m` (the chart passes the flag only when the value
+is set); it must be greater than zero. Raise it for instances that need longer
+to boot and join: Vultr bare metal measured about 15m10s to register and
+15m41s to be Ready, so use `25m` or more. The option exists only in SCarpenter's
+patched core: SCarpenter builds against the
+[SpareCores/karpenter](https://github.com/SpareCores/karpenter) fork, which adds
+it to Karpenter v1.15.1 ([ADR-033](../explanation/DECISIONS.md#adr-033-a-patched-karpenter-core-with-a-configurable-registration-timeout-accepted-2026-11-24)). The controller serves `/healthz` and `/readyz` on the
 health port and Prometheus metrics on the metrics port (plain HTTP).
 
 ## Helm values
@@ -188,7 +198,7 @@ and that the controller's own parser accepts what the chart renders.
 | `managedResources.defaultTTL`, `perUseGrace`, `checkInterval`, `fullSweepEvery` | `--resource-default-ttl`, `--resource-per-use-grace`, `--resource-check-interval`, `--resource-full-sweep-every` | See the cost note of the full sweep. |
 | `imageCopies.idleTTL` | `--image-copy-idle-ttl` | Empty keeps `720h`. |
 | `vendors.aws.imageCopies.enabled`, `vendors.alicloud.imageCopies.enabled` | `--aws-copy-images`, `--alicloud-copy-images` | `false`; the chart passes the flag only when the vendor is enabled and the value is `true` ([Image copies](image-copies.md)). |
-| `karpenter.logLevel`, `batchMaxDuration`, `batchIdleDuration`, `featureGates`, `metricsPort`, `healthProbePort` | `--log-level`, `--batch-max-duration`, `--batch-idle-duration`, `--feature-gates`, `--metrics-port`, `--health-probe-port` | Core's. |
+| `karpenter.logLevel`, `batchMaxDuration`, `batchIdleDuration`, `registrationTimeout`, `featureGates`, `metricsPort`, `healthProbePort` | `--log-level`, `--batch-max-duration`, `--batch-idle-duration`, `--registration-timeout`, `--feature-gates`, `--metrics-port`, `--health-probe-port` | Core's. |
 | `leaderElection.enabled` | `DISABLE_LEADER_ELECTION` | With more than one replica leave it on. |
 | `hostNetwork` | | Runs the pod in the node's network namespace (see [Host network](../how-to-guides/install.md#host-network)); `metricsPort` and `healthProbePort` are then host ports. |
 | `replicaCount`, `podDisruptionBudget.*` | | The PodDisruptionBudget is rendered with more than one replica. |

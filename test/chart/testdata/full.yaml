@@ -856,6 +856,7 @@ spec:
             - "--quota-limits-refresh-interval=20m"
             - "--quota-max-staleness=30m"
             - "--quota-refresh-interval=90s"
+            - "--registration-timeout=25m"
             - "--resource-check-interval=45s"
             - "--resource-default-ttl=48h"
             - "--resource-full-sweep-every=20"
