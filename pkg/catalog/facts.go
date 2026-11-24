@@ -83,6 +83,14 @@ type LaunchableFacts interface {
 	Launchable(vendor, apiReference, zoneID string) (launchable, known bool)
 }
 
+// SettledFacts is an optional extension of Facts: until a vendor's launchable
+// types have been reported, LaunchableFacts says "unknown" and the vendor's
+// types look launchable. Surfaces that advertise what is offered wait for it;
+// launch-time selection does not.
+type SettledFacts interface {
+	LaunchableSettled(vendor string) bool
+}
+
 // TypeFacts is an optional extension of Facts: whether the driver can launch
 // the type at all, whatever the zone, the settings and the stock. A type it
 // cannot is dropped (reason NotLaunchable, the detail is why).

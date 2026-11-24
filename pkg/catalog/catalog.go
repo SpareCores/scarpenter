@@ -730,6 +730,17 @@ func (c *Catalog) FactsLoaded(vendor string) bool {
 	return !ok || lf.Loaded(vendor)
 }
 
+// OfferedReady reports whether what the vendor offers can be advertised: its
+// driver facts are loaded and its launchable types settled (true for facts that
+// do not say). Launching does not wait for it.
+func (c *Catalog) OfferedReady(vendor string) bool {
+	if !c.FactsLoaded(vendor) {
+		return false
+	}
+	sf, ok := c.opts.Facts.(SettledFacts)
+	return !ok || sf.LaunchableSettled(vendor)
+}
+
 // generation names the state the instance types depend on: the snapshot, the
 // facts epoch and the sequence of the unavailable-offerings cache.
 func (c *Catalog) generation(snap *snapshot) string {

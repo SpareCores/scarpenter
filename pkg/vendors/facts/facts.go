@@ -66,6 +66,9 @@ type CallBounded interface {
 type Launchable interface {
 	Launchable(vendor, apiReference, zoneID string) (launchable, known bool)
 	LaunchableEpoch() uint64
+	// LaunchableSettled says that the vendor's launchable types have been
+	// reported (or given up on), so that "unknown" is no longer expected.
+	LaunchableSettled(vendor string) bool
 }
 
 // Options configures Facts.
@@ -179,6 +182,7 @@ type Facts struct {
 var (
 	_ catalog.Facts             = (*Facts)(nil)
 	_ catalog.LaunchableFacts   = (*Facts)(nil)
+	_ catalog.SettledFacts      = (*Facts)(nil)
 	_ catalog.TypeFacts         = (*Facts)(nil)
 	_ catalog.RegionPricedFacts = (*Facts)(nil)
 	_ catalog.VirtualGPUFacts   = (*Facts)(nil)
@@ -819,6 +823,11 @@ func (f *Facts) Launchable(vendor, apiReference, zoneID string) (launchable, kno
 		return false, false
 	}
 	return f.opts.Launchable.Launchable(vendor, apiReference, zoneID)
+}
+
+// LaunchableSettled implements catalog.SettledFacts.
+func (f *Facts) LaunchableSettled(vendor string) bool {
+	return f.opts.Launchable == nil || f.opts.Launchable.LaunchableSettled(vendor)
 }
 
 // Epoch implements catalog.Facts: it changes when the zones or the launchable

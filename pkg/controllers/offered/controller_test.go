@@ -11,6 +11,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -64,6 +65,19 @@ func (g *regionGate) Unavailable(_, _, region, _, _ string) (catalog.Reason, boo
 type hcloudLoading struct {
 	catalog.StaticFacts
 	loaded *atomic.Bool
+	// unsettled says that the launchable types of hcloud are not reported yet.
+	unsettled *atomic.Bool
+	// flipFlop makes every other answer for hcloud "unsettled", as a vendor
+	// that settles between two calls of one reconcile.
+	flipFlop *atomic.Bool
+	calls    *atomic.Int64
+}
+
+func (f hcloudLoading) LaunchableSettled(vendor string) bool {
+	if vendor == "hcloud" && f.flipFlop.Load() {
+		return f.calls.Add(1)%2 == 0
+	}
+	return vendor != "hcloud" || !f.unsettled.Load()
 }
 
 func (f hcloudLoading) Loaded(vendor string) bool { return vendor != "hcloud" || f.loaded.Load() }
@@ -78,8 +92,12 @@ type env struct {
 	gate *regionGate
 	// hcloudLoaded says that the facts of hcloud are loaded (startWith only).
 	hcloudLoaded atomic.Bool
-	ctx          context.Context
-	scheme       *runtime.Scheme
+	// hcloudUnsettled says that its launchable types are not reported yet.
+	hcloudUnsettled atomic.Bool
+	hcloudFlipFlop  atomic.Bool
+	hcloudCalls     atomic.Int64
+	ctx             context.Context
+	scheme          *runtime.Scheme
 }
 
 func start(t *testing.T, annotations map[string]string, tune func(*offered.Options, *env)) *env {
@@ -130,7 +148,7 @@ func startWith(t *testing.T, twoVendors bool, annotations map[string]string, tun
 	e := &env{c: c, clk: clocktesting.NewFakeClock(time.Now()), gate: &regionGate{}, scheme: scheme}
 	e.un = unavailable.New(e.clk, unavailable.TTLs{})
 	e.cat = catalog.New(catalog.Options{
-		Source: catalogtest.Source(t), Facts: hcloudLoading{catalogtest.Facts(t, factVendors...), &e.hcloudLoaded},
+		Source: catalogtest.Source(t), Facts: hcloudLoading{catalogtest.Facts(t, factVendors...), &e.hcloudLoaded, &e.hcloudUnsettled, &e.hcloudFlipFlop, &e.hcloudCalls},
 		Unavailable: e.un, Gate: e.gate, Clock: e.clk,
 	})
 	e.cat.SetClasses([]catalog.Class{catalog.NewClass(className, scope)})
@@ -676,4 +694,113 @@ func gatedIn(l *offered.Listing, gatedZones map[string]bool) error {
 		return fmt.Errorf("no type is gated in one region yet")
 	}
 	return nil
+}
+
+// Until a vendor's launchable types are reported, its listing and status are
+// left alone (nothing is written the first time), and the vendors that need no
+// such report are published as usual; the vendor is published once it settles.
+func TestUnsettledVendorIsNotPublishedUntilItSettles(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	e := startWith(t, true, annotated, func(o *offered.Options, e *env) {
+		o.Reader, o.Namespace = o.Client, namespace
+		e.hcloudLoaded.Store(true)
+		e.hcloudUnsettled.Store(true)
+	})
+	eventually(t, "the aws listing", func() error {
+		_, _, err := e.listing(offered.ConfigMapName(className, "aws"))
+		return err
+	})
+	var nc v1alpha1.SCNodeClass
+	if err := e.c.Get(e.ctx, client.ObjectKey{Name: className}, &nc); err != nil {
+		t.Fatal(err)
+	}
+	if o := nc.Status.Vendors["hcloud"].Offered; o != nil {
+		t.Errorf("hcloud summary before its launchable types settled: %+v", o)
+	}
+	if _, _, err := e.listing(offered.ConfigMapName(className, "hcloud")); !apierrors.IsNotFound(err) {
+		t.Errorf("hcloud listing before its launchable types settled: %v", err)
+	}
+	e.hcloudUnsettled.Store(false)
+	eventually(t, "the hcloud listing", func() error {
+		_, _, err := e.listing(offered.ConfigMapName(className, "hcloud"))
+		return err
+	})
+}
+
+// An already published listing and status are kept while the vendor is
+// unsettled.
+func TestPublishedListingIsKeptWhileUnsettled(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	e := startWith(t, true, annotated, func(o *offered.Options, e *env) {
+		o.Reader, o.Namespace = o.Client, namespace
+		e.hcloudLoaded.Store(true)
+	})
+	name := offered.ConfigMapName(className, "hcloud")
+	var before corev1.ConfigMap
+	var nc v1alpha1.SCNodeClass
+	eventually(t, "the hcloud listing and status", func() error {
+		_, cm, err := e.listing(name)
+		if err != nil {
+			return err
+		}
+		before = *cm
+		if err := e.c.Get(e.ctx, client.ObjectKey{Name: className}, &nc); err != nil {
+			return err
+		}
+		if nc.Status.Vendors["hcloud"].Offered == nil {
+			return errors.New("no hcloud status yet")
+		}
+		return nil
+	})
+	wantStatus := *nc.Status.Vendors["hcloud"].Offered
+	e.hcloudUnsettled.Store(true)
+	time.Sleep(time.Second) // several intervals
+	_, after, err := e.listing(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(after.Data, before.Data) || !reflect.DeepEqual(after.BinaryData, before.BinaryData) {
+		t.Error("the listing changed while unsettled")
+	}
+	if err := e.c.Get(e.ctx, client.ObjectKey{Name: className}, &nc); err != nil {
+		t.Fatal(err)
+	}
+	if got := nc.Status.Vendors["hcloud"].Offered; got == nil || got.Types != wantStatus.Types ||
+		!got.ObservedAt.Equal(&wantStatus.ObservedAt) {
+		t.Errorf("status changed while unsettled: %+v", got)
+	}
+}
+
+// Readiness is read once per reconcile: a vendor that is unsettled at one call
+// and settled at the next never gets a listing or status of no types.
+func TestReadinessIsConsistentWithinOneReconcile(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	e := startWith(t, true, annotated, func(o *offered.Options, e *env) {
+		o.Reader, o.Namespace = o.Client, namespace
+		e.hcloudLoaded.Store(true)
+		e.hcloudFlipFlop.Store(true)
+	})
+	name := offered.ConfigMapName(className, "hcloud")
+	eventually(t, "the hcloud listing", func() error {
+		l, _, err := e.listing(name)
+		if err != nil {
+			return err
+		}
+		if len(l.Types) == 0 {
+			return errors.New("listing without types")
+		}
+		return nil
+	})
+	time.Sleep(time.Second)
+	l, _, err := e.listing(name)
+	if err != nil || len(l.Types) == 0 {
+		t.Errorf("listing %v: %v", l, err)
+	}
+	var nc v1alpha1.SCNodeClass
+	if err := e.c.Get(e.ctx, client.ObjectKey{Name: className}, &nc); err != nil {
+		t.Fatal(err)
+	}
+	if o := nc.Status.Vendors["hcloud"].Offered; o == nil || o.Types == 0 {
+		t.Errorf("status %+v", o)
+	}
 }

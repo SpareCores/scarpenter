@@ -39,9 +39,12 @@ const (
 	DefaultLimitsInterval     = 15 * time.Minute
 	DefaultMaxStaleness       = 15 * time.Minute
 	DefaultLaunchableInterval = time.Hour
-	DefaultDebounce           = 10 * time.Second
-	DefaultReservationTTL     = 10 * time.Minute
-	DefaultJitter             = 0.1
+	// LaunchableSettleTimeout is how long after its first launchable-types
+	// attempt a region that keeps failing stops holding back LaunchableSettled.
+	LaunchableSettleTimeout = 5 * time.Minute
+	DefaultDebounce         = 10 * time.Second
+	DefaultReservationTTL   = 10 * time.Minute
+	DefaultJitter           = 0.1
 	// tickInterval is how often Start looks for due work.
 	tickInterval = time.Second
 	labelRegion  = "region"
@@ -91,6 +94,7 @@ type state struct {
 	refreshing  bool
 	launchAt    time.Time
 	launchNext  time.Time
+	launchTried time.Time // first launchable-types attempt scheduled
 	launchTypes map[string][]string
 }
 
@@ -157,9 +161,12 @@ type Tracker struct {
 	nextID    uint64
 	// launchable merges the regions' data per vendor: type -> zone IDs, and the
 	// zone IDs any region reported.
-	launchable    map[string]map[string]map[string]bool
-	launchZones   map[string]map[string]bool
-	launchEpoch   uint64
+	launchable  map[string]map[string]map[string]bool
+	launchZones map[string]map[string]bool
+	launchEpoch uint64
+	// settled are the vendors that have been settled once: a region added later
+	// does not unsettle them.
+	settled       map[string]bool
 	refreshErrors *prometheus.CounterVec
 }
 
@@ -190,7 +197,7 @@ func New(o Options) *Tracker {
 		states: map[regionKey]*state{}, reporters: map[string]vendors.QuotaReporter{},
 		listers: map[string]vendors.OfferingLister{}, reserved: map[bucketKey]int64{},
 		ledger: map[uint64]*Reservation{}, launchable: map[string]map[string]map[string]bool{},
-		launchZones: map[string]map[string]bool{},
+		launchZones: map[string]map[string]bool{}, settled: map[string]bool{},
 		refreshErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_quota_refresh_errors_total",
 			Help: "Failed quota or launchable-type refreshes per vendor and region.",
@@ -267,6 +274,17 @@ type job struct {
 	launch bool
 }
 
+// launchDue says whether the launchable types are due, and notes the first time
+// they were.
+func (st *state) launchDue(force bool, now time.Time) bool {
+	due := force || st.launchNext.IsZero() || !now.Before(st.launchNext)
+	if due && st.launchTried.IsZero() {
+		// Never reset: it bounds the wait for a region that fails or hangs.
+		st.launchTried = now
+	}
+	return due
+}
+
 func (t *Tracker) run(ctx context.Context, force bool) error {
 	now := t.opts.Clock.Now()
 	scope := t.opts.Scope()
@@ -302,7 +320,7 @@ func (t *Tracker) run(ctx context.Context, force bool) error {
 				j.limits = force || st.limitsAt.IsZero() || now.Sub(st.limitsAt) >= t.opts.LimitsInterval
 			}
 			if lis && !j.global {
-				j.launch = force || st.launchNext.IsZero() || !now.Before(st.launchNext)
+				j.launch = st.launchDue(force, now)
 			}
 			if j.usage || j.launch {
 				st.refreshing = true
@@ -492,6 +510,30 @@ func (t *Tracker) Launchable(vendor, apiReference, zoneID string) (launchable, k
 		return false, false
 	}
 	return t.launchable[vendor][apiReference][zoneID], true
+}
+
+// LaunchableSettled reports whether the launchable types of the vendor are
+// known as far as they will be soon: every region in scope has reported, or has
+// failed for LaunchableSettleTimeout since its first attempt (its zones then
+// stay unknown and offered). True for a vendor without an OfferingLister, and
+// for good once true: a region added later stays unknown until it reports.
+func (t *Tracker) LaunchableSettled(vendor string) bool {
+	regions := t.opts.Scope()[vendor]
+	now := t.opts.Clock.Now()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.listers[vendor]; !ok || t.settled[vendor] {
+		return true
+	}
+	for _, r := range regions {
+		st := t.states[regionKey{vendor, r}]
+		if st == nil || st.launchAt.IsZero() &&
+			(st.launchTried.IsZero() || now.Sub(st.launchTried) < LaunchableSettleTimeout) {
+			return false
+		}
+	}
+	t.settled[vendor] = true
+	return true
 }
 
 // LaunchableEpoch changes whenever the launchable types change.
