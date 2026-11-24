@@ -150,10 +150,14 @@ func (e RegionErrors) Unwrap() []error {
 	return errs
 }
 
-// FailedRegions returns the regions err names as failed, nil when it names none.
+// FailedRegions returns the regions err names as failed, nil when it names none
+// (an empty RegionErrors names none either: the caller then treats err as an
+// error of the whole call).
 func FailedRegions(err error) RegionErrors {
-	e, _ := errors.AsType[RegionErrors](err)
-	return e
+	if e, _ := errors.AsType[RegionErrors](err); len(e) > 0 {
+		return e
+	}
+	return nil
 }
 
 // ImageCopies is the copy manager as a driver sees it (pkg/imagecopy.Manager);

@@ -214,3 +214,26 @@ func TestRegistryHandsTheCopyManagerToTheDriverOfItsVendor(t *testing.T) {
 		t.Error("an error of the hook was swallowed")
 	}
 }
+
+// A RegionErrors keeps the class and code of its regions' errors through wrapping, and only a
+// non-empty one names failed regions.
+func TestRegionErrors(t *testing.T) {
+	re := vendors.RegionErrors{
+		"me-south-1": vendors.NewError(vendors.Retryable, "RequestTimeout", errors.New("no answer")),
+	}
+	err := fmt.Errorf("listing the image copies: %w", re)
+	if got := vendors.FailedRegions(err); len(got) != 1 || got["me-south-1"] == nil {
+		t.Errorf("FailedRegions = %v; want me-south-1", got)
+	}
+	if !vendors.IsClass(err, vendors.Retryable) || vendors.CodeOf(err) != "RequestTimeout" {
+		t.Errorf("class %q code %q; want the region's Retryable RequestTimeout", vendors.ClassOf(err), vendors.CodeOf(err))
+	}
+	if want := "listing the image copies: me-south-1: Retryable (RequestTimeout): no answer"; err.Error() != want {
+		t.Errorf("Error() = %q; want %q", err.Error(), want)
+	}
+	for _, e := range []error{nil, errors.New("boom"), fmt.Errorf("x: %w", vendors.RegionErrors{})} {
+		if got := vendors.FailedRegions(e); got != nil {
+			t.Errorf("FailedRegions(%v) = %v; want nil", e, got)
+		}
+	}
+}
