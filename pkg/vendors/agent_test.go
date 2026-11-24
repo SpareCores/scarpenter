@@ -183,12 +183,15 @@ func runAgentOn(
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { killGroup(cmd); _ = cmd.Wait() })
+	var got map[string]string
 	select {
-	case got := <-n.patches:
-		return got, out.String()
+	case got = <-n.patches:
 	case <-time.After(wait):
-		return nil, out.String()
 	}
+	// exec writes to out until Wait returns: read it only after that.
+	killGroup(cmd)
+	_ = cmd.Wait()
+	return got, out.String()
 }
 
 func TestAgentAnnotatesTheNode(t *testing.T) {
