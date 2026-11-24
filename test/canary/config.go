@@ -81,6 +81,9 @@ const (
 // typeAMD64 is the variable of the amd64 type every lane pins.
 const typeAMD64 = "E2E_TYPE_AMD64"
 
+// typeDB is the variable of the database pool's type.
+const typeDB = "E2E_TYPE_DB"
+
 // typeVars are the variables of the instance types a lane pins, where a vendor's differ from
 // AWS's (Vultr has no Arm instances and no database type, OVH no Arm, UpCloud's lane one
 // architecture and no database pool, Hetzner's arm64 pools pin no type); noQuota are the vendors without a
@@ -88,8 +91,8 @@ const typeAMD64 = "E2E_TYPE_AMD64"
 var (
 	typeVars = map[string][]string{
 		vendorOCI:     {typeAMD64, "E2E_TYPE_ARM64"},
-		vendorHCloud:  {typeAMD64, "E2E_TYPE_DB"},
-		vendorOVH:     {typeAMD64, "E2E_TYPE_DB"},
+		vendorHCloud:  {typeAMD64, typeDB},
+		vendorOVH:     {typeAMD64, typeDB},
 		vendorUpCloud: {typeAMD64},
 		vendorVultr:   {typeAMD64, "E2E_TYPE_SECOND"},
 	}
@@ -133,7 +136,7 @@ func loadConfig(vendor string, getenv func(string) string) (*config, error) {
 	c.k3sVersion = need("E2E_K3S_VERSION")
 	names, ok := typeVars[vendor]
 	if !ok {
-		names = []string{typeAMD64, "E2E_TYPE_ARM64", "E2E_TYPE_DB"}
+		names = []string{typeAMD64, "E2E_TYPE_ARM64", typeDB}
 	}
 	for _, name := range names {
 		c.types = append(c.types, need(name))
