@@ -63,9 +63,12 @@ Install into its own namespace. Two values are required: the name of the cluster
 (a tag on every vendor resource, and what the IAM policy is scoped to) and the
 API endpoint the nodes use.
 
+`<version>` is a release from the
+[releases page](https://github.com/SpareCores/scarpenter/releases), without the `v`.
+
 ```bash
 helm install scarpenter oci://ghcr.io/sparecores/charts/scarpenter \
-  --version 0.1.0 --namespace scarpenter-system --create-namespace \
+  --version <version> --namespace scarpenter-system --create-namespace \
   --set cluster.name=my-cluster \
   --set cluster.apiServerEndpoint=https://api.example.com:6443 \
   --set vendors.aws.credentials.webIdentity.roleArn=arn:aws:iam::123456789012:role/scarpenter-my-cluster

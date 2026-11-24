@@ -6,7 +6,7 @@ snapshot in your own account. It attaches a firewall group to every node and, un
 name. The controller calls the Vultr API with the API key of one account; the nodes get no cloud
 credentials.
 
-**Preview.** The driver is implemented and covered by unit and offline tests, but it has not run against the real cloud yet: expect rough edges and report them.
+**Real-cloud tested.** Nodes of this driver ran workloads to completion; the e2e lane has not run green yet.
 
 ## What you need
 

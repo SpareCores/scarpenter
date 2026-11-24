@@ -6,7 +6,7 @@ that you keep in that project, and joins them to your cluster. Each location (`f
 on-demand, billed per started hour. Details: the
 [Hetzner Cloud driver reference](../reference/hcloud-driver.md).
 
-**Preview.** The driver is implemented and covered by unit and offline tests, but it has not run against the real cloud yet: expect rough edges and report them.
+**Real-cloud tested.** The e2e lane (`full` scenarios) passed on 2026-11-22, and nodes of this driver ran workloads to completion.
 
 ## What you need
 

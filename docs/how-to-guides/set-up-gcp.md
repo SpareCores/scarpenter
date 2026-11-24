@@ -5,8 +5,8 @@ images, and creates (or uses) the network, subnetworks and firewall rules they n
 authenticates with workload identity federation, a service account key or the metadata server.
 Details are in the [GCP driver reference](../reference/gcp-driver.md).
 
-**Preview.** A first real-cloud smoke run passed on 2026-11-16 (one amd64 node in us-central1, then scale to zero); the
-full test lane has not run yet.
+**Real-cloud tested.** The e2e `smoke` scenarios passed (2026-11-16), and nodes of this driver ran workloads to completion.
+The full lane has not run.
 
 ## What you need
 
