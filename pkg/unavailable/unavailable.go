@@ -289,6 +289,15 @@ func (c *Cache) MarkInvalid(vendor, instanceType, zone, capacityType string) {
 	}, c.ttls.Invalid)
 }
 
+// MarkInvalidForClass is MarkInvalid for the NodeClass o.NodeClass only: the
+// launch was rejected because of that class's configuration.
+func (c *Cache) MarkInvalidForClass(o Offering) {
+	c.mark(key{
+		class: classInvalid, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone, capacityType: o.CapacityType,
+		nodeClass: o.NodeClass,
+	}, c.ttls.Invalid)
+}
+
 // MarkInterrupted records that the vendor reclaimed a node of the instance type
 // in the zone with the capacity type (a spot or preemptible interruption). It is
 // a class of its own, with its own TTL, but matches like insufficient capacity.
@@ -349,7 +358,10 @@ func (c *Cache) Why(o Offering) (class string, expiry time.Time, ok bool) {
 		{class: classUnreachable, vendor: o.Vendor, region: o.Region},
 	}
 	if o.NodeClass != "" {
-		keys = append(keys, insufficientCapacityKey(o), insufficientCapacityKey(zoneless))
+		keys = append(keys, insufficientCapacityKey(o), insufficientCapacityKey(zoneless), key{
+			class: classInvalid, vendor: o.Vendor, instanceType: o.InstanceType, zone: o.Zone,
+			capacityType: o.CapacityType, nodeClass: o.NodeClass,
+		})
 	}
 	if c.bucketsOf != nil {
 		for _, b := range c.bucketsOf(o.Vendor, o.APIReference, o.CapacityType) {

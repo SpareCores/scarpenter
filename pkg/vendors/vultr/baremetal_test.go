@@ -428,12 +428,25 @@ func TestHostFirewallSources(t *testing.T) {
 		!strings.Contains(frag.Butane, "ip saddr 10.32.0.0/14 tcp dport 22 accept") {
 		t.Errorf("source alone: %v", err)
 	}
-	for name, src := range map[string]string{"cloudflare": "cloudflare", "other subnet": "192.0.2.0/24"} {
+	// Host bits in the source mask to the subnet.
+	r = rule("v4", "tcp", "22", "10.32.0.0", 14)
+	r.Source = "10.33.1.1/14"
+	if frag, err := vultr.HostFirewallFragment([]govultr.FirewallRule{r}); err != nil ||
+		!strings.Contains(frag.Butane, "ip saddr 10.32.0.0/14 tcp dport 22 accept") {
+		t.Errorf("source with host bits: %v", err)
+	}
+	v6 := govultr.FirewallRule{Action: "accept", IPType: "v6", Protocol: "tcp", Port: "22", Source: "10.32.0.0/14"}
+	for name, src := range map[string]string{
+		"cloudflare": "cloudflare", "other subnet": "192.0.2.0/24", "load balancer": "6b1d7f0e-5a0c-4c7e-9a52-2f0c1f5b8a11",
+	} {
 		r := rule("v4", "tcp", "22", "10.32.0.0", 14)
 		r.Source = src
 		if _, err := vultr.HostFirewallFragment([]govultr.FirewallRule{r}); err == nil {
 			t.Errorf("%s: translated", name)
 		}
+	}
+	if _, err := vultr.HostFirewallFragment([]govultr.FirewallRule{v6}); err == nil {
+		t.Error("a v4 source of a v6 rule: translated")
 	}
 }
 

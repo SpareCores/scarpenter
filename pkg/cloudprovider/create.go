@@ -232,7 +232,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		case vendors.Unsupported:
 			c.onUnsupported(logger, st, cand, err)
 		case vendors.InvalidOffering:
-			c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
+			c.markInvalid(nc, cand, err)
 			c.publish(nc, EventOfferingRejected, launchMessage(err),
 				cand.vendor, cand.typeName, cand.zone, cand.capacityType)
 		case vendors.ZoneUnusable:
@@ -351,6 +351,19 @@ func (c *CloudProvider) markInsufficientCapacity(nc *v1alpha1.SCNodeClass, cand 
 	if l := nc.Spec.Launch; l != nil && l.InsufficientCapacityTTL != nil {
 		c.opts.Unavailable.MarkInsufficientCapacityForClass(o, l.InsufficientCapacityTTL.Duration)
 	}
+}
+
+// markInvalid marks the offering of an InvalidOffering error: for the NodeClass
+// alone when the error comes from its configuration, else for all.
+func (c *CloudProvider) markInvalid(nc *v1alpha1.SCNodeClass, cand *candidate, err error) {
+	if !vendors.IsClassScoped(err) {
+		c.opts.Unavailable.MarkInvalid(cand.vendor, cand.typeName, cand.zone, cand.capacityType)
+		return
+	}
+	c.opts.Unavailable.MarkInvalidForClass(unavailable.Offering{
+		Vendor: cand.vendor, InstanceType: cand.typeName, Zone: cand.zone, CapacityType: cand.capacityType,
+		NodeClass: nc.Name,
+	})
 }
 
 // reserveQuota reserves the quota of a launch of the candidate. It returns

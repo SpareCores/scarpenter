@@ -162,7 +162,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 // cannot be translated is a configuration the operator fixes, in every zone: the
 // error is InvalidOffering, so the core marks the offering, tries the next one
 // and reports an Event on the NodeClass, instead of failing the launch over and
-// over.
+// over. The mark is the NodeClass's: other NodeClasses launch bare metal.
 func (d *Driver) hostFirewall(ctx context.Context, groupID string) (vendors.BootFragment, error) {
 	rules, err := listAll(ctx, opOther, govultr.ListOptions{},
 		func(ctx context.Context, opts *govultr.ListOptions) ([]govultr.FirewallRule, *govultr.Meta, error) {
@@ -175,7 +175,7 @@ func (d *Driver) hostFirewall(ctx context.Context, groupID string) (vendors.Boot
 	frag, err := HostFirewallFragment(rules)
 	if err != nil {
 		return vendors.BootFragment{}, vendors.NewError(vendors.InvalidOffering, codeInvalid,
-			fmt.Errorf("firewall group %s: %w", groupID, err))
+			fmt.Errorf("firewall group %s: %w", groupID, err)).AsClassScoped()
 	}
 	return frag, nil
 }

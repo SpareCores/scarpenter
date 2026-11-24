@@ -339,7 +339,7 @@ func TestAPrepareThatCannotSucceedMarksTheOfferingsAndStopsTheRetries(t *testing
 	e, d := newFlakyEnv(t)
 	var prepares atomic.Int32
 	d.onPrepare = func() { prepares.Add(1) }
-	invalid := error(vendors.NewError(vendors.InvalidOffering, "InvalidRequest", errors.New("rule 1 uses the source")))
+	invalid := error(vendors.NewError(vendors.InvalidOffering, "InvalidRequest", errors.New("rule 1 uses the source")).AsClassScoped())
 	d.prepareErr.Store(&invalid)
 	before := e.offerings(launchType)
 
@@ -352,6 +352,22 @@ func TestAPrepareThatCannotSucceedMarksTheOfferingsAndStopsTheRetries(t *testing
 	}
 	if after := e.offerings(launchType); len(after) >= len(before) {
 		t.Errorf("%d offerings available, were %d: none was marked", len(after), len(before))
+	}
+	// The mark is the NodeClass's: another NodeClass still sees the offerings.
+	marked := 0
+	for _, o := range before {
+		u := unavailableOf(o)
+		u.NodeClass = className
+		if e.un.IsUnavailable(u) {
+			marked++
+		}
+		u.NodeClass = "other"
+		if e.un.IsUnavailable(u) {
+			t.Errorf("%+v is unavailable for another NodeClass", o)
+		}
+	}
+	if marked == 0 {
+		t.Error("no offering is marked for the NodeClass")
 	}
 	if !slices.Contains(e.events.reasons(), cloudprovider.EventOfferingRejected) {
 		t.Errorf("events = %v, want %s", e.events.reasons(), cloudprovider.EventOfferingRejected)
