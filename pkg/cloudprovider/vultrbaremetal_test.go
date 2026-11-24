@@ -9,6 +9,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package cloudprovider_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -43,8 +44,10 @@ func TestDeleteOfAVultrBareMetalServerStopsItFirstAndDeletesAtOnce(t *testing.T)
 	}); err != nil {
 		t.Fatal(err)
 	}
+	gone := 0
 	cp := cloudprovider.New(cloudprovider.Options{
-		Registry: vendors.NewRegistryFrom(drv), Clock: clk, ClusterName: cluster,
+		OnInstanceGone: func(context.Context, *karpv1.NodeClaim, string, string) { gone++ },
+		Registry:       vendors.NewRegistryFrom(drv), Clock: clk, ClusterName: cluster,
 		Unavailable: unavailable.New(clk, unavailable.TTLs{InsufficientCapacity: time.Minute}),
 	})
 	srv, err := acct.CreateBareMetal(t.Context(), &govultr.BareMetalCreate{
@@ -89,6 +92,10 @@ func TestDeleteOfAVultrBareMetalServerStopsItFirstAndDeletesAtOnce(t *testing.T)
 	clk.Step(10 * time.Second)
 	if err := cp.Delete(t.Context(), claim); !karpcloudprovider.IsNodeClaimNotFoundError(err) {
 		t.Fatalf("Delete #4 = %v, want NodeClaimNotFound", err)
+	}
+	// The halt and the stop that SCarpenter caused are no loss of the instance.
+	if gone != 0 {
+		t.Errorf("OnInstanceGone called %d times for an instance SCarpenter deleted itself", gone)
 	}
 	if len(acct.DeletedWhileRunning) != 0 {
 		t.Errorf("deleted while running: %v", acct.DeletedWhileRunning)

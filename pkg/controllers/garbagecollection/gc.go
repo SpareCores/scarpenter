@@ -84,6 +84,13 @@ const (
 // NodeClaim names.
 type Sweeper func(ctx context.Context, nodeClaims sets.Set[string]) error
 
+// stoppingKey names an instance across vendors: references of two vendors may
+// share a region name.
+type stoppingKey struct {
+	vendor string
+	ref    vendors.InstanceRef
+}
+
 // Options configures the collector.
 type Options struct {
 	Client client.Client
@@ -133,7 +140,7 @@ type Collector struct {
 	// stopping are the instances a driver has started to stop for the collector's
 	// delete (DeleteInstance answered Stopping): once stopped they are deleted
 	// without the terminating grace, which is for instances the vendor deletes.
-	stopping map[vendors.InstanceRef]bool
+	stopping map[stoppingKey]bool
 
 	deletions *prometheus.CounterVec
 	duration  prometheus.Histogram
@@ -154,7 +161,7 @@ func New(opts Options) *Collector {
 	c := &Collector{
 		opts:        opts,
 		terminating: vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
-		stopping:    map[vendors.InstanceRef]bool{},
+		stopping:    map[stoppingKey]bool{},
 		deletions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_gc_deletions_total",
 			Help: "Orphans the garbage collector deleted (or would have, in dry-run), by vendor, kind, reason and result.",
@@ -284,7 +291,7 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			terminatingTooLong := false
 			if inst.State == vendors.StateTerminating {
 				stillTerminating[inst.Ref] = true
-				terminatingTooLong = c.terminating.Expired(vendor, inst.Ref) || c.stopping[inst.Ref]
+				terminatingTooLong = c.terminating.Expired(vendor, inst.Ref) || c.stopping[stoppingKey{vendor, inst.Ref}]
 			}
 			claim := inst.Tags[vendors.TagNodeClaim]
 			if claim != "" && claims.Has(claim) {
@@ -316,9 +323,9 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			}
 		}
 		c.terminating.Retain(vendor, region, stillTerminating)
-		for ref := range c.stopping {
-			if ref.Region() == region && !listed[ref] {
-				delete(c.stopping, ref)
+		for k := range c.stopping {
+			if k.vendor == vendor && k.ref.Region() == region && !listed[k.ref] {
+				delete(c.stopping, k)
 			}
 		}
 		if lc, ok := drv.(vendors.LeftoverCollector); ok && !c.opts.DryRun {
@@ -376,7 +383,7 @@ func (c *Collector) deleteInstance(ctx context.Context, logger logr.Logger, drv 
 	if err := drv.DeleteInstance(ctx, inst.Ref); vendors.IsStopping(err) {
 		// Not done, not failed: the driver deletes it once it is stopped, on a
 		// later sweep.
-		c.stopping[inst.Ref] = true
+		c.stopping[stoppingKey{vendor, inst.Ref}] = true
 		l.Info("the orphan instance is stopping before its delete")
 		return false, nil
 	} else if err != nil && !vendors.IsClass(err, vendors.NotFound) {
@@ -384,7 +391,7 @@ func (c *Collector) deleteInstance(ctx context.Context, logger logr.Logger, drv 
 		l.Error(err, "deleting the orphan instance failed")
 		return false, fmt.Errorf("deleting %s instance %s: %w", vendor, inst.Ref, err)
 	}
-	delete(c.stopping, inst.Ref)
+	delete(c.stopping, stoppingKey{vendor, inst.Ref})
 	l.Info("deleted the orphan instance")
 	c.deletions.WithLabelValues(vendor, KindInstance, reason, ResultDeleted).Inc()
 	c.event(ctx, inst.Tags[vendors.TagNodeClass], "deleted orphan instance %s (%s)", inst.Ref, reason)
