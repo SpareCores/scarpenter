@@ -550,7 +550,7 @@ done
 The policy is printed in two parts, because one managed policy holds at most 6144 characters (without
 white space) and the whole is longer; attach both. `controller` (the default) holds the reference
 policy's statements and the two denies, `lane` the `OptionalImageCopies*` statements and the `Lane*`
-statements, so a role with only the first can do less, never more. `selftest.sh` keeps each part under the
+statements and a copy of `DenyOutsideRegion`, so a role with only the first can do less, never more. `selftest.sh` keeps each part under the
 limit, also with `E2E_FIS_ROLE_ARN` set.
 
 What it adds to the controller's policy: the tag conditions become wildcards

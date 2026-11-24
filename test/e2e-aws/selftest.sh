@@ -284,8 +284,11 @@ t_policy() {
       [[ "${n}" -le 6144 ]] || { echo "the ${part} part is ${n} characters, over the 6144 of a managed policy"; return 1; }
     done
   done
-  jq -s '{Statement: (map(.Statement) | add)}' "${tmp}/policy-controller.json" "${tmp}/policy-lane.json" >"${p}"
-  jq -e '[.Statement[].Sid] | (length == (unique | length))' "${p}" >/dev/null || { echo "a statement is in both parts"; return 1; }
+  # DenyOutsideRegion is in both parts, on purpose; every other statement is in one
+  jq -s '{Statement: (map(.Statement) | add | unique_by(.Sid))}' "${tmp}/policy-controller.json" "${tmp}/policy-lane.json" >"${p}"
+  jq -e '[.Statement[] | select(.Sid != "DenyOutsideRegion") | .Sid] | length == (unique | length)' \
+    <(jq -s '{Statement: (map(.Statement) | add)}' "${tmp}/policy-controller.json" "${tmp}/policy-lane.json") >/dev/null || { echo "a statement is in both parts"; return 1; }
+  jq -e '.Statement | map(select(.Sid == "DenyOutsideRegion")) | length == 1' "${tmp}/policy-lane.json" >/dev/null || { echo "the lane part lacks the region deny"; return 1; }
   # a role with the controller part alone does less, never more: both denies are in it
   jq -e '[.Statement[] | select(.Effect == "Deny") | .Sid] | sort == ["DenyOtherInstanceTypes", "DenyOutsideRegion"]' "${tmp}/policy-controller.json" >/dev/null ||
     { echo "the denies are not in the controller part"; return 1; }

@@ -6,7 +6,8 @@
 # The role needs both parts attached: one managed policy holds at most 6144 characters (without
 # white space) and the whole does not fit. "controller" (the default) holds the reference policy's
 # statements and the two denies, so that a role with only this part can do less, never more; "lane"
-# holds the OptionalImageCopies* statements and the Lane* statements. The selftest keeps both under the limit.
+# holds the OptionalImageCopies* statements and the Lane* statements, and a copy of DenyOutsideRegion
+# (the region limit then holds for each part on its own). The selftest keeps both under the limit.
 #
 # Together they are docs/reference/aws-iam-policy.json (the controller's own policy, overview
 # section 11.6) for every cluster named scarpenter-ci-* (the tag conditions become
@@ -90,4 +91,4 @@ sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${ro
         {Sid: "LanePassFisRole", Effect: "Allow", Action: "iam:PassRole", Resource: $fis_role,
          Condition: {StringEquals: {"iam:PassedToService": "fis.amazonaws.com"}}}
       ] end
-    | .Statement |= map(select((.Sid | test("^(OptionalImageCopies|Lane)")) == ($part == "lane")))'
+    | .Statement |= map(select(((.Sid | test("^(OptionalImageCopies|Lane)")) == ($part == "lane")) or (.Sid == "DenyOutsideRegion")))'
