@@ -119,6 +119,9 @@ wait_until() {
 
 ec2() { aws --region "${AWS_REGION}" ec2 "$@"; }
 
+# ec2_in <region> <ec2 arguments>: ec2 in another region (the imagecopy scenario's).
+ec2_in() { aws --region "$1" ec2 "${@:2}"; }
+
 # cluster_instances [states]: IDs of the cluster's instances in the states
 # (default: every state that is not terminated).
 cluster_instances() {

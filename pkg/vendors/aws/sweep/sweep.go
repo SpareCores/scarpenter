@@ -6,8 +6,9 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package sweep finds and deletes what a test cluster of the L5 lane left in an
 // AWS account (docs/how-to-guides/testing.md#the-l5-lane): instances, placement
-// groups, security groups, and the managed network (subnets, route tables,
-// internet gateways, VPCs), selected by the cluster tag
+// groups, security groups, the managed network (subnets, route tables,
+// internet gateways, VPCs) and the boot image copies (images with their
+// snapshots, plan 29), selected by the cluster tag
 // scarpenter.sparecores.com/cluster. It is the sweeper workflow's engine (every
 // three hours, everything of a cluster named scarpenter-ci-* older than two
 // hours) and the e2e workflow's last line of defence (one cluster, no age limit).
@@ -311,7 +312,7 @@ func isCode(err error, codes ...string) bool {
 func notFound(err error) bool {
 	return isCode(err, "InvalidInstanceID.NotFound", "InvalidGroup.NotFound", "InvalidPlacementGroup.Unknown",
 		"InvalidSubnetID.NotFound", "InvalidRouteTableID.NotFound", "InvalidInternetGatewayID.NotFound",
-		"InvalidVpcID.NotFound", "InvalidAssociationID.NotFound", "Gateway.NotAttached")
+		"InvalidVpcID.NotFound", "InvalidAssociationID.NotFound", "Gateway.NotAttached", "InvalidAMIID.NotFound")
 }
 
 // delete runs one deletion and records it. It returns false when the resource is
@@ -384,6 +385,9 @@ func (s *sweeper) region(ctx context.Context, region string, c awsdriver.EC2API)
 	}
 	if err := s.spotRequests(ctx, region, c); err != nil {
 		fail("spot-request", err)
+	}
+	if err := s.images(ctx, region, c); err != nil {
+		fail("image", err)
 	}
 }
 
@@ -700,6 +704,57 @@ func (s *sweeper) spotRequests(ctx context.Context, region string, c awsdriver.E
 		cluster := tagMap(r.Tags)[ClusterTag]
 		s.skip(region, "spot-request", aws.ToString(r.SpotInstanceRequestId), cluster,
 			"reported only, a one-time request closes with its instance (state "+string(r.State)+")")
+	}
+	return nil
+}
+
+// images deregisters the boot image copies of the selected clusters (images of
+// this account that carry the cluster tag, plan 29) together with their
+// snapshots. A snapshot that DeleteAssociatedSnapshots could not delete makes
+// the image's item a failure, so that nothing billable is left unreported. An
+// image still pending cannot be deregistered: that is a failure of this sweep,
+// and the next one finds the copy available.
+func (s *sweeper) images(ctx context.Context, region string, c awsdriver.EC2API) error {
+	images, err := paged(func(token *string) ([]ec2types.Image, *string, error) {
+		out, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{NextToken: token, Owners: []string{"self"},
+			Filters: []ec2types.Filter{s.clusterFilter()}})
+		if err != nil {
+			return nil, nil, err
+		}
+		return out.Images, out.NextToken, nil
+	})
+	if err != nil {
+		return fmt.Errorf("listing images: %w", err)
+	}
+	for _, im := range images {
+		id := aws.ToString(im.ImageId)
+		var created *time.Time
+		if t, err := time.Parse(time.RFC3339, aws.ToString(im.CreationDate)); err == nil {
+			created = &t
+		}
+		cluster, ok, reason := s.verdict(tagMap(im.Tags), created)
+		if !ok {
+			s.skip(region, "image", id, cluster, reason)
+			continue
+		}
+		s.del(region, "image", id, cluster, func() error {
+			out, err := c.DeregisterImage(ctx, &ec2.DeregisterImageInput{
+				ImageId: aws.String(id), DeleteAssociatedSnapshots: aws.Bool(true)})
+			if err != nil {
+				return err
+			}
+			var left []string
+			for _, r := range out.DeleteSnapshotResults {
+				// "skipped" is a snapshot another image still uses: it is not ours to delete.
+				if r.ReturnCode != ec2types.SnapshotReturnCodesSuccess && r.ReturnCode != ec2types.SnapshotReturnCodesWarnSkipped {
+					left = append(left, aws.ToString(r.SnapshotId)+" "+string(r.ReturnCode))
+				}
+			}
+			if len(left) > 0 {
+				return fmt.Errorf("image deregistered, snapshots not deleted: %s", strings.Join(left, ", "))
+			}
+			return nil
+		})
 	}
 	return nil
 }

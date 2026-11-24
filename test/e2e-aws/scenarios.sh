@@ -7,9 +7,10 @@
 #   E2E_SCENARIOS   comma-separated names to run (default: all), in this order:
 #                   amd64 arm64 db described byo local negative quota drift scalezero uninstall
 #                   (preflight always runs first, and ends the run when it fails)
-#                   The manual scenarios gpu and interruption are never part of "all": they run only when
+#                   The manual scenarios gpu, interruption and imagecopy are never part of "all": they run only when
 #                   named (plan 12; E2E_GPU_TYPE, default aws.g4dn.xlarge; plan 26 step 5, which needs
-#                   E2E_FIS_ROLE_ARN).
+#                   E2E_FIS_ROLE_ARN; plan 29 step 4: E2E_COPY_REGION, E2E_COPY_TYPE; install.sh turns the
+#                   image copies of the controller on when E2E_SCENARIOS names it).
 #
 # Each scenario is a function that runs in a subshell with `set -e`: the first failed
 # assertion ends it, the runner records the result and goes on. Waits have explicit
@@ -167,6 +168,37 @@ YAML
 start_interruption() {
   [[ -n "${E2E_FIS_ROLE_ARN}" ]] || fail "E2E_FIS_ROLE_ARN is empty: the interruption scenario needs the role AWS FIS assumes (docs/how-to-guides/testing.md#the-l5-lane)"
   render "${here}/manifests/interruption.yaml" | kubectl apply -f -
+}
+
+# start_imagecopy (manual scenario imagecopy): fails early, before anything is applied, when the
+# controller runs without --aws-copy-images (install.sh sets it when the scenario is named), when the
+# copy region is not enabled in the account, when it has a Flatcar AMI of its own (then nothing
+# would be copied: pick another region with E2E_COPY_REGION), when the type is not offered there or
+# the region's vCPU quota cannot hold it. Then the NodeClass and the NodePool; the workload comes
+# in the scenario, after the NodeClass is Ready, so that the demand is its own step.
+start_imagecopy() {
+  local region="${E2E_COPY_REGION}" type="${E2E_COPY_TYPE#aws.}" err arch suffix n quota vcpus
+  kubectl -n "${ns}" get deploy scarpenter -o json | jq -e '[.spec.template.spec.containers[].args // [] | .[]] | index("--aws-copy-images=true")' >/dev/null ||
+    fail "the controller runs without --aws-copy-images=true: install.sh sets it only when E2E_SCENARIOS names imagecopy"
+  err="$(ec2_in "${region}" describe-availability-zones --query 'length(AvailabilityZones)' --output text 2>&1 >/dev/null)" ||
+    fail "${region} is not usable in the lane account (enable it under Account settings, Regions; the role's policy must come from ci-policy.sh of this version): $(redact <<<"${err}")"
+  for arch in amd64 arm64; do
+    suffix=""
+    [[ "${arch}" == "arm64" ]] && suffix="-arm64"
+    n="$(ec2_in "${region}" describe-images --owners 075585003325 \
+      --filters "Name=name,Values=Flatcar-${E2E_FLATCAR_CHANNEL}-${E2E_FLATCAR_VERSION}${suffix}-hvm" Name=state,Values=available \
+      --query 'length(Images)' --output text)"
+    [[ "${n}" == 0 ]] || fail "${region} has a primary Flatcar ${arch} AMI now (${n}): nothing would be copied; set E2E_COPY_REGION to a region without one"
+  done
+  n="$(ec2_in "${region}" describe-instance-type-offerings --location-type region --filters "Name=instance-type,Values=${type}" \
+    --query 'length(InstanceTypeOfferings)' --output text)"
+  [[ "${n}" == 1 ]] || fail "${type} is not offered in ${region}: set E2E_COPY_TYPE"
+  vcpus="$(ec2_in "${region}" describe-instance-types --instance-types "${type}" --query 'InstanceTypes[0].VCpuInfo.DefaultVCpus' --output text)"
+  quota="$(aws --region "${region}" service-quotas get-service-quota --service-code ec2 --quota-code "${standard_od}" --query Quota.Value --output text)"
+  [[ "$(num "${quota}")" -ge "${vcpus}" ]] ||
+    fail "the Standard on-demand vCPU quota of ${region} is ${quota}; ${type} needs ${vcpus} (a new account has 5 in most regions: request an increase)"
+  render "${here}/manifests/nodeclass-imagecopy.yaml" | kubectl apply -f -
+  render "${here}/manifests/nodepool-imagecopy.yaml" | kubectl apply -f -
 }
 
 # gpu_count <instance type without the vendor prefix>: the GPUs of the type, from EC2.
@@ -554,6 +586,139 @@ scn_gpu() {
   note "gpu: ${E2E_GPU_TYPE} (${count} GPU), node Ready after $(ready_seconds "${claim}" "${node}")s"
   kubectl delete pod e2e-gpu --wait=false
   kubectl delete nodepool e2e-gpu --wait=false
+}
+
+# --- imagecopy -----------------------------------------------------------------------------
+
+# copy_image_status <field>: a field of the status of the NodeClass's amd64 image in the copy region.
+copy_image_status() {
+  kubectl get scnodeclass e2e-imagecopy -o json |
+    jq -r --arg r "${E2E_COPY_REGION}" --arg f "$1" '[.status.vendors.aws.images[]? | select(.region == $r and .arch == "amd64")][0][$f] // empty'
+}
+
+# copy_demanded: the image is being copied (or the copy ended one way or the other).
+copy_demanded() { [[ "$(copy_image_status reason)" == ImageCopying || "$(copy_image_status reason)" == ImageCopyFailed || "$(copy_image_status ready)" == true ]]; }
+
+# copy_finished: the copy is usable, or failed.
+copy_finished() { [[ "$(copy_image_status ready)" == true || "$(copy_image_status reason)" == ImageCopyFailed ]]; }
+
+# copies_json: the images of this cluster in the copy region (the account's own, by the cluster tag).
+copies_json() { ec2_in "${E2E_COPY_REGION}" describe-images --owners self --filters "Name=tag:${ctag},Values=${E2E_CLUSTER}" --query 'Images'; }
+
+# copy_snapshots_json: the snapshots of this cluster in the copy region.
+copy_snapshots_json() { ec2_in "${E2E_COPY_REGION}" describe-snapshots --owner-ids self --filters "Name=tag:${ctag},Values=${E2E_CLUSTER}" --query 'Snapshots'; }
+
+copies_gone() { is_value 0 jq 'length' < <(copies_json); }
+copy_snapshots_gone() { is_value 0 jq 'length' < <(copy_snapshots_json); }
+
+copy_instances() { # the cluster's instances in the copy region that are not terminated
+  ec2_in "${E2E_COPY_REGION}" describe-instances --filters "Name=tag:${ctag},Values=${E2E_CLUSTER}" \
+    "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" \
+    --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' '\n' | sed '/^$/d'
+}
+
+# last_launched <image id>: the attribute lastLaunchedTime as EC2 answers it (or its error code), for the notes.
+last_launched() {
+  local out
+  out="$(ec2_in "${E2E_COPY_REGION}" describe-image-attribute --image-id "$1" --attribute lastLaunchedTime \
+    --query 'LastLaunchedTime.Value' --output text 2>&1)" || { echo "error: $(redact <<<"${out}" | head -n3)"; return 0; }
+  echo "${out}"
+}
+
+# copy_evidence <amd64 copy id>: what the plan's handoff list asks for, as notes (redacted, the
+# repository is public): the copies, the encryption of their snapshots and the account's default,
+# lastLaunchedTime, the controller's own numbers (copy duration, counters) and the copy errors it logged.
+copy_evidence() {
+  local ami="$1" m
+  note "imagecopy evidence: copies $(copies_json | jq -c '[.[] | {id: .ImageId, arch: .Architecture, state: .State, created: .CreationDate, source: .SourceImageId, from: .SourceRegion, ebs: [.BlockDeviceMappings[]?.Ebs | {encrypted: .Encrypted, kms: .KmsKeyId}]}]' | redact)"
+  note "imagecopy evidence: snapshots $(copy_snapshots_json | jq -c '[.[] | {id: .SnapshotId, state: .State, encrypted: .Encrypted, kms: .KmsKeyId, gib: .VolumeSize, tier: .StorageTier}]' | redact)"
+  note "imagecopy evidence: encryption by default in ${E2E_COPY_REGION}: $(ec2_in "${E2E_COPY_REGION}" get-ebs-encryption-by-default --query EbsEncryptionByDefault --output text 2>&1 | redact | head -n3), key $(ec2_in "${E2E_COPY_REGION}" get-ebs-default-kms-key-id --query KmsKeyId --output text 2>&1 | redact | head -n3)"
+  note "imagecopy evidence: lastLaunchedTime of ${ami} after the launch: $(last_launched "${ami}") (AWS documents up to 24 h of delay)"
+  m="$(mktemp)"
+  metrics >"${m}" || true
+  note "imagecopy evidence: copy duration (controller histogram, seconds): $(awk '/^scarpenter_image_copy_duration_seconds_(sum|count)\{/ { printf "%s=%s ", ($1 ~ /_sum/ ? "sum" : "count"), $NF }' "${m}")"
+  note "imagecopy evidence: counters: $(grep -E '^scarpenter_image_copies(_started_total|_completed_total|_failed_total|_deleted_total)?\{' "${m}" | redact | tr '\n' ' ')"
+  rm -f "${m}"
+  note "imagecopy evidence: error codes in the controller's log: $(kubectl -n "${ns}" logs deploy/scarpenter --tail=-1 2>/dev/null | grep -i 'copy' | grep -iE 'error|fail|code|denied|limit|optin' | tail -n 20 | redact | tr '\n' '|')"
+}
+
+# imagecopy (plan 29 step 4, manual only): the controller copies the Flatcar image into a region that
+# has none, on demand, and deletes the copy once nothing uses it. In order: the NodeClass says the
+# image will be copied on demand; a Pod makes demand and the image shows ImageCopying; the copy
+# becomes usable and a node of the region becomes Ready from that very copy; the Pod goes, the node and
+# the instance with it, and the copy and its snapshots are deleted by the controller (idle lifetime 1 minute,
+# GC every minute). The notes are the evidence of the plan's handoff list (copy_evidence).
+scn_imagecopy() {
+  local region="${E2E_COPY_REGION}" t_demand t_copying t_ready node claim iid j ami n pod_age node_ready t0
+  start_imagecopy # idempotent: the prelude's own start may have failed, and then this reports the reason
+  wait_condition Ready 600 scnodeclass/e2e-imagecopy ||
+    fail "the NodeClass e2e-imagecopy is not Ready: $(kubectl get scnodeclass e2e-imagecopy -o jsonpath='{.status.conditions}' | redact)"
+
+  log "before any demand: no image in ${region}, to be copied on demand"
+  assert_eq "no ready image in ${region} before the demand" "" "$(copy_image_status ready)" # jq prints nothing for false
+  assert_eq "the image of ${region} (amd64) says it is copied on demand" ImageCopyOnDemand "$(copy_image_status reason)"
+  assert_eq "no copy exists yet" 0 "$(copies_json | jq length)"
+
+  log "demand: one small amd64 on-demand Pod"
+  t_demand="$(now)"
+  probe e2e-imagecopy e2e-imagecopy "${E2E_COPY_TYPE}" on-demand
+  wait_until "the image of ${region} is being copied" 300 copy_demanded
+  t_copying="$(now)"
+  assert_eq "the image status while the Pod waits (1)" ImageCopying "$(copy_image_status reason)"
+  note "imagecopy: ImageCopying seen $((t_copying - t_demand))s after the Pod; message: $(copy_image_status message | redact)"
+  note "imagecopy: the ImageCopying Event: $(kubectl get events --field-selector reason=ImageCopying,involvedObject.name=e2e-imagecopy -o jsonpath='{range .items[*]}{.type}/{.count}: {.message}{"\n"}{end}' | redact | head -n3)"
+  note "imagecopy: the copy in EC2 at that time: $(copies_json | jq -c '[.[] | {arch: .Architecture, state: .State}]')"
+  assert_eq "no node yet while the image is copied" 0 "$(kubectl get nodes -l karpenter.sh/nodepool=e2e-imagecopy -o name | wc -l | tr -d ' ')"
+
+  log "the copy becomes usable"
+  wait_until "the copy of ${region} is usable or failed" "${E2E_COPY_TIMEOUT}" copy_finished
+  t_ready="$(now)"
+  [[ "$(copy_image_status ready)" == true ]] ||
+    fail "the copy failed: reason $(copy_image_status reason), message: $(copy_image_status message | redact)"
+  note "imagecopy: the image was usable $((t_ready - t_copying))s after ImageCopying was first seen ($((t_ready - t_demand))s after the Pod)"
+  ami="$(copy_image_status ref)"
+  assert_nonempty "the AMI of the copy" "${ami}"
+
+  log "a node of the region becomes Ready, from the copy"
+  pod_age="$(($(now) - $(date -d "$(kubectl get pod -l app=e2e-imagecopy -o jsonpath='{.items[0].metadata.creationTimestamp}')" +%s)))"
+  # The wait's launch timeout counts from the Pod's age, and the Pod waited for the copy.
+  E2E_LAUNCH_TIMEOUT=$((pod_age + E2E_LAUNCH_TIMEOUT)) settle e2e-imagecopy
+  node="$(getstate e2e-imagecopy.node)"
+  claim="$(getstate e2e-imagecopy.claim)"
+  iid="$(getstate e2e-imagecopy.iid)"
+  assert_eq "region of the node" "${region}" "$(node_label "${node}" topology.kubernetes.io/region)"
+  assert_eq "the node is Ready" True "$(kubectl get node "${node}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+  node_ready="$(date -d "$(kubectl get node "${node}" -o json | jq -r '.status.conditions[] | select(.type == "Ready") | .lastTransitionTime')" +%s)"
+  [[ "${node_ready}" -gt "${t_copying}" ]] || fail "the node was Ready (${node_ready}) before ImageCopying was seen (${t_copying})"
+  j="$(ec2_in "${region}" describe-instances --instance-ids "${iid}" --query 'Reservations[0].Instances[0]')"
+  assert_eq "the instance was launched from the copy" "${ami}" "$(jq -r '.ImageId' <<<"${j}")"
+  assert_eq "the instance's type" "${E2E_COPY_TYPE#aws.}" "$(jq -r '.InstanceType' <<<"${j}")"
+  assert_eq "tag cluster on the copy" "${E2E_CLUSTER}" "$(copies_json | jq -r --arg a "${ami}" '.[] | select(.ImageId == $a) | .Tags[] | select(.Key == "'"${ctag}"'") | .Value')"
+  assert_eq "tag managed-by on the copy" scarpenter "$(copies_json | jq -r --arg a "${ami}" '.[] | select(.ImageId == $a) | .Tags[] | select(.Key == "'"${label_domain}"'/managed-by") | .Value')"
+  assert_eq "tag resource-kind on the copy" image-copy "$(copies_json | jq -r --arg a "${ami}" '.[] | select(.ImageId == $a) | .Tags[] | select(.Key == "'"${label_domain}"'/resource-kind") | .Value')"
+  assert_nonempty "the copy's snapshot carries the cluster tag" "$(copy_snapshots_json | jq -r '.[0].SnapshotId')"
+  copy_evidence "${ami}"
+
+  log "scale to zero: the node and the instance go, then the copy and its snapshots"
+  drop_nodeshells
+  t0="$(now)"
+  kubectl delete deployment e2e-imagecopy --wait=false
+  wait_until "the instance of ${region} terminated" $((E2E_SCALE_DOWN_DEADLINE + 120)) is_empty copy_instances
+  note "imagecopy: the instance was gone $(($(now) - t0))s after the Pod's deletion"
+  wait_until "no NodeClaim left" 120 is_empty kubectl get nodeclaims -o name
+  note "imagecopy: lastLaunchedTime of ${ami} after the instance ended: $(last_launched "${ami}")"
+  wait_until "the copy deleted: no image of the cluster in ${region}" "${E2E_COPY_DELETE_TIMEOUT}" copies_gone
+  note "imagecopy: the copies were deleted $(($(now) - t0))s after the Pod's deletion (idle lifetime 1m, GC every 1m)"
+  # DeregisterImage's DeleteAssociatedSnapshots: whether ec2:DeleteSnapshot was needed is told by what is left.
+  if ! (wait_until "the snapshots of the copy deleted" 180 copy_snapshots_gone); then
+    note "imagecopy: snapshots left after the image: $(copy_snapshots_json | jq -c '[.[].SnapshotId]')"
+    note "imagecopy: the controller's log on snapshots: $(kubectl -n "${ns}" logs deploy/scarpenter --tail=-1 | grep -i 'snapshot' | tail -n 5 | redact | tr '\n' '|')"
+    fail "the image is gone but its snapshots are not (DeleteAssociatedSnapshots; ec2:DeleteSnapshot of the policy?)"
+  fi
+  n="$(copies_json | jq length)"
+  assert_eq "images of the cluster left in ${region}" 0 "${n}"
+  note "imagecopy: the metrics at the end: $(metrics | grep -E '^scarpenter_image_copies_(deleted|failed)_total\{' | redact | tr '\n' ' ')"
+  kubectl delete nodepool e2e-imagecopy --wait=false
 }
 
 # pod_sigterm <log file>: succeeds when the Pod's followed log has its SIGTERM line, and
@@ -983,7 +1148,7 @@ managed_groups() {
 all_scenarios=(amd64 arm64 db described byo local negative quota drift scalezero uninstall)
 # Run only when named (never by "all", the smoke set or a schedule), before the others, so that scalezero
 # and uninstall still clean up after them.
-manual_scenarios=(gpu interruption)
+manual_scenarios=(gpu interruption imagecopy)
 selected=()
 if [[ -z "${E2E_SCENARIOS:-}" || "${E2E_SCENARIOS}" == "all" ]]; then
   selected=("${all_scenarios[@]}")
