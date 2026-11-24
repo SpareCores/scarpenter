@@ -92,6 +92,12 @@ type Key struct {
 }
 
 // Key returns the server's key.
+// HasGPU says whether the server has GPUs: the condition the catalog's NVIDIA
+// driver selection starts from, and that a driver's guard shares.
+func (s *Server) HasGPU() bool {
+	return s.AcceleratorType == AcceleratorGPU && s.AcceleratorCount > 0
+}
+
 func (s *Server) Key() Key { return Key{Vendor: s.Vendor, ID: s.ID} }
 
 // Region is a vendor region with the location facts of Keeper's region table.

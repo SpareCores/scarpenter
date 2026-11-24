@@ -48,11 +48,18 @@ type Ops struct {
 	AvailabilityTTL time.Duration
 	PlansTTL        time.Duration
 
-	mu     sync.Mutex
-	avail  map[string]availability
-	plans  map[string]int // plan ID to disk GB
+	mu    sync.Mutex
+	avail map[string]availability
+	plans map[string]planInfo
+
 	plansT time.Time
 	recent map[string]recentCreate
+}
+
+// planInfo is what the plan list says of a plan that the driver decides by.
+type planInfo struct {
+	disk int    // GB
+	typ  string // Vultr's plan type: vc2, vdm, ...
 }
 
 type availability struct {
@@ -327,8 +334,8 @@ func (o *Ops) listPlans(ctx context.Context, opts *govultr.ListOptions) ([]govul
 	return o.API.ListPlans(ctx, planTypeAll, opts)
 }
 
-// planDisks is the plan list's disk size per plan, cached.
-func (o *Ops) planDisks(ctx context.Context) (map[string]int, error) {
+// planInfos is the plan list's disk size and type per plan, cached.
+func (o *Ops) planInfos(ctx context.Context) (map[string]planInfo, error) {
 	o.mu.Lock()
 	p, at := o.plans, o.plansT
 	o.mu.Unlock()
@@ -339,9 +346,9 @@ func (o *Ops) planDisks(ctx context.Context) (map[string]int, error) {
 	if err != nil {
 		return nil, err
 	}
-	p = make(map[string]int, len(plans))
+	p = make(map[string]planInfo, len(plans))
 	for _, pl := range plans {
-		p[pl.ID] = pl.Disk
+		p[pl.ID] = planInfo{disk: pl.Disk, typ: pl.Type}
 	}
 	o.mu.Lock()
 	o.plans, o.plansT = p, o.Clock.Now()
@@ -357,18 +364,35 @@ func (o *Ops) LaunchableTypes(ctx context.Context, region string) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	disks, err := o.planDisks(ctx)
+	infos, err := o.planInfos(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	for id := range have {
-		if ok, _ := ClassifyPlan(id, disks[id]); ok {
+		if ok, _ := ClassifyPlan(id, infos[id].disk, infos[id].typ); ok {
 			out = append(out, id)
 		}
 	}
 	slices.Sort(out)
 	return out, nil
+}
+
+// CheckPlanType refuses a GPU plan whose type the driver does not launch
+// (ClassifyPlanType) as Unsupported. The plan list is read only for GPU plans.
+func (o *Ops) CheckPlanType(ctx context.Context, id string) error {
+	if !isGPUPlan(id) {
+		return nil
+	}
+	infos, err := o.planInfos(ctx)
+	if err != nil {
+		return err
+	}
+	if ok, why := ClassifyPlanType(id, infos[id].typ); !ok {
+		return vendors.NewError(vendors.Unsupported, codeIncompatible,
+			fmt.Errorf("the driver cannot launch plan %s: %s", id, why))
+	}
+	return nil
 }
 
 // listOne is the list options of a call that only proves the key and the ACL.

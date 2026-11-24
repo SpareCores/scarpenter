@@ -513,7 +513,7 @@ func profilesKey(p map[labels.ProfileKind][]string) string {
 // GPUs (NPUs, FPGAs, TPUs) keep today's behaviour.
 func gpuSupport(srv *model.Server, class *Class, vendor string,
 	virtual VirtualGPUFacts) (*nvidia.Selection, nvidia.Reason) {
-	if srv.AcceleratorType != model.AcceleratorGPU || srv.AcceleratorCount <= 0 {
+	if !srv.HasGPU() {
 		return nil, nvidia.Supported
 	}
 	sel, reason := nvidia.Select(nvidia.GPU{

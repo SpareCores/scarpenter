@@ -471,6 +471,71 @@ func TestBillingStartIsDateCreated(t *testing.T) {
 	}
 }
 
+// ---- GPU plans ----
+
+const (
+	gpuPlan  = "vcg-a16-6c-60g-16vram"
+	l40sPlan = "vcg-l40s-16c-180g-48vram"
+)
+
+// gpuEnv adds a dedicated GPU plan (type vdm, in stock) and an L40S plan (type
+// vcg, in stock) to the account.
+func gpuEnv(t testing.TB) *drvEnv {
+	t.Helper()
+	e := newDrvEnv(t)
+	e.acct.AddPlanOfType(gpuPlan, "vdm", 6, 61440, 350)
+	e.acct.AddPlanOfType(l40sPlan, "vcg", 16, 184320, 350)
+	e.acct.SetAvailable("ewr", testType, gpuPlan, l40sPlan, "vbm-4c-32gb")
+	return e
+}
+
+func gpuType(plan string, gpu bool) vendors.CatalogType {
+	return vendors.CatalogType{Vendor: "vultr", APIReference: plan, Arch: "amd64", GPU: gpu}
+}
+
+func TestDedicatedGPUPlanIsLaunchableWithAcceleratorData(t *testing.T) {
+	e := gpuEnv(t)
+	ctx := context.Background()
+	if ok, why := e.d.LaunchableType(gpuType(gpuPlan, true)); !ok {
+		t.Fatalf("not launchable: %s", why)
+	}
+	got, err := e.d.LaunchableTypes(ctx, "ewr")
+	if err != nil || got[gpuPlan] == nil {
+		t.Fatalf("the vdm plan is not offered: %v %v", got, err)
+	}
+	if got[l40sPlan] != nil || got["vbm-4c-32gb"] != nil {
+		t.Fatalf("the L40S or the bare metal plan is offered: %v", got)
+	}
+	req := vendors.CreateRequest{
+		Region: "ewr", InstanceType: gpuPlan, Image: vendors.Image{Ref: e.snap}, UserData: []byte("{}"),
+		Tags: map[vendors.TagKey]string{vendors.TagCluster: testCluster, vendors.TagNodeClaim: "n"}, IdempotencyKey: "u",
+		Node: vendors.NodeInfo{Name: "n"},
+	}
+	if _, err := e.d.CreateInstance(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	req.InstanceType, req.IdempotencyKey = l40sPlan, "u2"
+	if _, err := e.d.CreateInstance(ctx, req); !vendors.IsClass(err, vendors.Unsupported) {
+		t.Fatalf("an L40S create: %v", err)
+	}
+}
+
+func TestGPUPlanWithoutAcceleratorDataIsRefused(t *testing.T) {
+	e := gpuEnv(t)
+	for _, it := range []vendors.CatalogType{gpuType(gpuPlan, false)} {
+		ok, why := e.d.LaunchableType(it)
+		if ok || !strings.Contains(why, "Keeper has no accelerator data for this GPU plan") {
+			t.Errorf("%+v: %v %q", it, ok, why)
+		}
+	}
+	if ok, _ := e.d.LaunchableType(gpuType(testType, false)); !ok {
+		t.Error("a CPU plan needs no accelerator data")
+	}
+	if ok, why := e.d.LaunchableType(gpuType("vbm-4c-32gb", true)); ok || why == "" {
+		t.Errorf("bare metal: %v %q", ok, why)
+	}
+}
+
 // ---- the committed Keeper snapshot ----
 
 // Every family of the vendor's rows in the committed snapshot is classified on
@@ -479,7 +544,7 @@ func TestBillingStartIsDateCreated(t *testing.T) {
 func TestEveryFamilyOfTheSnapshotIsClassified(t *testing.T) {
 	launchable := 0
 	for _, r := range vultrServers(t) {
-		ok, why := vultr.ClassifyPlan(r.APIReference, int(r.StorageSize))
+		ok, why := vultr.ClassifyPlan(r.APIReference, int(r.StorageSize), "")
 		if strings.Contains(why, "unclassified") {
 			t.Errorf("%s: %s", r.APIReference, why)
 		}
@@ -548,5 +613,30 @@ func TestUnlaunchablePlansNeedNoStock(t *testing.T) {
 	req.InstanceType = "vc2-2c-4gb"
 	if _, err = e.d.CreateInstance(ctx, req); err != nil {
 		t.Errorf("a supported plan: %v", err)
+	}
+}
+
+// The guard follows the rule that selects the NVIDIA driver (type GPU and a
+// count): a partial Keeper fix is still refused.
+func TestGPUPlanNeedsTheCatalogsGPURule(t *testing.T) {
+	e := newDrvEnv(t)
+	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(e.d)})
+	for _, c := range []struct {
+		name       string
+		typ        string
+		count      float64
+		launchable bool
+	}{
+		{"complete", model.AcceleratorGPU, 1, true},
+		{"type missing", "", 1, false},
+		{"count missing", model.AcceleratorGPU, 0, false},
+	} {
+		srv := &model.Server{
+			Vendor: vultr.Vendor, APIReference: gpuPlan, AcceleratorType: c.typ, AcceleratorCount: c.count,
+			AcceleratorModel: "A16",
+		}
+		if ok, why := f.TypeLaunchable(vultr.Vendor, srv); ok != c.launchable || (!ok && why == "") {
+			t.Errorf("%s: %v %q", c.name, ok, why)
+		}
 	}
 }

@@ -152,37 +152,42 @@ func TestClassifyPlan(t *testing.T) {
 	cases := []struct {
 		id   string
 		disk int
+		typ  string
 		ok   bool
 		why  string
 	}{
-		{"vc2-2c-4gb", 80, true, ""},
-		{"vhf-1c-1gb", 32, true, ""},
-		{"vhp-12c-24gb-intel", 480, true, ""},
-		{"voc-c-2c-4gb-50s-amd", 50, true, ""},
-		{"vx1-g-4c-16g", 100, true, ""},
-		{"vx1-g-4c-16g", 1, false, "diskless"},
-		{"vx1-g-4c-16g", 0, false, "diskless"},
-		{"vc2-1c-0.5gb-free", 10, false, "free"},
-		{"vc2-1c-0.5gb-v6", 10, false, "IPv6-only"},
-		{"vhf-1c-1gb-v6", 32, false, "IPv6-only"},
-		{"vcg-a100-12c-120g-80vram", 0, false, "outside the driver's support"},
-		{"vdm-a100-8c-64g", 0, false, "outside the driver's support"},
-		{"vbm-4c-32gb", 240, false, "bare metal"},
-		{"zzz-1c-1gb", 10, false, "unclassified"},
-		{"", 10, false, "unclassified"},
+		{"vc2-2c-4gb", 80, "vc2", true, ""},
+		{"vhf-1c-1gb", 32, "vc2", true, ""},
+		{"vhp-12c-24gb-intel", 480, "vc2", true, ""},
+		{"voc-c-2c-4gb-50s-amd", 50, "vc2", true, ""},
+		{"vx1-g-4c-16g", 100, "vc2", true, ""},
+		{"vx1-g-4c-16g", 1, "vc2", false, "diskless"},
+		{"vx1-g-4c-16g", 0, "vc2", false, "diskless"},
+		{"vc2-1c-0.5gb-free", 10, "vc2", false, "free"},
+		{"vc2-1c-0.5gb-v6", 10, "vc2", false, "IPv6-only"},
+		{"vhf-1c-1gb-v6", 32, "vc2", false, "IPv6-only"},
+		{"vcg-a16-6c-60g-16vram", 350, "vdm", true, ""},
+		{"vcg-a100-12c-120g-80vram", 0, "vdm", true, ""},
+		{"vcg-l40s-16c-180g-48vram", 0, "vcg", false, "outside the driver's support"},
+		{"vcg-a16-6c-60g-16vram", 350, "", false, "outside the driver's support"},
+		{"vdm-a100-8c-64g", 0, "vdm", false, "no Vultr plan ID has the vdm prefix"},
+		{"vbm-4c-32gb", 240, "vbm", false, "bare metal"},
+		{"zzz-1c-1gb", 10, "vc2", false, "unclassified"},
+		{"", 10, "vc2", false, "unclassified"},
 	}
 	for _, c := range cases {
-		ok, why := ClassifyPlan(c.id, c.disk)
+		ok, why := ClassifyPlan(c.id, c.disk, c.typ)
 		if ok != c.ok || (!ok && !strings.Contains(why, c.why)) || (ok && why != "") {
 			t.Errorf("ClassifyPlan(%q, %d) = %v %q, want %v %q", c.id, c.disk, ok, why, c.ok, c.why)
 		}
 	}
 }
 
-// The exclusion of a family needs no disk and no stock: the plan ID decides.
+// The exclusion of a family needs no disk, type or stock: the plan ID decides.
+// A vcg plan passes by ID: its plan type decides (ClassifyPlanType).
 func TestClassifyPlanIDNeedsNoDiskOrStock(t *testing.T) {
 	for id, want := range map[string]bool{
-		"vc2-2c-4gb": true, "vx1-g-4c-16g": true, "vcg-a16-6c-64g-16vram": false, "vdm-a100-8c-64g": false,
+		"vc2-2c-4gb": true, "vx1-g-4c-16g": true, "vcg-a16-6c-64g-16vram": true, "vdm-a100-8c-64g": false,
 		"vbm-4c-32gb": false, "vc2-1c-0.5gb-free": false, "vhf-1c-1gb-v6": false, "zzz-1c-1gb": false,
 	} {
 		if ok, why := ClassifyPlanID(id); ok != want || (!ok && why == "") {
@@ -194,7 +199,7 @@ func TestClassifyPlanIDNeedsNoDiskOrStock(t *testing.T) {
 // Every family of the representative plan list must be classified on purpose.
 func TestEveryFamilyOfThePlanListIsClassified(t *testing.T) {
 	for _, id := range representativePlans {
-		if _, why := ClassifyPlan(id, 100); strings.Contains(why, "unclassified") {
+		if _, why := ClassifyPlan(id, 100, ""); strings.Contains(why, "unclassified") {
 			t.Errorf("%s: %s", id, why)
 		}
 	}
@@ -205,5 +210,6 @@ func TestEveryFamilyOfThePlanListIsClassified(t *testing.T) {
 // snapshot has no Vultr rows yet.
 var representativePlans = []string{
 	"vc2-1c-0.5gb-free", "vc2-1c-1gb", "vc2-2c-4gb", "vhf-1c-1gb", "vhp-1c-1gb-amd", "vhp-12c-24gb-intel",
-	"voc-c-2c-4gb-50s-amd", "voc-g-2c-8gb-50s-amd", "vx1-g-2c-8g", "vcg-a16-6c-64g-16vram", "vdm-a100-8c-64g", "vbm-4c-32gb",
+	"voc-c-2c-4gb-50s-amd", "voc-g-2c-8gb-50s-amd", "vx1-g-2c-8g", "vcg-a16-6c-64g-16vram", "vdm-a100-8c-64g",
+	"vbm-4c-32gb",
 }

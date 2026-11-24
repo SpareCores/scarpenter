@@ -61,7 +61,7 @@ const (
 	MsgNotFound          = "Not found."
 	MsgGroupInUse        = "Unable to remove the firewall group: it is attached to instances."
 	MsgVPCAttached       = "Unable to delete the VPC: it has attached resources."
-	MsgInstanceInstalls  = "Unable to delete the instance: it is locked while installing."
+	MsgInstanceInstalls  = "Server is currently locked"
 	MsgRuleLimit         = "The firewall group has reached its maximum number of rules."
 	MsgInvalidRule       = "Invalid firewall rule."
 	MsgRateLimited       = "Rate limit exceeded."
@@ -92,7 +92,7 @@ type Account struct {
 	// eventual consistency (unverified, S4).
 	ListLag bool
 	// RefuseDeleteWhilePending refuses to delete an instance that is still
-	// installing (unverified, S4).
+	// installing with 409 "Server is currently locked", as the live API does.
 	RefuseDeleteWhilePending bool
 
 	regions   []govultr.Region
@@ -162,9 +162,14 @@ func (a *Account) SetAvailable(region string, plans ...string) {
 
 // AddPlan adds a plan to the plan list; creates of other plans are invalid.
 func (a *Account) AddPlan(id string, vcpus, ramMB, diskGB int) {
+	a.AddPlanOfType(id, "vc2", vcpus, ramMB, diskGB)
+}
+
+// AddPlanOfType is AddPlan with the plan's type (vc2, vdm, vcg, ...).
+func (a *Account) AddPlanOfType(id, planType string, vcpus, ramMB, diskGB int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.plans = append(a.plans, govultr.Plan{ID: id, VCPUCount: vcpus, RAM: ramMB, Disk: diskGB, Type: "vc2"})
+	a.plans = append(a.plans, govultr.Plan{ID: id, VCPUCount: vcpus, RAM: ramMB, Disk: diskGB, Type: planType})
 }
 
 // AddSnapshot adds a snapshot with a status (complete or pending).
@@ -568,7 +573,7 @@ func (a *Account) DeleteInstance(_ context.Context, id string) error {
 		return fail(http.StatusNotFound, MsgNotFound)
 	}
 	if a.RefuseDeleteWhilePending && in.Status == StatusPending {
-		return fail(http.StatusBadRequest, MsgInstanceInstalls)
+		return fail(http.StatusConflict, MsgInstanceInstalls)
 	}
 	if g := a.group(in.FirewallGroupID); g != nil {
 		g.InstanceCount--
