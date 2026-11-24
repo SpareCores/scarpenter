@@ -138,6 +138,25 @@ func (g *roEC2) DescribeImages(
 	return g.inner.DescribeImages(ctx, in, opts...)
 }
 
+func (g *roEC2) DescribeImageAttribute(
+	ctx context.Context, in *ec2.DescribeImageAttributeInput, opts ...func(*ec2.Options),
+) (*ec2.DescribeImageAttributeOutput, error) {
+	g.audit.read("ec2:DescribeImageAttribute")
+	return g.inner.DescribeImageAttribute(ctx, in, opts...)
+}
+
+func (g *roEC2) CopyImage(
+	ctx context.Context, in *ec2.CopyImageInput, opts ...func(*ec2.Options),
+) (*ec2.CopyImageOutput, error) {
+	return nil, g.audit.deny("ec2:CopyImage")
+}
+
+func (g *roEC2) DeregisterImage(
+	ctx context.Context, in *ec2.DeregisterImageInput, opts ...func(*ec2.Options),
+) (*ec2.DeregisterImageOutput, error) {
+	return nil, g.audit.deny("ec2:DeregisterImage")
+}
+
 func (g *roEC2) DescribeSubnets(
 	ctx context.Context, in *ec2.DescribeSubnetsInput, opts ...func(*ec2.Options),
 ) (*ec2.DescribeSubnetsOutput, error) {

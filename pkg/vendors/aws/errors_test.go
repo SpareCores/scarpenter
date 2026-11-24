@@ -91,6 +91,7 @@ var wantClasses = map[string]vendors.Class{
 	"IncorrectState":              vendors.Retryable,
 	"IncorrectInstanceState":      vendors.Retryable,
 	// 11.5: NotFound
+	"ConcurrentSnapshotLimitExceeded":   vendors.QuotaExceeded,
 	"InvalidInstanceID.NotFound":        vendors.NotFound,
 	"InvalidInstanceID.Malformed":       vendors.NotFound,
 	"InvalidGroup.NotFound":             vendors.NotFound,

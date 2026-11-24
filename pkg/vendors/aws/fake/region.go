@@ -129,6 +129,23 @@ type Image struct {
 	Description string
 	Created     time.Time
 	Deprecated  bool
+	// SourceImageID and SourceRegion say which image this one was copied from
+	// (set by CopyImage); StateMessage is the reason shown for a failed image.
+	SourceImageID, SourceRegion, StateMessage string
+	// ReadyAt is when a pending copy becomes available, on the account's clock;
+	// zero leaves a pending image pending.
+	ReadyAt time.Time
+	// LastLaunched is what the image attribute lastLaunchedTime answers; a
+	// RunInstances from the image sets it.
+	LastLaunched time.Time
+	// snapshots are the IDs of the snapshots the image owns.
+	snapshots []string
+}
+
+// snapshot is an EBS snapshot, kept for the images a copy made.
+type snapshot struct {
+	id   string
+	tags map[string]string
 }
 
 // CapacityReservation is an On-Demand Capacity Reservation.
@@ -156,6 +173,8 @@ type region struct {
 	spot     []*spotRequest
 	volumes  map[string]*volume
 	images   map[string]*Image
+	snaps    map[string]*snapshot
+	copies   map[string]copyToken // CopyImage ClientToken -> image
 	crs      []*CapacityReservation
 	offered  map[string]map[string]bool // type -> zone ID -> offered
 	quotas   map[string]float64
@@ -168,7 +187,7 @@ func (a *Account) addRegionLocked(s RegionSpec) {
 	r := &region{
 		name: s.Name, disabled: s.Disabled, azs: s.AZs, vpcs: map[string]*vpc{}, subnets: map[string]*subnet{},
 		sgs: map[string]*sg{}, pgs: map[string]*placementGroup{}, igws: map[string]*igw{}, attached: map[string]string{},
-		rts: map[string]*routeTable{}, volumes: map[string]*volume{}, images: map[string]*Image{},
+		rts: map[string]*routeTable{}, volumes: map[string]*volume{}, images: map[string]*Image{}, snaps: map[string]*snapshot{}, copies: map[string]copyToken{},
 		offered: map[string]map[string]bool{}, quotas: map[string]float64{}, tokens: map[string]*instance{}, rtTokens: map[string]*routeTable{},
 	}
 	for i := range r.azs {
@@ -278,6 +297,26 @@ func (a *Account) AddImage(regionName string, img Image) {
 		img.RootGiB = 8
 	}
 	a.regions[regionName].images[img.ID] = &img
+}
+
+// RemoveImages deletes every image of the region (a region the vendor publishes
+// no image in).
+func (a *Account) RemoveImages(regionName string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.regions[regionName]
+	r.images = map[string]*Image{}
+}
+
+// Snapshots returns the snapshots of the region: ID to tags.
+func (a *Account) Snapshots(regionName string) map[string]map[string]string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := map[string]map[string]string{}
+	for id, s := range a.regions[regionName].snaps {
+		out[id] = maps.Clone(s.tags)
+	}
+	return out
 }
 
 // AddCapacityReservation registers a capacity reservation.

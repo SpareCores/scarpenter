@@ -16,6 +16,7 @@ import (
 	"github.com/go-logr/logr"
 	clocktesting "k8s.io/utils/clock/testing"
 
+	"github.com/SpareCores/scarpenter/pkg/imagecopy"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws/fake"
@@ -98,6 +99,8 @@ type env struct {
 	d       *aws.Driver
 	acct    *fake.Account
 	clock   *clocktesting.FakeClock
+	// mgr is the copy manager of the driver (envOptions.copies), else nil.
+	mgr *imagecopy.Manager
 }
 
 type envOptions struct {
@@ -106,6 +109,8 @@ type envOptions struct {
 	regions []fake.RegionSpec
 	prices  aws.PriceSource
 	timeout time.Duration
+	// copies gives the driver the image copy manager, like --aws-copy-images.
+	copies bool
 }
 
 var smallTypes = []fake.InstanceType{
@@ -164,15 +169,24 @@ func newEnvOver(t testing.TB, acct *fake.Account, clk *clocktesting.FakeClock, o
 	if o.timeout > 0 {
 		aws.WithCallTimeouts(o.timeout, o.timeout)(d)
 	}
-	if err := d.Init(context.Background(), vendors.Config{ClusterName: cluster, Clock: clk, Log: logr.Discard()}); err != nil {
+	cfg := vendors.Config{ClusterName: cluster, Clock: clk, Log: logr.Discard()}
+	var mgr *imagecopy.Manager
+	if o.copies {
+		mgr = imagecopy.New(imagecopy.Options{
+			Vendor: "aws", Cluster: cluster, Driver: d, Clock: clk,
+			Regions: func(context.Context) ([]string, error) { return acct.Regions(), nil },
+		})
+		cfg.ImageCopies = mgr
+	}
+	if err := d.Init(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	return &env{d: d, acct: acct, clock: clk, cluster: cluster}
+	return &env{d: d, acct: acct, clock: clk, cluster: cluster, mgr: mgr}
 }
 
 // restart returns a second driver over the same account (a restarted controller).
 func (e *env) restart(t testing.TB) *env {
-	return newEnvOver(t, e.acct, e.clock, envOptions{cluster: e.cluster})
+	return newEnvOver(t, e.acct, e.clock, envOptions{cluster: e.cluster, copies: e.mgr != nil})
 }
 
 func flatcarImage(region, arch, channel, version string) fake.Image {

@@ -38,6 +38,9 @@ Your own AMIs: select them with `spec.vendors.aws.resources.images.use` (the
 [selector](../reference/resource-selectors.md#aws)); one not named like the official ones
 needs the tags `flatcar-channel` and `flatcar-version`. Another release is never launched.
 
+To use the cheap regions Flatcar publishes no AMI in, let the controller copy the official AMI there when a launch
+wants the region: [copy images on demand](copy-images-on-demand.md#aws) (opt-in, with its own policy statements).
+
 ## 2. Credentials
 
 The controller needs an IAM identity; the nodes get none (unless you set
@@ -47,6 +50,7 @@ install. Replace `CLUSTER_NAME` with `cluster.name` and `123456789012` with your
 ID. Delete the optional statements you do not need: `OptionalManagedNetwork*` (needed
 only where the driver creates the network: a region without a default VPC, `create`
 for `subnets`, or `publicIPv6` on a default VPC without IPv6),
+`OptionalImageCopies*` (needed only with `--aws-copy-images`),
 `OptionalPassInstanceProfileRole` (else replace `NODE_ROLE_NAME`) and
 `OptionalCustomerKmsKey*` (else replace `KEY_ID`). The [IAM table](../reference/aws-driver.md#iam)
 explains each statement.

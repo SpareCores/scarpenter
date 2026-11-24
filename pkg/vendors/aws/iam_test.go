@@ -101,6 +101,9 @@ func TestIAMPolicyAllowsEveryCallOfTheDriver(t *testing.T) {
 	known := map[string]bool{
 		"ec2:CreateTags": true, "iam:PassRole": true, "kms:CreateGrant": true, "kms:Decrypt": true, "kms:DescribeKey": true,
 		"kms:GenerateDataKeyWithoutPlaintext": true,
+		// DeregisterImage's DeleteAssociatedSnapshots deletes the snapshots in the
+		// caller's name (plan 29: to verify in step 4 whether it needs the action).
+		"ec2:DeleteSnapshot": true,
 	}
 	for method := range reflect.TypeFor[aws.EC2API]().Methods() {
 		known["ec2:"+method.Name] = true
@@ -112,5 +115,54 @@ func TestIAMPolicyAllowsEveryCallOfTheDriver(t *testing.T) {
 		if !known[a] {
 			t.Errorf("the policy allows %s, which the driver never calls", a)
 		}
+	}
+}
+
+// TestImageCopyStatementsAreScopedByTheClusterTag pins the optional statements of the
+// image copies (plan 29): the creation of a copy and its tags need the request tag, the
+// deletion of an image or snapshot needs the resource tag, and no statement lets the role
+// tag or change an existing image.
+func TestImageCopyStatementsAreScopedByTheClusterTag(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(testutil.RepoRoot(), "docs", "reference", "aws-iam-policy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Statement []policyStatement `json:"Statement"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	const (
+		reqTag = "aws:RequestTag/scarpenter.sparecores.com/cluster"
+		resTag = "aws:ResourceTag/scarpenter.sparecores.com/cluster"
+	)
+	want := map[string]struct {
+		actions []string
+		tagKey  string
+	}{
+		"OptionalImageCopies":              {[]string{"ec2:CopyImage"}, reqTag},
+		"OptionalImageCopiesTagAtCreation": {[]string{"ec2:CreateTags"}, reqTag},
+		"OptionalImageCopiesDelete":        {[]string{"ec2:DeregisterImage", "ec2:DeleteSnapshot"}, resTag},
+	}
+	seen := 0
+	for _, s := range doc.Statement {
+		w, ok := want[s.Sid]
+		if !ok {
+			continue
+		}
+		seen++
+		if !slices.Equal(s.Action, w.actions) {
+			t.Errorf("%s allows %v, want %v", s.Sid, s.Action, w.actions)
+		}
+		if got := s.Condition["StringEquals"][w.tagKey]; got != "CLUSTER_NAME" {
+			t.Errorf("%s: condition %s is %v, want the cluster placeholder", s.Sid, w.tagKey, got)
+		}
+		if s.Sid == "OptionalImageCopiesTagAtCreation" && s.Condition["StringEquals"]["ec2:CreateAction"] != "CopyImage" {
+			t.Errorf("%s tags other than at the creation of a copy", s.Sid)
+		}
+	}
+	if seen != len(want) {
+		t.Errorf("found %d of the %d image copy statements", seen, len(want))
 	}
 }

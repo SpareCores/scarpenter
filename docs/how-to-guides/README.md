@@ -29,6 +29,9 @@ Available:
 - [**Which types does a class offer**](which-types-does-a-class-offer.md) (plan 28) — read the
   offered instance types and why the others are not from the status, an opt-in ConfigMap listing
   and the logs; `jq` recipes and the ready-made pin.
+- [**Copy images on demand**](copy-images-on-demand.md) (plan 29, ADR-032) — let the
+  controller copy the Flatcar image into the regions that have none, when a launch wants
+  them: enabling it per vendor, the permissions, seeing a copy, the cost, cleanup and migration.
 - [**Run GPU workloads**](run-gpu-workloads.md) (plan 12) — the RuntimeClass and device
   plugin the chart ships, how to turn them off, taints and the Pod spec of a GPU workload.
 - [**Install SCarpenter**](install.md) (plan 09) — prerequisites (bootstrap-token

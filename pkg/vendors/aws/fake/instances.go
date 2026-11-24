@@ -142,6 +142,8 @@ func (i *instance) attrs(name string) ([]string, bool) {
 		return []string{l}, true
 	case "instance-id":
 		return []string{i.id}, true
+	case "image-id":
+		return []string{i.ami}, true
 	}
 	return nil, false
 }
@@ -261,6 +263,7 @@ func (e *EC2) RunInstances(ctx context.Context, in *ec2.RunInstancesInput, _ ...
 		r.tokens[inst.token] = inst
 	}
 	r.insts = append(r.insts, inst)
+	a.noteLaunch(r, inst.ami)
 	return &ec2.RunInstancesOutput{Instances: []types.Instance{inst.toSDK()}}, nil
 }
 

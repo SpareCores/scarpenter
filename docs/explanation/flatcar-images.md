@@ -133,7 +133,7 @@ hash; the pinned version is.
 | Created by | Flatcar |
 | Pinned version | the name `Flatcar-<channel>-<version>-hvm` (amd64) or `Flatcar-<channel>-<version>-arm64-hvm`; exactly one match. An AMI you name with `images` says its release by that name or by the tags `flatcar-channel` and `flatcar-version` |
 | Architectures | amd64, arm64 |
-| Later | opt-in copies into regions without a Flatcar AMI (ADR-032, plan 29, `--aws-copy-images`; [image copies](image-copies.md)) |
+| Copies | opt-in: with `--aws-copy-images` (ADR-032, plan 29) a launch into a region without a Flatcar AMI copies it there (`CopyImage` from a region that has it), and the copy is deleted when idle; [image copies](image-copies.md), [how to](../how-to-guides/copy-images-on-demand.md#aws) |
 
 ### azure
 

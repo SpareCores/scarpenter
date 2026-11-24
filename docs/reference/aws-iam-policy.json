@@ -7,6 +7,7 @@
       "Action": [
         "ec2:DescribeAvailabilityZones",
         "ec2:DescribeCapacityReservations",
+        "ec2:DescribeImageAttribute",
         "ec2:DescribeImages",
         "ec2:DescribeInstanceTypeOfferings",
         "ec2:DescribeInstanceTypes",
@@ -244,6 +245,56 @@
         "arn:aws:ec2:*:123456789012:subnet/*",
         "arn:aws:ec2:*:123456789012:internet-gateway/*",
         "arn:aws:ec2:*:123456789012:route-table/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/scarpenter.sparecores.com/cluster": "CLUSTER_NAME"
+        }
+      }
+    },
+    {
+      "Sid": "OptionalImageCopies",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CopyImage"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*::image/*",
+        "arn:aws:ec2:*::snapshot/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/scarpenter.sparecores.com/cluster": "CLUSTER_NAME"
+        }
+      }
+    },
+    {
+      "Sid": "OptionalImageCopiesTagAtCreation",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTags"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*::image/*",
+        "arn:aws:ec2:*::snapshot/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": "CopyImage",
+          "aws:RequestTag/scarpenter.sparecores.com/cluster": "CLUSTER_NAME"
+        }
+      }
+    },
+    {
+      "Sid": "OptionalImageCopiesDelete",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DeregisterImage",
+        "ec2:DeleteSnapshot"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*::image/*",
+        "arn:aws:ec2:*::snapshot/*"
       ],
       "Condition": {
         "StringEquals": {

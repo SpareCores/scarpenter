@@ -14,7 +14,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // instances start running (never pending); filtered pages are never short unless
 // WithShortFilteredPages is set; ClientTokens never expire (the real service
 // forgets them after a while) and only RunInstances and CreateRouteTable model
-// them; a reservation holds one instance; there is no IAM; a spot request closes
+// them; a reservation holds one instance; the image attribute lastLaunchedTime follows a launch at once (the
+// service takes up to a day); snapshots exist only for the images CopyImage makes; there is no IAM; a spot request closes
 // three minutes after its instance ended (measured). It implements the driver's narrow API interfaces
 // and no SDK transport: errors are smithy API errors with the codes the real
 // service returns, so the driver's classification runs on them unchanged.
@@ -91,20 +92,21 @@ type RegionSpec struct {
 
 // Account is an AWS account: every region and everything in it.
 type Account struct {
-	mu          sync.Mutex
-	clock       clock.Clock
-	pageSize    int
-	bigPage     int
-	shortPages  bool
-	ipv6Delay   int
-	regionSpecs []RegionSpec
-	regions     map[string]*region
-	order       []string
-	nextID      int
-	types       []InstanceType
-	failures    []*Failure
-	calls       map[string]int
-	inputs      map[string][]any
+	mu           sync.Mutex
+	clock        clock.Clock
+	pageSize     int
+	bigPage      int
+	shortPages   bool
+	ipv6Delay    int
+	regionSpecs  []RegionSpec
+	copyDuration time.Duration
+	regions      map[string]*region
+	order        []string
+	nextID       int
+	types        []InstanceType
+	failures     []*Failure
+	calls        map[string]int
+	inputs       map[string][]any
 }
 
 // New returns an account with us-east-1 and eu-central-1 (three zones each, a

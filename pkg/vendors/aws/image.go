@@ -166,7 +166,14 @@ func describeImages(
 	}
 }
 
-// ResolveImage implements vendors.Driver: DescribeImages with the selector (the
+// ResolveImage implements vendors.Driver, for a launch: the primary lookup of
+// primaryImage and, when image copies are on and the lookup found no image, the
+// copy manager (imageOrCopy).
+func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
+	return d.imageOrCopy(ctx, req, true)
+}
+
+// primaryImage is the lookup of ResolveImage without copies: DescribeImages with the selector (the
 // NodeClass's images.use, narrowed to the architecture; without one the owner,
 // the name of the release, state available and the architecture), finished by the
 // shared matcher, and exactly one match under the default select. The chosen
@@ -174,7 +181,7 @@ func describeImages(
 // flatcar-channel and flatcar-version; another release is ImageVersionMismatch,
 // none ImageVersionUnknown, and the image is not returned. The root device name
 // comes from the image (cached for the launch).
-func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
+func (d *Driver) primaryImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
 	if _, ok := imageArches[req.Arch]; !ok {
 		return nil, vendors.Errorf(vendors.Fatal, "unsupported architecture %q (amd64 and arm64 are)", req.Arch)
 	}
@@ -312,9 +319,9 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 				use, _, err := selector.ImageUse(nc, d, region, arch)
 				var img *vendors.Image
 				if err == nil {
-					img, err = d.ResolveImage(ctx, vendors.ImageRequest{
+					img, err = d.imageOrCopy(ctx, vendors.ImageRequest{
 						Region: region, Arch: arch, Channel: channel, Version: nc.Spec.Flatcar.Version, Owner: owner, Use: use,
-					})
+					}, false)
 				}
 				mu.Lock()
 				defer mu.Unlock()
@@ -325,7 +332,7 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 					// A definitive answer: no image, an ambiguous name, a region the
 					// account cannot use.
 					st.Message = err.Error()
-					if code := vendors.CodeOf(err); vendors.IsImageVersionCode(code) {
+					if code := vendors.CodeOf(err); vendors.IsImageVersionCode(code) || isCopyCode(code) {
 						st.Reason = code
 					}
 				default:

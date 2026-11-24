@@ -17,11 +17,9 @@ of the drift hash. Every flag is also an environment variable `SCARPENTER_*`
 | `--image-copy-idle-ttl` | `imageCopies.idleTTL` | `720h` | a duration, at least `1m` |
 
 A flag for a vendor that is not enabled, or whose driver cannot copy images, refuses
-to start the controller: setting `--aws-copy-images` (chart `vendors.aws.imageCopies.enabled`)
-or `--alicloud-copy-images` (`vendors.alicloud.imageCopies.enabled`) makes the controller
-fail at start until that vendor's driver supports copies (the AWS driver in plan 29 step 3,
-Alibaba in step 5). `--cluster-name` must be unique per account: copies are scoped
-by it.
+to start the controller. The AWS driver can copy (`--aws-copy-images` starts); the
+Alibaba driver cannot yet (plan 29 step 5), so `--alicloud-copy-images` still refuses to
+start. `--cluster-name` must be unique per account: copies are scoped by it.
 
 Constants, not flags: the retry after a failed copy (6 h), at most 4 copies in flight
 per vendor (the rest queue in demand order), a backoff of 1 min doubling to 15 min after

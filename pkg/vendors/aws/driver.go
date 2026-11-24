@@ -107,12 +107,17 @@ type Driver struct {
 	epoch atomic.Uint64
 	types *typeTable
 
-	mu       sync.Mutex
-	cl       map[string]Clients
-	regions  cached[[]vendors.Region]
-	zones    map[string]*cached[[]vendors.Zone]
-	images   map[imageKey]cachedImage
-	roots    map[string]string
+	mu      sync.Mutex
+	cl      map[string]Clients
+	regions cached[[]vendors.Region]
+	zones   map[string]*cached[[]vendors.Zone]
+	images  map[imageKey]cachedImage
+	roots   map[string]string
+	// rootBytes is the root disk size of the copies served to launches, by
+	// region/ref (an AMI ID never changes its size).
+	rootBytes map[string]int64
+	// sources caches CopySources per release (non-empty answers only).
+	sources  map[vendors.Release]cachedSources
 	subnets  map[string]cachedSubnet
 	quotas   map[string]*regionQuota
 	pgs      map[string]cachedGroup
@@ -143,7 +148,8 @@ func New(opts ...Option) *Driver {
 		pollInterval: 2 * time.Second,
 		callTimeout:  DefaultCallTimeout, launchTimeout: DefaultLaunchTimeout, types: newTypeTable(),
 		cl: map[string]Clients{}, zones: map[string]*cached[[]vendors.Zone]{}, images: map[imageKey]cachedImage{},
-		roots: map[string]string{}, subnets: map[string]cachedSubnet{}, quotas: map[string]*regionQuota{},
+		roots: map[string]string{}, rootBytes: map[string]int64{}, sources: map[vendors.Release]cachedSources{},
+		subnets: map[string]cachedSubnet{}, quotas: map[string]*regionQuota{},
 		pgs: map[string]cachedGroup{}, sgCheck: map[string]cachedSG{},
 		userSeen: map[string]bool{},
 	}
