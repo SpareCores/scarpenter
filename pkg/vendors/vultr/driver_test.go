@@ -489,16 +489,14 @@ func gpuEnv(t testing.TB) *drvEnv {
 	return e
 }
 
-func gpuType(plan string, count float64, gpu string) vendors.CatalogType {
-	return vendors.CatalogType{
-		Vendor: "vultr", APIReference: plan, Arch: "amd64", AcceleratorCount: count, AcceleratorModel: gpu,
-	}
+func gpuType(plan string, gpu bool) vendors.CatalogType {
+	return vendors.CatalogType{Vendor: "vultr", APIReference: plan, Arch: "amd64", GPU: gpu}
 }
 
 func TestDedicatedGPUPlanIsLaunchableWithAcceleratorData(t *testing.T) {
 	e := gpuEnv(t)
 	ctx := context.Background()
-	if ok, why := e.d.LaunchableType(gpuType(gpuPlan, 1, "A16")); !ok {
+	if ok, why := e.d.LaunchableType(gpuType(gpuPlan, true)); !ok {
 		t.Fatalf("not launchable: %s", why)
 	}
 	got, err := e.d.LaunchableTypes(ctx, "ewr")
@@ -524,16 +522,16 @@ func TestDedicatedGPUPlanIsLaunchableWithAcceleratorData(t *testing.T) {
 
 func TestGPUPlanWithoutAcceleratorDataIsRefused(t *testing.T) {
 	e := gpuEnv(t)
-	for _, it := range []vendors.CatalogType{gpuType(gpuPlan, 0, ""), gpuType(gpuPlan, 0, "A16"), gpuType(gpuPlan, 1, "")} {
+	for _, it := range []vendors.CatalogType{gpuType(gpuPlan, false)} {
 		ok, why := e.d.LaunchableType(it)
 		if ok || !strings.Contains(why, "Keeper has no accelerator data for this GPU plan") {
 			t.Errorf("%+v: %v %q", it, ok, why)
 		}
 	}
-	if ok, _ := e.d.LaunchableType(gpuType(testType, 0, "")); !ok {
+	if ok, _ := e.d.LaunchableType(gpuType(testType, false)); !ok {
 		t.Error("a CPU plan needs no accelerator data")
 	}
-	if ok, why := e.d.LaunchableType(gpuType("vbm-4c-32gb", 1, "A16")); ok || why == "" {
+	if ok, why := e.d.LaunchableType(gpuType("vbm-4c-32gb", true)); ok || why == "" {
 		t.Errorf("bare metal: %v %q", ok, why)
 	}
 }
@@ -615,5 +613,30 @@ func TestUnlaunchablePlansNeedNoStock(t *testing.T) {
 	req.InstanceType = "vc2-2c-4gb"
 	if _, err = e.d.CreateInstance(ctx, req); err != nil {
 		t.Errorf("a supported plan: %v", err)
+	}
+}
+
+// The guard follows the rule that selects the NVIDIA driver (type GPU and a
+// count): a partial Keeper fix is still refused.
+func TestGPUPlanNeedsTheCatalogsGPURule(t *testing.T) {
+	e := newDrvEnv(t)
+	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(e.d)})
+	for _, c := range []struct {
+		name       string
+		typ        string
+		count      float64
+		launchable bool
+	}{
+		{"complete", model.AcceleratorGPU, 1, true},
+		{"type missing", "", 1, false},
+		{"count missing", model.AcceleratorGPU, 0, false},
+	} {
+		srv := &model.Server{
+			Vendor: vultr.Vendor, APIReference: gpuPlan, AcceleratorType: c.typ, AcceleratorCount: c.count,
+			AcceleratorModel: "A16",
+		}
+		if ok, why := f.TypeLaunchable(vultr.Vendor, srv); ok != c.launchable || (!ok && why == "") {
+			t.Errorf("%s: %v %q", c.name, ok, why)
+		}
 	}
 }

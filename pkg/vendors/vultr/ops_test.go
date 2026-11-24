@@ -385,22 +385,8 @@ func TestDeleteWhileInstallingIsRetryable(t *testing.T) {
 	e := newEnv(t)
 	e.acct.RefuseDeleteWhilePending = true
 	inst := e.launch(t, "claim-1", "uid-1")
-	if err := e.ops.DeleteInstance(context.Background(), inst.Ref); !vendors.IsClass(err, vendors.Retryable) {
-		t.Fatalf("got %v", err)
-	}
-	e.acct.Advance()
-	if err := e.ops.DeleteInstance(context.Background(), inst.Ref); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Vultr answers a delete during the install with 409 "Server is currently
-// locked": the fake does the same, and the class is the contract's "try again
-// later", so Karpenter's termination retries.
-func TestDeleteConflictWhileLockedIsRetryable(t *testing.T) {
-	e := newEnv(t)
-	e.acct.RefuseDeleteWhilePending = true
-	inst := e.launch(t, "claim-1", "uid-1")
+	// Vultr answers 409 "Server is currently locked" during the install, which the
+	// fake reproduces; the class is the contract's "try again later".
 	err := e.ops.DeleteInstance(context.Background(), inst.Ref)
 	var hs vultr.HTTPStatus
 	if !vendors.IsClass(err, vendors.Retryable) || !errors.As(err, &hs) || hs.HTTPStatus() != 409 ||
@@ -409,6 +395,10 @@ func TestDeleteConflictWhileLockedIsRetryable(t *testing.T) {
 	}
 	if n := len(e.acct.Instances()); n != 1 {
 		t.Fatalf("%d instances after the refused delete", n)
+	}
+	e.acct.Advance()
+	if err := e.ops.DeleteInstance(context.Background(), inst.Ref); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -642,7 +642,7 @@ func catalogType(vendor string, srv *model.Server) vendors.CatalogType {
 		VCPUs: srv.VCPUs, MemoryMiB: srv.MemoryMiB,
 		LocalStorageGB: srv.LocalStorageGB, LocalStorageCount: srv.LocalStorageCount,
 		CompatibleStorage: srv.CompatibleStorage,
-		AcceleratorCount:  srv.AcceleratorCount, AcceleratorModel: srv.AcceleratorModel,
+		GPU:               srv.HasGPU(),
 	}
 }
 

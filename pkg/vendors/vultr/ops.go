@@ -381,7 +381,7 @@ func (o *Ops) LaunchableTypes(ctx context.Context, region string) ([]string, err
 // CheckPlanType refuses a GPU plan whose type the driver does not launch
 // (ClassifyPlanType) as Unsupported. The plan list is read only for GPU plans.
 func (o *Ops) CheckPlanType(ctx context.Context, id string) error {
-	if family, _, _ := strings.Cut(id, "-"); family != gpuFamily {
+	if !isGPUPlan(id) {
 		return nil
 	}
 	infos, err := o.planInfos(ctx)

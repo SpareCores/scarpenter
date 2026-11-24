@@ -86,9 +86,10 @@ build, before any stock data. A diskless `vx1` plan is reported as `StorageIncom
 driver launches the plans of type `vdm` through `/v2/instances`, as any other plan; the type comes from the plan list
 the driver already reads for the disk sizes (`ClassifyPlanType`). The offered plans of a region leave out the other
 `vcg`-prefixed plans (the L40S plans are untested), and a create of one is `Unsupported`. The NVIDIA driver is
-selected from the catalog's accelerator data, so a GPU plan whose Keeper type has no accelerator count or model is
-`NotLaunchable` ("Keeper has no accelerator data for this GPU plan"): it would otherwise start as a CPU node with an
-idle GPU.
+selected from Keeper's accelerator data, which needs the accelerator type (`GPU`), count and model. A GPU plan
+whose Keeper type is not a GPU type with a count above zero (`CatalogType.GPU`, the rule the catalog's driver
+selection uses) is `NotLaunchable` ("Keeper has no accelerator data for this GPU plan"): it would otherwise start as
+a CPU node with an idle GPU.
 
 A family nobody classified is unsupported, and a test fails when a family of the committed Keeper snapshot has no
 classification. IPv6-only plans (IDs ending in `-v6`, Vultr's documented spelling) are not offered: the offered types

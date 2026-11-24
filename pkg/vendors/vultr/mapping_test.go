@@ -170,7 +170,7 @@ func TestClassifyPlan(t *testing.T) {
 		{"vcg-a100-12c-120g-80vram", 0, "vdm", true, ""},
 		{"vcg-l40s-16c-180g-48vram", 0, "vcg", false, "outside the driver's support"},
 		{"vcg-a16-6c-60g-16vram", 350, "", false, "outside the driver's support"},
-		{"vdm-a100-8c-64g", 0, "vdm", false, "unclassified"},
+		{"vdm-a100-8c-64g", 0, "vdm", false, "no Vultr plan ID has the vdm prefix"},
 		{"vbm-4c-32gb", 240, "vbm", false, "bare metal"},
 		{"zzz-1c-1gb", 10, "vc2", false, "unclassified"},
 		{"", 10, "vc2", false, "unclassified"},
@@ -210,5 +210,6 @@ func TestEveryFamilyOfThePlanListIsClassified(t *testing.T) {
 // snapshot has no Vultr rows yet.
 var representativePlans = []string{
 	"vc2-1c-0.5gb-free", "vc2-1c-1gb", "vc2-2c-4gb", "vhf-1c-1gb", "vhp-1c-1gb-amd", "vhp-12c-24gb-intel",
-	"voc-c-2c-4gb-50s-amd", "voc-g-2c-8gb-50s-amd", "vx1-g-2c-8g", "vcg-a16-6c-64g-16vram", "vbm-4c-32gb",
+	"voc-c-2c-4gb-50s-amd", "voc-g-2c-8gb-50s-amd", "vx1-g-2c-8g", "vcg-a16-6c-64g-16vram", "vdm-a100-8c-64g",
+	"vbm-4c-32gb",
 }

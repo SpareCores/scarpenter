@@ -219,6 +219,9 @@ var planFamilies = map[string]struct {
 	// (vcg-a16-*, vcg-a100-*) are of type vdm, only the L40S plans are of type
 	// vcg. The plan's type decides, see ClassifyPlanType.
 	"vcg": {true, ""},
+	// No plan ID has this prefix (the dedicated GPU plans are vcg-*, of type
+	// vdm): refused explicitly instead of as unclassified.
+	"vdm": {false, "no Vultr plan ID has the vdm prefix: the dedicated GPU plans are vcg-* of plan type vdm"},
 	// vbm is another API (/v2/bare-metals).
 	"vbm": {false, "bare metal plans (another API, /v2/bare-metals) are outside the driver's support today"},
 }
@@ -229,6 +232,12 @@ const planTypeDedicatedGPU = "vdm"
 
 // gpuFamily is the plan ID prefix of the GPU plans.
 const gpuFamily = "vcg"
+
+// isGPUPlan says whether the plan ID is one of the GPU plans (see planFamilies).
+func isGPUPlan(id string) bool {
+	family, _, _ := strings.Cut(id, "-")
+	return family == gpuFamily
+}
 
 // freePlan is dropped: no stock guarantee.
 const freePlan = "vc2-1c-0.5gb-free"
@@ -265,7 +274,7 @@ func isDiskless(id string, diskGB int) bool {
 // plans (type vdm) are launched; the L40S plans (type vcg) are untested. Plans
 // of other families are not GPU plans and pass.
 func ClassifyPlanType(id, planType string) (ok bool, reason string) {
-	if family, _, _ := strings.Cut(id, "-"); family != gpuFamily || planType == planTypeDedicatedGPU {
+	if !isGPUPlan(id) || planType == planTypeDedicatedGPU {
 		return true, ""
 	}
 	return false, fmt.Sprintf("GPU plans of type %q are outside the driver's support today "+
