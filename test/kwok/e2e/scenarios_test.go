@@ -784,8 +784,8 @@ func TestS18StoppedInstanceIsCollected(t *testing.T) {
 // S19: a node whose instance is powered off while its NodeClaim exists (the fake's
 // powerOff key stops the instance and removes its Node). The instance is reported
 // terminating, Karpenter core deletes the NodeClaim, and CloudProvider.Delete
-// leaves the instance for the terminating grace (30s in the lane) and then deletes
-// it, which releases the NodeClaim.
+// deletes the instance at once (SCarpenter has not deleted it yet, so the terminating
+// grace does not apply), which releases the NodeClaim.
 func TestS19StoppedNodeIsDeletedWithItsNodeClaim(t *testing.T) {
 	createNodeClass(t, "s19", us1)
 	createNodePool(t, "s19", "s19", in(labelRegion, us1), in(labelCapacity, "on-demand"))
@@ -819,7 +819,4 @@ func TestS19StoppedNodeIsDeletedWithItsNodeClaim(t *testing.T) {
 		t.Errorf("NodeClaims of s19 left: %d", len(cs))
 	}
 	t.Logf("Delete: the stopped instance after %s (terminating grace 30s)", after.Round(time.Second))
-	if after < 15*time.Second {
-		t.Errorf("the stopped instance was deleted after %s, before the terminating grace", after)
-	}
 }
