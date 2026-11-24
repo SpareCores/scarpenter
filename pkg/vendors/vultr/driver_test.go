@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -102,9 +103,25 @@ func TestLaunchableTypesAreTheZonesOfTheRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// vx1-g-2c-8g is diskless and vbm is bare metal: neither is launched.
-	if len(got) != 3 || len(got[testType]) != 1 || got[testType][0] != "ewr" || got["vx1-g-2c-8g"] != nil {
-		t.Fatalf("got %v", got)
+	// vx1-g-2c-8g is diskless, vcg is Cloud GPU and vbm is bare metal: none is
+	// launched, though the account has them all in stock.
+	av, err := e.acct.RegionAvailability(context.Background(), "ewr", "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"vx1-g-2c-8g", "vcg-a16-6c-64g-16vram", "vbm-4c-32gb"} {
+		if !slices.Contains(av.AvailablePlans, id) {
+			t.Fatalf("the fixture has no %s in stock: %v", id, av.AvailablePlans)
+		}
+	}
+	want := []string{testType, "vc2-2c-4gb", "vhf-1c-1gb"}
+	if len(got) != len(want) || len(got[testType]) != 1 || got[testType][0] != "ewr" {
+		t.Fatalf("got %v, want the plans %v", got, want)
+	}
+	for _, id := range want {
+		if got[id] == nil {
+			t.Errorf("%s is not launchable: %v", id, got)
+		}
 	}
 	if _, err := e.d.LaunchableTypes(context.Background(), "nowhere"); !vendors.IsClass(err, vendors.RegionUnavailable) {
 		t.Fatalf("an unknown region: %v", err)

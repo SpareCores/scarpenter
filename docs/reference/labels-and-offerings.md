@@ -406,7 +406,7 @@ NodePool filter, no pinned selection profile, so the class-level codes only).
 |---|---|
 | `types` | instance types offered |
 | `offerings`, `availableOfferings` | (region, zone, capacity type) offerings of the offered types, and how many are available now |
-| `dropped` | per reason code, how many types are not offered at all (`NoPrice`, `RegionNotAllowed`, the `GPU*` codes, `NoOffering`) |
+| `dropped` | per reason code, how many types are not offered at all (`NoPrice`, `RegionNotAllowed`, the `GPU*` codes, type-level `NotLaunchable` and `StorageIncompatible`, `NoOffering`) |
 | `unavailable` | per reason code, how many offerings of the offered types are not available, listed unavailable (`UnavailableCache`, `QuotaGate`, `ImageGap`, `ImageCopyPending`, `RegionNotReady`, `ZoneMissingResource`) or left out (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) |
 | `dropped[].types`, `unavailable[].types` | up to five instance type names with the code, in name order |
 | `observedAt` | when the summary last changed, to the minute |

@@ -603,7 +603,9 @@ type NodeOptions interface {
 // TypeChecker is an optional extension of NodeOptions: whether the driver can
 // launch the type at all, from what it knows of the type alone (Vultr: the
 // plan families it does not create), whatever the settings and the stock. The
-// catalog asks it for every type; the reason is the detail of NotLaunchable.
+// catalog asks it for every type; the reason is the detail of NotLaunchable. A
+// type the driver has no data for is not refused. A driver whose answer can
+// change at runtime must bump NodeOptionsEpoch (EpochReporter).
 type TypeChecker interface {
 	LaunchableType(it CatalogType) (ok bool, reason string)
 }
@@ -632,7 +634,8 @@ type NetworkAwareOptions interface {
 }
 
 // EpochReporter is the optional capability of a driver whose answers to
-// Supported and PriceDelta can change at runtime (the fake driver's steering):
+// Supported, PriceDelta and the type check (TypeChecker) can change at runtime
+// (the fake driver's steering):
 // the epoch changes whenever they may have, so the catalog rebuilds.
 type EpochReporter interface {
 	NodeOptionsEpoch() uint64

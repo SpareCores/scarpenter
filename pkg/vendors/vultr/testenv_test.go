@@ -76,10 +76,10 @@ func newAccount(clk *clocktesting.FakeClock) (*fake.Account, string) {
 	for _, p := range []struct {
 		id   string
 		disk int
-	}{{testType, 25}, {"vc2-2c-4gb", 80}, {"vhf-1c-1gb", 32}, {"vx1-g-2c-8g", 1}, {"vcg-a16-6c-64g-16vram", 350}} {
+	}{{testType, 25}, {"vc2-2c-4gb", 80}, {"vhf-1c-1gb", 32}, {"vx1-g-2c-8g", 1}, {"vcg-a16-6c-64g-16vram", 350}, {"vbm-4c-32gb", 240}} {
 		a.AddPlan(p.id, 1, 1024, p.disk)
 	}
-	a.AddRegion("ewr", testType, "vc2-2c-4gb", "vhf-1c-1gb", "vx1-g-2c-8g", "vcg-a16-6c-64g-16vram")
+	a.AddRegion("ewr", testType, "vc2-2c-4gb", "vhf-1c-1gb", "vx1-g-2c-8g", "vcg-a16-6c-64g-16vram", "vbm-4c-32gb")
 	a.AddRegion("fra", testType)
 	return a, a.AddSnapshotAs("", "flatcar-"+testRelease+"-amd64", fake.SnapshotComplete, time.Time{})
 }

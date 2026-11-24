@@ -79,7 +79,8 @@ The plan is Keeper's `api_reference` (`vc2-2c-4gb`). The driver launches the fam
 `voc`, and `vx1` only with a local disk (a diskless plan boots from a block storage volume: v1 does not). Cloud GPU
 (`vcg`), GPU bare metal (`vdm`), bare metal (`vbm`) and the free plan `vc2-1c-0.5gb-free` are not launched; the
 plan ID decides this (`ClassifyPlanID`), so the type is not offered (`NotLaunchable`) and a launch is refused from
-the first catalog build, before any stock data. A
+the first catalog build, before any stock data. A diskless `vx1` plan is reported as `StorageIncompatible`, and `vcg`
+and `vdm` report `NotLaunchable` instead of a GPU code. A
 family nobody classified is unsupported, and a test fails when a family of the committed Keeper snapshot has no
 classification. IPv6-only plans (IDs ending in `-v6`, Vultr's documented spelling) are not offered: the offered types
 listing reports them as `NotLaunchable`. The node bootstrap needs IPv4 (see [the driver
