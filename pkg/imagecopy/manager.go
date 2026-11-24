@@ -102,8 +102,8 @@ type job struct {
 	// the rest of the queue goes on.
 	retryAt time.Time
 	created time.Time
-	// availableAt is when the manager first saw the copy available (adoption
-	// time for a copy found available); the idle clock of the garbage collector
+	// availableAt is when the manager first saw the copy available (for a copy found available
+	// at adoption, at the latest Created plus CopyTimeout); the idle clock of the garbage collector
 	// starts there, not at the copy's creation.
 	availableAt   time.Time
 	code, message string
@@ -378,7 +378,12 @@ func (m *Manager) adopt(copies []vendors.ImageCopy) {
 		j := &job{key: k, ref: c.Ref, source: c.Source, startedAt: c.Created, created: c.Created}
 		j.phase = phaseCopying
 		if c.State == vendors.CopyAvailable {
+			// A copy cannot have been pending longer than CopyTimeout, so it was available by
+			// then at the latest: a restart must not reset the idle clock of an old copy.
 			j.phase, j.availableAt = phaseAvailable, m.clk.Now()
+			if limit := c.Created.Add(CopyTimeout); limit.Before(j.availableAt) {
+				j.availableAt = limit
+			}
 		}
 		m.jobs[k] = j
 	}

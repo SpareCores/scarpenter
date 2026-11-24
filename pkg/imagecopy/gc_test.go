@@ -163,12 +163,32 @@ func TestSweepIdleClockStartsWhenTheCopyIsAvailable(t *testing.T) {
 	g.wantCopies(0, "idle for the TTL since it became available")
 }
 
-// A copy found available after a restart counts from the adoption.
-func TestSweepIdleClockOfAnAdoptedCopyStartsAtTheAdoption(t *testing.T) {
+// A copy found available after a restart cannot have been pending longer than CopyTimeout, so its
+// idle clock runs from Created plus CopyTimeout at the latest: a restart does not reset it.
+func TestSweepIdleClockOfAnAdoptedCopyRunsFromCreatedPlusCopyTimeout(t *testing.T) {
 	g := newGCEnvTTL(t, time.Hour)
 	g.ready(dstRegion)
-	g.clk.Step(2 * time.Hour)
+	created := g.copies()[0].Created
+	g.clk.SetTime(created.Add(imagecopy.CopyTimeout + 30*time.Minute))
 	g.m = g.manager() // a restart: the new manager adopts the copies
+	g.gc = imagecopy.NewCollector(imagecopy.CollectorOptions{
+		Managers: []*imagecopy.Manager{g.m},
+		Pinned:   func(context.Context, string) ([]imagecopy.Pin, error) { return g.pins, nil },
+		IdleTTL:  time.Hour, Clock: g.clk, Recorder: g.rec,
+		DeploymentRef: func() *corev1.ObjectReference { return &corev1.ObjectReference{Kind: "Deployment", Name: "scarpenter"} },
+	})
+	g.sweep()
+	g.wantCopies(2, "idle for 30m since Created plus CopyTimeout")
+	g.clk.Step(30 * time.Minute)
+	g.sweep()
+	g.wantCopies(0, "idle for the TTL since Created plus CopyTimeout, not since the restart")
+}
+
+// A copy adopted young (less than CopyTimeout after its creation) counts from the adoption.
+func TestSweepIdleClockOfAYoungAdoptedCopyStartsAtTheAdoption(t *testing.T) {
+	g := newGCEnvTTL(t, time.Hour)
+	g.ready(dstRegion)
+	g.m = g.manager()
 	g.gc = imagecopy.NewCollector(imagecopy.CollectorOptions{
 		Managers: []*imagecopy.Manager{g.m},
 		Pinned:   func(context.Context, string) ([]imagecopy.Pin, error) { return g.pins, nil },
