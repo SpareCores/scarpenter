@@ -5,8 +5,8 @@ official Flatcar AMIs, in every region of the account the NodeClass allows, on-d
 and Spot. It finds or creates the subnets, security groups and placement groups it
 needs, and places nodes by the account's vCPU quotas.
 
-**Supported.** The real-cloud test lane runs on pull requests that touch AWS code, nightly,
-and before every release.
+**Supported.** The real-cloud e2e lane (full scenarios) passes, and a nightly canary checks
+the AWS APIs without launching instances.
 
 ## What you need
 

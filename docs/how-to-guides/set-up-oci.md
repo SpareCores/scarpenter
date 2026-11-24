@@ -5,8 +5,8 @@ NodeClass allows, as fixed sizes of the flexible shapes (on demand and preemptib
 import, on a network it creates or one you bring. Prices and sizes come from Keeper, which needs an API key
 ([Keeper API key](install.md#keeper-api-key)). Details: [OCI driver](../reference/oci-driver.md).
 
-**Supported** (amd64 and arm64). The real-cloud test lane runs on pull requests that touch OCI code,
-nightly, and before every release.
+**Supported** (amd64 and arm64). The real-cloud e2e lane (full scenarios) passes, and a nightly canary checks
+the OCI APIs without launching instances.
 
 ## What you need
 

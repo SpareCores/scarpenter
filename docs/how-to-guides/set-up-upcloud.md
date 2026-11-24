@@ -4,7 +4,7 @@ The UpCloud driver creates cloud servers by plan name in UpCloud zones (UpCloud'
 zones), cloned from a Flatcar template you import into your account. It writes the Public & Utility
 firewall of every server and can create SDN private networks, firewall rulesets and server groups.
 
-**Preview.** The driver is implemented and covered by unit and offline tests, but it has not run against the real cloud yet: expect rough edges and report them.
+**Preview.** The real-cloud e2e lane (`smoke` scenarios) passed on 2026-11-20; the full lane has not run. Expect rough edges and report them.
 
 ## What you need
 
