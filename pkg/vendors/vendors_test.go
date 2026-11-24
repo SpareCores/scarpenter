@@ -68,7 +68,7 @@ func TestRegistry(t *testing.T) {
 		}
 	}()
 
-	reg, err := vendors.NewRegistry(t.Context(), []string{"stub-a"}, vendors.Config{})
+	reg, err := vendors.NewRegistry(t.Context(), []string{"stub-a"}, vendors.Config{}, nil)
 	if err != nil || !reg.Enabled("alpha") || reg.Enabled("stub-a") || len(reg.Vendors()) != 1 {
 		t.Fatalf("registry: %v, %v", reg, err)
 	}
@@ -80,7 +80,7 @@ func TestRegistry(t *testing.T) {
 		"two ids":   {"stub-a", "stub-b"},
 		"init fail": {"stub-bad"},
 	} {
-		if _, err := vendors.NewRegistry(t.Context(), enabled, vendors.Config{}); err == nil {
+		if _, err := vendors.NewRegistry(t.Context(), enabled, vendors.Config{}, nil); err == nil {
 			t.Errorf("%s: no error", name)
 		}
 	}
@@ -165,5 +165,52 @@ func TestFindByIdempotencyKey(t *testing.T) {
 				t.Errorf("looked up %v, want the key tag only", tc.stub.got)
 			}
 		})
+	}
+}
+
+// capture records the Config its driver was initialised with.
+type capture struct {
+	stub
+	cfg *vendors.Config
+}
+
+func (c *capture) Init(_ context.Context, cfg vendors.Config) error { *c.cfg = cfg; return nil }
+
+type stubCopies struct{}
+
+func (stubCopies) Lookup(context.Context, vendors.ImageRequest, bool) (*vendors.Image, error) {
+	return nil, nil
+}
+
+// The copy manager of a vendor reaches that driver's Init and no other's, and a
+// driver that has none gets an untyped nil (never a nil pointer in the interface).
+func TestRegistryHandsTheCopyManagerToTheDriverOfItsVendor(t *testing.T) {
+	var withCopies, without vendors.Config
+	vendors.Register("copies-on", func() vendors.Driver { return &capture{stub: stub{vendor: "copy-vendor"}, cfg: &withCopies} })
+	vendors.Register("copies-off", func() vendors.Driver { return &capture{stub: stub{vendor: "other-vendor"}, cfg: &without} })
+	var asked []string
+	_, err := vendors.NewRegistry(t.Context(), []string{"copies-on", "copies-off"}, vendors.Config{},
+		func(vendor string, _ vendors.Driver) (vendors.ImageCopies, error) {
+			asked = append(asked, vendor)
+			if vendor == "copy-vendor" {
+				return stubCopies{}, nil
+			}
+			return nil, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(asked, []string{"copy-vendor", "other-vendor"}) {
+		t.Errorf("asked for %v", asked)
+	}
+	if _, ok := withCopies.ImageCopies.(stubCopies); !ok || without.ImageCopies != nil {
+		t.Errorf("configs: %+v, %+v", withCopies.ImageCopies, without.ImageCopies)
+	}
+
+	// A refusal of the hook stops the registry.
+	_, err = vendors.NewRegistry(t.Context(), []string{"copies-off"}, vendors.Config{},
+		func(string, vendors.Driver) (vendors.ImageCopies, error) { return nil, errors.New("cannot copy") })
+	if err == nil {
+		t.Error("an error of the hook was swallowed")
 	}
 }

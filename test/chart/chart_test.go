@@ -260,6 +260,8 @@ func TestFullValuesReachTheController(t *testing.T) {
 		{"resource check interval", o.ResourceCheckInterval, 45 * time.Second},
 		{"resource full sweep", o.ResourceFullSweepEvery, 20},
 		{"AWS home region", o.AWSHomeRegion, "eu-central-1"},
+		{"AWS copy images (default false)", o.AWSCopyImages, true},
+		{"image copy idle TTL", o.ImageCopyIdleTTL, 168 * time.Hour},
 		{"core log level", core.LogLevel, "debug"},
 		{"core batch max", core.BatchMaxDuration, 20 * time.Second},
 		{"core batch idle", core.BatchIdleDuration, 2 * time.Second},
@@ -1075,6 +1077,34 @@ func TestNumericIPv4Price(t *testing.T) {
 		if got != want {
 			t.Errorf("ipv4Price=%s: env %q, want %q", set, got, want)
 		}
+	}
+}
+
+// TestImageCopyFlags checks that the copy switch of a vendor is rendered only
+// when the vendor is enabled and the value is true, and that nothing is rendered
+// by default.
+func TestImageCopyFlags(t *testing.T) {
+	flags := func(set ...string) *options.Options {
+		args := slices.Clone(required)
+		for _, s := range set {
+			args = append(args, "--set", s)
+		}
+		o, _, _ := parseControllerArgs(t, deployment(t, mustHelm(t, args...)).Spec.Template.Spec.Containers[0].Args)
+		return o
+	}
+	if o := flags(); o.AWSCopyImages || o.AlicloudCopyImages {
+		t.Error("copies are on by default")
+	}
+	if o := flags("vendors.aws.imageCopies.enabled=true"); !o.AWSCopyImages || o.AlicloudCopyImages {
+		t.Errorf("aws on: %+v", o)
+	}
+	if o := flags("vendors.aws.enabled=false", "vendors.hcloud.enabled=true",
+		"vendors.hcloud.credentials.secret.existingSecret=hcloud", "vendors.aws.imageCopies.enabled=true"); o.AWSCopyImages {
+		t.Error("the switch of a vendor that is off was rendered")
+	}
+	if o := flags("vendors.alicloud.enabled=true", "vendors.alicloud.credentials.mode=none",
+		"vendors.alicloud.imageCopies.enabled=true"); !o.AlicloudCopyImages {
+		t.Error("the alicloud switch was not rendered")
 	}
 }
 

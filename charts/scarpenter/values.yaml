@@ -93,6 +93,11 @@ kubeletClientCA:
 vendors:
   alicloud:
     enabled: false
+    imageCopies:
+      # Copy the Flatcar image of the pinned release into the regions that have
+      # none, when a launch wants the region, and delete the copies nothing uses
+      # (--alicloud-copy-images; false). Opt-in; see docs/reference/image-copies.md.
+      enabled: false
     # Region of the global DescribeRegions call (SCARPENTER_ALICLOUD_HOME_REGION);
     # empty: ap-southeast-1.
     homeRegion: ""
@@ -124,6 +129,12 @@ vendors:
         securityTokenKey: ""
   aws:
     enabled: true
+    imageCopies:
+      # Copy the Flatcar image of the pinned release into the regions that have
+      # none, when a launch wants the region, and delete the copies nothing uses
+      # (--aws-copy-images; false). Opt-in: it needs the copy permissions
+      # (docs/reference/image-copies.md, docs/how-to-guides/copy-images-on-demand.md).
+      enabled: false
     # Region of the account-wide listings (--aws-home-region); default us-east-1.
     homeRegion: ""
     # AWS_REGION of the Deployment: the region the SDK's STS and default clients

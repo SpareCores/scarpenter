@@ -29,17 +29,23 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/karpenter/pkg/events"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/artifacts"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/imagecopy"
 	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
 
 // FieldManager owns the status fields this controller writes. The quota status
@@ -74,7 +80,10 @@ const (
 	ReasonImagesNotReported        = "NotReported"
 	// ReasonImagesPartial: some regions the NodeClass does not name have no image;
 	// their offerings are unavailable, the condition stays True.
-	ReasonImagesPartial        = "ImagesPartial"
+	ReasonImagesPartial = "ImagesPartial"
+	// ReasonImagesCopying: a copy of the image is queued or in flight (plan 29);
+	// the condition stays True, a pending copy is not a fault.
+	ReasonImagesCopying        = "ImagesCopying"
 	ReasonMetricsNotRegistered = "MetricLabelsNotRegistered"
 	// ReasonSettingHasNoEffect is the reason of ConfigurationWarning=True.
 	ReasonSettingHasNoEffect = "SettingHasNoEffect"
@@ -101,8 +110,12 @@ const (
 	// builds a missing boot image (ADR-030).
 	EventImageBuilding    = vendors.CodeImageBuilding
 	EventImageBuildFailed = vendors.CodeImageBuildFailed
-	// imageBuildDedupe is how long the event of one build is not repeated: the
-	// longest build.
+	// EventImageCopying (Normal) and EventImageCopyFailed (Warning): the copy
+	// manager copies a missing boot image into a region (ADR-032).
+	EventImageCopying    = vendors.CodeImageCopying
+	EventImageCopyFailed = vendors.CodeImageCopyFailed
+	// imageBuildDedupe is how long the event of one build or copy is not
+	// repeated: the longest build.
 	imageBuildDedupe = 30 * time.Minute
 	eventDedupe      = 10 * time.Minute
 )
@@ -157,8 +170,13 @@ type Options struct {
 	// Tailnet is the backend of per-node tailnet keys; the zero value is none.
 	Tailnet   TailnetOptions
 	ImageGate interface {
-		SetImageGaps(class, vendor string, gaps map[string]string)
+		SetImageGaps(class, vendor string, gaps map[string]catalog.Code)
 	}
+	// ImageCopies are the copy managers of the vendors with copies on (plan 29).
+	// On each signal of a manager the controller hands it the pinned releases
+	// (Bump, so that a new release is copied at once where nodes run from a
+	// copy) and reconciles the NodeClasses of its vendor.
+	ImageCopies []*imagecopy.Manager
 	// ServerVersion returns the API server's version, for example v1.37.1; nil
 	// skips the skew check.
 	ServerVersion func(ctx context.Context) (string, error)
@@ -174,7 +192,10 @@ type Options struct {
 type Controller struct {
 	opts Options
 
-	mu         sync.Mutex
+	mu sync.Mutex
+	// bumped are the releases (vendor/channel/version) the copy managers were
+	// handed since this process started.
+	bumped     map[string]bool
 	version    string
 	versionAt  time.Time
 	versionErr error
@@ -188,16 +209,100 @@ func New(opts Options) *Controller {
 	if opts.Interval <= 0 {
 		opts.Interval = DefaultInterval
 	}
-	return &Controller{opts: opts}
+	return &Controller{opts: opts, bumped: map[string]bool{}}
 }
 
 // Register watches SCNodeClasses with the manager.
 func (c *Controller) Register(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).Named("nodeclass").
+	b := ctrl.NewControllerManagedBy(mgr).Named("nodeclass").
 		// The tests start several managers in one process; controller-runtime
 		// keeps the names process-wide.
 		WithOptions(controller.Options{SkipNameValidation: new(true)}).
-		For(&v1alpha1.SCNodeClass{}).Complete(c)
+		For(&v1alpha1.SCNodeClass{})
+	for _, m := range c.opts.ImageCopies {
+		signals := make(chan event.GenericEvent)
+		b = b.WatchesRawSource(source.Channel(signals, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, _ client.Object) []reconcile.Request { return c.classesOf(ctx, m.Vendor()) })))
+		err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error { return c.forwardSignals(ctx, m, signals) }))
+		if err != nil {
+			return fmt.Errorf("adding the image copy signal of %s to the manager: %w", m.Vendor(), err)
+		}
+	}
+	return b.Complete(c)
+}
+
+// forwardSignals turns each signal of the copy manager into a Bump with the
+// pinned releases and a reconcile of the vendor's NodeClasses (through the
+// channel source), so that the status and the gate follow a copy within one
+// reconcile. The loop runs on the leader, like the manager's own.
+func (c *Controller) forwardSignals(ctx context.Context, m *imagecopy.Manager, out chan<- event.GenericEvent) error {
+	logger := log.FromContext(ctx).WithName("imagecopy-signal").WithValues("vendor", m.Vendor())
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-m.Signal():
+		}
+		if err := c.bump(ctx, m); err != nil {
+			logger.Error(err, "bumping the pinned releases into the copy regions")
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case out <- event.GenericEvent{Object: &v1alpha1.SCNodeClass{}}:
+		}
+	}
+}
+
+// bumpNewPin hands the copy managers of the NodeClass's vendors a release this
+// process has not seen pinned before, so that the copy of a new release is
+// queued at once where nodes run from a copy of the old one (plan 29, section
+// 6), instead of when the next signal or garbage collection comes.
+func (c *Controller) bumpNewPin(ctx context.Context, nc *v1alpha1.SCNodeClass) {
+	channel := string(nc.Spec.Flatcar.Channel)
+	if channel == "" {
+		channel = selector.DefaultChannel
+	}
+	for _, m := range c.opts.ImageCopies {
+		if !slices.Contains(nc.Spec.Vendors.Names(), m.Vendor()) {
+			continue
+		}
+		k := strings.Join([]string{m.Vendor(), channel, nc.Spec.Flatcar.Version}, "/")
+		c.mu.Lock()
+		seen := c.bumped[k]
+		c.bumped[k] = true
+		c.mu.Unlock()
+		if seen {
+			continue
+		}
+		if err := c.bump(ctx, m); err != nil {
+			log.FromContext(ctx).Error(err, "bumping the pinned releases into the copy regions", "vendor", m.Vendor())
+		}
+	}
+}
+
+func (c *Controller) bump(ctx context.Context, m *imagecopy.Manager) error {
+	pins, err := imagecopy.PinnedReleases(ctx, c.opts.Client)
+	if err != nil {
+		return err
+	}
+	return m.Bump(ctx, pins)
+}
+
+// classesOf returns the requests of the NodeClasses that have a block for the vendor.
+func (c *Controller) classesOf(ctx context.Context, vendor string) []reconcile.Request {
+	var list v1alpha1.SCNodeClassList
+	if err := c.opts.Client.List(ctx, &list); err != nil {
+		log.FromContext(ctx).Error(err, "listing the NodeClasses for an image copy signal")
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		if slices.Contains(list.Items[i].Spec.Vendors.Names(), vendor) {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return reqs
 }
 
 // Reconcile computes the status of the NodeClass and applies it.
@@ -209,6 +314,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if !nc.DeletionTimestamp.IsZero() {
 		return reconcile.Result{}, nil
 	}
+	c.bumpNewPin(ctx, nc)
 	desired := c.compute(ctx, nc)
 	if err := c.apply(ctx, nc, desired); err != nil {
 		return reconcile.Result{}, err
@@ -795,20 +901,27 @@ func (c *Controller) images(
 	if err != nil {
 		return nil, false, ReasonImagesFailed, trim(err.Error())
 	}
-	var notReady []string
+	// An image the copy manager will make (on demand) or is making is not a gap:
+	// it never makes ImagesReady False, not even in a region the NodeClass names.
+	var notReady, onDemand, copying []string
 	readyIn := map[string]bool{}
-	regions := map[string]bool{}
 	for _, img := range images {
-		regions[img.Region] = true
-		if img.Ready {
+		name := fmt.Sprintf("%s/%s", img.Region, img.Arch)
+		switch {
+		case img.Ready:
 			readyIn[img.Region] = true
-		} else {
-			notReady = append(notReady, fmt.Sprintf("%s/%s", img.Region, img.Arch))
+		case img.Reason == vendors.CodeImageCopyOnDemand:
+			onDemand = append(onDemand, name)
+		case img.Reason == vendors.CodeImageCopying:
+			copying = append(copying, name)
+		default:
+			notReady = append(notReady, name)
 		}
 	}
 	slices.Sort(notReady)
 	if len(notReady) == 0 {
-		return images, true, ReasonReady, ""
+		reason, msg = copyReason(onDemand, copying)
+		return images, true, reason, msg
 	}
 	// An image that is not the pinned release (it says another version, or none)
 	// is a fault of what the NodeClass named, not a gap of the vendor: the images
@@ -838,11 +951,38 @@ func (c *Controller) images(
 		return images, false, ReasonImagesNotReady, trim(gap)
 	}
 	return images, true, ReasonImagesPartial, trim("no usable image for " + strings.Join(notReady, ", ") +
-		"; the offerings of those regions are unavailable")
+		"; the offerings of those regions are unavailable" + copyNote(onDemand, copying))
 }
 
-// imageBuildEvents publishes the image builds a driver reports: one Event per
-// architecture and outcome, not one per region or reconcile.
+// copyReason is the reason and message of ImagesReady=True when no image is
+// missing for good: ready, or only copies pending or on demand.
+func copyReason(onDemand, copying []string) (reason, msg string) {
+	switch {
+	case len(copying) > 0:
+		return ReasonImagesCopying, trim(strings.TrimPrefix(copyNote(onDemand, copying), "; "))
+	case len(onDemand) > 0:
+		return ReasonImagesPartial, trim(strings.TrimPrefix(copyNote(onDemand, copying), "; "))
+	}
+	return ReasonReady, ""
+}
+
+// copyNote says which images are being copied or will be copied on demand.
+func copyNote(onDemand, copying []string) string {
+	var note string
+	if len(copying) > 0 {
+		slices.Sort(copying)
+		note += "; being copied: " + strings.Join(copying, ", ") +
+			" (the offerings of those regions return when the copy is available)"
+	}
+	if len(onDemand) > 0 {
+		slices.Sort(onDemand)
+		note += "; copied on demand: " + strings.Join(onDemand, ", ")
+	}
+	return note
+}
+
+// imageBuildEvents publishes the image builds and copies a driver reports: one
+// Event per architecture and outcome, not one per region or reconcile.
 func (c *Controller) imageBuildEvents(nc *v1alpha1.SCNodeClass, vendor string, images []v1alpha1.ImageStatus) {
 	if c.opts.Recorder == nil {
 		return
@@ -850,8 +990,8 @@ func (c *Controller) imageBuildEvents(nc *v1alpha1.SCNodeClass, vendor string, i
 	for _, img := range images {
 		typ := corev1.EventTypeNormal
 		switch img.Reason {
-		case EventImageBuilding:
-		case EventImageBuildFailed:
+		case EventImageBuilding, EventImageCopying:
+		case EventImageBuildFailed, EventImageCopyFailed:
 			typ = corev1.EventTypeWarning
 		default:
 			continue
@@ -871,20 +1011,31 @@ func (c *Controller) imageBuildEvents(nc *v1alpha1.SCNodeClass, vendor string, i
 // (metav1.Condition); a driver's image reason outside it is not promoted.
 var conditionReason = regexp.MustCompile(`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`)
 
-// imageGaps returns the regions in which no image is ready, with the reason.
-func imageGaps(images []v1alpha1.ImageStatus) map[string]string {
+// imageGaps returns the regions whose offerings are gated, with the reason
+// code: the regions in which no image is ready, except those where every image
+// waits for a copy on demand (the demand has to reach a launch first). A region
+// with a copy in flight is ImageCopyPending, any other gap ImageGap.
+func imageGaps(images []v1alpha1.ImageStatus) map[string]catalog.Code {
 	ready := map[string]bool{}
-	why := map[string]string{}
+	pending, failed := map[string]bool{}, map[string]bool{}
 	for _, img := range images {
 		ready[img.Region] = ready[img.Region] || img.Ready
-		if !img.Ready && why[img.Region] == "" {
-			why[img.Region] = img.Message
+		switch {
+		case img.Ready || img.Reason == vendors.CodeImageCopyOnDemand:
+		case img.Reason == vendors.CodeImageCopying:
+			pending[img.Region] = true
+		default:
+			failed[img.Region] = true
 		}
 	}
-	gaps := map[string]string{}
+	gaps := map[string]catalog.Code{}
 	for region, ok := range ready {
-		if !ok {
-			gaps[region] = why[region]
+		switch {
+		case ok:
+		case pending[region]:
+			gaps[region] = catalog.ImageCopyPending
+		case failed[region]:
+			gaps[region] = catalog.ImageGap
 		}
 	}
 	return gaps

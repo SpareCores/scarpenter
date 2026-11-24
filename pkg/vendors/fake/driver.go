@@ -274,8 +274,17 @@ func (d *Driver) Zones(ctx context.Context, region string) ([]vendors.Zone, erro
 // image that says another one is ImageVersionMismatch, one that says none
 // ImageVersionUnknown, and neither is returned.
 func (d *Driver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
+	return d.resolveImage(ctx, req, true)
+}
+
+// resolveImage is ResolveImage; demand says that a launch asks (a report does
+// not), which the copy manager needs to know.
+func (d *Driver) resolveImage(ctx context.Context, req vendors.ImageRequest, demand bool) (*vendors.Image, error) {
 	if req.Arch != "amd64" && req.Arch != "arm64" {
 		return nil, vendors.Errorf(vendors.Fatal, "unsupported architecture %q", req.Arch)
+	}
+	if req.Use.IsDefault() && d.copiesSteered(ctx) {
+		return d.resolveOrCopy(ctx, req, demand)
 	}
 	if req.Use.IsDefault() {
 		return &vendors.Image{
@@ -342,9 +351,9 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 			use, _, err := selector.ImageUse(nc, d, region, arch)
 			var img *vendors.Image
 			if err == nil {
-				img, err = d.ResolveImage(ctx, vendors.ImageRequest{
+				img, err = d.resolveImage(ctx, vendors.ImageRequest{
 					Region: region, Arch: arch, Channel: channel, Version: nc.Spec.Flatcar.Version, Use: use,
-				})
+				}, false)
 			}
 			switch {
 			case err == nil:
@@ -353,7 +362,7 @@ func (d *Driver) ReportImages(ctx context.Context, nc *v1alpha1.SCNodeClass) ([]
 				return nil, fmt.Errorf("%s/%s: %w", region, arch, err)
 			default:
 				st.Message = err.Error()
-				if code := vendors.CodeOf(err); vendors.IsImageVersionCode(code) {
+				if code := vendors.CodeOf(err); vendors.IsImageVersionCode(code) || isCopyCode(code) {
 					st.Reason = code
 				}
 			}

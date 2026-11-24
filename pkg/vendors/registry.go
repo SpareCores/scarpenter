@@ -54,9 +54,15 @@ type Registry struct {
 	drivers map[string]Driver
 }
 
+// ImageCopiesFor returns the copy manager of a vendor about to be initialised,
+// or an untyped nil interface when copies are off for it (plan 29). It gets the
+// driver (not initialised yet) because the manager needs it, and the driver
+// needs the manager in its Config at Init.
+type ImageCopiesFor func(vendor string, d Driver) (ImageCopies, error)
+
 // NewRegistry instantiates and initialises the enabled drivers (the --vendors
-// flag): every name must be registered.
-func NewRegistry(ctx context.Context, enabled []string, cfg Config) (*Registry, error) {
+// flag): every name must be registered. copies may be nil (copies are off).
+func NewRegistry(ctx context.Context, enabled []string, cfg Config, copies ImageCopiesFor) (*Registry, error) {
 	r := &Registry{drivers: map[string]Driver{}}
 	for _, name := range enabled {
 		factoriesMu.Lock()
@@ -67,8 +73,20 @@ func NewRegistry(ctx context.Context, enabled []string, cfg Config) (*Registry, 
 				name, strings.Join(Registered(), ", "))
 		}
 		d := f()
+		cfg := cfg
+		vendor := d.Vendor()
+		if copies != nil {
+			m, err := copies(vendor, d)
+			if err != nil {
+				return nil, fmt.Errorf("image copies of the %s driver: %w", name, err)
+			}
+			cfg.ImageCopies = m
+		}
 		if err := d.Init(ctx, cfg); err != nil {
 			return nil, fmt.Errorf("initialising the %s driver: %w", name, err)
+		}
+		if cfg.ImageCopies != nil && d.Vendor() != vendor {
+			return nil, fmt.Errorf("the %s driver changed its vendor ID from %q to %q in Init", name, vendor, d.Vendor())
 		}
 		if prev, dup := r.drivers[d.Vendor()]; dup {
 			return nil, fmt.Errorf("vendors %q and %q both serve vendor ID %q", prev.Vendor(), name, d.Vendor())

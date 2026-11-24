@@ -186,6 +186,10 @@ type Options struct {
 	// ImageCopyIdleTTL is how long an image copy (plan 29) may go unused before the
 	// garbage collector deletes it.
 	ImageCopyIdleTTL time.Duration
+	// AWSCopyImages and AlicloudCopyImages turn on the image copies of the vendor
+	// (ADR-032); see ImageCopiesOn.
+	AWSCopyImages      bool
+	AlicloudCopyImages bool
 	// ResourcePerUseGrace is how long an unused perUse resource is kept for
 	// launches in flight; ResourceCheckInterval how often the vendor resources
 	// of each SCNodeClass are checked (status and preCreate).
@@ -318,8 +322,22 @@ func (o *Options) AddFlags(fs *coreoptions.FlagSet) {
 	fs.StringVar(&o.OCIIdentityDomain, "oci-identity-domain-url", env.WithDefaultString("SCARPENTER_OCI_IDENTITY_DOMAIN_URL", ""), "workloadIdentityFederation: URL of the IAM identity domain whose token endpoint does the exchange.")
 	fs.StringVar(&o.OCIClientID, "oci-client-id", env.WithDefaultString("SCARPENTER_OCI_CLIENT_ID", ""), "workloadIdentityFederation: client ID of the identity domain's confidential application.")
 	fs.StringVar(&o.OCIClientSecretFile, "oci-client-secret-file", env.WithDefaultString("SCARPENTER_OCI_CLIENT_SECRET_FILE", ""), "workloadIdentityFederation: file with the confidential application's client secret.")
+	fs.BoolVar(&o.AWSCopyImages, "aws-copy-images", env.WithDefaultBool("SCARPENTER_AWS_COPY_IMAGES", false), "Copy the Flatcar image of the pinned release into the AWS regions that have none, when a launch wants the region, and delete the copies nothing uses (ADR-032). Needs the copy permissions of the AWS reference.")
+	fs.BoolVar(&o.AlicloudCopyImages, "alicloud-copy-images", env.WithDefaultBool("SCARPENTER_ALICLOUD_COPY_IMAGES", false), "Copy the Flatcar image of the pinned release into the Alibaba Cloud regions that have none, when a launch wants the region, and delete the copies nothing uses (ADR-032).")
 	fs.BoolVar(&o.HCloudBuildImages, "hcloud-build-images", env.WithDefaultBool("SCARPENTER_HCLOUD_BUILD_IMAGES", true), "Let the hcloud driver build the Flatcar snapshot of the pinned release when the project has none (a temporary server writes Flatcar's hetzner image and is snapshotted, as hcloud-upload-image does). Only NodeClasses without resources.images.use; false for operators who pre-create the snapshots.")
 	fs.IntVar(&o.HCloudServerLimit, "hcloud-server-limit", env.WithDefaultInt("SCARPENTER_HCLOUD_SERVER_LIMIT", 0), "Server limit of the Hetzner Cloud project (shown in its Console; the API does not report it). 0 means unknown: only the API's own refusal ends a launch.")
+}
+
+// ImageCopiesOn says whether image copies are on for the vendor ID (the
+// --<vendor>-copy-images flags).
+func (o *Options) ImageCopiesOn(vendor string) bool {
+	switch vendor {
+	case "aws":
+		return o.AWSCopyImages
+	case "alicloud":
+		return o.AlicloudCopyImages
+	}
+	return false
 }
 
 // Parse parses the arguments and validates the options.

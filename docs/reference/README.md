@@ -60,6 +60,10 @@ Available:
   images, launch, node settings, resources, quotas, error mapping, rights
   ([policy](ovh-iam-policy.json)) and what is not verified live yet (plan 18).
 
+- [**Image copies**](image-copies.md) — the opt-in on-demand copies of the boot image into regions
+  without one: settings per vendor, the image status reasons, tags, deletion rules, metrics and
+  Events (plan 29, ADR-032).
+
 - [**Infrastructure hand-off**](infrastructure-handoff.md) — the IaC-neutral
   contract: what you provide per vendor, by the [selector](resource-selectors.md) (resource
   kinds and `use` forms, account scope and credentials, Flatcar images), what

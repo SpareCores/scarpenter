@@ -718,6 +718,7 @@ spec:
           image: "ghcr.io/sparecores/scarpenter:dev"
           imagePullPolicy: IfNotPresent
           args:
+            - "--alicloud-copy-images=true"
             - "--api-server-endpoint=https://api.example.com"
             - "--cluster-name=lab"
             - "--health-probe-port=8081"

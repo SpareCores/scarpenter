@@ -263,14 +263,27 @@ func newEnv(t *testing.T) *env {
 
 // controller is the controller of the test over the given catalog.
 func (e *env) controller(cat *catalog.Catalog) *nodeclass.Controller {
+	return e.controllerOver(cat, nil)
+}
+
+// controllerWith is the controller of the test with the options changed.
+func (e *env) controllerWith(change func(*nodeclass.Options)) *nodeclass.Controller {
+	return e.controllerOver(e.cat, change)
+}
+
+func (e *env) controllerOver(cat *catalog.Catalog, change func(*nodeclass.Options)) *nodeclass.Controller {
 	resolver := artifacts.New(artifacts.Config{SysextBase: e.server})
 	renderer := bootstrap.NewRenderer(bootstrap.RendererOptions{Refs: e.refs, APIServerEndpoint: "https://api.example.com:6443"})
-	return nodeclass.New(nodeclass.Options{
+	opts := nodeclass.Options{
 		Client: e.c, Catalog: cat, Registry: vendors.NewRegistryFrom(e.drv), Artifacts: resolver, Renderer: renderer, Refs: e.refs,
 		ServerVersion: func(context.Context) (string, error) { return e.version, nil },
 		Recorder:      e.rec,
 		Regions:       e.regions,
-	})
+	}
+	if change != nil {
+		change(&opts)
+	}
+	return nodeclass.New(opts)
 }
 
 func (e *env) newNodeClass(mutate func(*v1alpha1.SCNodeClass)) *v1alpha1.SCNodeClass {
@@ -686,14 +699,14 @@ func TestImageBuildsAreConditionsAndEvents(t *testing.T) {
 
 type gateRecorder struct {
 	mu   sync.Mutex
-	gaps map[string]map[string]string
+	gaps map[string]map[string]catalog.Code
 }
 
-func (g *gateRecorder) SetImageGaps(class, vendor string, gaps map[string]string) {
+func (g *gateRecorder) SetImageGaps(class, vendor string, gaps map[string]catalog.Code) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.gaps == nil {
-		g.gaps = map[string]map[string]string{}
+		g.gaps = map[string]map[string]catalog.Code{}
 	}
 	g.gaps[class+"/"+vendor] = gaps
 }
@@ -723,7 +736,7 @@ func TestImagesReadyWithGapsInRegionsTheNodeClassDoesNotName(t *testing.T) {
 		t.Errorf("ImagesReady = %+v, want True naming the gaps", c)
 	}
 	// Only r2 has no image at all: that is the region whose offerings are gated.
-	if g := gate.gaps[e.name+"/aws"]; len(g) != 1 || g["r2"] == "" {
+	if g := gate.gaps[e.name+"/aws"]; len(g) != 1 || g["r2"] != catalog.ImageGap {
 		t.Errorf("image gaps = %v, want only r2", g)
 	}
 	// No region has an image.

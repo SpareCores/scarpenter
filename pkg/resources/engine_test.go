@@ -946,18 +946,22 @@ func TestImageGapsGateTheOfferingsOfARegion(t *testing.T) {
 	if gap() {
 		t.Fatal("unavailable before any verdict")
 	}
-	e.engine.SetImageGaps("c", "aws", map[string]string{region1: "no image"})
+	e.engine.SetImageGaps("c", "aws", map[string]catalog.Code{region1: catalog.ImageGap})
 	if !gap() || down(e.engine.UnavailableFor("c", "aws", "", region2, "z", "on-demand")) || down(e.engine.UnavailableFor("other", "aws", "", region1, "z", "on-demand")) {
 		t.Error("the gap gates its class, vendor and region only")
 	}
 	if why, _ := e.engine.UnavailableFor("c", "aws", "", region1, "z", "on-demand"); why != (catalog.Reason{Code: catalog.ImageGap, Detail: region1}) {
 		t.Errorf("reason = %+v, want ImageGap naming the region", why)
 	}
+	e.engine.SetImageGaps("c", "aws", map[string]catalog.Code{region1: catalog.ImageCopyPending})
+	if why, _ := e.engine.UnavailableFor("c", "aws", "", region1, "z", "on-demand"); why != (catalog.Reason{Code: catalog.ImageCopyPending, Detail: region1}) {
+		t.Errorf("reason = %+v, want ImageCopyPending naming the region", why)
+	}
 	e.engine.SetImageGaps("c", "aws", nil)
 	if gap() {
 		t.Error("a cleared gap still gates")
 	}
-	e.engine.SetImageGaps("c", "aws", map[string]string{region1: "no image"})
+	e.engine.SetImageGaps("c", "aws", map[string]catalog.Code{region1: catalog.ImageGap})
 	e.engine.ForgetClass("c")
 	if gap() {
 		t.Error("a forgotten class still gates")

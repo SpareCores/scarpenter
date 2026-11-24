@@ -611,6 +611,12 @@ The ConfigMap `scarpenter-fake` steers it (every key optional, YAML):
   tags `flatcar-channel` and `flatcar-version`; without either it says none (`ImageVersionUnknown`).
   Without an `images` selector in the NodeClass every release has a synthesised image. The fake
   also implements `ImageReporter` and `InstanceMetadata`.
+- `imageCopies`: `{official: [{region, version}], copyDuration}`: with the controller's copy flag of the
+  fake's vendor (`--aws-copy-images` for the default `aws`), the fake has official images only in the listed
+  regions (every release, or the `version` given; both architectures) and the other regions are served by
+  the copy manager: a launch there starts a copy (`ImageCopying`), a report says `ImageCopyOnDemand`, and the
+  copy is available after `copyDuration` (default 5m). Without the key, or without the flag, every region has
+  an image, as before ([image copies](image-copies.md)).
 - `existingResources`: the account's own resources, `{kind, region, id, name,
   tags, default, created, description, zone, network, cidr, state}`: what `use` selectors and the
   vendor's default resource (`default: true`) resolve to; the attributes feed `match` (state

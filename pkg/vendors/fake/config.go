@@ -59,7 +59,28 @@ const (
 	// keyBilling sets the vendor's billing rule (BillingDescriber) and the
 	// billing-start stamp new instances get (billingConfig).
 	keyBilling = "billing"
+	// keyCopySteering turns the fake into an account whose official images exist
+	// only where it says (imageCopiesConfig), for the scenarios of the image
+	// copies (plan 29). Without it every region has an official image, as before.
+	keyCopySteering = "imageCopies"
 )
+
+// imageCopiesConfig is the steering of the fake's image copies. It only has an
+// effect when the controller runs with the copy flag of the fake's vendor.
+type imageCopiesConfig struct {
+	// Official lists the regions that have the official image of the releases
+	// (both architectures); the regions it does not list have none.
+	Official []officialRule `json:"official"`
+	// CopyDuration is how long a copy stays pending (default DefaultCopyDuration).
+	CopyDuration *metav1.Duration `json:"copyDuration,omitempty"`
+}
+
+// officialRule says that a region has the official image of a release; an empty
+// version means every release.
+type officialRule struct {
+	Region  string `json:"region"`
+	Version string `json:"version,omitempty"`
+}
 
 // billingConfig is the fake vendor's billing rule, so that the L2 and L3 lanes
 // can impersonate an hourly vendor (or one with a minimum) with periods of
@@ -180,6 +201,7 @@ var steeringKeys = []string{
 	keyRootDisks, keyImages,
 	keyVirtualGPU,
 	keyBilling,
+	keyCopySteering,
 }
 
 // orEmpty is c, or an empty configuration when there is none yet.
@@ -207,6 +229,7 @@ type config struct {
 	existing    []existingResource
 	images      []existingResource
 	billing     *billingConfig
+	imageCopies *imageCopiesConfig
 	raw         map[string]string
 }
 
@@ -396,11 +419,30 @@ func (d *Driver) reloadConfig(ctx context.Context, force bool) {
 			next.images = prev.images
 		}
 	})
+	parseCopySteering(parse, next, prev)
 	d.conf = next
 	d.createOrphans(ctx, next.orphans)
 	d.powerOffClaims(ctx, next.powerOff)
 	d.interruptClaims(next.interrupt)
 	d.reclaimClaims(next.reclaim)
+}
+
+// parseCopySteering parses the imageCopies key.
+func parseCopySteering(parse func(key string, apply func(string) error, keep func()), next, prev *config) {
+	parse(keyCopySteering, func(raw string) error {
+		next.imageCopies = nil
+		if strings.TrimSpace(raw) == "" {
+			return nil
+		}
+		cfg := &imageCopiesConfig{}
+		if err := yaml.UnmarshalStrict([]byte(raw), cfg); err != nil {
+			return err
+		}
+		next.imageCopies = cfg
+		return nil
+	}, func() {
+		next.imageCopies = orEmpty(prev).imageCopies
+	})
 }
 
 // parseProfileRules parses the keys that change what the catalog says about a

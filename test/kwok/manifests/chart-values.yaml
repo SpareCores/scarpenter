@@ -38,7 +38,11 @@ karpenter:
   # the other optional gates stay off.
   batchMaxDuration: 5s
   batchIdleDuration: 500ms
-extraArgs: ["--fake-catalog-vendor=aws"]
+# Image copies are on for the fake's vendor, but the fake has official images
+# everywhere until a scenario steers it with imageCopies (plan 29); a 1m idle TTL
+# makes the copy scenarios fast.
+imageCopies: {idleTTL: 1m}
+extraArgs: ["--fake-catalog-vendor=aws", "--aws-copy-images=true"]
 # The lane taints the real node (workloads must not land on it) and lets the
 # infrastructure tolerate the taint.
 tolerations:

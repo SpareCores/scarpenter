@@ -114,3 +114,54 @@ func TestCreateNeverBootsAnImageOfAnotherVersion(t *testing.T) {
 		t.Errorf("%d instances were created from an image of another version", n)
 	}
 }
+
+// A resolved image is cached for the launches that follow; ForgetImage, which
+// the copy manager calls when it deletes a copy, drops the entries of that image
+// (and of no other), so that the next launch resolves afresh instead of being
+// handed an ID that no longer exists.
+func TestForgetImageDropsTheCachedResolution(t *testing.T) {
+	var drv *requestDriver
+	e := newEnv(t, envOptions{
+		regions: []string{region1},
+		wrap:    func(d *fakedriver.Driver) vendors.Driver { drv = &requestDriver{Driver: d}; return drv },
+	})
+	resolutions := func() int {
+		drv.mu.Lock()
+		defer drv.mu.Unlock()
+		return len(drv.reqs)
+	}
+	launch := func(name string) {
+		t.Helper()
+		if _, err := e.cp.Create(t.Context(), e.newClaim(name, []string{"aws.m7i.large"})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	launch("claim-forget-1")
+	first := resolutions()
+	if first == 0 {
+		t.Fatal("no image was resolved")
+	}
+	drv.mu.Lock()
+	req := drv.reqs[0]
+	drv.mu.Unlock()
+	img, err := drv.Driver.ResolveImage(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	launch("claim-forget-2")
+	if n := resolutions(); n != first {
+		t.Fatalf("the second launch resolved the image again (%d requests, want %d)", n, first)
+	}
+	e.cp.ForgetImage(req.Region, "another-image")
+	e.cp.ForgetImage("another-region", img.Ref)
+	launch("claim-forget-3")
+	if n := resolutions(); n != first {
+		t.Errorf("forgetting another image dropped this one (%d requests, want %d)", n, first)
+	}
+	e.cp.ForgetImage(req.Region, img.Ref)
+	launch("claim-forget-4")
+	if n := resolutions(); n <= first {
+		t.Errorf("the launch after the image was forgotten resolved nothing (%d requests)", n)
+	}
+}

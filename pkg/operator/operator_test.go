@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,6 +116,9 @@ func TestManagerStartsWithTheProductionWiring(t *testing.T) {
 	t.Setenv("SCARPENTER_CLUSTER_NAME", "my-cluster")
 	t.Setenv("SCARPENTER_API_SERVER_ENDPOINT", "https://10.0.0.1:6443")
 	t.Setenv("SCARPENTER_VENDORS", stubVendor)
+	// Image copies on, so that the production wiring of the managers, the
+	// collector and the signal runs with the rest (the stub can copy).
+	t.Setenv("SCARPENTER_AWS_COPY_IMAGES", "true")
 	t.Setenv("SCARPENTER_KEEPER_URL", catalogtest.Server(t).URL)
 	t.Setenv("SCARPENTER_KEEPER_PRICES_REGIONS_PER_REQUEST", "1")
 	// The node bootstrap: a release server that publishes every release (the
@@ -327,9 +331,39 @@ func waitFor(t *testing.T, what string, check func() error) {
 // NodeClass of the smoke test uses it as its vendor block.
 const stubVendor = "aws"
 
+// noCopyVendor is a vendor ID whose driver cannot copy images.
+const noCopyVendor = "alicloud"
+
 func init() {
 	vendors.Register(stubVendor, func() vendors.Driver { return &stubDriver{} })
+	vendors.Register("stubnocopy", func() vendors.Driver { return &noCopyDriver{Driver: &stubDriver{}} })
 }
+
+// noCopyDriver is the stub behind the plain Driver interface: no ImageCopier.
+type noCopyDriver struct{ vendors.Driver }
+
+func (*noCopyDriver) Vendor() string { return noCopyVendor }
+
+// The stub can copy images (and does nothing): the copy flag of its vendor is
+// accepted.
+func (*stubDriver) Architectures(context.Context, string) ([]string, error) { return nil, nil }
+func (*stubDriver) Primary(context.Context, string, vendors.Release) (string, bool, error) {
+	return "", false, nil
+}
+func (*stubDriver) CopySources(context.Context, vendors.Release) ([]vendors.ImageSource, error) {
+	return nil, nil
+}
+func (*stubDriver) ListCopies(context.Context, []string) ([]vendors.ImageCopy, error) {
+	return nil, nil
+}
+func (*stubDriver) StartCopy(
+	context.Context, vendors.ImageSource, string, vendors.Release, map[vendors.TagKey]string, string,
+) (string, error) {
+	return "", vendors.Errorf(vendors.Fatal, "the stub copies nothing")
+}
+func (*stubDriver) CopyInUse(context.Context, vendors.ImageCopy) (bool, error)    { return false, nil }
+func (*stubDriver) TouchCopy(context.Context, vendors.ImageCopy, time.Time) error { return nil }
+func (*stubDriver) DeleteCopy(context.Context, vendors.ImageCopy) error           { return nil }
 
 // stubDriver serves a region without zones and launches nothing.
 type stubDriver struct{}
@@ -355,3 +389,41 @@ func (*stubDriver) ListInstances(context.Context, []string, map[vendors.TagKey]s
 	return nil, nil
 }
 func (*stubDriver) DeleteInstance(context.Context, vendors.InstanceRef) error { return nil }
+
+// A copy flag of a vendor whose driver cannot copy images, or of a vendor that is
+// not enabled, refuses to start instead of being ignored.
+func TestACopyFlagThatCannotBeHonouredRefusesToStart(t *testing.T) {
+	cfg, stop, err := testutil.StartEnvWith(testutil.EnvOptions{CRDs: testutil.KarpenterCRDs()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stop() })
+	for name, tc := range map[string]struct{ vendors, flag, want string }{
+		"no capability":  {"stubnocopy", "SCARPENTER_ALICLOUD_COPY_IMAGES", "cannot copy images"},
+		"vendor not on":  {stubVendor, "SCARPENTER_ALICLOUD_COPY_IMAGES", "vendor is not enabled"},
+		"capable vendor": {stubVendor, "SCARPENTER_AWS_COPY_IMAGES", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("KUBECONFIG", writeKubeconfig(t, cfg))
+			t.Setenv("METRICS_PORT", fmt.Sprint(freePort(t)))
+			t.Setenv("HEALTH_PROBE_PORT", fmt.Sprint(freePort(t)))
+			t.Setenv("DISABLE_LEADER_ELECTION", "true")
+			t.Setenv("SCARPENTER_CLUSTER_NAME", "my-cluster")
+			t.Setenv("SCARPENTER_API_SERVER_ENDPOINT", "https://10.0.0.1:6443")
+			t.Setenv("SCARPENTER_VENDORS", tc.vendors)
+			t.Setenv("SCARPENTER_KEEPER_URL", catalogtest.Server(t).URL)
+			t.Setenv(tc.flag, "true")
+			args := os.Args
+			os.Args = []string{"scarpenter"}
+			t.Cleanup(func() { os.Args = args })
+			ctx, op := operator.NewOperator(coreoperator.NewOperator())
+			_, err := op.NewComponents(ctx)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("NewComponents: %v", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("NewComponents = %v, want an error with %q", err, tc.want)
+			}
+		})
+	}
+}

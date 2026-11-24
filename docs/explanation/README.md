@@ -8,6 +8,9 @@ together, and the decisions that shaped it.
 - [Flatcar images](flatcar-images.md) — the image ladder: where the boot image
   of each vendor comes from, who creates it and how a pinned version finds it
   (ADR-021, researched 2026-11-10)
+- [Image copies](image-copies.md) — why SCarpenter copies the boot image into a region only when
+  a launch wants it, how a pending copy gates the region without blocking a launch, and when
+  a copy is deleted (ADR-032, plan 29)
 - [Vendor capabilities](vendor-capabilities.md) — storage, networking,
   placement, tenancy and location options of the eight vendors, and what the
   Spare Cores data covers (researched 2026-11-05)

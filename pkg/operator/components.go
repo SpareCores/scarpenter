@@ -33,6 +33,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/controllers/quotastatus"
 	"github.com/SpareCores/scarpenter/pkg/controllers/resourcestatus"
 	"github.com/SpareCores/scarpenter/pkg/controllers/retention"
+	"github.com/SpareCores/scarpenter/pkg/imagecopy"
 	"github.com/SpareCores/scarpenter/pkg/quota"
 	"github.com/SpareCores/scarpenter/pkg/resources"
 	"github.com/SpareCores/scarpenter/pkg/scope"
@@ -68,6 +69,13 @@ type Components struct {
 	// the CloudProvider tells it of instances found gone, and its poller asks
 	// the drivers for notices.
 	Interruption *interruption.Controller
+	// ImageCopies are the copy managers of the vendors with copies on (plan 29,
+	// ADR-032); empty with every --<vendor>-copy-images flag off.
+	ImageCopies []*imagecopy.Manager
+
+	// forgetImage drops a deleted image from the CloudProvider's cache; set by
+	// NewCloudProvider, which is built after the managers.
+	forgetImage func(region, ref string)
 
 	scopeMu   sync.Mutex
 	lastScope map[string][]string
@@ -83,6 +91,7 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	if err != nil {
 		return nil, err
 	}
+	c := &Components{}
 	reg, err := vendors.NewRegistry(ctx, opts.Vendors, vendors.Config{
 		ClusterName: opts.ClusterName,
 		Client:      o.GetClient(),
@@ -90,9 +99,14 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		Clock:       o.Clock,
 		Log:         log.FromContext(ctx).WithName("vendors"),
 		Keeper:      keeperClient,
-	})
+	}, c.imageCopiesFor(ctx, o))
 	if err != nil {
 		return nil, fmt.Errorf("building the driver registry: %w", err)
+	}
+	for _, vendor := range []string{"aws", "alicloud"} {
+		if opts.ImageCopiesOn(vendor) && !reg.Enabled(vendor) {
+			return nil, fmt.Errorf("--%s-copy-images is set, but the %s vendor is not enabled", vendor, vendor)
+		}
 	}
 	if o.staticCatalogs, err = staticCatalogs(reg); err != nil {
 		return nil, err
@@ -105,7 +119,7 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		Interrupted:          opts.InterruptionUnavailableTTL,
 	})
 
-	c := &Components{Registry: reg, Unavailable: un, Signals: retention.NewSignals(o.Clock)}
+	c.Registry, c.Unavailable, c.Signals = reg, un, retention.NewSignals(o.Clock)
 	if opts.Interruption {
 		c.Interruption = interruption.New(interruption.Options{
 			Client:      o.GetClient(),
@@ -178,15 +192,52 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	if c.Catalog, err = o.WithCatalog(c.Facts, un, c.Tracker, c.Resources); err != nil {
 		return nil, err
 	}
-	for _, r := range []interface {
+	runnables := []interface {
 		Start(context.Context) error
 		NeedLeaderElection() bool
-	}{c.Facts, c.Tracker} {
+	}{c.Facts, c.Tracker}
+	for _, m := range c.ImageCopies {
+		runnables = append(runnables, m)
+	}
+	for _, r := range runnables {
 		if err := o.Add(r); err != nil {
 			return nil, fmt.Errorf("adding a runnable to the manager: %w", err)
 		}
 	}
 	return c, nil
+}
+
+// imageCopiesFor makes the copy manager of each vendor whose --<vendor>-copy-images
+// flag is on (the registry calls it before the driver's Init, which receives the
+// manager). It returns an untyped nil for the others: a typed nil *Manager in
+// vendors.Config.ImageCopies would look like a manager to the driver.
+func (c *Components) imageCopiesFor(ctx context.Context, o *Operator) vendors.ImageCopiesFor {
+	var shared *imagecopy.Metrics
+	return func(vendor string, d vendors.Driver) (vendors.ImageCopies, error) {
+		if !o.Options.ImageCopiesOn(vendor) {
+			return nil, nil
+		}
+		driver, ok := d.(vendors.ImageCopier)
+		if !ok {
+			return nil, fmt.Errorf("--%s-copy-images is set, but the %s driver cannot copy images", vendor, vendor)
+		}
+		if shared == nil {
+			shared = imagecopy.NewMetrics(metrics.Registry)
+		}
+		m := imagecopy.New(imagecopy.Options{
+			Vendor: vendor, Cluster: o.Options.ClusterName, Driver: driver, Clock: o.Clock,
+			Log:     log.FromContext(ctx).WithName("vendors"),
+			Regions: func(context.Context) ([]string, error) { return c.Facts.Regions(vendor), nil },
+			Invalidate: func(region, ref string) {
+				if c.forgetImage != nil {
+					c.forgetImage(region, ref)
+				}
+			},
+			Metrics: shared,
+		})
+		c.ImageCopies = append(c.ImageCopies, m)
+		return m, nil
+	}
 }
 
 func (c *Components) allowedRegions(ctx context.Context) map[string][]string {
@@ -228,7 +279,7 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 	if c.Interruption != nil {
 		onGone = c.Interruption.InstanceGone
 	}
-	return cloudprovider.New(cloudprovider.Options{
+	cp := cloudprovider.New(cloudprovider.Options{
 		OnQuotaRefusal:    onRefusal,
 		OnInstanceGone:    onGone,
 		Client:            o.GetClient(),
@@ -248,6 +299,8 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 		Clock:             o.Clock,
 		Registerer:        metrics.Registry,
 	})
+	c.forgetImage = cp.ForgetImage
+	return cp
 }
 
 // WithComponentControllers registers the controllers of the components: the
@@ -277,12 +330,26 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	}
 	nodeClass := nodeclass.New(nodeclass.Options{
 		Client: o.GetClient(), Catalog: c.Catalog, Registry: c.Registry, Artifacts: c.Artifacts, Renderer: c.Renderer,
-		Refs: c.Refs, Regions: c.Facts, ImageGate: c.Resources, SysextMirror: opts.SysextBaseURL != "",
+		Refs: c.Refs, Regions: c.Facts, ImageGate: c.Resources, ImageCopies: c.ImageCopies,
+		SysextMirror:  opts.SysextBaseURL != "",
 		ServerVersion: o.serverVersion, Recorder: o.EventRecorder, Clock: o.Clock,
 		Tailnet: nodeclass.TailnetOptions{
 			Backend: opts.TailnetBackend, APIURL: opts.TailnetAPIURL, CredentialsDir: opts.TailnetCredentialsDir,
 		},
 	})
+	if len(c.ImageCopies) > 0 {
+		collector := imagecopy.NewCollector(imagecopy.CollectorOptions{
+			Managers: c.ImageCopies,
+			Pinned: func(ctx context.Context) ([]imagecopy.Pin, error) {
+				return imagecopy.PinnedReleases(ctx, o.GetClient())
+			},
+			IdleTTL: opts.ImageCopyIdleTTL, Interval: opts.GCInterval, Clock: o.Clock,
+			Recorder: o.EventRecorder, DeploymentRef: deploymentRef,
+		})
+		if err := o.Add(collector); err != nil {
+			return fmt.Errorf("adding the image copy collector to the manager: %w", err)
+		}
+	}
 	if err := nodeClass.Register(o.Manager); err != nil {
 		return fmt.Errorf("registering the NodeClass controller: %w", err)
 	}

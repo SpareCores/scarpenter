@@ -168,6 +168,15 @@
             "enabled": {
               "type": "boolean"
             },
+            "imageCopies": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
+            },
             "homeRegion": {
               "type": "string",
               "pattern": "^([a-z]{2}(-[a-z0-9]+)+)?$"
@@ -243,6 +252,15 @@
           "properties": {
             "enabled": {
               "type": "boolean"
+            },
+            "imageCopies": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              }
             },
             "homeRegion": {
               "type": "string"

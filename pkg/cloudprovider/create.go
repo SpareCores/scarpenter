@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -871,6 +872,15 @@ func (c *CloudProvider) image(
 	c.images[key] = cachedImage{image: *img, until: now.Add(c.opts.ImageCacheTTL)}
 	c.imageMu.Unlock()
 	return img, nil
+}
+
+// ForgetImage drops the cached resolutions that answered the image ref in the
+// region: the copy manager deleted the image (plan 29), and a launch must not
+// be given its ID for the rest of the hour.
+func (c *CloudProvider) ForgetImage(region, ref string) {
+	c.imageMu.Lock()
+	defer c.imageMu.Unlock()
+	maps.DeleteFunc(c.images, func(k imageKey, ci cachedImage) bool { return k.region == region && ci.image.Ref == ref })
 }
 
 // maxConditionMessage is the longest message a CreateError carries into the
