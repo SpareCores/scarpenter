@@ -340,8 +340,8 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 	if len(c.ImageCopies) > 0 {
 		collector := imagecopy.NewCollector(imagecopy.CollectorOptions{
 			Managers: c.ImageCopies,
-			Pinned: func(ctx context.Context) ([]imagecopy.Pin, error) {
-				return imagecopy.PinnedReleases(ctx, o.GetClient())
+			Pinned: func(ctx context.Context, vendor string) ([]imagecopy.Pin, error) {
+				return imagecopy.PinnedReleases(ctx, o.GetClient(), vendor)
 			},
 			IdleTTL: opts.ImageCopyIdleTTL, Interval: opts.GCInterval, Clock: o.Clock,
 			Recorder: o.EventRecorder, DeploymentRef: deploymentRef,

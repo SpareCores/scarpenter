@@ -164,3 +164,33 @@ func TestImageCopyEventsAreDeduplicated(t *testing.T) {
 		t.Errorf("events: %v", got)
 	}
 }
+
+// A copy in flight in one named region does not hide the failure of another: the
+// reason is the failed copy's, never ImagesCopying; and a class without a region
+// list whose regions all wait for a copy on demand is not False.
+func TestAPendingCopyIsNeverTheReasonOfAFalseImagesReady(t *testing.T) {
+	t.Run("named", func(t *testing.T) {
+		e, _ := newGatedEnv(t)
+		e.drv.images = []v1alpha1.ImageStatus{
+			copyStatus("amd64", vendors.CodeImageCopying, false), copyStatus("arm64", vendors.CodeImageCopying, false),
+			{Region: "r3", Arch: "amd64", Reason: vendors.CodeImageCopyFailed, Message: "the copy failed"},
+			{Region: "r3", Arch: "arm64", Reason: vendors.CodeImageCopyFailed, Message: "the copy failed"},
+		}
+		e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.AWS.Regions = []string{"r2", "r3"} }))
+		c := vcond(e.reconcile(e.name), "aws", v1alpha1.VendorConditionImagesReady)
+		if c == nil || c.Status != metav1.ConditionFalse || c.Reason != vendors.CodeImageCopyFailed ||
+			strings.Contains(c.Message, "r2") {
+			t.Errorf("ImagesReady = %+v, want False with ImageCopyFailed naming r3 only", c)
+		}
+	})
+	t.Run("on demand only", func(t *testing.T) {
+		e, _ := newGatedEnv(t)
+		e.drv.images = []v1alpha1.ImageStatus{
+			copyStatus("amd64", vendors.CodeImageCopyOnDemand, false), copyStatus("arm64", vendors.CodeImageCopyOnDemand, false),
+		}
+		e.create(e.newNodeClass(func(nc *v1alpha1.SCNodeClass) { nc.Spec.Vendors.AWS.Regions = nil }))
+		if c := vcond(e.reconcile(e.name), "aws", v1alpha1.VendorConditionImagesReady); c == nil || c.Status != metav1.ConditionTrue {
+			t.Errorf("ImagesReady = %+v, want True", c)
+		}
+	})
+}

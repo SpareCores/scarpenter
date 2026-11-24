@@ -10,6 +10,7 @@ package imagecopy_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -19,6 +20,9 @@ import (
 	"sigs.k8s.io/karpenter/pkg/events"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	awsapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
+	hcloudapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/hcloud"
 	"github.com/SpareCores/scarpenter/pkg/imagecopy"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -97,7 +101,7 @@ func newGCEnv(t *testing.T) *gcEnv {
 	g.pins = []imagecopy.Pin{{Channel: channel, Version: version}}
 	g.gc = imagecopy.NewCollector(imagecopy.CollectorOptions{
 		Managers: []*imagecopy.Manager{g.m},
-		Pinned:   func(context.Context) ([]imagecopy.Pin, error) { return g.pins, nil },
+		Pinned:   func(context.Context, string) ([]imagecopy.Pin, error) { return g.pins, nil },
 		IdleTTL:  idleTTL, Clock: g.clk, Recorder: g.rec,
 		DeploymentRef: func() *corev1.ObjectReference { return &corev1.ObjectReference{Kind: "Deployment", Name: "scarpenter"} },
 	})
@@ -345,21 +349,59 @@ func TestPinnedReleases(t *testing.T) {
 	if err := v1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	class := func(name, ch, ver string) *v1alpha1.SCNodeClass {
+	class := func(name, ch, ver string, vendorBlocks v1alpha1.VendorBlocks) *v1alpha1.SCNodeClass {
 		return &v1alpha1.SCNodeClass{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
-			Spec:       v1alpha1.SCNodeClassSpec{Flatcar: v1alpha1.FlatcarSpec{Channel: v1alpha1.FlatcarChannel(ch), Version: ver}},
+			Spec: v1alpha1.SCNodeClassSpec{
+				Flatcar: v1alpha1.FlatcarSpec{Channel: v1alpha1.FlatcarChannel(ch), Version: ver}, Vendors: vendorBlocks,
+			},
 		}
 	}
+	aws := func(regions ...string) v1alpha1.VendorBlocks {
+		return v1alpha1.VendorBlocks{AWS: &awsapi.Settings{Regions: regions}}
+	}
+	images := v1alpha1.VendorBlocks{AWS: &awsapi.Settings{Resources: &awsapi.Resources{
+		Images: &common.Resource{Use: &common.ResourceUse{IDs: map[string]common.IDList{"*": {"ami-1"}}}},
+	}}}
+	owner := v1alpha1.VendorBlocks{AWS: &awsapi.Settings{ImageOwner: "123456789012"}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		class("a", "", "4757.2.3"), class("b", "stable", "4757.2.3"), class("c", "lts", "4081.3.12"),
+		class("a", "", "4757.2.3", aws("us-east-1")), class("b", "stable", "4757.2.3", aws("eu-west-1", "us-east-1")),
+		class("c", "lts", "4081.3.12", aws()),
+		class("hcloud-only", "stable", "4800.0.0", v1alpha1.VendorBlocks{HCloud: &hcloudapi.Settings{}}),
+		class("names-images", "beta", "4900.0.0", images), class("owner", "beta", "4901.0.0", owner),
 	).Build()
-	got, err := imagecopy.PinnedReleases(t.Context(), c)
+	got, err := imagecopy.PinnedReleases(t.Context(), c, "aws")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0] != (imagecopy.Pin{Channel: "stable", Version: "4757.2.3"}) ||
-		got[1] != (imagecopy.Pin{Channel: "lts", Version: "4081.3.12"}) {
-		t.Errorf("PinnedReleases = %v; want stable 4757.2.3 (the default channel) and lts 4081.3.12, once each", got)
+	want := []imagecopy.Pin{
+		{Channel: "stable", Version: "4757.2.3", Regions: []string{"us-east-1", "eu-west-1"}},
+		{Channel: "lts", Version: "4081.3.12"},
+	}
+	if len(got) != 2 || !reflect.DeepEqual(got, want) {
+		t.Errorf("PinnedReleases = %+v; want %+v: one pin per release with the regions of its classes (none for a class without a list), and no class without an aws block, naming its images or an owner", got, want)
+	}
+}
+
+// A pin with regions is copied only into those regions.
+func TestBumpHonoursTheRegionsOfAPin(t *testing.T) {
+	e := newEnv(t)
+	if err := e.ctl.PublishOfficial(t.Context(), srcRegion, channel, "4800.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	ref := e.ready(dstRegion)
+	e.ctl.SetInUse(ref, true)
+	next := vendors.ImageRequest{Region: dstRegion, Arch: "amd64", Channel: channel, Version: "4800.0.0"}
+	if err := e.m.Bump(t.Context(), []imagecopy.Pin{{Channel: channel, Version: "4800.0.0", Regions: []string{"eu-south-2"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := e.lookup(e.m, next, false); code != vendors.CodeImageCopyOnDemand {
+		t.Errorf("code = %q; a class that does not use %s must not make a copy there", code, dstRegion)
+	}
+	if err := e.m.Bump(t.Context(), []imagecopy.Pin{{Channel: channel, Version: "4800.0.0", Regions: []string{dstRegion}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := e.lookup(e.m, next, false); code != vendors.CodeImageCopying {
+		t.Errorf("code = %q; want the release queued in a region its classes use", code)
 	}
 }

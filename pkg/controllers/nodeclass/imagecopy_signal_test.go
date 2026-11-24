@@ -276,3 +276,20 @@ func TestPinningANewReleaseBumpsItIntoTheCopyRegions(t *testing.T) {
 		}
 	}
 }
+
+// A class that pins a release no source region has is not ready for the region
+// that would need a copy: the report says ImageCopySourceMissing.
+func TestAnUnpublishedReleaseIsSourceMissing(t *testing.T) {
+	ce := newCopyEnv(t, copyVersion)
+	ce.create(ce.newNodeClass(func(nc *v1alpha1.SCNodeClass) {
+		nc.Spec.Flatcar.Version = "4999.0.0"
+		nc.Spec.Vendors.AWS.Regions = []string{dstRegion}
+	}))
+	c := vcond(ce.reconcile(ce.name), "aws", v1alpha1.VendorConditionImagesReady)
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != vendors.CodeImageCopySourceMissing {
+		t.Errorf("ImagesReady = %+v, want False with ImageCopySourceMissing", c)
+	}
+	if gap := ce.gate.gapsOf(ce.name)[dstRegion]; gap != catalog.ImageGap {
+		t.Errorf("gap = %q, want ImageGap", gap)
+	}
+}

@@ -243,13 +243,14 @@ func (c *Controller) forwardSignals(ctx context.Context, m *imagecopy.Manager, o
 			return nil
 		case <-m.Signal():
 		}
-		if err := c.bump(ctx, m); err != nil {
-			logger.Error(err, "bumping the pinned releases into the copy regions")
-		}
+		// The reconcile first: the status must not wait for the vendor calls of the bump.
 		select {
 		case <-ctx.Done():
 			return nil
 		case out <- event.GenericEvent{Object: &v1alpha1.SCNodeClass{}}:
+		}
+		if err := c.bump(ctx, m); err != nil {
+			logger.Error(err, "bumping the pinned releases into the copy regions")
 		}
 	}
 }
@@ -270,19 +271,23 @@ func (c *Controller) bumpNewPin(ctx context.Context, nc *v1alpha1.SCNodeClass) {
 		k := strings.Join([]string{m.Vendor(), channel, nc.Spec.Flatcar.Version}, "/")
 		c.mu.Lock()
 		seen := c.bumped[k]
-		c.bumped[k] = true
 		c.mu.Unlock()
 		if seen {
 			continue
 		}
+		// Seen only once the bump went through: a failure is tried again at the next reconcile.
 		if err := c.bump(ctx, m); err != nil {
 			log.FromContext(ctx).Error(err, "bumping the pinned releases into the copy regions", "vendor", m.Vendor())
+			continue
 		}
+		c.mu.Lock()
+		c.bumped[k] = true
+		c.mu.Unlock()
 	}
 }
 
 func (c *Controller) bump(ctx context.Context, m *imagecopy.Manager) error {
-	pins, err := imagecopy.PinnedReleases(ctx, c.opts.Client)
+	pins, err := imagecopy.PinnedReleases(ctx, c.opts.Client, m.Vendor())
 	if err != nil {
 		return err
 	}
@@ -938,8 +943,14 @@ func (c *Controller) images(
 	// The reason is the driver's own when an image that blocks gives one (for
 	// example terms the account has not accepted), with that image's message.
 	named, _ := nc.Spec.Vendors.Regions(vendor)
+	// An image that waits for a copy never blocks, and a region that will have one
+	// counts as having an image when asking whether any region does.
+	noImageAnywhere := len(readyIn) == 0 && len(onDemand) == 0 && len(copying) == 0
 	blocks := func(img v1alpha1.ImageStatus) bool {
-		return !img.Ready && (slices.Contains(named, img.Region) || len(readyIn) == 0)
+		if img.Ready || img.Reason == vendors.CodeImageCopyOnDemand || img.Reason == vendors.CodeImageCopying {
+			return false
+		}
+		return slices.Contains(named, img.Region) || noImageAnywhere
 	}
 	if slices.ContainsFunc(images, blocks) {
 		gap := "no usable image for " + strings.Join(notReady, ", ")

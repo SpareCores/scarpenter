@@ -165,3 +165,55 @@ func TestForgetImageDropsTheCachedResolution(t *testing.T) {
 		t.Errorf("the launch after the image was forgotten resolved nothing (%d requests)", n)
 	}
 }
+
+// holdDriver blocks the first image resolution until released.
+type holdDriver struct {
+	requestDriver
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (d *holdDriver) ResolveImage(ctx context.Context, req vendors.ImageRequest) (*vendors.Image, error) {
+	img, err := d.requestDriver.ResolveImage(ctx, req)
+	d.once.Do(func() {
+		close(d.started)
+		<-d.release
+	})
+	return img, err
+}
+
+// A resolution that was in flight when ForgetImage ran may carry the forgotten
+// image: it is returned to its launch but not cached for the next one.
+func TestForgetImageDuringAResolutionKeepsItOutOfTheCache(t *testing.T) {
+	var drv *holdDriver
+	e := newEnv(t, envOptions{
+		regions: []string{region1},
+		wrap: func(d *fakedriver.Driver) vendors.Driver {
+			drv = &holdDriver{requestDriver: requestDriver{Driver: d}, started: make(chan struct{}), release: make(chan struct{})}
+			return drv
+		},
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.cp.Create(t.Context(), e.newClaim("claim-inflight-1", []string{"aws.m7i.large"}))
+		done <- err
+	}()
+	<-drv.started
+	e.cp.ForgetImage(region1, "any-image")
+	close(drv.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	drv.mu.Lock()
+	first := len(drv.reqs)
+	drv.mu.Unlock()
+	if _, err := e.cp.Create(t.Context(), e.newClaim("claim-inflight-2", []string{"aws.m7i.large"})); err != nil {
+		t.Fatal(err)
+	}
+	drv.mu.Lock()
+	defer drv.mu.Unlock()
+	if len(drv.reqs) <= first {
+		t.Errorf("the second launch was served from the cache of a resolution that raced with ForgetImage (%d requests)", len(drv.reqs))
+	}
+}

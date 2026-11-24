@@ -97,6 +97,8 @@ vendors:
       # Copy the Flatcar image of the pinned release into the regions that have
       # none, when a launch wants the region, and delete the copies nothing uses
       # (--alicloud-copy-images; false). Opt-in; see docs/reference/image-copies.md.
+      # The controller refuses to start with it on until the Alibaba driver
+      # supports copies (plan 29, step 5).
       enabled: false
     # Region of the global DescribeRegions call (SCARPENTER_ALICLOUD_HOME_REGION);
     # empty: ap-southeast-1.
@@ -133,7 +135,8 @@ vendors:
       # Copy the Flatcar image of the pinned release into the regions that have
       # none, when a launch wants the region, and delete the copies nothing uses
       # (--aws-copy-images; false). Opt-in: it needs the copy permissions
-      # (docs/reference/image-copies.md, docs/how-to-guides/copy-images-on-demand.md).
+      # (docs/reference/image-copies.md). The controller refuses to start with it
+      # on until the AWS driver supports copies (plan 29, step 3).
       enabled: false
     # Region of the account-wide listings (--aws-home-region); default us-east-1.
     homeRegion: ""

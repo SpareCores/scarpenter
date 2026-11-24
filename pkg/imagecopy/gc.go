@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/karpenter/pkg/events"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
+	"github.com/SpareCores/scarpenter/pkg/options"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/selector"
 )
@@ -137,21 +138,44 @@ func duplicates(copies []vendors.ImageCopy) map[string]bool {
 	return out
 }
 
-// PinnedReleases lists the releases the SCNodeClasses pin.
-func PinnedReleases(ctx context.Context, r client.Reader) ([]Pin, error) {
+// PinnedReleases lists the releases the SCNodeClasses with a block for the
+// vendor pin, with the regions of the classes that pin each (nil when one of them
+// has no region list). A class that names its images or an owner is left out:
+// it never uses a copy.
+func PinnedReleases(ctx context.Context, r client.Reader, vendor string) ([]Pin, error) {
 	var list v1alpha1.SCNodeClassList
 	if err := r.List(ctx, &list); err != nil {
 		return nil, fmt.Errorf("listing SCNodeClasses: %w", err)
 	}
 	var pins []Pin
 	for i := range list.Items {
-		f := list.Items[i].Spec.Flatcar
-		p := Pin{Channel: string(f.Channel), Version: f.Version}
+		nc := &list.Items[i]
+		regions, ok := nc.Spec.Vendors.Regions(vendor)
+		if !ok || nc.Spec.Vendors.ImageOwner(vendor) != "" {
+			continue
+		}
+		if cfgs, err := options.ResourceConfig(nc, vendor); err != nil || cfgs[string(selector.ImagesKind)].Use != nil {
+			continue
+		}
+		p := Pin{Channel: string(nc.Spec.Flatcar.Channel), Version: nc.Spec.Flatcar.Version}
 		if p.Channel == "" {
 			p.Channel = selector.DefaultChannel
 		}
-		if !slices.Contains(pins, p) {
+		j := slices.IndexFunc(pins, func(q Pin) bool { return q.Channel == p.Channel && q.Version == p.Version })
+		switch {
+		case j < 0:
+			if len(regions) > 0 {
+				p.Regions = slices.Clone(regions)
+			}
 			pins = append(pins, p)
+		case len(regions) == 0:
+			pins[j].Regions = nil
+		case pins[j].Regions != nil:
+			for _, region := range regions {
+				if !slices.Contains(pins[j].Regions, region) {
+					pins[j].Regions = append(pins[j].Regions, region)
+				}
+			}
 		}
 	}
 	return pins, nil
@@ -161,9 +185,9 @@ func PinnedReleases(ctx context.Context, r client.Reader) ([]Pin, error) {
 type CollectorOptions struct {
 	// Managers are the managers of the vendors that have copies on.
 	Managers []*Manager
-	// Pinned lists the releases the SCNodeClasses pin; a sweep that cannot read
-	// them deletes nothing.
-	Pinned  func(ctx context.Context) ([]Pin, error)
+	// Pinned lists the releases the SCNodeClasses pin for a vendor
+	// (PinnedReleases); a sweep that cannot read them deletes nothing.
+	Pinned  func(ctx context.Context, vendor string) ([]Pin, error)
 	IdleTTL time.Duration
 	// Interval defaults to GCInterval.
 	Interval time.Duration
@@ -216,12 +240,13 @@ func (c *Collector) Start(ctx context.Context) error {
 // vendor's copies, bumps the pinned releases into the regions that need them,
 // and deletes what Decide says.
 func (c *Collector) Sweep(ctx context.Context) error {
-	pins, err := c.opts.Pinned(ctx)
-	if err != nil {
-		return fmt.Errorf("reading the pinned releases: %w", err)
-	}
 	var errs []error
 	for _, m := range c.opts.Managers {
+		pins, err := c.opts.Pinned(ctx, m.Vendor())
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: reading the pinned releases: %w", m.Vendor(), err))
+			continue
+		}
 		if err := c.sweep(ctx, m, pins); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", m.Vendor(), err))
 		}
@@ -247,7 +272,9 @@ func (c *Collector) sweep(ctx context.Context, m *Manager, pins []Pin) error {
 	dup := duplicates(copies)
 	primary := map[key]bool{}
 	for _, cp := range copies {
-		pinned := slices.Contains(pins, Pin{Channel: cp.Release.Channel, Version: cp.Release.Version})
+		pinned := slices.ContainsFunc(pins, func(p Pin) bool {
+			return p.Channel == cp.Release.Channel && p.Version == cp.Release.Version
+		})
 		uk := m.Vendor() + "/" + cp.Release.Channel + "/" + cp.Release.Version
 		if _, ok := c.unpinned[uk]; !pinned && !ok {
 			c.unpinned[uk] = now

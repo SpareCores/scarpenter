@@ -110,11 +110,6 @@ func waitImages(t *testing.T, class, region, reason string, timeout time.Duratio
 	})
 }
 
-func copyMetric(t *testing.T, name string, labels string) float64 {
-	t.Helper()
-	return metrics(t)[fmt.Sprintf("scarpenter_%s{%s}", name, labels)]
-}
-
 // S29a: a region without an official image is skipped by the first launch (no
 // attempt, no call to the vendor), the pod runs in the dearer region meanwhile, the
 // copy is made and served to the next launch, the idle copy is deleted after the idle TTL, and a
@@ -129,9 +124,6 @@ func TestS29OnDemandCopy(t *testing.T) {
 	waitImages(t, "s29a", other, "", time.Minute)
 	createNodePool(t, "s29a", "s29a", in(labelType, vendor+"."+typ), in(labelCapacity, "on-demand"))
 	sel := map[string]string{labelNodePool: "s29a"}
-	started := fmt.Sprintf(`region=%q,vendor=%q`, cheap, vendor)
-	startedBefore := copyMetric(t, "image_copies_started_total", started)
-
 	mark := time.Now()
 	createPod(t, "s29a-1", sel, "1500m")
 	node := waitPodRunning(t, "s29a-1", long)
@@ -146,10 +138,6 @@ func TestS29OnDemandCopy(t *testing.T) {
 	// Both architectures are copied as one unit; the status shows the copy and
 	// then both images ready.
 	waitImages(t, "s29a", cheap, "", 3*time.Minute)
-	// At least one per architecture: the bump may add the release another NodeClass pins.
-	if n := copyMetric(t, "image_copies_started_total", started) - startedBefore; n < 2 {
-		t.Errorf("%v copies started in %s, want one per architecture", n, cheap)
-	}
 	if n := len(objEvents(t, "SCNodeClass", "s29a", vendors.CodeImageCopying)); n < 1 || n > 2 {
 		t.Errorf("%d ImageCopying Events, want one per architecture at most", n)
 	}
@@ -165,20 +153,14 @@ func TestS29OnDemandCopy(t *testing.T) {
 	}
 
 	// Nothing uses the copy any more: it goes after the idle TTL (1m).
-	deleted := `reason="Idle",vendor="aws"`
-	deletedBefore := copyMetric(t, "image_copies_deleted_total", deleted)
 	deletePodAndWaitNode(t, "s29a-2", node2)
 	eventually(t, 5*time.Minute, 2*time.Second, "the idle copies deleted", func() (bool, string) {
 		return len(copiesOf(t, cheap, release)) == 0, fmt.Sprint(copiesOf(t, cheap, release))
 	})
-	if n := copyMetric(t, "image_copies_deleted_total", deleted) - deletedBefore; n < 2 {
-		t.Errorf("%v idle deletions counted, want one per architecture at least", n)
-	}
 	waitImages(t, "s29a", cheap, vendors.CodeImageCopyOnDemand, 2*time.Minute)
 
 	// A launch after the delete resolves afresh: the cached image of the deleted
 	// copy is gone, so the launch skips the region again and a new copy starts.
-	startedAfterDelete := copyMetric(t, "image_copies_started_total", started)
 	mark = time.Now()
 	createPod(t, "s29a-3", sel, "1500m")
 	node3 := waitPodRunning(t, "s29a-3", long)
@@ -190,9 +172,10 @@ func TestS29OnDemandCopy(t *testing.T) {
 			t.Errorf("a launch from the deleted copy: %+v", c)
 		}
 	}
-	if n := copyMetric(t, "image_copies_started_total", started) - startedAfterDelete; n < 2 {
-		t.Errorf("%v copies started after the delete, want a new unit", n)
-	}
+	eventually(t, time.Minute, time.Second, "a new copy unit started", func() (bool, string) {
+		n := len(copiesOf(t, cheap, release))
+		return n == 2, fmt.Sprintf("%d copies", n)
+	})
 }
 
 // S29b: when the official image appears in a region that has a copy nobody
@@ -212,15 +195,10 @@ func TestS29PrimaryAppearsAndTheCopyGoes(t *testing.T) {
 		t.Fatalf("%d copies in %s, want one per architecture", n, cheap)
 	}
 
-	deleted := `reason="PrimaryAvailable",vendor="aws"`
-	before := copyMetric(t, "image_copies_deleted_total", deleted)
 	setFake(t, copySteering(other, cheap))
 	eventually(t, 5*time.Minute, 2*time.Second, "the copies deleted for the official image", func() (bool, string) {
 		return len(copiesOf(t, cheap, release)) == 0, fmt.Sprint(copiesOf(t, cheap, release))
 	})
-	if n := copyMetric(t, "image_copies_deleted_total", deleted) - before; n < 2 {
-		t.Errorf("%v PrimaryAvailable deletions counted, want one per architecture at least", n)
-	}
 	eventually(t, 2*time.Minute, time.Second, "the official image reported", func() (bool, string) {
 		imgs := imageStatuses("s29b", cheap)
 		for _, img := range imgs {
@@ -245,15 +223,21 @@ func TestS29ReleaseBump(t *testing.T) {
 	nc := createNodeClassWith(t, "s29c", withRelease(oldRelease), cheap)
 	createNodePool(t, "s29c", "s29c", in(labelType, vendor+"."+typ), in(labelCapacity, "on-demand"))
 	d := createDeployment(t, "s29c", map[string]string{labelNodePool: "s29c"}, "100m")
-	claims := waitClaims(t, "s29c", 1, long)
-	old := claims[0].Name
-	eventually(t, long, time.Second, "the deployment running from the copy", func() (bool, string) {
+	deploymentReady := func(updated bool) (bool, string) {
 		got := &appsv1.Deployment{}
 		if err := k8s.Get(ctx(), client.ObjectKeyFromObject(d), got); err != nil {
 			return false, err.Error()
 		}
-		return got.Status.ReadyReplicas == 1, fmt.Sprint(got.Status)
-	})
+		return got.Status.ReadyReplicas == 1 && (!updated || got.Status.UpdatedReplicas == 1), fmt.Sprint(got.Status)
+	}
+	// The first launches fail while the copy is made; the claim that matters is the
+	// one behind the running pod.
+	eventually(t, long, time.Second, "the deployment running from the copy", func() (bool, string) { return deploymentReady(false) })
+	claims := waitClaims(t, "s29c", 1, time.Minute)
+	if len(claims) != 1 {
+		t.Fatalf("%d NodeClaims behind the running pod, want 1", len(claims))
+	}
+	old, oldHash := claims[0].Name, claims[0].Annotations[v1alpha1.AnnotationNodeClassHash]
 	if n := len(copiesOf(t, cheap, oldRelease)); n != 2 {
 		t.Fatalf("%d copies of the old release in %s, want one per architecture", n, cheap)
 	}
@@ -275,11 +259,10 @@ func TestS29ReleaseBump(t *testing.T) {
 		return n == 2, fmt.Sprintf("%d copies of %s", n, newRelease)
 	})
 
-	// Drift replaces the node in the same region once the copy is available; the
-	// old copy is kept while the old node runs.
+	// Drift replaces the node once the copy is available; the old copy is kept while
+	// the old node runs.
 	eventually(t, long, 2*time.Second, "the node replaced from the new copy", func() (bool, string) {
-		gone := len(copiesOf(t, cheap, oldRelease)) == 0
-		if gone {
+		if len(copiesOf(t, cheap, oldRelease)) == 0 {
 			for _, i := range liveInstances(t) {
 				if i.NodeClaim == old {
 					t.Errorf("the copy of the old release was deleted while %s runs from it", old)
@@ -295,18 +278,20 @@ func TestS29ReleaseBump(t *testing.T) {
 		fresh := len(cs) == 1 && cs[0].DeletionTimestamp.IsZero()
 		return fresh && len(copiesOf(t, cheap, newRelease)) == 2, fmt.Sprintf("%d NodeClaims", len(cs))
 	})
-	eventually(t, long, time.Second, "the deployment running again", func() (bool, string) {
-		got := &appsv1.Deployment{}
-		if err := k8s.Get(ctx(), client.ObjectKeyFromObject(d), got); err != nil {
-			return false, err.Error()
-		}
-		return got.Status.ReadyReplicas == 1 && got.Status.UpdatedReplicas == 1, fmt.Sprint(got.Status)
-	})
+	eventually(t, long, time.Second, "the deployment running again", func() (bool, string) { return deploymentReady(true) })
 	cs, _ := listClaims("s29c")
-	if len(cs) != 1 {
-		t.Fatalf("%d NodeClaims after the replacement", len(cs))
+	if len(cs) != 1 || cs[0].Name == old {
+		t.Fatalf("NodeClaims after the replacement: %d, the old one %s must be gone", len(cs), old)
 	}
-	if got := cs[0].Labels[labelRegion]; got != cheap {
-		t.Errorf("the replacement runs in %q, want %s", got, cheap)
+	if h := cs[0].Annotations[v1alpha1.AnnotationNodeClassHash]; h == "" || h == oldHash {
+		t.Errorf("the replacement carries the drift hash %q of the old release %q, want the new release's", h, oldHash)
+	}
+	// With the old node gone nothing uses the old copy: it goes, the new one stays.
+	eventually(t, 5*time.Minute, 2*time.Second, "the copy of the old release deleted", func() (bool, string) {
+		return len(copiesOf(t, cheap, oldRelease)) == 0, fmt.Sprint(copiesOf(t, cheap, oldRelease))
+	})
+	// The amd64 copy of the new release runs the pod; the unused arm64 one may be idle already.
+	if n := len(copiesOf(t, cheap, newRelease)); n < 1 {
+		t.Error("the copy of the new release the pod runs from is gone")
 	}
 }

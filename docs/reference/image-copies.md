@@ -17,7 +17,10 @@ of the drift hash. Every flag is also an environment variable `SCARPENTER_*`
 | `--image-copy-idle-ttl` | `imageCopies.idleTTL` | `720h` | a duration, at least `1m` |
 
 A flag for a vendor that is not enabled, or whose driver cannot copy images, refuses
-to start the controller. `--cluster-name` must be unique per account: copies are scoped
+to start the controller: setting `--aws-copy-images` (chart `vendors.aws.imageCopies.enabled`)
+or `--alicloud-copy-images` (`vendors.alicloud.imageCopies.enabled`) makes the controller
+fail at start until that vendor's driver supports copies (the AWS driver in plan 29 step 3,
+Alibaba in step 5). `--cluster-name` must be unique per account: copies are scoped
 by it.
 
 Constants, not flags: the retry after a failed copy (6 h), at most 4 copies in flight
@@ -30,7 +33,9 @@ copies in flight are looked at (30 s), the unpinned grace of 2 h and the primary
 ### Opting a class out
 
 A copy is made for a region only when a launch of a class **without** `resources.images.use`
-and **without** `imageOwner` wants it. A class that must not cause copies keeps the
+and **without** `imageOwner` wants it. The release bump (copying a new release ahead where a node
+runs from a copy) considers the same classes only: those with a block for the vendor, the
+default image selection and no `imageOwner`, and only the regions of their region lists. A class that must not cause copies keeps the
 image-less regions out of its NodePools' `topology.kubernetes.io/region` requirements,
 lists its own regions in the vendor block, or names its images with `resources.images.use`.
 
@@ -47,7 +52,7 @@ any `imageOwner` does, the value is not compared.
 | `ImageCopyOnDemand` | no image; a copy is made when a launch wants the region | no: the offerings stay available so that demand can reach a launch | `True`; the reason is `ImagesPartial` and the message lists "copied on demand" |
 | `ImageCopying` | a copy is queued or in flight (the message names the source and the start) | yes, offerings are unavailable with `ImageCopyPending` | `True` with reason `ImagesCopying`, also for a region the NodeClass names: a pending copy is not a fault |
 | `ImageCopyFailed` | the last copy failed less than 6 h ago (the message has the vendor's code and text) | yes, `ImageGap` | as a missing image: `False` for a region the NodeClass names (reason `ImageCopyFailed`), else `True` with `ImagesPartial` |
-| `ImageCopySourceMissing` | copies are on but no source region has the image | yes, `ImageGap` | as a missing image (reason `ImageCopySourceMissing` when it blocks) |
+| `ImageCopySourceMissing` | copies are on but no source region has the image (also in a report, from the vendor's sources kept for 15 min) | yes, `ImageGap` | as a missing image (reason `ImageCopySourceMissing` when it blocks) |
 
 A region is gated only when **no architecture** has a ready image, as for any image gap.
 Both architectures of a region are copied together. After `ImageCopyFailed` the key
@@ -94,7 +99,7 @@ A deletion drops the image from the manager's state and from the CloudProvider's
 |---|---|---|---|
 | `scarpenter_image_copies_started_total` | counter | `vendor`, `region` | copies started, by destination region |
 | `scarpenter_image_copies_completed_total` | counter | `vendor`, `region` | copies that became available |
-| `scarpenter_image_copies_failed_total` | counter | `vendor`, `region`, `code` | copies that failed (the vendor's error code, `CopyFailed` or `CopyTimeout`) |
+| `scarpenter_image_copies_failed_total` | counter | `vendor`, `region`, `code` | copies that failed (the vendor's error code, `CopyFailed`, `CopyMissing` for a copy the vendor no longer lists, or `CopyTimeout`) |
 | `scarpenter_image_copy_duration_seconds` | histogram | `vendor` | from the start to availability |
 | `scarpenter_image_copies_deleted_total` | counter | `vendor`, `reason` | deletions, by the reason above |
 | `scarpenter_image_copies` | gauge | `vendor`, `state` | images the manager knows: `queued`, `pending`, `available`, `failed` |
