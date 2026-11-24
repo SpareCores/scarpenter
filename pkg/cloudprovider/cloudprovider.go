@@ -137,14 +137,19 @@ type CloudProvider struct {
 	// Delete, keyed by the NodeClaim's provider ID.
 	terminating *vendors.TerminatingTracker
 
-	// deleteIssued are the provider IDs whose instance Delete asked the driver
-	// to delete, with the time: an instance found gone afterwards (core calls
-	// Delete several times) is the expected end, not a loss. Entries are dropped
-	// after an hour. In memory only; the durable signal is core's
-	// InstanceTerminating condition (see reportGone), this covers the moment
+	// deleteIssued are the provider IDs whose delete the driver accepted
+	// (DeleteInstance returned nil), with the time: Delete leaves such an
+	// instance, terminating, to the vendor for the terminating grace.
+	// deleteAttempted are the provider IDs Delete has called DeleteInstance for,
+	// whatever the answer, with the time: an instance found gone or stopping
+	// afterwards (core calls Delete several times, and a driver may stop an
+	// instance in steps) is the expected end, not a loss (see reportGone, the only
+	// reader). Entries are dropped after an hour. In memory only; the durable
+	// signal is core's InstanceTerminating condition, this covers the moment
 	// before core has stored it.
-	issuedMu     sync.Mutex
-	deleteIssued map[string]time.Time
+	issuedMu        sync.Mutex
+	deleteIssued    map[string]time.Time
+	deleteAttempted map[string]time.Time
 
 	imageMu sync.Mutex
 	images  map[imageKey]cachedImage
@@ -188,7 +193,7 @@ func New(opts Options) *CloudProvider {
 	return &CloudProvider{
 		opts: opts, metrics: newMetrics(opts.Registerer), started: opts.Clock.Now(), images: map[imageKey]cachedImage{},
 		terminating:  vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
-		deleteIssued: map[string]time.Time{},
+		deleteIssued: map[string]time.Time{}, deleteAttempted: map[string]time.Time{},
 	}
 }
 
@@ -515,14 +520,17 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 	}
 	if inst.State == vendors.StateTerminating {
 		c.reportGone(ctx, nodeClaim, vendor, inst.GoneReason)
-		// The vendor is probably deleting it and core asks again. One that stays
-		// terminating (a stopped instance never goes away by itself) is deleted
-		// again after the grace; DeleteInstance is idempotent.
-		if !c.terminating.Expired(vendor, vendors.InstanceRef(providerID)) {
+		// After a delete the driver accepted, the vendor is probably deleting it
+		// and core asks again. One that stays terminating (a stopped instance
+		// never goes away by itself) is deleted again after the grace;
+		// DeleteInstance is idempotent. One SCarpenter has not deleted yet (a
+		// stopped one, or one a driver halted in its steps) is deleted at once.
+		if c.deleteWasIssued(providerID) && !c.terminating.Expired(vendor, vendors.InstanceRef(providerID)) {
 			return nil
 		}
 		c.terminating.Forget(vendor, vendors.InstanceRef(providerID)) // the next delete comes after another grace
 	}
+	c.note(c.deleteAttempted, providerID)
 	if err := drv.DeleteInstance(ctx, inst.Ref); err != nil {
 		if vendors.IsClass(err, vendors.NotFound) {
 			c.forget(ctx, vendor, region, providerID, name)
@@ -539,16 +547,27 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 	return nil
 }
 
-func (c *CloudProvider) noteDeleteIssued(providerID string) {
+func (c *CloudProvider) noteDeleteIssued(providerID string) { c.note(c.deleteIssued, providerID) }
+
+func (c *CloudProvider) deleteWasIssued(providerID string) bool {
+	c.issuedMu.Lock()
+	defer c.issuedMu.Unlock()
+	_, ok := c.deleteIssued[providerID]
+	return ok
+}
+
+// note records the provider ID in one of the two delete sets and drops the
+// entries older than an hour.
+func (c *CloudProvider) note(set map[string]time.Time, providerID string) {
 	now := c.opts.Clock.Now()
 	c.issuedMu.Lock()
 	defer c.issuedMu.Unlock()
-	for id, at := range c.deleteIssued {
+	for id, at := range set {
 		if now.Sub(at) > time.Hour {
-			delete(c.deleteIssued, id)
+			delete(set, id)
 		}
 	}
-	c.deleteIssued[providerID] = now
+	set[providerID] = now
 }
 
 // reportGone tells OnInstanceGone that the NodeClaim's instance is gone
@@ -567,7 +586,7 @@ func (c *CloudProvider) reportGone(ctx context.Context, nodeClaim *karpv1.NodeCl
 		return
 	}
 	c.issuedMu.Lock()
-	_, issued := c.deleteIssued[nodeClaim.Status.ProviderID]
+	_, issued := c.deleteAttempted[nodeClaim.Status.ProviderID]
 	c.issuedMu.Unlock()
 	conds := nodeClaim.StatusConditions()
 	if issued || conds.Get(karpv1.ConditionTypeDisruptionReason) != nil ||

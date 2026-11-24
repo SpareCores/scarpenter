@@ -95,6 +95,10 @@ type Account struct {
 	// they were halted: the live API lets such a machine run on for minutes after
 	// the delete.
 	DeletedWhileRunning []string
+	// StopGets is the number of GetBareMetal calls that still see a halted
+	// bare-metal server running (the halt is asynchronous); 0 stops it at once and
+	// a negative number never stops it.
+	StopGets int
 	// RefuseDeleteWhilePending refuses to delete an instance that is still
 	// installing with 409 "Server is currently locked", as the live API does.
 	RefuseDeleteWhilePending bool
@@ -128,7 +132,9 @@ type instance struct {
 // bareMetal is a /v2/bare-metals server. It takes no firewall group and no VPC.
 type bareMetal struct {
 	govultr.BareMetalServer
-	hidden bool
+	hidden   bool
+	stopping bool // halted, power_status still running
+	getsLeft int  // Gets that still see it running; negative for ever
 }
 
 type group struct {
@@ -750,6 +756,11 @@ func (a *Account) GetBareMetal(_ context.Context, id string) (*govultr.BareMetal
 	if b == nil {
 		return nil, fail(http.StatusNotFound, MsgNotFound)
 	}
+	if b.stopping && b.getsLeft == 0 {
+		b.stopping, b.PowerStatus = false, "stopped"
+	} else if b.stopping && b.getsLeft > 0 {
+		b.getsLeft--
+	}
 	out := b.BareMetalServer
 	return &out, nil
 }
@@ -781,7 +792,7 @@ func (a *Account) ListBareMetals(
 }
 
 // HaltBareMetal implements vultr.API: a hard power off of a server that is not
-// installing.
+// installing. It is asynchronous: the server is stopped after StopGets Gets.
 func (a *Account) HaltBareMetal(_ context.Context, id string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -795,7 +806,11 @@ func (a *Account) HaltBareMetal(_ context.Context, id string) error {
 	if b.Status == StatusPending {
 		return fail(http.StatusConflict, MsgInstanceInstalls)
 	}
-	b.PowerStatus = "stopped"
+	if a.StopGets == 0 {
+		b.PowerStatus = "stopped"
+	} else {
+		b.stopping, b.getsLeft = true, a.StopGets
+	}
 	return nil
 }
 

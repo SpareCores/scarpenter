@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/vultr/govultr/v3"
 	"k8s.io/utils/clock"
 
@@ -45,6 +46,7 @@ type Ops struct {
 	Cluster string
 	Tags    TagStyle
 	Clock   clock.Clock
+	Log     logr.Logger
 
 	AvailabilityTTL time.Duration
 	PlansTTL        time.Duration
@@ -58,6 +60,7 @@ type Ops struct {
 
 	plansT time.Time
 	recent map[string]recentCreate
+	halts  map[string]bareMetalHalt
 }
 
 // planInfo is what the plan list says of a plan that the driver decides by.
@@ -79,8 +82,8 @@ type recentCreate struct {
 // NewOps returns Ops for a cluster.
 func NewOps(api API, cluster string) *Ops {
 	return &Ops{
-		API: api, Cluster: cluster, Clock: clock.RealClock{},
-		avail: map[string]availability{}, recent: map[string]recentCreate{},
+		API: api, Cluster: cluster, Clock: clock.RealClock{}, Log: logr.Discard(),
+		avail: map[string]availability{}, recent: map[string]recentCreate{}, halts: map[string]bareMetalHalt{},
 	}
 }
 
@@ -237,12 +240,15 @@ func (o *Ops) GetInstance(ctx context.Context, ref vendors.InstanceRef) (*vendor
 // DeleteInstance deletes an instance or bare-metal server that carries this
 // cluster's tag. A gone one (404, or an unparseable reference) is success; one of
 // another cluster is refused; a refusal because the instance is still installing
-// is Retryable (unverified, spike S4). A bare-metal server is halted first, see
-// deleteBareMetal.
+// is Retryable (unverified, spike S4). A bare-metal server is stopped before it is
+// deleted, over several calls, see deleteBareMetal.
 func (o *Ops) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error {
 	id, bareMetal := splitRef(ref)
 	if !isInstanceID(id) {
 		return nil
+	}
+	if bareMetal {
+		return o.deleteBareMetal(ctx, id)
 	}
 	inst, err := o.GetInstance(ctx, ref)
 	if err != nil {
@@ -251,12 +257,8 @@ func (o *Ops) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error
 		}
 		return err
 	}
-	if got := inst.Tags[vendors.TagCluster]; got != o.Cluster || o.Cluster == "" {
-		return vendors.NewError(vendors.Fatal, codeNotOurs,
-			fmt.Errorf("instance %s does not carry the tag of cluster %q: not deleted", id, o.Cluster))
-	}
-	if bareMetal {
-		return o.deleteBareMetal(ctx, id)
+	if err := o.ownInstance(id, inst); err != nil {
+		return err
 	}
 	if err := o.API.DeleteInstance(ctx, id); err != nil {
 		if e := classify(err, opDelete); !vendors.IsClass(e, vendors.NotFound) {
@@ -266,31 +268,110 @@ func (o *Ops) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error
 	return nil
 }
 
-// deleteBareMetal halts the server and then deletes it: a deleted bare-metal
-// server keeps running for minutes (observed: about 4.5), and its kubelet
-// registers the Node again. The delete is the cost-safety action, so it is sent
-// whatever the halt answered, unless the halt says the server is gone (404). A
-// failed halt is returned only when the delete fails too, as the error to retry
-// on.
-func (o *Ops) deleteBareMetal(ctx context.Context, id string) error {
-	var haltErr error
-	if err := o.API.HaltBareMetal(ctx, id); err != nil {
-		haltErr = classify(err, opDelete)
-		if vendors.IsClass(haltErr, vendors.NotFound) {
-			return nil
-		}
+// BareMetalHaltCap is how long a bare-metal server may take to stop after the
+// first halt before it is deleted anyway: a machine that cannot be stopped must
+// not bill for ever.
+const BareMetalHaltCap = 10 * time.Minute
+
+// powerStopped is the power_status of a halted server.
+const powerStopped = "stopped"
+
+// bareMetalHalt is what Ops remembers of a server being stopped for deletion.
+type bareMetalHalt struct {
+	first time.Time // of the first delete attempt
+	sent  bool      // the halt was accepted
+}
+
+// ownInstance refuses an instance that does not carry this cluster's tag.
+func (o *Ops) ownInstance(id string, inst *vendors.Instance) error {
+	if got := inst.Tags[vendors.TagCluster]; got != o.Cluster || o.Cluster == "" {
+		return vendors.NewError(vendors.Fatal, codeNotOurs,
+			fmt.Errorf("instance %s does not carry the tag of cluster %q: not deleted", id, o.Cluster))
 	}
-	if err := o.API.DeleteBareMetal(ctx, id); err != nil {
-		e := classify(err, opDelete)
+	return nil
+}
+
+// deleteBareMetal takes a bare-metal server away in steps, one per call: halt,
+// "still stopping" until GET shows power_status stopped, then DELETE. A deleted
+// bare-metal server keeps running for minutes (observed: about 4.5) and its
+// kubelet registers the Node again, and the halt is asynchronous, so a DELETE
+// sent with or right after the halt is no stop. Core calls Delete again until
+// the server is gone, which the lookup in DeleteInstance reports as NotFound.
+//
+// The first attempt on a server is remembered in memory (a restart restarts the
+// cap): a server not stopped BareMetalHaltCap after it, or one that cannot be
+// halted, is deleted anyway. A server that is still installing is locked against
+// a halt and runs no node yet, so it is deleted at once.
+func (o *Ops) deleteBareMetal(ctx context.Context, id string) error {
+	s, err := o.API.GetBareMetal(ctx, id)
+	if err != nil {
+		e := classify(err, opGet)
 		if vendors.IsClass(e, vendors.NotFound) {
+			o.forgetHalt(id)
 			return nil
-		}
-		if haltErr != nil {
-			return haltErr
 		}
 		return e
 	}
+	inst := ToBareMetalInstance(*s, o.Tags)
+	if err := o.ownInstance(id, inst); err != nil {
+		return err
+	}
+	nodeClaim := inst.Tags[vendors.TagNodeClaim]
+	if s.Status == statePending || s.PowerStatus == powerStopped {
+		return o.sendBareMetalDelete(ctx, id, nodeClaim)
+	}
+	now := o.Clock.Now()
+	o.mu.Lock()
+	h, seen := o.halts[id]
+	o.mu.Unlock()
+	if !seen {
+		h.first = now
+	} else if now.Sub(h.first) >= BareMetalHaltCap {
+		o.Log.Info("bare-metal server did not stop in time, deleting it anyway",
+			"nodeclaim", nodeClaim, "server", id, "power-status", s.PowerStatus)
+		return o.sendBareMetalDelete(ctx, id, nodeClaim)
+	}
+	if !h.sent {
+		if err := o.API.HaltBareMetal(ctx, id); err != nil {
+			o.rememberHalt(id, h)
+			e := classify(err, opDelete)
+			if vendors.IsClass(e, vendors.NotFound) {
+				o.forgetHalt(id)
+				return nil
+			}
+			return e
+		}
+		h.sent = true
+		o.Log.Info("halted bare-metal server", "nodeclaim", nodeClaim, "server", id)
+	}
+	o.rememberHalt(id, h)
+	return vendors.NewError(vendors.Retryable, vendors.CodeStopping,
+		fmt.Errorf("bare-metal server %s is still stopping (power status %q)", id, s.PowerStatus))
+}
+
+// sendBareMetalDelete deletes a server that is stopped, or is given up on; a 404
+// means it is gone already.
+func (o *Ops) sendBareMetalDelete(ctx context.Context, id, nodeClaim string) error {
+	if err := o.API.DeleteBareMetal(ctx, id); err != nil {
+		if e := classify(err, opDelete); !vendors.IsClass(e, vendors.NotFound) {
+			return e
+		}
+	}
+	o.Log.Info("deleted bare-metal server", "nodeclaim", nodeClaim, "server", id)
+	o.forgetHalt(id)
 	return nil
+}
+
+func (o *Ops) rememberHalt(id string, h bareMetalHalt) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.halts[id] = h
+}
+
+func (o *Ops) forgetHalt(id string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	delete(o.halts, id)
 }
 
 // Launch creates an instance idempotently. Vultr has no create token, so the

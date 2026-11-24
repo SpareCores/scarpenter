@@ -806,6 +806,15 @@ type ManagedResources interface {
 	List(ctx context.Context, regions []string, tags map[TagKey]string) ([]ResourceRef, error)
 }
 
+// LookupLimiter is the optional capability of a driver whose FindInstance does
+// not see every instance type (Vultr lists bare-metal servers only while the
+// registration timeout is long enough for them). A "not found" for such a type
+// proves nothing, so the garbage collector keeps the Node of it. instanceType is
+// the Node's instance-type label, empty when the Node has none.
+type LookupLimiter interface {
+	CannotFind(instanceType string) bool
+}
+
 // LeftoverCollector is the optional capability of a driver whose launch makes
 // vendor resources of its own besides the instance (a network interface, a
 // public address) that are neither managed resources nor removed with the

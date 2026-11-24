@@ -597,9 +597,9 @@ func TestGetListAndDeleteFollowTheInstance(t *testing.T) {
 }
 
 // A powered-off instance is terminating for ever: it is invisible to Get and
-// List, Delete leaves it to the vendor for the terminating grace and deletes it
-// again after it.
-func TestDeleteDeletesAStoppedInstanceAfterTheTerminatingGrace(t *testing.T) {
+// List, and Delete deletes it at once: only an instance whose delete SCarpenter
+// has issued is left to the vendor for the terminating grace.
+func TestDeleteDeletesAStoppedInstanceAtOnce(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
 	if err != nil {
@@ -620,24 +620,60 @@ func TestDeleteDeletesAStoppedInstanceAfterTheTerminatingGrace(t *testing.T) {
 	claim.Name = "claim-1"
 	claim.Status.ProviderID = created.Status.ProviderID
 	claim.Annotations = created.Annotations
-	for _, step := range []time.Duration{0, vendors.DefaultTerminatingGrace - time.Second} {
-		e.advance(step)
-		if err := e.cp.Delete(t.Context(), claim); err != nil {
-			t.Fatalf("Delete inside the grace = %v, want nil", err)
-		}
-		if got := e.calls("delete"); len(got) != 0 {
-			t.Fatalf("delete calls %+v inside the grace", got)
-		}
-	}
-	e.advance(time.Second)
 	if err := e.cp.Delete(t.Context(), claim); err != nil {
-		t.Fatalf("Delete after the grace = %v, want nil", err)
+		t.Fatalf("Delete of a stopped instance = %v, want nil", err)
 	}
 	if got := e.calls("delete"); len(got) != 1 {
-		t.Fatalf("delete calls %+v, want the one after the grace", got)
+		t.Fatalf("delete calls %+v, want one at once", got)
 	}
 	if err := e.cp.Delete(t.Context(), claim); !karpcloudprovider.IsNodeClaimNotFoundError(err) {
 		t.Errorf("Delete of the deleted instance = %v, want NodeClaimNotFound", err)
+	}
+}
+
+// slowDeleter is a driver whose delete is accepted but leaves the instance to
+// the vendor: it stays as it is, and the test powers it off.
+type slowDeleter struct {
+	*fakedriver.Driver
+	deletes int
+}
+
+func (d *slowDeleter) DeleteInstance(context.Context, vendors.InstanceRef) error {
+	d.deletes++
+	return nil
+}
+
+// After SCarpenter's own accepted delete, a terminating instance is left to the
+// vendor for the terminating grace and deleted again after it.
+func TestDeleteWaitsTheTerminatingGraceAfterItsOwnDelete(t *testing.T) {
+	var slow *slowDeleter
+	e := newEnv(t, envOptions{wrap: func(d *fakedriver.Driver) vendors.Driver {
+		slow = &slowDeleter{Driver: d}
+		return slow
+	}})
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := &karpv1.NodeClaim{}
+	claim.Name = "claim-1"
+	claim.Status.ProviderID = created.Status.ProviderID
+	claim.Annotations = created.Annotations
+	if err := e.cp.Delete(t.Context(), claim); err != nil || slow.deletes != 1 {
+		t.Fatalf("Delete of a running instance = %v, %d deletes", err, slow.deletes)
+	}
+	if !e.driver.PowerOff(vendors.InstanceRef(created.Annotations[v1alpha1.AnnotationInstanceRef])) {
+		t.Fatal("no instance to power off")
+	}
+	for _, step := range []time.Duration{0, vendors.DefaultTerminatingGrace - time.Second} {
+		e.advance(step)
+		if err := e.cp.Delete(t.Context(), claim); err != nil || slow.deletes != 1 {
+			t.Fatalf("Delete inside the grace = %v, %d deletes, want nil and no new one", err, slow.deletes)
+		}
+	}
+	e.advance(time.Second)
+	if err := e.cp.Delete(t.Context(), claim); err != nil || slow.deletes != 2 {
+		t.Fatalf("Delete after the grace = %v, %d deletes, want the second", err, slow.deletes)
 	}
 }
 

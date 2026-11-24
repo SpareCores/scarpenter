@@ -6,9 +6,10 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package garbagecollection deletes what SCarpenter launched or minted and no
 // NodeClaim owns any more (overview section 10): instances tagged with this
-// cluster whose NodeClaim does not exist, and bootstrap-token Secrets of
-// NodeClaims that do not exist. Both must be older than a grace period, which
-// covers the time between the vendor call and the NodeClaim status update.
+// cluster whose NodeClaim does not exist, bootstrap-token Secrets of NodeClaims
+// that do not exist, and Nodes whose NodeClaim and instance are both gone. All
+// must be older than a grace period, which covers the time between the vendor
+// call and the NodeClaim status update.
 // Every deletion is logged with its reason, published as an Event and counted.
 //
 // Managed vendor resources (plan 06) plug in through Options.Sweepers; a driver
@@ -36,6 +37,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
+	"github.com/SpareCores/scarpenter/pkg/scope"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -54,6 +56,7 @@ const (
 const (
 	KindInstance = "instance"
 	KindToken    = "bootstrap-token"
+	KindNode     = "node"
 	// KindLeftover counts what a vendors.LeftoverCollector deleted (the
 	// resources a failed or interrupted launch left besides the instance).
 	KindLeftover = "launch-leftover"
@@ -66,7 +69,9 @@ const (
 // Reasons of a deletion; EventReason is the reason of the Events.
 const (
 	ReasonNoNodeClaim = "NodeClaimNotFound"
-	ReasonUntagged    = "NoNodeClaimTag"
+	// ReasonNoInstance: the Node has no NodeClaim and its instance is gone.
+	ReasonNoInstance = "InstanceNotFound"
+	ReasonUntagged   = "NoNodeClaimTag"
 	// ReasonTerminating: the instance has been terminating for longer than the
 	// terminating grace (a stopped or powered-off instance is reported
 	// terminating by every driver and is never going to disappear by itself).
@@ -78,6 +83,13 @@ const (
 // managed vendor resources (plan 06). nodeClaims is the set of existing
 // NodeClaim names.
 type Sweeper func(ctx context.Context, nodeClaims sets.Set[string]) error
+
+// stoppingKey names an instance across vendors: references of two vendors may
+// share a region name.
+type stoppingKey struct {
+	vendor string
+	ref    vendors.InstanceRef
+}
 
 // Options configures the collector.
 type Options struct {
@@ -116,6 +128,7 @@ type Options struct {
 type Result struct {
 	Instances int // deleted (or would be, in dry-run)
 	Tokens    int
+	Nodes     int
 }
 
 // Collector is the garbage collector. It implements controller-runtime's
@@ -124,6 +137,10 @@ type Collector struct {
 	opts Options
 	// terminating keeps the first sighting of each terminating instance.
 	terminating *vendors.TerminatingTracker
+	// stopping are the instances a driver has started to stop for the collector's
+	// delete (DeleteInstance answered Stopping): once stopped they are deleted
+	// without the terminating grace, which is for instances the vendor deletes.
+	stopping map[stoppingKey]bool
 
 	deletions *prometheus.CounterVec
 	duration  prometheus.Histogram
@@ -144,6 +161,7 @@ func New(opts Options) *Collector {
 	c := &Collector{
 		opts:        opts,
 		terminating: vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
+		stopping:    map[stoppingKey]bool{},
 		deletions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_gc_deletions_total",
 			Help: "Orphans the garbage collector deleted (or would have, in dry-run), by vendor, kind, reason and result.",
@@ -187,8 +205,9 @@ func (c *Collector) Start(ctx context.Context) error {
 	for {
 		if res, err := c.Sweep(ctx); err != nil {
 			logger.Error(err, "garbage collection sweep had errors")
-		} else if res.Instances+res.Tokens > 0 {
-			logger.Info("garbage collection sweep finished", "instances", res.Instances, "tokens", res.Tokens)
+		} else if res.Instances+res.Tokens+res.Nodes > 0 {
+			logger.Info("garbage collection sweep finished",
+				"instances", res.Instances, "tokens", res.Tokens, "nodes", res.Nodes)
 		}
 		select {
 		case <-ctx.Done():
@@ -211,8 +230,10 @@ func (c *Collector) Sweep(ctx context.Context) (Result, error) {
 		return res, fmt.Errorf("listing NodeClaims: %w", err)
 	}
 	names := sets.New[string]()
+	providerIDs := sets.New[string]()
 	for i := range claims.Items {
 		names.Insert(claims.Items[i].Name)
+		providerIDs.Insert(claims.Items[i].Status.ProviderID)
 	}
 
 	for _, vendor := range c.opts.Registry.Vendors() {
@@ -224,6 +245,11 @@ func (c *Collector) Sweep(ctx context.Context) (Result, error) {
 	}
 	n, err := c.sweepTokens(ctx, logger, names)
 	res.Tokens = n
+	if err != nil {
+		errs = append(errs, err)
+	}
+	nodes, err := c.sweepNodes(ctx, logger, providerIDs)
+	res.Nodes = nodes
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -254,7 +280,9 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			continue
 		}
 		stillTerminating := map[vendors.InstanceRef]bool{}
+		listed := map[vendors.InstanceRef]bool{}
 		for _, inst := range insts {
+			listed[inst.Ref] = true
 			if inst.State == vendors.StateTerminated {
 				continue
 			}
@@ -263,7 +291,7 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			terminatingTooLong := false
 			if inst.State == vendors.StateTerminating {
 				stillTerminating[inst.Ref] = true
-				terminatingTooLong = c.terminating.Expired(vendor, inst.Ref)
+				terminatingTooLong = c.terminating.Expired(vendor, inst.Ref) || c.stopping[stoppingKey{vendor, inst.Ref}]
 			}
 			claim := inst.Tags[vendors.TagNodeClaim]
 			if claim != "" && claims.Has(claim) {
@@ -295,6 +323,11 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			}
 		}
 		c.terminating.Retain(vendor, region, stillTerminating)
+		for k := range c.stopping {
+			if k.vendor == vendor && k.ref.Region() == region && !listed[k.ref] {
+				delete(c.stopping, k)
+			}
+		}
 		if lc, ok := drv.(vendors.LeftoverCollector); ok && !c.opts.DryRun {
 			if err := c.collectLeftovers(ctx, logger, lc, vendor, region, claims); err != nil {
 				errs = append(errs, err)
@@ -347,11 +380,18 @@ func (c *Collector) deleteInstance(ctx context.Context, logger logr.Logger, drv 
 		c.event(ctx, inst.Tags[vendors.TagNodeClass], "would delete orphan instance %s (%s)", inst.Ref, reason)
 		return true, nil
 	}
-	if err := drv.DeleteInstance(ctx, inst.Ref); err != nil && !vendors.IsClass(err, vendors.NotFound) {
+	if err := drv.DeleteInstance(ctx, inst.Ref); vendors.IsStopping(err) {
+		// Not done, not failed: the driver deletes it once it is stopped, on a
+		// later sweep.
+		c.stopping[stoppingKey{vendor, inst.Ref}] = true
+		l.Info("the orphan instance is stopping before its delete")
+		return false, nil
+	} else if err != nil && !vendors.IsClass(err, vendors.NotFound) {
 		c.deletions.WithLabelValues(vendor, KindInstance, reason, ResultError).Inc()
 		l.Error(err, "deleting the orphan instance failed")
 		return false, fmt.Errorf("deleting %s instance %s: %w", vendor, inst.Ref, err)
 	}
+	delete(c.stopping, stoppingKey{vendor, inst.Ref})
 	l.Info("deleted the orphan instance")
 	c.deletions.WithLabelValues(vendor, KindInstance, reason, ResultDeleted).Inc()
 	c.event(ctx, inst.Tags[vendors.TagNodeClass], "deleted orphan instance %s (%s)", inst.Ref, reason)
@@ -400,6 +440,71 @@ func (c *Collector) sweepTokens(ctx context.Context, logger logr.Logger, claims 
 		c.deletions.WithLabelValues("", KindToken, reason, ResultDeleted).Inc()
 		c.event(ctx, s.Labels[bootstrap.LabelNodeClass], "deleted the bootstrap token %s of the missing NodeClaim %s (%s)",
 			s.Name, s.Labels[LabelNodeClaim], reason)
+		n++
+	}
+	return n, errors.Join(errs...)
+}
+
+// sweepNodes deletes the Nodes that outlived their NodeClaim and their instance:
+// a machine that keeps running for a while after its delete (a Vultr bare-metal
+// server) registers its Node again, and nothing in core removes a Node without a
+// NodeClaim. A Node is deleted only when its provider ID is of an enabled
+// vendor, no NodeClaim has that provider ID, it is older than the grace period
+// (a registering node is never touched) and the driver says its instance does
+// not exist. An instance that exists, or a lookup that fails, keeps the Node, and
+// so does a Node of an instance type the driver's lookup cannot see
+// (vendors.LookupLimiter).
+func (c *Collector) sweepNodes(ctx context.Context, logger logr.Logger,
+	claimProviderIDs sets.Set[string]) (int, error) {
+	var nodes corev1.NodeList
+	if err := c.opts.Client.List(ctx, &nodes); err != nil {
+		return 0, fmt.Errorf("listing Nodes: %w", err)
+	}
+	var errs []error
+	n := 0
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
+		providerID := node.Spec.ProviderID
+		if providerID == "" || claimProviderIDs.Has(providerID) || !node.DeletionTimestamp.IsZero() ||
+			c.opts.Clock.Since(node.CreationTimestamp.Time) < c.opts.GracePeriod {
+			continue
+		}
+		vendor, region, claim, err := scope.ParseProviderID(providerID)
+		if err != nil {
+			continue
+		}
+		drv, ok := c.opts.Registry.Driver(vendor)
+		if !ok {
+			continue
+		}
+		if l, ok := drv.(vendors.LookupLimiter); ok && l.CannotFind(node.Labels[corev1.LabelInstanceTypeStable]) {
+			continue
+		}
+		tags := map[vendors.TagKey]string{vendors.TagCluster: c.opts.ClusterName, vendors.TagNodeClaim: claim}
+		if _, err := drv.FindInstance(ctx, region, tags); !vendors.IsClass(err, vendors.NotFound) {
+			if err != nil {
+				errs = append(errs, fmt.Errorf("looking up the instance of Node %s: %w", node.Name, err))
+			}
+			continue
+		}
+		l := logger.WithValues("node", node.Name, "provider-id", providerID, "reason", ReasonNoInstance,
+			"age", c.opts.Clock.Since(node.CreationTimestamp.Time).Round(time.Second).String())
+		if c.opts.DryRun {
+			l.Info("dry-run: would delete the orphan Node")
+			c.deletions.WithLabelValues(vendor, KindNode, ReasonNoInstance, ResultDryRun).Inc()
+			n++
+			continue
+		}
+		// The UID precondition keeps a re-created Node of the same name safe.
+		err = c.opts.Client.Delete(ctx, node, client.Preconditions{UID: &node.UID})
+		if err != nil && !apierrors.IsNotFound(err) {
+			c.deletions.WithLabelValues(vendor, KindNode, ReasonNoInstance, ResultError).Inc()
+			errs = append(errs, fmt.Errorf("deleting Node %s: %w", node.Name, err))
+			continue
+		}
+		l.Info("deleted the orphan Node")
+		c.deletions.WithLabelValues(vendor, KindNode, ReasonNoInstance, ResultDeleted).Inc()
+		c.event(ctx, "", "deleted the Node %s: no NodeClaim and its instance is gone (%s)", node.Name, ReasonNoInstance)
 		n++
 	}
 	return n, errors.Join(errs...)
