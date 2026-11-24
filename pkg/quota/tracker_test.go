@@ -32,6 +32,7 @@ type stub struct {
 	consume   map[string][]vendors.Consumption // "type/capacity" -> consumption
 	launch    map[string]map[string][]string
 	err       error
+	launchErr map[string]error // region -> error of its LaunchableTypes
 	calls     map[string]int
 	limitsSeq []bool
 }
@@ -100,6 +101,9 @@ func (s *stub) LaunchableTypes(_ context.Context, region string) (map[string][]s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls["launch/"+region]++
+	if err := s.launchErr[region]; err != nil {
+		return nil, err
+	}
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -649,3 +653,39 @@ func TestMetrics(t *testing.T) {
 
 // down drops the reason of a gate's answer.
 func down(_ catalog.Reason, isDown bool) bool { return isDown }
+
+func TestLaunchableSettled(t *testing.T) {
+	e := setup(t, nil)
+	e.drv.set(func() {
+		e.drv.launch["r1"] = map[string][]string{"m.large": {"z1"}}
+		e.drv.launch["r2"] = map[string][]string{"m.large": {"z3"}}
+		e.drv.launchErr = map[string]error{"r2": errors.New("boom")}
+	})
+	if e.tr.LaunchableSettled("stub") {
+		t.Error("nothing is settled before the first refresh")
+	}
+	_ = e.tr.Refresh(context.Background()) // r2 fails
+	if e.tr.LaunchableSettled("stub") {
+		t.Error("a region that failed once must hold the vendor back")
+	}
+	e.clk.Step(quota.LaunchableSettleTimeout - time.Second)
+	if e.tr.LaunchableSettled("stub") {
+		t.Error("a failing region holds the vendor back for the timeout")
+	}
+	e.clk.Step(2 * time.Second)
+	if !e.tr.LaunchableSettled("stub") {
+		t.Error("a region failing for the timeout must not hold the vendor back")
+	}
+	if !e.tr.LaunchableSettled("other") {
+		t.Error("a vendor without a lister is always settled")
+	}
+}
+
+func TestLaunchableSettledWhenAllRegionsReported(t *testing.T) {
+	e := setup(t, nil)
+	e.drv.set(func() { e.drv.launch["r1"] = map[string][]string{"m.large": {"z1"}} })
+	e.refresh()
+	if !e.tr.LaunchableSettled("stub") {
+		t.Error("every region reported")
+	}
+}

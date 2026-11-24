@@ -133,9 +133,11 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, fmt.Errorf("explaining the offered types of %s: %w", nc.Name, err)
 	}
 	// Before a vendor's driver facts are loaded every type of it looks
-	// unavailable: such a vendor is left as it is, the others are reported.
+	// unavailable, and before its launchable types are reported types it cannot
+	// launch still look offered: such a vendor is left as it is, the others are
+	// reported.
 	report.Types = slices.DeleteFunc(report.Types, func(t catalog.TypeReport) bool {
-		return !c.opts.Catalog.FactsLoaded(t.Vendor)
+		return !c.opts.Catalog.OfferedReady(t.Vendor)
 	})
 	c.mu.Lock()
 	c.last[nc.Name] = c.opts.Clock.Now()
@@ -216,7 +218,7 @@ func (c *Controller) applyStatus(ctx context.Context, nc *v1alpha1.SCNodeClass,
 	vendors := map[string]any{}
 	changed := false
 	for _, vendor := range nc.Spec.Vendors.Names() {
-		if !c.opts.Catalog.FactsLoaded(vendor) {
+		if !c.opts.Catalog.OfferedReady(vendor) {
 			// Kept as it is: left out of the apply, it would be removed.
 			if cur := nc.Status.Vendors[vendor].Offered; cur != nil {
 				vendors[vendor] = map[string]any{"offered": offeredBlock(*cur)}

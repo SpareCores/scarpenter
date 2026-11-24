@@ -64,6 +64,12 @@ func (g *regionGate) Unavailable(_, _, region, _, _ string) (catalog.Reason, boo
 type hcloudLoading struct {
 	catalog.StaticFacts
 	loaded *atomic.Bool
+	// unsettled says that the launchable types of hcloud are not reported yet.
+	unsettled *atomic.Bool
+}
+
+func (f hcloudLoading) LaunchableSettled(vendor string) bool {
+	return vendor != "hcloud" || !f.unsettled.Load()
 }
 
 func (f hcloudLoading) Loaded(vendor string) bool { return vendor != "hcloud" || f.loaded.Load() }
@@ -78,8 +84,10 @@ type env struct {
 	gate *regionGate
 	// hcloudLoaded says that the facts of hcloud are loaded (startWith only).
 	hcloudLoaded atomic.Bool
-	ctx          context.Context
-	scheme       *runtime.Scheme
+	// hcloudUnsettled says that its launchable types are not reported yet.
+	hcloudUnsettled atomic.Bool
+	ctx             context.Context
+	scheme          *runtime.Scheme
 }
 
 func start(t *testing.T, annotations map[string]string, tune func(*offered.Options, *env)) *env {
@@ -130,7 +138,7 @@ func startWith(t *testing.T, twoVendors bool, annotations map[string]string, tun
 	e := &env{c: c, clk: clocktesting.NewFakeClock(time.Now()), gate: &regionGate{}, scheme: scheme}
 	e.un = unavailable.New(e.clk, unavailable.TTLs{})
 	e.cat = catalog.New(catalog.Options{
-		Source: catalogtest.Source(t), Facts: hcloudLoading{catalogtest.Facts(t, factVendors...), &e.hcloudLoaded},
+		Source: catalogtest.Source(t), Facts: hcloudLoading{catalogtest.Facts(t, factVendors...), &e.hcloudLoaded, &e.hcloudUnsettled},
 		Unavailable: e.un, Gate: e.gate, Clock: e.clk,
 	})
 	e.cat.SetClasses([]catalog.Class{catalog.NewClass(className, scope)})
@@ -676,4 +684,35 @@ func gatedIn(l *offered.Listing, gatedZones map[string]bool) error {
 		return fmt.Errorf("no type is gated in one region yet")
 	}
 	return nil
+}
+
+// Until a vendor's launchable types are reported, its listing and status are
+// left alone (nothing is written the first time), and the vendors that need no
+// such report are published as usual; the vendor is published once it settles.
+func TestUnsettledVendorIsNotPublishedUntilItSettles(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	e := startWith(t, true, annotated, func(o *offered.Options, e *env) {
+		o.Reader, o.Namespace = o.Client, namespace
+		e.hcloudLoaded.Store(true)
+		e.hcloudUnsettled.Store(true)
+	})
+	eventually(t, "the aws listing", func() error {
+		_, _, err := e.listing(offered.ConfigMapName(className, "aws"))
+		return err
+	})
+	var nc v1alpha1.SCNodeClass
+	if err := e.c.Get(e.ctx, client.ObjectKey{Name: className}, &nc); err != nil {
+		t.Fatal(err)
+	}
+	if o := nc.Status.Vendors["hcloud"].Offered; o != nil {
+		t.Errorf("hcloud summary before its launchable types settled: %+v", o)
+	}
+	if _, _, err := e.listing(offered.ConfigMapName(className, "hcloud")); !apierrors.IsNotFound(err) {
+		t.Errorf("hcloud listing before its launchable types settled: %v", err)
+	}
+	e.hcloudUnsettled.Store(false)
+	eventually(t, "the hcloud listing", func() error {
+		_, _, err := e.listing(offered.ConfigMapName(className, "hcloud"))
+		return err
+	})
 }

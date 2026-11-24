@@ -39,9 +39,12 @@ const (
 	DefaultLimitsInterval     = 15 * time.Minute
 	DefaultMaxStaleness       = 15 * time.Minute
 	DefaultLaunchableInterval = time.Hour
-	DefaultDebounce           = 10 * time.Second
-	DefaultReservationTTL     = 10 * time.Minute
-	DefaultJitter             = 0.1
+	// LaunchableSettleTimeout is how long after its first launchable-types
+	// attempt a region that keeps failing stops holding back LaunchableSettled.
+	LaunchableSettleTimeout = 5 * time.Minute
+	DefaultDebounce         = 10 * time.Second
+	DefaultReservationTTL   = 10 * time.Minute
+	DefaultJitter           = 0.1
 	// tickInterval is how often Start looks for due work.
 	tickInterval = time.Second
 	labelRegion  = "region"
@@ -91,6 +94,7 @@ type state struct {
 	refreshing  bool
 	launchAt    time.Time
 	launchNext  time.Time
+	launchTried time.Time // first launchable-types attempt
 	launchTypes map[string][]string
 }
 
@@ -432,6 +436,9 @@ func (t *Tracker) refreshLaunchable(ctx context.Context, k regionKey) error {
 		return nil
 	}
 	st.launchNext = now.Add(t.jittered(t.opts.LaunchableInterval))
+	if st.launchTried.IsZero() {
+		st.launchTried = now
+	}
 	if err != nil {
 		// Retry with the usage cadence, not after the launchable interval.
 		st.launchNext = now.Add(t.jittered(t.opts.RefreshInterval))
@@ -492,6 +499,28 @@ func (t *Tracker) Launchable(vendor, apiReference, zoneID string) (launchable, k
 		return false, false
 	}
 	return t.launchable[vendor][apiReference][zoneID], true
+}
+
+// LaunchableSettled reports whether the launchable types of the vendor are
+// known as far as they will be soon: every region in scope has reported, or has
+// failed for LaunchableSettleTimeout since its first attempt (its zones then
+// stay unknown and offered). True for a vendor without an OfferingLister.
+func (t *Tracker) LaunchableSettled(vendor string) bool {
+	regions := t.opts.Scope()[vendor]
+	now := t.opts.Clock.Now()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if _, ok := t.listers[vendor]; !ok {
+		return true
+	}
+	for _, r := range regions {
+		st := t.states[regionKey{vendor, r}]
+		if st == nil || st.launchAt.IsZero() &&
+			(st.launchTried.IsZero() || now.Sub(st.launchTried) < LaunchableSettleTimeout) {
+			return false
+		}
+	}
+	return true
 }
 
 // LaunchableEpoch changes whenever the launchable types change.

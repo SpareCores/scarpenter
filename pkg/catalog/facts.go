@@ -83,6 +83,14 @@ type LaunchableFacts interface {
 	Launchable(vendor, apiReference, zoneID string) (launchable, known bool)
 }
 
+// SettledFacts is an optional extension of Facts: until a vendor's launchable
+// types have been reported, LaunchableFacts says "unknown" and the vendor's
+// types look launchable. Surfaces that advertise what is offered wait for it;
+// launch-time selection does not.
+type SettledFacts interface {
+	LaunchableSettled(vendor string) bool
+}
+
 // DefaultRouteFacts is an optional extension of Facts: whether the driver can
 // host the type with the class's default settings (no profile selected). A type
 // it cannot is offered only with a storage profile that makes it work, and not

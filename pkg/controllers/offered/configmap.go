@@ -94,8 +94,8 @@ func (c *Controller) publish(ctx context.Context, nc *v1alpha1.SCNodeClass, repo
 	}
 	var errs []error
 	for name, vendor := range wanted {
-		if !c.opts.Catalog.FactsLoaded(vendor) {
-			continue // written once the vendor's facts are loaded
+		if !c.opts.Catalog.OfferedReady(vendor) {
+			continue // written once the vendor's facts are loaded and its launchable types settled
 		}
 		var types []catalog.TypeReport
 		for _, t := range report.Types {
