@@ -39,6 +39,15 @@ type countingDriver struct {
 	touches   int
 	primaries int
 	tokens    []string
+	// failSourcesOf makes CopySources of that version fail.
+	failSourcesOf string
+}
+
+func (c *countingDriver) CopySources(ctx context.Context, rel vendors.Release) ([]vendors.ImageSource, error) {
+	if rel.Version == c.failSourcesOf {
+		return nil, vendors.Errorf(vendors.Retryable, "sources of %s cannot be listed", rel.Version)
+	}
+	return c.Driver.CopySources(ctx, rel)
 }
 
 func (c *countingDriver) Primary(ctx context.Context, region string, rel vendors.Release) (string, bool, error) {
@@ -725,5 +734,35 @@ func TestBumpRemembersAPrimaryImageUntilTheNextSync(t *testing.T) {
 	}
 	if e.drv.primaries == before {
 		t.Error("a bump after a sync did not ask again")
+	}
+}
+
+// One release whose sources cannot be listed holds back its own job only: the
+// jobs queued after it start, and it is tried again after the backoff.
+func TestAFailingSourceListingDoesNotStallTheQueue(t *testing.T) {
+	e := newEnv(t)
+	e.drv.failSourcesOf = "9.9.9"
+	bad := vendors.ImageRequest{Region: dstRegion, Arch: "amd64", Channel: channel, Version: "9.9.9"}
+	if _, code := e.lookup(e.m, bad, true); code != vendors.CodeImageCopying {
+		t.Fatalf("code = %q", code)
+	}
+	e.clk.Step(time.Second)
+	e.want(e.m, "eu-south-2", "amd64", true, vendors.CodeImageCopying)
+	e.tick(e.m)
+	if n := e.ctl.Starts(); n != 2 {
+		t.Fatalf("Starts = %d; want the later region's two images started past the failing job", n)
+	}
+	if _, code := e.lookup(e.m, bad, false); code != vendors.CodeImageCopying {
+		t.Errorf("the held-back job says %q; want it still queued (ImageCopying)", code)
+	}
+	e.drv.failSourcesOf = ""
+	e.tick(e.m)
+	if n := e.ctl.Starts(); n != 2 {
+		t.Errorf("Starts = %d before the backoff ended", n)
+	}
+	e.clk.Step(imagecopy.BackoffMin)
+	e.tick(e.m)
+	if _, code := e.lookup(e.m, bad, false); code != vendors.CodeImageCopySourceMissing {
+		t.Errorf("after the backoff the job says %q; want it resolved (no source for 9.9.9)", code)
 	}
 }

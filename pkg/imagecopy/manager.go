@@ -98,8 +98,11 @@ type job struct {
 	// startedAt is when the copy started (or was created, if adopted); until is
 	// when a failure or a missing source is forgotten.
 	startedAt, until time.Time
-	created          time.Time
-	code, message    string
+	// retryAt holds a queued job back (its sources could not be listed) while
+	// the rest of the queue goes on.
+	retryAt       time.Time
+	created       time.Time
+	code, message string
 	// lastResolve is the last time a launch resolved the copy; lastTouch the
 	// last use recorded at the vendor.
 	lastResolve, lastTouch time.Time
@@ -418,7 +421,9 @@ func (m *Manager) gauges() {
 func (m *Manager) Tick(ctx context.Context) error {
 	m.tickMu.Lock()
 	defer m.tickMu.Unlock()
-	return errors.Join(m.poll(ctx), m.start(ctx), m.touch(ctx))
+	err := m.poll(ctx)
+	m.start(ctx)
+	return errors.Join(err, m.touch(ctx))
 }
 
 type failure struct {
@@ -508,14 +513,14 @@ func (m *Manager) fail(j *job, code, msg string) {
 // start starts the queued copies in demand order while a slot is free, one
 // source choice per release. A limit or throttling error keeps the copy queued
 // and pauses all starts of the vendor with a doubling backoff.
-func (m *Manager) start(ctx context.Context) error {
+func (m *Manager) start(ctx context.Context) {
 	sources := map[vendors.Release][]vendors.ImageSource{}
 	for {
 		m.mu.Lock()
 		now := m.clk.Now()
 		if now.Before(m.backoffUntil) {
 			m.mu.Unlock()
-			return nil
+			return
 		}
 		inflight := 0
 		var next *job
@@ -523,13 +528,13 @@ func (m *Manager) start(ctx context.Context) error {
 			switch {
 			case j.phase == phaseCopying:
 				inflight++
-			case j.phase == phaseQueued && (next == nil || j.seq < next.seq):
+			case j.phase == phaseQueued && !now.Before(j.retryAt) && (next == nil || j.seq < next.seq):
 				next = j
 			}
 		}
 		if next == nil || inflight >= MaxInFlight {
 			m.mu.Unlock()
-			return nil
+			return
 		}
 		k, enqueued := next.key, next.enqueued
 		m.mu.Unlock()
@@ -538,7 +543,14 @@ func (m *Manager) start(ctx context.Context) error {
 		if !ok {
 			var err error
 			if srcs, err = m.opts.Driver.CopySources(ctx, k.rel); err != nil {
-				return fmt.Errorf("listing the sources of %s: %w", k, err)
+				// One release's failing sources must not stall the queue: hold this
+				// job back and go on with the others.
+				m.mu.Lock()
+				next.retryAt = m.clk.Now().Add(BackoffMin)
+				m.mu.Unlock()
+				m.log.Info("the sources of an image copy cannot be listed, trying again later",
+					"region", k.region, "version", k.rel.Version, "arch", k.rel.Arch, "error", err.Error())
+				continue
 			}
 			sources[k.rel] = srcs
 		}
@@ -561,7 +573,7 @@ func (m *Manager) start(ctx context.Context) error {
 				m.backoffUntil = m.clk.Now().Add(m.backoff)
 				m.mu.Unlock()
 				m.log.Info("image copy limited, waiting", "region", k.region, "backoff", m.backoff, "error", err.Error())
-				return nil
+				return
 			}
 			m.fail(next, codeOf(err), err.Error())
 			continue

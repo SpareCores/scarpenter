@@ -269,6 +269,21 @@
       }
     },
     {
+      "Sid": "OptionalImageCopiesSource",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CopyImage"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*::image/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ec2:Owner": "075585003325"
+        }
+      }
+    },
+    {
       "Sid": "OptionalImageCopiesTagAtCreation",
       "Effect": "Allow",
       "Action": [
@@ -298,7 +313,9 @@
       ],
       "Condition": {
         "StringEquals": {
-          "aws:ResourceTag/scarpenter.sparecores.com/cluster": "CLUSTER_NAME"
+          "aws:ResourceTag/scarpenter.sparecores.com/cluster": "CLUSTER_NAME",
+          "aws:ResourceTag/scarpenter.sparecores.com/managed-by": "scarpenter",
+          "aws:ResourceTag/scarpenter.sparecores.com/resource-kind": "image-copy"
         }
       }
     },

@@ -117,7 +117,9 @@ type Driver struct {
 	// region/ref (an AMI ID never changes its size).
 	rootBytes map[string]int64
 	// sources caches CopySources per release (non-empty answers only).
-	sources  map[vendors.Release]cachedSources
+	sources map[vendors.Release]cachedSources
+	// launches caches the last launch of a copy (an image attribute), by region/ref.
+	launches map[string]cachedLaunch
 	subnets  map[string]cachedSubnet
 	quotas   map[string]*regionQuota
 	pgs      map[string]cachedGroup
@@ -149,7 +151,8 @@ func New(opts ...Option) *Driver {
 		callTimeout:  DefaultCallTimeout, launchTimeout: DefaultLaunchTimeout, types: newTypeTable(),
 		cl: map[string]Clients{}, zones: map[string]*cached[[]vendors.Zone]{}, images: map[imageKey]cachedImage{},
 		roots: map[string]string{}, rootBytes: map[string]int64{}, sources: map[vendors.Release]cachedSources{},
-		subnets: map[string]cachedSubnet{}, quotas: map[string]*regionQuota{},
+		launches: map[string]cachedLaunch{},
+		subnets:  map[string]cachedSubnet{}, quotas: map[string]*regionQuota{},
 		pgs: map[string]cachedGroup{}, sgCheck: map[string]cachedSG{},
 		userSeen: map[string]bool{},
 	}

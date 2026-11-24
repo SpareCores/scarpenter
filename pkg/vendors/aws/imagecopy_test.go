@@ -156,12 +156,37 @@ func TestCopySourcesDoNotCacheAnEmptyAnswer(t *testing.T) {
 	}
 }
 
-func TestCopySourcesError(t *testing.T) {
+// A region that fails for good (an SCP denies it) is no source and not an error: for a
+// release nobody published the answer is "none", which the manager reports as
+// ImageCopySourceMissing. Only a transient error makes it an unknown.
+func TestCopySourcesIgnoreARegionThatFailsForGood(t *testing.T) {
 	e := copyEnv(t, false)
-	e.acct.Fail(fake.Failure{Op: "DescribeImages", Code: "UnauthorizedOperation", Count: -1})
-	srcs, err := e.d.CopySources(t.Context(), copyRel)
-	if err == nil || len(srcs) != 0 || !vendors.IsClass(err, vendors.Fatal) {
-		t.Errorf("CopySources without DescribeImages = %v, %v; want a Fatal error", srcs, err)
+	unpublished := vendors.Release{Channel: "stable", Version: "9.9.9", Arch: "amd64"}
+	e.acct.Fail(fake.Failure{Op: "DescribeImages", Region: "eu-central-1", Code: "UnauthorizedOperation", Count: -1})
+	if srcs, err := e.d.CopySources(t.Context(), unpublished); err != nil || len(srcs) != 0 {
+		t.Errorf("CopySources of an unpublished release with a denied region = %v, %v; want none and no error", srcs, err)
+	}
+	e2 := copyEnv(t, false)
+	e2.acct.Fail(fake.Failure{Op: "DescribeImages", Region: "eu-central-1", Code: "RequestLimitExceeded", Count: -1})
+	if _, err := e2.d.CopySources(t.Context(), unpublished); !vendors.IsClass(err, vendors.Retryable) {
+		t.Errorf("CopySources with a throttled region and no source = %v; want Retryable", err)
+	}
+	// With a source found the failing region is left out, and the list is kept only briefly.
+	e3 := copyEnv(t, false)
+	e3.acct.Fail(fake.Failure{Op: "DescribeImages", Region: "eu-central-1", Code: "UnauthorizedOperation", Count: -1})
+	srcs, err := e3.d.CopySources(t.Context(), copyRel)
+	if err != nil || len(srcs) != 2 {
+		t.Fatalf("CopySources with a denied region = %v, %v; want the 2 other sources", srcs, err)
+	}
+	before := e3.acct.Calls("DescribeImages")
+	e3.d.CopySources(t.Context(), copyRel) //nolint:errcheck // cached
+	if e3.acct.Calls("DescribeImages") != before {
+		t.Error("an incomplete list was not cached at all")
+	}
+	e3.clock.Step(6 * time.Minute)
+	e3.d.CopySources(t.Context(), copyRel) //nolint:errcheck // asked again
+	if e3.acct.Calls("DescribeImages") == before {
+		t.Error("an incomplete list was kept for longer than a few minutes")
 	}
 }
 
@@ -276,12 +301,17 @@ func TestListCopiesLastUsedFromTheImageAttribute(t *testing.T) {
 	if e.acct.Calls("DescribeImageAttribute") != 2 {
 		t.Errorf("%d DescribeImageAttribute calls, want one per available image", e.acct.Calls("DescribeImageAttribute"))
 	}
-	// A pending image is not asked about.
+	// A pending image is not asked about, and the answers are kept for an hour.
 	startCopyOf(t, e, vendors.Release{Channel: "stable", Version: "4757.2.3", Arch: "arm64"}, "t2")
 	before := e.acct.Calls("DescribeImageAttribute")
 	listCopies(t, e)
-	if n := e.acct.Calls("DescribeImageAttribute") - before; n != 2 {
-		t.Errorf("a listing with a pending image made %d attribute calls, want 2", n)
+	if n := e.acct.Calls("DescribeImageAttribute") - before; n != 0 {
+		t.Errorf("a listing within the hour made %d attribute calls, want none (cached)", n)
+	}
+	e.clock.Step(2 * time.Hour)
+	listCopies(t, e)
+	if n := e.acct.Calls("DescribeImageAttribute") - before; n != 3 {
+		t.Errorf("a listing after the hour made %d attribute calls, want 3 (the second copy is available by now)", n)
 	}
 }
 
@@ -292,6 +322,12 @@ func TestListCopiesWithoutTheAttributeStillLists(t *testing.T) {
 	e.acct.Fail(fake.Failure{Op: "DescribeImageAttribute", Code: "UnauthorizedOperation", Count: -1})
 	if got := listCopies(t, e); len(got) != 1 || got[0].State != vendors.CopyAvailable || !got[0].LastUsed.IsZero() {
 		t.Errorf("ListCopies without the attribute = %+v", got)
+	}
+	for range 5 { // every poll of the manager: one failed read (and one log line) per image and hour
+		listCopies(t, e)
+	}
+	if n := e.acct.Calls("DescribeImageAttribute"); n != 1 {
+		t.Errorf("%d attribute reads for 6 listings within the hour, want 1", n)
 	}
 }
 
@@ -325,7 +361,10 @@ func TestStartCopyErrorClasses(t *testing.T) {
 		{"UnauthorizedOperation", vendors.Fatal},
 		{"AuthFailure", vendors.Fatal},
 		{"OptInRequired", vendors.Fatal},
-		{"InvalidAMIID.NotFound", vendors.Fatal},
+		// The source is gone or unreadable, or the token met another source: the manager retries.
+		{"InvalidAMIID.NotFound", vendors.Retryable},
+		{"InvalidAMIID.Unavailable", vendors.Retryable},
+		{"IdempotentParameterMismatch", vendors.Retryable},
 		{"SomethingNew", vendors.Fatal},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
@@ -374,6 +413,7 @@ func TestCopyInUseAndLastLaunch(t *testing.T) {
 	if slices.Contains(states, "terminated") || !slices.Contains(states, "stopped") || !slices.Contains(states, "shutting-down") {
 		t.Errorf("states asked %v: every state but terminated", states)
 	}
+	e.clock.Step(2 * time.Hour) // past the cached last launch
 	if got := listCopies(t, e)[0]; got.LastUsed.IsZero() {
 		t.Errorf("the launch left no lastLaunchedTime: %+v", got)
 	}
@@ -420,14 +460,18 @@ func TestDeleteCopyOnlyDeletesThisClustersCopies(t *testing.T) {
 	e := copyEnv(t, false)
 	foreign := foreignCopy(t, e)
 	official, _, _ := e.d.Primary(t.Context(), testRegion, copyRel)
-	for name, c := range map[string]vendors.ImageCopy{
-		"another cluster's copy": {Region: copyDest, Ref: foreign, Release: copyRel},
-		"the official image":     {Region: testRegion, Ref: official, Release: copyRel},
-	} {
-		err := e.d.DeleteCopy(t.Context(), c)
-		if !vendors.IsClass(err, vendors.Fatal) {
-			t.Errorf("DeleteCopy of %s = %v; want a Fatal refusal", name, err)
-		}
+	// Another cluster's copy is the account's own image without our tags: refused. The
+	// official image is not the account's: it shows as missing (Owners self), and is left alone.
+	err := e.d.DeleteCopy(t.Context(), vendors.ImageCopy{Region: copyDest, Ref: foreign, Release: copyRel})
+	if !vendors.IsClass(err, vendors.Fatal) || vendors.CodeOf(err) != "NotACopy" {
+		t.Errorf("DeleteCopy of another cluster's copy = %v; want a Fatal refusal", err)
+	}
+	if err := e.d.DeleteCopy(t.Context(), vendors.ImageCopy{Region: testRegion, Ref: official, Release: copyRel}); err != nil {
+		t.Errorf("DeleteCopy of the official image = %v; want it found missing", err)
+	}
+	in := e.acct.Inputs("DescribeImages")
+	if last := in[len(in)-1].(*ec2.DescribeImagesInput); !slices.Equal(last.Owners, []string{"self"}) {
+		t.Errorf("DeleteCopy looked up owners %v, want self", last.Owners)
 	}
 	if n := e.acct.Calls("DeregisterImage"); n != 0 {
 		t.Errorf("%d DeregisterImage calls for images that are not ours", n)
@@ -656,5 +700,74 @@ func TestACopyLimitBacksOff(t *testing.T) {
 	}
 	if n := e.acct.Calls("CopyImage"); n != 3 {
 		t.Errorf("%d CopyImage calls after the backoff, want 3 (the retry and the second architecture)", n)
+	}
+}
+
+func TestStartCopyAdoptsADuplicateName(t *testing.T) {
+	e := copyEnv(t, false)
+	ref := startCopy(t, e, "token-a")
+	// The same name under another token: EC2 answers InvalidAMIName.Duplicate and the driver adopts the copy.
+	if again := startCopy(t, e, "token-b"); again != ref {
+		t.Errorf("StartCopy under a new token returned %s, want the existing %s", again, ref)
+	}
+	if got := listCopies(t, e); len(got) != 1 {
+		t.Errorf("ListCopies = %+v; want one copy", got)
+	}
+	// A duplicate name that is not our copy is a refusal.
+	e2 := copyEnv(t, false)
+	e2.acct.AddImage(copyDest, fake.Image{ID: "ami-squatter", Name: "scarpenter-flatcar-stable-4757.2.3-amd64-my-cluster",
+		Owner: fake.AccountID})
+	srcs, err := e2.d.CopySources(t.Context(), copyRel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e2.d.StartCopy(t.Context(), srcs[0], copyDest, copyRel, copyTags(testCluster), "tok"); !vendors.IsClass(err, vendors.Fatal) {
+		t.Errorf("StartCopy over a foreign image of the same name = %v; want Fatal", err)
+	}
+}
+
+func TestStartCopyOfAWithdrawnSourceForgetsTheSources(t *testing.T) {
+	e := copyEnv(t, false)
+	srcs, err := e.d.CopySources(t.Context(), copyRel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.acct.RemoveImages("us-east-1")
+	if _, err := e.d.StartCopy(t.Context(), srcs[0], copyDest, copyRel, copyTags(testCluster), "tok"); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("StartCopy from a withdrawn image = %v; want Retryable", err)
+	}
+	srcs, err = e.d.CopySources(t.Context(), copyRel)
+	if err != nil || slices.ContainsFunc(srcs, func(s vendors.ImageSource) bool { return s.Region == "us-east-1" }) {
+		t.Errorf("CopySources after the refusal = %v, %v; want the withdrawn source gone", srcs, err)
+	}
+}
+
+func TestDeregisteredAndMissingCopiesAreGone(t *testing.T) {
+	e := copyEnv(t, false)
+	tags := map[string]string{
+		"scarpenter.sparecores.com/cluster": testCluster, "scarpenter.sparecores.com/managed-by": vendors.ManagedByValue,
+		"scarpenter.sparecores.com/resource-kind": "image-copy", "flatcar-channel": "stable", "flatcar-version": "4757.2.3"}
+	e.acct.AddImage(copyDest, fake.Image{ID: "ami-dereg", Name: "dereg", Owner: fake.AccountID, State: "deregistered", Tags: tags})
+	if got := listCopies(t, e); len(got) != 0 {
+		t.Errorf("ListCopies = %+v; a deregistered image is gone, not failed", got)
+	}
+	gone := vendors.ImageCopy{Region: copyDest, Ref: "ami-dereg", Release: copyRel}
+	if err := e.d.DeleteCopy(t.Context(), gone); err != nil {
+		t.Errorf("DeleteCopy of a deregistered image = %v", err)
+	}
+	if err := e.d.DeleteCopy(t.Context(), vendors.ImageCopy{Region: copyDest, Ref: "ami-unknown", Release: copyRel}); err != nil {
+		t.Errorf("DeleteCopy of an unknown image = %v", err)
+	}
+	e.acct.Fail(fake.Failure{Op: "DescribeImages", Code: "InvalidAMIID.Unavailable"})
+	if err := e.d.DeleteCopy(t.Context(), gone); err != nil {
+		t.Errorf("DeleteCopy answered Unavailable = %v", err)
+	}
+	if n := e.acct.Calls("DeregisterImage"); n != 0 {
+		t.Errorf("%d DeregisterImage calls for images that are gone", n)
+	}
+	e.acct.AddImage(copyDest, fake.Image{ID: "ami-real", Name: "real", Owner: fake.AccountID, Tags: tags})
+	e.acct.Fail(fake.Failure{Op: "DeregisterImage", Code: "InvalidAMIID.Unavailable"})
+	if err := e.d.DeleteCopy(t.Context(), vendors.ImageCopy{Region: copyDest, Ref: "ami-real", Release: copyRel}); err != nil {
+		t.Errorf("DeregisterImage answered Unavailable = %v", err)
 	}
 }

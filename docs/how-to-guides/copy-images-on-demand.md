@@ -52,7 +52,9 @@ aws iam create-policy-version --policy-arn arn:aws:iam::123456789012:policy/scar
 ```
 
 What they allow, and nothing else: `CopyImage` and the tags of the new image and snapshot only when the request
-carries the cluster tag; `DeregisterImage` and `DeleteSnapshot` only on images and snapshots that have it. The
+carries the cluster tag, with `OptionalImageCopiesSource` letting it read the official Flatcar account's images as the
+source; `DeregisterImage` and `DeleteSnapshot` only on images and snapshots that carry the tags of a copy (the cluster,
+`managed-by` and `resource-kind=image-copy`). The
 role cannot tag or change an existing image, so it cannot take over an image it did not create. The
 [IAM table](../reference/aws-driver.md#iam) explains each statement.
 
@@ -165,5 +167,5 @@ Check that no instance runs from an image before you deregister it.
 | `ImageCopyFailed` with `OptInRequired` or `AuthFailure` | the region is not enabled in the account |
 | `ImageCopyFailed` naming a snapshot or encryption error | the account encrypts EBS by default with a customer key: the controller needs the [KMS statements](../reference/aws-driver.md#iam) for it |
 | `ImageCopySourceMissing` | no region has the release's official AMI yet (a release that is not published); it is retried every 15 minutes |
-| the copy stays `ImageCopying` for hours | AWS limits concurrent copies; the controller starts at most 4 and retries with a backoff; after 2 hours the copy counts as failed |
+| the copy stays `ImageCopying` for hours | a copy waiting to start, held by a limit or throttling backoff (1 to 15 minutes, doubling) or by a release whose sources cannot be listed, stays `ImageCopying` and has no timeout; the 2 hour copy timeout (`CopyTimeout`) applies only once a copy has started, after which it counts as failed |
 | a region has `ImageCopyOnDemand` for ever | nothing launches there: a report never starts a copy |

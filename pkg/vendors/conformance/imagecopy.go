@@ -193,7 +193,8 @@ func (c *copyCases) restart(t *testing.T) {
 }
 
 // deleteOnlyCopies: an image that is not a copy of this cluster (the official
-// image, or a copy another cluster made) is refused as Fatal and left in place,
+// image, or a copy another cluster made) is refused as Fatal (the official one,
+// where the vendor lists only the account's own images, may be found missing) and left in place,
 // and another cluster's copy is not listed.
 func (c *copyCases) deleteOnlyCopies(t *testing.T) {
 	ref, found, err := c.cp.Primary(t.Context(), c.fx.Source, c.rel)
@@ -201,8 +202,8 @@ func (c *copyCases) deleteOnlyCopies(t *testing.T) {
 		t.Fatalf("Primary: %q, %v, %v", ref, found, err)
 	}
 	err = c.cp.DeleteCopy(t.Context(), vendors.ImageCopy{Region: c.fx.Source, Ref: ref, Release: c.rel})
-	if !vendors.IsClass(err, vendors.Fatal) {
-		t.Errorf("DeleteCopy of the official image = %v; want a Fatal refusal", err)
+	if err != nil && !vendors.IsClass(err, vendors.Fatal) {
+		t.Errorf("DeleteCopy of the official image = %v; want a Fatal refusal or none", err)
 	}
 	if _, found, err := c.cp.Primary(t.Context(), c.fx.Source, c.rel); err != nil || !found {
 		t.Errorf("the official image is gone after the refused delete: %v, %v", found, err)

@@ -38,7 +38,7 @@ func (a *Account) EC2(region string) *EC2 { return &EC2{a: a, region: region} }
 // begin starts a call: counts it, applies failures and returns the region.
 func (e *EC2) begin(ctx context.Context, op string, in any) (*region, error) {
 	e.a.mu.Lock()
-	if err := e.a.begin(ctx, op, in); err != nil {
+	if err := e.a.beginIn(ctx, e.region, op, in); err != nil {
 		e.a.mu.Unlock()
 		return nil, err
 	}

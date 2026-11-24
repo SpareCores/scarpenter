@@ -333,9 +333,10 @@ Region labels are bounded by the vendor's regions.
 | Statement | Allows |
 |---|---|
 | `Describe` (existing) | adds `ec2:DescribeImageAttribute` (for `lastLaunchedTime`) |
-| `OptionalImageCopies` | `ec2:CopyImage`: on images and snapshots only with `aws:RequestTag/scarpenter.sparecores.com/cluster=CLUSTER_NAME` (one statement: the request carries the tag, so it covers the source image too) |
+| `OptionalImageCopies` | `ec2:CopyImage`: on the new image and snapshot only with `aws:RequestTag/scarpenter.sparecores.com/cluster=CLUSTER_NAME` |
+| `OptionalImageCopiesSource` | `ec2:CopyImage` on images with `ec2:Owner` the official owner (`aws.DefaultImageOwner`): a request tag does not apply to the source |
 | `OptionalImageCopiesTagAtCreation` | `ec2:CreateTags` only with `ec2:CreateAction=CopyImage` and the cluster tag |
-| `OptionalImageCopiesDelete` | `ec2:DeregisterImage` on images and `ec2:DeleteSnapshot` on snapshots (for `DeleteAssociatedSnapshots`, **unverified** whether needed), with `aws:ResourceTag/...cluster=CLUSTER_NAME` |
+| `OptionalImageCopiesDelete` | `ec2:DeregisterImage` on images and `ec2:DeleteSnapshot` on snapshots (for `DeleteAssociatedSnapshots`, **unverified** whether needed), with `aws:ResourceTag/...` `cluster=CLUSTER_NAME`, `managed-by` and `resource-kind=image-copy` |
 
 No statement lets the role tag an existing image. Which condition keys `CopyImage` evaluates per resource is
 **unverified** (step 4: a live call with the policy).
@@ -450,20 +451,21 @@ non-empty answer for 1 h, since an empty one would hold a newly published releas
 stalls on that attribute; a copy refusal is `Fatal` (the manager fails the copy for 6 h), `ResourceLimitExceeded` and
 `ConcurrentSnapshotLimitExceeded` are `QuotaExceeded` and throttling `Retryable` (the manager backs off); `DeleteCopy` checks
 the three ownership tags itself before `DeregisterImage` and only logs a snapshot that `DeleteAssociatedSnapshots` could
-not delete. The IAM statements are `OptionalImageCopies` (`CopyImage` on image and snapshot ARNs with the request tag; the
-source image is covered by the same request), `OptionalImageCopiesTagAtCreation` and `OptionalImageCopiesDelete`
-(`DeregisterImage` and `DeleteSnapshot` with the resource tag); the fake EC2 gained `CopyImage`, `DeregisterImage`,
+not delete. The IAM statements are `OptionalImageCopies` (`CopyImage` on the new image and snapshot with the request tag), `OptionalImageCopiesSource`
+(`CopyImage` on images of the official owner), `OptionalImageCopiesTagAtCreation` and `OptionalImageCopiesDelete`
+(`DeregisterImage` and `DeleteSnapshot` with the cluster, managed-by and resource-kind resource tags); the fake EC2 gained `CopyImage`, `DeregisterImage`,
 `DescribeImageAttribute`, snapshots and the `image-id` instance filter.
 
 **To verify in step 4** (the live run; each is marked in the code or the reference and handled defensively until then):
 
-1. The error code of the concurrent-copy limit: `imagecopy.go` (`StartCopy`) and `errors.go` map `ResourceLimitExceeded` and
-   `ConcurrentSnapshotLimitExceeded` to `QuotaExceeded`; any other code would be `Fatal` and fail the copy for 6 h.
+1. The error code of the concurrent-copy limit: `errors.go` maps `ResourceLimitExceeded` to `QuotaExceeded` (so it
+   waits with the manager's backoff); any other code would be `Fatal` and fail the copy for 6 h.
 2. The code for a region that is not enabled (`OptInRequired`, `AuthFailure`?): today `Fatal`, so `ImageCopyFailed`.
 3. Encryption by default: `StartCopy` sets no `Encrypted` or `KmsKeyId`; whether the account's default applies to the
    copy and with which key, and whether a customer key needs the KMS statements.
-4. The condition keys `CopyImage` evaluates for the image and the snapshot (`OptionalImageCopies` uses
-   `aws:RequestTag/...cluster` on both resource types; `OptionalImageCopiesTagAtCreation` adds `ec2:CreateAction=CopyImage`).
+4. The condition keys `CopyImage` evaluates for the new image and snapshot (`OptionalImageCopies` uses
+   `aws:RequestTag/...cluster` on both; `OptionalImageCopiesTagAtCreation` adds `ec2:CreateAction=CopyImage`) and for the
+   source (`OptionalImageCopiesSource` uses `ec2:Owner`).
 5. Whether `DeleteAssociatedSnapshots` needs `ec2:DeleteSnapshot` (the policy grants it for tagged snapshots meanwhile; a
    `missing-permissions` result is logged by `DeleteCopy`).
 6. `lastLaunchedTime` after a launch (AWS documents about 24 h), the copy duration and the billed snapshot size.

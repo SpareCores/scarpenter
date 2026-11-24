@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +38,8 @@ import (
 var _ vendors.ImageCopier = (*Driver)(nil)
 
 const (
+	// ownerSelf is the owner filter value of the account's own images.
+	ownerSelf = "self"
 	// copySourcesTTL is how long a non-empty CopySources answer is kept.
 	copySourcesTTL = time.Hour
 	// maxImageName is EC2's limit of an AMI name.
@@ -54,9 +57,23 @@ var copySourcePreference = []string{"us-east-1", "us-east-2", "us-west-2", "eu-w
 // but terminated.
 var instanceStatesInUse = []string{"pending", "running", "shutting-down", "stopping", "stopped"}
 
+// lastLaunchedTTL is how long the last launch of a copy is remembered.
+const lastLaunchedTTL = time.Hour
+
+type cachedLaunch struct {
+	at    time.Time
+	until time.Time
+}
+
 type cachedSources struct {
 	srcs  []vendors.ImageSource
 	until time.Time
+}
+
+// imageGone says whether the error is EC2's answer for an image that does not
+// exist (any more).
+func imageGone(err error) bool {
+	return isCode(err, "InvalidAMIID.NotFound", "InvalidAMIID.Unavailable")
 }
 
 func isCopyCode(code string) bool {
@@ -109,7 +126,7 @@ func (d *Driver) copyRoot(ctx context.Context, region string, img *vendors.Image
 	}
 	out, err := cl.EC2.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{img.Ref}})
 	switch {
-	case isCode(err, "InvalidAMIID.NotFound"):
+	case imageGone(err):
 		return vendors.NewError(vendors.NotFound, codeImageNotFound,
 			fmt.Errorf("the copy %s in %s is gone: %w", img.Ref, region, err))
 	case err != nil:
@@ -156,9 +173,10 @@ func (d *Driver) Primary(ctx context.Context, region string, rel vendors.Release
 // CopySources implements vendors.ImageCopier: the official AMI of the release
 // in the regions of the account, the preference list first. The regions are
 // asked through Primary, so each answer passes the version check of ADR-017.
-// Only a non-empty answer is cached (for an hour): an empty one is not, so a
-// release Flatcar publishes later is found at the next ask (Primary's own miss
-// cache is 5 minutes).
+// Only a non-empty answer is cached (for an hour, for 5 minutes when a region
+// failed): an empty one is not, so a release Flatcar publishes later is found
+// at the next ask (Primary's own miss cache is 5 minutes). Errors of single
+// regions are ignored unless no source was found and one of them was Retryable.
 func (d *Driver) CopySources(ctx context.Context, rel vendors.Release) ([]vendors.ImageSource, error) {
 	d.mu.Lock()
 	if c, ok := d.sources[rel]; ok && d.clock.Now().Before(c.until) {
@@ -190,16 +208,31 @@ func (d *Driver) CopySources(ctx context.Context, rel vendors.Release) ([]vendor
 	}
 	wg.Wait()
 	var srcs []vendors.ImageSource
+	var transient error
+	failed := false
 	for i, name := range names {
 		if refs[i] != "" {
 			srcs = append(srcs, vendors.ImageSource{Region: name, Ref: refs[i]})
 		}
+		if errs[i] != nil {
+			failed = true
+			if vendors.IsClass(errs[i], vendors.Retryable) {
+				transient = errors.Join(transient, errs[i])
+			}
+		}
 	}
 	if len(srcs) == 0 {
-		return nil, errors.Join(errs...) // nil when every region answered "none"
+		// A region that fails for good (denied by an SCP, an opt-in region) is
+		// no source; only a transient error makes "none" an unknown, so that the
+		// manager reports ImageCopySourceMissing for a release nobody published.
+		return nil, transient
+	}
+	ttl := copySourcesTTL
+	if failed {
+		ttl = imageMissTTL // the list may be incomplete: look again soon
 	}
 	d.mu.Lock()
-	d.sources[rel] = cachedSources{srcs: srcs, until: d.clock.Now().Add(copySourcesTTL)}
+	d.sources[rel] = cachedSources{srcs: srcs, until: d.clock.Now().Add(ttl)}
 	d.mu.Unlock()
 	return slices.Clone(srcs), nil
 }
@@ -245,14 +278,14 @@ func (d *Driver) ListCopies(ctx context.Context, regions []string) ([]vendors.Im
 		if err != nil {
 			return nil, err
 		}
-		in := &ec2.DescribeImagesInput{Owners: []string{"self"}, Filters: d.ownershipFilters()}
+		in := &ec2.DescribeImagesInput{Owners: []string{ownerSelf}, Filters: d.ownershipFilters()}
 		for {
 			res, err := cl.EC2.DescribeImages(ctx, in)
 			if err != nil {
 				return nil, classify(err, errContext{})
 			}
 			for _, im := range res.Images {
-				if d.isOurCopy(im) {
+				if d.isOurCopy(im) && im.State != ec2types.ImageStateDeregistered {
 					out = append(out, d.toCopy(ctx, cl, region, im))
 				}
 			}
@@ -284,10 +317,10 @@ func (d *Driver) toCopy(ctx context.Context, cl Clients, region string, im ec2ty
 	switch im.State {
 	case ec2types.ImageStateAvailable:
 		c.State = vendors.CopyAvailable
-		c.LastUsed = d.lastLaunched(ctx, cl, c.Ref)
+		c.LastUsed = d.lastLaunched(ctx, cl, region, c.Ref)
 	case ec2types.ImageStatePending, ec2types.ImageStateTransient:
 		c.State = vendors.CopyPending
-	default: // failed, error, invalid, disabled, deregistered
+	default: // failed, error, invalid, disabled
 		c.State = vendors.CopyFailed
 		c.Message = string(im.State)
 		if r := im.StateReason; r != nil && (r.Code != nil || r.Message != nil) {
@@ -301,19 +334,30 @@ func (d *Driver) toCopy(ctx context.Context, cl Clients, region string, im ec2ty
 // never launched or the attribute cannot be read (logged: the GC then goes by
 // the manager's own record and the creation time, and never deletes an image an
 // instance runs from).
-func (d *Driver) lastLaunched(ctx context.Context, cl Clients, ref string) time.Time {
+func (d *Driver) lastLaunched(ctx context.Context, cl Clients, region, ref string) time.Time {
+	key := region + "/" + ref
+	d.mu.Lock()
+	if c, ok := d.launches[key]; ok && d.clock.Now().Before(c.until) {
+		d.mu.Unlock()
+		return c.at
+	}
+	d.mu.Unlock()
+	var at time.Time
 	out, err := cl.EC2.DescribeImageAttribute(ctx, &ec2.DescribeImageAttributeInput{
 		ImageId: aws.String(ref), Attribute: ec2types.ImageAttributeNameLastLaunchedTime,
 	})
-	if err != nil {
+	switch {
+	case err != nil:
 		d.log.Info("the last launch of an image copy cannot be read", "image", ref, "error", err.Error())
-		return time.Time{}
+	case out.LastLaunchedTime != nil && out.LastLaunchedTime.Value != nil:
+		at, _ = time.Parse(time.RFC3339, *out.LastLaunchedTime.Value)
 	}
-	if out.LastLaunchedTime == nil || out.LastLaunchedTime.Value == nil {
-		return time.Time{}
-	}
-	t, _ := time.Parse(time.RFC3339, *out.LastLaunchedTime.Value)
-	return t
+	// Kept for an hour, failures too (so the log line is at most hourly per image):
+	// AWS updates the attribute about once a day.
+	d.mu.Lock()
+	d.launches[key] = cachedLaunch{at: at, until: d.clock.Now().Add(lastLaunchedTTL)}
+	d.mu.Unlock()
+	return at
 }
 
 // copyName is the name of a copy: never the official one (a name lookup of the
@@ -363,10 +407,51 @@ func (d *Driver) StartCopy(
 			{ResourceType: ec2types.ResourceTypeSnapshot, Tags: list},
 		},
 	})
-	if err != nil {
-		return "", classify(err, errContext{})
+	switch {
+	case err == nil:
+		return deref(out.ImageId), nil
+	case isCode(err, "InvalidAMIName.Duplicate"):
+		// The copy exists (a start whose answer was lost, under another token):
+		// adopt it instead of failing the copy.
+		if ref := d.ownCopyNamed(ctx, cl, copyName(rel, d.cfg.ClusterName)); ref != "" {
+			return ref, nil
+		}
+	case strings.HasPrefix(apiCode(err), "InvalidAMIID."):
+		// The source is gone or not readable (Flatcar withdrew it): forget the
+		// cached sources and try again with the list of the next ask.
+		d.mu.Lock()
+		delete(d.sources, rel)
+		for k := range d.images { // and the lookup that found the source
+			if k.region == src.Region && k.arch == rel.Arch && k.channel == rel.Channel && k.version == rel.Version {
+				delete(d.images, k)
+			}
+		}
+		d.mu.Unlock()
+		return "", vendors.NewError(vendors.Retryable, apiCode(err), err)
+	case isCode(err, "IdempotentParameterMismatch"):
+		// The token was used with another source (the list changed between two
+		// tries): retried after the manager's backoff, which finds the list stable.
+		return "", vendors.NewError(vendors.Retryable, apiCode(err), err)
 	}
-	return deref(out.ImageId), nil
+	return "", classify(err, errContext{})
+}
+
+// ownCopyNamed returns the ID of the account's image of that name when it is
+// this cluster's copy, else "".
+func (d *Driver) ownCopyNamed(ctx context.Context, cl Clients, name string) string {
+	res, err := cl.EC2.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		Owners:  []string{ownerSelf},
+		Filters: []ec2types.Filter{{Name: aws.String("name"), Values: []string{name}}},
+	})
+	if err != nil {
+		return ""
+	}
+	for _, im := range res.Images {
+		if d.isOurCopy(im) && im.State != ec2types.ImageStateDeregistered {
+			return deref(im.ImageId)
+		}
+	}
+	return ""
 }
 
 // CopyInUse implements vendors.ImageCopier: an instance of the account in the
@@ -396,14 +481,20 @@ func (d *Driver) DeleteCopy(ctx context.Context, c vendors.ImageCopy) error {
 	if err != nil {
 		return err
 	}
-	res, err := cl.EC2.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{c.Ref}})
+	// Owner self: an image of another account (the official one) is not ours to
+	// delete and shows as gone; so does a deregistered one.
+	res, err := cl.EC2.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		ImageIds: []string{c.Ref}, Owners: []string{ownerSelf},
+	})
 	switch {
-	case isCode(err, "InvalidAMIID.NotFound"):
+	case imageGone(err):
 		return nil
 	case err != nil:
 		return classify(err, errContext{})
+	case len(res.Images) == 0 || res.Images[0].State == ec2types.ImageStateDeregistered:
+		return nil
 	}
-	if len(res.Images) != 1 || !d.isOurCopy(res.Images[0]) {
+	if !d.isOurCopy(res.Images[0]) {
 		return vendors.NewError(vendors.Fatal, codeNotACopy,
 			fmt.Errorf("the image %s in %s is not a copy of this cluster: not deleted", c.Ref, c.Region))
 	}
@@ -411,11 +502,14 @@ func (d *Driver) DeleteCopy(ctx context.Context, c vendors.ImageCopy) error {
 		ImageId: aws.String(c.Ref), DeleteAssociatedSnapshots: aws.Bool(true),
 	})
 	switch {
-	case isCode(err, "InvalidAMIID.NotFound"):
+	case imageGone(err):
 		return nil
 	case err != nil:
 		return classify(err, errContext{})
 	}
+	d.mu.Lock()
+	delete(d.launches, c.Region+"/"+c.Ref)
+	d.mu.Unlock()
 	for _, r := range out.DeleteSnapshotResults {
 		// "skipped" is a snapshot another AMI still uses: it stays.
 		if r.ReturnCode != ec2types.SnapshotReturnCodesSuccess && r.ReturnCode != ec2types.SnapshotReturnCodesWarnSkipped {

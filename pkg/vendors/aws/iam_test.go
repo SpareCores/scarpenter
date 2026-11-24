@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/SpareCores/scarpenter/internal/testutil"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
 )
 
@@ -24,7 +25,7 @@ import (
 // KMS key, and PassRole.
 var withoutClusterTag = map[string]bool{
 	"RunInstancesUsedResources": true, "CreateSecurityGroupsInAVpc": true,
-	"OptionalPassInstanceProfileRole": true, "OptionalCustomerKmsKey": true, "OptionalCustomerKmsKeyGrant": true,
+	"OptionalPassInstanceProfileRole": true, "OptionalImageCopiesSource": true, "OptionalCustomerKmsKey": true, "OptionalCustomerKmsKeyGrant": true,
 }
 
 type policyStatement struct {
@@ -118,11 +119,13 @@ func TestIAMPolicyAllowsEveryCallOfTheDriver(t *testing.T) {
 	}
 }
 
-// TestImageCopyStatementsAreScopedByTheClusterTag pins the optional statements of the
-// image copies (plan 29): the creation of a copy and its tags need the request tag, the
-// deletion of an image or snapshot needs the resource tag, and no statement lets the role
-// tag or change an existing image.
-func TestImageCopyStatementsAreScopedByTheClusterTag(t *testing.T) {
+// TestImageCopyStatementsAreScoped pins the optional statements of the image copies
+// (plan 29): the creation of a copy and its tags need the request tag, the source image
+// is limited to the official owner (the request tag applies to what the call creates, not
+// to the source), the deletion of an image or snapshot needs the cluster, managed-by and
+// resource-kind tags of a copy, and no statement lets the role tag or change an existing
+// image.
+func TestImageCopyStatementsAreScoped(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(testutil.RepoRoot(), "docs", "reference", "aws-iam-policy.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -133,17 +136,23 @@ func TestImageCopyStatementsAreScopedByTheClusterTag(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	const (
-		reqTag = "aws:RequestTag/scarpenter.sparecores.com/cluster"
-		resTag = "aws:ResourceTag/scarpenter.sparecores.com/cluster"
-	)
+	const prefix = "scarpenter.sparecores.com/"
 	want := map[string]struct {
-		actions []string
-		tagKey  string
+		actions    []string
+		conditions map[string]any
 	}{
-		"OptionalImageCopies":              {[]string{"ec2:CopyImage"}, reqTag},
-		"OptionalImageCopiesTagAtCreation": {[]string{"ec2:CreateTags"}, reqTag},
-		"OptionalImageCopiesDelete":        {[]string{"ec2:DeregisterImage", "ec2:DeleteSnapshot"}, resTag},
+		"OptionalImageCopies": {[]string{"ec2:CopyImage"},
+			map[string]any{"aws:RequestTag/" + prefix + "cluster": "CLUSTER_NAME"}},
+		"OptionalImageCopiesSource": {[]string{"ec2:CopyImage"},
+			map[string]any{"ec2:Owner": aws.DefaultImageOwner}},
+		"OptionalImageCopiesTagAtCreation": {[]string{"ec2:CreateTags"},
+			map[string]any{"ec2:CreateAction": "CopyImage", "aws:RequestTag/" + prefix + "cluster": "CLUSTER_NAME"}},
+		"OptionalImageCopiesDelete": {[]string{"ec2:DeregisterImage", "ec2:DeleteSnapshot"},
+			map[string]any{
+				"aws:ResourceTag/" + prefix + "cluster":       "CLUSTER_NAME",
+				"aws:ResourceTag/" + prefix + "managed-by":    vendors.ManagedByValue,
+				"aws:ResourceTag/" + prefix + "resource-kind": vendors.ResourceKindImageCopy,
+			}},
 	}
 	seen := 0
 	for _, s := range doc.Statement {
@@ -155,11 +164,11 @@ func TestImageCopyStatementsAreScopedByTheClusterTag(t *testing.T) {
 		if !slices.Equal(s.Action, w.actions) {
 			t.Errorf("%s allows %v, want %v", s.Sid, s.Action, w.actions)
 		}
-		if got := s.Condition["StringEquals"][w.tagKey]; got != "CLUSTER_NAME" {
-			t.Errorf("%s: condition %s is %v, want the cluster placeholder", s.Sid, w.tagKey, got)
+		if got := s.Condition["StringEquals"]; !reflect.DeepEqual(got, w.conditions) {
+			t.Errorf("%s: StringEquals %v, want %v", s.Sid, got, w.conditions)
 		}
-		if s.Sid == "OptionalImageCopiesTagAtCreation" && s.Condition["StringEquals"]["ec2:CreateAction"] != "CopyImage" {
-			t.Errorf("%s tags other than at the creation of a copy", s.Sid)
+		if len(s.Condition) != 1 {
+			t.Errorf("%s has conditions besides StringEquals: %v", s.Sid, s.Condition)
 		}
 	}
 	if seen != len(want) {
