@@ -64,8 +64,7 @@ const (
 )
 
 // repairToleration is how long a node may be NotReady before core repairs it
-// (overview section 4); users who do not want repair disable core's NodeRepair
-// feature gate.
+// (overview section 4); repair runs only when core's NodeRepair feature gate is on.
 const repairToleration = 10 * time.Minute
 
 // Options are the dependencies of the CloudProvider.
@@ -201,12 +200,19 @@ func (c *CloudProvider) GetSupportedNodeClasses() []status.Object {
 // DisruptionReasons has nothing beyond core's.
 func (c *CloudProvider) DisruptionReasons() []karpv1.DisruptionReason { return nil }
 
-// RepairPolicies repairs nodes that are Ready=False or Ready=Unknown for ten
-// minutes.
+// RepairPolicies replaces nodes that are Ready=False or Ready=Unknown for ten
+// minutes. Core's matcher wants exactly one policy without a ReasonRegex (the
+// fallback, which must be ReplaceNode) and an explicit action on the others.
 func (c *CloudProvider) RepairPolicies() []cloudprovider.RepairPolicy {
 	return []cloudprovider.RepairPolicy{
-		{ConditionType: corev1.NodeReady, ConditionStatus: corev1.ConditionFalse, TolerationDuration: repairToleration},
-		{ConditionType: corev1.NodeReady, ConditionStatus: corev1.ConditionUnknown, TolerationDuration: repairToleration},
+		{
+			ConditionType: corev1.NodeReady, ConditionStatus: corev1.ConditionFalse,
+			TolerationDuration: repairToleration, Action: cloudprovider.ReplaceNode,
+		},
+		{
+			ConditionType: corev1.NodeReady, ConditionStatus: corev1.ConditionUnknown, ReasonRegex: ".*",
+			TolerationDuration: repairToleration, Action: cloudprovider.ReplaceNode,
+		},
 	}
 }
 

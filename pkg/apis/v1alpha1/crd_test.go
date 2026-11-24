@@ -201,6 +201,9 @@ func TestValidSpecsAreAccepted(t *testing.T) {
 		"launch policy":                         `launch: {maxAttempts: 10, maxDuration: 4m, insufficientCapacityTTL: 6h}`,
 		"launch insufficientCapacityTTL at 24h": `launch: {insufficientCapacityTTL: 24h}`,
 		"launch maxDuration at the bound":       `launch: {maxDuration: 4m30s}`,
+		"launch initializationTimeout":          `launch: {initializationTimeout: 90m}`,
+		"launch initializationTimeout disabled": `launch: {initializationTimeout: 0s}`,
+		"launch initializationTimeout at 24h":   `launch: {initializationTimeout: 24h}`,
 		"billing empty block":                   `billing: {}`,
 		"billing composite durations":           `billing: {retainUntilPeriodEnd: true, margin: 1m30s, minPeriod: 1h}`,
 	}
@@ -584,6 +587,8 @@ func TestInvalidObjectsAreRejected(t *testing.T) {
 		{"launch maxDuration not a duration", `launch: {maxDuration: soon}`, "should match"},
 		{"launch insufficientCapacityTTL zero", `launch: {insufficientCapacityTTL: 0s}`, "insufficientCapacityTTL must be greater than 0 and at most 24h"},
 		{"launch insufficientCapacityTTL over 24h", `launch: {insufficientCapacityTTL: 24h1s}`, "at most 24h"},
+		{"launch initializationTimeout over 24h", `launch: {initializationTimeout: 24h1s}`, "at most 24h"},
+		{"launch initializationTimeout not a duration", `launch: {initializationTimeout: soon}`, "should match"},
 		{"launch unknown field", `launch: {retries: 3}`, "unknown field"},
 		{"fake data disk without mountPath", `vendors: {fake: {storage: {data: [{name: d, size: 1Gi}]}}}`, "Required value"},
 	}

@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/karpenter/pkg/cloudprovider/metrics"
 	"sigs.k8s.io/karpenter/pkg/cloudprovider/overlay"
 	corecontrollers "sigs.k8s.io/karpenter/pkg/controllers"
+	"sigs.k8s.io/karpenter/pkg/controllers/node/health"
 	"sigs.k8s.io/karpenter/pkg/controllers/state"
 	coreoperator "sigs.k8s.io/karpenter/pkg/operator"
 
@@ -76,7 +77,9 @@ func (o *Operator) WithCoreControllers(ctx context.Context, cp karpcloudprovider
 	lo.Must0(o.RegisterLabelKeys(ctx), "registering the label keys of the SCNodeClasses")
 	undecorated := metrics.Decorate(cp)
 	decorated := overlay.Decorate(undecorated, o.GetClient(), o.InstanceTypeStore)
-	clusterState := state.NewCluster(o.Clock, o.GetClient(), decorated)
+	// Nil while core's NodeRepair feature gate is off; with the gate on, core panics without it.
+	repairMatcher := lo.Must(health.NewRepairPolicyMatcher(ctx, decorated))
+	clusterState := state.NewCluster(o.Clock, o.GetClient(), decorated, state.WithRepairPolicyMatcher(repairMatcher))
 	o.clusterState = clusterState
 	return o.WithControllers(ctx, corecontrollers.NewControllers(
 		ctx,

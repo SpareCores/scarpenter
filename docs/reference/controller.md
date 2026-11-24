@@ -285,6 +285,33 @@ The chart's default limit is 2Gi (request 640Mi), which covers every region of
 all eight vendors; scope the NodeClasses' `regions` to what you use to need less.
 The refresh itself reads each file as a stream and holds no uncompressed body.
 
+## Initialization timeout
+
+A NodeClaim is Initialized when its node is Ready, its startup taints are gone and
+its resources are registered. Core's liveness check only covers the time until
+registration, and consolidation, emptiness and drift skip uninitialized nodes, so
+a node that registered but never initializes (for example because the kubelet
+cannot pull the pause image) would run and be billed until it is deleted by hand,
+or by `expireAfter`.
+
+The initialization timeout controller watches the NodeClaims of SCNodeClasses.
+For one that is Registered but not Initialized and not being deleted it measures
+the time since the creation of its Node (the Registered condition's time when
+there is no Node). Once that exceeds `spec.launch.initializationTimeout` of the
+class (default `1h`; `0s` disables the check) it deletes the NodeClaim, and core
+terminates the instance. Until then it requeues at the deadline instead of
+polling. A changed timeout applies when the next check is due.
+
+The deletion is announced by a Warning Event `InitializationTimeout` on the
+NodeClaim and on the NodeClass, naming the elapsed time and the Ready condition's
+reason and message of the node, by a log line, and by the counter
+`scarpenter_nodeclaims_initialization_timeout_total{vendor,nodeclass}`.
+
+The [GPU pending controller](#gpu-pending-taint) deletes a GPU node whose driver
+check has not passed after 30 minutes. That is inside the default timeout, so
+the two agree; a class that sets a shorter timeout makes this controller act
+first. Both only delete the NodeClaim.
+
 ## GPU pending taint
 
 The GPU pending controller removes the taint `scarpenter.sparecores.com/gpu-pending` from a Node that has the label
@@ -617,8 +644,13 @@ to the returned instance.
 - `IsDrifted` returns `NodeClassDrift` when the NodeClaim's `nodeclass-hash`
   differs from `status.vendors.<vendor>.hash`.
 
-Node repair (when core's `NodeRepair` feature gate is on) treats `Ready=False`
-and `Ready=Unknown` for ten minutes as unhealthy.
+`RepairPolicies` lists `Ready=False` and `Ready=Unknown` for ten minutes, both
+with the action `ReplaceNode`. Core's node repair is an alpha feature and off by
+default (`karpenter.featureGates` of the chart stays empty); with its
+`NodeRepair` gate on, the controller hands core the validated policies and
+core replaces such nodes at the pace of the NodePool's disruption budgets. A
+node that never initializes is deleted by the initialization timeout instead,
+whether repair is on or not (see [initialization timeout](#initialization-timeout)).
 
 Metrics:
 
@@ -649,6 +681,7 @@ Changing it is not drift.
 |---|---|---|
 | `maxAttempts` | `--max-launch-attempts` | Vendor calls one `Create` may make; at least 1. |
 | `maxDuration` | none | Wall-clock budget of one `Create`: once spent, no further candidate is tried and `Create` returns `InsufficientCapacityError`. It bounds when an attempt starts, not when it ends: the worst case is `maxDuration` plus one vendor call (a GCP launch may wait for its operation), and the first candidate is always tried. A `Retryable` error is requeued by Karpenter and starts a fresh budget. Greater than 0 and at most `4m30s`, to stay under Karpenter's 5 minute launch timeout. |
+| `initializationTimeout` | none | How long a registered node may stay uninitialized before its NodeClaim is deleted, see [initialization timeout](#initialization-timeout). Default `1h`; `0s` disables it; at most `24h`. |
 | `insufficientCapacityTTL` | `--unavailable-insufficient-capacity-ttl` | How long the class stays away from an offering that had no capacity: greater than 0 and at most `24h`. It can extend the flag's TTL for this class, never shorten it, see below. A change applies to the marks made after it; the existing ones keep their expiry. |
 
 An `InsufficientCapacity` mark is shared by every class and lasts the flag's TTL
