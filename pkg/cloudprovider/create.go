@@ -647,6 +647,7 @@ func catalogTypeOf(cand *candidate) vendors.CatalogType {
 		Arch: one(corev1.LabelArchStable), VCPUs: int(num(v1alpha1.LabelVCPUs)), MemoryMiB: num(v1alpha1.LabelMemoryMiB),
 		LocalStorageGB: num(v1alpha1.LabelLocalStorageGB), LocalStorageCount: int(num(v1alpha1.LabelLocalStorageCount)),
 		CompatibleStorage: cand.compatibleStorage,
+		AcceleratorCount:  num(v1alpha1.LabelAcceleratorCount), AcceleratorModel: one(v1alpha1.LabelAcceleratorModel),
 	}
 }
 

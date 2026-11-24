@@ -76,12 +76,21 @@ There is no `QuotaReporter` (Vultr has no quota API: the account limits are show
 ## Plans
 
 The plan is Keeper's `api_reference` (`vc2-2c-4gb`). The driver launches the families `vc2`, `vhf`, `vhp` and
-`voc`, and `vx1` only with a local disk (a diskless plan boots from a block storage volume: v1 does not). Cloud GPU
-(`vcg`), GPU bare metal (`vdm`), bare metal (`vbm`) and the free plan `vc2-1c-0.5gb-free` are not launched; the
-plan ID decides this (`ClassifyPlanID`), so the type is not offered (`NotLaunchable`) and a launch is refused from
-the first catalog build, before any stock data. A diskless `vx1` plan is reported as `StorageIncompatible`, and `vcg`
-and `vdm` report `NotLaunchable` instead of a GPU code. A
-family nobody classified is unsupported, and a test fails when a family of the committed Keeper snapshot has no
+`voc`, `vx1` only with a local disk (a diskless plan boots from a block storage volume: v1 does not), and the
+dedicated GPU plans. Bare metal (`vbm`) and the free plan `vc2-1c-0.5gb-free` are not launched; the plan ID decides
+this (`ClassifyPlanID`), so the type is not offered (`NotLaunchable`) and a launch is refused from the first catalog
+build, before any stock data. A diskless `vx1` plan is reported as `StorageIncompatible`.
+
+**GPU plans.** The plan ID prefix says nothing about a GPU plan's type: the full-GPU plans (`vcg-a16-*`, `vcg-a100-*`,
+...) are of `type` `vdm` ("Dedicated Metal GPU") in `GET /v2/plans`, and only the L40S plans are of type `vcg`. The
+driver launches the plans of type `vdm` through `/v2/instances`, as any other plan; the type comes from the plan list
+the driver already reads for the disk sizes (`ClassifyPlanType`). The offered plans of a region leave out the other
+`vcg`-prefixed plans (the L40S plans are untested), and a create of one is `Unsupported`. The NVIDIA driver is
+selected from the catalog's accelerator data, so a GPU plan whose Keeper type has no accelerator count or model is
+`NotLaunchable` ("Keeper has no accelerator data for this GPU plan"): it would otherwise start as a CPU node with an
+idle GPU.
+
+A family nobody classified is unsupported, and a test fails when a family of the committed Keeper snapshot has no
 classification. IPv6-only plans (IDs ending in `-v6`, Vultr's documented spelling) are not offered: the offered types
 listing reports them as `NotLaunchable`. The node bootstrap needs IPv4 (see [the driver
 contract](driver-contract.md#reaching-the-bootstrap-artifacts)): the sysexts come from github.com, which has no AAAA
@@ -151,7 +160,8 @@ installs them). The response's `default_password` is never read, logged or store
   instance still bills, so the garbage collector deletes it); `active` with `running` and `server_status: ok`
   is `running`; anything else is `pending`. `main_ip` is `0.0.0.0` while pending and is then no address.
 - **Delete** is `DELETE /v2/instances/{id}`; 404 is success; an instance without the cluster's tag is refused.
-  Whether an installing instance can be deleted is unverified; a refusal is `Retryable`.
+  While the instance installs (about the first two minutes, GPU plans included) Vultr answers
+  409 "Server is currently locked"; that is `Retryable` (code `Locked` or `Dependency`), so the termination retries.
 - **List and find** are one paginated, account-wide call (`per_page=500`) with the server-side `tag` filter of
   one tag, the rest client-side: never one call per region.
 
@@ -245,7 +255,7 @@ Every text is a hypothesis pinned by `errors_test.go` until spike S4 records the
 
 ## Deferred
 
-Bare metal and GPU plans; block storage volumes and `data` profiles; VPC-only nodes behind a NAT gateway (`publicIPv4: false`); a VPC per
+Bare metal and the L40S GPU plans; block storage volumes and `data` profiles; VPC-only nodes behind a NAT gateway (`publicIPv4: false`); a VPC per
 run key (`isolation: run` with a run key); reserved IPs; backups; DDoS protection; spot (`deploy_preemptible` exists only on GPU bare
 metal); VX1 diskless plans; a `QuotaReporter` if Vultr ever exposes limits; `ImageImporter` (the driver creating the snapshot from the
 images repository's URL).

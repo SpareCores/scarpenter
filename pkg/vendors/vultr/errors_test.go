@@ -52,7 +52,7 @@ func TestClassify(t *testing.T) {
 		{"bad user data", st(400, fake.MsgInvalidUserData), opCreateInstance, vendors.Fatal, codeUserData, false},
 		{"delete of a used group", st(400, fake.MsgGroupInUse), opDelete, vendors.Retryable, codeDependency, false},
 		{"delete of an attached VPC", st(400, fake.MsgVPCAttached), opDelete, vendors.Retryable, codeDependency, false},
-		{"delete of an installing instance", st(400, fake.MsgInstanceInstalls), opDelete, vendors.Retryable, codeDependency, false},
+		{"delete of a locked (installing) instance, the live 409", st(409, fake.MsgInstanceInstalls), opDelete, vendors.Retryable, codeDependency, false},
 		{"delete locked, any text", st(423, "?"), opDelete, vendors.Retryable, codeLocked, false},
 		{"delete conflict, any text", st(409, "?"), opDelete, vendors.Retryable, codeLocked, false},
 		{"401", st(401, "Unauthorized"), opOther, vendors.Fatal, codeUnauthorized, false},
