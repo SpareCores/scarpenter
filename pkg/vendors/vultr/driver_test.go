@@ -103,15 +103,13 @@ func TestLaunchableTypesAreTheZonesOfTheRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// vx1-g-2c-8g is diskless, vcg is Cloud GPU and vbm is bare metal: none is
-	// launched, though the account has them all in stock.
-	av, err := e.acct.RegionAvailability(context.Background(), "ewr", "all")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"vx1-g-2c-8g", "vcg-a16-6c-64g-16vram", "vbm-4c-32gb"} {
-		if !slices.Contains(av.AvailablePlans, id) {
-			t.Fatalf("the fixture has no %s in stock: %v", id, av.AvailablePlans)
+	// vx1-g-2c-8g is diskless, vcg is Cloud GPU and vbm is bare metal with a
+	// registration window that is too short: none is launched, though the account
+	// has them all in stock.
+	for typ, id := range map[string]string{"all": "vx1-g-2c-8g", "vbm": "vbm-4c-32gb"} {
+		av, err := e.acct.RegionAvailability(context.Background(), "ewr", typ)
+		if err != nil || !slices.Contains(av.AvailablePlans, id) {
+			t.Fatalf("the fixture has no %s in stock: %v %v", id, av, err)
 		}
 	}
 	want := []string{testType, "vc2-2c-4gb", "vhf-1c-1gb"}

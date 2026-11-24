@@ -1,0 +1,19 @@
+{
+  "region": "ewr",
+  "plan": "vbm-6c-32gb",
+  "snapshot_id": "5a000000-0000-4000-8000-000000000001",
+  "enable_ipv6": false,
+  "label": "claim-1",
+  "user_data": "eyJpZ25pdGlvbiI6eyJ2ZXJzaW9uIjoiMy40LjAifX0=",
+  "activation_email": false,
+  "hostname": "claim-1",
+  "tags": [
+    "scarpenter.sparecores.com/cluster=my-cluster",
+    "scarpenter.sparecores.com/idempotency-key=11111111-2222-3333-4444-555555555555",
+    "scarpenter.sparecores.com/managed-by=scarpenter",
+    "scarpenter.sparecores.com/nodeclaim=claim-1",
+    "scarpenter.sparecores.com/nodeclass=default",
+    "scarpenter.sparecores.com/nodepool=pool",
+    "team=data"
+  ]
+}

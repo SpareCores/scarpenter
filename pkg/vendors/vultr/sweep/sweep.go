@@ -5,8 +5,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
 // Package sweep finds and deletes what a test cluster of the L5 lane left in a
-// Vultr account (docs/how-to-guides/testing.md#the-l5-lane): instances, firewall
-// groups and VPCs. It is the sweeper workflow's engine (every three hours,
+// Vultr account (docs/how-to-guides/testing.md#the-l5-lane): instances and
+// bare-metal servers, firewall groups and VPCs. It is the sweeper workflow's engine (every three hours,
 // everything of a cluster named scarpenter-ci-* older than two hours) and the
 // e2e workflow's last line of defence (one cluster, no age limit).
 //
@@ -15,12 +15,13 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Selection is conservative on purpose:
 //
-//   - instances are touched only when they carry the cluster tag of a swept
-//     cluster;
+//   - instances and bare-metal servers are touched only when they carry the
+//     cluster tag of a swept cluster;
 //   - firewall groups and VPCs have no tags, so only those whose description
 //     carries the ownership marker of SCarpenter (vultr.ParseDescription) for a
 //     swept cluster, or the lane's own brought objects, described "<cluster>-byo",
-//     are touched; and only when no instance uses them;
+//     are touched; and only when no instance uses them (bare-metal servers cannot join a group; a
+//     VPC counts them as attachments);
 //   - snapshots are never listed, let alone deleted: the Flatcar snapshot of the
 //     lane is permanent, and Vultr cannot share it again.
 //
@@ -239,41 +240,80 @@ func page[T any](ctx context.Context,
 	return nil, fmt.Errorf("a list does not end after %d pages", maxPages)
 }
 
-// instances deletes the instances of the swept clusters and returns their IDs.
+// server is an instance or a bare-metal server, the two kinds of machine the
+// sweep deletes.
+type server struct {
+	kind, id, region, created string
+	tags                      []string
+	del                       func(ctx context.Context) error
+}
+
+// servers lists the instances and the bare-metal servers of the account.
+func (s *sweeper) servers(ctx context.Context, report bool) ([]server, error) {
+	instances, err := page(ctx, s.api.ListInstances)
+	if err != nil {
+		return nil, err
+	}
+	// The bare-metal list is always read (a server costs the most), but a failure
+	// of its endpoint is a failed item, not the end of the instance sweep.
+	bareMetals, err := page(ctx, s.api.ListBareMetals)
+	if err != nil && report {
+		s.record(Item{Kind: "bare-metal-list", Outcome: Failed, Reason: err.Error()})
+	}
+	var out []server
+	for _, in := range instances {
+		out = append(out, server{"instance", in.ID, in.Region, in.DateCreated, in.Tags,
+			func(ctx context.Context) error { return s.api.DeleteInstance(ctx, in.ID) }})
+	}
+	for _, b := range bareMetals {
+		// A server that is still running after its delete re-registers its Node, so
+		// it is halted first, as the driver does; a halt that fails does not keep
+		// the delete.
+		out = append(out, server{"bare-metal", b.ID, b.Region, b.DateCreated, b.Tags,
+			func(ctx context.Context) error {
+				_ = s.api.HaltBareMetal(ctx, b.ID)
+				return s.api.DeleteBareMetal(ctx, b.ID)
+			}})
+	}
+	return out, nil
+}
+
+// instances deletes the instances and bare-metal servers of the swept clusters
+// and returns their IDs.
 func (s *sweeper) instances(ctx context.Context) ([]string, error) {
-	all, err := page(ctx, s.api.ListInstances)
+	all, err := s.servers(ctx, true)
 	if err != nil {
 		return nil, err
 	}
 	var deleted []string
 	for _, in := range all {
-		cluster := vultr.TagStyleDomain.ParseTags(in.Tags)[vendors.TagCluster]
-		if !s.matches(cluster) || !s.regionOK(in.Region) {
+		cluster := vultr.TagStyleDomain.ParseTags(in.tags)[vendors.TagCluster]
+		if !s.matches(cluster) || !s.regionOK(in.region) {
 			continue
 		}
-		it := Item{Region: in.Region, Kind: "instance", ID: in.ID, Cluster: cluster}
-		if ok, why := s.oldEnough(in.DateCreated); !ok {
+		it := Item{Region: in.region, Kind: in.kind, ID: in.id, Cluster: cluster}
+		if ok, why := s.oldEnough(in.created); !ok {
 			it.Outcome, it.Reason = Skipped, why
 			s.record(it)
 			continue
 		}
-		if s.act(it, func() error { return s.api.DeleteInstance(ctx, in.ID) }) {
-			deleted = append(deleted, in.ID)
+		if s.act(it, func() error { return in.del(ctx) }) {
+			deleted = append(deleted, in.id)
 		}
 	}
 	return deleted, nil
 }
 
-// waitGone polls until the deleted instances are out of the list, or the wait
+// waitGone polls until the deleted servers are out of the lists, or the wait
 // is over (the groups and VPCs are then skipped as still used).
 func (s *sweeper) waitGone(ctx context.Context, ids []string) {
 	deadline := s.o.Now().Add(s.o.WaitGone)
 	for {
-		all, err := page(ctx, s.api.ListInstances)
+		all, err := s.servers(ctx, false)
 		if err == nil {
 			left := 0
 			for _, in := range all {
-				if slices.Contains(ids, in.ID) {
+				if slices.Contains(ids, in.id) {
 					left++
 				}
 			}

@@ -77,6 +77,30 @@ func (g *roVultr) GetInstance(ctx context.Context, id string) (*govultr.Instance
 	return g.inner.GetInstance(ctx, id)
 }
 
+func (g *roVultr) CreateBareMetal(context.Context, *govultr.BareMetalCreate) (*govultr.BareMetalServer, error) {
+	return nil, g.audit.deny("vultr:CreateBareMetal")
+}
+
+func (g *roVultr) GetBareMetal(ctx context.Context, id string) (*govultr.BareMetalServer, error) {
+	g.audit.read("vultr:GetBareMetal")
+	return g.inner.GetBareMetal(ctx, id)
+}
+
+func (g *roVultr) ListBareMetals(
+	ctx context.Context, o *govultr.ListOptions,
+) ([]govultr.BareMetalServer, *govultr.Meta, error) {
+	g.audit.read("vultr:ListBareMetals")
+	return g.inner.ListBareMetals(ctx, o)
+}
+
+func (g *roVultr) HaltBareMetal(context.Context, string) error {
+	return g.audit.deny("vultr:HaltBareMetal")
+}
+
+func (g *roVultr) DeleteBareMetal(context.Context, string) error {
+	return g.audit.deny("vultr:DeleteBareMetal")
+}
+
 func (g *roVultr) DeleteInstance(context.Context, string) error {
 	return g.audit.deny("vultr:DeleteInstance")
 }

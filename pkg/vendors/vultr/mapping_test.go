@@ -171,7 +171,7 @@ func TestClassifyPlan(t *testing.T) {
 		{"vcg-l40s-16c-180g-48vram", 0, "vcg", false, "outside the driver's support"},
 		{"vcg-a16-6c-60g-16vram", 350, "", false, "outside the driver's support"},
 		{"vdm-a100-8c-64g", 0, "vdm", false, "no Vultr plan ID has the vdm prefix"},
-		{"vbm-4c-32gb", 240, "vbm", false, "bare metal"},
+		{"vbm-4c-32gb", 240, "vbm", true, ""},
 		{"zzz-1c-1gb", 10, "vc2", false, "unclassified"},
 		{"", 10, "vc2", false, "unclassified"},
 	}
@@ -188,7 +188,7 @@ func TestClassifyPlan(t *testing.T) {
 func TestClassifyPlanIDNeedsNoDiskOrStock(t *testing.T) {
 	for id, want := range map[string]bool{
 		"vc2-2c-4gb": true, "vx1-g-4c-16g": true, "vcg-a16-6c-64g-16vram": true, "vdm-a100-8c-64g": false,
-		"vbm-4c-32gb": false, "vc2-1c-0.5gb-free": false, "vhf-1c-1gb-v6": false, "zzz-1c-1gb": false,
+		"vbm-4c-32gb": true, "vc2-1c-0.5gb-free": false, "vhf-1c-1gb-v6": false, "zzz-1c-1gb": false,
 	} {
 		if ok, why := ClassifyPlanID(id); ok != want || (!ok && why == "") {
 			t.Errorf("ClassifyPlanID(%q) = %v %q, want %v", id, ok, why, want)

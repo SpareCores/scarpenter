@@ -196,3 +196,37 @@ func TestFailuresAreItemsAndListErrorsAreErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestSweepsBareMetalServers(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld()
+	w.a.AddPlan("vbm-6c-32gb", 6, 32768, 240)
+	w.a.SetAvailable("ewr", "vc2-1c-1gb", "vbm-6c-32gb")
+	_, _ = w.a.CreateBareMetal(ctx, &govultr.BareMetalCreate{Region: "ewr", Plan: "vbm-6c-32gb", Tags: tags(ci)})
+	other, _ := w.a.CreateBareMetal(ctx, &govultr.BareMetalCreate{Region: "ewr", Plan: "vbm-6c-32gb", Tags: tags("prod")})
+	w.a.Advance()
+
+	rep := run(t, w, sweep.Options{Cluster: ci, WaitGone: time.Second})
+	if rep.Count(sweep.Failed) != 0 || rep.Count(sweep.Deleted) != 1 {
+		t.Fatalf("report: %+v", rep.Items)
+	}
+	left := w.a.BareMetals()
+	if len(left) != 1 || left[0].ID != other.ID {
+		t.Errorf("servers left: %+v", left)
+	}
+	// It was halted first.
+	if len(w.a.DeletedWhileRunning) != 0 {
+		t.Errorf("deleted while running %v", w.a.DeletedWhileRunning)
+	}
+}
+
+func TestBareMetalListErrorDoesNotStopTheInstanceSweep(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld()
+	mine, _ := w.a.CreateInstance(ctx, &govultr.InstanceCreateReq{Region: "ewr", Plan: "vc2-1c-1gb", Tags: tags(ci)})
+	w.a.FailNext("ListBareMetals", -1, &fake.Error{Status: 500, Message: "down"})
+	rep := run(t, w, sweep.Options{Cluster: ci})
+	if rep.Count(sweep.Deleted) != 1 || rep.Count(sweep.Failed) != 1 || len(w.a.Instances()) != 0 {
+		t.Fatalf("report: %+v (instance %s)", rep.Items, mine.ID)
+	}
+}

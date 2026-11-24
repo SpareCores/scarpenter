@@ -13,6 +13,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/vultr/govultr/v3"
+
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
@@ -63,6 +65,9 @@ func (d *Driver) LaunchableType(it vendors.CatalogType) (bool, string) {
 	if ok, why := ClassifyPlanID(it.APIReference); !ok {
 		return false, why
 	}
+	if err := checkBareMetalWindow(it.APIReference, d.cfg.RegistrationTimeout); err != nil {
+		return false, err.Error()
+	}
 	if isGPUPlan(it.APIReference) && !it.GPU {
 		return false, "Keeper has no accelerator data for this GPU plan (accelerator type GPU and a count)"
 	}
@@ -111,6 +116,9 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 	if err != nil {
 		return nil, vendors.NewError(vendors.Fatal, codeInvalid, err)
 	}
+	if err := checkBareMetalWindow(req.InstanceType, d.cfg.RegistrationTimeout); err != nil {
+		return nil, err
+	}
 	prep := &vendors.Prepared{}
 	groups, err := req.Resources.Require(ctx, vendors.ResourceRequest{
 		Kind: KindFirewallGroups, Key: class, Params: params, Settings: &req.Settings,
@@ -123,7 +131,17 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 			"the firewall groups resolved to %d groups; a Vultr instance takes exactly one (select exactlyOne)", len(groups)))
 	}
 	prep.Resources = append(prep.Resources, groups...)
-	if needsVPC(net) {
+	if isBareMetalPlan(req.InstanceType) {
+		// The server cannot join the group, so the node enforces its rules.
+		frag, err := d.hostFirewall(ctx, groups[0].ID)
+		if err != nil {
+			return nil, err
+		}
+		prep.BootFragments = append(prep.BootFragments, frag)
+	}
+	// A bare-metal server joins no VPC (no address on the VPC interface of Flatcar,
+	// and the create has no VPC field): the host firewall isolates it.
+	if needsVPC(net) && !isBareMetalPlan(req.InstanceType) {
 		vpcs, err := req.Resources.Require(ctx, vendors.ResourceRequest{
 			Kind: KindNetworks, Key: class, Settings: &req.Settings,
 		})
@@ -136,6 +154,26 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		// no address and the kubelet keeps the public one.
 	}
 	return prep, nil
+}
+
+// hostFirewall reads the rules of the firewall group and translates them into
+// the boot fragment of a bare-metal node. A launch whose rules cannot be read or
+// translated fails: a server is never created without its firewall.
+func (d *Driver) hostFirewall(ctx context.Context, groupID string) (vendors.BootFragment, error) {
+	rules, err := listAll(ctx, opOther, govultr.ListOptions{},
+		func(ctx context.Context, opts *govultr.ListOptions) ([]govultr.FirewallRule, *govultr.Meta, error) {
+			return d.api.ListFirewallRules(ctx, groupID, opts)
+		})
+	if err != nil {
+		return vendors.BootFragment{}, fmt.Errorf("reading the rules of firewall group %s for the host firewall: %w",
+			groupID, err)
+	}
+	frag, err := HostFirewallFragment(rules)
+	if err != nil {
+		return vendors.BootFragment{}, vendors.NewError(vendors.Fatal, codeInvalid,
+			fmt.Errorf("firewall group %s: %w", groupID, err))
+	}
+	return frag, nil
 }
 
 // launchOptions builds the launch from the request: the snapshot, the prepared

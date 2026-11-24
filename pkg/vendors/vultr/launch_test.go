@@ -199,3 +199,47 @@ func TestToInstance(t *testing.T) {
 		t.Errorf("pending: %+v", got)
 	}
 }
+
+func TestBareMetalCreateRequestGolden(t *testing.T) {
+	req := baseRequest()
+	req.InstanceType = "vbm-6c-32gb"
+	r, err := BuildBareMetalCreateRequest(req, baseLaunch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := MarshalCreateRequest(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.Golden(t, "create_request_baremetal.golden.json", raw)
+	// The same validation as the instance request.
+	req.UserData = nil
+	if _, err := BuildBareMetalCreateRequest(req, baseLaunch()); err == nil {
+		t.Error("a bare-metal request without user data")
+	}
+}
+
+func TestBareMetalStateAndRef(t *testing.T) {
+	for _, c := range []struct{ status, power, want string }{
+		{"pending", "running", vendors.StatePending},
+		{"pending", "stopped", vendors.StatePending},
+		{"active", "running", vendors.StateRunning},
+		{"active", "stopped", vendors.StateTerminating},
+		{"suspended", "running", vendors.StateTerminating},
+		{"active", "", vendors.StatePending},
+	} {
+		if got := bareMetalStateOf(govultr.BareMetalServer{Status: c.status, PowerStatus: c.power}); got != c.want {
+			t.Errorf("%s/%s = %s, want %s", c.status, c.power, got, c.want)
+		}
+	}
+	ref := bareMetalRef("syd", "2a000000-0000-4000-8000-000000000001")
+	if ref != "syd/bm:2a000000-0000-4000-8000-000000000001" {
+		t.Errorf("ref %s", ref)
+	}
+	if id, bm := splitRef(ref); !bm || id != "2a000000-0000-4000-8000-000000000001" || ref.Region() != "syd" {
+		t.Errorf("split %s %v", id, bm)
+	}
+	if id, bm := splitRef("syd/1a000000-0000-4000-8000-000000000001"); bm || id == "" {
+		t.Errorf("instance ref read as bare metal")
+	}
+}

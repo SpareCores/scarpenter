@@ -20,6 +20,9 @@ import (
 // MaxFirewallRules is the number of rules a Vultr firewall group takes.
 const MaxFirewallRules = 50
 
+// protoICMP is the ICMP protocol of a rule.
+const protoICMP = "icmp"
+
 // allPorts is what a tcp or udp rule without ports covers: Vultr has no "all
 // protocols" rule.
 const allPorts = "1:65535"
@@ -52,7 +55,7 @@ func FirewallRules(in *common.Inbound) ([]govultr.FirewallRuleReq, error) {
 		case common.Protocol("tcp"), common.Protocol("udp"), common.Protocol("icmp"):
 			protocols = []string{string(rule.Protocol)}
 		case common.Protocol("any"):
-			protocols = []string{"tcp", "udp", "icmp"}
+			protocols = []string{"tcp", "udp", protoICMP}
 		default:
 			return nil, fmt.Errorf("inbound rule %d: unknown protocol %q", i, rule.Protocol)
 		}
