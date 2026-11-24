@@ -501,6 +501,7 @@ and names them in `images.use`), without downtime:
 | copy stuck pending past 2 h | region gated | deregistered, `ImageCopyFailed` |
 | no source has the image (a release not yet published, the Alibaba source empty) | region gated | `ImageCopySourceMissing` |
 | leader change mid-copy | none | the new leader adopts the pending image by its tags |
+| a region does not answer the listing (a hung endpoint) | its copies in flight wait, its gate stays | the poll and the GC go on in the other regions; in that region nothing is forgotten, deleted, adopted or failed as missing until it answers; the error names the region |
 | GC deletes a copy a launch still holds | none | the delete invalidates the manager's and the CloudProvider's caches; the driver never caches copies |
 | Flatcar bump | the copy-only region is gated for one copy's duration | the release bump of section 6 |
 | two clusters in one account | two copies | by design; cluster names must be unique per account |

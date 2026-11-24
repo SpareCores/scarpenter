@@ -41,6 +41,31 @@ type countingDriver struct {
 	tokens    []string
 	// failSourcesOf makes CopySources of that version fail.
 	failSourcesOf string
+	// failListIn are the regions that do not answer ListCopies (a hung endpoint):
+	// the others are listed and the error names these.
+	failListIn map[string]bool
+	// failList makes ListCopies fail as a whole (not per region).
+	failList error
+}
+
+func (c *countingDriver) ListCopies(ctx context.Context, regions []string) ([]vendors.ImageCopy, error) {
+	if c.failList != nil {
+		return nil, c.failList
+	}
+	var answering []string
+	failed := vendors.RegionErrors{}
+	for _, r := range regions {
+		if c.failListIn[r] {
+			failed[r] = vendors.Errorf(vendors.Retryable, "DescribeImages: context deadline exceeded")
+		} else {
+			answering = append(answering, r)
+		}
+	}
+	out, err := c.Driver.ListCopies(ctx, answering)
+	if err == nil && len(failed) > 0 {
+		err = failed
+	}
+	return out, err
 }
 
 func (c *countingDriver) CopySources(ctx context.Context, rel vendors.Release) ([]vendors.ImageSource, error) {
@@ -764,5 +789,54 @@ func TestAFailingSourceListingDoesNotStallTheQueue(t *testing.T) {
 	e.tick(e.m)
 	if _, code := e.lookup(e.m, bad, false); code != vendors.CodeImageCopySourceMissing {
 		t.Errorf("after the backoff the job says %q; want it resolved (no source for 9.9.9)", code)
+	}
+}
+
+// A poll that a region does not answer settles the copies of the regions that did, and leaves
+// the copies of that region in flight however long it is silent: they are not "missing".
+func TestPollSkipsARegionThatDoesNotAnswer(t *testing.T) {
+	const hung = "eu-south-2"
+	e := newEnv(t)
+	e.want(e.m, dstRegion, "amd64", true, vendors.CodeImageCopying)
+	e.want(e.m, hung, "amd64", true, vendors.CodeImageCopying)
+	e.tick(e.m)
+	e.finish()
+	e.drv.failListIn = map[string]bool{hung: true}
+	e.clk.Step(imagecopy.MissingGrace)
+	err := e.m.Tick(t.Context())
+	if f := vendors.FailedRegions(err); len(f) != 1 || f[hung] == nil || !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("Tick = %v; want the Retryable error of %s only", err, hung)
+	}
+	e.want(e.m, dstRegion, "amd64", false, "")
+	e.want(e.m, hung, "amd64", false, vendors.CodeImageCopying)
+	e.want(e.m, hung, "arm64", false, vendors.CodeImageCopying)
+
+	e.drv.failListIn = nil
+	e.tick(e.m)
+	e.want(e.m, hung, "amd64", false, "")
+	e.want(e.m, hung, "arm64", false, "")
+}
+
+// A Sync that no region answers changes nothing and returns no copies; an error that is not
+// per region returns no copies either.
+func TestSyncWhenNoRegionAnswers(t *testing.T) {
+	e := newEnv(t)
+	ref := e.ready(dstRegion)
+	if err := e.ctl.DeleteByHand(t.Context(), ref); err != nil {
+		t.Fatal(err)
+	}
+	e.drv.failListIn = map[string]bool{srcRegion: true, dstRegion: true, "eu-south-2": true, "ca-west-1": true}
+	copies, err := e.m.Sync(t.Context())
+	if len(vendors.FailedRegions(err)) != 4 || len(copies) != 0 {
+		t.Fatalf("Sync = %v, %v; want no copies and the error of every region", copies, err)
+	}
+	e.drv.failListIn, e.drv.failList = nil, vendors.Errorf(vendors.Fatal, "no credentials")
+	copies, err = e.m.Sync(t.Context())
+	if err == nil || vendors.FailedRegions(err) != nil || copies != nil {
+		t.Fatalf("Sync = %v, %v; want no copies and the error of the call", copies, err)
+	}
+	e.want(e.m, dstRegion, "amd64", false, "") // neither forgot the copy deleted by hand
+	if len(e.invalid) != 0 {
+		t.Errorf("invalidated %v; want nothing", e.invalid)
 	}
 }

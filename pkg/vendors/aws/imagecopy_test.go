@@ -96,6 +96,33 @@ func listCopies(t *testing.T, e *env) []vendors.ImageCopy {
 	return got
 }
 
+// ListCopies reads the regions in parallel and returns the copies of the regions that answered
+// with an error that names the others.
+func TestListCopiesInParallelWithAFailingRegion(t *testing.T) {
+	e := copyEnv(t, false)
+	ctx := t.Context()
+	startCopy(t, e, "token-1")
+	regions := []string{"us-east-1", "eu-central-1", "us-west-2", copyDest}
+	got, err := e.d.ListCopies(ctx, regions)
+	if err != nil || len(got) != 1 || got[0].Region != copyDest {
+		t.Fatalf("ListCopies = %+v, %v; want the one copy of %s", got, err, copyDest)
+	}
+
+	e.acct.Fail(fake.Failure{Op: "DescribeImages", Region: "eu-central-1", Code: "RequestLimitExceeded", Count: -1})
+	e2 := e.restart(t)
+	got, err = e2.d.ListCopies(ctx, regions)
+	failed := vendors.FailedRegions(err)
+	if _, ok := failed["eu-central-1"]; !ok || len(failed) != 1 {
+		t.Fatalf("ListCopies error = %v; want eu-central-1 as the only failed region", err)
+	}
+	if !vendors.IsClass(err, vendors.Retryable) {
+		t.Errorf("ListCopies error class = %v; want Retryable", vendors.ClassOf(err))
+	}
+	if len(got) != 1 || got[0].Region != copyDest {
+		t.Errorf("ListCopies = %+v; want the copy of %s despite the failing region", got, copyDest)
+	}
+}
+
 func finishCopies(e *env) { e.clock.Step(fake.DefaultCopyDuration + time.Second) }
 
 func TestPrimaryAndArchitectures(t *testing.T) {

@@ -467,3 +467,86 @@ func TestBumpHonoursTheRegionsOfAPin(t *testing.T) {
 		t.Errorf("code = %q; want the release queued in a region its classes use", code)
 	}
 }
+
+// A region that does not answer does not stop the sweep of the others: its copies are neither
+// decided on nor forgotten, and the error names it.
+func TestSweepSurvivesARegionThatDoesNotAnswer(t *testing.T) {
+	const hung = "eu-south-2"
+	g := newGCEnv(t)
+	g.ready(dstRegion)
+	g.ready(hung)
+	g.wantCopies(4, "both architectures in two regions")
+	g.clk.Step(idleTTL)
+	g.drv.failListIn = map[string]bool{hung: true}
+	err := g.gc.Sweep(t.Context())
+	if _, ok := vendors.FailedRegions(err)[hung]; !ok || len(vendors.FailedRegions(err)) != 1 {
+		t.Fatalf("Sweep = %v; want the error of %s only", err, hung)
+	}
+	// The idle copies of the region that answered are deleted; the other region's stay and are still served.
+	g.drv.failListIn = nil
+	got := g.copies()
+	if len(got) != 2 || got[0].Region != hung || got[1].Region != hung {
+		t.Fatalf("copies = %+v; want only the two of %s left", got, hung)
+	}
+	g.drv.failListIn = map[string]bool{hung: true}
+	if img, code := g.lookup(g.m, req(hung, "amd64"), false); img == nil {
+		t.Errorf("the copy in %s is no longer served: %q", hung, code)
+	}
+	// Once the region answers again, it is swept like the others.
+	g.drv.failListIn = nil
+	g.sweep()
+	g.wantCopies(0, "the region answers again")
+}
+
+// A copy in a region that does not answer is neither forgotten nor invalidated, even when it
+// was deleted by hand: its absence from the listing means nothing. Once the region answers, it is.
+func TestSyncKeepsTheStateOfARegionThatDoesNotAnswer(t *testing.T) {
+	const hung = "eu-south-2"
+	e := newEnv(t)
+	ref := e.ready(hung)
+	e.ready(dstRegion)
+	if err := e.ctl.DeleteByHand(t.Context(), ref); err != nil {
+		t.Fatal(err)
+	}
+	e.drv.failListIn = map[string]bool{hung: true}
+	copies, err := e.m.Sync(t.Context())
+	if f := vendors.FailedRegions(err); len(f) != 1 || f[hung] == nil || !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("Sync = %v, %v; want the Retryable error of %s only", copies, err, hung)
+	}
+	if len(copies) != 2 || copies[0].Region != dstRegion || copies[1].Region != dstRegion {
+		t.Errorf("Sync returned %+v; want the two copies of %s", copies, dstRegion)
+	}
+	e.want(e.m, hung, "amd64", false, "") // still served: the job was not dropped
+	if len(e.invalid) != 0 {
+		t.Errorf("invalidated %v; want nothing while %s does not answer", e.invalid, hung)
+	}
+	e.drv.failListIn = nil
+	if copies, err := e.m.Sync(t.Context()); err != nil || len(copies) != 3 {
+		t.Errorf("Sync = %+v, %v; want the three copies left", copies, err)
+	}
+	e.want(e.m, hung, "amd64", false, vendors.CodeImageCopyOnDemand)
+	if len(e.invalid) != 1 || e.invalid[0] != hung+"/"+ref {
+		t.Errorf("invalidated %v; want the copy deleted by hand", e.invalid)
+	}
+}
+
+// A sweep that no region answers deletes and forgets nothing; nor does one whose listing fails
+// as a whole, which stops the sweep. Once the regions answer, the idle copies go.
+func TestSweepWhenNoRegionAnswers(t *testing.T) {
+	g := newGCEnv(t)
+	g.ready(dstRegion)
+	g.clk.Step(idleTTL)
+	g.drv.failListIn = map[string]bool{srcRegion: true, dstRegion: true, "eu-south-2": true, "ca-west-1": true}
+	if err := g.gc.Sweep(t.Context()); len(vendors.FailedRegions(err)) != 4 {
+		t.Fatalf("Sweep = %v; want the error of every region", err)
+	}
+	g.drv.failListIn, g.drv.failList = nil, vendors.Errorf(vendors.Fatal, "no credentials")
+	if err := g.gc.Sweep(t.Context()); err == nil || vendors.FailedRegions(err) != nil {
+		t.Fatalf("Sweep = %v; want the error of the listing", err)
+	}
+	g.drv.failList = nil
+	g.wantCopies(2, "nothing was listed")
+	g.want(g.m, dstRegion, "amd64", false, "")
+	g.sweep()
+	g.wantCopies(0, "the regions answer again")
+}

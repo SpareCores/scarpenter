@@ -457,9 +457,16 @@ func (m *Manager) poll(ctx context.Context) error {
 		return nil
 	}
 	slices.Sort(regions)
-	listed, err := m.opts.Driver.ListCopies(ctx, regions)
-	if err != nil {
-		return fmt.Errorf("polling the image copies: %w", err)
+	listed, listErr := m.opts.Driver.ListCopies(ctx, regions)
+	if listErr != nil {
+		// A region that did not answer is polled again later: its copies are
+		// not "missing".
+		failed := vendors.FailedRegions(listErr)
+		if failed == nil {
+			return fmt.Errorf("polling the image copies: %w", listErr)
+		}
+		regions = slices.DeleteFunc(regions, func(r string) bool { _, bad := failed[r]; return bad })
+		listErr = fmt.Errorf("polling the image copies: %w", listErr)
 	}
 	byRef := map[string]*vendors.ImageCopy{}
 	for i := range listed {
@@ -503,7 +510,7 @@ func (m *Manager) poll(ctx context.Context) error {
 		}
 		m.fail(f.j, f.code, f.msg)
 	}
-	return errors.Join(errs...)
+	return errors.Join(append(errs, listErr)...)
 }
 
 // fail marks the copy failed for FailureTTL.
@@ -663,14 +670,22 @@ func (j *job) asCopy() vendors.ImageCopy {
 
 // Sync reads every region's copies of the cluster, makes the state match them
 // (a copy deleted by hand is forgotten, one found is adopted) and returns them.
+// A region that does not answer is left as it is (its copies stay, it is not
+// marked loaded) and Sync returns the copies of the others with an error that
+// names it (vendors.FailedRegions); any other error returns no copies.
 func (m *Manager) Sync(ctx context.Context) ([]vendors.ImageCopy, error) {
 	regions, err := m.opts.Regions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing the regions: %w", err)
 	}
-	copies, err := m.opts.Driver.ListCopies(ctx, regions)
-	if err != nil {
-		return nil, fmt.Errorf("listing the image copies: %w", err)
+	copies, listErr := m.opts.Driver.ListCopies(ctx, regions)
+	if listErr != nil {
+		failed := vendors.FailedRegions(listErr)
+		if failed == nil {
+			return nil, fmt.Errorf("listing the image copies: %w", listErr)
+		}
+		regions = slices.DeleteFunc(slices.Clone(regions), func(r string) bool { _, bad := failed[r]; return bad })
+		listErr = fmt.Errorf("listing the image copies: %w", listErr)
 	}
 	listed := map[string]bool{}
 	for _, c := range copies {
@@ -705,7 +720,7 @@ func (m *Manager) Sync(ctx context.Context) ([]vendors.ImageCopy, error) {
 			m.opts.Invalidate(d.region, d.ref)
 		}
 	}
-	return copies, nil
+	return copies, listErr
 }
 
 // lastResolve is the last time a launch resolved the copy, zero if none did in

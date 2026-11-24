@@ -267,35 +267,63 @@ func (d *Driver) isOurCopy(im ec2types.Image) bool {
 // ListCopies implements vendors.ImageCopier: the account's own images with
 // this cluster's ownership tags, in any state; an available one with the time
 // of its last launch (the image attribute lastLaunchedTime, which AWS updates
-// within about a day of a launch).
+// within about a day of a launch). The regions are read in parallel; one that
+// fails (an unresponsive endpoint) is reported in a vendors.RegionErrors next
+// to the copies of the others.
 func (d *Driver) ListCopies(ctx context.Context, regions []string) ([]vendors.ImageCopy, error) {
 	if d.cfg.ClusterName == "" {
 		return nil, nil // without a cluster tag nothing can be told as ours
 	}
+	copies := make([][]vendors.ImageCopy, len(regions))
+	errs := make([]error, len(regions))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, reportParallel)
+	for i, region := range regions {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem; wg.Done() }()
+			copies[i], errs[i] = d.listCopiesIn(ctx, region)
+		}()
+	}
+	wg.Wait()
 	var out []vendors.ImageCopy
-	for _, region := range regions {
-		cl, err := d.clients(ctx, region)
-		if err != nil {
-			return nil, err
+	failed := vendors.RegionErrors{}
+	for i, region := range regions {
+		if errs[i] != nil {
+			failed[region] = errs[i]
+			continue
 		}
-		in := &ec2.DescribeImagesInput{Owners: []string{ownerSelf}, Filters: d.ownershipFilters()}
-		for {
-			res, err := cl.EC2.DescribeImages(ctx, in)
-			if err != nil {
-				return nil, classify(err, errContext{})
-			}
-			for _, im := range res.Images {
-				if d.isOurCopy(im) && im.State != ec2types.ImageStateDeregistered {
-					out = append(out, d.toCopy(ctx, cl, region, im))
-				}
-			}
-			if res.NextToken == nil || *res.NextToken == "" {
-				break
-			}
-			in.NextToken = res.NextToken
-		}
+		out = append(out, copies[i]...)
+	}
+	if len(failed) > 0 {
+		return out, failed
 	}
 	return out, nil
+}
+
+func (d *Driver) listCopiesIn(ctx context.Context, region string) ([]vendors.ImageCopy, error) {
+	cl, err := d.clients(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	var out []vendors.ImageCopy
+	in := &ec2.DescribeImagesInput{Owners: []string{ownerSelf}, Filters: d.ownershipFilters()}
+	for {
+		res, err := cl.EC2.DescribeImages(ctx, in)
+		if err != nil {
+			return nil, classify(err, errContext{})
+		}
+		for _, im := range res.Images {
+			if d.isOurCopy(im) && im.State != ec2types.ImageStateDeregistered {
+				out = append(out, d.toCopy(ctx, cl, region, im))
+			}
+		}
+		if res.NextToken == nil || *res.NextToken == "" {
+			return out, nil
+		}
+		in.NextToken = res.NextToken
+	}
 }
 
 func (d *Driver) toCopy(ctx context.Context, cl Clients, region string, im ec2types.Image) vendors.ImageCopy {

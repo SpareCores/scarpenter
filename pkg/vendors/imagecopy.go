@@ -8,6 +8,11 @@ package vendors
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -100,7 +105,10 @@ type ImageCopier interface {
 	CopySources(ctx context.Context, rel Release) ([]ImageSource, error)
 	// ListCopies lists this cluster's copies (any state) in the regions, found
 	// by the ownership tags, with the vendor's last-used time where it has one.
-	// Images without the ownership tags are never listed.
+	// Images without the ownership tags are never listed. A region that cannot
+	// be read does not fail the others: the copies of the regions that answered
+	// are returned together with a RegionErrors naming the regions that did not.
+	// A caller must treat the copies of those regions as unknown, not as gone.
 	ListCopies(ctx context.Context, regions []string) ([]ImageCopy, error)
 	// StartCopy starts a copy into region, tagged at creation (tags are the
 	// logical ownership tags; the driver adds the release tags). Calling it
@@ -118,6 +126,38 @@ type ImageCopier interface {
 	// the vendor shows only the account's own images, found missing; a copy that
 	// does not exist is not an error.
 	DeleteCopy(ctx context.Context, c ImageCopy) error
+}
+
+// RegionErrors is the error of a call that failed in some regions only, by
+// region. It unwraps to the errors of the regions, so their classes can be read.
+type RegionErrors map[string]error
+
+// Error implements error.
+func (e RegionErrors) Error() string {
+	parts := make([]string, 0, len(e))
+	for _, r := range slices.Sorted(maps.Keys(e)) {
+		parts = append(parts, fmt.Sprintf("%s: %v", r, e[r]))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// Unwrap returns the errors of the regions.
+func (e RegionErrors) Unwrap() []error {
+	errs := make([]error, 0, len(e))
+	for _, r := range slices.Sorted(maps.Keys(e)) {
+		errs = append(errs, e[r])
+	}
+	return errs
+}
+
+// FailedRegions returns the regions err names as failed, nil when it names none
+// (an empty RegionErrors names none either: the caller then treats err as an
+// error of the whole call).
+func FailedRegions(err error) RegionErrors {
+	if e, _ := errors.AsType[RegionErrors](err); len(e) > 0 {
+		return e
+	}
+	return nil
 }
 
 // ImageCopies is the copy manager as a driver sees it (pkg/imagecopy.Manager);
