@@ -103,7 +103,7 @@ func BuildBareMetalCreateRequest(req vendors.CreateRequest, o LaunchOptions) (*g
 // a server has no server_status.
 func bareMetalStateOf(s govultr.BareMetalServer) string {
 	switch {
-	case s.Status == "pending":
+	case s.Status == statePending:
 		return vendors.StatePending
 	case s.Status == "suspended" || s.PowerStatus == "stopped":
 		return vendors.StateTerminating

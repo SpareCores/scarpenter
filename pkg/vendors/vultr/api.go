@@ -49,7 +49,6 @@ type API interface {
 	// HaltBareMetal powers the server off hard; it keeps billing until deleted.
 	HaltBareMetal(ctx context.Context, id string) error
 	DeleteBareMetal(ctx context.Context, id string) error
-	AttachBareMetalVPC(ctx context.Context, id, vpcID string) error
 
 	CreateFirewallGroup(ctx context.Context, req *govultr.FirewallGroupReq) (*govultr.FirewallGroup, error)
 	GetFirewallGroup(ctx context.Context, id string) (*govultr.FirewallGroup, error)

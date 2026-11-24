@@ -101,10 +101,6 @@ func (g *roVultr) DeleteBareMetal(context.Context, string) error {
 	return g.audit.deny("vultr:DeleteBareMetal")
 }
 
-func (g *roVultr) AttachBareMetalVPC(context.Context, string, string) error {
-	return g.audit.deny("vultr:AttachBareMetalVPC")
-}
-
 func (g *roVultr) DeleteInstance(context.Context, string) error {
 	return g.audit.deny("vultr:DeleteInstance")
 }

@@ -121,7 +121,7 @@ func snapshotState(status string) string {
 	switch status {
 	case "complete":
 		return stateAvailable
-	case "pending":
+	case statePending:
 		return statePending
 	}
 	return stateFailed

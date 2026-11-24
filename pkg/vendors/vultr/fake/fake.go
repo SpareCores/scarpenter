@@ -125,12 +125,10 @@ type instance struct {
 	attached []string
 }
 
-// bareMetal is a /v2/bare-metals server. It takes no firewall group and has no
-// VPC at create: a VPC is attached afterwards.
+// bareMetal is a /v2/bare-metals server. It takes no firewall group and no VPC.
 type bareMetal struct {
 	govultr.BareMetalServer
-	hidden   bool
-	attached []string
+	hidden bool
 }
 
 type group struct {
@@ -290,18 +288,6 @@ func (a *Account) BareMetals() []govultr.BareMetalServer {
 		out = append(out, b.BareMetalServer)
 	}
 	return out
-}
-
-// AttachedVPCs returns the VPCs attached to a bare-metal server.
-func (a *Account) AttachedVPCs(serverID string) []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	for _, b := range a.servers {
-		if b.ID == serverID {
-			return slices.Clone(b.attached)
-		}
-	}
-	return nil
 }
 
 // AddRules adds rules to a firewall group as they are (the creation call
@@ -834,24 +820,6 @@ func (a *Account) DeleteBareMetal(_ context.Context, id string) error {
 	return nil
 }
 
-// AttachBareMetalVPC implements vultr.API.
-func (a *Account) AttachBareMetalVPC(_ context.Context, id, vpcID string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if err := a.enter("AttachBareMetalVPC", id); err != nil {
-		return err
-	}
-	_, b := a.findServer(id)
-	if b == nil {
-		return fail(http.StatusNotFound, MsgNotFound)
-	}
-	if vpc := a.vpc(vpcID); vpc == nil || vpc.Region != b.Region {
-		return fail(http.StatusBadRequest, MsgInvalidVPC)
-	}
-	b.attached = append(b.attached, vpcID)
-	return nil
-}
-
 // ---- firewall ----
 
 func (a *Account) group(id string) *group {
@@ -1049,12 +1017,6 @@ func (a *Account) attachments(vpcID string) []govultr.VPCAttachment {
 		if slices.Contains(in.attached, vpcID) {
 			out = append(out, govultr.VPCAttachment{ID: in.ID, Type: "instance",
 				LinkedSubscription: govultr.VPCAttachmentLinkedSubscription{Type: "instance", ID: in.ID}})
-		}
-	}
-	for _, b := range a.servers {
-		if slices.Contains(b.attached, vpcID) {
-			out = append(out, govultr.VPCAttachment{ID: b.ID, Type: "bare-metal",
-				LinkedSubscription: govultr.VPCAttachmentLinkedSubscription{Type: "bare-metal", ID: b.ID}})
 		}
 	}
 	return out

@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -35,12 +34,14 @@ func bmEnv(t *testing.T) *env {
 	e := newEnv(t)
 	e.acct.AddPlan(bmPlan, 6, 32768, 240)
 	e.acct.SetAvailable("ewr", plan, "vc2-2c-4gb", bmPlan)
+	e.ops.RegistrationTimeout = time.Hour
 	return e
 }
 
 func (e *env) bmRequest(claim, uid string) vendors.CreateRequest {
 	r := e.request(claim, uid)
 	r.InstanceType = bmPlan
+	r.Prepared = &vendors.Prepared{BootFragments: []vendors.BootFragment{{Name: vultr.HostFirewallFragmentName}}}
 	return r
 }
 
@@ -69,50 +70,24 @@ func TestBareMetalLaunchUsesTheBareMetalAPIAndStock(t *testing.T) {
 	}
 }
 
-func TestBareMetalLaunchAttachesTheVPCAfterTheCreate(t *testing.T) {
+func TestBareMetalLaunchNeedsTheHostFirewall(t *testing.T) {
 	e := bmEnv(t)
-	ctx := context.Background()
-	vpc, err := e.acct.CreateVPC(ctx, &govultr.VPCReq{Region: "ewr"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lo := e.launchOpts()
-	lo.VPCIDs = []string{vpc.ID}
-	inst, err := e.ops.Launch(ctx, e.bmRequest("claim-1", "uid-1"), lo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, _ := strings.CutPrefix(inst.Ref.ID(), "bm:")
-	if got := e.acct.AttachedVPCs(id); !slices.Equal(got, []string{vpc.ID}) {
-		t.Fatalf("attached %v", got)
+	req := e.bmRequest("claim-1", "uid-1")
+	for name, p := range map[string]*vendors.Prepared{"none": nil, "other fragment": {BootFragments: []vendors.BootFragment{{Name: "x"}}}} {
+		req.Prepared = p
+		_, err := e.ops.Launch(context.Background(), req, e.launchOpts())
+		if !vendors.IsClass(err, vendors.Unsupported) || e.acct.Calls("CreateBareMetal") != 0 {
+			t.Errorf("%s: %v, %d creates", name, err, e.acct.Calls("CreateBareMetal"))
+		}
 	}
 }
 
-func TestBareMetalAttachFailureDeletesTheServer(t *testing.T) {
+func TestBareMetalLaunchIgnoresVPCs(t *testing.T) {
 	e := bmEnv(t)
-	ctx := context.Background()
-	vpc, _ := e.acct.CreateVPC(ctx, &govultr.VPCReq{Region: "ewr"})
 	lo := e.launchOpts()
-	lo.VPCIDs = []string{vpc.ID}
-
-	e.acct.FailNext("AttachBareMetalVPC", 1, &fake.Error{Status: http.StatusBadRequest, Message: "server is not ready"})
-	_, err := e.ops.Launch(ctx, e.bmRequest("claim-1", "uid-1"), lo)
-	if !vendors.IsClass(err, vendors.Retryable) {
-		t.Fatalf("attach failure: %v", err)
-	}
-	if len(e.acct.BareMetals()) != 0 {
-		t.Fatal("the server was kept")
-	}
-
-	// A failed cleanup says so: the next attempt finds the server by its tag.
-	e.acct.FailNext("AttachBareMetalVPC", 1, &fake.Error{Status: http.StatusBadRequest, Message: "server is not ready"})
-	e.acct.FailNext("DeleteBareMetal", 1, &fake.Error{Status: http.StatusConflict, Message: fake.MsgInstanceInstalls})
-	_, err = e.ops.Launch(ctx, e.bmRequest("claim-2", "uid-2"), lo)
-	if !vendors.IsClass(err, vendors.Retryable) || !strings.Contains(err.Error(), "deleting the server failed too") {
-		t.Fatalf("cleanup failure: %v", err)
-	}
-	if len(e.acct.BareMetals()) != 1 {
-		t.Fatal("the server should still be there")
+	lo.VPCIDs = []string{"0c000000-0000-4000-8000-000000000003"}
+	if _, err := e.ops.Launch(context.Background(), e.bmRequest("claim-1", "uid-1"), lo); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -125,6 +100,7 @@ func TestBareMetalReplayFindsTheServer(t *testing.T) {
 	// Another process has no cache: the list lookup finds it.
 	other := vultr.NewOps(e.acct, cluster)
 	other.Clock = e.clk
+	other.RegistrationTimeout = time.Hour
 	again, err := other.Launch(context.Background(), e.bmRequest("claim-1", "uid-1"), e.launchOpts())
 	if err != nil || again.Ref != first.Ref || e.acct.Calls("CreateBareMetal") != 1 {
 		t.Fatalf("replay: %+v %v, %d creates", again, err, e.acct.Calls("CreateBareMetal"))
@@ -220,25 +196,49 @@ func tags(cluster string) []string {
 	return []string{"scarpenter.sparecores.com/cluster=" + cluster}
 }
 
-func TestBareMetalDeleteWhileInstallingIsRetryable(t *testing.T) {
+func TestBareMetalDeleteIsSentWhateverTheHaltAnswered(t *testing.T) {
 	e := bmEnv(t)
 	ctx := context.Background()
 	bm, _ := e.ops.Launch(ctx, e.bmRequest("claim-bm", "uid-bm"), e.launchOpts())
-	// The halt of a server that is still installing is refused as locked (409).
-	err := e.ops.DeleteInstance(ctx, bm.Ref)
-	if !vendors.IsClass(err, vendors.Retryable) || e.acct.Calls("DeleteBareMetal") != 0 {
+	// The halt of a server that is still installing is refused as locked (409):
+	// the delete is sent anyway.
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 || e.acct.Calls("DeleteBareMetal") != 1 {
 		t.Fatalf("halt while installing: %v, %d deletes", err, e.acct.Calls("DeleteBareMetal"))
 	}
-	// A locked delete is retryable like an instance's.
+	// Both fail: the halt's error is the one to retry on; a locked delete alone is retryable too.
+	bm, _ = e.ops.Launch(ctx, e.bmRequest("claim-2", "uid-2"), e.launchOpts())
 	e.acct.Advance()
-	e.acct.FailNext("DeleteBareMetal", 1, &fake.Error{Status: http.StatusConflict, Message: "Server is currently locked"})
+	e.acct.FailNext("DeleteBareMetal", 2, &fake.Error{Status: http.StatusConflict, Message: "Server is currently locked"})
+	e.acct.FailNext("HaltBareMetal", 1, &fake.Error{Status: http.StatusBadGateway, Message: "down"})
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("both failed: %v", err)
+	}
 	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
 		t.Fatalf("locked delete: %v", err)
 	}
-	// A halt that fails for another reason does not keep the delete.
-	e.acct.FailNext("HaltBareMetal", 1, &fake.Error{Status: http.StatusBadRequest, Message: "cannot halt"})
+	// A retryable halt failure still sends the delete.
+	e.acct.FailNext("HaltBareMetal", 1, &fake.Error{Status: http.StatusServiceUnavailable, Message: "down"})
 	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 {
-		t.Fatalf("halt refused: %v, %d servers", err, len(e.acct.BareMetals()))
+		t.Fatalf("halt failed, delete sent: %v, %d servers", err, len(e.acct.BareMetals()))
+	}
+}
+
+func TestBareMetalIsListedOnlyWhileEnabled(t *testing.T) {
+	e := bmEnv(t)
+	ctx := context.Background()
+	if _, err := e.ops.Launch(ctx, e.bmRequest("claim-1", "uid-1"), e.launchOpts()); err != nil {
+		t.Fatal(err)
+	}
+	before := e.acct.Calls("ListBareMetals")
+	e.ops.RegistrationTimeout = 0
+	e.acct.FailNext("ListBareMetals", -1, &fake.Error{Status: 500, Message: "down"})
+	list, err := e.ops.ListInstances(ctx, nil, nil)
+	if err != nil || len(list) != 0 || e.acct.Calls("ListBareMetals") != before {
+		t.Fatalf("disabled: %v %v, %d bare-metal lists", list, err, e.acct.Calls("ListBareMetals")-before)
+	}
+	e.ops.RegistrationTimeout = time.Hour
+	if _, err := e.ops.ListInstances(ctx, nil, nil); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("enabled, endpoint down: %v", err)
 	}
 }
 
@@ -273,7 +273,8 @@ func TestBareMetalNeedsALongRegistrationWindow(t *testing.T) {
 		req := vendors.CreateRequest{
 			Region: "ewr", Zone: "ewr", InstanceType: "vbm-4c-32gb", Image: vendors.Image{Ref: e.snap},
 			UserData: []byte("{}"), Node: vendors.NodeInfo{Name: "n"}, IdempotencyKey: "u",
-			Tags: map[vendors.TagKey]string{vendors.TagCluster: testCluster, vendors.TagNodeClaim: "n"},
+			Tags:     map[vendors.TagKey]string{vendors.TagCluster: testCluster, vendors.TagNodeClaim: "n"},
+			Prepared: &vendors.Prepared{BootFragments: []vendors.BootFragment{{Name: vultr.HostFirewallFragmentName}}},
 		}
 		_, err = d.CreateInstance(ctx, req)
 		if c.ok != (err == nil) || (!c.ok && !vendors.IsClass(err, vendors.Unsupported)) {
@@ -325,10 +326,17 @@ func TestHostFirewallFragmentTranslatesTheGroupsRules(t *testing.T) {
 		"ip saddr 192.0.2.0/24 meta l4proto tcp accept",
 		"ip saddr 192.0.2.1/32 meta l4proto gre accept",
 		"policy drop",
+		// Before the NAT of kube-proxy, so that NodePorts and hostPorts are covered.
+		"chain prerouting {",
+		"type filter hook prerouting priority mangle; policy drop;",
+		`iifname != { @PUBLIC_IFS@ } accept`,
 	} {
 		if !strings.Contains(frag.Butane, want) {
 			t.Errorf("the ruleset lacks %q", want)
 		}
+	}
+	if strings.Contains(frag.Butane, "hook input") || strings.Contains(frag.Butane, "hook forward") {
+		t.Error("the table hooks input or forward: forwarded NodePort traffic would be open")
 	}
 	testutil.Golden(t, "host_firewall_fragment.golden.yaml", []byte(frag.Butane))
 	if frag.Name == "" {
@@ -381,14 +389,19 @@ func TestPrepareAddsTheHostFirewallOfABareMetalLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := provider{vultr.KindFirewallGroups: {{Kind: vultr.KindFirewallGroups, ID: g.ID}}}
-	req := prepareReq(res, common.Networking{Isolation: common.IsolationNone})
+	// The default isolation needs a VPC for instances; a bare-metal server has none.
+	req := prepareReq(res, common.Networking{})
 	req.InstanceType = "vbm-4c-32gb"
 	prep, err := d.Prepare(ctx, req)
 	if err != nil || len(prep.BootFragments) != 1 || !strings.Contains(prep.BootFragments[0].Butane, "ip saddr 203.0.113.0/24 tcp dport 22 accept") {
 		t.Fatalf("%+v %v", prep, err)
 	}
-	// An instance plan gets none.
+	if len(prep.Resources) != 1 {
+		t.Errorf("resources %+v, want the firewall group only", prep.Resources)
+	}
+	// An instance plan gets none, and needs its VPC.
 	req.InstanceType = testType
+	req.Settings.Networking.Isolation = common.IsolationNone
 	if prep, err = d.Prepare(ctx, req); err != nil || len(prep.BootFragments) != 0 {
 		t.Fatalf("an instance: %+v %v", prep, err)
 	}

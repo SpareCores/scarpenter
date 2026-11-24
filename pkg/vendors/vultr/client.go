@@ -317,10 +317,6 @@ func (c *sdkClient) DeleteBareMetal(ctx context.Context, id string) error {
 	return c.run(ctx, func(ctx context.Context) error { return c.g.BareMetalServer.Delete(ctx, id) })
 }
 
-func (c *sdkClient) AttachBareMetalVPC(ctx context.Context, id, vpcID string) error {
-	return c.run(ctx, func(ctx context.Context) error { return c.g.BareMetalServer.AttachVPC(ctx, id, vpcID) })
-}
-
 func (c *sdkClient) CreateFirewallGroup(
 	ctx context.Context, req *govultr.FirewallGroupReq,
 ) (*govultr.FirewallGroup, error) {

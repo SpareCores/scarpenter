@@ -148,9 +148,16 @@ func (o *Ops) ListInstances(
 	if err != nil {
 		return nil, err
 	}
-	servers, err := listAll(ctx, opOther, opts, o.API.ListBareMetals)
-	if err != nil {
-		return nil, err
+	// The bare-metal endpoint is read only while bare metal is enabled (the
+	// registration window is open), so that it cannot break the instance paths
+	// of a deployment that never uses it. Once enabled, its errors are returned:
+	// a server missing from the list would let a replayed launch create a second
+	// one.
+	var servers []govultr.BareMetalServer
+	if bareMetalWindowOK(o.RegistrationTimeout) {
+		if servers, err = listAll(ctx, opOther, opts, o.API.ListBareMetals); err != nil {
+			return nil, err
+		}
 	}
 	all := make([]*vendors.Instance, 0, len(raw)+len(servers))
 	for _, r := range raw {
@@ -261,23 +268,27 @@ func (o *Ops) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error
 
 // deleteBareMetal halts the server and then deletes it: a deleted bare-metal
 // server keeps running for minutes (observed: about 4.5), and its kubelet
-// registers the Node again. A halt that fails for a reason that will pass (the
-// server is locked while it installs, throttling, a server error) is returned
-// to be retried; one that fails otherwise does not keep the delete, which is the
-// cost-safety action. Halting a halted server is a no-op for the API.
+// registers the Node again. The delete is the cost-safety action, so it is sent
+// whatever the halt answered, unless the halt says the server is gone (404). A
+// failed halt is returned only when the delete fails too, as the error to retry
+// on.
 func (o *Ops) deleteBareMetal(ctx context.Context, id string) error {
+	var haltErr error
 	if err := o.API.HaltBareMetal(ctx, id); err != nil {
-		switch e := classify(err, opDelete); {
-		case vendors.IsClass(e, vendors.NotFound):
+		haltErr = classify(err, opDelete)
+		if vendors.IsClass(haltErr, vendors.NotFound) {
 			return nil
-		case vendors.IsClass(e, vendors.Retryable):
-			return e
 		}
 	}
 	if err := o.API.DeleteBareMetal(ctx, id); err != nil {
-		if e := classify(err, opDelete); !vendors.IsClass(e, vendors.NotFound) {
-			return e
+		e := classify(err, opDelete)
+		if vendors.IsClass(e, vendors.NotFound) {
+			return nil
 		}
+		if haltErr != nil {
+			return haltErr
+		}
+		return e
 	}
 	return nil
 }
@@ -343,7 +354,9 @@ func (o *Ops) checkStock(ctx context.Context, region, plan, planType string) err
 	return nil
 }
 
-func (o *Ops) createInstance(ctx context.Context, req vendors.CreateRequest, lo LaunchOptions) (*vendors.Instance, error) {
+func (o *Ops) createInstance(
+	ctx context.Context, req vendors.CreateRequest, lo LaunchOptions,
+) (*vendors.Instance, error) {
 	body, err := BuildCreateRequest(req, lo)
 	if err != nil {
 		return nil, err
@@ -358,10 +371,17 @@ func (o *Ops) createInstance(ctx context.Context, req vendors.CreateRequest, lo 
 	return ToInstance(*in, o.Tags), nil
 }
 
-// createBareMetal creates the server and attaches the VPCs: the create has no
-// VPC field. A server whose attach failed is deleted again and the launch is
-// retried, so that no node runs without the network the NodeClass asked for.
-func (o *Ops) createBareMetal(ctx context.Context, req vendors.CreateRequest, lo LaunchOptions) (*vendors.Instance, error) {
+// createBareMetal creates the server. It has no firewall group and no VPC, so
+// the node must carry the host firewall (Prepare's boot fragment) in its user
+// data: a launch without it is refused, so that a server is never created open.
+func (o *Ops) createBareMetal(
+	ctx context.Context, req vendors.CreateRequest, lo LaunchOptions,
+) (*vendors.Instance, error) {
+	if !hasHostFirewall(req.Prepared) {
+		return nil, vendors.NewError(vendors.Unsupported, codeIncompatible, fmt.Errorf(
+			"bare metal plan %s needs the %s boot fragment from Prepare: a server cannot join a firewall group",
+			req.InstanceType, HostFirewallFragmentName))
+	}
 	body, err := BuildBareMetalCreateRequest(req, lo)
 	if err != nil {
 		return nil, err
@@ -373,18 +393,14 @@ func (o *Ops) createBareMetal(ctx context.Context, req vendors.CreateRequest, lo
 	if err != nil {
 		return nil, classify(err, opCreateInstance)
 	}
-	for _, vpc := range lo.VPCIDs {
-		if err := o.API.AttachBareMetalVPC(ctx, s.ID, vpc); err != nil {
-			// The server is new and has not booted: no halt, only the delete.
-			failure := fmt.Errorf("attaching VPC %s to bare metal server %s: %w", vpc, s.ID, classify(err, opOther))
-			if derr := o.API.DeleteBareMetal(ctx, s.ID); derr != nil {
-				failure = fmt.Errorf("%w; deleting the server failed too (the next launch attempt finds it): %w",
-					failure, classify(derr, opDelete))
-			}
-			return nil, vendors.NewError(vendors.Retryable, codeVPCAttach, failure)
-		}
-	}
 	return ToBareMetalInstance(*s, o.Tags), nil
+}
+
+// hasHostFirewall says whether the launch carries the host firewall fragment.
+func hasHostFirewall(p *vendors.Prepared) bool {
+	return p != nil && slices.ContainsFunc(p.BootFragments, func(f vendors.BootFragment) bool {
+		return f.Name == HostFirewallFragmentName
+	})
 }
 
 func (o *Ops) forgetCreate(key string) {

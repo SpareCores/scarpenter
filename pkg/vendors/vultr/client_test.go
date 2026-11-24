@@ -351,12 +351,12 @@ func TestClientBareMetalEndpoints(t *testing.T) {
 	if s, err := c.GetBareMetal(ctx, "b-1"); err != nil || s.Plan != "vbm-6c-32gb" {
 		t.Fatalf("get: %+v %v", s, err)
 	}
-	for _, err := range []error{c.HaltBareMetal(ctx, "b-1"), c.AttachBareMetalVPC(ctx, "b-1", "v-1"), c.DeleteBareMetal(ctx, "b-1")} {
+	for _, err := range []error{c.HaltBareMetal(ctx, "b-1"), c.DeleteBareMetal(ctx, "b-1")} {
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	want := "GET /v2/bare-metals/b-1,POST /v2/bare-metals/b-1/halt,POST /v2/bare-metals/b-1/vpcs/attach,DELETE /v2/bare-metals/b-1"
+	want := "GET /v2/bare-metals/b-1,POST /v2/bare-metals/b-1/halt,DELETE /v2/bare-metals/b-1"
 	if strings.Join(got, ",") != want {
 		t.Errorf("requests %v", got)
 	}

@@ -175,32 +175,42 @@ instances. It differs in these points:
 - **Instance reference.** A server's reference is `<region>/bm:<uuid>` (an instance's stays `<region>/<uuid>`), so `Get` and
   `Delete` pick the endpoint from the reference without a second call.
 - **Create.** `POST /v2/bare-metals` takes `region`, `plan`, `snapshot_id`, `label`, `hostname`, `user_data`, `enable_ipv6`,
-  `activation_email: false` and the tags. It has no firewall group and no VPC field: the VPCs of the NodeClass are attached
-  afterwards (`POST /v2/bare-metals/{id}/vpcs/attach`). When an attach fails the server is deleted and the launch fails as
-  `Retryable` (code `VPCAttachFailed`; the message says when the delete failed too, and the next attempt then finds the server by
-  its tag). The stock check is `GET /v2/regions/{id}/availability?type=vbm`.
+  `activation_email: false` and the tags. It has no firewall group and no VPC field. **A bare-metal server joins no VPC**: the VPC
+  interface gets no address on Flatcar anyway, so `Prepare` asks for no VPC for a `vbm` plan whatever the isolation, and the
+  inbound isolation comes from the host firewall below. The stock check is `GET /v2/regions/{id}/availability?type=vbm`. A create
+  whose request lacks the `host-firewall` boot fragment is `Unsupported`: a server is never created open.
 - **State.** `pending` is `pending`; `active` with `running` is `running` (a server has no `server_status`); `suspended` or
   `stopped` is `terminating`.
 - **Registration window.** A server takes about 13 minutes from the create to `active` and about 2 more to register its Node,
   longer than Karpenter's default registration timeout of 15 minutes. Bare-metal plans are therefore refused (`NotLaunchable`
   for the type, `Unsupported` for a create or `Prepare`) unless the registration timeout the driver is given
-  (`vendors.Config.RegistrationTimeout`, Karpenter's `--registration-timeout`) is at least 25 minutes; they are also left out of
-  the offered plans of a region, and the stock of `vbm` is not read, in that case.
-- **Firewall at boot.** A bare-metal server cannot join a firewall group, so the node filters its public interface itself.
+  (`vendors.Config.RegistrationTimeout`, Karpenter's `--registration-timeout`) is at least 25 minutes. While it is shorter the
+  plans are left out of the offered plans of a region, the stock of `vbm` is not read, and `/v2/bare-metals` is not listed by the
+  driver (so a broken bare-metal endpoint cannot affect instances). The operator does not pass the timeout to the driver yet:
+  until that is wired (it needs the patched Karpenter core), no bare-metal plan is offered.
+- **Firewall at boot.** A bare-metal server cannot join a firewall group, so the node filters its public interfaces itself.
   `Prepare` reads the managed group's rules (`GET /v2/firewalls/{id}/rules`) and adds a boot fragment (`host-firewall`) to the
-  node's Ignition: an nftables table `inet scarpenter_host` whose input chain drops by default on the public interface (the one of
-  the default route, found when the unit runs) and accepts loopback, established and related traffic, ICMPv6 neighbour discovery
-  and what the group's rules accept. Other interfaces (VPC, Pods) are not filtered. Each rule becomes one nftables rule (subnet
-  source, tcp/udp ports or ranges, icmp, gre, esp, ah). A unit loads the table after the network is online and before the
-  kubelet, which requires it, so a node whose rules did not load never joins. If the rules cannot be read or a rule cannot be
-  translated (another action, a `source` such as `cloudflare`), `Prepare` fails and no server is created.
+  node's Ignition: an nftables table `inet scarpenter_host` with a chain at the `prerouting` hook, priority `mangle` (after
+  connection tracking, before kube-proxy's NAT, so NodePorts and hostPorts, which are forwarded, are covered by the rules on
+  their original destination port as well as traffic to the node). It drops by default on the public interfaces and accepts
+  loopback, established and related traffic, ICMPv6 neighbour discovery and what the group's rules accept. The public
+  interfaces are those of the IPv4 and IPv6 default routes, found when the unit runs; other interfaces (Pods and so on) are
+  not filtered. Each rule becomes one nftables rule (subnet source, tcp/udp ports or ranges, icmp, gre, esp, ah). A unit loads
+  the table after the network is online and before the kubelet, which requires it, so a node whose rules did not load never
+  joins. If the rules cannot be read or a rule cannot be translated (another action, a `source` such as `cloudflare`),
+  `Prepare` fails and no server is created.
+  - The rules are baked into the node's user data at launch: a change to the NodeClass's inbound rules reaches bare-metal nodes
+    only when they are replaced.
+  - The managed firewall group of a NodeClass that launches only bare metal is used by no instance (`instance_count` 0), so the
+    idle-resource garbage collection can delete it between launches; the next launch creates it again.
 - **Delete.** `DELETE` returns 204 and the server then disappears from the API, but the machine keeps running for about 4.5
   minutes and its kubelet registers the Node again. The driver therefore halts the server (`POST /v2/bare-metals/{id}/halt`, a
-  hard power off) before the delete. A halt that fails with a `Retryable` error (the server is locked while it installs,
-  throttling, a server error) is returned and retried; any other halt failure does not keep the delete. A 409 "locked" on the
-  delete is `Retryable`, as for instances. The `cluster` tag is checked as for instances.
+  hard power off) before the delete, and sends the delete whatever the halt answered (except 404, which means gone); a halt
+  error is returned only when the delete fails too. A 409 "locked" on the delete is `Retryable`, as for instances. The `cluster`
+  tag is checked as for instances. A Node that registered in the seconds before the halt is not removed by anything.
 - **Garbage collection and sweepers.** The orphan sweep lists servers with the instances. The L5 sweeper (`pkg/vendors/vultr/sweep`,
-  `test/e2e-vultr/sweeper`) deletes the servers of a swept cluster too, halting them first.
+  `test/e2e-vultr/sweeper`) deletes the servers of a swept cluster too, halting them first. The sweeper always lists servers; a failing bare-metal list is
+  a failed item and does not stop the sweep of the instances.
 - **Billing** is as for instances: hourly with a one hour minimum and a monthly cap; a halted server still bills until it is deleted.
 
 ## Node settings and profiles

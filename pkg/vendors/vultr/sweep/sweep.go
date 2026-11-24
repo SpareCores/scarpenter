@@ -249,14 +249,16 @@ type server struct {
 }
 
 // servers lists the instances and the bare-metal servers of the account.
-func (s *sweeper) servers(ctx context.Context) ([]server, error) {
+func (s *sweeper) servers(ctx context.Context, report bool) ([]server, error) {
 	instances, err := page(ctx, s.api.ListInstances)
 	if err != nil {
 		return nil, err
 	}
+	// The bare-metal list is always read (a server costs the most), but a failure
+	// of its endpoint is a failed item, not the end of the instance sweep.
 	bareMetals, err := page(ctx, s.api.ListBareMetals)
-	if err != nil {
-		return nil, err
+	if err != nil && report {
+		s.record(Item{Kind: "bare-metal-list", Outcome: Failed, Reason: err.Error()})
 	}
 	var out []server
 	for _, in := range instances {
@@ -279,7 +281,7 @@ func (s *sweeper) servers(ctx context.Context) ([]server, error) {
 // instances deletes the instances and bare-metal servers of the swept clusters
 // and returns their IDs.
 func (s *sweeper) instances(ctx context.Context) ([]string, error) {
-	all, err := s.servers(ctx)
+	all, err := s.servers(ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +309,7 @@ func (s *sweeper) instances(ctx context.Context) ([]string, error) {
 func (s *sweeper) waitGone(ctx context.Context, ids []string) {
 	deadline := s.o.Now().Add(s.o.WaitGone)
 	for {
-		all, err := s.servers(ctx)
+		all, err := s.servers(ctx, false)
 		if err == nil {
 			left := 0
 			for _, in := range all {

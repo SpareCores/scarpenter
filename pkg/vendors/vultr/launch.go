@@ -132,7 +132,7 @@ func MarshalCreateRequest(r any) ([]byte, error) {
 // Anything not yet fully up is pending.
 func StateOf(in govultr.Instance) string {
 	switch {
-	case in.Status == "pending":
+	case in.Status == statePending:
 		return vendors.StatePending
 	case in.Status == "suspended" || in.PowerStatus == "stopped":
 		return vendors.StateTerminating

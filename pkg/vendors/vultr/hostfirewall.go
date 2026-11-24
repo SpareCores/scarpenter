@@ -27,10 +27,13 @@ import (
 // HostFirewallFragmentName names the fragment in the node's user-data.
 const HostFirewallFragmentName = "host-firewall"
 
-// publicIfPlaceholder stands for the public interface in the ruleset. The
-// interface is only known on the node (the one of the default route), where the
-// script replaces it.
-const publicIfPlaceholder = "@PUBLIC_IF@"
+// publicIfPlaceholder stands for the public interfaces in the ruleset, a
+// comma-separated list of quoted names. They are only known on the node (the
+// ones of the IPv4 and IPv6 default routes), where the script replaces it.
+const publicIfPlaceholder = "@PUBLIC_IFS@"
+
+// familyIPv6 is the IPv6 family of a rule.
+const familyIPv6 = "ipv6"
 
 var portRange = regexp.MustCompile(`^([0-9]{1,5})(?::([0-9]{1,5}))?$`)
 
@@ -49,19 +52,19 @@ func hostFirewallRule(r govultr.FirewallRule) (string, error) {
 	case "v4":
 		family = "ipv4"
 	case "v6":
-		family = "ipv6"
+		family = familyIPv6
 	default:
 		return "", fmt.Errorf("rule %d has the IP type %q", r.ID, r.IPType)
 	}
 	prefix, err := netip.ParsePrefix(r.Subnet + "/" + strconv.Itoa(r.SubnetSize))
-	if err != nil || prefix.Addr().Is6() != (family == "ipv6") {
+	if err != nil || prefix.Addr().Is6() != (family == familyIPv6) {
 		return "", fmt.Errorf("rule %d has the subnet %s/%d, not a %s prefix", r.ID, r.Subnet, r.SubnetSize, r.IPType)
 	}
 	prefix = prefix.Masked()
 	// A rule for every address of a family matches the family only.
 	match := "meta nfproto " + family
 	if prefix.Bits() > 0 {
-		match = map[string]string{"ipv4": "ip", "ipv6": "ip6"}[family] + " saddr " + prefix.String()
+		match = map[string]string{"ipv4": "ip", familyIPv6: "ip6"}[family] + " saddr " + prefix.String()
 	}
 	switch r.Protocol {
 	case "tcp", "udp":
@@ -73,9 +76,9 @@ func hostFirewallRule(r govultr.FirewallRule) (string, error) {
 			return "", fmt.Errorf("rule %d: %w", r.ID, err)
 		}
 		return fmt.Sprintf("%s %s dport %s accept", match, r.Protocol, ports), nil
-	case "icmp":
-		proto := "icmp"
-		if family == "ipv6" {
+	case protoICMP:
+		proto := protoICMP
+		if family == familyIPv6 {
 			proto = "ipv6-icmp"
 		}
 		return fmt.Sprintf("%s meta l4proto %s accept", match, proto), nil
@@ -110,7 +113,7 @@ func nftPorts(port string) (string, error) {
 // unless it is loopback, traffic of a connection the node opened, ICMPv6
 // neighbour discovery or what a rule accepts; other interfaces (VPC, Pods) are
 // not filtered. The unit loads after the network is up, when the public
-// interface is known, and the kubelet requires it: a node whose rules did not
+// interfaces are known, and the kubelet requires it: a node whose rules did not
 // load never joins.
 func HostFirewallFragment(rules []govultr.FirewallRule) (vendors.BootFragment, error) {
 	var b strings.Builder
@@ -119,10 +122,13 @@ func HostFirewallFragment(rules []govultr.FirewallRule) (vendors.BootFragment, e
 	b.WriteString("          add table inet scarpenter_host\n")
 	b.WriteString("          delete table inet scarpenter_host\n")
 	b.WriteString("          table inet scarpenter_host {\n")
-	b.WriteString("            chain input {\n")
-	b.WriteString("              type filter hook input priority filter; policy drop;\n")
+	b.WriteString("            chain prerouting {\n")
+	// prerouting, after conntrack (-200) and before the NAT of kube-proxy: the rules
+	// see the original destination port of NodePorts and hostPorts, whose packets
+	// are forwarded, not delivered to the node, so an input hook would miss them.
+	b.WriteString("              type filter hook prerouting priority mangle; policy drop;\n")
 	b.WriteString("              iifname \"lo\" accept\n")
-	fmt.Fprintf(&b, "              iifname != %q accept\n", publicIfPlaceholder)
+	fmt.Fprintf(&b, "              iifname != { %s } accept\n", publicIfPlaceholder)
 	b.WriteString("              ct state established,related accept\n")
 	b.WriteString("              ct state invalid drop\n")
 	b.WriteString("              icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept\n")
@@ -146,12 +152,13 @@ const hostFirewallUnits = `    - path: /opt/scarpenter/bin/scarpenter-host-firew
         inline: |
           #!/bin/sh
           set -eu
-          dev=$(ip -4 route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
-          if [ -z "$dev" ]; then
+          devs=$({ ip -4 route show default; ip -6 route show default; } |
+            awk '{ for (i = 1; i < NF; i++) if ($i == "dev") print "\"" $(i + 1) "\"" }' | sort -u | paste -sd, -)
+          if [ -z "$devs" ]; then
             echo "no default route: the public interface is unknown" >&2
             exit 1
           fi
-          sed "s/` + publicIfPlaceholder + `/$dev/" /etc/scarpenter/host-firewall.nft | nft -f -
+          sed "s/` + publicIfPlaceholder + `/$devs/" /etc/scarpenter/host-firewall.nft | nft -f -
 systemd:
   units:
     - name: scarpenter-host-firewall.service

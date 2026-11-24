@@ -139,7 +139,9 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		}
 		prep.BootFragments = append(prep.BootFragments, frag)
 	}
-	if needsVPC(net) {
+	// A bare-metal server joins no VPC (no address on the VPC interface of Flatcar,
+	// and the create has no VPC field): the host firewall isolates it.
+	if needsVPC(net) && !isBareMetalPlan(req.InstanceType) {
 		vpcs, err := req.Resources.Require(ctx, vendors.ResourceRequest{
 			Kind: KindNetworks, Key: class, Settings: &req.Settings,
 		})
@@ -163,7 +165,8 @@ func (d *Driver) hostFirewall(ctx context.Context, groupID string) (vendors.Boot
 			return d.api.ListFirewallRules(ctx, groupID, opts)
 		})
 	if err != nil {
-		return vendors.BootFragment{}, fmt.Errorf("reading the rules of firewall group %s for the host firewall: %w", groupID, err)
+		return vendors.BootFragment{}, fmt.Errorf("reading the rules of firewall group %s for the host firewall: %w",
+			groupID, err)
 	}
 	frag, err := HostFirewallFragment(rules)
 	if err != nil {
