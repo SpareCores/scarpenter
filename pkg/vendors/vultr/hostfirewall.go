@@ -44,9 +44,6 @@ func hostFirewallRule(r govultr.FirewallRule) (string, error) {
 	if r.Action != "" && r.Action != "accept" {
 		return "", fmt.Errorf("rule %d has the action %q, only accept rules are translated", r.ID, r.Action)
 	}
-	if r.Source != "" {
-		return "", fmt.Errorf("rule %d uses the source %q, only subnet rules are translated", r.ID, r.Source)
-	}
 	family := ""
 	switch r.IPType {
 	case "v4":
@@ -56,9 +53,12 @@ func hostFirewallRule(r govultr.FirewallRule) (string, error) {
 	default:
 		return "", fmt.Errorf("rule %d has the IP type %q", r.ID, r.IPType)
 	}
-	prefix, err := netip.ParsePrefix(r.Subnet + "/" + strconv.Itoa(r.SubnetSize))
-	if err != nil || prefix.Addr().Is6() != (family == familyIPv6) {
-		return "", fmt.Errorf("rule %d has the subnet %s/%d, not a %s prefix", r.ID, r.Subnet, r.SubnetSize, r.IPType)
+	prefix, err := rulePrefix(r)
+	if err != nil {
+		return "", err
+	}
+	if prefix.Addr().Is6() != (family == familyIPv6) {
+		return "", fmt.Errorf("rule %d has the source %s, not a %s prefix", r.ID, prefix, r.IPType)
 	}
 	prefix = prefix.Masked()
 	// A rule for every address of a family matches the family only.
@@ -86,6 +86,33 @@ func hostFirewallRule(r govultr.FirewallRule) (string, error) {
 		return fmt.Sprintf("%s meta l4proto %s accept", match, r.Protocol), nil
 	}
 	return "", fmt.Errorf("rule %d has the protocol %q", r.ID, r.Protocol)
+}
+
+// rulePrefix is the source network of a rule. Vultr answers the CIDR the rule
+// was created with in the subnet and subnet_size fields and in source, which
+// the API also uses for a named source ("cloudflare"): a source that is not a
+// CIDR is an error, and a source that disagrees with the subnet is too.
+func rulePrefix(r govultr.FirewallRule) (netip.Prefix, error) {
+	var fromSubnet netip.Prefix
+	if r.Subnet != "" || r.Source == "" {
+		p, err := netip.ParsePrefix(r.Subnet + "/" + strconv.Itoa(r.SubnetSize))
+		if err != nil {
+			return netip.Prefix{}, fmt.Errorf("rule %d has the subnet %s/%d, not a prefix", r.ID, r.Subnet, r.SubnetSize)
+		}
+		fromSubnet = p.Masked()
+	}
+	if r.Source == "" {
+		return fromSubnet, nil
+	}
+	p, err := netip.ParsePrefix(r.Source)
+	if err != nil {
+		return netip.Prefix{}, fmt.Errorf("rule %d uses the source %q, only CIDR sources are translated", r.ID, r.Source)
+	}
+	p = p.Masked()
+	if fromSubnet.IsValid() && fromSubnet != p {
+		return netip.Prefix{}, fmt.Errorf("rule %d has the source %s and the subnet %s", r.ID, p, fromSubnet)
+	}
+	return p, nil
 }
 
 // nftPorts turns Vultr's "22" or "8000:9000" into nftables' "22" or "8000-9000".

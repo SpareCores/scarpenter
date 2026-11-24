@@ -94,6 +94,10 @@ type Error struct {
 	// answer. Such a check is deterministic from tables the driver read, so the
 	// unavailable-offerings cache keeps its mark for minutes, not a day.
 	PreLaunch bool
+	// ClassScoped is set by a driver on an InvalidOffering error that comes from
+	// the NodeClass's configuration: the offering is then unavailable for that
+	// NodeClass only.
+	ClassScoped bool
 	// ResetAt is when the limit of a DailyLimit error resets, when the vendor
 	// documents it; zero means the next 00:00 UTC.
 	ResetAt time.Time
@@ -131,6 +135,23 @@ func (e *Error) AsAccountWide() *Error {
 	c := *e
 	c.AccountWide = true
 	return &c
+}
+
+// AsClassScoped returns a copy of the error marked as caused by the NodeClass's
+// configuration (see Error.ClassScoped).
+func (e *Error) AsClassScoped() *Error {
+	c := *e
+	c.ClassScoped = true
+	return &c
+}
+
+// IsClassScoped reports whether the first *Error in the chain is an
+// InvalidOffering of the NodeClass's configuration.
+func IsClassScoped(err error) bool {
+	if e, ok := errors.AsType[*Error](err); ok {
+		return e.Class == InvalidOffering && e.ClassScoped
+	}
+	return false
 }
 
 // AsRegionWide returns a copy of the error marked as a region-wide capacity

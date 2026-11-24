@@ -21,6 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
+	karpcloudprovider "sigs.k8s.io/karpenter/pkg/cloudprovider"
 
 	"github.com/SpareCores/scarpenter/pkg/cloudprovider"
 	"github.com/SpareCores/scarpenter/pkg/scope"
@@ -326,5 +327,63 @@ func TestANodeClaimInAFailedEmptyRegionMakesTheNextListingAskAgain(t *testing.T)
 	d.down.Store(nil)
 	if _, err := e.cp.List(t.Context()); err != nil {
 		t.Errorf("List after the region came back = %v, want it asked again at once", err)
+	}
+}
+
+// A Prepare that fails with InvalidOffering (a firewall rule the driver cannot
+// translate) is marked per offering, tried on to the next one, reported as an
+// Event on the NodeClass and ends in InsufficientCapacity, so core drops the
+// claim. Once the offerings are marked a later Create makes no further Prepare
+// call, and the listing no longer offers them.
+func TestAPrepareThatCannotSucceedMarksTheOfferingsAndStopsTheRetries(t *testing.T) {
+	e, d := newFlakyEnv(t)
+	var prepares atomic.Int32
+	d.onPrepare = func() { prepares.Add(1) }
+	invalid := error(vendors.NewError(vendors.InvalidOffering, "InvalidRequest", errors.New("rule 1 uses the source")).AsClassScoped())
+	d.prepareErr.Store(&invalid)
+	before := e.offerings(launchType)
+
+	_, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{launchType}))
+	if !karpcloudprovider.IsInsufficientCapacityError(err) {
+		t.Fatalf("Create = %v, want InsufficientCapacityError", err)
+	}
+	if got := prepares.Load(); got < 2 {
+		t.Errorf("%d Prepare calls, want the next offerings tried", got)
+	}
+	if after := e.offerings(launchType); len(after) >= len(before) {
+		t.Errorf("%d offerings available, were %d: none was marked", len(after), len(before))
+	}
+	// The mark is the NodeClass's: another NodeClass still sees the offerings.
+	marked := 0
+	for _, o := range before {
+		u := unavailableOf(o)
+		u.NodeClass = className
+		if e.un.IsUnavailable(u) {
+			marked++
+		}
+		u.NodeClass = "other"
+		if e.un.IsUnavailable(u) {
+			t.Errorf("%+v is unavailable for another NodeClass", o)
+		}
+	}
+	if marked == 0 {
+		t.Error("no offering is marked for the NodeClass")
+	}
+	if !slices.Contains(e.events.reasons(), cloudprovider.EventOfferingRejected) {
+		t.Errorf("events = %v, want %s", e.events.reasons(), cloudprovider.EventOfferingRejected)
+	}
+
+	// Keep creating claims until every offering is marked: then Create no longer
+	// calls Prepare.
+	for i := range len(before) {
+		_, _ = e.cp.Create(t.Context(), e.newClaim(fmt.Sprintf("claim-more-%d", i), []string{launchType}))
+	}
+	if n := len(e.offerings(launchType)); n != 0 {
+		t.Fatalf("%d offerings still available", n)
+	}
+	prepares.Store(0)
+	_, err = e.cp.Create(t.Context(), e.newClaim("claim-last", []string{launchType}))
+	if !karpcloudprovider.IsInsufficientCapacityError(err) || prepares.Load() != 0 {
+		t.Errorf("Create = %v with %d Prepare calls, want InsufficientCapacity without any", err, prepares.Load())
 	}
 }

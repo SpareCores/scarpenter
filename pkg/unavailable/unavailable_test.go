@@ -399,3 +399,22 @@ func TestWhyReturnsTheEntryThatExpiresLast(t *testing.T) {
 		t.Errorf("Why = %s, want Unsupported", class)
 	}
 }
+
+func TestMarkInvalidForClassIsSeenByThatClassOnly(t *testing.T) {
+	c := unavailable.New(nil, unavailable.TTLs{})
+	o := unavailable.Offering{
+		Vendor: "v", InstanceType: "v.t", Zone: "z", CapacityType: "on-demand", NodeClass: "a",
+	}
+	c.MarkInvalidForClass(o)
+	if !c.IsUnavailable(o) {
+		t.Error("the marked class does not see the mark")
+	}
+	o.NodeClass = "b"
+	if c.IsUnavailable(o) {
+		t.Error("another class sees the mark")
+	}
+	o.NodeClass = ""
+	if c.IsUnavailable(o) {
+		t.Error("the shared view sees the class mark")
+	}
+}

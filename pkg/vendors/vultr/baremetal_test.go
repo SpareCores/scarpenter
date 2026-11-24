@@ -375,6 +375,81 @@ func TestHostFirewallRefusesWhatItCannotTranslate(t *testing.T) {
 	}
 }
 
+// The rules a NodeClass with the pod and VPC CIDRs writes, read back the way the
+// API answers (the CIDR also in source), translate into the golden ruleset.
+func TestHostFirewallOfTheRulesScarpenterWrites(t *testing.T) {
+	e := newDrvEnv(t)
+	ctx := context.Background()
+	d := bmDriver(t, e, time.Hour)
+	g, err := e.acct.CreateFirewallGroup(ctx, &govultr.FirewallGroupReq{Description: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ssh, https := int32(22), int32(443)
+	reqs, err := vultr.FirewallRules(&common.Inbound{Rules: []common.InboundRule{
+		{Protocol: "any", CIDRs: []string{"10.32.0.0/14", "10.0.0.0/20", "fd00:32::/48"}},
+		{Protocol: "tcp", FromPort: &ssh, CIDRs: []string{"203.0.113.0/24"}},
+		{Protocol: "tcp", FromPort: &https, CIDRs: []string{"0.0.0.0/0", "::/0"}},
+		{Protocol: "icmp", CIDRs: []string{"0.0.0.0/0"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range reqs {
+		if _, err := e.acct.CreateFirewallRule(ctx, g.ID, &reqs[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rules, _, err := e.acct.ListFirewallRules(ctx, g.ID, &govultr.ListOptions{PerPage: 100})
+	if err != nil || len(rules) != len(reqs) || rules[0].Source != "10.32.0.0/14" {
+		t.Fatalf("the fake does not answer the real shape: %+v %v", rules, err)
+	}
+	res := provider{vultr.KindFirewallGroups: {{Kind: vultr.KindFirewallGroups, ID: g.ID}}}
+	req := prepareReq(res, common.Networking{})
+	req.InstanceType = "vbm-4c-32gb"
+	prep, err := d.Prepare(ctx, req)
+	if err != nil || len(prep.BootFragments) != 1 {
+		t.Fatalf("%+v %v", prep, err)
+	}
+	testutil.Golden(t, "host_firewall_scarpenter_rules.golden.yaml", []byte(prep.BootFragments[0].Butane))
+}
+
+// A source that is not a CIDR, or that disagrees with the subnet, is refused; a
+// CIDR in source alone is read.
+func TestHostFirewallSources(t *testing.T) {
+	r := rule("v4", "tcp", "22", "10.32.0.0", 14)
+	r.Source = "10.32.0.0/14"
+	if frag, err := vultr.HostFirewallFragment([]govultr.FirewallRule{r}); err != nil ||
+		!strings.Contains(frag.Butane, "ip saddr 10.32.0.0/14 tcp dport 22 accept") {
+		t.Errorf("source and subnet: %v", err)
+	}
+	r = govultr.FirewallRule{Action: "accept", IPType: "v4", Protocol: "tcp", Port: "22", Source: "10.32.0.0/14"}
+	if frag, err := vultr.HostFirewallFragment([]govultr.FirewallRule{r}); err != nil ||
+		!strings.Contains(frag.Butane, "ip saddr 10.32.0.0/14 tcp dport 22 accept") {
+		t.Errorf("source alone: %v", err)
+	}
+	// Host bits in the source mask to the subnet.
+	r = rule("v4", "tcp", "22", "10.32.0.0", 14)
+	r.Source = "10.33.1.1/14"
+	if frag, err := vultr.HostFirewallFragment([]govultr.FirewallRule{r}); err != nil ||
+		!strings.Contains(frag.Butane, "ip saddr 10.32.0.0/14 tcp dport 22 accept") {
+		t.Errorf("source with host bits: %v", err)
+	}
+	v6 := govultr.FirewallRule{Action: "accept", IPType: "v6", Protocol: "tcp", Port: "22", Source: "10.32.0.0/14"}
+	for name, src := range map[string]string{
+		"cloudflare": "cloudflare", "other subnet": "192.0.2.0/24", "load balancer": "6b1d7f0e-5a0c-4c7e-9a52-2f0c1f5b8a11",
+	} {
+		r := rule("v4", "tcp", "22", "10.32.0.0", 14)
+		r.Source = src
+		if _, err := vultr.HostFirewallFragment([]govultr.FirewallRule{r}); err == nil {
+			t.Errorf("%s: translated", name)
+		}
+	}
+	if _, err := vultr.HostFirewallFragment([]govultr.FirewallRule{v6}); err == nil {
+		t.Error("a v4 source of a v6 rule: translated")
+	}
+}
+
 func TestPrepareAddsTheHostFirewallOfABareMetalLaunch(t *testing.T) {
 	e := newDrvEnv(t)
 	ctx := context.Background()
@@ -413,7 +488,7 @@ func TestPrepareAddsTheHostFirewallOfABareMetalLaunch(t *testing.T) {
 		t.Errorf("unreadable rules: %v", err)
 	}
 	e.acct.AddRules(g.ID, govultr.FirewallRule{IPType: "v4", Protocol: "tcp", Port: "22", Source: "cloudflare"})
-	if _, err := d.Prepare(ctx, req); err == nil || !vendors.IsClass(err, vendors.Fatal) || errors.Is(err, context.Canceled) {
+	if _, err := d.Prepare(ctx, req); err == nil || !vendors.IsClass(err, vendors.InvalidOffering) || errors.Is(err, context.Canceled) {
 		t.Errorf("untranslatable rules: %v", err)
 	}
 }

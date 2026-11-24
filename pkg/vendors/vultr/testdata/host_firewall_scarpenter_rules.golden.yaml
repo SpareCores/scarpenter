@@ -1,0 +1,69 @@
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: /etc/scarpenter/host-firewall.nft
+      mode: 0644
+      contents:
+        inline: |
+          add table inet scarpenter_host
+          delete table inet scarpenter_host
+          table inet scarpenter_host {
+            chain prerouting {
+              type filter hook prerouting priority mangle; policy drop;
+              iifname "lo" accept
+              iifname != { @PUBLIC_IFS@ } accept
+              ct state established,related accept
+              ct state invalid drop
+              icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+              ip saddr 10.32.0.0/14 tcp dport 1-65535 accept
+              ip saddr 10.32.0.0/14 udp dport 1-65535 accept
+              ip saddr 10.32.0.0/14 meta l4proto icmp accept
+              ip saddr 10.0.0.0/20 tcp dport 1-65535 accept
+              ip saddr 10.0.0.0/20 udp dport 1-65535 accept
+              ip saddr 10.0.0.0/20 meta l4proto icmp accept
+              ip6 saddr fd00:32::/48 tcp dport 1-65535 accept
+              ip6 saddr fd00:32::/48 udp dport 1-65535 accept
+              ip6 saddr fd00:32::/48 meta l4proto ipv6-icmp accept
+              ip saddr 203.0.113.0/24 tcp dport 22 accept
+              meta nfproto ipv4 tcp dport 443 accept
+              meta nfproto ipv6 tcp dport 443 accept
+              meta nfproto ipv4 meta l4proto icmp accept
+            }
+          }
+    - path: /opt/scarpenter/bin/scarpenter-host-firewall
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/sh
+          set -eu
+          devs=$({ ip -4 route show default; ip -6 route show default; } |
+            awk '{ for (i = 1; i < NF; i++) if ($i == "dev") print "\"" $(i + 1) "\"" }' | sort -u | paste -sd, -)
+          if [ -z "$devs" ]; then
+            echo "no default route: the public interface is unknown" >&2
+            exit 1
+          fi
+          sed "s/@PUBLIC_IFS@/$devs/" /etc/scarpenter/host-firewall.nft | nft -f -
+systemd:
+  units:
+    - name: scarpenter-host-firewall.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Filter the public interface like the Vultr firewall group
+        After=network-online.target
+        Wants=network-online.target
+        Before=kubelet.service
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/opt/scarpenter/bin/scarpenter-host-firewall
+        [Install]
+        WantedBy=multi-user.target
+    - name: kubelet.service
+      dropins:
+        - name: 16-scarpenter-host-firewall.conf
+          contents: |
+            [Unit]
+            Requires=scarpenter-host-firewall.service
+            After=scarpenter-host-firewall.service
