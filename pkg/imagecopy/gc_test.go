@@ -95,14 +95,16 @@ type gcEnv struct {
 	gc   *imagecopy.Collector
 }
 
-func newGCEnv(t *testing.T) *gcEnv {
+func newGCEnv(t *testing.T) *gcEnv { return newGCEnvTTL(t, idleTTL) }
+
+func newGCEnvTTL(t *testing.T, ttl time.Duration) *gcEnv {
 	t.Helper()
 	g := &gcEnv{env: newEnv(t), rec: &recorder{}}
 	g.pins = []imagecopy.Pin{{Channel: channel, Version: version}}
 	g.gc = imagecopy.NewCollector(imagecopy.CollectorOptions{
 		Managers: []*imagecopy.Manager{g.m},
 		Pinned:   func(context.Context, string) ([]imagecopy.Pin, error) { return g.pins, nil },
-		IdleTTL:  idleTTL, Clock: g.clk, Recorder: g.rec,
+		IdleTTL:  ttl, Clock: g.clk, Recorder: g.rec,
 		DeploymentRef: func() *corev1.ObjectReference { return &corev1.ObjectReference{Kind: "Deployment", Name: "scarpenter"} },
 	})
 	return g
@@ -138,6 +140,46 @@ func TestSweepDeletesIdleCopies(t *testing.T) {
 	g.clk.Step(time.Minute)
 	g.sweep()
 	g.wantCopies(0, "idle for the TTL")
+}
+
+// A copy that took longer than the idle TTL must survive the first sweep after it
+// became available: the idle clock starts when the copy is available, not at its creation.
+func TestSweepIdleClockStartsWhenTheCopyIsAvailable(t *testing.T) {
+	g := newGCEnvTTL(t, time.Minute)
+	g.want(g.m, dstRegion, "amd64", true, vendors.CodeImageCopying)
+	g.tick(g.m)
+	g.clk.Step(10 * time.Minute) // the copy takes ten times the TTL
+	g.finish()
+	g.tick(g.m)
+	g.want(g.m, dstRegion, "amd64", false, "")
+	g.wantCopies(2, "both architectures available")
+	g.sweep()
+	g.wantCopies(2, "the copy became available just now")
+	g.clk.Step(59 * time.Second)
+	g.sweep()
+	g.wantCopies(2, "available for less than the TTL")
+	g.clk.Step(time.Second)
+	g.sweep()
+	g.wantCopies(0, "idle for the TTL since it became available")
+}
+
+// A copy found available after a restart counts from the adoption.
+func TestSweepIdleClockOfAnAdoptedCopyStartsAtTheAdoption(t *testing.T) {
+	g := newGCEnvTTL(t, time.Hour)
+	g.ready(dstRegion)
+	g.clk.Step(2 * time.Hour)
+	g.m = g.manager() // a restart: the new manager adopts the copies
+	g.gc = imagecopy.NewCollector(imagecopy.CollectorOptions{
+		Managers: []*imagecopy.Manager{g.m},
+		Pinned:   func(context.Context, string) ([]imagecopy.Pin, error) { return g.pins, nil },
+		IdleTTL:  time.Hour, Clock: g.clk, Recorder: g.rec,
+		DeploymentRef: func() *corev1.ObjectReference { return &corev1.ObjectReference{Kind: "Deployment", Name: "scarpenter"} },
+	})
+	g.sweep()
+	g.wantCopies(2, "adopted just now")
+	g.clk.Step(time.Hour)
+	g.sweep()
+	g.wantCopies(0, "idle for the TTL since the adoption")
 }
 
 func TestSweepIdleDeletesEachImage(t *testing.T) {

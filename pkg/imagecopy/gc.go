@@ -59,6 +59,12 @@ type Facts struct {
 	// LastResolve is the manager's in-memory time of the last launch that
 	// resolved the copy; zero when none did in this process.
 	LastResolve time.Time
+	// AvailableSince is when the manager first saw the copy available (a copy
+	// adopted after a restart counts from the adoption). A copy can be pending
+	// for longer than the idle TTL, and its creation time is the start of the
+	// copy, so the idle clock must not run from there. Zero: unknown, the
+	// creation time stands.
+	AvailableSince time.Time
 	// PrimaryAvailable says the vendor's convention finds an image of the
 	// release in the region without a copy.
 	PrimaryAvailable bool
@@ -84,8 +90,8 @@ type Decision struct {
 // longer than CopyTimeout (e), is a duplicate (d), a primary image appeared and
 // no launch resolved it for PrimaryGrace (b), its release has been unpinned
 // for UnpinnedGrace (c), or it has been idle for IdleTTL (a). Idle time counts
-// from the latest of the vendor's last-used time, the last resolve and the
-// creation.
+// from the latest of the vendor's last-used time, the last resolve, the time
+// the copy became available and the creation.
 func Decide(f Facts) Decision {
 	c := f.Copy
 	switch {
@@ -102,7 +108,7 @@ func Decide(f Facts) Decision {
 		return Decision{Delete: true, Reason: ReasonUnpinned}
 	}
 	last := c.Created
-	for _, t := range []time.Time{c.LastUsed, f.LastResolve} {
+	for _, t := range []time.Time{c.LastUsed, f.LastResolve, f.AvailableSince} {
 		if t.After(last) {
 			last = t
 		}
@@ -281,7 +287,8 @@ func (c *Collector) sweep(ctx context.Context, m *Manager, pins []Pin) error {
 		}
 		f := Facts{
 			Copy: cp, Now: now, IdleTTL: c.opts.IdleTTL, LastResolve: m.lastResolve(cp.Region, cp.Ref),
-			Pinned: pinned, UnpinnedSince: c.unpinned[uk], Duplicate: dup[cp.Region+"/"+cp.Ref],
+			AvailableSince: m.availableSince(cp.Region, cp.Ref),
+			Pinned:         pinned, UnpinnedSince: c.unpinned[uk], Duplicate: dup[cp.Region+"/"+cp.Ref],
 		}
 		if cp.State == vendors.CopyAvailable && (f.LastResolve.IsZero() || now.Sub(f.LastResolve) >= PrimaryGrace) {
 			k := key{cp.Region, cp.Release}

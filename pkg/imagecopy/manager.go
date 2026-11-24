@@ -100,8 +100,12 @@ type job struct {
 	startedAt, until time.Time
 	// retryAt holds a queued job back (its sources could not be listed) while
 	// the rest of the queue goes on.
-	retryAt       time.Time
-	created       time.Time
+	retryAt time.Time
+	created time.Time
+	// availableAt is when the manager first saw the copy available (adoption
+	// time for a copy found available); the idle clock of the garbage collector
+	// starts there, not at the copy's creation.
+	availableAt   time.Time
 	code, message string
 	// lastResolve is the last time a launch resolved the copy; lastTouch the
 	// last use recorded at the vendor.
@@ -374,7 +378,7 @@ func (m *Manager) adopt(copies []vendors.ImageCopy) {
 		j := &job{key: k, ref: c.Ref, source: c.Source, startedAt: c.Created, created: c.Created}
 		j.phase = phaseCopying
 		if c.State == vendors.CopyAvailable {
-			j.phase = phaseAvailable
+			j.phase, j.availableAt = phaseAvailable, m.clk.Now()
 		}
 		m.jobs[k] = j
 	}
@@ -467,7 +471,7 @@ func (m *Manager) poll(ctx context.Context) error {
 		c := byRef[j.region+"/"+j.ref]
 		switch {
 		case c != nil && c.State == vendors.CopyAvailable:
-			j.phase, j.created = phaseAvailable, c.Created
+			j.phase, j.created, j.availableAt = phaseAvailable, c.Created, now
 			m.m.completed.WithLabelValues(m.opts.Vendor, j.region).Inc()
 			m.m.duration.WithLabelValues(m.opts.Vendor).Observe(now.Sub(j.startedAt).Seconds())
 			m.notify()
@@ -707,6 +711,24 @@ func (m *Manager) lastResolve(region, ref string) time.Time {
 	for k, j := range m.jobs {
 		if k.region == region && j.ref == ref {
 			return j.lastResolve
+		}
+	}
+	return time.Time{}
+}
+
+// availableSince is when the copy became available as the manager saw it. A
+// copy whose job still polls (the listing already shows it available) counts as
+// available now: the poll settles it within a poll interval, and until then it
+// must not look idle since its creation.
+func (m *Manager) availableSince(region, ref string) time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, j := range m.jobs {
+		if k.region == region && j.ref == ref {
+			if j.phase == phaseCopying {
+				return m.clk.Now()
+			}
+			return j.availableAt
 		}
 	}
 	return time.Time{}
