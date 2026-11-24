@@ -920,8 +920,14 @@ func (a *Account) CreateFirewallRule(
 	if len(g.rules) >= MaxRulesPerGroup {
 		return nil, fail(http.StatusBadRequest, MsgRuleLimit)
 	}
+	// The API answers a rule created with a subnet with that CIDR in source as
+	// well (seen live on a vbm launch: source "10.32.0.0/14").
+	source := req.Source
+	if source == "" {
+		source = req.Subnet + "/" + strconv.Itoa(req.SubnetSize)
+	}
 	r := govultr.FirewallRule{ID: g.nextID, Action: "accept", IPType: req.IPType, Protocol: req.Protocol, Port: req.Port,
-		Subnet: req.Subnet, SubnetSize: req.SubnetSize, Source: req.Source, Notes: req.Notes}
+		Subnet: req.Subnet, SubnetSize: req.SubnetSize, Source: source, Notes: req.Notes}
 	g.nextID++
 	g.rules = append(g.rules, r)
 	g.RuleCount = len(g.rules)

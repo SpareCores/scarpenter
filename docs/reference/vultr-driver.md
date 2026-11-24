@@ -197,10 +197,13 @@ instances. It differs in these points:
   their original destination port as well as traffic to the node). It drops by default on the public interfaces and accepts
   loopback, established and related traffic, ICMPv6 neighbour discovery and what the group's rules accept. The public
   interfaces are those of the IPv4 and IPv6 default routes, found when the unit runs; other interfaces (Pods and so on) are
-  not filtered. Each rule becomes one nftables rule (subnet source, tcp/udp ports or ranges, icmp, gre, esp, ah). A unit loads
+  not filtered. Each rule becomes one nftables rule (a CIDR source, read from `subnet` and `subnet_size`, or from `source` when the API
+  answers the CIDR there; tcp/udp ports or ranges, icmp, gre, esp, ah). A unit loads
   the table after the network is online and before the kubelet, which requires it, so a node whose rules did not load never
-  joins. If the rules cannot be read or a rule cannot be translated (another action, a `source` such as `cloudflare`),
-  `Prepare` fails and no server is created.
+  joins. If the rules cannot be read, `Prepare` fails and no server is created. A rule that cannot be translated (another action, a
+  `source` that is not a CIDR such as `cloudflare`) fails it with `InvalidOffering`: the offering is unavailable for 1 h, an `OfferingRejected`
+  Event on the NodeClass names the rule, and the core tries the next offering, so a bring-your-own group with such a rule stops
+  the bare-metal launches of the NodeClass until the rule is fixed and the marks expire, without a retry loop of one offering.
   - The rules are baked into the node's user data at launch: a change to the NodeClass's inbound rules reaches bare-metal nodes
     only when they are replaced.
   - The managed firewall group of a NodeClass that launches only bare metal is used by no instance (`instance_count` 0), so the
