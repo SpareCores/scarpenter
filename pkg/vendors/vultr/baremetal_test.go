@@ -35,6 +35,7 @@ func bmEnv(t *testing.T) *env {
 	e.acct.AddPlan(bmPlan, 6, 32768, 240)
 	e.acct.SetAvailable("ewr", plan, "vc2-2c-4gb", bmPlan)
 	e.ops.RegistrationTimeout = time.Hour
+	e.acct.StopGets = 1
 	return e
 }
 
@@ -168,17 +169,49 @@ func mustGet(t *testing.T, e *env, ref vendors.InstanceRef) *vendors.Instance {
 	return inst
 }
 
-func TestBareMetalDeleteHaltsFirst(t *testing.T) {
-	e := bmEnv(t)
-	ctx := context.Background()
-	bm, _ := e.ops.Launch(ctx, e.bmRequest("claim-bm", "uid-bm"), e.launchOpts())
-	e.acct.Advance()
+func tags(cluster string) []string {
+	return []string{"scarpenter.sparecores.com/cluster=" + cluster}
+}
 
-	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil {
+// activeBareMetal launches a bare-metal server and lets it become active.
+func activeBareMetal(t *testing.T, e *env, claim string) *vendors.Instance {
+	t.Helper()
+	bm, err := e.ops.Launch(context.Background(), e.bmRequest(claim, "uid-"+claim), e.launchOpts())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(e.acct.BareMetals()) != 0 || e.acct.Calls("HaltBareMetal") != 1 || len(e.acct.DeletedWhileRunning) != 0 {
-		t.Fatalf("halts %d, deleted while running %v", e.acct.Calls("HaltBareMetal"), e.acct.DeletedWhileRunning)
+	e.acct.Advance()
+	return bm
+}
+
+func TestBareMetalDeleteHaltsWaitsForTheStopAndDeletes(t *testing.T) {
+	e := bmEnv(t)
+	ctx := context.Background()
+	bm := activeBareMetal(t, e, "claim-bm")
+
+	// Step 1: the halt. The server is still running, so the answer is retryable
+	// and nothing is deleted.
+	err := e.ops.DeleteInstance(ctx, bm.Ref)
+	if !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("after the halt: %v, want a retryable still stopping", err)
+	}
+	if e.acct.Calls("HaltBareMetal") != 1 || e.acct.Calls("DeleteBareMetal") != 0 || len(e.acct.BareMetals()) != 1 {
+		t.Fatalf("halts %d, deletes %d", e.acct.Calls("HaltBareMetal"), e.acct.Calls("DeleteBareMetal"))
+	}
+	// Step 2: GET still says running (the halt is asynchronous): the halt is not
+	// sent again and nothing is deleted.
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("while stopping: %v", err)
+	}
+	if e.acct.Calls("HaltBareMetal") != 1 || e.acct.Calls("DeleteBareMetal") != 0 {
+		t.Fatalf("halts %d, deletes %d", e.acct.Calls("HaltBareMetal"), e.acct.Calls("DeleteBareMetal"))
+	}
+	// Step 3: GET shows it stopped: DELETE, and the server never ran after it.
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil {
+		t.Fatalf("stopped: %v", err)
+	}
+	if len(e.acct.BareMetals()) != 0 || e.acct.Calls("DeleteBareMetal") != 1 || len(e.acct.DeletedWhileRunning) != 0 {
+		t.Fatalf("deletes %d, deleted while running %v", e.acct.Calls("DeleteBareMetal"), e.acct.DeletedWhileRunning)
 	}
 	// Gone is success, and another cluster's server is refused.
 	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil {
@@ -186,40 +219,108 @@ func TestBareMetalDeleteHaltsFirst(t *testing.T) {
 	}
 	foreign, _ := e.acct.CreateBareMetal(ctx, &govultr.BareMetalCreate{Region: "ewr", Plan: bmPlan, Tags: tags("other")})
 	e.acct.Advance()
-	err := e.ops.DeleteInstance(ctx, vendors.NewInstanceRef("ewr", "bm:"+foreign.ID))
-	if !vendors.IsClass(err, vendors.Fatal) || len(e.acct.BareMetals()) != 1 {
+	err = e.ops.DeleteInstance(ctx, vendors.NewInstanceRef("ewr", "bm:"+foreign.ID))
+	if !vendors.IsClass(err, vendors.Fatal) || len(e.acct.BareMetals()) != 1 || e.acct.Calls("HaltBareMetal") != 1 {
 		t.Errorf("a foreign server: %v", err)
 	}
 }
 
-func tags(cluster string) []string {
-	return []string{"scarpenter.sparecores.com/cluster=" + cluster}
+func TestBareMetalDeleteOfAServerThatStopsAtOnceNeedsNoWait(t *testing.T) {
+	e := bmEnv(t)
+	e.acct.StopGets = 0
+	bm := activeBareMetal(t, e, "claim-bm")
+	ctx := context.Background()
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("the halt call: %v", err)
+	}
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 {
+		t.Fatalf("stopped: %v, %d servers", err, len(e.acct.BareMetals()))
+	}
 }
 
-func TestBareMetalDeleteIsSentWhateverTheHaltAnswered(t *testing.T) {
+func TestBareMetalDeleteRetriesAFailedHalt(t *testing.T) {
+	e := bmEnv(t)
+	bm := activeBareMetal(t, e, "claim-bm")
+	ctx := context.Background()
+	e.acct.FailNext("HaltBareMetal", 1, &fake.Error{Status: http.StatusBadGateway, Message: "down"})
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("failed halt: %v", err)
+	}
+	if e.acct.Calls("DeleteBareMetal") != 0 {
+		t.Fatal("a failed halt must not send the delete")
+	}
+	// The next call halts again.
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) || e.acct.Calls("HaltBareMetal") != 2 {
+		t.Fatalf("second halt: %v, %d halts", err, e.acct.Calls("HaltBareMetal"))
+	}
+	_ = e.ops.DeleteInstance(ctx, bm.Ref) // the server still reads as running
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 {
+		t.Fatalf("stopped: %v", err)
+	}
+}
+
+func TestBareMetalDeleteGivesUpWaitingAfterTheCap(t *testing.T) {
+	e := bmEnv(t)
+	e.acct.StopGets = -1 // never stops
+	bm := activeBareMetal(t, e, "claim-bm")
+	ctx := context.Background()
+	for range 3 {
+		if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
+			t.Fatalf("before the cap: %v", err)
+		}
+		e.clk.Step(vultr.BareMetalHaltCap/3 - time.Second)
+	}
+	if e.acct.Calls("DeleteBareMetal") != 0 {
+		t.Fatal("deleted before the cap")
+	}
+	e.clk.Step(time.Minute)
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 {
+		t.Fatalf("after the cap: %v, %d servers", err, len(e.acct.BareMetals()))
+	}
+	if e.acct.Calls("HaltBareMetal") != 1 {
+		t.Errorf("%d halts", e.acct.Calls("HaltBareMetal"))
+	}
+}
+
+func TestBareMetalDeleteGivesUpOnAHaltThatNeverWorks(t *testing.T) {
+	e := bmEnv(t)
+	bm := activeBareMetal(t, e, "claim-bm")
+	ctx := context.Background()
+	e.acct.FailNext("HaltBareMetal", -1, &fake.Error{Status: http.StatusBadGateway, Message: "down"})
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("halt failing: %v", err)
+	}
+	e.clk.Step(vultr.BareMetalHaltCap)
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 {
+		t.Fatalf("after the cap: %v", err)
+	}
+}
+
+func TestBareMetalDeleteOfAnInstallingServerIsSentAtOnce(t *testing.T) {
 	e := bmEnv(t)
 	ctx := context.Background()
 	bm, _ := e.ops.Launch(ctx, e.bmRequest("claim-bm", "uid-bm"), e.launchOpts())
-	// The halt of a server that is still installing is refused as locked (409):
-	// the delete is sent anyway.
-	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 || e.acct.Calls("DeleteBareMetal") != 1 {
-		t.Fatalf("halt while installing: %v, %d deletes", err, e.acct.Calls("DeleteBareMetal"))
+	// The server is still installing, locked against a halt, and runs no node.
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 {
+		t.Fatalf("installing: %v, %d servers", err, len(e.acct.BareMetals()))
 	}
-	// Both fail: the halt's error is the one to retry on; a locked delete alone is retryable too.
-	bm, _ = e.ops.Launch(ctx, e.bmRequest("claim-2", "uid-2"), e.launchOpts())
-	e.acct.Advance()
-	e.acct.FailNext("DeleteBareMetal", 2, &fake.Error{Status: http.StatusConflict, Message: "Server is currently locked"})
-	e.acct.FailNext("HaltBareMetal", 1, &fake.Error{Status: http.StatusBadGateway, Message: "down"})
-	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
-		t.Fatalf("both failed: %v", err)
+	if e.acct.Calls("HaltBareMetal") != 0 {
+		t.Error("a halt of an installing server is refused: it must not be sent")
 	}
+}
+
+func TestBareMetalDeleteFailureIsRetryable(t *testing.T) {
+	e := bmEnv(t)
+	e.acct.StopGets = 0
+	bm := activeBareMetal(t, e, "claim-bm")
+	ctx := context.Background()
+	_ = e.ops.DeleteInstance(ctx, bm.Ref) // halt
+	e.acct.FailNext("DeleteBareMetal", 1, &fake.Error{Status: http.StatusConflict, Message: "Server is currently locked"})
 	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) {
 		t.Fatalf("locked delete: %v", err)
 	}
-	// A retryable halt failure still sends the delete.
-	e.acct.FailNext("HaltBareMetal", 1, &fake.Error{Status: http.StatusServiceUnavailable, Message: "down"})
 	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 {
-		t.Fatalf("halt failed, delete sent: %v, %d servers", err, len(e.acct.BareMetals()))
+		t.Fatalf("retry: %v", err)
 	}
 }
 

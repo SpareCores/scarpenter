@@ -267,8 +267,9 @@ func (s *sweeper) servers(ctx context.Context, report bool) ([]server, error) {
 	}
 	for _, b := range bareMetals {
 		// A server that is still running after its delete re-registers its Node, so
-		// it is halted first, as the driver does; a halt that fails does not keep
-		// the delete.
+		// it is halted first (best effort: the sweep of a test account does not wait
+		// for the stop, as the driver does); a halt that fails does not keep the
+		// delete.
 		out = append(out, server{"bare-metal", b.ID, b.Region, b.DateCreated, b.Tags,
 			func(ctx context.Context) error {
 				_ = s.api.HaltBareMetal(ctx, b.ID)

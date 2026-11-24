@@ -44,6 +44,10 @@ type stubDriver struct {
 	listErr   map[string]error
 	deleteErr error
 	deleted   []vendors.InstanceRef
+	// alive are the NodeClaim names whose instance FindInstance finds; findErr
+	// fails the lookup.
+	alive   map[string]bool
+	findErr error
 }
 
 func (d *stubDriver) Vendor() string                                        { return d.vendor }
@@ -59,7 +63,13 @@ func (d *stubDriver) CreateInstance(context.Context, vendors.CreateRequest) (*ve
 func (d *stubDriver) GetInstance(context.Context, vendors.InstanceRef) (*vendors.Instance, error) {
 	return nil, vendors.Errorf(vendors.NotFound, "no")
 }
-func (d *stubDriver) FindInstance(context.Context, string, map[vendors.TagKey]string) (*vendors.Instance, error) {
+func (d *stubDriver) FindInstance(_ context.Context, _ string, tags map[vendors.TagKey]string) (*vendors.Instance, error) {
+	if d.findErr != nil {
+		return nil, d.findErr
+	}
+	if d.alive[tags[vendors.TagNodeClaim]] {
+		return &vendors.Instance{State: vendors.StateRunning}, nil
+	}
 	return nil, vendors.Errorf(vendors.NotFound, "no")
 }
 func (d *stubDriver) ListInstances(_ context.Context, regions []string, tags map[vendors.TagKey]string) ([]*vendors.Instance, error) {
@@ -625,5 +635,87 @@ func TestLeftoverCollectorSeesANodeClaimCreatedDuringTheSweep(t *testing.T) {
 	}
 	if notified != 1 {
 		t.Errorf("OnDeleted called %d times, want 1", notified)
+	}
+}
+
+func node(name, providerID string, age time.Duration) *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name, UID: types.UID("uid-" + name), CreationTimestamp: metav1.NewTime(now.Add(-age)),
+		},
+		Spec: corev1.NodeSpec{ProviderID: providerID},
+	}
+}
+
+func claimWithProviderID(name, providerID string) *karpv1.NodeClaim {
+	c := claim(name)
+	c.Status.ProviderID = providerID
+	return c
+}
+
+func nodeNames(t *testing.T, e *env) []string {
+	t.Helper()
+	var left corev1.NodeList
+	if err := e.kube.List(context.Background(), &left); err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(left.Items))
+	for _, n := range left.Items {
+		names = append(names, n.Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func TestNodeSweep(t *testing.T) {
+	const old = 10 * time.Minute
+	objs := []client.Object{
+		claimWithProviderID("live", "scarpenter://aws/r1/live"),
+		node("orphan", "scarpenter://aws/r1/gone", old),
+		node("young", "scarpenter://aws/r1/young", time.Minute),
+		node("owned", "scarpenter://aws/r1/live", old),
+		node("instance-exists", "scarpenter://aws/r1/alive", old),
+		node("other-vendor", "scarpenter://other/r1/gone", old),
+		node("foreign", "aws:///eu-west-1a/i-123", old),
+		node("no-provider-id", "", old),
+	}
+	drv := &stubDriver{vendor: "aws", alive: map[string]bool{"alive": true}}
+	e := newEnv(t, drv, objs, nil)
+	res, err := e.c.Sweep(context.Background())
+	if err != nil || res.Nodes != 1 {
+		t.Fatalf("result %+v, err %v", res, err)
+	}
+	want := []string{"foreign", "instance-exists", "no-provider-id", "other-vendor", "owned", "young"}
+	if got := nodeNames(t, e); !slices.Equal(got, want) {
+		t.Errorf("left %v, want %v", got, want)
+	}
+	if e.count(t, "aws", gc.KindNode, gc.ReasonNoInstance, gc.ResultDeleted) != 1 {
+		t.Error("node deletion not counted")
+	}
+}
+
+func TestNodeSweepKeepsTheNodeWhenTheLookupFails(t *testing.T) {
+	drv := &stubDriver{vendor: "aws", findErr: errors.New("vendor down")}
+	e := newEnv(t, drv, []client.Object{node("n", "scarpenter://aws/r1/gone", time.Hour)}, nil)
+	if res, err := e.c.Sweep(context.Background()); err == nil || res.Nodes != 0 {
+		t.Fatalf("result %+v, err %v", res, err)
+	}
+	if got := nodeNames(t, e); !slices.Equal(got, []string{"n"}) {
+		t.Errorf("left %v", got)
+	}
+}
+
+func TestNodeSweepDryRun(t *testing.T) {
+	drv := &stubDriver{vendor: "aws"}
+	e := newEnv(t, drv, []client.Object{node("n", "scarpenter://aws/r1/gone", time.Hour)},
+		func(o *gc.Options) { o.DryRun = true })
+	if res, err := e.c.Sweep(context.Background()); err != nil || res.Nodes != 1 {
+		t.Fatalf("result %+v, err %v", res, err)
+	}
+	if got := nodeNames(t, e); !slices.Equal(got, []string{"n"}) {
+		t.Errorf("left %v", got)
+	}
+	if e.count(t, "aws", gc.KindNode, gc.ReasonNoInstance, gc.ResultDryRun) != 1 {
+		t.Error("dry-run not counted")
 	}
 }

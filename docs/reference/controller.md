@@ -777,13 +777,17 @@ launch makes resources of its own besides the instance (the Azure NIC and public
 `vendors.LeftoverCollector`) is then asked, per region and not in dry-run, to delete those of
 this cluster that name a NodeClaim that does not exist and that nothing uses; the NodeClaim
 check is a live read made after the driver's listing, so a launch in flight keeps its
-resources. These deletions are logged and counted (kind `launch-leftover`), without an Event. Every deletion is logged with its reason and published as the Normal Event
+resources. These deletions are logged and counted (kind `launch-leftover`), without an Event. Nodes with no NodeClaim are deleted
+too (kind `node`, reason `InstanceNotFound`): a machine that keeps running after its delete can register its Node again, and
+core removes only Nodes that have a NodeClaim. A Node is deleted only when its provider ID is of an enabled vendor, no
+NodeClaim has that provider ID, it is older than `--gc-grace-period`, and the driver's lookup of the instance by the NodeClaim
+name in the provider ID answers not found; an instance that exists or a failed lookup keeps the Node. Every deletion is logged with its reason and published as the Normal Event
 `GarbageCollected` on the SCNodeClass of the instance's `nodeclass` tag, else on
 the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance`, `bootstrap-token` or `launch-leftover`; `reason`: `NodeClaimNotFound`, `NoNodeClaimTag` or `Terminating`; `result`: `deleted`, `dry-run`, `error`. |
+| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance`, `bootstrap-token`, `node` or `launch-leftover`; `reason`: `NodeClaimNotFound`, `NoNodeClaimTag`, `Terminating` or `InstanceNotFound`; `result`: `deleted`, `dry-run`, `error`. |
 | `scarpenter_gc_sweep_duration_seconds` | histogram | | Duration of a sweep. |
 | `scarpenter_gc_last_sweep_timestamp_seconds` | gauge | | Time of the last sweep. |
 

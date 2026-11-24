@@ -209,10 +209,21 @@ instances. It differs in these points:
   - The managed firewall group of a NodeClass that launches only bare metal is used by no instance (`instance_count` 0), so the
     idle-resource garbage collection can delete it between launches; the next launch creates it again.
 - **Delete.** `DELETE` returns 204 and the server then disappears from the API, but the machine keeps running for about 4.5
-  minutes and its kubelet registers the Node again. The driver therefore halts the server (`POST /v2/bare-metals/{id}/halt`, a
-  hard power off) before the delete, and sends the delete whatever the halt answered (except 404, which means gone); a halt
-  error is returned only when the delete fails too. A 409 "locked" on the delete is `Retryable`, as for instances. The `cluster`
-  tag is checked as for instances. A Node that registered in the seconds before the halt is not removed by anything.
+  minutes and its kubelet registers the Node again; the halt (`POST /v2/bare-metals/{id}/halt`, a hard power off) is
+  asynchronous too. A delete is therefore done in steps, one per `DeleteInstance` call (core calls `Delete` again until the
+  server is gone), and never waits inside a call:
+  1. the halt, logged at INFO with the NodeClaim and the server ID; a failed halt is returned (`Retryable`) and sent again by
+     the next call;
+  2. `Retryable` (`Stopping`) while `GET /v2/bare-metals/{id}` shows a `power_status` other than `stopped`;
+  3. the `DELETE` once the server is `stopped`, logged at INFO; a 409 "locked" is `Retryable`, as for instances;
+  4. NodeClaimNotFound (`Delete` of the cloud provider) only when the `DELETE` succeeded and the `GET` answers 404, or the server
+     was not there.
+
+  A server that is not stopped 10 minutes after the first attempt (kept in memory, so a restart restarts the clock), or whose
+  halt keeps failing, is deleted anyway. A server that is still installing is locked against the halt and runs no node, so it is
+  deleted at once. The `cluster` tag is checked as for instances. A stopped server is `terminating` to the cloud provider, so
+  `Delete` sends the `DELETE` once `--terminating-grace` has passed since it first saw it stopped. A Node that does re-register
+  without a NodeClaim is removed by the [garbage collector](controller.md#garbage-collection) once the server is gone from the API.
 - **Garbage collection and sweepers.** The orphan sweep lists servers with the instances. The L5 sweeper (`pkg/vendors/vultr/sweep`,
   `test/e2e-vultr/sweeper`) deletes the servers of a swept cluster too, halting them first. The sweeper always lists servers; a failing bare-metal list is
   a failed item and does not stop the sweep of the instances.

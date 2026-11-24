@@ -134,6 +134,7 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 	}
 	d.ops = NewOps(d.api, d.cluster)
 	d.ops.Clock = d.clock
+	d.ops.Log = d.log
 	d.ops.AvailabilityTTL = d.availTTL
 	d.ops.RegistrationTimeout = cfg.RegistrationTimeout
 	return nil
