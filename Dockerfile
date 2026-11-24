@@ -20,7 +20,13 @@ COPY go.mod go.sum ./
 # The modules stay in this layer (no cache mount), so the layer cache, also the
 # GitHub Actions one, skips the download while go.mod is unchanged. The build
 # cache mount only speeds up local rebuilds (the gha cache does not keep mounts).
-RUN go mod download
+# The module proxy occasionally drops a download (HTTP/2 stream errors), so retry.
+RUN for attempt in 1 2 3 4 5; do \
+      go mod download && exit 0; \
+      echo "go mod download failed (attempt ${attempt}), retrying" >&2; \
+      sleep $((attempt * 10)); \
+    done; \
+    exit 1
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
