@@ -1257,3 +1257,19 @@ Consequences: the controller's credentials gain image copy and deregister permis
 vendor reference of each driver lists them). A copy costs one transfer and then snapshot storage, about 12 days of storage
 on AWS, which is why the idle TTL defaults to 30 days. Where the vendor has no copy API (OVH, probably OCI and UpCloud) the
 need is an import, outside this decision.
+
+## ADR-033: A patched Karpenter core with a configurable registration timeout (accepted, 2026-11-24)
+
+Karpenter core deletes a NodeClaim that has not registered as a Node within a fixed 15 minutes. Instances that take
+longer to boot and join, such as bare metal (Vultr bare metal measured about 15m10s to register and 15m41s to be Ready),
+are deleted before they can join.
+
+**Decision.** SCarpenter builds against the [SpareCores/karpenter](https://github.com/SpareCores/karpenter) fork, tag
+`v1.15.1-sc.1`: upstream v1.15.1 plus the patch of [kubernetes-sigs/karpenter#3478](https://github.com/kubernetes-sigs/karpenter/pull/3478)
+and a liveness test. `go.mod` keeps `require sigs.k8s.io/karpenter v1.15.1` and adds a `replace` to the fork. The patch adds
+`--registration-timeout` / `REGISTRATION_TIMEOUT` (default 15m, greater than zero, `options.Options.RegistrationTimeout`),
+which the liveness controller reads through `options.FromContext(ctx)`. The chart value is `karpenter.registrationTimeout`.
+
+The upstream request is [kubernetes-sigs/karpenter#357](https://github.com/kubernetes-sigs/karpenter/issues/357). Once the
+pull request ships in a release SCarpenter uses, the `replace` is removed; if upstream lands a different shape, SCarpenter
+adapts to it.

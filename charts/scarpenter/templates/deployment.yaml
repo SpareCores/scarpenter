@@ -146,6 +146,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "log-level" .Values.karpenter.logLevel
   "batch-max-duration" .Values.karpenter.batchMaxDuration
   "batch-idle-duration" .Values.karpenter.batchIdleDuration
+  "registration-timeout" .Values.karpenter.registrationTimeout
   "feature-gates" .Values.karpenter.featureGates
   "metrics-port" .Values.karpenter.metricsPort
   "health-probe-port" .Values.karpenter.healthProbePort

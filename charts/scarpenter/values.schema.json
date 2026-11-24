@@ -1039,6 +1039,9 @@
         "batchIdleDuration": {
           "$ref": "#/definitions/duration"
         },
+        "registrationTimeout": {
+          "$ref": "#/definitions/duration"
+        },
         "featureGates": {
           "type": "string"
         },

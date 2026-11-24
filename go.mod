@@ -49,6 +49,12 @@ require (
 	sigs.k8s.io/yaml v1.6.0
 )
 
+// Needed for a configurable NodeClaim registration timeout (--registration-timeout,
+// REGISTRATION_TIMEOUT). Drop this replace once kubernetes-sigs/karpenter#3478
+// (issue #357) ships in a Karpenter release SCarpenter uses; if upstream lands a
+// different shape, adapt SCarpenter to it.
+replace sigs.k8s.io/karpenter => github.com/SpareCores/karpenter v1.15.1-sc.1
+
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a // indirect

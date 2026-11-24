@@ -587,6 +587,10 @@ karpenter:
   # --batch-idle-duration, 1s).
   batchMaxDuration: ""
   batchIdleDuration: ""
+  # How long a NodeClaim may take to register as a Node before core deletes it
+  # (--registration-timeout, 15m; patched core, see docs/explanation/DECISIONS.md).
+  # Raise it for instances that boot slowly (bare metal: 25m or more).
+  registrationTimeout: ""
   # Core's feature gates (--feature-gates), for example "NodeRepair=true".
   featureGates: ""
   metricsPort: 8080
