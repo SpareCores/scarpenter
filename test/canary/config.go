@@ -83,11 +83,12 @@ const typeAMD64 = "E2E_TYPE_AMD64"
 
 // typeVars are the variables of the instance types a lane pins, where a vendor's differ from
 // AWS's (Vultr has no Arm instances and no database type, OVH no Arm, UpCloud's lane one
-// architecture and no database pool); noQuota are the vendors without a
+// architecture and no database pool, Hetzner's arm64 pools pin no type); noQuota are the vendors without a
 // readable quota (the vCPU pins are then not needed; Hetzner's limits cannot be read).
 var (
 	typeVars = map[string][]string{
 		vendorOCI:     {typeAMD64, "E2E_TYPE_ARM64"},
+		vendorHCloud:  {typeAMD64, "E2E_TYPE_DB"},
 		vendorOVH:     {typeAMD64, "E2E_TYPE_DB"},
 		vendorUpCloud: {typeAMD64},
 		vendorVultr:   {typeAMD64, "E2E_TYPE_SECOND"},

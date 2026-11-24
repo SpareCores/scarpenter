@@ -27,7 +27,7 @@ func hcloudConfig(srv *httptest.Server) *config {
 	return &config{
 		vendor: "hcloud", region: "fsn1,nbg1", flatcarChannel: "stable", flatcarVersion: "4757.2.3",
 		kubernetesVersion: "v1.37.1", tailscaleVersion: "v1.98.10", k3sVersion: "v1.37.2+k3s1",
-		types:            []string{"hcloud.cx23", "hcloud.cax11", "hcloud.cpx22"},
+		types:            []string{"hcloud.cx23", "hcloud.cpx22"},
 		flatcarImageFile: "flatcar_production_hetzner_image.bin.bz2",
 		sysextBase:       srv.URL, k3sBase: srv.URL, flatcarBase: srv.URL,
 	}
@@ -168,7 +168,7 @@ func TestHCloudConfigNeedsNoQuota(t *testing.T) {
 	env := map[string]string{
 		"E2E_HCLOUD_LOCATIONS": "fsn1,nbg1", "E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
 		"E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10", "E2E_K3S_VERSION": "v1.37.2+k3s1",
-		"E2E_TYPE_AMD64": "hcloud.cx23", "E2E_TYPE_ARM64": "hcloud.cax11", "E2E_TYPE_DB": "hcloud.cx23",
+		"E2E_TYPE_AMD64": "hcloud.cx23", "E2E_TYPE_DB": "hcloud.cx23",
 		"E2E_TYPES_DESCRIBED": "hcloud.cx23,hcloud.cpx22",
 	}
 	cfg, err := loadConfig("hcloud", func(k string) string { return env[k] })
