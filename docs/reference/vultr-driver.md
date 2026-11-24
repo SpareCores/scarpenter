@@ -184,10 +184,12 @@ instances. It differs in these points:
 - **Registration window.** A server takes about 13 minutes from the create to `active` and about 2 more to register its Node,
   longer than Karpenter's default registration timeout of 15 minutes. Bare-metal plans are therefore refused (`NotLaunchable`
   for the type, `Unsupported` for a create or `Prepare`) unless the registration timeout the driver is given
-  (`vendors.Config.RegistrationTimeout`, Karpenter's `--registration-timeout`) is at least 25 minutes. While it is shorter the
+  (`vendors.Config.RegistrationTimeout`, which the operator sets from Karpenter's `--registration-timeout`, chart value
+  `karpenter.registrationTimeout`) is at least 25 minutes. While it is shorter the
   plans are left out of the offered plans of a region, the stock of `vbm` is not read, and `/v2/bare-metals` is not listed by the
-  driver (so a broken bare-metal endpoint cannot affect instances). The operator does not pass the timeout to the driver yet:
-  until that is wired (it needs the patched Karpenter core), no bare-metal plan is offered.
+  driver (so a broken bare-metal endpoint cannot affect instances). With the default of 15 minutes no bare-metal plan is
+  offered; setting `karpenter.registrationTimeout` to `25m` or more enables them. The bootstrap token then lives at least the
+  timeout plus 5 minutes.
 - **Firewall at boot.** A bare-metal server cannot join a firewall group, so the node filters its public interfaces itself.
   `Prepare` reads the managed group's rules (`GET /v2/firewalls/{id}/rules`) and adds a boot fragment (`host-firewall`) to the
   node's Ignition: an nftables table `inet scarpenter_host` with a chain at the `prerouting` hook, priority `mangle` (after

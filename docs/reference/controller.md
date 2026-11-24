@@ -125,7 +125,9 @@ is how long a NodeClaim may take to register as a Node before core's liveness
 check deletes it. Default `15m` (the chart passes the flag only when the value
 is set); it must be greater than zero. Raise it for instances that need longer
 to boot and join: Vultr bare metal measured about 15m10s to register and
-15m41s to be Ready, so use `25m` or more. The option exists only in SCarpenter's
+15m41s to be Ready, so use `25m` or more: the Vultr driver offers bare-metal (`vbm`) plans only from `25m` up (the controller
+passes the value to the drivers), and a bootstrap token lives at least the timeout plus 5 minutes whatever
+`--bootstrap-token-ttl` says. The option exists only in SCarpenter's
 patched core: SCarpenter builds against the
 [SpareCores/karpenter](https://github.com/SpareCores/karpenter) fork, which adds
 it to Karpenter v1.15.1 ([ADR-033](../explanation/DECISIONS.md#adr-033-a-patched-karpenter-core-with-a-configurable-registration-timeout-accepted-2026-11-24)). The controller serves `/healthz` and `/readyz` on the

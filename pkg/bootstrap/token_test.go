@@ -204,3 +204,26 @@ func TestOtherSecretsAreIgnored(t *testing.T) {
 		t.Errorf("the unrelated Secret is gone: %v", err)
 	}
 }
+
+// A token outlives the registration timeout by five minutes, whatever TTL was asked for.
+func TestTokenTTLCoversTheRegistrationTimeout(t *testing.T) {
+	for _, tc := range []struct{ ttl, timeout, want time.Duration }{
+		{time.Hour, 25 * time.Minute, time.Hour},
+		{20 * time.Minute, 25 * time.Minute, 30 * time.Minute},
+		{20 * time.Minute, 15 * time.Minute, 20 * time.Minute},
+		{20 * time.Minute, 0, 20 * time.Minute},
+	} {
+		kube := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+		clk := clocktesting.NewFakeClock(time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC))
+		m := bootstrap.NewMinter(bootstrap.MinterOptions{
+			Client: kube, TTL: tc.ttl, RegistrationTimeout: tc.timeout, Clock: clk, Recorder: &recorder{},
+		})
+		if _, err := m.Mint(context.Background(), nodeClaim("default-abc12")); err != nil {
+			t.Fatal(err)
+		}
+		want := clk.Now().Add(tc.want).UTC().Format(time.RFC3339)
+		if got := string(tokens(t, kube)[0].Data["expiration"]); got != want {
+			t.Errorf("ttl %s, timeout %s: expires %s, want %s", tc.ttl, tc.timeout, got, want)
+		}
+	}
+}
