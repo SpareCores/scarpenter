@@ -183,11 +183,6 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		return nil, err
 	}
 	if err := t.Check(shapes, ad.Full); err != nil {
-		if vendors.CodeOf(err) == CodeExtendedMemory {
-			// The shape's own limit, the same on every retry: marked for the full
-			// Unsupported TTL, not for the minutes of a pre-launch check.
-			return nil, err
-		}
 		return nil, vendors.AsPreLaunch(err)
 	}
 	if req.CapacityType == vendors.CapacitySpot && t.Sized && !IsFlexibleName(t.Shape) {

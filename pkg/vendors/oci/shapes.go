@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"reflect"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
@@ -88,8 +87,9 @@ func (d *Driver) shapesIn(ctx context.Context, region, ad string) (map[string]*s
 	d.mu.Lock()
 	d.shapes[key] = set(out, d.clock.Now().Add(factsTTL))
 	for name, si := range out {
-		if !reflect.DeepEqual(d.index[name], si) {
-			d.epoch.Add(1) // Refused depends on the shape limits: the catalog rebuilds
+		if old, ok := d.index[name]; !ok || old.Flexible != si.Flexible || old.OCPUPerNuma != si.OCPUPerNuma ||
+			old.MemPerNuma != si.MemPerNuma {
+			d.epoch.Add(1) // Refused depends on these: the catalog rebuilds
 		}
 		d.index[name] = si
 	}

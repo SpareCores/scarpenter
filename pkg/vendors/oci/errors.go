@@ -85,7 +85,7 @@ var (
 	// Fatal, the claim would fail and the same offering be tried again).
 	unsupportedRe = regexp.MustCompile(`(?i)(shape .*(is )?not compatible with image|shape .*not available|` +
 		`shape .*not supported in the availability domain|not supported in the availability domain|` +
-		`extended memory|beyond one numa node|is not a valid shape|preemptible)`)
+		`extended memory|is not a valid shape|preemptible)`)
 	// subnetFullRe: the subnet has no free IP addresses.
 	subnetFullRe = regexp.MustCompile(`(?i)subnet.*(no (more )?(free |available )?ip|not enough (free )?ip|` +
 		`ip (addresses )?(are )?exhausted|out of ip)`)

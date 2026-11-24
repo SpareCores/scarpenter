@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
@@ -169,8 +170,7 @@ func TestCreateInstanceRejectsBeforeTheCall(t *testing.T) {
 }
 
 // A size beyond one NUMA node of its shape is refused with the shape's own limit,
-// is dropped from the offerings by Refused once the shape table is read, and its
-// refusal is not a pre-launch one: the unavailable cache keeps it for the long TTL.
+// is reported by Refused once the shape table is read.
 func TestSizeBeyondNumaNode(t *testing.T) {
 	c := fake.NewSeeded()
 	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E3.Flex", 114, 1776, 1, 64, 64, 1024,
@@ -194,9 +194,55 @@ func TestSizeBeyondNumaNode(t *testing.T) {
 		t.Error("a size with memory beyond the node is offered")
 	}
 	_, err := e.d.CreateInstance(t.Context(), request(over))
-	if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != driver.CodeExtendedMemory ||
-		vendors.IsPreLaunch(err) {
-		t.Errorf("CreateInstance = %v; want a long-cached Unsupported %s", err, driver.CodeExtendedMemory)
+	if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != driver.CodeExtendedMemory {
+		t.Errorf("CreateInstance = %v; want Unsupported %s", err, driver.CodeExtendedMemory)
+	}
+}
+
+// Fixed shapes and Flex shapes without NUMA fields are never refused.
+func TestRefusedIgnoresShapesWithoutNumaLimits(t *testing.T) {
+	c := fake.NewSeeded()
+	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E3.Flex", 114, 1776, 1, 64, 0, 0,
+		"standard-e3-core-ad-count", "standard-e3-memory-count"))
+	c.AddShape(fake.SeedRegion, fake.FixedShape("VM.Standard2.4", 4, 60, "standard2-core-count"))
+	e := restart(t, c, testCluster)
+	if _, err := e.d.Quotas(t.Context(), testRegion); err != nil {
+		t.Fatal(err)
+	}
+	for _, typ := range []string{"VM.Standard.E3.Flex.114-456", "VM.Standard2.4"} {
+		if why, refused := e.d.Refused(typ); refused {
+			t.Errorf("Refused(%s) = %q; want offered", typ, why)
+		}
+	}
+}
+
+// The epoch moves when a shape is first read or its NUMA limits change, not on an
+// identical re-read.
+func TestShapeEpoch(t *testing.T) {
+	c := fake.NewSeeded()
+	numa := func(ocpus float32) {
+		c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E3.Flex", 114, 1776, 1, 64, ocpus, 1024,
+			"standard-e3-core-ad-count", "standard-e3-memory-count"))
+	}
+	numa(64)
+	e := restart(t, c, testCluster)
+	reread := func() uint64 {
+		e.clock.Step(2 * time.Hour) // past the shape tables' TTL
+		if _, err := e.d.Quotas(t.Context(), testRegion); err != nil {
+			t.Fatal(err)
+		}
+		return e.d.NodeOptionsEpoch()
+	}
+	first := reread()
+	if first == 0 {
+		t.Fatal("the epoch did not move on the first read")
+	}
+	if got := reread(); got != first {
+		t.Errorf("an identical re-read moved the epoch: %d, want %d", got, first)
+	}
+	numa(32)
+	if got := reread(); got == first {
+		t.Error("a NUMA change did not move the epoch")
 	}
 }
 
