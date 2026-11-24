@@ -48,7 +48,7 @@ The last column names the plan that introduced the flag.
 | `--quota-launchable-refresh-interval` | `SCARPENTER_QUOTA_LAUNCHABLE_REFRESH_INTERVAL` | `1h` | How often the instance types the account can launch per zone (`OfferingLister`) are refreshed; the offered listing waits for the first refresh of every region (at most 5 minutes for a failing one). | plan 04 |
 | `--gc-interval` | `SCARPENTER_GC_INTERVAL` | `2m` | How often the garbage collector looks for orphans. | plan 04 |
 | `--gc-grace-period` | `SCARPENTER_GC_GRACE_PERIOD` | `5m` | Age an instance (or bootstrap token) without a NodeClaim must have before it is deleted. | plan 04 |
-| `--terminating-grace` | `SCARPENTER_TERMINATING_GRACE` | `10m` | How long an instance may be seen `terminating` before it is deleted again, by the garbage collector (no NodeClaim) and by `Delete`. The first sighting is kept in memory, so a restart restarts the clock. A stopped or powered-off instance is `terminating` for ever; one the vendor is deleting disappears well inside the grace. | plan 14 |
+| `--terminating-grace` | `SCARPENTER_TERMINATING_GRACE` | `10m` | How long an instance may be seen `terminating` before it is deleted again, by the garbage collector (no NodeClaim) and by `Delete`. The first sighting is kept in memory, so a restart restarts the clock. A stopped or powered-off instance is `terminating` for ever; `Delete` deletes it at once and waits the grace only after its own accepted delete; one the vendor is deleting disappears well inside the grace. | plan 14 |
 | `--gc-dry-run` | `SCARPENTER_GC_DRY_RUN` | `false` | Log (and count, `result="dry-run"`) what the garbage collector would delete without deleting it. | plan 04 |
 | `--metrics-offering-detail` | `SCARPENTER_METRICS_OFFERING_DETAIL` | `false` | Export `scarpenter_instance_type_offering_available`, one gauge per offering of every NodeClass (thousands of series per class and vendor). | plan 28 |
 | `--billing-retention` | `SCARPENTER_BILLING_RETENTION` | `true` | Run the [billing retention controller](#billing-retention). The NodeClass field `spec.billing.retainUntilPeriodEnd` is the real switch (off by default); `false` turns the whole controller off. | plan 23 |
@@ -781,7 +781,10 @@ resources. These deletions are logged and counted (kind `launch-leftover`), with
 too (kind `node`, reason `InstanceNotFound`): a machine that keeps running after its delete can register its Node again, and
 core removes only Nodes that have a NodeClaim. A Node is deleted only when its provider ID is of an enabled vendor, no
 NodeClaim has that provider ID, it is older than `--gc-grace-period`, and the driver's lookup of the instance by the NodeClaim
-name in the provider ID answers not found; an instance that exists or a failed lookup keeps the Node. Every deletion is logged with its reason and published as the Normal Event
+name in the provider ID answers not found; an instance that exists, a failed lookup, or a Node of an instance type the driver's lookup cannot see (a Vultr bare-metal
+plan while the registration timeout is too short to list bare metal) keeps the Node. The reaper is a backstop: deleting a Node
+does not stop the kubelet of a machine that still runs, which registers it again. An orphan instance whose driver answers that it
+is stopping before the delete (Vultr bare metal) is neither an error nor held back by the terminating grace once it is stopped. Every deletion is logged with its reason and published as the Normal Event
 `GarbageCollected` on the SCNodeClass of the instance's `nodeclass` tag, else on
 the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
 

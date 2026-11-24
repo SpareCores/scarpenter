@@ -164,8 +164,11 @@ core's NodeClaim garbage collection deletes the NodeClaim of a stopped node.
 
 `ListInstances` returns terminating instances (the garbage collector must find them),
 and the garbage collector's orphan sweep and `CloudProvider.Delete` call `DeleteInstance`
-again for an instance that has been seen terminating for longer than `--terminating-grace`
-(default 10 minutes; the first sighting is in memory, so a restart restarts the clock).
+for a terminating instance at once when SCarpenter has not asked for its delete yet, and
+again, once SCarpenter's own delete was accepted, only after it has been seen terminating for
+longer than `--terminating-grace` (default 10 minutes; the first sighting is in memory, so a
+restart restarts the clock). A driver that stops an instance before it deletes it answers
+`DeleteInstance` with a `Retryable` error of code `vendors.CodeStopping` until it is stopped.
 `DeleteInstance` of a terminating instance must therefore work and be idempotent.
 Instances the vendor is really deleting disappear inside the grace and cost no extra call.
 The rule saves what is charged from now on (the following billing periods, the disks, the

@@ -48,6 +48,14 @@ type stubDriver struct {
 	// fails the lookup.
 	alive   map[string]bool
 	findErr error
+	// blind says which instance types FindInstance cannot see (LookupLimiter),
+	// like Vultr's bare metal with a short registration timeout.
+	blind func(instanceType string) bool
+}
+
+// CannotFind implements vendors.LookupLimiter.
+func (d *stubDriver) CannotFind(instanceType string) bool {
+	return d.blind != nil && d.blind(instanceType)
 }
 
 func (d *stubDriver) Vendor() string                                        { return d.vendor }
@@ -717,5 +725,59 @@ func TestNodeSweepDryRun(t *testing.T) {
 	}
 	if e.count(t, "aws", gc.KindNode, gc.ReasonNoInstance, gc.ResultDryRun) != 1 {
 		t.Error("dry-run not counted")
+	}
+}
+
+func TestNodeSweepSkipsADeletingNodeAndIgnoresAnEmptyClaimProviderID(t *testing.T) {
+	deleting := node("deleting", "scarpenter://aws/r1/gone", time.Hour)
+	deleting.Finalizers = []string{"test/hold"}
+	deleting.DeletionTimestamp = &metav1.Time{Time: now}
+	objs := []client.Object{
+		claimWithProviderID("launching", ""), // no provider ID yet
+		deleting,
+		node("no-provider-id", "", time.Hour),
+	}
+	e := newEnv(t, &stubDriver{vendor: "aws"}, objs, nil)
+	if res, err := e.c.Sweep(context.Background()); err != nil || res.Nodes != 0 {
+		t.Fatalf("result %+v, err %v", res, err)
+	}
+	if got := nodeNames(t, e); !slices.Equal(got, []string{"deleting", "no-provider-id"}) {
+		t.Errorf("left %v", got)
+	}
+}
+
+func TestNodeSweepKeepsTheNodeOfATypeTheLookupCannotSee(t *testing.T) {
+	blind := node("blind", "scarpenter://aws/r1/gone-1", time.Hour)
+	blind.Labels = map[string]string{corev1.LabelInstanceTypeStable: "aws.big"}
+	unlabelled := node("unlabelled", "scarpenter://aws/r1/gone-2", time.Hour)
+	seen := node("seen", "scarpenter://aws/r1/gone-3", time.Hour)
+	seen.Labels = map[string]string{corev1.LabelInstanceTypeStable: "aws.small"}
+	drv := &stubDriver{vendor: "aws", blind: func(typ string) bool { return typ != "aws.small" }}
+	e := newEnv(t, drv, []client.Object{blind, unlabelled, seen}, nil)
+	if res, err := e.c.Sweep(context.Background()); err != nil || res.Nodes != 1 {
+		t.Fatalf("result %+v, err %v", res, err)
+	}
+	if got := nodeNames(t, e); !slices.Equal(got, []string{"blind", "unlabelled"}) {
+		t.Errorf("left %v", got)
+	}
+}
+
+func TestStoppingOrphanIsNeitherAnErrorNorWaitsForTheGrace(t *testing.T) {
+	drv := &stubDriver{vendor: "aws", instances: map[string][]*vendors.Instance{"r1": {inst("i-1", "r1", "gone", time.Hour)}},
+		deleteErr: vendors.NewError(vendors.Retryable, vendors.CodeStopping, errors.New("still stopping"))}
+	e := newEnv(t, drv, nil, nil)
+	res, err := e.c.Sweep(context.Background())
+	if err != nil || res.Instances != 0 || len(e.notes) != 0 {
+		t.Fatalf("result %+v, err %v, notes %v", res, err, e.notes)
+	}
+	if e.count(t, "aws", gc.KindInstance, gc.ReasonNoNodeClaim, gc.ResultError) != 0 {
+		t.Error("a stopping answer counted as an error")
+	}
+	// Next sweep: it is stopped (terminating) and is deleted at once, not after the grace.
+	drv.deleteErr = nil
+	drv.instances["r1"][0].State = vendors.StateTerminating
+	res, err = e.c.Sweep(context.Background())
+	if err != nil || res.Instances != 1 || len(drv.deleted) != 1 {
+		t.Fatalf("result %+v, err %v, deleted %v", res, err, drv.deleted)
 	}
 }

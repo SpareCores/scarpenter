@@ -345,7 +345,7 @@ func (o *Ops) deleteBareMetal(ctx context.Context, id string) error {
 		o.Log.Info("halted bare-metal server", "nodeclaim", nodeClaim, "server", id)
 	}
 	o.rememberHalt(id, h)
-	return vendors.NewError(vendors.Retryable, codeStopping,
+	return vendors.NewError(vendors.Retryable, vendors.CodeStopping,
 		fmt.Errorf("bare-metal server %s is still stopping (power status %q)", id, s.PowerStatus))
 }
 

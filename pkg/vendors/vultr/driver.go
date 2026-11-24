@@ -140,6 +140,17 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 	return nil
 }
 
+// CannotFind implements vendors.LookupLimiter: while the registration timeout is
+// too short for bare metal, the lookups do not list bare-metal servers, so a Node
+// of a bare-metal plan (or of an unknown type) cannot be proved gone.
+func (d *Driver) CannotFind(instanceType string) bool {
+	if d.ops == nil || bareMetalWindowOK(d.ops.RegistrationTimeout) {
+		return false
+	}
+	plan := strings.TrimPrefix(instanceType, Vendor+".")
+	return plan == "" || isBareMetalPlan(plan)
+}
+
 func (d *Driver) ready() error {
 	if d.ops == nil {
 		return vendors.Errorf(vendors.Fatal, "the Vultr driver is not initialised")

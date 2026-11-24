@@ -253,7 +253,10 @@ func TestBareMetalDeleteRetriesAFailedHalt(t *testing.T) {
 	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsClass(err, vendors.Retryable) || e.acct.Calls("HaltBareMetal") != 2 {
 		t.Fatalf("second halt: %v, %d halts", err, e.acct.Calls("HaltBareMetal"))
 	}
-	_ = e.ops.DeleteInstance(ctx, bm.Ref) // the server still reads as running
+	// The server still reads as running.
+	if err := e.ops.DeleteInstance(ctx, bm.Ref); !vendors.IsStopping(err) {
+		t.Fatalf("while stopping: %v", err)
+	}
 	if err := e.ops.DeleteInstance(ctx, bm.Ref); err != nil || len(e.acct.BareMetals()) != 0 {
 		t.Fatalf("stopped: %v", err)
 	}

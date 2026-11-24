@@ -129,13 +129,13 @@ func TestATerminatingNodeClaimKeepsTheQuotaMark(t *testing.T) {
 	claim, target := launchedInTheCheapestRegion(e)
 	e.driver.PowerOff(vendors.InstanceRef(claim.Annotations[v1alpha1.AnnotationInstanceRef]))
 	e.failNextLaunch(target, "QuotaExceeded", "claim-2")
-	for range 3 { // core asks every few seconds
-		if err := e.cp.Delete(t.Context(), claim); err != nil {
-			t.Fatalf("Delete of a terminating instance = %v, want nil", err)
-		}
-		if !e.un.IsUnavailable(unavailableOfRegion(target)) {
-			t.Fatal("the quota mark was cleared while the instance is still terminating")
-		}
+	// The delete of the stopped instance is sent at once; until core asks again
+	// and finds it gone, the instance still holds its quota.
+	if err := e.cp.Delete(t.Context(), claim); err != nil {
+		t.Fatalf("Delete of a terminating instance = %v, want nil", err)
+	}
+	if !e.un.IsUnavailable(unavailableOfRegion(target)) {
+		t.Fatal("the quota mark was cleared before the instance is gone")
 	}
 }
 

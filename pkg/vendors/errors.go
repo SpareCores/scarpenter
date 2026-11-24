@@ -183,6 +183,14 @@ func AsPreLaunch(err error) error {
 	return err
 }
 
+// CodeStopping is the code of the Retryable error of DeleteInstance for an
+// instance the driver has started to stop and will delete once it is stopped:
+// the caller calls DeleteInstance again; it is not a failure.
+const CodeStopping = "Stopping"
+
+// IsStopping reports whether err is the Stopping answer of DeleteInstance.
+func IsStopping(err error) bool { return IsClass(err, Retryable) && CodeOf(err) == CodeStopping }
+
 // CodeNoSpot is the code of the Unsupported error of a spot request to a vendor
 // that has no spot capacity.
 const CodeNoSpot = "NoSpot"

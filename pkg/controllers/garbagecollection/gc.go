@@ -130,6 +130,10 @@ type Collector struct {
 	opts Options
 	// terminating keeps the first sighting of each terminating instance.
 	terminating *vendors.TerminatingTracker
+	// stopping are the instances a driver has started to stop for the collector's
+	// delete (DeleteInstance answered Stopping): once stopped they are deleted
+	// without the terminating grace, which is for instances the vendor deletes.
+	stopping map[vendors.InstanceRef]bool
 
 	deletions *prometheus.CounterVec
 	duration  prometheus.Histogram
@@ -150,6 +154,7 @@ func New(opts Options) *Collector {
 	c := &Collector{
 		opts:        opts,
 		terminating: vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
+		stopping:    map[vendors.InstanceRef]bool{},
 		deletions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_gc_deletions_total",
 			Help: "Orphans the garbage collector deleted (or would have, in dry-run), by vendor, kind, reason and result.",
@@ -268,7 +273,9 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			continue
 		}
 		stillTerminating := map[vendors.InstanceRef]bool{}
+		listed := map[vendors.InstanceRef]bool{}
 		for _, inst := range insts {
+			listed[inst.Ref] = true
 			if inst.State == vendors.StateTerminated {
 				continue
 			}
@@ -277,7 +284,7 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			terminatingTooLong := false
 			if inst.State == vendors.StateTerminating {
 				stillTerminating[inst.Ref] = true
-				terminatingTooLong = c.terminating.Expired(vendor, inst.Ref)
+				terminatingTooLong = c.terminating.Expired(vendor, inst.Ref) || c.stopping[inst.Ref]
 			}
 			claim := inst.Tags[vendors.TagNodeClaim]
 			if claim != "" && claims.Has(claim) {
@@ -309,6 +316,11 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			}
 		}
 		c.terminating.Retain(vendor, region, stillTerminating)
+		for ref := range c.stopping {
+			if ref.Region() == region && !listed[ref] {
+				delete(c.stopping, ref)
+			}
+		}
 		if lc, ok := drv.(vendors.LeftoverCollector); ok && !c.opts.DryRun {
 			if err := c.collectLeftovers(ctx, logger, lc, vendor, region, claims); err != nil {
 				errs = append(errs, err)
@@ -361,11 +373,18 @@ func (c *Collector) deleteInstance(ctx context.Context, logger logr.Logger, drv 
 		c.event(ctx, inst.Tags[vendors.TagNodeClass], "would delete orphan instance %s (%s)", inst.Ref, reason)
 		return true, nil
 	}
-	if err := drv.DeleteInstance(ctx, inst.Ref); err != nil && !vendors.IsClass(err, vendors.NotFound) {
+	if err := drv.DeleteInstance(ctx, inst.Ref); vendors.IsStopping(err) {
+		// Not done, not failed: the driver deletes it once it is stopped, on a
+		// later sweep.
+		c.stopping[inst.Ref] = true
+		l.Info("the orphan instance is stopping before its delete")
+		return false, nil
+	} else if err != nil && !vendors.IsClass(err, vendors.NotFound) {
 		c.deletions.WithLabelValues(vendor, KindInstance, reason, ResultError).Inc()
 		l.Error(err, "deleting the orphan instance failed")
 		return false, fmt.Errorf("deleting %s instance %s: %w", vendor, inst.Ref, err)
 	}
+	delete(c.stopping, inst.Ref)
 	l.Info("deleted the orphan instance")
 	c.deletions.WithLabelValues(vendor, KindInstance, reason, ResultDeleted).Inc()
 	c.event(ctx, inst.Tags[vendors.TagNodeClass], "deleted orphan instance %s (%s)", inst.Ref, reason)
@@ -425,7 +444,9 @@ func (c *Collector) sweepTokens(ctx context.Context, logger logr.Logger, claims 
 // NodeClaim. A Node is deleted only when its provider ID is of an enabled
 // vendor, no NodeClaim has that provider ID, it is older than the grace period
 // (a registering node is never touched) and the driver says its instance does
-// not exist. An instance that exists, or a lookup that fails, keeps the Node.
+// not exist. An instance that exists, or a lookup that fails, keeps the Node, and
+// so does a Node of an instance type the driver's lookup cannot see
+// (vendors.LookupLimiter).
 func (c *Collector) sweepNodes(ctx context.Context, logger logr.Logger,
 	claimProviderIDs sets.Set[string]) (int, error) {
 	var nodes corev1.NodeList
@@ -447,6 +468,9 @@ func (c *Collector) sweepNodes(ctx context.Context, logger logr.Logger,
 		}
 		drv, ok := c.opts.Registry.Driver(vendor)
 		if !ok {
+			continue
+		}
+		if l, ok := drv.(vendors.LookupLimiter); ok && l.CannotFind(node.Labels[corev1.LabelInstanceTypeStable]) {
 			continue
 		}
 		tags := map[vendors.TagKey]string{vendors.TagCluster: c.opts.ClusterName, vendors.TagNodeClaim: claim}

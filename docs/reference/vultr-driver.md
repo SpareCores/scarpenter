@@ -221,9 +221,12 @@ instances. It differs in these points:
 
   A server that is not stopped 10 minutes after the first attempt (kept in memory, so a restart restarts the clock), or whose
   halt keeps failing, is deleted anyway. A server that is still installing is locked against the halt and runs no node, so it is
-  deleted at once. The `cluster` tag is checked as for instances. A stopped server is `terminating` to the cloud provider, so
-  `Delete` sends the `DELETE` once `--terminating-grace` has passed since it first saw it stopped. A Node that does re-register
-  without a NodeClaim is removed by the [garbage collector](controller.md#garbage-collection) once the server is gone from the API.
+  deleted at once. The `cluster` tag is checked as for instances. A stopped server is `terminating` to the cloud
+  provider, but `Delete` leaves a terminating instance to the vendor for `--terminating-grace` only after SCarpenter's own delete
+  was accepted, so the `DELETE` goes out on the first call that sees the server stopped. A Node that does re-register without a
+  NodeClaim is removed by the [garbage collector](controller.md#garbage-collection) once the server is gone from the API. That
+  removal is a backstop: deleting the Node object does not stop the kubelet of a machine that still runs, which registers it
+  again until the machine is off.
 - **Garbage collection and sweepers.** The orphan sweep lists servers with the instances. The L5 sweeper (`pkg/vendors/vultr/sweep`,
   `test/e2e-vultr/sweeper`) deletes the servers of a swept cluster too, halting them first. The sweeper always lists servers; a failing bare-metal list is
   a failed item and does not stop the sweep of the instances.

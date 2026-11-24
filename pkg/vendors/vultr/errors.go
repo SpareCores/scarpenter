@@ -60,7 +60,6 @@ const (
 	codeRetriesExhaust  = "RetriesExhausted"
 	codeDependency      = "Dependency"
 	codeLocked          = "Locked"
-	codeStopping        = "Stopping"
 	codeNotFound        = "NotFound"
 	codeRefNotFound     = "ReferencedResourceNotFound"
 	codeUnauthorized    = "Unauthorized"
