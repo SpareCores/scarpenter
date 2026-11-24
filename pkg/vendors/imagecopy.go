@@ -134,7 +134,7 @@ type RegionErrors map[string]error
 
 // Error implements error.
 func (e RegionErrors) Error() string {
-	var parts []string
+	parts := make([]string, 0, len(e))
 	for _, r := range slices.Sorted(maps.Keys(e)) {
 		parts = append(parts, fmt.Sprintf("%s: %v", r, e[r]))
 	}
@@ -143,7 +143,7 @@ func (e RegionErrors) Error() string {
 
 // Unwrap returns the errors of the regions.
 func (e RegionErrors) Unwrap() []error {
-	var errs []error
+	errs := make([]error, 0, len(e))
 	for _, r := range slices.Sorted(maps.Keys(e)) {
 		errs = append(errs, e[r])
 	}
