@@ -47,6 +47,9 @@ const (
 	// NodeClaim 15 minutes to register, and the token must outlive that and the
 	// retries of Create within it.
 	MinTokenTTL = 20 * time.Minute
+	// TokenRegistrationSlack is what a token outlives the registration timeout by
+	// (MinTokenTTL is the default timeout of 15 minutes plus this).
+	TokenRegistrationSlack = 5 * time.Minute
 
 	tokenIDLength     = 6
 	tokenSecretLength = 16
@@ -74,9 +77,13 @@ type MinterOptions struct {
 	// cluster-wide Secret informer and sees a token the instant it was written.
 	Reader client.Reader
 	// TTL is the lifetime of a token (--bootstrap-token-ttl).
-	TTL      time.Duration
-	Clock    clock.Clock
-	Recorder events.Recorder
+	TTL time.Duration
+	// RegistrationTimeout is core's --registration-timeout. A token lives at least
+	// this long plus TokenRegistrationSlack, so that a node that registers at the
+	// end of a long window (bare metal) still has its token; 0 asks for nothing.
+	RegistrationTimeout time.Duration
+	Clock               clock.Clock
+	Recorder            events.Recorder
 }
 
 // Minter creates and deletes the bootstrap token of a NodeClaim. It implements
@@ -97,6 +104,7 @@ func NewMinter(opts MinterOptions) *Minter {
 	if opts.TTL <= 0 {
 		opts.TTL = time.Hour
 	}
+	opts.TTL = max(opts.TTL, opts.RegistrationTimeout+TokenRegistrationSlack)
 	return &Minter{opts: opts}
 }
 

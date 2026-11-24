@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
+	coreoptions "sigs.k8s.io/karpenter/pkg/operator/options"
 
 	"github.com/SpareCores/scarpenter/pkg/artifacts"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
@@ -93,6 +94,10 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		return nil, err
 	}
 	c := &Components{}
+	// Core's registration timeout: how long a NodeClaim may take to register. The
+	// drivers of slow-booting instances (Vultr bare metal) and the bootstrap
+	// token lifetime depend on it.
+	registrationTimeout := coreoptions.FromContext(ctx).RegistrationTimeout
 	reg, err := vendors.NewRegistry(ctx, opts.Vendors, vendors.Config{
 		ClusterName: opts.ClusterName,
 		Client:      o.GetClient(),
@@ -100,6 +105,8 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 		Clock:       o.Clock,
 		Log:         log.FromContext(ctx).WithName("vendors"),
 		Keeper:      keeperClient,
+
+		RegistrationTimeout: registrationTimeout,
 	}, c.imageCopiesFor(ctx, o))
 	if err != nil {
 		return nil, fmt.Errorf("building the driver registry: %w", err)
@@ -170,7 +177,8 @@ func (o *Operator) NewComponents(ctx context.Context) (*Components, error) {
 	c.Renderer = bootstrap.NewRenderer(rendererOpts)
 	c.Tokens = bootstrap.NewMinter(bootstrap.MinterOptions{
 		Client: o.GetClient(), Reader: o.GetAPIReader(), TTL: opts.BootstrapTokenTTL,
-		Clock: o.Clock, Recorder: o.EventRecorder,
+		RegistrationTimeout: registrationTimeout,
+		Clock:               o.Clock, Recorder: o.EventRecorder,
 	})
 	c.Resources = resources.New(resources.Options{
 		Registry: reg, Reader: o.GetClient(), Clock: o.Clock, ClusterName: opts.ClusterName,

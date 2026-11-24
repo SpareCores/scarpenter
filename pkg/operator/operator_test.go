@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/SpareCores/scarpenter/pkg/vendors/vultr"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
@@ -426,6 +428,55 @@ func TestACopyFlagThatCannotBeHonouredRefusesToStart(t *testing.T) {
 				t.Errorf("NewComponents: %v", err)
 			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 				t.Errorf("NewComponents = %v, want an error with %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Core's registration timeout reaches the drivers: Vultr bare metal is offered
+// from 25 minutes up, not with the default.
+func TestRegistrationTimeoutOpensVultrBareMetal(t *testing.T) {
+	cfg, stop, err := testutil.StartEnvWith(testutil.EnvOptions{CRDs: testutil.KarpenterCRDs()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stop() })
+	for name, tc := range map[string]struct {
+		timeout string
+		want    bool
+	}{"default": {"", false}, "short": {"24m", false}, "long enough": {"25m", true}} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("KUBECONFIG", writeKubeconfig(t, cfg))
+			t.Setenv("METRICS_PORT", fmt.Sprint(freePort(t)))
+			t.Setenv("HEALTH_PROBE_PORT", fmt.Sprint(freePort(t)))
+			t.Setenv("DISABLE_LEADER_ELECTION", "true")
+			t.Setenv("SCARPENTER_CLUSTER_NAME", "my-cluster")
+			t.Setenv("SCARPENTER_API_SERVER_ENDPOINT", "https://10.0.0.1:6443")
+			t.Setenv("SCARPENTER_VENDORS", "vultr")
+			t.Setenv("VULTR_API_KEY", "test-key")
+			t.Setenv("SCARPENTER_KEEPER_URL", catalogtest.Server(t).URL)
+			if tc.timeout != "" {
+				t.Setenv("REGISTRATION_TIMEOUT", tc.timeout)
+			}
+			args := os.Args
+			os.Args = []string{"scarpenter"}
+			t.Cleanup(func() { os.Args = args })
+			ctx, op := operator.NewOperator(coreoperator.NewOperator())
+			c, err := op.NewComponents(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			drv, ok := c.Registry.Driver("vultr")
+			if !ok {
+				t.Fatal("no vultr driver")
+			}
+			checker, ok := drv.(vendors.TypeChecker)
+			if !ok {
+				t.Fatal("the vultr driver has no type check")
+			}
+			got, why := checker.LaunchableType(vendors.CatalogType{Vendor: "vultr", APIReference: "vbm-6c-32gb", Arch: "amd64"})
+			if got != tc.want {
+				t.Errorf("LaunchableType = %v %q, want %v", got, why, tc.want)
 			}
 		})
 	}
