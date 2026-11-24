@@ -994,6 +994,15 @@
         }
       }
     },
+    "imageCopies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idleTTL": {
+          "$ref": "#/definitions/duration"
+        }
+      }
+    },
     "karpenter": {
       "type": "object",
       "additionalProperties": false,

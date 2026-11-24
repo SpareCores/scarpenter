@@ -436,7 +436,7 @@ line under the ladder and the aws and alicloud rows.
 **Handoff from step 1 to step 2.** Step 2 must call `Manager.Bump` from the NodeClass controller on each manager
 signal (the GC sweep calls it only every 10 min, which is too late for the release bump), and wire into the operator
 the manager's `Signal`, `Start`, `Invalidate` and `Regions` and the `Collector`, keeping a typed-nil `*Manager` out of
-`vendors.Config.ImageCopies`. Step 5 must make Alibaba's owner `self` not opt a request out (TODO in `Lookup`).
+`vendors.Config.ImageCopies`. The chart value `imageCopies.idleTTL` exists (step 1, as `TestEveryFlagIsSettable` requires); step 2 adds the per-vendor flags' values. Step 5 must make Alibaba's owner `self` not opt a request out (TODO in `Lookup`).
 
 ## 10. Rollout
 

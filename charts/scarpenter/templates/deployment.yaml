@@ -123,6 +123,7 @@ checks that every flag of pkg/operator/options can be set from here.
   "resource-per-use-grace" .Values.managedResources.perUseGrace
   "resource-check-interval" .Values.managedResources.checkInterval
   "resource-full-sweep-every" .Values.managedResources.fullSweepEvery
+  "image-copy-idle-ttl" .Values.imageCopies.idleTTL
   "aws-home-region" (ternary $aws.homeRegion "" $aws.enabled)
   "gcp-project" (ternary $gcp.project "" $gcp.enabled)
   "gcp-preemption-notice" (ternary $gcp.preemptionNotice "" $gcp.enabled)
