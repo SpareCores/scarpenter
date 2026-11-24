@@ -43,10 +43,10 @@ func newEnv(t *testing.T) *env {
 	for _, p := range []struct {
 		id   string
 		disk int
-	}{{plan, 25}, {"vc2-2c-4gb", 80}, {"vx1-g-2c-8g", 1}, {"vx1-g-4c-16g", 100}, {"vcg-a16-6c-64g-16vram", 350}, {"vc2-1c-0.5gb-free", 10}, {"vhf-1c-1gb", 32}} {
+	}{{plan, 25}, {"vc2-2c-4gb", 80}, {"vx1-g-2c-8g", 1}, {"vx1-g-4c-16g", 100}, {"vbm-4c-32gb", 350}, {"vc2-1c-0.5gb-free", 10}, {"vhf-1c-1gb", 32}} {
 		a.AddPlan(p.id, 1, 1024, p.disk)
 	}
-	a.AddRegion("ewr", plan, "vc2-2c-4gb", "vx1-g-2c-8g", "vx1-g-4c-16g", "vcg-a16-6c-64g-16vram", "vc2-1c-0.5gb-free", "vhf-1c-1gb")
+	a.AddRegion("ewr", plan, "vc2-2c-4gb", "vx1-g-2c-8g", "vx1-g-4c-16g", "vbm-4c-32gb", "vc2-1c-0.5gb-free", "vhf-1c-1gb")
 	a.AddRegion("fra", plan)
 	clk := clocktesting.NewFakeClock(time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC))
 	a.SetClock(clk.Now)

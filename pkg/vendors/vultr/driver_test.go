@@ -21,7 +21,10 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	vultrapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/vultr"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/model"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/facts"
 	"github.com/SpareCores/scarpenter/pkg/vendors/vultr"
 	"github.com/SpareCores/scarpenter/pkg/vendors/vultr/fake"
 )
@@ -99,7 +102,7 @@ func TestLaunchableTypesAreTheZonesOfTheRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// vx1-g-2c-8g is diskless and vcg is a GPU plan: neither is launched.
+	// vx1-g-2c-8g is diskless and vbm is bare metal: neither is launched.
 	if len(got) != 3 || len(got[testType]) != 1 || got[testType][0] != "ewr" || got["vx1-g-2c-8g"] != nil {
 		t.Fatalf("got %v", got)
 	}
@@ -474,3 +477,43 @@ func TestEveryFamilyOfTheSnapshotIsClassified(t *testing.T) {
 
 var _ = govultr.ListOptions{}
 var _ = metav1.Time{}
+
+// The families the driver cannot launch are refused from the plan ID alone, with
+// no stock data loaded: the default route (so the type is not offered) and the
+// launch both say no, the supported families are untouched.
+func TestUnlaunchableFamiliesNeedNoStock(t *testing.T) {
+	e := newDrvEnv(t)
+	ctx := context.Background()
+	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(e.d)})
+	class, err := catalog.ClassFromNodeClass(&v1alpha1.SCNodeClass{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := func(id string, diskGB float64) *model.Server {
+		return &model.Server{Vendor: vultr.Vendor, APIReference: id, LocalStorageGB: diskGB}
+	}
+	for id, want := range map[string]bool{
+		"vc2-2c-4gb": true, "vcg-a16-6c-64g-16vram": true, "vdm-a100-8c-64g": true, "vbm-4c-32gb": false,
+	} {
+		if got := f.DefaultSupported(vultr.Vendor, &class, server(id, 100)); got != want {
+			t.Errorf("DefaultSupported(%s) = %v, want %v", id, got, want)
+		}
+	}
+	req := vendors.CreateRequest{
+		Region: "ewr", Zone: "ewr", InstanceType: "vbm-4c-32gb", CapacityType: vendors.CapacityOnDemand, Arch: "amd64",
+		Image: vendors.Image{Ref: e.snap}, UserData: []byte(`{"ignition":{"version":"3.4.0"}}`),
+		Tags: map[vendors.TagKey]string{vendors.TagCluster: testCluster, vendors.TagNodeClaim: "nc-1"}, IdempotencyKey: "uid-1",
+		Node: vendors.NodeInfo{Name: "nc-1"},
+	}
+	_, err = e.d.CreateInstance(ctx, req)
+	if !vendors.IsClass(err, vendors.Unsupported) || !strings.Contains(err.Error(), "bare metal") {
+		t.Errorf("a bare metal plan: %v", err)
+	}
+	if got := e.acct.Calls("CreateInstance"); got != 0 {
+		t.Errorf("%d creates, want none", got)
+	}
+	req.InstanceType = "vc2-2c-4gb"
+	if _, err = e.d.CreateInstance(ctx, req); err != nil {
+		t.Errorf("a supported plan: %v", err)
+	}
+}

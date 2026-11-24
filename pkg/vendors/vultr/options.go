@@ -52,6 +52,16 @@ func (d *Driver) Supported(vendors.CatalogType, string, vendors.Profiles) map[st
 // S7).
 func (d *Driver) PriceDelta(vendors.VendorSettings, vendors.Offering) (float64, bool) { return 0, true }
 
+// SupportsSettings implements vendors.SettingsChecker: whether the driver can
+// launch the plan at all (ClassifyPlan), whatever the settings and the stock. The
+// catalog asks it for the default route, and with no storage profile to help
+// (Supported offers none) a plan it refuses is not offered, from the first
+// build on.
+func (d *Driver) SupportsSettings(_ vendors.VendorSettings, it vendors.CatalogType) bool {
+	ok, _ := ClassifyPlan(it.APIReference, int(it.LocalStorageGB))
+	return ok
+}
+
 // FirewallGroupParams are the create parameters of a managed firewall group: the
 // inbound rules of the settings. They are part of the group's name (the engine
 // hashes the parameters), so a changed ruleset never adopts the group of the old
