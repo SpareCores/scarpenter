@@ -5,7 +5,8 @@ Flatcar images, in the default VPC, a network it creates or vSwitches you bring,
 vCPU quota and each zone's stock. Design and details: the
 [Alibaba Cloud driver reference](../reference/alicloud-driver.md).
 
-**Preview.** The driver has run real nodes, but the real-cloud e2e lane has not passed yet. Expect rough edges and report them.
+**Real-cloud tested.** Nodes of this driver launched, registered (including in mainland China) and ran workloads; the e2e lane
+has not passed yet.
 
 ## What you need
 

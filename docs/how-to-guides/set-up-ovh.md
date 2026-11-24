@@ -4,8 +4,8 @@ The OVHcloud driver launches Flatcar nodes as Nova servers in **one Public Cloud
 Nodes attach to the public `Ext-Net` network with a security group SCarpenter manages. Details are in the
 [OVHcloud driver reference](../reference/ovh-driver.md).
 
-**Preview.** A first real-cloud smoke run passed on 2026-11-16 (one amd64 node in GRA11, then scale to zero); the
-full test lane has not run yet.
+**Real-cloud tested.** The e2e `smoke` scenarios passed (2026-11-15), and nodes of this driver ran workloads to completion.
+The full lane has not run.
 
 ## What you need
 

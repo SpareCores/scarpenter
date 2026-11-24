@@ -52,19 +52,19 @@ NodeClass.
 |---|---|---|---|
 | Amazon Web Services (AWS) | Supported | Spot | [Set up AWS](docs/how-to-guides/set-up-aws.md) |
 | Oracle Cloud Infrastructure (OCI) | Supported | Preemptible | [Set up OCI](docs/how-to-guides/set-up-oci.md) |
-| OVHcloud Public Cloud | Preview: real-cloud smoke e2e passed, November 2026 | No | [Set up OVHcloud](docs/how-to-guides/set-up-ovh.md) |
-| Google Cloud (GCP) | Preview: real-cloud smoke e2e passed, November 2026 | Spot VMs | [Set up Google Cloud](docs/how-to-guides/set-up-gcp.md) |
-| Microsoft Azure | Preview: real-cloud smoke e2e passed, November 2026 | Spot | [Set up Azure](docs/how-to-guides/set-up-azure.md) |
-| Alibaba Cloud | Preview: real-cloud tested | Spot | [Set up Alibaba Cloud](docs/how-to-guides/set-up-alicloud.md) |
-| Hetzner Cloud | Preview: real-cloud full e2e passed, November 2026 | No | [Set up Hetzner Cloud](docs/how-to-guides/set-up-hcloud.md) |
-| UpCloud | Preview: real-cloud smoke e2e passed, November 2026 | No | [Set up UpCloud](docs/how-to-guides/set-up-upcloud.md) |
-| Vultr | Preview: real-cloud tested | No | [Set up Vultr](docs/how-to-guides/set-up-vultr.md) |
+| OVHcloud Public Cloud | Real-cloud tested (smoke e2e) | No | [Set up OVHcloud](docs/how-to-guides/set-up-ovh.md) |
+| Google Cloud (GCP) | Real-cloud tested (smoke e2e) | Spot VMs | [Set up Google Cloud](docs/how-to-guides/set-up-gcp.md) |
+| Microsoft Azure | Real-cloud tested (smoke e2e) | Spot | [Set up Azure](docs/how-to-guides/set-up-azure.md) |
+| Alibaba Cloud | Real-cloud tested (nodes run workloads) | Spot | [Set up Alibaba Cloud](docs/how-to-guides/set-up-alicloud.md) |
+| Hetzner Cloud | Real-cloud tested (full e2e) | No | [Set up Hetzner Cloud](docs/how-to-guides/set-up-hcloud.md) |
+| UpCloud | Real-cloud tested (smoke e2e) | No | [Set up UpCloud](docs/how-to-guides/set-up-upcloud.md) |
+| Vultr | Real-cloud tested (nodes run workloads) | No | [Set up Vultr](docs/how-to-guides/set-up-vultr.md) |
 
-**Supported**: the full real-cloud e2e lane passes, and a nightly canary checks
-the vendor's APIs without launching instances. **Preview**: implemented and
-covered by unit and offline tests; real-cloud e2e runs have passed in part (the
-smoke or full scenarios named in the table), or the driver has run real nodes
-but not a green lane. Expect rough edges and please report them. Each guide ends with what the
+Every driver has launched real nodes that ran workloads. **Supported**: the full
+real-cloud e2e lane passes, and a nightly canary checks the vendor's APIs without
+launching instances. **Real-cloud tested**: the e2e scenario set named in the
+table has passed, or, where none is named, the e2e lane has not passed yet. Expect
+rough edges and please report them. Each guide ends with what the
 provider does not support; the details are in its driver reference under
 [docs/reference/](docs/reference/README.md). Interruptions are handled on every vendor
 with spot (OCI has no graceful drain window yet). Vultr bare metal (`vbm`) plans are offered only
