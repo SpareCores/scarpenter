@@ -23,6 +23,7 @@ kubeletClientCA:
     -----END CERTIFICATE-----
 vendors:
   aws:
+    imageCopies: {enabled: true}
     homeRegion: eu-central-1
     region: eu-west-1
     ipv4Price: "0.0036"

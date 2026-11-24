@@ -40,6 +40,9 @@ const (
 	QuotaGate Code = "QuotaGate"
 	// ImageGap: the class has no ready boot image in the region.
 	ImageGap Code = "ImageGap"
+	// ImageCopyPending: an image copy into the region is queued or in flight
+	// (plan 29); the offerings return when it is available.
+	ImageCopyPending Code = "ImageCopyPending"
 	// RegionNotReady: the class's vendor resources are not ready in the region.
 	RegionNotReady Code = "RegionNotReady"
 	// ZoneMissingResource: a required resource is missing in the zone.

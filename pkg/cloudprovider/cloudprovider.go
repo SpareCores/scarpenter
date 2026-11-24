@@ -148,6 +148,9 @@ type CloudProvider struct {
 
 	imageMu sync.Mutex
 	images  map[imageKey]cachedImage
+	// imageGen counts ForgetImage calls: a resolution that started before one
+	// must not be cached after it, it may carry the forgotten image.
+	imageGen uint64
 
 	// notReadyLogged is, per NodeClass, the vendors GetInstanceTypes last logged
 	// as not ready.

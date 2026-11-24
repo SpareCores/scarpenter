@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
@@ -35,6 +36,7 @@ import (
 	awsapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/aws"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
+	"github.com/SpareCores/scarpenter/pkg/imagecopy"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/conformance"
 	fakedriver "github.com/SpareCores/scarpenter/pkg/vendors/fake"
@@ -845,7 +847,7 @@ func TestRegistration(t *testing.T) {
 	opts := fakedriver.DefaultOptions()
 	opts.CatalogVendor = "aws"
 	ctx := opts.ToContext(t.Context())
-	reg, err := vendors.NewRegistry(ctx, []string{"fake"}, vendors.Config{Keeper: keeper.New(keeperURL)})
+	reg, err := vendors.NewRegistry(ctx, []string{"fake"}, vendors.Config{Keeper: keeper.New(keeperURL)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -961,5 +963,91 @@ stampOffset: -10s
 	h.setConfig(t, "billing", "increment: nonsense\n")
 	if r, ok := h.d.BillingRule(testRegion, "m7i"); !ok || r.Increment != nil {
 		t.Errorf("a broken key keeps the last good rule (noStamp, no increment): %+v %v", r, ok)
+	}
+}
+
+// With the imageCopies steering key and the copy manager the fake has official
+// images only where the key lists them: a launch in another region starts a copy
+// (ImageCopying), a report only says ImageCopyOnDemand, and the copy is served
+// once it is available. Without the manager the same key changes nothing.
+func TestImageCopiesSteeringGivesOfficialImagesToListedRegionsOnly(t *testing.T) {
+	const other = "ap-south-2"
+	steering := "official: [{region: " + testRegion + "}]\ncopyDuration: 1m\n"
+	cl := fake.NewClientBuilder().WithObjects(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Namespace: cmNS, Name: fakedriver.DefaultConfigName},
+		Data:       map[string]string{"imageCopies": steering},
+	}).Build()
+	clk := clocktesting.NewFakeClock(time.Now())
+	newDriver := func(copies bool) (*fakedriver.Driver, *imagecopy.Manager) {
+		opts := fakedriver.DefaultOptions()
+		opts.ConfigTTL = 0
+		opts.StateInterval = time.Hour
+		d := fakedriver.New(opts)
+		cfg := vendors.Config{ClusterName: "my-cluster", Client: cl, Reader: cl, Clock: clk, Log: logr.Discard(), Keeper: keeper.New(keeperURL)}
+		var m *imagecopy.Manager
+		if copies {
+			m = imagecopy.New(imagecopy.Options{
+				Vendor: "aws", Cluster: "my-cluster", Driver: d, Clock: clk,
+				Regions: func(context.Context) ([]string, error) { return []string{testRegion, other}, nil },
+			})
+			cfg.ImageCopies = m
+		}
+		if err := d.Init(t.Context(), cfg); err != nil {
+			t.Fatal(err)
+		}
+		return d, m
+	}
+	req := func(region string) vendors.ImageRequest {
+		return vendors.ImageRequest{Region: region, Arch: "amd64", Channel: "stable", Version: "4757.2.3"}
+	}
+
+	plain, _ := newDriver(false)
+	if _, err := plain.ResolveImage(t.Context(), req(other)); err != nil {
+		t.Errorf("without the copy manager every region has an image: %v", err)
+	}
+
+	d, m := newDriver(true)
+	if img, err := d.ResolveImage(t.Context(), req(testRegion)); err != nil || !strings.HasPrefix(img.Ref, "ami-official-") {
+		t.Errorf("the listed region: %v, %v", img, err)
+	}
+	nc := &v1alpha1.SCNodeClass{Spec: v1alpha1.SCNodeClassSpec{
+		Flatcar: v1alpha1.FlatcarSpec{Version: "4757.2.3"},
+		Vendors: v1alpha1.VendorBlocks{AWS: &awsapi.Settings{Regions: []string{testRegion, other}}},
+	}}
+	report := func() map[string]string {
+		t.Helper()
+		images, err := d.ReportImages(t.Context(), nc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]string{}
+		for _, img := range images {
+			if img.Arch == "amd64" {
+				got[img.Region] = img.Reason
+				if img.Ready {
+					got[img.Region] = "ready"
+				}
+			}
+		}
+		return got
+	}
+	if got := report(); got[testRegion] != "ready" || got[other] != vendors.CodeImageCopyOnDemand {
+		t.Errorf("report before any launch = %v", got)
+	}
+	if _, err := d.ResolveImage(t.Context(), req(other)); vendors.CodeOf(err) != vendors.CodeImageCopying {
+		t.Errorf("a launch in %s = %v, want ImageCopying", other, err)
+	}
+	if got := report(); got[other] != vendors.CodeImageCopying {
+		t.Errorf("report while copying = %v", got)
+	}
+	if err := m.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	clk.Step(2 * time.Minute) // the steered copy duration
+	if err := m.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if img, err := d.ResolveImage(t.Context(), req(other)); err != nil || !strings.HasPrefix(img.Ref, "ami-copy-") {
+		t.Errorf("after the copy: %v, %v", img, err)
 	}
 }

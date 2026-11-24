@@ -307,7 +307,7 @@ An offering is unavailable (`Available=false`) while the
 [unavailable-offerings cache](#unavailable-offerings) has an entry for it, while
 the quota tracker knows the quota and it has no headroom for one more instance,
 while the class's vendor resources are not ready in the region
-(`ImageGap`, `RegionNotReady`, `ZoneMissingResource`), and, for a NodePool that
+(`ImageGap`, `ImageCopyPending`, `RegionNotReady`, `ZoneMissingResource`), and, for a NodePool that
 pins a selection profile whose objective is not `Price`, when the type has no
 score under it (`Unrankable`). Each of these is a
 [reason](#why-a-type-or-an-offering-is-not-offered).
@@ -349,6 +349,7 @@ was given.
 | `UnavailableCache` | offering | a live entry of the unavailable-offerings cache | its class (`InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable`, `InvalidOffering`, `RegionUnreachable`) and its expiry |
 | `QuotaGate` | offering | the quota is known and has no headroom | the limiting bucket, the headroom and the need |
 | `ImageGap` | offering | the class has no ready boot image in the region; **region-level, not per architecture**: a region is marked only when no architecture's image is ready, so a type of an architecture without an image can still be offered there | the region |
+| `ImageCopyPending` | offering | a copy of the boot image into the region is queued or in flight ([image copies](image-copies.md)); the same region-level rule as `ImageGap`; the offerings come back when the copy is available | the region |
 | `RegionNotReady` | offering | the class's vendor resources are not ready in the region | the region |
 | `ZoneMissingResource` | offering | a required resource is missing in the zone | the zone |
 | `Unrankable` | offering | the NodePool pins a selection profile and the type has no score | the profile |
@@ -406,7 +407,7 @@ NodePool filter, no pinned selection profile, so the class-level codes only).
 | `types` | instance types offered |
 | `offerings`, `availableOfferings` | (region, zone, capacity type) offerings of the offered types, and how many are available now |
 | `dropped` | per reason code, how many types are not offered at all (`NoPrice`, `RegionNotAllowed`, the `GPU*` codes, `NoOffering`) |
-| `unavailable` | per reason code, how many offerings of the offered types are not available, listed unavailable (`UnavailableCache`, `QuotaGate`, `ImageGap`, `RegionNotReady`, `ZoneMissingResource`) or left out (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) |
+| `unavailable` | per reason code, how many offerings of the offered types are not available, listed unavailable (`UnavailableCache`, `QuotaGate`, `ImageGap`, `ImageCopyPending`, `RegionNotReady`, `ZoneMissingResource`) or left out (`ZoneNotAvailable`, `IncompletePrice`, `NotLaunchable`) |
 | `dropped[].types`, `unavailable[].types` | up to five instance type names with the code, in name order |
 | `observedAt` | when the summary last changed, to the minute |
 
@@ -717,7 +718,7 @@ modified.
 | `scarpenter_catalog_instance_types` | gauge | `vendor` | types with a price in scope |
 | `scarpenter_catalog_offerings` | gauge | `vendor` | price rows in scope, before the driver's zone mapping |
 | `scarpenter_catalog_dropped_types` | gauge | `nodeclass`, `vendor`, `reason` | types a NodeClass's catalog leaves out at build time (`NoPrice`, `RegionNotAllowed`, `NoOffering`, the [GPU reasons](#gpu-types)), by [reason](#why-a-type-or-an-offering-is-not-offered); exported for the NodeClasses the catalog has built, only for reasons that occur |
-| `scarpenter_catalog_offerings_by_state` | gauge | `nodeclass`, `vendor`, `state` | offerings of the offered types: `available`, or the offering-level reason code (at most nine series); written by the offered types controller |
+| `scarpenter_catalog_offerings_by_state` | gauge | `nodeclass`, `vendor`, `state` | offerings of the offered types: `available`, or the offering-level reason code (at most ten series); written by the offered types controller |
 | `scarpenter_offered_listing_bytes` | gauge | `nodeclass`, `vendor` | compressed bytes of the last offered listing ConfigMap written (cap 800 KiB) |
 | `scarpenter_instance_type_offering_available` | gauge | `nodeclass`, `instance_type`, `zone`, `capacity_type` | 1 available, 0 unavailable; only with `--metrics-offering-detail` (thousands of series per class and vendor) |
 

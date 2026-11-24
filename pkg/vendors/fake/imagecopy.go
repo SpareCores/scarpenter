@@ -253,13 +253,71 @@ func (d *Driver) saveCopies(ctx context.Context) error {
 	return vendors.NewError(vendors.Retryable, codeCopiesUnavailable, fmt.Errorf("writing the copies: %w", last))
 }
 
+// copiesSteered says that the controller has the copy manager of the fake and
+// the steering ConfigMap has the imageCopies key: the fake then has official
+// images only where the key says. Without either, every region has one.
+func (d *Driver) copiesSteered(ctx context.Context) bool {
+	if d.cfg.ImageCopies == nil {
+		return false
+	}
+	d.refreshConfig(ctx)
+	return d.current().imageCopies != nil
+}
+
+func isCopyCode(code string) bool {
+	switch code {
+	case vendors.CodeImageCopyOnDemand, vendors.CodeImageCopying, vendors.CodeImageCopyFailed,
+		vendors.CodeImageCopySourceMissing:
+		return true
+	}
+	return false
+}
+
+// resolveOrCopy is the default lookup of a driver with copies on: the official
+// image of the region if there is one, else what the copy manager says.
+func (d *Driver) resolveOrCopy(ctx context.Context, req vendors.ImageRequest, demand bool) (*vendors.Image, error) {
+	rel := vendors.Release{Channel: req.Channel, Version: req.Version, Arch: req.Arch}
+	ref, found, err := d.Primary(ctx, req.Region, rel)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return &vendors.Image{Ref: ref, RootDiskBytes: rootDiskBytes.Value(), Channel: req.Channel, Version: req.Version}, nil
+	}
+	img, err := d.cfg.ImageCopies.Lookup(ctx, req, demand)
+	if err != nil {
+		return nil, err
+	}
+	if img == nil {
+		return nil, vendors.Errorf(vendors.NotFound, "no %s image of Flatcar %s %s in %s",
+			req.Arch, req.Channel, req.Version, req.Region)
+	}
+	img.RootDiskBytes = rootDiskBytes.Value()
+	return img, nil
+}
+
+// officialRef is the ref of the official image the steering gives the region
+// for the release.
+func (d *Driver) officialRef(region string, rel vendors.Release) (string, bool) {
+	cfg := d.current().imageCopies
+	if cfg == nil {
+		return "", false
+	}
+	for _, r := range cfg.Official {
+		if r.Region == region && (r.Version == "" || r.Version == rel.Version) {
+			return fmt.Sprintf("ami-official-%s-%s-%s-%s", region, rel.Channel, rel.Version, rel.Arch), true
+		}
+	}
+	return "", false
+}
+
 // Architectures implements vendors.ImageCopier: both, everywhere.
 func (d *Driver) Architectures(context.Context, string) ([]string, error) {
 	return slices.Clone(copyArchs), nil
 }
 
 // Primary implements vendors.ImageCopier: the official image the test
-// published in the region.
+// published in the region, or the steering gives it.
 func (d *Driver) Primary(ctx context.Context, region string, rel vendors.Release) (string, bool, error) {
 	var ref string
 	err := d.withCopies(ctx, false, func(doc *copyDoc) {
@@ -269,6 +327,9 @@ func (d *Driver) Primary(ctx context.Context, region string, rel vendors.Release
 			}
 		}
 	})
+	if ref == "" {
+		ref, _ = d.officialRef(region, rel)
+	}
 	return ref, ref != "", err
 }
 
@@ -283,6 +344,15 @@ func (d *Driver) CopySources(ctx context.Context, rel vendors.Release) ([]vendor
 			}
 		}
 	})
+	if cfg := d.current().imageCopies; cfg != nil {
+		for _, r := range cfg.Official {
+			ref, ok := d.officialRef(r.Region, rel)
+			src := vendors.ImageSource{Region: r.Region, Ref: ref}
+			if ok && !slices.Contains(out, src) {
+				out = append(out, src)
+			}
+		}
+	}
 	slices.SortFunc(out, func(a, b vendors.ImageSource) int { return strings.Compare(a.Region, b.Region) })
 	return out, err
 }
@@ -347,10 +417,13 @@ func (d *Driver) StartCopy(
 		failed = true
 	}
 	duration := d.cp.duration
+	d.cp.mu.Unlock()
+	if cfg := d.current().imageCopies; duration == 0 && cfg != nil && cfg.CopyDuration != nil {
+		duration = cfg.CopyDuration.Duration
+	}
 	if duration == 0 {
 		duration = DefaultCopyDuration
 	}
-	d.cp.mu.Unlock()
 	if inject != nil {
 		return "", inject
 	}
@@ -365,7 +438,8 @@ func (d *Driver) StartCopy(
 				return
 			}
 		}
-		if !doc.isOfficial(src.Region, src.Ref) {
+		steeredRef, steered := d.officialRef(src.Region, rel)
+		if !doc.isOfficial(src.Region, src.Ref) && (!steered || steeredRef != src.Ref) {
 			rerr = vendors.Errorf(vendors.NotFound, "the source image %s in %s does not exist", src.Ref, src.Region)
 			return
 		}
@@ -426,7 +500,7 @@ func (d *Driver) usedImage(ctx context.Context, ref string) {
 func (d *Driver) DeleteCopy(ctx context.Context, c vendors.ImageCopy) error {
 	var rerr error
 	err := d.withCopies(ctx, true, func(doc *copyDoc) {
-		if doc.isOfficial(c.Region, c.Ref) {
+		if doc.isOfficial(c.Region, c.Ref) || strings.HasPrefix(c.Ref, "ami-official-") {
 			rerr = notACopy(c)
 			return
 		}

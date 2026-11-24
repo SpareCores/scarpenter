@@ -125,6 +125,8 @@ checks that every flag of pkg/operator/options can be set from here.
   "resource-full-sweep-every" .Values.managedResources.fullSweepEvery
   "image-copy-idle-ttl" .Values.imageCopies.idleTTL
   "aws-home-region" (ternary $aws.homeRegion "" $aws.enabled)
+  "aws-copy-images" (ternary "true" "" (and $aws.enabled (eq (toString $aws.imageCopies.enabled) "true")))
+  "alicloud-copy-images" (ternary "true" "" (and $ali.enabled (eq (toString $ali.imageCopies.enabled) "true")))
   "gcp-project" (ternary $gcp.project "" $gcp.enabled)
   "gcp-preemption-notice" (ternary $gcp.preemptionNotice "" $gcp.enabled)
   "oci-compartment" (ternary $oci.compartment "" $oci.enabled)

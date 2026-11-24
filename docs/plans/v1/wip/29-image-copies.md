@@ -106,7 +106,7 @@ permissions are the controller's. ADR-030 set the same precedent (`--hcloud-buil
 
 A flag that enables copies for a vendor whose driver lacks the capability refuses to start. Constants, not flags:
 the retry after a failed copy (6 h, like hcloud's build retry), at most 4 copies in flight per vendor (queued beyond),
-a backoff of 1 min doubling to 15 min on a limit or throttling error, a copy timeout of 2 h, the GC interval of 10 min,
+a backoff of 1 min doubling to 15 min on a limit or throttling error, a copy timeout of 2 h, the collection every `--gc-interval` (2 min by default, on the leader),
 the unpinned grace of 2 h, the primary grace of 2 h (rule b: the launch cache), the retry after a missing
 source of 15 min (`SourceMissingRetry`, shorter than the failure TTL since the release may be published soon), and
 5 min after which a copy the vendor does not list counts as failed (`MissingGrace`).
@@ -437,6 +437,8 @@ line under the ladder and the aws and alicloud rows.
 signal (the GC sweep calls it only every 10 min, which is too late for the release bump), and wire into the operator
 the manager's `Signal`, `Start`, `Invalidate` and `Regions` and the `Collector`, keeping a typed-nil `*Manager` out of
 `vendors.Config.ImageCopies`. The chart value `imageCopies.idleTTL` exists (step 1, as `TestEveryFlagIsSettable` requires); step 2 adds the per-vendor flags' values. Step 5 must make Alibaba's owner `self` not opt a request out (TODO in `Lookup`).
+
+**Handoff from step 2 to step 3.** The operator creates the manager of a vendor through `vendors.NewRegistry`'s third argument (`ImageCopiesFor`: called with the vendor ID and the driver before its `Init`; an untyped nil when the vendor's flag is off), so a driver finds the manager in `cfg.ImageCopies` at `Init`, and a flag whose driver is not an `ImageCopier` refuses to start (the AWS driver becomes one in step 3). The fake driver shows the call: after its primary lookup misses it asks `cfg.ImageCopies.Lookup(ctx, req, demand)` with `demand` true from `ResolveImage` and false from `ReportImages`, and puts `CodeOf(err)` of a not-ready answer into `ImageStatus.Reason` (the NodeClass controller reads the four copy codes from there). The NodeClass controller also hands the manager a release it has not seen pinned (`Bump`, once per release per process), in addition to each manager signal. The collection runs every `--gc-interval`, not a constant 10 min, so that the L3 scenarios can wait for it. The flag `--alicloud-image-copy-source-region` and its chart value belong to step 5.
 
 ## 10. Rollout
 

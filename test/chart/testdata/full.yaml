@@ -821,6 +821,7 @@ spec:
           imagePullPolicy: Always
           args:
             - "--api-server-endpoint=https://api.example.com:6443"
+            - "--aws-copy-images=true"
             - "--aws-home-region=eu-central-1"
             - "--batch-idle-duration=2s"
             - "--batch-max-duration=20s"

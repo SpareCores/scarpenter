@@ -56,8 +56,13 @@ const (
 	TouchInterval = 24 * time.Hour
 )
 
-// Pin is a release a SCNodeClass pins (the architecture is not part of a pin).
-type Pin struct{ Channel, Version string }
+// Pin is a release the SCNodeClasses of a vendor pin and may copy (the
+// architecture is not part of a pin). Regions are the regions of the classes
+// that pin it; nil means any region.
+type Pin struct {
+	Channel, Version string
+	Regions          []string
+}
 
 type key struct {
 	region string
@@ -127,12 +132,17 @@ type Manager struct {
 	signal chan struct{}
 	kick   chan struct{}
 
-	tickMu       sync.Mutex
-	mu           sync.Mutex
-	jobs         map[key]*job
-	seq          uint64
-	loaded       map[string]bool
-	archs        map[string][]string
+	tickMu sync.Mutex
+	mu     sync.Mutex
+	jobs   map[key]*job
+	seq    uint64
+	loaded map[string]bool
+	archs  map[string][]string
+	// primaryFound are the keys the bump found a primary image for, so that a
+	// signal does not ask the vendor again; Sync (every sweep) forgets them.
+	primaryFound map[key]bool
+	// sources caches CopySources per release for the reports (sourceMissing).
+	sources      map[vendors.Release]cachedSources
 	backoff      time.Duration
 	backoffUntil time.Time
 }
@@ -145,6 +155,7 @@ func New(opts Options) *Manager {
 		opts: opts, clk: opts.Clock, log: opts.Log, m: opts.Metrics,
 		signal: make(chan struct{}, 1), kick: make(chan struct{}, 1),
 		jobs: map[key]*job{}, loaded: map[string]bool{}, archs: map[string][]string{},
+		primaryFound: map[key]bool{}, sources: map[vendors.Release]cachedSources{},
 	}
 	if m.clk == nil {
 		m.clk = clock.RealClock{}
@@ -211,6 +222,24 @@ func (m *Manager) Lookup(ctx context.Context, req vendors.ImageRequest, demand b
 	}
 	rel := vendors.Release{Channel: req.Channel, Version: req.Version, Arch: req.Arch}
 	k := key{req.Region, rel}
+	if !demand {
+		// A report of a key with no state says whether a copy could be made at
+		// all, so that an unpublished release is not "copied on demand".
+		m.mu.Lock()
+		known := m.jobs[k] != nil
+		m.mu.Unlock()
+		if !known {
+			missing, err := m.sourceMissing(ctx, rel, req.Region)
+			if err != nil {
+				return nil, err
+			}
+			if missing {
+				return nil, notFound(vendors.CodeImageCopySourceMissing,
+					"no source region has the %s image of Flatcar %s %s for the copy into %s",
+					rel.Arch, rel.Channel, rel.Version, req.Region)
+			}
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.clk.Now()
@@ -254,6 +283,31 @@ func (m *Manager) Lookup(ctx context.Context, req vendors.ImageRequest, demand b
 			k, j.source, j.startedAt.UTC().Format(time.RFC3339))
 	}
 	return nil, notFound(vendors.CodeImageCopying, "the copy of %s is queued", k)
+}
+
+type cachedSources struct {
+	srcs  []vendors.ImageSource
+	until time.Time
+}
+
+// sourceMissing says whether no region but the destination has the release's
+// image to copy from. The vendor's answer is kept for SourceMissingRetry, so a
+// report costs a vendor call once per release in that time.
+func (m *Manager) sourceMissing(ctx context.Context, rel vendors.Release, region string) (bool, error) {
+	m.mu.Lock()
+	cs, ok := m.sources[rel]
+	m.mu.Unlock()
+	if !ok || !m.clk.Now().Before(cs.until) {
+		srcs, err := m.opts.Driver.CopySources(ctx, rel)
+		if err != nil {
+			return false, fmt.Errorf("listing the sources of %s %s %s: %w", rel.Channel, rel.Version, rel.Arch, err)
+		}
+		cs = cachedSources{srcs: srcs, until: m.clk.Now().Add(SourceMissingRetry)}
+		m.mu.Lock()
+		m.sources[rel] = cs
+		m.mu.Unlock()
+	}
+	return !slices.ContainsFunc(cs.srcs, func(s vendors.ImageSource) bool { return s.Region != region }), nil
 }
 
 func notFound(code, format string, args ...any) error {
@@ -602,14 +656,17 @@ func (m *Manager) Sync(ctx context.Context) ([]vendors.ImageCopy, error) {
 		listed[c.Region+"/"+c.Ref] = true
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	changed := false
+	type image struct{ region, ref string }
+	var dropped []image
 	for k, j := range m.jobs {
 		if j.phase == phaseAvailable && slices.Contains(regions, k.region) && !listed[k.region+"/"+j.ref] {
 			delete(m.jobs, k)
+			dropped = append(dropped, image{k.region, j.ref})
 			changed = true
 		}
 	}
+	m.primaryFound = map[key]bool{}
 	for _, r := range regions {
 		m.loaded[r] = true
 	}
@@ -619,6 +676,14 @@ func (m *Manager) Sync(ctx context.Context) ([]vendors.ImageCopy, error) {
 		m.notify()
 	}
 	m.gauges()
+	m.mu.Unlock()
+	// A copy deleted behind the manager's back must leave the caches that hold
+	// its ID too, or a launch is served a deleted image.
+	if m.opts.Invalidate != nil {
+		for _, d := range dropped {
+			m.opts.Invalidate(d.region, d.ref)
+		}
+	}
 	return copies, nil
 }
 
@@ -719,6 +784,9 @@ func (m *Manager) Bump(ctx context.Context, pins []Pin) error {
 }
 
 func (m *Manager) bumpRegion(ctx context.Context, region string, copies []vendors.ImageCopy, p Pin) error {
+	if p.Regions != nil && !slices.Contains(p.Regions, region) {
+		return nil
+	}
 	if err := m.ensure(ctx, region); err != nil {
 		return err
 	}
@@ -727,7 +795,8 @@ func (m *Manager) bumpRegion(ctx context.Context, region string, copies []vendor
 	var need []string
 	m.mu.Lock()
 	for _, arch := range m.archs[region] {
-		if m.jobs[key{region, vendors.Release{Channel: p.Channel, Version: p.Version, Arch: arch}}] == nil {
+		k := key{region, vendors.Release{Channel: p.Channel, Version: p.Version, Arch: arch}}
+		if m.jobs[k] == nil && !m.primaryFound[k] {
 			need = append(need, arch)
 		}
 	}
@@ -759,7 +828,11 @@ func (m *Manager) bumpRegion(ctx context.Context, region string, copies []vendor
 		if err != nil {
 			return fmt.Errorf("looking for the primary image in %s: %w", region, err)
 		}
-		if !found {
+		if found {
+			m.mu.Lock()
+			m.primaryFound[key{region, rel}] = true
+			m.mu.Unlock()
+		} else {
 			enqueue = append(enqueue, arch)
 		}
 	}

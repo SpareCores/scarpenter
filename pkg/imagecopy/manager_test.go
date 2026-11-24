@@ -36,8 +36,14 @@ const (
 // countingDriver counts the uses recorded at the vendor.
 type countingDriver struct {
 	*fake.Driver
-	touches int
-	tokens  []string
+	touches   int
+	primaries int
+	tokens    []string
+}
+
+func (c *countingDriver) Primary(ctx context.Context, region string, rel vendors.Release) (string, bool, error) {
+	c.primaries++
+	return c.Driver.Primary(ctx, region, rel)
 }
 
 func (c *countingDriver) StartCopy(
@@ -652,5 +658,72 @@ func TestUseIsRecordedAtMostDaily(t *testing.T) {
 	e.tick(e.m)
 	if e.drv.touches != 2 {
 		t.Errorf("touches = %d; want a use recorded after a day", e.drv.touches)
+	}
+}
+
+// A copy the vendor no longer lists (deleted by hand) is dropped by Sync and must
+// leave the caches that hold its ID, like a deletion by the manager.
+func TestSyncInvalidatesACopyDeletedByHand(t *testing.T) {
+	e := newEnv(t)
+	ref := e.ready(dstRegion)
+	if err := e.ctl.DeleteByHand(t.Context(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.m.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.invalid) != 1 || e.invalid[0] != dstRegion+"/"+ref {
+		t.Errorf("invalidated = %v; want the dropped image", e.invalid)
+	}
+}
+
+// A report of a release no source region has says so, instead of "copied on
+// demand"; once a source exists (after the cached answer expires) it is on demand.
+func TestAReportOfAReleaseWithoutASourceSaysSourceMissing(t *testing.T) {
+	e := newEnv(t)
+	unpublished := vendors.ImageRequest{Region: dstRegion, Arch: "amd64", Channel: channel, Version: "4999.0.0"}
+	if _, code := e.lookup(e.m, unpublished, false); code != vendors.CodeImageCopySourceMissing {
+		t.Errorf("code = %q; want SourceMissing for an unpublished release", code)
+	}
+	if err := e.ctl.PublishOfficial(t.Context(), srcRegion, channel, "4999.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	e.clk.Step(imagecopy.SourceMissingRetry)
+	if _, code := e.lookup(e.m, unpublished, false); code != vendors.CodeImageCopyOnDemand {
+		t.Errorf("code = %q; want on demand once a source exists", code)
+	}
+	if _, code := e.lookup(e.m, req(dstRegion, "amd64"), false); code != vendors.CodeImageCopyOnDemand {
+		t.Errorf("code = %q; a published release is on demand", code)
+	}
+}
+
+// The primary image of a key the bump found is not asked for again until the
+// next sweep.
+func TestBumpRemembersAPrimaryImageUntilTheNextSync(t *testing.T) {
+	e := newEnv(t)
+	ref := e.ready(dstRegion)
+	e.ctl.SetInUse(ref, true)
+	if err := e.ctl.PublishOfficial(t.Context(), dstRegion, channel, "4800.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	pins := []imagecopy.Pin{{Channel: channel, Version: "4800.0.0"}}
+	if err := e.m.Bump(t.Context(), pins); err != nil {
+		t.Fatal(err)
+	}
+	before := e.drv.primaries
+	if err := e.m.Bump(t.Context(), pins); err != nil {
+		t.Fatal(err)
+	}
+	if e.drv.primaries != before {
+		t.Errorf("the second bump asked for the primary image again (%d calls, was %d)", e.drv.primaries, before)
+	}
+	if _, err := e.m.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.m.Bump(t.Context(), pins); err != nil {
+		t.Fatal(err)
+	}
+	if e.drv.primaries == before {
+		t.Error("a bump after a sync did not ask again")
 	}
 }
