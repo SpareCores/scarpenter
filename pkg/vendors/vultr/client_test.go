@@ -144,6 +144,8 @@ func TestClientStatusClassifiedThroughOps(t *testing.T) {
 		switch {
 		case r.URL.Path == "/v2/instances" && r.Method == http.MethodGet:
 			jsonReply(w, 200, `{"instances":[],"meta":{"total":0,"links":{"next":"","prev":""}}}`)
+		case r.URL.Path == "/v2/bare-metals" && r.Method == http.MethodGet:
+			jsonReply(w, 200, `{"bare_metals":[],"meta":{"total":0,"links":{"next":"","prev":""}}}`)
 		case strings.HasSuffix(r.URL.Path, "/availability"):
 			jsonReply(w, 200, `{"available_plans":["vc2-1c-1gb"]}`)
 		case r.Method == http.MethodPost:
@@ -332,5 +334,30 @@ func TestClientFractionalRate(t *testing.T) {
 	}, func(cfg *vultr.ClientConfig) { cfg.RatePerSecond = 0.5 })
 	if _, _, err := c.ListRegions(context.Background(), nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestClientBareMetalEndpoints(t *testing.T) {
+	var got []string
+	c := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodGet {
+			jsonReply(w, 200, `{"bare_metal":{"id":"b-1","plan":"vbm-6c-32gb"}}`)
+			return
+		}
+		w.WriteHeader(204)
+	}, nil)
+	ctx := context.Background()
+	if s, err := c.GetBareMetal(ctx, "b-1"); err != nil || s.Plan != "vbm-6c-32gb" {
+		t.Fatalf("get: %+v %v", s, err)
+	}
+	for _, err := range []error{c.HaltBareMetal(ctx, "b-1"), c.AttachBareMetalVPC(ctx, "b-1", "v-1"), c.DeleteBareMetal(ctx, "b-1")} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := "GET /v2/bare-metals/b-1,POST /v2/bare-metals/b-1/halt,POST /v2/bare-metals/b-1/vpcs/attach,DELETE /v2/bare-metals/b-1"
+	if strings.Join(got, ",") != want {
+		t.Errorf("requests %v", got)
 	}
 }

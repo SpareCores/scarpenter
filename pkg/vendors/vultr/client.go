@@ -279,6 +279,48 @@ func (c *sdkClient) ListInstances(
 	return out.v, out.m, err
 }
 
+func (c *sdkClient) CreateBareMetal(
+	ctx context.Context, req *govultr.BareMetalCreate,
+) (*govultr.BareMetalServer, error) {
+	return do(ctx, c.create, func(ctx context.Context) (*govultr.BareMetalServer, error) {
+		v, _, err := c.g.BareMetalServer.Create(ctx, req)
+		return v, err
+	})
+}
+
+func (c *sdkClient) GetBareMetal(ctx context.Context, id string) (*govultr.BareMetalServer, error) {
+	return do(ctx, c.call, func(ctx context.Context) (*govultr.BareMetalServer, error) {
+		v, _, err := c.g.BareMetalServer.Get(ctx, id)
+		return v, err
+	})
+}
+
+func (c *sdkClient) ListBareMetals(
+	ctx context.Context, opts *govultr.ListOptions,
+) ([]govultr.BareMetalServer, *govultr.Meta, error) {
+	type r struct {
+		v []govultr.BareMetalServer
+		m *govultr.Meta
+	}
+	out, err := do(ctx, c.call, func(ctx context.Context) (r, error) {
+		v, m, _, err := c.g.BareMetalServer.List(ctx, opts)
+		return r{v, m}, err
+	})
+	return out.v, out.m, err
+}
+
+func (c *sdkClient) HaltBareMetal(ctx context.Context, id string) error {
+	return c.run(ctx, func(ctx context.Context) error { return c.g.BareMetalServer.Halt(ctx, id) })
+}
+
+func (c *sdkClient) DeleteBareMetal(ctx context.Context, id string) error {
+	return c.run(ctx, func(ctx context.Context) error { return c.g.BareMetalServer.Delete(ctx, id) })
+}
+
+func (c *sdkClient) AttachBareMetalVPC(ctx context.Context, id, vpcID string) error {
+	return c.run(ctx, func(ctx context.Context) error { return c.g.BareMetalServer.AttachVPC(ctx, id, vpcID) })
+}
+
 func (c *sdkClient) CreateFirewallGroup(
 	ctx context.Context, req *govultr.FirewallGroupReq,
 ) (*govultr.FirewallGroup, error) {

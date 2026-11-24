@@ -81,6 +81,7 @@ const (
 	codeNotOurs         = "NotOurInstance"
 	codeNoPublicIPv4Off = "PublicIPv4Required"
 	codeInvalid         = "InvalidRequest"
+	codeVPCAttach       = "VPCAttachFailed"
 )
 
 // operation is what a failed call was doing; some texts mean different things

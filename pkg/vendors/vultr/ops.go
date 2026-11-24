@@ -9,6 +9,7 @@ package vultr
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -47,6 +48,9 @@ type Ops struct {
 
 	AvailabilityTTL time.Duration
 	PlansTTL        time.Duration
+	// RegistrationTimeout is the operator's registration window; bare-metal plans
+	// are listed only when it is long enough (checkBareMetalWindow).
+	RegistrationTimeout time.Duration
 
 	mu    sync.Mutex
 	avail map[string]availability
@@ -133,18 +137,30 @@ func (o *Ops) instanceListOptions(regions []string, tags map[vendors.TagKey]stri
 	return opts
 }
 
-// ListInstances returns the instances in the regions (empty: all) that carry
-// all the tags, oldest first. A suspended instance is returned as terminating.
+// ListInstances returns the instances and bare-metal servers in the regions
+// (empty: all) that carry all the tags, oldest first. A suspended or stopped
+// one is returned as terminating.
 func (o *Ops) ListInstances(
 	ctx context.Context, regions []string, tags map[vendors.TagKey]string,
 ) ([]*vendors.Instance, error) {
-	raw, err := listAll(ctx, opOther, o.instanceListOptions(regions, tags), o.API.ListInstances)
+	opts := o.instanceListOptions(regions, tags)
+	raw, err := listAll(ctx, opOther, opts, o.API.ListInstances)
 	if err != nil {
 		return nil, err
 	}
-	var out []*vendors.Instance
+	servers, err := listAll(ctx, opOther, opts, o.API.ListBareMetals)
+	if err != nil {
+		return nil, err
+	}
+	all := make([]*vendors.Instance, 0, len(raw)+len(servers))
 	for _, r := range raw {
-		inst := ToInstance(r, o.Tags)
+		all = append(all, ToInstance(r, o.Tags))
+	}
+	for _, s := range servers {
+		all = append(all, ToBareMetalInstance(s, o.Tags))
+	}
+	var out []*vendors.Instance
+	for _, inst := range all {
 		if len(regions) > 0 && !slices.Contains(regions, inst.Region) {
 			continue
 		}
@@ -188,42 +204,77 @@ var instanceID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{
 // or a 400 that would classify Fatal) is unverified.
 func isInstanceID(id string) bool { return instanceID.MatchString(id) }
 
-// GetInstance reads an instance by reference. A deleted instance disappears
-// (there is no terminated state), so this never returns a terminated one; a
-// reference without an instance UUID is NotFound without a call.
+// GetInstance reads an instance or bare-metal server by reference. A deleted
+// one disappears (there is no terminated state), so this never returns a
+// terminated one; a reference without a UUID is NotFound without a call.
 func (o *Ops) GetInstance(ctx context.Context, ref vendors.InstanceRef) (*vendors.Instance, error) {
-	if !isInstanceID(ref.ID()) {
+	id, bareMetal := splitRef(ref)
+	if !isInstanceID(id) {
 		return nil, vendors.NewError(vendors.NotFound, codeNotFound,
 			fmt.Errorf("instance reference %q has no instance UUID", ref))
 	}
-	in, err := o.API.GetInstance(ctx, ref.ID())
+	if bareMetal {
+		s, err := o.API.GetBareMetal(ctx, id)
+		if err != nil {
+			return nil, classify(err, opGet)
+		}
+		return ToBareMetalInstance(*s, o.Tags), nil
+	}
+	in, err := o.API.GetInstance(ctx, id)
 	if err != nil {
 		return nil, classify(err, opGet)
 	}
 	return ToInstance(*in, o.Tags), nil
 }
 
-// DeleteInstance deletes an instance that carries this cluster's tag. A gone
-// instance (404, or an unparseable reference) is success; one of another
-// cluster is refused; a refusal because the instance is still installing is
-// Retryable (unverified, spike S4).
+// DeleteInstance deletes an instance or bare-metal server that carries this
+// cluster's tag. A gone one (404, or an unparseable reference) is success; one of
+// another cluster is refused; a refusal because the instance is still installing
+// is Retryable (unverified, spike S4). A bare-metal server is halted first, see
+// deleteBareMetal.
 func (o *Ops) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error {
-	if !isInstanceID(ref.ID()) {
+	id, bareMetal := splitRef(ref)
+	if !isInstanceID(id) {
 		return nil
 	}
-	in, err := o.API.GetInstance(ctx, ref.ID())
+	inst, err := o.GetInstance(ctx, ref)
 	if err != nil {
-		e := classify(err, opGet)
-		if vendors.IsClass(e, vendors.NotFound) {
+		if vendors.IsClass(err, vendors.NotFound) {
 			return nil
 		}
-		return e
+		return err
 	}
-	if got := ToInstance(*in, o.Tags).Tags[vendors.TagCluster]; got != o.Cluster || o.Cluster == "" {
+	if got := inst.Tags[vendors.TagCluster]; got != o.Cluster || o.Cluster == "" {
 		return vendors.NewError(vendors.Fatal, codeNotOurs,
-			fmt.Errorf("instance %s does not carry the tag of cluster %q: not deleted", ref.ID(), o.Cluster))
+			fmt.Errorf("instance %s does not carry the tag of cluster %q: not deleted", id, o.Cluster))
 	}
-	if err := o.API.DeleteInstance(ctx, ref.ID()); err != nil {
+	if bareMetal {
+		return o.deleteBareMetal(ctx, id)
+	}
+	if err := o.API.DeleteInstance(ctx, id); err != nil {
+		if e := classify(err, opDelete); !vendors.IsClass(e, vendors.NotFound) {
+			return e
+		}
+	}
+	return nil
+}
+
+// deleteBareMetal halts the server and then deletes it: a deleted bare-metal
+// server keeps running for minutes (observed: about 4.5), and its kubelet
+// registers the Node again. A halt that fails for a reason that will pass (the
+// server is locked while it installs, throttling, a server error) is returned
+// to be retried; one that fails otherwise does not keep the delete, which is the
+// cost-safety action. Halting a halted server is a no-op for the API.
+func (o *Ops) deleteBareMetal(ctx context.Context, id string) error {
+	if err := o.API.HaltBareMetal(ctx, id); err != nil {
+		switch e := classify(err, opDelete); {
+		case vendors.IsClass(e, vendors.NotFound):
+			return nil
+		case vendors.IsClass(e, vendors.Retryable):
+			return e
+		}
+	}
+	if err := o.API.DeleteBareMetal(ctx, id); err != nil {
 		if e := classify(err, opDelete); !vendors.IsClass(e, vendors.NotFound) {
 			return e
 		}
@@ -260,30 +311,80 @@ func (o *Ops) Launch(ctx context.Context, req vendors.CreateRequest, lo LaunchOp
 			return nil, err
 		}
 	}
-	body, err := BuildCreateRequest(req, lo)
+	var inst *vendors.Instance
+	var err error
+	if isBareMetalPlan(req.InstanceType) {
+		inst, err = o.createBareMetal(ctx, req, lo)
+	} else {
+		inst, err = o.createInstance(ctx, req, lo)
+	}
 	if err != nil {
 		return nil, err
 	}
-	// The stock check comes before the call: it is capacity, which the message
-	// of a failed create can only guess at.
-	have, err := o.availablePlans(ctx, req.Region)
-	if err != nil {
-		return nil, err
-	}
-	if _, ok := have[req.InstanceType]; !ok {
-		return nil, planNotAvailable(req.InstanceType, req.Region)
-	}
-	in, err := o.API.CreateInstance(ctx, body)
-	if err != nil {
-		return nil, classify(err, opCreateInstance)
-	}
-	inst := ToInstance(*in, o.Tags)
 	if key != "" {
 		o.mu.Lock()
 		o.recent[key] = recentCreate{inst: inst, at: o.Clock.Now()}
 		o.mu.Unlock()
 	}
 	return inst, nil
+}
+
+// checkStock fails when the plan is not in stock in the region. The check comes
+// before the create call: it is capacity, which the message of a failed create
+// can only guess at.
+func (o *Ops) checkStock(ctx context.Context, region, plan, planType string) error {
+	have, err := o.availablePlans(ctx, region, planType)
+	if err != nil {
+		return err
+	}
+	if _, ok := have[plan]; !ok {
+		return planNotAvailable(plan, region)
+	}
+	return nil
+}
+
+func (o *Ops) createInstance(ctx context.Context, req vendors.CreateRequest, lo LaunchOptions) (*vendors.Instance, error) {
+	body, err := BuildCreateRequest(req, lo)
+	if err != nil {
+		return nil, err
+	}
+	if err := o.checkStock(ctx, req.Region, req.InstanceType, planTypeAll); err != nil {
+		return nil, err
+	}
+	in, err := o.API.CreateInstance(ctx, body)
+	if err != nil {
+		return nil, classify(err, opCreateInstance)
+	}
+	return ToInstance(*in, o.Tags), nil
+}
+
+// createBareMetal creates the server and attaches the VPCs: the create has no
+// VPC field. A server whose attach failed is deleted again and the launch is
+// retried, so that no node runs without the network the NodeClass asked for.
+func (o *Ops) createBareMetal(ctx context.Context, req vendors.CreateRequest, lo LaunchOptions) (*vendors.Instance, error) {
+	body, err := BuildBareMetalCreateRequest(req, lo)
+	if err != nil {
+		return nil, err
+	}
+	if err := o.checkStock(ctx, req.Region, req.InstanceType, planTypeBareMetal); err != nil {
+		return nil, err
+	}
+	s, err := o.API.CreateBareMetal(ctx, body)
+	if err != nil {
+		return nil, classify(err, opCreateInstance)
+	}
+	for _, vpc := range lo.VPCIDs {
+		if err := o.API.AttachBareMetalVPC(ctx, s.ID, vpc); err != nil {
+			// The server is new and has not booted: no halt, only the delete.
+			failure := fmt.Errorf("attaching VPC %s to bare metal server %s: %w", vpc, s.ID, classify(err, opOther))
+			if derr := o.API.DeleteBareMetal(ctx, s.ID); derr != nil {
+				failure = fmt.Errorf("%w; deleting the server failed too (the next launch attempt finds it): %w",
+					failure, classify(derr, opDelete))
+			}
+			return nil, vendors.NewError(vendors.Retryable, codeVPCAttach, failure)
+		}
+	}
+	return ToBareMetalInstance(*s, o.Tags), nil
 }
 
 func (o *Ops) forgetCreate(key string) {
@@ -307,16 +408,17 @@ func (o *Ops) recentCreate(key string) *vendors.Instance {
 	return nil
 }
 
-// availablePlans is the set of plans in stock in the region, cached for the
-// availability TTL.
-func (o *Ops) availablePlans(ctx context.Context, region string) (map[string]struct{}, error) {
+// availablePlans is the set of plans of a type (planTypeAll, planTypeBareMetal)
+// in stock in the region, cached for the availability TTL.
+func (o *Ops) availablePlans(ctx context.Context, region, planType string) (map[string]struct{}, error) {
+	key := region + "/" + planType
 	o.mu.Lock()
-	a, ok := o.avail[region]
+	a, ok := o.avail[key]
 	o.mu.Unlock()
 	if ok && o.Clock.Since(a.at) < o.ttl(o.AvailabilityTTL, DefaultAvailabilityTTL) {
 		return a.plans, nil
 	}
-	av, err := o.API.RegionAvailability(ctx, region, planTypeAll)
+	av, err := o.API.RegionAvailability(ctx, region, planType)
 	if err != nil {
 		return nil, classify(err, opRegion)
 	}
@@ -325,7 +427,7 @@ func (o *Ops) availablePlans(ctx context.Context, region string) (map[string]str
 		a.plans[p] = struct{}{}
 	}
 	o.mu.Lock()
-	o.avail[region] = a
+	o.avail[key] = a
 	o.mu.Unlock()
 	return a.plans, nil
 }
@@ -357,12 +459,21 @@ func (o *Ops) planInfos(ctx context.Context) (map[string]planInfo, error) {
 }
 
 // LaunchableTypes is the OfferingLister of a region: the plans in stock
-// (GET /v2/regions/{id}/availability) that the driver launches (ClassifyPlan),
+// (GET /v2/regions/{id}/availability, of type all and, when the registration
+// window allows bare metal, of type vbm) that the driver launches (ClassifyPlan),
 // sorted.
 func (o *Ops) LaunchableTypes(ctx context.Context, region string) ([]string, error) {
-	have, err := o.availablePlans(ctx, region)
+	have, err := o.availablePlans(ctx, region, planTypeAll)
 	if err != nil {
 		return nil, err
+	}
+	if bareMetalWindowOK(o.RegistrationTimeout) {
+		bm, err := o.availablePlans(ctx, region, planTypeBareMetal)
+		if err != nil {
+			return nil, err
+		}
+		have = maps.Clone(have)
+		maps.Copy(have, bm)
 	}
 	infos, err := o.planInfos(ctx)
 	if err != nil {
@@ -370,7 +481,8 @@ func (o *Ops) LaunchableTypes(ctx context.Context, region string) ([]string, err
 	}
 	var out []string
 	for id := range have {
-		if ok, _ := ClassifyPlan(id, infos[id].disk, infos[id].typ); ok {
+		if ok, _ := ClassifyPlan(id, infos[id].disk, infos[id].typ); ok &&
+			checkBareMetalWindow(id, o.RegistrationTimeout) == nil {
 			out = append(out, id)
 		}
 	}

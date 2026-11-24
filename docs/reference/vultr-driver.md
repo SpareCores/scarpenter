@@ -22,6 +22,7 @@ live spike (plan 20, section 11) has to confirm.
 - [Plans](#plans)
 - [Images](#images)
 - [Launch](#launch)
+- [Bare metal](#bare-metal)
 - [Node settings and profiles](#node-settings-and-profiles)
 - [Resources and network](#resources-and-network)
 - [Tags and idempotency](#tags-and-idempotency)
@@ -77,9 +78,9 @@ There is no `QuotaReporter` (Vultr has no quota API: the account limits are show
 
 The plan is Keeper's `api_reference` (`vc2-2c-4gb`). The driver launches the families `vc2`, `vhf`, `vhp` and
 `voc`, `vx1` only with a local disk (a diskless plan boots from a block storage volume: v1 does not), and the
-dedicated GPU plans. Bare metal (`vbm`) and the free plan `vc2-1c-0.5gb-free` are not launched; the plan ID decides
-this (`ClassifyPlanID`), so the type is not offered (`NotLaunchable`) and a launch is refused from the first catalog
-build, before any stock data. A diskless `vx1` plan is reported as `StorageIncompatible`.
+dedicated GPU plans, and bare metal (`vbm`) when the registration window is long enough (see [Bare metal](#bare-metal)).
+The free plan `vc2-1c-0.5gb-free` is not launched; the plan ID decides this (`ClassifyPlanID`), so the type is not
+offered (`NotLaunchable`) and a launch is refused from the first catalog build, before any stock data. A diskless `vx1` plan is reported as `StorageIncompatible`.
 
 **GPU plans.** The plan ID prefix says nothing about a GPU plan's type: the full-GPU plans (`vcg-a16-*`, `vcg-a100-*`,
 ...) are of `type` `vdm` ("Dedicated Metal GPU") in `GET /v2/plans`, and only the L40S plans are of type `vcg`. The
@@ -164,7 +165,43 @@ installs them). The response's `default_password` is never read, logged or store
   While the instance installs (about the first two minutes, GPU plans included) Vultr answers
   409 "Server is currently locked"; that is `Retryable` (code `Locked` or `Dependency`), so the termination retries.
 - **List and find** are one paginated, account-wide call (`per_page=500`) with the server-side `tag` filter of
-  one tag, the rest client-side: never one call per region.
+  one tag, the rest client-side: never one call per region. Bare-metal servers are listed by a second call and merged.
+
+## Bare metal
+
+Plans of the family `vbm` are another API, `/v2/bare-metals`, with the same Flatcar snapshot, user data, tags, label and hostname as
+instances. It differs in these points:
+
+- **Instance reference.** A server's reference is `<region>/bm:<uuid>` (an instance's stays `<region>/<uuid>`), so `Get` and
+  `Delete` pick the endpoint from the reference without a second call.
+- **Create.** `POST /v2/bare-metals` takes `region`, `plan`, `snapshot_id`, `label`, `hostname`, `user_data`, `enable_ipv6`,
+  `activation_email: false` and the tags. It has no firewall group and no VPC field: the VPCs of the NodeClass are attached
+  afterwards (`POST /v2/bare-metals/{id}/vpcs/attach`). When an attach fails the server is deleted and the launch fails as
+  `Retryable` (code `VPCAttachFailed`; the message says when the delete failed too, and the next attempt then finds the server by
+  its tag). The stock check is `GET /v2/regions/{id}/availability?type=vbm`.
+- **State.** `pending` is `pending`; `active` with `running` is `running` (a server has no `server_status`); `suspended` or
+  `stopped` is `terminating`.
+- **Registration window.** A server takes about 13 minutes from the create to `active` and about 2 more to register its Node,
+  longer than Karpenter's default registration timeout of 15 minutes. Bare-metal plans are therefore refused (`NotLaunchable`
+  for the type, `Unsupported` for a create or `Prepare`) unless the registration timeout the driver is given
+  (`vendors.Config.RegistrationTimeout`, Karpenter's `--registration-timeout`) is at least 25 minutes; they are also left out of
+  the offered plans of a region, and the stock of `vbm` is not read, in that case.
+- **Firewall at boot.** A bare-metal server cannot join a firewall group, so the node filters its public interface itself.
+  `Prepare` reads the managed group's rules (`GET /v2/firewalls/{id}/rules`) and adds a boot fragment (`host-firewall`) to the
+  node's Ignition: an nftables table `inet scarpenter_host` whose input chain drops by default on the public interface (the one of
+  the default route, found when the unit runs) and accepts loopback, established and related traffic, ICMPv6 neighbour discovery
+  and what the group's rules accept. Other interfaces (VPC, Pods) are not filtered. Each rule becomes one nftables rule (subnet
+  source, tcp/udp ports or ranges, icmp, gre, esp, ah). A unit loads the table after the network is online and before the
+  kubelet, which requires it, so a node whose rules did not load never joins. If the rules cannot be read or a rule cannot be
+  translated (another action, a `source` such as `cloudflare`), `Prepare` fails and no server is created.
+- **Delete.** `DELETE` returns 204 and the server then disappears from the API, but the machine keeps running for about 4.5
+  minutes and its kubelet registers the Node again. The driver therefore halts the server (`POST /v2/bare-metals/{id}/halt`, a
+  hard power off) before the delete. A halt that fails with a `Retryable` error (the server is locked while it installs,
+  throttling, a server error) is returned and retried; any other halt failure does not keep the delete. A 409 "locked" on the
+  delete is `Retryable`, as for instances. The `cluster` tag is checked as for instances.
+- **Garbage collection and sweepers.** The orphan sweep lists servers with the instances. The L5 sweeper (`pkg/vendors/vultr/sweep`,
+  `test/e2e-vultr/sweeper`) deletes the servers of a swept cluster too, halting them first.
+- **Billing** is as for instances: hourly with a one hour minimum and a monthly cap; a halted server still bills until it is deleted.
 
 ## Node settings and profiles
 
@@ -256,7 +293,7 @@ Every text is a hypothesis pinned by `errors_test.go` until spike S4 records the
 
 ## Deferred
 
-Bare metal and the L40S GPU plans; block storage volumes and `data` profiles; VPC-only nodes behind a NAT gateway (`publicIPv4: false`); a VPC per
+The L40S GPU plans; block storage volumes and `data` profiles; VPC-only nodes behind a NAT gateway (`publicIPv4: false`); a VPC per
 run key (`isolation: run` with a run key); reserved IPs; backups; DDoS protection; spot (`deploy_preemptible` exists only on GPU bare
 metal); VX1 diskless plans; a `QuotaReporter` if Vultr ever exposes limits; `ImageImporter` (the driver creating the snapshot from the
 images repository's URL).

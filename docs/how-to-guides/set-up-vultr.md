@@ -144,7 +144,11 @@ afterwards; the empty node is removed.
 ## Limits
 
 - amd64 only: Vultr has no Arm instances.
-- On-demand only; no spot, GPU, bare metal or diskless `vx1` plans.
+- On-demand only; no spot or diskless `vx1` plans.
+- Bare metal (`vbm`) plans are offered only when Karpenter's registration timeout (`--registration-timeout`) is at least 25
+  minutes: a server needs about 15 minutes to register its Node. Their inbound traffic is filtered on the node by a host firewall
+  built from the NodeClass's firewall group
+  ([bare metal](../reference/vultr-driver.md#bare-metal)).
 - The root disk is the plan's disk and cannot be changed; no block storage volumes.
 - `networking.publicIPv4: false` is refused; storage, network and placement profiles with a `vultr`
   block make their offerings unavailable.

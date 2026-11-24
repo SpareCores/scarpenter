@@ -291,6 +291,12 @@ type Config struct {
 	// are off for it. A driver whose vendor can copy images asks it after its
 	// primary image lookup missed.
 	ImageCopies ImageCopies
+	// RegistrationTimeout is how long Karpenter lets a NodeClaim take to register
+	// its Node (core's --registration-timeout, default 15m). A driver whose
+	// instances boot slowly (Vultr bare metal) refuses its types while it is
+	// shorter than they need. 0 means not set, which counts as the 15m default.
+	// The operator sets it (components.go) once it reads core's option.
+	RegistrationTimeout time.Duration
 }
 
 // StoragePrice is one row of Keeper's storage_price file of a vendor: the USD
@@ -578,6 +584,11 @@ type Prepared struct {
 	// no hint). It derives from the resolved resources of the launch, never from
 	// the spec. IPv6 is not handled.
 	NodeIPCIDR string
+	// BootFragments are boot fragments for this launch only, merged after the
+	// driver's own (BootFragmentsOf): what a driver derives from the resources
+	// it resolved (Vultr bare metal: the host firewall from the firewall
+	// group's rules).
+	BootFragments []BootFragment
 }
 
 // NodeOptions is the optional capability for vendor-native node settings

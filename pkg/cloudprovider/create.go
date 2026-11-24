@@ -569,6 +569,9 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 	if err != nil {
 		return nil, vendors.NewError(vendors.Fatal, "UserDataRender", err)
 	}
+	if prepared != nil {
+		frags = append(frags, prepared.BootFragments...)
+	}
 	for _, f := range frags {
 		rr.VendorFragments = append(rr.VendorFragments, bootstrap.Fragment{Name: f.Name, Butane: f.Butane})
 	}

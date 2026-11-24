@@ -196,3 +196,28 @@ func TestFailuresAreItemsAndListErrorsAreErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestSweepsBareMetalServers(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld()
+	w.a.AddPlan("vbm-6c-32gb", 6, 32768, 240)
+	w.a.SetAvailable("ewr", "vc2-1c-1gb", "vbm-6c-32gb")
+	mine, _ := w.a.CreateBareMetal(ctx, &govultr.BareMetalCreate{Region: "ewr", Plan: "vbm-6c-32gb", Tags: tags(ci)})
+	other, _ := w.a.CreateBareMetal(ctx, &govultr.BareMetalCreate{Region: "ewr", Plan: "vbm-6c-32gb", Tags: tags("prod")})
+	w.a.Advance()
+	vpc, _ := w.a.CreateVPC(ctx, &govultr.VPCReq{Region: "ewr", Description: marker("networks", ci)})
+	_ = w.a.AttachBareMetalVPC(ctx, mine.ID, vpc.ID)
+
+	rep := run(t, w, sweep.Options{Cluster: ci, WaitGone: time.Second})
+	if rep.Count(sweep.Failed) != 0 || rep.Count(sweep.Deleted) != 2 {
+		t.Fatalf("report: %+v", rep.Items)
+	}
+	left := w.a.BareMetals()
+	if len(left) != 1 || left[0].ID != other.ID {
+		t.Errorf("servers left: %+v", left)
+	}
+	// It was halted first, and the VPC that held it is gone with it.
+	if len(w.a.DeletedWhileRunning) != 0 || len(w.a.VPCs()) != 0 {
+		t.Errorf("deleted while running %v, VPCs %v", w.a.DeletedWhileRunning, w.a.VPCs())
+	}
+}

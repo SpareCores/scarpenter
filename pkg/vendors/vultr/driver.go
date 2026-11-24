@@ -135,6 +135,7 @@ func (d *Driver) Init(_ context.Context, cfg vendors.Config) error {
 	d.ops = NewOps(d.api, d.cluster)
 	d.ops.Clock = d.clock
 	d.ops.AvailabilityTTL = d.availTTL
+	d.ops.RegistrationTimeout = cfg.RegistrationTimeout
 	return nil
 }
 
@@ -203,6 +204,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	if ok, why := ClassifyPlanID(req.InstanceType); !ok {
 		return nil, vendors.NewError(vendors.Unsupported, codeIncompatible,
 			fmt.Errorf("the driver cannot launch plan %s: %s", req.InstanceType, why))
+	}
+	if err := checkBareMetalWindow(req.InstanceType, d.cfg.RegistrationTimeout); err != nil {
+		return nil, err
 	}
 	if err := d.ops.CheckPlanType(ctx, req.InstanceType); err != nil {
 		return nil, err

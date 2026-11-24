@@ -43,34 +43,18 @@ type LaunchOptions struct {
 // The response's default_password is never read. The golden file
 // testdata/create_request.golden.json pins every field.
 func BuildCreateRequest(req vendors.CreateRequest, o LaunchOptions) (*govultr.InstanceCreateReq, error) {
-	name := req.Node.Name
-	if name == "" {
-		name = req.Tags[vendors.TagNodeClaim]
+	c, err := validateCreate(req, o)
+	if err != nil {
+		return nil, err
 	}
-	switch {
-	case req.Region == "":
-		return nil, invalid("no region")
-	case req.InstanceType == "":
-		return nil, invalid("no plan")
-	case o.SnapshotID == "":
-		return nil, invalid("no snapshot")
-	case name == "":
-		return nil, invalid("no NodeClaim name for the label and hostname")
-	case len(req.UserData) == 0:
-		return nil, invalid("no user data: the node cannot configure itself without Ignition")
-	case len(req.UserData) > MaxUserDataBytes:
-		return nil, vendors.NewError(vendors.Fatal, codeUserDataTooBig,
-			fmt.Errorf("user data is %d bytes, the budget is %d", len(req.UserData), MaxUserDataBytes))
-	}
-	tags := o.Tags.Tags(vendors.IdempotencyTag(req.Tags, req.IdempotencyKey), req.ExtraTags)
 	out := &govultr.InstanceCreateReq{
 		Region:          req.Region,
 		Plan:            req.InstanceType,
 		SnapshotID:      o.SnapshotID,
-		Label:           name,
-		Hostname:        name,
-		Tags:            tags,
-		UserData:        base64.StdEncoding.EncodeToString(req.UserData),
+		Label:           c.name,
+		Hostname:        c.name,
+		Tags:            c.tags,
+		UserData:        c.userData,
 		FirewallGroupID: o.FirewallGroupID,
 		EnableIPv6:      new(o.IPv6),
 		Backups:         "disabled",
@@ -83,6 +67,42 @@ func BuildCreateRequest(req vendors.CreateRequest, o LaunchOptions) (*govultr.In
 	return out, nil
 }
 
+// createFields are what the create of an instance and of a bare-metal server
+// share.
+type createFields struct {
+	name     string
+	tags     []string
+	userData string // base64
+}
+
+// validateCreate checks the request and builds the shared fields.
+func validateCreate(req vendors.CreateRequest, o LaunchOptions) (createFields, error) {
+	name := req.Node.Name
+	if name == "" {
+		name = req.Tags[vendors.TagNodeClaim]
+	}
+	switch {
+	case req.Region == "":
+		return createFields{}, invalid("no region")
+	case req.InstanceType == "":
+		return createFields{}, invalid("no plan")
+	case o.SnapshotID == "":
+		return createFields{}, invalid("no snapshot")
+	case name == "":
+		return createFields{}, invalid("no NodeClaim name for the label and hostname")
+	case len(req.UserData) == 0:
+		return createFields{}, invalid("no user data: the node cannot configure itself without Ignition")
+	case len(req.UserData) > MaxUserDataBytes:
+		return createFields{}, vendors.NewError(vendors.Fatal, codeUserDataTooBig,
+			fmt.Errorf("user data is %d bytes, the budget is %d", len(req.UserData), MaxUserDataBytes))
+	}
+	return createFields{
+		name:     name,
+		tags:     o.Tags.Tags(vendors.IdempotencyTag(req.Tags, req.IdempotencyKey), req.ExtraTags),
+		userData: base64.StdEncoding.EncodeToString(req.UserData),
+	}, nil
+}
+
 // noInstancesOf is the Unsupported error of an architecture Vultr does not
 // have.
 func noInstancesOf(what string) error {
@@ -93,9 +113,9 @@ func invalid(msg string) error {
 	return vendors.NewError(vendors.Fatal, codeInvalid, fmt.Errorf("%s", msg))
 }
 
-// MarshalCreateRequest is the JSON govultr sends for the request, for the
-// golden test.
-func MarshalCreateRequest(r *govultr.InstanceCreateReq) ([]byte, error) {
+// MarshalCreateRequest is the JSON govultr sends for an instance or bare-metal
+// create request, for the golden test.
+func MarshalCreateRequest(r any) ([]byte, error) {
 	b, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return nil, err

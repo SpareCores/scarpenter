@@ -5,7 +5,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 */
 
 // Command sweeper deletes what test clusters of the L5 lane (Vultr e2e) left in an
-// account: instances, firewall groups and VPCs of every cluster named scarpenter-ci-*
+// account: instances, bare-metal servers, firewall groups and VPCs of every cluster named scarpenter-ci-*
 // that is older than -max-age, in the -regions given (the instances and the VPCs; firewall
 // groups are account-wide). The e2e workflow runs it for its own cluster (-cluster, no age
 // limit) as part of the teardown. It never touches snapshots: the Flatcar snapshot is

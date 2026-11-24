@@ -222,8 +222,9 @@ var planFamilies = map[string]struct {
 	// No plan ID has this prefix (the dedicated GPU plans are vcg-*, of type
 	// vdm): refused explicitly instead of as unclassified.
 	"vdm": {false, "no Vultr plan ID has the vdm prefix: the dedicated GPU plans are vcg-* of plan type vdm"},
-	// vbm is another API (/v2/bare-metals).
-	"vbm": {false, "bare metal plans (another API, /v2/bare-metals) are outside the driver's support today"},
+	// vbm is another API (/v2/bare-metals); the driver launches it only while the
+	// registration window is long enough (checkBareMetalWindow).
+	bareMetalFamily: {true, ""},
 }
 
 // planTypeDedicatedGPU is the type ("Dedicated Metal GPU") of Vultr's full-GPU

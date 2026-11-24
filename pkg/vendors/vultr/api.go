@@ -42,6 +42,15 @@ type API interface {
 	DeleteInstance(ctx context.Context, id string) error
 	ListInstances(ctx context.Context, opts *govultr.ListOptions) ([]govultr.Instance, *govultr.Meta, error)
 
+	// The bare-metal servers (/v2/bare-metals) are a separate API with their own IDs.
+	CreateBareMetal(ctx context.Context, req *govultr.BareMetalCreate) (*govultr.BareMetalServer, error)
+	GetBareMetal(ctx context.Context, id string) (*govultr.BareMetalServer, error)
+	ListBareMetals(ctx context.Context, opts *govultr.ListOptions) ([]govultr.BareMetalServer, *govultr.Meta, error)
+	// HaltBareMetal powers the server off hard; it keeps billing until deleted.
+	HaltBareMetal(ctx context.Context, id string) error
+	DeleteBareMetal(ctx context.Context, id string) error
+	AttachBareMetalVPC(ctx context.Context, id, vpcID string) error
+
 	CreateFirewallGroup(ctx context.Context, req *govultr.FirewallGroupReq) (*govultr.FirewallGroup, error)
 	GetFirewallGroup(ctx context.Context, id string) (*govultr.FirewallGroup, error)
 	DeleteFirewallGroup(ctx context.Context, id string) error

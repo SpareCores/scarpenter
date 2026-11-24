@@ -91,6 +91,10 @@ type Account struct {
 	// ListLag keeps new instances out of the instance list until Settle:
 	// eventual consistency (unverified, S4).
 	ListLag bool
+	// DeletedWhileRunning lists the bare-metal servers that were deleted before
+	// they were halted: the live API lets such a machine run on for minutes after
+	// the delete.
+	DeletedWhileRunning []string
 	// RefuseDeleteWhilePending refuses to delete an instance that is still
 	// installing with 409 "Server is currently locked", as the live API does.
 	RefuseDeleteWhilePending bool
@@ -100,6 +104,7 @@ type Account struct {
 	plans     []govultr.Plan
 	snapshots []*govultr.Snapshot
 	instances []*instance
+	servers   []*bareMetal
 	groups    []*group
 	vpcs      []*govultr.VPC
 
@@ -116,6 +121,14 @@ type Account struct {
 
 type instance struct {
 	govultr.Instance
+	hidden   bool
+	attached []string
+}
+
+// bareMetal is a /v2/bare-metals server. It takes no firewall group and has no
+// VPC at create: a VPC is attached afterwards.
+type bareMetal struct {
+	govultr.BareMetalServer
 	hidden   bool
 	attached []string
 }
@@ -215,6 +228,12 @@ func (a *Account) Advance() {
 			in.V6MainIP = ""
 		}
 	}
+	for _, b := range a.servers {
+		if b.Status == StatusPending {
+			b.Status, b.PowerStatus = StatusActive, PowerRunning
+			b.MainIP = "192.0.2." + strconv.Itoa(a.seq%250+1)
+		}
+	}
 }
 
 // Settle makes the lagging instances visible in the list.
@@ -223,6 +242,9 @@ func (a *Account) Settle() {
 	defer a.mu.Unlock()
 	for _, in := range a.instances {
 		in.hidden = false
+	}
+	for _, b := range a.servers {
+		b.hidden = false
 	}
 }
 
@@ -257,6 +279,43 @@ func (a *Account) Instances() []govultr.Instance {
 		out = append(out, in.Instance)
 	}
 	return out
+}
+
+// BareMetals returns copies of the bare-metal servers, in creation order.
+func (a *Account) BareMetals() []govultr.BareMetalServer {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]govultr.BareMetalServer, 0, len(a.servers))
+	for _, b := range a.servers {
+		out = append(out, b.BareMetalServer)
+	}
+	return out
+}
+
+// AttachedVPCs returns the VPCs attached to a bare-metal server.
+func (a *Account) AttachedVPCs(serverID string) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, b := range a.servers {
+		if b.ID == serverID {
+			return slices.Clone(b.attached)
+		}
+	}
+	return nil
+}
+
+// AddRules adds rules to a firewall group as they are (the creation call
+// accepts what the driver itself would never write: another action, a source).
+func (a *Account) AddRules(groupID string, rules ...govultr.FirewallRule) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	g := a.group(groupID)
+	for _, r := range rules {
+		r.ID = g.nextID
+		g.nextID++
+		g.rules = append(g.rules, r)
+	}
+	g.RuleCount = len(g.rules)
 }
 
 // Groups returns copies of the firewall groups.
@@ -379,7 +438,7 @@ func (a *Account) ListRegions(_ context.Context, opts *govultr.ListOptions) ([]g
 }
 
 // RegionAvailability implements vultr.API.
-func (a *Account) RegionAvailability(_ context.Context, regionID, _ string) (*govultr.PlanAvailability, error) {
+func (a *Account) RegionAvailability(_ context.Context, regionID, planType string) (*govultr.PlanAvailability, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.enter("RegionAvailability", regionID); err != nil {
@@ -389,7 +448,28 @@ func (a *Account) RegionAvailability(_ context.Context, regionID, _ string) (*go
 	if !ok {
 		return nil, fail(http.StatusNotFound, MsgInvalidRegion)
 	}
-	return &govultr.PlanAvailability{AvailablePlans: slices.Clone(plans)}, nil
+	var out []string
+	for _, p := range plans {
+		// "all" has no bare-metal plans (type vbm): they are asked for by type.
+		if t := a.planType(p); t == planType || (planType == "all" && t != "vbm") {
+			out = append(out, p)
+		}
+	}
+	return &govultr.PlanAvailability{AvailablePlans: out}, nil
+}
+
+// planType is the type of a plan: vbm for a vbm- plan, else the one it was added
+// with.
+func (a *Account) planType(id string) string {
+	if strings.HasPrefix(id, "vbm-") {
+		return "vbm"
+	}
+	for _, p := range a.plans {
+		if p.ID == id && p.Type != "" {
+			return p.Type
+		}
+	}
+	return "vc2"
 }
 
 // ListPlans implements vultr.API.
@@ -613,6 +693,165 @@ func (a *Account) ListInstances(
 	return page(items, opts)
 }
 
+// ---- bare metal ----
+
+func (a *Account) findServer(id string) (int, *bareMetal) {
+	for i, b := range a.servers {
+		if b.ID == id {
+			return i, b
+		}
+	}
+	return -1, nil
+}
+
+// CreateBareMetal implements vultr.API. Like the instance create it takes the
+// snapshot and the user data; it has no firewall group and no VPC.
+func (a *Account) CreateBareMetal(_ context.Context, req *govultr.BareMetalCreate) (*govultr.BareMetalServer, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.enter("CreateBareMetal", *req); err != nil {
+		return nil, err
+	}
+	if _, ok := a.avail[req.Region]; !ok {
+		return nil, fail(http.StatusBadRequest, MsgInvalidRegion)
+	}
+	known := len(a.plans) == 0
+	for _, p := range a.plans {
+		known = known || p.ID == req.Plan
+	}
+	if !known {
+		return nil, fail(http.StatusBadRequest, MsgInvalidPlan)
+	}
+	if !slices.Contains(a.avail[req.Region], req.Plan) {
+		return nil, fail(http.StatusBadRequest, MsgPlanUnavailable)
+	}
+	if req.SnapshotID != "" {
+		i := slices.IndexFunc(a.snapshots, func(s *govultr.Snapshot) bool { return s.ID == req.SnapshotID })
+		switch {
+		case i < 0:
+			return nil, fail(http.StatusBadRequest, MsgInvalidSnapshot)
+		case a.snapshots[i].Status != SnapshotComplete:
+			return nil, fail(http.StatusBadRequest, MsgSnapshotNotReady)
+		}
+	}
+	if req.UserData != "" {
+		if _, err := base64.StdEncoding.DecodeString(req.UserData); err != nil {
+			return nil, fail(http.StatusBadRequest, MsgInvalidUserData)
+		}
+	}
+	b := &bareMetal{BareMetalServer: govultr.BareMetalServer{
+		ID: a.id("2a000000"), Region: req.Region, Plan: req.Plan, Label: req.Label, Tags: slices.Clone(req.Tags),
+		SnapshotID: req.SnapshotID, Status: StatusPending, PowerStatus: PowerRunning, MainIP: pendingIP,
+		DefaultPassword: "fake-default-password", DateCreated: a.now().UTC().Format(time.RFC3339),
+	}, hidden: a.ListLag}
+	a.servers = append(a.servers, b)
+	out := b.BareMetalServer
+	if a.timeoutCreates > 0 {
+		a.timeoutCreates--
+		return nil, context.DeadlineExceeded
+	}
+	return &out, nil
+}
+
+// GetBareMetal implements vultr.API.
+func (a *Account) GetBareMetal(_ context.Context, id string) (*govultr.BareMetalServer, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.enter("GetBareMetal", id); err != nil {
+		return nil, err
+	}
+	_, b := a.findServer(id)
+	if b == nil {
+		return nil, fail(http.StatusNotFound, MsgNotFound)
+	}
+	out := b.BareMetalServer
+	return &out, nil
+}
+
+// ListBareMetals implements vultr.API with the same filters as the instance list.
+func (a *Account) ListBareMetals(
+	_ context.Context, opts *govultr.ListOptions,
+) ([]govultr.BareMetalServer, *govultr.Meta, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.enter("ListBareMetals", nil); err != nil {
+		return nil, nil, err
+	}
+	var items []govultr.BareMetalServer
+	for _, b := range a.servers {
+		switch {
+		case b.hidden:
+			continue
+		case opts != nil && opts.Tag != "" && !slices.Contains(b.Tags, opts.Tag):
+			continue
+		case opts != nil && opts.Region != "" && b.Region != opts.Region:
+			continue
+		}
+		c := b.BareMetalServer
+		c.DefaultPassword = "" // the list never returns it
+		items = append(items, c)
+	}
+	return page(items, opts)
+}
+
+// HaltBareMetal implements vultr.API: a hard power off of a server that is not
+// installing.
+func (a *Account) HaltBareMetal(_ context.Context, id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.enter("HaltBareMetal", id); err != nil {
+		return err
+	}
+	_, b := a.findServer(id)
+	if b == nil {
+		return fail(http.StatusNotFound, MsgNotFound)
+	}
+	if b.Status == StatusPending {
+		return fail(http.StatusConflict, MsgInstanceInstalls)
+	}
+	b.PowerStatus = "stopped"
+	return nil
+}
+
+// DeleteBareMetal implements vultr.API.
+func (a *Account) DeleteBareMetal(_ context.Context, id string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.enter("DeleteBareMetal", id); err != nil {
+		return err
+	}
+	i, b := a.findServer(id)
+	if b == nil {
+		return fail(http.StatusNotFound, MsgNotFound)
+	}
+	if a.RefuseDeleteWhilePending && b.Status == StatusPending {
+		return fail(http.StatusConflict, MsgInstanceInstalls)
+	}
+	if b.PowerStatus == PowerRunning {
+		a.DeletedWhileRunning = append(a.DeletedWhileRunning, id)
+	}
+	a.servers = slices.Delete(a.servers, i, i+1)
+	return nil
+}
+
+// AttachBareMetalVPC implements vultr.API.
+func (a *Account) AttachBareMetalVPC(_ context.Context, id, vpcID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.enter("AttachBareMetalVPC", id); err != nil {
+		return err
+	}
+	_, b := a.findServer(id)
+	if b == nil {
+		return fail(http.StatusNotFound, MsgNotFound)
+	}
+	if vpc := a.vpc(vpcID); vpc == nil || vpc.Region != b.Region {
+		return fail(http.StatusBadRequest, MsgInvalidVPC)
+	}
+	b.attached = append(b.attached, vpcID)
+	return nil
+}
+
 // ---- firewall ----
 
 func (a *Account) group(id string) *group {
@@ -810,6 +1049,12 @@ func (a *Account) attachments(vpcID string) []govultr.VPCAttachment {
 		if slices.Contains(in.attached, vpcID) {
 			out = append(out, govultr.VPCAttachment{ID: in.ID, Type: "instance",
 				LinkedSubscription: govultr.VPCAttachmentLinkedSubscription{Type: "instance", ID: in.ID}})
+		}
+	}
+	for _, b := range a.servers {
+		if slices.Contains(b.attached, vpcID) {
+			out = append(out, govultr.VPCAttachment{ID: b.ID, Type: "bare-metal",
+				LinkedSubscription: govultr.VPCAttachmentLinkedSubscription{Type: "bare-metal", ID: b.ID}})
 		}
 	}
 	return out
