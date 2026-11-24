@@ -689,3 +689,16 @@ func TestLaunchableSettledWhenAllRegionsReported(t *testing.T) {
 		t.Error("every region reported")
 	}
 }
+
+// Once settled, a region added later does not unsettle the vendor.
+func TestLaunchableSettledStaysSettled(t *testing.T) {
+	e := setup(t, nil)
+	e.refresh()
+	if !e.tr.LaunchableSettled("stub") {
+		t.Fatal("every region reported")
+	}
+	e.scope["stub"] = []string{"r1", "r2", "r3"}
+	if !e.tr.LaunchableSettled("stub") {
+		t.Error("a region added later must not unsettle the vendor")
+	}
+}

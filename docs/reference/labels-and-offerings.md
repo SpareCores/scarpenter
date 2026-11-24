@@ -418,7 +418,13 @@ evaluates a class at most every 30 s, writes with server-side apply under the
 field manager `scarpenter-offered`, the blocks of all vendors in one apply,
 and only when a count or a name changed. It reports nothing for a vendor until
 its driver facts are loaded (before that every offering of it would look like
-`ZoneNotAvailable`; a vendor whose facts keep failing holds back no other), and
+`ZoneNotAvailable`; a vendor whose facts keep failing holds back no other) and,
+for a vendor that lists the types it can launch (`OfferingLister`), until every
+region in scope has reported them after a start, so that types the driver cannot
+launch are not advertised while that is unknown; a region that has failed for
+5 minutes since its first attempt no longer holds the vendor back, and its
+zones stay unknown and offered. Once a vendor has settled, a region added later
+does not hold it back again. The same applies to the listing. And
 nothing while the catalog has no data for the class. `VendorNotReady` is not in the block: the vendor's conditions say it.
 
 ### The offered listing
@@ -454,7 +460,7 @@ The document:
 
 | Field | Meaning |
 |---|---|
-| `generatedAt` | when the listing was written: on every change and at least every 10 minutes, so it trails by about 10 minutes at most while the controller runs and has the vendor's driver facts; treat one older than 30 minutes as stale |
+| `generatedAt` | when the listing was written: on every change and at least every 10 minutes, so it trails by about 10 minutes at most while the controller runs and has the vendor's driver facts and launchable types (see above: nothing is written, and an existing listing is kept, until then); treat one older than 30 minutes as stale |
 | `truncated` | always `false`, kept for readers that index it: no type is ever left out |
 | `zonesOmitted` | only when `true`: the listing was over the 800 KiB cap (compressed), so every offering has an empty `zones` list; types, capacity types, availability, reasons and `until` are all kept |
 | `types` | by instance type name (`node.kubernetes.io/instance-type`, `<vendor>.<server id>`): every type of the catalog, offered or dropped at build time |

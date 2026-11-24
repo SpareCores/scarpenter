@@ -68,7 +68,8 @@ func ConfigMapName(class, vendor string) string {
 // publish writes the ConfigMaps of a class that asks for them, and removes
 // the ones it no longer asks for (annotation removed, vendor removed). A
 // ConfigMap is written only when its content changed.
-func (c *Controller) publish(ctx context.Context, nc *v1alpha1.SCNodeClass, report catalog.Report) error {
+func (c *Controller) publish(ctx context.Context, nc *v1alpha1.SCNodeClass, report catalog.Report,
+	ready map[string]bool) error {
 	wanted := map[string]string{} // name -> vendor
 	if nc.Annotations[v1alpha1.AnnotationPublishOffered] == "true" {
 		if c.opts.Namespace == "" {
@@ -94,7 +95,7 @@ func (c *Controller) publish(ctx context.Context, nc *v1alpha1.SCNodeClass, repo
 	}
 	var errs []error
 	for name, vendor := range wanted {
-		if !c.opts.Catalog.OfferedReady(vendor) {
+		if !ready[vendor] {
 			continue // written once the vendor's facts are loaded and its launchable types settled
 		}
 		var types []catalog.TypeReport

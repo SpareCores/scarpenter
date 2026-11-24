@@ -132,22 +132,28 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("explaining the offered types of %s: %w", nc.Name, err)
 	}
+	// Readiness is read once: it changes with time, and the status and the
+	// listing of one reconcile must agree on it.
+	ready := map[string]bool{}
+	for _, vendor := range nc.Spec.Vendors.Names() {
+		ready[vendor] = c.opts.Catalog.OfferedReady(vendor)
+	}
 	// Before a vendor's driver facts are loaded every type of it looks
 	// unavailable, and before its launchable types are reported types it cannot
 	// launch still look offered: such a vendor is left as it is, the others are
 	// reported.
 	report.Types = slices.DeleteFunc(report.Types, func(t catalog.TypeReport) bool {
-		return !c.opts.Catalog.OfferedReady(t.Vendor)
+		return !ready[t.Vendor]
 	})
 	c.mu.Lock()
 	c.last[nc.Name] = c.opts.Clock.Now()
 	c.mu.Unlock()
 
 	c.metrics.record(nc.Name, report)
-	if err := c.applyStatus(ctx, &nc, report.Summaries()); err != nil {
+	if err := c.applyStatus(ctx, &nc, report.Summaries(), ready); err != nil {
 		return reconcile.Result{}, err
 	}
-	if err := c.publish(ctx, &nc, report); err != nil {
+	if err := c.publish(ctx, &nc, report, ready); err != nil {
 		return reconcile.Result{}, err
 	}
 	return reconcile.Result{RequeueAfter: c.opts.Interval}, nil
@@ -213,12 +219,12 @@ func sameReason(a, b v1alpha1.OfferedReason) bool {
 // changed: an apply drops the fields this manager owned and left out, so one
 // apply per vendor would remove the other vendors' blocks.
 func (c *Controller) applyStatus(ctx context.Context, nc *v1alpha1.SCNodeClass,
-	summaries map[string]catalog.Summary) error {
+	summaries map[string]catalog.Summary, ready map[string]bool) error {
 	now := metav1.NewTime(c.opts.Clock.Now().Truncate(time.Minute))
 	vendors := map[string]any{}
 	changed := false
 	for _, vendor := range nc.Spec.Vendors.Names() {
-		if !c.opts.Catalog.OfferedReady(vendor) {
+		if !ready[vendor] {
 			// Kept as it is: left out of the apply, it would be removed.
 			if cur := nc.Status.Vendors[vendor].Offered; cur != nil {
 				vendors[vendor] = map[string]any{"offered": offeredBlock(*cur)}
