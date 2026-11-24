@@ -200,6 +200,10 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	if req.CapacityType == vendors.CapacitySpot {
 		return nil, vendors.NoSpot(Vendor)
 	}
+	if ok, why := ClassifyPlanID(req.InstanceType); !ok {
+		return nil, vendors.NewError(vendors.Unsupported, codeIncompatible,
+			fmt.Errorf("the driver cannot launch plan %s: %s", req.InstanceType, why))
+	}
 	lo, err := launchOptions(req)
 	if err != nil {
 		return nil, err
@@ -302,6 +306,8 @@ var (
 	_ vendors.NodeClassValidator = (*Driver)(nil)
 	_ vendors.ImageReporter      = (*Driver)(nil)
 	_ vendors.NodeOptions        = (*Driver)(nil)
+	_ vendors.SettingsChecker    = (*Driver)(nil)
+	_ vendors.TypeChecker        = (*Driver)(nil)
 	_ vendors.ManagedResources   = (*Driver)(nil)
 	_ vendors.OfferingLister     = (*Driver)(nil)
 	_ vendors.InstanceMetadata   = (*Driver)(nil)

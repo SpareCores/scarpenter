@@ -179,6 +179,7 @@ type Facts struct {
 var (
 	_ catalog.Facts             = (*Facts)(nil)
 	_ catalog.LaunchableFacts   = (*Facts)(nil)
+	_ catalog.TypeFacts         = (*Facts)(nil)
 	_ catalog.RegionPricedFacts = (*Facts)(nil)
 	_ catalog.VirtualGPUFacts   = (*Facts)(nil)
 	_ catalog.PriceSink         = (*Facts)(nil)
@@ -734,6 +735,15 @@ func (f *Facts) storageHostable(
 		f.defaults.Store(key, r)
 	}
 	return r.ok && sc.SupportsSettings(r.settings, ct)
+}
+
+// TypeLaunchable implements catalog.TypeFacts: the driver says whether it can
+// launch the type at all (vendors.TypeChecker).
+func (f *Facts) TypeLaunchable(vendor string, srv *model.Server) (bool, string) {
+	if tc, ok := f.nodeOptions(vendor).(vendors.TypeChecker); ok {
+		return tc.LaunchableType(catalogType(vendor, srv))
+	}
+	return true, ""
 }
 
 // DefaultSupported implements catalog.DefaultRouteFacts: the type can host the
