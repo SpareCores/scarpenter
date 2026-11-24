@@ -23,7 +23,7 @@ on:
         default: 2h
         type: string
       regions:
-        description: "Regions to sweep: a comma list, or all (default: the lane's region and ap-northeast-3, the region of the imagecopy scenario)"
+        description: "Regions to sweep: a comma list, or all (default: the lane's region and the imagecopy scenario's copy region, E2E_COPY_REGION)"
         default: ""
         type: string
 
@@ -80,6 +80,8 @@ jobs:
           # The default adds the region of the manual imagecopy scenario (E2E_COPY_REGION of
           # test/e2e-aws/defaults.sh), where a failed run may leave an image copy and its snapshots; a region
           # the account has not enabled is skipped.
-          args=(-max-age "${age}" -regions "${INPUT_REGIONS:-${AWS_REGION},ap-northeast-3}")
+          # shellcheck disable=SC2016  # the inner shell expands it
+          copy_region="$(env -i bash -c '. test/e2e-aws/defaults.sh && printf "%s" "${E2E_COPY_REGION}"')"
+          args=(-max-age "${age}" -regions "${INPUT_REGIONS:-${AWS_REGION},${copy_region}}")
           if [ "${INPUT_DRY_RUN}" = "true" ]; then args+=(-dry-run); fi
           go run ./test/e2e-aws/sweeper "${args[@]}"

@@ -26,6 +26,10 @@ type EC2API interface {
 	DescribeImageAttribute(ctx context.Context, in *ec2.DescribeImageAttributeInput, opts ...func(*ec2.Options)) (*ec2.DescribeImageAttributeOutput, error)
 	CopyImage(ctx context.Context, in *ec2.CopyImageInput, opts ...func(*ec2.Options)) (*ec2.CopyImageOutput, error)
 	DeregisterImage(ctx context.Context, in *ec2.DeregisterImageInput, opts ...func(*ec2.Options)) (*ec2.DeregisterImageOutput, error)
+	// DescribeSnapshots and DeleteSnapshot are the sweeper's (the controller deletes snapshots through
+	// DeregisterImage); the reference policy does not grant DescribeSnapshots.
+	DescribeSnapshots(ctx context.Context, in *ec2.DescribeSnapshotsInput, opts ...func(*ec2.Options)) (*ec2.DescribeSnapshotsOutput, error)
+	DeleteSnapshot(ctx context.Context, in *ec2.DeleteSnapshotInput, opts ...func(*ec2.Options)) (*ec2.DeleteSnapshotOutput, error)
 	DescribeSubnets(ctx context.Context, in *ec2.DescribeSubnetsInput, opts ...func(*ec2.Options)) (*ec2.DescribeSubnetsOutput, error)
 	DescribeVpcs(ctx context.Context, in *ec2.DescribeVpcsInput, opts ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
 	DescribeSecurityGroups(ctx context.Context, in *ec2.DescribeSecurityGroupsInput, opts ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)

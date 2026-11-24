@@ -274,7 +274,22 @@ check "no account ID, key or local path in the lane's files" t_no_secrets_in_scr
 # ---- the CI role's policy ----------------------------------------------------
 t_policy() {
   local p="${tmp}/policy.json"
-  "${here}/ci-policy.sh" 123456789012 >"${p}"
+  # The two parts together are the lane's policy; each must fit a managed policy (6144 characters
+  # without white space), also with the FIS statements.
+  local part n fis=arn:aws:iam::123456789012:role/fis
+  for part in controller lane; do
+    "${here}/ci-policy.sh" 123456789012 us-east-2 "${part}" >"${tmp}/policy-${part}.json"
+    for n in "$(jq -c . "${tmp}/policy-${part}.json" | tr -d '\n' | wc -c)" \
+      "$(E2E_FIS_ROLE_ARN="${fis}" "${here}/ci-policy.sh" 123456789012 us-east-2 "${part}" | jq -c . | tr -d '\n' | wc -c)"; do
+      [[ "${n}" -le 6144 ]] || { echo "the ${part} part is ${n} characters, over the 6144 of a managed policy"; return 1; }
+    done
+  done
+  jq -s '{Statement: (map(.Statement) | add)}' "${tmp}/policy-controller.json" "${tmp}/policy-lane.json" >"${p}"
+  jq -e '[.Statement[].Sid] | (length == (unique | length))' "${p}" >/dev/null || { echo "a statement is in both parts"; return 1; }
+  # a role with the controller part alone does less, never more: both denies are in it
+  jq -e '[.Statement[] | select(.Effect == "Deny") | .Sid] | sort == ["DenyOtherInstanceTypes", "DenyOutsideRegion"]' "${tmp}/policy-controller.json" >/dev/null ||
+    { echo "the denies are not in the controller part"; return 1; }
+  ! "${here}/ci-policy.sh" 123456789012 us-east-2 other 2>/dev/null || { echo "an unknown part was accepted"; return 1; }
   # every cluster tag condition is a wildcard, nothing is left of the placeholders, the
   # lane's own statements are there, and the optional statements are gone
   jq -e '
@@ -291,7 +306,7 @@ t_policy() {
     jq -e '.Statement[] | select(.Sid == "DenyOtherInstanceTypes") | .Effect == "Deny" and .Action == "ec2:RunInstances"' "${p}" >/dev/null &&
     jq -e '.Statement[] | select(.Sid == "DenyOtherInstanceTypes") | .Condition.StringNotEquals."ec2:InstanceType" | index("t3a.small") != null' "${p}" >/dev/null
 }
-check "ci-policy.sh prints the role's policy for scarpenter-ci-* with the lane's statements" t_policy
+check "ci-policy.sh prints the role's policy in two parts that fit a managed policy, for scarpenter-ci-* with the lane's statements" t_policy
 check_fails "ci-policy.sh refuses a malformed account ID" "${here}/ci-policy.sh" 12345
 
 # ---- the canary's read-only policy -------------------------------------------

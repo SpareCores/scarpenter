@@ -144,8 +144,9 @@ type Image struct {
 
 // snapshot is an EBS snapshot, kept for the images a copy made.
 type snapshot struct {
-	id   string
-	tags map[string]string
+	id      string
+	tags    map[string]string
+	started time.Time
 }
 
 // CapacityReservation is an On-Demand Capacity Reservation.
@@ -306,6 +307,14 @@ func (a *Account) RemoveImages(regionName string) {
 	defer a.mu.Unlock()
 	r := a.regions[regionName]
 	r.images = map[string]*Image{}
+}
+
+// AddSnapshot registers a snapshot of the account that no image owns (what a
+// deleted image can leave behind); started is its start time.
+func (a *Account) AddSnapshot(regionName, id string, tags map[string]string, started time.Time) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.regions[regionName].snaps[id] = &snapshot{id: id, tags: maps.Clone(tags), started: started}
 }
 
 // Snapshots returns the snapshots of the region: ID to tags.

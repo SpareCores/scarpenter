@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Prints the permissions policy of the L5 lane's CI role (docs/how-to-guides/testing.md#the-l5-lane):
 #
-#   test/e2e-aws/ci-policy.sh <AWS account ID> [region] > ci-policy.json
+#   test/e2e-aws/ci-policy.sh <AWS account ID> [region] [controller|lane] > ci-policy-<part>.json
 #
-# It is docs/reference/aws-iam-policy.json (the controller's own policy, overview
+# The role needs both parts attached: one managed policy holds at most 6144 characters (without
+# white space) and the whole does not fit. "controller" (the default) holds the reference policy's
+# statements and the two denies, so that a role with only this part can do less, never more; "lane"
+# holds the OptionalImageCopies* statements and the Lane* statements. The selftest keeps both under the limit.
+#
+# Together they are docs/reference/aws-iam-policy.json (the controller's own policy, overview
 # section 11.6) for every cluster named scarpenter-ci-* (the tag conditions become
 # StringLike), without the statements the lane does not use (an instance profile, a
 # customer KMS key; the OptionalImageCopies* statements of the manual imagecopy scenario stay), plus four statements that belong to the test and not to the product:
@@ -29,7 +34,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "${here}/../.." && pwd)"
-account="${1:?usage: ci-policy.sh <AWS account ID> [region]}"
+account="${1:?usage: ci-policy.sh <AWS account ID> [region] [controller|lane]}"
 [[ "${account}" =~ ^[0-9]{12}$ ]] || {
   echo "the account ID must be 12 digits" >&2
   exit 2
@@ -38,6 +43,11 @@ account="${1:?usage: ci-policy.sh <AWS account ID> [region]}"
 source "${here}/defaults.sh"
 region="${2:-${AWS_REGION}}"
 copy_region="${E2E_COPY_REGION}"
+part="${3:-controller}"
+[[ "${part}" == controller || "${part}" == lane ]] || {
+  echo "the part must be controller or lane" >&2
+  exit 2
+}
 
 types=("${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_DB}")
 IFS=, read -ra described <<<"${E2E_TYPES_DESCRIBED}"
@@ -54,7 +64,7 @@ fis_role="${E2E_FIS_ROLE_ARN:-}"
   }
 
 sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${root}/docs/reference/aws-iam-policy.json" |
-  jq --argjson allowed "${allowed}" --arg copy_region "${copy_region}" --arg fis_role "${fis_role}" --arg region "${region}" --arg account "${account}" '
+  jq --argjson allowed "${allowed}" --arg copy_region "${copy_region}" --arg part "${part}" --arg fis_role "${fis_role}" --arg region "${region}" --arg account "${account}" '
     # The cluster tag is matched with a wildcard: StringEquals becomes StringLike for that key.
     (.Statement[] | select(.Condition.StringEquals?) | .Condition) |=
       ((.StringLike = ((.StringLike // {}) + (.StringEquals | with_entries(select(.key | endswith("scarpenter.sparecores.com/cluster")))))) |
@@ -79,4 +89,5 @@ sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${ro
                     ("arn:aws:fis:" + $region + ":*:action/*")]},
         {Sid: "LanePassFisRole", Effect: "Allow", Action: "iam:PassRole", Resource: $fis_role,
          Condition: {StringEquals: {"iam:PassedToService": "fis.amazonaws.com"}}}
-      ] end'
+      ] end
+    | .Statement |= map(select((.Sid | test("^(OptionalImageCopies|Lane)")) == ($part == "lane")))'

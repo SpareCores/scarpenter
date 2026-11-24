@@ -157,6 +157,19 @@ func (g *roEC2) DeregisterImage(
 	return nil, g.audit.deny("ec2:DeregisterImage")
 }
 
+func (g *roEC2) DescribeSnapshots(
+	ctx context.Context, in *ec2.DescribeSnapshotsInput, opts ...func(*ec2.Options),
+) (*ec2.DescribeSnapshotsOutput, error) {
+	g.audit.read("ec2:DescribeSnapshots")
+	return g.inner.DescribeSnapshots(ctx, in, opts...)
+}
+
+func (g *roEC2) DeleteSnapshot(
+	ctx context.Context, in *ec2.DeleteSnapshotInput, opts ...func(*ec2.Options),
+) (*ec2.DeleteSnapshotOutput, error) {
+	return nil, g.audit.deny("ec2:DeleteSnapshot")
+}
+
 func (g *roEC2) DescribeSubnets(
 	ctx context.Context, in *ec2.DescribeSubnetsInput, opts ...func(*ec2.Options),
 ) (*ec2.DescribeSubnetsOutput, error) {

@@ -7,7 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // Package sweep finds and deletes what a test cluster of the L5 lane left in an
 // AWS account (docs/how-to-guides/testing.md#the-l5-lane): instances, placement
 // groups, security groups, the managed network (subnets, route tables,
-// internet gateways, VPCs) and the boot image copies (images with their
+// internet gateways, VPCs) and the boot image copies (images, and their
 // snapshots, plan 29), selected by the cluster tag
 // scarpenter.sparecores.com/cluster. It is the sweeper workflow's engine (every
 // three hours, everything of a cluster named scarpenter-ci-* older than two
@@ -51,6 +51,10 @@ const (
 	// CreatedAtTag holds the creation time of a resource without a creation time
 	// of its own, in Unix seconds (RFC 3339 is accepted too).
 	CreatedAtTag = "ci-created-at"
+	// ManagedByTag and ResourceKindTag are the tags the driver puts, with the cluster tag,
+	// on every boot image copy and its snapshot (value scarpenter and image-copy).
+	ManagedByTag    = "scarpenter.sparecores.com/managed-by"
+	ResourceKindTag = "scarpenter.sparecores.com/resource-kind"
 	// DefaultClusterPrefix is the cluster name prefix of the L5 lane.
 	DefaultClusterPrefix = "scarpenter-ci-"
 
@@ -312,7 +316,7 @@ func isCode(err error, codes ...string) bool {
 func notFound(err error) bool {
 	return isCode(err, "InvalidInstanceID.NotFound", "InvalidGroup.NotFound", "InvalidPlacementGroup.Unknown",
 		"InvalidSubnetID.NotFound", "InvalidRouteTableID.NotFound", "InvalidInternetGatewayID.NotFound",
-		"InvalidVpcID.NotFound", "InvalidAssociationID.NotFound", "Gateway.NotAttached", "InvalidAMIID.NotFound")
+		"InvalidVpcID.NotFound", "InvalidAssociationID.NotFound", "Gateway.NotAttached", "InvalidAMIID.NotFound", "InvalidSnapshot.NotFound")
 }
 
 // delete runs one deletion and records it. It returns false when the resource is
@@ -388,6 +392,9 @@ func (s *sweeper) region(ctx context.Context, region string, c awsdriver.EC2API)
 	}
 	if err := s.images(ctx, region, c); err != nil {
 		fail("image", err)
+	}
+	if err := s.snapshots(ctx, region, c); err != nil {
+		fail("snapshot", err)
 	}
 }
 
@@ -708,16 +715,26 @@ func (s *sweeper) spotRequests(ctx context.Context, region string, c awsdriver.E
 	return nil
 }
 
+// copyFilters select the boot image copies of the selected clusters: the cluster
+// tag and the tags the driver puts on every copy and its snapshot (ownership
+// by SCarpenter and the resource kind), so that an image or snapshot of the same
+// cluster that is not a copy is never touched.
+func (s *sweeper) copyFilters() []ec2types.Filter {
+	return []ec2types.Filter{s.clusterFilter(),
+		{Name: aws.String("tag:" + ManagedByTag), Values: []string{"scarpenter"}},
+		{Name: aws.String("tag:" + ResourceKindTag), Values: []string{"image-copy"}}}
+}
+
 // images deregisters the boot image copies of the selected clusters (images of
-// this account that carry the cluster tag, plan 29) together with their
+// this account that carry the copy tags, plan 29) together with their
 // snapshots. A snapshot that DeleteAssociatedSnapshots could not delete makes
-// the image's item a failure, so that nothing billable is left unreported. An
-// image still pending cannot be deregistered: that is a failure of this sweep,
-// and the next one finds the copy available.
+// the image's item a failure, so that nothing billable is left unreported (the
+// next step also looks for snapshots by their tags). A copy still pending is
+// deregistered like any other: that stops the copy.
 func (s *sweeper) images(ctx context.Context, region string, c awsdriver.EC2API) error {
 	images, err := paged(func(token *string) ([]ec2types.Image, *string, error) {
 		out, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{NextToken: token, Owners: []string{"self"},
-			Filters: []ec2types.Filter{s.clusterFilter()}})
+			Filters: s.copyFilters()})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -754,6 +771,37 @@ func (s *sweeper) images(ctx context.Context, region string, c awsdriver.EC2API)
 				return fmt.Errorf("image deregistered, snapshots not deleted: %s", strings.Join(left, ", "))
 			}
 			return nil
+		})
+	}
+	return nil
+}
+
+// snapshots deletes the snapshots of the boot image copies of the selected
+// clusters that are still there after their images went (a copy deleted by
+// hand, a failed snapshot deletion of images()). Selected like the images, by
+// the copy tags; the age is the snapshot's start time.
+func (s *sweeper) snapshots(ctx context.Context, region string, c awsdriver.EC2API) error {
+	snaps, err := paged(func(token *string) ([]ec2types.Snapshot, *string, error) {
+		out, err := c.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{NextToken: token, OwnerIds: []string{"self"},
+			Filters: s.copyFilters()})
+		if err != nil {
+			return nil, nil, err
+		}
+		return out.Snapshots, out.NextToken, nil
+	})
+	if err != nil {
+		return fmt.Errorf("listing snapshots: %w", err)
+	}
+	for _, sn := range snaps {
+		id := aws.ToString(sn.SnapshotId)
+		cluster, ok, reason := s.verdict(tagMap(sn.Tags), sn.StartTime)
+		if !ok {
+			s.skip(region, "snapshot", id, cluster, reason)
+			continue
+		}
+		s.del(region, "snapshot", id, cluster, func() error {
+			_, err := c.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(id)})
+			return err
 		})
 	}
 	return nil

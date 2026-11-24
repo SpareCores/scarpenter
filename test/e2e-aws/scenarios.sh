@@ -696,7 +696,7 @@ scn_imagecopy() {
   assert_eq "tag cluster on the copy" "${E2E_CLUSTER}" "$(copies_json | jq -r --arg a "${ami}" '.[] | select(.ImageId == $a) | .Tags[] | select(.Key == "'"${ctag}"'") | .Value')"
   assert_eq "tag managed-by on the copy" scarpenter "$(copies_json | jq -r --arg a "${ami}" '.[] | select(.ImageId == $a) | .Tags[] | select(.Key == "'"${label_domain}"'/managed-by") | .Value')"
   assert_eq "tag resource-kind on the copy" image-copy "$(copies_json | jq -r --arg a "${ami}" '.[] | select(.ImageId == $a) | .Tags[] | select(.Key == "'"${label_domain}"'/resource-kind") | .Value')"
-  assert_nonempty "the copy's snapshot carries the cluster tag" "$(copy_snapshots_json | jq -r '.[0].SnapshotId')"
+  assert_nonempty "the copy's snapshot carries the cluster tag" "$(copy_snapshots_json | jq -r '.[0].SnapshotId // empty')"
   copy_evidence "${ami}"
 
   log "scale to zero: the node and the instance go, then the copy and its snapshots"
@@ -705,7 +705,7 @@ scn_imagecopy() {
   kubectl delete deployment e2e-imagecopy --wait=false
   wait_until "the instance of ${region} terminated" $((E2E_SCALE_DOWN_DEADLINE + 120)) is_empty copy_instances
   note "imagecopy: the instance was gone $(($(now) - t0))s after the Pod's deletion"
-  wait_until "no NodeClaim left" 120 is_empty kubectl get nodeclaims -o name
+  wait_until "no NodeClaim of the pool left" 120 is_empty kubectl get nodeclaims -l karpenter.sh/nodepool=e2e-imagecopy -o name
   note "imagecopy: lastLaunchedTime of ${ami} after the instance ended: $(last_launched "${ami}")"
   wait_until "the copy deleted: no image of the cluster in ${region}" "${E2E_COPY_DELETE_TIMEOUT}" copies_gone
   note "imagecopy: the copies were deleted $(($(now) - t0))s after the Pod's deletion (idle lifetime 1m, GC every 1m)"
