@@ -1207,3 +1207,53 @@ Consequences: the check unit starts in parallel with the kubelet and runs for up
 check 30 s, Fabric Manager up to 10 minutes; the label step retries until the Node exists); the device plugin starts on the node while the
 driver may still load and restarts until it can (it already tolerates every taint); DaemonSets the node needs for Ready (the CNI) must tolerate
 `NoSchedule` taints; the controller needs `delete` on NodeClaims, which it has.
+
+## ADR-032: SCarpenter copies boot images it can already read into regions of the account, opt-in (accepted, 2026-11-23)
+
+Amends ADR-021: rung 1 and the operator's rung 3 image stay the default and the primary image. With a per-vendor flag the
+controller may copy an image that already exists in the account, or is public in another region of the same vendor, into a
+region that has none. It never imports an image from outside the vendor (rung 4 stays hcloud's alone, ADR-030).
+
+ADR-021 kept image writes out of the controller because the operator's IaC can make the image and the controller should not
+hold credentials that can write images. For a copy that argument is weaker than for an import: there is no external source,
+and the writes are creations tagged with the cluster, deletions of images carrying those tags, and nothing else. The gain is
+real. Flatcar publishes no AMI in a dozen AWS regions, some of them with the cheapest spot prices (up to 78% cheaper for
+hundreds of types), and an operator on Alibaba Cloud copies the image into every region of every NodeClass although most
+never launch a node.
+
+**Decision.**
+
+- **On demand.** A copy is made when a launch of a NodeClass without `resources.images.use` or `imageOwner` wants a region
+  that has no image of the pinned release. The launch never waits: the region is skipped until the copy is available and
+  Karpenter re-solves. A report of the image status never starts a copy.
+- **The primary image wins.** Per region and architecture the driver looks up `use`, then `imageOwner` (both never copy),
+  then the primary image by the vendor's convention, then SCarpenter's copy of this cluster. A copy is never put into a
+  driver's answer cache, so a deleted copy is never served.
+- **Per vendor, opt-in, per controller.** Flags and chart values, not the SCNodeClass: a copy belongs to the account and is
+  shared by every class that pins the release. With every flag off nothing changes. A flag for a vendor whose driver has no
+  copy capability refuses to start.
+- **Both architectures together.** The image gate is per region, so demand for a region copies the pinned release for every
+  architecture the driver serves there as one unit.
+- **Per cluster.** The ownership tag is the cluster name; two clusters in one account copy twice and never delete each
+  other's copy. Cluster names must be unique per account.
+- **No state of our own.** The vendor's image is the record. A pending image is a copy in flight and a restarted or new
+  leader adopts it. The queue (at most four in flight per vendor, demand order, a backoff of 1 to 15 minutes on a limit
+  error), the failure times (6 hours) and the unpinned times are in memory.
+- **Garbage collection.** A copy is never deleted while an instance of the account runs from it. Otherwise it goes when it
+  has been idle for `--image-copy-idle-ttl` (30 days), when a primary image appeared (and no launch resolved the copy for 2
+  hours), when no SCNodeClass has pinned its release for 2 hours continuously, when it is a duplicate, or when it failed or
+  timed out (2 hours). Only images with the cluster's ownership tags are ever deleted, and every deletion drops the cached
+  IDs.
+- **The release bump.** A newly pinned release is copied at once into every region where a node runs from a copy of
+  another release, so that drift replaces the node in the same region.
+
+Rejected: the SCNodeClass as the place of the setting (a copy is the account's, and the GC deletes it account-wide); waiting
+in `Create` (it would eat the launch timeout and block the walk over the other candidates); eager copies to every region (the
+owner chose on demand with an idle TTL); a CRD per copy; the resources engine's lifecycles (a copy is shared by every class
+that pins its release, is created asynchronously, and two of its delete rules are not lifecycles); copying only the demanded
+architecture (it would ungate the region for both and send the other architecture into skips).
+
+Consequences: the controller's credentials gain image copy and deregister permissions, conditioned on the cluster tag (the
+vendor reference of each driver lists them). A copy costs one transfer and then snapshot storage, about 12 days of storage
+on AWS, which is why the idle TTL defaults to 30 days. Where the vendor has no copy API (OVH, probably OCI and UpCloud) the
+need is an import, outside this decision.

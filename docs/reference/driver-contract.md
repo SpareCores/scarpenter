@@ -47,7 +47,7 @@ instance sweep, to delete what a failed or interrupted launch made besides the i
 asks `nodeClaimExists` after, so a launch in flight keeps its resources; see
 [garbage collection](controller.md#garbage-collection)), `NodeClassWarner` (settings that are valid but
 have no effect for the vendor, from the NodeClass alone: the vendor condition `ConfigurationWarning`),
-`ImageImporter` (reserved), `GPUVirtualizer` (`Virtual(apiReference) bool`: the type's GPU is a
+`ImageImporter` (reserved), `ImageCopier` (plan 29, ADR-032: a vendor with regional images and a copy API; the copy manager of `pkg/imagecopy` owns the policy and the driver maps `Architectures`, `Primary`, `CopySources`, `ListCopies`, `StartCopy`, `CopyInUse`, `TouchCopy` and `DeleteCopy` onto the vendor's API; `StartCopy` answers a limit or throttling error with `QuotaExceeded` or `Retryable` so that the copy waits with a backoff, `DeleteCopy` refuses an image without the cluster's ownership tags as `Fatal`; the conformance suite's `image copies` cases run for it), `GPUVirtualizer` (`Virtual(apiReference) bool`: the type's GPU is a
 virtual one that needs a GRID driver, so the catalog drops it with the reason `GPUVirtual`; see
 [GPU types](labels-and-offerings.md#gpu-types)) and
 `CatalogProvider` (`CatalogYAML()`: a development driver that brings its own

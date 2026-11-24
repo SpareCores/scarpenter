@@ -46,6 +46,13 @@ read back from the image.
 4. **SCarpenter imports or builds the image itself** (`SCImage`,
    `ImageImporter`). Reserved, not built in v1: no vendor needs it.
 
+Beside the ladder, with a per-vendor flag
+([ADR-032](DECISIONS.md#adr-032-scarpenter-copies-boot-images-it-can-already-read-into-regions-of-the-account-opt-in-accepted-2026-11-23)),
+SCarpenter copies an image that already exists in the account or is public in another region
+of the same vendor into a region that has none, when a launch wants the region. It never
+imports an image from outside the vendor. Rung 1 and your rung 3 image stay the primary
+image wherever they exist.
+
 ## Why a ladder
 
 - A vendor's own public image costs nothing, needs no maintenance by us and is
@@ -126,7 +133,7 @@ hash; the pinned version is.
 | Created by | Flatcar |
 | Pinned version | the name `Flatcar-<channel>-<version>-hvm` (amd64) or `Flatcar-<channel>-<version>-arm64-hvm`; exactly one match. An AMI you name with `images` says its release by that name or by the tags `flatcar-channel` and `flatcar-version` |
 | Architectures | amd64, arm64 |
-| Later | nothing |
+| Later | opt-in copies into regions without a Flatcar AMI (ADR-032, plan 29, `--aws-copy-images`) |
 
 ### azure
 
@@ -225,7 +232,7 @@ hash; the pinned version is.
 | Created by | your IaC |
 | Pinned version | image name `Flatcar-<channel>-<version>-<arch>` and tags `flatcar-channel`, `flatcar-version`, `arch`, `built-by`; exactly one match |
 | Architectures | amd64, arm64 |
-| Later | if Spare Cores' account may publish community images, the repository publishes them per region (rung 2) and `images` becomes optional; an upstream `oem-aliyun` replaces the source |
+| Later | if Spare Cores' account may publish community images, the repository publishes them per region (rung 2) and `images` becomes optional; an upstream `oem-aliyun` replaces the source. Opt-in copies from your imported image into the regions that have none, instead of IaC copies to every region (ADR-032, plan 29) |
 
 ### oci
 

@@ -838,6 +838,7 @@ spec:
             - "--gc-grace-period=10m"
             - "--gc-interval=3m"
             - "--health-probe-port=9091"
+            - "--image-copy-idle-ttl=168h"
             - "--interruption=false"
             - "--interruption-margin=8s"
             - "--interruption-unavailable-ttl=20m"

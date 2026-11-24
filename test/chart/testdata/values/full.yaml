@@ -58,6 +58,7 @@ billingRetention: {enabled: false}
 interruption: {enabled: false, margin: 8s, unavailableTTL: 20m}
 unavailable: {insufficientCapacityTTL: 4m, unsupportedTTL: 12h, quotaExceededTTL: 1h, zoneUnusableTTL: 15m}
 managedResources: {defaultTTL: 48h, perUseGrace: 3m, checkInterval: 45s, fullSweepEvery: 20}
+imageCopies: {idleTTL: 168h}
 karpenter:
   logLevel: debug
   batchMaxDuration: 20s

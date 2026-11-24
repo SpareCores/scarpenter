@@ -287,6 +287,10 @@ type Config struct {
 	// vendor's catalog (fake). The operator builds it from --keeper-url and the
 	// API key; nil in tests that do not need it.
 	Keeper *keeper.Client
+	// ImageCopies is the copy manager of the vendor (plan 29), nil when copies
+	// are off for it. A driver whose vendor can copy images asks it after its
+	// primary image lookup missed.
+	ImageCopies ImageCopies
 }
 
 // StoragePrice is one row of Keeper's storage_price file of a vendor: the USD

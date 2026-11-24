@@ -49,6 +49,8 @@ type instance struct {
 	noticeDeadline time.Time
 	vcpus          int64
 	key            string
+	// image is the image the instance was launched from.
+	image string
 	// userData is the size of the user-data the instance was launched with
 	// (the fake boots nothing; the L3 lane checks the rendering by its size).
 	userData int
@@ -105,6 +107,9 @@ type Driver struct {
 	// unsupportedEpoch changes with the steering's unsupported and rootDisks rules.
 	unsupportedEpoch atomic.Uint64
 
+	// cp is the account's image copies (plan 29).
+	cp imageCopies
+
 	mu        sync.Mutex
 	seq       int
 	instances map[string]*instance // by ID
@@ -136,6 +141,7 @@ var (
 	_ vendors.NodeClassValidator = (*Driver)(nil)
 	_ vendors.BillingDescriber   = (*Driver)(nil)
 	_ vendors.GPUVirtualizer     = (*Driver)(nil)
+	_ vendors.ImageCopier        = (*Driver)(nil)
 )
 
 // New returns a driver with the given options (for tests; the registry's
@@ -492,7 +498,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			Tags:         vendors.IdempotencyTag(req.Tags, req.IdempotencyKey),
 			Addresses:    []string{fmt.Sprintf("10.%d.%d.%d", d.seq/65536%256, d.seq/256%256, d.seq%256)},
 		},
-		claim: claim, nodeName: req.Node.Name, vcpus: srv.vcpus, key: req.IdempotencyKey,
+		claim: claim, nodeName: req.Node.Name, vcpus: srv.vcpus, key: req.IdempotencyKey, image: req.Image.Ref,
 		userData: len(req.UserData), settings: string(req.Settings.Raw), profiles: maps.Clone(req.Settings.Profiles),
 	}
 	inst.recordPrepared(req.Prepared)
@@ -512,6 +518,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	}
 
 	d.touchResources(inst.resources)
+	d.usedImage(ctx, req.Image.Ref)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.record("create", req.Region, req.Zone, req.InstanceType, req.CapacityType, claim, "ok")

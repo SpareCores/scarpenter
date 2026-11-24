@@ -555,6 +555,13 @@ managedResources:
   # sweep. Raise it to make them rarer.
   fullSweepEvery: null
 
+# Boot image copies (ADR-032).
+imageCopies:
+  # How long a boot image copy SCarpenter made into a region may go unused
+  # before it is deleted (--image-copy-idle-ttl; 720h). At least 1m. No effect
+  # until a vendor's copy flag is on.
+  idleTTL: ""
+
 # --------------------------------------------------------------------------
 # Karpenter core
 # --------------------------------------------------------------------------

@@ -54,6 +54,7 @@ func TestDefaults(t *testing.T) {
 		GCInterval:                 2 * time.Minute,
 		ResourceDefaultTTL:         24 * time.Hour,
 		ResourceFullSweepEvery:     10,
+		ImageCopyIdleTTL:           720 * time.Hour,
 		AWSHomeRegion:              "us-east-1",
 	}
 	if o.ClusterName != want.ClusterName || o.APIServerEndpoint != want.APIServerEndpoint ||
@@ -62,7 +63,7 @@ func TestDefaults(t *testing.T) {
 		o.MaxLaunchAttempts != want.MaxLaunchAttempts || o.QuotaRefreshInterval != want.QuotaRefreshInterval ||
 		o.QuotaLimitsRefreshInterval != want.QuotaLimitsRefreshInterval || o.QuotaMaxStaleness != want.QuotaMaxStaleness ||
 		o.GCInterval != want.GCInterval || o.ResourceDefaultTTL != want.ResourceDefaultTTL ||
-		o.ResourceFullSweepEvery != want.ResourceFullSweepEvery ||
+		o.ResourceFullSweepEvery != want.ResourceFullSweepEvery || o.ImageCopyIdleTTL != want.ImageCopyIdleTTL ||
 		o.AWSHomeRegion != want.AWSHomeRegion || strings.Join(o.Vendors, ",") != "aws" {
 		t.Errorf("defaults differ:\n got %+v\nwant %+v", *o, want)
 	}
@@ -102,6 +103,7 @@ func TestEnvironmentFallbacks(t *testing.T) {
 		"SCARPENTER_QUOTA_MAX_STALENESS":           "20m",
 		"SCARPENTER_GC_INTERVAL":                   "5m",
 		"SCARPENTER_RESOURCE_DEFAULT_TTL":          "48h",
+		"SCARPENTER_IMAGE_COPY_IDLE_TTL":           "36h",
 		"SCARPENTER_AWS_HOME_REGION":               "eu-central-1",
 		"SCARPENTER_GCP_PROJECT":                   "my-project",
 		"SCARPENTER_CLUSTER_DNS":                   "10.96.0.10, fd00::a",
@@ -122,7 +124,7 @@ func TestEnvironmentFallbacks(t *testing.T) {
 		o.BootstrapTokenTTL != 30*time.Minute || o.MaxLaunchAttempts != 5 ||
 		o.QuotaRefreshInterval != time.Minute || o.QuotaLimitsRefreshInterval != 10*time.Minute ||
 		o.QuotaMaxStaleness != 20*time.Minute || o.GCInterval != 5*time.Minute ||
-		o.ResourceDefaultTTL != 48*time.Hour || o.AWSHomeRegion != "eu-central-1" ||
+		o.ResourceDefaultTTL != 48*time.Hour || o.ImageCopyIdleTTL != 36*time.Hour || o.AWSHomeRegion != "eu-central-1" ||
 		o.GCPProject != "my-project" ||
 		strings.Join(o.ClusterDNS, ",") != "10.96.0.10,fd00::a" || o.ClusterDomain != "k8s.example.com" {
 		t.Errorf("environment fallbacks not applied: %+v", *o)
@@ -174,6 +176,7 @@ func TestValidation(t *testing.T) {
 		{"zero gc interval", append([]string{"--gc-interval=0s"}, required...), "--gc-interval must be positive"},
 		{"zero terminating grace", append([]string{"--terminating-grace=0s"}, required...), "--terminating-grace must be positive"},
 		{"zero full sweep", append([]string{"--resource-full-sweep-every=0"}, required...), "--resource-full-sweep-every must be at least 1"},
+		{"image copy ttl below a minute", append([]string{"--image-copy-idle-ttl=59s"}, required...), "--image-copy-idle-ttl must be at least 1m0s"},
 		{"zero resource ttl", append([]string{"--resource-default-ttl=0s"}, required...), "--resource-default-ttl must be positive"},
 		{"zero quota staleness", append([]string{"--quota-max-staleness=0s"}, required...), "--quota-max-staleness must be positive"},
 		{"max age below refresh interval", append([]string{"--catalog-max-age=10m"}, required...), "must not be shorter"},
