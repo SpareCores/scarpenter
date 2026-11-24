@@ -52,7 +52,7 @@ aws iam create-policy-version --policy-arn arn:aws:iam::123456789012:policy/scar
 ```
 
 What they allow, and nothing else: `CopyImage` and the tags of the new image and snapshot only when the request
-carries the cluster tag, with `OptionalImageCopiesSource` letting it read the official Flatcar account's images as the
+carries the cluster tag, with `OptionalImageCopiesSource` letting it read the official Flatcar account's images and snapshots as the
 source; `DeregisterImage` and `DeleteSnapshot` only on images and snapshots that carry the tags of a copy (the cluster,
 `managed-by` and `resource-kind=image-copy`). The
 role cannot tag or change an existing image, so it cannot take over an image it did not create. The

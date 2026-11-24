@@ -275,7 +275,8 @@
         "ec2:CopyImage"
       ],
       "Resource": [
-        "arn:aws:ec2:*::image/*"
+        "arn:aws:ec2:*::image/*",
+        "arn:aws:ec2:*::snapshot/*"
       ],
       "Condition": {
         "StringEquals": {

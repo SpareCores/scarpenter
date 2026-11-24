@@ -410,9 +410,11 @@ func (d *Driver) StartCopy(
 	switch {
 	case err == nil:
 		return deref(out.ImageId), nil
-	case isCode(err, "InvalidAMIName.Duplicate"):
-		// The copy exists (a start whose answer was lost, under another token):
-		// adopt it instead of failing the copy.
+	case isCode(err, "InvalidAMIName.Duplicate", "IdempotentParameterMismatch"):
+		// The copy exists (a start whose answer was lost, under another token, or
+		// under this token with another source): adopt it instead of failing the
+		// copy. Not retried: the token is fixed per job, so a source that changed
+		// for good would mismatch at every retry.
 		if ref := d.ownCopyNamed(ctx, cl, copyName(rel, d.cfg.ClusterName)); ref != "" {
 			return ref, nil
 		}
@@ -427,10 +429,6 @@ func (d *Driver) StartCopy(
 			}
 		}
 		d.mu.Unlock()
-		return "", vendors.NewError(vendors.Retryable, apiCode(err), err)
-	case isCode(err, "IdempotentParameterMismatch"):
-		// The token was used with another source (the list changed between two
-		// tries): retried after the manager's backoff, which finds the list stable.
 		return "", vendors.NewError(vendors.Retryable, apiCode(err), err)
 	}
 	return "", classify(err, errContext{})

@@ -361,10 +361,10 @@ func TestStartCopyErrorClasses(t *testing.T) {
 		{"UnauthorizedOperation", vendors.Fatal},
 		{"AuthFailure", vendors.Fatal},
 		{"OptInRequired", vendors.Fatal},
-		// The source is gone or unreadable, or the token met another source: the manager retries.
+		// The source is gone or unreadable: the manager retries.
 		{"InvalidAMIID.NotFound", vendors.Retryable},
 		{"InvalidAMIID.Unavailable", vendors.Retryable},
-		{"IdempotentParameterMismatch", vendors.Retryable},
+		{"IdempotentParameterMismatch", vendors.Fatal}, // no copy of that name to adopt
 		{"SomethingNew", vendors.Fatal},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
@@ -769,5 +769,26 @@ func TestDeregisteredAndMissingCopiesAreGone(t *testing.T) {
 	e.acct.Fail(fake.Failure{Op: "DeregisterImage", Code: "InvalidAMIID.Unavailable"})
 	if err := e.d.DeleteCopy(t.Context(), vendors.ImageCopy{Region: copyDest, Ref: "ami-real", Release: copyRel}); err != nil {
 		t.Errorf("DeregisterImage answered Unavailable = %v", err)
+	}
+}
+
+// The token of a job is fixed: a source that changed since the first try must not mismatch
+// for ever. The copy that the token made is adopted, and without one the refusal is Fatal.
+func TestStartCopyWithAChangedSourceAdoptsTheCopyOfTheToken(t *testing.T) {
+	e := copyEnv(t, false)
+	srcs, err := e.d.CopySources(t.Context(), copyRel)
+	if err != nil || len(srcs) < 2 {
+		t.Fatalf("CopySources = %v, %v", srcs, err)
+	}
+	ref, err := e.d.StartCopy(t.Context(), srcs[0], copyDest, copyRel, copyTags(testCluster), "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := e.d.StartCopy(t.Context(), srcs[1], copyDest, copyRel, copyTags(testCluster), "tok")
+	if err != nil || again != ref {
+		t.Errorf("StartCopy with another source under the same token = %q, %v; want the adopted %s", again, err, ref)
+	}
+	if got := listCopies(t, e); len(got) != 1 {
+		t.Errorf("ListCopies = %+v; want one copy", got)
 	}
 }

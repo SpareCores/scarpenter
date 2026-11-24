@@ -334,7 +334,7 @@ Region labels are bounded by the vendor's regions.
 |---|---|
 | `Describe` (existing) | adds `ec2:DescribeImageAttribute` (for `lastLaunchedTime`) |
 | `OptionalImageCopies` | `ec2:CopyImage`: on the new image and snapshot only with `aws:RequestTag/scarpenter.sparecores.com/cluster=CLUSTER_NAME` |
-| `OptionalImageCopiesSource` | `ec2:CopyImage` on images with `ec2:Owner` the official owner (`aws.DefaultImageOwner`): a request tag does not apply to the source |
+| `OptionalImageCopiesSource` | `ec2:CopyImage` on images and snapshots with `ec2:Owner` the official owner (`aws.DefaultImageOwner`): a request tag does not apply to the source |
 | `OptionalImageCopiesTagAtCreation` | `ec2:CreateTags` only with `ec2:CreateAction=CopyImage` and the cluster tag |
 | `OptionalImageCopiesDelete` | `ec2:DeregisterImage` on images and `ec2:DeleteSnapshot` on snapshots (for `DeleteAssociatedSnapshots`, **unverified** whether needed), with `aws:ResourceTag/...` `cluster=CLUSTER_NAME`, `managed-by` and `resource-kind=image-copy` |
 
@@ -452,7 +452,7 @@ stalls on that attribute; a copy refusal is `Fatal` (the manager fails the copy 
 `ConcurrentSnapshotLimitExceeded` are `QuotaExceeded` and throttling `Retryable` (the manager backs off); `DeleteCopy` checks
 the three ownership tags itself before `DeregisterImage` and only logs a snapshot that `DeleteAssociatedSnapshots` could
 not delete. The IAM statements are `OptionalImageCopies` (`CopyImage` on the new image and snapshot with the request tag), `OptionalImageCopiesSource`
-(`CopyImage` on images of the official owner), `OptionalImageCopiesTagAtCreation` and `OptionalImageCopiesDelete`
+(`CopyImage` on images and snapshots of the official owner), `OptionalImageCopiesTagAtCreation` and `OptionalImageCopiesDelete`
 (`DeregisterImage` and `DeleteSnapshot` with the cluster, managed-by and resource-kind resource tags); the fake EC2 gained `CopyImage`, `DeregisterImage`,
 `DescribeImageAttribute`, snapshots and the `image-id` instance filter.
 

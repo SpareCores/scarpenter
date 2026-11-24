@@ -161,6 +161,11 @@ func TestImageCopyStatementsAreScoped(t *testing.T) {
 			continue
 		}
 		seen++
+		if s.Sid == "OptionalImageCopiesSource" {
+			if got, _ := s.Resource.([]any); !reflect.DeepEqual(got, []any{"arn:aws:ec2:*::image/*", "arn:aws:ec2:*::snapshot/*"}) {
+				t.Errorf("%s resources %v, want the official owner's images and snapshots", s.Sid, s.Resource)
+			}
+		}
 		if !slices.Equal(s.Action, w.actions) {
 			t.Errorf("%s allows %v, want %v", s.Sid, s.Action, w.actions)
 		}
