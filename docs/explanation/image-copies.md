@@ -23,7 +23,7 @@ it, tags the copy as its own and deletes it when it is idle.
 ## Why on demand
 
 Copies to every region ahead of time would cost storage in regions that never
-launch (about $0.80 a month per region for both architectures on AWS) and would copy
+launch (about $1.30 a month per region for both architectures on AWS) and would copy
 every release again at every Flatcar bump. A copy made when a launch asks for the
 region costs nothing for the regions nobody wants, and the idle TTL
 (`--image-copy-idle-ttl`, 30 days) pays for itself: a copy is billed once for the
@@ -91,8 +91,8 @@ One `Create` walks every candidate in price order, so a single NodeClaim can sta
 copies into several image-less regions cheaper than the one it ends up launching in,
 and consolidation's replacement NodeClaims do the same. That is intended: they are the
 cheaper regions. The number is bounded by the image-less regions of the class, two
-copies each (both architectures); AWS has 13 such regions today, about 26 copies, $4
-once and $10 a month in the worst case. A class that must not cause copies keeps
+copies each (both architectures); AWS has 13 such regions today, about 26 copies, $7
+once and $17 a month in the worst case. A class that must not cause copies keeps
 those regions out of its NodePools' `topology.kubernetes.io/region` requirements,
 lists its own regions, or names its images.
 
@@ -147,7 +147,7 @@ controller is handed to the manager when the NodeClass controller sees it (and t
 manager is handed the pinned releases at every signal and every collection): the
 manager queues it, at once, in every region where this cluster has a copy of another
 release that an instance runs from. Drift then finds the region gated for the copy's
-duration, minutes, instead of losing it. The copy of the old release is protected while
+duration (about six minutes on AWS), instead of losing it. The copy of the old release is protected while
 its instances run, and goes by the idle or unpinned rule afterwards.
 
 The bump covers SCarpenter's own copies. A region whose nodes run from an image your
@@ -155,11 +155,14 @@ IaC copied is gated for the copy's duration at the bump.
 
 ## What a copy costs
 
-On AWS a copy is billed once for the transfer (about $0.02/GB from US and EU sources)
-and monthly for the snapshot in the destination (about $0.05/GB-month). A Flatcar AMI
-is about 8 GiB provisioned, billed by the blocks written (smaller, unverified): at most
-about $0.16 per copy and $0.40 a month per region and architecture, about **$0.80 a
-month per region** for both. On Alibaba Cloud the storage is about a third of AWS's and
+On AWS a copy takes about six minutes (measured: 365 s) and both architectures of a
+region are copied together. Each copy's snapshot is 13 GiB (measured, standard tier), so
+26 GiB per region. A copy is billed once for the transfer and monthly for the snapshot
+in the destination. At the assumed prices of $0.02/GB for the transfer (from US and EU
+sources) and $0.05/GB-month for standard snapshot storage, that is about $0.52 once and
+about **$1.30 a month per region** for both architectures. The copies are unencrypted
+unless the account's EBS encryption by default is on; a customer KMS key as that default
+is untested. On Alibaba Cloud the storage is about a third of AWS's and
 the price of a copy is unverified; on UpCloud a template costs €0.33/GB-month, so the
 break-even is short and a shorter idle TTL may pay.
 
