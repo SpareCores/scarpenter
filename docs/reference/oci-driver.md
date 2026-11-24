@@ -42,7 +42,7 @@ pull requests that touch OCI code, nightly and before every release.
 | `Driver` | subscribed regions, availability domains as zones, `ResolveImage`, `CreateInstance`, `GetInstance`, `FindInstance`, `ListInstances`, `DeleteInstance`, `TagKey` |
 | `NodeClassValidator` | syntax of the `oci` block: regions, boot volume, metadata keys, tags, resource references, and the networking options a managed network cannot honour |
 | `ImageReporter` | `status.vendors.oci.images`, condition `ImagesReady`: one image per region and architecture |
-| `NodeOptions`, `EpochReporter`, `KeeperPriceConsumer` | defaults (64 GB `balanced` boot volume), `PriceDelta` from Keeper's storage rows, `Prepare` (subnet and groups); no profiles |
+| `NodeOptions`, `TypeChecker`, `EpochReporter`, `KeeperPriceConsumer` | defaults (64 GB `balanced` boot volume), `PriceDelta` from Keeper's storage rows, `Prepare` (subnet and groups); no profiles; `LaunchableType` drops sizes beyond one NUMA node of their shape |
 | `ManagedResources`, `ZoneChecker` | kinds `subnets`, `networkSecurityGroups` and the internal `runNetworkSecurityGroups`; the use-only `images` selector; zones no brought subnet can serve |
 | `QuotaReporter` | region buckets per quota name from the Limits service (see [Quotas](#quotas-and-availability)) |
 | `InstanceMetadata` | the metadata addresses `169.254.169.254` and `fd00:c1::a9fe:a9fe`, no allowed unit besides Afterburn's |
@@ -88,7 +88,10 @@ shapes. The parse rule (`ParseType`): the name is split at the last dot; a tail 
 shape (`BM.Standard3.64`, `VM.Standard2.1`). Names that do not parse are rejected, never guessed
 (`InvalidInstanceType`). A size is checked against the shape table of the availability domain before the
 launch: the OCPU, memory and memory-per-OCPU bounds, and the NUMA limits (sizes beyond one NUMA node,
-"extended memory", need a separate limit and are `Unsupported` with `ExtendedMemoryUnsupported` in v1).
+"extended memory", need a separate limit and are `Unsupported` with `ExtendedMemoryUnsupported` in v1). The driver also says so
+before any launch (`vendors.TypeChecker`) from the NUMA limits of the shape tables it has read, so the
+catalog does not offer such sizes (reason `NotLaunchable`); a size is offered until its shape table has been
+read, and the epoch changes when a shape's NUMA limits do.
 The launch sends `shapeConfig {ocpus, memoryInGBs}` for a sized name and nothing for a fixed shape. The
 vCPUs are never sent: an OCPU is two vCPUs on x86 and on Arm A2 and A4, one on A1.
 

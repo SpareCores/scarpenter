@@ -9,7 +9,6 @@ package oci
 import (
 	"context"
 	"fmt"
-	"maps"
 	"math"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -87,7 +86,13 @@ func (d *Driver) shapesIn(ctx context.Context, region, ad string) (map[string]*s
 	}
 	d.mu.Lock()
 	d.shapes[key] = set(out, d.clock.Now().Add(factsTTL))
-	maps.Copy(d.index, out)
+	for name, si := range out {
+		if old, ok := d.index[name]; !ok || old.Flexible != si.Flexible || old.OCPUPerNuma != si.OCPUPerNuma ||
+			old.MemPerNuma != si.MemPerNuma {
+			d.epoch.Add(1) // LaunchableType depends on these: the catalog rebuilds
+		}
+		d.index[name] = si
+	}
 	d.mu.Unlock()
 	return out, nil
 }
@@ -133,12 +138,41 @@ func (t InstanceType) Check(shapes map[string]*shapeInfo, ad string) error {
 		return outOfBounds(t, "memory", gb, si.MemMin, si.MemMax)
 	case si.PerOCPUMax > 0 && (gb/ocpus < si.PerOCPUMin-1e-9 || gb/ocpus > si.PerOCPUMax+1e-9):
 		return outOfBounds(t, "memory per OCPU", math.Round(gb/ocpus*100)/100, si.PerOCPUMin, si.PerOCPUMax)
-	case (si.OCPUPerNuma > 0 && ocpus > si.OCPUPerNuma) || (si.MemPerNuma > 0 && gb > si.MemPerNuma):
-		return vendors.NewError(vendors.Unsupported, CodeExtendedMemory, fmt.Errorf(
-			"%s is beyond one NUMA node (%g OCPUs, %g GB): extended memory sizes are not launched", t, si.OCPUPerNuma,
-			si.MemPerNuma))
+	case si.beyondNuma(t):
+		return numaError(t, si)
 	}
 	return nil
+}
+
+// beyondNuma says whether a size is beyond one NUMA node of the shape, by either
+// of its per-node limits (zero: the shape has none).
+func (si *shapeInfo) beyondNuma(t InstanceType) bool {
+	return (si.OCPUPerNuma > 0 && float64(t.OCPUs) > si.OCPUPerNuma) ||
+		(si.MemPerNuma > 0 && float64(t.GB) > si.MemPerNuma)
+}
+
+func numaError(t InstanceType, si *shapeInfo) error {
+	return vendors.NewError(vendors.Unsupported, CodeExtendedMemory, fmt.Errorf(
+		"%s is beyond one NUMA node (%g OCPUs, %g GB): extended memory sizes are not launched", t, si.OCPUPerNuma,
+		si.MemPerNuma))
+}
+
+var _ vendors.TypeChecker = (*Driver)(nil)
+
+// LaunchableType implements vendors.TypeChecker: a size beyond one NUMA node of
+// its shape is not launched, by the limits of any shape table the driver has
+// read (shapeInfo changes bump NodeOptionsEpoch). Until a table is read the type
+// is launchable.
+func (d *Driver) LaunchableType(it vendors.CatalogType) (bool, string) {
+	t, err := ParseType(it.APIReference)
+	if err != nil || !t.Sized {
+		return true, ""
+	}
+	si, ok := d.shapeByName(t.Shape)
+	if !ok || !si.Flexible || !si.beyondNuma(t) {
+		return true, ""
+	}
+	return false, numaError(t, si).Error()
 }
 
 func outOfBounds(t InstanceType, what string, v, lo, hi float64) error {
