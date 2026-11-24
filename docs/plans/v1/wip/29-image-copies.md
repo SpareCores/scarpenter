@@ -236,7 +236,8 @@ configured source region. The source must pass the same version check as a launc
 **Concurrency.** One copy per (vendor, region, channel, version, architecture): a second demand joins it; a pending
 image of this cluster with the tags is adopted. At most 4 in flight per vendor; the rest wait in demand order. A
 limit or throttling error from the copy call keeps the copy queued with the backoff; a refusal (a region not enabled,
-a missing permission, an unsupported region) fails it (step 7). The error codes are **unverified** (step 4).
+a missing permission, an unsupported region) fails it (step 7). The codes of the copy limit and of a region that is not enabled
+are untested (section 13).
 
 ## 6. Lifecycle and GC
 
@@ -336,10 +337,10 @@ Region labels are bounded by the vendor's regions.
 | `OptionalImageCopies` | `ec2:CopyImage`: on the new image and snapshot only with `aws:RequestTag/scarpenter.sparecores.com/cluster=CLUSTER_NAME` |
 | `OptionalImageCopiesSource` | `ec2:CopyImage` on images and snapshots with `ec2:Owner` the official owner (`aws.DefaultImageOwner`): a request tag does not apply to the source |
 | `OptionalImageCopiesTagAtCreation` | `ec2:CreateTags` only with `ec2:CreateAction=CopyImage` and the cluster tag |
-| `OptionalImageCopiesDelete` | `ec2:DeregisterImage` on images and `ec2:DeleteSnapshot` on snapshots (for `DeleteAssociatedSnapshots`, **unverified** whether needed), with `aws:ResourceTag/...` `cluster=CLUSTER_NAME`, `managed-by` and `resource-kind=image-copy` |
+| `OptionalImageCopiesDelete` | `ec2:DeregisterImage` on images and `ec2:DeleteSnapshot` on snapshots (for `DeleteAssociatedSnapshots`; the L5 run passed with it granted, section 10), with `aws:ResourceTag/...` `cluster=CLUSTER_NAME`, `managed-by` and `resource-kind=image-copy` |
 
-No statement lets the role tag an existing image. Which condition keys `CopyImage` evaluates per resource is
-**unverified** (step 4: a live call with the policy).
+No statement lets the role tag an existing image. The L5 run's `CopyImage` and `CreateTags` calls passed with these
+conditions (section 10).
 
 ## 8. Costs
 
@@ -350,10 +351,11 @@ about **12 days of storage**. Deleting an idle copy earlier than that and copyin
 it; the 30-day default `idleTTL` keeps a copy that is used at least monthly and pays at most one month of storage for
 one that is not.
 
-A Flatcar AMI's root volume is about 8 GiB provisioned, billed by the blocks written (smaller, **unverified**): at
-most about $0.16 per copy and $0.40 per month per region and architecture. A region holds both architectures
-(decision 3), so **about $0.80 a month per region**. The worst case, every one of today's 13 image-less AWS regions
-demanded: 26 copies, about $4 once and **about $10 a month**, per cluster. On Alibaba the storage is about a third of
+Measured (step 4): a copy's snapshot is 13 GiB, standard tier, per architecture and region. A region holds both
+architectures (decision 3), so 26 GiB per region. At the standard EBS snapshot price, **assumed** $0.05/GB-month and
+$0.02/GB transfer: $0.26 once and $0.65 a month per copy, so **$0.52 once and about $1.30 a month per region**. The
+worst case, every one of today's 13 image-less AWS regions demanded: 26 copies, about $6.80 once and **about $17 a
+month**, per cluster. On Alibaba the storage is about a third of
 AWS's and the copy's price is **unverified**; on UpCloud a template costs €0.33/GB-month, so the break-even there is
 short and a shorter `idleTTL` may pay.
 
@@ -396,11 +398,11 @@ short and a shorter `idleTTL` may pay.
    (nothing to provide), and `docs/how-to-guides/copy-images-on-demand.md` (enable it per vendor, the permissions per
    vendor, how to see a copy, cost, uninstall cleanup, migration; a section per vendor as they land). L1 with the
    fake EC2 for every call and error; conformance.
-4. **AWS L5 scenario (written by the agent, run by the coordinator).** A scenario `imagecopy` in `test/e2e-aws`
+4. **AWS L5 scenario (done; results in section 10; written by the agent, run by the coordinator).** A scenario `imagecopy` in `test/e2e-aws`
    (never in `all` or the smoke set, run by `-f scenarios=imagecopy`): a NodeClass limited to `ap-northeast-3` (no
    Flatcar AMI, verified), copies on, `--image-copy-idle-ttl=1m`; one small amd64 on-demand pod; assert `ImageCopying`,
    then a node in the region, then scale to zero and the copy's deletion. The lane policy gets the copy statements,
-   the sweeper deletes images and snapshots with the run's cluster tag. Cost: two copies (under $0.40), minutes of
+   the sweeper deletes images and snapshots with the run's cluster tag. Cost: two copies (about $0.52 of transfer), minutes of
    storage and of the smallest instance, well under $1. The agent's gates are the offline ones (scenario self-test,
    shellcheck); the coordinator's live run settles: the copy limit's error code, the code for a region that is not
    enabled (`OptInRequired`?), whether encryption by default applies to the copy and with which key, the condition
@@ -456,41 +458,40 @@ not delete. The IAM statements are `OptionalImageCopies` (`CopyImage` on the new
 (`DeregisterImage` and `DeleteSnapshot` with the cluster, managed-by and resource-kind resource tags); the fake EC2 gained `CopyImage`, `DeregisterImage`,
 `DescribeImageAttribute`, snapshots and the `image-id` instance filter.
 
-**To verify in step 4** (the live run; each is marked in the code or the reference and handled defensively until then):
+**Results of step 4** (L5 run 45480174766 of main 2f80876, which has the unresponsive-region fix, passed; an earlier run
+failed on that case, section 11). All in `ap-northeast-3`, source `us-east-2`:
 
-1. The error code of the concurrent-copy limit: `errors.go` maps `ResourceLimitExceeded` to `QuotaExceeded` (so it
-   waits with the manager's backoff); any other code would be `Fatal` and fail the copy for 6 h.
-2. The code for a region that is not enabled (`OptInRequired`, `AuthFailure`?): today `Fatal`, so `ImageCopyFailed`.
-3. Encryption by default: `StartCopy` sets no `Encrypted` or `KmsKeyId`; whether the account's default applies to the
-   copy and with which key, and whether a customer key needs the KMS statements.
-4. The condition keys `CopyImage` evaluates for the new image and snapshot (`OptionalImageCopies` uses
-   `aws:RequestTag/...cluster` on both; `OptionalImageCopiesTagAtCreation` adds `ec2:CreateAction=CopyImage`) and for the
-   source (`OptionalImageCopiesSource` uses `ec2:Owner`).
-5. Whether `DeleteAssociatedSnapshots` needs `ec2:DeleteSnapshot` (the policy grants it for tagged snapshots meanwhile; a
-   `missing-permissions` result is logged by `DeleteCopy`).
-6. `lastLaunchedTime` after a launch (AWS documents about 24 h), the copy duration and the billed snapshot size.
+1. Duration: the copy was usable 365 s after `ImageCopying` first showed (366 s in the earlier run). The controller's
+   duration histogram sums to about 515 s over the two copies (both runs). A region is gated for about six minutes
+   from its first demand.
+2. Both architectures are copied, as one unit: `started_total` and `completed_total` are 2 for a pod that needs only
+   amd64.
+3. Encryption: the copies and their snapshots were unencrypted, because encryption by default is off in the region (the
+   `alias/aws/ebs` key is not applied). A customer default key is untested.
+4. IAM: `CopyImage` (new image and snapshot, source), `CreateTags` and the delete passed with the lane policy; the
+   condition keys of `OptionalImageCopies*` are enough. There was no `AccessDenied`. The only `UnauthorizedOperation`
+   was `ec2:DescribeAvailabilityZones`, from the lane policy's `DenyOutsideRegion` (not a statement of the driver).
+5. Delete: one minute after the idle TTL of 1 m, 62 s after the pod's deletion (the instance was gone after 51 s; GC
+   every 1 m), `DeregisterImage` with `DeleteAssociatedSnapshots` removed both copies (`deleted_total{reason="Idle"}`
+   2) and their snapshots (gone 1 s after the images), without a missing-permission result. The policy grants
+   `ec2:DeleteSnapshot` for tagged snapshots; the run did not withhold it, so whether the call needs it is not isolated and
+   the statement stays.
+6. `lastLaunchedTime` was `None` after the launch and after the instance ended, and in the earlier run about 18
+   minutes after the launch (AWS documents a delay of up to 24 h). Rule (a) therefore rests on the manager's in-memory last resolve and the
+   creation time within the first day, and on the in-use check; the vendor's record only extends it later.
+7. Snapshot size: 13 GiB each, standard tier (section 8).
+8. Teardown: clean. The GC had already deleted the copies, so no image or snapshot of the cluster was left for the
+   sweeper.
+9. `ap-northeast-3` is enabled in the lane account.
+10. In this run `me-south-1` again timed out on `DescribeImages` (`CallTimeout`); the GC logged the error naming the
+    region, went on in the other regions and deleted the idle copies.
 
-## 10. Rollout
-
-1. A release with steps 1 to 3 and copies **off by default**: nothing changes for anyone.
-2. AWS users opt in per controller; the coordinator's L5 run (step 4) and one production cluster with a NodeClass
-   without a region list (where `ImagesPartial` lists the gaps today) are the first users. Watch the metrics.
-3. A release with step 5 (Alibaba) and step 6; then 7 and 8 as their spikes allow.
-
-**Migrating from IaC copies to SCarpenter's** (Alibaba today; the same for an AWS operator who copies AMIs with IaC
-and names them in `images.use`), without downtime:
-
-1. Upgrade, enable `--alicloud-copy-images` with the source region set to the region where the IaC imports. Nothing
-   changes: the IaC copies are primary (precedence step 3) in every region that has one.
-2. At the next Flatcar bump, the IaC imports into the source region only and stops copying. Regions without the new
-   release become `ImageCopyOnDemand` and are copied when used. The old release's IaC copies stay until drift has
-   replaced every node (no instance runs from them), then the IaC removes them as it does at every bump today. (The
-   release bump of section 6 covers SCarpenter's own copies only; a region whose nodes run from an IaC copy is gated
-   for the copy's duration at the bump.)
-3. Removing an IaC copy of the **current** release before a bump is safe in a region once no instance runs from it,
-   or once the region's image status shows a SCarpenter copy (`ImageCopying` first: the region is gated for the copy's
-   duration, so do it region by region). A NodeClass that names IaC images in `images.use` must drop that selector
-   first, or it never gets copies.
+**Untested**: the error code of the copy limit (`errors.go` maps `ResourceLimitExceeded` and
+`ConcurrentSnapshotLimitExceeded` to `QuotaExceeded`, any other code is `Fatal`); the code for a region that is not
+enabled (`OptInRequired`, `AuthFailure`?; today `Fatal`); a customer KMS key as the default (needs the existing KMS
+statements, **unverified**). They would be tested by a run that demands many regions at once with the manager's cap raised (the limit), by a
+lane account with an opted-out region as the target (the code), and by an account whose default key is a customer
+key (KMS).
 
 ## 11. Failure modes
 
@@ -508,7 +509,7 @@ and names them in `images.use`), without downtime:
 | a launch template references a copy | not protected | documented; only running instances protect a copy |
 | cluster deleted | its copies remain | documented listing by tag; the e2e sweeper |
 | a copy is deleted by hand | next lookup misses | back to `ImageCopyOnDemand` |
-| encryption by default in the account | the copy may be encrypted with the default key | settled in step 4; a customer default key needs the existing KMS statements |
+| encryption by default in the account | the copy may be encrypted with the default key | tested with the default off: unencrypted copies; a customer default key is untested and would need the existing KMS statements |
 
 ## 12. Tests per lane
 
@@ -531,12 +532,10 @@ and names them in `images.use`), without downtime:
 
 **Unverified facts** (settled by the step named):
 
-- AWS, by the coordinator's live run in step 4: the concurrent-copy limit and its error code; the code for a region
-  that is not enabled; encryption by default on `CopyImage`; the IAM condition keys `CopyImage` evaluates; whether
-  `DeleteAssociatedSnapshots` needs `ec2:DeleteSnapshot`; the copy duration; the billed snapshot size; whether
-  `ap-northeast-3` is enabled in the lane account. Per-pair transfer prices stay the owner's figures.
-- AWS `lastLaunchedTime`: updated within about 24 h of a launch (AWS documentation; step 3 confirms the attribute in
-  the vendored SDK, step 4 live).
+- AWS, untested after step 4 (section 10 says what would test each): the concurrent-copy limit and its error code; the
+  code for a region that is not enabled; a customer KMS key as the default on `CopyImage`; whether
+  `DeleteAssociatedSnapshots` needs `ec2:DeleteSnapshot` (granted meanwhile). Per-pair transfer prices stay the owner's
+  figures; the storage price in section 8 is an assumption.
 - Settled by the vendored SDK: `CopyImage` `TagSpecifications` and `ClientToken`; `DeregisterImage`
   `DeleteAssociatedSnapshots`; `Image.SourceImageId` and `SourceImageRegion`.
 - Alibaba (step 5): tags on `CopyImage`, its concurrency limit and price, snapshot deletion, RAM tag conditions, a
