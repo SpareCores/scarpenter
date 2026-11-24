@@ -451,6 +451,10 @@ type CatalogType struct {
 	// CompatibleStorage are the names of the vendor's storage types the type
 	// can attach (Keeper); empty: unknown, which no check acts on.
 	CompatibleStorage []string
+	// GPU is whether the catalog (Keeper) says the type has GPUs, by the rule
+	// that selects the NVIDIA driver: accelerator type GPU and a count above
+	// zero. False: none, or unknown. Set by the catalog, not at launch.
+	GPU bool
 }
 
 // Profiles are the profiles a NodeClass defines for the vendor: kind

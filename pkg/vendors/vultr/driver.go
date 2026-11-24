@@ -204,6 +204,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 		return nil, vendors.NewError(vendors.Unsupported, codeIncompatible,
 			fmt.Errorf("the driver cannot launch plan %s: %s", req.InstanceType, why))
 	}
+	if err := d.ops.CheckPlanType(ctx, req.InstanceType); err != nil {
+		return nil, err
+	}
 	lo, err := launchOptions(req)
 	if err != nil {
 		return nil, err

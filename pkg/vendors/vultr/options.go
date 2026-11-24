@@ -55,8 +55,18 @@ func (d *Driver) PriceDelta(vendors.VendorSettings, vendors.Offering) (float64, 
 // LaunchableType implements vendors.TypeChecker: whether the driver launches the
 // plan at all (ClassifyPlanID), whatever the settings and the stock, so a plan
 // it refuses is not offered from the first catalog build on (NotLaunchable).
+// The catalog has no plan type, so a GPU plan's type is checked where the plans
+// are listed (ClassifyPlanType); here a GPU plan needs the accelerator data of
+// the catalog (CatalogType.GPU), which selects the NVIDIA driver: without it the node would come
+// up as a CPU node with an idle GPU.
 func (d *Driver) LaunchableType(it vendors.CatalogType) (bool, string) {
-	return ClassifyPlanID(it.APIReference)
+	if ok, why := ClassifyPlanID(it.APIReference); !ok {
+		return false, why
+	}
+	if isGPUPlan(it.APIReference) && !it.GPU {
+		return false, "Keeper has no accelerator data for this GPU plan (accelerator type GPU and a count)"
+	}
+	return true, ""
 }
 
 // SupportsSettings implements vendors.SettingsChecker: a diskless plan boots from

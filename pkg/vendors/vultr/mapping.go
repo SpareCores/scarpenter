@@ -215,11 +215,28 @@ var planFamilies = map[string]struct {
 	"voc": {true, ""},
 	// Supported only with a local disk, see ClassifyPlan.
 	"vx1": {true, ""},
-	// Outside the driver's support today (untested launches, GPU costs); vbm is
-	// another API (/v2/bare-metals). A later change lifts them one by one.
-	"vcg": {false, "Cloud GPU plans are outside the driver's support today"},
-	"vdm": {false, "GPU bare metal plans are outside the driver's support today"},
+	// The ID prefix says nothing about a GPU plan's type: the full-GPU plans
+	// (vcg-a16-*, vcg-a100-*) are of type vdm, only the L40S plans are of type
+	// vcg. The plan's type decides, see ClassifyPlanType.
+	"vcg": {true, ""},
+	// No plan ID has this prefix (the dedicated GPU plans are vcg-*, of type
+	// vdm): refused explicitly instead of as unclassified.
+	"vdm": {false, "no Vultr plan ID has the vdm prefix: the dedicated GPU plans are vcg-* of plan type vdm"},
+	// vbm is another API (/v2/bare-metals).
 	"vbm": {false, "bare metal plans (another API, /v2/bare-metals) are outside the driver's support today"},
+}
+
+// planTypeDedicatedGPU is the type ("Dedicated Metal GPU") of Vultr's full-GPU
+// plans, as GET /v2/plans reports it. They launch through /v2/instances.
+const planTypeDedicatedGPU = "vdm"
+
+// gpuFamily is the plan ID prefix of the GPU plans.
+const gpuFamily = "vcg"
+
+// isGPUPlan says whether the plan ID is one of the GPU plans (see planFamilies).
+func isGPUPlan(id string) bool {
+	family, _, _ := strings.Cut(id, "-")
+	return family == gpuFamily
 }
 
 // freePlan is dropped: no stock guarantee.
@@ -229,12 +246,16 @@ const freePlan = "vc2-1c-0.5gb-free"
 const ipv6OnlySuffix = "-v6"
 
 // ClassifyPlan says whether the driver launches a Vultr plan, and why not.
-// diskGB is the plan's local disk in GB (Keeper's storage_size, which is 1 for
-// a diskless plan; govultr's Plan has no storage_type field, so the plan's
-// `disk` is the signal). A vx1 plan with no local disk boots from a volume,
-// which v1 does not do (plan 20, section 5; S2 decides local_and_block_storage).
-func ClassifyPlan(id string, diskGB int) (ok bool, reason string) {
+// planType is the plan's `type` of GET /v2/plans. diskGB is the plan's local
+// disk in GB (Keeper's storage_size, which is 1 for a diskless plan; govultr's
+// Plan has no storage_type field, so the plan's `disk` is the signal). A vx1
+// plan with no local disk boots from a volume, which v1 does not do (plan 20,
+// section 5; S2 decides local_and_block_storage).
+func ClassifyPlan(id string, diskGB int, planType string) (ok bool, reason string) {
 	if ok, reason := ClassifyPlanID(id); !ok {
+		return false, reason
+	}
+	if ok, reason := ClassifyPlanType(id, planType); !ok {
 		return false, reason
 	}
 	if isDiskless(id, diskGB) {
@@ -249,8 +270,19 @@ func isDiskless(id string, diskGB int) bool {
 	return family == "vx1" && diskGB <= 1
 }
 
+// ClassifyPlanType is the rule on a GPU plan's type: only the dedicated GPU
+// plans (type vdm) are launched; the L40S plans (type vcg) are untested. Plans
+// of other families are not GPU plans and pass.
+func ClassifyPlanType(id, planType string) (ok bool, reason string) {
+	if !isGPUPlan(id) || planType == planTypeDedicatedGPU {
+		return true, ""
+	}
+	return false, fmt.Sprintf("GPU plans of type %q are outside the driver's support today "+
+		"(only type %q, the dedicated GPU plans)", planType, planTypeDedicatedGPU)
+}
+
 // ClassifyPlanID is ClassifyPlan from the plan ID alone: the families and plans
-// the driver cannot launch, whatever their disk or stock. The catalog's default
+// the driver cannot launch, whatever their disk, type or stock. The catalog's default
 // route and the launch use it before any availability data is loaded.
 func ClassifyPlanID(id string) (ok bool, reason string) {
 	if id == freePlan {
