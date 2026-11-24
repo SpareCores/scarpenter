@@ -27,6 +27,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/controllers/csr"
 	"github.com/SpareCores/scarpenter/pkg/controllers/garbagecollection"
 	"github.com/SpareCores/scarpenter/pkg/controllers/gpupending"
+	"github.com/SpareCores/scarpenter/pkg/controllers/initialization"
 	"github.com/SpareCores/scarpenter/pkg/controllers/interruption"
 	"github.com/SpareCores/scarpenter/pkg/controllers/nodeclass"
 	"github.com/SpareCores/scarpenter/pkg/controllers/offered"
@@ -252,7 +253,8 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 
 // WithComponentControllers registers the controllers of the components: the
 // garbage collector, the NodeClass controller and its quota status, the
-// bootstrap token cleanup and the serving certificate approver.
+// bootstrap token cleanup, the serving certificate approver and the
+// initialization timeout.
 func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) error {
 	opts := o.Options
 	gc := garbagecollection.New(garbagecollection.Options{
@@ -303,6 +305,12 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 		if err := gpupending.New(o.GetClient(), o.EventRecorder, o.Clock).Register(o.Manager); err != nil {
 			return err
 		}
+	}
+	timeout := initialization.New(initialization.Options{
+		Client: o.GetClient(), Recorder: o.EventRecorder, Clock: o.Clock, Registerer: metrics.Registry,
+	})
+	if err := timeout.Register(o.Manager); err != nil {
+		return err
 	}
 	c.checkClusterCA(ctx)
 	qs := quotastatus.New(quotastatus.Options{

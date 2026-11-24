@@ -292,6 +292,11 @@
           "additionalProperties": false,
           "description": "launch is the launch retry policy of the class.",
           "properties": {
+            "initializationTimeout": {
+              "description": "initializationTimeout is how long a node of this class may stay\nregistered without becoming Initialized (Ready, startup taints gone,\nresources registered), counted from the creation of its Node. Once it is\nover, SCarpenter deletes the NodeClaim and Karpenter terminates the\ninstance. Core has no deadline for this state. Default 1h; 0s disables\nthe check; at most 24h. A change applies to the nodes that are still\nuninitialized within about 10 minutes.",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(s|m|h))+$",
+              "type": "string"
+            },
             "insufficientCapacityTTL": {
               "description": "insufficientCapacityTTL is how long this class keeps away from an\noffering that had no capacity. It can only extend the controller's\n--unavailable-insufficient-capacity-ttl for this class: every class\nstill shares the controller's mark. At most 24h. A change applies to the\nmarks made after it; the existing ones keep their expiry.",
               "pattern": "^([0-9]+(\\.[0-9]+)?(s|m|h))+$",

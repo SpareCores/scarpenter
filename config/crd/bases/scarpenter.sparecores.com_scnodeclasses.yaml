@@ -324,6 +324,22 @@ spec:
               launch:
                 description: launch is the launch retry policy of the class.
                 properties:
+                  initializationTimeout:
+                    description: |-
+                      initializationTimeout is how long a node of this class may stay
+                      registered without becoming Initialized (Ready, startup taints gone,
+                      resources registered), counted from the creation of its Node. Once it is
+                      over, SCarpenter deletes the NodeClaim and Karpenter terminates the
+                      instance. Core has no deadline for this state. Default 1h; 0s disables
+                      the check; at most 24h. A change applies to the nodes that are still
+                      uninitialized within about 10 minutes.
+                    pattern: ^([0-9]+(\.[0-9]+)?(s|m|h))+$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: initializationTimeout must be at least 0 and at most
+                        24h
+                      rule: duration(self) >= duration('0s') && duration(self) <=
+                        duration('24h')
                   insufficientCapacityTTL:
                     description: |-
                       insufficientCapacityTTL is how long this class keeps away from an

@@ -217,7 +217,7 @@ about a month; the L3 lane runs against the pinned core.
 | `Get(providerID)` | Parse `scarpenter://<vendor>/<region>/<nodeclaim>`; look up through the List cache, on a miss ask the driver (`GetInstance` by tag). Terminated or terminating instances are NotFound. |
 | `List()` | Driver `ListInstances` with the cluster tag, per vendor, over the regions that any NodeClass allows or any NodeClaim uses. Cached for 30 s. |
 | `IsDrifted(nodeClaim)` | `NodeClassDrift` when the NodeClaim's `scarpenter.sparecores.com/nodeclass-hash` annotation differs from the NodeClass's current hash for the NodeClaim's vendor (§6.3); `""` otherwise. |
-| `RepairPolicies()` | `Ready=False` and `Ready=Unknown` for 10 minutes. Users who do not want repair disable core's node repair feature gate. |
+| `RepairPolicies()` | `Ready=False` (the fallback policy) and `Ready=Unknown` for 10 minutes, both `ReplaceNode`: the set core's `NodeRepair` gate validates. The gate is alpha and off by default; the operator passes core the repair policy matcher. A node that never initializes is deleted by the initialization timeout (`spec.launch.initializationTimeout`), independent of the gate. |
 | `DisruptionReasons()` | none beyond core's |
 
 ### 4.1 `Create`
