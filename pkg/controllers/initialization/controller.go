@@ -45,6 +45,10 @@ import (
 // spec.launch.initializationTimeout.
 const DefaultTimeout = time.Hour
 
+// MaxRecheck caps the wait between two looks at a claim, so that a changed
+// spec.launch.initializationTimeout (the NodeClass is not watched) applies within it.
+const MaxRecheck = 10 * time.Minute
+
 // EventTimeout is the Reason of the Warning Events on the NodeClaim and the NodeClass.
 const EventTimeout = "InitializationTimeout"
 
@@ -124,6 +128,11 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	if !conds.IsTrue(karpv1.ConditionTypeRegistered) || conds.IsTrue(karpv1.ConditionTypeInitialized) {
 		return reconcile.Result{}, nil
 	}
+	// Core's reboot controller sets Initialized=Unknown while it reboots a node
+	// that was initialized: that node is not stuck.
+	if conds.IsTrue(karpv1.ConditionTypeRebooting) {
+		return reconcile.Result{}, nil
+	}
 	vendor, _, _, err := scope.ParseProviderID(claim.Status.ProviderID)
 	if err != nil {
 		return reconcile.Result{}, nil //nolint:nilerr // not an instance of SCarpenter
@@ -137,31 +146,39 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		timeout = l.InitializationTimeout.Duration
 	}
 	if timeout == 0 {
-		return reconcile.Result{}, nil
+		return reconcile.Result{RequeueAfter: MaxRecheck}, nil
 	}
 
 	node, err := c.node(ctx, claim)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-	since := conds.Get(karpv1.ConditionTypeRegistered).LastTransitionTime.Time
+	since, from := conds.Get(karpv1.ConditionTypeRegistered).LastTransitionTime.Time, "registration"
 	if node != nil {
-		since = node.CreationTimestamp.Time
+		since, from = node.CreationTimestamp.Time, "the node was created"
 	}
 	elapsed := c.opts.Clock.Since(since)
 	if wait := timeout - elapsed; wait > 0 {
-		return reconcile.Result{RequeueAfter: wait}, nil
+		return reconcile.Result{RequeueAfter: min(wait, MaxRecheck)}, nil
 	}
 
-	message := fmt.Sprintf("the node did not become Initialized within %s (%s since it was created)%s",
-		timeout, elapsed.Round(time.Second), readyOf(node))
-	log.FromContext(ctx).Info("deleting the NodeClaim of a node that never initialized",
-		"nodeclaim", claim.Name, "node", claim.Status.NodeName, "nodeclass", class.Name, "reason", message)
-	c.publish(claim, message)
-	c.publish(class, fmt.Sprintf("NodeClaim %s: %s", claim.Name, message))
-	if err := c.opts.Client.Delete(ctx, claim); client.IgnoreNotFound(err) != nil {
+	// A conflict is retried after a second. The precondition keeps a claim that changed since it was read (it may
+	// have initialized) from being deleted on stale data.
+	err = c.opts.Client.Delete(ctx, claim, client.Preconditions{ResourceVersion: &claim.ResourceVersion})
+	switch {
+	case apierrors.IsNotFound(err):
+		return reconcile.Result{}, nil
+	case apierrors.IsConflict(err):
+		return reconcile.Result{RequeueAfter: time.Second}, nil
+	case err != nil:
 		return reconcile.Result{}, fmt.Errorf("deleting NodeClaim %s: %w", claim.Name, err)
 	}
+	message := fmt.Sprintf("the node did not become Initialized within %s (%s since %s)%s",
+		timeout, elapsed.Round(time.Second), from, readyOf(node))
+	log.FromContext(ctx).Info("deleted the NodeClaim of a node that never initialized",
+		"nodeclaim", claim.Name, "node", claim.Status.NodeName, "nodeclass", class.Name, "reason", message)
+	c.publish(claim, message)
+	c.publish(class, fmt.Sprintf("NodeClaim %s: %s", claim.Name, message), claim.Name)
 	c.timeouts.WithLabelValues(vendor, class.Name).Inc()
 	return reconcile.Result{}, nil
 }
@@ -195,12 +212,12 @@ func readyOf(node *corev1.Node) string {
 	return ""
 }
 
-func (c *Controller) publish(obj client.Object, message string) {
+func (c *Controller) publish(obj client.Object, message string, dedupe ...string) {
 	if c.opts.Recorder == nil {
 		return
 	}
 	c.opts.Recorder.Publish(events.Event{
 		InvolvedObject: obj, Type: corev1.EventTypeWarning, Reason: EventTimeout, Message: message,
-		DedupeValues: []string{obj.GetName()},
+		DedupeValues: append([]string{obj.GetName()}, dedupe...),
 	})
 }

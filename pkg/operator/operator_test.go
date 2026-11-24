@@ -112,6 +112,9 @@ func TestManagerStartsWithTheProductionWiring(t *testing.T) {
 	t.Setenv("METRICS_PORT", fmt.Sprint(freePort(t)))
 	t.Setenv("HEALTH_PROBE_PORT", fmt.Sprint(healthPort))
 	t.Setenv("DISABLE_LEADER_ELECTION", "true")
+	// Core's node repair is built with the manager: without the repair policy
+	// matcher in the cluster state core panics, so run with the gate on.
+	t.Setenv("FEATURE_GATES", "NodeRepair=true")
 	t.Setenv("SCARPENTER_CLUSTER_NAME", "my-cluster")
 	t.Setenv("SCARPENTER_API_SERVER_ENDPOINT", "https://10.0.0.1:6443")
 	t.Setenv("SCARPENTER_VENDORS", stubVendor)

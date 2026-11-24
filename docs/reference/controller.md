@@ -299,8 +299,8 @@ For one that is Registered but not Initialized and not being deleted it measures
 the time since the creation of its Node (the Registered condition's time when
 there is no Node). Once that exceeds `spec.launch.initializationTimeout` of the
 class (default `1h`; `0s` disables the check) it deletes the NodeClaim, and core
-terminates the instance. Until then it requeues at the deadline instead of
-polling. A changed timeout applies when the next check is due.
+terminates the instance. Until then it requeues at the deadline (at most 10
+minutes ahead, also with the check disabled) instead of polling. A changed timeout applies within about 10 minutes.
 
 The deletion is announced by a Warning Event `InitializationTimeout` on the
 NodeClaim and on the NodeClass, naming the elapsed time and the Ready condition's
