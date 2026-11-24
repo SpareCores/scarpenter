@@ -20,7 +20,8 @@ type Summary struct {
 	// Types are the offered types, Offerings their offerings (available or
 	// not) and AvailableOfferings those that are available.
 	Types, Offerings, AvailableOfferings int
-	// Dropped counts the types that are not offered, per reason. Unavailable
+	// Dropped counts the types that are not offered, per reason (NotLaunchable
+	// too, when it is type-level). Unavailable
 	// counts the offerings of the offered types that are not available, per
 	// reason; the removed ones (ZoneNotAvailable, IncompletePrice,
 	// NotLaunchable) are counted here too. Both are sorted by code.

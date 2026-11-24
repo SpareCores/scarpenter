@@ -91,6 +91,13 @@ type SettledFacts interface {
 	LaunchableSettled(vendor string) bool
 }
 
+// TypeFacts is an optional extension of Facts: whether the driver can launch
+// the type at all, whatever the zone, the settings and the stock. A type it
+// cannot is dropped (reason NotLaunchable, the detail is why).
+type TypeFacts interface {
+	TypeLaunchable(vendor string, srv *model.Server) (ok bool, reason string)
+}
+
 // DefaultRouteFacts is an optional extension of Facts: whether the driver can
 // host the type with the class's default settings (no profile selected). A type
 // it cannot is offered only with a storage profile that makes it work, and not

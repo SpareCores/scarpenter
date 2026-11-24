@@ -77,10 +77,13 @@ There is no `QuotaReporter` (Vultr has no quota API: the account limits are show
 
 The plan is Keeper's `api_reference` (`vc2-2c-4gb`). The driver launches the families `vc2`, `vhf`, `vhp` and
 `voc`, and `vx1` only with a local disk (a diskless plan boots from a block storage volume: v1 does not). Cloud GPU
-(`vcg`), GPU bare metal (`vdm`), bare metal (`vbm`) and the free plan `vc2-1c-0.5gb-free` are not launched; a
+(`vcg`), GPU bare metal (`vdm`), bare metal (`vbm`) and the free plan `vc2-1c-0.5gb-free` are not launched; the
+plan ID decides this (`ClassifyPlanID`), so the type is not offered (`NotLaunchable`) and a launch is refused from
+the first catalog build, before any stock data. A diskless `vx1` plan is reported as `StorageIncompatible`, and `vcg`
+and `vdm` report `NotLaunchable` instead of a GPU code. A
 family nobody classified is unsupported, and a test fails when a family of the committed Keeper snapshot has no
-classification. IPv6-only plans (IDs ending in `-v6`, Vultr's documented spelling) are not offered: the offered-types
-listing shows them as `NotLaunchable`. The node bootstrap needs IPv4 (see [the driver
+classification. IPv6-only plans (IDs ending in `-v6`, Vultr's documented spelling) are not offered: the offered types
+listing reports them as `NotLaunchable`. The node bootstrap needs IPv4 (see [the driver
 contract](driver-contract.md#reaching-the-bootstrap-artifacts)): the sysexts come from github.com, which has no AAAA
 record, and the `direct` template's node-IP script reads an IPv4 address. Supporting them needs an IPv6-reachable
 sysext mirror (`artifacts.sysextBaseURL`) or an IPv4 egress for the nodes. Vultr has no Arm instances: an arm64 type or image is `Unsupported`.
