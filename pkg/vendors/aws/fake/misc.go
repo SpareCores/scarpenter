@@ -121,6 +121,7 @@ func (e *EC2) DescribeImages(ctx context.Context, in *ec2.DescribeImagesInput, _
 		return nil, err
 	}
 	defer e.end()
+	e.a.settleImages(r)
 	for _, id := range in.ImageIds {
 		if _, ok := r.images[id]; !ok {
 			return nil, apiError("InvalidAMIID.NotFound", fmt.Sprintf("The image id '[%s]' does not exist", id))
@@ -132,7 +133,8 @@ func (e *EC2) DescribeImages(ctx context.Context, in *ec2.DescribeImagesInput, _
 		if len(in.ImageIds) > 0 && !slices.Contains(in.ImageIds, id) {
 			continue
 		}
-		if len(in.Owners) > 0 && !slices.Contains(in.Owners, img.Owner) {
+		if len(in.Owners) > 0 && !slices.Contains(in.Owners, img.Owner) &&
+			(img.Owner != AccountID || !slices.Contains(in.Owners, "self")) {
 			continue
 		}
 		ok, err := matches(in.Filters, img.Tags, img.attrs)
@@ -149,7 +151,12 @@ func (e *EC2) DescribeImages(ctx context.Context, in *ec2.DescribeImagesInput, _
 		for _, k := range sortedKeys(img.Tags) {
 			tags = append(tags, types.Tag{Key: new(k), Value: new(img.Tags[k])})
 		}
+		var reason *types.StateReason
+		if img.State == "failed" || img.State == "error" {
+			reason = &types.StateReason{Code: new("Server.InternalError"), Message: new(img.StateMessage)}
+		}
 		out.Images = append(out.Images, types.Image{
+			SourceImageId: nonEmpty(img.SourceImageID), SourceImageRegion: nonEmpty(img.SourceRegion), StateReason: reason,
 			Tags: tags, Description: new(img.Description), CreationDate: new(img.created().Format("2006-01-02T15:04:05.000Z")),
 			ImageId: new(img.ID), Name: new(img.Name), OwnerId: new(img.Owner), Architecture: types.ArchitectureValues(img.Arch),
 			State: types.ImageState(img.State), RootDeviceName: new(img.RootDevice), RootDeviceType: types.DeviceTypeEbs,
@@ -327,4 +334,11 @@ func (e *EC2) DescribeCapacityReservations(ctx context.Context, in *ec2.Describe
 	}
 	items, next := page(out, in.NextToken, in.MaxResults, e.a.bigPage)
 	return &ec2.DescribeCapacityReservationsOutput{CapacityReservations: items, NextToken: next}, nil
+}
+
+func nonEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

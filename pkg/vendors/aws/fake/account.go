@@ -14,7 +14,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // instances start running (never pending); filtered pages are never short unless
 // WithShortFilteredPages is set; ClientTokens never expire (the real service
 // forgets them after a while) and only RunInstances and CreateRouteTable model
-// them; a reservation holds one instance; there is no IAM; a spot request closes
+// them; a reservation holds one instance; the image attribute lastLaunchedTime follows a launch at once (the
+// service takes up to a day); snapshots exist only for the images CopyImage makes; there is no IAM; a spot request closes
 // three minutes after its instance ended (measured). It implements the driver's narrow API interfaces
 // and no SDK transport: errors are smithy API errors with the codes the real
 // service returns, so the driver's classification runs on them unchanged.
@@ -91,20 +92,21 @@ type RegionSpec struct {
 
 // Account is an AWS account: every region and everything in it.
 type Account struct {
-	mu          sync.Mutex
-	clock       clock.Clock
-	pageSize    int
-	bigPage     int
-	shortPages  bool
-	ipv6Delay   int
-	regionSpecs []RegionSpec
-	regions     map[string]*region
-	order       []string
-	nextID      int
-	types       []InstanceType
-	failures    []*Failure
-	calls       map[string]int
-	inputs      map[string][]any
+	mu           sync.Mutex
+	clock        clock.Clock
+	pageSize     int
+	bigPage      int
+	shortPages   bool
+	ipv6Delay    int
+	regionSpecs  []RegionSpec
+	copyDuration time.Duration
+	regions      map[string]*region
+	order        []string
+	nextID       int
+	types        []InstanceType
+	failures     []*Failure
+	calls        map[string]int
+	inputs       map[string][]any
 }
 
 // New returns an account with us-east-1 and eu-central-1 (three zones each, a
@@ -148,6 +150,8 @@ type Failure struct {
 	// until its context ends (a hung connection).
 	Code, Message string
 	Block         bool
+	// Region, if set, restricts the failure to calls made in that region.
+	Region string
 	// Match, if set, restricts the failure to calls whose input it accepts.
 	Match func(input any) bool
 	// Count is how many calls fail; 0 means one, a negative count is endless.
@@ -181,10 +185,15 @@ func (a *Account) Inputs(op string) []any {
 // begin counts a call and applies a matching failure; it must be called with
 // the account locked and returns with it locked.
 func (a *Account) begin(ctx context.Context, op string, in any) error {
+	return a.beginIn(ctx, "", op, in)
+}
+
+// beginIn is begin for a call made in a region.
+func (a *Account) beginIn(ctx context.Context, region, op string, in any) error {
 	a.calls[op]++
 	a.inputs[op] = append(a.inputs[op], in)
 	for i, f := range a.failures {
-		if f.Op != op || (f.Match != nil && !f.Match(in)) {
+		if f.Op != op || (f.Region != "" && f.Region != region) || (f.Match != nil && !f.Match(in)) {
 			continue
 		}
 		if f.Count > 0 {

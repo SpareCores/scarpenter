@@ -77,6 +77,10 @@ var errorClasses = map[string]vendors.Class{
 	"AddressLimitExceeded":               vendors.QuotaExceeded,
 	"ResourceLimitExceeded":              vendors.QuotaExceeded,
 	"NetworkInterfaceLimitExceeded":      vendors.QuotaExceeded,
+	// The limit of pending snapshots of one volume (CreateSnapshot). ResourceLimitExceeded
+	// above is the code CopyImage's copy limit is expected to give; to verify in plan 29
+	// step 4 with the code the service really gives.
+	"ConcurrentSnapshotLimitExceeded": vendors.QuotaExceeded,
 	// The zone cannot host any instance.
 	"InsufficientFreeAddressesInSubnet": vendors.ZoneUnusable,
 	// Transient: throttling, server errors, and dependencies that clear when the

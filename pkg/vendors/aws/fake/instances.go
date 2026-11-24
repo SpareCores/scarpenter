@@ -38,7 +38,7 @@ func (a *Account) EC2(region string) *EC2 { return &EC2{a: a, region: region} }
 // begin starts a call: counts it, applies failures and returns the region.
 func (e *EC2) begin(ctx context.Context, op string, in any) (*region, error) {
 	e.a.mu.Lock()
-	if err := e.a.begin(ctx, op, in); err != nil {
+	if err := e.a.beginIn(ctx, e.region, op, in); err != nil {
 		e.a.mu.Unlock()
 		return nil, err
 	}
@@ -142,6 +142,8 @@ func (i *instance) attrs(name string) ([]string, bool) {
 		return []string{l}, true
 	case "instance-id":
 		return []string{i.id}, true
+	case "image-id":
+		return []string{i.ami}, true
 	}
 	return nil, false
 }
@@ -261,6 +263,7 @@ func (e *EC2) RunInstances(ctx context.Context, in *ec2.RunInstancesInput, _ ...
 		r.tokens[inst.token] = inst
 	}
 	r.insts = append(r.insts, inst)
+	a.noteLaunch(r, inst.ami)
 	return &ec2.RunInstancesOutput{Instances: []types.Instance{inst.toSDK()}}, nil
 }
 

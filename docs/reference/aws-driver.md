@@ -23,6 +23,7 @@ Setting it up: [Set up AWS](../how-to-guides/set-up-aws.md).
 - [Credentials and clients](#credentials-and-clients)
 - [Regions and zones](#regions-and-zones)
 - [Images](#images)
+  - [Image copies](#image-copies)
 - [Launch](#launch)
 - [GPU instance types](#gpu-instance-types)
 - [Node settings](#node-settings)
@@ -157,6 +158,33 @@ Setting it up: [Set up AWS](../how-to-guides/set-up-aws.md).
   and a transient `DescribeImages` error is not an answer: the last good image is
   served, or the report fails and nothing is gated (so a default NodeClass is not permanently `False`
   because stable is not published in a default-enabled region).
+
+### Image copies
+
+With `--aws-copy-images` (plan 29, ADR-032; [image copies](image-copies.md), [how to](../how-to-guides/copy-images-on-demand.md))
+the driver is an `ImageCopier` and the copy manager copies the official AMI into a region that has none.
+The driver maps the manager's calls onto EC2:
+
+| Call | EC2 |
+|---|---|
+| `Primary` | the lookup of `ResolveImage` above (owner `075585003325`, the release's name), without copies and with the same caches |
+| `CopySources` | `Primary` in every region of the account, in the order `us-east-1`, `us-east-2`, `us-west-2`, `eu-west-1`, `eu-central-1`, then the others by name; each source has passed the version check. A non-empty answer is cached for 1 h, for 5 min when a region failed; an empty one is not cached (the miss cache of `Primary`, 5 min, applies), so a release Flatcar publishes later is found at the next ask. A region that fails for good (an SCP denial, an opt-in region) is no source and no error; only when no source is found and a region failed transiently is the answer an error, otherwise "none" and the manager reports `ImageCopySourceMissing` |
+| `ListCopies` | `DescribeImages` with owner `self` and the filters `tag:scarpenter.sparecores.com/cluster`, `managed-by` and `resource-kind=image-copy`; the state (`pending` and `transient` pending, `available`, anything else failed with the state reason), the release from the tags, the source from `SourceImageRegion` and `SourceImageId`, and for an available image `DescribeImageAttribute` `lastLaunchedTime` as the last use (AWS updates it within about a day of a launch; the answer is kept for 1 h per image, an unreadable one too, logged once and zero). Deregistered images are skipped |
+| `StartCopy` | `CopyImage` in the destination region with the name `scarpenter-flatcar-<channel>-<version>-<arch>-<cluster>` (cut to 128 characters with a hash), `ClientToken` the manager's token, and `TagSpecifications` for the image and its snapshot (the [tags](#tags) below). No `Encrypted` flag: the account's encryption by default decides. `InvalidAMIName.Duplicate` and `IdempotentParameterMismatch` (the token met another source) adopt the account's image of that name when it carries this cluster's ownership tags, else they are `Fatal`; `InvalidAMIID.*` about the source drops the cached sources and is `Retryable` |
+| `CopyInUse` | `DescribeInstances` with the filter `image-id` and every state but `terminated`, of any cluster |
+| `TouchCopy` | nothing: AWS records the launches itself |
+| `DeleteCopy` | `DescribeImages` of the ID with owner `self`: an image of the account without this cluster's three ownership tags is refused (`Fatal`, code `NotACopy`) and left alone; then `DeregisterImage` with `DeleteAssociatedSnapshots`. An image that is already gone (an empty answer, state `deregistered`, `InvalidAMIID.NotFound` or `Unavailable`; also an image of another account, which is not the account's own) is not an error; a snapshot that was not deleted is logged |
+
+`ResolveImage` and `ReportImages` ask the manager after the primary lookup missed with `ImageNotFound`, outside the
+driver's answer cache: a copy is never put into the 1 h cache, so a deleted copy is never served. A launch passes
+`demand`, a report does not. The size of the copy's root disk and its root device name are read once per AMI ID.
+With the flag off nothing of this runs.
+
+Errors of the copy calls follow the [error mapping](#error-mapping): `ResourceLimitExceeded` (the copy limit, `QuotaExceeded`; to verify in plan 29 step 4)
+and the throttling codes (`Retryable`) of `CopyImage` keep the copy
+queued with the manager's backoff; every other code, among them `UnauthorizedOperation`, `OptInRequired` and
+`AuthFailure` (a region that is not enabled), is `Fatal`: the copy fails, the region reports `ImageCopyFailed` for 6 h and
+`scarpenter_image_copies_failed_total` carries the code. The region names are EC2's, the same as in a NodeClass's `regions`.
 
 ## Launch
 
@@ -404,11 +432,15 @@ Deletion order: placement groups, run groups, NodeClass groups, then the network
 
 `TagKey(k)` is `scarpenter.sparecores.com/<key>` for the logical keys `cluster`,
 `nodeclaim`, `nodepool`, `nodeclass`, `managed-by` (and `resource-kind` on
-resources); these characters are valid in EC2 tag keys. The logical key
+resources and on image copies); these characters are valid in EC2 tag keys. The logical key
 `idempotency-key` (the NodeClaim UID of vendors without a create token) is mapped the same
 way but never written: the AWS driver has the client token. The NodeClass's
 `spec.tags` are added to instances, volumes, network interfaces and managed
 resources; the logical tags and `Name` win over them.
+
+An [image copy](#image-copies) and its snapshot carry `cluster`, `managed-by`, `resource-kind=image-copy` and
+`image-arch` (`amd64` or `arm64`), set at creation, and the unprefixed `flatcar-channel` and `flatcar-version` that the
+version check reads. There is no `image-source` tag on AWS: the image says it (`SourceImageRegion`, `SourceImageId`).
 
 ## Quotas
 
@@ -483,7 +515,7 @@ checked against a second, independent copy.
 | `InsufficientCapacity` | `InsufficientInstanceCapacity`, `InsufficientHostCapacity`, `InsufficientReservedInstanceCapacity`, `InsufficientReservedInstancesCapacity`, `InsufficientCapacityOnHost`, `InsufficientCapacity`, `SpotMaxPriceTooLow`, `UnfulfillableCapacity`, `ReservationCapacityExceeded`, `InsufficientAddressCapacity`, `InsufficientVolumeCapacity` |
 | `Unsupported` | `Unsupported`; `InvalidParameterCombination` naming the type and the zone |
 | `InvalidOffering` | `UnsupportedOperation` (the type is not supported by the AMI) |
-| `QuotaExceeded` | `VcpuLimitExceeded`, `MaxSpotInstanceCountExceeded`, `InstanceLimitExceeded`, `PendingVerification`, `VolumeLimitExceeded`, `MaxIOPSLimitExceeded`, `ResourceLimitExceeded`, `NetworkInterfaceLimitExceeded`; the region-wide resource limits `VpcLimitExceeded`, `SubnetLimitExceeded`, `InternetGatewayLimitExceeded`, `RouteTableLimitExceeded`, `SecurityGroupLimitExceeded`, `RulesPerSecurityGroupLimitExceeded`, `PlacementGroupLimitExceeded`, `AddressLimitExceeded` |
+| `QuotaExceeded` | `ConcurrentSnapshotLimitExceeded` (pending snapshots of one volume), `VcpuLimitExceeded`, `MaxSpotInstanceCountExceeded`, `InstanceLimitExceeded`, `PendingVerification`, `VolumeLimitExceeded`, `MaxIOPSLimitExceeded`, `ResourceLimitExceeded`, `NetworkInterfaceLimitExceeded`; the region-wide resource limits `VpcLimitExceeded`, `SubnetLimitExceeded`, `InternetGatewayLimitExceeded`, `RouteTableLimitExceeded`, `SecurityGroupLimitExceeded`, `RulesPerSecurityGroupLimitExceeded`, `PlacementGroupLimitExceeded`, `AddressLimitExceeded` |
 | `ZoneUnusable` | `InsufficientFreeAddressesInSubnet` (the subnet's cached free count is dropped); `NoSubnetInZone` |
 | `Retryable` | `RequestLimitExceeded`, `Throttling`, `ThrottlingException`, `ThrottledException`, `EC2ThrottledException`, `RequestThrottled`, `RequestThrottledException`, `TooManyRequestsException`, `PriorRequestNotComplete`, `InternalError`, `ServerInternal`, `InternalFailure`, `ServiceUnavailable`, `Unavailable`, `RequestTimeout`, `RequestExpired`, HTTP 5xx, network errors, the per-call timeout and a canceled context; the dependency codes `DependencyViolation`, `InvalidPlacementGroup.InUse`, `InvalidGroup.InUse`, `IncorrectState`, `IncorrectInstanceState` |
 | `NotFound` | `InvalidInstanceID.NotFound`, `InvalidInstanceID.Malformed`, `InvalidGroup.NotFound`, `InvalidGroupId.Malformed`, `InvalidVpcID.NotFound`, `InvalidSubnetID.NotFound`, `InvalidInternetGatewayID.NotFound`, `InvalidRouteTableID.NotFound`, `InvalidAssociationID.NotFound`, `InvalidPlacementGroup.Unknown`, `Gateway.NotAttached`, `NoSuchResourceException` |
@@ -510,7 +542,7 @@ account ID, and `NODE_ROLE_NAME` and `KEY_ID` in the optional statements you kee
 
 | Statement | Allows |
 |---|---|
-| `Describe` | the `Describe*` calls the driver uses (`DescribeInstances`, `DescribeInstanceTypes`, `DescribeInstanceTypeOfferings`, `DescribeImages`, `DescribeRegions`, `DescribeAvailabilityZones`, `DescribeSubnets`, `DescribeVpcs`, `DescribeSecurityGroups`, `DescribePlacementGroups`, `DescribeInternetGateways`, `DescribeRouteTables`, `DescribeSpotInstanceRequests`, `DescribeCapacityReservations`) |
+| `Describe` | the `Describe*` calls the driver uses (`DescribeInstances`, `DescribeInstanceTypes`, `DescribeInstanceTypeOfferings`, `DescribeImages`, `DescribeImageAttribute` (the last launch of a copy), `DescribeRegions`, `DescribeAvailabilityZones`, `DescribeSubnets`, `DescribeVpcs`, `DescribeSecurityGroups`, `DescribePlacementGroups`, `DescribeInternetGateways`, `DescribeRouteTables`, `DescribeSpotInstanceRequests`, `DescribeCapacityReservations`) |
 | `QuotaLimits` | `servicequotas:GetServiceQuota`, `servicequotas:ListServiceQuotas` |
 | `RunInstancesTaggedResources` | `ec2:RunInstances` on instance, volume, network interface and spot request only with `aws:RequestTag/scarpenter.sparecores.com/cluster=CLUSTER_NAME` |
 | `RunInstancesUsedResources` | `ec2:RunInstances` on the image, snapshot, subnet, security group and placement group it uses |
@@ -519,6 +551,10 @@ account ID, and `NODE_ROLE_NAME` and `KEY_ID` in the optional statements you kee
 | `CreateSecurityGroups`, `CreateSecurityGroupsInAVpc` | `ec2:CreateSecurityGroup` with the cluster tag, in any VPC |
 | `ChangeSecurityGroups` | authorize and revoke ingress and delete, on groups with the cluster tag |
 | `CreatePlacementGroups`, `DeletePlacementGroups` | create with the cluster tag, delete groups with it |
+| `OptionalImageCopies` | **optional** (with `--aws-copy-images`): `ec2:CopyImage` on the new image and snapshot only with `aws:RequestTag/scarpenter.sparecores.com/cluster=CLUSTER_NAME` (a request tag applies to what the call creates) |
+| `OptionalImageCopiesSource` | **optional**: `ec2:CopyImage` on images and snapshots owned by the official Flatcar account (`ec2:Owner=075585003325`, the default `imageOwner`), the source of a copy (the snapshot in case `CopyImage` also authorizes it; to verify in plan 29 step 4) |
+| `OptionalImageCopiesTagAtCreation` | **optional**: `ec2:CreateTags` on images and snapshots only with `ec2:CreateAction=CopyImage` and the cluster tag; no statement lets the role tag an existing image |
+| `OptionalImageCopiesDelete` | **optional**: `ec2:DeregisterImage` and `ec2:DeleteSnapshot` (for `DeleteAssociatedSnapshots`) only on images and snapshots that carry the tags of a copy: `cluster=CLUSTER_NAME`, `managed-by=scarpenter` and `resource-kind=image-copy` (so a backup copy that inherited the cluster tag is out of reach) |
 | `OptionalManagedNetwork*` | **optional**: VPC, subnet, internet gateway and route table creation, `ReplaceRoute` for a stale default route, `AssociateVpcCidrBlock` and `AssociateSubnetCidrBlock` for IPv6, and deletion, only with the cluster tag; needed only where a NodeClass uses (or defaults to) `create` for `subnets`, that is in regions without a default VPC, or for `publicIPv6` where the default VPC has no IPv6 |
 | `OptionalCustomerKmsKey`, `OptionalCustomerKmsKeyGrant` | **optional**: `kms:Decrypt`, `DescribeKey`, `GenerateDataKeyWithoutPlaintext` and, for AWS resources only (`kms:GrantIsForAWSResource`), `kms:CreateGrant` on the customer key of `kmsKeyID`, only through EC2 (`kms:ViaService`). The resource is the key's ARN even when `kmsKeyID` is an alias; the default `aws/ebs` key needs none |
 | `OptionalPassInstanceProfileRole` | **optional**: `iam:PassRole` for the role of `aws.instanceProfile`, only to `ec2.amazonaws.com`; remove when no instance profile is used |
@@ -571,6 +607,10 @@ groups, the quota usage against Service Quotas, drift, scale to zero and the uni
 Not verified live:
 
 - the lts AMI names;
+- the image copies (plan 29 step 4 settles them with a live run): the error code of the copy limit and of a
+  region that is not enabled, whether the account's encryption by default applies to a copy and with which key,
+  which condition keys `CopyImage` evaluates for the image and the snapshot, whether `DeleteAssociatedSnapshots`
+  needs `ec2:DeleteSnapshot`, the copy duration and `lastLaunchedTime`;
 - the `webIdentity` and EKS Pod Identity modes and the self-managed issuer steps (the
   lane has no public OIDC issuer);
 - the managed network (a region without a default VPC, IPv6) and its

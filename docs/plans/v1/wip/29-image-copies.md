@@ -333,9 +333,10 @@ Region labels are bounded by the vendor's regions.
 | Statement | Allows |
 |---|---|
 | `Describe` (existing) | adds `ec2:DescribeImageAttribute` (for `lastLaunchedTime`) |
-| `OptionalImageCopies` | `ec2:CopyImage`: on the new image and snapshots only with `aws:RequestTag/scarpenter.sparecores.com/cluster=CLUSTER_NAME`, on any source image |
+| `OptionalImageCopies` | `ec2:CopyImage`: on the new image and snapshot only with `aws:RequestTag/scarpenter.sparecores.com/cluster=CLUSTER_NAME` |
+| `OptionalImageCopiesSource` | `ec2:CopyImage` on images and snapshots with `ec2:Owner` the official owner (`aws.DefaultImageOwner`): a request tag does not apply to the source |
 | `OptionalImageCopiesTagAtCreation` | `ec2:CreateTags` only with `ec2:CreateAction=CopyImage` and the cluster tag |
-| `OptionalImageCopiesDelete` | `ec2:DeregisterImage` on images and `ec2:DeleteSnapshot` on snapshots (for `DeleteAssociatedSnapshots`, **unverified** whether needed), with `aws:ResourceTag/...cluster=CLUSTER_NAME` |
+| `OptionalImageCopiesDelete` | `ec2:DeregisterImage` on images and `ec2:DeleteSnapshot` on snapshots (for `DeleteAssociatedSnapshots`, **unverified** whether needed), with `aws:ResourceTag/...` `cluster=CLUSTER_NAME`, `managed-by` and `resource-kind=image-copy` |
 
 No statement lets the role tag an existing image. Which condition keys `CopyImage` evaluates per resource is
 **unverified** (step 4: a live call with the policy).
@@ -382,7 +383,7 @@ short and a shorter `idleTTL` may pay.
    the costs and break-even of section 8 with the per-vendor table of section 2) and `docs/reference/image-copies.md`
    (every setting with default and validation per vendor, the opt-out and the `imageOwner` caveat, the reasons, tags,
    metrics, Events).
-3. **AWS driver.** `imagecopy.go`: `Primary` (the existing default lookup), `CopySources` (the preference list over
+3. **AWS driver** (done; see the handoff to step 4). `imagecopy.go`: `Primary` (the existing default lookup), `CopySources` (the preference list over
    `DescribeImages` of the official owner per region, cached 1 h), `ListCopies` (`DescribeImages` owner `self` with
    the tag filters, `lastLaunchedTime` by `DescribeImageAttribute` for the available ones), `StartCopy` (`CopyImage`
    with the name, description, `TagSpecifications` for image and snapshot, `ClientToken`; no `Encrypted` flag),
@@ -439,6 +440,35 @@ the manager's `Signal`, `Start`, `Invalidate` and `Regions` and the `Collector`,
 `vendors.Config.ImageCopies`. The chart value `imageCopies.idleTTL` exists (step 1, as `TestEveryFlagIsSettable` requires); step 2 adds the per-vendor flags' values. Step 5 must make Alibaba's owner `self` not opt a request out (TODO in `Lookup`).
 
 **Handoff from step 2 to step 3.** The operator creates the manager of a vendor through `vendors.NewRegistry`'s third argument (`ImageCopiesFor`: called with the vendor ID and the driver before its `Init`; an untyped nil when the vendor's flag is off), so a driver finds the manager in `cfg.ImageCopies` at `Init`, and a flag whose driver is not an `ImageCopier` refuses to start (the AWS driver becomes one in step 3). The fake driver shows the call: after its primary lookup misses it asks `cfg.ImageCopies.Lookup(ctx, req, demand)` with `demand` true from `ResolveImage` and false from `ReportImages`, and puts `CodeOf(err)` of a not-ready answer into `ImageStatus.Reason` (the NodeClass controller reads the four copy codes from there). The NodeClass controller also hands the manager a release it has not seen pinned (`Bump`, once per release per process), in addition to each manager signal. The collection runs every `--gc-interval`, not a constant 10 min, so that the L3 scenarios can wait for it. The flag `--alicloud-image-copy-source-region` and its chart value belong to step 5.
+
+**Handoff from step 3 to step 4.** The AWS driver is `pkg/vendors/aws/imagecopy.go`; `--aws-copy-images` now starts. The
+manager is asked from `imageOrCopy` (`ResolveImage` with `demand`, `ReportImages` without) after the primary lookup missed
+with `ImageNotFound`, above the driver's cache. Choices made, for the review: `CopySources` asks `Primary` in every region of
+the account (so the version check and the 1 h hit and 5 min miss caches of the launch path apply) and caches only a
+non-empty answer for 1 h, since an empty one would hold a newly published release back for ~75 min on top of the manager's
+15 min; region names are EC2's, the same as `Pin.Regions`; `Architectures` is amd64 and arm64 everywhere without a call;
+`ListCopies` reads `lastLaunchedTime` of available images and logs and goes on (zero) when it cannot, so the GC never
+stalls on that attribute; a copy refusal is `Fatal` (the manager fails the copy for 6 h), `ResourceLimitExceeded` and
+`ConcurrentSnapshotLimitExceeded` are `QuotaExceeded` and throttling `Retryable` (the manager backs off); `DeleteCopy` checks
+the three ownership tags itself before `DeregisterImage` and only logs a snapshot that `DeleteAssociatedSnapshots` could
+not delete. The IAM statements are `OptionalImageCopies` (`CopyImage` on the new image and snapshot with the request tag), `OptionalImageCopiesSource`
+(`CopyImage` on images and snapshots of the official owner), `OptionalImageCopiesTagAtCreation` and `OptionalImageCopiesDelete`
+(`DeregisterImage` and `DeleteSnapshot` with the cluster, managed-by and resource-kind resource tags); the fake EC2 gained `CopyImage`, `DeregisterImage`,
+`DescribeImageAttribute`, snapshots and the `image-id` instance filter.
+
+**To verify in step 4** (the live run; each is marked in the code or the reference and handled defensively until then):
+
+1. The error code of the concurrent-copy limit: `errors.go` maps `ResourceLimitExceeded` to `QuotaExceeded` (so it
+   waits with the manager's backoff); any other code would be `Fatal` and fail the copy for 6 h.
+2. The code for a region that is not enabled (`OptInRequired`, `AuthFailure`?): today `Fatal`, so `ImageCopyFailed`.
+3. Encryption by default: `StartCopy` sets no `Encrypted` or `KmsKeyId`; whether the account's default applies to the
+   copy and with which key, and whether a customer key needs the KMS statements.
+4. The condition keys `CopyImage` evaluates for the new image and snapshot (`OptionalImageCopies` uses
+   `aws:RequestTag/...cluster` on both; `OptionalImageCopiesTagAtCreation` adds `ec2:CreateAction=CopyImage`) and for the
+   source (`OptionalImageCopiesSource` uses `ec2:Owner`).
+5. Whether `DeleteAssociatedSnapshots` needs `ec2:DeleteSnapshot` (the policy grants it for tagged snapshots meanwhile; a
+   `missing-permissions` result is logged by `DeleteCopy`).
+6. `lastLaunchedTime` after a launch (AWS documents about 24 h), the copy duration and the billed snapshot size.
 
 ## 10. Rollout
 

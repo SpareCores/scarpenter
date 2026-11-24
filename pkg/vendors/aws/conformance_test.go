@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -62,6 +63,8 @@ func conformanceEnv(t *testing.T) *env {
 	if _, err := e.d.LaunchableTypes(context.Background(), testRegion); err != nil {
 		t.Fatal(err)
 	}
+	// eu-central-1 is the region without an official image of the image copy cases.
+	e.acct.RemoveImages("eu-central-1")
 	register(e)
 	return e
 }
@@ -108,6 +111,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func(*te
 		fx.Seed = nil // the selector cases cover every kind once, in the subnets run
 		fx.SeedImage = nil
 		fx.OrderClass, fx.SetDefault, fx.FailCreate = nil, nil, nil
+		fx.ImageCopy = nil // likewise: once, in the subnets run
 	}
 	return fx
 }
@@ -167,6 +171,21 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 			return seed(t, envOf(t, d), k, region, spec)
 		},
 		SeedImage: seedImage,
+		ImageCopy: &conformance.ImageCopyFixture{
+			Source: "us-east-1", Dest: "eu-central-1", Cluster: conformanceCluster,
+			PublishOfficial: func(t *testing.T, d vendors.Driver, region string, rel vendors.Release) {
+				t.Helper()
+				arch := "x86_64"
+				if rel.Arch == "arm64" {
+					arch = "arm64"
+				}
+				envOf(t, d).acct.AddImage(region, flatcarImage(region, arch, rel.Channel, rel.Version))
+			},
+			Finish: func(t *testing.T, d vendors.Driver) {
+				t.Helper()
+				envOf(t, d).clock.Step(fake.DefaultCopyDuration + time.Second)
+			},
+		},
 		SeedKinds: []vendors.ResourceKind{aws.KindSubnets, aws.KindSecurityGroups, aws.KindPlacementGroups},
 		SeedAttrs: []string{"description", "cidr"},
 		SeedCIDRs: [2]string{"172.31.201.0/24", "172.31.202.0/24"}, SeedWithin: "172.31.0.0/16",

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/SpareCores/scarpenter/internal/testutil"
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/aws"
 )
 
@@ -24,7 +25,7 @@ import (
 // KMS key, and PassRole.
 var withoutClusterTag = map[string]bool{
 	"RunInstancesUsedResources": true, "CreateSecurityGroupsInAVpc": true,
-	"OptionalPassInstanceProfileRole": true, "OptionalCustomerKmsKey": true, "OptionalCustomerKmsKeyGrant": true,
+	"OptionalPassInstanceProfileRole": true, "OptionalImageCopiesSource": true, "OptionalCustomerKmsKey": true, "OptionalCustomerKmsKeyGrant": true,
 }
 
 type policyStatement struct {
@@ -101,6 +102,9 @@ func TestIAMPolicyAllowsEveryCallOfTheDriver(t *testing.T) {
 	known := map[string]bool{
 		"ec2:CreateTags": true, "iam:PassRole": true, "kms:CreateGrant": true, "kms:Decrypt": true, "kms:DescribeKey": true,
 		"kms:GenerateDataKeyWithoutPlaintext": true,
+		// DeregisterImage's DeleteAssociatedSnapshots deletes the snapshots in the
+		// caller's name (plan 29: to verify in step 4 whether it needs the action).
+		"ec2:DeleteSnapshot": true,
 	}
 	for method := range reflect.TypeFor[aws.EC2API]().Methods() {
 		known["ec2:"+method.Name] = true
@@ -112,5 +116,67 @@ func TestIAMPolicyAllowsEveryCallOfTheDriver(t *testing.T) {
 		if !known[a] {
 			t.Errorf("the policy allows %s, which the driver never calls", a)
 		}
+	}
+}
+
+// TestImageCopyStatementsAreScoped pins the optional statements of the image copies
+// (plan 29): the creation of a copy and its tags need the request tag, the source image
+// is limited to the official owner (the request tag applies to what the call creates, not
+// to the source), the deletion of an image or snapshot needs the cluster, managed-by and
+// resource-kind tags of a copy, and no statement lets the role tag or change an existing
+// image.
+func TestImageCopyStatementsAreScoped(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(testutil.RepoRoot(), "docs", "reference", "aws-iam-policy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Statement []policyStatement `json:"Statement"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "scarpenter.sparecores.com/"
+	want := map[string]struct {
+		actions    []string
+		conditions map[string]any
+	}{
+		"OptionalImageCopies": {[]string{"ec2:CopyImage"},
+			map[string]any{"aws:RequestTag/" + prefix + "cluster": "CLUSTER_NAME"}},
+		"OptionalImageCopiesSource": {[]string{"ec2:CopyImage"},
+			map[string]any{"ec2:Owner": aws.DefaultImageOwner}},
+		"OptionalImageCopiesTagAtCreation": {[]string{"ec2:CreateTags"},
+			map[string]any{"ec2:CreateAction": "CopyImage", "aws:RequestTag/" + prefix + "cluster": "CLUSTER_NAME"}},
+		"OptionalImageCopiesDelete": {[]string{"ec2:DeregisterImage", "ec2:DeleteSnapshot"},
+			map[string]any{
+				"aws:ResourceTag/" + prefix + "cluster":       "CLUSTER_NAME",
+				"aws:ResourceTag/" + prefix + "managed-by":    vendors.ManagedByValue,
+				"aws:ResourceTag/" + prefix + "resource-kind": vendors.ResourceKindImageCopy,
+			}},
+	}
+	seen := 0
+	for _, s := range doc.Statement {
+		w, ok := want[s.Sid]
+		if !ok {
+			continue
+		}
+		seen++
+		if s.Sid == "OptionalImageCopiesSource" {
+			if got, _ := s.Resource.([]any); !reflect.DeepEqual(got, []any{"arn:aws:ec2:*::image/*", "arn:aws:ec2:*::snapshot/*"}) {
+				t.Errorf("%s resources %v, want the official owner's images and snapshots", s.Sid, s.Resource)
+			}
+		}
+		if !slices.Equal(s.Action, w.actions) {
+			t.Errorf("%s allows %v, want %v", s.Sid, s.Action, w.actions)
+		}
+		if got := s.Condition["StringEquals"]; !reflect.DeepEqual(got, w.conditions) {
+			t.Errorf("%s: StringEquals %v, want %v", s.Sid, got, w.conditions)
+		}
+		if len(s.Condition) != 1 {
+			t.Errorf("%s has conditions besides StringEquals: %v", s.Sid, s.Condition)
+		}
+	}
+	if seen != len(want) {
+		t.Errorf("found %d of the %d image copy statements", seen, len(want))
 	}
 }

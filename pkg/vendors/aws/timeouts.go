@@ -59,6 +59,24 @@ func (t *timedEC2) DescribeImages(ctx context.Context, in *ec2.DescribeImagesInp
 	return t.api.DescribeImages(ctx, in, opts...)
 }
 
+func (t *timedEC2) DescribeImageAttribute(ctx context.Context, in *ec2.DescribeImageAttributeInput, opts ...func(*ec2.Options)) (*ec2.DescribeImageAttributeOutput, error) {
+	ctx, cancel := t.ctx(ctx, t.call)
+	defer cancel()
+	return t.api.DescribeImageAttribute(ctx, in, opts...)
+}
+
+func (t *timedEC2) CopyImage(ctx context.Context, in *ec2.CopyImageInput, opts ...func(*ec2.Options)) (*ec2.CopyImageOutput, error) {
+	ctx, cancel := t.ctx(ctx, t.call)
+	defer cancel()
+	return t.api.CopyImage(ctx, in, opts...)
+}
+
+func (t *timedEC2) DeregisterImage(ctx context.Context, in *ec2.DeregisterImageInput, opts ...func(*ec2.Options)) (*ec2.DeregisterImageOutput, error) {
+	ctx, cancel := t.ctx(ctx, t.call)
+	defer cancel()
+	return t.api.DeregisterImage(ctx, in, opts...)
+}
+
 func (t *timedEC2) DescribeSubnets(ctx context.Context, in *ec2.DescribeSubnetsInput, opts ...func(*ec2.Options)) (*ec2.DescribeSubnetsOutput, error) {
 	ctx, cancel := t.ctx(ctx, t.call)
 	defer cancel()

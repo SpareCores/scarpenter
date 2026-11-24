@@ -167,7 +167,7 @@ break-even is short and a shorter idle TTL may pay.
 
 | Vendor | Images are | Copy API | Source of a copy |
 |---|---|---|---|
-| aws | regional | `CopyImage` | Flatcar's official AMI in another region (a fixed preference list: `us-east-1`, `us-east-2`, `us-west-2`, `eu-west-1`, `eu-central-1`, then any region that has it) |
+| aws | regional | `CopyImage` (implemented) | Flatcar's official AMI in another region (a fixed preference list: `us-east-1`, `us-east-2`, `us-west-2`, `eu-west-1`, `eu-central-1`, then any region that has it) |
 | alicloud | regional | ECS `CopyImage` | the operator's imported image in a source region |
 | oci | regional, per tenancy | to be confirmed | the operator's imported image in one region |
 | upcloud | per zone and storage tier | to be confirmed | the operator's template in one zone |

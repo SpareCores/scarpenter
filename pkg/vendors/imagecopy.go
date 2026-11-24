@@ -114,8 +114,9 @@ type ImageCopier interface {
 	// TouchCopy records a use; a no-op for a vendor that records launches itself.
 	TouchCopy(ctx context.Context, c ImageCopy, at time.Time) error
 	// DeleteCopy deletes the image and its snapshots. An image without this
-	// cluster's ownership tags is refused (class Fatal) and left alone; a copy
-	// that does not exist is not an error.
+	// cluster's ownership tags is refused (class Fatal) and left alone, or, where
+	// the vendor shows only the account's own images, found missing; a copy that
+	// does not exist is not an error.
 	DeleteCopy(ctx context.Context, c ImageCopy) error
 }
 

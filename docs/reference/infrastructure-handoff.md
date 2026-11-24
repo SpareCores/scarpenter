@@ -94,7 +94,9 @@ An explicit `use` skips all of this, and one that matches nothing (or too much f
 explicit `create` skips steps 1 and 2. Kinds that live in a network (AWS security groups) are
 resolved inside the network the subnets resolved to. The status says which step produced each
 resource (`status.vendors.<vendor>.resources[].source`: `use`, `discovered`, `default` or
-`created`). Images are never created by SCarpenter.
+`created`). Images are never created by SCarpenter, except the opt-in copies of an image the account
+can already read into another region ([image copies](image-copies.md)); they need nothing from your tooling
+but the optional copy statements in the controller's policy.
 
 ## Example: a NodeClass fragment your IaC can render
 
