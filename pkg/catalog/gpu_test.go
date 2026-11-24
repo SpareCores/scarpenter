@@ -523,3 +523,31 @@ func TestEveryNVIDIAModelOfTheSnapshotsIsClassified(t *testing.T) {
 		}
 	}
 }
+
+// refusedFacts reports the listed types as never launched by the driver.
+type refusedFacts struct {
+	catalog.StaticFacts
+	refused map[string]string
+}
+
+func (f refusedFacts) Refused(vendor, apiReference string) (string, bool) {
+	why, ok := f.refused[vendor+"."+apiReference]
+	return why, ok
+}
+
+// A type the driver refuses is dropped as NotLaunchable, and the others stay.
+func TestRefusedTypesAreDropped(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	const over, within = "Standard_NC4as_T4_v3", "Standard_NC64as_T4_v3"
+	facts := refusedFacts{catalogtest.Facts(t, "azure"), map[string]string{"azure." + over: "too large for its shape"}}
+	_, its := gpuCatalog(t, "4757.2.3", facts, reg, "azure")
+	if byName(its, "azure."+over) != nil {
+		t.Errorf("azure.%s is offered", over)
+	}
+	if byName(its, "azure."+within) == nil {
+		t.Errorf("azure.%s is not offered", within)
+	}
+	if got := droppedGauge(t, reg)["c/azure/NotLaunchable"]; got != 1 {
+		t.Errorf("NotLaunchable = %v, want 1", got)
+	}
+}

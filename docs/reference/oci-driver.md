@@ -88,7 +88,10 @@ shapes. The parse rule (`ParseType`): the name is split at the last dot; a tail 
 shape (`BM.Standard3.64`, `VM.Standard2.1`). Names that do not parse are rejected, never guessed
 (`InvalidInstanceType`). A size is checked against the shape table of the availability domain before the
 launch: the OCPU, memory and memory-per-OCPU bounds, and the NUMA limits (sizes beyond one NUMA node,
-"extended memory", need a separate limit and are `Unsupported` with `ExtendedMemoryUnsupported` in v1).
+"extended memory", need a separate limit and are `Unsupported` with `ExtendedMemoryUnsupported` in v1;
+the refusal keeps the full `Unsupported` TTL, not the short pre-launch one). The driver also reports such
+sizes as refused (`vendors.TypeRefuser`) from the NUMA limits of the shape tables it has read, so the catalog
+does not offer them (reason `NotLaunchable`); a size is offered until its shape table has been read.
 The launch sends `shapeConfig {ocpus, memoryInGBs}` for a sized name and nothing for a fixed shape. The
 vCPUs are never sent: an OCPU is two vCPUs on x86 and on Arm A2 and A4, one on A1.
 

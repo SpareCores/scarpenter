@@ -63,6 +63,8 @@ func TestClassify(t *testing.T) {
 			"The shape is not supported in the availability domain Xxxx:EU-FRANKFURT-1-AD-1", vendors.Unsupported},
 		{"extended memory", kindLaunch, 400, "InvalidParameter", "Extended memory is not enabled for the tenancy",
 			vendors.Unsupported},
+		{"beyond one NUMA node", kindLaunch, 400, "InvalidParameter",
+			"Shape VM.Standard.E3.Flex is beyond one NUMA node (64 OCPUs, 1024 GB)", vendors.Unsupported},
 		{"shape cannot be preemptible", kindLaunch, 400, "InvalidParameter",
 			"Preemptible instances are not supported for shape VM.Standard2.1", vendors.Unsupported},
 		{"other invalid parameter", kindLaunch, 400, "InvalidParameter", "metadata is too large", vendors.InvalidOffering},

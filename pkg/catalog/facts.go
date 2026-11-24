@@ -83,6 +83,14 @@ type LaunchableFacts interface {
 	Launchable(vendor, apiReference, zoneID string) (launchable, known bool)
 }
 
+// RefusedFacts is an optional extension of Facts: the driver knows from the
+// vendor's data that it never launches a type (vendors.TypeRefuser). Such a type
+// is dropped from the catalog (reason NotLaunchable).
+type RefusedFacts interface {
+	// Refused returns why the type is never launched, and true when it is not.
+	Refused(vendor, apiReference string) (reason string, refused bool)
+}
+
 // DefaultRouteFacts is an optional extension of Facts: whether the driver can
 // host the type with the class's default settings (no profile selected). A type
 // it cannot is offered only with a storage profile that makes it work, and not

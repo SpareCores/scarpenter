@@ -956,6 +956,17 @@ type OfferingLister interface {
 	LaunchableTypes(ctx context.Context, region string) (map[string][]string, error)
 }
 
+// TypeRefuser is the optional capability of a driver that knows from the
+// vendor's own data that it never launches some types (a size beyond what its
+// shape allows). The catalog drops them (reason NotLaunchable) instead of
+// finding out by refused launches. A type the driver has no data for is not
+// refused. The driver reports a change of its answers through EpochReporter.
+type TypeRefuser interface {
+	// Refused returns why the driver never launches the instance type (the
+	// vendor's name, as in the API reference label), and true when it does not.
+	Refused(apiReference string) (reason string, refused bool)
+}
+
 type quotaRefreshKey struct{}
 
 // QuotaRefresh says what a Quotas call must refresh.

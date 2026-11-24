@@ -168,6 +168,38 @@ func TestCreateInstanceRejectsBeforeTheCall(t *testing.T) {
 	}
 }
 
+// A size beyond one NUMA node of its shape is refused with the shape's own limit,
+// is dropped from the offerings by Refused once the shape table is read, and its
+// refusal is not a pre-launch one: the unavailable cache keeps it for the long TTL.
+func TestSizeBeyondNumaNode(t *testing.T) {
+	c := fake.NewSeeded()
+	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E3.Flex", 114, 1776, 1, 64, 64, 1024,
+		"standard-e3-core-ad-count", "standard-e3-memory-count"))
+	e := restart(t, c, testCluster)
+	const over, within = "VM.Standard.E3.Flex.114-456", "VM.Standard.E3.Flex.64-256"
+	if _, refused := e.d.Refused(over); refused {
+		t.Fatal("refused before any shape table was read")
+	}
+	if _, err := e.d.Quotas(t.Context(), testRegion); err != nil {
+		t.Fatal(err)
+	}
+	if why, refused := e.d.Refused(over); !refused || !strings.Contains(why, "NUMA") {
+		t.Errorf("Refused(%s) = %q, %v; want refused", over, why, refused)
+	}
+	if why, refused := e.d.Refused(within); refused {
+		t.Errorf("Refused(%s) = %q; want offered", within, why)
+	}
+	// Memory alone beyond the node (within the OCPUs) is refused too.
+	if _, refused := e.d.Refused("VM.Standard.E3.Flex.64-1100"); !refused {
+		t.Error("a size with memory beyond the node is offered")
+	}
+	_, err := e.d.CreateInstance(t.Context(), request(over))
+	if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != driver.CodeExtendedMemory ||
+		vendors.IsPreLaunch(err) {
+		t.Errorf("CreateInstance = %v; want a long-cached Unsupported %s", err, driver.CodeExtendedMemory)
+	}
+}
+
 // A shape the user's AD does not offer is Unsupported without a launch call, while
 // another AD of the region still launches it (plan 25, section 6).
 func TestShapeOnlyInSomeADs(t *testing.T) {

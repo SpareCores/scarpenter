@@ -181,6 +181,7 @@ var (
 	_ catalog.LaunchableFacts   = (*Facts)(nil)
 	_ catalog.RegionPricedFacts = (*Facts)(nil)
 	_ catalog.VirtualGPUFacts   = (*Facts)(nil)
+	_ catalog.RefusedFacts      = (*Facts)(nil)
 	_ catalog.PriceSink         = (*Facts)(nil)
 )
 
@@ -801,6 +802,17 @@ func (f *Facts) VirtualGPU(vendor, apiReference string) bool {
 		}
 	}
 	return false
+}
+
+// Refused implements catalog.RefusedFacts: the driver says which types it never
+// launches (vendors.TypeRefuser).
+func (f *Facts) Refused(vendor, apiReference string) (string, bool) {
+	if drv, ok := f.opts.Registry.Driver(vendor); ok {
+		if r, ok := drv.(vendors.TypeRefuser); ok {
+			return r.Refused(apiReference)
+		}
+	}
+	return "", false
 }
 
 // Launchable implements catalog.LaunchableFacts.
