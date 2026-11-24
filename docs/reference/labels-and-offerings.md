@@ -343,8 +343,8 @@ was given.
 | `ZoneNotAvailable` | offering | a price row's zone is not one of the account's, Keeper marked it inactive, or the driver lists no zones for the region (facts not loaded yet, or the credentials cannot read it) | the zone ID, or the region |
 | `IncompletePrice` | offering | the price delta is incomplete and `pricing.allowIncomplete` is false | zone ID, capacity type |
 | `GPUManufacturer`, `GPUModelUnknown`, `GPUFractional`, `GPUArch`, `GPUNoDriverBranch`, `GPUNVSwitch`, `GPUVirtual` | type | [GPU types](#gpu-types) | |
-| `StorageIncompatible` | type | the driver says the type cannot host the class's default storage, or cannot launch the type at all (Vultr bare metal plans), and no storage profile makes it work | |
-| `NotLaunchable` | offering | the driver's offering lister says the type cannot launch in the zone | zone ID |
+| `StorageIncompatible` | type | the driver says the type cannot host the class's default storage and no storage profile makes it work (Vultr: a diskless plan) | |
+| `NotLaunchable` | offering, or type | the driver's offering lister says the type cannot launch in the zone (offering level, detail: the zone ID); or the driver cannot launch the type at all, whatever the zone and the stock (type level, detail: why; Vultr: the plan families it does not support, the free plan, IPv6-only plans) | zone ID, or the reason |
 | `NoOffering` | type | every offering of the type was removed above | the dominant earlier code |
 | `UnavailableCache` | offering | a live entry of the unavailable-offerings cache | its class (`InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable`, `InvalidOffering`, `RegionUnreachable`) and its expiry |
 | `QuotaGate` | offering | the quota is known and has no headroom | the limiting bucket, the headroom and the need |

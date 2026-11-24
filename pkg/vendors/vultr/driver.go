@@ -307,6 +307,7 @@ var (
 	_ vendors.ImageReporter      = (*Driver)(nil)
 	_ vendors.NodeOptions        = (*Driver)(nil)
 	_ vendors.SettingsChecker    = (*Driver)(nil)
+	_ vendors.TypeChecker        = (*Driver)(nil)
 	_ vendors.ManagedResources   = (*Driver)(nil)
 	_ vendors.OfferingLister     = (*Driver)(nil)
 	_ vendors.InstanceMetadata   = (*Driver)(nil)

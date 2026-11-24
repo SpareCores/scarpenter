@@ -478,10 +478,10 @@ func TestEveryFamilyOfTheSnapshotIsClassified(t *testing.T) {
 var _ = govultr.ListOptions{}
 var _ = metav1.Time{}
 
-// The families the driver cannot launch are refused from the plan ID alone, with
-// no stock data loaded: the default route (so the type is not offered) and the
-// launch both say no, the supported families are untouched.
-func TestUnlaunchableFamiliesNeedNoStock(t *testing.T) {
+// The plans the driver cannot launch are refused from the plan ID alone, with no
+// stock data loaded: the facts say NotLaunchable's reason, the diskless vx1 stays a
+// default-route (storage) refusal, the launch says no, supported plans are untouched.
+func TestUnlaunchablePlansNeedNoStock(t *testing.T) {
 	e := newDrvEnv(t)
 	ctx := context.Background()
 	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(e.d)})
@@ -492,11 +492,27 @@ func TestUnlaunchableFamiliesNeedNoStock(t *testing.T) {
 	server := func(id string, diskGB float64) *model.Server {
 		return &model.Server{Vendor: vultr.Vendor, APIReference: id, LocalStorageGB: diskGB}
 	}
-	for id, want := range map[string]bool{
-		"vc2-2c-4gb": true, "vcg-a16-6c-64g-16vram": true, "vdm-a100-8c-64g": true, "vbm-4c-32gb": false,
+	for _, c := range []struct {
+		id          string
+		disk        float64
+		launchable  bool
+		defaultable bool
+	}{
+		{"vc2-2c-4gb", 80, true, true},
+		{"vx1-g-2c-8g", 100, true, true},
+		{"vx1-g-2c-8g", 1, true, false},
+		{"vbm-4c-32gb", 240, false, true},
+		{"vcg-a16-6c-64g-16vram", 350, false, true},
+		{"vdm-a100-8c-64g", 350, false, true},
+		{"vc2-1c-0.5gb-free", 10, false, true},
+		{"vc2-1c-0.5gb-v6", 10, false, true},
 	} {
-		if got := f.DefaultSupported(vultr.Vendor, &class, server(id, 100)); got != want {
-			t.Errorf("DefaultSupported(%s) = %v, want %v", id, got, want)
+		ok, why := f.TypeLaunchable(vultr.Vendor, server(c.id, c.disk))
+		if ok != c.launchable || (!ok && why == "") {
+			t.Errorf("TypeLaunchable(%s) = %v %q, want %v", c.id, ok, why, c.launchable)
+		}
+		if got := f.DefaultSupported(vultr.Vendor, &class, server(c.id, c.disk)); got != c.defaultable {
+			t.Errorf("DefaultSupported(%s, %v GB) = %v, want %v", c.id, c.disk, got, c.defaultable)
 		}
 	}
 	req := vendors.CreateRequest{

@@ -52,14 +52,18 @@ func (d *Driver) Supported(vendors.CatalogType, string, vendors.Profiles) map[st
 // S7).
 func (d *Driver) PriceDelta(vendors.VendorSettings, vendors.Offering) (float64, bool) { return 0, true }
 
-// SupportsSettings implements vendors.SettingsChecker: whether the driver can
-// launch the plan at all (ClassifyPlan), whatever the settings and the stock. The
-// catalog asks it for the default route, and with no storage profile to help
-// (Supported offers none) a plan it refuses is not offered, from the first
-// build on.
+// LaunchableType implements vendors.TypeChecker: whether the driver launches the
+// plan at all (ClassifyPlanID), whatever the settings and the stock, so a plan
+// it refuses is not offered from the first catalog build on (NotLaunchable).
+func (d *Driver) LaunchableType(it vendors.CatalogType) (bool, string) {
+	return ClassifyPlanID(it.APIReference)
+}
+
+// SupportsSettings implements vendors.SettingsChecker: a diskless plan boots from
+// a block storage volume, which v1 does not do (StorageIncompatible, as no storage
+// profile helps).
 func (d *Driver) SupportsSettings(_ vendors.VendorSettings, it vendors.CatalogType) bool {
-	ok, _ := ClassifyPlan(it.APIReference, int(it.LocalStorageGB))
-	return ok
+	return !isDiskless(it.APIReference, int(it.LocalStorageGB))
 }
 
 // FirewallGroupParams are the create parameters of a managed firewall group: the

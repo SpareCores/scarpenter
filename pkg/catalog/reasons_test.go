@@ -112,6 +112,19 @@ func (f noDefaultFacts) DefaultSupported(_ string, _ *catalog.Class, srv *model.
 	return srv.APIReference != f.apiReference
 }
 
+// noTypeFacts says that one type cannot be launched at all.
+type noTypeFacts struct {
+	catalog.StaticFacts
+	apiReference string
+}
+
+func (f noTypeFacts) TypeLaunchable(_ string, srv *model.Server) (bool, string) {
+	if srv.APIReference == f.apiReference {
+		return false, "not supported"
+	}
+	return true, ""
+}
+
 func TestBuildReasons(t *testing.T) {
 	priced := func(id, ref, zone string) (model.Server, model.Price) {
 		return model.Server{Vendor: "v", ID: id, APIReference: ref, VCPUs: 2, Arch: "amd64", MemoryMiB: 4096},
@@ -192,6 +205,10 @@ func TestBuildReasons(t *testing.T) {
 		"StorageIncompatible: the default route cannot host the type, no profile helps": {
 			facts: noDefaultFacts{syntheticFacts(), "big"},
 			want:  map[string]catalog.Reason{"v.big": {Code: catalog.StorageIncompatible}},
+		},
+		"NotLaunchable: the driver cannot launch the type at all": {
+			facts: noTypeFacts{syntheticFacts(), "big"},
+			want:  map[string]catalog.Reason{"v.big": {Code: catalog.NotLaunchable, Detail: "not supported"}},
 		},
 		"NotLaunchable and NoOffering": {
 			facts: launchFacts{syntheticFacts(), map[string]bool{"small/z2": true, "big/z1": true}},

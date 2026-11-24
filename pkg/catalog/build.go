@@ -138,8 +138,8 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			vb.drops = append(vb.drops, typeDrop{vendor, srv.APIReference, Reason{Code: code, Detail: detail}})
 		}
 		prices := vd.prices[srv.ID]
-		if len(prices) == 0 {
-			drop(NoPrice, "")
+		if code, detail := typeRefusal(facts, vendor, srv, prices); code != "" {
+			drop(code, detail)
 			continue
 		}
 		gpu, reason := gpuSupport(srv, class, vendor, virtualGPU)
@@ -368,6 +368,21 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 			strings.Compare(a.capacityType, b.capacityType))
 	})
 	return out
+}
+
+// typeRefusal is why the type is dropped before any offering is looked at: no
+// price, or the driver cannot launch the type at all (facts that cannot say
+// launch it). The code is empty when the type stays.
+func typeRefusal(facts Facts, vendor string, srv *model.Server, prices []model.Price) (Code, string) {
+	if len(prices) == 0 {
+		return NoPrice, ""
+	}
+	if tf, ok := facts.(TypeFacts); ok {
+		if launchable, why := tf.TypeLaunchable(vendor, srv); !launchable {
+			return NotLaunchable, why
+		}
+	}
+	return "", ""
 }
 
 // defaultRouteSupported asks the facts whether the type works with the class's

@@ -213,11 +213,13 @@ var planFamilies = map[string]struct {
 	"vhf": {true, ""},
 	"vhp": {true, ""},
 	"voc": {true, ""},
-	"vcg": {true, ""},
-	"vdm": {true, ""},
 	// Supported only with a local disk, see ClassifyPlan.
 	"vx1": {true, ""},
-	"vbm": {false, "bare metal plans are created through another API (/v2/bare-metals), which the driver does not use"},
+	// Outside the driver's support today (untested launches, GPU costs); vbm is
+	// another API (/v2/bare-metals). A later change lifts them one by one.
+	"vcg": {false, "Cloud GPU plans are outside the driver's support today"},
+	"vdm": {false, "GPU bare metal plans are outside the driver's support today"},
+	"vbm": {false, "bare metal plans (another API, /v2/bare-metals) are outside the driver's support today"},
 }
 
 // freePlan is dropped: no stock guarantee.
@@ -235,10 +237,16 @@ func ClassifyPlan(id string, diskGB int) (ok bool, reason string) {
 	if ok, reason := ClassifyPlanID(id); !ok {
 		return false, reason
 	}
-	if family, _, _ := strings.Cut(id, "-"); family == "vx1" && diskGB <= 1 {
+	if isDiskless(id, diskGB) {
 		return false, "diskless vx1 plans boot from a block storage volume, which v1 does not support"
 	}
 	return true, ""
+}
+
+// isDiskless says whether the plan is a vx1 plan with no local disk.
+func isDiskless(id string, diskGB int) bool {
+	family, _, _ := strings.Cut(id, "-")
+	return family == "vx1" && diskGB <= 1
 }
 
 // ClassifyPlanID is ClassifyPlan from the plan ID alone: the families and plans
