@@ -316,7 +316,8 @@ func isCode(err error, codes ...string) bool {
 func notFound(err error) bool {
 	return isCode(err, "InvalidInstanceID.NotFound", "InvalidGroup.NotFound", "InvalidPlacementGroup.Unknown",
 		"InvalidSubnetID.NotFound", "InvalidRouteTableID.NotFound", "InvalidInternetGatewayID.NotFound",
-		"InvalidVpcID.NotFound", "InvalidAssociationID.NotFound", "Gateway.NotAttached", "InvalidAMIID.NotFound", "InvalidSnapshot.NotFound")
+		"InvalidVpcID.NotFound", "InvalidAssociationID.NotFound", "Gateway.NotAttached", "InvalidAMIID.NotFound",
+		"InvalidSnapshot.NotFound")
 }
 
 // delete runs one deletion and records it. It returns false when the resource is
