@@ -89,7 +89,7 @@ func (d *Driver) shapesIn(ctx context.Context, region, ad string) (map[string]*s
 	for name, si := range out {
 		if old, ok := d.index[name]; !ok || old.Flexible != si.Flexible || old.OCPUPerNuma != si.OCPUPerNuma ||
 			old.MemPerNuma != si.MemPerNuma {
-			d.epoch.Add(1) // Refused depends on these: the catalog rebuilds
+			d.epoch.Add(1) // LaunchableType depends on these: the catalog rebuilds
 		}
 		d.index[name] = si
 	}
@@ -157,21 +157,22 @@ func numaError(t InstanceType, si *shapeInfo) error {
 		si.MemPerNuma))
 }
 
-var _ vendors.TypeRefuser = (*Driver)(nil)
+var _ vendors.TypeChecker = (*Driver)(nil)
 
-// Refused implements vendors.TypeRefuser: a size beyond one NUMA node of its
-// shape, by the limits of any shape table the driver has read. Until a table is
-// read the type is not refused.
-func (d *Driver) Refused(apiReference string) (string, bool) {
-	t, err := ParseType(apiReference)
+// LaunchableType implements vendors.TypeChecker: a size beyond one NUMA node of
+// its shape is not launched, by the limits of any shape table the driver has
+// read (shapeInfo changes bump NodeOptionsEpoch). Until a table is read the type
+// is launchable.
+func (d *Driver) LaunchableType(it vendors.CatalogType) (bool, string) {
+	t, err := ParseType(it.APIReference)
 	if err != nil || !t.Sized {
-		return "", false
+		return true, ""
 	}
 	si, ok := d.shapeByName(t.Shape)
 	if !ok || !si.Flexible || !si.beyondNuma(t) {
-		return "", false
+		return true, ""
 	}
-	return numaError(t, si).Error(), true
+	return false, numaError(t, si).Error()
 }
 
 func outOfBounds(t InstanceType, what string, v, lo, hi float64) error {

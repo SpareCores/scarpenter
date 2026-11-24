@@ -202,7 +202,9 @@ func ParseDescription(desc string) (name string, m Marker, ok bool) {
 
 // Plan families, by the plan ID's prefix up to the first dash. Every family of
 // Vultr's plan list must be classified explicitly (a new one is "unclassified"
-// and unsupported until someone decides), as AWS's mac rule.
+// and unsupported until someone decides), as AWS's mac rule. The unsupported
+// ones are what the driver cannot launch, whatever the stock: the instances API
+// does not create them.
 var planFamilies = map[string]struct {
 	supported bool
 	reason    string
@@ -213,9 +215,11 @@ var planFamilies = map[string]struct {
 	"voc": {true, ""},
 	// Supported only with a local disk, see ClassifyPlan.
 	"vx1": {true, ""},
-	"vcg": {false, "Cloud GPU plans are not launched in v1"},
-	"vdm": {false, "GPU bare metal is another API and outside v1"},
-	"vbm": {false, "bare metal is another API and outside v1"},
+	// Outside the driver's support today (untested launches, GPU costs); vbm is
+	// another API (/v2/bare-metals). A later change lifts them one by one.
+	"vcg": {false, "Cloud GPU plans are outside the driver's support today"},
+	"vdm": {false, "GPU bare metal plans are outside the driver's support today"},
+	"vbm": {false, "bare metal plans (another API, /v2/bare-metals) are outside the driver's support today"},
 }
 
 // freePlan is dropped: no stock guarantee.
@@ -230,6 +234,25 @@ const ipv6OnlySuffix = "-v6"
 // `disk` is the signal). A vx1 plan with no local disk boots from a volume,
 // which v1 does not do (plan 20, section 5; S2 decides local_and_block_storage).
 func ClassifyPlan(id string, diskGB int) (ok bool, reason string) {
+	if ok, reason := ClassifyPlanID(id); !ok {
+		return false, reason
+	}
+	if isDiskless(id, diskGB) {
+		return false, "diskless vx1 plans boot from a block storage volume, which v1 does not support"
+	}
+	return true, ""
+}
+
+// isDiskless says whether the plan is a vx1 plan with no local disk.
+func isDiskless(id string, diskGB int) bool {
+	family, _, _ := strings.Cut(id, "-")
+	return family == "vx1" && diskGB <= 1
+}
+
+// ClassifyPlanID is ClassifyPlan from the plan ID alone: the families and plans
+// the driver cannot launch, whatever their disk or stock. The catalog's default
+// route and the launch use it before any availability data is loaded.
+func ClassifyPlanID(id string) (ok bool, reason string) {
 	if id == freePlan {
 		return false, "the free plan has no stock guarantee"
 	}
@@ -244,8 +267,6 @@ func ClassifyPlan(id string, diskGB int) (ok bool, reason string) {
 		return false, fmt.Sprintf("plan family %q is unclassified", family)
 	case !f.supported:
 		return false, f.reason
-	case family == "vx1" && diskGB <= 1:
-		return false, "diskless vx1 plans boot from a block storage volume, which v1 does not support"
 	}
 	return true, ""
 }

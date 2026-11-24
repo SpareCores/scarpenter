@@ -170,33 +170,39 @@ func TestCreateInstanceRejectsBeforeTheCall(t *testing.T) {
 }
 
 // A size beyond one NUMA node of its shape is refused with the shape's own limit,
-// is reported by Refused once the shape table is read.
+// is not launchable by LaunchableType once the shape table is read.
 func TestSizeBeyondNumaNode(t *testing.T) {
 	c := fake.NewSeeded()
 	c.AddShape(fake.SeedRegion, fake.FlexShape("VM.Standard.E3.Flex", 114, 1776, 1, 64, 64, 1024,
 		"standard-e3-core-ad-count", "standard-e3-memory-count"))
 	e := restart(t, c, testCluster)
 	const over, within = "VM.Standard.E3.Flex.114-456", "VM.Standard.E3.Flex.64-256"
-	if _, refused := e.d.Refused(over); refused {
+	if _, refused := launchable(e.d, over); refused {
 		t.Fatal("refused before any shape table was read")
 	}
 	if _, err := e.d.Quotas(t.Context(), testRegion); err != nil {
 		t.Fatal(err)
 	}
-	if why, refused := e.d.Refused(over); !refused || !strings.Contains(why, "NUMA") {
-		t.Errorf("Refused(%s) = %q, %v; want refused", over, why, refused)
+	if why, refused := launchable(e.d, over); !refused || !strings.Contains(why, "NUMA") {
+		t.Errorf("LaunchableType(%s) = %q, %v; want refused", over, why, refused)
 	}
-	if why, refused := e.d.Refused(within); refused {
-		t.Errorf("Refused(%s) = %q; want offered", within, why)
+	if why, refused := launchable(e.d, within); refused {
+		t.Errorf("LaunchableType(%s) = %q; want offered", within, why)
 	}
 	// Memory alone beyond the node (within the OCPUs) is refused too.
-	if _, refused := e.d.Refused("VM.Standard.E3.Flex.64-1100"); !refused {
+	if _, refused := launchable(e.d, "VM.Standard.E3.Flex.64-1100"); !refused {
 		t.Error("a size with memory beyond the node is offered")
 	}
 	_, err := e.d.CreateInstance(t.Context(), request(over))
 	if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != driver.CodeExtendedMemory {
 		t.Errorf("CreateInstance = %v; want Unsupported %s", err, driver.CodeExtendedMemory)
 	}
+}
+
+// launchable is LaunchableType of an API reference, inverted to read as "refused".
+func launchable(d *driver.Driver, apiReference string) (string, bool) {
+	ok, why := d.LaunchableType(vendors.CatalogType{Vendor: driver.Name, APIReference: apiReference})
+	return why, !ok
 }
 
 // Fixed shapes and Flex shapes without NUMA fields are never refused.
@@ -210,8 +216,8 @@ func TestRefusedIgnoresShapesWithoutNumaLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, typ := range []string{"VM.Standard.E3.Flex.114-456", "VM.Standard2.4"} {
-		if why, refused := e.d.Refused(typ); refused {
-			t.Errorf("Refused(%s) = %q; want offered", typ, why)
+		if why, refused := launchable(e.d, typ); refused {
+			t.Errorf("LaunchableType(%s) = %q; want offered", typ, why)
 		}
 	}
 }

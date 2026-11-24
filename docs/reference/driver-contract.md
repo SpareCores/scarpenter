@@ -41,7 +41,8 @@ returns the boot images of the NodeClass's release per region and architecture
 for `status.vendors.<vendor>.images` and `ImagesReady`; a driver without it
 resolves images at launch with `ResolveImage` and counts as ready; the [AWS
 driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (below),
-`EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker`, `BillingDescriber` (below), `InstanceMetadata` ([Metadata
+`TypeChecker` (an extension of `NodeOptions`: whether the driver launches a type at all; the catalog drops the
+others as `NotLaunchable`), `EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker`, `BillingDescriber` (below), `InstanceMetadata` ([Metadata
 endpoints](#metadata-endpoints)), `LeftoverCollector` (the garbage collector asks it, per region after the
 instance sweep, to delete what a failed or interrupted launch made besides the instance; it lists first and
 asks `nodeClaimExists` after, so a launch in flight keeps its resources; see

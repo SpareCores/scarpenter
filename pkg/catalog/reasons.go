@@ -26,7 +26,8 @@ const (
 	// IncompletePrice: the price delta is incomplete and the class does not
 	// allow incomplete prices.
 	IncompletePrice Code = "IncompletePrice"
-	// NotLaunchable: the driver says the type cannot launch in the zone.
+	// NotLaunchable: the driver says the type cannot launch in the zone, or at
+	// all (a type-level drop, the detail is why).
 	NotLaunchable Code = "NotLaunchable"
 	// StorageIncompatible: the type cannot host the class's default storage
 	// and no storage profile makes it work.

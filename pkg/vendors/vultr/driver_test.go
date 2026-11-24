@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,10 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	vultrapi "github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/vultr"
+	"github.com/SpareCores/scarpenter/pkg/catalog"
+	"github.com/SpareCores/scarpenter/pkg/catalog/model"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/facts"
 	"github.com/SpareCores/scarpenter/pkg/vendors/vultr"
 	"github.com/SpareCores/scarpenter/pkg/vendors/vultr/fake"
 )
@@ -99,9 +103,25 @@ func TestLaunchableTypesAreTheZonesOfTheRegion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// vx1-g-2c-8g is diskless and vcg is a GPU plan: neither is launched.
-	if len(got) != 3 || len(got[testType]) != 1 || got[testType][0] != "ewr" || got["vx1-g-2c-8g"] != nil {
-		t.Fatalf("got %v", got)
+	// vx1-g-2c-8g is diskless, vcg is Cloud GPU and vbm is bare metal: none is
+	// launched, though the account has them all in stock.
+	av, err := e.acct.RegionAvailability(context.Background(), "ewr", "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"vx1-g-2c-8g", "vcg-a16-6c-64g-16vram", "vbm-4c-32gb"} {
+		if !slices.Contains(av.AvailablePlans, id) {
+			t.Fatalf("the fixture has no %s in stock: %v", id, av.AvailablePlans)
+		}
+	}
+	want := []string{testType, "vc2-2c-4gb", "vhf-1c-1gb"}
+	if len(got) != len(want) || len(got[testType]) != 1 || got[testType][0] != "ewr" {
+		t.Fatalf("got %v, want the plans %v", got, want)
+	}
+	for _, id := range want {
+		if got[id] == nil {
+			t.Errorf("%s is not launchable: %v", id, got)
+		}
 	}
 	if _, err := e.d.LaunchableTypes(context.Background(), "nowhere"); !vendors.IsClass(err, vendors.RegionUnavailable) {
 		t.Fatalf("an unknown region: %v", err)
@@ -474,3 +494,59 @@ func TestEveryFamilyOfTheSnapshotIsClassified(t *testing.T) {
 
 var _ = govultr.ListOptions{}
 var _ = metav1.Time{}
+
+// The plans the driver cannot launch are refused from the plan ID alone, with no
+// stock data loaded: the facts say NotLaunchable's reason, the diskless vx1 stays a
+// default-route (storage) refusal, the launch says no, supported plans are untouched.
+func TestUnlaunchablePlansNeedNoStock(t *testing.T) {
+	e := newDrvEnv(t)
+	ctx := context.Background()
+	f := facts.New(facts.Options{Registry: vendors.NewRegistryFrom(e.d)})
+	class, err := catalog.ClassFromNodeClass(&v1alpha1.SCNodeClass{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := func(id string, diskGB float64) *model.Server {
+		return &model.Server{Vendor: vultr.Vendor, APIReference: id, LocalStorageGB: diskGB}
+	}
+	for _, c := range []struct {
+		id          string
+		disk        float64
+		launchable  bool
+		defaultable bool
+	}{
+		{"vc2-2c-4gb", 80, true, true},
+		{"vx1-g-2c-8g", 100, true, true},
+		{"vx1-g-2c-8g", 1, true, false},
+		{"vbm-4c-32gb", 240, false, true},
+		{"vcg-a16-6c-64g-16vram", 350, false, true},
+		{"vdm-a100-8c-64g", 350, false, true},
+		{"vc2-1c-0.5gb-free", 10, false, true},
+		{"vc2-1c-0.5gb-v6", 10, false, true},
+	} {
+		ok, why := f.TypeLaunchable(vultr.Vendor, server(c.id, c.disk))
+		if ok != c.launchable || (!ok && why == "") {
+			t.Errorf("TypeLaunchable(%s) = %v %q, want %v", c.id, ok, why, c.launchable)
+		}
+		if got := f.DefaultSupported(vultr.Vendor, &class, server(c.id, c.disk)); got != c.defaultable {
+			t.Errorf("DefaultSupported(%s, %v GB) = %v, want %v", c.id, c.disk, got, c.defaultable)
+		}
+	}
+	req := vendors.CreateRequest{
+		Region: "ewr", Zone: "ewr", InstanceType: "vbm-4c-32gb", CapacityType: vendors.CapacityOnDemand, Arch: "amd64",
+		Image: vendors.Image{Ref: e.snap}, UserData: []byte(`{"ignition":{"version":"3.4.0"}}`),
+		Tags: map[vendors.TagKey]string{vendors.TagCluster: testCluster, vendors.TagNodeClaim: "nc-1"}, IdempotencyKey: "uid-1",
+		Node: vendors.NodeInfo{Name: "nc-1"},
+	}
+	_, err = e.d.CreateInstance(ctx, req)
+	if !vendors.IsClass(err, vendors.Unsupported) || !strings.Contains(err.Error(), "bare metal") {
+		t.Errorf("a bare metal plan: %v", err)
+	}
+	if got := e.acct.Calls("CreateInstance"); got != 0 {
+		t.Errorf("%d creates, want none", got)
+	}
+	req.InstanceType = "vc2-2c-4gb"
+	if _, err = e.d.CreateInstance(ctx, req); err != nil {
+		t.Errorf("a supported plan: %v", err)
+	}
+}

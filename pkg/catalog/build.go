@@ -98,7 +98,6 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 	facts := c.opts.Facts
 	launchable, _ := facts.(LaunchableFacts)
 	virtualGPU, _ := facts.(VirtualGPUFacts)
-	refused, _ := facts.(RefusedFacts)
 	regionPriced := false
 	if rp, ok := facts.(RegionPricedFacts); ok {
 		regionPriced = rp.RegionPriced(vendor)
@@ -139,7 +138,7 @@ func (c *Catalog) buildVendor(snap *snapshot, class *Class, vendor string) *vend
 			vb.drops = append(vb.drops, typeDrop{vendor, srv.APIReference, Reason{Code: code, Detail: detail}})
 		}
 		prices := vd.prices[srv.ID]
-		if code, detail, ok := unofferedReason(prices, refused, vendor, srv); ok {
+		if code, detail := typeRefusal(facts, vendor, srv, prices); code != "" {
 			drop(code, detail)
 			continue
 		}
@@ -371,26 +370,26 @@ func (c *Catalog) offeringsOf(vd *vendorData, srv *model.Server, prices []model.
 	return out
 }
 
+// typeRefusal is why the type is dropped before any offering is looked at: no
+// price, or the driver cannot launch the type at all (facts that cannot say
+// launch it). The code is empty when the type stays.
+func typeRefusal(facts Facts, vendor string, srv *model.Server, prices []model.Price) (Code, string) {
+	if len(prices) == 0 {
+		return NoPrice, ""
+	}
+	if tf, ok := facts.(TypeFacts); ok {
+		if launchable, why := tf.TypeLaunchable(vendor, srv); !launchable {
+			return NotLaunchable, why
+		}
+	}
+	return "", ""
+}
+
 // defaultRouteSupported asks the facts whether the type works with the class's
 // default settings; facts that cannot say support it.
 func defaultRouteSupported(facts Facts, vendor string, class *Class, srv *model.Server) bool {
 	df, ok := facts.(DefaultRouteFacts)
 	return !ok || df.DefaultSupported(vendor, class, srv)
-}
-
-// unofferedReason says why a type is not offered before its offerings are
-// looked at: it has no price, or the driver never launches it.
-func unofferedReason(prices []model.Price, refused RefusedFacts, vendor string,
-	srv *model.Server) (Code, string, bool) {
-	if len(prices) == 0 {
-		return NoPrice, "", true
-	}
-	if refused != nil {
-		if why, ok := refused.Refused(vendor, srv.APIReference); ok {
-			return NotLaunchable, why, true
-		}
-	}
-	return "", "", false
 }
 
 // withoutUnlaunchable removes the offerings the driver says cannot launch, and

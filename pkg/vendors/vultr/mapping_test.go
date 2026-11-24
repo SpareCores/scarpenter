@@ -165,8 +165,8 @@ func TestClassifyPlan(t *testing.T) {
 		{"vc2-1c-0.5gb-free", 10, false, "free"},
 		{"vc2-1c-0.5gb-v6", 10, false, "IPv6-only"},
 		{"vhf-1c-1gb-v6", 32, false, "IPv6-only"},
-		{"vcg-a100-12c-120g-80vram", 0, false, "Cloud GPU"},
-		{"vdm-8c-64g", 0, false, "bare metal"},
+		{"vcg-a100-12c-120g-80vram", 0, false, "outside the driver's support"},
+		{"vdm-a100-8c-64g", 0, false, "outside the driver's support"},
 		{"vbm-4c-32gb", 240, false, "bare metal"},
 		{"zzz-1c-1gb", 10, false, "unclassified"},
 		{"", 10, false, "unclassified"},
@@ -175,6 +175,18 @@ func TestClassifyPlan(t *testing.T) {
 		ok, why := ClassifyPlan(c.id, c.disk)
 		if ok != c.ok || (!ok && !strings.Contains(why, c.why)) || (ok && why != "") {
 			t.Errorf("ClassifyPlan(%q, %d) = %v %q, want %v %q", c.id, c.disk, ok, why, c.ok, c.why)
+		}
+	}
+}
+
+// The exclusion of a family needs no disk and no stock: the plan ID decides.
+func TestClassifyPlanIDNeedsNoDiskOrStock(t *testing.T) {
+	for id, want := range map[string]bool{
+		"vc2-2c-4gb": true, "vx1-g-4c-16g": true, "vcg-a16-6c-64g-16vram": false, "vdm-a100-8c-64g": false,
+		"vbm-4c-32gb": false, "vc2-1c-0.5gb-free": false, "vhf-1c-1gb-v6": false, "zzz-1c-1gb": false,
+	} {
+		if ok, why := ClassifyPlanID(id); ok != want || (!ok && why == "") {
+			t.Errorf("ClassifyPlanID(%q) = %v %q, want %v", id, ok, why, want)
 		}
 	}
 }
