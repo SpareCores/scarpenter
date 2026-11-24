@@ -77,6 +77,18 @@ func (t *timedEC2) DeregisterImage(ctx context.Context, in *ec2.DeregisterImageI
 	return t.api.DeregisterImage(ctx, in, opts...)
 }
 
+func (t *timedEC2) DescribeSnapshots(ctx context.Context, in *ec2.DescribeSnapshotsInput, opts ...func(*ec2.Options)) (*ec2.DescribeSnapshotsOutput, error) {
+	ctx, cancel := t.ctx(ctx, t.call)
+	defer cancel()
+	return t.api.DescribeSnapshots(ctx, in, opts...)
+}
+
+func (t *timedEC2) DeleteSnapshot(ctx context.Context, in *ec2.DeleteSnapshotInput, opts ...func(*ec2.Options)) (*ec2.DeleteSnapshotOutput, error) {
+	ctx, cancel := t.ctx(ctx, t.call)
+	defer cancel()
+	return t.api.DeleteSnapshot(ctx, in, opts...)
+}
+
 func (t *timedEC2) DescribeSubnets(ctx context.Context, in *ec2.DescribeSubnetsInput, opts ...func(*ec2.Options)) (*ec2.DescribeSubnetsOutput, error) {
 	ctx, cancel := t.ctx(ctx, t.call)
 	defer cancel()

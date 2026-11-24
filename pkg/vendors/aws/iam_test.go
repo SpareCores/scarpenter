@@ -92,7 +92,7 @@ func TestIAMPolicyAllowsEveryCallOfTheDriver(t *testing.T) {
 		{"servicequotas:", reflect.TypeFor[aws.ServiceQuotasAPI]()},
 	} {
 		for method := range tc.typ.Methods() {
-			if action := tc.prefix + method.Name; !allowed[action] {
+			if action := tc.prefix + method.Name; !allowed[action] && action != "ec2:DescribeSnapshots" { // the sweeper's, see EC2API
 				t.Errorf("the policy does not allow %s, which the driver calls", action)
 			}
 		}

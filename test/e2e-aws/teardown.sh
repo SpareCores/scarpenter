@@ -5,9 +5,11 @@
 #      terminates the instances), if the controller still runs;
 #   2. force-terminate anything tagged with the run's cluster and delete what it left
 #      (placement groups, security groups, the managed network, the brought subnet and
-#      group) with the sweeper, ignoring the age limit;
+#      group, and in the copy region the image copies of the manual imagecopy scenario and their
+#      snapshots) with the sweeper, ignoring the age limit;
 #   3. check that nothing tagged with the cluster remains: no instance, security group,
-#      network interface, placement group, subnet, VPC, gateway, route table or volume
+#      network interface, placement group, subnet, VPC, gateway, route table, volume, image
+#      or snapshot
 #      (plan 10 scenario 5): the job fails when something does;
 #   4. revoke the nodes' auth key and take the runner off the tailnet.
 # Every step runs even when an earlier one failed; the exit status is the sum.
@@ -45,10 +47,19 @@ else
   echo "the API server does not answer: going straight to AWS"
 fi
 
+# The copy region (E2E_COPY_REGION) is added by a run that names the imagecopy scenario. A region the
+# role cannot use is reported by the sweeper (skipped) and shows as a problem in the checks below.
+regions="${AWS_REGION}"
+copy_region=""
+if [[ ",${E2E_SCENARIOS:-}," == *,imagecopy,* ]]; then
+  copy_region="${E2E_COPY_REGION}"
+  regions+=",${copy_region}"
+fi
+
 log "2. force-terminate and sweep what the cluster tag finds"
 left="$(cluster_instances | wc -l | tr -d ' ')"
 [[ "${left}" == 0 ]] || echo "NOTE: ${left} instance(s) were still there and are terminated by the sweeper"
-(cd "${root}" && go run ./test/e2e-aws/sweeper -cluster "${E2E_CLUSTER}" -max-age 0 -regions "${AWS_REGION}" -wait 5m) ||
+(cd "${root}" && go run ./test/e2e-aws/sweeper -cluster "${E2E_CLUSTER}" -max-age 0 -regions "${regions}" -wait 5m) ||
   problem "the sweeper failed"
 
 log "3. nothing tagged with ${E2E_CLUSTER} may remain"
@@ -69,6 +80,15 @@ leaks VPCs ec2 describe-vpcs --filters "${filter[@]}" --query 'Vpcs[].VpcId' --o
 leaks "internet gateways" ec2 describe-internet-gateways --filters "${filter[@]}" --query 'InternetGateways[].InternetGatewayId' --output text
 leaks "route tables" ec2 describe-route-tables --filters "${filter[@]}" --query 'RouteTables[].RouteTableId' --output text
 leaks volumes ec2 describe-volumes --filters "${filter[@]}" --query "Volumes[?State!='deleting'].VolumeId" --output text
+if [[ -n "${copy_region}" ]]; then
+  leaks "instances in ${copy_region}" ec2_in "${copy_region}" describe-instances --filters "${filter[@]}" \
+    "Name=instance-state-name,Values=pending,running,stopping,stopped,shutting-down" --query 'Reservations[].Instances[].InstanceId' --output text
+  leaks "image copies in ${copy_region}" ec2_in "${copy_region}" describe-images --owners self --filters "${filter[@]}" --query 'Images[].ImageId' --output text
+  leaks "snapshots in ${copy_region}" ec2_in "${copy_region}" describe-snapshots --owner-ids self --filters "${filter[@]}" --query 'Snapshots[].SnapshotId' --output text
+  leaks "security groups in ${copy_region}" ec2_in "${copy_region}" describe-security-groups --filters "${filter[@]}" --query 'SecurityGroups[].GroupId' --output text
+  leaks "subnets in ${copy_region}" ec2_in "${copy_region}" describe-subnets --filters "${filter[@]}" --query 'Subnets[].SubnetId' --output text
+  leaks "VPCs in ${copy_region}" ec2_in "${copy_region}" describe-vpcs --filters "${filter[@]}" --query 'Vpcs[].VpcId' --output text
+fi
 # The interfaces of terminated instances go away a little later.
 deadline=$((SECONDS + 180))
 until [[ -z "$(ec2 describe-network-interfaces --filters "${filter[@]}" --query 'NetworkInterfaces[].NetworkInterfaceId' --output text 2>/dev/null)" ]]; do

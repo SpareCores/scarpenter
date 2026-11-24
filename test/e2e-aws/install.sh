@@ -8,7 +8,8 @@
 #   3. the CRDs (the chart's, applied first because the NodeClasses must exist
 #      before the controller starts: the label keys of their metrics are registered
 #      with Karpenter core at start-up), then the NodeClasses;
-#   4. the chart (not manifests), with the cluster name scarpenter-ci-<run id>;
+#   4. the chart (not manifests), with the cluster name scarpenter-ci-<run id> (and the image
+#      copies when E2E_SCENARIOS names the manual imagecopy scenario);
 #   5. the NodePools, and the wait for the NodeClasses to be Ready.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,12 +43,20 @@ for f in nodeclass-amd64 nodeclass-arm64 nodeclass-drift; do
   render "${here}/manifests/${f}.yaml" | kubectl apply -f -
 done
 
+# The manual imagecopy scenario (plan 29 step 4) needs the controller's image copies on, with a
+# 1 minute idle lifetime so that the deletion happens within the scenario (the GC interval is 1m in
+# the lane's values). No other run turns them on: the other NodeClasses name a region with an AMI.
+copy_args=()
+if [[ ",${E2E_SCENARIOS:-}," == *,imagecopy,* ]]; then
+  copy_args=(--set vendors.aws.imageCopies.enabled=true --set imageCopies.idleTTL=1m)
+fi
+
 log "installing the chart"
 values="$(mktemp)"
 render "${here}/manifests/chart-values.yaml" >"${values}"
 helm upgrade --install scarpenter "${root}/charts/scarpenter" --namespace "${ns}" \
   -f "${values}" --set image.repository=scarpenter-controller --set image.tag=e2e \
-  --set image.pullPolicy=Never "${keeper_helm_args[@]}" --wait --timeout 6m
+  --set image.pullPolicy=Never "${keeper_helm_args[@]}" "${copy_args[@]}" --wait --timeout 6m
 rm -f "${values}"
 
 log "NodePools"

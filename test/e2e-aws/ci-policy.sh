@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # Prints the permissions policy of the L5 lane's CI role (docs/how-to-guides/testing.md#the-l5-lane):
 #
-#   test/e2e-aws/ci-policy.sh <AWS account ID> [region] > ci-policy.json
+#   test/e2e-aws/ci-policy.sh <AWS account ID> [region] [controller|lane] > ci-policy-<part>.json
 #
-# It is docs/reference/aws-iam-policy.json (the controller's own policy, overview
+# The role needs both parts attached: one managed policy holds at most 6144 characters (without
+# white space) and the whole does not fit. "controller" (the default) holds the reference policy's
+# statements and the two denies, so that a role with only this part can do less, never more; "lane"
+# holds the OptionalImageCopies* statements and the Lane* statements, and a copy of DenyOutsideRegion
+# (the region limit then holds for each part on its own). The selftest keeps both under the limit.
+#
+# Together they are docs/reference/aws-iam-policy.json (the controller's own policy, overview
 # section 11.6) for every cluster named scarpenter-ci-* (the tag conditions become
 # StringLike), without the statements the lane does not use (an instance profile, a
-# customer KMS key), plus four statements that belong to the test and not to the product:
+# customer KMS key; the OptionalImageCopies* statements of the manual imagecopy scenario stay), plus four statements that belong to the test and not to the product:
 #   LaneReads              the read-only calls the scenarios and the diagnostics make
-#                          beyond the controller's (volumes, network interfaces, console output);
+#                          beyond the controller's (volumes, network interfaces, console output, and for the
+#                          manual imagecopy scenario snapshots and the account's EBS encryption default);
 #   LaneBringYourOwn       the workflow creates a subnet in the default VPC for the
 #                          bring-your-own-resources scenario; the policy's own statements
 #                          allow CreateSubnet only in a VPC that carries the cluster tag,
@@ -20,14 +27,15 @@
 #                          is the operator's);
 #   DenyOtherInstanceTypes an explicit deny of RunInstances for every type the lane does
 #                          not launch (the types of defaults.sh, including the manual gpu scenario's, and E2E_LOCAL_STORAGE_TYPE);
-#   DenyOutsideRegion      EC2 and Service Quotas calls outside the lane's region (the
-#                          sweeper looks at the other regions, finds itself refused, and
-#                          skips them).
+#   DenyOutsideRegion      EC2 and Service Quotas calls outside the lane's region and the copy region
+#                          (E2E_COPY_REGION: the manual imagecopy scenario copies the Flatcar image
+#                          into it and launches one node there; the sweeper looks at the other regions,
+#                          finds itself refused, and skips them).
 # (LaneBringYourOwn is limited to the region.) The output goes to `aws iam create-policy`; nothing here calls AWS.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "${here}/../.." && pwd)"
-account="${1:?usage: ci-policy.sh <AWS account ID> [region]}"
+account="${1:?usage: ci-policy.sh <AWS account ID> [region] [controller|lane]}"
 [[ "${account}" =~ ^[0-9]{12}$ ]] || {
   echo "the account ID must be 12 digits" >&2
   exit 2
@@ -35,12 +43,18 @@ account="${1:?usage: ci-policy.sh <AWS account ID> [region]}"
 # shellcheck source=test/e2e-aws/defaults.sh
 source "${here}/defaults.sh"
 region="${2:-${AWS_REGION}}"
+copy_region="${E2E_COPY_REGION}"
+part="${3:-controller}"
+[[ "${part}" == controller || "${part}" == lane ]] || {
+  echo "the part must be controller or lane" >&2
+  exit 2
+}
 
 types=("${E2E_TYPE_AMD64}" "${E2E_TYPE_ARM64}" "${E2E_TYPE_DB}")
 IFS=, read -ra described <<<"${E2E_TYPES_DESCRIBED}"
 types+=("${described[@]}")
 [[ -z "${E2E_LOCAL_STORAGE_TYPE}" ]] || types+=("${E2E_LOCAL_STORAGE_TYPE}")
-types+=("${E2E_GPU_TYPE}")
+types+=("${E2E_GPU_TYPE}" "${E2E_COPY_TYPE}")
 allowed="$(printf '%s\n' "${types[@]}" | sed 's/^aws\.//' | sort -u | jq -R . | jq -s .)"
 
 fis_role="${E2E_FIS_ROLE_ARN:-}"
@@ -51,7 +65,7 @@ fis_role="${E2E_FIS_ROLE_ARN:-}"
   }
 
 sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${root}/docs/reference/aws-iam-policy.json" |
-  jq --argjson allowed "${allowed}" --arg fis_role "${fis_role}" --arg region "${region}" --arg account "${account}" '
+  jq --argjson allowed "${allowed}" --arg copy_region "${copy_region}" --arg part "${part}" --arg fis_role "${fis_role}" --arg region "${region}" --arg account "${account}" '
     # The cluster tag is matched with a wildcard: StringEquals becomes StringLike for that key.
     (.Statement[] | select(.Condition.StringEquals?) | .Condition) |=
       ((.StringLike = ((.StringLike // {}) + (.StringEquals | with_entries(select(.key | endswith("scarpenter.sparecores.com/cluster")))))) |
@@ -61,12 +75,13 @@ sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${ro
     | .Statement |= map(select(.Sid | test("PassInstanceProfile|CustomerKms") | not))
     | .Statement += [
         {Sid: "LaneReads", Effect: "Allow",
-         Action: ["ec2:DescribeVolumes", "ec2:DescribeNetworkInterfaces", "ec2:GetConsoleOutput"], Resource: "*"},
+         Action: ["ec2:DescribeVolumes", "ec2:DescribeNetworkInterfaces", "ec2:GetConsoleOutput", "ec2:DescribeSnapshots",
+                  "ec2:GetEbsEncryptionByDefault", "ec2:GetEbsDefaultKmsKeyId"], Resource: "*"},
         {Sid: "LaneBringYourOwn", Effect: "Allow", Action: "ec2:CreateSubnet", Resource: ("arn:aws:ec2:" + $region + ":" + $account + ":vpc/*")},
         {Sid: "DenyOtherInstanceTypes", Effect: "Deny", Action: "ec2:RunInstances", Resource: "arn:aws:ec2:*:*:instance/*",
          Condition: {StringNotEquals: {"ec2:InstanceType": $allowed}}},
         {Sid: "DenyOutsideRegion", Effect: "Deny", Action: ["ec2:*", "servicequotas:*"], Resource: "*",
-         Condition: {StringNotEquals: {"aws:RequestedRegion": [$region]}}}
+         Condition: {StringNotEquals: {"aws:RequestedRegion": ([$region, $copy_region] | unique)}}}
       ]
     | if $fis_role == "" then . else .Statement += [
         {Sid: "LaneInterruption", Effect: "Allow",
@@ -75,4 +90,5 @@ sed -e 's/CLUSTER_NAME/scarpenter-ci-*/g' -e "s/123456789012/${account}/g" "${ro
                     ("arn:aws:fis:" + $region + ":*:action/*")]},
         {Sid: "LanePassFisRole", Effect: "Allow", Action: "iam:PassRole", Resource: $fis_role,
          Condition: {StringEquals: {"iam:PassedToService": "fis.amazonaws.com"}}}
-      ] end'
+      ] end
+    | .Statement |= map(select(((.Sid | test("^(OptionalImageCopies|Lane)")) == ($part == "lane")) or (.Sid == "DenyOutsideRegion")))'

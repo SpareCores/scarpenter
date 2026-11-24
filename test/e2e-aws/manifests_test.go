@@ -75,6 +75,7 @@ var sample = map[string]string{
 	"E2E_K3S_VERSION": "v1.37.2+k3s1", "E2E_KUBERNETES_VERSION": "v1.37.1", "E2E_TAILSCALE_VERSION": "v1.98.10",
 	"E2E_FLATCAR_CHANNEL": "stable", "E2E_FLATCAR_VERSION": "4757.2.3",
 	"E2E_TYPE_AMD64": "aws.t3a.small", "E2E_TYPE_ARM64": "aws.t4g.small", "E2E_TYPE_DB": "aws.r6a.large", "E2E_GPU_TYPE": "aws.g4dn.xlarge", "GPU_COUNT": "1",
+	"E2E_COPY_REGION": "ap-northeast-3", "E2E_COPY_TYPE": "aws.t3.small",
 	"E2E_TYPES_DESCRIBED_YAML": `"aws.t3a.small", "aws.t3a.medium", "aws.t3a.large"`,
 	"E2E_TAG_RUNNER":           "tag:scarpenter-ci", "E2E_TAG_NODE": "tag:scarpenter-ci-node",
 	"E2E_PG_ZONE": "us-east-2a", "E2E_BYO_ZONE": "us-east-2a", "E2E_LOCAL_STORAGE_TYPE": "aws.c6gd.medium",

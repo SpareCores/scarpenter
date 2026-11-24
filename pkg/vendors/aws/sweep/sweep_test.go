@@ -524,3 +524,125 @@ func TestDefaultsAreNeverDeletedEvenWhenTagged(t *testing.T) {
 		}
 	}
 }
+
+// copyImage makes a copy of a Flatcar image in the region, as the driver does: tagged
+// at creation with the cluster (the image and its snapshot).
+func (e *env) copyImage(region, name, cluster string) string {
+	e.t.Helper()
+	e.acct.AddImage("us-east-2", fake.Image{ID: "ami-src-" + name, Name: "flatcar-" + name, Owner: "075585003325"})
+	out, err := e.acct.EC2(region).CopyImage(ctx, &ec2.CopyImageInput{
+		Name: &name, SourceRegion: new("us-east-2"), SourceImageId: new("ami-src-" + name),
+		TagSpecifications: []types.TagSpecification{
+			{ResourceType: types.ResourceTypeImage, Tags: tags(sweep.ClusterTag, cluster, sweep.ManagedByTag, "scarpenter", sweep.ResourceKindTag, "image-copy")},
+			{ResourceType: types.ResourceTypeSnapshot, Tags: tags(sweep.ClusterTag, cluster, sweep.ManagedByTag, "scarpenter", sweep.ResourceKindTag, "image-copy")},
+		},
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return *out.ImageId
+}
+
+func TestImageCopiesGoWithTheirSnapshots(t *testing.T) {
+	e := newEnv(t)
+	old := e.copyImage("eu-central-1", "old", ciOld)
+	young := e.copyImage("eu-central-1", "young", ciYoung)
+	other := e.copyImage("eu-central-1", "prod", prod)
+	e.clk.Step(time.Hour) // every copy so far is an hour old, under the limit
+	e.acct.AddImage("eu-central-1", fake.Image{ID: "ami-ancient", Name: "ancient", Owner: fake.AccountID,
+		Tags:    map[string]string{sweep.ClusterTag: ciOld, sweep.ManagedByTag: "scarpenter", sweep.ResourceKindTag: "image-copy"},
+		Created: e.clk.Now().Add(-5 * time.Hour)})
+	rep := e.sweep(sweep.Options{MaxAge: 2 * time.Hour, Regions: []string{"eu-central-1"}})
+	if got := outcome(rep, "image", "ami-ancient"); got != sweep.Deleted {
+		t.Errorf("an image older than the limit: %q", got)
+	}
+	for _, id := range []string{old, young, other} {
+		if got := outcome(rep, "image", id); got == sweep.Deleted {
+			t.Errorf("image %s younger than the limit or of another cluster was deleted", id)
+		}
+	}
+	if len(e.acct.Snapshots("eu-central-1")) != 3 {
+		t.Errorf("no snapshot may go before its image: %v", e.acct.Snapshots("eu-central-1"))
+	}
+
+	// An exact cluster, any age: its copies and their snapshots go, and a sibling's stay.
+	rep = e.sweep(sweep.Options{Cluster: ciOld, Regions: []string{"eu-central-1"}})
+	if got := outcome(rep, "image", old); got != sweep.Deleted {
+		t.Errorf("the cluster's copy: %q", got)
+	}
+	snaps := e.acct.Snapshots("eu-central-1")
+	if len(snaps) != 2 {
+		t.Errorf("the copy's snapshot must go with it, the others stay: %v", snaps)
+	}
+	for _, tg := range snaps {
+		if tg[sweep.ClusterTag] == ciOld {
+			t.Errorf("a snapshot of the swept cluster is left: %v", snaps)
+		}
+	}
+	if rep.Count(sweep.Failed) != 0 {
+		t.Errorf("failures: %+v", rep.Items)
+	}
+}
+
+func TestDryRunKeepsImageCopies(t *testing.T) {
+	e := newEnv(t)
+	id := e.copyImage("eu-central-1", "dry", ciOld)
+	rep := e.sweep(sweep.Options{Cluster: ciOld, DryRun: true, Regions: []string{"eu-central-1"}})
+	if got := outcome(rep, "image", id); got != sweep.WouldDelete {
+		t.Errorf("a dry run: %q", got)
+	}
+	if len(e.acct.Snapshots("eu-central-1")) != 1 {
+		t.Error("a dry run deleted a snapshot")
+	}
+}
+
+func TestOnlyImageCopiesAreSwept(t *testing.T) {
+	e := newEnv(t)
+	// An image of the cluster that is not a copy (no copy tags) is left alone.
+	e.acct.AddImage("eu-central-1", fake.Image{ID: "ami-other", Name: "other", Owner: fake.AccountID,
+		Tags: map[string]string{sweep.ClusterTag: ciOld}})
+	e.acct.AddSnapshot("eu-central-1", "snap-other", map[string]string{sweep.ClusterTag: ciOld}, e.clk.Now())
+	e.copyImage("eu-central-1", "copy", ciOld)
+	rep := e.sweep(sweep.Options{Cluster: ciOld, Regions: []string{"eu-central-1"}})
+	if outcome(rep, "image", "ami-other") != "" || outcome(rep, "snapshot", "snap-other") != "" {
+		t.Errorf("a resource without the copy tags was looked at: %+v", rep.Items)
+	}
+	if _, ok := e.acct.Snapshots("eu-central-1")["snap-other"]; !ok {
+		t.Error("a snapshot without the copy tags was deleted")
+	}
+}
+
+func TestSnapshotsOfDeletedCopiesAreSweptByTheirStartTime(t *testing.T) {
+	e := newEnv(t)
+	copyTags := func(cluster string) map[string]string {
+		return map[string]string{sweep.ClusterTag: cluster, sweep.ManagedByTag: "scarpenter", sweep.ResourceKindTag: "image-copy"}
+	}
+	e.acct.AddSnapshot("eu-central-1", "snap-old", copyTags(ciOld), e.clk.Now())
+	e.acct.AddSnapshot("eu-central-1", "snap-prod", copyTags(prod), e.clk.Now())
+	e.clk.Step(time.Hour)
+	e.acct.AddSnapshot("eu-central-1", "snap-young", copyTags(ciYoung), e.clk.Now())
+	e.clk.Step(time.Hour + time.Minute)
+	rep := e.sweep(sweep.Options{MaxAge: 2 * time.Hour, Regions: []string{"eu-central-1"}})
+	if got := outcome(rep, "snapshot", "snap-old"); got != sweep.Deleted {
+		t.Errorf("an orphan snapshot past the age: %q", got)
+	}
+	if got := outcome(rep, "snapshot", "snap-young"); got != sweep.Skipped {
+		t.Errorf("a young snapshot: %q", got)
+	}
+	if got := outcome(rep, "snapshot", "snap-prod"); got == sweep.Deleted {
+		t.Error("a snapshot of another cluster was deleted")
+	}
+	left := e.acct.Snapshots("eu-central-1")
+	if _, gone := left["snap-old"]; gone || len(left) != 2 {
+		t.Errorf("snapshots left: %v", left)
+	}
+	// Dry run deletes nothing; the exact cluster ignores the age.
+	rep = e.sweep(sweep.Options{Cluster: ciYoung, DryRun: true, Regions: []string{"eu-central-1"}})
+	if outcome(rep, "snapshot", "snap-young") != sweep.WouldDelete || len(e.acct.Snapshots("eu-central-1")) != 2 {
+		t.Errorf("a dry run: %+v", rep.Items)
+	}
+	e.sweep(sweep.Options{Cluster: ciYoung, Regions: []string{"eu-central-1"}})
+	if _, ok := e.acct.Snapshots("eu-central-1")["snap-young"]; ok {
+		t.Error("the exact cluster's snapshot is left")
+	}
+}

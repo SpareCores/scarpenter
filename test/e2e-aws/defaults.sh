@@ -27,6 +27,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/../flatcar-pin.sh"
 # allows ec2:SendSpotInstanceInterruptions on instances of the account and ec2:DescribeInstances;
 # ci-policy.sh adds the CI role's FIS permissions and iam:PassRole on it when it is set.
 : "${E2E_FIS_ROLE_ARN:=}"
+# The manual imagecopy scenario (plan 29 step 4; never in `all` or the smoke set): the region
+# that has no Flatcar AMI of its own (the scenario checks that it still has none and refuses to
+# run when a primary AMI appears there), the small amd64 type it launches there (the role's
+# instance type deny must allow it; it must be offered in that region), how long the copy may take
+# from the first launch attempt to the image being usable, and how long the deletion of the copy
+# may take after the node is gone (the instance has to terminate, then the idle lifetime of 1 minute
+# and a collection of the GC run, both 1 minute in the lane's values).
+: "${E2E_COPY_REGION:=ap-northeast-3}"
+: "${E2E_COPY_TYPE:=aws.t3.small}"
+: "${E2E_COPY_TIMEOUT:=1200}"
+: "${E2E_COPY_DELETE_TIMEOUT:=900}"
 # The types the described-not-named scenario may pick from (small to large).
 : "${E2E_TYPES_DESCRIBED:=aws.t3a.small,aws.t3a.medium,aws.t3a.large}"
 # How long a node may take from its Pod to Running, and the exit criterion for
@@ -71,4 +82,4 @@ E2E_TYPES_DESCRIBED_YAML="${E2E_TYPES_DESCRIBED_YAML%, }"
 # envsubst (manifests) and the child processes read exported variables.
 export AWS_REGION E2E_K3S_VERSION E2E_KUBERNETES_VERSION E2E_TAILSCALE_VERSION E2E_FLATCAR_CHANNEL \
   E2E_FLATCAR_VERSION E2E_TYPE_AMD64 E2E_TYPE_ARM64 E2E_TYPE_DB E2E_TYPES_DESCRIBED E2E_TYPES_DESCRIBED_YAML \
-  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_FIS_ROLE_ARN E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_TAG_RUNNER E2E_TAG_NODE
+  E2E_NODE_TIMEOUT E2E_LAUNCH_TIMEOUT E2E_PROGRESS_INTERVAL E2E_FAIL_FAST E2E_SCALE_DOWN_DEADLINE E2E_QUOTA_REFRESH E2E_LOCAL_STORAGE_TYPE E2E_GPU_TYPE E2E_GPU_TIMEOUT E2E_COPY_REGION E2E_COPY_TYPE E2E_COPY_TIMEOUT E2E_COPY_DELETE_TIMEOUT E2E_FIS_ROLE_ARN E2E_SMOKE_SCENARIOS E2E_MIN_VCPU_OD E2E_MIN_VCPU_SPOT E2E_TAG_RUNNER E2E_TAG_NODE

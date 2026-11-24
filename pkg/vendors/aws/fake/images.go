@@ -9,6 +9,7 @@ package fake
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -84,7 +85,7 @@ func (e *EC2) CopyImage(ctx context.Context, in *ec2.CopyImageInput, _ ...func(*
 			return nil, apiError("InvalidAMIName.Duplicate", fmt.Sprintf("AMI name %s is already in use by AMI %s", img.Name, img.ID))
 		}
 	}
-	snap := &snapshot{id: a.id("snap"), tags: tagsFromSpecs(in.TagSpecifications, types.ResourceTypeSnapshot)}
+	snap := &snapshot{id: a.id("snap"), tags: tagsFromSpecs(in.TagSpecifications, types.ResourceTypeSnapshot), started: a.now()}
 	r.snaps[snap.id] = snap
 	dur := a.copyDuration
 	if dur == 0 {
@@ -160,4 +161,56 @@ func (a *Account) noteLaunch(r *region, ami string) {
 	if img, ok := r.images[ami]; ok && img.Owner == AccountID {
 		img.LastLaunched = a.now()
 	}
+}
+
+// DescribeSnapshots implements EC2API: the snapshots of the account (every
+// snapshot of the fake is its own), filtered by tags.
+func (e *EC2) DescribeSnapshots(ctx context.Context, in *ec2.DescribeSnapshotsInput, _ ...func(*ec2.Options),
+) (*ec2.DescribeSnapshotsOutput, error) {
+	r, err := e.begin(ctx, "DescribeSnapshots", in)
+	if err != nil {
+		return nil, err
+	}
+	defer e.end()
+	out := &ec2.DescribeSnapshotsOutput{}
+	for _, id := range sortedKeys(r.snaps) {
+		s := r.snaps[id]
+		if len(in.SnapshotIds) > 0 && !slices.Contains(in.SnapshotIds, id) {
+			continue
+		}
+		if len(in.OwnerIds) > 0 && !slices.Contains(in.OwnerIds, "self") && !slices.Contains(in.OwnerIds, AccountID) {
+			continue
+		}
+		ok, err := matches(in.Filters, s.tags, func(string) ([]string, bool) { return nil, false })
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		var tags []types.Tag
+		for _, k := range sortedKeys(s.tags) {
+			tags = append(tags, types.Tag{Key: new(k), Value: new(s.tags[k])})
+		}
+		out.Snapshots = append(out.Snapshots, types.Snapshot{
+			SnapshotId: new(id), OwnerId: new(AccountID), State: types.SnapshotStateCompleted, Tags: tags,
+			StartTime: new(s.started),
+		})
+	}
+	return out, nil
+}
+
+// DeleteSnapshot implements EC2API.
+func (e *EC2) DeleteSnapshot(ctx context.Context, in *ec2.DeleteSnapshotInput, _ ...func(*ec2.Options),
+) (*ec2.DeleteSnapshotOutput, error) {
+	r, err := e.begin(ctx, "DeleteSnapshot", in)
+	if err != nil {
+		return nil, err
+	}
+	defer e.end()
+	if _, ok := r.snaps[deref(in.SnapshotId)]; !ok {
+		return nil, apiError("InvalidSnapshot.NotFound", fmt.Sprintf("The snapshot '%s' does not exist.", deref(in.SnapshotId)))
+	}
+	delete(r.snaps, deref(in.SnapshotId))
+	return &ec2.DeleteSnapshotOutput{}, nil
 }

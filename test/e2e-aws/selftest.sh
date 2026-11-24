@@ -55,7 +55,7 @@ t_render_keeps_other_dollars() { # only the manifest's own ${NAME} are replaced
 check "render fills every variable" t_render
 check_fails "render refuses an unset variable" t_render_unset
 check "render leaves other dollar signs alone" t_render_keeps_other_dollars
-for f in nodeclass-amd64 nodeclass-arm64 nodeclass-drift nodeclass-negative nodepools; do
+for f in nodeclass-amd64 nodeclass-arm64 nodeclass-drift nodeclass-negative nodeclass-imagecopy nodepools nodepool-imagecopy; do
   check "render ${f}" render "${here}/manifests/${f}.yaml"
 done
 
@@ -274,7 +274,25 @@ check "no account ID, key or local path in the lane's files" t_no_secrets_in_scr
 # ---- the CI role's policy ----------------------------------------------------
 t_policy() {
   local p="${tmp}/policy.json"
-  "${here}/ci-policy.sh" 123456789012 >"${p}"
+  # The two parts together are the lane's policy; each must fit a managed policy (6144 characters
+  # without white space), also with the FIS statements.
+  local part n fis=arn:aws:iam::123456789012:role/fis
+  for part in controller lane; do
+    "${here}/ci-policy.sh" 123456789012 us-east-2 "${part}" >"${tmp}/policy-${part}.json"
+    for n in "$(jq -c . "${tmp}/policy-${part}.json" | tr -d '\n' | wc -c)" \
+      "$(E2E_FIS_ROLE_ARN="${fis}" "${here}/ci-policy.sh" 123456789012 us-east-2 "${part}" | jq -c . | tr -d '\n' | wc -c)"; do
+      [[ "${n}" -le 6144 ]] || { echo "the ${part} part is ${n} characters, over the 6144 of a managed policy"; return 1; }
+    done
+  done
+  # DenyOutsideRegion is in both parts, on purpose; every other statement is in one
+  jq -s '{Statement: (map(.Statement) | add | unique_by(.Sid))}' "${tmp}/policy-controller.json" "${tmp}/policy-lane.json" >"${p}"
+  jq -e '[.Statement[] | select(.Sid != "DenyOutsideRegion") | .Sid] | length == (unique | length)' \
+    <(jq -s '{Statement: (map(.Statement) | add)}' "${tmp}/policy-controller.json" "${tmp}/policy-lane.json") >/dev/null || { echo "a statement is in both parts"; return 1; }
+  jq -e '.Statement | map(select(.Sid == "DenyOutsideRegion")) | length == 1' "${tmp}/policy-lane.json" >/dev/null || { echo "the lane part lacks the region deny"; return 1; }
+  # a role with the controller part alone does less, never more: both denies are in it
+  jq -e '[.Statement[] | select(.Effect == "Deny") | .Sid] | sort == ["DenyOtherInstanceTypes", "DenyOutsideRegion"]' "${tmp}/policy-controller.json" >/dev/null ||
+    { echo "the denies are not in the controller part"; return 1; }
+  ! "${here}/ci-policy.sh" 123456789012 us-east-2 other 2>/dev/null || { echo "an unknown part was accepted"; return 1; }
   # every cluster tag condition is a wildcard, nothing is left of the placeholders, the
   # lane's own statements are there, and the optional statements are gone
   jq -e '
@@ -284,11 +302,14 @@ t_policy() {
     ([.Statement[].Sid] | map(select(test("PassInstanceProfile|CustomerKms"))) | length) == 0' "${p}" >/dev/null &&
     ! grep -q 'CLUSTER_NAME\|NODE_ROLE_NAME\|KEY_ID' "${p}" &&
     jq -e '.Statement[] | select(.Sid == "DenyOutsideRegion") | .Effect == "Deny" and (.Action | sort) == ["ec2:*", "servicequotas:*"] and
-      .Resource == "*" and .Condition == {StringNotEquals: {"aws:RequestedRegion": ["us-east-2"]}}' "${p}" >/dev/null &&
+      .Resource == "*" and .Condition == {StringNotEquals: {"aws:RequestedRegion": ["ap-northeast-3", "us-east-2"]}}' "${p}" >/dev/null &&
+    jq -e '[.Statement[].Sid] | (index("OptionalImageCopies") and index("OptionalImageCopiesSource") and index("OptionalImageCopiesTagAtCreation") and index("OptionalImageCopiesDelete")) != null' "${p}" >/dev/null &&
+    jq -e '.Statement[] | select(.Sid == "LaneReads") | .Action | index("ec2:DescribeSnapshots") != null and index("ec2:GetEbsEncryptionByDefault") != null' "${p}" >/dev/null &&
+    jq -e '.Statement[] | select(.Sid == "DenyOtherInstanceTypes") | .Condition.StringNotEquals."ec2:InstanceType" | index("t3.small") != null' "${p}" >/dev/null &&
     jq -e '.Statement[] | select(.Sid == "DenyOtherInstanceTypes") | .Effect == "Deny" and .Action == "ec2:RunInstances"' "${p}" >/dev/null &&
     jq -e '.Statement[] | select(.Sid == "DenyOtherInstanceTypes") | .Condition.StringNotEquals."ec2:InstanceType" | index("t3a.small") != null' "${p}" >/dev/null
 }
-check "ci-policy.sh prints the role's policy for scarpenter-ci-* with the lane's statements" t_policy
+check "ci-policy.sh prints the role's policy in two parts that fit a managed policy, for scarpenter-ci-* with the lane's statements" t_policy
 check_fails "ci-policy.sh refuses a malformed account ID" "${here}/ci-policy.sh" 12345
 
 # ---- the canary's read-only policy -------------------------------------------
@@ -319,7 +340,14 @@ t_chart() {
     -f "${tmp}/values.yaml" --set kubeletClientCA.source=inline --set-string kubeletClientCA.inline=PEM --set image.repository=scarpenter-controller --set image.tag=e2e >"${tmp}/chart.yaml"
   grep -q -- '--cluster-name=scarpenter-ci-1' "${tmp}/chart.yaml" &&
     grep -q 'AWS_SESSION_TOKEN' "${tmp}/chart.yaml" && grep -q 'https://100.64.0.1:6443' "${tmp}/chart.yaml" &&
-    grep -q 'CriticalAddonsOnly' "${tmp}/chart.yaml"
+    grep -q 'CriticalAddonsOnly' "${tmp}/chart.yaml" &&
+    ! grep -q -- '--aws-copy-images' "${tmp}/chart.yaml" &&
+    # the manual imagecopy scenario's values (install.sh): the copies on, a short idle lifetime, the GC every minute
+    helm template scarpenter "${root}/charts/scarpenter" --namespace scarpenter-system --kube-version 1.37.0 \
+      -f "${tmp}/values.yaml" --set kubeletClientCA.source=inline --set-string kubeletClientCA.inline=PEM --set image.repository=scarpenter-controller --set image.tag=e2e \
+      --set vendors.aws.imageCopies.enabled=true --set imageCopies.idleTTL=1m >"${tmp}/chart-copy.yaml" &&
+    grep -q -- '--aws-copy-images=true' "${tmp}/chart-copy.yaml" && grep -q -- '--image-copy-idle-ttl=1m' "${tmp}/chart-copy.yaml" &&
+    grep -q -- '--gc-interval=1m' "${tmp}/chart-copy.yaml"
 }
 check "the chart renders with the lane's values (schema, credentials, endpoint, toleration)" t_chart
 
