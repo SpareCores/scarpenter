@@ -277,7 +277,7 @@ Cloud Native) and the plan's default root disk on its tier; a NodeClass's own ro
 minutes. A quota error (`SERVER_CORE_LIMIT_REACHED` and the others below) gates every zone.
 
 Usage counts only what the token can see. For a token of a sub-account the usage is that of the sub-account's resources, while the
-limits from `GET /account` are presumably the main account's (**unverified**).
+limits from `GET /account` are the main account's (**unverified**).
 
 ## Error mapping
 
@@ -339,7 +339,7 @@ documentation and the SDK source, and the spikes of plan 19 and the full lane se
   versus MaxIOPS included storage per family (the driver reads the tier from the plan list), stopped servers, the cap; whether `GB` is GiB.
 - **Idempotency and capacity (S5)**: the labels in the create body, that several label filters on a list are ANDed, that a label
   value may hold a timestamp (the fallback is epoch seconds, which `Created` reads), the code of a full zone.
-- **Accounts (S6)**: that a sub-account's token sees the templates, networks and rulesets another created.
+- **Accounts (S6)**: that a sub-account's token sees the templates, networks and rulesets another created, and that its usage counts only what it sees while the quota limits are the main account's.
 - **API behaviour (S7)**: rate limits and the status of throttling, how a limit of 0 is reported, which server states count towards
   the limits, whether `GET /account` has usage.
 - **Rulesets**: the endpoints (`/firewall-ruleset`, `attach` and `detach_firewall_ruleset/private`), their JSON, the error codes

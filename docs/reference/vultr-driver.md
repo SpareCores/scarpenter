@@ -290,8 +290,8 @@ unverified (S6); if `/` or `=` is refused, the fallback style is `scarpenter-<ke
 
 ## Quotas and stock
 
-No quota reader: Vultr has no quota API, the account's limits (maximum instances, maximum instance cost) are visible in the console
-only, so there are no quota gauges, every type has an unknown quota and only the reactive path applies. A limit hit on a create is `QuotaExceeded` marked **account-wide**
+No quota reader: Vultr has no quota API, and the account's limits (maximum instances, maximum instance cost) are visible in the console
+only. So there are no quota gauges, every type has an unknown quota, and only the reactive path applies. A limit hit on a create is `QuotaExceeded` marked **account-wide**
 (the core then gates the capacity type in every region, as the limits are the account's). Stock comes from
 `GET /v2/regions/{id}/availability` (`available_plans`), which is both the pre-call check and the `OfferingLister`. Vultr has no spot
 instances for cloud plans, so there is no capacity type but `on-demand`; a spot request is `Unsupported`, code `NoSpot`, before any call.
