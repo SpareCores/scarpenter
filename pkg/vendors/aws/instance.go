@@ -334,6 +334,7 @@ func toInstance(region string, in ec2types.Instance) *vendors.Instance {
 		}
 	}
 	inst.Addresses = addressesOf(in)
+	setPublic(inst, in)
 	if inst.Gone() {
 		inst.GoneReason = goneReasonOf(in)
 	}
@@ -388,6 +389,47 @@ func addressesOf(in ec2types.Instance) []string {
 		}
 	}
 	return out
+}
+
+// setPublic records the public addresses: the instance's public IPv4 and the
+// public IPs associated with its interfaces, then an IPv6 address (EC2 IPv6
+// addresses are global). With several, the primary one of the interface with the
+// lowest device index wins, so that the choice does not depend on the order of
+// the API's answer.
+func setPublic(inst *vendors.Instance, in ec2types.Instance) {
+	inst.SetPublic(deref(in.PublicIpAddress))
+	nis := slices.Clone(in.NetworkInterfaces)
+	slices.SortStableFunc(nis, func(a, b ec2types.InstanceNetworkInterface) int {
+		return deviceIndex(a) - deviceIndex(b)
+	})
+	for _, ni := range nis {
+		if ni.Association != nil {
+			inst.SetPublic(deref(ni.Association.PublicIp))
+		}
+	}
+	for _, ni := range nis {
+		v6s := slices.Clone(ni.Ipv6Addresses)
+		slices.SortStableFunc(v6s, func(a, b ec2types.InstanceIpv6Address) int {
+			return primary(b.IsPrimaryIpv6) - primary(a.IsPrimaryIpv6)
+		})
+		for _, v6 := range v6s {
+			inst.SetPublic(deref(v6.Ipv6Address))
+		}
+	}
+}
+
+func deviceIndex(ni ec2types.InstanceNetworkInterface) int {
+	if ni.Attachment == nil {
+		return 0
+	}
+	return int(deref(ni.Attachment.DeviceIndex))
+}
+
+func primary(p *bool) int {
+	if p != nil && *p {
+		return 1
+	}
+	return 0
 }
 
 // describeInstances reads every page of a DescribeInstances call.

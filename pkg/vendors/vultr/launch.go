@@ -168,6 +168,8 @@ func ToInstance(in govultr.Instance, style TagStyle) *vendors.Instance {
 			inst.Addresses = append(inst.Addresses, a)
 		}
 	}
+	inst.SetPublic(in.MainIP) // not the VPC's internal_ip
+	inst.SetPublic(in.V6MainIP)
 	return inst
 }
 

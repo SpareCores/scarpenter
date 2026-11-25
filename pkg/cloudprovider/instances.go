@@ -375,4 +375,19 @@ func setBillingStart(annotations map[string]string, inst *vendors.Instance) {
 	}
 }
 
+// setPublicIPs puts the public addresses a created instance already has on the
+// NodeClaim; the garbage collector keeps them up to date and fills in what is
+// assigned later.
+func setPublicIPs(annotations map[string]string, inst *vendors.Instance) {
+	if inst.PublicUnknown {
+		return
+	}
+	if inst.PublicIPv4 != "" {
+		annotations[v1alpha1.AnnotationPublicIPv4] = inst.PublicIPv4
+	}
+	if inst.PublicIPv6 != "" {
+		annotations[v1alpha1.AnnotationPublicIPv6] = inst.PublicIPv6
+	}
+}
+
 func formatPrice(p float64) string { return strconv.FormatFloat(p, 'f', -1, 64) }

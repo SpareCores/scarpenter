@@ -189,13 +189,17 @@ func TestToInstance(t *testing.T) {
 	if len(got.Addresses) != 3 || got.Addresses[0] != "203.0.113.5" {
 		t.Errorf("addresses %v", got.Addresses)
 	}
+	if got.PublicIPv4 != "203.0.113.5" || got.PublicIPv6 != "2001:db8::1" {
+		t.Errorf("public addresses %q %q, not the VPC's internal IP", got.PublicIPv4, got.PublicIPv6)
+	}
 	// The default password is never carried, in any field.
 	if raw, _ := json.Marshal(got); strings.Contains(string(raw), "secret-password") {
 		t.Errorf("the password leaked: %s", raw)
 	}
 	// A pending instance has no address yet.
 	in.Status, in.MainIP, in.V6MainIP, in.InternalIP = "pending", "0.0.0.0", "", ""
-	if got := ToInstance(in, TagStyleDomain); len(got.Addresses) != 0 || got.State != vendors.StatePending {
+	if got := ToInstance(in, TagStyleDomain); len(got.Addresses) != 0 || got.PublicIPv4 != "" || got.PublicIPv6 != "" ||
+		got.State != vendors.StatePending {
 		t.Errorf("pending: %+v", got)
 	}
 }

@@ -107,6 +107,12 @@ const (
 	// AnnotationPriceIncomplete is "true" when the price misses components the
 	// data does not have.
 	AnnotationPriceIncomplete = Group + "/price-incomplete"
+	// AnnotationPublicIPv4 and AnnotationPublicIPv6 are the instance's public
+	// addresses, kept by the garbage collection controller on the Node and its
+	// NodeClaim once the Node exists. Absent while the instance has no address
+	// of the family; never empty.
+	AnnotationPublicIPv4 = Group + "/public-ipv4"
+	AnnotationPublicIPv6 = Group + "/public-ipv6"
 )
 
 // Interruption annotations (ADR-027). The node agent or the interruption poller

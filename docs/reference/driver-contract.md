@@ -30,6 +30,12 @@ same holds for the resource calls (`Resolve` of an ID that cannot exist selects 
 the instance count from ([billing](#billing)); `CreatedAt` is not always that. Zero when the vendor has none and the driver
 could not record one.
 
+`Instance.PublicIPv4` and `PublicIPv6` are the instance's public addresses, set with `Instance.SetPublic` from the
+fields the vendor documents as public (never guessed from `Addresses`), empty when there is none or it is not assigned yet.
+The garbage collector publishes them as Node and NodeClaim annotations ([public addresses](controller.md#public-addresses)).
+A driver that did not read them (a failed read, or a listing that leaves them out, as OCI's) sets `Instance.PublicUnknown`, and
+`GetInstance` then returns them.
+
 `InstanceRef` is `<region>/<vendor id>`; the core stores it in the annotation
 `scarpenter.sparecores.com/instance-ref`. `CreateRequest.InstanceType` is the
 vendor's API reference, not the catalog name. `CreateRequest.Node` describes

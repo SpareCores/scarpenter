@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/netip"
 	"reflect"
 	"strings"
 	"time"
@@ -262,11 +263,37 @@ type Instance struct {
 	Tags         map[TagKey]string
 	// Addresses are the instance's IP addresses, if known.
 	Addresses []string
+	// PublicIPv4 and PublicIPv6 are the instance's public addresses, empty
+	// when it has none or the vendor has not assigned them yet. A later
+	// GetInstance or ListInstances fills them. Drivers set them with SetPublic
+	// from fields the vendor documents as public, never by guessing from
+	// Addresses.
+	PublicIPv4, PublicIPv6 string
+	// PublicUnknown is true when the driver did not read the public addresses
+	// (a read of them failed, or the call that returned this instance does not
+	// carry them): empty PublicIPv4 and PublicIPv6 then mean nothing, and a
+	// consumer must neither publish nor remove an address because of them.
+	PublicUnknown bool
 	// GoneReason is set by a driver that can tell a vendor reclaim from a crash,
 	// on an instance that is gone (terminating or terminated): the reason the
 	// vendor gives, v1alpha1.ReasonSpotInterrupted for a spot reclaim. Empty
 	// when the instance is not gone or the driver cannot tell (plan 26).
 	GoneReason string
+}
+
+// SetPublic records addr as the instance's public IPv4 or IPv6 address by its
+// family. An empty or unparsable address, an unspecified one (Vultr reports
+// 0.0.0.0 while pending) and a private, loopback or link-local one are ignored,
+// and the first address of a family wins.
+func (i *Instance) SetPublic(addr string) {
+	a, err := netip.ParseAddr(addr)
+	switch {
+	case err != nil || !a.IsGlobalUnicast() || a.IsPrivate():
+	case a.Is4() && i.PublicIPv4 == "":
+		i.PublicIPv4 = a.String()
+	case a.Is6() && !a.Is4In6() && i.PublicIPv6 == "":
+		i.PublicIPv6 = a.String()
+	}
 }
 
 // Gone reports whether Karpenter must treat the instance as not existing.

@@ -237,3 +237,16 @@ func TestRegionErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestSetPublic(t *testing.T) {
+	var inst vendors.Instance
+	for _, a := range []string{
+		"", "garbage", "0.0.0.0", "::", "10.0.0.5", "192.168.1.2", "127.0.0.1", "169.254.169.254", "fd00::1", "fe80::1",
+		"203.0.113.9", "198.51.100.1", "2001:db8::5", "2001:db8::6",
+	} {
+		inst.SetPublic(a)
+	}
+	if inst.PublicIPv4 != "203.0.113.9" || inst.PublicIPv6 != "2001:db8::5" {
+		t.Errorf("public %q %q; want the first public address of each family", inst.PublicIPv4, inst.PublicIPv6)
+	}
+}

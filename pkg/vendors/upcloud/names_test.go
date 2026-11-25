@@ -189,6 +189,9 @@ func TestToInstanceAndAddresses(t *testing.T) {
 	if !slices.Equal(in.Addresses, want) {
 		t.Errorf("addresses = %v, want %v", in.Addresses, want)
 	}
+	if in.PublicIPv4 != "203.0.113.5" || in.PublicIPv6 != "2001:db8::5" {
+		t.Errorf("public addresses = %q %q, want the public ones only", in.PublicIPv4, in.PublicIPv6)
+	}
 	if _, ok := BillingStart(&upcloud.ServerDetails{}); ok {
 		t.Error("a server without the label has a billing start")
 	}

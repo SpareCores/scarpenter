@@ -132,5 +132,7 @@ func ToBareMetalInstance(s govultr.BareMetalServer, style TagStyle) *vendors.Ins
 			inst.Addresses = append(inst.Addresses, a)
 		}
 	}
+	inst.SetPublic(s.MainIP)
+	inst.SetPublic(s.V6MainIP)
 	return inst
 }

@@ -175,11 +175,17 @@ func InstanceFrom(region, zone string, s osapi.Server) *vendors.Instance {
 			v4 = append(v4, a.Addr)
 		}
 	}
-	return &vendors.Instance{
+	inst := &vendors.Instance{
 		Ref: InstanceRef(region, s.ID), Region: region, Zone: zone, Type: s.FlavorName,
 		CapacityType: vendors.CapacityOnDemand, State: ServerState(s), CreatedAt: s.Created,
 		Tags: TagsFromMetadata(s.Metadata), Addresses: slices.Concat(v4, v6),
 	}
+	for _, a := range s.Addresses {
+		if a.Network == osapi.ExternalNetwork {
+			inst.SetPublic(a.Addr)
+		}
+	}
+	return inst
 }
 
 // PrimaryAddress is the address a node is reached on under the direct join: the

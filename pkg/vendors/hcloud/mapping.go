@@ -233,7 +233,7 @@ func ToInstance(s *hc.Server, fallbackLocation string) *vendors.Instance {
 	if s.ServerType != nil {
 		typ = s.ServerType.Name
 	}
-	return &vendors.Instance{
+	inst := &vendors.Instance{
 		Ref:          NewRef(loc, s.ID),
 		Region:       loc,
 		Zone:         loc,
@@ -247,6 +247,13 @@ func ToInstance(s *hc.Server, fallbackLocation string) *vendors.Instance {
 		Tags:         TagsOf(s.Labels),
 		Addresses:    Addresses(s),
 	}
+	if !s.PublicNet.IPv4.IsUnspecified() {
+		inst.SetPublic(s.PublicNet.IPv4.IP.String())
+	}
+	if ip := ipv6Guest(s.PublicNet.IPv6); ip != nil {
+		inst.SetPublic(ip.String())
+	}
+	return inst
 }
 
 // VolumeByIDPath is the stable device path of a volume, known before the

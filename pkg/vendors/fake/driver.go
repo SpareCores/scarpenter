@@ -506,6 +506,7 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 			BillingStart: billingStamp(conf, d.clock.Now()),
 			Tags:         vendors.IdempotencyTag(req.Tags, req.IdempotencyKey),
 			Addresses:    []string{fmt.Sprintf("10.%d.%d.%d", d.seq/65536%256, d.seq/256%256, d.seq%256)},
+			PublicIPv4:   fmt.Sprintf("203.0.113.%d", d.seq%250+1),
 		},
 		claim: claim, nodeName: req.Node.Name, vcpus: srv.vcpus, key: req.IdempotencyKey, image: req.Image.Ref,
 		userData: len(req.UserData), settings: string(req.Settings.Raw), profiles: maps.Clone(req.Settings.Profiles),

@@ -81,17 +81,19 @@ operator at start-up (`Operator.RegisterLabelKeys`, plan 03):
 | `scarpenter.sparecores.com/resources` | JSON `{"subnets": ["subnet-0abc"], "volumes": [...]}`: the IDs of the vendor resources the node was launched with, whether a `use` selector resolved them or SCarpenter manages them, by kind. A later re-resolution that finds other resources changes new launches only, never a running node. Absent when the launch used no vendor resource. |
 | `scarpenter.sparecores.com/profile-hashes` | JSON `{"storage/db-io2": "<hash>"}`: the hashes of the profile blocks the node was launched with. A node drifts when one of them changes or the profile is removed ([drift](node-settings.md#drift)). Absent on the default route. |
 | `scarpenter.sparecores.com/billing-start` | The vendor's own billing-start stamp of the instance, RFC 3339 (to the second, never later than the vendor's). `Create` returns it; core merges it into the NodeClaim and copies it to the Node at registration. Absent when the driver records none (billing retention then does not hold the node). See [billing retention](controller.md#billing-retention). |
+| `scarpenter.sparecores.com/public-ipv4`, `scarpenter.sparecores.com/public-ipv6` | The instance's public IPv4 and IPv6 address, set by `Create` when the instance already has them and kept by the garbage collection controller once the Node exists, with the same values on the Node (see below). A family the instance has no address of has no annotation; an empty value is never written. See [public addresses](controller.md#public-addresses). |
 
 ## Annotations and taints on Nodes
 
 Set by the billing retention controller ([controller reference](controller.md#billing-retention)), only on the Nodes of a NodeClass
-with `spec.billing.retainUntilPeriodEnd: true`:
+with `spec.billing.retainUntilPeriodEnd: true`, except where a row says otherwise:
 
 | Key | Meaning |
 |---|---|
 | `scarpenter.sparecores.com/retain-until` (annotation) | The deadline (RFC 3339) until which the node is held. It is also the marker that SCarpenter set `karpenter.sh/do-not-disrupt` on the node: only then does the controller remove that annotation, a `do-not-disrupt` without the marker is the user's and is never touched. |
 | `scarpenter.sparecores.com/hold-released-until` (annotation) | A release under pressure was blocked by the NodePool's disruption budget, so the node lost its hold until this time (the end of its current period, RFC 3339): it is an ordinary empty node for Karpenter's emptiness meanwhile. Removed with the next hold, or when the node stops qualifying. |
 | `scarpenter.sparecores.com/billing-start` (annotation) | Copied from the NodeClaim at registration (see above), or written by the controller from the cloud provider for a node whose NodeClaim has none. |
+| `scarpenter.sparecores.com/public-ipv4`, `scarpenter.sparecores.com/public-ipv6` (annotations) | The instance's public addresses, kept by the garbage collection controller on every Node whose NodeClaim names it ([public addresses](controller.md#public-addresses)), also without billing retention. |
 | `scarpenter.sparecores.com/gpu-pending` (taint, `NoSchedule`) | On every NVIDIA GPU node from registration until its driver check passed (ADR-031). Removed by the controller when the Node has the label below, or at once from a node without `nvidia-driver-branch`. List it in the NodePool's `startupTaints`. |
 | `scarpenter.sparecores.com/gpu-ready` (label) | `true` or `false`, set by the node's own check with the kubelet's credentials; `false` makes the controller delete the NodeClaim. |
 | `scarpenter.sparecores.com/releasing` (taint, `NoSchedule`) | The node is being released at the end of its paid period (or under pressure: the taint's value is `period-end`, `limit`, `quota` or `max-retained`). Put on for the 5 seconds before the final check and left until the node is gone. |

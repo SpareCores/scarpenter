@@ -109,6 +109,9 @@ func TestCreateGetFindListDelete(t *testing.T) {
 	if len(inst.Addresses) != 2 || inst.CreatedAt.IsZero() {
 		t.Fatalf("addresses = %v, created %v", inst.Addresses, inst.CreatedAt)
 	}
+	if inst.PublicIPv4 == "" || inst.PublicIPv4 == inst.Addresses[0] {
+		t.Fatalf("public IPv4 %q of addresses %v, want the public one", inst.PublicIPv4, inst.Addresses)
+	}
 	got, err := e.cloud.GetInstance(ctx, inst.Ref)
 	if err != nil || got.Ref != inst.Ref {
 		t.Fatalf("get: %v %v", got, err)
