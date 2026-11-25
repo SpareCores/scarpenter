@@ -111,6 +111,7 @@ type Account struct {
 	servers   []*bareMetal
 	groups    []*group
 	vpcs      []*govultr.VPC
+	blocks    map[string]string // block storage ID -> instance ID, "" when detached (AttachBlock)
 
 	// injected errors: failures[method] is consumed one per call; sticky stays.
 	failures map[string][]error
@@ -650,8 +651,34 @@ func (a *Account) DeleteInstance(_ context.Context, id string) error {
 	if g := a.group(in.FirewallGroupID); g != nil {
 		g.InstanceCount--
 	}
+	for b, attachedTo := range a.blocks {
+		if attachedTo == id {
+			a.blocks[b] = ""
+		}
+	}
 	a.instances = slices.Delete(a.instances, i, i+1)
 	return nil
+}
+
+// AttachBlock attaches a block storage volume of another owner to the instance;
+// deleting the instance detaches it and keeps it. It returns the volume's ID.
+func (a *Account) AttachBlock(instanceID string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.blocks == nil {
+		a.blocks = map[string]string{}
+	}
+	id := a.id("blk")
+	a.blocks[id] = instanceID
+	return id
+}
+
+// BlockExists says whether the block storage volume of AttachBlock exists.
+func (a *Account) BlockExists(id string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	_, ok := a.blocks[id]
+	return ok
 }
 
 // ListInstances implements vultr.API: tag takes one value and matches a whole tag

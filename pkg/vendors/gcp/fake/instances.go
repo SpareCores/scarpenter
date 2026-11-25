@@ -324,11 +324,46 @@ func (c *Compute) DeleteInstance(_ context.Context, r *computepb.DeleteInstanceR
 	op := c.newOp("delete", scope, scope+"/instances/"+r.GetInstance(), failed, func() {
 		if cur := c.instances[key]; cur != nil {
 			c.releaseIPs(cur)
+			c.deleteAutoDeleteDisks(cur)
 			delete(c.instances, key)
 		}
 	})
 	c.remember("DeleteInstance", scope, r.RequestId, op)
 	return proto.Clone(op).(*computepb.Operation), nil
+}
+
+// deleteAutoDeleteDisks deletes the attached disks that are flagged autoDelete;
+// the others are detached and stay.
+func (c *Compute) deleteAutoDeleteDisks(in *computepb.Instance) {
+	zone := last(in.GetZone())
+	for _, d := range in.GetDisks() {
+		if d.GetAutoDelete() && d.GetSource() != "" {
+			delete(c.disks, zone+"/"+last(d.GetSource()))
+		}
+	}
+}
+
+// AttachDisk creates a disk of another owner and attaches it to the instance the
+// way attachDisk does by default (autoDelete false). It returns the disk's name.
+func (c *Compute) AttachDisk(zone, instance string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	in := c.instances[zone+"/"+instance]
+	c.seq++
+	name := fmt.Sprintf("user-disk-%d", c.seq)
+	c.disks[zone+"/"+name] = true
+	in.Disks = append(in.Disks, &computepb.AttachedDisk{
+		Source:     new(fmt.Sprintf("projects/%s/zones/%s/disks/%s", c.project, zone, name)),
+		AutoDelete: new(false), Index: new(int32(len(in.Disks))),
+	})
+	return name
+}
+
+// DiskExists says whether the disk AttachDisk made still exists.
+func (c *Compute) DiskExists(zone, name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.disks[zone+"/"+name]
 }
 
 func (c *Compute) releaseIPs(in *computepb.Instance) {

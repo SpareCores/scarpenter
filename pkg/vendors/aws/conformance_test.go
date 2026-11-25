@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,6 +139,12 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 		PowerOff: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) {
 			t.Helper()
 			envOf(t, d).acct.SetInstanceState(ref.Region(), ref.ID(), ec2types.InstanceStateNameStopped)
+		},
+		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
+			t.Helper()
+			acct := envOf(t, d).acct
+			vol := acct.AttachVolume(ref.Region(), ref.ID())
+			return func() bool { return slices.Contains(acct.Volumes(ref.Region()), vol) }
 		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
 			t.Helper()

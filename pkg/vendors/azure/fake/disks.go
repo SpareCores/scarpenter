@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
 )
 
 // ManagedDisks is the managed disk delete call. The driver has no disk API (the
@@ -40,4 +42,30 @@ func (a *ManagedDisks) Delete(ctx context.Context, rg, name string) error {
 	}
 	delete(s.disks, k)
 	return nil
+}
+
+// AttachDisk creates a disk of another owner and attaches it to the VM as a data
+// disk with the default deleteOption (Detach), the way a user or a CSI driver
+// does. It returns the disk's name.
+func (s *Subscription) AttachDisk(rg, vm string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.vms[key(rg, vm)]
+	name := vm + "-user-disk"
+	s.disks[key(rg, name)] = vm
+	sp := st.vm.Properties.StorageProfile
+	sp.DataDisks = append(sp.DataDisks, &armcompute.DataDisk{
+		Name: &name, Lun: new(int32(len(sp.DataDisks) + 10)),
+		CreateOption: new(armcompute.DiskCreateOptionTypesAttach),
+		DeleteOption: new(armcompute.DiskDeleteOptionTypesDetach),
+	})
+	return name
+}
+
+// DiskExists says whether the disk exists.
+func (s *Subscription) DiskExists(rg, name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.disks[key(rg, name)]
+	return ok
 }

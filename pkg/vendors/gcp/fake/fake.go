@@ -59,6 +59,7 @@ type Compute struct {
 	public    map[string]bool                              // project/name: shared with everyone, not listed
 	families  map[string]string                            // project/family -> name
 	instances map[string]*computepb.Instance               // zone/name
+	disks     map[string]bool                              // zone/name of the disks AttachDisk made
 	networks  map[string]*computepb.Network
 	subnets   map[string]*computepb.Subnetwork // region/name
 	firewalls map[string]*computepb.Firewall
@@ -99,7 +100,7 @@ func New(project string) *Compute {
 		regions: map[string]*computepb.Region{}, zones: map[string]*computepb.Zone{},
 		types:  map[string]map[string]*computepb.MachineType{},
 		images: map[string]*computepb.Image{}, public: map[string]bool{},
-		families: map[string]string{}, instances: map[string]*computepb.Instance{},
+		families: map[string]string{}, instances: map[string]*computepb.Instance{}, disks: map[string]bool{},
 		networks: map[string]*computepb.Network{}, subnets: map[string]*computepb.Subnetwork{},
 		firewalls: map[string]*computepb.Firewall{}, policies: map[string]*computepb.ResourcePolicy{},
 		limits: map[string]float64{}, foreign: map[string]float64{},

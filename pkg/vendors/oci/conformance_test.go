@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -109,6 +110,12 @@ func fixture(t *testing.T, kind vendors.ResourceKind) conformance.Fixture {
 			if !envOf(t, d).c.SetState(ref.ID(), core.InstanceLifecycleStateStopped) {
 				t.Fatalf("cannot stop %s", ref)
 			}
+		},
+		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
+			t.Helper()
+			c := envOf(t, d).c
+			vol := c.AttachVolume(ref.Region(), ref.ID())
+			return func() bool { return slices.Contains(c.Volumes(), vol) }
 		},
 		Interrupt: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef, _ time.Time) {
 			t.Helper()

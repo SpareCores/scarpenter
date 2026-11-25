@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,6 +139,12 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 		PowerOff: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) {
 			t.Helper()
 			envOf(t, d).acct.Stop(ref.Region(), ref.ID())
+		},
+		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
+			t.Helper()
+			acct := envOf(t, d).acct
+			disk := acct.AttachDisk(ref.Region(), ref.ID(), false)
+			return func() bool { return slices.Contains(acct.DiskIDs(ref.Region()), disk) }
 		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
 			t.Helper()

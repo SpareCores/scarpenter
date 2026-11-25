@@ -130,6 +130,7 @@ type regionState struct {
 	groups    map[string]*groupRec
 	sets      map[string]*setRec
 	tokens    map[string]*token
+	disks     map[string]*diskRec // disks AttachDisk made (disks.go)
 }
 
 // New returns an empty account. A nil clock is the real one; tests pass a fake

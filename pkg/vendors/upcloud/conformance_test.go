@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -106,6 +107,17 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params json.Raw
 		PowerOff: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) {
 			t.Helper()
 			envOf(t, d).f.ForceState(ref.ID(), upcloud.ServerStateStopped)
+		},
+		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
+			t.Helper()
+			f := envOf(t, d).f
+			storage := f.AddStorage(testZone, "user-volume", upcloud.StorageTierMaxIOPS, 10, nil)
+			if err := f.AttachStorage(ref.ID(), storage); err != nil {
+				t.Fatal(err)
+			}
+			return func() bool {
+				return slices.ContainsFunc(f.Storages(), func(st upcloud.StorageDetails) bool { return st.UUID == storage })
+			}
 		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
 			t.Helper()

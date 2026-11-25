@@ -220,13 +220,15 @@ func (e *EC2) TerminateInstances(ctx context.Context, in *ec2.TerminateInstances
 	return res, nil
 }
 
-// terminate ends an instance: its volumes go with it and a spot request closes
-// after a delay.
+// terminate ends an instance: its DeleteOnTermination volumes go with it and a
+// spot request closes after a delay.
 func (a *Account) terminate(r *region, i *instance) {
 	i.state = types.InstanceStateNameTerminated
 	i.terminatedAt = a.now()
 	for _, v := range i.volumes {
-		delete(r.volumes, v)
+		if vol := r.volumes[v]; vol != nil && !vol.keep {
+			delete(r.volumes, v)
+		}
 	}
 	for _, s := range r.spot {
 		if s.instance == i.id {
@@ -470,7 +472,7 @@ func (a *Account) attachVolumes(r *region, in *ec2.RunInstancesInput, inst *inst
 		if bd.Ebs == nil {
 			continue
 		}
-		v := &volume{id: a.id("vol"), tags: tags}
+		v := &volume{id: a.id("vol"), tags: tags, keep: bd.Ebs.DeleteOnTermination != nil && !*bd.Ebs.DeleteOnTermination}
 		r.volumes[v.id] = v
 		inst.volumes = append(inst.volumes, v.id)
 	}
@@ -590,6 +592,22 @@ func (a *Account) UserData(regionName, id string) string {
 		}
 	}
 	return ""
+}
+
+// AttachVolume attaches a volume of another owner (no tags, DeleteOnTermination
+// false, the default of AttachVolume) to the instance and returns its ID.
+func (a *Account) AttachVolume(regionName, instanceID string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.regions[regionName]
+	v := &volume{id: a.id("vol"), keep: true}
+	r.volumes[v.id] = v
+	for _, i := range r.insts {
+		if i.id == instanceID {
+			i.volumes = append(i.volumes, v.id)
+		}
+	}
+	return v.id
 }
 
 // Volumes returns the IDs of the volumes of the region.

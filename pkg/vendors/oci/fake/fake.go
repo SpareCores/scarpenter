@@ -112,6 +112,7 @@ type Cloud struct {
 	attach    map[string][]core.VnicAttachment // instance ID -> attachments
 	vnics     map[string]core.Vnic
 	boot      map[string]bootVolume // instance ID -> boot volume
+	volumes   map[string]string     // block volume ID -> instance ID, "" when detached (volumes.go)
 	tokens    map[string]tokenRec   // region|token
 	net       netStore
 	seedVCN   string

@@ -317,6 +317,28 @@ func (c *Cloud) VolumeCount(region string) int {
 	return len(c.region(region).volumes)
 }
 
+// AttachVolume attaches a Cinder volume of another owner to the server the way a
+// user does after the launch: delete_on_termination is false, so deleting the
+// server detaches the volume. It returns the volume's ID.
+func (c *Cloud) AttachVolume(region, serverID string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r := c.region(region)
+	v := &volumeRec{id: c.id("vol"), sizeGiB: 10, attachedTo: serverID}
+	r.volumes[v.id] = v
+	s := r.servers[serverID]
+	s.volumes = append(s.volumes, v)
+	return v.id
+}
+
+// VolumeExists says whether the Cinder volume exists.
+func (c *Cloud) VolumeExists(region, id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, ok := c.region(region).volumes[id]
+	return ok
+}
+
 func (r *region) flavorByName(name string) osapi.Flavor {
 	for _, f := range r.flavors {
 		if f.Name == name {

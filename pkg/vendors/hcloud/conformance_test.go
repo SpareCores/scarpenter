@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -132,6 +133,19 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind, params func() j
 				t.Fatal(err)
 			}
 			envOf(t, d).f.PowerOff(id)
+		},
+		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
+			t.Helper()
+			id, err := hcloud.ServerID(ref.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := envOf(t, d).f
+			ip, vol := f.AssignPrimaryIP(id), f.AttachForeignVolume(id)
+			return func() bool {
+				v, _ := f.GetVolume(t.Context(), vol.ID)
+				return v != nil && slices.ContainsFunc(f.PrimaryIPs(), func(p *hc.PrimaryIP) bool { return p.ID == ip.ID })
+			}
 		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
 			t.Helper()
