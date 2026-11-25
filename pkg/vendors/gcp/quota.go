@@ -89,8 +89,8 @@ func buckets(qs []*computepb.Quota, scope vendors.QuotaScope) []vendors.Bucket {
 		}
 		// The family of a series bucket is the series (N2_CPUS: N2); the other
 		// metrics have none and the collector falls back to the ID.
-		family, _ := strings.CutSuffix(m, "_CPUS")
-		if family == m {
+		family, isSeries := strings.CutSuffix(m, "_CPUS")
+		if !isSeries {
 			family = ""
 		}
 		out = append(out, vendors.Bucket{

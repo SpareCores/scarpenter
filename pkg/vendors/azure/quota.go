@@ -77,6 +77,7 @@ func (q *QuotaReader) Quotas(ctx context.Context, region string) (*vendors.Quota
 		return nil, classify(err, errContext{})
 	}
 	snap := &vendors.QuotaSnapshot{}
+	seen := map[string]string{}
 	for _, u := range cu {
 		if u == nil || u.Name == nil || u.Name.Value == nil {
 			continue
@@ -94,10 +95,11 @@ func (q *QuotaReader) Quotas(ctx context.Context, region string) (*vendors.Quota
 			b.Family = name[:len(name)-len(familySuffix)]
 		}
 		snap.Buckets = append(snap.Buckets, b)
-		q.mu.Lock()
-		q.usageNames[strings.ToLower(name)] = name
-		q.mu.Unlock()
+		seen[strings.ToLower(name)] = name
 	}
+	q.mu.Lock()
+	maps.Copy(q.usageNames, seen)
+	q.mu.Unlock()
 	cctx, cancel = context.WithTimeout(ctx, callTimeout)
 	nu, err := q.usages.NetworkUsages(cctx, region)
 	cancel()
@@ -139,13 +141,14 @@ func (q *QuotaReader) GlobalQuotas(context.Context) (*vendors.QuotaSnapshot, err
 func (q *QuotaReader) Consumption(instanceType, capacityType string) ([]vendors.Consumption, bool) {
 	q.mu.RLock()
 	s, ok := q.skus[instanceType]
-	if canonical, seen := q.usageNames[strings.ToLower(s.Family)]; seen {
+	if !ok || s.VCPUs == 0 {
+		q.mu.RUnlock()
+		return nil, false
+	}
+	if canonical, found := q.usageNames[strings.ToLower(s.Family)]; found {
 		s.Family = canonical
 	}
 	q.mu.RUnlock()
-	if !ok || s.VCPUs == 0 {
-		return nil, false
-	}
 	n := int64(s.VCPUs)
 	var out []vendors.Consumption
 	if capacityType == vendors.CapacitySpot {
