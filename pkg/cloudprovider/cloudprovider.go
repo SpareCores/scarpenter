@@ -549,6 +549,21 @@ func (c *CloudProvider) Delete(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 
 func (c *CloudProvider) noteDeleteIssued(providerID string) { c.note(c.deleteIssued, providerID) }
 
+// DeletedWindow is how long RecentlyDeleted remembers a delete the driver
+// accepted: a machine that keeps running through the vendor's teardown (Vultr
+// bare metal, about 5 minutes) registers its Node again within it.
+const DeletedWindow = 30 * time.Minute
+
+// RecentlyDeleted says whether Delete issued the vendor delete of the provider
+// ID within DeletedWindow. In memory only: after a restart or a leader change
+// the garbage collector's Node sweep is the fallback.
+func (c *CloudProvider) RecentlyDeleted(providerID string) bool {
+	c.issuedMu.Lock()
+	defer c.issuedMu.Unlock()
+	at, ok := c.deleteIssued[providerID]
+	return ok && c.opts.Clock.Since(at) <= DeletedWindow
+}
+
 func (c *CloudProvider) deleteWasIssued(providerID string) bool {
 	c.issuedMu.Lock()
 	defer c.issuedMu.Unlock()

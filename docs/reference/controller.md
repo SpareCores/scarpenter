@@ -783,7 +783,11 @@ core removes only Nodes that have a NodeClaim. A Node is deleted only when its p
 NodeClaim has that provider ID, it is older than `--gc-grace-period`, and the driver's lookup of the instance by the NodeClaim
 name in the provider ID answers not found; an instance that exists, a failed lookup, or a Node of an instance type the driver's lookup cannot see (a Vultr bare-metal
 plan while the registration timeout is too short to list bare metal) keeps the Node. The reaper is a backstop: deleting a Node
-does not stop the kubelet of a machine that still runs, which registers it again. An orphan instance whose driver answers that it
+does not stop the kubelet of a machine that still runs, which registers it again. The fast path comes first: when
+the cloud provider's Delete has issued the vendor delete of a provider ID, it remembers that for 30 minutes (in memory), and a
+Node with that provider ID that is created or updated in the window while no NodeClaim has the provider ID is deleted at
+once, with a UID precondition, on the leader. A kubelet that registers the Node again is answered the same way each time. Each deletion is logged, published as the Event `GarbageCollected` and counted with kind `node` and reason `DeletedInstanceRejoined`.
+After a restart or a leader change, and after the 30 minutes, the sweep above is the fallback. An orphan instance whose driver answers that it
 is stopping before the delete (Vultr bare metal) is neither an error nor held back by the terminating grace once it is stopped. Every deletion is logged with its reason and published as the Normal Event
 `GarbageCollected` on the SCNodeClass of the instance's `nodeclass` tag, else on
 the controller Deployment (`SCARPENTER_DEPLOYMENT_NAME`, `POD_NAMESPACE`).
@@ -823,7 +827,7 @@ once (and again after a restart). An address that changes on OCI after it was pu
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance`, `bootstrap-token`, `node` or `launch-leftover`; `reason`: `NodeClaimNotFound`, `NoNodeClaimTag`, `Terminating` or `InstanceNotFound`; `result`: `deleted`, `dry-run`, `error`. |
+| `scarpenter_gc_deletions_total` | counter | `vendor`, `kind`, `reason`, `result` | `kind`: `instance`, `bootstrap-token`, `node` or `launch-leftover`; `reason`: `NodeClaimNotFound`, `NoNodeClaimTag`, `Terminating`, `InstanceNotFound` or `DeletedInstanceRejoined`; `result`: `deleted`, `dry-run`, `error`. |
 | `scarpenter_gc_sweep_duration_seconds` | histogram | | Duration of a sweep. |
 | `scarpenter_gc_last_sweep_timestamp_seconds` | gauge | | Time of the last sweep. |
 

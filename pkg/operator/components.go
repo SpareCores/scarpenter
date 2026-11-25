@@ -78,6 +78,9 @@ type Components struct {
 	// forgetImage drops a deleted image from the CloudProvider's cache; set by
 	// NewCloudProvider, which is built after the managers.
 	forgetImage func(region, ref string)
+	// recentlyDeleted is the CloudProvider's RecentlyDeleted, set by
+	// NewCloudProvider like forgetImage.
+	recentlyDeleted func(providerID string) bool
 
 	scopeMu   sync.Mutex
 	lastScope map[string][]string
@@ -309,6 +312,7 @@ func (o *Operator) NewCloudProvider(c *Components) *cloudprovider.CloudProvider 
 		Registerer:        metrics.Registry,
 	})
 	c.forgetImage = cp.ForgetImage
+	c.recentlyDeleted = cp.RecentlyDeleted
 	return cp
 }
 
@@ -331,12 +335,18 @@ func (o *Operator) WithComponentControllers(ctx context.Context, c *Components) 
 		Recorder:         o.EventRecorder,
 		Regions:          func(vendor string) []string { return c.regionsInUse(ctx, vendor) },
 		DeploymentRef:    deploymentRef,
-		OnDeleted:        c.Tracker.NotifyChanged,
-		Sweepers:         []garbagecollection.Sweeper{c.Resources.Sweep},
-		Registerer:       metrics.Registry,
+		RecentlyDeleted: func(providerID string) bool {
+			return c.recentlyDeleted != nil && c.recentlyDeleted(providerID)
+		},
+		OnDeleted:  c.Tracker.NotifyChanged,
+		Sweepers:   []garbagecollection.Sweeper{c.Resources.Sweep},
+		Registerer: metrics.Registry,
 	})
 	if err := o.Add(gc); err != nil {
 		return fmt.Errorf("adding the garbage collector to the manager: %w", err)
+	}
+	if err := gc.NewRejoin().Register(o.Manager); err != nil {
+		return fmt.Errorf("registering the rejoined Node controller: %w", err)
 	}
 	nodeClass := nodeclass.New(nodeclass.Options{
 		Client: o.GetClient(), Catalog: c.Catalog, Registry: c.Registry, Artifacts: c.Artifacts, Renderer: c.Renderer,

@@ -76,7 +76,10 @@ const (
 	// terminating grace (a stopped or powered-off instance is reported
 	// terminating by every driver and is never going to disappear by itself).
 	ReasonTerminating = "Terminating"
-	EventReason       = "GarbageCollected"
+	// ReasonRejoined: the Node of an instance SCarpenter deleted registered again
+	// (see Rejoin).
+	ReasonRejoined = "DeletedInstanceRejoined"
+	EventReason    = "GarbageCollected"
 )
 
 // Sweeper is an extension point run after the instance and token sweeps, for
@@ -116,6 +119,9 @@ type Options struct {
 	// DeploymentRef names the object that receives the Event when the
 	// instance's NodeClass is gone; nil or a nil result means log only.
 	DeploymentRef func() *corev1.ObjectReference
+	// RecentlyDeleted says whether SCarpenter recently deleted the instance of a
+	// provider ID (Rejoin); nil means never.
+	RecentlyDeleted func(providerID string) bool
 	// OnDeleted is called after an instance was deleted (the quota tracker's
 	// NotifyChanged).
 	OnDeleted func(vendor, region string)
