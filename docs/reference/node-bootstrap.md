@@ -430,9 +430,8 @@ handled: the range must be an IPv4 prefix, else the rendering fails. The
 Vendors whose instance has one interface with a private primary address and a
 NAT'ed public one (AWS, GCP, Azure, OCI, Alibaba Cloud) need no hint: the kubelet
 already registers the private address that the subnet gave the node, and they
-supply none. OVH does not support private networks in v1. A Vultr VPC has no
-DHCP (its interface gets the address from a boot unit that reads the metadata service) and the driver supplies no
-range; an UpCloud network brought without DHCP gets none either. Their nodes
+supply none. OVH does not support private networks in v1. A Vultr VPC has no DHCP; a boot unit gives its interface the address from the metadata service, and the driver supplies no range;
+an UpCloud network brought without DHCP gets none either. Their nodes
 register the public address.
 
 ## Instance metadata access
@@ -480,7 +479,8 @@ pass. UDP is not touched; no vendor serves its metadata over UDP. Addresses of o
 | `oci` | `169.254.169.254`, `fd00:c1::a9fe:a9fe` | none |
 | `alicloud` | `100.100.100.200` | none |
 | `hcloud` | `169.254.169.254`, `fe80::a9fe:a9fe` | none |
-| `upcloud`, `vultr` | `169.254.169.254` | none |
+| `upcloud` | `169.254.169.254` | none |
+| `vultr` | `169.254.169.254` | `scarpenter-vpc-interface.service` |
 | `ovh` | `169.254.169.254`, `fe80::a9fe:a9fe` | none |
 | `qemu` | no metadata service, nothing is added | none |
 

@@ -10,8 +10,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/vultr"
 )
+
+// The VPC unit reads the metadata service, which the restricted access drops for
+// every process outside the metadata slice.
+func TestRestrictedMetadataPutsTheVPCUnitInTheSlice(t *testing.T) {
+	f, ok, err := vendors.RestrictMetadata(vultr.New())
+	if err != nil || !ok {
+		t.Fatalf("RestrictMetadata = %v, %v", ok, err)
+	}
+	if !strings.Contains(f.Butane, "- name: scarpenter-vpc-interface.service") {
+		t.Errorf("the VPC unit is not in the metadata slice:\n%s", f.Butane)
+	}
+}
 
 func TestVPCInterfaceFragmentConfiguresTheNICByMACWithoutARoute(t *testing.T) {
 	frag := vultr.VPCInterfaceFragment()
@@ -21,11 +34,13 @@ func TestVPCInterfaceFragmentConfiguresTheNICByMACWithoutARoute(t *testing.T) {
 	for _, want := range []string{
 		"http://169.254.169.254/v1.json",
 		`."network-type" == "private"`,
-		"[.mac, .ipv4.address, .ipv4.netmask]",
+		"[.mac, .ipv4.address, .ipv4.netmask, (.mtu // 1450)]",
+		"MTUBytes=%s",
+		"variant: flatcar",
 		"MACAddress=%s",
 		"Address=%s/%s",
 		"/etc/systemd/network/10-scarpenter-vpc-",
-		"Before=kubelet.service",
+		"Before=network-online.target kubelet.service",
 		"Wants=scarpenter-vpc-interface.service",
 		"scarpenter-vpc-interface.service\n",
 	} {

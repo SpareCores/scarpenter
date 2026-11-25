@@ -361,9 +361,16 @@ func TestPrepareRequiresTheGroupAndTheVPCOnlyForAnIsolationThatNeedsOne(t *testi
 			t.Errorf("isolation %q: node IP range %q, want none", iso, got.NodeIPCIDR)
 		}
 		// The boot unit that configures the VPC interface rides with an attached VPC only.
-		hasUnit := len(got.BootFragments) == 1 && got.BootFragments[0].Name == vultr.VPCInterfaceFragmentName
-		if hasUnit != (iso != common.IsolationNone) || (!hasUnit && len(got.BootFragments) != 0) {
-			t.Errorf("isolation %q: boot fragments %+v", iso, got.BootFragments)
+		names := make([]string, 0, len(got.BootFragments))
+		for _, f := range got.BootFragments {
+			names = append(names, f.Name)
+		}
+		wantNames := []string{vultr.VPCInterfaceFragmentName}
+		if iso == common.IsolationNone {
+			wantNames = []string{}
+		}
+		if !slices.Equal(names, wantNames) {
+			t.Errorf("isolation %q: boot fragments %v, want %v", iso, names, wantNames)
 		}
 	}
 	// A missing resource reaches the caller with its code.

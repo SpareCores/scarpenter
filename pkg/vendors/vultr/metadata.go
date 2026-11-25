@@ -19,5 +19,7 @@ func (d *Driver) MetadataEndpoints() vendors.MetadataEndpoints {
 		Addresses: []netip.Addr{
 			netip.MustParseAddr("169.254.169.254"),
 		},
+		// The VPC unit reads the interfaces from the metadata service.
+		Units: []string{"scarpenter-vpc-interface.service"},
 	}
 }

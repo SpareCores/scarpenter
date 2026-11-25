@@ -77,3 +77,12 @@ systemd:
             After=scarpenter-metadata-firewall.service
             [Service]
             Slice=scarpenter-metadata.slice
+    - name: scarpenter-vpc-interface.service
+      dropins:
+        - name: 10-scarpenter-metadata.conf
+          contents: |
+            [Unit]
+            Wants=scarpenter-metadata-firewall.service
+            After=scarpenter-metadata-firewall.service
+            [Service]
+            Slice=scarpenter-metadata.slice

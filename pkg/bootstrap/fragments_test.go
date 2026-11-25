@@ -18,6 +18,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/bootstrap"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
+	"github.com/SpareCores/scarpenter/pkg/vendors/vultr"
 )
 
 // alwaysOn is a fragment a vendor's image needs on every node (the shape of the
@@ -161,6 +162,10 @@ func TestValidateRendersTheFragmentsOfEachVendor(t *testing.T) {
 		"the driver fails": {func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
 			return nil, errBoom
 		}, "boot fragments of aws"},
+		"the Vultr VPC unit": {func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) {
+			f := vultr.VPCInterfaceFragment()
+			return []bootstrap.Fragment{{Name: f.Name, Butane: f.Butane}}, nil
+		}, ""},
 		"none": {func(vendor, arch string, spot bool) ([]bootstrap.Fragment, error) { return nil, nil }, ""},
 	} {
 		_, err := r.ValidateWith(t.Context(), nc, "amd64", bootstrap.Inputs{}, tc.fn)

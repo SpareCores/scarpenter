@@ -156,11 +156,11 @@ installs them). The response's `default_password` is never read, logged or store
   `InsufficientCapacity` without a call.
 - **VPC interface.** An attached VPC is a second interface without DHCP, and Vultr's cloud-init does not run on Flatcar.
   `Prepare` therefore adds the boot fragment `vpc-interface` whenever the launch attaches a VPC: a oneshot unit
-  (`scarpenter-vpc-interface.service`, before the kubelet, which only `Wants=` it, so a failure never keeps the node from
-  joining) reads `http://169.254.169.254/v1.json`, retrying for about a minute. For each `interfaces[]` entry whose
-  `network-type` is `private` it writes a systemd-networkd file `/etc/systemd/network/10-scarpenter-vpc-<mac>.network` that
-  matches the NIC by `mac` and sets the static `ipv4.address` with the prefix of `ipv4.netmask`, then reloads networkd and
-  reconfigures the link. The unit logs what it configured and rewrites nothing that is unchanged. The interface gets no
+  (`scarpenter-vpc-interface.service`, after `systemd-networkd.service` and before `network-online.target` and the kubelet, which only `Wants=` it, so a failure never keeps the node from
+  joining) reads `http://169.254.169.254/v1.json`, retrying for at most about 100 s (20 tries, 3 s timeout and 2 s pause each, inside the unit's 180 s start timeout). For each `interfaces[]` entry whose
+  `network-type` is `private` and that is configured and has an address it writes a systemd-networkd file `/etc/systemd/network/10-scarpenter-vpc-<mac>.network` that
+  matches the NIC by `mac` and sets the static `ipv4.address` with the prefix of `ipv4.netmask` and the MTU (`mtu`, else 1450, Vultr's recommendation for private networks), then reloads networkd (every run) and
+  reconfigures the link. The unit's access to the metadata service is allowed under the restricted metadata access. The unit logs what it configured and rewrites nothing that is unchanged. The interface gets no
   gateway and no route, so the default route stays on the public interface. `Prepare` reports no node IP range
   ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)): the kubelet registers the public address and
   node-to-node traffic does not use the VPC; workloads reach what is only reachable over the VPC range.
@@ -181,7 +181,7 @@ instances. It differs in these points:
 - **Instance reference.** A server's reference is `<region>/bm:<uuid>` (an instance's stays `<region>/<uuid>`), so `Get` and
   `Delete` pick the endpoint from the reference without a second call.
 - **Create.** `POST /v2/bare-metals` takes `region`, `plan`, `snapshot_id`, `label`, `hostname`, `user_data`, `enable_ipv6`,
-  `activation_email: false` and the tags. It has no firewall group and no VPC field. **A bare-metal server joins no VPC**: `Prepare` asks for no VPC for a `vbm` plan whatever the isolation, and the
+  `activation_email: false` and the tags. It has no firewall group and no VPC field. **A bare-metal server joins no VPC** (SCarpenter attaches none after the create either): `Prepare` asks for no VPC for a `vbm` plan whatever the isolation, and the
   inbound isolation comes from the host firewall below. The stock check is `GET /v2/regions/{id}/availability?type=vbm`. A create
   whose request lacks the `host-firewall` boot fragment is `Unsupported`: a server is never created open.
 - **State.** `pending` is `pending`; `active` with `running` is `running` (a server has no `server_status`); `suspended` or
