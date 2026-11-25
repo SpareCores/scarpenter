@@ -9,6 +9,7 @@ package quota_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -26,7 +27,8 @@ import (
 // stub is a driver with quotas and launchable types.
 type stub struct {
 	mu        sync.Mutex
-	regional  map[string][]vendors.Bucket // region -> buckets
+	regional  map[string][]vendors.Bucket     // region -> buckets
+	zones     map[string][]vendors.ZoneBucket // region -> per-zone buckets
 	global    []vendors.Bucket
 	counted   []vendors.InstanceRef
 	consume   map[string][]vendors.Consumption // "type/capacity" -> consumption
@@ -39,7 +41,7 @@ type stub struct {
 
 func newStub() *stub {
 	return &stub{
-		regional: map[string][]vendors.Bucket{}, consume: map[string][]vendors.Consumption{},
+		regional: map[string][]vendors.Bucket{}, zones: map[string][]vendors.ZoneBucket{}, consume: map[string][]vendors.Consumption{},
 		launch: map[string]map[string][]string{}, calls: map[string]int{},
 	}
 }
@@ -77,6 +79,7 @@ func (s *stub) Quotas(ctx context.Context, region string) (*vendors.QuotaSnapsho
 		return nil, s.err
 	}
 	return &vendors.QuotaSnapshot{Buckets: append([]vendors.Bucket(nil), s.regional[region]...),
+		Zones:   append([]vendors.ZoneBucket(nil), s.zones[region]...),
 		Counted: append([]vendors.InstanceRef(nil), s.counted...)}, nil
 }
 
@@ -700,5 +703,128 @@ func TestLaunchableSettledStaysSettled(t *testing.T) {
 	e.scope["stub"] = []string{"r1", "r2", "r3"}
 	if !e.tr.LaunchableSettled("stub") {
 		t.Error("a region added later must not unsettle the vendor")
+	}
+}
+
+// series is one exported sample: its metric name, labels and value.
+type series struct {
+	name   string
+	labels map[string]string
+	value  float64
+}
+
+func gatherSeries(t *testing.T, reg *prometheus.Registry, prefix string) []series {
+	t.Helper()
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []series
+	for _, mf := range mfs {
+		if !strings.HasPrefix(mf.GetName(), prefix) {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			s := series{name: mf.GetName(), labels: map[string]string{}, value: m.GetGauge().GetValue()}
+			for _, l := range m.GetLabel() {
+				s.labels[l.GetName()] = l.GetValue()
+			}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func find(ss []series, name, bucket string) *series {
+	for i, s := range ss {
+		if s.name == name && s.labels["bucket"] == bucket {
+			return &ss[i]
+		}
+	}
+	return nil
+}
+
+func TestBucketMetricsCarryUnitAndFamily(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	e := setup(t, func(o *quota.Options) { o.Registerer = reg })
+	e.drv.set(func() {
+		e.drv.regional["r1"] = append(e.drv.regional["r1"],
+			vendors.Bucket{ID: "std-core", Family: "std", Scope: vendors.QuotaScopeRegion, Unit: "OCPU", Limit: 8})
+	})
+	e.refresh()
+	ss := gatherSeries(t, reg, "scarpenter_quota_")
+	// The family defaults to the bucket ID.
+	if s := find(ss, "scarpenter_quota_limit", "std"); s == nil || s.labels["unit"] != "vCPU" ||
+		s.labels["family"] != "std" || s.labels["region"] != "r1" && s.labels["region"] != "r2" {
+		t.Errorf("std limit series = %+v", s)
+	}
+	for _, name := range []string{"scarpenter_quota_limit", "scarpenter_quota_used", "scarpenter_quota_reserved"} {
+		if s := find(ss, name, "std-core"); s == nil || s.labels["unit"] != "OCPU" || s.labels["family"] != "std" {
+			t.Errorf("%s of std-core = %+v", name, s)
+		}
+	}
+}
+
+func TestZeroBucketsAreNotExported(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	e := setup(t, func(o *quota.Options) { o.Registerer = reg })
+	e.drv.set(func() {
+		e.drv.regional["r1"] = append(e.drv.regional["r1"],
+			vendors.Bucket{ID: "none", Scope: vendors.QuotaScopeRegion, Unit: "vCPU"},
+			vendors.Bucket{ID: "zero-limit", Scope: vendors.QuotaScopeRegion, Unit: "vCPU", Used: 2})
+	})
+	e.refresh()
+	ss := gatherSeries(t, reg, "scarpenter_quota_")
+	if s := find(ss, "scarpenter_quota_limit", "none"); s != nil {
+		t.Errorf("0/0/0 bucket exported: %+v", s)
+	}
+	if s := find(ss, "scarpenter_quota_limit", "zero-limit"); s == nil || s.value != 0 {
+		t.Errorf("limit 0 with usage must be exported: %+v", s)
+	}
+	if s := find(ss, "scarpenter_quota_used", "zero-limit"); s == nil || s.value != 2 {
+		t.Errorf("used of zero-limit = %+v", s)
+	}
+	// The tracker still sees the bucket.
+	seen := false
+	for _, b := range e.tr.Buckets() {
+		seen = seen || b.ID == "none"
+	}
+	if !seen {
+		t.Error("Buckets must keep the 0/0/0 bucket")
+	}
+}
+
+func TestZoneMetrics(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	e := setup(t, func(o *quota.Options) { o.Registerer = reg })
+	e.drv.set(func() {
+		e.drv.regional["r1"] = append(e.drv.regional["r1"],
+			vendors.Bucket{ID: "std-core", Family: "std", Scope: vendors.QuotaScopeRegion, Unit: "OCPU", Limit: 8})
+		e.drv.zones["r1"] = []vendors.ZoneBucket{
+			{Zone: "AD-1", ID: "std-core", Limit: 6, Used: 1},
+			{Zone: "AD-1", ID: "orphan", Limit: 3, Used: 2},
+		}
+	})
+	e.refresh()
+	ss := gatherSeries(t, reg, "scarpenter_quota_zone_")
+	l := find(ss, "scarpenter_quota_zone_limit", "std-core")
+	if l == nil || l.value != 6 || l.labels["zone"] != "AD-1" || l.labels["region"] != "r1" ||
+		l.labels["unit"] != "OCPU" || l.labels["family"] != "std" {
+		t.Errorf("zone limit = %+v", l)
+	}
+	if u := find(ss, "scarpenter_quota_zone_used", "std-core"); u == nil || u.value != 1 {
+		t.Errorf("zone used = %+v", u)
+	}
+	// Without a matching region bucket: empty unit, the ID as family.
+	if o := find(ss, "scarpenter_quota_zone_limit", "orphan"); o == nil || o.labels["unit"] != "" ||
+		o.labels["family"] != "orphan" {
+		t.Errorf("orphan zone limit = %+v", o)
+	}
+	// Stale regions drop their zone series, like the region gauges.
+	e.drv.set(func() { e.drv.err = errors.New("boom") })
+	e.clk.Step(quota.DefaultMaxStaleness + time.Minute)
+	_ = e.tr.Refresh(context.Background())
+	if ss := gatherSeries(t, reg, "scarpenter_quota_zone_"); len(ss) != 0 {
+		t.Errorf("stale zone series exported: %+v", ss)
 	}
 }

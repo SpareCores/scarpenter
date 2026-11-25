@@ -940,17 +940,32 @@ type Bucket struct {
 	// ID is the vendor's quota identifier (L-1216C47A).
 	ID    string
 	Scope QuotaScope
-	// Unit is vCPU, instances, GPUs or GiB.
-	Unit  string
-	Limit int64
+	// Unit is vCPU, OCPU, GB, MiB, MB, GPUs, instances, addresses, networks or
+	// count.
+	Unit string
+	// Family groups buckets that belong together (the OCPU and GB buckets of
+	// one OCI shape family) in the metrics; empty means the ID.
+	Family string
+	Limit  int64
 	// Used is the consumption of the whole account, not only SCarpenter's
 	// instances.
 	Used int64
 }
 
+// ZoneBucket is the limit and usage of a bucket in one zone (an OCI
+// availability domain, without the tenancy prefix). ID is the ID of the region
+// bucket it belongs to.
+type ZoneBucket struct {
+	Zone, ID    string
+	Limit, Used int64
+}
+
 // QuotaSnapshot is the quota state of a region (or of the account).
 type QuotaSnapshot struct {
 	Buckets []Bucket
+	// Zones are per-zone limits and usage for the metrics only; the tracker
+	// never uses them for decisions.
+	Zones []ZoneBucket
 	// Counted are the references of the instances included in Used, so the
 	// in-flight ledger can release their reservations.
 	Counted []InstanceRef
