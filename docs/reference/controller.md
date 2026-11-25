@@ -786,8 +786,7 @@ plan while the registration timeout is too short to list bare metal) keeps the N
 does not stop the kubelet of a machine that still runs, which registers it again. The fast path comes first: when
 the cloud provider's Delete has issued the vendor delete of a provider ID, it remembers that for 30 minutes (in memory), and a
 Node with that provider ID that is created or updated in the window while no NodeClaim has the provider ID is deleted at
-once, with a UID precondition, on the leader. A kubelet that registers the Node again is answered the same way each time; the
-first deletion per provider ID is logged. These deletions are counted with kind `node` and reason `DeletedInstanceRejoined`.
+once, with a UID precondition, on the leader. A kubelet that registers the Node again is answered the same way each time. Each deletion is logged, published as the Event `GarbageCollected` and counted with kind `node` and reason `DeletedInstanceRejoined`.
 After a restart or a leader change, and after the 30 minutes, the sweep above is the fallback. An orphan instance whose driver answers that it
 is stopping before the delete (Vultr bare metal) is neither an error nor held back by the terminating grace once it is stopped. Every deletion is logged with its reason and published as the Normal Event
 `GarbageCollected` on the SCNodeClass of the instance's `nodeclass` tag, else on

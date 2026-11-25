@@ -24,12 +24,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/events"
@@ -846,7 +848,7 @@ func TestRejoinIgnoresAnExpiredEntry(t *testing.T) {
 	}
 }
 
-func TestRejoinRemovesEveryRecreationAndLogsOnce(t *testing.T) {
+func TestRejoinRemovesEveryRecreationAndLogsEachDelete(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := logr.NewContext(context.Background(), funcr.New(func(prefix, args string) { buf.WriteString(args + "\n") }, funcr.Options{}))
 	e, r := rejoinEnv(t, map[string]bool{"scarpenter://aws/r1/gone": true})
@@ -861,10 +863,86 @@ func TestRejoinRemovesEveryRecreationAndLogsOnce(t *testing.T) {
 			t.Fatalf("left %v", got)
 		}
 	}
-	if n := strings.Count(buf.String(), "deleted the Node of a deleted instance"); n != 1 {
-		t.Errorf("%d log lines, want 1:\n%s", n, buf.String())
+	if n := strings.Count(buf.String(), "deleted the Node of a deleted instance"); n != 3 {
+		t.Errorf("%d log lines, want 3:\n%s", n, buf.String())
 	}
 	if e.count(t, "aws", gc.KindNode, gc.ReasonRejoined, gc.ResultDeleted) != 3 {
 		t.Error("deletions not all counted")
+	}
+}
+
+func TestRejoinKeepsADeletingNode(t *testing.T) {
+	n := node("going", "scarpenter://aws/r1/gone", time.Second)
+	n.Finalizers = []string{"test/hold"}
+	n.DeletionTimestamp = &metav1.Time{Time: now}
+	e, r := rejoinEnv(t, map[string]bool{"scarpenter://aws/r1/gone": true}, n)
+	reconcileNode(t, r, "going")
+	if e.count(t, "aws", gc.KindNode, gc.ReasonRejoined, gc.ResultDeleted) != 0 {
+		t.Error("a deleting Node was counted as deleted")
+	}
+}
+
+func TestRejoinWithoutRecentlyDeletedKeepsTheNode(t *testing.T) {
+	e := newEnv(t, &stubDriver{vendor: "aws"}, []client.Object{node("n", "scarpenter://aws/r1/gone", time.Second)}, nil)
+	reconcileNode(t, e.c.NewRejoin(), "n")
+	if got := nodeNames(t, e); len(got) != 1 {
+		t.Errorf("left %v, want the Node kept", got)
+	}
+}
+
+func TestRejoinDryRunCountsOncePerProviderID(t *testing.T) {
+	e := newEnv(t, &stubDriver{vendor: "aws"}, []client.Object{node("n", "scarpenter://aws/r1/gone", time.Second)},
+		func(o *gc.Options) {
+			o.DryRun = true
+			o.RecentlyDeleted = func(string) bool { return true }
+		})
+	r := e.c.NewRejoin()
+	reconcileNode(t, r, "n")
+	reconcileNode(t, r, "n")
+	if got := nodeNames(t, e); len(got) != 1 {
+		t.Errorf("left %v, want the Node kept", got)
+	}
+	if n := e.count(t, "aws", gc.KindNode, gc.ReasonRejoined, gc.ResultDryRun); n != 1 {
+		t.Errorf("dry-run counted %v, want 1", n)
+	}
+}
+
+func TestRejoinPublishesAnEventAndCountsOnlyARealDelete(t *testing.T) {
+	e := newEnv(t, &stubDriver{vendor: "aws"}, []client.Object{node("n", "scarpenter://aws/r1/gone", 0)},
+		func(o *gc.Options) {
+			o.RecentlyDeleted = func(string) bool { return true }
+			o.DeploymentRef = func() *corev1.ObjectReference { return &corev1.ObjectReference{Kind: "Deployment", Name: "sc"} }
+		})
+	r := e.c.NewRejoin()
+	reconcileNode(t, r, "n")
+	reconcileNode(t, r, "n") // already gone: counts nothing
+	if len(e.rec.evts) != 1 || e.rec.evts[0].Reason != gc.EventReason {
+		t.Errorf("events %+v, want one GarbageCollected", e.rec.evts)
+	}
+	if n := e.count(t, "aws", gc.KindNode, gc.ReasonRejoined, gc.ResultDeleted); n != 1 {
+		t.Errorf("deleted counted %v, want 1", n)
+	}
+}
+
+func TestRejoinDeleteConflictRequeuesWithoutAnError(t *testing.T) {
+	conflict := interceptor.Funcs{Delete: func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+		return apierrors.NewConflict(schema.GroupResource{Resource: "nodes"}, "n", errors.New("uid mismatch"))
+	}}
+	kube := fake.NewClientBuilder().WithScheme(scheme(t)).WithInterceptorFuncs(conflict).
+		WithObjects(node("n", "scarpenter://aws/r1/gone", 0)).Build()
+	reg := prometheus.NewRegistry()
+	c := gc.New(gc.Options{
+		Client: kube, Registry: vendors.NewRegistryFrom(&stubDriver{vendor: "aws"}), Clock: clocktesting.NewFakeClock(now),
+		Registerer: reg, RecentlyDeleted: func(string) bool { return true },
+	})
+	res, err := c.NewRejoin().Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "n"}})
+	if err != nil || res.RequeueAfter == 0 {
+		t.Errorf("result %+v, err %v, want a requeue and no error", res, err)
+	}
+	mfs, _ := reg.Gather()
+	for _, mf := range mfs {
+		if mf.GetName() == "scarpenter_gc_deletions_total" {
+			t.Errorf("a conflict was counted: %v", mf.GetMetric())
+		}
 	}
 }

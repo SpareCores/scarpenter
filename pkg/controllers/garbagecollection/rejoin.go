@@ -9,11 +9,11 @@ package garbagecollection
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,14 +33,15 @@ import (
 // that, possibly several times. Any other Node is left to the sweep. It shares
 // the collector's metric and runs on the leader only.
 type Rejoin struct {
-	c      *Collector
-	mu     sync.Mutex
-	logged map[string]time.Time // provider IDs already logged, by first sighting
+	c *Collector
+	// dryRun are the provider IDs counted in dry-run (under the controller's
+	// single worker).
+	dryRun sets.Set[string]
 }
 
 // NewRejoin returns the controller of the collector; Register adds it to a manager.
 func (c *Collector) NewRejoin() *Rejoin {
-	return &Rejoin{c: c, logged: map[string]time.Time{}}
+	return &Rejoin{c: c, dryRun: sets.New[string]()}
 }
 
 // Register watches Nodes with the manager: creations and updates only.
@@ -84,39 +85,30 @@ func (r *Rejoin) Reconcile(ctx context.Context, req reconcile.Request) (reconcil
 	l := log.FromContext(ctx).WithName("garbagecollection").WithValues(
 		"node", node.Name, "provider-id", providerID, "reason", ReasonRejoined)
 	if opts.DryRun {
-		if r.firstSighting(providerID) {
-			l.Info("dry-run: would delete the Node of a deleted instance that registered again")
+		// Nothing is deleted, so the Node is updated again and again: count it once.
+		if r.dryRun.Has(providerID) {
+			return reconcile.Result{}, nil
 		}
+		r.dryRun.Insert(providerID)
+		l.Info("dry-run: would delete the Node of a deleted instance that registered again")
 		r.c.deletions.WithLabelValues(vendor, KindNode, ReasonRejoined, ResultDryRun).Inc()
 		return reconcile.Result{}, nil
 	}
 	// The UID precondition keeps a re-created Node of the same name safe.
 	err = opts.Client.Delete(ctx, &node, client.Preconditions{UID: &node.UID})
-	if err != nil && !apierrors.IsNotFound(err) {
+	switch {
+	case apierrors.IsNotFound(err):
+		return reconcile.Result{}, nil
+	case apierrors.IsConflict(err):
+		// The Node was replaced since the read: look at the new one.
+		return reconcile.Result{RequeueAfter: time.Second}, nil
+	case err != nil:
 		r.c.deletions.WithLabelValues(vendor, KindNode, ReasonRejoined, ResultError).Inc()
 		return reconcile.Result{}, fmt.Errorf("deleting Node %s: %w", node.Name, err)
 	}
-	if r.firstSighting(providerID) {
-		l.Info("deleted the Node of a deleted instance that registered again")
-	}
+	l.Info("deleted the Node of a deleted instance that registered again")
 	r.c.deletions.WithLabelValues(vendor, KindNode, ReasonRejoined, ResultDeleted).Inc()
+	r.c.event(ctx, "", "deleted the Node %s: its instance was deleted and it registered again (%s)",
+		node.Name, ReasonRejoined)
 	return reconcile.Result{}, nil
-}
-
-// firstSighting says whether the provider ID is new, and forgets the ones
-// older than the longest window a deleted instance is remembered for.
-func (r *Rejoin) firstSighting(providerID string) bool {
-	now := r.c.opts.Clock.Now()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for id, at := range r.logged {
-		if now.Sub(at) > time.Hour {
-			delete(r.logged, id)
-		}
-	}
-	_, seen := r.logged[providerID]
-	if !seen {
-		r.logged[providerID] = now
-	}
-	return !seen
 }
