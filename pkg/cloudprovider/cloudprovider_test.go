@@ -677,6 +677,32 @@ func TestDeleteWaitsTheTerminatingGraceAfterItsOwnDelete(t *testing.T) {
 	}
 }
 
+func TestRecentlyDeletedCoversTheWindowAfterAnAcceptedDelete(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerID := created.Status.ProviderID
+	if e.cp.RecentlyDeleted(providerID) {
+		t.Fatal("recently deleted before any Delete")
+	}
+	claim := &karpv1.NodeClaim{}
+	claim.Name = "claim-1"
+	claim.Status.ProviderID = providerID
+	if err := e.cp.Delete(t.Context(), claim); err != nil {
+		t.Fatal(err)
+	}
+	e.advance(cloudprovider.DeletedWindow)
+	if !e.cp.RecentlyDeleted(providerID) {
+		t.Error("not recently deleted at the end of the window")
+	}
+	e.advance(time.Second)
+	if e.cp.RecentlyDeleted(providerID) {
+		t.Error("recently deleted after the window")
+	}
+}
+
 func TestDeleteFindsTheInstanceByTagWithoutTheAnnotation(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	created, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.m7i.large"}))

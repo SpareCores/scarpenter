@@ -7,14 +7,18 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package garbagecollection_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,6 +30,7 @@ import (
 	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	"sigs.k8s.io/karpenter/pkg/events"
 
@@ -779,5 +784,87 @@ func TestStoppingOrphanIsNeitherAnErrorNorWaitsForTheGrace(t *testing.T) {
 	res, err = e.c.Sweep(context.Background())
 	if err != nil || res.Instances != 1 || len(drv.deleted) != 1 {
 		t.Fatalf("result %+v, err %v, deleted %v", res, err, drv.deleted)
+	}
+}
+
+// rejoinEnv is an env whose Rejoin treats the provider IDs of deleted as
+// recently deleted.
+func rejoinEnv(t *testing.T, deleted map[string]bool, objs ...client.Object) (*env, *gc.Rejoin) {
+	t.Helper()
+	e := newEnv(t, &stubDriver{vendor: "aws"}, objs, func(o *gc.Options) {
+		o.RecentlyDeleted = func(id string) bool { return deleted[id] }
+	})
+	return e, e.c.NewRejoin()
+}
+
+func reconcileNode(t *testing.T, r *gc.Rejoin, name string) {
+	t.Helper()
+	if _, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: name}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejoinedNodeOfADeletedInstanceIsRemovedAtOnce(t *testing.T) {
+	// A young Node: the sweep's grace does not apply.
+	e, r := rejoinEnv(t, map[string]bool{"scarpenter://aws/r1/gone": true},
+		node("back", "scarpenter://aws/r1/gone", time.Second))
+	reconcileNode(t, r, "back")
+	if got := nodeNames(t, e); len(got) != 0 {
+		t.Errorf("left %v", got)
+	}
+	if e.count(t, "aws", gc.KindNode, gc.ReasonRejoined, gc.ResultDeleted) != 1 {
+		t.Error("deletion not counted")
+	}
+}
+
+func TestRejoinKeepsTheNodeOfANodeClaim(t *testing.T) {
+	e, r := rejoinEnv(t, map[string]bool{"scarpenter://aws/r1/live": true},
+		claimWithProviderID("live", "scarpenter://aws/r1/live"), node("owned", "scarpenter://aws/r1/live", time.Second))
+	reconcileNode(t, r, "owned")
+	if got := nodeNames(t, e); len(got) != 1 {
+		t.Errorf("left %v, want the Node kept", got)
+	}
+}
+
+func TestRejoinKeepsANodeThatWasNotDeleted(t *testing.T) {
+	e, r := rejoinEnv(t, map[string]bool{"scarpenter://aws/r1/gone": true},
+		node("other", "scarpenter://aws/r1/other", time.Second), node("no-provider-id", "", time.Second))
+	reconcileNode(t, r, "other")
+	reconcileNode(t, r, "no-provider-id")
+	reconcileNode(t, r, "missing")
+	if got := nodeNames(t, e); len(got) != 2 {
+		t.Errorf("left %v, want both kept", got)
+	}
+}
+
+func TestRejoinIgnoresAnExpiredEntry(t *testing.T) {
+	// The CloudProvider's RecentlyDeleted answers false after its window.
+	e, r := rejoinEnv(t, map[string]bool{}, node("late", "scarpenter://aws/r1/gone", time.Second))
+	reconcileNode(t, r, "late")
+	if got := nodeNames(t, e); len(got) != 1 {
+		t.Errorf("left %v, want the Node kept", got)
+	}
+}
+
+func TestRejoinRemovesEveryRecreationAndLogsOnce(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := logr.NewContext(context.Background(), funcr.New(func(prefix, args string) { buf.WriteString(args + "\n") }, funcr.Options{}))
+	e, r := rejoinEnv(t, map[string]bool{"scarpenter://aws/r1/gone": true})
+	for range 3 {
+		if err := e.kube.Create(ctx, node("back", "scarpenter://aws/r1/gone", 0)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "back"}}); err != nil {
+			t.Fatal(err)
+		}
+		if got := nodeNames(t, e); len(got) != 0 {
+			t.Fatalf("left %v", got)
+		}
+	}
+	if n := strings.Count(buf.String(), "deleted the Node of a deleted instance"); n != 1 {
+		t.Errorf("%d log lines, want 1:\n%s", n, buf.String())
+	}
+	if e.count(t, "aws", gc.KindNode, gc.ReasonRejoined, gc.ResultDeleted) != 3 {
+		t.Error("deletions not all counted")
 	}
 }
