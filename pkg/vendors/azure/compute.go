@@ -414,7 +414,9 @@ func (c *Compute) deleteOwnPIP(ctx context.Context, rg, vmName string, vm armcom
 	if have[vendors.TagCluster] != c.Cluster || claim == "" || have[vendors.TagNodeClaim] != claim {
 		return
 	}
-	_ = c.Clients.PIPs.Delete(cctx, rg, name)
+	dctx, dcancel := context.WithTimeout(ctx, callTimeout)
+	defer dcancel()
+	_ = c.Clients.PIPs.Delete(dctx, rg, name)
 }
 
 // instance converts a VM to the contract's instance, with its addresses.
