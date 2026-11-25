@@ -213,17 +213,22 @@ Limit names come from the shapes the node compartment offers (`ListShapes` per A
 names (`standard-e5-core-count`, `standard-e5-memory-count`, ...). Per region, a refresh reads:
 
 - `ListLimitValues(compute)`, one paginated call, for the limit of every name in every AD. The values are reused
-  for 30 minutes unless the controller asks for fresh limits.
+  for 15 minutes unless the controller asks for fresh limits, which it does every `--quota-limits-refresh-interval`
+  (15m by default), so the zone limits and the zero skip can lag a limit change by up to that long. A failed call
+  is logged and the last values stay in use (none: nothing is skipped).
 - `GetResourceAvailability(compute, <limit name>, <tenancy>, <AD>)` for the usage and the headroom: once per
   region-scoped name and once per AD for an AD-scoped name. A name whose limit is 0 in every AD is not read: it is
   a 0/0 bucket, which still blocks its types.
 - `ListInstances`, to find the cluster's instances that hold quota.
 
 A bucket is region-scoped, and its limit is the effective one: `Used` is the sum over the ADs and `Limit` is
-`Used` plus the largest `available` of any AD, so a family is blocked only when no AD has room. The zone gauges
-`scarpenter_quota_zone_limit` and `scarpenter_quota_zone_used` carry the true per-AD figures of the AD-scoped
-names; the zone is the AD name without the tenancy prefix (`EU-FRANKFURT-1-AD-1`). The tenancy total of a limit
-is the sum of its zone limits. Region-scoped names have no zone gauges.
+`Used` plus the largest `available` of any AD, so a family is blocked only when no AD has room. For an AD-scoped
+name the region gauges `scarpenter_quota_limit` / `scarpenter_quota_used` carry that effective limit (used plus the
+best AD's headroom), not the tenancy total; the tenancy total is the sum of its `scarpenter_quota_zone_limit`
+series. The zone gauges `scarpenter_quota_zone_limit` and `scarpenter_quota_zone_used` carry the true per-AD
+figures of the AD-scoped names; the zone is the AD name without the tenancy prefix (`EU-FRANKFURT-1-AD-1`). When
+`ListLimitValues` does not list an AD, its zone limit is used plus available (which reflects compartment quotas),
+and a 0/0 name reports used 0. Region-scoped names have no zone gauges.
 
 The family of a bucket is its limit name without `-count`, the scope infix (`-ad`, `-regional`, `-global`) and
 the form (`-core`, `-memory`): `standard-e5-core-ad-count` and `standard-e5-memory-count` are both

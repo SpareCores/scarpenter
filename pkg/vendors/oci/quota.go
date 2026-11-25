@@ -25,8 +25,11 @@ import (
 const serviceCompute = "compute"
 
 // limitValuesTTL is how long the limit values are reused when the caller does not
-// ask for fresh limits: they change rarely.
-const limitValuesTTL = 30 * time.Minute
+// ask for fresh limits; it matches the tracker's limits refresh interval.
+const limitValuesTTL = 15 * time.Minute
+
+// limitValuesPageSize is the largest page ListLimitValues returns.
+const limitValuesPageSize = 1000
 
 // The forms of a limit name and the units of their buckets (plan 25, section 7).
 const (
@@ -120,20 +123,27 @@ type limitKey struct{ name, ad string }
 
 // limitValues returns the limit values of the Compute limits of the region (one
 // ListLimitValues call, paginated), reading them again when the caller asks for
-// fresh limits or the cache is older than limitValuesTTL.
-func (d *Driver) limitValues(ctx context.Context, region string) (map[limitKey]int64, error) {
+// fresh limits or the cache is older than limitValuesTTL. A failed read is
+// logged and does not fail the refresh: the last values stay in use (an expired
+// cache entry included), or none, which skips nothing and leaves the zone limits
+// to the usage plus what is available.
+func (d *Driver) limitValues(ctx context.Context, region string) map[limitKey]int64 {
 	d.mu.Lock()
 	if v, ok := d.values[region].get(d.clock.Now()); ok && !vendors.QuotaRefreshFrom(ctx).Limits {
 		d.mu.Unlock()
-		return v, nil
+		return v
 	}
+	stale := d.values[region].v
 	d.mu.Unlock()
-	req := limits.ListLimitValuesRequest{CompartmentId: &d.tenancy, ServiceName: new(serviceCompute)}
+	limit := limitValuesPageSize
+	req := limits.ListLimitValuesRequest{CompartmentId: &d.tenancy, ServiceName: new(serviceCompute), Limit: &limit}
 	out := map[limitKey]int64{}
 	for {
 		res, err := d.api.Limits.ListLimitValues(ctx, region, req)
 		if err != nil {
-			return nil, fmt.Errorf("listing the Compute limit values of %s: %w", region, classify(err, kindRead))
+			d.log.Error(classify(err, kindRead), "listing the Compute limit values failed; using the last ones",
+				"region", region)
+			return stale
 		}
 		for _, v := range res.Items {
 			if v.Value != nil {
@@ -148,7 +158,7 @@ func (d *Driver) limitValues(ctx context.Context, region string) (map[limitKey]i
 	d.mu.Lock()
 	d.values[region] = set(out, d.clock.Now().Add(limitValuesTTL))
 	d.mu.Unlock()
-	return out, nil
+	return out
 }
 
 // zeroEverywhere says whether the limit is listed as 0 in every AD (or in the
@@ -273,10 +283,7 @@ func (d *Driver) Quotas(ctx context.Context, region string) (*vendors.QuotaSnaps
 	if err != nil {
 		return nil, err
 	}
-	values, err := d.limitValues(ctx, region)
-	if err != nil {
-		return nil, err
-	}
+	values := d.limitValues(ctx, region)
 	snap := &vendors.QuotaSnapshot{}
 	unsupported := map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(names)) {

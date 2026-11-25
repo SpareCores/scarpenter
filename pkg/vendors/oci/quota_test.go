@@ -340,3 +340,28 @@ func TestQuotaLimitValuesCache(t *testing.T) {
 		t.Errorf("zone limit %d after the cache expired, want 7", got)
 	}
 }
+
+// A failing ListLimitValues does not fail the refresh: the buckets are the same, and
+// the zone limits fall back to the usage plus what is available.
+func TestQuotaLimitValuesError(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	want, err := e.d.Quotas(ctx, testRegion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.c.Inject("ListLimitValues", fake.Error(500, "InternalError", "x"), 1)
+	e2 := newEnv(t)
+	e2.c.Inject("ListLimitValues", fake.Error(500, "InternalError", "x"), 1)
+	snap, err := e2.d.Quotas(ctx, testRegion)
+	if err != nil {
+		t.Fatalf("Quotas with a failing ListLimitValues: %v", err)
+	}
+	if len(snap.Buckets) != len(want.Buckets) || len(snap.Zones) != len(want.Zones) {
+		t.Errorf("%d buckets and %d zones, want %d and %d", len(snap.Buckets), len(snap.Zones), len(want.Buckets), len(want.Zones))
+	}
+	// A failure keeps the last good values.
+	if _, err := e.d.Quotas(ctx, testRegion); err != nil {
+		t.Fatalf("Quotas with the cached values: %v", err)
+	}
+}
