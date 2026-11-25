@@ -136,6 +136,9 @@ func TestPrepareCreatesTheNetworkWhereTheNodeClassConfiguresIt(t *testing.T) {
 	if want := nets.Networks[0].IPNetworks[0].Address; first.NodeIPCIDR != want {
 		t.Errorf("the node IP range = %q, want the range of the network %q", first.NodeIPCIDR, want)
 	}
+	if len(first.BootFragments) != 1 || first.BootFragments[0].Name != uc.PrivateRoutesFragmentName {
+		t.Errorf("boot fragments %v, want the private-routes fragment", first.BootFragments)
+	}
 }
 
 func TestIsolationNodeClassNeedsTheNetworkAndARulesetOfItsRange(t *testing.T) {
@@ -267,6 +270,9 @@ func TestBroughtNetworksAndRulesetsAreUsedAsTheyAre(t *testing.T) {
 	// so there is no node IP range for the kubelet to wait for.
 	if p.NodeIPCIDR != "" {
 		t.Errorf("the node IP range = %q for a network without DHCP, want none", p.NodeIPCIDR)
+	}
+	if len(p.BootFragments) != 0 {
+		t.Errorf("boot fragments %v for a network without DHCP, want none", p.BootFragments)
 	}
 	for _, ref := range p.Resources {
 		if ref.Managed {

@@ -21,3 +21,32 @@ func (d *Driver) MetadataEndpoints() vendors.MetadataEndpoints {
 		},
 	}
 }
+
+// tailnetFragment keeps the node's access to UpCloud's private database range
+// after it joins the tailnet. A managed database attached to the node's SDN
+// network resolves to an address in 100.64.0.0/10, Tailscale's CGNAT range:
+// tailscaled's ts-input chain drops packets from that range that arrive outside
+// tailscale0, and the database's replies arrive on the SDN interface.
+// --netfilter-mode=nodivert makes tailscaled create its chains without jumping
+// to them from INPUT and FORWARD, so the drop never applies. The drop-in hands
+// the flag to the tailscale template's scarpenter-tailscale-up.service, so
+// BootFragments adds it only for that template.
+const tailnetFragment = `variant: flatcar
+version: 1.1.0
+systemd:
+  units:
+    - name: scarpenter-tailscale-up.service
+      dropins:
+        - name: 20-upcloud-netfilter.conf
+          contents: |
+            [Service]
+            Environment=SCARPENTER_TAILSCALE_UP_ARGS=--netfilter-mode=nodivert
+`
+
+// BootFragments implements vendors.VendorBootFragments.
+func (d *Driver) BootFragments(tailnet bool) []vendors.BootFragment {
+	if !tailnet {
+		return nil
+	}
+	return []vendors.BootFragment{{Name: "tailnet", Butane: tailnetFragment}}
+}

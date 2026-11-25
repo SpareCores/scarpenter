@@ -375,6 +375,7 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		// so there is no node IP range and the kubelet keeps the public address.
 		if dhcp {
 			prep.NodeIPCIDR = networkRange
+			prep.BootFragments = append(prep.BootFragments, PrivateRoutesFragment())
 		}
 	}
 	if network != nil && (cfg.wantsFirewall() || peers) {

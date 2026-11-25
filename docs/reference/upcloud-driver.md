@@ -126,6 +126,17 @@ platform); `NodeClassValidator` refuses it.
   address inside it ([node bootstrap](node-bootstrap.md#the-node-ip-on-a-private-network)), when DHCP is on for the
   range (the managed network has it; a brought one without DHCP gets no range, its interface has no address on
   Flatcar). That the SDN interface gets its DHCP address in time on a Flatcar server is unverified on UpCloud.
+- **Private managed databases**: a Managed Database attached to the SDN network resolves to an address in a range
+  UpCloud reserves for private database access, reached over a route that UpCloud's DHCP delivers on that network (its
+  documentation states neither the prefix, nor the lease time, nor the gateway, so the driver writes no route itself). The
+  range lies inside `100.64.0.0/10`, Tailscale's CGNAT range, which causes two node-side requirements:
+  - With the `tailscale` template, tailscaled runs with `--netfilter-mode=nodivert` (a vendor fragment, as on
+    [Alibaba Cloud](alicloud-driver.md#tailnet-and-the-service-addresses)): tailscaled still creates its chains but nothing
+    in `INPUT` or `FORWARD` jumps to them, so its CGNAT drop does not discard the database's replies, which arrive on the SDN
+    interface instead of `tailscale0`.
+  - A node with an SDN interface that has DHCP runs `scarpenter-private-routes.timer` (2 minutes after boot, then every 5
+    minutes): `networkctl renew` on every network interface that has a device behind it, so a node launched before the
+    database was attached picks up the route without waiting for its lease to expire.
 - **Server labels**: the logical tags as `scarpenter-<key>`, `scarpenter-idempotency-key` (the NodeClaim UID),
   `scarpenter-created` (RFC 3339, the creation time) and the NodeClass's own tags.
 - **Group**: the server group of a placement profile is a field of the create call.
