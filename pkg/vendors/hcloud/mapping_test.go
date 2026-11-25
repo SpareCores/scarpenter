@@ -113,12 +113,16 @@ func TestAddressesAndToInstance(t *testing.T) {
 	if want := []string{"203.0.113.9", "2a01:4f8:1:2::1", "10.0.0.5"}; !slices.Equal(got.Addresses, want) {
 		t.Errorf("addresses %v, want %v", got.Addresses, want)
 	}
+	if got.PublicIPv4 != "203.0.113.9" || got.PublicIPv6 != "2a01:4f8:1:2::1" {
+		t.Errorf("public addresses %q %q, not the private network IP", got.PublicIPv4, got.PublicIPv6)
+	}
 	if got.Tags[vendors.TagCluster] != "c" {
 		t.Errorf("tags %v", got.Tags)
 	}
 	// No public IPv4 (IPv6 only), no location: the fallback applies.
 	s2 := &hc.Server{ID: 8, PublicNet: hc.ServerPublicNet{IPv6: hc.ServerPublicNetIPv6{Network: v6net, IP: v6net.IP}}}
-	if g := ToInstance(s2, "ash"); g.Region != "ash" || !slices.Equal(g.Addresses, []string{"2a01:4f8:1:2::1"}) {
+	if g := ToInstance(s2, "ash"); g.Region != "ash" || !slices.Equal(g.Addresses, []string{"2a01:4f8:1:2::1"}) ||
+		g.PublicIPv4 != "" || g.PublicIPv6 != "2a01:4f8:1:2::1" {
 		t.Errorf("%+v", g)
 	}
 }

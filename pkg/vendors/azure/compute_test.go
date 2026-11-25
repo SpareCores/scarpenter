@@ -33,6 +33,8 @@ func TestLaunchRunning(t *testing.T) {
 	require.Len(t, inst.Addresses, 2, "private and public address")
 	require.Regexp(t, `^10\.240\.`, inst.Addresses[0])
 	require.Regexp(t, `^20\.`, inst.Addresses[1])
+	require.Equal(t, inst.Addresses[1], inst.PublicIPv4)
+	require.Empty(t, inst.PublicIPv6)
 	require.Len(t, e.sub.NICNames(), 1)
 	require.Len(t, e.sub.PIPNames(), 1)
 	require.Equal(t, []string{testRG + "/" + VMName(testCluster, "nc-1") + "-os"}, e.sub.Disks())
@@ -48,6 +50,7 @@ func TestLaunchWithoutPublicIP(t *testing.T) {
 	inst, err := e.c.Launch(context.Background(), l)
 	require.NoError(t, err)
 	require.Len(t, inst.Addresses, 1)
+	require.Empty(t, inst.PublicIPv4)
 	require.Empty(t, e.sub.PIPNames())
 }
 

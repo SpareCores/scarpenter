@@ -48,6 +48,10 @@ type stubDriver struct {
 	// fails the lookup.
 	alive   map[string]bool
 	findErr error
+	// byRef are the instances GetInstance returns (counted in gets), as a
+	// driver whose listing lacks the addresses returns them; others are not found.
+	byRef map[vendors.InstanceRef]*vendors.Instance
+	gets  int
 	// blind says which instance types FindInstance cannot see (LookupLimiter),
 	// like Vultr's bare metal with a short registration timeout.
 	blind func(instanceType string) bool
@@ -68,7 +72,13 @@ func (d *stubDriver) ResolveImage(context.Context, vendors.ImageRequest) (*vendo
 func (d *stubDriver) CreateInstance(context.Context, vendors.CreateRequest) (*vendors.Instance, error) {
 	return nil, errors.New("not used")
 }
-func (d *stubDriver) GetInstance(context.Context, vendors.InstanceRef) (*vendors.Instance, error) {
+func (d *stubDriver) GetInstance(_ context.Context, ref vendors.InstanceRef) (*vendors.Instance, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.gets++
+	if i, ok := d.byRef[ref]; ok {
+		return i, nil
+	}
 	return nil, vendors.Errorf(vendors.NotFound, "no")
 }
 func (d *stubDriver) FindInstance(_ context.Context, _ string, tags map[vendors.TagKey]string) (*vendors.Instance, error) {

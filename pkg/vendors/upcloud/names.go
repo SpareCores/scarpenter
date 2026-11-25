@@ -236,11 +236,17 @@ func Addresses(ips []upcloud.IPAddress) []string {
 // read from the creation label and is zero when the server has none.
 func ToInstance(d *upcloud.ServerDetails) *vendors.Instance {
 	created, _ := Created(d.Labels)
-	return &vendors.Instance{
+	inst := &vendors.Instance{
 		Ref: NewRef(d.Zone, d.UUID), Region: d.Zone, Zone: d.Zone, Type: d.Plan,
 		CapacityType: vendors.CapacityOnDemand, State: InstanceState(d.State), CreatedAt: created, BillingStart: created,
 		Tags: TagsOf(d.Labels), Addresses: Addresses(d.IPAddresses),
 	}
+	for _, ip := range d.IPAddresses {
+		if ip.Access == upcloud.IPAddressAccessPublic {
+			inst.SetPublic(ip.Address)
+		}
+	}
+	return inst
 }
 
 // BillingStart is the start of the server's billing period: the creation label

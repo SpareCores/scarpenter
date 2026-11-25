@@ -334,6 +334,7 @@ func toInstance(region string, in ec2types.Instance) *vendors.Instance {
 		}
 	}
 	inst.Addresses = addressesOf(in)
+	setPublic(inst, in)
 	if inst.Gone() {
 		inst.GoneReason = goneReasonOf(in)
 	}
@@ -388,6 +389,21 @@ func addressesOf(in ec2types.Instance) []string {
 		}
 	}
 	return out
+}
+
+// setPublic records the public addresses: the instance's public IPv4 and the
+// public IPs associated with its interfaces, then the IPv6 addresses of the
+// interfaces (EC2 IPv6 addresses are global).
+func setPublic(inst *vendors.Instance, in ec2types.Instance) {
+	inst.SetPublic(deref(in.PublicIpAddress))
+	for _, ni := range in.NetworkInterfaces {
+		if ni.Association != nil {
+			inst.SetPublic(deref(ni.Association.PublicIp))
+		}
+		for _, v6 := range ni.Ipv6Addresses {
+			inst.SetPublic(deref(v6.Ipv6Address))
+		}
+	}
 }
 
 // describeInstances reads every page of a DescribeInstances call.

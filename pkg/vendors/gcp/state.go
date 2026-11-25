@@ -92,6 +92,14 @@ func ToInstance(region string, in *computepb.Instance) *vendors.Instance {
 		Tags:         TagsOf(in.GetLabels()),
 		Addresses:    AddressesOf(in),
 	}
+	for _, nic := range in.GetNetworkInterfaces() {
+		for _, ac := range nic.GetAccessConfigs() {
+			inst.SetPublic(ac.GetNatIP())
+		}
+		for _, ac := range nic.GetIpv6AccessConfigs() {
+			inst.SetPublic(ac.GetExternalIpv6())
+		}
+	}
 	inst.GoneReason = goneReasonOf(inst.CapacityType, inst.State)
 	if t, err := time.Parse(time.RFC3339, in.GetCreationTimestamp()); err == nil {
 		inst.CreatedAt = t

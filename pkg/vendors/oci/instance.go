@@ -305,10 +305,12 @@ func boolOr(p *bool, def bool) bool {
 	return *p
 }
 
-// addresses reads the addresses of an instance: the private and public IPv4 and
-// the IPv6 addresses of its attached VNICs, in a stable order (primary first).
-// The serving certificate approver checks the node's IP SANs against them.
-func (d *Driver) addresses(ctx context.Context, region string, in core.Instance) ([]string, error) {
+// fillAddresses sets the addresses of an instance: the private and public IPv4
+// and the IPv6 addresses of its attached VNICs, in a stable order (primary
+// first). The serving certificate approver checks the node's IP SANs against
+// them. The public IPv4 of a VNIC (PublicIp) and its IPv6 addresses (global in
+// OCI) are the instance's public addresses.
+func (d *Driver) fillAddresses(ctx context.Context, region string, in core.Instance, inst *vendors.Instance) error {
 	req := core.ListVnicAttachmentsRequest{CompartmentId: in.CompartmentId, InstanceId: in.Id}
 	if req.CompartmentId == nil {
 		req.CompartmentId = &d.compartment
@@ -317,7 +319,7 @@ func (d *Driver) addresses(ctx context.Context, region string, in core.Instance)
 	for {
 		res, err := d.api.Compute.ListVnicAttachments(ctx, region, req)
 		if err != nil {
-			return nil, classify(err, kindRead)
+			return classify(err, kindRead)
 		}
 		attachments = append(attachments, res.Items...)
 		if res.OpcNextPage == nil || *res.OpcNextPage == "" {
@@ -326,10 +328,9 @@ func (d *Driver) addresses(ctx context.Context, region string, in core.Instance)
 		req.Page = res.OpcNextPage
 	}
 	slices.SortStableFunc(attachments, func(a, b core.VnicAttachment) int { return deref(a.NicIndex) - deref(b.NicIndex) })
-	var out []string
 	add := func(a string) {
-		if a != "" && !slices.Contains(out, a) {
-			out = append(out, a)
+		if a != "" && !slices.Contains(inst.Addresses, a) {
+			inst.Addresses = append(inst.Addresses, a)
 		}
 	}
 	for _, a := range attachments {
@@ -342,15 +343,17 @@ func (d *Driver) addresses(ctx context.Context, region string, in core.Instance)
 			continue
 		}
 		if err != nil {
-			return nil, classify(err, kindRead)
+			return classify(err, kindRead)
 		}
 		add(deref(res.PrivateIp))
 		add(deref(res.PublicIp))
+		inst.SetPublic(deref(res.PublicIp))
 		for _, v6 := range res.Ipv6Addresses {
 			add(v6)
+			inst.SetPublic(v6)
 		}
 	}
-	return out, nil
+	return nil
 }
 
 // resolveRef parses a reference: a region
@@ -389,7 +392,7 @@ func (d *Driver) GetInstance(ctx context.Context, ref vendors.InstanceRef) (*ven
 	}
 	inst := ToInstance(region, res.Instance)
 	if inst.State != vendors.StateTerminated {
-		if inst.Addresses, err = d.addresses(ctx, region, res.Instance); err != nil {
+		if err = d.fillAddresses(ctx, region, res.Instance, inst); err != nil {
 			return nil, err
 		}
 	}

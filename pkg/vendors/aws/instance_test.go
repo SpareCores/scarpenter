@@ -337,6 +337,9 @@ func TestInstanceStatesAndAddresses(t *testing.T) {
 	if len(inst.Addresses) != 2 || !strings.HasPrefix(inst.Addresses[0], "10.") || !strings.HasPrefix(inst.Addresses[1], "203.") {
 		t.Errorf("addresses %v, want the private and the public IPv4", inst.Addresses)
 	}
+	if inst.PublicIPv4 != inst.Addresses[1] || inst.PublicIPv6 != "" {
+		t.Errorf("public addresses %q %q, want the public IPv4 only", inst.PublicIPv4, inst.PublicIPv6)
+	}
 	id := inst.Ref.ID()
 	for state, want := range map[ec2types.InstanceStateName]string{
 		ec2types.InstanceStateNamePending:      vendors.StatePending,

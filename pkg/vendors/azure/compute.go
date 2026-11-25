@@ -413,8 +413,8 @@ func (c *Compute) instance(ctx context.Context, vm armcompute.VirtualMachine) (*
 		CapacityType: vendors.CapacityOnDemand,
 		State:        StateOf(vm),
 		Tags:         LogicalTags(vm.Tags),
-		Addresses:    c.addresses(ctx, vm),
 	}
+	c.fillAddresses(ctx, vm, inst)
 	if p := vm.Properties; p != nil {
 		if p.HardwareProfile != nil {
 			inst.Type = string(deref(p.HardwareProfile.VMSize))
@@ -427,13 +427,13 @@ func (c *Compute) instance(ctx context.Context, vm armcompute.VirtualMachine) (*
 	return inst, nil
 }
 
-// addresses reads the private address of the VM's primary NIC and the address
-// of its public IP; best effort (a missing NIC or address is left out).
-func (c *Compute) addresses(ctx context.Context, vm armcompute.VirtualMachine) []string {
+// fillAddresses sets the instance's addresses (Addresses) and its public
+// addresses (those of the public IP resources, PublicIPv4 and PublicIPv6) from
+// the VM's NICs; best effort (a missing NIC or address is left out).
+func (c *Compute) fillAddresses(ctx context.Context, vm armcompute.VirtualMachine, inst *vendors.Instance) {
 	if vm.Properties == nil || vm.Properties.NetworkProfile == nil {
-		return nil
+		return
 	}
-	var out []string
 	for _, ref := range vm.Properties.NetworkProfile.NetworkInterfaces {
 		if ref == nil {
 			continue
@@ -453,7 +453,7 @@ func (c *Compute) addresses(ctx context.Context, vm armcompute.VirtualMachine) [
 				continue
 			}
 			if ip := deref(ipc.Properties.PrivateIPAddress); ip != "" {
-				out = append(out, ip)
+				inst.Addresses = append(inst.Addresses, ip)
 			}
 			if ipc.Properties.PublicIPAddress == nil {
 				continue
@@ -466,9 +466,9 @@ func (c *Compute) addresses(ctx context.Context, vm armcompute.VirtualMachine) [
 			pip, err := c.Clients.PIPs.Get(cctx, pid.ResourceGroupName, pid.Name)
 			cancel()
 			if err == nil && pip.Properties != nil && deref(pip.Properties.IPAddress) != "" {
-				out = append(out, deref(pip.Properties.IPAddress))
+				inst.Addresses = append(inst.Addresses, deref(pip.Properties.IPAddress))
+				inst.SetPublic(deref(pip.Properties.IPAddress))
 			}
 		}
 	}
-	return out
 }

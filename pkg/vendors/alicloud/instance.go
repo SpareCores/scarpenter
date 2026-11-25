@@ -102,11 +102,36 @@ func toInstance(region string, in *ecs.DescribeInstancesResponseBodyInstancesIns
 		capacity = vendors.CapacitySpot
 	}
 	state := StateOf(deref(in.Status))
-	return &vendors.Instance{
+	inst := &vendors.Instance{
 		Ref: vendors.NewInstanceRef(region, deref(in.InstanceId)), Region: region, Zone: deref(in.ZoneId),
 		Type: deref(in.InstanceType), CapacityType: capacity, State: state,
 		CreatedAt: parseTime(deref(in.CreationTime)), Tags: logicalTags(in), Addresses: addressesOf(in),
 		BillingStart: billingStart(deref(in.CreationTime)), GoneReason: goneReason(capacity, state, in),
+	}
+	setPublic(inst, in)
+	return inst
+}
+
+// setPublic records the public addresses: the instance's public IPv4 (the
+// ones of the VPC-type instance with a public IP), its EIP and the IPv6
+// addresses of its interfaces.
+func setPublic(inst *vendors.Instance, in *ecs.DescribeInstancesResponseBodyInstancesInstance) {
+	if in.PublicIpAddress != nil {
+		for _, a := range in.PublicIpAddress.IpAddress {
+			inst.SetPublic(deref(a))
+		}
+	}
+	if in.EipAddress != nil {
+		inst.SetPublic(deref(in.EipAddress.IpAddress))
+	}
+	if in.NetworkInterfaces != nil {
+		for _, ni := range in.NetworkInterfaces.NetworkInterface {
+			if ni.Ipv6Sets != nil {
+				for _, v6 := range ni.Ipv6Sets.Ipv6Set {
+					inst.SetPublic(deref(v6.Ipv6Address))
+				}
+			}
+		}
 	}
 }
 

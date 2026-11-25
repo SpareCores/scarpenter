@@ -207,6 +207,15 @@ func TestInstanceFrom(t *testing.T) {
 		i.Tags[vendors.TagNodeClaim] != "n1" || len(i.Addresses) != 2 || i.Addresses[0] != "198.51.100.7" {
 		t.Errorf("%+v", i)
 	}
+	if i.PublicIPv4 != "198.51.100.7" || i.PublicIPv6 != "2001:db8::7" {
+		t.Errorf("public addresses %q %q", i.PublicIPv4, i.PublicIPv6)
+	}
+	s.Addresses = append(s.Addresses, osapi.Address{Network: "private", Addr: "10.0.0.7", Version: 4})
+	s.Addresses[1].Network = "private"
+	if i := InstanceFrom("GRA11", "gra11-a", s); i.PublicIPv4 != "" || i.PublicIPv6 != "2001:db8::7" {
+		t.Errorf("a private-network IPv4 is not public: %q %q", i.PublicIPv4, i.PublicIPv6)
+	}
+	s.Addresses[1].Network = "Ext-Net"
 	if PrimaryAddress(s) != "198.51.100.7" || PrimaryAddress(osapi.Server{}) != "" {
 		t.Error("primary address is the public IPv4")
 	}

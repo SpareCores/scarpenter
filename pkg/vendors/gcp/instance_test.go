@@ -60,6 +60,9 @@ func TestCreateWritesTheInstance(t *testing.T) {
 		len(inst.Addresses) == 0 {
 		t.Fatalf("instance = %+v", inst)
 	}
+	if inst.PublicIPv4 != "" {
+		t.Fatalf("public IPv4 %q on an instance created with publicIPv4 false", inst.PublicIPv4)
+	}
 	var got *computepb.Instance
 	for _, i := range e.c.Instances() {
 		if i.GetName() == req.Node.Name {

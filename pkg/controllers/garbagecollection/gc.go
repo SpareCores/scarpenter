@@ -230,14 +230,16 @@ func (c *Collector) Sweep(ctx context.Context) (Result, error) {
 		return res, fmt.Errorf("listing NodeClaims: %w", err)
 	}
 	names := sets.New[string]()
+	byName := map[string]*karpv1.NodeClaim{}
 	providerIDs := sets.New[string]()
 	for i := range claims.Items {
 		names.Insert(claims.Items[i].Name)
+		byName[claims.Items[i].Name] = &claims.Items[i]
 		providerIDs.Insert(claims.Items[i].Status.ProviderID)
 	}
 
 	for _, vendor := range c.opts.Registry.Vendors() {
-		n, err := c.sweepVendor(ctx, logger, vendor, names)
+		n, err := c.sweepVendor(ctx, logger, vendor, names, byName)
 		res.Instances += n
 		if err != nil {
 			errs = append(errs, err)
@@ -264,7 +266,7 @@ func (c *Collector) Sweep(ctx context.Context) (Result, error) {
 }
 
 func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor string,
-	claims sets.Set[string]) (int, error) {
+	claims sets.Set[string], byName map[string]*karpv1.NodeClaim) (int, error) {
 	drv, ok := c.opts.Registry.Driver(vendor)
 	if !ok || c.opts.Regions == nil {
 		return 0, nil
@@ -295,6 +297,9 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			}
 			claim := inst.Tags[vendors.TagNodeClaim]
 			if claim != "" && claims.Has(claim) {
+				if err := c.publishPublicIPs(ctx, drv, inst, byName[claim]); err != nil {
+					errs = append(errs, err)
+				}
 				continue
 			}
 			if c.opts.Clock.Since(inst.CreatedAt) < c.opts.GracePeriod {
@@ -335,6 +340,72 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 		}
 	}
 	return deleted, errors.Join(errs...)
+}
+
+// publishPublicIPs keeps the public-ipv4 and public-ipv6 annotations of the
+// Node of a NodeClaim and of the NodeClaim itself equal to the instance's public
+// addresses (v1alpha1.AnnotationPublicIPv4), once the Node exists. An address the
+// instance does not have is not annotated; one it lost is removed. A driver whose
+// listing carries no addresses at all (OCI) is asked for the instance itself, but
+// only while nothing is published yet, so that a node without a public address
+// costs one such call per sweep and a published one none.
+func (c *Collector) publishPublicIPs(ctx context.Context, drv vendors.Driver, inst *vendors.Instance,
+	claim *karpv1.NodeClaim) error {
+	if claim == nil || claim.Status.NodeName == "" || inst.Gone() {
+		return nil
+	}
+	node := &corev1.Node{}
+	if err := c.opts.Client.Get(ctx, types.NamespacedName{Name: claim.Status.NodeName}, node); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if len(inst.Addresses) == 0 {
+		if node.Annotations[v1alpha1.AnnotationPublicIPv4] != "" || node.Annotations[v1alpha1.AnnotationPublicIPv6] != "" {
+			return nil // nothing new is known, and what is published stays
+		}
+		got, err := drv.GetInstance(ctx, inst.Ref)
+		if err != nil {
+			return fmt.Errorf("reading the addresses of %s instance %s: %w", drv.Vendor(), inst.Ref, err)
+		}
+		inst = got
+		if len(inst.Addresses) == 0 {
+			return nil // not assigned yet
+		}
+	}
+	want := map[string]string{
+		v1alpha1.AnnotationPublicIPv4: inst.PublicIPv4,
+		v1alpha1.AnnotationPublicIPv6: inst.PublicIPv6,
+	}
+	return errors.Join(c.annotate(ctx, node, want), c.annotate(ctx, claim, want))
+}
+
+// annotate sets the annotations of an object to want, removing the ones whose
+// value is empty, with a merge patch of just those keys; nothing is sent when
+// they already match.
+func (c *Collector) annotate(ctx context.Context, obj client.Object, want map[string]string) error {
+	orig := obj.DeepCopyObject().(client.Object)
+	annotations := obj.GetAnnotations()
+	changed := false
+	for k, v := range want {
+		switch have, ok := annotations[k]; {
+		case v == "" && ok:
+			delete(annotations, k)
+			changed = true
+		case v != "" && have != v:
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+			annotations[k] = v
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	obj.SetAnnotations(annotations)
+	if err := c.opts.Client.Patch(ctx, obj, client.MergeFrom(orig)); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("annotating %T %s with the public addresses: %w", obj, obj.GetName(), err)
+	}
+	return nil
 }
 
 // collectLeftovers asks a LeftoverCollector driver for one region. The NodeClaim

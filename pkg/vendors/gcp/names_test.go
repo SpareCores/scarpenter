@@ -328,6 +328,9 @@ func TestToInstance(t *testing.T) {
 	if len(inst.Addresses) != 2 { // private and NAT
 		t.Fatalf("addresses = %v", inst.Addresses)
 	}
+	if inst.PublicIPv4 != inst.Addresses[1] || inst.PublicIPv6 != "" {
+		t.Fatalf("public addresses = %q %q, want the NAT address only", inst.PublicIPv4, inst.PublicIPv6)
+	}
 	if _, _, _, ok := ParseRef(inst.Ref); !ok {
 		t.Fatal("the reference of a real instance must parse")
 	}

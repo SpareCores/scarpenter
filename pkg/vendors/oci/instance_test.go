@@ -450,6 +450,9 @@ func TestGetInstanceAddresses(t *testing.T) {
 		!strings.HasPrefix(got.Addresses[1], "203.0.113.") || !strings.HasPrefix(got.Addresses[2], "2001:db8:") {
 		t.Errorf("addresses %v; want the private, public and IPv6 address", got.Addresses)
 	}
+	if !strings.HasPrefix(got.PublicIPv4, "203.0.113.") || !strings.HasPrefix(got.PublicIPv6, "2001:db8:") {
+		t.Errorf("public addresses %q %q", got.PublicIPv4, got.PublicIPv6)
+	}
 	if got.State != vendors.StateRunning || got.Zone != testZone || got.Region != testRegion || got.BillingStart.IsZero() {
 		t.Errorf("instance %+v", got)
 	}
@@ -461,6 +464,9 @@ func TestGetInstanceAddresses(t *testing.T) {
 	got, _ = e.d.GetInstance(t.Context(), inst.Ref)
 	if len(got.Addresses) != 1 || !strings.HasPrefix(got.Addresses[0], "10.240.") {
 		t.Errorf("addresses %v without publicIPv4", got.Addresses)
+	}
+	if got.PublicIPv4 != "" || got.PublicIPv6 != "" {
+		t.Errorf("public addresses %q %q without a public address", got.PublicIPv4, got.PublicIPv6)
 	}
 	// A VNIC deleted between the listing and the read: the instance still exists.
 	e.c.Inject("GetVnic", fake.Error(404, "NotAuthorizedOrNotFound", "gone"), 1)
