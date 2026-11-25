@@ -39,6 +39,10 @@ func TestQuotasFollowLaunchesAndForeignUsage(t *testing.T) {
 	require.Equal(t, vendors.Bucket{ID: "cores", Scope: vendors.QuotaScopeRegion, Unit: "vCPU", Limit: 100}, bucket(t, snap, "cores"))
 	require.EqualValues(t, 20, bucket(t, snap, "lowPriorityCores").Limit)
 	require.EqualValues(t, 16, bucket(t, snap, "standardDSv5Family").Limit)
+	require.Equal(t, "standardDSv5", bucket(t, snap, "standardDSv5Family").Family)
+	for _, id := range []string{"cores", "lowPriorityCores", "StandardPublicIPAddresses"} {
+		require.Empty(t, bucket(t, snap, id).Family, id)
+	}
 	require.Equal(t, vendors.Bucket{ID: "StandardPublicIPAddresses", Scope: vendors.QuotaScopeRegion, Unit: "addresses", Limit: 10}, bucket(t, snap, "StandardPublicIPAddresses"))
 	require.Empty(t, snap.Counted, "Used is the account's: nothing counted by hand")
 	for _, b := range snap.Buckets {
@@ -161,4 +165,20 @@ func TestPublicIPBucketUnderAnotherName(t *testing.T) {
 	for _, b := range snap.Buckets {
 		require.NotEqual(t, BucketPublicIPs, b.ID, "an unknown name is no bucket")
 	}
+}
+
+// A family that differs from the usage name in case only still maps to the
+// usage's bucket, spelled as the API spells it.
+func TestConsumptionMatchesUsageNamesCaseInsensitively(t *testing.T) {
+	e := newEnv(t)
+	q := NewQuotaReader(e.clients.Usages)
+	q.LoadSKUs(map[string]SKU{"Standard_D2s_v5": {VCPUs: 2, Family: "STANDARDDSV5FAMILY"}})
+	_, err := q.Quotas(context.Background(), testRegion)
+	require.NoError(t, err)
+	cs, ok := q.Consumption("Standard_D2s_v5", vendors.CapacityOnDemand)
+	require.True(t, ok)
+	require.Equal(t, []vendors.Consumption{
+		{Bucket: "cores", Amount: 2}, {Bucket: "standardDSv5Family", Amount: 2},
+		{Bucket: "StandardPublicIPAddresses", Amount: 1},
+	}, cs)
 }

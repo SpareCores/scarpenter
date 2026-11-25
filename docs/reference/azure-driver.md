@@ -198,7 +198,12 @@ nothing gives them egress, so `publicIPv4: false` needs `subnets.use`. Node IP: 
 Quota is per subscription and region: the Usage APIs report the whole subscription's usage, so nothing is counted by
 hand; the buckets are `cores` (total regional), the size's family (from the SKU table, never from names),
 `lowPriorityCores` (Spot) and `StandardPublicIPAddresses`. `Counted` lists this cluster's VMs so the in-flight ledger
-releases its reservations. Offerings come from the SKU table (zones, restrictions, Gen2, SCSI). Errors are classified
+releases its reservations. Quota metrics: the bucket ID is the Usage API's name, the unit is `vCPU` (`addresses` for the
+public IPs), and the family is a family bucket's ID without the `Family` suffix (`standardDSv3Family` is `standardDSv3`);
+`cores`, `lowPriorityCores` and `StandardPublicIPAddresses` have no family and keep their ID. A size's family is matched
+to the usage names case-insensitively, so a case-only difference does not drop the family bucket from the quota decision
+(the bucket ID keeps the API's spelling). Offerings come from the SKU table (zones, restrictions, Gen2, SCSI).
+Errors are classified
 by ARM code (never message text, except `OperationNotAllowed`, `InvalidParameter` and the zones of `SkuNotAvailable`, and the "security type ... not supported" text);
 `AllocationFailed`, `ZonalAllocationFailed`, the `Overconstrained*` codes and `SpotPriceGreaterThanProvidedMaxPrice` are
 `InsufficientCapacity`; `QuotaExceeded`, `ResourceQuotaExceeded` and `OperationNotAllowed` with a "exceeding approved ... quota" or

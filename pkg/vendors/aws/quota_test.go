@@ -115,6 +115,15 @@ func TestQuotasLimitsAndTheEighteenCodes(t *testing.T) {
 			t.Errorf("bucket %+v: want a regional vCPU bucket", b)
 		}
 	}
+	if b := bucket(t, snap, codeStdOD); b.Family != aws.ClassStandard {
+		t.Errorf("standard on-demand family = %q, want %q", b.Family, aws.ClassStandard)
+	}
+	if b := bucket(t, snap, codeStdSpot); b.Family != aws.ClassStandard {
+		t.Errorf("standard spot family = %q, want %q", b.Family, aws.ClassStandard)
+	}
+	if b := bucket(t, snap, codeGOD); b.Family != "G and VT" {
+		t.Errorf("G on-demand family = %q, want %q", b.Family, "G and VT")
+	}
 	if b := bucket(t, snap, codeStdOD); b.Limit != 100 || b.Used != 0 {
 		t.Errorf("standard on-demand = %+v, want limit 100 used 0", b)
 	}

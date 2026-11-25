@@ -460,6 +460,9 @@ EC2's vCPU quotas are **per class, per region**, separately for On-Demand and Sp
 | HPC | HPC | `L-F7808C92` | none |
 | High Memory | U (`u-*`, `u7i-*`, `u7in-*`) | `L-43DA4232` | none |
 
+Quota metrics: the bucket ID is the quota code, the unit is `vCPU`, and the family is the class name from the table
+(`Standard`, `G and VT`, ...), shared by the On-Demand and Spot buckets of a class.
+
 A new account has 5 Standard vCPUs and 0 for every other class, so `QuotaZero` is
 the expected state of GPU and accelerator types until an increase is granted.
 
