@@ -420,3 +420,21 @@ func TestMissingImage(t *testing.T) {
 	require.Equal(t, vendors.NotFound, vendors.ClassOf(err))
 	require.Empty(t, e.sub.VMNames())
 }
+
+// A public IP named like the VM's but without this cluster's and the NodeClaim's
+// tags is not ours: Delete leaves it, and deletes the one it made.
+func TestDeleteKeepsForeignPIP(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	inst, err := e.launch(t, request{nodeClaim: "nc-1"})
+	require.NoError(t, err)
+	l := e.spec(t, request{nodeClaim: "nc-1"})
+	// Someone else's address of that name: the same PIP without the tags.
+	foreign, err := e.clients.PIPs.Get(ctx, testRG, l.PIPName())
+	require.NoError(t, err)
+	foreign.Tags = nil
+	_, err = e.clients.PIPs.CreateOrUpdate(ctx, testRG, l.PIPName(), foreign)
+	require.NoError(t, err)
+	require.NoError(t, e.c.Delete(ctx, inst.Ref))
+	require.Equal(t, []string{testRG + "/" + l.PIPName()}, e.sub.PIPNames(), "the untagged public IP stays")
+}

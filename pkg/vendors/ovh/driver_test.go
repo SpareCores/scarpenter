@@ -461,3 +461,52 @@ func TestKeeperPrices(t *testing.T) {
 		t.Error("static prices ignore case")
 	}
 }
+
+// DeleteInstance refuses a server that does not carry the cluster's metadata
+// and leaves it in place; one of this cluster is deleted.
+func TestDeleteInstanceRefusesForeignServer(t *testing.T) {
+	w := newWorld(t)
+	d := w.driver(t)
+	foreign := w.cloud.AddForeignServer(testRegion, "foreign", "b3-8")
+	ref := vendors.NewInstanceRef(testRegion, foreign)
+	err := d.DeleteInstance(ctx, ref)
+	if !vendors.IsClass(err, vendors.Fatal) || vendors.CodeOf(err) != CodeNotOurs {
+		t.Fatalf("a server without the cluster metadata: %v", err)
+	}
+	if !slices.Contains(w.cloud.ServerIDs(testRegion), foreign) {
+		t.Fatal("the foreign server was deleted")
+	}
+	mine, err := d.CreateInstance(ctx, launchReq(testRegion, testZone, 9))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DeleteInstance(ctx, mine.Ref); err != nil {
+		t.Errorf("deleting our own server: %v", err)
+	}
+}
+
+// A server of another cluster is refused and kept, and a failing read is
+// Retryable (not Fatal), so the delete is tried again.
+func TestDeleteInstanceOwnershipEdges(t *testing.T) {
+	w := newWorld(t)
+	d := w.driver(t)
+	inst, err := d.CreateInstance(ctx, launchReq(testRegion, testZone, 11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.cloud.InjectError(testRegion, "GetServer", &osapi.APIError{Service: "nova", Status: 503, Message: "down"}, 1)
+	if err := d.DeleteInstance(ctx, inst.Ref); !vendors.IsClass(err, vendors.Retryable) {
+		t.Errorf("a failing read: %v", err)
+	}
+	if !slices.Contains(w.cloud.ServerIDs(testRegion), inst.Ref.ID()) {
+		t.Fatal("the server is gone after a failed read")
+	}
+	d.cfg.ClusterName = "another-cluster"
+	err = d.DeleteInstance(ctx, inst.Ref)
+	if !vendors.IsClass(err, vendors.Fatal) || vendors.CodeOf(err) != CodeNotOurs {
+		t.Fatalf("a server of another cluster: %v", err)
+	}
+	if !slices.Contains(w.cloud.ServerIDs(testRegion), inst.Ref.ID()) {
+		t.Fatal("the other cluster's server was deleted")
+	}
+}

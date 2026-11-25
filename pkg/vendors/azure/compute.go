@@ -393,10 +393,30 @@ func (c *Compute) Delete(ctx context.Context, ref vendors.InstanceRef) error {
 	// The NIC and the disks go with the VM (their deleteOption), the public IP does
 	// not: Azure keeps no deleteOption on an address created on its own. Best
 	// effort: what is left is the garbage collector's (CollectLeftovers).
-	cctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), callTimeout)
-	defer cancel()
-	_ = c.Clients.PIPs.Delete(cctx, rg, pipNameOf(name))
+	c.deleteOwnPIP(context.WithoutCancel(ctx), rg, name, vm)
 	return nil
+}
+
+// deleteOwnPIP deletes the public IP "<vm>-pip" only if it carries this
+// cluster's tag and the VM's NodeClaim tag; an address of that name made by
+// someone else is left alone. Errors are ignored: a leftover is the garbage
+// collector's.
+func (c *Compute) deleteOwnPIP(ctx context.Context, rg, vmName string, vm armcompute.VirtualMachine) {
+	name := pipNameOf(vmName)
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	pip, err := c.Clients.PIPs.Get(cctx, rg, name)
+	if err != nil {
+		return
+	}
+	have, want := LogicalTags(pip.Tags), LogicalTags(vm.Tags)
+	claim := want[vendors.TagNodeClaim]
+	if have[vendors.TagCluster] != c.Cluster || claim == "" || have[vendors.TagNodeClaim] != claim {
+		return
+	}
+	dctx, dcancel := context.WithTimeout(ctx, callTimeout)
+	defer dcancel()
+	_ = c.Clients.PIPs.Delete(dctx, rg, name)
 }
 
 // instance converts a VM to the contract's instance, with its addresses.
