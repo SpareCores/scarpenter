@@ -132,7 +132,7 @@ capability. The core must not branch on a vendor, so it builds the node's config
 |---|---|
 | `MetadataEndpoints()` | `vendors.MetadataEndpoints{Addresses, Units}`: the IPv4 and IPv6 addresses of the vendor's metadata services as the node reaches them (a second service such as Azure's WireServer included), and the systemd units of the vendor's Flatcar image, besides Afterburn's two, that must keep reaching them (`amazon-ssm-agent.service`, `oem-gce.service`, `waagent.service`). |
 
-On nodes of a NodeClass whose `spec.instanceMetadata.access` is `Restricted` (the default) or `HostOnly` (the same fragment without the `OUTPUT` rules: `vendors.HostOnlyMetadata`), `vendors.RestrictMetadata`
+On nodes of a NodeClass whose `spec.instanceMetadata.access` is `Restricted` (the default) or `HostOnly` (the same fragment; HostOnly drops only the Pod network's traffic), `vendors.RestrictMetadata`
 turns the declaration into one Butane fragment (the slice of the allowed units, the iptables rules for each address
 and the unit that loads them) that the core merges as the part `vendor-metadata-access`, after the base and volume
 configs and before the network template and the user's Butane, which can override it. Only TCP connections the node opens,

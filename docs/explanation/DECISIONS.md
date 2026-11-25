@@ -882,11 +882,11 @@ driver capability that only it used is removed.
 controller, a benchmark tool that reads the instance's identity) needs `access: Open` on its NodeClass; the
 restriction cannot tell a trusted Pod from another. The fragment adds about 2 KiB to the user-data.
 
-**Amendment: HostOnly.** `access: HostOnly` is the forward-only design rejected below, now an opt-in mode: the same fragment
-without the `OUTPUT` rules, so host processes and hostNetwork Pods reach the metadata service and only Pods in the Pod
-network are dropped (`FORWARD`). It serves components that run as hostNetwork Pods (a vendor's CSI node plugin or
-cloud controller) without opening the service to the Pod network. It is accepted on every vendor (qemu: no
-addresses, nothing to do). The default stays `Restricted`, and the hash of an unset field is unchanged. On AWS `HostOnly` is rejected with
+**HostOnly (opt-in).** `access: HostOnly` is the forward-only design, which is rejected below as the default: host
+processes and hostNetwork Pods reach the metadata service and Pods in the Pod network are dropped (`FORWARD`, and in
+`OUTPUT` for packets without a local source address, which is how kube-proxy's IPVS mode delivers Pod traffic). It serves
+components deployed with hostNetwork (a vendor's CSI node plugin or cloud controller) that need the service without opening it to
+the Pod network. Every vendor accepts it (qemu has no addresses). Unset means Restricted. On AWS it is rejected with
 `httpTokens: optional` or a hop limit above 1. Host processes and hostNetwork Pods can read the user-data in this mode.
 
 Rejected:

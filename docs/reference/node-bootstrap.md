@@ -456,11 +456,13 @@ With **`Restricted`** only the listed node components reach the metadata address
 and every Pod, in the Pod network and in the host network, is dropped. The metadata service stays on at the
 cloud: Ignition reads the user-data in the initramfs, before the node's own rules exist, and no vendor API
 can switch the service off and on again without a window in which the node cannot boot or read its data.
-**`HostOnly`** is the same fragment without the `OUTPUT` rules: only the `FORWARD` drop of the Pod network stays, so every
-host process and every hostNetwork Pod reaches the addresses, and Pods in the Pod network do not. It needs no Pod CIDR
-and no CNI interface names: a Pod's packets are routed through the host, where `FORWARD` sees them (kube-proxy's DNAT
-happens before it). Use it for components that run as hostNetwork Pods and need the metadata service (a vendor's
-CSI node plugin or cloud controller) without opening it to the Pod network. In `HostOnly` host processes and
+**`HostOnly`** is the same fragment with the `OUTPUT` allowlist replaced by one rule per address that drops packets without a
+local source address (`-m addrtype ! --src-type LOCAL`), next to the `FORWARD` drop: every host process and every hostNetwork Pod
+reaches the addresses, and Pods in the Pod network do not. It needs no Pod CIDR and no CNI interface names: a Pod's packets
+are routed through the host, where `FORWARD` sees them (kube-proxy's DNAT happens before it). kube-proxy in IPVS mode sends
+the Pod traffic for a Service endpoint through `OUTPUT` instead, with the Pod's source address, which the `OUTPUT` rule drops.
+Use it for components deployed with hostNetwork that need the metadata service (a vendor's CSI node plugin or cloud
+controller) without opening it to the Pod network. In `HostOnly` host processes and
 hostNetwork Pods can read the user-data, the bootstrap token and the Tailscale auth key included, as anything privileged on
 the node can already. Keep hostNetwork out of other namespaces (Pod Security `baseline` forbids it) and use
 single-use or ephemeral Tailscale keys.
@@ -555,13 +557,15 @@ A request to a metadata address that hangs and then times out comes from a proce
   still goes through `FORWARD`.
 - A metadata service that is reachable under an address that is not in the table.
 - A CNI that routes Pod traffic without netfilter (eBPF host routing: Cilium's BPF host routing, Calico's eBPF dataplane)
-  does not pass `FORWARD`. In `HostOnly` that is the only rule keeping Pods away, so on AWS only the hop limit of 1 then protects them;
+  does not pass `FORWARD`. In `Restricted` and `HostOnly` that is the rule keeping Pods away, so on AWS only the hop limit of 1 then protects them;
   add an egress policy of the CNI that denies the metadata addresses.
+- Pods on secondary networks (macvlan, ipvlan, SR-IOV through Multus), and CNIs that bridge Pods at layer 2 onto the node network,
+  bypass the host's routing, so `FORWARD` never sees their traffic.
 - In `HostOnly`, a hostNetwork proxy (an egress gateway, an HTTP proxy) can relay a Pod's request to the metadata service.
 - On OVH the config drive, enabled by default, holds a copy of the user-data as a block device that privileged hostPath Pods read in every mode.
-- Components in the cluster that need the metadata service: a vendor's CSI driver or cloud controller as a
-  Pod, vendor workload identity, a benchmark tool that reads the instance's identity. Put their nodes in a
-  NodeClass with `access: Open`.
+- Components in the cluster that need the metadata service: a vendor's CSI node plugin or cloud controller
+  deployed with hostNetwork belongs on a NodeClass with `access: HostOnly`; one in the Pod network, vendor workload
+  identity or a benchmark tool that reads the instance's identity needs `access: Open`.
 
 The fragment counts in the [size budget](#size-budget) (about 2 KiB of the user-data) and in the trial rendering of
 the NodeClass controller. `spec.butane` and a custom template merge after it and can override it.

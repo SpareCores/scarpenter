@@ -299,8 +299,8 @@ func TestBootFragmentsOfPutsTheAgentIntoTheHostOnlyFragment(t *testing.T) {
 			t.Errorf("the fragment lacks %q", want)
 		}
 	}
-	if strings.Contains(frags[0].Butane, "-A SCARPENTER-IMDS-OUTPUT") {
-		t.Errorf("the HostOnly fragment has OUTPUT rules")
+	if strings.Contains(frags[0].Butane, "-m cgroup") {
+		t.Errorf("the HostOnly fragment has the cgroup allowlist")
 	}
 }
 

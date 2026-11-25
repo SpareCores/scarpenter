@@ -9,6 +9,7 @@ storage:
           *security
           :SCARPENTER-IMDS-OUTPUT - [0:0]
           :SCARPENTER-IMDS-FORWARD - [0:0]
+          -A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -m addrtype ! --src-type LOCAL -j DROP
           -A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP
           COMMIT
     - path: /etc/scarpenter/metadata-ip6tables.rules
@@ -18,6 +19,7 @@ storage:
           *security
           :SCARPENTER-IMDS-OUTPUT - [0:0]
           :SCARPENTER-IMDS-FORWARD - [0:0]
+          -A SCARPENTER-IMDS-OUTPUT -d fd20:ce::254/128 -p tcp -m tcp ! --dport 53 --syn -m addrtype ! --src-type LOCAL -j DROP
           -A SCARPENTER-IMDS-FORWARD -d fd20:ce::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP
           COMMIT
     - path: /opt/scarpenter/bin/scarpenter-metadata-firewall

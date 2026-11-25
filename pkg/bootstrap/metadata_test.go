@@ -34,13 +34,19 @@ func TestMetadataFragmentOfEachVendor(t *testing.T) {
 		"hcloud": &hcloud.Driver{}, "oci": &oci.Driver{}, "ovh": &ovh.Driver{}, "upcloud": &upcloud.Driver{},
 		"vultr": &vultr.Driver{},
 	} {
-		for mode, restrict := range map[string]func(vendors.Driver) (vendors.BootFragment, bool, error){
-			"": vendors.RestrictMetadata, "-hostonly": vendors.HostOnlyMetadata,
+		for mode, access := range map[string]v1alpha1.InstanceMetadataAccess{
+			"": v1alpha1.InstanceMetadataRestricted, "-hostonly": v1alpha1.InstanceMetadataHostOnly,
 		} {
 			t.Run(name+mode, func(t *testing.T) {
-				f, ok, err := restrict(d)
-				if err != nil || !ok {
-					t.Fatalf("restricting the metadata = %v, %v", ok, err)
+				frags, err := vendors.BootFragmentsOf(d, access, false, false)
+				var f vendors.BootFragment
+				for _, c := range frags {
+					if c.Name == "metadata-access" {
+						f = c
+					}
+				}
+				if err != nil || f.Name == "" {
+					t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
 				}
 				testutil.Golden(t, "metadata-"+name+mode+".golden", []byte(f.Butane))
 

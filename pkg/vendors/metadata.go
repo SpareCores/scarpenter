@@ -84,17 +84,10 @@ func RestrictMetadata(d Driver) (BootFragment, bool, error) {
 	return restrictWith(d, agentParts{}, false)
 }
 
-// HostOnlyMetadata is RestrictMetadata for the HostOnly mode: the same fragment
-// without the OUTPUT rules, so that every host process and hostNetwork Pod
-// reaches the addresses and only the Pods in the Pod network (FORWARD) are
-// dropped.
-func HostOnlyMetadata(d Driver) (BootFragment, bool, error) {
-	return restrictWith(d, agentParts{}, true)
-}
-
 // restrictWith is RestrictMetadata with more files and units in the same
 // fragment (the interruption agent): one part of the user-data instead of two.
-// hostOnly leaves out the OUTPUT rules.
+// hostOnly (the HostOnly mode) lets host sockets reach the addresses: the OUTPUT
+// rule drops only packets without a local source address.
 func restrictWith(d Driver, extra agentParts, hostOnly bool) (BootFragment, bool, error) {
 	im, ok := d.(InstanceMetadata)
 	if !ok {
@@ -144,7 +137,7 @@ func restrictWith(d Driver, extra agentParts, hostOnly bool) (BootFragment, bool
 // writeRules writes one iptables-restore file for the addresses of a family, if
 // there are any. The chains are filled in one transaction, and only then hooked by
 // the script: the cgroup match is refused in a chain that no built-in chain calls
-// from OUTPUT yet. In HostOnly mode the OUTPUT chain stays empty.
+// from OUTPUT yet.
 func writeRules(b *strings.Builder, path string, addrs []string, prefix string, hostOnly bool) {
 	if len(addrs) == 0 {
 		return
@@ -155,7 +148,11 @@ func writeRules(b *strings.Builder, path string, addrs []string, prefix string, 
 	b.WriteString("          :SCARPENTER-IMDS-FORWARD - [0:0]\n")
 	for _, a := range addrs {
 		match := "-d " + a + prefix + " -p tcp -m tcp ! --dport 53 --syn"
-		if !hostOnly {
+		if hostOnly {
+			// kube-proxy in IPVS mode sends Pod traffic for a Service endpoint through
+			// LOCAL_OUT, not FORWARD; its source address is not local, a host socket's is.
+			fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -m addrtype ! --src-type LOCAL -j DROP\n", match)
+		} else {
 			fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -m cgroup --path %s -j RETURN\n", match, metadataSliceCgroup)
 			fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -j DROP\n", match)
 		}

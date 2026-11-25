@@ -9,6 +9,7 @@ storage:
           *security
           :SCARPENTER-IMDS-OUTPUT - [0:0]
           :SCARPENTER-IMDS-FORWARD - [0:0]
+          -A SCARPENTER-IMDS-OUTPUT -d 100.100.100.200/32 -p tcp -m tcp ! --dport 53 --syn -m addrtype ! --src-type LOCAL -j DROP
           -A SCARPENTER-IMDS-FORWARD -d 100.100.100.200/32 -p tcp -m tcp ! --dport 53 --syn -j DROP
           COMMIT
     - path: /opt/scarpenter/bin/scarpenter-metadata-firewall
