@@ -952,9 +952,9 @@ type Bucket struct {
 	Used int64
 }
 
-// ZoneBucket is the limit and usage of a bucket in one zone (an OCI
-// availability domain, without the tenancy prefix). ID is the ID of the region
-// bucket it belongs to.
+// ZoneBucket is the limit and usage of a bucket in one zone. ID is the ID of
+// the region bucket it belongs to. A snapshot has at most one entry per (Zone,
+// ID); the metrics skip repeats.
 type ZoneBucket struct {
 	Zone, ID    string
 	Limit, Used int64

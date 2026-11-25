@@ -762,7 +762,7 @@ Labels of the bucket metrics:
 - `unit` is one of `vCPU`, `OCPU`, `GB`, `MiB`, `MB`, `GPUs`, `instances`,
   `addresses`, `networks`, `count`. The list is exact: dashboards key on it.
 - `family` groups buckets that belong together. It is the family the driver
-  reports, else the bucket ID. How each driver derives it is in its driver
+  reports, else the bucket ID. How each built-in driver derives it is in its driver
   document.
 
 A bucket whose limit, usage and reservations are all 0 is not exported (the
@@ -772,13 +772,10 @@ quota. Buckets of a region whose last successful refresh is older than
 `--quota-max-staleness` are not exported either; use
 `scarpenter_quota_refresh_age_seconds` or `absent()` to alert on that.
 
-The zone gauges carry per-zone limits and usage for drivers that report them;
-today only OCI does. `zone` is the availability domain name without the tenancy
-prefix (`EU-FRANKFURT-1-AD-1`). `unit` and `family` are those of the region
-bucket with the same ID. The tracker never decides on them. For an
-availability-domain-scoped OCI limit, the region gauge is the effective limit
-(usage plus the best availability domain's headroom), and the sum of the zone
-limits is the tenancy total. The zone series follow the staleness rule of the
+The zone gauges carry per-zone limits and usage for drivers that report
+per-zone figures. `unit` and `family` are those of the region bucket with the
+same ID. The tracker never decides on them. A zone series whose limit and usage
+are both 0 is not exported. The zone series follow the staleness rule of the
 region gauges.
 
 The metrics are exported by the leader only; aggregate with `max by` so that a

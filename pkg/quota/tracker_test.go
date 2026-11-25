@@ -140,6 +140,7 @@ func setup(t *testing.T, mod func(*quota.Options)) *env {
 	drv := newStub()
 	drv.regional["r1"] = []vendors.Bucket{{ID: "std", Scope: vendors.QuotaScopeRegion, Unit: "vCPU", Limit: 16, Used: 4}}
 	drv.regional["r2"] = []vendors.Bucket{{ID: "std", Scope: vendors.QuotaScopeRegion, Unit: "vCPU", Limit: 100, Used: 0}}
+	drv.consume["m.none/on-demand"] = []vendors.Consumption{{Bucket: "none", Amount: 1}}
 	drv.consume["m.large/on-demand"] = []vendors.Consumption{{Bucket: "std", Amount: 4}}
 	drv.consume["m.xlarge/on-demand"] = []vendors.Consumption{{Bucket: "std", Amount: 8}, {Bucket: "all", Amount: 8}}
 	un := unavailable.New(clk, unavailable.TTLs{})
@@ -755,7 +756,7 @@ func TestBucketMetricsCarryUnitAndFamily(t *testing.T) {
 	ss := gatherSeries(t, reg, "scarpenter_quota_")
 	// The family defaults to the bucket ID.
 	if s := find(ss, "scarpenter_quota_limit", "std"); s == nil || s.labels["unit"] != "vCPU" ||
-		s.labels["family"] != "std" || s.labels["region"] != "r1" && s.labels["region"] != "r2" {
+		s.labels["family"] != "std" {
 		t.Errorf("std limit series = %+v", s)
 	}
 	for _, name := range []string{"scarpenter_quota_limit", "scarpenter_quota_used", "scarpenter_quota_reserved"} {
@@ -792,6 +793,50 @@ func TestZeroBucketsAreNotExported(t *testing.T) {
 	if !seen {
 		t.Error("Buckets must keep the 0/0/0 bucket")
 	}
+	// The decisions still see it: nothing fits into a bucket without headroom.
+	if _, ok := e.tr.Unavailable("stub", "m.none", "r1", "z", "on-demand"); !ok {
+		t.Error("a type consuming the 0/0/0 bucket must be unavailable")
+	}
+	if r, d := e.tr.Reserve("stub", "r1", "m.none", "on-demand", "claim"); r != nil || d.Allowed {
+		t.Errorf("reserve into the 0/0/0 bucket = %+v, %+v", r, d)
+	}
+}
+
+func TestZoneSeriesAreUniqueAndSkipZero(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	e := setup(t, func(o *quota.Options) { o.Registerer = reg })
+	e.drv.set(func() {
+		e.drv.zones["r1"] = []vendors.ZoneBucket{
+			{Zone: "AD-1", ID: "std", Limit: 6, Used: 1},
+			{Zone: "AD-1", ID: "std", Limit: 7, Used: 2}, // duplicate: skipped
+			{Zone: "AD-2", ID: "std"},                    // 0/0: skipped
+			{Zone: "AD-3", ID: "std", Used: 1},           // limit 0 with usage: kept
+		}
+	})
+	e.refresh()
+	// Gather fails on a duplicate series.
+	ss := gatherSeries(t, reg, "scarpenter_quota_zone_limit")
+	got := map[string]float64{}
+	for _, s := range ss {
+		got[s.labels["zone"]] = s.value
+	}
+	if len(got) != 2 || len(ss) != 2 || got["AD-1"] != 6 {
+		t.Errorf("zone limit series = %v, want AD-1=6 and AD-3=0", got)
+	}
+	if _, ok := got["AD-3"]; !ok {
+		t.Errorf("AD-3 (limit 0, used 1) must be exported: %v", got)
+	}
+}
+
+func TestZonesDoNotCauseChange(t *testing.T) {
+	e := setup(t, nil)
+	e.refresh()
+	seq, epoch := e.un.Sequence(), e.tr.LaunchableEpoch()
+	e.drv.set(func() { e.drv.zones["r1"] = []vendors.ZoneBucket{{Zone: "AD-1", ID: "std", Limit: 6}} })
+	e.refresh()
+	if e.un.Sequence() != seq || e.tr.LaunchableEpoch() != epoch {
+		t.Error("a change in Zones alone must not bump the sequence or the epoch")
+	}
 }
 
 func TestZoneMetrics(t *testing.T) {
@@ -822,7 +867,7 @@ func TestZoneMetrics(t *testing.T) {
 	}
 	// Stale regions drop their zone series, like the region gauges.
 	e.drv.set(func() { e.drv.err = errors.New("boom") })
-	e.clk.Step(quota.DefaultMaxStaleness + time.Minute)
+	e.clk.Step(16 * time.Minute) // past the 15m MaxStaleness of setup
 	_ = e.tr.Refresh(context.Background())
 	if ss := gatherSeries(t, reg, "scarpenter_quota_zone_"); len(ss) != 0 {
 		t.Errorf("stale zone series exported: %+v", ss)

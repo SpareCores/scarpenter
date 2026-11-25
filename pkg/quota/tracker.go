@@ -708,8 +708,9 @@ func (t *Tracker) viewLocked(k bucketKey, b vendors.Bucket) BucketView {
 
 // Buckets returns every bucket of the fresh snapshots with its reservations,
 // sorted by vendor, region and ID.
-func (t *Tracker) Buckets() []BucketView {
-	now := t.opts.Clock.Now()
+func (t *Tracker) Buckets() []BucketView { return t.bucketsAt(t.opts.Clock.Now()) }
+
+func (t *Tracker) bucketsAt(now time.Time) []BucketView {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	var out []BucketView
@@ -978,9 +979,11 @@ func familyOf(id, family string) string {
 }
 
 // Collect implements prometheus.Collector. A bucket whose limit, usage and
-// reservations are all 0 is not exported; the tracker still sees it.
+// reservations are all 0 is not exported, nor a zone series whose limit and
+// usage are both 0; the tracker still decides on the buckets.
 func (c *collector) Collect(ch chan<- prometheus.Metric) {
-	for _, b := range c.t.Buckets() {
+	now := c.t.opts.Clock.Now()
+	for _, b := range c.t.bucketsAt(now) {
 		if b.Limit == 0 && b.Used == 0 && b.Reserved == 0 {
 			continue
 		}
@@ -989,7 +992,6 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(usedDesc, prometheus.GaugeValue, float64(b.Used), l...)
 		ch <- prometheus.MustNewConstMetric(reservedDesc, prometheus.GaugeValue, float64(b.Reserved), l...)
 	}
-	now := c.t.opts.Clock.Now()
 	c.t.mu.RLock()
 	defer c.t.mu.RUnlock()
 	for k, st := range c.t.states {
@@ -1000,13 +1002,21 @@ func (c *collector) Collect(ch chan<- prometheus.Metric) {
 		if c.t.freshLocked(k, now) == nil {
 			continue
 		}
+		// Unit and family come from the region bucket with the same ID.
+		byID := make(map[string]vendors.Bucket, len(st.snap.Buckets))
+		for _, b := range st.snap.Buckets {
+			byID[b.ID] = b
+		}
+		type zoneKey struct{ zone, id string }
+		seen := map[zoneKey]bool{}
 		for _, z := range st.snap.Zones {
-			// Unit and family come from the region bucket with the same ID.
-			unit, family := "", z.ID
-			if i := slices.IndexFunc(st.snap.Buckets, func(b vendors.Bucket) bool { return b.ID == z.ID }); i >= 0 {
-				unit, family = st.snap.Buckets[i].Unit, familyOf(z.ID, st.snap.Buckets[i].Family)
+			// A repeated series would fail the whole scrape.
+			if seen[zoneKey{z.Zone, z.ID}] || z.Limit == 0 && z.Used == 0 {
+				continue
 			}
-			l := []string{k.vendor, k.region, z.Zone, z.ID, unit, family}
+			seen[zoneKey{z.Zone, z.ID}] = true
+			b := byID[z.ID]
+			l := []string{k.vendor, k.region, z.Zone, z.ID, b.Unit, familyOf(z.ID, b.Family)}
 			ch <- prometheus.MustNewConstMetric(zoneLimitDesc, prometheus.GaugeValue, float64(z.Limit), l...)
 			ch <- prometheus.MustNewConstMetric(zoneUsedDesc, prometheus.GaugeValue, float64(z.Used), l...)
 		}
