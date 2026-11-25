@@ -356,9 +356,21 @@ func TestPrepareRequiresTheGroupAndTheVPCOnlyForAnIsolationThatNeedsOne(t *testi
 			t.Errorf("isolation %q: %+v, %v; want %d resources", iso, got, err, want)
 			continue
 		}
-		// The VPC interface gets no address on Flatcar (no DHCP): no node IP range.
+		// The kubelet keeps the public address: no node IP range.
 		if got.NodeIPCIDR != "" {
 			t.Errorf("isolation %q: node IP range %q, want none", iso, got.NodeIPCIDR)
+		}
+		// The boot unit that configures the VPC interface rides with an attached VPC only.
+		names := make([]string, 0, len(got.BootFragments))
+		for _, f := range got.BootFragments {
+			names = append(names, f.Name)
+		}
+		wantNames := []string{vultr.VPCInterfaceFragmentName}
+		if iso == common.IsolationNone {
+			wantNames = []string{}
+		}
+		if !slices.Equal(names, wantNames) {
+			t.Errorf("isolation %q: boot fragments %v, want %v", iso, names, wantNames)
 		}
 	}
 	// A missing resource reaches the caller with its code.
