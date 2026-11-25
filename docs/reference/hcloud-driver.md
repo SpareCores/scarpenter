@@ -305,7 +305,13 @@ a Hetzner server is unverified.
 `Project.Delete` refuses a server that lacks this cluster's `managed-by` and
 `cluster` labels, treats `not_found` and an unparseable reference as gone, waits for
 the delete action and deletes the server's Primary IPs that stayed unassigned
-without `auto_delete`.
+without `auto_delete` and carry this cluster's `managed-by` and `cluster` labels.
+Right after the create call the driver labels the server's auto-created Primary IPs
+with the cluster, `managed-by` and nodeclaim labels, so its own IPs are cleaned up
+whatever their `auto_delete` is. If labelling fails it is logged and the create goes on:
+the worst case is a leaked IP. A Primary IP someone else attached to the node (no
+labels) and a volume attached after the create are never deleted; the volume is
+only detached with the server.
 
 
 ## Quotas and availability

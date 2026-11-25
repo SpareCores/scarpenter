@@ -51,9 +51,9 @@ func guardedHTTPClient(a *audit) *http.Client {
 	return &http.Client{Transport: &roTransport{inner: http.DefaultTransport, audit: a}}
 }
 
-// isHCloudRead says whether a method of hcloud.API is a read: everything but Create* and Delete*.
+// isHCloudRead says whether a method of hcloud.API is a read: everything but Create*, Update* and Delete*.
 func isHCloudRead(name string) bool {
-	return !strings.HasPrefix(name, "Create") && !strings.HasPrefix(name, "Delete")
+	return !strings.HasPrefix(name, "Create") && !strings.HasPrefix(name, "Update") && !strings.HasPrefix(name, "Delete")
 }
 
 // roAPI wraps an hcloud.API: reads are recorded and passed on, writes are refused.
@@ -169,6 +169,10 @@ func (g *roAPI) DeleteVolume(context.Context, *hc.Volume) error {
 func (g *roAPI) GetPrimaryIP(ctx context.Context, id int64) (*hc.PrimaryIP, error) {
 	g.audit.read("hcloud:GetPrimaryIP")
 	return g.API.GetPrimaryIP(ctx, id)
+}
+
+func (g *roAPI) UpdatePrimaryIP(context.Context, *hc.PrimaryIP, map[string]string) error {
+	return g.audit.deny("hcloud:UpdatePrimaryIP")
 }
 
 func (g *roAPI) DeletePrimaryIP(context.Context, *hc.PrimaryIP) error {

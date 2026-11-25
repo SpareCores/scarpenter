@@ -60,6 +60,8 @@ type API interface {
 	DeleteVolume(ctx context.Context, v *hc.Volume) error
 
 	GetPrimaryIP(ctx context.Context, id int64) (*hc.PrimaryIP, error)
+	// UpdatePrimaryIP replaces the labels of a Primary IP.
+	UpdatePrimaryIP(ctx context.Context, ip *hc.PrimaryIP, labels map[string]string) error
 	DeletePrimaryIP(ctx context.Context, ip *hc.PrimaryIP) error
 
 	// SSHKey finds a key by name or ID.

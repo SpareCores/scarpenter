@@ -312,6 +312,14 @@ func (c *Client) GetPrimaryIP(ctx context.Context, id int64) (*hc.PrimaryIP, err
 	return ip, err
 }
 
+// UpdatePrimaryIP implements API.
+func (c *Client) UpdatePrimaryIP(ctx context.Context, ip *hc.PrimaryIP, labels map[string]string) error {
+	ctx, cancel := c.ctx(ctx)
+	defer cancel()
+	_, _, err := c.c.PrimaryIP.Update(ctx, ip, hc.PrimaryIPUpdateOpts{Labels: &labels})
+	return err
+}
+
 // DeletePrimaryIP implements API.
 func (c *Client) DeletePrimaryIP(ctx context.Context, ip *hc.PrimaryIP) error {
 	ctx, cancel := c.ctx(ctx)

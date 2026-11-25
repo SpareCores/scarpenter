@@ -45,6 +45,7 @@ func TestClientAdapterRoutes(t *testing.T) {
 		"GET /volumes":               `{"volumes":[{"id":9}]` + page + `}`,
 		"DELETE /volumes/9":          `{}`,
 		"GET /primary_ips/10":        `{"primary_ip":{"id":10}}`,
+		"PUT /primary_ips/10":        `{"primary_ip":{"id":10}}`,
 		"DELETE /primary_ips/10":     `{}`,
 		"GET /ssh_keys/11":           `{"ssh_key":{"id":11,"name":"k"}}`,
 		"GET /ssh_keys":              `{"ssh_keys":[{"id":11,"name":"k"}]` + page + `}`,
@@ -114,6 +115,7 @@ func TestClientAdapterRoutes(t *testing.T) {
 	check("DeleteVolume", c.DeleteVolume(ctx, v))
 	_, err = c.GetPrimaryIP(ctx, 10)
 	check("GetPrimaryIP", err)
+	check("UpdatePrimaryIP", c.UpdatePrimaryIP(ctx, &hc.PrimaryIP{ID: 10}, map[string]string{"a": "b"}))
 	check("DeletePrimaryIP", c.DeletePrimaryIP(ctx, &hc.PrimaryIP{ID: 10}))
 	k, err := c.SSHKey(ctx, "11")
 	check("SSHKey", err)

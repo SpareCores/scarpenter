@@ -396,6 +396,38 @@ func (f *Fake) AddForeignServer(location, typ string, labels map[string]string) 
 	return s
 }
 
+// AssignPrimaryIP creates a Primary IPv4 of another owner (user-created, no
+// labels, auto_delete off) and makes it the server's address in place of the
+// auto-created one, as a user does for a stable egress address.
+func (f *Fake) AssignPrimaryIP(serverID int64) *hc.PrimaryIP {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s := f.servers[serverID]
+	delete(f.ips, s.PublicNet.IPv4.ID)
+	ip := f.newPrimaryIP(hc.PrimaryIPTypeIPv4, s, s.Location)
+	ip.AutoDelete = false
+	ip.Name = "user-ip"
+	s.PublicNet.IPv4 = hc.ServerPublicNetIPv4{ID: ip.ID, IP: ip.IP}
+	c := *ip
+	return &c
+}
+
+// AttachForeignVolume creates a volume of another owner (no labels) in the
+// server's location and attaches it to the running server.
+func (f *Fake) AttachForeignVolume(serverID int64) *hc.Volume {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s := f.servers[serverID]
+	v := &hc.Volume{
+		ID: f.id(), Name: "user-volume", Size: 10, Location: s.Location, Labels: map[string]string{},
+		Server: &hc.Server{ID: s.ID}, Status: hc.VolumeStatusAvailable, Created: f.clock.Now(),
+	}
+	f.volumes[v.ID] = v
+	s.Volumes = append(s.Volumes, &hc.Volume{ID: v.ID})
+	c := *v
+	return &c
+}
+
 // PowerOff powers a server off (the guest's poweroff): status off, still billed
 // and listed.
 func (f *Fake) PowerOff(id int64) {

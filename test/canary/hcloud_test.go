@@ -289,7 +289,7 @@ func TestAPIGuardRefusesEveryWriteAndPassesEveryRead(t *testing.T) {
 func TestIsHCloudRead(t *testing.T) {
 	for op, want := range map[string]bool{
 		"Locations": true, "GetServer": true, "Servers": true, "WaitForAction": true, "SSHKey": true,
-		"CreateServer": false, "DeleteVolume": false, "DeletePrimaryIP": false, "CreateFirewall": false,
+		"CreateServer": false, "DeleteVolume": false, "DeletePrimaryIP": false, "CreateFirewall": false, "UpdatePrimaryIP": false,
 	} {
 		if got := isHCloudRead(op); got != want {
 			t.Errorf("isHCloudRead(%q) = %t, want %t", op, got, want)
