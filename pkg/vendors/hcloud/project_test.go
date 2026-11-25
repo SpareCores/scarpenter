@@ -526,6 +526,77 @@ func TestDeleteCleansUnassignedPrimaryIPs(t *testing.T) {
 	}
 }
 
+// Only Primary IPs labelled at create are deleted: one the user assigned to the
+// node (no labels, auto_delete off) and a volume attached later survive.
+func TestDeleteKeepsForeignPrimaryIPAndVolume(t *testing.T) {
+	e := newEnv(t, []fake.Option{fake.WithPrimaryIPAutoDelete(false)})
+	s := e.spec("nc-1")
+	s.PublicIPv6 = true
+	inst, err := e.p.Create(ctx, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, id, _ := hcloud.ParseRef(inst.Ref)
+	for _, ip := range e.f.PrimaryIPs() {
+		if ip.Labels[hcloud.TagKey(vendors.TagNodeClaim)] != "nc-1" ||
+			ip.Labels[hcloud.TagKey(vendors.TagCluster)] != e.cl ||
+			ip.Labels[hcloud.TagKey(vendors.TagManagedBy)] != vendors.ManagedByValue {
+			t.Errorf("auto-created Primary IP %d is not labelled: %v", ip.ID, ip.Labels)
+		}
+	}
+	userIP := e.f.AssignPrimaryIP(id)
+	vol := e.f.AttachForeignVolume(id)
+	if err := e.p.Delete(ctx, inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	ips := e.f.PrimaryIPs()
+	if len(ips) != 1 || ips[0].ID != userIP.ID {
+		t.Errorf("want only the user's Primary IP left, got %+v", ips)
+	}
+	if got, _ := e.f.GetVolume(ctx, vol.ID); got == nil || got.Server != nil {
+		t.Errorf("the user's volume must survive, detached: %+v", got)
+	}
+}
+
+// An unassigned IP labelled for another cluster is never deleted.
+func TestCleanupLeavesOtherClusterPrimaryIP(t *testing.T) {
+	e := newEnv(t, []fake.Option{fake.WithPrimaryIPAutoDelete(false)})
+	inst, err := e.p.Create(ctx, e.spec("nc-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ip := e.f.PrimaryIPs()[0]
+	other := map[string]string{
+		hcloud.TagKey(vendors.TagManagedBy): vendors.ManagedByValue, hcloud.TagKey(vendors.TagCluster): "other",
+	}
+	if err := e.f.UpdatePrimaryIP(ctx, ip, other); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.p.Delete(ctx, inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(e.f.PrimaryIPs()); n != 1 {
+		t.Errorf("the other cluster's IP must survive, got %d IPs", n)
+	}
+}
+
+// A failed labelling must not fail the create; the IP then leaks rather than
+// risking a foreign delete.
+func TestLabelPrimaryIPFailureIsIgnored(t *testing.T) {
+	e := newEnv(t, []fake.Option{fake.WithPrimaryIPAutoDelete(false)})
+	e.f.Inject("UpdatePrimaryIP", fake.APIError(hc.ErrorCodeServerError, "x"), 1)
+	inst, err := e.p.Create(ctx, e.spec("nc-1"))
+	if err != nil {
+		t.Fatalf("create must succeed: %v", err)
+	}
+	if err := e.p.Delete(ctx, inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(e.f.PrimaryIPs()); n != 1 {
+		t.Errorf("the unlabelled IP must be left, got %d", n)
+	}
+}
+
 func TestPrimaryIPCleanupLeavesAssignedAndAutoDelete(t *testing.T) {
 	e := newEnv(t, nil)
 	inst, _ := e.p.Create(ctx, e.spec("nc-1"))

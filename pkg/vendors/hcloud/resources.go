@@ -47,7 +47,12 @@ func isManagedKind(kind vendors.ResourceKind) bool {
 
 // owned reports whether the labels carry this cluster's ownership marker.
 func (d *Driver) owned(labels map[string]string) bool {
-	cluster := d.cfg.ClusterName
+	return ownedBy(d.cfg.ClusterName, labels)
+}
+
+// ownedBy reports whether the labels carry the ownership marker of the
+// cluster; an empty cluster owns nothing.
+func ownedBy(cluster string, labels map[string]string) bool {
 	return cluster != "" && labels[TagKey(vendors.TagManagedBy)] == vendors.ManagedByValue &&
 		labels[TagKey(vendors.TagCluster)] == LabelValue(cluster)
 }

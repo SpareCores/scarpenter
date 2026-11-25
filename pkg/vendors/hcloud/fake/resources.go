@@ -328,6 +328,21 @@ func (f *Fake) GetPrimaryIP(_ context.Context, id int64) (*hc.PrimaryIP, error) 
 	return nil, nil
 }
 
+// UpdatePrimaryIP implements hcloud.API: it replaces the labels.
+func (f *Fake) UpdatePrimaryIP(_ context.Context, ip *hc.PrimaryIP, labels map[string]string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.call("UpdatePrimaryIP", 1); err != nil {
+		return err
+	}
+	cur := f.ips[ip.ID]
+	if cur == nil {
+		return APIError(hc.ErrorCodeNotFound, "primary ip not found")
+	}
+	cur.Labels = cloneMap(labels)
+	return nil
+}
+
 // DeletePrimaryIP implements hcloud.API: an assigned IP cannot be deleted.
 func (f *Fake) DeletePrimaryIP(_ context.Context, ip *hc.PrimaryIP) error {
 	f.mu.Lock()

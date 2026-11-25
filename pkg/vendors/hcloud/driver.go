@@ -150,7 +150,7 @@ func (d *Driver) Init(ctx context.Context, cfg vendors.Config) error {
 			d.uploader = c.Uploader()
 		}
 	}
-	d.p = NewProject(d.api, cfg.ClusterName, WithClock(d.clock), WithServerLimit(d.serverLimit))
+	d.p = NewProject(d.api, cfg.ClusterName, WithClock(d.clock), WithServerLimit(d.serverLimit), WithLogger(d.log))
 	if d.prices == nil {
 		var override *float64
 		if v := os.Getenv(IPv4PriceEnv); v != "" {
