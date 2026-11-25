@@ -14,8 +14,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // UpCloud has no regions or projects: the account is the scope, so one list
 // call with the label filter covers every zone. The engine talks to the API
-// through the driver's narrow interface (pkg/vendors/upcloud/api) plus
-// DeleteStorage, so the in-memory fake of the driver tests runs it unchanged.
+// through the driver's narrow interface (pkg/vendors/upcloud/api), so the
+// in-memory fake of the driver tests runs it unchanged.
 //
 // Selection is conservative on purpose. Only a resource whose cluster label
 // matches (exactly, or by prefix) is touched; a resource labelled
@@ -53,11 +53,8 @@ var ClusterLabel = upcloudTagKey(vendors.TagCluster)
 
 func upcloudTagKey(k vendors.TagKey) string { return driver.TagKey(k) }
 
-// API is what the sweep calls: the driver's API plus the deletion of a disk.
-type API interface {
-	api.API
-	DeleteStorage(ctx context.Context, r *request.DeleteStorageRequest) error
-}
+// API is what the sweep calls: the driver's API.
+type API = api.API
 
 // Options select what is swept.
 type Options struct {

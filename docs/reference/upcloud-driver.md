@@ -150,9 +150,20 @@ registration timeout for the boot and the join.
 - **State**: `started` is `running`; `maintenance` (cloning, or a stop in progress) is `pending`; `stopped` and `error`
   are `terminating` (the stopped-node rule: a stopped server is not coming back and may be billed, the garbage collector
   deletes it).
-- **Delete**: UpCloud deletes only a stopped server. The driver hard stops it, waits for `stopped`, then deletes it with its
-  storages and backups. A gone server is success; a server in `maintenance` is `Retryable`. A server that does not carry
-  the cluster's `scarpenter-cluster` label is never deleted (the token is the account's).
+- **Delete**: UpCloud deletes only a stopped server. The driver reads the server and picks the storages SCarpenter made for
+  it: those labelled with the server's `scarpenter-cluster` and `scarpenter-nodeclaim`, and `scarpenter-managed-by`, and
+  without `scarpenter-use` (the labels come from the server's storage devices; a device without labels is read from the
+  storage; CD-ROMs and templates are skipped). It hard stops the server, waits for `stopped`, deletes the server without
+  its storages, then deletes each of those storages with its backups. A storage attached by anyone else (a CSI volume,
+  one made by an IaC tool or by hand) is released with the server and kept, with its backups. A storage of ours that
+  another server has since attached (`STORAGE_ATTACHED`) is logged and kept. A gone server or storage is success; a
+  server in `maintenance`, or a storage that is not `online`, is `Retryable`. A server that does not carry the cluster's
+  `scarpenter-cluster` label is never deleted (the token is the account's). Every path ends in this delete: the node
+  delete, the create rollback, the removal of a partial server and the sweeper.
+- **Leftover storages**: a storage delete that fails after the server is gone leaves a labelled, unattached storage.
+  `CollectLeftovers` (garbage collection, once per zone) deletes the cluster's private storages in the zone that carry the
+  labels of a node's storage and a NodeClaim label, no `scarpenter-use`, are `online` and attached to no server, and whose
+  NodeClaim no longer exists (asked per storage after the list). Storages without those labels are never touched.
 - **Addresses**: public IPv4 and IPv6 first, then the utility and any SDN address, for the serving-certificate approver.
 - **Get, list**: `GetInstance` is `NotFound` for a deleted server (there is no terminated state) and for a reference that is
   not `<zone>/<server uuid>`. A list answer has no labels, so `ListInstances` and `FindInstance` read the details of each
@@ -211,7 +222,7 @@ profile: `nicModel` exists and has no use (ADR-017).
 | `storage.root.tier` | `maxiops` or `standard`. Default: the plan's included tier where a template of it exists, else the template's tier. The one type-dependent default of the driver, like GCP's Hyperdisk series. |
 | `storage.root.size` | 10 to 1024 (UpCloud's GB are read as GiB). Default: the plan's included storage, at least 25 GB. A disk larger than the plan's is billed in full, so the default is the plan's. The scheduler's ephemeral storage is this size (`RootDiskForType`). |
 | `storage.root.encrypted` | default `true` (free) |
-| `storage.data[]` | `name`, `filesystem`, `mountPath`, `tier` (`maxiops`, `standard`, `hdd`), `size`, `encrypted`; at most three; created in the create call and deleted with the server. The first-boot unit finds the device by the virtio serial pattern `*` and the size (the UpCloud serial is the first 20 hex digits of the storage UUID, unknown before the create), so equal-size disks rely on the unit's lock. |
+| `storage.data[]` | `name`, `filesystem`, `mountPath`, `tier` (`maxiops`, `standard`, `hdd`), `size`, `encrypted`; at most three; created in the create call, labelled as the root disk is, and deleted with the server. The first-boot unit finds the device by the virtio serial pattern `*` and the size (the UpCloud serial is the first 20 hex digits of the storage UUID, unknown before the create), so equal-size disks rely on the unit's lock. |
 | `localStorage` | not supported: every plan disk is network storage |
 | placement profile | `serverGroup: {antiAffinity: strict \| yes}` or `{use: {name}}`; one group per (zone, profile, run key); `strict` fails at start with no capacity when no other host is free. There is no cluster or co-location construct and no dedicated tenancy: profiles that ask for them have no UpCloud block. A profile that creates groups needs a run key. |
 | `networking.publicIPv4` | default `true`; `false` needs a brought private network with a gateway (the utility network has no internet access, **unverified**), else the NodeClass is refused |
@@ -300,14 +311,14 @@ lane is not in `test/e2e-vendors.txt` until they and a spending alert are verifi
 [Per-vendor cost guards](../how-to-guides/testing-and-releasing.md#per-vendor-cost-guards)). The operations
 the driver uses, so that you can judge it:
 
-- servers: list (with label filters), get, create, stop, modify (the private firewall switch), delete with storages and backups,
+- servers: list (with label filters), get, create, stop, modify (the private firewall switch), delete (the server only, never its storages),
   the Public & Utility firewall rules (create, get);
-- storages: list the private storages (the templates among them: the API has no private-template list), get;
+- storages: list the private storages (the templates among them: the API has no private-template list), get, delete with backups (the node's own only);
 - networks: list, get, create, delete; server groups: list, get, create, delete;
 - firewall rulesets: list, get, create, delete, attach and detach to a server's private interfaces (v9 endpoints);
 - account (the limits), zones, plans, IP addresses.
 
-The driver deletes only servers, networks, rulesets and groups that carry the cluster's label, and never a template.
+The driver deletes only servers, networks, rulesets and groups that carry the cluster's label, storages that carry the labels of a node's storage, and never a template.
 
 ## Deferred
 

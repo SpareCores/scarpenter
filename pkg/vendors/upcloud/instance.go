@@ -14,6 +14,7 @@ import (
 
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/request"
+	"github.com/go-logr/logr"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/common"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -238,7 +239,7 @@ func (d *Driver) discard(ctx context.Context, uuid string) {
 	_, _ = d.api.WaitForServerState(wctx, &request.WaitForServerStateRequest{
 		UUID: uuid, DesiredState: upcloud.ServerStateStarted,
 	})
-	if err := Terminate(ctx, d.api, uuid); err != nil {
+	if err := Terminate(logr.NewContext(ctx, d.log), d.api, uuid); err != nil {
 		d.log.Error(err, "deleting a server whose launch steps failed", "server", uuid)
 	}
 }
@@ -337,8 +338,9 @@ func (d *Driver) ListInstances(ctx context.Context, regions []string, tags map[v
 	return out, nil
 }
 
-// DeleteInstance implements vendors.Driver: stop, wait, delete with the storages;
-// a server that does not exist is success. A server that does not carry this
+// DeleteInstance implements vendors.Driver: stop, wait, delete the server and the
+// storages SCarpenter made for it (Terminate), never one attached by others; a
+// server that does not exist is success. A server that does not carry this
 // cluster's label is not ours (a wrong or tampered reference must not delete a
 // foreign server, since the token is the account's) and is refused with a Fatal
 // error.
@@ -354,5 +356,5 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 		return vendors.Errorf(vendors.Fatal, "the server %s does not carry the label of cluster %q and is not deleted",
 			ref, d.cfg.ClusterName)
 	}
-	return Terminate(ctx, d.api, s.UUID)
+	return Terminate(logr.NewContext(ctx, d.log), d.api, s.UUID)
 }

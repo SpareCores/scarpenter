@@ -351,7 +351,7 @@ func (f *Fake) commitServer(
 		s.d.StorageDevices = append(s.d.StorageDevices, upcloud.ServerStorageDevice{
 			Address: fmt.Sprintf("virtio:%d", i), UUID: st.d.UUID, Size: st.d.Size, Tier: st.d.Tier, Title: st.d.Title,
 			Type: upcloud.StorageTypeDisk, Encrypted: st.d.Encrypted, PartOfPlan: st.d.PartOfPlan,
-			BootDisk: map[bool]int{true: 1}[i == 0],
+			BootDisk: map[bool]int{true: 1}[i == 0], Labels: slices.Clone(storageLabels),
 		})
 	}
 	f.attachInterfaces(s, ifaces)
@@ -580,10 +580,11 @@ func (f *Fake) ModifyServer(ctx context.Context, r *request.ModifyServerRequest)
 	return s.copy(), nil
 }
 
-// DeleteServerAndStorages deletes a stopped server and all its storages. Any
-// other state, a stop in progress included, is SERVER_STATE_ILLEGAL.
-func (f *Fake) DeleteServerAndStorages(ctx context.Context, r *request.DeleteServerAndStoragesRequest) error {
-	done, err := f.begin(ctx, "DeleteServerAndStorages")
+// DeleteServer deletes a stopped server and keeps its storages, which become
+// unattached (the API's default, without its storages option). Any other state, a
+// stop in progress included, is SERVER_STATE_ILLEGAL.
+func (f *Fake) DeleteServer(ctx context.Context, r *request.DeleteServerRequest) error {
+	done, err := f.begin(ctx, "DeleteServer")
 	if err != nil {
 		return err
 	}
@@ -596,7 +597,9 @@ func (f *Fake) DeleteServerAndStorages(ctx context.Context, r *request.DeleteSer
 		return conflict("SERVER_STATE_ILLEGAL")
 	}
 	for _, d := range s.d.StorageDevices {
-		delete(f.storages, d.UUID)
+		if st, ok := f.storages[d.UUID]; ok {
+			st.d.ServerUUIDs = slices.DeleteFunc(st.d.ServerUUIDs, func(m string) bool { return m == r.UUID })
+		}
 	}
 	if g, ok := f.groups[s.d.ServerGroup]; ok {
 		g.g.Members = slices.DeleteFunc(g.g.Members, func(m string) bool { return m == r.UUID })
@@ -605,6 +608,28 @@ func (f *Fake) DeleteServerAndStorages(ctx context.Context, r *request.DeleteSer
 		rs.servers = slices.DeleteFunc(rs.servers, func(m string) bool { return m == r.UUID })
 	}
 	delete(f.servers, r.UUID)
+	return nil
+}
+
+// AttachStorage attaches an existing storage to a server as a virtio disk, the way
+// a CSI driver or an operator does while the server runs, and returns an error when
+// either is missing. The device carries the storage's labels, as the API reports them.
+func (f *Fake) AttachStorage(serverUUID, storageUUID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.servers[serverUUID]
+	if !ok {
+		return notFound("SERVER_NOT_FOUND")
+	}
+	st, ok := f.storages[storageUUID]
+	if !ok {
+		return notFound("STORAGE_NOT_FOUND")
+	}
+	s.d.StorageDevices = append(s.d.StorageDevices, upcloud.ServerStorageDevice{
+		Address: fmt.Sprintf("virtio:%d", len(s.d.StorageDevices)), UUID: st.d.UUID, Size: st.d.Size, Tier: st.d.Tier,
+		Title: st.d.Title, Type: upcloud.StorageTypeDisk, Labels: slices.Clone(st.d.Labels),
+	})
+	st.d.ServerUUIDs = append(st.d.ServerUUIDs, serverUUID)
 	return nil
 }
 

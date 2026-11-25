@@ -188,7 +188,7 @@ func TestAttachedDiskAndFailuresAreReported(t *testing.T) {
 	l := labels("scarpenter-ci-5", 5*time.Hour)
 	s := a.server("s", l)
 	// A server whose delete fails is Failed and does not stop the sweep.
-	a.f.InjectCode("DeleteServerAndStorages", "INTERNAL_ERROR", 500, 1)
+	a.f.InjectCode("DeleteServer", "INTERNAL_ERROR", 500, 1)
 	orphan := a.f.AddStorage("fi-hel1", "o", "maxiops", 25, l)
 	rep := a.run(sweep.Options{MaxAge: 2 * time.Hour})
 	if outcome(rep, s) != sweep.Failed {
