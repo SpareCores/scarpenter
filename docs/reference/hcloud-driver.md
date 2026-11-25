@@ -316,6 +316,9 @@ readable through the API. The path is reactive: `resource_limit_exceeded` is `Qu
 (`SCARPENTER_HCLOUD_SERVER_LIMIT`, chart `vendors.hcloud.serverLimit`; default 0, unknown) the driver reports one
 global bucket `servers` (unit `instances`; usage is every server of the project, also those of other owners;
 consumption 1 for every type, none for a capacity type other than on-demand), so headroom is known before a launch.
+Set it to the project's server limit as the Console shows it. The value is configuration, not read from Hetzner, so it
+goes stale when the limit is changed in the Console. Without it no quota gauge exists and only the vendor's refusals
+limit a launch.
 
 **Availability.** `LaunchableTypes(location)` is one `GET /server_types` (cached 3 minutes, which also serves the
 root disk of a type): a type is launchable in a location when its entry there is `available` and not past

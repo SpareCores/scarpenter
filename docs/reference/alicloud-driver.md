@@ -308,7 +308,8 @@ mirrors. Until a type has a green real run it is "offered, not yet verified"; th
 vCPU, scope region). An instance consumes its vCPUs from the bucket of its capacity type; types the driver has not read
 are unknown quota (reactive). The instances that count for the in-flight ledger come from a region-wide `DescribeInstances`
 (pending, starting, running, stopping, stopped: whether stopped instances count is *unverified*). **Quota Center** per-family limits
-(`ListProductQuotas`) are not read: plan 21 adds them only if the live check shows the account attributes are not the binding limit.
+(`ListProductQuotas`) (for example the `ecs-spec` quotas) are not read: only the account attributes above feed the buckets, and a refusal by a
+Quota Center limit is handled reactively, from the launch error.
 Stock is an extra signal: a type sold out in a zone is not offered (5-minute refresh, the effect is to be reported by the L5 run).
 `OperationDenied.NoStock` and `Zone.NotOnSale` at launch are `InsufficientCapacity`. ECS accepts the launch of an instance
 and may release it for lack of stock after (`SystemFailure.Delete`): the first `GetInstance` of an instance the process

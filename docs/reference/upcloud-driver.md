@@ -276,6 +276,9 @@ limit is positive (0 or absent means unknown, **unverified**). `Consumption` is 
 Cloud Native) and the plan's default root disk on its tier; a NodeClass's own root size is not known there. Limits are read every 15
 minutes. A quota error (`SERVER_CORE_LIMIT_REACHED` and the others below) gates every zone.
 
+Usage counts only what the token can see. For a token of a sub-account the usage is that of the sub-account's resources, while the
+limits from `GET /account` are presumably the main account's (**unverified**).
+
 ## Error mapping
 
 By the API's error code (`upcloud.Problem.ErrorCode()`, from the problem type or the legacy code), never by message text; unlisted
