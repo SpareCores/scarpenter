@@ -49,7 +49,7 @@ func (d *Driver) CollectLeftovers(
 			continue
 		}
 		claim := TagsOf(st.Labels)[vendors.TagNodeClaim]
-		if !isNodeStorage(st.Labels, d.cfg.ClusterName, claim) {
+		if !IsNodeStorage(st.Labels, d.cfg.ClusterName, claim) {
 			continue
 		}
 		// Read the storage again: it may have been attached or deleted since the list.
@@ -63,18 +63,21 @@ func (d *Driver) CollectLeftovers(
 			continue
 		}
 		if len(cur.ServerUUIDs) > 0 || cur.State != upcloud.StorageStateOnline ||
-			!isNodeStorage(cur.Labels, d.cfg.ClusterName, claim) {
+			!IsNodeStorage(cur.Labels, d.cfg.ClusterName, claim) {
 			continue
 		}
 		// Asked after the listing, for each storage: a launch in flight has its NodeClaim.
 		if nodeClaimExists(claim) {
 			continue
 		}
-		if err := DeleteStorage(ctx, d.api, st.UUID); err != nil {
+		gone, err := DeleteStorage(ctx, d.api, st.UUID)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("deleting the storage %s: %w", st.UUID, err))
 			continue
 		}
-		deleted++
+		if gone { // not one that was attached or gone in the meantime
+			deleted++
+		}
 	}
 	if len(errs) > 0 {
 		return deleted, Classify(errors.Join(errs...))

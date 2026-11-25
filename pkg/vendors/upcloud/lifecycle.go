@@ -148,7 +148,7 @@ func Terminate(ctx context.Context, a api.API, uuid string) error {
 	}
 	var first error
 	for _, id := range own {
-		if err := DeleteStorage(ctx, a, id); err != nil && first == nil {
+		if _, err := DeleteStorage(ctx, a, id); err != nil && first == nil {
 			first = err
 		}
 	}
@@ -181,17 +181,17 @@ func ownStorages(ctx context.Context, a api.API, d *upcloud.ServerDetails) ([]st
 			}
 			labels = st.Labels
 		}
-		if isNodeStorage(labels, tags[vendors.TagCluster], tags[vendors.TagNodeClaim]) {
+		if IsNodeStorage(labels, tags[vendors.TagCluster], tags[vendors.TagNodeClaim]) {
 			out = append(out, dev.UUID)
 		}
 	}
 	return out, nil
 }
 
-// isNodeStorage says whether the labels are those of a node's storage of the
+// IsNodeStorage says whether the labels are those of a node's storage of the
 // cluster and NodeClaim: all three of StorageLabels, none empty, and not
 // scarpenter-use (what an operator offers to SCarpenter).
-func isNodeStorage(labels []upcloud.Label, cluster, nodeClaim string) bool {
+func IsNodeStorage(labels []upcloud.Label, cluster, nodeClaim string) bool {
 	if cluster == "" || nodeClaim == "" {
 		return false
 	}
@@ -205,24 +205,28 @@ func isNodeStorage(labels []upcloud.Label, cluster, nodeClaim string) bool {
 		tags[vendors.TagCluster] == cluster && tags[vendors.TagNodeClaim] == nodeClaim
 }
 
-// DeleteStorage deletes a storage with its backups. A gone storage is success, and
-// so is one attached to a server (someone attached it elsewhere; it is not ours to
-// detach, and CollectLeftovers takes it once it is unattached and its NodeClaim is
-// gone): that case is logged. A storage not online is Retryable.
-func DeleteStorage(ctx context.Context, a api.API, uuid string) error {
+// DeleteStorage deletes a storage with its backups and says whether this call
+// deleted it. A gone storage is success without a delete, and so is one attached to
+// a server (someone attached it elsewhere; it is not ours to detach, and
+// CollectLeftovers takes it once it is unattached and its NodeClaim is gone): that
+// case is logged. A storage not online is Retryable.
+func DeleteStorage(ctx context.Context, a api.API, uuid string) (deleted bool, err error) {
 	dctx, cancel := CallContext(ctx, CallTimeout)
 	defer cancel()
-	err := a.DeleteStorage(dctx, &request.DeleteStorageRequest{
+	err = a.DeleteStorage(dctx, &request.DeleteStorageRequest{
 		UUID: uuid, Backups: request.DeleteStorageBackupsModeDelete,
 	})
-	if err == nil || isGone(Classify(err)) {
-		return nil
+	if err == nil {
+		return true, nil
+	}
+	if isGone(Classify(err)) {
+		return false, nil
 	}
 	if p, ok := errors.AsType[*upcloud.Problem](err); ok && p.ErrorCode() == upcloud.ErrCodeStorageAttached {
 		logr.FromContextOrDiscard(ctx).Info("a storage of the node is attached to another server: kept", "storage", uuid)
-		return nil
+		return false, nil
 	}
-	return classifyDelete(err)
+	return false, classifyDelete(err)
 }
 
 func stop(ctx context.Context, a api.API, uuid string) error {

@@ -611,6 +611,14 @@ func (f *Fake) DeleteServer(ctx context.Context, r *request.DeleteServerRequest)
 	return nil
 }
 
+// deviceType is the device type of a storage type: only a cdrom differs from a disk.
+func deviceType(storageType string) string {
+	if storageType == upcloud.StorageTypeCDROM {
+		return storageType
+	}
+	return ""
+}
+
 // AttachStorage attaches an existing storage to a server as a virtio disk, the way
 // a CSI driver or an operator does while the server runs, and returns an error when
 // either is missing. The device carries the storage's labels, as the API reports them.
@@ -627,7 +635,7 @@ func (f *Fake) AttachStorage(serverUUID, storageUUID string) error {
 	}
 	s.d.StorageDevices = append(s.d.StorageDevices, upcloud.ServerStorageDevice{
 		Address: fmt.Sprintf("virtio:%d", len(s.d.StorageDevices)), UUID: st.d.UUID, Size: st.d.Size, Tier: st.d.Tier,
-		Title: st.d.Title, Type: upcloud.StorageTypeDisk, Labels: slices.Clone(st.d.Labels),
+		Title: st.d.Title, Type: cmpOr(deviceType(st.d.Type), upcloud.StorageTypeDisk), Labels: slices.Clone(st.d.Labels),
 	})
 	st.d.ServerUUIDs = append(st.d.ServerUUIDs, serverUUID)
 	return nil

@@ -163,7 +163,10 @@ registration timeout for the boot and the join.
 - **Leftover storages**: a storage delete that fails after the server is gone leaves a labelled, unattached storage.
   `CollectLeftovers` (garbage collection, once per zone) deletes the cluster's private storages in the zone that carry the
   labels of a node's storage and a NodeClaim label, no `scarpenter-use`, are `online` and attached to no server, and whose
-  NodeClaim no longer exists (asked per storage after the list). Storages without those labels are never touched.
+  NodeClaim no longer exists (asked per storage after the list). Storages without those labels are never touched. It runs
+  for each zone in use; a leftover in a zone no longer in use is removed only by the operator. A node disk that an operator
+  wants to keep after the node is gone must get `scarpenter-use` or lose its SCarpenter labels, or the collector (and the
+  sweeper) deletes it once it is unattached and the NodeClaim is gone.
 - **Addresses**: public IPv4 and IPv6 first, then the utility and any SDN address, for the serving-certificate approver.
 - **Get, list**: `GetInstance` is `NotFound` for a deleted server (there is no terminated state) and for a reference that is
   not `<zone>/<server uuid>`. A list answer has no labels, so `ListInstances` and `FindInstance` read the details of each

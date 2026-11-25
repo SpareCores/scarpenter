@@ -483,7 +483,8 @@ func TestTerminateKeepsAStorageAttachedElsewhere(t *testing.T) {
 	e := newEnv(t, fake.Options{})
 	d := e.launch("nc-a", "1xCPU-2GB")
 	other := e.launch("nc-b", "1xCPU-2GB")
-	// Our data disk was re-attached to another server: STORAGE_ATTACHED is skipped, not an error.
+	// A storage of ours that is also attached to another server (fake-only shortcut for
+	// the STORAGE_ATTACHED branch): skipped and kept, not an error.
 	own := d.StorageDevices[0].UUID
 	if err := e.f.AttachStorage(other.UUID, own); err != nil {
 		t.Fatal(err)
@@ -513,5 +514,69 @@ func TestTerminateStorageDeleteErrors(t *testing.T) {
 	}
 	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
 		t.Errorf("terminate of a gone server: %v", err)
+	}
+}
+
+func TestTerminateSkipsACDROM(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	// Even with the labels of a node's storage, a CD-ROM is not a disk SCarpenter made.
+	cd := e.f.AddStorage("fi-hel1", "iso", upcloud.StorageTierMaxIOPS, 10, map[string]string{
+		"scarpenter-cluster": "c1", "scarpenter-managed-by": vendors.ManagedByValue, "scarpenter-nodeclaim": "nc-a",
+	})
+	e.f.SetStorageType(cd, upcloud.StorageTypeCDROM)
+	if err := e.f.AttachStorage(d.UUID, cd); err != nil {
+		t.Fatal(err)
+	}
+	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if !e.storageExists(cd) {
+		t.Error("a CD-ROM was deleted")
+	}
+	if e.storageExists(d.StorageDevices[0].UUID) {
+		t.Error("the root disk survived")
+	}
+}
+
+func TestTerminateFailsBeforeDeletingAnythingWhenALabelReadFails(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	e.f.ClearDeviceLabels(d.UUID)
+	e.f.InjectCode("GetStorageDetails", "INTERNAL_ERROR", 500, 1)
+	if err := Terminate(e.ctx, e.f, d.UUID); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("a failing label read: %v", err)
+	}
+	if _, ok := e.f.Server(d.UUID); !ok {
+		t.Error("the server was deleted")
+	}
+	if !e.storageExists(d.StorageDevices[0].UUID) {
+		t.Error("a storage was deleted")
+	}
+	if e.f.Calls("StopServer") != 0 || e.f.Calls("DeleteServer") != 0 || e.f.Calls("DeleteStorage") != 0 {
+		t.Error("a write call was made before the labels were known")
+	}
+}
+
+func TestTerminateDeletesNoStorageOfAServerWithoutANodeClaimLabel(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	var labels upcloud.LabelSlice
+	for _, l := range d.Labels {
+		if l.Key != TagKey(vendors.TagNodeClaim) {
+			labels = append(labels, l)
+		}
+	}
+	if _, err := e.f.ModifyServer(e.ctx, &request.ModifyServerRequest{UUID: d.UUID, Labels: &labels}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.f.Server(d.UUID); ok {
+		t.Error("the server still exists")
+	}
+	if !e.storageExists(d.StorageDevices[0].UUID) {
+		t.Error("a storage was deleted although the server names no NodeClaim")
 	}
 }

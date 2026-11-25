@@ -9,6 +9,7 @@ package sweep_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 	"time"
 
@@ -98,6 +99,13 @@ func (a *account) run(o sweep.Options) *sweep.Report {
 	return rep
 }
 
+// nodeStorage adds the labels of a node's storage (managed-by and a NodeClaim) to l.
+func nodeStorage(l map[string]string) map[string]string {
+	m := maps.Clone(l)
+	m["scarpenter-managed-by"], m["scarpenter-nodeclaim"] = "scarpenter", "nc-1"
+	return m
+}
+
 func outcome(rep *sweep.Report, id string) sweep.Outcome {
 	for _, i := range rep.Items {
 		if i.ID == id {
@@ -115,7 +123,7 @@ func TestSweepsOldClusterResourcesOnly(t *testing.T) {
 	unlabelled := a.server("plain", labels("", -1))
 	netID, rsID := a.network("n", old), a.ruleset("r", old)
 	grpID := a.group("g", old)
-	orphan := a.f.AddStorage("fi-hel1", "orphan", "maxiops", 25, old)
+	orphan := a.f.AddStorage("fi-hel1", "orphan", "maxiops", 25, nodeStorage(old))
 	tmpl := a.f.AddTemplate("fi-hel1", "flatcar", "maxiops", 10, labels("scarpenter-ci-1", 9*time.Hour, "scarpenter-use", "true"))
 	useNet := a.network("use", labels("scarpenter-ci-1", 9*time.Hour, "scarpenter-use", "true"))
 
@@ -143,13 +151,33 @@ func TestSweepsOldClusterResourcesOnly(t *testing.T) {
 	}
 }
 
+func TestAVolumeWithTheClusterLabelAloneSurvivesTheSweep(t *testing.T) {
+	a := newAccount(t)
+	l := labels("scarpenter-ci-6", 5*time.Hour)
+	partial := a.f.AddStorage("fi-hel1", "volume", "maxiops", 25, l)
+	noClaim := a.f.AddStorage("fi-hel1", "no-claim", "maxiops", 25, func() map[string]string {
+		m := maps.Clone(l)
+		m["scarpenter-managed-by"] = "scarpenter"
+		return m
+	}())
+	rep := a.run(sweep.Options{MaxAge: 2 * time.Hour})
+	for _, id := range []string{partial, noClaim} {
+		if outcome(rep, id) != "" {
+			t.Errorf("%s was looked at: %q", id, outcome(rep, id))
+		}
+	}
+	if _, err := a.f.GetStorageDetails(context.Background(), &request.GetStorageDetailsRequest{UUID: partial}); err != nil {
+		t.Errorf("the volume is gone: %v", err)
+	}
+}
+
 func TestYoungAndUnknownAgeServersProtectTheirCluster(t *testing.T) {
 	a := newAccount(t)
 	young := a.server("young", labels("scarpenter-ci-2", 10*time.Minute))
 	noAge := a.server("noage", labels("scarpenter-ci-3", -1))
 	n2 := a.network("n2", labels("scarpenter-ci-2", 5*time.Hour))
 	n3 := a.network("n3x", labels("scarpenter-ci-3", 5*time.Hour))
-	st := a.f.AddStorage("fi-hel1", "young-disk", "maxiops", 25, labels("scarpenter-ci-2", 10*time.Minute))
+	st := a.f.AddStorage("fi-hel1", "young-disk", "maxiops", 25, nodeStorage(labels("scarpenter-ci-2", 10*time.Minute)))
 	rep := a.run(sweep.Options{MaxAge: 2 * time.Hour})
 	for _, id := range []string{young, noAge, n2, n3, st} {
 		if outcome(rep, id) != sweep.Skipped {
@@ -189,7 +217,7 @@ func TestAttachedDiskAndFailuresAreReported(t *testing.T) {
 	s := a.server("s", l)
 	// A server whose delete fails is Failed and does not stop the sweep.
 	a.f.InjectCode("DeleteServer", "INTERNAL_ERROR", 500, 1)
-	orphan := a.f.AddStorage("fi-hel1", "o", "maxiops", 25, l)
+	orphan := a.f.AddStorage("fi-hel1", "o", "maxiops", 25, nodeStorage(l))
 	rep := a.run(sweep.Options{MaxAge: 2 * time.Hour})
 	if outcome(rep, s) != sweep.Failed {
 		t.Errorf("server: %q, want failed: %+v", outcome(rep, s), rep.Items)

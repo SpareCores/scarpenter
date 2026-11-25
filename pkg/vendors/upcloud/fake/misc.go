@@ -229,6 +229,15 @@ func (f *Fake) Servers() []upcloud.ServerDetails {
 	return out
 }
 
+// SetStorageType sets the type of a storage (cdrom, say); a cdrom attaches as a cdrom device.
+func (f *Fake) SetStorageType(uuid, typ string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if st, ok := f.storages[uuid]; ok {
+		st.d.Type = typ
+	}
+}
+
 // ClearDeviceLabels drops the labels from the storage devices of a server's details, as
 // when the API's server answer carries none (the driver then reads the storages).
 func (f *Fake) ClearDeviceLabels(serverUUID string) {

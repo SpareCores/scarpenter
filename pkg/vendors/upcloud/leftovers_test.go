@@ -135,3 +135,28 @@ func TestACollectorFailsOnAListError(t *testing.T) {
 		t.Fatal("no error")
 	}
 }
+
+func TestACollectorDoesNotCountAStorageAttachedBeforeItsDelete(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	id := e.f.AddStorage(testZone, "leftover", "maxiops", 10, nodeLabels(testCluster, "nc-gone"))
+	other := e.f.AddServer(fake.ServerSpec{Zone: testZone, Plan: testType, Title: "theirs"})
+	// Attached after the collector's fresh read, just before its delete.
+	e.f.BeforeNext("DeleteStorage", func() {
+		if err := e.f.AttachStorage(other, id); err != nil {
+			t.Error(err)
+		}
+	})
+	n, err := e.d.CollectLeftovers(e.ctx(), testZone, func(string) bool { return false })
+	if err != nil || n != 0 {
+		t.Fatalf("collect: %d %v, want nothing deleted and no error", n, err)
+	}
+	if !e.hasStorage(id) {
+		t.Error("an attached storage was deleted")
+	}
+	// A storage that is gone before its delete is not counted either.
+	gone := e.f.AddStorage(testZone, "gone", "maxiops", 10, nodeLabels(testCluster, "nc-gone"))
+	e.f.BeforeNext("DeleteStorage", func() { e.f.RemoveStorage(gone) })
+	if n, err := e.d.CollectLeftovers(e.ctx(), testZone, func(string) bool { return false }); err != nil || n != 0 {
+		t.Fatalf("collect with a vanished storage: %d %v", n, err)
+	}
+}

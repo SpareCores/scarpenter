@@ -31,6 +31,13 @@ func (f *Fake) AddStorage(zone, title, tier string, sizeGB int, labels map[strin
 	return st.d.UUID
 }
 
+// RemoveStorage deletes a storage as another client would (a fixture).
+func (f *Fake) RemoveStorage(uuid string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.storages, uuid)
+}
+
 // AddBackup adds a backup of a storage and returns its UUID. Backups are deleted
 // with their storage only when the delete asks for it (backups=delete).
 func (f *Fake) AddBackup(storageUUID string) string {

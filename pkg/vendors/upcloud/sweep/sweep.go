@@ -25,8 +25,9 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // alone when an age limit is set. The other resources have no creation stamp the
 // API reports reliably, so with an age limit they are swept only when no server
 // of their cluster is alive and young or of unknown age (the cluster's run may
-// still be using them), and a disk only when it is online and attached to
-// nothing.
+// still be using them), and a disk only when it carries the labels of a node's
+// storage (cluster, managed-by, NodeClaim: driver.IsNodeStorage), is online and
+// attached to nothing.
 package sweep
 
 import (
@@ -377,6 +378,11 @@ func (s *sweeper) storages(ctx context.Context) error {
 		}
 		cluster, ok := s.ours(st.Labels)
 		if !ok {
+			continue
+		}
+		// Only what SCarpenter made for a node: a volume with the cluster label alone is not.
+		claim, _ := labelOf(st.Labels, driver.TagKey(vendors.TagNodeClaim))
+		if !driver.IsNodeStorage(st.Labels, cluster, claim) {
 			continue
 		}
 		it := Item{Kind: KindStorage, ID: st.UUID, Zone: st.Zone, Cluster: cluster}

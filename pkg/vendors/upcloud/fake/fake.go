@@ -111,6 +111,7 @@ type Fake struct {
 	noIPs      map[string]bool // zone
 	calls      map[string]int
 	injected   map[string][]injected
+	before     map[string]func()
 }
 
 // New builds a fake.
@@ -142,7 +143,7 @@ func New(o Options) *Fake {
 		servers: map[string]*server{}, storages: map[string]*storage{}, networks: map[string]*network{},
 		groups: map[string]*group{}, rulesets: map[string]*ruleset{},
 		outOfStock: map[string]bool{}, noIPs: map[string]bool{},
-		calls: map[string]int{}, injected: map[string][]injected{},
+		calls: map[string]int{}, injected: map[string][]injected{}, before: map[string]func(){},
 	}
 	for _, z := range o.Zones {
 		f.zones = append(f.zones, upcloud.Zone{ID: z, Description: z, Public: upcloud.True})
@@ -200,6 +201,15 @@ func (f *Fake) InjectCode(method, code string, status, times int) {
 	f.Inject(method, Problem(code, status), times)
 }
 
+// BeforeNext runs fn once, just before the next call of method starts (without the
+// fake's lock, so fn may use its helpers): the way a test changes the account between
+// two calls of the driver.
+func (f *Fake) BeforeNext(method string, fn func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.before[method] = fn
+}
+
 // Clear drops the injected errors of method ("" for all).
 func (f *Fake) Clear(method string) {
 	f.mu.Lock()
@@ -222,6 +232,13 @@ func (f *Fake) Calls(method string) int {
 // it; it returns the context's error or an injected one instead (the lock is
 // then already released).
 func (f *Fake) begin(ctx context.Context, method string) (func(), error) {
+	f.mu.Lock()
+	hook := f.before[method]
+	delete(f.before, method)
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	f.mu.Lock()
 	f.calls[method]++
 	if err := ctx.Err(); err != nil {
