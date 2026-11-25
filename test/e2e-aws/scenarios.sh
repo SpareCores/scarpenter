@@ -408,6 +408,8 @@ scn_arm64() {
   assert_eq "tokenless IMDS GET from a Pod (HostOnly)" "" "$(kubectl exec "${pod}" -- sh -c "${get}" || true)"
   assert_eq "no allowlist (cgroup) rule in the OUTPUT chain" 0 \
     "$(node_shell "${node}" 'iptables-nft -t security -S SCARPENTER-IMDS-OUTPUT | grep -c cgroup' || true)"
+  assert_match "the non-local-source DROP in OUTPUT" "^[1-9]" \
+    "$(node_shell "${node}" 'iptables-nft -t security -S SCARPENTER-IMDS-OUTPUT | grep -c addrtype' || true)"
   assert_match "a DROP in the FORWARD chain" "^[1-9]" \
     "$(node_shell "${node}" 'iptables-nft -t security -S SCARPENTER-IMDS-FORWARD | grep -c DROP' || true)"
   drop_nodeshells
