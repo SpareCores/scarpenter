@@ -1,0 +1,10 @@
+variant: flatcar
+version: 1.1.0
+systemd:
+  units:
+    - name: scarpenter-tailscale-up.service
+      dropins:
+        - name: 20-upcloud-netfilter.conf
+          contents: |
+            [Service]
+            Environment=SCARPENTER_TAILSCALE_UP_ARGS=--netfilter-mode=nodivert

@@ -1,0 +1,32 @@
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: /opt/scarpenter/bin/scarpenter-private-routes
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/sh
+          for dev in $(ip -o -4 addr show to 10.241.7.0/24 | awk '{print $2}'); do
+            networkctl renew "$dev" || true
+          done
+systemd:
+  units:
+    - name: scarpenter-private-routes.service
+      contents: |
+        [Unit]
+        Description=Renew the DHCP lease of the SDN interface to pick up the routes of the network
+        After=systemd-networkd.service
+        [Service]
+        Type=oneshot
+        ExecStart=/opt/scarpenter/bin/scarpenter-private-routes
+    - name: scarpenter-private-routes.timer
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Renew the DHCP lease of the SDN interface to pick up the routes of the network
+        [Timer]
+        OnBootSec=2min
+        OnUnitActiveSec=5min
+        [Install]
+        WantedBy=timers.target

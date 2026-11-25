@@ -91,3 +91,48 @@ func TestAlicloudTailnetFragment(t *testing.T) {
 		t.Errorf("vendor drop-in present: %v, the tailscale unit passes the variable: %v", vendor, network)
 	}
 }
+
+// TestUpcloudBootFragments pins the Butane of the UpCloud fragments (the CGNAT drop of
+// tailscaled must not apply to the private database range; the leases are renewed to
+// pick up the route to it) and renders them into the user-data of a tailscale node.
+func TestUpcloudBootFragments(t *testing.T) {
+	frags := (&upcloud.Driver{}).BootFragments(true)
+	if len(frags) != 1 {
+		t.Fatalf("%d fragments, want 1", len(frags))
+	}
+	if got := (&upcloud.Driver{}).BootFragments(false); len(got) != 0 {
+		t.Errorf("%d fragments without a tailnet, want none", len(got))
+	}
+	testutil.Golden(t, "tailnet-upcloud.golden", []byte(frags[0].Butane))
+	routes, err := upcloud.PrivateRoutesFragment("10.241.7.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := upcloud.PrivateRoutesFragment("not a range"); err == nil {
+		t.Error("an invalid range was accepted")
+	}
+	if !strings.Contains(routes.Butane, "ip -o -4 addr show to 10.241.7.0/24 ") {
+		t.Errorf("the range is not in the script:\n%s", routes.Butane)
+	}
+	testutil.Golden(t, "private-routes-upcloud.golden", []byte(routes.Butane))
+
+	p := baseParams("amd64", v1alpha1.NetworkTemplateTailscale)
+	p.VendorFragments = []bootstrap.Fragment{
+		{Name: frags[0].Name, Butane: frags[0].Butane},
+		{Name: routes.Name, Butane: routes.Butane},
+	}
+	r, err := bootstrap.Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vendor, network, timer bool
+	for _, part := range r.Parts {
+		vendor = vendor || (part.Name == "vendor-tailnet" && strings.Contains(string(part.Ignition), "20-upcloud-netfilter.conf") &&
+			strings.Contains(string(part.Ignition), "--netfilter-mode=nodivert"))
+		network = network || (part.Name == "network" && strings.Contains(string(part.Ignition), "SCARPENTER_TAILSCALE_UP_ARGS"))
+		timer = timer || (part.Name == "vendor-private-routes" && strings.Contains(string(part.Ignition), "scarpenter-private-routes.timer"))
+	}
+	if !vendor || !network || !timer {
+		t.Errorf("nodivert drop-in present: %v, the tailscale unit passes the variable: %v, renewal timer: %v", vendor, network, timer)
+	}
+}
