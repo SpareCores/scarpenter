@@ -104,7 +104,16 @@ func TestUpcloudBootFragments(t *testing.T) {
 		t.Errorf("%d fragments without a tailnet, want none", len(got))
 	}
 	testutil.Golden(t, "tailnet-upcloud.golden", []byte(frags[0].Butane))
-	routes := upcloud.PrivateRoutesFragment()
+	routes, err := upcloud.PrivateRoutesFragment("10.241.7.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := upcloud.PrivateRoutesFragment("not a range"); err == nil {
+		t.Error("an invalid range was accepted")
+	}
+	if !strings.Contains(routes.Butane, "ip -o -4 addr show to 10.241.7.0/24 ") {
+		t.Errorf("the range is not in the script:\n%s", routes.Butane)
+	}
 	testutil.Golden(t, "private-routes-upcloud.golden", []byte(routes.Butane))
 
 	p := baseParams("amd64", v1alpha1.NetworkTemplateTailscale)
