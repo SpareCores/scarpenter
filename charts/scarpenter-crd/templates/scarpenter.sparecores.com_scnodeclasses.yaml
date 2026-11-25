@@ -231,9 +231,10 @@ spec:
                 properties:
                   access:
                     description: access is Restricted (the default when instanceMetadata
-                      is unset) or Open.
+                      is unset), HostOnly or Open.
                     enum:
                     - Restricted
+                    - HostOnly
                     - Open
                     type: string
                 required:

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -76,7 +77,7 @@ func TestInterruptionAgentFragment(t *testing.T) {
 func TestBootFragmentsOfAddsTheAgentOnSpotOnly(t *testing.T) {
 	d := noticeDriver{check: checkWith("return 1")}
 	for spot, want := range map[bool]int{false: 0, true: 1} {
-		got, err := vendors.BootFragmentsOf(d, true, spot, false)
+		got, err := vendors.BootFragmentsOf(d, v1alpha1.InstanceMetadataRestricted, spot, false)
 		if err != nil || len(got) != want {
 			t.Errorf("spot=%v: %d fragments, %v; want %d", spot, len(got), err, want)
 		}
@@ -269,7 +270,7 @@ func TestAgentLogsARefusedPatchOnce(t *testing.T) {
 
 func TestBootFragmentsOfPutsTheAgentIntoTheRestrictionFragment(t *testing.T) {
 	d := restrictedNoticeDriver{noticeDriver{check: checkWith("return 1")}}
-	frags, err := vendors.BootFragmentsOf(d, true, true, false)
+	frags, err := vendors.BootFragmentsOf(d, v1alpha1.InstanceMetadataRestricted, true, false)
 	if err != nil || len(frags) != 1 || frags[0].Name != "metadata-access" {
 		t.Fatalf("spot + restricted: %d fragments %v, %v; want the one metadata-access", len(frags), frags, err)
 	}
@@ -278,12 +279,28 @@ func TestBootFragmentsOfPutsTheAgentIntoTheRestrictionFragment(t *testing.T) {
 			t.Errorf("the fragment lacks %q", want)
 		}
 	}
-	if frags, _ := vendors.BootFragmentsOf(d, true, false, false); len(frags) != 1 || strings.Contains(frags[0].Butane, "interruption") {
+	if frags, _ := vendors.BootFragmentsOf(d, v1alpha1.InstanceMetadataRestricted, false, false); len(frags) != 1 || strings.Contains(frags[0].Butane, "interruption") {
 		t.Errorf("an on-demand node has the agent")
 	}
-	frags, _ = vendors.BootFragmentsOf(d, false, true, false)
+	frags, _ = vendors.BootFragmentsOf(d, v1alpha1.InstanceMetadataOpen, true, false)
 	if len(frags) != 1 || frags[0].Name != "interruption-agent" || strings.Contains(frags[0].Butane, "firewall") {
 		t.Errorf("spot, open metadata: %v", frags)
+	}
+}
+
+func TestBootFragmentsOfPutsTheAgentIntoTheHostOnlyFragment(t *testing.T) {
+	d := restrictedNoticeDriver{noticeDriver{check: checkWith("return 1")}}
+	frags, err := vendors.BootFragmentsOf(d, v1alpha1.InstanceMetadataHostOnly, true, false)
+	if err != nil || len(frags) != 1 || frags[0].Name != "metadata-access" {
+		t.Fatalf("spot + HostOnly: %d fragments %v, %v; want the one metadata-access", len(frags), frags, err)
+	}
+	for _, want := range []string{"scarpenter-interruption.service", "After=network-online.target scarpenter-metadata-firewall.service"} {
+		if !strings.Contains(frags[0].Butane, want) {
+			t.Errorf("the fragment lacks %q", want)
+		}
+	}
+	if strings.Contains(frags[0].Butane, "-m cgroup") {
+		t.Errorf("the HostOnly fragment has the cgroup allowlist")
 	}
 }
 

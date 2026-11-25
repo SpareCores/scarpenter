@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
 
@@ -83,5 +84,36 @@ func TestRestrictMetadata(t *testing.T) {
 		if _, _, err := vendors.RestrictMetadata(endpointsDriver{ep: ep}); err == nil {
 			t.Errorf("%s was accepted", name)
 		}
+	}
+}
+
+func TestHostOnlyMetadata(t *testing.T) {
+	hostOnly := func(d vendors.Driver) ([]vendors.BootFragment, error) {
+		return vendors.BootFragmentsOf(d, v1alpha1.InstanceMetadataHostOnly, false, false)
+	}
+	if got, err := hostOnly(endpointsDriver{}); len(got) != 0 || err != nil {
+		t.Errorf("no addresses: %v, %v", got, err)
+	}
+	frags, err := hostOnly(endpointsDriver{ep: vendors.MetadataEndpoints{
+		Addresses: addrs("169.254.169.254", "fd00:ec2::254"), Units: []string{"agent.service"},
+	}})
+	if err != nil || len(frags) != 1 || frags[0].Name != "metadata-access" {
+		t.Fatalf("BootFragmentsOf = %+v, %v", frags, err)
+	}
+	f := frags[0]
+	for _, want := range []string{
+		"-A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP",
+		"-A SCARPENTER-IMDS-FORWARD -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP",
+		// packets without a local source (IPVS sends Pod traffic through OUTPUT), v4 and v6
+		"-A SCARPENTER-IMDS-OUTPUT -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -m addrtype ! --src-type LOCAL -j DROP",
+		"-A SCARPENTER-IMDS-OUTPUT -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -m addrtype ! --src-type LOCAL -j DROP",
+		"scarpenter-metadata.slice", "scarpenter-metadata-firewall.service", "- name: agent.service", "Requires=scarpenter-metadata-firewall.service",
+	} {
+		if !strings.Contains(f.Butane, want) {
+			t.Errorf("the fragment lacks %q:\n%s", want, f.Butane)
+		}
+	}
+	if strings.Contains(f.Butane, "-m cgroup") {
+		t.Errorf("the HostOnly fragment matches on a cgroup:\n%s", f.Butane)
 	}
 }

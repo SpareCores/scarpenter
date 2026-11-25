@@ -253,6 +253,7 @@ func (d *Driver) ValidateNodeClass(_ context.Context, nc *v1alpha1.SCNodeClass) 
 	if b := nc.Spec.Vendors.AWS; b != nil {
 		errs = append(errs, validateBlock(b)...)
 		errs = append(errs, validateEgress(nc, b)...)
+		errs = append(errs, validateHostOnly(nc, b)...)
 	}
 	for name, p := range nc.Spec.Profiles.Storage {
 		if p.AWS != nil {
@@ -277,6 +278,27 @@ func (d *Driver) ValidateNodeClass(_ context.Context, nc *v1alpha1.SCNodeClass) 
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// validateHostOnly rejects the launch settings that let a Pod in the Pod network
+// reach IMDS in the HostOnly mode: with IMDSv2 and a hop limit of 1 the reply
+// does not survive the forwarding into the Pod's namespace, a second layer next to
+// the node's FORWARD rule. The settings are never overridden silently.
+func validateHostOnly(nc *v1alpha1.SCNodeClass, b *awsapi.Settings) []error {
+	if nc.Spec.MetadataAccess() != v1alpha1.InstanceMetadataHostOnly {
+		return nil
+	}
+	var errs []error
+	const field = "vendors.aws.metadataOptions."
+	tokens, hops := metadata(*b)
+	if tokens == "optional" {
+		errs = append(errs, fmt.Errorf("%shttpTokens must be required with access HostOnly, not optional", field))
+	}
+	if hops > 1 {
+		errs = append(errs, fmt.Errorf("%shttpPutResponseHopLimit must be 1 with access HostOnly, not %d "+
+			"(a Pod-network consumer of IMDS needs access Open and a hop limit of 2)", field, hops))
+	}
+	return errs
 }
 
 func validateBlock(b *awsapi.Settings) []error {

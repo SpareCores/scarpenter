@@ -397,6 +397,21 @@ scn_arm64() {
   assert_eq "kubectl exec" ok "$(kubectl exec "${pod}" -- echo ok)"
   assert_eq "tailscaled, the join unit and the kubelet are active (arm64 sysext)" "active,active,active" \
     "$(node_shell "${node}" 'systemctl is-active tailscaled scarpenter-tailscale-up.service kubelet' | paste -sd, -)"
+  log "instance metadata access HostOnly: the host-network Pod answers, the Pod does not (status lines only)"
+  local put='printf "PUT /latest/api/token HTTP/1.1\r\nHost: 169.254.169.254\r\nX-aws-ec2-metadata-token-ttl-seconds: 60\r\nConnection: close\r\n\r\n" | nc -w 4 169.254.169.254 80 | head -n1'
+  assert_match "IMDSv2 from a host-network Pod (HostOnly)" " 200 " "$(node_pod_exec "${node}" "${put}" || true)"
+  assert_eq "IMDSv2 from a Pod (HostOnly)" "" "$(kubectl exec "${pod}" -- sh -c "${put}" || true)"
+  # With hop limit 1 the PUT reply is lost anyway; a tokenless GET tells the FORWARD drop apart: the
+  # host-network Pod gets the 401 of IMDSv2, the Pod gets nothing.
+  local get='printf "GET /latest/meta-data/ HTTP/1.1\r\nHost: 169.254.169.254\r\nConnection: close\r\n\r\n" | nc -w 4 169.254.169.254 80 | head -n1'
+  assert_match "tokenless IMDS GET from a host-network Pod (HostOnly)" " 401 " "$(node_pod_exec "${node}" "${get}" || true)"
+  assert_eq "tokenless IMDS GET from a Pod (HostOnly)" "" "$(kubectl exec "${pod}" -- sh -c "${get}" || true)"
+  assert_eq "no allowlist (cgroup) rule in the OUTPUT chain" 0 \
+    "$(node_shell "${node}" 'iptables-nft -t security -S SCARPENTER-IMDS-OUTPUT | grep -c cgroup' || true)"
+  assert_match "the non-local-source DROP in OUTPUT" "^[1-9]" \
+    "$(node_shell "${node}" 'iptables-nft -t security -S SCARPENTER-IMDS-OUTPUT | grep -c addrtype' || true)"
+  assert_match "a DROP in the FORWARD chain" "^[1-9]" \
+    "$(node_shell "${node}" 'iptables-nft -t security -S SCARPENTER-IMDS-FORWARD | grep -c DROP' || true)"
   drop_nodeshells
   note "arm64 spot claim ${claim}"
 }

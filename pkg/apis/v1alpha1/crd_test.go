@@ -196,6 +196,7 @@ func TestValidSpecsAreAccepted(t *testing.T) {
 		"deprecated bootstrap hardening":        `bootstrap: {hardening: [metadata-from-pods]}`,
 		"bootstrap without hardening":           `bootstrap: {}`,
 		"instance metadata restricted":          `instanceMetadata: {access: Restricted}`,
+		"instance metadata hostonly":            `instanceMetadata: {access: HostOnly}`,
 		"instance metadata open":                `instanceMetadata: {access: Open}`,
 		"billing retention":                     `billing: {retainUntilPeriodEnd: true, margin: 90s, minPeriod: 1m, maxRetainedNodes: 1}`,
 		"launch policy":                         `launch: {maxAttempts: 10, maxDuration: 4m, insufficientCapacityTTL: 6h}`,

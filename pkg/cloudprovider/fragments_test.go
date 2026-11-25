@@ -26,6 +26,7 @@ func TestCreateGivesTheRendererTheMetadataFragment(t *testing.T) {
 	}{
 		"default":    {nil, []string{"metadata-access"}},
 		"restricted": {access(v1alpha1.InstanceMetadataRestricted), []string{"metadata-access"}},
+		"hostonly":   {access(v1alpha1.InstanceMetadataHostOnly), []string{"metadata-access"}},
 		"open":       {access(v1alpha1.InstanceMetadataOpen), nil},
 	} {
 		t.Run(name, func(t *testing.T) {

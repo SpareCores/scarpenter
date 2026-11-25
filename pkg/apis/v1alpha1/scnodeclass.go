@@ -151,7 +151,7 @@ type BootstrapSpec struct {
 
 // InstanceMetadataAccess is who on a node can reach the vendor's instance
 // metadata service.
-// +kubebuilder:validation:Enum=Restricted;Open
+// +kubebuilder:validation:Enum=Restricted;HostOnly;Open
 type InstanceMetadataAccess string
 
 // Instance metadata access modes.
@@ -162,6 +162,13 @@ const (
 	// host network, is dropped. The user-data it serves holds the bootstrap token
 	// and, with the tailscale template, the Tailscale key.
 	InstanceMetadataRestricted InstanceMetadataAccess = "Restricted"
+	// InstanceMetadataHostOnly lets every process of the host reach the metadata
+	// service, host processes and hostNetwork Pods included, and drops only the
+	// traffic of Pods in the Pod network. The user-data it serves, which holds the
+	// bootstrap token and, with the tailscale template, the Tailscale key, is
+	// readable by host processes and hostNetwork Pods, as it is by anything
+	// privileged on the node.
+	InstanceMetadataHostOnly InstanceMetadataAccess = "HostOnly"
 	// InstanceMetadataOpen leaves the metadata service open to every process and
 	// Pod on the node, for workloads that need it (a vendor's CSI driver or cloud
 	// controller, a benchmark that reads the instance's identity).
@@ -170,16 +177,19 @@ const (
 
 // InstanceMetadataSpec is the access to the vendor's instance metadata service.
 type InstanceMetadataSpec struct {
-	// access is Restricted (the default when instanceMetadata is unset) or Open.
+	// access is Restricted (the default when instanceMetadata is unset), HostOnly or Open.
 	// +required
 	Access InstanceMetadataAccess `json:"access"`
 }
 
-// RestrictsInstanceMetadata reports whether nodes of the NodeClass are launched
-// with the metadata service closed to everything but the node's own components:
-// the default, unless the NodeClass says Open.
-func (s *SCNodeClassSpec) RestrictsInstanceMetadata() bool {
-	return s.InstanceMetadata == nil || s.InstanceMetadata.Access != InstanceMetadataOpen
+// MetadataAccess is the access to the metadata service that nodes of the
+// NodeClass are launched with: Restricted, the default, unless the NodeClass says
+// otherwise.
+func (s *SCNodeClassSpec) MetadataAccess() InstanceMetadataAccess {
+	if s.InstanceMetadata == nil || s.InstanceMetadata.Access == "" {
+		return InstanceMetadataRestricted
+	}
+	return s.InstanceMetadata.Access
 }
 
 // ButaneSpec references extra Butane configuration.

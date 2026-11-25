@@ -26,7 +26,7 @@ func instanceMetadata(access v1alpha1.InstanceMetadataAccess) func(*v1alpha1.SCN
 	}
 }
 
-// The trial rendering includes the metadata fragment of the driver, unless the
+// The trial rendering includes the metadata fragment of the driver (Restricted or HostOnly), unless the
 // NodeClass says Open, so that a driver declaration the core cannot render is found
 // before the first launch.
 func TestInstanceMetadataFragmentInTheTrialRendering(t *testing.T) {
@@ -40,6 +40,7 @@ func TestInstanceMetadataFragmentInTheTrialRendering(t *testing.T) {
 	}{
 		"restricted by default": {nil, true},
 		"restricted":            {instanceMetadata(v1alpha1.InstanceMetadataRestricted), true},
+		"hostonly":              {instanceMetadata(v1alpha1.InstanceMetadataHostOnly), true},
 		"open":                  {instanceMetadata(v1alpha1.InstanceMetadataOpen), false},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -81,9 +82,13 @@ func TestHashOfInstanceMetadata(t *testing.T) {
 	}
 	instanceMetadata(v1alpha1.InstanceMetadataRestricted)(nc)
 	restricted := hash(t, nc, "aws")
+	instanceMetadata(v1alpha1.InstanceMetadataHostOnly)(nc)
+	hostOnly := hash(t, nc, "aws")
 	instanceMetadata(v1alpha1.InstanceMetadataOpen)(nc)
-	if open := hash(t, nc, "aws"); open == aws || open == restricted || restricted == aws {
-		t.Errorf("setting instanceMetadata must change the hash, once per value: unset %s, Restricted %s, Open %s", aws, restricted, open)
+	open := hash(t, nc, "aws")
+	distinct := map[string]bool{aws: true, restricted: true, hostOnly: true, open: true}
+	if len(distinct) != 4 {
+		t.Errorf("setting instanceMetadata must change the hash, once per value: unset %s, Restricted %s, HostOnly %s, Open %s", aws, restricted, hostOnly, open)
 	}
 }
 

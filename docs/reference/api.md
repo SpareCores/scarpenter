@@ -116,7 +116,7 @@ instanceMetadata controls which processes on a node can reach the vendor's insta
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `access` (required) | string |  | access is Restricted (the default when instanceMetadata is unset) or Open. One of `Restricted`, `Open`. |
+| `access` (required) | string |  | access is Restricted (the default when instanceMetadata is unset), HostOnly or Open. One of `Restricted`, `HostOnly`, `Open`. |
 
 ### `spec.kubelet`
 

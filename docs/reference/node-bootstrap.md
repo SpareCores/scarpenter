@@ -443,21 +443,41 @@ instance. A Pod that can reach it can read them. `spec.instanceMetadata.access` 
 ```yaml
 spec:
   instanceMetadata:
-    access: Restricted   # the default when instanceMetadata is unset; Open opens it to everything on the node
+    access: Restricted   # the default when instanceMetadata is unset; HostOnly or Open open it further
 ```
+
+| `access` | Host processes | hostNetwork Pods | Pods in the Pod network |
+|---|---|---|---|
+| `Restricted` (default) | only the listed node components | dropped | dropped |
+| `HostOnly` | allowed | allowed | dropped |
+| `Open` | allowed | allowed | allowed |
 
 With **`Restricted`** only the listed node components reach the metadata addresses; every other host process
 and every Pod, in the Pod network and in the host network, is dropped. The metadata service stays on at the
 cloud: Ignition reads the user-data in the initramfs, before the node's own rules exist, and no vendor API
 can switch the service off and on again without a window in which the node cannot boot or read its data.
+**`HostOnly`** is the same fragment with the `OUTPUT` allowlist replaced by one rule per address that drops packets without a
+local source address (`-m addrtype ! --src-type LOCAL`), next to the `FORWARD` drop: every host process and every hostNetwork Pod
+reaches the addresses, and Pods in the Pod network do not. It needs no Pod CIDR and no CNI interface names: a Pod's packets
+are routed through the host, where `FORWARD` sees them (kube-proxy's DNAT happens before it). kube-proxy in IPVS mode sends
+the Pod traffic for a Service endpoint through `OUTPUT` instead, with the Pod's source address, which the `OUTPUT` rule drops.
+Use it for components deployed with hostNetwork that need the metadata service (a vendor's CSI node plugin or cloud
+controller) without opening it to the Pod network. In `HostOnly` host processes and
+hostNetwork Pods can read the user-data, the bootstrap token and the Tailscale auth key included, as anything privileged on
+the node can already. Keep hostNetwork out of other namespaces (Pod Security `baseline` forbids it) and use
+single-use or ephemeral Tailscale keys.
 **`Open`** adds nothing to the node's configuration and leaves the service reachable by everything, for a
 NodeClass whose workloads need it, such as a benchmark that reads the instance's identity or a vendor's CSI
-driver or cloud controller that runs as a Pod and takes its credentials from the metadata service.
+driver or cloud controller that runs as a Pod and takes its credentials from the metadata service. On AWS a consumer in the
+Pod network also needs `vendors.aws.metadataOptions.httpPutResponseHopLimit: 2`: with the default hop limit of 1 the
+IMDSv2 reply does not reach a Pod, in `Open` too. On AWS `HostOnly` is rejected together with `httpTokens: optional` or a hop
+limit above 1, so that the second layer (IMDSv2, hop limit 1) is never overridden silently.
 
 It applies to nodes launched after it exists. `instanceMetadata` leaves the
 [drift hash](#the-nodeclass-controller) as it was while it is unset, so upgrading SCarpenter drifts no node:
 running nodes keep the (open) metadata service they were launched with until the NodeClass sets
-`access: Restricted` or `Open`, which replaces them like any other change of the hash. A NodeClass
+`access: Restricted`, `HostOnly` or `Open`; changing the mode of a NodeClass changes the hash and replaces its nodes like any other
+change of the hash. A NodeClass
 that sets the deprecated `spec.bootstrap.hardening` drifts no node either: the field has no effect, stays in the hash as
 before, and the controller publishes a `DeprecatedHardening` Event for it ([ADR-025](../explanation/DECISIONS.md)).
 
@@ -536,10 +556,16 @@ A request to a metadata address that hangs and then times out comes from a proce
   the IP layer past `OUTPUT`: drop the capability in the Pod's security context. A Pod in the Pod network with it
   still goes through `FORWARD`.
 - A metadata service that is reachable under an address that is not in the table.
-- A CNI that routes Pod traffic without netfilter (eBPF host routing) does not pass `FORWARD`.
-- Components in the cluster that need the metadata service: a vendor's CSI driver or cloud controller as a
-  Pod, vendor workload identity, a benchmark tool that reads the instance's identity. Put their nodes in a
-  NodeClass with `access: Open`.
+- A CNI that routes Pod traffic without netfilter (eBPF host routing: Cilium's BPF host routing, Calico's eBPF dataplane)
+  does not pass `FORWARD`. In `Restricted` and `HostOnly` that is the rule keeping Pods away, so on AWS only the hop limit of 1 then protects them;
+  add an egress policy of the CNI that denies the metadata addresses.
+- Pods on secondary networks (macvlan, ipvlan, SR-IOV through Multus), and CNIs that bridge Pods at layer 2 onto the node network,
+  bypass the host's routing, so `FORWARD` never sees their traffic.
+- In `HostOnly`, a hostNetwork proxy (an egress gateway, an HTTP proxy) can relay a Pod's request to the metadata service.
+- On OVH the config drive, enabled by default, holds a copy of the user-data as a block device that privileged hostPath Pods read in every mode.
+- Components in the cluster that need the metadata service: a vendor's CSI node plugin or cloud controller
+  deployed with hostNetwork belongs on a NodeClass with `access: HostOnly`; one in the Pod network, vendor workload
+  identity or a benchmark tool that reads the instance's identity needs `access: Open`.
 
 The fragment counts in the [size budget](#size-budget) (about 2 KiB of the user-data) and in the trial rendering of
 the NodeClass controller. `spec.butane` and a custom template merge after it and can override it.

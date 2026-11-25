@@ -76,7 +76,7 @@ func TestWorstCaseUserDataStaysInTheBudget(t *testing.T) {
 // restriction's fragment).
 func spotWorstCaseParams(t *testing.T, template v1alpha1.NetworkTemplateName) bootstrap.Params {
 	t.Helper()
-	frags, err := vendors.BootFragmentsOf(noticeDriver{&hcloud.Driver{}}, true, true, template == v1alpha1.NetworkTemplateTailscale)
+	frags, err := vendors.BootFragmentsOf(noticeDriver{&hcloud.Driver{}}, v1alpha1.InstanceMetadataRestricted, true, template == v1alpha1.NetworkTemplateTailscale)
 	if err != nil || len(frags) != 1 {
 		t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
 	}
@@ -109,7 +109,7 @@ func TestWorstCaseSpotUserDataStaysInTheBudget(t *testing.T) {
 func TestWorstCaseAzureSpotUserDataStaysInTheBudget(t *testing.T) {
 	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
 		t.Run(string(template), func(t *testing.T) {
-			frags, err := vendors.BootFragmentsOf(&azure.Driver{}, true, true, template == v1alpha1.NetworkTemplateTailscale)
+			frags, err := vendors.BootFragmentsOf(&azure.Driver{}, v1alpha1.InstanceMetadataRestricted, true, template == v1alpha1.NetworkTemplateTailscale)
 			if err != nil || len(frags) != 1 {
 				t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
 			}
@@ -166,7 +166,7 @@ func TestWorstCaseGCPSpotUserDataStaysInTheBudget(t *testing.T) {
 	d := gcp.New(gcp.WithPreemptionNotice(gcp.MaxPreemptionNotice))
 	for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
 		t.Run(string(template), func(t *testing.T) {
-			frags, err := vendors.BootFragmentsOf(d, true, true, template == v1alpha1.NetworkTemplateTailscale)
+			frags, err := vendors.BootFragmentsOf(d, v1alpha1.InstanceMetadataRestricted, true, template == v1alpha1.NetworkTemplateTailscale)
 			if err != nil || len(frags) != 1 {
 				t.Fatalf("BootFragmentsOf = %v, %v", frags, err)
 			}
@@ -195,7 +195,7 @@ func TestAlicloudSpotWorstCaseFitsTheDriversLimit(t *testing.T) {
 	for _, gpu := range []bool{false, true} {
 		for _, template := range []v1alpha1.NetworkTemplateName{v1alpha1.NetworkTemplateDirect, v1alpha1.NetworkTemplateTailscale} {
 			t.Run(fmt.Sprintf("gpu=%t/%s", gpu, template), func(t *testing.T) {
-				frags, err := vendors.BootFragmentsOf(alicloud.New(), true, true, template == v1alpha1.NetworkTemplateTailscale)
+				frags, err := vendors.BootFragmentsOf(alicloud.New(), v1alpha1.InstanceMetadataRestricted, true, template == v1alpha1.NetworkTemplateTailscale)
 				if err != nil {
 					t.Fatal(err)
 				}

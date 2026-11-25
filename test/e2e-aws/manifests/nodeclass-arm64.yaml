@@ -14,6 +14,9 @@ spec:
       # ephemeral, pre-authorized, reusable, tagged, valid for an hour.
       authKeySecretRef: {name: ts-node-key, namespace: scarpenter-system, key: authkey}
       tags: ["${E2E_TAG_NODE}"]
+  # HostOnly: the host and the host-network Pods reach IMDS, the Pods in the Pod
+  # network do not (scn_arm64 checks both).
+  instanceMetadata: {access: HostOnly}
   # The creation time on every resource of the run, which the sweeper needs: a
   # security group or a VPC has no creation time of its own in the API.
   tags: {ci-created-at: "${E2E_CREATED_AT}", ci-run: "${E2E_RUN_ID}"}
