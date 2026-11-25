@@ -139,8 +139,8 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		}
 		prep.BootFragments = append(prep.BootFragments, frag)
 	}
-	// A bare-metal server joins no VPC (no address on the VPC interface of Flatcar,
-	// and the create has no VPC field): the host firewall isolates it.
+	// A bare-metal server joins no VPC (the create has no VPC field): the host
+	// firewall isolates it.
 	if needsVPC(net) && !isBareMetalPlan(req.InstanceType) {
 		vpcs, err := req.Resources.Require(ctx, vendors.ResourceRequest{
 			Kind: KindNetworks, Key: class, Settings: &req.Settings,
@@ -149,9 +149,12 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 			return nil, err
 		}
 		prep.Resources = append(prep.Resources, vpcs...)
-		// No node IP range (Prepared.NodeIPCIDR): the VPC interface has no DHCP and
-		// Flatcar has no cloud-init to configure it from the metadata, so it has
-		// no address and the kubelet keeps the public one.
+		// No node IP range (Prepared.NodeIPCIDR): the node's own address and default
+		// route stay on the public interface, and the VPC interface only gets its
+		// address, which a boot unit reads from the metadata service.
+		if len(vpcs) > 0 {
+			prep.BootFragments = append(prep.BootFragments, VPCInterfaceFragment())
+		}
 	}
 	return prep, nil
 }

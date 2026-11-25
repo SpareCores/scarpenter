@@ -431,7 +431,7 @@ Vendors whose instance has one interface with a private primary address and a
 NAT'ed public one (AWS, GCP, Azure, OCI, Alibaba Cloud) need no hint: the kubelet
 already registers the private address that the subnet gave the node, and they
 supply none. OVH does not support private networks in v1. A Vultr VPC has no
-DHCP, so its interface has no address on Flatcar and the driver supplies no
+DHCP (its interface gets the address from a boot unit that reads the metadata service) and the driver supplies no
 range; an UpCloud network brought without DHCP gets none either. Their nodes
 register the public address.
 
