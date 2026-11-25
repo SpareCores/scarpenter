@@ -182,9 +182,10 @@ status while it is deleted, so task state `deleting` is terminating whatever the
 being deleted (nothing needs to delete them again), except a server stuck in task state `deleting` for 5 minutes or more,
 which comes back as terminating so that the garbage collector deletes it again (the first sighting is in memory), and keep a server that is off by itself (`SHUTOFF`): OpenStack has
 no shutdown behaviour `terminate`, so a guest poweroff (`poweroffAfter`, a crashed node) leaves a server OVH keeps
-billing, and the garbage collector deletes it after the terminating grace (plan 14, A4). `DeleteInstance` treats a 404
+billing, and the garbage collector deletes it after the terminating grace (plan 14, A4). `DeleteInstance` reads the server
+first and refuses one without the cluster's `scarpenter-cluster` metadata (`Fatal`, `NotCreatedBySCarpenter`); it treats a 404
 and a reference that cannot exist as success and a 409 (a transient task state) as `Retryable`; volumes made by the create
-call go with the server.
+call go with the server, volumes attached by others are detached and kept.
 
 ## Node settings
 

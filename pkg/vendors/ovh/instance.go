@@ -451,9 +451,11 @@ func (d *Driver) ListInstances(
 	return out, nil
 }
 
-// DeleteInstance implements vendors.Driver: 404 is success, and so is a
-// reference that cannot exist; 409 (a server in a transient task state) is
-// Retryable. Volumes made by the create call go with the server.
+// DeleteInstance implements vendors.Driver: it reads the server first and
+// refuses one without this cluster's metadata (Fatal, CodeNotOurs). 404 is
+// success, and so is a reference that cannot exist; 409 (a server in a transient
+// task state) is Retryable. Volumes made by the create call go with the server;
+// volumes attached by others are detached and kept.
 func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) error {
 	region, id, err := ParseInstanceRef(ref)
 	if err != nil {
@@ -465,6 +467,17 @@ func (d *Driver) DeleteInstance(ctx context.Context, ref vendors.InstanceRef) er
 			return nil
 		}
 		return err
+	}
+	s, err := cl.Compute.GetServer(ctx, id)
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+		return Classify(err)
+	}
+	if cluster := d.cfg.ClusterName; cluster == "" || s.Metadata[TagKey(vendors.TagCluster)] != cluster {
+		return vendors.NewError(vendors.Fatal, CodeNotOurs,
+			fmt.Errorf("server %s does not carry the metadata of cluster %q: not deleted", id, cluster))
 	}
 	return d.remove(ctx, cl, id)
 }
