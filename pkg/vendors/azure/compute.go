@@ -429,7 +429,8 @@ func (c *Compute) instance(ctx context.Context, vm armcompute.VirtualMachine) (*
 
 // fillAddresses sets the instance's addresses (Addresses) and its public
 // addresses (those of the public IP resources, PublicIPv4 and PublicIPv6) from
-// the VM's NICs; best effort (a missing NIC or address is left out).
+// the VM's NICs; best effort (a missing NIC or address is left out, and a failed
+// read sets PublicUnknown).
 func (c *Compute) fillAddresses(ctx context.Context, vm armcompute.VirtualMachine, inst *vendors.Instance) {
 	if vm.Properties == nil || vm.Properties.NetworkProfile == nil {
 		return
@@ -445,7 +446,11 @@ func (c *Compute) fillAddresses(ctx context.Context, vm armcompute.VirtualMachin
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
 		nic, err := c.Clients.NICs.Get(cctx, id.ResourceGroupName, id.Name)
 		cancel()
-		if err != nil || nic.Properties == nil {
+		if err != nil {
+			inst.PublicUnknown = true
+			continue
+		}
+		if nic.Properties == nil {
 			continue
 		}
 		for _, ipc := range nic.Properties.IPConfigurations {
@@ -465,6 +470,9 @@ func (c *Compute) fillAddresses(ctx context.Context, vm armcompute.VirtualMachin
 			cctx, cancel := context.WithTimeout(ctx, callTimeout)
 			pip, err := c.Clients.PIPs.Get(cctx, pid.ResourceGroupName, pid.Name)
 			cancel()
+			if err != nil {
+				inst.PublicUnknown = true // a throttled read must not look like "no public address"
+			}
 			if err == nil && pip.Properties != nil && deref(pip.Properties.IPAddress) != "" {
 				inst.Addresses = append(inst.Addresses, deref(pip.Properties.IPAddress))
 				inst.SetPublic(deref(pip.Properties.IPAddress))

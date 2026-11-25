@@ -33,7 +33,8 @@ could not record one.
 `Instance.PublicIPv4` and `PublicIPv6` are the instance's public addresses, set with `Instance.SetPublic` from the
 fields the vendor documents as public (never guessed from `Addresses`), empty when there is none or it is not assigned yet.
 The garbage collector publishes them as Node and NodeClaim annotations ([public addresses](controller.md#public-addresses)).
-A driver whose `ListInstances` leaves `Addresses` empty must return them from `GetInstance`.
+A driver that did not read them (a failed read, or a listing that leaves them out, as OCI's) sets `Instance.PublicUnknown`, and
+`GetInstance` then returns them.
 
 `InstanceRef` is `<region>/<vendor id>`; the core stores it in the annotation
 `scarpenter.sparecores.com/instance-ref`. `CreateRequest.InstanceType` is the

@@ -778,6 +778,7 @@ func (c *CloudProvider) created(
 		v1alpha1.AnnotationPrice:       formatPrice(cand.usd),
 	}
 	setBillingStart(out.Annotations, inst)
+	setPublicIPs(out.Annotations, inst)
 	if !cand.complete {
 		out.Annotations[v1alpha1.AnnotationPriceIncomplete] = "true"
 	}
@@ -818,6 +819,7 @@ func (c *CloudProvider) fromInstance(
 	c.putInstance(vendor, inst)
 	out := c.instanceToNodeClaim(vendor, inst)
 	out.Annotations[v1alpha1.AnnotationInstanceRef] = string(inst.Ref)
+	setPublicIPs(out.Annotations, inst)
 	if p, ok := c.opts.Catalog.Price(nc.Name, catalog.InstanceTypeName(vendor, inst.Type), inst.Region, inst.Zone,
 		inst.CapacityType); ok {
 		out.Annotations[v1alpha1.AnnotationPrice] = formatPrice(p.USD)

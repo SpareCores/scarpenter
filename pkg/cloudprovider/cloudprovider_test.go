@@ -120,6 +120,11 @@ func TestCreateReturnsTheNodeClaimOfTheCheapestOffering(t *testing.T) {
 	if created.Annotations[v1alpha1.AnnotationPrice] == "" || created.Annotations[v1alpha1.AnnotationNodeClassHash] == "" {
 		t.Errorf("annotations = %v", created.Annotations)
 	}
+	if !strings.HasPrefix(created.Annotations[v1alpha1.AnnotationPublicIPv4], "203.0.113.") ||
+		created.Annotations[v1alpha1.AnnotationPublicIPv6] != "" {
+		t.Errorf("public address annotations = %q, %q; want the instance's IPv4 and no IPv6",
+			created.Annotations[v1alpha1.AnnotationPublicIPv4], created.Annotations[v1alpha1.AnnotationPublicIPv6])
+	}
 	if created.Status.Capacity.Cpu().Value() != 2 || created.Status.Allocatable.Cpu().IsZero() {
 		t.Errorf("capacity = %v, allocatable = %v", created.Status.Capacity, created.Status.Allocatable)
 	}

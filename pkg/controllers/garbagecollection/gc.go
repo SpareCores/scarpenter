@@ -141,6 +141,10 @@ type Collector struct {
 	// delete (DeleteInstance answered Stopping): once stopped they are deleted
 	// without the terminating grace, which is for instances the vendor deletes.
 	stopping map[stoppingKey]bool
+	// noPublic are the instances whose addresses were read after the listing
+	// left them out (vendors.Instance.PublicUnknown) and found no public one, so
+	// that they are not read again on every sweep. Pruned to the listed instances.
+	noPublic map[stoppingKey]bool
 
 	deletions *prometheus.CounterVec
 	duration  prometheus.Histogram
@@ -162,6 +166,7 @@ func New(opts Options) *Collector {
 		opts:        opts,
 		terminating: vendors.NewTerminatingTracker(opts.Clock, opts.TerminatingGrace),
 		stopping:    map[stoppingKey]bool{},
+		noPublic:    map[stoppingKey]bool{},
 		deletions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "scarpenter_gc_deletions_total",
 			Help: "Orphans the garbage collector deleted (or would have, in dry-run), by vendor, kind, reason and result.",
@@ -328,11 +333,7 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 			}
 		}
 		c.terminating.Retain(vendor, region, stillTerminating)
-		for k := range c.stopping {
-			if k.vendor == vendor && k.ref.Region() == region && !listed[k.ref] {
-				delete(c.stopping, k)
-			}
-		}
+		c.forgetUnlisted(vendor, region, listed)
 		if lc, ok := drv.(vendors.LeftoverCollector); ok && !c.opts.DryRun {
 			if err := c.collectLeftovers(ctx, logger, lc, vendor, region, claims); err != nil {
 				errs = append(errs, err)
@@ -342,13 +343,28 @@ func (c *Collector) sweepVendor(ctx context.Context, logger logr.Logger, vendor 
 	return deleted, errors.Join(errs...)
 }
 
+// forgetUnlisted drops the per-instance memory of the instances of a region that
+// the listing no longer has.
+func (c *Collector) forgetUnlisted(vendor, region string, listed map[vendors.InstanceRef]bool) {
+	for _, m := range []map[stoppingKey]bool{c.stopping, c.noPublic} {
+		for k := range m {
+			if k.vendor == vendor && k.ref.Region() == region && !listed[k.ref] {
+				delete(m, k)
+			}
+		}
+	}
+}
+
 // publishPublicIPs keeps the public-ipv4 and public-ipv6 annotations of the
 // Node of a NodeClaim and of the NodeClaim itself equal to the instance's public
 // addresses (v1alpha1.AnnotationPublicIPv4), once the Node exists. An address the
-// instance does not have is not annotated; one it lost is removed. A driver whose
-// listing carries no addresses at all (OCI) is asked for the instance itself, but
-// only while nothing is published yet, so that a node without a public address
-// costs one such call per sweep and a published one none.
+// instance does not have is not annotated; one it lost is removed.
+//
+// An instance whose public addresses are unknown (Instance.PublicUnknown: the
+// listing of OCI leaves them out, a failed read of Azure) never changes the
+// annotations. While they are not published on both the Node and the NodeClaim,
+// the instance itself is asked for them, unless that was done and found none
+// (c.noPublic): a private-only node costs that read once.
 func (c *Collector) publishPublicIPs(ctx context.Context, drv vendors.Driver, inst *vendors.Instance,
 	claim *karpv1.NodeClaim) error {
 	if claim == nil || claim.Status.NodeName == "" || inst.Gone() {
@@ -358,24 +374,31 @@ func (c *Collector) publishPublicIPs(ctx context.Context, drv vendors.Driver, in
 	if err := c.opts.Client.Get(ctx, types.NamespacedName{Name: claim.Status.NodeName}, node); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	if len(inst.Addresses) == 0 {
-		if node.Annotations[v1alpha1.AnnotationPublicIPv4] != "" || node.Annotations[v1alpha1.AnnotationPublicIPv6] != "" {
-			return nil // nothing new is known, and what is published stays
+	if inst.PublicUnknown {
+		key := stoppingKey{drv.Vendor(), inst.Ref}
+		if (hasPublicIP(node) && hasPublicIP(claim)) || c.noPublic[key] {
+			return nil
 		}
 		got, err := drv.GetInstance(ctx, inst.Ref)
 		if err != nil {
 			return fmt.Errorf("reading the addresses of %s instance %s: %w", drv.Vendor(), inst.Ref, err)
 		}
-		inst = got
-		if len(inst.Addresses) == 0 {
-			return nil // not assigned yet
+		if got.PublicUnknown {
+			return nil // asked again on the next sweep
 		}
+		inst = got
+		c.noPublic[key] = inst.PublicIPv4 == "" && inst.PublicIPv6 == ""
 	}
 	want := map[string]string{
 		v1alpha1.AnnotationPublicIPv4: inst.PublicIPv4,
 		v1alpha1.AnnotationPublicIPv6: inst.PublicIPv6,
 	}
 	return errors.Join(c.annotate(ctx, node, want), c.annotate(ctx, claim, want))
+}
+
+func hasPublicIP(obj client.Object) bool {
+	a := obj.GetAnnotations()
+	return a[v1alpha1.AnnotationPublicIPv4] != "" || a[v1alpha1.AnnotationPublicIPv6] != ""
 }
 
 // annotate sets the annotations of an object to want, removing the ones whose

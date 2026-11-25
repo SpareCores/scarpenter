@@ -55,12 +55,13 @@ func TypeOf(in core.Instance) string {
 }
 
 // ToInstance converts an instance of the region to the contract's Instance. The
-// addresses are not part of it (they come from the VNIC attachments).
+// addresses are not part of it (they come from the VNIC attachments, one call
+// each, which only GetInstance makes): PublicUnknown is set until it does.
 func ToInstance(region string, in core.Instance) *vendors.Instance {
 	out := &vendors.Instance{
 		Ref: NewRef(region, deref(in.Id)), Region: region, Zone: ADName(deref(in.AvailabilityDomain)),
 		Type: TypeOf(in), CapacityType: CapacityTypeOf(in), State: StateOf(in.LifecycleState),
-		Tags: TagsOf(in.FreeformTags),
+		Tags: TagsOf(in.FreeformTags), PublicUnknown: true,
 	}
 	if out.CapacityType == vendors.CapacitySpot && out.State != vendors.StateRunning && out.State != vendors.StatePending {
 		// A preemptible instance cannot be stopped, started or rebooted by anyone

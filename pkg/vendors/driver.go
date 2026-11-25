@@ -269,6 +269,11 @@ type Instance struct {
 	// from fields the vendor documents as public, never by guessing from
 	// Addresses.
 	PublicIPv4, PublicIPv6 string
+	// PublicUnknown is true when the driver did not read the public addresses
+	// (a read of them failed, or the call that returned this instance does not
+	// carry them): empty PublicIPv4 and PublicIPv6 then mean nothing, and a
+	// consumer must neither publish nor remove an address because of them.
+	PublicUnknown bool
 	// GoneReason is set by a driver that can tell a vendor reclaim from a crash,
 	// on an instance that is gone (terminating or terminated): the reason the
 	// vendor gives, v1alpha1.ReasonSpotInterrupted for a spot reclaim. Empty

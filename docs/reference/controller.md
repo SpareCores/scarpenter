@@ -801,20 +801,25 @@ How the drivers fill them, from what they already read (no extra call, except OC
 
 | Vendor | Public IPv4 | Public IPv6 |
 |---|---|---|
-| AWS | the instance's public IP and the public IPs associated with its interfaces | the interfaces' IPv6 addresses |
+| AWS | the instance's public IP and the public IPs associated with its interfaces | the primary IPv6 address of the interface with device index 0 (any other when there is no primary) |
 | GCP | the NAT IPs of the interfaces' access configs | the external IPv6 of the IPv6 access configs |
 | Azure | the address of the public IP resource of the NIC's IP configuration | the same, for an IPv6 public IP |
-| Hetzner | the server's public IPv4 | `<prefix>::1` of the server's /64 |
+| Hetzner | the server's public IPv4 | `<prefix>::1` of the server's /64: the server owns the whole /64, so allow the /64 rather than this one address |
 | OCI | the public IP of the instance's VNICs | the IPv6 addresses of the VNICs |
 | OVH | the IPv4 on the `Ext-Net` network | the IPv6 on the `Ext-Net` network |
-| Alibaba Cloud | the public IP and the EIP | the IPv6 addresses of the interfaces |
+| Alibaba Cloud | the public IP and the EIP | the IPv6 addresses of the interfaces; the address is reachable from the internet only when IPv6 internet bandwidth is enabled, otherwise it is VPC-only |
 | UpCloud | the address with public access | the same, for IPv6 |
 | Vultr (VM and bare metal) | `main_ip` (never the VPC's `internal_ip`) | `v6_main_ip` |
 
+An instance whose public addresses are unknown (`Instance.PublicUnknown`: a failed Azure read of the public IP, every OCI listing and
+create) never changes the annotations, so a throttled read does not remove a published address. `Create` also sets the annotations
+on the NodeClaim when the created instance already has the addresses; the collector keeps them current from then on.
+
 A driver ignores a private, loopback, link-local or unspecified address (`vendors.Instance.SetPublic`). An address
 the vendor assigns only after boot appears with the first sweep that sees it. The OCI listing carries no addresses (reading them takes
-a call per VNIC), so the collector asks for the instance itself, while the Node has no public address annotation:
-a node without a public address costs that read on each sweep.
+a call per VNIC), so while the Node or the NodeClaim lacks the annotations the collector asks for the instance itself. An
+instance found to have no public address is remembered in memory until it leaves the listing, so a private-only node is read
+once (and again after a restart). An address that changes on OCI after it was published is not picked up.
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|

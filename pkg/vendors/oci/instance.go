@@ -353,6 +353,7 @@ func (d *Driver) fillAddresses(ctx context.Context, region string, in core.Insta
 			inst.SetPublic(v6)
 		}
 	}
+	inst.PublicUnknown = false
 	return nil
 }
 

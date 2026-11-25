@@ -442,9 +442,15 @@ func TestGetInstanceAddresses(t *testing.T) {
 	if len(inst.Addresses) != 0 {
 		t.Errorf("the create returns addresses %v; they come with GetInstance", inst.Addresses)
 	}
+	if !inst.PublicUnknown {
+		t.Error("the create does not say that its public addresses are unknown")
+	}
 	got, err := e.d.GetInstance(t.Context(), inst.Ref)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got.PublicUnknown {
+		t.Error("GetInstance reads the addresses, so the public ones are known")
 	}
 	if len(got.Addresses) != 3 || !strings.HasPrefix(got.Addresses[0], "10.240.") ||
 		!strings.HasPrefix(got.Addresses[1], "203.0.113.") || !strings.HasPrefix(got.Addresses[2], "2001:db8:") {

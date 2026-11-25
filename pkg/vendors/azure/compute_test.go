@@ -54,6 +54,25 @@ func TestLaunchWithoutPublicIP(t *testing.T) {
 	require.Empty(t, e.sub.PIPNames())
 }
 
+func TestGetPublicIPReadFailureIsUnknown(t *testing.T) {
+	e := newEnv(t)
+	inst, err := e.launch(t, request{nodeClaim: "nc-1"})
+	require.NoError(t, err)
+	require.False(t, inst.PublicUnknown)
+	require.NotEmpty(t, inst.PublicIPv4)
+
+	e.sub.FailNext("pip.get", fake.Error(429, "TooManyRequests", "slow down"), 1)
+	got, err := e.c.Get(context.Background(), inst.Ref)
+	require.NoError(t, err)
+	require.True(t, got.PublicUnknown, "a throttled read is not 'no public address'")
+	require.Empty(t, got.PublicIPv4)
+
+	got, err = e.c.Get(context.Background(), inst.Ref)
+	require.NoError(t, err)
+	require.False(t, got.PublicUnknown)
+	require.Equal(t, inst.PublicIPv4, got.PublicIPv4)
+}
+
 func TestLaunchSpotAndGet(t *testing.T) {
 	e := newEnv(t)
 	inst, err := e.launch(t, request{nodeClaim: "nc-s", capacity: vendors.CapacitySpot})
