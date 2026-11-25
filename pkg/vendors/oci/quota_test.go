@@ -9,6 +9,7 @@ package oci_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/limits"
 
@@ -209,5 +210,133 @@ func TestQuotaErrors(t *testing.T) {
 	f.c.Inject("ListLimitDefinitions", fake.Error(503, "ServiceUnavailable", "x"), 1)
 	if _, err := f.d.Quotas(t.Context(), testRegion); !vendors.IsClass(err, vendors.Retryable) {
 		t.Errorf("failing limit definitions: %v, want Retryable", err)
+	}
+}
+
+// The zones carry the true per-AD limit and usage of each AD-scoped name, once per
+// (zone, name); the region bucket stays the effective limit.
+func TestQuotaZones(t *testing.T) {
+	e := newEnv(t)
+	e.c.SetLimit(testRegion, fake.ADFull(fake.SeedZoneA), "standard-e5-core-count", 10)
+	e.c.SetLimit(testRegion, fake.ADFull(fake.SeedZoneB), "standard-e5-core-count", 20)
+	e.c.SetLimit(testRegion, fake.ADFull(fake.SeedZoneC), "standard-e5-core-count", 5)
+	e.create(t, request(testType)) // 2 OCPUs in the first AD
+	snap, err := e.d.Quotas(t.Context(), testRegion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type key struct{ zone, id string }
+	seen := map[key]vendors.ZoneBucket{}
+	for _, z := range snap.Zones {
+		k := key{z.Zone, z.ID}
+		if _, dup := seen[k]; dup {
+			t.Errorf("zone entry %v repeated", k)
+		}
+		seen[k] = z
+		if strings.Contains(z.Zone, ":") {
+			t.Errorf("zone %q has the tenancy prefix", z.Zone)
+		}
+	}
+	for zone, want := range map[string][2]int64{
+		fake.SeedZoneA: {10, 2}, fake.SeedZoneB: {20, 0}, fake.SeedZoneC: {5, 0},
+	} {
+		z, ok := seen[key{zone, "standard-e5-core-count"}]
+		if !ok || z.Limit != want[0] || z.Used != want[1] {
+			t.Errorf("zone %s = %+v, %v; want limit %d, used %d", zone, z, ok, want[0], want[1])
+		}
+	}
+	if b, _ := bucketNamed(snap, "standard-e5-core-count"); b.Limit != 22 || b.Used != 2 || b.Family != "standard-e5" {
+		t.Errorf("region bucket %+v, want limit 22, used 2, family standard-e5", b)
+	}
+	// A region-scoped name has no zones.
+	e.c.SetScope("standard-e5-core-count", limits.LimitDefinitionSummaryScopeTypeRegion)
+	snap, err = e.d.Quotas(t.Context(), testRegion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, z := range snap.Zones {
+		if z.ID == "standard-e5-core-count" {
+			t.Errorf("region-scoped name has a zone entry %+v", z)
+		}
+	}
+}
+
+// A name whose limit is 0 in every AD is a 0/0 bucket without availability calls;
+// a name that is 0 in only some ADs is still read.
+func TestQuotaZeroLimitSkipsReads(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	if _, err := e.d.Quotas(ctx, testRegion); err != nil {
+		t.Fatal(err)
+	}
+	full := e.c.Calls("GetResourceAvailability")
+	e.c.SetLimit(testRegion, "", "standard-e5-core-count", 0)
+	e.c.SetLimit(testRegion, fake.ADFull(fake.SeedZoneA), "bm-standard3-64-count", 0)
+	snap, err := e.d.Quotas(ctx, testRegion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The E5 cores (AD-scoped, three ADs) are not read; the bare metal limit is 0 in one AD only.
+	if got, want := e.c.Calls("GetResourceAvailability")-full, full-3; got != want {
+		t.Errorf("%d availability calls, want %d", got, want)
+	}
+	if b, ok := bucketNamed(snap, "standard-e5-core-count"); !ok || b.Limit != 0 || b.Used != 0 {
+		t.Errorf("zero bucket %+v, %v; want 0/0", b, ok)
+	}
+	if _, ok := bucketNamed(snap, "bm-standard3-64-count"); !ok {
+		t.Error("the partly zero bucket is missing")
+	}
+}
+
+// The limit values are read once per region and reused until the caller asks for
+// fresh limits or they get old.
+func TestQuotaLimitValuesCache(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	usageOnly := vendors.WithQuotaRefresh(ctx, vendors.QuotaRefresh{Limits: false})
+	if _, err := e.d.Quotas(usageOnly, testRegion); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.d.Quotas(usageOnly, testRegion); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.c.Calls("ListLimitValues"); got != 1 {
+		t.Fatalf("%d ListLimitValues calls for two usage-only refreshes, want 1", got)
+	}
+	// The cached values drive the zone limits and the zero skip.
+	zoneLimit := func(snap *vendors.QuotaSnapshot) int64 {
+		for _, z := range snap.Zones {
+			if z.ID == "standard-e5-core-count" && z.Zone == fake.SeedZoneA {
+				return z.Limit
+			}
+		}
+		t.Fatal("no zone entry")
+		return -1
+	}
+	e.c.SetLimit(testRegion, "", "standard-e5-core-count", 40)
+	snap, err := e.d.Quotas(usageOnly, testRegion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := zoneLimit(snap); got != 10000 {
+		t.Errorf("a usage-only refresh saw the new limit %d", got)
+	}
+	snap, err = e.d.Quotas(vendors.WithQuotaRefresh(ctx, vendors.QuotaRefresh{Limits: true}), testRegion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.c.Calls("ListLimitValues"); got != 2 {
+		t.Errorf("%d ListLimitValues calls after a limits refresh, want 2", got)
+	}
+	if got := zoneLimit(snap); got != 40 {
+		t.Errorf("zone limit %d after a limits refresh, want 40", got)
+	}
+	e.c.SetLimit(testRegion, "", "standard-e5-core-count", 7)
+	e.clock.Step(time.Hour)
+	if snap, err = e.d.Quotas(usageOnly, testRegion); err != nil {
+		t.Fatal(err)
+	}
+	if got := zoneLimit(snap); got != 7 {
+		t.Errorf("zone limit %d after the cache expired, want 7", got)
 	}
 }

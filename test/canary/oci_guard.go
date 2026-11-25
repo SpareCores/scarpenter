@@ -83,6 +83,7 @@ var ociStatements = map[string]string{
 	"IdentityAPI.ListAvailabilityDomains":              "inspect compartments in tenancy",
 	"LimitsAPI.GetResourceAvailability":                "inspect resource-availability in tenancy",
 	"LimitsAPI.ListLimitDefinitions":                   "inspect limits in tenancy",
+	"LimitsAPI.ListLimitValues":                        "inspect limits in tenancy",
 }
 
 // isOCIRead reports whether a method of the API is a read: a get or a list. Everything else
@@ -354,4 +355,10 @@ func (g *ociROLimits) ListLimitDefinitions(ctx context.Context, region string, r
 ) (limits.ListLimitDefinitionsResponse, error) {
 	g.audit.read(ociStatementOf("LimitsAPI", "ListLimitDefinitions"))
 	return g.inner.ListLimitDefinitions(ctx, region, req)
+}
+
+func (g *ociROLimits) ListLimitValues(ctx context.Context, region string, req limits.ListLimitValuesRequest,
+) (limits.ListLimitValuesResponse, error) {
+	g.audit.read(ociStatementOf("LimitsAPI", "ListLimitValues"))
+	return g.inner.ListLimitValues(ctx, region, req)
 }

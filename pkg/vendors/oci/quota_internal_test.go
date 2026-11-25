@@ -58,3 +58,24 @@ func TestLimitForm(t *testing.T) {
 		}
 	}
 }
+
+// The family of a limit name: the name without "-count", the scope infix and the form,
+// so the OCPU and GB limits of a shape family share it.
+func TestLimitFamily(t *testing.T) {
+	for name, want := range map[string]string{
+		"standard-e5-core-ad-count":         "standard-e5",
+		"standard-e5-memory-count":          "standard-e5",
+		"standard-e3-core-ad-count":         "standard-e3",
+		"standard-a1-core-regional-count":   "standard-a1",
+		"standard-a1-memory-regional-count": "standard-a1",
+		"standard2-4-core-count":            "standard2-4",
+		"bm-standard3-64-count":             "bm-standard3-64",
+	} {
+		if _, got, ok := limitParts(name); !ok || got != want {
+			t.Errorf("limitParts(%q) family = %q, %v; want %q", name, got, ok, want)
+		}
+		if got := bucketOf(name, nil).Family; got != want {
+			t.Errorf("bucketOf(%q).Family = %q, want %q", name, got, want)
+		}
+	}
+}

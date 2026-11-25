@@ -365,6 +365,16 @@ func (s *SDK) ListLimitDefinitions(ctx context.Context, region string, req limit
 	return invoke(ctx, s, true, c.ListLimitDefinitions, req)
 }
 
+// ListLimitValues implements LimitsAPI.
+func (s *SDK) ListLimitValues(ctx context.Context, region string, req limits.ListLimitValuesRequest,
+) (limits.ListLimitValuesResponse, error) {
+	c, err := s.limitsClient(region)
+	if err != nil {
+		return limits.ListLimitValuesResponse{}, err
+	}
+	return invoke(ctx, s, true, c.ListLimitValues, req)
+}
+
 // ListImages implements ComputeAPI.
 func (s *SDK) ListImages(ctx context.Context, region string, req core.ListImagesRequest) (core.ListImagesResponse, error) {
 	c, err := s.computeClient(region)

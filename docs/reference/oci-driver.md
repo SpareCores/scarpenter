@@ -209,13 +209,30 @@ is set.
 
 ## Quotas and availability
 
-The Limits service: `GetResourceAvailability(compute, <limit name>, <tenancy>, <AD>)` per quota name the
-region's shapes list (`standard-e5-core-count`, `standard-e5-memory-count`, ...). A bucket is region-scoped
-with `Used` the sum over the ADs and `Limit` = `Used` plus the largest `available` of any AD, so a family is
-blocked only when no AD has room. Consumption: the OCPUs for `*-core-count`, the GB for `*-memory-count`, one
-for other names; a scope infix before `-count` (`standard-e3-core-ad-count`, `standard-a1-core-regional-count`)
-keeps the core or memory form. A shape whose limit is not readable, and every spot type until the preemptible limit is
-known, has unknown quota (reactive). The usage is read on the tenancy (the root compartment).
+Limit names come from the shapes the node compartment offers (`ListShapes` per AD), restricted to `*-count`
+names (`standard-e5-core-count`, `standard-e5-memory-count`, ...). Per region, a refresh reads:
+
+- `ListLimitValues(compute)`, one paginated call, for the limit of every name in every AD. The values are reused
+  for 30 minutes unless the controller asks for fresh limits.
+- `GetResourceAvailability(compute, <limit name>, <tenancy>, <AD>)` for the usage and the headroom: once per
+  region-scoped name and once per AD for an AD-scoped name. A name whose limit is 0 in every AD is not read: it is
+  a 0/0 bucket, which still blocks its types.
+- `ListInstances`, to find the cluster's instances that hold quota.
+
+A bucket is region-scoped, and its limit is the effective one: `Used` is the sum over the ADs and `Limit` is
+`Used` plus the largest `available` of any AD, so a family is blocked only when no AD has room. The zone gauges
+`scarpenter_quota_zone_limit` and `scarpenter_quota_zone_used` carry the true per-AD figures of the AD-scoped
+names; the zone is the AD name without the tenancy prefix (`EU-FRANKFURT-1-AD-1`). The tenancy total of a limit
+is the sum of its zone limits. Region-scoped names have no zone gauges.
+
+The family of a bucket is its limit name without `-count`, the scope infix (`-ad`, `-regional`, `-global`) and
+the form (`-core`, `-memory`): `standard-e5-core-ad-count` and `standard-e5-memory-count` are both
+`standard-e5`, so the OCPU and GB buckets of a shape family share it.
+
+Consumption: the OCPUs for `*-core-count`, the GB for `*-memory-count`, one for other names; a scope infix before
+`-count` (`standard-e3-core-ad-count`, `standard-a1-core-regional-count`) keeps the core or memory form. A shape
+whose limit is not readable, and every spot type until the preemptible limit is known, has unknown quota
+(reactive). The usage is read on the tenancy (the root compartment).
 
 ## Error mapping
 

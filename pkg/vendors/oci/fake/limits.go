@@ -161,3 +161,41 @@ func (c *Cloud) ListLimitDefinitions(ctx context.Context, regionName string, req
 	page, next := paged(all, c.pageSize, req.Page)
 	return limits.ListLimitDefinitionsResponse{Items: page, OpcNextPage: next}, nil
 }
+
+// ListLimitValues implements oci.LimitsAPI: the limit of each name of the region's
+// shapes, one value per AD for an AD-scoped name and one for the region otherwise.
+func (c *Cloud) ListLimitValues(ctx context.Context, regionName string, req limits.ListLimitValuesRequest,
+) (limits.ListLimitValuesResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.enter(ctx, "ListLimitValues"); err != nil {
+		return limits.ListLimitValuesResponse{}, err
+	}
+	r, err := c.usable(regionName)
+	if err != nil {
+		return limits.ListLimitValuesResponse{}, err
+	}
+	if deref(req.CompartmentId) != c.tenancy || deref(req.ServiceName) != "compute" {
+		return limits.ListLimitValuesResponse{}, notFound("compartment or service")
+	}
+	var all []limits.LimitValueSummary
+	for _, n := range r.quotaNames() {
+		if req.Name != nil && *req.Name != n {
+			continue
+		}
+		if c.scope(n) != limits.LimitDefinitionSummaryScopeTypeAd {
+			all = append(all, limits.LimitValueSummary{
+				Name: new(n), ScopeType: limits.LimitValueSummaryScopeTypeRegion, Value: new(c.limit(regionName, "", n)),
+			})
+			continue
+		}
+		for _, ad := range r.domains {
+			all = append(all, limits.LimitValueSummary{
+				Name: new(n), ScopeType: limits.LimitValueSummaryScopeTypeAd, AvailabilityDomain: new(ad),
+				Value: new(c.limit(regionName, ad, n)),
+			})
+		}
+	}
+	page, next := paged(all, c.pageSize, req.Page)
+	return limits.ListLimitValuesResponse{Items: page, OpcNextPage: next}, nil
+}
