@@ -171,7 +171,7 @@ func (d *Driver) Quotas(ctx context.Context, region string) (*vendors.QuotaSnaps
 			}
 			if limit, ok := limits[code]; ok {
 				snap.Buckets = append(snap.Buckets, vendors.Bucket{
-					ID: code, Scope: vendors.QuotaScopeRegion, Unit: "vCPU", Limit: limit, Used: used[code],
+					ID: code, Scope: vendors.QuotaScopeRegion, Unit: "vCPU", Family: q.Class, Limit: limit, Used: used[code],
 				})
 			}
 		}

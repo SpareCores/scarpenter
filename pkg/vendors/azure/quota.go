@@ -46,11 +46,14 @@ type QuotaReader struct {
 	// skus holds the size table of every region read so far, by size name:
 	// the family and the vCPUs of a size do not depend on the region.
 	skus map[string]SKU
+	// usageNames maps the lower-cased usage names that Quotas has seen to the
+	// API's spelling: the SKU table's family may differ from it in case only.
+	usageNames map[string]string
 }
 
 // NewQuotaReader creates a reader over the usage API.
 func NewQuotaReader(usages UsageAPI) *QuotaReader {
-	return &QuotaReader{usages: usages, skus: map[string]SKU{}}
+	return &QuotaReader{usages: usages, skus: map[string]SKU{}, usageNames: map[string]string{}}
 }
 
 // LoadSKUs records the size table of a region (from the SKU read), which
@@ -83,10 +86,17 @@ func (q *QuotaReader) Quotas(ctx context.Context, region string) (*vendors.Quota
 		if name != BucketRegionalCores && name != BucketSpotCores && !isFamily {
 			continue
 		}
-		snap.Buckets = append(snap.Buckets, vendors.Bucket{
+		b := vendors.Bucket{
 			ID: name, Scope: vendors.QuotaScopeRegion, Unit: unitVCPU,
 			Limit: deref(u.Limit), Used: int64(deref(u.CurrentValue)),
-		})
+		}
+		if isFamily {
+			b.Family = name[:len(name)-len(familySuffix)]
+		}
+		snap.Buckets = append(snap.Buckets, b)
+		q.mu.Lock()
+		q.usageNames[strings.ToLower(name)] = name
+		q.mu.Unlock()
 	}
 	cctx, cancel = context.WithTimeout(ctx, callTimeout)
 	nu, err := q.usages.NetworkUsages(cctx, region)
@@ -129,6 +139,9 @@ func (q *QuotaReader) GlobalQuotas(context.Context) (*vendors.QuotaSnapshot, err
 func (q *QuotaReader) Consumption(instanceType, capacityType string) ([]vendors.Consumption, bool) {
 	q.mu.RLock()
 	s, ok := q.skus[instanceType]
+	if canonical, seen := q.usageNames[strings.ToLower(s.Family)]; seen {
+		s.Family = canonical
+	}
 	q.mu.RUnlock()
 	if !ok || s.VCPUs == 0 {
 		return nil, false

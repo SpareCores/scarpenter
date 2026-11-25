@@ -307,6 +307,11 @@ label charset (lower-case letters, digits, `_`, `-`; keys start with a letter) a
 project has it. `Counted` are the cluster's instances in the region that hold quota (not stopped ones), so
 the tracker releases their in-flight reservations.
 
+Quota metrics: the bucket ID is the metric name; the unit is `vCPU` for the CPU metrics, `GPUs` for the GPU ones,
+`instances` for `INSTANCES`. The family of a `*_CPUS` metric is its ID without `_CPUS` (`N2_CPUS` is `N2`,
+`PREEMPTIBLE_N2_CPUS` is `PREEMPTIBLE_N2`); the other metrics have no family and keep their ID. The per-VM-family quotas
+(`CPUS_PER_VM_FAMILY`, for example C4 and N4) are not read, because `regions.get` does not list them.
+
 **Which metrics one machine type consumes is unverified** (does `n2-standard-8` consume `CPUS` as well as
 `N2_CPUS`? how does a project show preemptible quota?). `Consumption` therefore answers only for series in
 `gcp.ConfirmedSeries`, which is **empty**: every type is unknown quota and takes the reactive path, where

@@ -87,8 +87,14 @@ func buckets(qs []*computepb.Quota, scope vendors.QuotaScope) []vendors.Bucket {
 		if accountWideMetric(m) {
 			sc = vendors.QuotaScopeGlobal
 		}
+		// The family of a series bucket is the series (N2_CPUS: N2); the other
+		// metrics have none and the collector falls back to the ID.
+		family, _ := strings.CutSuffix(m, "_CPUS")
+		if family == m {
+			family = ""
+		}
 		out = append(out, vendors.Bucket{
-			ID: m, Scope: sc, Unit: unitOf(m), Limit: int64(q.GetLimit()), Used: int64(q.GetUsage()),
+			ID: m, Scope: sc, Unit: unitOf(m), Family: family, Limit: int64(q.GetLimit()), Used: int64(q.GetUsage()),
 		})
 	}
 	slices.SortFunc(out, func(a, b vendors.Bucket) int { return strings.Compare(a.ID, b.ID) })

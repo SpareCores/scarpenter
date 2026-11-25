@@ -46,6 +46,11 @@ func TestQuotaReader(t *testing.T) {
 	if b := got["PREEMPTIBLE_CPUS"]; b.Limit != 0 || b.Used != 0 {
 		t.Fatalf("PREEMPTIBLE_CPUS bucket = %+v", b)
 	}
+	for id, family := range map[string]string{"CPUS": "", "N2_CPUS": "N2", "PREEMPTIBLE_CPUS": "PREEMPTIBLE", "INSTANCES": ""} {
+		if got[id].Family != family {
+			t.Fatalf("%s family = %q, want %q", id, got[id].Family, family)
+		}
+	}
 	if b := got["INSTANCES"]; b.Unit != "instances" || b.Limit != 240 {
 		t.Fatalf("INSTANCES bucket = %+v", b)
 	}
