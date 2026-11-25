@@ -16,7 +16,7 @@ branches on no vendor name.
 | `ResolveImage(ctx, req)` | The image per region, architecture, Flatcar channel and version: the NodeClass's `images` selector when it has one (`req.Use`), else the driver's own convention. See [Images](#images). |
 | `CreateInstance(ctx, req)` | Launch one instance. Replaying an `IdempotencyKey` returns the original instance, whatever zone, type or capacity type the replay asks for (the CloudProvider builds the NodeClaim from the returned instance). A failed create leaves the key unused, so the next attempt with another offering launches. |
 | `GetInstance`, `FindInstance`, `ListInstances` | By reference, by tags, by tags in regions. `GetInstance` also returns terminated instances; `ListInstances` excludes only the terminated ones (it returns `terminating` instances, see [instance states](#instance-states)). |
-| `DeleteInstance(ctx, ref)` | Idempotent: deleting an instance that is gone is not an error. |
+| `DeleteInstance(ctx, ref)` | Idempotent: deleting an instance that is gone is not an error. Terminate deletes only resources SCarpenter created; anything attached by others is detached or left intact, never deleted. |
 | `TagKey(k)` | Maps the logical keys `cluster`, `nodeclaim`, `nodepool`, `nodeclass`, `managed-by` and `idempotency-key` to the vendor's charset (`vendors.DefaultTagKey`: `scarpenter.sparecores.com/<key>`; a vendor whose labels allow no `/` or `.`, or only 32 characters, maps to `scarpenter-<key>`, which is 26 characters for the longest). Keys must stay distinct after the mapping. |
 
 A reference the driver cannot parse (no region, no ID, an ID without the parts the
@@ -50,7 +50,7 @@ driver](aws-driver.md) implements it), `NodeOptions` and `ManagedResources` (bel
 `TypeChecker` (an extension of `NodeOptions`: whether the driver launches a type at all; the catalog drops the
 others as `NotLaunchable`), `EpochReporter`, `QuotaReporter`, `OfferingLister`, `ZoneChecker`, `BillingDescriber` (below), `InstanceMetadata` ([Metadata
 endpoints](#metadata-endpoints)), `LeftoverCollector` (the garbage collector asks it, per region after the
-instance sweep, to delete what a failed or interrupted launch made besides the instance; it lists first and
+instance sweep, to delete what a failed or interrupted launch made besides the instance; it selects only by SCarpenter's tags, labels or recorded IDs, never by attachment, and it lists first and
 asks `nodeClaimExists` after, so a launch in flight keeps its resources; see
 [garbage collection](controller.md#garbage-collection)), `NodeClassWarner` (settings that are valid but
 have no effect for the vendor, from the NodeClass alone: the vendor condition `ConfigurationWarning`),
@@ -179,6 +179,15 @@ restart restarts the clock). A driver that stops an instance before it deletes i
 Instances the vendor is really deleting disappear inside the grace and cost no extra call.
 The rule saves what is charged from now on (the following billing periods, the disks, the
 addresses), never the billing period that has started ([ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10)).
+
+Terminating never deletes what SCarpenter did not create, whether the instance is
+running, stopped or already gone: a volume or address that a user or a CSI driver attached
+is detached or left as it is. `DeleteInstance` removes only what it made for the instance:
+what it launched with the vendor's delete-with-instance flag, and what it finds by its own
+tags, labels or recorded IDs, never by attachment. Resources that cannot exist without
+their instance, such as some vendors' network interfaces, go with it as the vendor does it.
+A user who attaches a volume with the vendor's own "delete with instance" flag set has
+chosen its deletion.
 
 ## Node options and vendor resources
 
@@ -435,7 +444,9 @@ driver does).
 `conformance.Run(t, conformance.Fixture{...})` runs: identity, zone mapping,
 idempotent create and the two key rules, NotFound semantics, malformed references
 (`NotFound`, never `Fatal`), the idempotency label (drivers that store it), list by tags, the billing start rules (see [billing](#billing)), the stopped-node rule (the fixture's `PowerOff`
-hook stops an instance; it must report `terminating`, stay listed and delete cleanly), delete idempotency, tag
+hook stops an instance; it must report `terminating`, stay listed and delete cleanly), delete idempotency, the terminate rule (the
+fixture's `AttachForeign` hook attaches an untagged volume, and an IP where the vendor has one; `DeleteInstance` of a running, a powered-off
+and an already deleted instance, and `CollectLeftovers` with no NodeClaims, must leave them), tag
 round trip, user-data limit, error classification (the fixture's `Inject` hook
 makes the next launch fail with a class), and for `QuotaReporter` drivers: every
 type maps to buckets or is on the fixture's unknown list, launches show up in

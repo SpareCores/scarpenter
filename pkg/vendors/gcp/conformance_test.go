@@ -116,6 +116,16 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind) conformance.Fix
 				t.Fatalf("cannot stop %s", ref)
 			}
 		},
+		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
+			t.Helper()
+			_, zone, name, ok := gcp.ParseRef(ref)
+			if !ok {
+				t.Fatalf("cannot parse %s", ref)
+			}
+			c := envOf(t, d).c
+			disk := c.AttachDisk(zone, name)
+			return func() bool { return c.DiskExists(zone, disk) }
+		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {
 			t.Helper()
 			envOf(t, d).c.SetLimit(testRegion, "CPUS", 0)

@@ -75,6 +75,14 @@ type Fixture struct {
 	// stopped-node rule is skipped without it.
 	PowerOff func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef)
 
+	// AttachForeign attaches resources that SCarpenter did not create to the
+	// instance, the way a user or a CSI driver does after the launch: an untagged
+	// volume with the vendor's default attach settings (not deleted with the
+	// instance) and, where the vendor has one, an IP address of the user's. It
+	// returns whether they all still exist; the subtest of the terminate rule is
+	// skipped without it.
+	AttachForeign func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) (stillExists func() bool)
+
 	// Interrupt makes the vendor announce the reclaim of the instance at the
 	// deadline, as far as the vendor's API shows it (what a driver's
 	// vendors.InterruptionPoller reports); the interruption poller subtest is
@@ -306,6 +314,7 @@ func runAll(sub func(name string, fn func(t *testing.T, e *env))) {
 	sub("list by tags", listByTags)
 	sub("delete is idempotent", deleteIdempotent)
 	sub("powered-off instance", poweredOff)
+	sub("terminate keeps foreign resources", terminateKeepsForeign)
 	sub("interruption poller", interruptionPoller)
 	sub("no spot", noSpot)
 	sub("billing start", billingStart)
@@ -627,6 +636,61 @@ func poweredOff(t *testing.T, e *env) {
 			t.Errorf("the listing contains the terminated instance %s", i.Ref)
 		}
 	}
+}
+
+// terminateKeepsForeign pins the rule that terminating deletes only what
+// SCarpenter created: a volume (and IP) that somebody attached to the instance
+// survives DeleteInstance of a running, a powered-off and an already deleted
+// instance, and the leftover collector, which runs with no NodeClaims.
+func terminateKeepsForeign(t *testing.T, e *env) {
+	if e.fx.AttachForeign == nil {
+		t.Skip("the fixture has no AttachForeign hook")
+	}
+	deleteUntilNil := func(t *testing.T, ref vendors.InstanceRef) {
+		t.Helper()
+		var err error
+		for range 10 {
+			if err = e.d.DeleteInstance(t.Context(), ref); err == nil {
+				return
+			}
+		}
+		t.Fatalf("DeleteInstance of %s: %v", ref, err)
+	}
+	check := func(t *testing.T, stillExists func() bool) {
+		t.Helper()
+		if lc, ok := e.d.(vendors.LeftoverCollector); ok {
+			if _, err := lc.CollectLeftovers(t.Context(), e.region, func(string) bool { return false }); err != nil {
+				t.Fatalf("CollectLeftovers: %v", err)
+			}
+		}
+		if !stillExists() {
+			t.Error("a resource that SCarpenter did not create was deleted")
+		}
+	}
+
+	t.Run("running", func(t *testing.T) {
+		inst := e.create(t, e.request(t))
+		stillExists := e.fx.AttachForeign(t, e.d, inst.Ref)
+		deleteUntilNil(t, inst.Ref)
+		check(t, stillExists)
+	})
+	t.Run("powered off", func(t *testing.T) {
+		if e.fx.PowerOff == nil {
+			t.Skip("the fixture has no PowerOff hook")
+		}
+		inst := e.create(t, e.request(t))
+		stillExists := e.fx.AttachForeign(t, e.d, inst.Ref)
+		e.fx.PowerOff(t, e.d, inst.Ref)
+		deleteUntilNil(t, inst.Ref)
+		check(t, stillExists)
+	})
+	t.Run("deleted again", func(t *testing.T) {
+		inst := e.create(t, e.request(t))
+		stillExists := e.fx.AttachForeign(t, e.d, inst.Ref)
+		deleteUntilNil(t, inst.Ref)
+		deleteUntilNil(t, inst.Ref)
+		check(t, stillExists)
+	})
 }
 
 // billingStartSkew is how far a vendor's stamp may lie ahead of the clock the

@@ -88,6 +88,7 @@ func (f *Cloud) release(r *regionState, id string) {
 			vs.used = slices.DeleteFunc(vs.used, func(a netip.Addr) bool { return a.String() == i.privateIP })
 		}
 	}
+	r.releaseDisks(id)
 	delete(r.instances, id)
 }
 

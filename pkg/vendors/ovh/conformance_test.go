@@ -266,6 +266,12 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, region, zone s
 			t.Helper()
 			worldOf(t, d).cloud.PowerOff(ref.Region(), ref.ID())
 		},
+		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
+			t.Helper()
+			c := worldOf(t, d).cloud
+			vol := c.AttachVolume(ref.Region(), ref.ID())
+			return func() bool { return c.VolumeExists(ref.Region(), vol) }
+		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, req vendors.CreateRequest) {
 			t.Helper()
 			worldOf(t, d).cloud.SetLimits(req.Region, osapi.Limits{MaxInstances: 1})

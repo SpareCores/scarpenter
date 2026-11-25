@@ -88,6 +88,9 @@ type routeTable struct {
 type volume struct {
 	id   string
 	tags map[string]string
+	// keep says the volume stays, detached, when its instance terminates
+	// (DeleteOnTermination false).
+	keep bool
 }
 
 type instance struct {

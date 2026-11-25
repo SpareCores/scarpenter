@@ -291,6 +291,13 @@ func conformanceFixture0(
 				t.Fatal(err)
 			}
 		},
+		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
+			t.Helper()
+			parts := strings.Split(ref.ID(), "/")
+			sub := worldOf(t, d).sub
+			disk := sub.AttachDisk(parts[0], parts[1])
+			return func() bool { return sub.DiskExists(parts[0], disk) }
+		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, req vendors.CreateRequest) {
 			t.Helper()
 			sub := worldOf(t, d).sub
