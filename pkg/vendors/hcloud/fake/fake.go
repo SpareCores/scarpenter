@@ -398,7 +398,9 @@ func (f *Fake) AddForeignServer(location, typ string, labels map[string]string) 
 
 // AssignPrimaryIP creates a Primary IPv4 of another owner (user-created, no
 // labels, auto_delete off) and makes it the server's address in place of the
-// auto-created one, as a user does for a stable egress address.
+// auto-created one, as a user does for a stable egress address. The
+// auto-created IPv4 is removed, so tests that check "ours is deleted" cover
+// the IPv6.
 func (f *Fake) AssignPrimaryIP(serverID int64) *hc.PrimaryIP {
 	f.mu.Lock()
 	defer f.mu.Unlock()

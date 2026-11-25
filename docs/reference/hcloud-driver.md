@@ -311,7 +311,9 @@ with the cluster, `managed-by` and nodeclaim labels, so its own IPs are cleaned 
 whatever their `auto_delete` is. If labelling fails it is logged and the create goes on:
 the worst case is a leaked IP. A Primary IP someone else attached to the node (no
 labels) and a volume attached after the create are never deleted; the volume is
-only detached with the server.
+only detached with the server. Primary IPs of servers created before the
+labelling existed carry no labels, so Delete does not clean them up (a cost
+only if their `auto_delete` is false).
 
 
 ## Quotas and availability

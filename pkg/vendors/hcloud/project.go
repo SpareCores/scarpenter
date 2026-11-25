@@ -349,13 +349,14 @@ func (p *Project) Create(ctx context.Context, spec LaunchSpec) (*vendors.Instanc
 	if res.Server == nil {
 		return nil, vendors.Errorf(vendors.Fatal, "POST /servers returned no server")
 	}
-	p.labelPrimaryIPs(ctx, res.Server, opts.Labels)
 	if res.Action != nil {
 		if err := p.api.WaitForAction(ctx, res.Action); err != nil {
 			p.discard(ctx, res.Server)
 			return nil, classify(err)
 		}
 	}
+	// After the action: a server is locked while it runs, and so are its IPs.
+	p.labelPrimaryIPs(ctx, res.Server, opts.Labels)
 	return ToInstance(res.Server, spec.Location), nil
 }
 
@@ -398,6 +399,7 @@ func (p *Project) replay(ctx context.Context, name, key string) (*vendors.Instan
 				"a server named %q is being deleted", name))
 		}
 		if key != "" && s.Labels[TagKey(vendors.TagIdempotencyKey)] == LabelValue(key) {
+			p.labelPrimaryIPs(ctx, s, s.Labels) // idempotent
 			return ToInstance(s, ""), nil
 		}
 		return nil, vendors.NewError(vendors.Retryable, CodeNameInUse, fmt.Errorf(
@@ -507,7 +509,9 @@ const codeNotOwned = "NotOwned"
 // delete action, then removes the server's own Primary IPs (labelled at create)
 // that stayed unassigned without auto_delete (they bill monthly). A Primary IP
 // or volume attached by someone else is never deleted; whether Hetzner
-// auto-deletes the auto-created IPs is unverified (L5 asserts it).
+// auto-deletes the auto-created IPs is unverified (L5 asserts it). Primary IPs
+// of servers created before they were labelled carry no labels and are not
+// cleaned up (a cost only if their auto_delete is false).
 func (p *Project) Delete(ctx context.Context, ref vendors.InstanceRef) error {
 	_, id, err := ParseRef(ref)
 	if err != nil {
@@ -557,12 +561,6 @@ func primaryIPIDs(s *hc.Server) []int64 {
 	return ids
 }
 
-// ownedLabels reports whether the labels carry this cluster's ownership marker.
-func (p *Project) ownedLabels(labels map[string]string) bool {
-	return labels[TagKey(vendors.TagManagedBy)] == vendors.ManagedByValue &&
-		labels[TagKey(vendors.TagCluster)] == LabelValue(p.cluster)
-}
-
 // CleanupPrimaryIPs deletes the Primary IPs that carry this cluster's
 // ownership labels, are unassigned and not auto-deleting. One that is gone,
 // still assigned or not ours (created and attached by someone else) is left
@@ -577,7 +575,7 @@ func (p *Project) CleanupPrimaryIPs(ctx context.Context, ids []int64) error {
 			}
 			continue
 		}
-		if ip == nil || !p.ownedLabels(ip.Labels) || ip.AssigneeID != 0 || ip.AutoDelete {
+		if ip == nil || !ownedBy(p.cluster, ip.Labels) || ip.AssigneeID != 0 || ip.AutoDelete {
 			continue
 		}
 		err = p.api.DeletePrimaryIP(ctx, ip)

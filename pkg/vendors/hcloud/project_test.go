@@ -558,6 +558,28 @@ func TestDeleteKeepsForeignPrimaryIPAndVolume(t *testing.T) {
 	}
 }
 
+// An unassigned IP labelled for another cluster is never deleted.
+func TestCleanupLeavesOtherClusterPrimaryIP(t *testing.T) {
+	e := newEnv(t, []fake.Option{fake.WithPrimaryIPAutoDelete(false)})
+	inst, err := e.p.Create(ctx, e.spec("nc-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ip := e.f.PrimaryIPs()[0]
+	other := map[string]string{
+		hcloud.TagKey(vendors.TagManagedBy): vendors.ManagedByValue, hcloud.TagKey(vendors.TagCluster): "other",
+	}
+	if err := e.f.UpdatePrimaryIP(ctx, ip, other); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.p.Delete(ctx, inst.Ref); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(e.f.PrimaryIPs()); n != 1 {
+		t.Errorf("the other cluster's IP must survive, got %d IPs", n)
+	}
+}
+
 // A failed labelling must not fail the create; the IP then leaks rather than
 // risking a foreign delete.
 func TestLabelPrimaryIPFailureIsIgnored(t *testing.T) {
