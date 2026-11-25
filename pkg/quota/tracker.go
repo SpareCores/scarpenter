@@ -139,6 +139,7 @@ type BucketView struct {
 	ID       string
 	Scope    vendors.QuotaScope
 	Unit     string
+	Family   string
 	Limit    int64
 	Used     int64
 	Reserved int64
@@ -701,14 +702,15 @@ func (t *Tracker) viewLocked(k bucketKey, b vendors.Bucket) BucketView {
 	}
 	return BucketView{
 		Vendor: k.vendor, Region: k.region, ID: b.ID, Scope: scope, Unit: b.Unit,
-		Limit: b.Limit, Used: b.Used, Reserved: t.reserved[k],
+		Family: b.Family, Limit: b.Limit, Used: b.Used, Reserved: t.reserved[k],
 	}
 }
 
 // Buckets returns every bucket of the fresh snapshots with its reservations,
 // sorted by vendor, region and ID.
-func (t *Tracker) Buckets() []BucketView {
-	now := t.opts.Clock.Now()
+func (t *Tracker) Buckets() []BucketView { return t.bucketsAt(t.opts.Clock.Now()) }
+
+func (t *Tracker) bucketsAt(now time.Time) []BucketView {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	var out []BucketView
@@ -943,12 +945,17 @@ func (t *Tracker) notify(vendor, region string) {
 type collector struct{ t *Tracker }
 
 var (
-	bucketLabels = []string{labelVendor, labelRegion, "bucket"}
+	bucketLabels = []string{labelVendor, labelRegion, "bucket", "unit", "family"}
+	zoneLabels   = []string{labelVendor, labelRegion, "zone", "bucket", "unit", "family"}
 	limitDesc    = prometheus.NewDesc("scarpenter_quota_limit", "Quota limit of a bucket.", bucketLabels, nil)
 	usedDesc     = prometheus.NewDesc("scarpenter_quota_used",
 		"Quota usage of a bucket (the whole account).", bucketLabels, nil)
 	reservedDesc = prometheus.NewDesc("scarpenter_quota_reserved",
 		"In-flight reservations of launches that the usage does not show yet.", bucketLabels, nil)
+	zoneLimitDesc = prometheus.NewDesc("scarpenter_quota_zone_limit",
+		"Quota limit of a bucket in one zone.", zoneLabels, nil)
+	zoneUsedDesc = prometheus.NewDesc("scarpenter_quota_zone_used",
+		"Quota usage of a bucket in one zone.", zoneLabels, nil)
 	ageDesc = prometheus.NewDesc("scarpenter_quota_refresh_age_seconds",
 		"Seconds since the last successful quota refresh of a vendor and region.", []string{labelVendor, labelRegion}, nil)
 )
@@ -958,23 +965,60 @@ func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- limitDesc
 	ch <- usedDesc
 	ch <- reservedDesc
+	ch <- zoneLimitDesc
+	ch <- zoneUsedDesc
 	ch <- ageDesc
 }
 
-// Collect implements prometheus.Collector.
+// familyOf is the family label of a bucket: the driver's, else the bucket ID.
+func familyOf(id, family string) string {
+	if family != "" {
+		return family
+	}
+	return id
+}
+
+// Collect implements prometheus.Collector. A bucket whose limit, usage and
+// reservations are all 0 is not exported, nor a zone series whose limit and
+// usage are both 0; the tracker still decides on the buckets.
 func (c *collector) Collect(ch chan<- prometheus.Metric) {
-	for _, b := range c.t.Buckets() {
-		l := []string{b.Vendor, b.Region, b.ID}
+	now := c.t.opts.Clock.Now()
+	for _, b := range c.t.bucketsAt(now) {
+		if b.Limit == 0 && b.Used == 0 && b.Reserved == 0 {
+			continue
+		}
+		l := []string{b.Vendor, b.Region, b.ID, b.Unit, familyOf(b.ID, b.Family)}
 		ch <- prometheus.MustNewConstMetric(limitDesc, prometheus.GaugeValue, float64(b.Limit), l...)
 		ch <- prometheus.MustNewConstMetric(usedDesc, prometheus.GaugeValue, float64(b.Used), l...)
 		ch <- prometheus.MustNewConstMetric(reservedDesc, prometheus.GaugeValue, float64(b.Reserved), l...)
 	}
-	now := c.t.opts.Clock.Now()
 	c.t.mu.RLock()
 	defer c.t.mu.RUnlock()
 	for k, st := range c.t.states {
-		if st.snap != nil {
-			ch <- prometheus.MustNewConstMetric(ageDesc, prometheus.GaugeValue, now.Sub(st.okAt).Seconds(), k.vendor, k.region)
+		if st.snap == nil {
+			continue
+		}
+		ch <- prometheus.MustNewConstMetric(ageDesc, prometheus.GaugeValue, now.Sub(st.okAt).Seconds(), k.vendor, k.region)
+		if c.t.freshLocked(k, now) == nil {
+			continue
+		}
+		// Unit and family come from the region bucket with the same ID.
+		byID := make(map[string]vendors.Bucket, len(st.snap.Buckets))
+		for _, b := range st.snap.Buckets {
+			byID[b.ID] = b
+		}
+		type zoneKey struct{ zone, id string }
+		seen := map[zoneKey]bool{}
+		for _, z := range st.snap.Zones {
+			// A repeated series would fail the whole scrape.
+			if seen[zoneKey{z.Zone, z.ID}] || z.Limit == 0 && z.Used == 0 {
+				continue
+			}
+			seen[zoneKey{z.Zone, z.ID}] = true
+			b := byID[z.ID]
+			l := []string{k.vendor, k.region, z.Zone, z.ID, b.Unit, familyOf(z.ID, b.Family)}
+			ch <- prometheus.MustNewConstMetric(zoneLimitDesc, prometheus.GaugeValue, float64(z.Limit), l...)
+			ch <- prometheus.MustNewConstMetric(zoneUsedDesc, prometheus.GaugeValue, float64(z.Used), l...)
 		}
 	}
 }

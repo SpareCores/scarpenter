@@ -672,7 +672,7 @@ Metrics:
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
 | `scarpenter_launches_total` | counter | `vendor`, `region`, `capacity_type`, `result` | Vendor launch calls; `result` is `success` or the error class. |
-| `scarpenter_launch_skipped_total` | counter | `vendor`, `region`, `capacity_type`, `reason` | Candidates passed over without a vendor call (`no-quota`, `unavailable`, `quota-exceeded`, `image`). |
+| `scarpenter_launch_skipped_total` | counter | `vendor`, `region`, `capacity_type`, `reason` | Candidates passed over without a vendor call (`no-quota`, `unavailable`, `image`, `resources`). |
 | `scarpenter_launch_attempts` | histogram | `result` | Vendor calls per `Create`. |
 | `scarpenter_create_duration_seconds` | histogram | `result` | Duration of `Create`. |
 
@@ -749,11 +749,39 @@ unchanged; a vendor that leaves the class loses its quota fields.
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `scarpenter_quota_limit` | gauge | `vendor`, `region`, `bucket` | Limit of the bucket (`region` is empty for account-wide buckets). |
-| `scarpenter_quota_used` | gauge | `vendor`, `region`, `bucket` | Usage of the whole account. |
-| `scarpenter_quota_reserved` | gauge | `vendor`, `region`, `bucket` | In-flight reservations. |
+| `scarpenter_quota_limit` | gauge | `vendor`, `region`, `bucket`, `unit`, `family` | Limit of the bucket (`region` is empty for account-wide buckets). |
+| `scarpenter_quota_used` | gauge | `vendor`, `region`, `bucket`, `unit`, `family` | Usage of the whole account. |
+| `scarpenter_quota_reserved` | gauge | `vendor`, `region`, `bucket`, `unit`, `family` | In-flight reservations. |
+| `scarpenter_quota_zone_limit` | gauge | `vendor`, `region`, `zone`, `bucket`, `unit`, `family` | Limit of the bucket in one zone. |
+| `scarpenter_quota_zone_used` | gauge | `vendor`, `region`, `zone`, `bucket`, `unit`, `family` | Usage of the bucket in one zone. |
 | `scarpenter_quota_refresh_age_seconds` | gauge | `vendor`, `region` | Seconds since the last successful refresh. |
-| `scarpenter_quota_refresh_errors_total` | counter | `vendor`, `region` | Failed quota or launchable refreshes. |
+| `scarpenter_quota_refresh_errors_total` | counter | `vendor`, `region` | Failed quota refreshes and failed launchable-types refreshes. |
+
+Labels of the bucket metrics:
+
+- `unit` is one of `vCPU`, `OCPU`, `GB`, `MiB`, `MB`, `GPUs`, `instances`,
+  `addresses`, `networks`, `count`. The list is exact: dashboards key on it.
+- `family` groups buckets that belong together. It is the family the driver
+  reports, else the bucket ID. How each built-in driver derives it is in its driver
+  document.
+
+A bucket whose limit, usage and reservations are all 0 is not exported (the
+tracker still decides on it); a bucket with limit 0 and usage or reservations
+above 0 is. A missing cell therefore means no quota, unknown quota or stale
+quota. Buckets of a region whose last successful refresh is older than
+`--quota-max-staleness` are not exported either; use
+`scarpenter_quota_refresh_age_seconds` or `absent()` to alert on that.
+
+The zone gauges carry per-zone limits and usage for drivers that report
+per-zone figures. `unit` and `family` are those of the region bucket with the
+same ID. The tracker never decides on them. A zone series whose limit and usage
+are both 0 is not exported. The zone series follow the staleness rule of the
+region gauges.
+
+The metrics are exported by the leader only; aggregate with `max by` so that a
+leader change does not double the series. The regions read are those the
+SCNodeClasses scope: a region shows up in the metrics only when a class lists
+it, which also makes it a placement candidate.
 
 ## Garbage collection
 
