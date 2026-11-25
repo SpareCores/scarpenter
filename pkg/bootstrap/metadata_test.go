@@ -34,35 +34,39 @@ func TestMetadataFragmentOfEachVendor(t *testing.T) {
 		"hcloud": &hcloud.Driver{}, "oci": &oci.Driver{}, "ovh": &ovh.Driver{}, "upcloud": &upcloud.Driver{},
 		"vultr": &vultr.Driver{},
 	} {
-		t.Run(name, func(t *testing.T) {
-			f, ok, err := vendors.RestrictMetadata(d)
-			if err != nil || !ok {
-				t.Fatalf("RestrictMetadata = %v, %v", ok, err)
-			}
-			testutil.Golden(t, "metadata-"+name+".golden", []byte(f.Butane))
+		for mode, restrict := range map[string]func(vendors.Driver) (vendors.BootFragment, bool, error){
+			"": vendors.RestrictMetadata, "-hostonly": vendors.HostOnlyMetadata,
+		} {
+			t.Run(name+mode, func(t *testing.T) {
+				f, ok, err := restrict(d)
+				if err != nil || !ok {
+					t.Fatalf("restricting the metadata = %v, %v", ok, err)
+				}
+				testutil.Golden(t, "metadata-"+name+mode+".golden", []byte(f.Butane))
 
-			p := baseParams("amd64", v1alpha1.NetworkTemplateTailscale)
-			p.VendorFragments = []bootstrap.Fragment{{Name: f.Name, Butane: f.Butane}}
-			r, err := bootstrap.Render(p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if n := len(r.UserData); n > bootstrap.DefaultBudgetBytes {
-				t.Errorf("%d bytes with the fragment, the budget of the default templates is %d", n, bootstrap.DefaultBudgetBytes)
-			}
-			var ignition string
-			for _, part := range r.Parts {
-				if part.Name == "vendor-"+f.Name {
-					ignition = string(part.Ignition)
+				p := baseParams("amd64", v1alpha1.NetworkTemplateTailscale)
+				p.VendorFragments = []bootstrap.Fragment{{Name: f.Name, Butane: f.Butane}}
+				r, err := bootstrap.Render(p)
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-			for _, want := range []string{"scarpenter-metadata.slice", "scarpenter-metadata-firewall.service",
-				"coreos-metadata.service", "coreos-metadata-sshkeys@.service", "15-scarpenter-metadata.conf"} {
-				if !strings.Contains(ignition, want) {
-					t.Errorf("the Ignition of the fragment lacks %s", want)
+				if n := len(r.UserData); n > bootstrap.DefaultBudgetBytes {
+					t.Errorf("%d bytes with the fragment, the budget of the default templates is %d", n, bootstrap.DefaultBudgetBytes)
 				}
-			}
-		})
+				var ignition string
+				for _, part := range r.Parts {
+					if part.Name == "vendor-"+f.Name {
+						ignition = string(part.Ignition)
+					}
+				}
+				for _, want := range []string{"scarpenter-metadata.slice", "scarpenter-metadata-firewall.service",
+					"coreos-metadata.service", "coreos-metadata-sshkeys@.service", "15-scarpenter-metadata.conf"} {
+					if !strings.Contains(ignition, want) {
+						t.Errorf("the Ignition of the fragment lacks %s", want)
+					}
+				}
+			})
+		}
 	}
 }
 

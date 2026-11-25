@@ -33,6 +33,11 @@ func TestValidateNodeClass(t *testing.T) {
 	data := func(typ awsapi.VolumeType, size string, iops, tp *int32) awsapi.DataVolume {
 		return awsapi.DataVolume{GuestVolume: common.GuestVolume{Name: "d", MountPath: "/d"}, VolumeType: typ, VolumeSize: *q(size), IOPS: iops, Throughput: tp}
 	}
+	hostOnly := func(s awsapi.Settings) *v1alpha1.SCNodeClass {
+		nc := block(s)
+		nc.Spec.InstanceMetadata = &v1alpha1.InstanceMetadataSpec{Access: v1alpha1.InstanceMetadataHostOnly}
+		return nc
+	}
 	cases := []struct {
 		name string
 		nc   *v1alpha1.SCNodeClass
@@ -44,6 +49,11 @@ func TestValidateNodeClass(t *testing.T) {
 			Storage:         gp3("100Gi", new(int32(5000)), new(int32(500))),
 			MetadataOptions: &awsapi.MetadataOptions{HTTPTokens: "required", HTTPPutResponseHopLimit: new(int32(2))},
 		}), ""},
+		{"HostOnly with the defaults", hostOnly(awsapi.Settings{}), ""},
+		{"HostOnly with explicit safe options", hostOnly(awsapi.Settings{MetadataOptions: &awsapi.MetadataOptions{HTTPTokens: "required", HTTPPutResponseHopLimit: new(int32(1))}}), ""},
+		{"HostOnly with httpTokens optional", hostOnly(awsapi.Settings{MetadataOptions: &awsapi.MetadataOptions{HTTPTokens: "optional"}}), "httpTokens must be required"},
+		{"HostOnly with hop limit 2", hostOnly(awsapi.Settings{MetadataOptions: &awsapi.MetadataOptions{HTTPPutResponseHopLimit: new(int32(2))}}), "httpPutResponseHopLimit must be 1"},
+		{"Restricted with hop limit 2", block(awsapi.Settings{MetadataOptions: &awsapi.MetadataOptions{HTTPPutResponseHopLimit: new(int32(2))}}), ""},
 		{"a region name", block(awsapi.Settings{Regions: []string{"us-east-1", "useast1"}}), `"useast1" is not an AWS region name`},
 		{"an instance profile name", block(awsapi.Settings{InstanceProfile: "has space"}), "not a valid instance profile name"},
 		{"hop limit too high", block(awsapi.Settings{MetadataOptions: &awsapi.MetadataOptions{HTTPPutResponseHopLimit: new(int32(65))}}), "1 to 64"},

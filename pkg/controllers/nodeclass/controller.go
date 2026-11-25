@@ -590,7 +590,7 @@ func (c *Controller) bootFragments(nc *v1alpha1.SCNodeClass) bootstrap.Fragments
 		if !ok {
 			return nil, nil
 		}
-		fs, err := vendors.BootFragmentsOf(drv, nc.Spec.RestrictsInstanceMetadata(), spot,
+		fs, err := vendors.BootFragmentsOf(drv, nc.Spec.MetadataAccess(), spot,
 			nc.Spec.Network.Template == v1alpha1.NetworkTemplateTailscale)
 		if err != nil {
 			return nil, err

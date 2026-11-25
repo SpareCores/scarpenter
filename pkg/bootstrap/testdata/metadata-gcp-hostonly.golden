@@ -1,0 +1,95 @@
+variant: flatcar
+version: 1.1.0
+storage:
+  files:
+    - path: /etc/scarpenter/metadata-iptables.rules
+      mode: 0644
+      contents:
+        inline: |
+          *security
+          :SCARPENTER-IMDS-OUTPUT - [0:0]
+          :SCARPENTER-IMDS-FORWARD - [0:0]
+          -A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP
+          COMMIT
+    - path: /etc/scarpenter/metadata-ip6tables.rules
+      mode: 0644
+      contents:
+        inline: |
+          *security
+          :SCARPENTER-IMDS-OUTPUT - [0:0]
+          :SCARPENTER-IMDS-FORWARD - [0:0]
+          -A SCARPENTER-IMDS-FORWARD -d fd20:ce::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP
+          COMMIT
+    - path: /opt/scarpenter/bin/scarpenter-metadata-firewall
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/sh
+          set -eu
+          load() {
+            cmd=$1 rules=$2
+            [ -f "$rules" ] || return 0
+            "$cmd-restore" -w --noflush < "$rules"
+            for hook in OUTPUT FORWARD; do
+              "$cmd" -w -t security -C "$hook" -j "SCARPENTER-IMDS-$hook" 2>/dev/null ||
+                "$cmd" -w -t security -I "$hook" 1 -j "SCARPENTER-IMDS-$hook"
+            done
+          }
+          load iptables /etc/scarpenter/metadata-iptables.rules
+          load ip6tables /etc/scarpenter/metadata-ip6tables.rules
+systemd:
+  units:
+    - name: scarpenter-metadata.slice
+      contents: |
+        [Unit]
+        Description=Node components allowed to reach the instance metadata service
+    - name: scarpenter-metadata-firewall.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Restrict the instance metadata service to the scarpenter-metadata slice
+        DefaultDependencies=no
+        Requires=scarpenter-metadata.slice
+        After=scarpenter-metadata.slice
+        Before=network-pre.target
+        Wants=network-pre.target
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/opt/scarpenter/bin/scarpenter-metadata-firewall
+        [Install]
+        WantedBy=basic.target
+    - name: kubelet.service
+      dropins:
+        - name: 15-scarpenter-metadata.conf
+          contents: |
+            [Unit]
+            Requires=scarpenter-metadata-firewall.service
+            After=scarpenter-metadata-firewall.service
+    - name: coreos-metadata.service
+      dropins:
+        - name: 10-scarpenter-metadata.conf
+          contents: |
+            [Unit]
+            Wants=scarpenter-metadata-firewall.service
+            After=scarpenter-metadata-firewall.service
+            [Service]
+            Slice=scarpenter-metadata.slice
+    - name: coreos-metadata-sshkeys@.service
+      dropins:
+        - name: 10-scarpenter-metadata.conf
+          contents: |
+            [Unit]
+            Wants=scarpenter-metadata-firewall.service
+            After=scarpenter-metadata-firewall.service
+            [Service]
+            Slice=scarpenter-metadata.slice
+    - name: oem-gce.service
+      dropins:
+        - name: 10-scarpenter-metadata.conf
+          contents: |
+            [Unit]
+            Wants=scarpenter-metadata-firewall.service
+            After=scarpenter-metadata-firewall.service
+            [Service]
+            Slice=scarpenter-metadata.slice

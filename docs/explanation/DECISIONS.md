@@ -882,6 +882,13 @@ driver capability that only it used is removed.
 controller, a benchmark tool that reads the instance's identity) needs `access: Open` on its NodeClass; the
 restriction cannot tell a trusted Pod from another. The fragment adds about 2 KiB to the user-data.
 
+**Amendment: HostOnly.** `access: HostOnly` is the forward-only design rejected below, now an opt-in mode: the same fragment
+without the `OUTPUT` rules, so host processes and hostNetwork Pods reach the metadata service and only Pods in the Pod
+network are dropped (`FORWARD`). It serves components that run as hostNetwork Pods (a vendor's CSI node plugin or
+cloud controller) without opening the service to the Pod network. It is accepted on every vendor (qemu: no
+addresses, nothing to do). The default stays `Restricted`, and the hash of an unset field is unchanged. On AWS `HostOnly` is rejected with
+`httpTokens: optional` or a hop limit above 1. Host processes and hostNetwork Pods can read the user-data in this mode.
+
 Rejected:
 
 - **Switching the service off and on through the vendor's API** (AWS `HttpEndpoint`, Alibaba
@@ -891,8 +898,8 @@ Rejected:
 - **nftables `socket cgroupv2`**: Flatcar's kernel does not build `CONFIG_NFT_SOCKET`, so the rule does not load
   (Flatcar issue 2172; its pull request was closed). `iptables -m cgroup` is shipped and does the same. The rules are
   one file per family and can move to nftables when the kernel has the module.
-- **Dropping forwarded traffic only** (the earlier hardening): Pods in the host network and other host processes
-  reach the service through `OUTPUT`.
+- **Dropping forwarded traffic only** as the default (the earlier hardening): Pods in the host network and other host
+  processes reach the service through `OUTPUT`. It is the `HostOnly` mode, on request.
 - **systemd `IPAddressDeny=` with a per-service `IPAddressAllow=`**: the lists are address-only, so DNS and NTP at the
   same address would break on GCP and OCI.
 - **A network namespace for the allowed units**: routing, DHCP and vendor quirks for a gain the cgroup match already gives.

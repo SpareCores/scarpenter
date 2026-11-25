@@ -81,12 +81,21 @@ var unitName = regexp.MustCompile(`^[A-Za-z0-9:_.@-]+\.service$`)
 //     before they run;
 //   - kubelet requires the unit, so a node whose rules failed to load never joins.
 func RestrictMetadata(d Driver) (BootFragment, bool, error) {
-	return restrictWith(d, agentParts{})
+	return restrictWith(d, agentParts{}, false)
+}
+
+// HostOnlyMetadata is RestrictMetadata for the HostOnly mode: the same fragment
+// without the OUTPUT rules, so that every host process and hostNetwork Pod
+// reaches the addresses and only the Pods in the Pod network (FORWARD) are
+// dropped.
+func HostOnlyMetadata(d Driver) (BootFragment, bool, error) {
+	return restrictWith(d, agentParts{}, true)
 }
 
 // restrictWith is RestrictMetadata with more files and units in the same
 // fragment (the interruption agent): one part of the user-data instead of two.
-func restrictWith(d Driver, extra agentParts) (BootFragment, bool, error) {
+// hostOnly leaves out the OUTPUT rules.
+func restrictWith(d Driver, extra agentParts, hostOnly bool) (BootFragment, bool, error) {
 	im, ok := d.(InstanceMetadata)
 	if !ok {
 		return BootFragment{}, false, nil
@@ -117,8 +126,8 @@ func restrictWith(d Driver, extra agentParts) (BootFragment, bool, error) {
 
 	var b strings.Builder
 	b.WriteString("variant: flatcar\nversion: 1.1.0\nstorage:\n  files:\n")
-	writeRules(&b, "/etc/scarpenter/metadata-iptables.rules", v4, "/32")
-	writeRules(&b, "/etc/scarpenter/metadata-ip6tables.rules", v6, "/128")
+	writeRules(&b, "/etc/scarpenter/metadata-iptables.rules", v4, "/32", hostOnly)
+	writeRules(&b, "/etc/scarpenter/metadata-ip6tables.rules", v6, "/128", hostOnly)
 	b.WriteString(firewallScript)
 	b.WriteString(extra.files)
 	b.WriteString("systemd:\n  units:\n")
@@ -135,8 +144,8 @@ func restrictWith(d Driver, extra agentParts) (BootFragment, bool, error) {
 // writeRules writes one iptables-restore file for the addresses of a family, if
 // there are any. The chains are filled in one transaction, and only then hooked by
 // the script: the cgroup match is refused in a chain that no built-in chain calls
-// from OUTPUT yet.
-func writeRules(b *strings.Builder, path string, addrs []string, prefix string) {
+// from OUTPUT yet. In HostOnly mode the OUTPUT chain stays empty.
+func writeRules(b *strings.Builder, path string, addrs []string, prefix string, hostOnly bool) {
 	if len(addrs) == 0 {
 		return
 	}
@@ -146,8 +155,10 @@ func writeRules(b *strings.Builder, path string, addrs []string, prefix string) 
 	b.WriteString("          :SCARPENTER-IMDS-FORWARD - [0:0]\n")
 	for _, a := range addrs {
 		match := "-d " + a + prefix + " -p tcp -m tcp ! --dport 53 --syn"
-		fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -m cgroup --path %s -j RETURN\n", match, metadataSliceCgroup)
-		fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -j DROP\n", match)
+		if !hostOnly {
+			fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -m cgroup --path %s -j RETURN\n", match, metadataSliceCgroup)
+			fmt.Fprintf(b, "          -A SCARPENTER-IMDS-OUTPUT %s -j DROP\n", match)
+		}
 		fmt.Fprintf(b, "          -A SCARPENTER-IMDS-FORWARD %s -j DROP\n", match)
 	}
 	b.WriteString("          COMMIT\n")

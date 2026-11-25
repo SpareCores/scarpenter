@@ -132,7 +132,7 @@ capability. The core must not branch on a vendor, so it builds the node's config
 |---|---|
 | `MetadataEndpoints()` | `vendors.MetadataEndpoints{Addresses, Units}`: the IPv4 and IPv6 addresses of the vendor's metadata services as the node reaches them (a second service such as Azure's WireServer included), and the systemd units of the vendor's Flatcar image, besides Afterburn's two, that must keep reaching them (`amazon-ssm-agent.service`, `oem-gce.service`, `waagent.service`). |
 
-On nodes of a NodeClass whose `spec.instanceMetadata.access` is `Restricted` (the default), `vendors.RestrictMetadata`
+On nodes of a NodeClass whose `spec.instanceMetadata.access` is `Restricted` (the default) or `HostOnly` (the same fragment without the `OUTPUT` rules: `vendors.HostOnlyMetadata`), `vendors.RestrictMetadata`
 turns the declaration into one Butane fragment (the slice of the allowed units, the iptables rules for each address
 and the unit that loads them) that the core merges as the part `vendor-metadata-access`, after the base and volume
 configs and before the network template and the user's Butane, which can override it. Only TCP connections the node opens,
@@ -394,7 +394,7 @@ instance metadata ([plan 26](../plans/v1/done/26-interruption.md) section 2). `I
 | `NoticeWindow` | Embedded: `MinNotice` and `MaxNotice`, the same window as [`InterruptionWindow`](#interruption-notice-window); `NoticeWindowOf` reads it from here when the driver has no `InterruptionWindow`. |
 
 `vendors.InterruptionAgent(d, restricted)` wraps the check in the generic loop and the unit (the [node agent](node-bootstrap.md#the-interruption-agent)),
-and `vendors.BootFragmentsOf(d, restrictMetadata, spot, tailnet)` adds it after the driver's own fragments **on spot launches
+and `vendors.BootFragmentsOf(d, access, spot, tailnet)` adds it after the driver's own fragments **on spot launches
 only**, inside the metadata restriction's fragment when there is one (one part of the user-data). The script may be about as long as AWS's IMDSv2 check
 (a token request and the action request) and little longer: the largest spot GPU case has about 280 bytes to spare (AWS's real check is that long) ([size](node-bootstrap.md#the-interruption-agent)). The core never branches on the vendor: a vendor step adds its script and implements the capability, nothing else. A driver without the
 capability gets no agent. Its tests run the script with `sh` against a local HTTP fixture (the check's own responses: no notice, notice,

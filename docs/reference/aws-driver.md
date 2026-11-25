@@ -197,7 +197,7 @@ queued with the manager's backoff; every other code, among them `UnauthorizedOpe
 | `NetworkInterfaces[0]` | device 0, the chosen subnet, the security groups, `AssociatePublicIpAddress` from `networking.publicIPv4` (default true), `Ipv6AddressCount=1` for `publicIPv6`, ENA Express from a network profile, delete on termination |
 | `BlockDeviceMappings` | the root volume under the image's root device name, then the data volumes as `/dev/sdf`, `/dev/sdg`, ...; all `DeleteOnTermination` |
 | `Placement` | the zone, the placement group's name, `Tenancy=dedicated` from a placement profile |
-| `MetadataOptions` | `HttpTokens=required`, `HttpPutResponseHopLimit=1`, endpoint enabled, tags in metadata off (overridable in `aws.metadataOptions`) |
+| `MetadataOptions` | `HttpTokens=required`, `HttpPutResponseHopLimit=1`, endpoint enabled, tags in metadata off (overridable in `aws.metadataOptions`, except with `instanceMetadata.access: HostOnly`, which needs `required` and 1 and is rejected otherwise; a Pod-network consumer of IMDS needs `Open` and hop limit 2) |
 | `InstanceInitiatedShutdownBehavior` | `terminate` |
 | `InstanceMarketOptions` | for spot: one-time, terminate on interruption |
 | `IamInstanceProfile` | `aws.instanceProfile`, only if set (nodes hold no cloud credentials otherwise) |

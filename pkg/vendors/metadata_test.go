@@ -85,3 +85,30 @@ func TestRestrictMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestHostOnlyMetadata(t *testing.T) {
+	if _, ok, err := vendors.HostOnlyMetadata(endpointsDriver{}); ok || err != nil {
+		t.Errorf("no addresses: %v, %v", ok, err)
+	}
+	f, ok, err := vendors.HostOnlyMetadata(endpointsDriver{ep: vendors.MetadataEndpoints{
+		Addresses: addrs("169.254.169.254", "fd00:ec2::254"), Units: []string{"agent.service"},
+	}})
+	if err != nil || !ok || f.Name != "metadata-access" {
+		t.Fatalf("HostOnlyMetadata = %+v, %v, %v", f, ok, err)
+	}
+	for _, want := range []string{
+		"-A SCARPENTER-IMDS-FORWARD -d 169.254.169.254/32 -p tcp -m tcp ! --dport 53 --syn -j DROP",
+		"-A SCARPENTER-IMDS-FORWARD -d fd00:ec2::254/128 -p tcp -m tcp ! --dport 53 --syn -j DROP",
+		":SCARPENTER-IMDS-OUTPUT - [0:0]", // the script hooks the chain, which stays empty
+		"scarpenter-metadata.slice", "scarpenter-metadata-firewall.service", "- name: agent.service", "Requires=scarpenter-metadata-firewall.service",
+	} {
+		if !strings.Contains(f.Butane, want) {
+			t.Errorf("the fragment lacks %q:\n%s", want, f.Butane)
+		}
+	}
+	for _, bad := range []string{"-A SCARPENTER-IMDS-OUTPUT", "-m cgroup"} {
+		if strings.Contains(f.Butane, bad) {
+			t.Errorf("the HostOnly fragment has %q:\n%s", bad, f.Butane)
+		}
+	}
+}
