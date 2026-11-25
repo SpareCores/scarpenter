@@ -97,6 +97,7 @@ type Driver struct {
 	shapes  map[adKey]cached[map[string]*shapeInfo]
 	index   map[string]*shapeInfo
 	limits  map[string]cached[map[string]limitDef]
+	values  map[string]cached[map[limitKey]int64]
 	// noQuota holds the limit names whose availability the service does not answer
 	// for: the shapes that consume them have unknown quota.
 	noQuota  map[string]bool
@@ -139,6 +140,7 @@ func New(opts ...Option) *Driver {
 		callTimeout: DefaultCallTimeout,
 		ads:         map[string]cached[[]availabilityDomain]{}, shapes: map[adKey]cached[map[string]*shapeInfo]{},
 		index: map[string]*shapeInfo{}, limits: map[string]cached[map[string]limitDef]{},
+		values:   map[string]cached[map[limitKey]int64]{},
 		attempts: map[string]int{}, noQuota: map[string]bool{}, images: map[imageKey]cachedImage{},
 		deleted: map[vendors.InstanceRef]time.Time{},
 		archs:   map[string]cachedArch{}, subnets: map[string]cached[subnetInfo]{},

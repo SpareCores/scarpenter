@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/limits"
 
@@ -22,6 +23,13 @@ import (
 
 // serviceCompute is the Limits service's name of Compute.
 const serviceCompute = "compute"
+
+// limitValuesTTL is how long the limit values are reused when the caller does not
+// ask for fresh limits; it matches the tracker's limits refresh interval.
+const limitValuesTTL = 15 * time.Minute
+
+// limitValuesPageSize is the largest page ListLimitValues returns.
+const limitValuesPageSize = 1000
 
 // The forms of a limit name and the units of their buckets (plan 25, section 7).
 const (
@@ -41,13 +49,14 @@ type limitDef struct {
 	supported bool
 }
 
-// limitForm classifies a limit name by its form: the unit of its bucket and
-// whether it counts OCPUs, GB or instances. ok is false for a name of another
-// form, which makes every type of the shape that lists it unknown (reactive).
-func limitForm(name string) (unit string, ok bool) {
+// limitParts splits a limit name into the unit of its bucket (OCPUs, GB or
+// instances) and its family: the name without "-count", the scope infix and the
+// form. ok is false for a name of another form, which makes every type of the
+// shape that lists it unknown (reactive).
+func limitParts(name string) (unit, family string, ok bool) {
 	base, found := strings.CutSuffix(name, countSuffix)
 	if !found {
-		return "", false
+		return "", "", false
 	}
 	// OCI names a scoped limit with an infix between the form and "-count":
 	// standard-e3-core-ad-count, standard-a1-core-regional-count.
@@ -57,13 +66,19 @@ func limitForm(name string) (unit string, ok bool) {
 			break
 		}
 	}
-	switch {
-	case strings.HasSuffix(base, coreForm):
-		return UnitOCPU, true
-	case strings.HasSuffix(base, memoryForm):
-		return UnitGB, true
+	if b, ok := strings.CutSuffix(base, coreForm); ok {
+		return UnitOCPU, b, true
 	}
-	return UnitInstances, true
+	if b, ok := strings.CutSuffix(base, memoryForm); ok {
+		return UnitGB, b, true
+	}
+	return UnitInstances, base, true
+}
+
+// limitForm classifies a limit name by the unit of its bucket.
+func limitForm(name string) (unit string, ok bool) {
+	unit, _, ok = limitParts(name)
+	return unit, ok
 }
 
 // IsCoreLimit says whether the limit name counts OCPUs, whatever its scope infix.
@@ -100,6 +115,66 @@ func (d *Driver) limitDefs(ctx context.Context, region string) (map[string]limit
 	d.limits[region] = set(out, d.clock.Now().Add(factsTTL))
 	d.mu.Unlock()
 	return out, nil
+}
+
+// limitKey identifies a limit value: the limit name and the full name of its
+// availability domain ("" for a region-scoped limit).
+type limitKey struct{ name, ad string }
+
+// limitValues returns the limit values of the Compute limits of the region (one
+// ListLimitValues call, paginated), reading them again when the caller asks for
+// fresh limits or the cache is older than limitValuesTTL. A failed read is
+// logged and does not fail the refresh: the last values stay in use (an expired
+// cache entry included), or none, which skips nothing and leaves the zone limits
+// to the usage plus what is available.
+func (d *Driver) limitValues(ctx context.Context, region string) map[limitKey]int64 {
+	d.mu.Lock()
+	if v, ok := d.values[region].get(d.clock.Now()); ok && !vendors.QuotaRefreshFrom(ctx).Limits {
+		d.mu.Unlock()
+		return v
+	}
+	stale := d.values[region].v
+	d.mu.Unlock()
+	limit := limitValuesPageSize
+	req := limits.ListLimitValuesRequest{CompartmentId: &d.tenancy, ServiceName: new(serviceCompute), Limit: &limit}
+	out := map[limitKey]int64{}
+	for {
+		res, err := d.api.Limits.ListLimitValues(ctx, region, req)
+		if err != nil {
+			d.log.Error(classify(err, kindRead), "listing the Compute limit values failed; using the last ones",
+				"region", region)
+			return stale
+		}
+		for _, v := range res.Items {
+			if v.Value != nil {
+				out[limitKey{deref(v.Name), deref(v.AvailabilityDomain)}] = *v.Value
+			}
+		}
+		if res.OpcNextPage == nil || *res.OpcNextPage == "" {
+			break
+		}
+		req.Page = res.OpcNextPage
+	}
+	d.mu.Lock()
+	d.values[region] = set(out, d.clock.Now().Add(limitValuesTTL))
+	d.mu.Unlock()
+	return out
+}
+
+// zeroEverywhere says whether the limit is listed as 0 in every AD (or in the
+// region): nothing can launch against it, so its usage need not be read. A limit
+// value that is not listed does not count as 0.
+func zeroEverywhere(name string, def limitDef, ads []availabilityDomain, values map[limitKey]int64) bool {
+	if def.scope != limits.LimitDefinitionSummaryScopeTypeAd {
+		v, ok := values[limitKey{name, ""}]
+		return ok && v == 0
+	}
+	for _, a := range ads {
+		if v, ok := values[limitKey{name, a.Full}]; !ok || v != 0 {
+			return false
+		}
+	}
+	return len(ads) > 0
 }
 
 // availability is one reading of a limit: the usage and what is left.
@@ -145,22 +220,46 @@ func (d *Driver) readLimit(ctx context.Context, region, name string, def limitDe
 // argument (plan 25, open question 6): the bucket is the region's usage (the sum
 // of the ADs') and the headroom of the AD with the most room, so that the tracker
 // blocks a type only when no AD has room for it and never wrongly. Limit is
-// derived (used plus that headroom); the per-AD numbers are not reported.
+// derived (used plus that headroom); the per-AD numbers go to the zones.
 func bucketOf(name string, reads []availability) vendors.Bucket {
 	var used, best int64
 	for _, r := range reads {
 		used += r.used
 		best = max(best, r.available)
 	}
-	unit, _ := limitForm(name)
-	return vendors.Bucket{ID: name, Scope: vendors.QuotaScopeRegion, Unit: unit, Limit: used + best, Used: used}
+	unit, family, _ := limitParts(name)
+	return vendors.Bucket{
+		ID: name, Scope: vendors.QuotaScopeRegion, Unit: unit, Family: family, Limit: used + best, Used: used,
+	}
+}
+
+// zonesOf is the true limit and usage of an AD-scoped limit in each AD, in the
+// order of ads and reads. The limit is the listed value, else the usage plus
+// what is available.
+func zonesOf(name string, ads []availabilityDomain, reads []availability, values map[limitKey]int64,
+) []vendors.ZoneBucket {
+	out := make([]vendors.ZoneBucket, 0, len(ads))
+	for i, a := range ads {
+		var r availability
+		if i < len(reads) {
+			r = reads[i]
+		}
+		limit, ok := values[limitKey{name, a.Full}]
+		if !ok {
+			limit = r.used + r.available
+		}
+		out = append(out, vendors.ZoneBucket{Zone: a.Name, ID: name, Limit: limit, Used: r.used})
+	}
+	return out
 }
 
 // Quotas implements vendors.QuotaReporter: one bucket per Compute limit name that
-// the region's shapes consume, from the Limits service (GetResourceAvailability),
-// and the cluster's instances that hold quota. A limit the service cannot answer
-// for is left out and its shapes are unknown. The calls run one after the other:
-// a region has a few dozen names in about three ADs, read at the tracker's pace.
+// the region's shapes consume, and the cluster's instances that hold quota. The
+// limit values come from one cached ListLimitValues; a name whose limit is 0
+// everywhere is a 0/0 bucket without further calls, and the others are read with
+// GetResourceAvailability (per AD for AD-scoped names), which also gives the
+// per-AD zones. A limit the service cannot answer for is left out and its shapes
+// are unknown. The calls run one after the other, at the tracker's pace.
 func (d *Driver) Quotas(ctx context.Context, region string) (*vendors.QuotaSnapshot, error) {
 	ads, err := d.domains(ctx, region)
 	if err != nil {
@@ -184,12 +283,21 @@ func (d *Driver) Quotas(ctx context.Context, region string) (*vendors.QuotaSnaps
 	if err != nil {
 		return nil, err
 	}
+	values := d.limitValues(ctx, region)
 	snap := &vendors.QuotaSnapshot{}
 	unsupported := map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(names)) {
 		def, ok := defs[name]
 		if !ok || !def.supported {
 			unsupported[name] = true
+			continue
+		}
+		if zeroEverywhere(name, def, ads, values) {
+			b := bucketOf(name, nil)
+			snap.Buckets = append(snap.Buckets, b)
+			if def.scope == limits.LimitDefinitionSummaryScopeTypeAd {
+				snap.Zones = append(snap.Zones, zonesOf(name, ads, nil, values)...)
+			}
 			continue
 		}
 		reads, skip, err := d.readLimit(ctx, region, name, def, ads)
@@ -201,6 +309,9 @@ func (d *Driver) Quotas(ctx context.Context, region string) (*vendors.QuotaSnaps
 			continue
 		}
 		snap.Buckets = append(snap.Buckets, bucketOf(name, reads))
+		if def.scope == limits.LimitDefinitionSummaryScopeTypeAd {
+			snap.Zones = append(snap.Zones, zonesOf(name, ads, reads, values)...)
+		}
 	}
 	d.mu.Lock()
 	for n := range unsupported {

@@ -90,6 +90,8 @@ type LimitsAPI interface {
 	) (limits.GetResourceAvailabilityResponse, error)
 	ListLimitDefinitions(ctx context.Context, region string, req limits.ListLimitDefinitionsRequest,
 	) (limits.ListLimitDefinitionsResponse, error)
+	ListLimitValues(ctx context.Context, region string, req limits.ListLimitValuesRequest,
+	) (limits.ListLimitValuesResponse, error)
 }
 
 // Clients bundles the four services; the SDK adapter and the fake each provide

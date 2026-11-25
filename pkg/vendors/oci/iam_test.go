@@ -55,6 +55,7 @@ var methodNeeds = map[string][]need{
 	"IdentityAPI.ListAvailabilityDomains":              {{"inspect", "compartments", "tenancy"}},
 	"LimitsAPI.GetResourceAvailability":                {{"inspect", "resource-availability", "tenancy"}},
 	"LimitsAPI.ListLimitDefinitions":                   {{"inspect", "limits", "tenancy"}},
+	"LimitsAPI.ListLimitValues":                        {{"inspect", "limits", "tenancy"}},
 }
 
 // managedNeeds are the calls only a NodeClass with a managed network makes (the create
