@@ -93,8 +93,12 @@ func (g *roUpCloud) ModifyServer(context.Context, *request.ModifyServerRequest) 
 	return nil, g.deny("ModifyServer")
 }
 
-func (g *roUpCloud) DeleteServerAndStorages(context.Context, *request.DeleteServerAndStoragesRequest) error {
-	return g.deny("DeleteServerAndStorages")
+func (g *roUpCloud) DeleteServer(context.Context, *request.DeleteServerRequest) error {
+	return g.deny("DeleteServer")
+}
+
+func (g *roUpCloud) DeleteStorage(context.Context, *request.DeleteStorageRequest) error {
+	return g.deny("DeleteStorage")
 }
 
 func (g *roUpCloud) WaitForServerState(

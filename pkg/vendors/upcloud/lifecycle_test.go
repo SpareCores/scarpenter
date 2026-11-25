@@ -180,7 +180,7 @@ func TestTerminateInjectedErrors(t *testing.T) {
 		t.Fatalf("stop 503: %v", err)
 	}
 	// The server stopped between the steps: the delete finds it gone: success.
-	e.f.InjectCode("DeleteServerAndStorages", "SERVER_NOT_FOUND", 404, 1)
+	e.f.InjectCode("DeleteServer", "SERVER_NOT_FOUND", 404, 1)
 	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
 		t.Fatalf("delete 404: %v", err)
 	}
@@ -360,5 +360,223 @@ func TestPostCreateStepFailures(t *testing.T) {
 				t.Fatalf("err = %v, want Retryable", err)
 			}
 		})
+	}
+}
+
+// foreignStorage attaches a storage somebody else made to the server, with a
+// backup, the way a CSI driver or an IaC tool does: labelled as the test says.
+func (e *env) foreignStorage(server string, labels map[string]string) (storage, backup string) {
+	e.t.Helper()
+	storage = e.f.AddStorage("fi-hel1", "volume", upcloud.StorageTierMaxIOPS, 10, labels)
+	backup = e.f.AddBackup(storage)
+	if err := e.f.AttachStorage(server, storage); err != nil {
+		e.t.Fatal(err)
+	}
+	return storage, backup
+}
+
+func (e *env) storageExists(uuid string) bool {
+	for _, st := range e.f.Storages() {
+		if st.UUID == uuid {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTerminateKeepsForeignStorages(t *testing.T) {
+	foreign := map[string]map[string]string{
+		"unlabelled": nil,
+		"other tool": {"managed-by": "someone"},
+		"cluster label only": {
+			"scarpenter-cluster": "c1",
+		},
+		"another nodeclaim": {
+			"scarpenter-cluster": "c1", "scarpenter-managed-by": vendors.ManagedByValue, "scarpenter-nodeclaim": "other",
+		},
+		"offered to SCarpenter": {
+			"scarpenter-cluster": "c1", "scarpenter-managed-by": vendors.ManagedByValue, "scarpenter-nodeclaim": "nc-a",
+			LabelUse: "true",
+		},
+	}
+	states := map[string]func(e *env, uuid string){
+		"running": func(*env, string) {},
+		"stopped": func(e *env, uuid string) { e.f.ForceState(uuid, upcloud.ServerStateStopped) },
+	}
+	for sname, prepare := range states {
+		for fname, labels := range foreign {
+			t.Run(sname+"/"+fname, func(t *testing.T) {
+				e := newEnv(t, fake.Options{})
+				d := e.launch("nc-a", "1xCPU-2GB")
+				own := []string{d.StorageDevices[0].UUID}
+				vol, backup := e.foreignStorage(d.UUID, labels)
+				prepare(e, d.UUID)
+				if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+					t.Fatal(err)
+				}
+				if _, ok := e.f.Server(d.UUID); ok {
+					t.Error("the server still exists")
+				}
+				for _, id := range own {
+					if e.storageExists(id) {
+						t.Errorf("own storage %s survived", id)
+					}
+				}
+				for _, id := range []string{vol, backup} {
+					if !e.storageExists(id) {
+						t.Errorf("foreign storage or backup %s was deleted", id)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestTerminateKeepsForeignStoragesAfterAMaintenanceRetry(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	own := d.StorageDevices[0].UUID
+	vol, backup := e.foreignStorage(d.UUID, nil)
+	// A stop in progress is maintenance: Retryable, nothing is deleted.
+	if _, err := e.f.StopServer(e.ctx, &request.StopServerRequest{UUID: d.UUID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Terminate(e.ctx, e.f, d.UUID); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("maintenance: %v", err)
+	}
+	for _, id := range []string{own, vol, backup} {
+		if !e.storageExists(id) {
+			t.Fatalf("storage %s deleted while the server was in maintenance", id)
+		}
+	}
+	e.f.Settle()
+	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if e.storageExists(own) {
+		t.Error("own storage survived")
+	}
+	if !e.storageExists(vol) || !e.storageExists(backup) {
+		t.Error("foreign storage or its backup was deleted")
+	}
+}
+
+func TestTerminateReadsLabelsFromTheStorageWhenTheDeviceHasNone(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	own := e.f.AddStorage("fi-hel1", "data", upcloud.StorageTierMaxIOPS, 10, map[string]string{
+		"scarpenter-cluster": "c1", "scarpenter-managed-by": vendors.ManagedByValue, "scarpenter-nodeclaim": "nc-a",
+	})
+	if err := e.f.AttachStorage(d.UUID, own); err != nil {
+		t.Fatal(err)
+	}
+	e.f.ClearDeviceLabels(d.UUID)
+	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if e.storageExists(own) {
+		t.Error("an own storage whose device list carried no labels survived")
+	}
+}
+
+func TestTerminateKeepsAStorageAttachedElsewhere(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	other := e.launch("nc-b", "1xCPU-2GB")
+	// A storage of ours that is also attached to another server (fake-only shortcut for
+	// the STORAGE_ATTACHED branch): skipped and kept, not an error.
+	own := d.StorageDevices[0].UUID
+	if err := e.f.AttachStorage(other.UUID, own); err != nil {
+		t.Fatal(err)
+	}
+	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if !e.storageExists(own) {
+		t.Error("a storage attached to another server was deleted")
+	}
+}
+
+func TestTerminateStorageDeleteErrors(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	own := d.StorageDevices[0].UUID
+	e.f.InjectCode("DeleteStorage", "STORAGE_STATE_ILLEGAL", 409, 1)
+	if err := Terminate(e.ctx, e.f, d.UUID); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("storage not online: %v", err)
+	}
+	// The server is gone, the storage is left labelled and unattached for the collector.
+	if _, ok := e.f.Server(d.UUID); ok {
+		t.Error("the server still exists")
+	}
+	if !e.storageExists(own) {
+		t.Fatal("the storage is gone")
+	}
+	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+		t.Errorf("terminate of a gone server: %v", err)
+	}
+}
+
+func TestTerminateSkipsACDROM(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	// Even with the labels of a node's storage, a CD-ROM is not a disk SCarpenter made.
+	cd := e.f.AddStorage("fi-hel1", "iso", upcloud.StorageTierMaxIOPS, 10, map[string]string{
+		"scarpenter-cluster": "c1", "scarpenter-managed-by": vendors.ManagedByValue, "scarpenter-nodeclaim": "nc-a",
+	})
+	e.f.SetStorageType(cd, upcloud.StorageTypeCDROM)
+	if err := e.f.AttachStorage(d.UUID, cd); err != nil {
+		t.Fatal(err)
+	}
+	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if !e.storageExists(cd) {
+		t.Error("a CD-ROM was deleted")
+	}
+	if e.storageExists(d.StorageDevices[0].UUID) {
+		t.Error("the root disk survived")
+	}
+}
+
+func TestTerminateFailsBeforeDeletingAnythingWhenALabelReadFails(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	e.f.ClearDeviceLabels(d.UUID)
+	e.f.InjectCode("GetStorageDetails", "INTERNAL_ERROR", 500, 1)
+	if err := Terminate(e.ctx, e.f, d.UUID); !vendors.IsClass(err, vendors.Retryable) {
+		t.Fatalf("a failing label read: %v", err)
+	}
+	if _, ok := e.f.Server(d.UUID); !ok {
+		t.Error("the server was deleted")
+	}
+	if !e.storageExists(d.StorageDevices[0].UUID) {
+		t.Error("a storage was deleted")
+	}
+	if e.f.Calls("StopServer") != 0 || e.f.Calls("DeleteServer") != 0 || e.f.Calls("DeleteStorage") != 0 {
+		t.Error("a write call was made before the labels were known")
+	}
+}
+
+func TestTerminateDeletesNoStorageOfAServerWithoutANodeClaimLabel(t *testing.T) {
+	e := newEnv(t, fake.Options{})
+	d := e.launch("nc-a", "1xCPU-2GB")
+	var labels upcloud.LabelSlice
+	for _, l := range d.Labels {
+		if l.Key != TagKey(vendors.TagNodeClaim) {
+			labels = append(labels, l)
+		}
+	}
+	if _, err := e.f.ModifyServer(e.ctx, &request.ModifyServerRequest{UUID: d.UUID, Labels: &labels}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Terminate(e.ctx, e.f, d.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.f.Server(d.UUID); ok {
+		t.Error("the server still exists")
+	}
+	if !e.storageExists(d.StorageDevices[0].UUID) {
+		t.Error("a storage was deleted although the server names no NodeClaim")
 	}
 }

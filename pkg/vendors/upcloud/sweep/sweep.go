@@ -14,8 +14,8 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // UpCloud has no regions or projects: the account is the scope, so one list
 // call with the label filter covers every zone. The engine talks to the API
-// through the driver's narrow interface (pkg/vendors/upcloud/api) plus
-// DeleteStorage, so the in-memory fake of the driver tests runs it unchanged.
+// through the driver's narrow interface (pkg/vendors/upcloud/api), so the
+// in-memory fake of the driver tests runs it unchanged.
 //
 // Selection is conservative on purpose. Only a resource whose cluster label
 // matches (exactly, or by prefix) is touched; a resource labelled
@@ -25,8 +25,9 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 // alone when an age limit is set. The other resources have no creation stamp the
 // API reports reliably, so with an age limit they are swept only when no server
 // of their cluster is alive and young or of unknown age (the cluster's run may
-// still be using them), and a disk only when it is online and attached to
-// nothing.
+// still be using them), and a disk only when it carries the labels of a node's
+// storage (cluster, managed-by, NodeClaim: driver.IsNodeStorage), is online and
+// attached to nothing.
 package sweep
 
 import (
@@ -53,11 +54,8 @@ var ClusterLabel = upcloudTagKey(vendors.TagCluster)
 
 func upcloudTagKey(k vendors.TagKey) string { return driver.TagKey(k) }
 
-// API is what the sweep calls: the driver's API plus the deletion of a disk.
-type API interface {
-	api.API
-	DeleteStorage(ctx context.Context, r *request.DeleteStorageRequest) error
-}
+// API is what the sweep calls: the driver's API.
+type API = api.API
 
 // Options select what is swept.
 type Options struct {
@@ -380,6 +378,11 @@ func (s *sweeper) storages(ctx context.Context) error {
 		}
 		cluster, ok := s.ours(st.Labels)
 		if !ok {
+			continue
+		}
+		// Only what SCarpenter made for a node: a volume with the cluster label alone is not.
+		claim, _ := labelOf(st.Labels, driver.TagKey(vendors.TagNodeClaim))
+		if !driver.IsNodeStorage(st.Labels, cluster, claim) {
 			continue
 		}
 		it := Item{Kind: KindStorage, ID: st.UUID, Zone: st.Zone, Cluster: cluster}

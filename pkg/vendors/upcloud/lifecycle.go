@@ -8,11 +8,13 @@ package upcloud
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud"
 	"github.com/UpCloudLtd/upcloud-go-api/v8/upcloud/request"
+	"github.com/go-logr/logr"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 	"github.com/SpareCores/scarpenter/pkg/vendors/upcloud/api"
@@ -108,13 +110,16 @@ func compare(a, b string) int {
 	return 0
 }
 
-// Terminate deletes a server: UpCloud deletes only a stopped one, so it hard
-// stops it, waits for stopped, then deletes it with its storages and backups. A
-// gone server (404) and one already stopped are success of their step; a server
-// in maintenance (cloning, or a stop in progress) is Retryable. Every storage on
-// a node server belongs to it, as the create call makes them, so none outlives
-// it unless the call fails between the steps (the sweeper and the orphan pass
-// cover that).
+// Terminate deletes a server and the storages SCarpenter made for it, and
+// nothing else. UpCloud deletes only a stopped server, so it hard stops it and
+// waits for stopped. It then deletes the server without its storages, so a
+// storage someone else attached (a CSI volume, one made by an IaC tool or by hand)
+// is released, never deleted, and deletes each own storage (ownStorages) with its
+// backups. A gone server (404) and one already stopped are success of their step; a
+// server in maintenance (cloning, or a stop in progress) is Retryable. When a
+// storage delete fails after the server is gone, the next call finds no server and
+// returns nil, and CollectLeftovers removes the labelled, unattached storage once
+// its NodeClaim is gone.
 func Terminate(ctx context.Context, a api.API, uuid string) error {
 	d, err := GetServer(ctx, a, uuid)
 	if err != nil {
@@ -123,24 +128,105 @@ func Terminate(ctx context.Context, a api.API, uuid string) error {
 		}
 		return err
 	}
-	switch d.State {
-	case upcloud.ServerStateMaintenance:
+	if d.State == upcloud.ServerStateMaintenance {
 		return vendors.Errorf(vendors.Retryable, "server %s is in maintenance: cloning or a stop in progress", uuid)
-	case upcloud.ServerStateStopped:
-	default:
+	}
+	own, err := ownStorages(ctx, a, d)
+	if err != nil {
+		return err
+	}
+	if d.State != upcloud.ServerStateStopped {
 		if err := stop(ctx, a, uuid); err != nil {
 			return err
 		}
 	}
 	dctx, cancel := CallContext(ctx, CallTimeout)
-	defer cancel()
-	err = a.DeleteServerAndStorages(dctx, &request.DeleteServerAndStoragesRequest{
-		UUID: uuid, Backups: request.DeleteStorageBackupsModeDelete,
-	})
+	err = a.DeleteServer(dctx, &request.DeleteServerRequest{UUID: uuid})
+	cancel()
 	if err != nil && !isGone(Classify(err)) {
 		return classifyDelete(err)
 	}
-	return nil
+	var first error
+	for _, id := range own {
+		if _, err := DeleteStorage(ctx, a, id); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// ownStorages are the UUIDs of the server's storages that SCarpenter made for it:
+// the labels of the node's storages (StorageLabels) with the server's cluster, the
+// managed-by marker and the server's own NodeClaim, and no scarpenter-use. The
+// labels come from the server's storage devices; a device without any is read from
+// the storage itself. CD-ROMs and templates are never listed. A read that fails
+// fails the call before anything is deleted.
+func ownStorages(ctx context.Context, a api.API, d *upcloud.ServerDetails) ([]string, error) {
+	tags := TagsOf(d.Labels)
+	var out []string
+	for _, dev := range d.StorageDevices {
+		if dev.Type == upcloud.StorageTypeCDROM || dev.Type == upcloud.StorageTypeTemplate {
+			continue
+		}
+		labels := dev.Labels
+		if len(labels) == 0 {
+			sctx, cancel := CallContext(ctx, CallTimeout)
+			st, err := a.GetStorageDetails(sctx, &request.GetStorageDetailsRequest{UUID: dev.UUID})
+			cancel()
+			if err != nil {
+				if isGone(Classify(err)) {
+					continue
+				}
+				return nil, Classify(err)
+			}
+			labels = st.Labels
+		}
+		if IsNodeStorage(labels, tags[vendors.TagCluster], tags[vendors.TagNodeClaim]) {
+			out = append(out, dev.UUID)
+		}
+	}
+	return out, nil
+}
+
+// IsNodeStorage says whether the labels are those of a node's storage of the
+// cluster and NodeClaim: all three of StorageLabels, none empty, and not
+// scarpenter-use (what an operator offers to SCarpenter).
+func IsNodeStorage(labels []upcloud.Label, cluster, nodeClaim string) bool {
+	if cluster == "" || nodeClaim == "" {
+		return false
+	}
+	for _, l := range labels {
+		if l.Key == LabelUse {
+			return false
+		}
+	}
+	tags := TagsOf(labels)
+	return tags[vendors.TagManagedBy] == vendors.ManagedByValue &&
+		tags[vendors.TagCluster] == cluster && tags[vendors.TagNodeClaim] == nodeClaim
+}
+
+// DeleteStorage deletes a storage with its backups and says whether this call
+// deleted it. A gone storage is success without a delete, and so is one attached to
+// a server (someone attached it elsewhere; it is not ours to detach, and
+// CollectLeftovers takes it once it is unattached and its NodeClaim is gone): that
+// case is logged. A storage not online is Retryable.
+func DeleteStorage(ctx context.Context, a api.API, uuid string) (deleted bool, err error) {
+	dctx, cancel := CallContext(ctx, CallTimeout)
+	defer cancel()
+	err = a.DeleteStorage(dctx, &request.DeleteStorageRequest{
+		UUID: uuid, Backups: request.DeleteStorageBackupsModeDelete,
+	})
+	if err == nil {
+		return true, nil
+	}
+	if isGone(Classify(err)) {
+		return false, nil
+	}
+	if p, ok := errors.AsType[*upcloud.Problem](err); ok && p.ErrorCode() == upcloud.ErrCodeStorageAttached {
+		logr.FromContextOrDiscard(ctx).Info("a storage of the node is attached to another server: kept", "storage", uuid)
+		return false, nil
+	}
+	return false, classifyDelete(err)
 }
 
 func stop(ctx context.Context, a api.API, uuid string) error {
@@ -166,7 +252,7 @@ func stop(ctx context.Context, a api.API, uuid string) error {
 }
 
 // StorageLabels are the labels of a node's storages: the cluster, the NodeClaim
-// and the managed-by marker, which the sweeper and the orphan pass find them by.
+// and the managed-by marker, which Terminate, CollectLeftovers and the sweeper find them by.
 // They are set in the create call (CreateServer).
 func StorageLabels(tags map[vendors.TagKey]string) []upcloud.Label {
 	var out []upcloud.Label

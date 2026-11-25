@@ -59,7 +59,7 @@ func TestServerLifecycle(t *testing.T) {
 		t.Fatalf("a new server is %s, want maintenance while its storage is cloned", d.State)
 	}
 	// Delete and stop of a server in maintenance are refused.
-	if err := f.DeleteServerAndStorages(ctx, &request.DeleteServerAndStoragesRequest{UUID: d.UUID}); code(err) != "SERVER_STATE_ILLEGAL" {
+	if err := f.DeleteServer(ctx, &request.DeleteServerRequest{UUID: d.UUID}); code(err) != "SERVER_STATE_ILLEGAL" {
 		t.Errorf("delete in maintenance: %v", err)
 	}
 	if _, err := f.StopServer(ctx, &request.StopServerRequest{UUID: d.UUID}); code(err) != "SERVER_STATE_ILLEGAL" {
@@ -69,13 +69,13 @@ func TestServerLifecycle(t *testing.T) {
 		t.Fatalf("wait: %v %v", got, err)
 	}
 	// A started server cannot be deleted; a stop passes through maintenance.
-	if err := f.DeleteServerAndStorages(ctx, &request.DeleteServerAndStoragesRequest{UUID: d.UUID}); code(err) != "SERVER_STATE_ILLEGAL" {
+	if err := f.DeleteServer(ctx, &request.DeleteServerRequest{UUID: d.UUID}); code(err) != "SERVER_STATE_ILLEGAL" {
 		t.Errorf("delete started: %v", err)
 	}
 	if s, err := f.StopServer(ctx, &request.StopServerRequest{UUID: d.UUID, StopType: "hard"}); err != nil || s.State != "maintenance" {
 		t.Fatalf("stop: %v %v", s, err)
 	}
-	if err := f.DeleteServerAndStorages(ctx, &request.DeleteServerAndStoragesRequest{UUID: d.UUID}); code(err) != "SERVER_STATE_ILLEGAL" {
+	if err := f.DeleteServer(ctx, &request.DeleteServerRequest{UUID: d.UUID}); code(err) != "SERVER_STATE_ILLEGAL" {
 		t.Errorf("delete while stopping: %v", err)
 	}
 	if _, err := f.WaitForServerState(ctx, &request.WaitForServerStateRequest{UUID: d.UUID, DesiredState: "stopped"}); err != nil {
@@ -84,17 +84,56 @@ func TestServerLifecycle(t *testing.T) {
 	if _, err := f.StopServer(ctx, &request.StopServerRequest{UUID: d.UUID}); code(err) != "SERVER_STATE_ILLEGAL" {
 		t.Errorf("stop of a stopped server: %v", err)
 	}
-	if err := f.DeleteServerAndStorages(ctx, &request.DeleteServerAndStoragesRequest{UUID: d.UUID, Backups: "delete"}); err != nil {
+	if err := f.DeleteServer(ctx, &request.DeleteServerRequest{UUID: d.UUID}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.GetServerDetails(ctx, &request.GetServerDetailsRequest{UUID: d.UUID}); code(err) != "SERVER_NOT_FOUND" {
 		t.Errorf("get after delete: %v", err)
 	}
-	if err := f.DeleteServerAndStorages(ctx, &request.DeleteServerAndStoragesRequest{UUID: d.UUID}); code(err) != "SERVER_NOT_FOUND" {
+	if err := f.DeleteServer(ctx, &request.DeleteServerRequest{UUID: d.UUID}); code(err) != "SERVER_NOT_FOUND" {
 		t.Errorf("second delete: %v", err)
 	}
-	if got := len(f.Storages()); got != 1 {
-		t.Errorf("storages left = %d, want the template only", got)
+	// The server's storages outlive it, unattached; only a storage delete removes them.
+	if got := len(f.Storages()); got != 2 {
+		t.Errorf("storages left = %d, want the template and the root disk", got)
+	}
+}
+
+func TestStorageAttachAndDelete(t *testing.T) {
+	f, tpl := setup(t, Options{AutoSettle: true})
+	d, err := f.CreateServer(ctx, createReq(f, "1xCPU-2GB", tpl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vol := f.AddStorage("fi-hel1", "volume", "maxiops", 10, map[string]string{"owner": "someone"})
+	backup := f.AddBackup(vol)
+	if err := f.AttachStorage(d.UUID, vol); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := f.GetServerDetails(ctx, &request.GetServerDetailsRequest{UUID: d.UUID})
+	if n := len(got.StorageDevices); n != 2 || got.StorageDevices[1].UUID != vol {
+		t.Fatalf("devices = %+v, want the root disk and the volume", got.StorageDevices)
+	}
+	if err := f.DeleteStorage(ctx, &request.DeleteStorageRequest{UUID: vol}); code(err) != "STORAGE_ATTACHED" {
+		t.Errorf("delete of an attached storage: %v", err)
+	}
+	if _, err := f.StopServer(ctx, &request.StopServerRequest{UUID: d.UUID, StopType: "hard"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.DeleteServer(ctx, &request.DeleteServerRequest{UUID: d.UUID}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := f.GetStorageDetails(ctx, &request.GetStorageDetailsRequest{UUID: vol})
+	if err != nil || len(st.ServerUUIDs) != 0 {
+		t.Fatalf("after the server delete: %v %v, want an unattached storage", st, err)
+	}
+	if err := f.DeleteStorage(ctx, &request.DeleteStorageRequest{UUID: vol, Backups: "delete"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{vol, backup} {
+		if _, err := f.GetStorageDetails(ctx, &request.GetStorageDetailsRequest{UUID: id}); code(err) != "STORAGE_NOT_FOUND" {
+			t.Errorf("storage %s after delete with backups: %v", id, err)
+		}
 	}
 }
 
@@ -303,7 +342,7 @@ func TestStrictAntiAffinity(t *testing.T) {
 	}
 	// Deleting a member frees a slot, the group stays after its servers.
 	f.ForceState(members[0], "stopped")
-	if err := f.DeleteServerAndStorages(ctx, &request.DeleteServerAndStoragesRequest{UUID: members[0]}); err != nil {
+	if err := f.DeleteServer(ctx, &request.DeleteServerRequest{UUID: members[0]}); err != nil {
 		t.Fatal(err)
 	}
 	r = createReq(f, "1xCPU-1GB", tpl)

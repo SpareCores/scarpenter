@@ -215,7 +215,7 @@ func callUpCloud(g *roUpCloud, name string) (err error) {
 func TestIsUpCloudRead(t *testing.T) {
 	for op, want := range map[string]bool{
 		"GetZones": true, "GetServersWithFilters": true, "GetFirewallRulesets": true,
-		"CreateServer": false, "DeleteServerAndStorages": false, "WaitForServerState": false, "ModifyStorage": false,
+		"CreateServer": false, "DeleteServer": false, "DeleteStorage": false, "WaitForServerState": false, "ModifyStorage": false,
 		"AttachPrivateFirewallRuleset": false, "get": false, "": false,
 	} {
 		if got := isUpCloudRead(op); got != want {

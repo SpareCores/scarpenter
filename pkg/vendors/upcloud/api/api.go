@@ -38,12 +38,15 @@ type API interface {
 	) (*upcloud.ServerDetails, error)
 	StopServer(ctx context.Context, r *request.StopServerRequest) (*upcloud.ServerDetails, error)
 	ModifyServer(ctx context.Context, r *request.ModifyServerRequest) (*upcloud.ServerDetails, error)
-	DeleteServerAndStorages(ctx context.Context, r *request.DeleteServerAndStoragesRequest) error
+	// DeleteServer deletes a stopped server and keeps every storage attached to it
+	// (the SDK call without its storages option).
+	DeleteServer(ctx context.Context, r *request.DeleteServerRequest) error
 	WaitForServerState(ctx context.Context, r *request.WaitForServerStateRequest) (*upcloud.ServerDetails, error)
 
 	GetStorages(ctx context.Context, r *request.GetStoragesRequest) (*upcloud.Storages, error)
 	GetStorageDetails(ctx context.Context, r *request.GetStorageDetailsRequest) (*upcloud.StorageDetails, error)
 	ModifyStorage(ctx context.Context, r *request.ModifyStorageRequest) (*upcloud.StorageDetails, error)
+	DeleteStorage(ctx context.Context, r *request.DeleteStorageRequest) error
 
 	GetNetworks(ctx context.Context, f ...request.QueryFilter) (*upcloud.Networks, error)
 	GetNetworkDetails(ctx context.Context, r *request.GetNetworkDetailsRequest) (*upcloud.Network, error)

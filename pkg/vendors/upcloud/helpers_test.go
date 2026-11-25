@@ -71,7 +71,7 @@ func (e *env) launch(name, plan string) *upcloud.ServerDetails {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	d, err := CreateServer(e.ctx, e.f, r)
+	d, err := CreateServer(e.ctx, e.f, r, StorageLabels(TagsOf(*r.Labels))...)
 	if err != nil {
 		e.t.Fatal(err)
 	}

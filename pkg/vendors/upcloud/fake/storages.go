@@ -31,8 +31,32 @@ func (f *Fake) AddStorage(zone, title, tier string, sizeGB int, labels map[strin
 	return st.d.UUID
 }
 
-// DeleteStorage deletes a storage that no server uses (STORAGE_IN_USE, 409,
-// otherwise).
+// RemoveStorage deletes a storage as another client would (a fixture).
+func (f *Fake) RemoveStorage(uuid string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.storages, uuid)
+}
+
+// AddBackup adds a backup of a storage and returns its UUID. Backups are deleted
+// with their storage only when the delete asks for it (backups=delete).
+func (f *Fake) AddBackup(storageUUID string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	src := f.storages[storageUUID]
+	b := &storage{}
+	b.d.UUID = f.uuid('b')
+	b.d.Zone, b.d.Title, b.d.Size = src.d.Zone, "backup of "+src.d.Title, src.d.Size
+	b.d.Access, b.d.Type, b.d.Origin = upcloud.StorageAccessPrivate, upcloud.StorageTypeBackup, storageUUID
+	b.d.State = upcloud.StorageStateOnline
+	f.storages[b.d.UUID] = b
+	src.d.BackupUUIDs = append(src.d.BackupUUIDs, b.d.UUID)
+	return b.d.UUID
+}
+
+// DeleteStorage deletes an online storage that no server uses, and its backups
+// when the request says backups=delete. An attached storage is STORAGE_ATTACHED
+// (409), one that is not online STORAGE_STATE_ILLEGAL (409).
 func (f *Fake) DeleteStorage(ctx context.Context, r *request.DeleteStorageRequest) error {
 	done, err := f.begin(ctx, "DeleteStorage")
 	if err != nil {
@@ -43,11 +67,15 @@ func (f *Fake) DeleteStorage(ctx context.Context, r *request.DeleteStorageReques
 	if !ok {
 		return notFound("STORAGE_NOT_FOUND")
 	}
-	for _, s := range f.servers {
-		for _, d := range s.d.StorageDevices {
-			if d.UUID == st.d.UUID {
-				return conflict("STORAGE_IN_USE")
-			}
+	if len(st.d.ServerUUIDs) > 0 {
+		return conflict("STORAGE_ATTACHED")
+	}
+	if st.d.State != upcloud.StorageStateOnline {
+		return conflict("STORAGE_STATE_ILLEGAL")
+	}
+	if r.Backups == request.DeleteStorageBackupsModeDelete {
+		for _, id := range st.d.BackupUUIDs {
+			delete(f.storages, id)
 		}
 	}
 	delete(f.storages, r.UUID)
