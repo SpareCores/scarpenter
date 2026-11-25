@@ -8,18 +8,19 @@ package fake
 
 import "slices"
 
-// AttachVolume attaches a block volume of another owner to the instance, the way
-// a user does after the launch. Terminating the instance detaches it and keeps
-// it: PreserveDataVolumesCreatedAtLaunch covers only volumes made at launch. It
-// returns the volume's ID.
-func (c *Cloud) AttachVolume(regionName, instanceID string) string {
+// AttachVolume makes a block volume of another owner, as a user attaches one
+// after the launch. Terminating an instance never touches it
+// (PreserveDataVolumesCreatedAtLaunch covers only volumes made at launch), so the
+// volume is a tripwire for a driver that starts deleting by attachment. It returns
+// the volume's ID.
+func (c *Cloud) AttachVolume(regionName string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.volumes == nil {
-		c.volumes = map[string]string{}
+		c.volumes = map[string]bool{}
 	}
 	id := c.nextID("volume", regionName)
-	c.volumes[id] = instanceID
+	c.volumes[id] = true
 	return id
 }
 
@@ -33,14 +34,4 @@ func (c *Cloud) Volumes() []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-// detachVolumes detaches the volumes of a terminated instance. The caller holds
-// the lock.
-func (c *Cloud) detachVolumes(instanceID string) {
-	for id, inst := range c.volumes {
-		if inst == instanceID {
-			c.volumes[id] = ""
-		}
-	}
 }

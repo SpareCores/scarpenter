@@ -111,7 +111,7 @@ type Account struct {
 	servers   []*bareMetal
 	groups    []*group
 	vpcs      []*govultr.VPC
-	blocks    map[string]string // block storage ID -> instance ID, "" when detached (AttachBlock)
+	blocks    map[string]bool // block storage volumes AttachBlock made
 
 	// injected errors: failures[method] is consumed one per call; sticky stays.
 	failures map[string][]error
@@ -651,25 +651,21 @@ func (a *Account) DeleteInstance(_ context.Context, id string) error {
 	if g := a.group(in.FirewallGroupID); g != nil {
 		g.InstanceCount--
 	}
-	for b, attachedTo := range a.blocks {
-		if attachedTo == id {
-			a.blocks[b] = ""
-		}
-	}
 	a.instances = slices.Delete(a.instances, i, i+1)
 	return nil
 }
 
-// AttachBlock attaches a block storage volume of another owner to the instance;
-// deleting the instance detaches it and keeps it. It returns the volume's ID.
-func (a *Account) AttachBlock(instanceID string) string {
+// AttachBlock makes a block storage volume of another owner, as a user attaches
+// one to an instance. Deleting an instance never touches it, so the volume is a
+// tripwire for a driver that starts deleting by attachment. It returns the ID.
+func (a *Account) AttachBlock() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.blocks == nil {
-		a.blocks = map[string]string{}
+		a.blocks = map[string]bool{}
 	}
 	id := a.id("blk")
-	a.blocks[id] = instanceID
+	a.blocks[id] = true
 	return id
 }
 

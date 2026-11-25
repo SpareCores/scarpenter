@@ -176,17 +176,18 @@ longer than `--terminating-grace` (default 10 minutes; the first sighting is in 
 restart restarts the clock). A driver that stops an instance before it deletes it answers
 `DeleteInstance` with a `Retryable` error of code `vendors.CodeStopping` until it is stopped.
 `DeleteInstance` of a terminating instance must therefore work and be idempotent.
-Terminating never deletes what SCarpenter did not create, whether the instance is
-running, stopped or already gone: a volume or address that a user or a CSI driver attached
-is detached or left as it is, and `DeleteInstance` removes only the resources the driver
-made for the instance (selected by their tags, labels or recorded IDs, not by what is
-attached to the instance). Resources that cannot exist without their instance, such as
-some vendors' network interfaces, go with it as the vendor does it. A user who attaches
-a volume with the vendor's own "delete with instance" flag set has chosen its deletion.
-
 Instances the vendor is really deleting disappear inside the grace and cost no extra call.
 The rule saves what is charged from now on (the following billing periods, the disks, the
 addresses), never the billing period that has started ([ADR-024](../explanation/DECISIONS.md#adr-024-billing-period-aware-node-retention-accepted-2026-11-10)).
+
+Terminating never deletes what SCarpenter did not create, whether the instance is
+running, stopped or already gone: a volume or address that a user or a CSI driver attached
+is detached or left as it is. `DeleteInstance` removes only what it made for the instance:
+what it launched with the vendor's delete-with-instance flag, and what it finds by its own
+tags, labels or recorded IDs, never by attachment. Resources that cannot exist without
+their instance, such as some vendors' network interfaces, go with it as the vendor does it.
+A user who attaches a volume with the vendor's own "delete with instance" flag set has
+chosen its deletion.
 
 ## Node options and vendor resources
 
@@ -445,7 +446,7 @@ idempotent create and the two key rules, NotFound semantics, malformed reference
 (`NotFound`, never `Fatal`), the idempotency label (drivers that store it), list by tags, the billing start rules (see [billing](#billing)), the stopped-node rule (the fixture's `PowerOff`
 hook stops an instance; it must report `terminating`, stay listed and delete cleanly), delete idempotency, the terminate rule (the
 fixture's `AttachForeign` hook attaches an untagged volume, and an IP where the vendor has one; `DeleteInstance` of a running, a powered-off
-and a deleted instance, and `CollectLeftovers` with no NodeClaims, must leave them), tag
+and an already deleted instance, and `CollectLeftovers` with no NodeClaims, must leave them), tag
 round trip, user-data limit, error classification (the fixture's `Inject` hook
 makes the next launch fail with a class), and for `QuotaReporter` drivers: every
 type maps to buckets or is on the fixture's unknown list, launches show up in

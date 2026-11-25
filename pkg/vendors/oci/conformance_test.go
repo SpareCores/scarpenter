@@ -114,7 +114,7 @@ func fixture(t *testing.T, kind vendors.ResourceKind) conformance.Fixture {
 		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
 			t.Helper()
 			c := envOf(t, d).c
-			vol := c.AttachVolume(ref.Region(), ref.ID())
+			vol := c.AttachVolume(ref.Region())
 			return func() bool { return slices.Contains(c.Volumes(), vol) }
 		},
 		Interrupt: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef, _ time.Time) {

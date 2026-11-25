@@ -98,7 +98,7 @@ func conformanceFixture(t *testing.T, kind vendors.ResourceKind) conformance.Fix
 		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
 			t.Helper()
 			acct := accountOf(t, d)
-			block := acct.AttachBlock(ref.ID())
+			block := acct.AttachBlock()
 			return func() bool { return acct.BlockExists(block) }
 		},
 		Profiles: vendors.Profiles{

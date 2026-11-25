@@ -10,15 +10,13 @@ import "slices"
 
 // diskRec is a data disk of another owner that is attached to an instance.
 type diskRec struct {
-	instance           string // "" when detached
-	deleteWithInstance bool
+	instance string // "" when detached
 }
 
 // AttachDisk creates a data disk of another owner and attaches it to the
-// instance. deleteWithInstance is the disk's DeleteWithInstance attribute (the
-// default of AttachDisk is false); releasing the instance deletes the disk only
-// when it is set and detaches it otherwise. It returns the disk's ID.
-func (f *Cloud) AttachDisk(regionName, instanceID string, deleteWithInstance bool) string {
+// instance with the default DeleteWithInstance=false: releasing the instance
+// detaches the disk and keeps it. It returns the disk's ID.
+func (f *Cloud) AttachDisk(regionName, instanceID string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r := f.mustRegion(regionName)
@@ -26,7 +24,7 @@ func (f *Cloud) AttachDisk(regionName, instanceID string, deleteWithInstance boo
 		r.disks = map[string]*diskRec{}
 	}
 	id := f.nextID("d")
-	r.disks[id] = &diskRec{instance: instanceID, deleteWithInstance: deleteWithInstance}
+	r.disks[id] = &diskRec{instance: instanceID}
 	return id
 }
 
@@ -44,12 +42,8 @@ func (f *Cloud) DiskIDs(regionName string) []string {
 
 // releaseDisks handles the disks of a released instance.
 func (r *regionState) releaseDisks(instanceID string) {
-	for id, d := range r.disks {
-		switch {
-		case d.instance != instanceID:
-		case d.deleteWithInstance:
-			delete(r.disks, id)
-		default:
+	for _, d := range r.disks {
+		if d.instance == instanceID {
 			d.instance = ""
 		}
 	}

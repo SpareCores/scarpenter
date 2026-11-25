@@ -301,7 +301,6 @@ func (c *Cloud) TerminateInstance(ctx context.Context, regionName string, req co
 	for i := range c.attach[*in.Id] {
 		c.attach[*in.Id][i].LifecycleState = core.VnicAttachmentLifecycleStateDetached
 	}
-	c.detachVolumes(*in.Id)
 	return core.TerminateInstanceResponse{}, nil
 }
 

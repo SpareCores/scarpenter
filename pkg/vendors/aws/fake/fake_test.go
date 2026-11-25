@@ -867,3 +867,19 @@ func TestInstancesGetIPv6OnlyFromASubnetWithIt(t *testing.T) {
 		t.Errorf("a subnet without IPv6: %v", err)
 	}
 }
+
+func TestTerminateKeepsVolumeWithoutDeleteOnTermination(t *testing.T) {
+	a, c, _ := newAccount(t)
+	out, err := run(t, c, func(in *ec2.RunInstancesInput) {
+		in.BlockDeviceMappings = []types.BlockDeviceMapping{{DeviceName: new("/dev/sdf"), Ebs: &types.EbsBlockDevice{DeleteOnTermination: new(false)}}}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{*out.Instances[0].InstanceId}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(a.Volumes("us-east-1")); n != 1 {
+		t.Errorf("%d volumes after terminate, want the one without DeleteOnTermination", n)
+	}
+}

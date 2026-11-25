@@ -143,7 +143,7 @@ func conformanceFixture0(t *testing.T, kind vendors.ResourceKind, params func(*t
 		AttachForeign: func(t *testing.T, d vendors.Driver, ref vendors.InstanceRef) func() bool {
 			t.Helper()
 			acct := envOf(t, d).acct
-			disk := acct.AttachDisk(ref.Region(), ref.ID(), false)
+			disk := acct.AttachDisk(ref.Region(), ref.ID())
 			return func() bool { return slices.Contains(acct.DiskIDs(ref.Region()), disk) }
 		},
 		ExhaustQuota: func(t *testing.T, d vendors.Driver, _ vendors.CreateRequest) {

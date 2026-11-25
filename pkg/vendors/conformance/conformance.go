@@ -684,7 +684,7 @@ func terminateKeepsForeign(t *testing.T, e *env) {
 		deleteUntilNil(t, inst.Ref)
 		check(t, stillExists)
 	})
-	t.Run("already gone", func(t *testing.T) {
+	t.Run("deleted again", func(t *testing.T) {
 		inst := e.create(t, e.request(t))
 		stillExists := e.fx.AttachForeign(t, e.d, inst.Ref)
 		deleteUntilNil(t, inst.Ref)
