@@ -1,129 +1,100 @@
 # OCI bare metal
 
-Why Flatcar nodes do not boot on OCI bare metal shapes, what the boot test showed, and what is
-missing. Tested on 2026-11-25 with Flatcar stable 4757.2.3 (Linux 6.12.114) on `BM.Standard.E2.64`
-in `eu-frankfurt-1`. The OCI driver itself is described in the [OCI driver reference](../reference/oci-driver.md).
+OCI bare metal shapes boot Flatcar when the image is the SpareCores Flatcar iSCSI image. Flatcar's own
+`oraclecloud` image does not boot on them. The OCI driver itself is described in the
+[OCI driver reference](../reference/oci-driver.md).
 
 ## Table of Contents
 
 - [Status](#status)
-- [The boot test](#the-boot-test)
-- [What the console shows](#what-the-console-shows)
-- [Why it fails](#why-it-fails)
-- [Upstream support](#upstream-support)
-- [Ways forward](#ways-forward)
+- [Why the stock image fails](#why-the-stock-image-fails)
+- [What the SpareCores image adds](#what-the-sparecores-image-adds)
+- [Getting the image](#getting-the-image)
+- [Operations](#operations)
+- [Limits](#limits)
 
 ## Status
 
-Flatcar's `oraclecloud` image does not boot on OCI bare metal. The kernel starts, but it never
-finds the boot volume, so the node never registers. VM shapes are not affected. Adding the iBFT kernel
-arguments to the image does not help: the failure happens in Flatcar's early init, before they act. A fix
-needs an upstream Flatcar change (see [Why it fails](#why-it-fails)).
+The SpareCores image (platform `oraclecloud-iscsi`, from
+[SpareCores/flatcar-images](https://github.com/SpareCores/flatcar-images), amd64) booted on `BM.Standard.E2.64`
+through two boots across a guest reboot, with the root on iSCSI, `iscsid` running with a 6000 s replacement
+timeout, and a `systemd-networkd` restart under I/O. The same image boots unchanged on VM shapes. The upstream
+issue is [flatcar/Flatcar#2516](https://github.com/flatcar/Flatcar/issues/2516).
 
-The driver launches only the shapes on an image's compatibility list (see
-[Launch](../reference/oci-driver.md#launch)): a bare metal shape that is not on the list is
-`InvalidOffering` (`ImageNotCompatible`) without a launch call. So keep bare metal shapes off the
-compatibility lists of the Flatcar images. A bare metal shape on the list launches an instance that is
-billed until the registration timeout deletes it, and the provisioner then tries the shape again.
+Nothing in SCarpenter treats a bare metal shape differently from a VM shape except these rules:
 
-## The boot test
+- The driver launches only the shapes on the image's compatibility list (see
+  [Launch](../reference/oci-driver.md#launch)). Add the bare metal shapes you want to the list of the SpareCores
+  image, and only of that image: a bare metal shape on the list of the stock image launches an instance that never
+  registers and is billed until the registration timeout deletes it.
+- Bare metal shapes are fixed shapes: the launch sends no `shapeConfig`.
+- Bare metal has no preemptible capacity: it is launched on demand only, and a spot request for it is `Unsupported`.
+- A bare metal node needs about 15 minutes from the launch to Ready, so the shape is launched only while Karpenter's
+  registration timeout (`--registration-timeout`, chart value `karpenter.registrationTimeout`) is at least 20
+  minutes. While it is shorter the shape is `NotLaunchable`, and a create is `Unsupported`
+  (`BareMetalRegistrationTimeout`).
 
-- The image was Flatcar's own `oraclecloud` image, imported as a custom image. Its compatibility list had
-  `BM.Standard.E2.64` added and no other bare metal shape.
-- A pod that selected `oci.BM.Standard.E2.64` in `eu-frankfurt-1` made SCarpenter launch one node. OCI
-  accepted the launch, and the instance reached `Running`.
-- The node never registered. After the 25 minute registration timeout the NodeClaim was deleted
-  together with its instance, and the provisioner launched a second instance, which failed the same way.
-- The serial console history of the second instance was captured while it was running
-  (`oci compute console-history capture`, then `get-content`).
-- A second test used a separate custom image of the same Flatcar release. Its OEM partition `grub.cfg` set
-  `linux_append="$linux_append rd.iscsi.firmware=1 rd.iscsi.ibft=1 ip=ibft rd.neednet=1 console=tty0 console=ttyS0,115200n8"`.
-  It was launched on `BM.Standard.E2.64` in `eu-frankfurt-1` and failed the same way.
+## Why the stock image fails
 
-## What the console shows
+OCI attaches the boot volume of a bare metal instance over iSCSI. The firmware logs in to the target and loads GRUB
+and the kernel from it, but its session ends when the kernel starts. The operating system must log in again, using
+the iSCSI Boot Firmware Table (iBFT) the firmware leaves behind.
 
-- **Firmware:** the machine boots through iPXE, whose banner lists
-  `Features: DNS HTTP HTTPS iSCSI TFTP AoE EFI Menu`. It reaches the boot volume over iSCSI, and
-  GRUB shows its `Flatcar default` entry.
-- **Kernel:** Linux 6.12.114-flatcar starts with
-  `mount.usr=/dev/mapper/usr verity.usr=PARTUUID=… root=LABEL=ROOT console=ttyS0,115200n8 console=tty0 flatcar.first_boot=detected flatcar.oem.id=oraclecloud`.
-  There is no `rd.iscsi.*` argument. (This is the stock image. In the second test the arguments above are
-  appended last, because GRUB puts `$linux_append` at the end of the command line.)
-- **Hardware detection** ends about 15 s after boot. There is no NVMe device, no `Attached SCSI disk`
-  line and no network driver line. The only disk controller found is an AHCI controller whose one port
-  reports `SATA link down`.
-- **Userspace:** nothing from the initramfs, systemd or Ignition reaches the serial console. With
-  `console=tty0` last, `/dev/console` is the screen, and the serial console gets only kernel messages.
-- **Reboot:** about 6 minutes after boot (378 s) the kernel logs `reboot: Restarting system`, a clean
-  restart. The firmware and GRUB then start again.
-- **With the iBFT arguments:** the kernel log has `ACPI: iBFT ... ORACLE`, so the firmware publishes the
-  iSCSI boot table. The console then prints `Waiting for drive...` and, every 5 s, `Still waiting for drive...`.
-  After `rd.earlytimeout` (default 300 s) it reports an error, waits 60 s at the emergency prompt and
-  reboots. This matches the 378 s reboot of the stock image.
+Flatcar's initramfs starts with a minimal busybox early init (`minimal-init` in
+[flatcar/bootengine](https://github.com/flatcar/bootengine)). It looks for the `/usr` partition among the kernel's
+block devices before it loads the dracut initrd, which has the `iscsi` module. The early init has no iSCSI login, so
+with an iSCSI-only boot volume no block device appears, it waits for the drive and reboots. Kernel arguments such as
+`rd.iscsi.firmware=1` do not help, because the dracut initrd that reads them is never reached. On VM shapes the boot
+volume is a paravirtualized disk that Linux sees directly.
 
-## Why it fails
+## What the SpareCores image adds
 
-OCI attaches the boot volume of a bare metal instance over iSCSI. The firmware logs in to the target and loads
-GRUB and the kernel from it, but its iSCSI session ends when the kernel starts. The operating system must log in
-again, using the iSCSI Boot Firmware Table (iBFT) that the firmware leaves behind. The kernel of the 4757 branch
-has the pieces: `ISCSI_IBFT=y`, `ISCSI_IBFT_FIND=y`, `ISCSI_TCP=m`, and the NIC drivers `BNXT` and `MLX5_CORE` as
-modules
-([commonconfig-6.12](https://github.com/flatcar/scripts/blob/flatcar-4757/sdk_container/src/third_party/coreos-overlay/sys-kernel/coreos-modules/files/commonconfig-6.12),
-[amd64_defconfig-6.12](https://github.com/flatcar/scripts/blob/flatcar-4757/sdk_container/src/third_party/coreos-overlay/sys-kernel/coreos-modules/files/amd64_defconfig-6.12)).
+- An extra initrd on the OEM partition that logs in to the iBFT iSCSI boot volume, and only when an iBFT exists, so
+  the image is unchanged on VMs.
+- `iscsid` kept running after the root is mounted, with the iBFT initiator name and a replacement timeout of 6000 s,
+  so a short loss of the path does not fail the root.
+- The boot NIC's address kept, so networking does not drop the iSCSI connection of the root.
 
-The failure is in the order of Flatcar's boot, not in the kernel arguments. Flatcar's initramfs is a minimal
-busybox early init (`minimal-init` in [flatcar/bootengine](https://github.com/flatcar/bootengine)). It must
-find the `/usr` partition (`verity.usr=PARTUUID=...`) among the kernel's block devices, set up dm-verity and
-mount `/usr`. Only then does it load the real dracut initrd, `/usr/lib/flatcar/bootengine.img`, which contains
-dracut's `iscsi` module (`--add "flatcar-network i18n iscsi systemd-coredump"` in
-[`update-bootengine`](https://github.com/flatcar/bootengine/blob/main/update-bootengine)). The early init has
-no iSCSI login. With the boot volume reachable only over iSCSI, no block device ever appears, so the init waits
-for the drive until `rd.earlytimeout` and reboots. The `rd.iscsi.*` and `ip=ibft` arguments are never acted on,
-because the dracut initrd that reads them is not reached.
+## Getting the image
 
-So no kernel argument or OEM or image change on our side fixes it. A fix needs an upstream Flatcar change: an
-iBFT iSCSI login (for example `iscsistart -b`) in the early init before it looks for the drive, or an
-equivalent.
+Both ways give the same image, the release
+[stable-4757.2.3-r5](https://github.com/SpareCores/flatcar-images/releases/tag/stable-4757.2.3-r5) of
+SpareCores/flatcar-images. Then add the shapes to the compatibility list and tag the image as in
+[Set up OCI](../how-to-guides/set-up-oci.md).
 
-On VM shapes the boot volume is a paravirtualized disk that Linux sees directly, so the same image boots.
+**A. The public copy.** A copy of the image is available in a public Object Storage bucket (it is a convenience, not a
+promise that the object stays). Import it into your compartment:
 
-## Upstream support
+```
+oci compute image import from-object-uri \
+  --uri https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frihwb5ywtth/b/sc-flatcar-images-public/o/flatcar-oraclecloud-iscsi-stable-4757.2.3-r5-amd64.qcow2 \
+  --source-image-type QCOW2 --launch-mode PARAVIRTUALIZED \
+  --operating-system Flatcar --operating-system-version 4757.2.3 \
+  --display-name flatcar-stable-4757.2.3-amd64 --compartment-id <your compartment>
 
-- **Oracle** does not support custom images on bare metal: "Bringing your own image to a bare metal instance
-  is not supported" ([Bring your own image](https://docs.oracle.com/en-us/iaas/Content/Compute/References/bringyourownimage.htm)).
-  Oracle's guidance for making an imported image boot on bare metal anyway is an iSCSI initiator in the
-  initramfs plus `rd.iscsi.ibft=1 rd.iscsi.firmware=1`. That guidance was published on Oracle's blog, which was
-  not reachable at the time of writing; it was read in a copy. It does not help Flatcar, whose early init
-  never reaches an initramfs stage that reads these arguments (see [Why it fails](#why-it-fails)).
-- **Flatcar** documents iSCSI only for data volumes
-  ([iSCSI](https://www.flatcar.org/docs/latest/os-config/storage/iscsi/)). Its issue tracker has no issue or
-  pull request about an iSCSI root, iBFT or OCI bare metal.
-- **Fedora CoreOS** installs to iSCSI disks with `rd.iscsi.firmware=1 ip=ibft`
-  ([bare metal](https://docs.fedoraproject.org/en-US/fedora-coreos/bare-metal/)). Its OCI guide covers VM
-  shapes only. Red Hat tracked bare metal iSCSI boot of RHCOS on OCI
-  ([OCPSTRAT-749](https://issues.redhat.com/browse/OCPSTRAT-749)), and has an open bug where DNS is missing on
-  the first boot from an OCI iSCSI boot volume with `ip=dhcp` or `ip=ibft`
-  ([OCPBUGS-26580](https://issues.redhat.com/browse/OCPBUGS-26580)). Neither issue was read in full.
-- **Oracle's Kubernetes service (OKE)** runs bare metal workers only on its Oracle Linux node images
-  ([images and shapes](https://docs.cloud.oracle.com/iaas/Content/ContEng/Reference/contengimagesshapes.htm),
-  not read in full).
-- **Azure** is not an example to copy. SCarpenter runs Flatcar's own Marketplace image there, and another OS only
-  on confidential sizes, where Flatcar has no image (see [Flatcar images](flatcar-images.md)). Azure has no bare
-  metal.
+oci compute image-shape-compatibility-entry add --image-id <image OCID> --shape-name BM.Standard.E2.64
+```
 
-No OCI option was found that attaches a bare metal boot volume without iSCSI, and no source says whether the local
-NVMe of a DenseIO shape can be the boot disk.
+Run the second command once per bare metal shape.
 
-## Ways forward
+**B. From the release.** Download the asset `flatcar-oraclecloud-iscsi-stable-4757.2.3-amd64.qcow2` from the
+release and its sigstore bundle, verify it with `cosign verify-blob` (keyless: the certificate identity is the
+`build.yml` workflow of SpareCores/flatcar-images on `main`, issued by GitHub's OIDC provider), upload it to your own
+Object Storage bucket and import it from there with the `import from-object-uri` command above.
 
-1. **Ask Flatcar upstream:** open an issue with the console capture of the failed boot, asking for an iBFT
-   iSCSI login (for example `iscsistart -b`) in the early init before it looks for the `/usr` drive. This is
-   the only known fix that keeps the Flatcar image.
-2. **Boot Flatcar's PXE kernel and initrd through iPXE (unverified):** the PXE initrd carries `/usr` as
-   `usr.squashfs`, so the early init does not need the disk. OCI's custom iPXE script launch option could boot
-   that kernel and initrd, and the real initrd's dracut `iscsi` module would then log in to the boot volume
-   from the iBFT. This has not been tried. It is not known whether OCI offers the option on bare metal, or
-   whether the root partition, Ignition and updates work on such a boot.
-3. **Use a vendor OS on bare metal:** Oracle Linux (OKE images) or Ubuntu. These are known to boot on bare metal,
-   but they need a second bootstrap path next to Flatcar and Ignition.
-4. **Leave bare metal out:** OCI stays on VM shapes. This is the current state.
+## Operations
+
+- **Keep Flatcar's auto-updates off.** The extra initrd matches only the kernel the image ships in USR-A, so an
+  updated `/usr` would not boot on bare metal. SCarpenter already masks `update-engine` and `locksmithd`; replace
+  nodes to move to a new version, with a new image.
+- **Expect 5 to 8 minutes of firmware POST** before GRUB. A launch takes about 7 minutes to reach `RUNNING` and about
+  1 more to boot.
+- **Never administratively set the boot NIC down** (`ip link set <nic> down`): the node loses its default route, and
+  the next firmware boot finds no link.
+- A missing SSH key in the instance metadata makes `coreos-metadata-sshkeys@core` fail. This is not specific to bare
+  metal: it happens on VMs too.
+
+## Limits
+
+- amd64 only. Arm bare metal (A1) is not supported.
+- Only the shapes of the image's compatibility list launch, and only while the registration timeout allows it.

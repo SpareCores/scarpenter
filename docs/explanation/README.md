@@ -11,7 +11,7 @@ together, and the decisions that shaped it.
 - [Image copies](image-copies.md) — why SCarpenter copies the boot image into a region only when
   a launch wants it, how a pending copy gates the region without blocking a launch, and when
   a copy is deleted (ADR-032, plan 29)
-- [OCI bare metal](oci-bare-metal.md) — why Flatcar does not boot on OCI bare metal shapes
+- [OCI bare metal](oci-bare-metal.md) — running OCI bare metal shapes with the SpareCores Flatcar iSCSI image
   (the boot volume is attached over iSCSI), what the boot test showed and the ways forward
   (tested 2026-11-25)
 - [Vendor capabilities](vendor-capabilities.md) — storage, networking,
