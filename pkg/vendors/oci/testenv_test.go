@@ -177,8 +177,7 @@ func restart(t testing.TB, c *fake.Cloud, cluster string, opts ...driver.Option)
 		driver.WithCompartment(fake.SeedCompartment), driver.WithTenancy(fake.SeedTenancy),
 	}, opts...)
 	d := driver.New(opts...)
-	if err := d.Init(context.Background(), vendors.Config{ClusterName: cluster, Clock: clk, Log: logr.Discard(),
-		RegistrationTimeout: driver.MinBareMetalRegistrationTimeout}); err != nil {
+	if err := d.Init(context.Background(), vendors.Config{ClusterName: cluster, Clock: clk, Log: logr.Discard()}); err != nil {
 		t.Fatal(err)
 	}
 	return &env{d: d, c: c, clock: clk}

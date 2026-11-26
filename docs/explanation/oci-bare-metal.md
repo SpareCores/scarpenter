@@ -21,18 +21,19 @@ through two boots across a guest reboot, with the root on iSCSI, `iscsid` runnin
 timeout, and a `systemd-networkd` restart under I/O. The same image boots unchanged on VM shapes. The upstream
 issue is [flatcar/Flatcar#2516](https://github.com/flatcar/Flatcar/issues/2516).
 
-Nothing in SCarpenter treats a bare metal shape differently from a VM shape except these rules:
+The driver launches only the shapes on the image's compatibility list (see
+[Launch](../reference/oci-driver.md#launch)). Add bare metal shapes only to the list of the SpareCores image: a bare
+metal shape on the list of the stock image launches an instance that never registers and is billed until the
+registration timeout deletes it.
 
-- The driver launches only the shapes on the image's compatibility list (see
-  [Launch](../reference/oci-driver.md#launch)). Add the bare metal shapes you want to the list of the SpareCores
-  image, and only of that image: a bare metal shape on the list of the stock image launches an instance that never
-  registers and is billed until the registration timeout deletes it.
+Otherwise SCarpenter treats a bare metal shape like a VM shape, except for these rules:
+
 - Bare metal shapes are fixed shapes: the launch sends no `shapeConfig`.
 - Bare metal has no preemptible capacity: it is launched on demand only, and a spot request for it is `Unsupported`.
 - A bare metal node needs about 15 minutes from the launch to Ready, so the shape is launched only while Karpenter's
-  registration timeout (`--registration-timeout`, chart value `karpenter.registrationTimeout`) is at least 20
-  minutes. While it is shorter the shape is `NotLaunchable`, and a create is `Unsupported`
-  (`BareMetalRegistrationTimeout`).
+  registration timeout (`--registration-timeout`, chart value `karpenter.registrationTimeout`) is at least 25
+  minutes (the same setting as Vultr bare metal). While it is shorter, the catalog drops the shape (`NotLaunchable`)
+  and a create is `Unsupported` (`BareMetalRegistrationTimeout`).
 
 ## Why the stock image fails
 
@@ -96,5 +97,5 @@ Object Storage bucket and import it from there with the `import from-object-uri`
 
 ## Limits
 
-- amd64 only. Arm bare metal (A1) is not supported.
+- amd64 only. Arm bare metal shapes (A1, A4) are not supported.
 - Only the shapes of the image's compatibility list launch, and only while the registration timeout allows it.

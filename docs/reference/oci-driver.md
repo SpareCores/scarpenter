@@ -248,8 +248,8 @@ OCI itself answers that with a bare 400 `InvalidParameter`. Custom images are on
 add: add every shape SCarpenter may launch, including `VM.Optimized3.Flex` (see
 [Set up OCI](../how-to-guides/set-up-oci.md)). Bare metal (`BM.*`) shapes may be added only with the SpareCores
 Flatcar iSCSI image; they launch on demand, as fixed shapes without `shapeConfig`, and only while Karpenter's
-registration timeout is at least 20 minutes (`NotLaunchable`, else `Unsupported` with
-`BareMetalRegistrationTimeout`; a spot request is `Unsupported` with `BareMetalNoSpot`). See
+registration timeout is at least 25 minutes (while it is shorter, the catalog drops the shape (`NotLaunchable`) and
+a create is `Unsupported` (`BareMetalRegistrationTimeout`)); a spot request is `Unsupported` (`BareMetalNoSpot`). See
 [OCI bare metal](../explanation/oci-bare-metal.md). A list the controller cannot read does not stop the launch. When a
 launch is still rejected, find the `opc-request-id` of the error in the OCI audit log of the compartment
 for OCI's message.

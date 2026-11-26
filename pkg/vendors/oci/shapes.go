@@ -24,13 +24,11 @@ import (
 // takes about 15 minutes to become Ready. Karpenter's registration timeout (core's
 // --registration-timeout, default 15m) is one value for all NodeClaims, so bare
 // metal shapes are launched only while it is at least this long.
-const MinBareMetalRegistrationTimeout = 20 * time.Minute
+const MinBareMetalRegistrationTimeout = 25 * time.Minute
 
-// defaultRegistrationTimeout is core's registration timeout when none is set.
-const defaultRegistrationTimeout = 15 * time.Minute
-
-// IsBareMetal reports whether the shape name is of a bare metal shape.
-func IsBareMetal(shape string) bool { return strings.HasPrefix(shape, "BM.") }
+// isBareMetal reports whether the shape name is of a bare metal shape. It is a
+// name-pattern stand-in until Keeper has a bare-metal field.
+func isBareMetal(shape string) bool { return strings.HasPrefix(shape, "BM.") }
 
 // checkBareMetalWindow refuses a bare metal shape while the registration timeout
 // of the controller (vendors.Config.RegistrationTimeout, 0 is the default of
@@ -38,9 +36,9 @@ func IsBareMetal(shape string) bool { return strings.HasPrefix(shape, "BM.") }
 func (d *Driver) checkBareMetalWindow(shape string) error {
 	timeout := d.cfg.RegistrationTimeout
 	if timeout == 0 {
-		timeout = defaultRegistrationTimeout
+		timeout = vendors.DefaultRegistrationTimeout
 	}
-	if !IsBareMetal(shape) || timeout >= MinBareMetalRegistrationTimeout {
+	if !isBareMetal(shape) || timeout >= MinBareMetalRegistrationTimeout {
 		return nil
 	}
 	return vendors.NewError(vendors.Unsupported, CodeBareMetalWindow, fmt.Errorf(

@@ -51,7 +51,7 @@ OCI has no public Flatcar image and custom images cannot be shared across tenanc
    launched (`ImageNotCompatible`, OCI itself answers a bare 400 `InvalidParameter`): its offerings are
    unavailable for an hour, with the Event `OfferingRejected` on the NodeClass.
    Bare metal shapes (`BM.*`) may be added when the image is the SpareCores Flatcar iSCSI image, and Karpenter's
-   registration timeout is at least 20 minutes; see [OCI bare metal](../explanation/oci-bare-metal.md).
+   registration timeout is at least 25 minutes; see [OCI bare metal](../explanation/oci-bare-metal.md).
 4. **arm64 only**: add an image capability schema (firmware `UEFI_64`, paravirtualized launch mode, network,
    boot and remote data volume types) and the entry `VM.Standard.A1.Flex` (A2 and A4 are untested).
 
