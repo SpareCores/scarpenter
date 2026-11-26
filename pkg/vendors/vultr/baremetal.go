@@ -27,10 +27,6 @@ const (
 	planTypeBareMetal = "vbm"
 )
 
-// DefaultRegistrationTimeout is Karpenter's registration timeout when nothing
-// sets it.
-const DefaultRegistrationTimeout = 15 * time.Minute
-
 // MinBareMetalRegistrationTimeout is the registration window a bare-metal plan
 // needs: a server takes about 15 minutes from the create to a registered Node
 // (13 to be active, 2 more to join), so the default of 15 minutes of Karpenter's
@@ -59,7 +55,7 @@ func splitRef(ref vendors.InstanceRef) (id string, bareMetal bool) {
 // bare-metal plans.
 func bareMetalWindowOK(timeout time.Duration) bool {
 	if timeout == 0 {
-		timeout = DefaultRegistrationTimeout
+		timeout = vendors.DefaultRegistrationTimeout
 	}
 	return timeout >= MinBareMetalRegistrationTimeout
 }

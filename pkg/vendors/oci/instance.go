@@ -185,6 +185,13 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	if err := t.Check(shapes, ad.Full); err != nil {
 		return nil, vendors.AsPreLaunch(err)
 	}
+	if err := d.checkBareMetalWindow(t.Shape); err != nil {
+		return nil, vendors.AsPreLaunch(err)
+	}
+	if req.CapacityType == vendors.CapacitySpot && isBareMetal(t.Shape) {
+		return nil, vendors.AsPreLaunch(vendors.NewError(vendors.Unsupported, CodeBareMetalNoSpot,
+			fmt.Errorf("%s is a bare metal shape; bare metal has no preemptible capacity", t.Shape)))
+	}
 	if req.CapacityType == vendors.CapacitySpot && t.Sized && !IsFlexibleName(t.Shape) {
 		return nil, vendors.AsPreLaunch(vendors.NewError(vendors.Unsupported, CodeInvalidInstanceType,
 			fmt.Errorf("%s is not a .Flex shape; preemptible capacity is for flexible VM shapes", t.Shape)))

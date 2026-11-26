@@ -172,7 +172,8 @@ func TestCatalogRowsParse(t *testing.T) {
 
 // Every catalog type launches in the fake tenancy, whose shape tables the fake derives
 // from the rows, except the extended-memory sizes of E5 (beyond 94 OCPUs), which v1
-// does not launch: those fail before any launch call.
+// does not launch, and the bare metal shapes, which the default registration timeout
+// is too short for: those fail before any launch call.
 func TestCatalogTypesLaunch(t *testing.T) {
 	e := newEnv(t)
 	for i, r := range catalogRows(t) {
@@ -192,6 +193,16 @@ func TestCatalogTypesLaunch(t *testing.T) {
 			}
 			if e.c.Calls("LaunchInstance") != before {
 				t.Errorf("%s: a launch call was made for an extended memory size", r.ID)
+			}
+			continue
+		}
+		if strings.HasPrefix(typ.Shape, "BM.") {
+			// The test controller has the default registration timeout, too short for bare metal.
+			if !vendors.IsClass(err, vendors.Unsupported) || vendors.CodeOf(err) != driver.CodeBareMetalWindow {
+				t.Errorf("%s: %v, want Unsupported %s", r.ID, err, driver.CodeBareMetalWindow)
+			}
+			if e.c.Calls("LaunchInstance") != before {
+				t.Errorf("%s: a launch call was made for a bare metal shape", r.ID)
 			}
 			continue
 		}

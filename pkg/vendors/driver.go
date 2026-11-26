@@ -326,6 +326,9 @@ type Config struct {
 	RegistrationTimeout time.Duration
 }
 
+// DefaultRegistrationTimeout is Karpenter's registration timeout when none is set.
+const DefaultRegistrationTimeout = 15 * time.Minute
+
 // StoragePrice is one row of Keeper's storage_price file of a vendor: the USD
 // price of a GB of a storage type in a region per Unit (the catalog passes
 // active, USD rows with a price above zero).

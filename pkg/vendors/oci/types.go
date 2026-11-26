@@ -21,6 +21,8 @@ const (
 	CodeInvalidInstanceType = "InvalidInstanceType"
 	CodeExtendedMemory      = "ExtendedMemoryUnsupported"
 	CodeShapeNotInAD        = "ShapeNotInAvailabilityDomain"
+	CodeBareMetalWindow     = "BareMetalRegistrationTimeout"
+	CodeBareMetalNoSpot     = "BareMetalNoSpot"
 )
 
 var (

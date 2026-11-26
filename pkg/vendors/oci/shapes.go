@@ -10,11 +10,41 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
 )
+
+// MinBareMetalRegistrationTimeout is the registration window a bare metal shape
+// needs: the firmware POST takes 5 to 8 minutes before the boot starts, about 7
+// minutes pass from the launch to RUNNING and about 1 more to boot, so a node
+// takes about 15 minutes to become Ready. Karpenter's registration timeout (core's
+// --registration-timeout, default 15m) is one value for all NodeClaims, so bare
+// metal shapes are launched only while it is at least this long.
+const MinBareMetalRegistrationTimeout = 25 * time.Minute
+
+// isBareMetal reports whether the shape name is of a bare metal shape. It is a
+// name-pattern stand-in until Keeper has a bare-metal field.
+func isBareMetal(shape string) bool { return strings.HasPrefix(shape, "BM.") }
+
+// checkBareMetalWindow refuses a bare metal shape while the registration timeout
+// of the controller (vendors.Config.RegistrationTimeout, 0 is the default of
+// 15m) is shorter than a bare metal node needs to join.
+func (d *Driver) checkBareMetalWindow(shape string) error {
+	timeout := d.cfg.RegistrationTimeout
+	if timeout == 0 {
+		timeout = vendors.DefaultRegistrationTimeout
+	}
+	if !isBareMetal(shape) || timeout >= MinBareMetalRegistrationTimeout {
+		return nil
+	}
+	return vendors.NewError(vendors.Unsupported, CodeBareMetalWindow, fmt.Errorf(
+		"the bare metal shape %s needs a registration timeout of at least %s (Karpenter's --registration-timeout), "+
+			"the controller has %s", shape, MinBareMetalRegistrationTimeout, timeout))
+}
 
 // adKey identifies the shape table of one availability domain.
 type adKey struct{ region, ad string }
@@ -159,13 +189,20 @@ func numaError(t InstanceType, si *shapeInfo) error {
 
 var _ vendors.TypeChecker = (*Driver)(nil)
 
-// LaunchableType implements vendors.TypeChecker: a size beyond one NUMA node of
+// LaunchableType implements vendors.TypeChecker: a bare metal shape while the
+// registration timeout is too short for it, and a size beyond one NUMA node of
 // its shape is not launched, by the limits of any shape table the driver has
 // read (shapeInfo changes bump NodeOptionsEpoch). Until a table is read the type
 // is launchable.
 func (d *Driver) LaunchableType(it vendors.CatalogType) (bool, string) {
 	t, err := ParseType(it.APIReference)
-	if err != nil || !t.Sized {
+	if err != nil {
+		return true, ""
+	}
+	if err := d.checkBareMetalWindow(t.Shape); err != nil {
+		return false, err.Error()
+	}
+	if !t.Sized {
 		return true, ""
 	}
 	si, ok := d.shapeByName(t.Shape)
