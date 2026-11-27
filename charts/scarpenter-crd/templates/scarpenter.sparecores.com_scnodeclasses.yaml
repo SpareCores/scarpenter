@@ -2279,6 +2279,29 @@ spec:
                         defaults
                       rule: '!(''default'' in self)'
                 type: object
+              rootVolume:
+                description: |-
+                  rootVolume lets the root volume grow to fit the pods' ephemeral-storage
+                  requests, up to maxSize, on the vendors whose root volume size the
+                  NodeClass sets. Unset: the root volume is what the vendor block says.
+                properties:
+                  maxSize:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      maxSize is the size the root volume may grow to (for example 1Ti). The
+                      instance types advertise this much ephemeral storage (less the vendor's
+                      maximum), so that a pod can request more than the configured size; a node
+                      gets only the size its pods' requests need.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                    x-kubernetes-validations:
+                    - message: maxSize must be positive
+                      rule: quantity(string(self)).isGreaterThan(quantity('0'))
+                required:
+                - maxSize
+                type: object
               selections:
                 additionalProperties:
                   description: |-

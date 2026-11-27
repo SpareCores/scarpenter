@@ -86,7 +86,7 @@ func (d *driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 	}
 	_ = json.Unmarshal(s.Raw, &v)
 	q := resource.MustParse(v.Storage.Root.VolumeSize)
-	return q.Value()
+	return max(q.Value(), s.MinRootDiskBytes)
 }
 
 func (d *driver) Supported(it vendors.CatalogType, zone string, p vendors.Profiles) map[string][]string {
@@ -249,6 +249,33 @@ func TestPriceDeltaAndRootDiskFollowTheClassDefaults(t *testing.T) {
 	}
 	if b, _ := f.RootDiskBytes("aws", &small, srv); b != 64<<30 {
 		t.Errorf("small root disk = %d", b)
+	}
+}
+
+// TestRootVolumeAdvertisesTheMaxSize: with spec.rootVolume the catalog assumes
+// the root disk the type can grow to, never below the configured size, while the
+// price stays that of the configured disk.
+func TestRootVolumeAdvertisesTheMaxSize(t *testing.T) {
+	f := setup(t, &driver{})
+	classOf := func(maxSize string) catalog.Class {
+		nc := nodeClass("64Gi")
+		nc.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MaxSize: resource.MustParse(maxSize)}
+		class, err := catalog.ClassFromNodeClass(nc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return class
+	}
+	class := classOf("1Ti")
+	if b, _ := f.RootDiskBytes("aws", &class, srv); b != 1024<<30 {
+		t.Errorf("root disk = %d, want the 1 TiB maxSize", b)
+	}
+	if delta, ok := f.PriceDelta("aws", &class, srv, "us-east-1a", "on-demand"); delta != 0 || !ok {
+		t.Errorf("price delta = %v, %v; the catalog prices the configured disk", delta, ok)
+	}
+	below := classOf("32Gi")
+	if b, _ := f.RootDiskBytes("aws", &below, srv); b != 64<<30 {
+		t.Errorf("root disk = %d, want the configured 64 GiB: maxSize never shrinks it", b)
 	}
 }
 

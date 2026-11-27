@@ -20,12 +20,14 @@ import (
 	"net/netip"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	keeper "github.com/SpareCores/sc-keeper-go"
 
@@ -452,6 +454,15 @@ type VendorSettings struct {
 	// as ephemeral storage; 0 when unknown. It is what the driver's
 	// RootDiskBytes says about the resolved settings.
 	RootDiskBytes int64
+	// MinRootDiskBytes is the root disk size the NodeClass's rootVolume asks
+	// for, 0 when it asks none: the size its maxSize allows when the catalog
+	// advertises the instance type, the size the pods' ephemeral-storage
+	// requests need when a node is launched. A driver whose root disk size the
+	// settings fix takes the larger of it and the size of the vendor block
+	// (GrowRootGiB), within the vendor's maximum, and its RootDiskBytes and
+	// RootDiskForType answer with the result; one whose type fixes the root
+	// disk ignores it. It is set after the settings are resolved.
+	MinRootDiskBytes int64
 	// Raw is the merged vendor block (regions and resources removed): its
 	// storage member already holds the selected storage profile.
 	Raw json.RawMessage
@@ -1077,4 +1088,26 @@ func (c CreateRequest) String() string {
 // the whole account in one call does not implement it, and is asked once.
 type RegionLister interface {
 	ListsPerRegion()
+}
+
+var rootClampLogged sync.Map
+
+// GrowRootGiB returns the root disk size in GiB of a launch: current, raised to
+// MinRootDiskBytes (rounded up to whole GiB). A vendor maximum maxGiB the driver
+// knows (0: none) limits the growth, never below current; the first limit hit
+// per maximum is logged, from the catalog facts path, which is the first to see it.
+func (s VendorSettings) GrowRootGiB(current, maxGiB int64) int64 {
+	const gib = 1 << 30
+	want := (s.MinRootDiskBytes + gib - 1) / gib
+	if want <= current {
+		return current
+	}
+	if maxGiB > 0 && want > maxGiB {
+		if _, seen := rootClampLogged.LoadOrStore(maxGiB, true); !seen {
+			log.Log.WithName("rootvolume").Info("limiting the root volume to the vendor maximum",
+				"wantGiB", want, "maxGiB", maxGiB)
+		}
+		return max(current, maxGiB)
+	}
+	return want
 }

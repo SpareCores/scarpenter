@@ -43,7 +43,36 @@ func decodeSettings(s vendors.VendorSettings) (gcpapi.Settings, error) {
 	if err := json.Unmarshal(s.Raw, &out); err != nil {
 		return out, fmt.Errorf("decoding the GCP settings: %w", err)
 	}
+	growRoot(&out, s)
 	return out, nil
+}
+
+// growRoot raises the boot disk to the size the NodeClass's rootVolume asks for
+// the instance type (MinRootDiskBytes), within the maximum of the disk type (the
+// default boot disk type is pd-balanced, whose maximum is the same as
+// hyperdisk-balanced's).
+func growRoot(st *gcpapi.Settings, s vendors.VendorSettings) {
+	if s.MinRootDiskBytes == 0 {
+		return
+	}
+	if st.Storage == nil {
+		st.Storage = &gcpapi.Storage{}
+	}
+	if st.Storage.Root == nil {
+		st.Storage.Root = &gcpapi.RootDisk{}
+	}
+	root := st.Storage.Root
+	current := int64(defaultRootGiB)
+	if root.SizeGb != nil && *root.SizeGb > 0 {
+		current = *root.SizeGb
+	}
+	diskType := root.DiskType
+	if diskType == "" {
+		diskType = gcpapi.DiskTypePDBalanced
+	}
+	if grown := s.GrowRootGiB(current, diskTable[diskType].maxGiB); grown != current {
+		root.SizeGb = &grown
+	}
 }
 
 func decodePlacement(raw json.RawMessage) (gcpapi.Placement, error) {

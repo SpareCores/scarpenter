@@ -114,6 +114,20 @@ func Resolve(no vendors.NodeOptions, in Input, sel Selection) (vendors.VendorSet
 	return s, nil
 }
 
+// WithMinRoot returns the settings with a root disk of at least minBytes
+// (MinRootDiskBytes), and RootDiskBytes is what the driver makes of it: it
+// grows a size the settings fix, within the vendor's maximum, and leaves a root
+// disk the instance type fixes. Without a minimum the settings are returned as
+// they are.
+func WithMinRoot(no vendors.NodeOptions, s vendors.VendorSettings, minBytes int64) vendors.VendorSettings {
+	if minBytes <= 0 {
+		return s
+	}
+	s.MinRootDiskBytes = minBytes
+	s.RootDiskBytes = no.RootDiskBytes(s)
+	return s
+}
+
 // Validate resolves the defaults and every profile of the input, to find a
 // block that cannot be merged before a launch does.
 func Validate(no vendors.NodeOptions, in Input) error {

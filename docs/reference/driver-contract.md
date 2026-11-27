@@ -206,8 +206,18 @@ chosen its deletion.
 The settings the core passes (`CreateRequest.Settings`, `PrepareRequest.Settings`)
 are `VendorSettings`: `Raw` (the merged vendor block; its `storage` member holds
 the selected storage profile), `Network` and `Placement` (the selected profile
-blocks), the generic `Networking`, the applied `Profiles` per kind and
-`RootDiskBytes`. `Prepared` holds the resource references, a `DeviceHint` per
+blocks), the generic `Networking`, the applied `Profiles` per kind,
+`RootDiskBytes` and `MinRootDiskBytes`. `MinRootDiskBytes` is the root disk the
+NodeClass's `rootVolume` asks for (0 when it is unset): the core sets it after the settings
+are resolved, to `maxSize` when the catalog advertises an instance type's ephemeral storage,
+and to the size the pods' ephemeral-storage requests need when it launches a node, so
+`RootDiskBytes(s)` and `RootDiskForType(s, type)` already include it. A driver whose root disk size
+the settings fix takes `s.GrowRootGiB(size, max)` as its size in GiB wherever it decodes the
+settings (the larger of the block's size and the minimum, rounded up; `max` is the largest
+root volume the vendor knows, 0 for none: the growth stops there and the first stop is
+logged; UpCloud, whose default size is the plan's, applies it at its call sites: the root
+disk, the price delta and the launch). A driver whose type fixes the root disk
+(Hetzner, Vultr) ignores it. `Prepared` holds the resource references, a `DeviceHint` per
 extra volume (`Name`, `Filesystem`, `MountPath`, and either `ByID` or
 `SerialPattern` with `SizeBytes`) and a `LocalHint` for instance-local disks;
 the core renders them into the user-data

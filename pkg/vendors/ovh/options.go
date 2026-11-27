@@ -46,7 +46,7 @@ func (d *Driver) Defaults() vendors.VendorSettings {
 // RootDiskBytes implements vendors.NodeOptions: the bootFromVolume size, or 0 for
 // the flavor's local disk (its size depends on the type, RootDiskForType).
 func (d *Driver) RootDiskBytes(s vendors.VendorSettings) int64 {
-	st, err := ParseSettings(s.Raw)
+	st, err := parseGrown(s)
 	if err != nil {
 		return 0
 	}
@@ -133,7 +133,7 @@ func supportsPlacement(block json.RawMessage) bool {
 // GB-month prices per region divided by 730. Incomplete where a price is
 // missing; there is nothing else to price (the public address is free).
 func (d *Driver) PriceDelta(s vendors.VendorSettings, o vendors.Offering) (float64, bool) {
-	st, err := ParseSettings(s.Raw)
+	st, err := parseGrown(s)
 	if err != nil {
 		return 0, false
 	}

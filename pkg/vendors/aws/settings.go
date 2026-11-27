@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package aws
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 
@@ -68,7 +69,28 @@ func decodeSettings(s vendors.VendorSettings) (awsapi.Settings, error) {
 	if err := json.Unmarshal(s.Raw, &out); err != nil {
 		return out, fmt.Errorf("decoding the AWS settings: %w", err)
 	}
+	growRoot(&out, s)
 	return out, nil
+}
+
+// growRoot raises the root volume to the size the NodeClass's rootVolume asks
+// for the instance type (MinRootDiskBytes), within the maximum of the volume type.
+func growRoot(st *awsapi.Settings, s vendors.VendorSettings) {
+	if s.MinRootDiskBytes == 0 {
+		return
+	}
+	if st.Storage == nil {
+		st.Storage = &awsapi.Storage{}
+	}
+	if st.Storage.Root == nil {
+		st.Storage.Root = &awsapi.RootVolume{}
+	}
+	root := st.Storage.Root
+	volumeType := cmp.Or(root.VolumeType, defaultVolumeType)
+	current := int64(cmp.Or(gib(root.VolumeSize), defaultRootGiB))
+	if grown := s.GrowRootGiB(current, int64(ebsLimits[volumeType].maxGiB)); grown != current {
+		root.VolumeSize = resource.NewQuantity(grown*giB, resource.BinarySI)
+	}
 }
 
 // rootVolume returns the resolved root volume of the settings.

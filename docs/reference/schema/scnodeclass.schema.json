@@ -2291,6 +2291,28 @@
           },
           "type": "object"
         },
+        "rootVolume": {
+          "additionalProperties": false,
+          "description": "rootVolume lets the root volume grow to fit the pods' ephemeral-storage\nrequests, up to maxSize, on the vendors whose root volume size the\nNodeClass sets. Unset: the root volume is what the vendor block says.",
+          "properties": {
+            "maxSize": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "maxSize is the size the root volume may grow to (for example 1Ti). The\ninstance types advertise this much ephemeral storage (less the vendor's\nmaximum), so that a pod can request more than the configured size; a node\ngets only the size its pods' requests need.",
+              "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+            }
+          },
+          "required": [
+            "maxSize"
+          ],
+          "type": "object"
+        },
         "selections": {
           "additionalProperties": {
             "additionalProperties": false,

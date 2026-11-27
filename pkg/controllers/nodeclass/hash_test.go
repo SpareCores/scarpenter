@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
@@ -286,4 +287,24 @@ func TestHashOfStoredNodeClassesIsPinned(t *testing.T) {
 		}
 	}
 	testutil.Golden(t, "stored-hashes.txt", []byte(out.String()))
+}
+
+// TestRootVolumeChangesTheHashOnlyWhenSet: an unset rootVolume hashes as before
+// (the pinned hashes above), a set one replaces the nodes, and the same size
+// written another way hashes the same.
+func TestRootVolumeChangesTheHashOnlyWhenSet(t *testing.T) {
+	withMax := func(size string) *v1alpha1.SCNodeClass {
+		nc := base()
+		nc.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MaxSize: resource.MustParse(size)}
+		return nc
+	}
+	if hash(t, withMax("1Ti"), "aws") == hash(t, base(), "aws") {
+		t.Error("setting rootVolume does not change the hash")
+	}
+	if hash(t, withMax("1Ti"), "aws") != hash(t, withMax("1024Gi"), "aws") {
+		t.Error("1Ti and 1024Gi hash differently")
+	}
+	if hash(t, withMax("1Ti"), "aws") == hash(t, withMax("2Ti"), "aws") {
+		t.Error("another maxSize hashes the same")
+	}
 }

@@ -55,6 +55,10 @@ type candidate struct {
 	settings vendors.VendorSettings
 	usd      float64
 	complete bool
+	// capacity and allocatable are the resources the node launches with: the
+	// instance type's, except that a NodeClass with rootVolume sizes the root
+	// volume at launch, and the ephemeral storage follows it.
+	capacity, allocatable corev1.ResourceList
 }
 
 // priceEpsilon is the difference below which two prices are a tie.
@@ -108,8 +112,9 @@ func (c *CloudProvider) candidates(
 				typeName: it.Name,
 				region:   off.Requirements.Get(corev1.LabelTopologyRegion).Any(), zone: off.Zone(),
 				capacityType: off.CapacityType(), price: off.Price, headroom: -1, it: it, off: off,
+				capacity: it.Capacity, allocatable: it.Allocatable(),
 			}
-			if !c.settle(ctx, nc, res, reqs, &cand) {
+			if !c.settle(ctx, nc, res, reqs, nodeClaim.Spec.Resources.Requests, &cand) {
 				continue
 			}
 			if c.opts.Quota != nil {
@@ -128,9 +133,11 @@ func (c *CloudProvider) candidates(
 // settings and prices them: the candidate is ordered by the price with the
 // selected profiles (overview section 4.1 step 2). It reports false for an
 // offering the NodeClaim cannot use: a profile that cannot be resolved, or an
-// incomplete price where the NodeClass does not allow it.
+// incomplete price where the NodeClass does not allow it. With the NodeClass's
+// rootVolume the settings carry the root disk the requests need (sizeRoot).
 func (c *CloudProvider) settle(
-	ctx context.Context, nc *v1alpha1.SCNodeClass, res *settingsResolver, reqs scheduling.Requirements, cand *candidate,
+	ctx context.Context, nc *v1alpha1.SCNodeClass, res *settingsResolver, reqs scheduling.Requirements,
+	requests corev1.ResourceList, cand *candidate,
 ) bool {
 	logger := log.FromContext(ctx)
 	if p, ok := c.opts.Catalog.Price(nc.Name, cand.typeName, cand.region, cand.zone, cand.capacityType); ok {
@@ -149,6 +156,7 @@ func (c *CloudProvider) settle(
 		logger.Error(err, "resolving the settings of an offering", "type", cand.typeName, "vendor", cand.vendor)
 		return false
 	}
+	settings = c.sizeRoot(nc, res, requests, cand, settings)
 	usd, delta, complete := res.priceOf(cand, settings, sel)
 	cand.sel, cand.settings, cand.usd, cand.complete = sel, settings, usd, complete
 	if !complete && !allowsIncomplete(nc) {
@@ -181,4 +189,36 @@ func compareCandidates(a, b candidate) int {
 		cmp.Compare(a.region, b.region),
 		cmp.Compare(a.capacityType, b.capacityType),
 	)
+}
+
+// sizeRoot applies the NodeClass's rootVolume to the settings of a candidate:
+// the root disk is the size its vendor block sets, grown to what the ephemeral
+// storage of requests needs (the catalog advertised the type with the disk it
+// can grow to, so the requests may exceed the configured size); the driver
+// limits it to the vendor's maximum, and a root disk the type fixes stays. The
+// candidate's capacity and allocatable then carry the ephemeral storage of
+// the disk it launches with, not the advertised one. Without rootVolume, or for
+// a driver that does not say its root disk, nothing changes.
+func (c *CloudProvider) sizeRoot(
+	nc *v1alpha1.SCNodeClass, res *settingsResolver, requests corev1.ResourceList, cand *candidate,
+	s vendors.VendorSettings,
+) vendors.VendorSettings {
+	no, ok := res.nodeOptions(cand.vendor)
+	if nc.Spec.RootVolume == nil || !ok {
+		return s
+	}
+	if need, ok := c.opts.Catalog.RootDiskFor(nc.Name, cand.typeName, requests); ok {
+		s = options.WithMinRoot(no, s, need)
+	}
+	root := s.RootDiskBytes
+	if b, ok := no.RootDiskForType(s, catalogTypeOf(cand)); ok && b > 0 {
+		root = b
+	}
+	if root <= 0 {
+		return s
+	}
+	if capacity, allocatable, ok := c.opts.Catalog.ResourcesWithRoot(nc.Name, cand.typeName, root); ok {
+		cand.capacity, cand.allocatable = capacity, allocatable
+	}
+	return s
 }
