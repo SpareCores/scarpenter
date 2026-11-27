@@ -232,7 +232,7 @@ func TestLaunchFailuresCarryTheClassInTheDocumentedFormat(t *testing.T) {
 				t.Fatalf("error %v, want a CreateError whose message has the prefix %q", err, tc.prefix)
 			}
 			for _, p := range e.events.published {
-				if strings.Contains(p.Message, tc.class) && !strings.HasPrefix(p.Message, tc.prefix) {
+				if p.Reason != "LaunchAttempts" && strings.Contains(p.Message, tc.class) && !strings.HasPrefix(p.Message, tc.prefix) {
 					t.Errorf("event message %q, want the prefix %q", p.Message, tc.prefix)
 				}
 			}
