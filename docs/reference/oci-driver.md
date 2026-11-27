@@ -115,7 +115,8 @@ The option also applies to every `images.use` selector that lists images (`name`
   `createdAfter`, `createdBefore`; no `owner`), the native `filters` `operating-system`,
   `operating-system-version`, `shape` and `lifecycle-state`, `select` (default `exactlyOne`) and `orderBy`.
 - **The architecture** of an image is the freeform tag `arch`, else derived from the shapes it is
-  compatible with (any Arm shape means arm64, else amd64), else unknown; an image of unknown architecture
+  compatible with (any Arm shape means arm64, else amd64; GPU shapes count as x86 here and are not
+  architecture-checked at launch), else unknown; an image of unknown architecture
   never satisfies a request.
 - **The version check** (ADR-017): the version is the tag `flatcar-version`, else the operating system
   version; the channel is the tag `flatcar-channel` and is compared only when present. An image of another
@@ -128,7 +129,8 @@ The option also applies to every `images.use` selector that lists images (`name`
 
 `CreateInstance` checks the user data (16 KiB) and the metadata total (32,000 bytes), looks the
 idempotency key up in the region's instances (a replay in another AD, shape or capacity type returns the
-original), checks the type against the AD's shape table, then calls `LaunchInstance` once without a retry
+original), checks the type against the AD's shape table, refuses a non-GPU shape whose architecture differs from
+the request's (`InvalidOffering`, `ShapeArchMismatch`), then calls `LaunchInstance` once without a retry
 policy. The request: the controller's compartment, the AD's full name, the shape and `shapeConfig`, the
 image with the boot volume size, performance (VPUs per GB) and key, the VNIC (the subnet that serves the
 zone, the public address, the groups, the tags), the `user_data` metadata (the Ignition, base64; never SSH
@@ -260,7 +262,8 @@ for OCI's message.
 | `DailyLimit` | `LimitExceeded` whose message says "daily resource creation limit" (matched case-insensitively on that phrase only). Oracle documents no reset time for it (its [API errors page](https://docs.oracle.com/en-us/iaas/Content/API/References/apierrors.htm) only says to request an increase or delete resources), so the region is unavailable until the next 00:00 UTC |
 | `QuotaExceeded` | any other `LimitExceeded`, and `QuotaExceeded` (not account-wide) |
 | `Unsupported` | 400 `InvalidParameter` for a shape not compatible with the image, not available in the AD or not available as preemptible; the driver's own `InvalidInstanceType`, `ShapeNotInAvailabilityDomain`, `ExtendedMemoryUnsupported` |
-| `InvalidOffering` | any other 400 `InvalidParameter` on a launch, and the driver's own `ImageNotCompatible` (OCI's text is in the Event `OfferingRejected`): the offering is unavailable for 1 h and the next candidate is tried |
+| `InvalidOffering` | any other 400 `InvalidParameter` on a launch, and the driver's own `ImageNotCompatible` and `ShapeArchMismatch` (OCI's text is in the Event `OfferingRejected`): the offering is unavailable for 1 h and the next candidate is tried |
+| `InvalidOffering` | `ShapeArchMismatch`, before any launch call: the request's architecture (the catalog's) disagrees with the shape's name (Arm: A1, A2, A4 and later; GPU shapes are not checked). Adding compatibility entries does not help: fix the catalog's architecture or the NodePool's requirement |
 | `ZoneUnusable` | a subnet with no free IP addresses (on a launch) |
 | `Retryable` | 429, 5xx, network errors, `IncorrectState`, `ExternalServerIncorrectState`, `LockConflict`, a 409 on a delete, the driver's call timeout |
 | `NotFound` | 404 on get, terminate and the resource gets; a malformed instance reference |

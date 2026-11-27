@@ -656,3 +656,46 @@ func TestCreateInstanceUnknownInvalidParameterIsInvalidOffering(t *testing.T) {
 		t.Fatalf("CreateInstance = %v, want InvalidOffering", err)
 	}
 }
+
+// A shape whose architecture differs from the request's is refused before any launch call, whatever the
+// image's compatibility list says (OCI adds x86 entries to arm64 images); matching pairs launch.
+func TestCreateInstanceChecksTheShapeArchitecture(t *testing.T) {
+	for _, tc := range []struct {
+		shape, arch string
+		refused     bool
+	}{
+		{testType, "arm64", true},
+		{"VM.Standard.A1.Flex.4-8", "amd64", true},
+		{"BM.Standard.A1.160", "amd64", true},
+		{testType, "amd64", false},
+		{"VM.Standard.A1.Flex.4-8", "arm64", false},
+		{"BM.Standard.A1.160", "arm64", false},
+		{"BM.Standard.A4.48", "arm64", false},
+		{"VM.GPU.A10.1", "amd64", false},
+		{"BM.GPU.GB200.4", "arm64", false},
+	} {
+		t.Run(tc.shape+"/"+tc.arch, func(t *testing.T) {
+			e := bareMetalEnv(t, driver.MinBareMetalRegistrationTimeout)
+			for _, s := range []string{"BM.Standard.A1.160", "BM.Standard.A4.48"} {
+				e.c.AddShape(fake.SeedRegion, fake.FixedShape(s, 160, 1024, "bm-"+s))
+			}
+			e.c.AddShape(fake.SeedRegion, fake.FixedShape("VM.GPU.A10.1", 15, 240, "gpu-a10-count"))
+			e.c.AddShape(fake.SeedRegion, fake.FixedShape("BM.GPU.GB200.4", 144, 1024, "gpu-gb200-count"))
+			req := request(tc.shape)
+			req.Arch = tc.arch
+			_, err := e.d.CreateInstance(t.Context(), req)
+			if tc.refused {
+				if !vendors.IsClass(err, vendors.InvalidOffering) || vendors.CodeOf(err) != "ShapeArchMismatch" {
+					t.Fatalf("CreateInstance = %v, want InvalidOffering ShapeArchMismatch", err)
+				}
+				if n := e.c.Calls("LaunchInstance"); n != 0 {
+					t.Errorf("%d launch calls for a shape of the other architecture", n)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("CreateInstance: %v", err)
+			}
+		})
+	}
+}
