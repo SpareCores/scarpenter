@@ -9,6 +9,7 @@ package quota_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -871,5 +872,34 @@ func TestZoneMetrics(t *testing.T) {
 	_ = e.tr.Refresh(context.Background())
 	if ss := gatherSeries(t, reg, "scarpenter_quota_zone_"); len(ss) != 0 {
 		t.Errorf("stale zone series exported: %+v", ss)
+	}
+}
+
+func TestNeedsAreWhatUnavailableComparesAndSkipUnknownBuckets(t *testing.T) {
+	e := setup(t, nil)
+	e.drv.set(func() {
+		e.drv.global = []vendors.Bucket{{ID: "all", Scope: vendors.QuotaScopeGlobal, Unit: "GB", Limit: 10, Used: 12}}
+	})
+	e.refresh()
+	if r, _ := e.tr.Reserve("stub", "r1", "m.large", "on-demand", "a"); r == nil {
+		t.Fatal("reserve")
+	}
+	// Limit 16, used 4, reserved 4: headroom 8.
+	want := []quota.NeedFact{{Bucket: "std", Unit: "vCPU", Need: 4, Limit: 16, Headroom: 8}}
+	if got := e.tr.Needs("stub", "r1", "m.large", "on-demand"); !reflect.DeepEqual(got, want) {
+		t.Errorf("r1: %+v", got)
+	}
+	// A bucket over its limit has headroom 0; a global bucket applies to every region.
+	got := e.tr.Needs("stub", "r2", "m.xlarge", "on-demand")
+	want = []quota.NeedFact{
+		{Bucket: "std", Unit: "vCPU", Need: 8, Limit: 100, Headroom: 100},
+		{Bucket: "all", Unit: "GB", Need: 8, Limit: 10, Headroom: 0},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("r2: %+v", got)
+	}
+	// Unknown type, capacity type or vendor: no facts, and nothing blocks.
+	if len(e.tr.Needs("stub", "r1", "x.huge", "on-demand"))+len(e.tr.Needs("other", "r1", "m.large", "on-demand")) != 0 {
+		t.Error("unknown quota has no facts")
 	}
 }

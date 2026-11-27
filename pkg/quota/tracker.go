@@ -590,6 +590,9 @@ func (t *Tracker) needsLocked(vendor, region, apiRef, capacityType string, now t
 	return out
 }
 
+// headroomLocked is limit - used - reserved of a needed bucket.
+func (t *Tracker) headroomLocked(n needed) int64 { return n.b.Limit - n.b.Used - t.reserved[n.key] }
+
 // evalLocked computes the decision for one instance.
 func (t *Tracker) evalLocked(vendor, region, apiRef, capacityType string, now time.Time) (Decision, []needed) {
 	ns := t.needsLocked(vendor, region, apiRef, capacityType, now)
@@ -599,7 +602,7 @@ func (t *Tracker) evalLocked(vendor, region, apiRef, capacityType string, now ti
 	d := Decision{Known: true, Allowed: true}
 	first := true
 	for _, n := range ns {
-		head := n.b.Limit - n.b.Used - t.reserved[n.key]
+		head := t.headroomLocked(n)
 		short := head < n.amount
 		// The limiting bucket is the first that blocks, else the one with the
 		// least headroom.
@@ -637,6 +640,37 @@ func (t *Tracker) Headroom(vendor, region, apiReference, capacityType string) (h
 	defer t.mu.RUnlock()
 	d, _ := t.evalLocked(vendor, region, apiReference, capacityType, now)
 	return d.Headroom, d.Known
+}
+
+// NeedFact is a bucket that one instance consumes in a region, with what
+// Unavailable compares: Need against Headroom.
+type NeedFact struct {
+	Bucket, Unit string
+	Need         int64
+	Limit        int64
+	// Headroom is limit - used - reserved, at least 0.
+	Headroom int64
+}
+
+// Needs returns the buckets one instance of the type consumes in the region
+// whose quota is known, as Unavailable sees them. Buckets without a fresh
+// snapshot entry are left out, like for Unavailable; nil when the quota of the
+// type is unknown.
+func (t *Tracker) Needs(vendor, region, apiReference, capacityType string) []NeedFact {
+	now := t.opts.Clock.Now()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	ns := t.needsLocked(vendor, region, apiReference, capacityType, now)
+	out := make([]NeedFact, 0, len(ns))
+	for _, n := range ns {
+		out = append(out, NeedFact{
+			Bucket: n.b.ID, Unit: n.b.Unit, Need: n.amount, Limit: n.b.Limit, Headroom: max(t.headroomLocked(n), 0),
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // HasQuotaInfo reports whether the driver reports quotas and maps the type.

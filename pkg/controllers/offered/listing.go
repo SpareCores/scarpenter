@@ -17,7 +17,13 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/labels"
+	"github.com/SpareCores/scarpenter/pkg/quota"
 )
+
+// Quotas gives the quota facts of a type in a region (the quota tracker).
+type Quotas interface {
+	Needs(vendor, region, apiReference, capacityType string) []quota.NeedFact
+}
 
 // ListingKey is the key in the binaryData of the ConfigMap that holds the
 // listing: the JSON of Listing, gzipped.
@@ -78,14 +84,31 @@ type ListingOffering struct {
 	Available    bool     `json:"available"`
 	Reason       string   `json:"reason,omitempty"`
 	Until        string   `json:"until,omitempty"`
+	// Quotas are the quota buckets one instance of the type consumes, whether
+	// or not the group is available; omitted when the vendor has no quota model
+	// or no bucket applies.
+	Quotas []ListingQuota `json:"quotas,omitempty"`
+}
+
+// ListingQuota is a quota bucket one instance consumes. Need is what the quota
+// gate compares with the headroom; MaxLimit and MaxHeadroom are the largest
+// limit and current headroom (limit - used - reserved, at least 0) among the
+// regions of the group's offerings. A region whose quota is unknown is left
+// out, as it is not blocked.
+type ListingQuota struct {
+	Bucket      string `json:"bucket"`
+	Unit        string `json:"unit"`
+	Need        int64  `json:"need"`
+	MaxLimit    int64  `json:"maxLimit"`
+	MaxHeadroom int64  `json:"maxHeadroom"`
 }
 
 // newListing builds the listing of one class and vendor from the types of the
 // report.
-func newListing(class, vendor, generatedAt string, types []catalog.TypeReport) Listing {
+func newListing(class, vendor, generatedAt string, types []catalog.TypeReport, q Quotas) Listing {
 	l := Listing{GeneratedAt: generatedAt, Class: class, Vendor: vendor, Types: make(map[string]ListingType, len(types))}
 	for _, t := range types {
-		l.Types[t.InstanceType] = listingType(t)
+		l.Types[t.InstanceType] = listingType(t, q)
 	}
 	return l
 }
@@ -137,7 +160,7 @@ func gzipJSON(l Listing) ([]byte, error) {
 }
 
 // listingType converts a type, grouping its offerings by capacity type and state.
-func listingType(t catalog.TypeReport) ListingType {
+func listingType(t catalog.TypeReport, q Quotas) ListingType {
 	lt := ListingType{APIReference: t.APIReferenceLabel, CapacityTypes: []string{}, Offerings: []ListingOffering{}}
 	if t.Dropped.Code != "" {
 		if v, ok := labels.Value(t.APIReference); ok && v == t.APIReference {
@@ -151,6 +174,7 @@ func listingType(t catalog.TypeReport) ListingType {
 		available                   bool
 	}
 	groups := map[group][]string{}
+	regions := map[group][]string{}
 	counts := map[catalog.Code]int{}
 	details := map[catalog.Code]string{}
 	// The dominant reason is taken from the offerings Karpenter is given, when
@@ -167,6 +191,7 @@ func listingType(t catalog.TypeReport) ListingType {
 			g.reason, g.until = o.Reason.Class, o.Reason.Until.UTC().Format(time.RFC3339)
 		}
 		groups[g] = append(groups[g], o.Zone)
+		regions[g] = append(regions[g], o.Region)
 		if available {
 			lt.Available = true
 			if !slices.Contains(lt.CapacityTypes, o.CapacityType) {
@@ -186,7 +211,7 @@ func listingType(t catalog.TypeReport) ListingType {
 		slices.Sort(zones)
 		lt.Offerings = append(lt.Offerings, ListingOffering{
 			CapacityType: g.capacityType, Zones: slices.Compact(zones), Available: g.available, Reason: g.reason,
-			Until: g.until,
+			Until: g.until, Quotas: quotasOf(q, t, g.capacityType, regions[g]),
 		})
 	}
 	slices.SortFunc(lt.Offerings, func(a, b ListingOffering) int {
@@ -209,6 +234,28 @@ func listingType(t catalog.TypeReport) ListingType {
 		lt.Reason, lt.Detail = string(best), details[best]
 	}
 	return lt
+}
+
+// quotasOf merges the quota facts of the regions: the need is the same in all,
+// the limit and the headroom are the largest. The buckets are sorted by ID.
+func quotasOf(q Quotas, t catalog.TypeReport, capacityType string, regions []string) []ListingQuota {
+	if q == nil {
+		return nil
+	}
+	slices.Sort(regions)
+	var out []ListingQuota
+	for _, region := range slices.Compact(regions) {
+		for _, f := range q.Needs(t.Vendor, region, t.APIReference, capacityType) {
+			i := slices.IndexFunc(out, func(lq ListingQuota) bool { return lq.Bucket == f.Bucket })
+			if i < 0 {
+				out = append(out, ListingQuota{Bucket: f.Bucket, Unit: f.Unit, Need: f.Need})
+				i = len(out) - 1
+			}
+			out[i].MaxLimit, out[i].MaxHeadroom = max(out[i].MaxLimit, f.Limit), max(out[i].MaxHeadroom, f.Headroom)
+		}
+	}
+	slices.SortFunc(out, func(a, b ListingQuota) int { return cmp.Compare(a.Bucket, b.Bucket) })
+	return out
 }
 
 func b2i(b bool) int {

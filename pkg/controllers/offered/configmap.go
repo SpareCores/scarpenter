@@ -172,7 +172,7 @@ func (c *Controller) writeListing(ctx context.Context, nc *v1alpha1.SCNodeClass,
 	// as a heartbeat. The owner is part of it, a recreated class needs its
 	// ConfigMaps again.
 	now := c.opts.Clock.Now()
-	l := newListing(nc.Name, vendor, "", types)
+	l := newListing(nc.Name, vendor, "", types, c.opts.Quotas)
 	content, err := json.Marshal(l)
 	if err != nil {
 		return fmt.Errorf("encoding the listing: %w", err)

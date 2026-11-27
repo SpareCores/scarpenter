@@ -451,7 +451,8 @@ The document:
       "reason": "UnavailableCache", "detail": "DailyLimit until 2026-11-22T00:00:00Z", "until": "2026-11-22T00:00:00Z",
       "offerings": [
         {"capacityType": "on-demand", "zones": ["eu-frankfurt-1-AD-1", "eu-frankfurt-1-AD-2", "eu-frankfurt-1-AD-3"], "available": false,
-         "reason": "DailyLimit", "until": "2026-11-22T00:00:00Z"}
+         "reason": "DailyLimit", "until": "2026-11-22T00:00:00Z",
+         "quotas": [{"bucket": "L-34B43A08", "unit": "vCPU", "need": 16, "maxLimit": 384, "maxHeadroom": 128}]}
       ]
     }
   }
@@ -471,6 +472,10 @@ The document:
 | `offerings` | grouped by capacity type, state, reason and expiry, with the zones that share them; empty for a type dropped at build time (its `reason` is the build's) |
 | `offerings[].reason` | for an offering a launch error marked (reason code `UnavailableCache`), the launch-error class: `InsufficientCapacity`, `Interrupted`, `Unsupported`, `QuotaExceeded`, `DailyLimit`, `ZoneUnusable`, `InvalidOffering` or `RegionUnreachable`; for any other unavailable offering the reason code (for example `QuotaGate`) |
 | `offerings[].until` | RFC3339 time (UTC) the mark expires, only on a group whose `reason` is a launch-error class. A planner skips the offering until then without launching |
+| `offerings[].quotas` | the quota buckets one instance of the type consumes, on every group, available or not; omitted when the vendor has no quota model or no bucket applies, never empty. Sorted by `bucket` |
+| `quotas[].bucket`, `unit` | the quota bucket ID the quota gate checks and its unit, as in the `bucket` and `unit` labels of the `scarpenter_quota_*` metrics |
+| `quotas[].need` | what one instance consumes from the bucket: the value the quota gate compares with the headroom |
+| `quotas[].maxLimit`, `maxHeadroom` | the largest limit and the largest current headroom (limit - used - reserved, at least 0, in-flight launches included) among the regions of the group's offerings. A region whose quota for the bucket is unknown or stale is left out, as the gate does not block it; a bucket unknown in every region is omitted |
 
 The cap is 800 KiB of compressed bytes (a ConfigMap holds 1 MiB). The controller writes the full document when it fits; otherwise the
 one without zones (`zonesOmitted`), logging an error when a listing first needs it. When even that does not fit it writes nothing for that
@@ -479,6 +484,12 @@ vendor and logs an error naming the class, vendor and size (the other vendors ar
 the old ConfigMap ages out and readers treat it as stale. No available type is ever dropped. The AWS catalog over all 33 regions of the
 test fixtures is about 31 KiB compressed;
 `scarpenter_offered_listing_bytes` shows the size of each listing.
+
+Reading `quotas`: with `maxLimit >= need > maxHeadroom` the quota is busy, so the offering may come back when usage drops; with
+`maxLimit < need` an instance of the type never fits in any region of the group, however long a consumer waits. A consumer planning
+several launches against one bucket can count `maxHeadroom / need` instances per region at most. The headroom changes with every quota refresh
+(every 2 minutes by default) and with launches and terminations, so the ConfigMap is rewritten whenever a maximum changes, at most every 30 seconds
+per class, instead of only when an availability changes.
 
 Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is
 available in some zones is `available: true`; its blocked zones are in `offerings`. The class-level view has no NodePool, so no
