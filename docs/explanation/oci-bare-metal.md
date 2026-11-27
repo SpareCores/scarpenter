@@ -19,10 +19,11 @@ The SpareCores image (platform `oraclecloud-iscsi`, from
 [SpareCores/flatcar-images](https://github.com/SpareCores/flatcar-images), amd64 and arm64) booted on
 `BM.Standard.E2.64` (amd64) and `BM.Standard.A1.160` (arm64) through two boots across a guest reboot, with the root on
 iSCSI, `iscsid` running with a 6000 s replacement timeout, and a `systemd-networkd` restart under I/O. The same image
-boots unchanged on VM shapes. The upstream issue is [flatcar/Flatcar#2516](https://github.com/flatcar/Flatcar/issues/2516).
+boots unchanged on VM shapes. The upstream issue is
+[flatcar/Flatcar#2516](https://github.com/flatcar/Flatcar/issues/2516).
 
 Arm64 bare metal is supported on the Ampere shapes `BM.Standard.A1.160`, `BM.Standard.A4.48` and
-`BM.Standard.A4.Ax.48`, where the region offers them. The Mellanox mlx5 NIC works as on amd64.
+`BM.Standard.A4.Ax.48`, where the region offers them. The Mellanox mlx5 NIC works.
 
 The driver launches only the shapes on the image's compatibility list (see
 [Launch](../reference/oci-driver.md#launch)). Add bare metal shapes only to the list of the SpareCores image: a bare
@@ -31,7 +32,8 @@ registration timeout deletes it.
 
 Otherwise SCarpenter treats a bare metal shape like a VM shape, except for these rules:
 
-- Bare metal shapes are fixed shapes: the launch sends no `shapeConfig`.
+- Bare metal shapes are fixed shapes: the launch sends no `shapeConfig` and, on arm64 too, no launch options (the
+  image's defaults apply).
 - Bare metal has no preemptible capacity: it is launched on demand only, and a spot request for it is `Unsupported`.
 - A bare metal node needs about 15 minutes from the launch to Ready, so the shape is launched only while Karpenter's
   registration timeout (`--registration-timeout`, chart value `karpenter.registrationTimeout`) is at least 25
@@ -75,7 +77,7 @@ promise that the objects stay). The bucket listing is off, so use the full URLs:
 - amd64: `https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frihwb5ywtth/b/sc-flatcar-images-public/o/flatcar-oraclecloud-iscsi-stable-4757.2.3-r6-amd64.qcow2`
 - arm64: `https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frihwb5ywtth/b/sc-flatcar-images-public/o/flatcar-oraclecloud-iscsi-stable-4757.2.3-r6-arm64.qcow2`
 
-Import the one you need into your compartment (amd64 shown):
+Import the one you need into your compartment (amd64 shown; for arm64 the `--uri` and `--display-name` use `-arm64`):
 
 ```
 oci compute image import from-object-uri \
@@ -94,7 +96,8 @@ Flatcar import; see [Set up OCI](../how-to-guides/set-up-oci.md)), then add the 
 entries.
 
 **B. From the release.** Download the asset `flatcar-oraclecloud-iscsi-stable-4757.2.3-amd64.qcow2` or
-`flatcar-oraclecloud-iscsi-stable-4757.2.3-arm64.qcow2` from the release and its sigstore bundle, verify it with `cosign verify-blob` (keyless: the certificate identity is the
+`flatcar-oraclecloud-iscsi-stable-4757.2.3-arm64.qcow2` from the release and its sigstore bundle,
+verify it with `cosign verify-blob` (keyless: the certificate identity is the
 `build.yml` workflow of SpareCores/flatcar-images on `main`, issued by GitHub's OIDC provider), upload it to your own
 Object Storage bucket and import it from there with the `import from-object-uri` command above.
 

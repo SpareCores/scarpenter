@@ -118,12 +118,14 @@ func TestVCPUsPerOCPU(t *testing.T) {
 		{"VM.Standard.A4.Flex", 2, true},
 		{"BM.Standard.A4.Ax.48", 2, true},
 		{"VM.Standard.A5.Flex", 0, false}, // an unknown Arm generation is never guessed
+		{"VM.GPU.A10.1", 2, true},         // x86 NVIDIA A10, not Arm
+		{"BM.GPU.A10.4", 2, true},
 	} {
 		n, ok := driver.VCPUsPerOCPU(tc.shape)
 		if n != tc.n || ok != tc.ok {
 			t.Errorf("VCPUsPerOCPU(%q) = %d, %v; want %d, %v", tc.shape, n, ok, tc.n, tc.ok)
 		}
-		if got := driver.Arm(tc.shape); got != strings.Contains(tc.shape, ".A") {
+		if got := driver.Arm(tc.shape); got != strings.Contains(tc.shape, ".A") && !strings.Contains(tc.shape, ".GPU.") {
 			t.Errorf("Arm(%q) = %v", tc.shape, got)
 		}
 	}

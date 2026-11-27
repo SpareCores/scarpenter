@@ -55,8 +55,8 @@ OCI has no public Flatcar image and custom images cannot be shared across tenanc
    (`BM.Standard.A1.160`, `BM.Standard.A4.48`, `BM.Standard.A4.Ax.48`) works the same with the arm64 image and the
    schema of step 4.
 4. **arm64 only**: add an image capability schema (firmware `UEFI_64`, paravirtualized launch mode, network,
-   boot and remote data volume types) and the entry `VM.Standard.A1.Flex` (A2 and A4 VM shapes are untested). Create the schema before adding
-   compatibility entries; arm64 bare metal shapes need it too.
+   boot and remote data volume types) and the entry `VM.Standard.A1.Flex` (A2 and A4 VM shapes are untested).
+   Create the schema before adding compatibility entries; arm64 bare metal shapes need it too.
 
 Images in another compartment: set `vendors.oci.imageCompartment` (the tenancy OCID for the root) and grant
 `read instance-images` there. Or list OCIDs per region in `resources.images.use.ids`.

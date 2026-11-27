@@ -82,8 +82,8 @@ func TestResolveImageDefaultLookup(t *testing.T) {
 	}
 }
 
-// An image with no arch tag whose compatibility entries are bare metal shapes only is arm64 for the
-// Ampere shapes (A1, A4) and amd64 for the others: BM. is not an amd64 marker by itself.
+// An image with no arch tag is arm64 by the Ampere shapes (A1, A2, A4) among its compatibility entries and
+// amd64 by the others, the NVIDIA A10 GPU shapes included: BM. is not an amd64 marker by itself.
 func TestResolveImageArchitectureOfBareMetalShapes(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -93,13 +93,16 @@ func TestResolveImageArchitectureOfBareMetalShapes(t *testing.T) {
 		{"A1", "arm64", []string{"BM.Standard.A1.160"}},
 		{"A4", "arm64", []string{"BM.Standard.A4.48", "BM.Standard.A4.Ax.48"}},
 		{"E-series", "amd64", []string{"BM.Standard.E5.192", "BM.Standard3.64"}},
+		{"A10 GPU", "amd64", []string{"VM.GPU.A10.1", "VM.GPU.A10.2", "BM.GPU.A10.4"}},
+		{"A1 and A2 VM", "arm64", []string{"VM.Standard.A1.Flex", "VM.Standard.A2.Flex"}},
 	} {
 		e := newEnv(t)
 		other := map[string]string{"arm64": "amd64", "amd64": "arm64"}[tc.arch]
 		img := fake.FlatcarImage("stable", "4800.0.0", tc.arch)
 		delete(img.FreeformTags, "arch")
 		id := e.c.AddImage(testRegion, img, tc.shapes...)
-		req := imageReq(tc.arch, vendors.UseRef{})
+		// The ID selector ignores the arch in the name, so imageArch decides.
+		req := imageReq(tc.arch, vendors.UseRef{IDs: []string{id}})
 		req.Version = "4800.0.0"
 		if got, err := e.d.ResolveImage(t.Context(), req); err != nil || got.Ref != id {
 			t.Errorf("%s: %s lookup: %+v, %v", tc.name, tc.arch, got, err)

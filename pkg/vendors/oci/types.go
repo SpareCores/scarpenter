@@ -35,7 +35,7 @@ var (
 	// malformedTailRe is a tail that looks like a size but is not one.
 	malformedTailRe = regexp.MustCompile(`^[0-9]+(-[0-9]+)+$`)
 	// armRe finds the Arm generation of a shape name (VM.Standard.A1.Flex,
-	// BM.Standard.A4.Ax.48).
+	// BM.Standard.A4.Ax.48, BM.DenseIO.A4.Ax.72).
 	armRe = regexp.MustCompile(`\.A([0-9]+)(?:\.|$)`)
 )
 
@@ -127,7 +127,7 @@ func IsFlexibleName(shape string) bool { return strings.HasSuffix(shape, ".Flex"
 // is two vCPUs on x86 and on the A2 and A4 Arm generations, one on A1. ok is
 // false for an Arm generation the table does not know: it is never guessed.
 func VCPUsPerOCPU(shape string) (n int, ok bool) {
-	if m := armRe.FindStringSubmatch(shape); m != nil {
+	if m := armGeneration(shape); m != nil {
 		switch m[1] {
 		case "1":
 			return 1, true
@@ -140,4 +140,12 @@ func VCPUsPerOCPU(shape string) (n int, ok bool) {
 }
 
 // Arm reports whether the shape is an Arm shape (A1, A2, A4 and later).
-func Arm(shape string) bool { return armRe.MatchString(shape) }
+func Arm(shape string) bool { return armGeneration(shape) != nil }
+
+// armGeneration is the match of armRe, none for the x86 NVIDIA A10 GPU shapes (VM.GPU.A10.1, BM.GPU.A10.4).
+func armGeneration(shape string) []string {
+	if strings.Contains(shape, ".GPU.") {
+		return nil
+	}
+	return armRe.FindStringSubmatch(shape)
+}
