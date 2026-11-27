@@ -102,7 +102,8 @@ func BuildLaunch(s LaunchSpec) (core.LaunchInstanceRequest, error) {
 			Ocpus: new(float32(s.Type.OCPUs)), MemoryInGBs: new(float32(s.Type.GB)),
 		}
 	}
-	if s.Arm64 {
+	if s.Arm64 && !isBareMetal(s.Type.Shape) {
+		// Bare metal launches use the image's defaults (the only path verified live).
 		// The five options of Flatcar's mantle (launchOptionsForBoard), verified live
 		// on A1.Flex.
 		details.LaunchOptions = &core.LaunchOptions{

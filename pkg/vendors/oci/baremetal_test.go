@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/oracle/oci-go-sdk/v65/core"
 	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/SpareCores/scarpenter/pkg/vendors"
@@ -90,5 +91,28 @@ func TestBareMetalNeedsARegistrationWindow(t *testing.T) {
 		if n := e.c.Calls("LaunchInstance"); n != 0 {
 			t.Errorf("timeout %s: %d launch calls", timeout, n)
 		}
+	}
+}
+
+// An Ampere bare metal shape launches on demand with no launch options (the image's defaults), while an
+// arm64 VM shape keeps the arm64 ones.
+func TestBareMetalArm64Launch(t *testing.T) {
+	const shape = "BM.Standard.A1.160"
+	e := bareMetalEnv(t, driver.MinBareMetalRegistrationTimeout)
+	e.c.AddShape(fake.SeedRegion, fake.FixedShape(shape, 160, 1024, "bm-standard-a1-160-count"))
+	req := request(shape)
+	req.Arch = "arm64"
+	e.create(t, req)
+	l := e.c.Launches()[0]
+	if *l.Shape != shape || l.ShapeConfig != nil || l.LaunchOptions != nil {
+		t.Errorf("shape %q, shape config %+v, launch options %+v", *l.Shape, l.ShapeConfig, l.LaunchOptions)
+	}
+
+	vm := request("VM.Standard.A1.Flex.4-8")
+	vm.Arch, vm.IdempotencyKey, vm.Node.Name = "arm64", "uid-2", "claim-2"
+	vm.Tags[vendors.TagNodeClaim] = "claim-2"
+	e.create(t, vm)
+	if lo := e.c.Launches()[1].LaunchOptions; lo == nil || lo.Firmware != core.LaunchOptionsFirmwareUefi64 {
+		t.Errorf("arm64 VM launch options %+v, want UEFI_64", lo)
 	}
 }
