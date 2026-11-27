@@ -26,6 +26,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	karpv1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 	karpcloudprovider "sigs.k8s.io/karpenter/pkg/cloudprovider"
+	"sigs.k8s.io/karpenter/pkg/events"
 
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1"
 	"github.com/SpareCores/scarpenter/pkg/apis/v1alpha1/qemu"
@@ -1395,5 +1396,75 @@ func TestClassInsufficientCapacityTTLOutlastsTheSharedMark(t *testing.T) {
 	e.advance(time.Hour)
 	if e.un.IsUnavailable(mine) {
 		t.Error("the class mark outlived its TTL")
+	}
+}
+
+func (r *recordingEvents) byReason(reason string) []events.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []events.Event
+	for _, e := range r.published {
+		if e.Reason == reason {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func TestCreatePublishesTheLaunchAttemptsOnTheNodeClaim(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	types := []string{"aws.m7i.large", "aws.c7i.large"}
+	offs := e.offerings(types...)
+	e.setConfig("errors", fmt.Sprintf(`
+- match: {instanceType: %s, zone: %s, capacityType: %s}
+  error: InsufficientCapacity
+`, strings.TrimPrefix(offs[0].typeName, "aws."), offs[0].zone, offs[0].capacityType))
+	claim := e.newClaim("claim-1", types)
+
+	if _, err := e.cp.Create(t.Context(), claim); err != nil {
+		t.Fatal(err)
+	}
+	evs := e.events.byReason(cloudprovider.EventLaunchAttempts)
+	if len(evs) != 1 || evs[0].InvolvedObject != claim || evs[0].Type != corev1.EventTypeNormal || len(evs[0].DedupeValues) != 0 {
+		t.Fatalf("events = %+v", evs)
+	}
+	lines := strings.Split(evs[0].Message, "\n")
+	wantHeader := fmt.Sprintf("launch-attempts v1 tried=2 shown=2 launched=%s|%s|%s|%s",
+		offs[1].region, offs[1].zone, offs[1].capacityType, offs[1].typeName)
+	if len(lines) != 2 || lines[0] != wantHeader {
+		t.Fatalf("message = %q", evs[0].Message)
+	}
+	first := strings.Split(lines[1], "|")
+	if first[3] != offs[0].typeName || first[1] != offs[0].zone || first[2] != offs[0].capacityType ||
+		first[4] != string(vendors.InsufficientCapacity) {
+		t.Errorf("first line = %q, want the failed offering %+v", lines[1], offs[0])
+	}
+}
+
+func TestCreateFailurePublishesAWarningWithEveryAttempt(t *testing.T) {
+	e := newEnv(t, envOptions{attempts: 3})
+	types := []string{"aws.m7i.large", "aws.c7i.large", "aws.m6i.large"}
+	e.setConfig("errors", "- {error: InsufficientCapacity}")
+
+	if _, err := e.cp.Create(t.Context(), e.newClaim("claim-1", types)); !karpcloudprovider.IsInsufficientCapacityError(err) {
+		t.Fatal(err)
+	}
+	evs := e.events.byReason(cloudprovider.EventLaunchAttempts)
+	if len(evs) != 1 || evs[0].Type != corev1.EventTypeWarning {
+		t.Fatalf("events = %+v", evs)
+	}
+	if lines := strings.Split(evs[0].Message, "\n"); len(lines) != 4 || lines[0] != "launch-attempts v1 tried=3 shown=3" ||
+		!strings.Contains(lines[3], "|InsufficientCapacity|") {
+		t.Errorf("message = %q", evs[0].Message)
+	}
+}
+
+func TestCreateWithoutAVendorCallPublishesNoLaunchAttempts(t *testing.T) {
+	e := newEnv(t, envOptions{})
+	if _, err := e.cp.Create(t.Context(), e.newClaim("claim-1", []string{"aws.does-not-exist"})); err == nil {
+		t.Fatal("want an error")
+	}
+	if evs := e.events.byReason(cloudprovider.EventLaunchAttempts); len(evs) != 0 {
+		t.Errorf("events = %+v", evs)
 	}
 }

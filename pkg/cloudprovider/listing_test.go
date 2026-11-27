@@ -216,6 +216,11 @@ func TestARetryablePrepareMovesTheLaunchToAnotherRegion(t *testing.T) {
 	if !slices.Contains(e.events.reasons(), cloudprovider.EventLaunchFailed) {
 		t.Errorf("events = %v, want a LaunchFailed warning", e.events.reasons())
 	}
+	attempts := e.events.byReason(cloudprovider.EventLaunchAttempts)
+	if len(attempts) != 1 || !strings.Contains(attempts[0].Message, "|Retryable|") ||
+		strings.Contains(attempts[0].Message, "|Fatal|") {
+		t.Errorf("LaunchAttempts = %+v, want the timeout recorded as Retryable", attempts)
+	}
 	e.advance(unavailable.DefaultUnreachableTTL)
 	if e.un.IsUnavailable(unavailableOfRegion(cheapest)) {
 		t.Error("the region stays set aside after the TTL")

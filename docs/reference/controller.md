@@ -867,6 +867,7 @@ once (and again after a restart). An address that changes on OCI after it was pu
 | `ImageResolutionFailed` | Warning | SCNodeClass | A boot image could not be resolved. |
 | `ImageCopying`, `ImageCopyFailed` | Normal / Warning | SCNodeClass | An image of the class is being copied into a region, or its copy failed; one per class, architecture and outcome ([Image copies](image-copies.md#events)). |
 | `ImageCopyDeleted` | Normal | the controller's Deployment | The collector deleted an image copy ([Image copies](image-copies.md#deletion-rules)). |
+| `LaunchAttempts` | Normal (launched) / Warning (failed) | NodeClaim | How the candidates of one `Create` call ended ([format](#launchattempts-event)). |
 | `OfferingRejected` | Warning | SCNodeClass | The vendor rejected the launch of an offering (`InvalidOffering`, with the vendor's message); it is unavailable for an hour. |
 | `ArtifactsNotResolved`, `ValidationFailed`, `VendorNotReady`, `MetricInvalid`, `RestartRequired` | Warning / Normal | SCNodeClass | The NodeClass controller's findings ([conditions](#scnodeclass-status-conditions)). |
 | `UserDataTooLarge` | Warning | SCNodeClass | The trial rendering of a spot node with the largest GPU part, the largest storage setup and the agent exceeds the vendors' user-data limit: launches of such types are refused one by one ([size](node-bootstrap.md#the-interruption-agent)); the NodeClass stays valid. |
@@ -881,6 +882,38 @@ once (and again after a restart). An address that changes on OCI after it was pu
 | `ResourcesUnavailable` | Warning | SCNodeClass | A region lacks a resource the NodeClass needs, so its offerings are unavailable. |
 | `SpotInterrupted`, `InterruptionIgnored` | Warning | Node, NodeClaim | A spot node's reclaim was announced; a notice was ignored ([Interruption](#interruption)). |
 | `RetainedUntil`, `ReleasedAtPeriodEnd`, `ReleasedUnderPressure`, `ReleaseBlockedByBudget`, `RetentionSkipped`, `BillingStartUnknown` | Normal / Warning | Node | Billing retention ([Billing retention](#billing-retention)). |
+
+### LaunchAttempts event
+
+Every `Create` call that made at least one vendor call publishes one `LaunchAttempts` Event on the
+NodeClaim: Normal when an offering launched, Warning when the call failed. It is per `Create` call, so a
+NodeClaim that core retries has one Event per call. SCarpenter does not deduplicate it; client-go's event
+correlator merges identical messages on one object (the Event's count grows) and combines 10 or more
+distinct ones on one object within 10 minutes. Core deletes a NodeClaim whose launch ended with
+`InsufficientCapacity`, and its launch condition with it; the Event stays readable by `involvedObject`
+(uid and name) for the Event TTL of the cluster.
+
+The message is a header line and one line per failed candidate, in the order tried:
+
+```text
+launch-attempts v1 tried=3 shown=3 launched=us-east-1|us-east-1c|spot|aws.m7i.large
+us-east-1|us-east-1a|spot|aws.m7i.large|InsufficientCapacity|InsufficientInstanceCapacity|We currently do not have sufficient capa
+us-east-1|us-east-1b|spot|aws.m7i.large|QuotaExceeded|MaxSpotInstanceCountExceeded|Max spot instance count exceeded
+```
+
+A line has the fields `region|zone|capacityType|instanceType|class|code|message`. `class` is the
+[error class](driver-contract.md#error-classes) of the vendor call (a launch preparation that timed out in an
+unreachable region is `Retryable`); `code` is the vendor error code (empty when there is none); `message` is
+the vendor's message with line breaks collapsed and `|` replaced by `/`, cut to 40 characters. The candidate
+that won is not a line: it is the `launched=` field of the header, which a launch that failed lacks, and it is
+always present. The listed candidates are those that count as attempts of the launch: every vendor call,
+and the failures before it (a vendor that is not enabled, a user-data rendering, a launch preparation); a
+candidate skipped for quota, unavailability or a missing image is not listed.
+
+`tried` is the number of attempts, the winner included. Only the first 50 failures are recorded, and the
+message is at most 8 KiB: lines that do not fit are dropped from the end. `shown` is the number of
+candidates the message covers, the winner included, and the header has ` truncated` when `shown` is less
+than `tried`.
 
 ## Metrics
 

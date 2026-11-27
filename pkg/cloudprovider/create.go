@@ -81,6 +81,11 @@ type launchState struct {
 	keepToken bool
 	// prepared are the resources the last attempt launched with.
 	prepared *vendors.Prepared
+	// attemptLog is the first outcomes of the vendor calls, attemptsTotal their
+	// count (attempts.go).
+	attemptLog    []launchAttempt
+	winner        *launchAttempt
+	attemptsTotal int
 }
 
 // Create launches the NodeClaim (overview section 4.1): the candidate offerings
@@ -96,6 +101,7 @@ func (c *CloudProvider) Create(ctx context.Context, nodeClaim *karpv1.NodeClaim)
 		regions: map[string]bool{}, zones: map[string]bool{}, classes: map[vendors.Class]int{}, stopped: stopNoCandidates,
 	}
 	created, err := c.create(ctx, st)
+	c.publishAttempts(nodeClaim, st, err != nil)
 	result := resultSuccess
 	if err != nil {
 		result = resultFailed
@@ -189,7 +195,7 @@ func (c *CloudProvider) create(ctx context.Context, st *launchState) (*karpv1.No
 		if !ok {
 			continue
 		}
-		inst, err := c.launch(ctx, st, cand)
+		inst, err := c.launchRecorded(ctx, st, cand)
 		if err == nil {
 			c.reconcileQuota(res, cand, inst, nodeClaim.Name)
 			return c.created(ctx, nc, nodeClaim, cands, cand, inst, st.runKey, st.prepared), nil
@@ -532,6 +538,21 @@ func launchMessage(err error) string {
 		return e.Error()
 	}
 	return vendors.NewError(vendors.Fatal, e.Code, e.Err).Error()
+}
+
+// launchRecorded is launch, noting its outcome for the LaunchAttempts event; a
+// failed image resolution is no vendor call and is not noted.
+func (c *CloudProvider) launchRecorded(ctx context.Context, st *launchState, cand *candidate) (
+	*vendors.Instance, error) {
+	inst, err := c.launch(ctx, st, cand)
+	if _, isImage := errors.AsType[*imageError](err); !isImage {
+		class := vendors.ClassOf(err)
+		if c.unreachable(ctx, st, err) {
+			class = vendors.Retryable // as the loop counts it
+		}
+		st.recordAttempt(cand, class, err)
+	}
+	return inst, err
 }
 
 // launch prepares the resources of the candidate and makes the vendor call.
