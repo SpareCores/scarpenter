@@ -94,13 +94,24 @@ type ListingOffering struct {
 // gate compares with the headroom; MaxLimit and MaxHeadroom are the largest
 // limit and current headroom (limit - used - reserved, at least 0) among the
 // regions of the group's offerings. A region whose quota is unknown is left
-// out, as it is not blocked.
+// out, as it is not blocked. Regions are the per-region values behind the
+// maximums, sorted by region; omitted for a global bucket and when no region has
+// data.
 type ListingQuota struct {
-	Bucket      string `json:"bucket"`
-	Unit        string `json:"unit"`
-	Need        int64  `json:"need"`
-	MaxLimit    int64  `json:"maxLimit"`
-	MaxHeadroom int64  `json:"maxHeadroom"`
+	Bucket      string               `json:"bucket"`
+	Unit        string               `json:"unit"`
+	Need        int64                `json:"need"`
+	MaxLimit    int64                `json:"maxLimit"`
+	MaxHeadroom int64                `json:"maxHeadroom"`
+	Regions     []ListingQuotaRegion `json:"regions,omitempty"`
+}
+
+// ListingQuotaRegion is the limit and the headroom (limit - used - reserved, at
+// least 0) of a quota bucket in one region.
+type ListingQuotaRegion struct {
+	Region   string `json:"region"`
+	Limit    int64  `json:"limit"`
+	Headroom int64  `json:"headroom"`
 }
 
 // newListing builds the listing of one class and vendor from the types of the
@@ -127,7 +138,7 @@ func (l Listing) withoutZones() Listing {
 	return l
 }
 
-// withoutHeadroom is the listing with the maximum headroom of every quota zeroed:
+// withoutHeadroom is the listing with the maximum and the regional headroom of every quota zeroed:
 // the change digest, so that headroom alone never rewrites the ConfigMap.
 func (l Listing) withoutHeadroom() Listing {
 	types := make(map[string]ListingType, len(l.Types))
@@ -136,7 +147,12 @@ func (l Listing) withoutHeadroom() Listing {
 		for i := range lt.Offerings {
 			lt.Offerings[i].Quotas = slices.Clone(lt.Offerings[i].Quotas)
 			for j := range lt.Offerings[i].Quotas {
-				lt.Offerings[i].Quotas[j].MaxHeadroom = 0
+				lq := &lt.Offerings[i].Quotas[j]
+				lq.MaxHeadroom = 0
+				lq.Regions = slices.Clone(lq.Regions)
+				for k := range lq.Regions {
+					lq.Regions[k].Headroom = 0
+				}
 			}
 		}
 		types[name] = lt
@@ -255,7 +271,8 @@ func listingType(t catalog.TypeReport, q Quotas) ListingType {
 }
 
 // quotasOf merges the quota facts of the regions: the need is the same in all,
-// the limit and the headroom are the largest. The buckets are sorted by ID.
+// the limit and the headroom are the largest. The regions of a regional bucket
+// are kept, sorted by name. The buckets are sorted by ID.
 func quotasOf(q Quotas, t catalog.TypeReport, capacityType string, regions []string) []ListingQuota {
 	if q == nil {
 		return nil
@@ -270,6 +287,9 @@ func quotasOf(q Quotas, t catalog.TypeReport, capacityType string, regions []str
 				i = len(out) - 1
 			}
 			out[i].MaxLimit, out[i].MaxHeadroom = max(out[i].MaxLimit, f.Limit), max(out[i].MaxHeadroom, f.Headroom)
+			if !f.Global {
+				out[i].Regions = append(out[i].Regions, ListingQuotaRegion{Region: region, Limit: f.Limit, Headroom: f.Headroom})
+			}
 		}
 	}
 	slices.SortFunc(out, func(a, b ListingQuota) int { return cmp.Compare(a.Bucket, b.Bucket) })

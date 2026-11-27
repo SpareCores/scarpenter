@@ -452,7 +452,8 @@ The document:
       "offerings": [
         {"capacityType": "on-demand", "zones": ["eu-frankfurt-1-AD-1", "eu-frankfurt-1-AD-2", "eu-frankfurt-1-AD-3"], "available": false,
          "reason": "DailyLimit", "until": "2026-11-22T00:00:00Z",
-         "quotas": [{"bucket": "standard-x12-ax-core-count", "unit": "OCPU", "need": 16, "maxLimit": 384, "maxHeadroom": 128}]}
+         "quotas": [{"bucket": "standard-x12-ax-core-count", "unit": "OCPU", "need": 16, "maxLimit": 384, "maxHeadroom": 128,
+                    "regions": [{"region": "eu-frankfurt-1", "limit": 384, "headroom": 128}]}]}
       ]
     }
   }
@@ -476,6 +477,7 @@ The document:
 | `quotas[].bucket`, `unit` | the quota bucket ID the quota gate checks and its unit, as in the `bucket` and `unit` labels of the `scarpenter_quota_*` metrics |
 | `quotas[].need` | what one instance consumes from the bucket: the value the quota gate compares with the headroom |
 | `quotas[].maxLimit`, `maxHeadroom` | the largest limit and the largest current headroom (limit - used - reserved, at least 0, in-flight launches included) among the regions of the group's offerings. A region whose quota for the bucket is unknown or stale is left out, as the gate does not block it; a bucket unknown in every region is omitted |
+| `quotas[].regions` | `[{region, limit, headroom}]`, sorted by `region`: the per-region values the two maximums are computed from, with the same headroom. Only the regions of the group with known, fresh quota data; omitted for a global (account-wide) bucket, whose `maxLimit` and `maxHeadroom` already are the account figures, and when no region has data |
 
 The cap is 800 KiB of compressed bytes (a ConfigMap holds 1 MiB). The controller writes the full document when it fits; otherwise the
 one without zones (`zonesOmitted`), logging an error when a listing first needs it. When even that does not fit it writes nothing for that
@@ -494,7 +496,7 @@ together. A consumer planning several launches against one bucket can count at m
 The headroom changes with every quota refresh (every 2 minutes by default), launch and termination, so it is not what triggers a
 write: the ConfigMap is rewritten when anything else in it changes (availability, reasons, a limit or a need) and at the 10-minute
 heartbeat, with the current values. `maxHeadroom` can thus be up to the heartbeat interval old (see `generatedAt`); it is a planning
-hint and the quota gate stays authoritative. A change of `maxLimit` is published promptly. Availability and quotas are read at slightly
+hint and the quota gate stays authoritative. The `headroom` of every region is like `maxHeadroom`. A change of `maxLimit` or of a regional `limit` is published promptly. Availability and quotas are read at slightly
 different moments, so they can briefly disagree.
 
 Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is

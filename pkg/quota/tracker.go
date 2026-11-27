@@ -650,6 +650,9 @@ type NeedFact struct {
 	Limit        int64
 	// Headroom is limit - used - reserved, at least 0.
 	Headroom int64
+	// Global is true for an account-wide bucket, whose limit and headroom are the
+	// same in every region.
+	Global bool
 }
 
 // Needs returns the buckets one instance of the type consumes in the region
@@ -668,6 +671,7 @@ func (t *Tracker) Needs(vendor, region, apiReference, capacityType string) []Nee
 	for _, n := range ns {
 		out = append(out, NeedFact{
 			Bucket: n.b.ID, Unit: n.b.Unit, Need: n.amount, Limit: n.b.Limit, Headroom: max(t.headroomLocked(n), 0),
+			Global: n.key.region == "",
 		})
 	}
 	if len(out) == 0 {

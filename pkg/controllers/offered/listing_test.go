@@ -355,8 +355,10 @@ func TestListingQuotas(t *testing.T) {
 		tr("none", catalog.OfferingReport{Region: "r1", Zone: "z1", CapacityType: "on-demand", Available: true}),
 	}, q)
 	wantBig := []ListingQuota{
-		{Bucket: "L-A", Unit: "vCPU", Need: 4, MaxLimit: 384, MaxHeadroom: 100},
-		{Bucket: "L-B", Unit: "GB", Need: 8, MaxLimit: 128, MaxHeadroom: 0},
+		{Bucket: "L-A", Unit: "vCPU", Need: 4, MaxLimit: 384, MaxHeadroom: 100, Regions: []ListingQuotaRegion{
+			{Region: "r1", Limit: 384, Headroom: 4}, {Region: "r2", Limit: 100, Headroom: 100}}},
+		{Bucket: "L-B", Unit: "GB", Need: 8, MaxLimit: 128, MaxHeadroom: 0, Regions: []ListingQuotaRegion{
+			{Region: "r1", Limit: 64, Headroom: 0}, {Region: "r2", Limit: 128, Headroom: 0}}},
 	}
 	if got := l.Types["stub.big"].Offerings[0].Quotas; !reflect.DeepEqual(got, wantBig) {
 		t.Errorf("big: %+v", got)
@@ -370,10 +372,56 @@ func TestListingQuotas(t *testing.T) {
 		t.Errorf("none: %s", raw)
 	}
 	raw, _ = json.Marshal(l.Types["stub.big"].Offerings[0])
-	if !strings.Contains(string(raw), `"quotas":[{"bucket":"L-A","unit":"vCPU","need":4,"maxLimit":384,"maxHeadroom":100}`) {
+	if !strings.Contains(string(raw), `"quotas":[{"bucket":"L-A","unit":"vCPU","need":4,"maxLimit":384,"maxHeadroom":100,"regions":[{"region":"r1","limit":384,"headroom":4},`) {
 		t.Errorf("layout: %s", raw)
 	}
 	if without := newListing("c", "stub", "", nil, nil); without.Types == nil {
 		t.Error("no types gives a nil map")
+	}
+}
+
+func TestListingQuotaRegions(t *testing.T) {
+	q := fakeQuotas{
+		// r3 is stale or unknown: it has no facts and stays out.
+		"r2/t/on-demand": {{Bucket: "reg", Unit: "vCPU", Need: 4, Limit: 20, Headroom: 12}, {Bucket: "all", Unit: "vCPU", Need: 4, Limit: 50, Headroom: 30, Global: true}},
+		"r1/t/on-demand": {{Bucket: "reg", Unit: "vCPU", Need: 4, Limit: 10, Headroom: 2}, {Bucket: "all", Unit: "vCPU", Need: 4, Limit: 50, Headroom: 30, Global: true}},
+	}
+	tr := catalog.TypeReport{Vendor: "stub", InstanceType: "stub.t", APIReference: "t", Offerings: []catalog.OfferingReport{
+		{Region: "r3", Zone: "z3", CapacityType: "on-demand", Available: true},
+		{Region: "r2", Zone: "z2", CapacityType: "on-demand", Available: true},
+		{Region: "r1", Zone: "z1", CapacityType: "on-demand", Available: true},
+	}}
+	got := listingType(tr, q).Offerings[0].Quotas
+	want := []ListingQuota{
+		// A global bucket has no regions: the maximums are the account figures.
+		{Bucket: "all", Unit: "vCPU", Need: 4, MaxLimit: 50, MaxHeadroom: 30},
+		{Bucket: "reg", Unit: "vCPU", Need: 4, MaxLimit: 20, MaxHeadroom: 12, Regions: []ListingQuotaRegion{
+			{Region: "r1", Limit: 10, Headroom: 2}, {Region: "r2", Limit: 20, Headroom: 12}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("quotas: %+v", got)
+	}
+	raw, _ := json.Marshal(got[0])
+	if strings.Contains(string(raw), "regions") {
+		t.Errorf("global bucket: %s", raw)
+	}
+}
+
+func TestListingDigestIgnoresRegionHeadroomButNotLimit(t *testing.T) {
+	digest := func(limit, headroom int64) string {
+		q := fakeQuotas{"r1/t/on-demand": {{Bucket: "b", Unit: "u", Need: 1, Limit: limit, Headroom: headroom}}}
+		l := newListing("c", "stub", "", []catalog.TypeReport{{Vendor: "stub", InstanceType: "stub.t", APIReference: "t",
+			Offerings: []catalog.OfferingReport{{Region: "r1", Zone: "z1", CapacityType: "on-demand", Available: true}}}}, q)
+		raw, err := json.Marshal(l.withoutHeadroom())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	if digest(10, 5) != digest(10, 1) {
+		t.Error("a headroom change alters the digest")
+	}
+	if digest(10, 5) == digest(20, 5) {
+		t.Error("a limit change leaves the digest unchanged")
 	}
 }
