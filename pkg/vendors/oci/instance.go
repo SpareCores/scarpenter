@@ -185,6 +185,9 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	if err := t.Check(shapes, ad.Full); err != nil {
 		return nil, vendors.AsPreLaunch(err)
 	}
+	if err := checkShapeArch(t.Shape, req.Arch); err != nil {
+		return nil, vendors.AsPreLaunch(err)
+	}
 	if err := d.checkBareMetalWindow(t.Shape); err != nil {
 		return nil, vendors.AsPreLaunch(err)
 	}
@@ -215,6 +218,21 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 	}
 	d.forgetAttempt(key)
 	return ToInstance(req.Region, res.Instance), nil
+}
+
+// checkShapeArch refuses a launch whose shape's own architecture is not the request's. The image's
+// compatibility list cannot tell: OCI adds the default x86 entries to every imported image, arm64 ones
+// included. It is InvalidOffering with the image/shape code, as checkImageShape's.
+func checkShapeArch(shape, arch string) error {
+	shapeArch := "amd64"
+	if Arm(shape) {
+		shapeArch = "arm64"
+	}
+	if shapeArch == arch {
+		return nil
+	}
+	return vendors.NewError(vendors.InvalidOffering, codeImageShape,
+		fmt.Errorf("the shape %s is %s, the request is %s", shape, shapeArch, arch))
 }
 
 // checkImageShape refuses a launch of a shape that is not in the image's

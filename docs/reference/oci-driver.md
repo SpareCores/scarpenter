@@ -128,7 +128,7 @@ The option also applies to every `images.use` selector that lists images (`name`
 
 `CreateInstance` checks the user data (16 KiB) and the metadata total (32,000 bytes), looks the
 idempotency key up in the region's instances (a replay in another AD, shape or capacity type returns the
-original), checks the type against the AD's shape table, then calls `LaunchInstance` once without a retry
+original), checks the type against the AD's shape table, refuses a shape whose architecture (Arm, or x86 for the A10 GPU shapes) differs from the request's (`InvalidOffering`, `ImageNotCompatible`), then calls `LaunchInstance` once without a retry
 policy. The request: the controller's compartment, the AD's full name, the shape and `shapeConfig`, the
 image with the boot volume size, performance (VPUs per GB) and key, the VNIC (the subnet that serves the
 zone, the public address, the groups, the tags), the `user_data` metadata (the Ignition, base64; never SSH
