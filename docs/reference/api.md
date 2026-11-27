@@ -51,6 +51,7 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 | `poweroffAfter` | string |  | poweroffAfter powers a node off after this long: a fail-safe against instances that outlive their NodeClaim. Pattern `^([0-9]+(\.[0-9]+)?(s\|m\|h))+$`. |
 | `pricing` | [object](#specpricing) | `{}` | pricing configures how offerings are priced. |
 | `profiles` | [object](#specprofiles) | `{}` | profiles are named, explicit, vendor-native setups that workloads pick by name through labels. |
+| `rootVolume` | [object](#specrootvolume) |  | rootVolume lets the root volume grow to fit the pods' ephemeral-storage requests, up to maxSize, on the vendors whose root volume size the NodeClass sets. Unset: the root volume is what the vendor block says. |
 | `selections` | map of [object](#specselections) |  | selections define selection profiles: sc-karpenter-nodepool's selector and ranking, evaluated on every catalog refresh. Instance types carry the label selection=&lt;name&gt; for each profile they belong to. |
 | `sysexts` | array of [object](#specsysexts) |  | sysexts lists extra systemd sysexts installed on every node. At most 16 items. |
 | `tags` | map of string values |  | tags are added to every vendor resource SCarpenter creates (tags or labels, as the vendor calls them). Rule: tag keys in the scarpenter.sparecores.com domain are reserved (`self.all(k, !k.startsWith('scarpenter.sparecores.com/'))`). |
@@ -1045,6 +1046,14 @@ root configures the root disk, a clone of the Flatcar template.
 | `encrypted` | boolean |  | encrypted encrypts the disk at rest (free). Built-in default true. |
 | `size` | integer or string |  | size of the root disk, for example 25Gi (UpCloud's GB are taken as GiB); 10 to 1024. Built-in default: the plan's included storage, at least 25. A disk larger than the plan's included storage is billed in full. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
 | `tier` | string |  | tier of the root disk. A clone keeps the tier of its template, so the tier must be one an image template of the zone was made with. Built-in default: the plan's included tier where a template of it exists, else the tier of the template. One of `maxiops`, `standard`. |
+
+### `spec.rootVolume`
+
+rootVolume lets the root volume grow to fit the pods' ephemeral-storage requests, up to maxSize, on the vendors whose root volume size the NodeClass sets. Unset: the root volume is what the vendor block says.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `maxSize` (required) | integer or string |  | maxSize is the size the root volume may grow to (for example 1Ti). The instance types advertise this much ephemeral storage (less the vendor's maximum), so that a pod can request more than the configured size; a node gets only the size its pods' requests need. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. Rule: maxSize must be positive (`quantity(string(self)).isGreaterThan(quantity('0'))`). |
 
 ### `spec.selections.*`
 

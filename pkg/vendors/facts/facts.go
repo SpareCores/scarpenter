@@ -627,6 +627,10 @@ func (f *Facts) RootDiskBytes(vendor string, class *catalog.Class, srv *model.Se
 		s = no.Defaults()
 		s.RootDiskBytes = no.RootDiskBytes(s)
 	}
+	if rv := class.Inputs[vendor].RootVolume; rv != nil {
+		// The type advertises the root disk it can grow to.
+		s = options.WithMinRoot(no, s, rv.MaxSize.Value())
+	}
 	if b, ok := no.RootDiskForType(s, catalogType(vendor, srv)); ok && b > 0 {
 		return b, true
 	}

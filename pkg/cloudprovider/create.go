@@ -608,7 +608,7 @@ func (c *CloudProvider) launch(ctx context.Context, st *launchState, cand *candi
 		Node: vendors.NodeInfo{
 			Name: nodeClaim.Name, ProviderID: providerID,
 			Labels:   nodeLabels(nodeClaim.Name, cand.it, cand.off, cand.sel.Applied(), st.runKey),
-			Capacity: cand.it.Capacity, Allocatable: cand.it.Allocatable(),
+			Capacity: cand.capacity, Allocatable: cand.allocatable,
 		},
 	}
 	inst, err := drv.CreateInstance(ctx, req)
@@ -804,8 +804,8 @@ func (c *CloudProvider) created(
 		}
 	}
 	out.Status.ProviderID = scope.ProviderID(cand.vendor, inst.Region, nodeClaim.Name)
-	out.Status.Capacity = cand.it.Capacity
-	out.Status.Allocatable = cand.it.Allocatable()
+	out.Status.Capacity = cand.capacity
+	out.Status.Allocatable = cand.allocatable
 	return out
 }
 

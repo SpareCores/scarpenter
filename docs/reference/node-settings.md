@@ -19,6 +19,7 @@ The vendor resources a node depends on are in
 - [Pricing](#pricing)
 - [Drift](#drift)
 - [Network addresses and egress](#network-addresses-and-egress)
+- [Root volume that grows to fit ephemeral-storage requests](#root-volume-that-grows-to-fit-ephemeral-storage-requests)
 - [Extra volumes and local storage](#extra-volumes-and-local-storage)
 - [Kubelet reservations](#kubelet-reservations)
 - [Memory footprint](#memory-footprint)
@@ -194,6 +195,56 @@ public addresses; a vendor block may override them. Generic meaning:
   that egress is your job.
 
 The AWS specifics are in [the AWS driver](aws-driver.md#network-addresses-and-egress).
+
+## Root volume that grows to fit ephemeral-storage requests
+
+The vendor block sets the root volume size (`volumeSize` on AWS, `sizeGb` on GCP and
+OCI, `diskSizeGB` on Azure, `size` on AliCloud, UpCloud and the OVH `bootFromVolume`),
+and the scheduler assumes that much ephemeral storage on every instance type. A pod
+that requests more than that fits no type. `spec.rootVolume` lets the workload say what
+it needs, through the standard `resources.requests["ephemeral-storage"]` of its pods,
+and makes the node's root volume large enough:
+
+```yaml
+spec:
+  rootVolume:
+    maxSize: 1Ti    # required; the root volume may grow up to this size
+```
+
+```yaml
+# a pod that needs 600Gi of node disk
+resources:
+  requests:
+    ephemeral-storage: 600Gi
+```
+
+With `rootVolume` set:
+
+- The instance types advertise ephemeral storage as if the root volume were `maxSize`
+  (never below the size the vendor block sets, and at most the vendor's own maximum
+  where the driver knows it), so the pod above can schedule onto a type whose
+  configured disk is 128Gi.
+- A node launches with `max(vendor block size, size the NodeClaim's requests need)`, at most
+  `maxSize`, in whole GiB. The NodeClaim's requests are the sum of the requests of the
+  pods placed on it and of the DaemonSets. The size needed is the smallest disk whose
+  allocatable ephemeral storage covers them: the capacity less the
+  [kubelet reservations](#kubelet-reservations) (1Gi kube-reserved by default, system-reserved and the
+  `nodefs.available` eviction threshold, which may be a share of the disk). Requests below what the
+  configured size already allocates leave it unchanged.
+- The NodeClaim's `status.capacity` and `status.allocatable` carry the launched size, not the
+  advertised one, so the scheduler packs further pods onto the node against what it has.
+- The price of a launch includes the grown disk where the driver prices disks. The catalog's
+  prices, which the scheduler orders types by before it knows a node's requests, stay those
+  of the configured size.
+
+Setting `rootVolume` changes the [drift hash](#drift) (`rootVolume` is one of the hashed shared fields), so it replaces
+the nodes of the class; unset leaves the root volume and the advertised ephemeral storage as the vendor
+block says.
+
+An Azure ephemeral OS disk (`storage.root.ephemeral`) keeps its size, which must fit the VM's
+cache or resource disk. Hetzner and Vultr ignore `rootVolume`: the instance type fixes the root disk there, and so does an OVH
+flavor's local root disk (only `bootFromVolume` grows). On UpCloud the plan's included storage
+is the size the growth starts from when the block sets none.
 
 ## Extra volumes and local storage
 

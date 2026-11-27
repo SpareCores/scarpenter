@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	selapi "github.com/SpareCores/sc-keeper-go/selection/api"
@@ -45,6 +46,12 @@ type SCNodeClassSpec struct {
 	// +kubebuilder:default={}
 	// +optional
 	Kubelet KubeletSpec `json:"kubelet,omitempty"`
+
+	// rootVolume lets the root volume grow to fit the pods' ephemeral-storage
+	// requests, up to maxSize, on the vendors whose root volume size the
+	// NodeClass sets. Unset: the root volume is what the vendor block says.
+	// +optional
+	RootVolume *RootVolumeSpec `json:"rootVolume,omitempty"`
 
 	// butane references extra Butane configuration merged into every node's
 	// Ignition.
@@ -354,6 +361,26 @@ type ConfigMapKeyRef struct {
 	// +kubebuilder:validation:MaxLength=253
 	// +required
 	Key string `json:"key"`
+}
+
+// RootVolumeSpec lets the root volume of a node grow to fit what its pods
+// request as ephemeral storage. The nodes keep the size the vendor block sets
+// unless the pods of a NodeClaim request more ephemeral storage than a node of
+// that size has allocatable: the root volume is then made as large as those
+// requests need, in whole GiB, but at most maxSize. It applies where the vendor
+// block sets the size (AWS, GCP, Azure, OCI, AliCloud, UpCloud, OVH boot from
+// volume), within the vendor's own maximum; a vendor whose instance type fixes
+// the root disk (Hetzner, Vultr, the OVH local-disk flavors) and an Azure
+// ephemeral OS disk keep their size. Setting it changes the drift hash, so it
+// replaces nodes.
+type RootVolumeSpec struct {
+	// maxSize is the size the root volume may grow to (for example 1Ti). The
+	// instance types advertise this much ephemeral storage (less the vendor's
+	// maximum), so that a pod can request more than the configured size; a node
+	// gets only the size its pods' requests need.
+	// +required
+	// +kubebuilder:validation:XValidation:rule="quantity(string(self)).isGreaterThan(quantity('0'))",message="maxSize must be positive"
+	MaxSize resource.Quantity `json:"maxSize"`
 }
 
 // KubeletSpec configures the kubelet and the capacity the scheduler assumes.

@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package azure
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -101,6 +102,7 @@ func DecodeSettings(s vendors.VendorSettings) (Settings, error) {
 			return out, fmt.Errorf("decoding the Azure settings: %w", err)
 		}
 	}
+	growRoot(&out, s)
 	out.AcceleratedNetwork = settingAuto
 	if len(s.Network) > 0 {
 		var np networkProfile
@@ -208,4 +210,25 @@ func decodeNetworkProfile(raw json.RawMessage) (string, error) {
 		mode = np.AcceleratedNetworking.Enabled
 	}
 	return mode, nil
+}
+
+// growRoot raises the OS disk to the size the NodeClass's rootVolume asks for the
+// instance type (MinRootDiskBytes), within the maximum of an OS disk. An ephemeral OS disk keeps its size.
+func growRoot(st *Settings, s vendors.VendorSettings) {
+	if s.MinRootDiskBytes == 0 {
+		return
+	}
+	if st.Storage == nil {
+		st.Storage = &StorageSettings{}
+	}
+	if st.Storage.Root == nil {
+		st.Storage.Root = &RootDisk{}
+	}
+	root := st.Storage.Root
+	if root.Ephemeral != nil {
+		return // an ephemeral OS disk must fit the VM's cache or resource disk: the size is the NodeClass's
+	}
+	current := int64(cmp.Or(root.DiskSizeGB, DefaultRootDiskGB))
+	//nolint:gosec // at most maxRootGiB, or the configured int32 size
+	root.DiskSizeGB = int32(s.GrowRootGiB(current, maxRootGiB))
 }

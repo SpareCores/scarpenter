@@ -686,7 +686,7 @@ makes its own offerings unavailable, and a `Create` fails with
 
 The **drift hash** of a vendor is the SHA-256 over the canonical JSON of the
 shared fields that change what a node is (`flatcar`, `kubernetes`, `network`,
-`networking`, `kubelet`, `butane`, `sysexts`, `poweroffAfter`, `tags`), `instanceMetadata` (left out while unset, so the
+`networking`, `kubelet`, `butane`, `sysexts`, `poweroffAfter`, `tags`), `rootVolume` and `instanceMetadata` (each left out while unset, so the
 hash of a NodeClass that does not set it is the one it had before the field existed), that vendor's block without `regions` and `resources`, the contents the spec points at
 (custom template, Butane, the auth key Secret's resourceVersion), the resolved
 artifact digests (not their URLs: switching to a mirror of the same release does

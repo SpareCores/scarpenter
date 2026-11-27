@@ -99,7 +99,9 @@ func (r *settingsResolver) priceOf(
 	c *candidate, s vendors.VendorSettings, sel options.Selection,
 ) (usd, delta float64, complete bool) {
 	no, ok := r.nodeOptions(c.vendor)
-	if !ok || sel.IsDefault() || !c.priced {
+	// A grown root disk costs more than the catalog's default one: it is priced
+	// like a selected profile.
+	if !ok || (sel.IsDefault() && s.MinRootDiskBytes == 0) || !c.priced {
 		return c.catalogPrice.USD, c.catalogPrice.Delta, c.catalogPrice.Complete || !c.priced
 	}
 	d, complete := no.PriceDelta(s, vendors.Offering{

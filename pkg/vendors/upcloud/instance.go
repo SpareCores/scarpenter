@@ -110,6 +110,7 @@ func (d *Driver) launchSpec(ctx context.Context, req vendors.CreateRequest) (Lau
 	if rootGB == 0 {
 		rootGB = max(plan.DefaultRootGB(), tmpl.SizeGB)
 	}
+	rootGB = int(req.Settings.GrowRootGiB(int64(rootGB), 0))
 	pr := preparedOf(req.Prepared)
 	net := req.Settings.Networking
 	labels, err := ServerLabels(req.Tags, req.ExtraTags, req.IdempotencyKey, d.clock.Now())
