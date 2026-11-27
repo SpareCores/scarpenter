@@ -92,3 +92,17 @@ func TestBareMetalNeedsARegistrationWindow(t *testing.T) {
 		}
 	}
 }
+
+// An Ampere bare metal shape launches on demand with the arm64 launch options.
+func TestBareMetalArm64Launch(t *testing.T) {
+	const shape = "BM.Standard.A1.160"
+	e := bareMetalEnv(t, driver.MinBareMetalRegistrationTimeout)
+	e.c.AddShape(fake.SeedRegion, fake.FixedShape(shape, 160, 1024, "bm-standard-a1-160-count"))
+	req := request(shape)
+	req.Arch = "arm64"
+	e.create(t, req)
+	l := e.c.Launches()[0]
+	if *l.Shape != shape || l.ShapeConfig != nil || l.LaunchOptions == nil {
+		t.Errorf("shape %q, shape config %+v, launch options %+v", *l.Shape, l.ShapeConfig, l.LaunchOptions)
+	}
+}

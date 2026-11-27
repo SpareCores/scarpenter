@@ -16,10 +16,13 @@ OCI bare metal shapes boot Flatcar when the image is the SpareCores Flatcar iSCS
 ## Status
 
 The SpareCores image (platform `oraclecloud-iscsi`, from
-[SpareCores/flatcar-images](https://github.com/SpareCores/flatcar-images), amd64) booted on `BM.Standard.E2.64`
-through two boots across a guest reboot, with the root on iSCSI, `iscsid` running with a 6000 s replacement
-timeout, and a `systemd-networkd` restart under I/O. The same image boots unchanged on VM shapes. The upstream
-issue is [flatcar/Flatcar#2516](https://github.com/flatcar/Flatcar/issues/2516).
+[SpareCores/flatcar-images](https://github.com/SpareCores/flatcar-images), amd64 and arm64) booted on
+`BM.Standard.E2.64` (amd64) and `BM.Standard.A1.160` (arm64) through two boots across a guest reboot, with the root on
+iSCSI, `iscsid` running with a 6000 s replacement timeout, and a `systemd-networkd` restart under I/O. The same image
+boots unchanged on VM shapes. The upstream issue is [flatcar/Flatcar#2516](https://github.com/flatcar/Flatcar/issues/2516).
+
+Arm64 bare metal is supported on the Ampere shapes `BM.Standard.A1.160`, `BM.Standard.A4.48` and
+`BM.Standard.A4.Ax.48`, where the region offers them. The Mellanox mlx5 NIC works as on amd64.
 
 The driver launches only the shapes on the image's compatibility list (see
 [Launch](../reference/oci-driver.md#launch)). Add bare metal shapes only to the list of the SpareCores image: a bare
@@ -52,6 +55,9 @@ volume is a paravirtualized disk that Linux sees directly.
 
 - An extra initrd on the OEM partition that logs in to the iBFT iSCSI boot volume, and only when an iBFT exists, so
   the image is unchanged on VMs.
+- On arm64 the kernel has no `iscsi_ibft` driver (`CONFIG_ISCSI_IBFT` is off, see
+  [flatcar/Flatcar#2516](https://github.com/flatcar/Flatcar/issues/2516)), so the early init reads the raw ACPI iBFT
+  table and logs in with `iscsistart`. This is transparent to users.
 - `iscsid` kept running after the root is mounted, with the iBFT initiator name and a replacement timeout of 6000 s,
   so a short loss of the path does not fail the root.
 - The boot NIC's address kept, so networking does not drop the iSCSI connection of the root.
@@ -59,16 +65,21 @@ volume is a paravirtualized disk that Linux sees directly.
 ## Getting the image
 
 Both ways give the same image, the release
-[stable-4757.2.3-r5](https://github.com/SpareCores/flatcar-images/releases/tag/stable-4757.2.3-r5) of
-SpareCores/flatcar-images. Then add the shapes to the compatibility list and tag the image as in
+[stable-4757.2.3-r6](https://github.com/SpareCores/flatcar-images/releases/tag/stable-4757.2.3-r6) of
+SpareCores/flatcar-images, in amd64 and arm64. Then add the shapes to the compatibility list and tag the image as in
 [Set up OCI](../how-to-guides/set-up-oci.md).
 
-**A. The public copy.** A copy of the image is available in a public Object Storage bucket (it is a convenience, not a
-promise that the object stays). Import it into your compartment:
+**A. The public copy.** Copies of both images are available in a public Object Storage bucket (a convenience, not a
+promise that the objects stay). The bucket listing is off, so use the full URLs:
+
+- amd64: `https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frihwb5ywtth/b/sc-flatcar-images-public/o/flatcar-oraclecloud-iscsi-stable-4757.2.3-r6-amd64.qcow2`
+- arm64: `https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frihwb5ywtth/b/sc-flatcar-images-public/o/flatcar-oraclecloud-iscsi-stable-4757.2.3-r6-arm64.qcow2`
+
+Import the one you need into your compartment (amd64 shown):
 
 ```
 oci compute image import from-object-uri \
-  --uri https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frihwb5ywtth/b/sc-flatcar-images-public/o/flatcar-oraclecloud-iscsi-stable-4757.2.3-r5-amd64.qcow2 \
+  --uri https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frihwb5ywtth/b/sc-flatcar-images-public/o/flatcar-oraclecloud-iscsi-stable-4757.2.3-r6-amd64.qcow2 \
   --source-image-type QCOW2 --launch-mode PARAVIRTUALIZED \
   --operating-system Flatcar --operating-system-version 4757.2.3 \
   --display-name flatcar-stable-4757.2.3-amd64 --compartment-id <your compartment>
@@ -76,10 +87,14 @@ oci compute image import from-object-uri \
 oci compute image-shape-compatibility-entry add --image-id <image OCID> --shape-name BM.Standard.E2.64
 ```
 
-Run the second command once per bare metal shape.
+Run the second command once per bare metal shape. For the arm64 image, first create a `UEFI_64` image capability
+schema for it (`oci compute image-capability-schema create` with `Compute.Firmware` = `UEFI_64`, as for any arm64
+Flatcar import; see [Set up OCI](../how-to-guides/set-up-oci.md)), then add the compatibility entries for
+`BM.Standard.A1.160`, `BM.Standard.A4.48` and `BM.Standard.A4.Ax.48`. The amd64 image needs only the compatibility
+entries.
 
-**B. From the release.** Download the asset `flatcar-oraclecloud-iscsi-stable-4757.2.3-amd64.qcow2` from the
-release and its sigstore bundle, verify it with `cosign verify-blob` (keyless: the certificate identity is the
+**B. From the release.** Download the asset `flatcar-oraclecloud-iscsi-stable-4757.2.3-amd64.qcow2` or
+`flatcar-oraclecloud-iscsi-stable-4757.2.3-arm64.qcow2` from the release and its sigstore bundle, verify it with `cosign verify-blob` (keyless: the certificate identity is the
 `build.yml` workflow of SpareCores/flatcar-images on `main`, issued by GitHub's OIDC provider), upload it to your own
 Object Storage bucket and import it from there with the `import from-object-uri` command above.
 
@@ -88,8 +103,8 @@ Object Storage bucket and import it from there with the `import from-object-uri`
 - **Keep Flatcar's auto-updates off.** The extra initrd matches only the kernel the image ships in USR-A, so an
   updated `/usr` would not boot on bare metal. SCarpenter already masks `update-engine` and `locksmithd`; replace
   nodes to move to a new version, with a new image.
-- **Expect 5 to 8 minutes of firmware POST** before GRUB. A launch takes about 7 minutes to reach `RUNNING` and about
-  1 more to boot.
+- **Expect 5 to 8 minutes of firmware POST** before GRUB on amd64, about 3 minutes on arm64. An amd64 launch takes
+  about 7 minutes to reach `RUNNING` and about 1 more to boot.
 - **Never administratively set the boot NIC down** (`ip link set <nic> down`): the node loses its default route, and
   the next firmware boot finds no link.
 - A missing SSH key in the instance metadata makes `coreos-metadata-sshkeys@core` fail. This is not specific to bare
@@ -97,5 +112,4 @@ Object Storage bucket and import it from there with the `import from-object-uri`
 
 ## Limits
 
-- amd64 only. Arm bare metal shapes (A1, A4) are not supported.
 - Only the shapes of the image's compatibility list launch, and only while the registration timeout allows it.

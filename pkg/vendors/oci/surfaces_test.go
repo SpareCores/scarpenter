@@ -82,6 +82,35 @@ func TestResolveImageDefaultLookup(t *testing.T) {
 	}
 }
 
+// An image with no arch tag whose compatibility entries are bare metal shapes only is arm64 for the
+// Ampere shapes (A1, A4) and amd64 for the others: BM. is not an amd64 marker by itself.
+func TestResolveImageArchitectureOfBareMetalShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		arch   string
+		shapes []string
+	}{
+		{"A1", "arm64", []string{"BM.Standard.A1.160"}},
+		{"A4", "arm64", []string{"BM.Standard.A4.48", "BM.Standard.A4.Ax.48"}},
+		{"E-series", "amd64", []string{"BM.Standard.E5.192", "BM.Standard3.64"}},
+	} {
+		e := newEnv(t)
+		other := map[string]string{"arm64": "amd64", "amd64": "arm64"}[tc.arch]
+		img := fake.FlatcarImage("stable", "4800.0.0", tc.arch)
+		delete(img.FreeformTags, "arch")
+		id := e.c.AddImage(testRegion, img, tc.shapes...)
+		req := imageReq(tc.arch, vendors.UseRef{})
+		req.Version = "4800.0.0"
+		if got, err := e.d.ResolveImage(t.Context(), req); err != nil || got.Ref != id {
+			t.Errorf("%s: %s lookup: %+v, %v", tc.name, tc.arch, got, err)
+		}
+		req.Arch = other
+		if _, err := e.d.ResolveImage(t.Context(), req); !vendors.IsClass(err, vendors.NotFound) {
+			t.Errorf("%s: %s lookup: %v, want NotFound", tc.name, other, err)
+		}
+	}
+}
+
 // OCI rejected ListImages with a display name and the operating system, version or shape filters (verified
 // live); with the lifecycle state alone the oci CLI is accepted. The fake does the same, and the lookup by name
 // sends the name alone and filters the answer.
