@@ -28,8 +28,11 @@ const (
 	maxRecordedAttempts = 50
 	// maxAttemptsMessage is the length of a candidate's vendor message in runes.
 	maxAttemptsMessage = 40
-	// maxEventBytes is the Kubernetes limit of an Event's message.
-	maxEventBytes = 1024
+	// maxEventBytes is a safety cap on the message. Events made through the
+	// client-go recorder (core/v1, no EventTime) are not length-validated by the
+	// apiserver. If core moves to events.k8s.io (mgr.GetEventRecorder), messages
+	// over 1024 bytes are rejected and this must change.
+	maxEventBytes = 8 << 10
 	// classLaunched is the class of the candidate that launched.
 	classLaunched = "Launched"
 )
@@ -41,49 +44,63 @@ type launchAttempt struct {
 }
 
 // recordAttempt notes the outcome of a vendor call of the candidate; a nil err
-// is the launch that won.
-func (st *launchState) recordAttempt(cand *candidate, err error) {
+// is the launch that won, which is kept apart so it is always reported.
+func (st *launchState) recordAttempt(cand *candidate, class vendors.Class, err error) {
 	st.attemptsTotal++
-	if len(st.attemptLog) >= maxRecordedAttempts {
-		return
-	}
 	a := launchAttempt{
 		region: cand.region, zone: cand.zone, capacityType: cand.capacityType, instanceType: cand.typeName,
 		class: classLaunched,
 	}
-	if err != nil {
-		a.class, a.code, a.message = string(vendors.ClassOf(err)), vendors.CodeOf(err), err.Error()
-		if ve, ok := errors.AsType[*vendors.Error](err); ok {
-			a.message = ve.Err.Error() // without the "<Class> (<Code>): " prefix, which has its own fields
-		}
+	if err == nil {
+		st.winner = &a
+		return
+	}
+	if len(st.attemptLog) >= maxRecordedAttempts {
+		return
+	}
+	a.class, a.code, a.message = string(class), vendors.CodeOf(err), err.Error()
+	if ve, ok := errors.AsType[*vendors.Error](err); ok {
+		a.message = ve.Err.Error() // without the "<Class> (<Code>): " prefix, which has its own fields
 	}
 	st.attemptLog = append(st.attemptLog, a)
 }
 
 // formatAttempts renders the attempts of a Create as an Event message: a header
-// line, then one line per candidate in the order tried:
+// line, then one line per failed candidate in the order tried:
 //
-//	launch-attempts v1 tried=<total> shown=<n>[ truncated]
+//	launch-attempts v1 tried=<total> shown=<n>[ truncated][ launched=<region>|<zone>|<capacityType>|<instanceType>]
 //	<region>|<zone>|<capacityType>|<instanceType>|<class>|<code>|<message>
 //
-// Candidates after the first maxRecordedAttempts are not recorded, and lines
+// The winner of a launch that succeeded is in the header only, and counts in
+// tried. Failures after the first maxRecordedAttempts are not recorded, and lines
 // that do not fit maxEventBytes are dropped from the end; the header says so
 // with "truncated".
-func formatAttempts(attempts []launchAttempt, total int) string {
-	lines := make([]string, len(attempts))
-	for i, a := range attempts {
+func formatAttempts(failed []launchAttempt, winner *launchAttempt, total int) string {
+	lines := make([]string, len(failed))
+	for i, a := range failed {
 		lines[i] = strings.Join([]string{
 			attemptField(a.region, 0), attemptField(a.zone, 0), attemptField(a.capacityType, 0),
 			attemptField(a.instanceType, 0), attemptField(a.class, 0), attemptField(a.code, 0),
 			attemptField(a.message, maxAttemptsMessage),
 		}, "|")
 	}
+	launched := ""
+	if winner != nil {
+		launched = " launched=" + strings.Join([]string{
+			attemptField(winner.region, 0), attemptField(winner.zone, 0), attemptField(winner.capacityType, 0),
+			attemptField(winner.instanceType, 0),
+		}, "|")
+	}
+	wonCount := 0
+	if winner != nil {
+		wonCount = 1
+	}
 	for shown := len(lines); ; shown-- {
-		header := fmt.Sprintf("launch-attempts v1 tried=%d shown=%d", total, shown)
-		if shown < total {
+		header := fmt.Sprintf("launch-attempts v1 tried=%d shown=%d", total, shown+wonCount)
+		if shown+wonCount < total {
 			header += " truncated"
 		}
-		msg := strings.Join(append([]string{header}, lines[:shown]...), "\n")
+		msg := strings.Join(append([]string{header + launched}, lines[:shown]...), "\n")
 		if len(msg) <= maxEventBytes || shown == 0 {
 			return msg
 		}
@@ -114,6 +131,6 @@ func (c *CloudProvider) publishAttempts(nodeClaim *karpv1.NodeClaim, st *launchS
 		InvolvedObject: nodeClaim,
 		Type:           typ,
 		Reason:         EventLaunchAttempts,
-		Message:        formatAttempts(st.attemptLog, st.attemptsTotal),
+		Message:        formatAttempts(st.attemptLog, st.winner, st.attemptsTotal),
 	})
 }

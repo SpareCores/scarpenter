@@ -84,6 +84,7 @@ type launchState struct {
 	// attemptLog is the first outcomes of the vendor calls, attemptsTotal their
 	// count (attempts.go).
 	attemptLog    []launchAttempt
+	winner        *launchAttempt
 	attemptsTotal int
 }
 
@@ -545,7 +546,11 @@ func (c *CloudProvider) launchRecorded(ctx context.Context, st *launchState, can
 	*vendors.Instance, error) {
 	inst, err := c.launch(ctx, st, cand)
 	if _, isImage := errors.AsType[*imageError](err); !isImage {
-		st.recordAttempt(cand, err)
+		class := vendors.ClassOf(err)
+		if c.unreachable(ctx, st, err) {
+			class = vendors.Retryable // as the loop counts it
+		}
+		st.recordAttempt(cand, class, err)
 	}
 	return inst, err
 }

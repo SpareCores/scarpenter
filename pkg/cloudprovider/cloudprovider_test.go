@@ -1429,16 +1429,15 @@ func TestCreatePublishesTheLaunchAttemptsOnTheNodeClaim(t *testing.T) {
 		t.Fatalf("events = %+v", evs)
 	}
 	lines := strings.Split(evs[0].Message, "\n")
-	if len(lines) != 3 || lines[0] != "launch-attempts v1 tried=2 shown=2" {
+	wantHeader := fmt.Sprintf("launch-attempts v1 tried=2 shown=2 launched=%s|%s|%s|%s",
+		offs[1].region, offs[1].zone, offs[1].capacityType, offs[1].typeName)
+	if len(lines) != 2 || lines[0] != wantHeader {
 		t.Fatalf("message = %q", evs[0].Message)
 	}
 	first := strings.Split(lines[1], "|")
 	if first[3] != offs[0].typeName || first[1] != offs[0].zone || first[2] != offs[0].capacityType ||
 		first[4] != string(vendors.InsufficientCapacity) {
 		t.Errorf("first line = %q, want the failed offering %+v", lines[1], offs[0])
-	}
-	if second := strings.Split(lines[2], "|"); second[4] != "Launched" || second[3] != offs[1].typeName {
-		t.Errorf("second line = %q, want the winner %+v", lines[2], offs[1])
 	}
 }
 

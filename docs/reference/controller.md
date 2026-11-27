@@ -584,7 +584,7 @@ state and of its state ConfigMap).
 ## CloudProvider
 
 The CloudProvider is named `scarpenter` and supports the `SCNodeClass` kind. It
-is vendor-neutral on top of [the driver contract](driver-contract.md#error-classes).
+is vendor-neutral on top of [the driver contract](driver-contract.md).
 
 `Create` resolves the vendor settings of each candidate (driver defaults, the
 vendor block, the profiles the NodeClaim's requirements select; see [node
@@ -887,28 +887,33 @@ once (and again after a restart). An address that changes on OCI after it was pu
 
 Every `Create` call that made at least one vendor call publishes one `LaunchAttempts` Event on the
 NodeClaim: Normal when an offering launched, Warning when the call failed. It is per `Create` call, so a
-NodeClaim that core retries has one Event per call, and it is never deduplicated. Core deletes a NodeClaim
-whose launch ended with `InsufficientCapacity`, and its launch condition with it; the Event stays
-readable by `involvedObject` (uid and name) for the Event TTL of the cluster.
+NodeClaim that core retries has one Event per call. SCarpenter does not deduplicate it; client-go's event
+correlator merges identical messages on one object (the Event's count grows) and combines 10 or more
+distinct ones on one object within 10 minutes. Core deletes a NodeClaim whose launch ended with
+`InsufficientCapacity`, and its launch condition with it; the Event stays readable by `involvedObject`
+(uid and name) for the Event TTL of the cluster.
 
-The message is a header line and one line per tried candidate, in the order tried:
+The message is a header line and one line per failed candidate, in the order tried:
 
 ```text
-launch-attempts v1 tried=3 shown=3
+launch-attempts v1 tried=3 shown=3 launched=us-east-1|us-east-1c|spot|aws.m7i.large
 us-east-1|us-east-1a|spot|aws.m7i.large|InsufficientCapacity|InsufficientInstanceCapacity|We currently do not have sufficient capa
 us-east-1|us-east-1b|spot|aws.m7i.large|QuotaExceeded|MaxSpotInstanceCountExceeded|Max spot instance count exceeded
-us-east-1|us-east-1c|spot|aws.m7i.large|Launched||
 ```
 
 A line has the fields `region|zone|capacityType|instanceType|class|code|message`. `class` is the
-[error class](driver-contract.md#error-classes) of the vendor call, or `Launched` for the offering that won (the last line
-of a launch that succeeded); `code` is the vendor error code (empty when there is none); `message` is the
-vendor's message with line breaks and `|` removed, cut to 40 characters. Only candidates that reached a
-vendor call are listed; candidates skipped for quota, unavailability or a missing image are not.
+[error class](driver-contract.md#error-classes) of the vendor call (a launch preparation that timed out in an
+unreachable region is `Retryable`); `code` is the vendor error code (empty when there is none); `message` is
+the vendor's message with line breaks collapsed and `|` replaced by `/`, cut to 40 characters. The candidate
+that won is not a line: it is the `launched=` field of the header, which a launch that failed lacks, and it is
+always present. The listed candidates are those that count as attempts of the launch: every vendor call,
+and the failures before it (a vendor that is not enabled, a user-data rendering, a launch preparation); a
+candidate skipped for quota, unavailability or a missing image is not listed.
 
-`tried` is the number of vendor calls. Only the first 50 candidates are recorded, and the message is at
-most 1024 bytes (the Kubernetes limit): lines that do not fit are dropped from the end. `shown` is the
-number of lines, and the header ends with ` truncated` when `shown` is less than `tried`.
+`tried` is the number of attempts, the winner included. Only the first 50 failures are recorded, and the
+message is at most 8 KiB: lines that do not fit are dropped from the end. `shown` is the number of
+candidates the message covers, the winner included, and the header has ` truncated` when `shown` is less
+than `tried`.
 
 ## Metrics
 
