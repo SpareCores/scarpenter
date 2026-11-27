@@ -124,13 +124,18 @@ func newListing(class, vendor, generatedAt string, types []catalog.TypeReport, q
 	return l
 }
 
-// withoutZones is the listing with the zones of every offering emptied.
+// withoutZones is the listing with the zones of every offering emptied and the
+// regions of every quota dropped; maxLimit and maxHeadroom stay.
 func (l Listing) withoutZones() Listing {
 	types := make(map[string]ListingType, len(l.Types))
 	for name, lt := range l.Types {
 		lt.Offerings = slices.Clone(lt.Offerings)
 		for i := range lt.Offerings {
 			lt.Offerings[i].Zones = []string{}
+			lt.Offerings[i].Quotas = slices.Clone(lt.Offerings[i].Quotas)
+			for j := range lt.Offerings[i].Quotas {
+				lt.Offerings[i].Quotas[j].Regions = nil
+			}
 		}
 		types[name] = lt
 	}

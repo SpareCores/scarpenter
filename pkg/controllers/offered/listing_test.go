@@ -389,6 +389,7 @@ func TestListingQuotaRegions(t *testing.T) {
 	tr := catalog.TypeReport{Vendor: "stub", InstanceType: "stub.t", APIReference: "t", Offerings: []catalog.OfferingReport{
 		{Region: "r3", Zone: "z3", CapacityType: "on-demand", Available: true},
 		{Region: "r2", Zone: "z2", CapacityType: "on-demand", Available: true},
+		{Region: "r2", Zone: "z2b", CapacityType: "on-demand", Available: true},
 		{Region: "r1", Zone: "z1", CapacityType: "on-demand", Available: true},
 	}}
 	got := listingType(tr, q).Offerings[0].Quotas
@@ -423,5 +424,17 @@ func TestListingDigestIgnoresRegionHeadroomButNotLimit(t *testing.T) {
 	}
 	if digest(10, 5) == digest(20, 5) {
 		t.Error("a limit change leaves the digest unchanged")
+	}
+}
+
+func TestListingWithoutZonesDropsQuotaRegions(t *testing.T) {
+	l := Listing{Types: map[string]ListingType{"t": {Offerings: []ListingOffering{{Zones: []string{"z"}, Quotas: []ListingQuota{
+		{Bucket: "b", MaxLimit: 10, MaxHeadroom: 5, Regions: []ListingQuotaRegion{{Region: "r1", Limit: 10, Headroom: 5}}}}}}}}}
+	got := l.withoutZones().Types["t"].Offerings[0].Quotas[0]
+	if got.Regions != nil || got.MaxLimit != 10 || got.MaxHeadroom != 5 {
+		t.Errorf("quota %+v", got)
+	}
+	if len(l.Types["t"].Offerings[0].Quotas[0].Regions) != 1 {
+		t.Error("the original listing was changed")
 	}
 }
