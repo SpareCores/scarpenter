@@ -893,7 +893,7 @@ func TestNeedsAreWhatUnavailableComparesAndSkipUnknownBuckets(t *testing.T) {
 	got := e.tr.Needs("stub", "r2", "m.xlarge", "on-demand")
 	want = []quota.NeedFact{
 		{Bucket: "std", Unit: "vCPU", Need: 8, Limit: 100, Headroom: 100},
-		{Bucket: "all", Unit: "GB", Need: 8, Limit: 10, Headroom: 0},
+		{Bucket: "all", Unit: "GB", Need: 8, Limit: 10, Headroom: 0, Global: true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("r2: %+v", got)
