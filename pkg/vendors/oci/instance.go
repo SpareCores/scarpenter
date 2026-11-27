@@ -222,8 +222,12 @@ func (d *Driver) CreateInstance(ctx context.Context, req vendors.CreateRequest) 
 
 // checkShapeArch refuses a launch whose shape's own architecture is not the request's. The image's
 // compatibility list cannot tell: OCI adds the default x86 entries to every imported image, arm64 ones
-// included. It is InvalidOffering with the image/shape code, as checkImageShape's.
+// included. GPU shapes are skipped: the name cannot tell their architecture (the Grace based GB200 and
+// GB300 are Arm, the A10 shapes x86), so the request's, from Keeper, decides alone.
 func checkShapeArch(shape, arch string) error {
+	if strings.Contains(shape, ".GPU.") {
+		return nil
+	}
 	shapeArch := "amd64"
 	if Arm(shape) {
 		shapeArch = "arm64"
@@ -231,7 +235,7 @@ func checkShapeArch(shape, arch string) error {
 	if shapeArch == arch {
 		return nil
 	}
-	return vendors.NewError(vendors.InvalidOffering, codeImageShape,
+	return vendors.NewError(vendors.InvalidOffering, codeShapeArch,
 		fmt.Errorf("the shape %s is %s, the request is %s", shape, shapeArch, arch))
 }
 

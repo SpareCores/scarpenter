@@ -34,6 +34,7 @@ const (
 	codeNotReady   = "NotImplemented"
 	codeTokenClash = "RetryTokenConflict"
 	codeImageShape = "ImageNotCompatible"
+	codeShapeArch  = "ShapeArchMismatch"
 )
 
 // OCI's error codes the driver acts on (the Oracle API errors page).
