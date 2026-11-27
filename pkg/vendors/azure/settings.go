@@ -213,7 +213,7 @@ func decodeNetworkProfile(raw json.RawMessage) (string, error) {
 }
 
 // growRoot raises the OS disk to the size the NodeClass's rootVolume asks for the
-// instance type (MinRootDiskBytes), within the maximum of an OS disk.
+// instance type (MinRootDiskBytes), within the maximum of an OS disk. An ephemeral OS disk keeps its size.
 func growRoot(st *Settings, s vendors.VendorSettings) {
 	if s.MinRootDiskBytes == 0 {
 		return
@@ -225,7 +225,10 @@ func growRoot(st *Settings, s vendors.VendorSettings) {
 		st.Storage.Root = &RootDisk{}
 	}
 	root := st.Storage.Root
+	if root.Ephemeral != nil {
+		return // an ephemeral OS disk must fit the VM's cache or resource disk: the size is the NodeClass's
+	}
 	current := int64(cmp.Or(root.DiskSizeGB, DefaultRootDiskGB))
 	//nolint:gosec // at most maxRootGiB, or the configured int32 size
-	root.DiskSizeGB = int32(s.GrowRootGiB("azure", current, maxRootGiB))
+	root.DiskSizeGB = int32(s.GrowRootGiB(current, maxRootGiB))
 }

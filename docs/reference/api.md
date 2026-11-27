@@ -1051,16 +1051,14 @@ root configures the root disk, a clone of the Flatcar template.
 
 rootVolume grows the root volume of nodes with the instance type's memory, on the vendors whose root volume size the NodeClass sets. Unset: the root volume is what the vendor block says.
 
-Validation: memoryMultiplier is above 0 and at most 100 (`!has(self.memoryMultiplier) \|\| (quantity(self.memoryMultiplier).isGreaterThan(quantity('0')) && quantity(self.memoryMultiplier).isLessThan(quantity('101')))`).
+Validation: memoryMultiplier is above 0 and at most 100 (`quantity(string(self.memoryMultiplier)).isGreaterThan(quantity('0')) && !quantity(string(self.memoryMultiplier)).isGreaterThan(quantity('100'))`).
 
-Validation: memoryMaxSize must be positive (`!has(self.memoryMaxSize) \|\| quantity(self.memoryMaxSize).isGreaterThan(quantity('0'))`).
-
-Validation: memoryMaxSize needs memoryMultiplier (`!has(self.memoryMaxSize) \|\| has(self.memoryMultiplier)`).
+Validation: memoryMaxSize must be positive (`!has(self.memoryMaxSize) \|\| quantity(string(self.memoryMaxSize)).isGreaterThan(quantity('0'))`).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `memoryMaxSize` | integer or string |  | memoryMaxSize caps the memory-derived size (for example 8Ti), so that the largest types stay below the vendor's volume limit. It never lowers the size the vendor block sets. Unset: no cap. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
-| `memoryMultiplier` | integer or string |  | memoryMultiplier is the root volume size per unit of instance memory, a decimal quantity such as 1 or 1.5: a type with 1 TiB of memory gets at least 1 TiB with 1. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+| `memoryMultiplier` (required) | integer or string |  | memoryMultiplier is the root volume size per unit of instance memory, a decimal quantity such as 1 or 1.5: a type with 1 TiB of memory gets at least 1 TiB with 1. Fractions are written as strings ("1.5" or 1500m). Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
 
 ### `spec.selections.*`
 

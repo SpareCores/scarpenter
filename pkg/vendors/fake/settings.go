@@ -322,7 +322,7 @@ func growRoot(b *settingsBlock, s vendors.VendorSettings) {
 	if *size != nil {
 		current = ((*size).Value() + 1<<30 - 1) >> 30
 	}
-	if grown := s.GrowRootGiB("fake", current, 0); grown != current {
+	if grown := s.GrowRootGiB(current, 0); grown != current {
 		*size = resource.NewQuantity(grown<<30, resource.BinarySI)
 	}
 }

@@ -191,7 +191,7 @@ func parseGrown(vs vendors.VendorSettings) (Settings, error) {
 		return Settings{}, err
 	}
 	if b := s.Storage.Root.BootFromVolume; b != nil && vs.MinRootDiskBytes > 0 {
-		if grown := vs.GrowRootGiB("ovh", gib(b.Size), 0); grown != gib(b.Size) {
+		if grown := vs.GrowRootGiB(gib(b.Size), 0); grown != gib(b.Size) {
 			b.Size = *resource.NewQuantity(grown<<30, resource.BinarySI)
 		}
 	}

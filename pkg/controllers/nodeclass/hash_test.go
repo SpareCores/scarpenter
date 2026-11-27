@@ -293,12 +293,17 @@ func TestHashOfStoredNodeClassesIsPinned(t *testing.T) {
 // (the pins above), a set one replaces the nodes.
 func TestRootVolumeChangesTheHashOnlyWhenSet(t *testing.T) {
 	set := base()
-	set.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: new(resource.MustParse("1"))}
+	set.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: resource.MustParse("1")}
 	if hash(t, set, "aws") == hash(t, base(), "aws") {
 		t.Error("setting rootVolume does not change the hash")
 	}
+	same := base()
+	same.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: resource.MustParse("1000m")}
+	if hash(t, set, "aws") != hash(t, same, "aws") {
+		t.Error("1 and 1000m hash differently")
+	}
 	other := base()
-	other.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: new(resource.MustParse("2"))}
+	other.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: resource.MustParse("2")}
 	if hash(t, set, "aws") == hash(t, other, "aws") {
 		t.Error("another multiplier hashes the same")
 	}

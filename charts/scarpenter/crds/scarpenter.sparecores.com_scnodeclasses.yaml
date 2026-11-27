@@ -2301,18 +2301,18 @@ spec:
                     description: |-
                       memoryMultiplier is the root volume size per unit of instance memory, a
                       decimal quantity such as 1 or 1.5: a type with 1 TiB of memory gets at
-                      least 1 TiB with 1.
+                      least 1 TiB with 1. Fractions are written as strings ("1.5" or 1500m).
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                required:
+                - memoryMultiplier
                 type: object
                 x-kubernetes-validations:
                 - message: memoryMultiplier is above 0 and at most 100
-                  rule: '!has(self.memoryMultiplier) || (quantity(self.memoryMultiplier).isGreaterThan(quantity(''0''))
-                    && quantity(self.memoryMultiplier).isLessThan(quantity(''101'')))'
+                  rule: quantity(string(self.memoryMultiplier)).isGreaterThan(quantity('0'))
+                    && !quantity(string(self.memoryMultiplier)).isGreaterThan(quantity('100'))
                 - message: memoryMaxSize must be positive
-                  rule: '!has(self.memoryMaxSize) || quantity(self.memoryMaxSize).isGreaterThan(quantity(''0''))'
-                - message: memoryMaxSize needs memoryMultiplier
-                  rule: '!has(self.memoryMaxSize) || has(self.memoryMultiplier)'
+                  rule: '!has(self.memoryMaxSize) || quantity(string(self.memoryMaxSize)).isGreaterThan(quantity(''0''))'
               selections:
                 additionalProperties:
                   description: |-

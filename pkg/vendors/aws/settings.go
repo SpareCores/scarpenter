@@ -88,7 +88,7 @@ func growRoot(st *awsapi.Settings, s vendors.VendorSettings) {
 	root := st.Storage.Root
 	volumeType := cmp.Or(root.VolumeType, defaultVolumeType)
 	current := int64(cmp.Or(gib(root.VolumeSize), defaultRootGiB))
-	if grown := s.GrowRootGiB("aws", current, int64(ebsLimits[volumeType].maxGiB)); grown != current {
+	if grown := s.GrowRootGiB(current, int64(ebsLimits[volumeType].maxGiB)); grown != current {
 		root.VolumeSize = resource.NewQuantity(grown*giB, resource.BinarySI)
 	}
 }

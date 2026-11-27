@@ -370,15 +370,14 @@ type ConfigMapKeyRef struct {
 // block sets the size (AWS, GCP, Azure, OCI, AliCloud, UpCloud, OVH boot from
 // volume); a vendor whose instance type fixes the root disk (Hetzner, Vultr)
 // ignores it. Setting it changes the drift hash, so it replaces nodes.
-// +kubebuilder:validation:XValidation:rule="!has(self.memoryMultiplier) || (quantity(self.memoryMultiplier).isGreaterThan(quantity('0')) && quantity(self.memoryMultiplier).isLessThan(quantity('101')))",message="memoryMultiplier is above 0 and at most 100"
-// +kubebuilder:validation:XValidation:rule="!has(self.memoryMaxSize) || quantity(self.memoryMaxSize).isGreaterThan(quantity('0'))",message="memoryMaxSize must be positive"
-// +kubebuilder:validation:XValidation:rule="!has(self.memoryMaxSize) || has(self.memoryMultiplier)",message="memoryMaxSize needs memoryMultiplier"
+// +kubebuilder:validation:XValidation:rule="quantity(string(self.memoryMultiplier)).isGreaterThan(quantity('0')) && !quantity(string(self.memoryMultiplier)).isGreaterThan(quantity('100'))",message="memoryMultiplier is above 0 and at most 100"
+// +kubebuilder:validation:XValidation:rule="!has(self.memoryMaxSize) || quantity(string(self.memoryMaxSize)).isGreaterThan(quantity('0'))",message="memoryMaxSize must be positive"
 type RootVolumeSpec struct {
 	// memoryMultiplier is the root volume size per unit of instance memory, a
 	// decimal quantity such as 1 or 1.5: a type with 1 TiB of memory gets at
-	// least 1 TiB with 1.
-	// +optional
-	MemoryMultiplier *resource.Quantity `json:"memoryMultiplier,omitempty"`
+	// least 1 TiB with 1. Fractions are written as strings ("1.5" or 1500m).
+	// +required
+	MemoryMultiplier resource.Quantity `json:"memoryMultiplier"`
 
 	// memoryMaxSize caps the memory-derived size (for example 8Ti), so that
 	// the largest types stay below the vendor's volume limit. It never lowers
@@ -389,10 +388,10 @@ type RootVolumeSpec struct {
 
 // MinBytes returns the root volume size the spec asks for a type with
 // memoryMiB of memory, in whole GiB: min(ceil(memory x memoryMultiplier),
-// memoryMaxSize rounded down). It is 0 when the spec is unset or has no
-// multiplier; the drivers take the larger of it and their configured size.
+// memoryMaxSize rounded down). It is 0 when the spec is unset or memory is
+// unknown; the drivers take the larger of it and their configured size.
 func (r *RootVolumeSpec) MinBytes(memoryMiB float64) int64 {
-	if r == nil || r.MemoryMultiplier == nil || memoryMiB <= 0 {
+	if r == nil || memoryMiB <= 0 {
 		return 0
 	}
 	const gib = 1 << 30

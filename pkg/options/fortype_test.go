@@ -26,7 +26,7 @@ func TestForType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	in.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: new(resource.MustParse("1"))}
+	in.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: resource.MustParse("1")}
 	for memoryMiB, want := range map[float64]int64{16 << 10: 128, 1 << 20: 1024} {
 		if got := options.ForType(no, in, s, memoryMiB).RootDiskBytes; got != want*gib {
 			t.Errorf("%v MiB: root disk = %d GiB, want %d", memoryMiB, got/gib, want)

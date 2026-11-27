@@ -1093,17 +1093,17 @@ var rootClampLogged sync.Map
 // GrowRootGiB returns the root disk size in GiB of a launch: current, raised to
 // MinRootDiskBytes (rounded up to whole GiB). A vendor maximum maxGiB the driver
 // knows (0: none) limits the growth, never below current; the first limit hit
-// per vendor and maximum is logged.
-func (s VendorSettings) GrowRootGiB(vendor string, current, maxGiB int64) int64 {
+// per maximum is logged, from the catalog facts path, which is the first to see it.
+func (s VendorSettings) GrowRootGiB(current, maxGiB int64) int64 {
 	const gib = 1 << 30
 	want := (s.MinRootDiskBytes + gib - 1) / gib
 	if want <= current {
 		return current
 	}
 	if maxGiB > 0 && want > maxGiB {
-		if _, seen := rootClampLogged.LoadOrStore(fmt.Sprintf("%s/%d", vendor, maxGiB), true); !seen {
+		if _, seen := rootClampLogged.LoadOrStore(maxGiB, true); !seen {
 			log.Log.WithName("rootvolume").Info("limiting the memory-scaled root volume to the vendor maximum",
-				"vendor", vendor, "wantGiB", want, "maxGiB", maxGiB)
+				"wantGiB", want, "maxGiB", maxGiB)
 		}
 		return max(current, maxGiB)
 	}

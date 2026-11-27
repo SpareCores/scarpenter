@@ -791,6 +791,7 @@ func (f *Facts) PriceDelta(vendor string, class *catalog.Class, srv *model.Serve
 	if !ok {
 		return 0, true // the NodeClass controller reports the invalid block
 	}
+	s = options.ForType(no, class.Inputs[vendor], s, srv.MemoryMiB)
 	ct := catalogType(vendor, srv)
 	return no.PriceDelta(s, vendors.Offering{
 		Region: f.regionOf(vendor, zone), Zone: zone, CapacityType: capacityType, APIReference: srv.APIReference, Type: ct,

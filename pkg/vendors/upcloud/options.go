@@ -54,7 +54,7 @@ func (d *Driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 	if gb == 0 {
 		gb = MinRootGB
 	}
-	return s.GrowRootGiB("upcloud", int64(gb), 0) * giB
+	return s.GrowRootGiB(int64(gb), 0) * giB
 }
 
 // RootDiskForType implements vendors.NodeOptions: the root disk of a plan is the
@@ -65,10 +65,10 @@ func (d *Driver) RootDiskForType(s vendors.VendorSettings, it vendors.CatalogTyp
 	st, err := decodeSettings(s)
 	if err == nil {
 		if gb := rootOf(st).SizeGB; gb > 0 {
-			return s.GrowRootGiB("upcloud", int64(gb), 0) * giB, true
+			return s.GrowRootGiB(int64(gb), 0) * giB, true
 		}
 	}
-	return s.GrowRootGiB("upcloud", int64(max(int(it.LocalStorageGB), MinRootGB)), 0) * giB, true
+	return s.GrowRootGiB(int64(max(int(it.LocalStorageGB), MinRootGB)), 0) * giB, true
 }
 
 // Supported implements vendors.NodeOptions: the profiles of the NodeClass that
@@ -199,6 +199,7 @@ func (d *Driver) PriceDelta(s vendors.VendorSettings, o vendors.Offering) (float
 	if rootGB == 0 {
 		rootGB = max(includedGB, MinRootGB)
 	}
+	rootGB = int(s.GrowRootGiB(int64(rootGB), 0))
 	switch {
 	case includedGB > 0 && rootGB <= includedGB && (root.Tier == "" || root.Tier == includedTier):
 		// The included disk, free.

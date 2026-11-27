@@ -86,7 +86,7 @@ func (d *driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 	}
 	_ = json.Unmarshal(s.Raw, &v)
 	q := resource.MustParse(v.Storage.Root.VolumeSize)
-	return q.Value()
+	return max(q.Value(), s.MinRootDiskBytes)
 }
 
 func (d *driver) Supported(it vendors.CatalogType, zone string, p vendors.Profiles) map[string][]string {
@@ -249,6 +249,31 @@ func TestPriceDeltaAndRootDiskFollowTheClassDefaults(t *testing.T) {
 	}
 	if b, _ := f.RootDiskBytes("aws", &small, srv); b != 64<<30 {
 		t.Errorf("small root disk = %d", b)
+	}
+}
+
+// TestRootVolumeGrowsThePriceAndTheRootDisk: with spec.rootVolume the catalog's
+// price delta and root disk are those of the grown disk of the type.
+func TestRootVolumeGrowsThePriceAndTheRootDisk(t *testing.T) {
+	f := setup(t, &driver{})
+	nc := nodeClass("64Gi")
+	nc.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: resource.MustParse("1")}
+	class, err := catalog.ClassFromNodeClass(nc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := *srv
+	big.MemoryMiB = 164 << 10
+	if delta, ok := f.PriceDelta("aws", &class, &big, "us-east-1a", "on-demand"); delta < 0.99 || delta > 1.01 || !ok {
+		t.Errorf("a type with 164 GiB of memory costs %v on top, want 1.00 for the 100 GiB of growth", delta)
+	}
+	if b, _ := f.RootDiskBytes("aws", &class, &big); b != 164<<30 {
+		t.Errorf("root disk = %d, want 164 GiB", b)
+	}
+	small := *srv
+	small.MemoryMiB = 16 << 10
+	if b, _ := f.RootDiskBytes("aws", &class, &small); b != 64<<30 {
+		t.Errorf("a small type's root disk = %d, want the configured 64 GiB", b)
 	}
 }
 

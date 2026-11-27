@@ -70,8 +70,9 @@ func growRoot(st *gcpapi.Settings, s vendors.VendorSettings) {
 	if diskType == "" {
 		diskType = gcpapi.DiskTypePDBalanced
 	}
-	grown := s.GrowRootGiB("gcp", current, diskTable[diskType].maxGiB)
-	root.SizeGb = &grown
+	if grown := s.GrowRootGiB(current, diskTable[diskType].maxGiB); grown != current {
+		root.SizeGb = &grown
+	}
 }
 
 func decodePlacement(raw json.RawMessage) (gcpapi.Placement, error) {

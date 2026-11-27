@@ -99,3 +99,13 @@ func TestMinRootDiskBytesStopsAtTheVendorMaximum(t *testing.T) {
 		})
 	}
 }
+
+// TestMinRootDiskBytesKeepsAnAzureEphemeralDisk: an ephemeral OS disk must fit
+// the VM's cache or resource disk, so it does not grow.
+func TestMinRootDiskBytesKeepsAnAzureEphemeralDisk(t *testing.T) {
+	raw := `{"storage":{"root":{"diskSizeGB":128,"ephemeral":{"placement":"CacheDisk"}}}}`
+	s := vendors.VendorSettings{Raw: json.RawMessage(raw), MinRootDiskBytes: 1024 * gib}
+	if got := (&azure.Driver{}).RootDiskBytes(s); got != 128*gib {
+		t.Errorf("ephemeral root disk = %d GiB, want 128", got/gib)
+	}
+}

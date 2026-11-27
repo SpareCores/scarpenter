@@ -194,7 +194,7 @@ func growRoot(st *Settings, s vendors.VendorSettings) {
 	}
 	root := st.Storage.Root
 	current := cmp.Or(gibOf(root.Size), DefaultRootGiB)
-	if grown := s.GrowRootGiB("alicloud", current, maxSystemDiskGiB); grown != current {
+	if grown := s.GrowRootGiB(current, maxSystemDiskGiB); grown != current {
 		root.Size = resource.NewQuantity(grown*giB, resource.BinarySI)
 	}
 }

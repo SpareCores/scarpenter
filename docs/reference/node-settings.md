@@ -207,7 +207,7 @@ instance type's memory (Keeper `memory_amount`):
 ```yaml
 spec:
   rootVolume:
-    memoryMultiplier: "1"   # a quoted decimal, above 0 and at most 100
+    memoryMultiplier: 1     # required; above 0 and at most 100, fractions as "1.5" or 1500m
     memoryMaxSize: 8Ti      # optional cap of the memory-derived size
 ```
 
@@ -220,7 +220,8 @@ once); SCarpenter adds no limit of its own. The scheduler's ephemeral storage of
 follows the same size. Setting `rootVolume` changes the [drift hash](#drift) (`rootVolume` is one of the hashed shared fields), so it replaces
 the nodes of the class; unset leaves the root volume as the vendor block says.
 
-Hetzner and Vultr ignore it: the instance type fixes the root disk there, and so does an OVH
+An Azure ephemeral OS disk (`storage.root.ephemeral`) keeps its size, which must fit the VM's
+cache or resource disk. Hetzner and Vultr ignore it: the instance type fixes the root disk there, and so does an OVH
 flavor's local root disk (only `bootFromVolume` grows). On UpCloud the plan's included storage
 is the size the growth starts from when the block sets none.
 

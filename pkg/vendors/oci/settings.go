@@ -91,7 +91,7 @@ func decodeSettings(s vendors.VendorSettings) (settings, error) {
 	if r.SizeGb == 0 {
 		r.SizeGb = DefaultRootGB
 	}
-	r.SizeGb = s.GrowRootGiB("oci", r.SizeGb, MaxRootGB)
+	r.SizeGb = s.GrowRootGiB(r.SizeGb, MaxRootGB)
 	if r.Performance == "" {
 		r.Performance = DefaultRootPerformance
 	}
