@@ -127,6 +127,24 @@ func (l Listing) withoutZones() Listing {
 	return l
 }
 
+// withoutHeadroom is the listing with the maximum headroom of every quota zeroed:
+// the change digest, so that headroom alone never rewrites the ConfigMap.
+func (l Listing) withoutHeadroom() Listing {
+	types := make(map[string]ListingType, len(l.Types))
+	for name, lt := range l.Types {
+		lt.Offerings = slices.Clone(lt.Offerings)
+		for i := range lt.Offerings {
+			lt.Offerings[i].Quotas = slices.Clone(lt.Offerings[i].Quotas)
+			for j := range lt.Offerings[i].Quotas {
+				lt.Offerings[i].Quotas[j].MaxHeadroom = 0
+			}
+		}
+		types[name] = lt
+	}
+	l.Types = types
+	return l
+}
+
 // encode is the gzipped JSON of the listing, at most limit bytes. A listing that
 // does not fit is encoded without the zones (zonesOmitted); one that still does
 // not fit is an error. No type is ever dropped.

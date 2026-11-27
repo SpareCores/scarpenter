@@ -452,7 +452,7 @@ The document:
       "offerings": [
         {"capacityType": "on-demand", "zones": ["eu-frankfurt-1-AD-1", "eu-frankfurt-1-AD-2", "eu-frankfurt-1-AD-3"], "available": false,
          "reason": "DailyLimit", "until": "2026-11-22T00:00:00Z",
-         "quotas": [{"bucket": "L-34B43A08", "unit": "vCPU", "need": 16, "maxLimit": 384, "maxHeadroom": 128}]}
+         "quotas": [{"bucket": "standard-x12-ax-core-count", "unit": "OCPU", "need": 16, "maxLimit": 384, "maxHeadroom": 128}]}
       ]
     }
   }
@@ -486,10 +486,16 @@ test fixtures is about 31 KiB compressed;
 `scarpenter_offered_listing_bytes` shows the size of each listing.
 
 Reading `quotas`: with `maxLimit >= need > maxHeadroom` the quota is busy, so the offering may come back when usage drops; with
-`maxLimit < need` an instance of the type never fits in any region of the group, however long a consumer waits. A consumer planning
-several launches against one bucket can count `maxHeadroom / need` instances per region at most. The headroom changes with every quota refresh
-(every 2 minutes by default) and with launches and terminations, so the ConfigMap is rewritten whenever a maximum changes, at most every 30 seconds
-per class, instead of only when an availability changes.
+`maxLimit < need` an instance of the type does not fit in any region of the group whose quota is known, until the limit is raised.
+`maxLimit` and `maxHeadroom` are upper bounds, not the capacity of one region: with several buckets each maximum may come from a
+different region, and a global (account-wide) bucket has one headroom shared by all regions, so launches in several regions draw on it
+together. A consumer planning several launches against one bucket can count at most `maxHeadroom / need` instances.
+
+The headroom changes with every quota refresh (every 2 minutes by default), launch and termination, so it is not what triggers a
+write: the ConfigMap is rewritten when anything else in it changes (availability, reasons, a limit or a need) and at the 10-minute
+heartbeat, with the current values. `maxHeadroom` can thus be up to the heartbeat interval old (see `generatedAt`); it is a planning
+hint and the quota gate stays authoritative. A change of `maxLimit` is published promptly. Availability and quotas are read at slightly
+different moments, so they can briefly disagree.
 
 Quota is evaluated per region and capacity type, so the reasons of the offerings of one type can differ by zone. A type that is
 available in some zones is `available: true`; its blocked zones are in `offerings`. The class-level view has no NodePool, so no

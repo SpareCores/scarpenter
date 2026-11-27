@@ -657,6 +657,9 @@ type NeedFact struct {
 // snapshot entry are left out, like for Unavailable; nil when the quota of the
 // type is unknown.
 func (t *Tracker) Needs(vendor, region, apiReference, capacityType string) []NeedFact {
+	if t == nil {
+		return nil
+	}
 	now := t.opts.Clock.Now()
 	t.mu.RLock()
 	defer t.mu.RUnlock()

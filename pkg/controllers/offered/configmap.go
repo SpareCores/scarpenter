@@ -168,12 +168,13 @@ func (c *Controller) removeUnwanted(ctx context.Context, class string, wanted ma
 
 func (c *Controller) writeListing(ctx context.Context, nc *v1alpha1.SCNodeClass, name, vendor string,
 	types []catalog.TypeReport) error {
-	// The digest leaves out the time: an unchanged listing is written again only
-	// as a heartbeat. The owner is part of it, a recreated class needs its
-	// ConfigMaps again.
+	// The digest leaves out the time and the maximum headroom of the quotas, which
+	// changes with every quota refresh: an unchanged listing is written again only
+	// as a heartbeat, so a published headroom is up to a heartbeat old. The owner is part of
+	// it, a recreated class needs its ConfigMaps again.
 	now := c.opts.Clock.Now()
 	l := newListing(nc.Name, vendor, "", types, c.opts.Quotas)
-	content, err := json.Marshal(l)
+	content, err := json.Marshal(l.withoutHeadroom())
 	if err != nil {
 		return fmt.Errorf("encoding the listing: %w", err)
 	}
