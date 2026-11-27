@@ -22,6 +22,7 @@ import (
 
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
+	"github.com/SpareCores/scarpenter/pkg/quota"
 )
 
 // fixture builds a report like a vendor's: n types over a few regions of three
@@ -60,7 +61,7 @@ func fixture(n int) catalog.Report {
 // compressed bytes, the JSON and the listing.
 func listingOf(t *testing.T, r catalog.Report, limit int) (gz, raw []byte, l Listing) {
 	t.Helper()
-	gz, _, err := encode(newListing("bench", "oci", "2026-11-21T10:00:00Z", r.Types), limit)
+	gz, _, err := encode(newListing("bench", "oci", "2026-11-21T10:00:00Z", r.Types, nil), limit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestListingRoundTrip(t *testing.T) {
 
 func TestListingTypeStates(t *testing.T) {
 	gate := catalog.Reason{Code: catalog.QuotaGate, Detail: "bucket b, headroom 6, need 16"}
-	lt := listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", APIReference: "x y", Offerings: []catalog.OfferingReport{
+	lt := typeWithoutQuotas(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", APIReference: "x y", Offerings: []catalog.OfferingReport{
 		{CapacityType: "on-demand", Zone: "z1", Reason: gate},
 		{CapacityType: "on-demand", Zone: "z2", Reason: gate},
 		{CapacityType: "on-demand", Zone: "z3", Removed: true, Reason: catalog.Reason{Code: catalog.ZoneNotAvailable, Detail: "r"}},
@@ -131,7 +132,7 @@ func TestListingTypeStates(t *testing.T) {
 	}
 	// More zones left out than gated: the type is still gated.
 	left := catalog.Reason{Code: catalog.ZoneNotAvailable, Detail: "r"}
-	lt = listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+	lt = typeWithoutQuotas(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
 		{CapacityType: "on-demand", Zone: "z1", Reason: gate},
 		{CapacityType: "on-demand", Zone: "z2", Removed: true, Reason: left},
 		{CapacityType: "on-demand", Zone: "z3", Removed: true, Reason: left},
@@ -140,7 +141,7 @@ func TestListingTypeStates(t *testing.T) {
 		t.Errorf("gated with zones left out: %+v", lt)
 	}
 	// Only left-out zones: their reason.
-	lt = listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+	lt = typeWithoutQuotas(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
 		{CapacityType: "on-demand", Zone: "z2", Removed: true, Reason: left},
 	}})
 	if lt.Reason != "ZoneNotAvailable" {
@@ -213,7 +214,7 @@ func mustJSON(t *testing.T, v any) []byte {
 
 // A listing that does not fit even without zones is an error, not a cut.
 func TestListingOverTheCapIsAnError(t *testing.T) {
-	_, _, err := encode(newListing("bench", "oci", "", fixture(50).Types), 100)
+	_, _, err := encode(newListing("bench", "oci", "", fixture(50).Types, nil), 100)
 	if err == nil || !strings.Contains(err.Error(), "bench") || !strings.Contains(err.Error(), "oci") ||
 		!strings.Contains(err.Error(), "compressed") {
 		t.Fatalf("error %v", err)
@@ -244,7 +245,7 @@ func TestListingOfAllAWSRegionsFitsWithRoomToSpare(t *testing.T) {
 		t.Fatal(err)
 	}
 	types := slices.DeleteFunc(report.Types, func(tr catalog.TypeReport) bool { return tr.Vendor != "aws" })
-	l := newListing("canary", "aws", "2026-11-21T10:00:00Z", types)
+	l := newListing("canary", "aws", "2026-11-21T10:00:00Z", types, nil)
 	gz, zonesOmitted, err := encode(l, MaxListingBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +273,7 @@ func TestListingCarriesTheClassAndTheExpiryOfCacheMarks(t *testing.T) {
 		return catalog.Reason{Code: catalog.UnavailableCache, Detail: class + " until " + until.Format(time.RFC3339),
 			Class: class, Until: until}
 	}
-	lt := listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+	lt := typeWithoutQuotas(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
 		{CapacityType: "on-demand", Zone: "z1", Reason: mark("QuotaExceeded", soon)},
 		{CapacityType: "on-demand", Zone: "z2", Reason: mark("QuotaExceeded", soon)},
 		{CapacityType: "on-demand", Zone: "z3", Reason: mark("DailyLimit", late)},
@@ -302,18 +303,77 @@ func TestListingTypeUntilIsTheEarliestMarkOfAnUnavailableType(t *testing.T) {
 	mark := func(until time.Time) catalog.Reason {
 		return catalog.Reason{Code: catalog.UnavailableCache, Class: "InsufficientCapacity", Until: until}
 	}
-	lt := listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+	lt := typeWithoutQuotas(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
 		{CapacityType: "on-demand", Zone: "z1", Reason: mark(late)},
 		{CapacityType: "spot", Zone: "z1", Reason: mark(soon)},
 	}})
 	if lt.Available || lt.Until != "2026-11-21T10:05:00Z" {
 		t.Errorf("available = %v, until = %q, want the earliest mark", lt.Available, lt.Until)
 	}
-	lt = listingType(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
+	lt = typeWithoutQuotas(catalog.TypeReport{Vendor: "oci", InstanceType: "oci.x", Offerings: []catalog.OfferingReport{
 		{CapacityType: "on-demand", Zone: "z1", Reason: mark(late)},
 		{CapacityType: "spot", Zone: "z1", Available: true},
 	}})
 	if !lt.Available || lt.Until != "" {
 		t.Errorf("available type: %+v", lt)
+	}
+}
+
+func typeWithoutQuotas(t catalog.TypeReport) ListingType { return listingType(t, nil) }
+
+// fakeQuotas answers per region; a region or type it does not know has no quota.
+type fakeQuotas map[string][]quota.NeedFact
+
+func (f fakeQuotas) Needs(_, region, apiReference, capacityType string) []quota.NeedFact {
+	return f[region+"/"+apiReference+"/"+capacityType]
+}
+
+func TestListingQuotas(t *testing.T) {
+	gate := catalog.Reason{Code: catalog.QuotaGate}
+	q := fakeQuotas{
+		"r1/big/on-demand": {
+			{Bucket: "L-B", Unit: "GB", Need: 8, Limit: 64, Headroom: 0},
+			{Bucket: "L-A", Unit: "vCPU", Need: 4, Limit: 384, Headroom: 4},
+		},
+		"r2/big/on-demand": {
+			{Bucket: "L-A", Unit: "vCPU", Need: 4, Limit: 100, Headroom: 100},
+			{Bucket: "L-B", Unit: "GB", Need: 8, Limit: 128, Headroom: 0},
+		},
+		"r1/gated/spot": {{Bucket: "L-A", Unit: "vCPU", Need: 512, Limit: 384, Headroom: 0}},
+	}
+	tr := func(ref string, offerings ...catalog.OfferingReport) catalog.TypeReport {
+		return catalog.TypeReport{Vendor: "stub", InstanceType: "stub." + ref, APIReference: ref, Offerings: offerings}
+	}
+	l := newListing("c", "stub", "", []catalog.TypeReport{
+		// Two regions: the largest limit and headroom of each bucket, buckets sorted.
+		tr("big",
+			catalog.OfferingReport{Region: "r1", Zone: "z1", CapacityType: "on-demand", Available: true},
+			catalog.OfferingReport{Region: "r2", Zone: "z2", CapacityType: "on-demand", Available: true}),
+		// An unavailable group still carries its quotas.
+		tr("gated", catalog.OfferingReport{Region: "r1", Zone: "z1", CapacityType: "spot", Reason: gate}),
+		// No bucket applies: the field is absent, never an empty list.
+		tr("none", catalog.OfferingReport{Region: "r1", Zone: "z1", CapacityType: "on-demand", Available: true}),
+	}, q)
+	wantBig := []ListingQuota{
+		{Bucket: "L-A", Unit: "vCPU", Need: 4, MaxLimit: 384, MaxHeadroom: 100},
+		{Bucket: "L-B", Unit: "GB", Need: 8, MaxLimit: 128, MaxHeadroom: 0},
+	}
+	if got := l.Types["stub.big"].Offerings[0].Quotas; !reflect.DeepEqual(got, wantBig) {
+		t.Errorf("big: %+v", got)
+	}
+	gated := l.Types["stub.gated"]
+	if o := gated.Offerings[0]; o.Available || len(o.Quotas) != 1 || o.Quotas[0].Need != 512 || o.Quotas[0].MaxLimit != 384 {
+		t.Errorf("gated: %+v", gated.Offerings)
+	}
+	raw, err := json.Marshal(l.Types["stub.none"])
+	if err != nil || strings.Contains(string(raw), "quotas") {
+		t.Errorf("none: %s", raw)
+	}
+	raw, _ = json.Marshal(l.Types["stub.big"].Offerings[0])
+	if !strings.Contains(string(raw), `"quotas":[{"bucket":"L-A","unit":"vCPU","need":4,"maxLimit":384,"maxHeadroom":100}`) {
+		t.Errorf("layout: %s", raw)
+	}
+	if without := newListing("c", "stub", "", nil, nil); without.Types == nil {
+		t.Error("no types gives a nil map")
 	}
 }

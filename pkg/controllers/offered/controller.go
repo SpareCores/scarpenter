@@ -51,6 +51,8 @@ type Options struct {
 	Reader  client.Reader
 	Catalog *catalog.Catalog
 	Clock   clock.Clock
+	// Quotas adds the quota facts to the listing; nil leaves them out.
+	Quotas Quotas
 	// Namespace is where the listing ConfigMaps go (the controller's own); empty
 	// turns the listing off.
 	Namespace string

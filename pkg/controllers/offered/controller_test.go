@@ -42,6 +42,7 @@ import (
 	"github.com/SpareCores/scarpenter/pkg/catalog"
 	"github.com/SpareCores/scarpenter/pkg/catalog/catalogtest"
 	"github.com/SpareCores/scarpenter/pkg/controllers/offered"
+	"github.com/SpareCores/scarpenter/pkg/quota"
 	"github.com/SpareCores/scarpenter/pkg/unavailable"
 )
 
@@ -803,4 +804,63 @@ func TestReadinessIsConsistentWithinOneReconcile(t *testing.T) {
 	if o := nc.Status.Vendors["hcloud"].Offered; o == nil || o.Types == 0 {
 		t.Errorf("status %+v", o)
 	}
+}
+
+// quotaFacts is a quota view with one bucket for every query.
+type quotaFacts struct{ limit, headroom atomic.Int64 }
+
+func (q *quotaFacts) Needs(_, _, _, _ string) []quota.NeedFact {
+	return []quota.NeedFact{{Bucket: "b", Unit: "vCPU", Need: 4, Limit: q.limit.Load(), Headroom: q.headroom.Load()}}
+}
+
+// Headroom alone does not rewrite the ConfigMap before the heartbeat; a limit
+// change does, and publishes the current headroom with it.
+func TestListingQuotaHeadroomDoesNotRewrite(t *testing.T) {
+	annotated := map[string]string{v1alpha1.AnnotationPublishOffered: "true"}
+	q := &quotaFacts{}
+	q.limit.Store(100)
+	q.headroom.Store(50)
+	e := start(t, annotated, func(o *offered.Options, e *env) {
+		o.Reader, o.Namespace, o.Clock, o.Quotas = o.Client, namespace, e.clk, q
+	})
+	name := offered.ConfigMapName(className, "aws")
+	var first *offered.Listing
+	eventually(t, "the listing", func() (err error) {
+		first, _, err = e.listing(name)
+		return err
+	})
+	quotaOf := func(l *offered.Listing) offered.ListingQuota {
+		for _, lt := range l.Types {
+			if len(lt.Offerings) > 0 && len(lt.Offerings[0].Quotas) > 0 {
+				return lt.Offerings[0].Quotas[0]
+			}
+		}
+		t.Fatal("no quotas in the listing")
+		return offered.ListingQuota{}
+	}
+	if got := quotaOf(first); got.MaxLimit != 100 || got.MaxHeadroom != 50 || got.Need != 4 {
+		t.Fatalf("first quota %+v", got)
+	}
+	q.headroom.Store(8)
+	e.clk.Step(time.Minute)
+	time.Sleep(time.Second) // several evaluations at the controller's interval
+	l, _, err := e.listing(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.GeneratedAt != first.GeneratedAt || quotaOf(l).MaxHeadroom != 50 {
+		t.Fatalf("a headroom change rewrote the listing: %s %+v", l.GeneratedAt, quotaOf(l))
+	}
+	q.limit.Store(200)
+	e.clk.Step(time.Minute)
+	eventually(t, "the limit change", func() error {
+		l, _, err := e.listing(name)
+		if err != nil {
+			return err
+		}
+		if got := quotaOf(l); got.MaxLimit != 200 || got.MaxHeadroom != 8 {
+			return fmt.Errorf("quota %+v", got)
+		}
+		return nil
+	})
 }
