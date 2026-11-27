@@ -206,8 +206,16 @@ chosen its deletion.
 The settings the core passes (`CreateRequest.Settings`, `PrepareRequest.Settings`)
 are `VendorSettings`: `Raw` (the merged vendor block; its `storage` member holds
 the selected storage profile), `Network` and `Placement` (the selected profile
-blocks), the generic `Networking`, the applied `Profiles` per kind and
-`RootDiskBytes`. `Prepared` holds the resource references, a `DeviceHint` per
+blocks), the generic `Networking`, the applied `Profiles` per kind,
+`RootDiskBytes` and `MinRootDiskBytes`. `MinRootDiskBytes` is the root disk the
+NodeClass's `rootVolume` asks for the instance type (memory x `memoryMultiplier`, at most
+`memoryMaxSize`; 0 when unset), set per type by the core after the settings are
+resolved, so `RootDiskBytes(s)` already includes it. A driver whose root disk size
+the settings fix takes `s.GrowRootGiB(vendor, size, max)` as its size in GiB (the
+larger of the block's size and the minimum, rounded up; `max` is the largest root
+volume the vendor knows, 0 for none: the growth stops there and the first stop is
+logged) wherever it decodes the settings; a driver whose type fixes the root disk
+(Hetzner, Vultr) ignores it. `Prepared` holds the resource references, a `DeviceHint` per
 extra volume (`Name`, `Filesystem`, `MountPath`, and either `ByID` or
 `SerialPattern` with `SizeBytes`) and a `LocalHint` for instance-local disks;
 the core renders them into the user-data

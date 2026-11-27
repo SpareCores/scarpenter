@@ -7,6 +7,7 @@ file, You can obtain one at https://mozilla.org/MPL/2.0/.
 package alicloud
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 
@@ -62,6 +63,7 @@ func decodeSettings(s vendors.VendorSettings) (Settings, error) {
 			return out, fmt.Errorf("decoding the alicloud settings: %w", err)
 		}
 	}
+	growRoot(&out, s)
 	if len(s.Network) > 0 {
 		if err := json.Unmarshal(s.Network, &out); err != nil {
 			return out, fmt.Errorf("decoding the network profile: %w", err)
@@ -176,4 +178,23 @@ func httpTokens(st Settings) string {
 		return string(st.MetadataOptions.HTTPTokens)
 	}
 	return DefaultHTTPTokens
+}
+
+// growRoot raises the system disk to the size the NodeClass's rootVolume asks for
+// the instance type (MinRootDiskBytes), within the maximum of a system disk.
+func growRoot(st *Settings, s vendors.VendorSettings) {
+	if s.MinRootDiskBytes == 0 {
+		return
+	}
+	if st.Storage == nil {
+		st.Storage = &api.Storage{}
+	}
+	if st.Storage.Root == nil {
+		st.Storage.Root = &api.Disk{}
+	}
+	root := st.Storage.Root
+	current := cmp.Or(gibOf(root.Size), DefaultRootGiB)
+	if grown := s.GrowRootGiB("alicloud", current, maxSystemDiskGiB); grown != current {
+		root.Size = resource.NewQuantity(grown*giB, resource.BinarySI)
+	}
 }

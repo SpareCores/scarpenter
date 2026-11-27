@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
@@ -286,4 +287,19 @@ func TestHashOfStoredNodeClassesIsPinned(t *testing.T) {
 		}
 	}
 	testutil.Golden(t, "stored-hashes.txt", []byte(out.String()))
+}
+
+// TestRootVolumeChangesTheHashOnlyWhenSet: an unset rootVolume hashes as before
+// (the pins above), a set one replaces the nodes.
+func TestRootVolumeChangesTheHashOnlyWhenSet(t *testing.T) {
+	set := base()
+	set.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: new(resource.MustParse("1"))}
+	if hash(t, set, "aws") == hash(t, base(), "aws") {
+		t.Error("setting rootVolume does not change the hash")
+	}
+	other := base()
+	other.Spec.RootVolume = &v1alpha1.RootVolumeSpec{MemoryMultiplier: new(resource.MustParse("2"))}
+	if hash(t, set, "aws") == hash(t, other, "aws") {
+		t.Error("another multiplier hashes the same")
+	}
 }

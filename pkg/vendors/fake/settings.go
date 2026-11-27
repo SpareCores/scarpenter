@@ -28,18 +28,20 @@ import (
 
 // storageBlock is the storage settings: root and extra volumes, local storage.
 type storageBlock struct {
-	Root *struct {
-		Size       *resource.Quantity `json:"size"`
-		VolumeSize *resource.Quantity `json:"volumeSize"`
-		IOPS       *int32             `json:"iops"`
-		Throughput *int32             `json:"throughput"`
-	} `json:"root"`
+	Root *rootBlock `json:"root"`
 	Data []dataDisk `json:"data"`
 	// LocalStorage mounts the instance-local disks of types that have them.
 	LocalStorage *struct {
 		Policy    string `json:"policy"`
 		MountPath string `json:"mountPath"`
 	} `json:"localStorage"`
+}
+
+type rootBlock struct {
+	Size       *resource.Quantity `json:"size"`
+	VolumeSize *resource.Quantity `json:"volumeSize"`
+	IOPS       *int32             `json:"iops"`
+	Throughput *int32             `json:"throughput"`
 }
 
 type dataDisk struct {
@@ -102,6 +104,7 @@ func decodeSettings(s vendors.VendorSettings) (settingsBlock, error) {
 			return b, fmt.Errorf("decoding the settings: %w", err)
 		}
 	}
+	growRoot(&b, s)
 	return b, nil
 }
 
@@ -299,4 +302,27 @@ func (d *Driver) Prepare(ctx context.Context, req vendors.PrepareRequest) (*vend
 		}
 	}
 	return prep, nil
+}
+
+// growRoot raises the root disk to the size the NodeClass's rootVolume asks for
+// the instance type (MinRootDiskBytes).
+func growRoot(b *settingsBlock, s vendors.VendorSettings) {
+	if s.MinRootDiskBytes == 0 {
+		return
+	}
+	if b.Storage.Root == nil {
+		b.Storage.Root = &rootBlock{}
+	}
+	root := b.Storage.Root
+	size := &root.Size
+	if root.VolumeSize != nil || root.Size == nil {
+		size = &root.VolumeSize
+	}
+	current := rootDiskBytes.Value() >> 30
+	if *size != nil {
+		current = ((*size).Value() + 1<<30 - 1) >> 30
+	}
+	if grown := s.GrowRootGiB("fake", current, 0); grown != current {
+		*size = resource.NewQuantity(grown<<30, resource.BinarySI)
+	}
 }

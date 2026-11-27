@@ -20,12 +20,14 @@ import (
 	"net/netip"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	keeper "github.com/SpareCores/sc-keeper-go"
 
@@ -452,6 +454,13 @@ type VendorSettings struct {
 	// as ephemeral storage; 0 when unknown. It is what the driver's
 	// RootDiskBytes says about the resolved settings.
 	RootDiskBytes int64
+	// MinRootDiskBytes is the root disk size the NodeClass's rootVolume asks for
+	// the instance type (memory x memoryMultiplier, at most memoryMaxSize), 0
+	// when it asks none. A driver whose root disk size the settings fix takes
+	// the larger of it and the size of the vendor block (GrowRootGiB); one whose
+	// type fixes the root disk ignores it. It is set per instance type, after
+	// the settings are resolved.
+	MinRootDiskBytes int64
 	// Raw is the merged vendor block (regions and resources removed): its
 	// storage member already holds the selected storage profile.
 	Raw json.RawMessage
@@ -1077,4 +1086,26 @@ func (c CreateRequest) String() string {
 // the whole account in one call does not implement it, and is asked once.
 type RegionLister interface {
 	ListsPerRegion()
+}
+
+var rootClampLogged sync.Map
+
+// GrowRootGiB returns the root disk size in GiB of a launch: current, raised to
+// MinRootDiskBytes (rounded up to whole GiB). A vendor maximum maxGiB the driver
+// knows (0: none) limits the growth, never below current; the first limit hit
+// per vendor and maximum is logged.
+func (s VendorSettings) GrowRootGiB(vendor string, current, maxGiB int64) int64 {
+	const gib = 1 << 30
+	want := (s.MinRootDiskBytes + gib - 1) / gib
+	if want <= current {
+		return current
+	}
+	if maxGiB > 0 && want > maxGiB {
+		if _, seen := rootClampLogged.LoadOrStore(fmt.Sprintf("%s/%d", vendor, maxGiB), true); !seen {
+			log.Log.WithName("rootvolume").Info("limiting the memory-scaled root volume to the vendor maximum",
+				"vendor", vendor, "wantGiB", want, "maxGiB", maxGiB)
+		}
+		return max(current, maxGiB)
+	}
+	return want
 }

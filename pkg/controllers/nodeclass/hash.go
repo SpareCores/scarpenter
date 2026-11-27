@@ -74,7 +74,7 @@ func hashedNetwork(n v1alpha1.NetworkSpec) v1alpha1.NetworkSpec {
 // Hash is the drift hash of the NodeClass for one vendor: SHA-256 over the
 // canonical JSON of the shared fields that change what a node is (flatcar,
 // kubernetes, network, networking, kubelet, butane, sysexts, poweroffAfter,
-// tags, the deprecated bootstrap.hardening on the vendors that applied it,
+// tags, rootVolume, the deprecated bootstrap.hardening on the vendors that applied it,
 // instanceMetadata), that vendor's block without regions and resources,
 // and HashVersion.
 // Changing another vendor's block never changes it; neither do regions,
@@ -122,10 +122,14 @@ func Hash(nc *v1alpha1.SCNodeClass, vendor string, in Inputs) (string, error) {
 		// Left out when unset: a NodeClass that does not set it keeps its hash, so
 		// that the default (Restricted) reaches new nodes only and drifts no old one.
 		InstanceMetadata *v1alpha1.InstanceMetadataSpec `json:",omitempty"`
-		Block            map[string]any
-		Inputs           hashInputs
+		// Left out when unset, for the same reason: it changes the root volume of
+		// the nodes that set it, and only theirs.
+		RootVolume *v1alpha1.RootVolumeSpec `json:",omitempty"`
+		Block      map[string]any
+		Inputs     hashInputs
 	}{HashVersion, vendor, s.Flatcar, s.Kubernetes, network, s.Networking, kubelet, s.Butane, s.Sysexts,
-		s.PoweroffAfter, s.Tags, deprecatedHardening(nc, vendor), s.InstanceMetadata, generic, newHashInputs(in)})
+		s.PoweroffAfter, s.Tags, deprecatedHardening(nc, vendor), s.InstanceMetadata, s.RootVolume, generic,
+		newHashInputs(in)})
 	if err != nil {
 		return "", fmt.Errorf("hashing the NodeClass: %w", err)
 	}

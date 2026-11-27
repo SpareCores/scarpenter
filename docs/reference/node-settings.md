@@ -19,6 +19,7 @@ The vendor resources a node depends on are in
 - [Pricing](#pricing)
 - [Drift](#drift)
 - [Network addresses and egress](#network-addresses-and-egress)
+- [Root volume that scales with memory](#root-volume-that-scales-with-memory)
 - [Extra volumes and local storage](#extra-volumes-and-local-storage)
 - [Kubelet reservations](#kubelet-reservations)
 - [Memory footprint](#memory-footprint)
@@ -194,6 +195,38 @@ public addresses; a vendor block may override them. Generic meaning:
   that egress is your job.
 
 The AWS specifics are in [the AWS driver](aws-driver.md#network-addresses-and-egress).
+
+## Root volume that scales with memory
+
+The vendor block sets the root volume size (`volumeSize` on AWS, `sizeGb` on GCP and
+OCI, `diskSizeGB` on Azure, `size` on AliCloud, UpCloud and the OVH `bootFromVolume`).
+Workloads that cache data sized like RAM (model weights in a `hostPath`, say) fill a flat
+size on the types with the most memory. `spec.rootVolume` makes the size follow the
+instance type's memory (Keeper `memory_amount`):
+
+```yaml
+spec:
+  rootVolume:
+    memoryMultiplier: "1"   # a quoted decimal, above 0 and at most 100
+    memoryMaxSize: 8Ti      # optional cap of the memory-derived size
+```
+
+The root volume of a node is `max(vendor block size, min(ceil(memory x memoryMultiplier),
+memoryMaxSize))`, in whole GiB. With `volumeSize: 128Gi` and a multiplier of 1, a type with
+1 TiB of memory gets 1024 GiB and one with 16 GiB gets 128 GiB. The cap limits only the
+memory-derived growth and never lowers the vendor block's size; without `memoryMaxSize` there
+is no cap. A driver that knows its vendor's largest root volume also stops there (and logs it
+once); SCarpenter adds no limit of its own. The scheduler's ephemeral storage of the type
+follows the same size. Setting `rootVolume` changes the [drift hash](#drift) (`rootVolume` is one of the hashed shared fields), so it replaces
+the nodes of the class; unset leaves the root volume as the vendor block says.
+
+Hetzner and Vultr ignore it: the instance type fixes the root disk there, and so does an OVH
+flavor's local root disk (only `bootFromVolume` grows). On UpCloud the plan's included storage
+is the size the growth starts from when the block sets none.
+
+The kubelet's hard eviction thresholds for the disk are `spec.kubelet.evictionHard`, for
+example `{nodefs.available: 10%, imagefs.available: 15%}`; see [kubelet
+reservations](#kubelet-reservations).
 
 ## Extra volumes and local storage
 

@@ -2278,6 +2278,41 @@ spec:
                         defaults
                       rule: '!(''default'' in self)'
                 type: object
+              rootVolume:
+                description: |-
+                  rootVolume grows the root volume of nodes with the instance type's
+                  memory, on the vendors whose root volume size the NodeClass sets. Unset:
+                  the root volume is what the vendor block says.
+                properties:
+                  memoryMaxSize:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      memoryMaxSize caps the memory-derived size (for example 8Ti), so that
+                      the largest types stay below the vendor's volume limit. It never lowers
+                      the size the vendor block sets. Unset: no cap.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  memoryMultiplier:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      memoryMultiplier is the root volume size per unit of instance memory, a
+                      decimal quantity such as 1 or 1.5: a type with 1 TiB of memory gets at
+                      least 1 TiB with 1.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
+                x-kubernetes-validations:
+                - message: memoryMultiplier is above 0 and at most 100
+                  rule: '!has(self.memoryMultiplier) || (quantity(self.memoryMultiplier).isGreaterThan(quantity(''0''))
+                    && quantity(self.memoryMultiplier).isLessThan(quantity(''101'')))'
+                - message: memoryMaxSize must be positive
+                  rule: '!has(self.memoryMaxSize) || quantity(self.memoryMaxSize).isGreaterThan(quantity(''0''))'
+                - message: memoryMaxSize needs memoryMultiplier
+                  rule: '!has(self.memoryMaxSize) || has(self.memoryMultiplier)'
               selections:
                 additionalProperties:
                   description: |-

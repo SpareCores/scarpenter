@@ -34,6 +34,9 @@ type Input struct {
 	// Profiles are the vendor's blocks of the profiles by kind and name; a
 	// profile without a block for the vendor is absent (ADR-017).
 	Profiles map[string]map[string]json.RawMessage
+	// RootVolume is spec.rootVolume: the root disk that scales with the
+	// instance type's memory; nil when unset.
+	RootVolume *v1alpha1.RootVolumeSpec `json:",omitempty"`
 }
 
 // ProfileNames returns the profile names by kind in the shape the catalog
@@ -91,6 +94,7 @@ func InputFromNodeClass(nc *v1alpha1.SCNodeClass, vendor string) (in Input, ok b
 		return Input{}, true, fmt.Errorf("encoding the %s block: %w", vendor, err)
 	}
 	in.Networking = ResolveNetworking(nc.Spec.Networking, override)
+	in.RootVolume = nc.Spec.RootVolume
 
 	in.Profiles = map[string]map[string]json.RawMessage{}
 	add := func(kind, name string, p interface{ For(string) (any, bool) }) error {

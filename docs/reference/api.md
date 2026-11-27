@@ -51,6 +51,7 @@ SCNodeClassSpec is the node definition shared by every vendor, plus a typed bloc
 | `poweroffAfter` | string |  | poweroffAfter powers a node off after this long: a fail-safe against instances that outlive their NodeClaim. Pattern `^([0-9]+(\.[0-9]+)?(s\|m\|h))+$`. |
 | `pricing` | [object](#specpricing) | `{}` | pricing configures how offerings are priced. |
 | `profiles` | [object](#specprofiles) | `{}` | profiles are named, explicit, vendor-native setups that workloads pick by name through labels. |
+| `rootVolume` | [object](#specrootvolume) |  | rootVolume grows the root volume of nodes with the instance type's memory, on the vendors whose root volume size the NodeClass sets. Unset: the root volume is what the vendor block says. |
 | `selections` | map of [object](#specselections) |  | selections define selection profiles: sc-karpenter-nodepool's selector and ranking, evaluated on every catalog refresh. Instance types carry the label selection=&lt;name&gt; for each profile they belong to. |
 | `sysexts` | array of [object](#specsysexts) |  | sysexts lists extra systemd sysexts installed on every node. At most 16 items. |
 | `tags` | map of string values |  | tags are added to every vendor resource SCarpenter creates (tags or labels, as the vendor calls them). Rule: tag keys in the scarpenter.sparecores.com domain are reserved (`self.all(k, !k.startsWith('scarpenter.sparecores.com/'))`). |
@@ -1045,6 +1046,21 @@ root configures the root disk, a clone of the Flatcar template.
 | `encrypted` | boolean |  | encrypted encrypts the disk at rest (free). Built-in default true. |
 | `size` | integer or string |  | size of the root disk, for example 25Gi (UpCloud's GB are taken as GiB); 10 to 1024. Built-in default: the plan's included storage, at least 25. A disk larger than the plan's included storage is billed in full. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
 | `tier` | string |  | tier of the root disk. A clone keeps the tier of its template, so the tier must be one an image template of the zone was made with. Built-in default: the plan's included tier where a template of it exists, else the tier of the template. One of `maxiops`, `standard`. |
+
+### `spec.rootVolume`
+
+rootVolume grows the root volume of nodes with the instance type's memory, on the vendors whose root volume size the NodeClass sets. Unset: the root volume is what the vendor block says.
+
+Validation: memoryMultiplier is above 0 and at most 100 (`!has(self.memoryMultiplier) \|\| (quantity(self.memoryMultiplier).isGreaterThan(quantity('0')) && quantity(self.memoryMultiplier).isLessThan(quantity('101')))`).
+
+Validation: memoryMaxSize must be positive (`!has(self.memoryMaxSize) \|\| quantity(self.memoryMaxSize).isGreaterThan(quantity('0'))`).
+
+Validation: memoryMaxSize needs memoryMultiplier (`!has(self.memoryMaxSize) \|\| has(self.memoryMultiplier)`).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `memoryMaxSize` | integer or string |  | memoryMaxSize caps the memory-derived size (for example 8Ti), so that the largest types stay below the vendor's volume limit. It never lowers the size the vendor block sets. Unset: no cap. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
+| `memoryMultiplier` | integer or string |  | memoryMultiplier is the root volume size per unit of instance memory, a decimal quantity such as 1 or 1.5: a type with 1 TiB of memory gets at least 1 TiB with 1. Pattern `^(\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))(([KMGTPE]i)\|[numkMGTPE]\|([eE](\+\|-)?(([0-9]+(\.[0-9]*)?)\|(\.[0-9]+))))?$`. |
 
 ### `spec.selections.*`
 

@@ -149,6 +149,7 @@ func (c *CloudProvider) settle(
 		logger.Error(err, "resolving the settings of an offering", "type", cand.typeName, "vendor", cand.vendor)
 		return false
 	}
+	settings = res.forType(cand.vendor, settings, catalogTypeOf(cand).MemoryMiB)
 	usd, delta, complete := res.priceOf(cand, settings, sel)
 	cand.sel, cand.settings, cand.usd, cand.complete = sel, settings, usd, complete
 	if !complete && !allowsIncomplete(nc) {

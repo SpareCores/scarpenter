@@ -114,6 +114,20 @@ func Resolve(no vendors.NodeOptions, in Input, sel Selection) (vendors.VendorSet
 	return s, nil
 }
 
+// ForType returns the settings for an instance type with memoryMiB of memory: with
+// the NodeClass's rootVolume the settings carry the root disk size it asks for
+// (MinRootDiskBytes), and RootDiskBytes is what the driver makes of it. Without
+// it the settings are returned as they are.
+func ForType(no vendors.NodeOptions, in Input, s vendors.VendorSettings, memoryMiB float64) vendors.VendorSettings {
+	minBytes := in.RootVolume.MinBytes(memoryMiB)
+	if minBytes == 0 {
+		return s
+	}
+	s.MinRootDiskBytes = minBytes
+	s.RootDiskBytes = no.RootDiskBytes(s)
+	return s
+}
+
 // Validate resolves the defaults and every profile of the input, to find a
 // block that cannot be merged before a launch does.
 func Validate(no vendors.NodeOptions, in Input) error {

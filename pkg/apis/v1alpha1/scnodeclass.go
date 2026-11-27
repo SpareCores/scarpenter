@@ -9,7 +9,9 @@ package v1alpha1
 import (
 	"fmt"
 	"maps"
+	"math"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	selapi "github.com/SpareCores/sc-keeper-go/selection/api"
@@ -45,6 +47,12 @@ type SCNodeClassSpec struct {
 	// +kubebuilder:default={}
 	// +optional
 	Kubelet KubeletSpec `json:"kubelet,omitempty"`
+
+	// rootVolume grows the root volume of nodes with the instance type's
+	// memory, on the vendors whose root volume size the NodeClass sets. Unset:
+	// the root volume is what the vendor block says.
+	// +optional
+	RootVolume *RootVolumeSpec `json:"rootVolume,omitempty"`
 
 	// butane references extra Butane configuration merged into every node's
 	// Ignition.
@@ -354,6 +362,47 @@ type ConfigMapKeyRef struct {
 	// +kubebuilder:validation:MaxLength=253
 	// +required
 	Key string `json:"key"`
+}
+
+// RootVolumeSpec makes the root volume scale with the instance type's memory:
+// the size of a node is max(the vendor block's size, min(memory x
+// memoryMultiplier, memoryMaxSize)), in whole GiB. It applies where the vendor
+// block sets the size (AWS, GCP, Azure, OCI, AliCloud, UpCloud, OVH boot from
+// volume); a vendor whose instance type fixes the root disk (Hetzner, Vultr)
+// ignores it. Setting it changes the drift hash, so it replaces nodes.
+// +kubebuilder:validation:XValidation:rule="!has(self.memoryMultiplier) || (quantity(self.memoryMultiplier).isGreaterThan(quantity('0')) && quantity(self.memoryMultiplier).isLessThan(quantity('101')))",message="memoryMultiplier is above 0 and at most 100"
+// +kubebuilder:validation:XValidation:rule="!has(self.memoryMaxSize) || quantity(self.memoryMaxSize).isGreaterThan(quantity('0'))",message="memoryMaxSize must be positive"
+// +kubebuilder:validation:XValidation:rule="!has(self.memoryMaxSize) || has(self.memoryMultiplier)",message="memoryMaxSize needs memoryMultiplier"
+type RootVolumeSpec struct {
+	// memoryMultiplier is the root volume size per unit of instance memory, a
+	// decimal quantity such as 1 or 1.5: a type with 1 TiB of memory gets at
+	// least 1 TiB with 1.
+	// +optional
+	MemoryMultiplier *resource.Quantity `json:"memoryMultiplier,omitempty"`
+
+	// memoryMaxSize caps the memory-derived size (for example 8Ti), so that
+	// the largest types stay below the vendor's volume limit. It never lowers
+	// the size the vendor block sets. Unset: no cap.
+	// +optional
+	MemoryMaxSize *resource.Quantity `json:"memoryMaxSize,omitempty"`
+}
+
+// MinBytes returns the root volume size the spec asks for a type with
+// memoryMiB of memory, in whole GiB: min(ceil(memory x memoryMultiplier),
+// memoryMaxSize rounded down). It is 0 when the spec is unset or has no
+// multiplier; the drivers take the larger of it and their configured size.
+func (r *RootVolumeSpec) MinBytes(memoryMiB float64) int64 {
+	if r == nil || r.MemoryMultiplier == nil || memoryMiB <= 0 {
+		return 0
+	}
+	const gib = 1 << 30
+	// MiB x milli-multiplier / (1024 MiB per GiB x 1000 milli) in integers: the
+	// multiplier is at most 100, so the product stays far below int64.
+	gibs := (int64(math.Round(memoryMiB))*r.MemoryMultiplier.MilliValue() + 1024*1000 - 1) / (1024 * 1000)
+	if r.MemoryMaxSize != nil {
+		gibs = min(gibs, r.MemoryMaxSize.Value()/gib)
+	}
+	return max(gibs, 0) * gib
 }
 
 // KubeletSpec configures the kubelet and the capacity the scheduler assumes.

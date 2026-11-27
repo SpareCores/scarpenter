@@ -627,6 +627,7 @@ func (f *Facts) RootDiskBytes(vendor string, class *catalog.Class, srv *model.Se
 		s = no.Defaults()
 		s.RootDiskBytes = no.RootDiskBytes(s)
 	}
+	s = options.ForType(no, class.Inputs[vendor], s, srv.MemoryMiB)
 	if b, ok := no.RootDiskForType(s, catalogType(vendor, srv)); ok && b > 0 {
 		return b, true
 	}

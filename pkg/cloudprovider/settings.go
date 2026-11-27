@@ -92,6 +92,20 @@ func (r *settingsResolver) settings(vendor string, sel options.Selection) (vendo
 	return s, err
 }
 
+// forType adds the root disk the NodeClass's rootVolume asks for an instance type
+// with memoryMiB of memory to the settings of a selection.
+func (r *settingsResolver) forType(vendor string, s vendors.VendorSettings, memoryMiB float64) vendors.VendorSettings {
+	no, ok := r.nodeOptions(vendor)
+	if !ok {
+		return s
+	}
+	in, err := r.input(vendor)
+	if err != nil {
+		return s
+	}
+	return options.ForType(no, in, s, memoryMiB)
+}
+
 // priceOf returns the USD price and completeness of an offering with the
 // settings: the instance price plus the driver's price delta (00a section 10).
 // Without a selected profile the catalog's own delta is used.

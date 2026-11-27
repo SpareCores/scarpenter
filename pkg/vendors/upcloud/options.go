@@ -50,10 +50,11 @@ func (d *Driver) RootDiskBytes(s vendors.VendorSettings) int64 {
 	if err != nil {
 		return int64(MinRootGB) * giB
 	}
-	if gb := rootOf(st).SizeGB; gb > 0 {
-		return int64(gb) * giB
+	gb := rootOf(st).SizeGB
+	if gb == 0 {
+		gb = MinRootGB
 	}
-	return int64(MinRootGB) * giB
+	return s.GrowRootGiB("upcloud", int64(gb), 0) * giB
 }
 
 // RootDiskForType implements vendors.NodeOptions: the root disk of a plan is the
@@ -64,10 +65,10 @@ func (d *Driver) RootDiskForType(s vendors.VendorSettings, it vendors.CatalogTyp
 	st, err := decodeSettings(s)
 	if err == nil {
 		if gb := rootOf(st).SizeGB; gb > 0 {
-			return int64(gb) * giB, true
+			return s.GrowRootGiB("upcloud", int64(gb), 0) * giB, true
 		}
 	}
-	return int64(max(int(it.LocalStorageGB), MinRootGB)) * giB, true
+	return s.GrowRootGiB("upcloud", int64(max(int(it.LocalStorageGB), MinRootGB)), 0) * giB, true
 }
 
 // Supported implements vendors.NodeOptions: the profiles of the NodeClass that

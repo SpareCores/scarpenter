@@ -67,6 +67,15 @@ func decodeSettings(s vendors.VendorSettings) (settings, error) {
 			return out, fmt.Errorf("decoding the settings: %w", err)
 		}
 	}
+	if s.MinRootDiskBytes > 0 {
+		if out.Storage.Root == nil {
+			out.Storage.Root = &qemuapi.RootDisk{}
+		}
+		current := (out.rootSize() + 1<<30 - 1) >> 30
+		if grown := s.GrowRootGiB("qemu", current, 0); grown != current {
+			out.Storage.Root.Size = resource.NewQuantity(grown<<30, resource.BinarySI)
+		}
+	}
 	return out, nil
 }
 

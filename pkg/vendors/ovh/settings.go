@@ -110,7 +110,7 @@ func ParseSettings(raw json.RawMessage) (Settings, error) {
 // generic networking the core resolved (public IPv4 on, IPv6 off unless the
 // NodeClass says otherwise) put into the result.
 func ParseVendorSettings(vs vendors.VendorSettings) (Settings, error) {
-	s, err := ParseSettings(vs.Raw)
+	s, err := parseGrown(vs)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -179,4 +179,21 @@ func (s Settings) RootDiskBytes() int64 {
 		return gib(b.Size) << 30
 	}
 	return 0
+}
+
+// parseGrown is ParseSettings of the resolved settings with the boot volume
+// raised to the size the NodeClass's rootVolume asks for the instance type
+// (MinRootDiskBytes). A flavor's local root disk is the type's, not the
+// settings': it is left as it is.
+func parseGrown(vs vendors.VendorSettings) (Settings, error) {
+	s, err := ParseSettings(vs.Raw)
+	if err != nil {
+		return Settings{}, err
+	}
+	if b := s.Storage.Root.BootFromVolume; b != nil && vs.MinRootDiskBytes > 0 {
+		if grown := vs.GrowRootGiB("ovh", gib(b.Size), 0); grown != gib(b.Size) {
+			b.Size = *resource.NewQuantity(grown<<30, resource.BinarySI)
+		}
+	}
+	return s, nil
 }
